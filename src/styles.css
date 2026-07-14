@@ -1,5 +1,363 @@
-/* STUB — owned by the ui subagent. */
+/* Charming Anomaly — cute pastel lab overlay. Mobile-first, no framework. */
+
+/* ---- base (do not change: game canvas + overlay contract) ---- */
 html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; touch-action: none; }
 #game canvas { display: block; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
 #ui > * { pointer-events: auto; }
+
+/* ---- palette + globals ---- */
+:root {
+  --cream: #f4efe6;
+  --cream-soft: #fbf8f2;
+  --cream-edge: #d9cdb8;
+  --mint: #7de3c3;
+  --mint-dark: #3aa88a;
+  --ink: #35354a;
+  --ink-soft: #7a7a90;
+  --pink: #ff8fab;
+  --gold: #ffd93d;
+  --gold-edge: #c9a227;
+  --radius: 18px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--ink);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---- screens ---- */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+           calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+}
+.screen--visible { display: flex; }
+
+/* ---- buttons ---- */
+.btn {
+  min-height: 56px;
+  min-width: 210px;
+  padding: 12px 28px;
+  border: 3px solid var(--mint-dark);
+  border-radius: var(--radius);
+  background: var(--mint);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 800;
+  box-shadow: 0 4px 0 var(--mint-dark), 0 8px 18px rgba(53, 53, 74, 0.12);
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.btn:active { transform: translateY(3px) scale(0.97); box-shadow: 0 1px 0 var(--mint-dark); }
+@media (hover: hover) {
+  .btn:hover { transform: translateY(-1px); }
+  .btn:hover:active { transform: translateY(3px) scale(0.97); }
+}
+.btn--big { font-size: 1.5rem; min-height: 64px; }
+.btn--soft {
+  background: var(--cream-soft);
+  border-color: var(--cream-edge);
+  box-shadow: 0 4px 0 var(--cream-edge), 0 8px 18px rgba(53, 53, 74, 0.08);
+}
+.btn--soft:active { box-shadow: 0 1px 0 var(--cream-edge); }
+.btn--small { min-height: 48px; min-width: 0; padding: 8px 18px; font-size: 1rem; }
+
+/* ---- coins badge ---- */
+.coins-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 3px solid var(--gold-edge);
+  border-radius: 999px;
+  background: var(--gold);
+  font-weight: 800;
+  font-size: 1.05rem;
+  box-shadow: 0 3px 0 var(--gold-edge);
+}
+
+/* ---- title ---- */
+.screen--title .coins-badge {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+}
+.title-logo {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(2.6rem, 13vw, 4.6rem);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  animation: wobble 3.2s ease-in-out infinite;
+  text-shadow: 0 4px 0 rgba(53, 53, 74, 0.08);
+}
+.title-logo span { display: block; }
+.title-logo span:last-child { color: var(--mint-dark); }
+.subtitle { margin: 0 0 8px; font-weight: 700; color: var(--ink-soft); }
+.best-line { margin: 6px 0 0; font-size: 0.9rem; font-weight: 700; color: var(--ink-soft); }
+
+@keyframes wobble {
+  0%, 100% { transform: rotate(-1.6deg); }
+  50% { transform: rotate(1.6deg); }
+}
+
+/* ---- shop ---- */
+.screen--shop { justify-content: flex-start; gap: 12px; }
+.shop-head {
+  width: 100%;
+  max-width: 540px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.shop-grid {
+  width: 100%;
+  max-width: 540px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  overflow-y: auto;
+  touch-action: pan-y;
+  padding: 4px 2px 12px;
+}
+.card {
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background: var(--cream-soft);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 4px 0 rgba(53, 53, 74, 0.25);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.card:active { transform: translateY(2px) scale(0.98); box-shadow: 0 1px 0 rgba(53, 53, 74, 0.25); }
+.shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 48px;
+  padding: 12px;
+}
+.card--disabled { opacity: 0.55; box-shadow: none; }
+.card--bounce { animation: bounce 0.35s ease-out; }
+.shop-card-name { font-weight: 800; font-size: 1rem; }
+.shop-card-desc { font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
+.pips { display: flex; gap: 3px; }
+.pip { width: 8px; height: 8px; border-radius: 50%; background: #e0d6c4; }
+.pip--on { background: var(--mint-dark); }
+.shop-card-cost { font-weight: 800; font-size: 0.95rem; color: #9a7b00; }
+
+@keyframes bounce {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* ---- HUD (everything inert except the pause button) ---- */
+#ui > .screen--hud {
+  /* must out-rank `#ui > *` above, or the full-screen hud div eats every
+     gameplay touch and the joystick never anchors on real touch devices */
+  pointer-events: none;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+           0 calc(12px + env(safe-area-inset-left));
+}
+.hud-top {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.hp-wrap { position: relative; max-width: 190px; }
+.hp-bar {
+  height: 22px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(53, 53, 74, 0.15);
+  overflow: hidden;
+}
+.hp-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--mint);
+  transition: width 0.15s ease-out, background-color 0.3s;
+}
+.hp-fill--low { background: var(--pink); }
+.hp-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.hud-timer {
+  font-size: 1.55rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 16px;
+  border-radius: 999px;
+  background: rgba(244, 239, 230, 0.85);
+  border: 2px solid rgba(53, 53, 74, 0.2);
+}
+.hud-right { justify-self: end; display: flex; align-items: center; gap: 8px; }
+.hud-coins {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 217, 61, 0.9);
+  border: 2px solid var(--gold-edge);
+}
+.btn-pause {
+  pointer-events: auto;
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--mint-dark);
+  border-radius: 14px;
+  background: var(--mint);
+  color: var(--ink);
+  font-size: 1.15rem;
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--mint-dark);
+  transition: transform 0.1s;
+}
+.btn-pause:active { transform: translateY(2px) scale(0.95); }
+.xp-row { width: 100%; display: flex; align-items: center; gap: 8px; }
+.lv-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--cream);
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.xp-bar {
+  flex: 1;
+  height: 10px;
+  border: 2px solid rgba(53, 53, 74, 0.35);
+  border-radius: 999px;
+  background: rgba(53, 53, 74, 0.12);
+  overflow: hidden;
+}
+.xp-fill { height: 100%; width: 0%; border-radius: 999px; background: var(--gold); transition: width 0.15s; }
+
+/* ---- modals (level-up / pause / summary) ---- */
+.screen--levelup, .screen--pause, .screen--summary {
+  background: rgba(53, 53, 74, 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.modal {
+  width: min(92vw, 390px);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  border: 3px solid var(--ink);
+  border-radius: 20px;
+  background: var(--cream);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  text-align: center;
+  animation: pop-in 0.22s ease-out;
+}
+.modal .btn { min-width: 0; width: 100%; }
+.modal-title { margin: 0; font-size: 1.6rem; font-weight: 900; }
+
+/* level-up cards */
+.lv-cards { display: flex; flex-direction: column; gap: 10px; }
+.lv-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 14px;
+  animation: pop-in 0.3s ease-out backwards;
+}
+.lv-card-icon { font-size: 1.9rem; line-height: 1; }
+.lv-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lv-card-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.02rem; }
+.lv-card-desc { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
+.tag {
+  font-style: normal;
+  font-size: 0.66rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.tag--new { background: var(--pink); color: #fff; }
+.tag--lv { background: var(--mint); color: var(--ink); }
+
+@keyframes pop-in {
+  from { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.05); }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* summary */
+.stats { display: flex; flex-direction: column; }
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 2px;
+  border-bottom: 2px dashed #e0d6c4;
+  font-weight: 700;
+}
+.stat-row b { font-weight: 900; font-variant-numeric: tabular-nums; }
+.earned { font-size: 1.35rem; font-weight: 900; }
+.earned-bonus { display: block; font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); }
+
+/* ---- floating joystick (visual only, never blocks touches) ---- */
+#ui > .joy { pointer-events: none; }
+.joy {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  display: none;
+}
+.joy--on { display: block; }
+.joy-base {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(244, 239, 230, 0.35);
+  border: 3px solid rgba(53, 53, 74, 0.35);
+}
+.joy-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: var(--mint);
+  border: 3px solid var(--mint-dark);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title-logo, .modal, .lv-card, .card--bounce { animation: none; }
+}

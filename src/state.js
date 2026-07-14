@@ -84,6 +84,7 @@ export function createRun(meta) {
     kills: 0,
     coinsEarned: 0,
     levelUpChoices: null,
+    viewRadius: 600,       // half screen diagonal, updated by main each frame; spawn enemies at viewRadius + SPAWN_RING from player
     _nextId: 1,
     _spawnAcc: 0,
     _nextEliteAt: 40,

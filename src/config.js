@@ -10,7 +10,7 @@ export const PLAYER = {
   pickupRadius: 26,      // actual collect radius
   baseCritChance: 0.05,
   baseCritDamage: 1.5,
-  invulnTime: 0.6,       // s of invulnerability after being hit
+  invulnTime: 0.75,      // s of invulnerability after being hit
 }
 
 // ---- Weapons ----------------------------------------------------------------
@@ -53,6 +53,13 @@ export const WEAPONS = {
 export const STARTING_WEAPON = 'star'
 export const MAX_WEAPON_LEVEL = 5
 
+// Weapon tuning shared across levels
+export const STAR_LIFE = 1.2  // s, star projectile lifetime
+export const STAR_R = 10      // px, star hit radius
+export const STAR_FAN = 0.15  // rad between fan shots
+export const ORB_R = 12       // px, orbit spark hit radius
+export const NOVA_LIFE = 0.45 // s, nova ring expansion time
+
 // ---- In-run passives (each +1 level per pick, max 5) -------------------------
 export const PASSIVES = {
   moveSpeed: { name: 'Zoomies',   desc: '+8% move speed',  perLevel: 0.08 },
@@ -79,8 +86,8 @@ export const WAVE_TABLE = [
   [200, { drone: 2, wisp: 3, tank: 2 }],
   [260, { drone: 2, wisp: 4, tank: 3 }],
 ]
-// spawns/second ramps linearly with time
-export const spawnRate = (t) => 0.9 + t * 0.02
+// spawns/second ramps linearly with time (gentler first minute, same late pressure)
+export const spawnRate = (t) => 0.6 + t * 0.021
 // enemy HP scales with time
 export const hpScale = (t) => 1 + t / 90
 export const MAX_ALIVE = 250

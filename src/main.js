@@ -8,6 +8,11 @@ import { initUI } from './ui.js'
 import { initInput, getInput } from './input.js'
 import { initAudio, playSfx } from './audio.js'
 
+// No top-level await: suspending module evaluation deadlocks Pixi's dynamically
+// imported environment code in the production bundle (TDZ/hang on a blank page).
+boot()
+
+async function boot() {
 const meta = loadMeta()
 let run = null
 
@@ -82,6 +87,7 @@ app.ticker.add((ticker) => {
   if (!run) { renderer.idle(dt); return }
 
   if (run.phase === 'playing') {
+    run.viewRadius = Math.hypot(app.screen.width, app.screen.height) / 2
     stepSim(run, getInput(), dt)
     const events = run.events
     run.events = []
@@ -101,4 +107,5 @@ app.ticker.add((ticker) => {
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {})
+}
 }
