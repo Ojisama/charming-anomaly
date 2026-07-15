@@ -558,3 +558,21 @@ body {
 .fx-chip--good { background: #d9f4e3; color: #1e7d4f; }
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
+
+/* difficulty selector on the title screen */
+.diff-row { display: flex; align-items: center; gap: 6px; }
+.diff-label { font-weight: 800; font-size: 0.78rem; color: var(--ink-soft); margin-right: 2px; }
+.diff-pip {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 2px solid #d8cbbd;
+  background: #fffdf8;
+  color: var(--ink-soft);
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.diff-pip--on { background: #ffd9a8; border-color: #e08b3c; color: #8a4d12; }
+.diff-pip:active { transform: translateY(1px); }
+.diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }

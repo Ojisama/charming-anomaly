@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, createRun } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY } from './config.js'
 import { stepSim, applyChoice } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -37,7 +37,11 @@ const ui = initUI({
   onPlay(mode) {
     initAudio()
     runMode = mode
-    run = createRun(meta, { mutators: mode === 'daily' ? dailyMutators(todayKey()) : [] })
+    // Daily = fixed shared seed at base difficulty; classic = meta.difficulty
+    // (level 1 adds nothing, each level above adds one random mutator + enemy HP).
+    run = mode === 'daily'
+      ? createRun(meta, { mutators: dailyMutators(todayKey()) })
+      : createRun(meta, { mutators: randomMutators((meta.difficulty ?? 1) - 1), difficulty: meta.difficulty ?? 1 })
     if (new URLSearchParams(location.search).has('debug')) window.__run = run
     renderer.reset(run)
     ui.showScreen('hud')
@@ -61,8 +65,13 @@ const ui = initUI({
   },
   onPauseToggle() {
     if (!run) return
-    if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', { mutators: run.mutators }) }
+    if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', { mutators: run.mutators, mode: runMode }) }
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
+  },
+  onDifficulty(d) {
+    meta.difficulty = Math.max(1, Math.min(MAX_DIFFICULTY, d))
+    saveMeta(meta)
+    playSfx('click')
   },
   onQuit() {  // from pause or summary back to title
     run = null

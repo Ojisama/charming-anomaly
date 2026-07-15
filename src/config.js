@@ -336,6 +336,25 @@ export const MAX_ELEMENT_PICKS = 5
 // this makes element infusion cards appear roughly half as often as those in the level-up pool.
 export const ELEMENT_CARD_WEIGHT = 0.25
 
+// ---- Difficulty (classic runs; picked on the title screen, saved in meta) -----------
+// Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND
+// stacks +DIFFICULTY_HP_PER_LEVEL enemy HP (multiplied into run.mods.enemyHpMul on top of
+// whatever the mutators themselves do). The Daily Anomaly ignores this (fixed shared seed).
+export const MAX_DIFFICULTY = 5
+export const DIFFICULTY_HP_PER_LEVEL = 0.25
+export const difficultyHpMul = (d) => 1 + DIFFICULTY_HP_PER_LEVEL * (Math.max(1, d) - 1)
+// count distinct random mutator ids (Fisher-Yates over the full pool)
+export const randomMutators = (count) => {
+  const pool = Object.keys(MUTATORS)
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const t = pool[i]
+    pool[i] = pool[j]
+    pool[j] = t
+  }
+  return pool.slice(0, Math.max(0, Math.min(count, pool.length)))
+}
+
 // ---- Build-focus nudge -------------------------------------------------------
 // The more level-up picks a player invests in their arsenal (weapon upgrades + weapon
 // mods), the rarer NEW-weapon cards get: each unowned weapon only joins a level-up's

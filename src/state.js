@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -9,6 +9,7 @@ export function loadMeta() {
     if (raw) {
       const m = JSON.parse(raw)
       for (const id of Object.keys(SHOP)) m.shop[id] ??= 0
+      m.difficulty ??= 1
       return m
     }
   } catch { /* corrupted save -> fresh */ }
@@ -17,6 +18,7 @@ export function loadMeta() {
     shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])),
     best: { time: 0, kills: 0 },
     runs: 0,
+    difficulty: 1,
   }
 }
 
@@ -152,13 +154,18 @@ export function shopBonus(meta, id) {
  */
 export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
+  // Pre-run modifiers (see MUTATORS + difficulty consts in config.js and the doc block above):
+  // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP tax on top of mutators.
+  const difficulty = opts.difficulty ?? 1
+  const mods = mergeMutatorMods(opts.mutators ?? [])
+  mods.enemyHpMul *= difficultyHpMul(difficulty)
   return {
     phase: 'playing',
     time: 0,
     events: [],
-    // Pre-run modifiers (see MUTATORS in config.js and the doc block above).
+    difficulty,
     mutators: opts.mutators ?? [],
-    mods: mergeMutatorMods(opts.mutators ?? []),
+    mods,
     player: {
       x: 0, y: 0,
       hp: maxHP, maxHP,

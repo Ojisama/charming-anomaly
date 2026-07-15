@@ -3,7 +3,7 @@ import assert from 'node:assert'
 import { createRun } from '../src/state.js'
 import {
   SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
-  MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT,
+  MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
@@ -1055,6 +1055,30 @@ function testFocusNudge() {
   console.log(`PASS run M (focus nudge): new-weapon offers fresh=${freshOffers} committed=${committedOffers}`)
 }
 
+// ---- Run N: difficulty levels -------------------------------------------------------
+// Difficulty d (1..MAX_DIFFICULTY): +25% enemy HP per level above 1, stacked ON TOP of
+// mutator effects; main.js also rolls d-1 random mutators (randomMutators is tested here).
+function testDifficulty() {
+  const base = createRun(makeMeta())
+  assert.strictEqual(base.mods.enemyHpMul, 1, 'difficulty defaults to 1 = untouched enemy HP')
+
+  const d3 = createRun(makeMeta(), { difficulty: 3 })
+  assert.strictEqual(d3.mods.enemyHpMul, 1.5, `difficulty 3 => enemyHpMul 1.5, got ${d3.mods.enemyHpMul}`)
+
+  const d5bulky = createRun(makeMeta(), { difficulty: 5, mutators: ['bulky'] })
+  assert.strictEqual(d5bulky.mods.enemyHpMul, 1.5 * 2, `bulky(1.5) x difficulty5(2) => 3, got ${d5bulky.mods.enemyHpMul}`)
+
+  for (let i = 0; i < 50; i++) {
+    const ids = randomMutators(4)
+    assert.strictEqual(ids.length, 4, 'randomMutators(4) returns 4 ids')
+    assert.strictEqual(new Set(ids).size, 4, 'randomMutators ids are distinct')
+    for (const id of ids) assert(id in MUTATORS, `unknown mutator id ${id}`)
+  }
+  assert.strictEqual(randomMutators(0).length, 0, 'randomMutators(0) is empty')
+
+  console.log('PASS run N (difficulty): hp scaling stacks with mutators, randomMutators sane')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1070,6 +1094,7 @@ try {
   testAffixes()
   testWeaponModParity()
   testFocusNudge()
+  testDifficulty()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

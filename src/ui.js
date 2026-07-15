@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, dailyMutators, todayKey } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
@@ -13,7 +13,9 @@ function fmtTime(s) {
 
 /**
  * Contract used by main.js:
- *   const ui = initUI({ meta, onPlay(mode), onBuy(id)->bool, onChoose(i), onPauseToggle, onQuit })
+ *   const ui = initUI({ meta, onPlay(mode), onBuy(id)->bool, onChoose(i), onPauseToggle, onQuit,
+ *                       onDifficulty(d) })
+ *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists meta.difficulty.
  *     - onPlay(mode): mode is 'classic' | 'daily'. 'classic' fires from the title Play button
  *       and from the summary "Play again" button (which replays whatever mode the just-ended
  *       run used); 'daily' fires from the daily briefing screen's Start button (the title
@@ -47,6 +49,16 @@ export function initUI(hooks) {
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
       <p class="subtitle">escape the lab · outlive the swarm</p>
       <button class="btn btn--big" data-act="play">▶&nbsp; Play</button>
+      <div class="diff-row">
+        <span class="diff-label">Difficulty</span>
+        ${Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
+          const d = i + 1
+          return `<button class="diff-pip${d <= (meta.difficulty ?? 1) ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
+        }).join('')}
+      </div>
+      <p class="diff-hint">${(meta.difficulty ?? 1) === 1
+        ? 'the base game'
+        : `+${meta.difficulty - 1} random anomal${meta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((meta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP`}</p>
       <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
       <p class="daily-preview">${dailyPreview}</p>
       <button class="btn btn--soft" data-act="shop">🛒&nbsp; Shop</button>
@@ -290,7 +302,7 @@ export function initUI(hooks) {
     const mutatorIds = d.mutators || []
     const mutatorBlock = mutatorIds.length ? `
       <div class="pause-mutators">
-        <div class="pause-mutators-head">🌀 Daily Anomaly</div>
+        <div class="pause-mutators-head">${d.mode === 'daily' ? '🌀 Daily Anomaly' : '🌀 Anomalies'}</div>
         ${mutatorIds.map((id) => `
           <div class="pause-mutator-line">
             <span class="pause-mutator-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
@@ -315,7 +327,7 @@ export function initUI(hooks) {
     const mutatorIds = d.mutators || []
     const mutatorBlock = mutatorIds.length ? `
       <div class="summary-mutators">
-        <div class="summary-mutators-head">🌀 Daily Anomaly</div>
+        <div class="summary-mutators-head">${d.mode === 'daily' ? '🌀 Daily Anomaly' : '🌀 Anomalies'}</div>
         ${mutatorIds.map((id) => `<div class="summary-mutator-line">${MUTATORS[id]?.icon ?? '❔'} ${MUTATORS[id]?.name ?? id}</div>`).join('')}
       </div>` : ''
     screens.summary.innerHTML = `
@@ -370,6 +382,7 @@ export function initUI(hooks) {
       case 'play': hooks.onPlay(el.dataset.mode || 'classic'); break
       case 'daily': playSfx('click'); showScreen('daily'); break
       case 'daily-start': hooks.onPlay('daily'); break
+      case 'diff': hooks.onDifficulty(Number(el.dataset.diff)); renderTitle(); break
       case 'shop': playSfx('click'); showScreen('shop'); break
       case 'back': playSfx('click'); showScreen('title'); break
       case 'pause':
