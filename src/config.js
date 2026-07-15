@@ -171,37 +171,129 @@ export const PASSIVES = {
 }
 export const MAX_PASSIVE_LEVEL = 5
 
-// ---- Star weapon mods --------------------------------------------------------
-// Offered only while the star weapon is owned; joins the weapon/passive pool with
-// equal footing (rolls a rarity like passives). run.starMods[id] accumulates the
-// applied bonus; run.starModPicks[id] counts picks (max MAX_STAR_MOD_PICKS).
-// pierce (flat): bonus = max(1, round(base * rarityMult)) extra enemies a star can hit.
-// blast (pct): bonus = base * rarityMult, additive — % of a star hit's damage dealt
-// to everything else within STAR_BLAST_RADIUS of the hit enemy.
-// multishot (tier): bonus = STAR_MOD_TIER_BONUS[rarity], extra stars fired per volley
-// (a flat rarityMult multiply would spiral the volley size out of control at mythic).
-// split (flat): bonus = max(1, round(base * rarityMult)), accumulates in run.starMods.split;
-// actual shard count fired on a star's first hit = run.starMods.split + 1 (so one normal
-// pick = 2 shards, a second pick = 3, etc — see fireStar/spawnSplitShards in sim.js).
-// chain (tier): bonus = STAR_MOD_TIER_BONUS[rarity], extra re-target jumps a spent bullet
-// gets (same reasoning as multishot: tiered, not rarityMult-multiplied).
-// ricochet (flat): bonus = max(1, round(base * rarityMult)), extra random-bounce jumps a
-// spent bullet gets once it has no chain jumps left.
-export const STAR_MODS = {
-  pierce:    { name: 'Piercing Stars',  desc: 'star pierce',                    icon: '🎯', base: 1,    kind: 'flat' },
-  blast:     { name: 'Exploding Stars', desc: 'star explosion damage',          icon: '💥', base: 0.30, kind: 'pct' },
-  multishot: { name: 'Multi Stars',     desc: 'stars per volley',              icon: '💫', kind: 'tier' },
-  split:     { name: 'Split Stars',     desc: "shard(s) on a star's first hit", icon: '🔱', base: 1,    kind: 'flat' },
-  chain:     { name: 'Chain Stars',     desc: 'chain jump(s) on spent stars',  icon: '🔗', kind: 'tier' },
-  ricochet:  { name: 'Ricochet Stars',  desc: 'bounce(s) on spent stars',      icon: '🪀', base: 1,    kind: 'flat' },
+// ---- Weapon mods (v4.1: weapon-mod parity) -------------------------------------
+// Every equipped weapon gets its own mod pool (star's original six, plus a matching set for
+// every other weapon) so no single weapon outscales the rest. Offered only while its owning
+// weapon is equipped, joining the weapon/passive/element pool with equal footing (rolls a
+// rarity like passives). run.weaponMods[weaponId][modId] accumulates the applied bonus;
+// run.weaponModPicks[weaponId][modId] counts picks (max MAX_WEAPON_MOD_PICKS). Mod ids are
+// globally unique across every weapon (never reused between weapons).
+//
+// kind 'flat' (base 1): bonus = max(1, round(base * rarityMult)) — an extra unit (orb/
+// boomerang/mine slot/wisp/pierce/shard/bounce) per pick.
+// kind 'pct' (base ~0.20): bonus = base * rarityMult, additive — a percent bump to a stat
+// (radius/speed/damage/range/duration/...).
+// kind 'tier': bonus = WEAPON_MOD_TIER_BONUS[rarity], extra "things per cast" (rings/echoes/
+// bomblets/vortexes/beams/volleys/jumps) — tiered rather than rarityMult-multiplied so a
+// mythic pick can't spiral a per-cast entity count out of control the way a flat rarityMult
+// multiply would (a mythic pierce/blast pick multiplies fine; a mythic +6.5 beams would not).
+//
+// Behavioral mods (read directly off run.weaponMods.<weapon>.<mod> at their trigger site in
+// sim.js, rather than folding into effectiveWeaponStats):
+//   star.multishot/split/chain/ricochet: unchanged from v2/v3 (see fireStar/stepBullets).
+//   orbit.twinRing:    N orbs on an inner ring at ORBIT_TWIN_RING_RADIUS_FRAC of the main
+//                      ring's radius, counter-rotating, same dmg/tick as the main ring.
+//   orbit.bigOrbs:     scales ORB_R (a constant, not a `levels[]` field) — read directly too.
+//   wave.echo:         N echo novas queued per cast, each firing WAVE_ECHO_DELAY later than
+//                      the previous, at WAVE_ECHO_DMG_FRAC damage (full radius/knockback).
+//   boomerang.bigBlade: scales BOOMERANG_HIT_R (a constant) — read directly, like bigOrbs.
+//   mines.cluster:     N bomblets flung outward when a (non-bomblet) mine pops — each a small
+//                      mine (`small: true`) at MINE_CLUSTER_DMG_FRAC damage,
+//                      MINE_CLUSTER_RADIUS_FRAC radius, MINE_CLUSTER_ARM arm time, scattered
+//                      MINE_CLUSTER_SCATTER_MIN..MAX px away. Bomblets never cluster further.
+//   homing.phantom:    +N pierce per wisp (added to a base pierce of 1) — a wisp survives a
+//                      hit and keeps homing, excluding enemies already in its hitIds.
+//   hole.singularity:  N extra vortexes per cast, at HOLE_SINGULARITY_FRAC radius/coreRadius/
+//                      pull, spawned on other random in-view enemies (falls back to a random
+//                      offset, like the main cast, when none are available).
+//   rainbow.prismatic: N extra beams per cast, evenly spread around the circle (2 beams total
+//                      = 180° apart, 3 = 120°, ...), same stats, all rotating together.
+//
+// Everything else (extraOrb/wideRing/overdrive/bigWave/shove/amplitude/extraRang/longThrow/
+// heavyBlade/minefield/bigBoom/heavyCharge/extraWisp/longLife/agile/biggerHole/lasting/denser/
+// wideBeam/longBeam/sustain) is a plain STAT mod folded into a weapon's per-level numbers by
+// effectiveWeaponStats — see sim.js.
+export const WEAPON_MODS = {
+  star: {
+    pierce:    { name: 'Piercing Stars',  desc: 'star pierce',                    icon: '🎯', base: 1,    kind: 'flat' },
+    blast:     { name: 'Exploding Stars', desc: 'star explosion damage',          icon: '💥', base: 0.30, kind: 'pct' },
+    multishot: { name: 'Multi Stars',     desc: 'stars per volley',              icon: '💫', kind: 'tier' },
+    split:     { name: 'Split Stars',     desc: "shard(s) on a star's first hit", icon: '🔱', base: 1,    kind: 'flat' },
+    chain:     { name: 'Chain Stars',     desc: 'chain jump(s) on spent stars',  icon: '🔗', kind: 'tier' },
+    ricochet:  { name: 'Ricochet Stars',  desc: 'bounce(s) on spent stars',      icon: '🪀', base: 1,    kind: 'flat' },
+  },
+  orbit: {
+    extraOrb:  { name: 'Extra Sparks', desc: 'orbs on your ring',                  icon: '✨', base: 1,    kind: 'flat' },
+    bigOrbs:   { name: 'Big Sparks',   desc: 'orb hit radius',                     icon: '🔵', base: 0.20, kind: 'pct' },
+    wideRing:  { name: 'Wide Orbit',   desc: 'ring radius',                        icon: '🪐', base: 0.20, kind: 'pct' },
+    overdrive: { name: 'Overdrive',    desc: 'orbit rotation speed',               icon: '🌀', base: 0.20, kind: 'pct' },
+    twinRing:  { name: 'Twin Ring',    desc: 'counter-rotating inner ring of orbs', icon: '💠', kind: 'tier' },
+  },
+  wave: {
+    bigWave:   { name: 'Big Wave',  desc: 'nova radius',           icon: '🌊', base: 0.20, kind: 'pct' },
+    shove:     { name: 'Big Shove', desc: 'nova knockback',        icon: '👊', base: 0.20, kind: 'pct' },
+    amplitude: { name: 'Amplitude', desc: 'wave damage',           icon: '📢', base: 0.20, kind: 'pct' },
+    echo:      { name: 'Echo Wave', desc: 'echo wave(s) per cast', icon: '🔁', kind: 'tier' },
+  },
+  boomerang: {
+    extraRang:  { name: 'Extra Blades', desc: 'boomerangs per throw', icon: '🪃', base: 1,    kind: 'flat' },
+    longThrow:  { name: 'Long Throw',   desc: 'boomerang range',      icon: '📏', base: 0.20, kind: 'pct' },
+    bigBlade:   { name: 'Big Blade',    desc: 'boomerang hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
+    heavyBlade: { name: 'Heavy Blade',  desc: 'boomerang damage',     icon: '🔨', base: 0.20, kind: 'pct' },
+  },
+  mines: {
+    minefield:   { name: 'Minefield',     desc: 'max mines alive',             icon: '🪤', base: 1,    kind: 'flat' },
+    bigBoom:     { name: 'Big Boom',      desc: 'mine blast radius',           icon: '💥', base: 0.20, kind: 'pct' },
+    heavyCharge: { name: 'Heavy Charge',  desc: 'mine damage',                 icon: '🧨', base: 0.20, kind: 'pct' },
+    cluster:     { name: 'Cluster Bombs', desc: 'bomblet(s) when a mine pops', icon: '🎆', kind: 'tier' },
+  },
+  homing: {
+    extraWisp: { name: 'Extra Wisps',   desc: 'wisps per volley', icon: '🔮', base: 1,    kind: 'flat' },
+    longLife:  { name: 'Long Life',     desc: 'wisp lifetime',    icon: '⏳', base: 0.20, kind: 'pct' },
+    agile:     { name: 'Agile Wisps',   desc: 'wisp turn rate',   icon: '🦋', base: 0.20, kind: 'pct' },
+    phantom:   { name: 'Phantom Wisps', desc: 'pierce per wisp',  icon: '👻', base: 1,    kind: 'flat' },
+  },
+  hole: {
+    biggerHole:  { name: 'Bigger Hole',    desc: 'vortex radius',             icon: '🕳️', base: 0.20, kind: 'pct' },
+    lasting:     { name: 'Lasting Vortex', desc: 'vortex duration',           icon: '⏱️', base: 0.20, kind: 'pct' },
+    denser:      { name: 'Denser Pull',    desc: 'vortex pull',               icon: '🌌', base: 0.20, kind: 'pct' },
+    singularity: { name: 'Singularity',    desc: 'extra vortex(es) per cast', icon: '🌠', kind: 'tier' },
+  },
+  rainbow: {
+    wideBeam:  { name: 'Wide Beam',       desc: 'beam width',             icon: '📡', base: 0.20, kind: 'pct' },
+    longBeam:  { name: 'Long Beam',       desc: 'beam length',            icon: '↔️', base: 0.20, kind: 'pct' },
+    sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
+    prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier' },
+  },
 }
-export const MAX_STAR_MOD_PICKS = 5
-// Shared by multishot/chain: a single pick's bonus is looked up by rolled rarity rather than
-// base*rarityMult, so high-rarity picks stay meaningful without letting volley/jump counts
+export const MAX_WEAPON_MOD_PICKS = 5
+// Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
+// base*rarityMult, so high-rarity picks stay meaningful without letting per-cast entity counts
 // explode (a mythic pierce/blast pick multiplies fine; a mythic +6.5 stars-per-volley would not).
-export const STAR_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2, mythic: 3 }
+export const WEAPON_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2, mythic: 3 }
+// Level-up pool cap: if more weapon-mod candidates are eligible than this (many weapons owned,
+// each with several mods still under MAX_WEAPON_MOD_PICKS), uniformly sample this many per
+// buildLevelUpChoices call so mods don't crowd out weapon/passive/element cards.
+export const MOD_POOL_MAX = 6
 
-// Split: shard damage/angle shape (picks-per-shard count lives on STAR_MODS.split above).
+// Twin Ring (orbit): inner ring radius, as a fraction of the main ring's radius.
+export const ORBIT_TWIN_RING_RADIUS_FRAC = 0.6
+
+// Echo Wave (wave): echo cadence/damage (full radius/knockback, only damage is scaled).
+export const WAVE_ECHO_DELAY = 0.25   // s, delay between an Echo Wave cast and the next
+export const WAVE_ECHO_DMG_FRAC = 0.6 // each echo's damage, as a fraction of the original cast's
+
+// Cluster Bombs (mines): bomblet shape/scatter when a (non-bomblet) mine pops.
+export const MINE_CLUSTER_DMG_FRAC = 0.4    // bomblet damage, as a fraction of the popped mine's
+export const MINE_CLUSTER_RADIUS_FRAC = 0.6 // bomblet blast radius, as a fraction of the popped mine's
+export const MINE_CLUSTER_ARM = 0.15        // s, bomblet arm time before it can trigger (short fuse)
+export const MINE_CLUSTER_SCATTER_MIN = 60  // px, min scatter distance from the popped mine
+export const MINE_CLUSTER_SCATTER_MAX = 120 // px, max scatter distance from the popped mine
+
+// Singularity (black hole): extra vortex radius/coreRadius/pull, as a fraction of the main cast's.
+export const HOLE_SINGULARITY_FRAC = 0.55
+
+// Split: shard damage/angle shape (picks-per-shard count lives on WEAPON_MODS.star.split above).
 export const STAR_SPLIT_DMG_FRAC = 0.5                    // shard damage, as a fraction of the star's own damage
 export const STAR_SPLIT_BASE_ANGLE = (35 * Math.PI) / 180 // ± half-angle used for exactly 2 shards
 export const STAR_SPLIT_MAX_SPREAD = (90 * Math.PI) / 180 // total fan spread once 3+ shards are out

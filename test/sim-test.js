@@ -6,6 +6,7 @@ import {
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
+  WEAPONS, HOLE_SINGULARITY_FRAC,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -42,7 +43,7 @@ function finite(n) {
 // would contaminate tests that are specifically isolating another system's effect (e.g. star
 // mods vs a star-only baseline). Picking the first non-'element' offer keeps those tests'
 // power budget exactly what they set up explicitly; runs that want elements force them onto
-// run.elements directly (see testElements), mirroring how testStarMods forces run.starMods.
+// run.elements directly (see testElements), mirroring how testStarMods forces run.weaponMods.star.
 function pickNonElementIndex(run) {
   const choices = run.levelUpChoices || []
   const idx = choices.findIndex((c) => c.kind !== 'element')
@@ -254,7 +255,7 @@ function testStarMods() {
   function runStarOnly(mods) {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }]
-    if (mods) Object.assign(run.starMods, mods)
+    if (mods) Object.assign(run.weaponMods.star, mods)
     seedTargetRing(run, 24, 1e6, 200)
     const explodeEvents = []
     let totalDmg = 0
@@ -300,7 +301,7 @@ function testAdvancedStarMods() {
   function runStarOnly(mods) {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }]
-    if (mods) Object.assign(run.starMods, mods)
+    if (mods) Object.assign(run.weaponMods.star, mods)
     seedTargetRing(run, 24, 1e6, 200)
     let totalDmg = 0
     let sawShard = false
@@ -846,6 +847,178 @@ function testAffixes() {
   }
 }
 
+// Weapon-mod parity (v4.1): every non-star weapon gets its own mod pool now (see WEAPON_MODS
+// in config.js). Exercises one behavioral mod per weapon plus a couple of plain stat mods, and
+// the level-up pool's per-weapon gating (only offers a weapon's mods while it's owned).
+function testWeaponModParity() {
+  const dt = 1 / 60
+
+  // a. Twin Ring: main + inner-ring orbs, every orb entry carries r; bigOrbs raises r.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'orbit', level: 3 }] // WEAPONS.orbit.levels[2].orbs === 3
+    run.weaponMods.orbit.twinRing = 3
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.orbs.length, 6, `expected 3 main + 3 twin-ring orbs, got ${run.orbs.length}`)
+    for (const o of run.orbs) assert(finite(o.r) && o.r > 0, `expected every orb to carry a positive r, got ${o.r}`)
+    const baseR = run.orbs[0].r
+
+    run.weaponMods.orbit.bigOrbs = 0.5
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.orbs[0].r > baseR, `expected bigOrbs to raise orb r (base=${baseR}, boosted=${run.orbs[0].r})`)
+    console.log(`PASS run L.a (twinRing + bigOrbs): orbs=${run.orbs.length} baseR=${baseR.toFixed(1)} boostedR=${run.orbs[0].r.toFixed(1)}`)
+  }
+
+  // b. Echo Wave: one cast with echo=2 produces 3 novas total (1 original + 2 delayed echoes).
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'wave', level: 1 }] // interval 2.4s, well under the 4s window below
+    run.weaponMods.wave.echo = 2
+    const seenNovas = new Set()
+    const steps = Math.round(4 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      for (const n of run.novas) seenNovas.add(n)
+    }
+    assert.strictEqual(seenNovas.size, 3, `expected 1 original + 2 echo novas, got ${seenNovas.size}`)
+    console.log(`PASS run L.b (echo wave): novas=${seenNovas.size}`)
+  }
+
+  // c. Cluster Bombs: a mine pop with cluster=2 leaves 2 small bomblets behind.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.weaponMods.mines.cluster = 2
+    run.player.x = 5000; run.player.y = 0 // clear of the mine, so contact damage doesn't interfere
+    run.mines.push({ x: 0, y: 0, arm: 0, dmg: 20, radius: 50 })
+    run.enemies.push(makeStatusEnemy(run, { x: 5, y: 0, hp: 1e6, speed: 0 }))
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const bomblets = run.mines.filter((m) => m.small)
+    assert.strictEqual(bomblets.length, 2, `expected 2 cluster bomblets, got ${bomblets.length}`)
+    console.log(`PASS run L.c (cluster bombs): bomblets=${bomblets.length}`)
+  }
+
+  // d. Phantom Wisps: a homing shot with phantom=2 (pierce=3) damages at least 2 distinct
+  // enemies before dying — tracked via the max hitIds size seen on any live shot.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'homing', level: 1 }]
+    run.weaponMods.homing.phantom = 2
+    seedTargetRing(run, 6, 1e6, 80)
+    let maxHitIds = 0
+    const steps = Math.round(5 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      for (const h of run.homingShots) maxHitIds = Math.max(maxHitIds, h.hitIds.size)
+    }
+    assert(maxHitIds >= 2, `expected a phantom wisp to hit at least 2 distinct enemies, got max hitIds=${maxHitIds}`)
+    console.log(`PASS run L.d (phantom wisps): maxHitIds=${maxHitIds}`)
+  }
+
+  // e. Singularity: one hole cast with singularity=1 yields 2 holes, the second at
+  // HOLE_SINGULARITY_FRAC of the main cast's radius.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'hole', level: 1 }] // interval 6.5s, radius 510
+    run.weaponMods.hole.singularity = 1
+    let fired = false
+    const steps = Math.round(7 / dt)
+    for (let i = 0; i < steps && !fired; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.holes.length > 0) fired = true
+    }
+    assert(fired, 'expected the black hole to cast at least once')
+    assert.strictEqual(run.holes.length, 2, `expected 1 main + 1 singularity hole, got ${run.holes.length}`)
+    const radii = run.holes.map((h) => h.radius).sort((a, b) => a - b)
+    const expectedSmall = WEAPONS.hole.levels[0].radius * HOLE_SINGULARITY_FRAC
+    assert(Math.abs(radii[0] - expectedSmall) < 1e-6, `expected singularity radius ${expectedSmall}, got ${radii[0]}`)
+    console.log(`PASS run L.e (singularity): holes=${run.holes.length} radii=${radii.map((r) => r.toFixed(0)).join(',')}`)
+  }
+
+  // f. Prismatic Split: one beam cast with prismatic=1 yields 2 beams, ~π (180°) apart.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'rainbow', level: 1 }] // interval 8.0s
+    run.weaponMods.rainbow.prismatic = 1
+    let fired = false
+    const steps = Math.round(9 / dt)
+    for (let i = 0; i < steps && !fired; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.beams.length > 0) fired = true
+    }
+    assert(fired, 'expected the prism beam to cast at least once')
+    assert.strictEqual(run.beams.length, 2, `expected 1 main + 1 prismatic beam, got ${run.beams.length}`)
+    const diff = Math.abs(run.beams[0].angle - run.beams[1].angle)
+    const normalized = Math.min(diff, Math.abs(diff - 2 * Math.PI))
+    assert(Math.abs(normalized - Math.PI) < 0.05, `expected beams ~π apart, got ${normalized.toFixed(3)}`)
+    console.log(`PASS run L.f (prismatic split): beams=${run.beams.length} angleDiff=${normalized.toFixed(3)}`)
+  }
+
+  // g. Plain stat mods: boomerang.extraRang / homing.extraWisp raise per-volley entity counts;
+  // wave.bigWave raises nova maxR. Each compares a modded run against an unmodded baseline,
+  // both driven only until their weapon's first cast (so a slow interval doesn't cost extra time).
+  {
+    function firstFireSnapshot(weaponId, arrKey, modSetter, waitSeconds) {
+      const run = createRun(makeMeta())
+      run.weapons = [{ id: weaponId, level: 1 }]
+      if (modSetter) modSetter(run)
+      const steps = Math.round(waitSeconds / dt)
+      for (let i = 0; i < steps; i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run[arrKey].length > 0) break
+      }
+      return run[arrKey]
+    }
+
+    const baseRangs = firstFireSnapshot('boomerang', 'boomerangs', null, 2)
+    const moddedRangs = firstFireSnapshot('boomerang', 'boomerangs', (r) => { r.weaponMods.boomerang.extraRang = 2 }, 2)
+    assert(moddedRangs.length > baseRangs.length,
+      `expected extraRang to raise boomerang count (base=${baseRangs.length}, modded=${moddedRangs.length})`)
+
+    const baseWisps = firstFireSnapshot('homing', 'homingShots', null, 1.5)
+    const moddedWisps = firstFireSnapshot('homing', 'homingShots', (r) => { r.weaponMods.homing.extraWisp = 2 }, 1.5)
+    assert(moddedWisps.length > baseWisps.length,
+      `expected extraWisp to raise wisp count (base=${baseWisps.length}, modded=${moddedWisps.length})`)
+
+    const baseNovas = firstFireSnapshot('wave', 'novas', null, 3)
+    const moddedNovas = firstFireSnapshot('wave', 'novas', (r) => { r.weaponMods.wave.bigWave = 0.5 }, 3)
+    assert(moddedNovas[0].maxR > baseNovas[0].maxR,
+      `expected bigWave to raise nova maxR (base=${baseNovas[0].maxR}, modded=${moddedNovas[0].maxR})`)
+
+    console.log(`PASS run L.g (stat mods): rangs base=${baseRangs.length} modded=${moddedRangs.length}; wisps base=${baseWisps.length} modded=${moddedWisps.length}; nova maxR base=${baseNovas[0].maxR} modded=${moddedNovas[0].maxR}`)
+  }
+
+  // h. Level-up pool gating: with only star owned, buildLevelUpChoices never offers a non-star
+  // weapon mod; once orbit is also owned, orbit mods start appearing.
+  {
+    const starOnly = createRun(makeMeta())
+    starOnly.weapons = [{ id: 'star', level: 3 }]
+    let sawNonStarMod = false
+    for (let i = 0; i < 300; i++) {
+      for (const c of buildLevelUpChoices(starOnly)) {
+        if (c.kind === 'mod' && c.weapon !== 'star') sawNonStarMod = true
+      }
+    }
+    assert.strictEqual(sawNonStarMod, false, 'expected only star weapon mods to appear with just star owned')
+
+    const withOrbit = createRun(makeMeta())
+    withOrbit.weapons = [{ id: 'star', level: 3 }, { id: 'orbit', level: 3 }]
+    let sawOrbitMod = false
+    for (let i = 0; i < 300; i++) {
+      for (const c of buildLevelUpChoices(withOrbit)) {
+        if (c.kind === 'mod' && c.weapon === 'orbit') sawOrbitMod = true
+      }
+    }
+    assert(sawOrbitMod, 'expected orbit weapon mods to appear in the pool once orbit is owned')
+    console.log('PASS run L.h (mod pool gating): star-only never offers non-star mods; orbit mods appear once owned')
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -859,6 +1032,7 @@ try {
   testEscalation()
   testMutators()
   testAffixes()
+  testWeaponModParity()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

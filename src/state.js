@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, STAR_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -73,16 +73,30 @@ export function shopBonus(meta, id) {
  *               tryChainBullet/tryRicochetBullet in sim.js). run._chains/_ricochets are debug
  *               counters incremented each time one of those triggers (not a render contract).
  * novas[i]:   { x, y, r, maxR, dmg, knockback, life, hit:Set<enemyId> }  (r grows; render draws the ring)
- * orbs[i]:    { x, y } positions computed by sim each frame (render just draws them)
+ * orbs[i]:    { x, y, r } positions + effective hit radius computed by sim each frame (render
+ *             just draws them; r = ORB_R × (1 + orbit.bigOrbs bonus), same for main-ring and
+ *             twinRing orbs — see WEAPON_MODS.orbit in config.js)
  * gems[i]:    { x, y, xp }   coins[i]: { x, y, value }
  *
  * v2 weapon entities (all sim-owned, render-drawn):
- * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set }  (hit cleared at turnaround)
- * mines[i]:     { x, y, arm (s until armed), dmg, radius }
- * homingShots[i]: { x, y, vx, vy, dmg, life }
+ * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set, hitR }  (hit cleared at
+ *               turnaround; hitR (v4.1) = BOOMERANG_HIT_R × (1 + boomerang.bigBlade bonus),
+ *               snapshotted per throw — sim-internal collision radius, not required by render)
+ * mines[i]:     { x, y, arm (s until armed), dmg, radius, small? }
+ *               small (v4.1, optional): true for Cluster Bombs bomblets (see WEAPON_MODS.mines
+ *               in config.js) — smaller/weaker mines popped from a mine's death; render draws
+ *               them at a reduced scale. Absent (falsy) on ordinary player-deployed mines.
+ * homingShots[i]: { x, y, vx, vy, dmg, life, pierce, hitIds:Set<enemyId> }
+ *               pierce (v4.1): starts at 1 + WEAPON_MODS.homing.phantom bonus; a wisp
+ *               decrements it on each hit instead of always dying on first contact, and keeps
+ *               homing toward enemies not yet in hitIds (see stepHomingShots in sim.js).
  * holes[i]:     { x, y, radius, coreRadius, life, duration, dmg, tick, pull }
- *               coreRadius is the inner "consumed" zone (amplified tick damage; see stepHoles)
- * beams[i]:     { angle, life, duration, dmg, tick, width, length }  origin = player
+ *               coreRadius is the inner "consumed" zone (amplified tick damage; see stepHoles).
+ *               Singularity (v4.1, see WEAPON_MODS.hole) spawns extra hole entries of this same
+ *               shape at HOLE_SINGULARITY_FRAC radius/coreRadius/pull.
+ * beams[i]:     { angle, life, duration, dmg, tick, width, length }  origin = player.
+ *               Prismatic Split (v4.1, see WEAPON_MODS.rainbow) spawns extra beam entries of
+ *               this same shape, angle offset evenly around the circle, all rotating together.
  *
  * Extra events beyond v1: {type:'explode',x,y,radius} mine pop or star-blast explosion (radius
  * from config: mine's own blast radius, or STAR_BLAST_RADIUS for star blasts) ·
@@ -125,12 +139,13 @@ export function shopBonus(meta, id) {
  *           dealDamage), and emits {type:'explode', x, y, radius} (same event shape as a
  *           mine pop or star blast).
  *
- * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus }
+ * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
  *   rarity: key of RARITIES (weapons: inherent; passives/mods/elements: rolled). icon: from config.
  *   bonus: passives/mods/elements only — the pre-multiplied amount applyChoice will add.
- *   kind 'mod': star weapon upgrades (see STAR_MODS in config.js), offered only while the
- *   star weapon is owned. run.starMods[id] accumulates applied bonus; run.starModPicks[id]
- *   counts picks (max MAX_STAR_MOD_PICKS), mirroring passives/passivePicks.
+ *   kind 'mod': weapon mod upgrades (see WEAPON_MODS in config.js), offered only while the
+ *   owning weapon (choice.weapon, a weapon id) is owned. run.weaponMods[weapon][id] accumulates
+ *   applied bonus; run.weaponModPicks[weapon][id] counts picks (max MAX_WEAPON_MOD_PICKS),
+ *   mirroring passives/passivePicks.
  *   kind 'element': elemental infusions (see ELEMENTS/COMBOS in config.js), offered always.
  *   run.elements[id] accumulates applied potency; run.elementPicks[id] counts picks (max
  *   MAX_ELEMENT_PICKS), mirroring passives/passivePicks.
@@ -164,9 +179,12 @@ export function createRun(meta, opts = {}) {
     // accumulated applied bonuses (base * rarity mult per pick) and pick counts
     passives: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
     passivePicks: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
-    // star weapon mods (see STAR_MODS in config.js), offered only while star is owned
-    starMods: Object.fromEntries(Object.keys(STAR_MODS).map((id) => [id, 0])),
-    starModPicks: Object.fromEntries(Object.keys(STAR_MODS).map((id) => [id, 0])),
+    // per-weapon mods (see WEAPON_MODS in config.js), offered only while their owning weapon
+    // is equipped: { [weaponId]: { [modId]: accumulatedBonus } } / { [weaponId]: { [modId]: pickCount } }
+    weaponMods: Object.fromEntries(Object.keys(WEAPON_MODS).map((wid) =>
+      [wid, Object.fromEntries(Object.keys(WEAPON_MODS[wid]).map((mid) => [mid, 0]))])),
+    weaponModPicks: Object.fromEntries(Object.keys(WEAPON_MODS).map((wid) =>
+      [wid, Object.fromEntries(Object.keys(WEAPON_MODS[wid]).map((mid) => [mid, 0]))])),
     // elemental infusions (see ELEMENTS/COMBOS in config.js), offered always
     elements: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     elementPicks: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
@@ -189,6 +207,9 @@ export function createRun(meta, opts = {}) {
     _nextId: 1,
     _spawnAcc: 0,
     _nextEliteAt: 40,
+    // Sim-internal only (not a render contract): pending Echo Wave casts (see WEAPON_MODS.wave
+    // in config.js and stepWaveEchoes in sim.js) — { delay, x, y, radius, dmg, knockback }[].
+    _waveEchoes: [],
     // Debug counters only (see bullets[] doc above) — not consumed by render/main.
     _chains: 0,
     _ricochets: 0,

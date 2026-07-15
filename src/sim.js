@@ -21,7 +21,7 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, STAR_MODS, MAX_STAR_MOD_PICKS, STAR_MOD_TIER_BONUS,
+  PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
   RARITIES, RARITY_ORDER, rarityWeights,
   ENEMIES, ELITE, WAVE_TABLE,
@@ -33,6 +33,9 @@ import {
   STAR_RICOCHET_DMG_MUL, STAR_RICOCHET_ANGLE_MIN, STAR_RICOCHET_ANGLE_MAX, STAR_RICOCHET_EXTRA_LIFE,
   HOLE_CORE_FRAC, HOLE_RIM_PULL_MUL, HOLE_RESIST_CAP, HOLE_SPIRAL_MUL,
   HOLE_CORE_DMG_MUL, HOLE_PULL_DECAY,
+  ORBIT_TWIN_RING_RADIUS_FRAC, WAVE_ECHO_DELAY, WAVE_ECHO_DMG_FRAC,
+  MINE_CLUSTER_DMG_FRAC, MINE_CLUSTER_RADIUS_FRAC, MINE_CLUSTER_ARM,
+  MINE_CLUSTER_SCATTER_MIN, MINE_CLUSTER_SCATTER_MAX, HOLE_SINGULARITY_FRAC,
   STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
   CHILL_SLOW_BASE, CHILL_SLOW_PER_POTENCY, CHILL_SLOW_CAP, CHILL_DURATION,
   CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
@@ -95,8 +98,10 @@ export function applyChoice(run, i) {
       p.hp = Math.min(p.maxHP, p.hp + choice.bonus)
     }
   } else if (choice.kind === 'mod') {
-    run.starMods[choice.id] = (run.starMods[choice.id] ?? 0) + choice.bonus
-    run.starModPicks[choice.id] = (run.starModPicks[choice.id] ?? 0) + 1
+    const mods = run.weaponMods[choice.weapon]
+    const picks = run.weaponModPicks[choice.weapon]
+    mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus
+    picks[choice.id] = (picks[choice.id] ?? 0) + 1
   } else if (choice.kind === 'element') {
     run.elements[choice.id] = (run.elements[choice.id] ?? 0) + choice.bonus
     run.elementPicks[choice.id] = (run.elementPicks[choice.id] ?? 0) + 1
@@ -645,13 +650,45 @@ function nearestEnemy(run, pad = 100) {
 
 // ---- Weapons ------------------------------------------------------------------------
 
+// Maps each weapon's plain STAT mods (flat/pct, folded straight into a `levels[]` field) onto
+// the field they bump. Behavioral mods (twinRing/echo/cluster/phantom/singularity/prismatic,
+// the star six, and bigOrbs/bigBlade — which scale a constant, not a `levels[]` field) are NOT
+// listed here; they're read directly off run.weaponMods.<weapon>.<mod> at their trigger site
+// (see WEAPON_MODS's doc comment in config.js for the full behavioral-mod list).
+const WEAPON_STAT_MODS = {
+  orbit:     { extraOrb: ['orbs', 'flat'], wideRing: ['radius', 'pct'], overdrive: ['rotSpeed', 'pct'] },
+  wave:      { bigWave: ['radius', 'pct'], shove: ['knockback', 'pct'], amplitude: ['dmg', 'pct'] },
+  boomerang: { extraRang: ['count', 'flat'], longThrow: ['range', 'pct'], heavyBlade: ['dmg', 'pct'] },
+  mines:     { minefield: ['maxAlive', 'flat'], bigBoom: ['radius', 'pct'], heavyCharge: ['dmg', 'pct'] },
+  homing:    { extraWisp: ['count', 'flat'], longLife: ['life', 'pct'], agile: ['turnRate', 'pct'] },
+  hole:      { biggerHole: ['radius', 'pct'], lasting: ['duration', 'pct'], denser: ['pull', 'pct'] },
+  rainbow:   { wideBeam: ['width', 'pct'], longBeam: ['length', 'pct'], sustain: ['duration', 'pct'] },
+}
+
+/** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
+ * (see WEAPON_STAT_MODS above). Behavioral mods are untouched here — callers read those
+ * directly off run.weaponMods.<weapon>.<mod> at their own trigger site. */
+function effectiveWeaponStats(run, w) {
+  const stats = { ...WEAPONS[w.id].levels[w.level - 1] }
+  const modMap = WEAPON_STAT_MODS[w.id]
+  const mods = run.weaponMods[w.id]
+  if (modMap && mods) {
+    for (const [modId, [field, kind]] of Object.entries(modMap)) {
+      const bonus = mods[modId] ?? 0
+      if (bonus === 0) continue
+      stats[field] = kind === 'flat' ? Math.round(stats[field] + bonus) : stats[field] * (1 + bonus)
+    }
+  }
+  return stats
+}
+
 function stepWeapons(run, dt) {
   const p = run.player
   run.orbs = []
   const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate)
 
   for (const w of run.weapons) {
-    const stats = WEAPONS[w.id].levels[w.level - 1]
+    const stats = effectiveWeaponStats(run, w)
     if (w.id === 'star') stepStarWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'wave') stepWaveWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'orbit') stepOrbitWeapon(run, stats, fireRateMul)
@@ -700,10 +737,10 @@ function fireStar(run, stats) {
 
   // Multi Stars: more volleys widen the fan gracefully for free, since each extra star is
   // just another STAR_FAN-spaced slot in the same (count-1)/2-centered spread below.
-  const count = stats.count + (run.starMods?.multishot ?? 0)
-  const pierce = stats.pierce + (run.starMods?.pierce ?? 0)
-  const chainsLeft = run.starMods?.chain ?? 0
-  const ricochetsLeft = run.starMods?.ricochet ?? 0
+  const count = stats.count + (run.weaponMods.star?.multishot ?? 0)
+  const pierce = stats.pierce + (run.weaponMods.star?.pierce ?? 0)
+  const chainsLeft = run.weaponMods.star?.chain ?? 0
+  const ricochetsLeft = run.weaponMods.star?.ricochet ?? 0
   for (let i = 0; i < count; i++) {
     const angle = baseAngle + (i - (count - 1) / 2) * STAR_FAN
     run.bullets.push({
@@ -725,19 +762,19 @@ function fireStar(run, stats) {
   run.events.push({ type: 'shoot', weapon: 'star' })
 }
 
-// Split Stars: actual shard count = run.starMods.split + 1 (0 picks = no split; see STAR_MODS
-// doc in config.js). Shards are plain bullets flagged _shard so they never re-split, but they
-// still carry a fresh chain/ricochet budget off run.starMods, same as any other bullet.
+// Split Stars: actual shard count = run.weaponMods.star.split + 1 (0 picks = no split; see
+// WEAPON_MODS doc in config.js). Shards are plain bullets flagged _shard so they never re-split, but they
+// still carry a fresh chain/ricochet budget off run.weaponMods.star, same as any other bullet.
 function splitCountFor(run) {
-  const picks = run.starMods?.split ?? 0
+  const picks = run.weaponMods.star?.split ?? 0
   return picks > 0 ? picks + 1 : 0
 }
 
 function spawnSplitShards(run, b, hitEnemy, shardCount) {
   const baseAngle = Math.atan2(b.vy, b.vx)
   const spreadTotal = shardCount <= 2 ? STAR_SPLIT_BASE_ANGLE * 2 : STAR_SPLIT_MAX_SPREAD
-  const chainsLeft = run.starMods?.chain ?? 0
-  const ricochetsLeft = run.starMods?.ricochet ?? 0
+  const chainsLeft = run.weaponMods.star?.chain ?? 0
+  const ricochetsLeft = run.weaponMods.star?.ricochet ?? 0
   const shardDmg = b.dmg * STAR_SPLIT_DMG_FRAC
   for (let i = 0; i < shardCount; i++) {
     const offset = shardCount > 1 ? -spreadTotal / 2 + i * (spreadTotal / (shardCount - 1)) : 0
@@ -822,7 +859,7 @@ function starBlast(run, hitEnemy, dmgDealt, blastPct) {
 
 function stepBullets(run, dt) {
   const bullets = run.bullets
-  const blastPct = run.starMods?.blast ?? 0
+  const blastPct = run.weaponMods.star?.blast ?? 0
   const splitCount = splitCountFor(run)
   for (const b of bullets) {
     b.x += b.vx * dt
@@ -861,36 +898,82 @@ function stepBullets(run, dt) {
   run.bullets = bullets.filter((b) => b.life > 0 && b.pierce > 0)
 }
 
-function stepOrbitWeapon(run, stats, fireRateMul) {
-  const p = run.player
-  for (let i = 0; i < stats.orbs; i++) {
-    const angle = (i / stats.orbs) * Math.PI * 2 + run.time * stats.rotSpeed
-    const ox = p.x + Math.cos(angle) * stats.radius
-    const oy = p.y + Math.sin(angle) * stats.radius
-    run.orbs.push({ x: ox, y: oy })
-
-    for (const e of run.enemies) {
-      if (e._dead || e.orbCd > 0) continue
-      const dx = e.x - ox, dy = e.y - oy
-      const rad = ORB_R + e.radius
-      if (dx * dx + dy * dy <= rad * rad) {
-        applyDamage(run, e, stats.dmg)
-        e.orbCd = stats.tick / fireRateMul
-      }
+// Shared by the main ring and the Twin Ring inner ring: damages the nearest not-on-cooldown
+// enemy touching an orb at (ox, oy), same dmg/tick logic for both rings.
+function hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul) {
+  for (const e of run.enemies) {
+    if (e._dead || e.orbCd > 0) continue
+    const dx = e.x - ox, dy = e.y - oy
+    const rad = orbR + e.radius
+    if (dx * dx + dy * dy <= rad * rad) {
+      applyDamage(run, e, stats.dmg)
+      e.orbCd = stats.tick / fireRateMul
     }
   }
 }
 
+function stepOrbitWeapon(run, stats, fireRateMul) {
+  const p = run.player
+  const mods = run.weaponMods.orbit
+  const orbR = ORB_R * (1 + (mods?.bigOrbs ?? 0)) // bigOrbs scales ORB_R, a constant, not a levels[] field
+
+  for (let i = 0; i < stats.orbs; i++) {
+    const angle = (i / stats.orbs) * Math.PI * 2 + run.time * stats.rotSpeed
+    const ox = p.x + Math.cos(angle) * stats.radius
+    const oy = p.y + Math.sin(angle) * stats.radius
+    run.orbs.push({ x: ox, y: oy, r: orbR })
+    hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul)
+  }
+
+  // Twin Ring: N orbs on an inner, counter-rotating ring (negative angular velocity), same
+  // dmg/tick as the main ring.
+  const twinRing = mods?.twinRing ?? 0
+  if (twinRing > 0) {
+    const innerRadius = stats.radius * ORBIT_TWIN_RING_RADIUS_FRAC
+    for (let i = 0; i < twinRing; i++) {
+      const angle = (i / twinRing) * Math.PI * 2 - run.time * stats.rotSpeed
+      const ox = p.x + Math.cos(angle) * innerRadius
+      const oy = p.y + Math.sin(angle) * innerRadius
+      run.orbs.push({ x: ox, y: oy, r: orbR })
+      hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul)
+    }
+  }
+}
+
+function spawnNova(run, x, y, maxR, dmg, knockback) {
+  run.novas.push({ x, y, r: 0, maxR, dmg, knockback, life: NOVA_LIFE, hit: new Set() })
+}
+
 function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
+  const echoCount = run.weaponMods.wave?.echo ?? 0
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
-    run.novas.push({
-      x: p.x, y: p.y, r: 0, maxR: stats.radius,
-      dmg: stats.dmg, knockback: stats.knockback,
-      life: NOVA_LIFE, hit: new Set(),
-    })
+    spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback)
     run.events.push({ type: 'shoot', weapon: 'wave' })
+    // Echo Wave: queue N delayed re-casts at the same spot, each WAVE_ECHO_DELAY later than the
+    // previous, at WAVE_ECHO_DMG_FRAC damage (full radius/knockback) — see stepWaveEchoes below.
+    for (let i = 1; i <= echoCount; i++) {
+      run._waveEchoes.push({
+        delay: WAVE_ECHO_DELAY * i, x: p.x, y: p.y,
+        radius: stats.radius, dmg: stats.dmg * WAVE_ECHO_DMG_FRAC, knockback: stats.knockback,
+      })
+    }
   })
+  stepWaveEchoes(run, dt)
+}
+
+// Ticks down pending Echo Wave casts (run._waveEchoes) and spawns their nova once each one's
+// delay elapses.
+function stepWaveEchoes(run, dt) {
+  const echoes = run._waveEchoes
+  for (const ec of echoes) {
+    ec.delay -= dt
+    if (ec.delay <= 0) {
+      spawnNova(run, ec.x, ec.y, ec.radius, ec.dmg, ec.knockback)
+      ec._done = true
+    }
+  }
+  run._waveEchoes = echoes.filter((e) => !e._done)
 }
 
 function stepNovas(run, dt) {
@@ -937,13 +1020,16 @@ function fireBoomerang(run, stats) {
 
   const count = stats.count
   const step = count > 1 ? (2 * BOOMERANG_FAN) / (count - 1) : 0
+  // bigBlade scales BOOMERANG_HIT_R, a constant, not a levels[] field — read directly and
+  // snapshotted per boomerang at throw time, like bigOrbs is for orbit.
+  const hitR = BOOMERANG_HIT_R * (1 + (run.weaponMods.boomerang?.bigBlade ?? 0))
   for (let i = 0; i < count; i++) {
     const angle = count > 1 ? baseAngle - BOOMERANG_FAN + i * step : baseAngle
     run.boomerangs.push({
       x: p.x, y: p.y, ox: p.x, oy: p.y,
       angle, phase: 'out',
       dmg: stats.dmg, hit: new Set(),
-      speed: stats.speed, range: stats.range,
+      speed: stats.speed, range: stats.range, hitR,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'boomerang' })
@@ -970,7 +1056,7 @@ function stepBoomerangs(run, dt) {
     for (const e of run.enemies) {
       if (e._dead || b.hit.has(e.id)) continue
       const dx = e.x - b.x, dy = e.y - b.y
-      const rad = BOOMERANG_HIT_R + e.radius
+      const rad = b.hitR + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, b.dmg)
         b.hit.add(e.id)
@@ -984,13 +1070,34 @@ function stepBoomerangs(run, dt) {
 
 function stepMinesWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
-    if (run.mines.length >= stats.maxAlive) return
+    // maxAlive only gates the weapon's own deployment — Cluster Bombs bomblets (m.small) don't
+    // count against it and can push the total mine count above maxAlive.
+    const deployed = run.mines.reduce((n, m) => n + (m.small ? 0 : 1), 0)
+    if (deployed >= stats.maxAlive) return
     const p = run.player
     run.mines.push({
       x: p.x - p.facing * 20, y: p.y,
       arm: 0.4, dmg: stats.dmg, radius: stats.radius,
     })
   })
+}
+
+// Cluster Bombs: N bomblets flung outward when a (non-bomblet) mine pops, at
+// MINE_CLUSTER_DMG_FRAC damage / MINE_CLUSTER_RADIUS_FRAC radius, scattered
+// MINE_CLUSTER_SCATTER_MIN..MAX px away with a short MINE_CLUSTER_ARM fuse. Bomblets are
+// flagged `small: true` and never cluster further (guarded by the caller).
+function spawnClusterMines(run, parent, count) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2
+    const d = MINE_CLUSTER_SCATTER_MIN + Math.random() * (MINE_CLUSTER_SCATTER_MAX - MINE_CLUSTER_SCATTER_MIN)
+    run.mines.push({
+      x: parent.x + Math.cos(a) * d, y: parent.y + Math.sin(a) * d,
+      arm: MINE_CLUSTER_ARM,
+      dmg: parent.dmg * MINE_CLUSTER_DMG_FRAC,
+      radius: parent.radius * MINE_CLUSTER_RADIUS_FRAC,
+      small: true,
+    })
+  }
 }
 
 function stepMines(run, dt) {
@@ -1013,6 +1120,10 @@ function stepMines(run, dt) {
     }
     run.events.push({ type: 'explode', x: m.x, y: m.y, radius: m.radius })
     m._dead = true
+    if (!m.small) {
+      const cluster = run.weaponMods.mines?.cluster ?? 0
+      if (cluster > 0) spawnClusterMines(run, m, cluster)
+    }
   }
   run.mines = run.mines.filter((m) => !m._dead)
 }
@@ -1031,6 +1142,8 @@ function fireHoming(run, stats) {
     : (p.facing >= 0 ? 0 : Math.PI)
 
   const count = stats.count
+  // Phantom Wisps: base pierce of 1 (dies on first hit, as before) + N per phantom pick.
+  const pierce = 1 + (run.weaponMods.homing?.phantom ?? 0)
   for (let i = 0; i < count; i++) {
     const angle = count > 1 ? baseAngle + (i - (count - 1) / 2) * HOMING_FAN : baseAngle
     run.homingShots.push({
@@ -1039,6 +1152,7 @@ function fireHoming(run, stats) {
       vy: Math.sin(angle) * stats.speed,
       dmg: stats.dmg, life: stats.life,
       speed: stats.speed, turnRate: stats.turnRate,
+      pierce, hitIds: new Set(),
     })
   }
   run.events.push({ type: 'shoot', weapon: 'homing' })
@@ -1047,12 +1161,12 @@ function fireHoming(run, stats) {
 function stepHomingShots(run, dt) {
   for (const h of run.homingShots) {
     h.life -= dt
-    if (h.life <= 0) continue
+    if (h.life <= 0 || h.pierce <= 0) continue
 
     let target = null
     let bestSq = Infinity
     for (const e of run.enemies) {
-      if (e._dead) continue
+      if (e._dead || h.hitIds.has(e.id)) continue
       const dx = e.x - h.x, dy = e.y - h.y
       const dSq = dx * dx + dy * dy
       if (dSq < bestSq) { bestSq = dSq; target = e }
@@ -1071,17 +1185,19 @@ function stepHomingShots(run, dt) {
     h.y += h.vy * dt
 
     for (const e of run.enemies) {
-      if (e._dead) continue
+      if (e._dead || h.hitIds.has(e.id)) continue
       const dx = e.x - h.x, dy = e.y - h.y
       const rad = HOMING_HIT_R + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, h.dmg)
-        h.life = 0
+        h.hitIds.add(e.id)
+        h.pierce--
+        if (h.pierce <= 0) h.life = 0
         break
       }
     }
   }
-  run.homingShots = run.homingShots.filter((h) => h.life > 0)
+  run.homingShots = run.homingShots.filter((h) => h.life > 0 && h.pierce > 0)
 }
 
 // -- Black hole -------------------------------------------------------------------------
@@ -1090,32 +1206,53 @@ function stepHoleWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireHole(run, stats))
 }
 
-function fireHole(run, stats) {
+// Picks a spawn spot for a hole: a random other in-view, not-yet-used enemy, falling back to a
+// random offset from the player when none are available (or all are excluded). Shared by the
+// main cast and Singularity's extra vortexes.
+function pickHoleSpot(run, excludeIds) {
   const p = run.player
   const viewSq = run.viewRadius * run.viewRadius
   const inView = run.enemies.filter((e) => {
-    if (e._dead) return false
+    if (e._dead || excludeIds.has(e.id)) return false
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= viewSq
   })
 
-  let x, y
   if (inView.length > 0) {
     const e = inView[Math.floor(Math.random() * inView.length)]
-    x = e.x; y = e.y
-  } else {
-    const a = Math.random() * Math.PI * 2
-    const d = 250 + Math.random() * 150
-    x = p.x + Math.cos(a) * d
-    y = p.y + Math.sin(a) * d
+    return { x: e.x, y: e.y, id: e.id }
   }
+  const a = Math.random() * Math.PI * 2
+  const d = 250 + Math.random() * 150
+  return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, id: null }
+}
+
+function fireHole(run, stats) {
+  const usedIds = new Set()
+  const main = pickHoleSpot(run, usedIds)
+  if (main.id != null) usedIds.add(main.id)
 
   run.holes.push({
-    x, y, radius: stats.radius, coreRadius: stats.radius * HOLE_CORE_FRAC,
+    x: main.x, y: main.y, radius: stats.radius, coreRadius: stats.radius * HOLE_CORE_FRAC,
     life: stats.duration, duration: stats.duration,
     dmg: stats.dmg, tick: stats.tick, pull: stats.pull, acc: 0,
   })
   run.events.push({ type: 'hole' })
+
+  // Singularity: N extra vortexes per cast, at HOLE_SINGULARITY_FRAC radius/coreRadius/pull,
+  // spawned on other random in-view enemies (falls back to a random offset, like the main cast).
+  const singularity = run.weaponMods.hole?.singularity ?? 0
+  for (let i = 0; i < singularity; i++) {
+    const spot = pickHoleSpot(run, usedIds)
+    if (spot.id != null) usedIds.add(spot.id)
+    const radius = stats.radius * HOLE_SINGULARITY_FRAC
+    run.holes.push({
+      x: spot.x, y: spot.y, radius, coreRadius: radius * HOLE_CORE_FRAC,
+      life: stats.duration, duration: stats.duration,
+      dmg: stats.dmg, tick: stats.tick, pull: stats.pull * HOLE_SINGULARITY_FRAC, acc: 0,
+    })
+    run.events.push({ type: 'hole' })
+  }
 }
 
 // Suction ramps from HOLE_RIM_PULL_MUL at the rim up to full strength at the core, so things
@@ -1207,15 +1344,22 @@ function stepBeamWeapon(run, w, stats, fireRateMul, dt) {
 function fireBeam(run, stats) {
   const p = run.player
   const target = nearestEnemy(run)
-  const angle = target
+  const baseAngle = target
     ? Math.atan2(target.y - p.y, target.x - p.x)
     : (p.facing >= 0 ? 0 : Math.PI)
 
-  run.beams.push({
-    angle, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
-    tick: stats.tick, width: stats.width, length: stats.length,
-    rotSpeed: stats.rotSpeed, acc: 0,
-  })
+  // Prismatic Split: N extra beams per cast, evenly spread around the circle (2 beams total =
+  // 180° apart, 3 = 120°, ...), same stats, all rotating together (same rotSpeed keeps their
+  // relative spacing fixed for the whole cast).
+  const beamCount = 1 + (run.weaponMods.rainbow?.prismatic ?? 0)
+  const angleStep = (2 * Math.PI) / beamCount
+  for (let i = 0; i < beamCount; i++) {
+    run.beams.push({
+      angle: baseAngle + i * angleStep, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
+      tick: stats.tick, width: stats.width, length: stats.length,
+      rotSpeed: stats.rotSpeed, acc: 0,
+    })
+  }
   run.events.push({ type: 'beam' })
 }
 
@@ -1313,10 +1457,30 @@ function eligiblePassiveIds(run) {
   return Object.keys(PASSIVES).filter((id) => (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL)
 }
 
-// Star mods are offered only while the star weapon is owned, and only up to their pick cap.
-function eligibleStarModIds(run) {
-  if (!run.weapons.some((w) => w.id === 'star')) return []
-  return Object.keys(STAR_MODS).filter((id) => (run.starModPicks[id] ?? 0) < MAX_STAR_MOD_PICKS)
+// Weapon-mod candidates: for every OWNED weapon, every one of its WEAPON_MODS entries still
+// under its pick cap — as { weapon, mod } pairs (a mod id alone isn't enough to look up its
+// config once mods are split per-weapon). If more are eligible than MOD_POOL_MAX (several
+// weapons owned, each with several mods left), uniformly sample MOD_POOL_MAX of them per call
+// so mods don't crowd out weapon/passive/element cards.
+function eligibleWeaponModCandidates(run) {
+  const candidates = []
+  for (const w of run.weapons) {
+    const modCfgs = WEAPON_MODS[w.id]
+    if (!modCfgs) continue
+    const picks = run.weaponModPicks[w.id]
+    for (const modId of Object.keys(modCfgs)) {
+      if ((picks?.[modId] ?? 0) < MAX_WEAPON_MOD_PICKS) candidates.push({ weapon: w.id, mod: modId })
+    }
+  }
+  if (candidates.length <= MOD_POOL_MAX) return candidates
+
+  const pool = candidates.slice()
+  const sampled = []
+  while (sampled.length < MOD_POOL_MAX && pool.length > 0) {
+    const idx = Math.floor(Math.random() * pool.length)
+    sampled.push(pool.splice(idx, 1)[0])
+  }
+  return sampled
 }
 
 // Elements are offered always (no weapon prerequisite), up to their pick cap — but each
@@ -1342,21 +1506,22 @@ function makePassiveCard(run, id, rarity) {
   return { kind: 'passive', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: '💪', bonus }
 }
 
-// A star-mod card adopts whatever rarity was rolled for its slot, same as passives.
-// pierce/split/ricochet (flat) round to a whole extra hit/shard/bounce (min 1); blast (pct)
-// is additive %; multishot/chain (tier) look up a per-rarity bonus instead of rarityMult
-// (see STAR_MOD_TIER_BONUS in config.js — keeps volley size/jump count from spiraling).
-function makeStarModCard(run, id, rarity) {
-  const cfg = STAR_MODS[id]
+// A weapon-mod card adopts whatever rarity was rolled for its slot, same as passives.
+// flat mods round to a whole extra unit (min 1); pct mods are additive %; tier mods look up a
+// per-rarity bonus instead of rarityMult (see WEAPON_MOD_TIER_BONUS in config.js — keeps
+// per-cast entity counts from spiraling). tag names the owning weapon; id stays globally
+// unique across weapons (see WEAPON_MODS in config.js) so pickedIds dedup still works untouched.
+function makeWeaponModCard(run, weaponId, modId, rarity) {
+  const cfg = WEAPON_MODS[weaponId][modId]
   const mult = RARITIES[rarity].mult
   let bonus
-  if (cfg.kind === 'tier') bonus = STAR_MOD_TIER_BONUS[rarity]
+  if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity]
   else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * mult))
   else bonus = cfg.base * mult
   const desc = cfg.kind === 'pct'
     ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
     : `+${bonus} ${cfg.desc}`
-  return { kind: 'mod', id, title: cfg.name, desc, tag: 'Star upgrade', rarity, icon: cfg.icon, bonus }
+  return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc, tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
 }
 
 // An element card adopts whatever rarity was rolled for its slot, same as passives.
@@ -1370,9 +1535,9 @@ function makeElementCard(run, id, rarity) {
 }
 
 // Roll one card: pick a rarity weighted by player level, gather candidates at that rarity
-// (inherent-rarity weapons + all eligible passives/star-mods/elements adopting the roll), and
+// (inherent-rarity weapons + all eligible passives/weapon-mods/elements adopting the roll), and
 // walk down RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
-function rollCard(run, weaponPool, passiveIds, modIds, elementIds, pickedIds) {
+function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds) {
   let idx = RARITY_ORDER.indexOf(pickWeighted(rarityWeights(run.player.level)))
   while (idx >= 0) {
     const rarity = RARITY_ORDER[idx]
@@ -1383,8 +1548,8 @@ function rollCard(run, weaponPool, passiveIds, modIds, elementIds, pickedIds) {
     for (const pid of passiveIds) {
       if (!pickedIds.has(pid)) options.push(makePassiveCard(run, pid, rarity))
     }
-    for (const mid of modIds) {
-      if (!pickedIds.has(mid)) options.push(makeStarModCard(run, mid, rarity))
+    for (const mc of modCandidates) {
+      if (!pickedIds.has(mc.mod)) options.push(makeWeaponModCard(run, mc.weapon, mc.mod, rarity))
     }
     for (const eid of elementIds) {
       if (!pickedIds.has(eid)) options.push(makeElementCard(run, eid, rarity))
@@ -1398,17 +1563,17 @@ function rollCard(run, weaponPool, passiveIds, modIds, elementIds, pickedIds) {
 function buildLevelUpChoices(run) {
   const weaponPool = weaponCandidates(run)
   const passiveIds = eligiblePassiveIds(run)
-  const modIds = eligibleStarModIds(run)
+  const modCandidates = eligibleWeaponModCandidates(run)
   const elementIds = eligibleElementIds(run)
 
-  if (weaponPool.length === 0 && passiveIds.length === 0 && modIds.length === 0 && elementIds.length === 0) {
+  if (weaponPool.length === 0 && passiveIds.length === 0 && modCandidates.length === 0 && elementIds.length === 0) {
     return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
   }
 
   const pickedIds = new Set()
   const cards = []
   for (let i = 0; i < 3; i++) {
-    const card = rollCard(run, weaponPool, passiveIds, modIds, elementIds, pickedIds)
+    const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds)
     if (!card) break
     cards.push(card)
     pickedIds.add(card.id)

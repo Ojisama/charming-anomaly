@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R } from './config.js'
 
 const DARK = 0x3b3345
 const MAX_PARTICLES = 200
@@ -1664,7 +1664,9 @@ export function createRenderer(app) {
     s.position.set(o.x, o.y)
     s.tint = 0x2bbf9e
     s.rotation = animT * 1.6 + i * 1.1 // gentle rotation
-    s.scale.set(T.orbScale * (1 + 0.12 * Math.sin(animT * 6 + i * 2.1)))
+    // v4.1 Big Orbs mod: orbs carry their effective hit radius (o.r, falls back to ORB_R)
+    const sizeMul = (o.r ?? ORB_R) / ORB_R
+    s.scale.set(T.orbScale * sizeMul * (1 + 0.12 * Math.sin(animT * 6 + i * 2.1)))
   }
   function placeGem(s, g) {
     s.position.set(g.x, g.y)
@@ -1678,16 +1680,18 @@ export function createRenderer(app) {
     s.position.set(b.x, b.y)
     s.tint = 0xff8c42
     s.rotation = animT * 14 + i * 1.7 // fast spin, derived from animT so dt=0 freezes it
-    s.scale.set(T.boomerangScale * 1.15, T.boomerangScale * 0.92) // slight motion stretch
+    const sizeMul = b.hitR ? b.hitR / 14 : 1 // v4.1 Big Blade mod (14 = base BOOMERANG_HIT_R in sim.js)
+    s.scale.set(T.boomerangScale * sizeMul * 1.15, T.boomerangScale * sizeMul * 0.92) // slight motion stretch
   }
   function placeMine(s, m) {
     s.position.set(m.x, m.y)
+    const base = m.small ? 0.6 : 1 // v4.1 Cluster mod bomblets read smaller
     if (m.arm > 0) {
       s.alpha = 0.55
-      s.scale.set(1 + 0.05 * Math.sin(animT * 3 + (m.x + m.y) * 0.05)) // arming: slow pulse
+      s.scale.set(base * (1 + 0.05 * Math.sin(animT * 3 + (m.x + m.y) * 0.05))) // arming: slow pulse
     } else {
       s.alpha = 1
-      s.scale.set(1 + 0.1 * Math.sin(animT * 8 + (m.x + m.y) * 0.05)) // armed: faster pulse
+      s.scale.set(base * (1 + 0.1 * Math.sin(animT * 8 + (m.x + m.y) * 0.05))) // armed: faster pulse
     }
   }
   function placeHoming(s, h, i) {

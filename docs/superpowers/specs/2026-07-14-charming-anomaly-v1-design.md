@@ -209,3 +209,45 @@ or `e.affixes &&`) to cost effectively nothing off the hot path for the common c
   wisp in the same `dealDamage` call), volatile's bomb-then-blast sequence, gilded's
   doubled coin drop, frenzied's HP-gated speed boost, pacer's proximity speed boost,
   and anchored's immunity to both nova knockback and black-hole pull.
+
+## v4.1 addendum (2026-07-15) — weapon-mod parity
+
+Star's original six mods (pierce/blast/multishot/split/chain/ricochet) used to be the only
+weapon with a mod pool, letting it outscale every other weapon. `STAR_MODS` is now
+`WEAPON_MODS` (`src/config.js`): a mod pool per weapon (orbit/wave/boomerang/mines/homing/hole/
+rainbow each get 4-5 mods), globally-unique mod ids, offered only while the owning weapon is
+equipped. `run.weaponMods`/`run.weaponModPicks` are now nested by weapon id
+(`{ [weaponId]: { [modId]: n } }`); `MAX_STAR_MOD_PICKS` → `MAX_WEAPON_MOD_PICKS` (still 5),
+`STAR_MOD_TIER_BONUS` → `WEAPON_MOD_TIER_BONUS`. A new `MOD_POOL_MAX` (6) caps how many
+weapon-mod candidates a single level-up pool considers (uniformly sampled down when a player
+owns several modded-up weapons), so mods can't crowd out weapon/passive/element cards.
+
+Each new weapon gets one flashy behavioral mod plus a few plain stat mods:
+**orbit** Twin Ring (counter-rotating inner ring at 60% radius) + Big Sparks/Wide Orbit/
+Overdrive/Extra Sparks; **wave** Echo Wave (delayed re-casts at reduced damage) + Big Wave/
+Big Shove/Amplitude; **boomerang** Extra Blades/Long Throw/Big Blade/Heavy Blade; **mines**
+Cluster Bombs (bomblets flung out on pop) + Minefield/Big Boom/Heavy Charge; **homing**
+Phantom Wisps (wisps gain pierce + a `hitIds` set so they retarget instead of dying) +
+Extra Wisps/Long Life/Agile; **hole** Singularity (extra 55%-scale vortexes on other enemies)
++ Bigger Hole/Lasting Vortex/Denser Pull; **rainbow** Prismatic Split (extra beams evenly
+spread around the circle, rotating together) + Wide Beam/Long Beam/Sustain.
+
+`sim.js` gained `effectiveWeaponStats(run, w)`, which folds a weapon's accumulated stat mods
+(flat/pct) into a copy of its current-level numbers; used once per weapon per frame in
+`stepWeapons`. Behavioral mods stay out of that table and are read directly off
+`run.weaponMods.<weapon>.<mod>` at their trigger site (`fireStar`, `stepOrbitWeapon`,
+`stepWaveWeapon`, `stepMines`, `fireHoming`/`stepHomingShots`, `fireHole`, `fireBeam`).
+
+Render-contract deltas (render.js picks these up separately): `orbs[i]` is now `{ x, y, r }`
+(effective hit radius, was `{ x, y }`); `mines[i]` gains an optional `small: true` for Cluster
+Bombs bomblets; `homingShots[i]` gains `pierce` + `hitIds:Set` (previously died on first hit
+unconditionally); `boomerangs[i]` gains `hitR` (sim-internal collision radius, not required by
+render); level-up cards of `kind: 'mod'` now carry `weapon` (the owning weapon id) alongside `id`.
+
+`test/sim-test.js` gained **Run L** (`testWeaponModParity`): Twin Ring doubling orbit's orb
+count (entries carrying `r`, raised further by Big Sparks), Echo Wave producing 3 novas from
+one cast, Cluster Bombs leaving small mines behind a pop, Phantom Wisps hitting 2+ distinct
+enemies via `hitIds`, Singularity yielding a second 55%-scale hole, Prismatic Split yielding a
+second beam ~180° apart, a few plain stat mods (extraRang/extraWisp/bigWave) raising their
+entity counts/`maxR`, and level-up pool gating (no non-star mod ever appears star-only; orbit
+mods appear once orbit is owned).
