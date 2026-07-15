@@ -274,6 +274,11 @@ body {
   border: 2px solid var(--ink);
   line-height: 1;
 }
+/* element infusion chips read as a distinct category from weapons */
+.weapon-chip--element {
+  background: #efe6fb;
+  border-color: #8a5fd0;
+}
 .weapon-chip-icon { font-size: 0.95rem; }
 .weapon-chip-lv {
   font-size: 0.66rem;

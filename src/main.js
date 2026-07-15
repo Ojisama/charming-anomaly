@@ -72,7 +72,7 @@ const ui = initUI({
 const SFX_FOR_EVENT = {
   hit: 'hit', kill: 'kill', gem: 'gem', coin: 'coin',
   levelup: 'levelup', hurt: 'hurt', dead: 'death', victory: 'victory', shoot: 'shoot',
-  explode: 'explode', zap: 'zap', hole: 'hole', beam: 'beam',
+  explode: 'explode', hole: 'hole', beam: 'beam',
   // element combos reuse the closest existing sfx
   shatter: 'explode', overload: 'explode', frostarc: 'zap', conduct: 'zap',
 }

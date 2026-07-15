@@ -96,18 +96,6 @@ export const WEAPONS = {
       { dmg: 65, interval: 1.4, radius: 150, maxAlive: 7 },
     ],
   },
-  zap: {
-    name: 'Chain Zap',
-    desc: 'Lightning arcs from drone to drone.',
-    icon: '⚡', rarity: 'epic',
-    levels: [
-      { dmg: 22, interval: 1.70, chains: 3, chainRange: 150 },
-      { dmg: 27, interval: 1.55, chains: 4, chainRange: 160 },
-      { dmg: 33, interval: 1.40, chains: 4, chainRange: 170 },
-      { dmg: 39, interval: 1.25, chains: 6, chainRange: 180 },
-      { dmg: 45, interval: 1.10, chains: 7, chainRange: 195 },
-    ],
-  },
   homing: {
     name: 'Homing Wisps',
     desc: 'Curious sparks that chase whatever moves.',
@@ -125,11 +113,11 @@ export const WEAPONS = {
     desc: 'Opens a vortex that swallows the swarm.',
     icon: '🕳️', rarity: 'legendary',
     levels: [
-      { dmg: 4, tick: 0.25, interval: 6.5, radius: 170, duration: 1.8, pull: 260 },
-      { dmg: 5, tick: 0.25, interval: 6.0, radius: 195, duration: 2.0, pull: 300 },
-      { dmg: 6, tick: 0.22, interval: 5.5, radius: 225, duration: 2.2, pull: 340 },
-      { dmg: 8, tick: 0.22, interval: 5.0, radius: 245, duration: 2.4, pull: 380 },
-      { dmg: 9, tick: 0.20, interval: 4.5, radius: 265, duration: 2.6, pull: 420 },
+      { dmg: 4, tick: 0.25, interval: 6.5, radius: 510, duration: 1.8, pull: 260 },
+      { dmg: 5, tick: 0.25, interval: 6.0, radius: 585, duration: 2.0, pull: 300 },
+      { dmg: 6, tick: 0.22, interval: 5.5, radius: 675, duration: 2.2, pull: 340 },
+      { dmg: 8, tick: 0.22, interval: 5.0, radius: 735, duration: 2.4, pull: 380 },
+      { dmg: 9, tick: 0.20, interval: 4.5, radius: 795, duration: 2.6, pull: 420 },
     ],
   },
   rainbow: {
@@ -259,7 +247,7 @@ export const MAX_ELEMENT_PICKS = 5
 // this probability (rolled once per buildLevelUpChoices call, shared across all 3 card slots —
 // see eligibleElementIds in sim.js). Weapons/passives/star-mods always join when eligible, so
 // this makes element infusion cards appear roughly half as often as those in the level-up pool.
-export const ELEMENT_CARD_WEIGHT = 0.5
+export const ELEMENT_CARD_WEIGHT = 0.25
 
 // Shared DoT tick period for ignite/venom (finer than 3s duration so damage reads smoothly
 // without spamming a 'hit' event every single simulation frame).
@@ -327,15 +315,49 @@ export const WAVE_TABLE = [
   [90,  { drone: 3, wisp: 2 }],
   [140, { drone: 3, wisp: 2, tank: 1 }],
   [200, { drone: 2, wisp: 3, tank: 2 }],
-  [260, { drone: 2, wisp: 4, tank: 3 }],
+  [240, { drone: 1, wisp: 5, tank: 3 }], // final-minute frenzy: fastest type (wisp) dominates
+  [260, { drone: 1, wisp: 6, tank: 4 }],
 ]
-// spawns/second ramps linearly with time (gentler first minute, same late pressure)
-export const spawnRate = (t) => 0.6 + t * 0.021
-// enemy HP scales with time
-export const hpScale = (t) => 1 + t / 90
-export const MAX_ALIVE = 250
-export const ELITE_EVERY = 45   // seconds, first at t=40
+// spawns/second: linear early (unchanged for t <= SPAWN_LATE_START, so the tuned early game
+// doesn't shift), then an added quadratic term after that so the rate keeps accelerating all
+// the way to RUN_DURATION instead of flattening out. rate(300) ≈ 19.9/s (~2.9x the old ~6.9/s).
+export const SPAWN_RATE_BASE = 0.6
+export const SPAWN_RATE_LINEAR = 0.021
+export const SPAWN_LATE_START = 120     // s, when the late-game acceleration kicks in
+export const SPAWN_LATE_QUAD = 0.0004   // extra t^2 coefficient beyond SPAWN_LATE_START
+export const spawnRate = (t) => {
+  const base = SPAWN_RATE_BASE + t * SPAWN_RATE_LINEAR
+  if (t <= SPAWN_LATE_START) return base
+  const late = t - SPAWN_LATE_START
+  return base + SPAWN_LATE_QUAD * late * late
+}
+// enemy HP scales with time: unchanged for t <= HP_SCALE_LATE_START, then multiplied by a
+// growing late-game factor so HP keeps climbing instead of leveling off (hpScale(300) ≈ 7.6x
+// vs the old formula's flat 4.3x).
+export const HP_SCALE_LATE_START = 150
+export const HP_SCALE_LATE_RATE = 0.005
+export const hpScale = (t) => {
+  const base = 1 + t / 90
+  if (t <= HP_SCALE_LATE_START) return base
+  return base * (1 + HP_SCALE_LATE_RATE * (t - HP_SCALE_LATE_START))
+}
+export const MAX_ALIVE = 400
+// Elite cadence shrinks over the run: ELITE_EVERY_START seconds between elites at t=0,
+// linearly down to ELITE_EVERY_END by RUN_DURATION (so multiple elites can be alive at once
+// late-run — intended).
+export const ELITE_EVERY_START = 45  // seconds, first elite still at t=40 (see state.js _nextEliteAt)
+export const ELITE_EVERY_END = 12
+export const eliteEveryAt = (t) => {
+  const frac = Math.min(1, Math.max(0, t / RUN_DURATION))
+  return ELITE_EVERY_START + (ELITE_EVERY_END - ELITE_EVERY_START) * frac
+}
 export const SPAWN_RING = 60    // px beyond the larger half-screen diagonal
+// Enemy speed creep: enemies spawned later fly faster (already-spawned ones are untouched —
+// applied once at spawn time, not continuously).
+export const SPEED_CREEP_START = 120     // s, creep begins after this
+export const SPEED_CREEP_PER_SEC = 0.0004 // +0.04%/s of base speed
+export const SPEED_CREEP_CAP = 0.25       // max +25% speed
+export const speedCreepMul = (t) => 1 + Math.min(SPEED_CREEP_CAP, Math.max(0, t - SPEED_CREEP_START) * SPEED_CREEP_PER_SEC)
 
 // ---- Progression ---------------------------------------------------------------
 export const xpForLevel = (level) => 5 + level * 4

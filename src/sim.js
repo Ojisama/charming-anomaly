@@ -8,7 +8,7 @@ import {
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
   RARITIES, RARITY_ORDER, rarityWeights,
   ENEMIES, ELITE, WAVE_TABLE,
-  spawnRate, hpScale, MAX_ALIVE, ELITE_EVERY, SPAWN_RING,
+  spawnRate, hpScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
   xpForLevel, GEM_VALUE,
   STAR_LIFE, STAR_R, STAR_FAN, STAR_BLAST_RADIUS, ORB_R, NOVA_LIFE,
   STAR_SPLIT_DMG_FRAC, STAR_SPLIT_BASE_ANGLE, STAR_SPLIT_MAX_SPREAD,
@@ -145,7 +145,7 @@ function stepSpawning(run, dt) {
 
 function spawnEnemy(run) {
   const isElite = run.time >= run._nextEliteAt
-  if (isElite) run._nextEliteAt += ELITE_EVERY
+  if (isElite) run._nextEliteAt += eliteEveryAt(run.time)
 
   const type = pickWeighted(waveWeights(run.time))
   const base = ENEMIES[type]
@@ -164,7 +164,7 @@ function spawnEnemy(run) {
     x, y,
     hp, maxHP: hp,
     radius: base.radius * (isElite ? ELITE.sizeMul : 1),
-    speed: base.speed,
+    speed: base.speed * speedCreepMul(run.time),
     dmg: base.dmg * (isElite ? ELITE.dmgMul : 1),
     elite: isElite,
     xp: base.xp,
@@ -528,7 +528,6 @@ function stepWeapons(run, dt) {
     else if (w.id === 'orbit') stepOrbitWeapon(run, stats, fireRateMul)
     else if (w.id === 'boomerang') stepBoomerangWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'mines') stepMinesWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'zap') stepZapWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'homing') stepHomingWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'hole') stepHoleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'rainbow') stepBeamWeapon(run, w, stats, fireRateMul, dt)
@@ -538,7 +537,6 @@ function stepWeapons(run, dt) {
   stepNovas(run, dt)
   stepBoomerangs(run, dt)
   stepMines(run, dt)
-  stepZaps(run, dt)
   stepHomingShots(run, dt)
   stepHoles(run, dt)
   stepBeams(run, dt)
@@ -885,48 +883,6 @@ function stepMines(run, dt) {
     m._dead = true
   }
   run.mines = run.mines.filter((m) => !m._dead)
-}
-
-// -- Chain zap ------------------------------------------------------------------------
-
-function stepZapWeapon(run, w, stats, fireRateMul, dt) {
-  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireZap(run, stats))
-}
-
-function fireZap(run, stats) {
-  const p = run.player
-  const viewRangeSq = (run.viewRadius + 100) ** 2
-  const chainRangeSq = stats.chainRange * stats.chainRange
-  const hitIds = new Set()
-  const points = [[p.x, p.y]]
-  let last = { x: p.x, y: p.y }
-
-  for (let i = 0; i < stats.chains; i++) {
-    const maxSq = i === 0 ? viewRangeSq : chainRangeSq
-    let target = null
-    let bestSq = Infinity
-    for (const e of run.enemies) {
-      if (e._dead || hitIds.has(e.id)) continue
-      const dx = e.x - last.x, dy = e.y - last.y
-      const dSq = dx * dx + dy * dy
-      if (dSq <= maxSq && dSq < bestSq) { bestSq = dSq; target = e }
-    }
-    if (!target) break
-    applyDamage(run, target, stats.dmg)
-    hitIds.add(target.id)
-    points.push([target.x, target.y])
-    last = target
-  }
-
-  if (points.length > 1) {
-    run.zaps.push({ points, life: 0.25 })
-    run.events.push({ type: 'zap' })
-  }
-}
-
-function stepZaps(run, dt) {
-  for (const z of run.zaps) z.life -= dt
-  run.zaps = run.zaps.filter((z) => z.life > 0)
 }
 
 // -- Homing wisps ---------------------------------------------------------------------

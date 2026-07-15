@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC } from './config.js'
 
 const DARK = 0x3b3345
 const MAX_PARTICLES = 200
@@ -47,7 +47,7 @@ function mix(a, b, t) {
   return r << 16 | g << 8 | c
 }
 
-// Deterministic pseudo-random in [0,1) from a numeric seed. Used for zap jitter so the
+// Deterministic pseudo-random in [0,1) from a numeric seed. Used for arc jitter so the
 // jagged shape is stable frame-to-frame (no flicker, stays frozen when dt=0) instead of
 // re-rolling with Math.random() every redraw.
 function hash(n) {
@@ -268,6 +268,19 @@ export function createRenderer(app) {
       g.circle(0, 0, R * 0.16).fill(0x140a24)
       T.holeCore = bake(g)
       T.holeRefR = R
+      // Giant-hole body: smooth radial gradient disc (low-frequency, upscales cleanly —
+      // the twirl sprites do NOT, so they only serve as fixed-size core detail now)
+      const c = document.createElement('canvas')
+      c.width = c.height = 512
+      const ctx = c.getContext('2d')
+      const grad = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
+      grad.addColorStop(0, 'rgba(38,20,84,0.55)')
+      grad.addColorStop(0.55, 'rgba(58,32,122,0.34)')
+      grad.addColorStop(0.85, 'rgba(90,47,176,0.14)')
+      grad.addColorStop(1, 'rgba(90,47,176,0)')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 512, 512)
+      T.holeDisc = Texture.from(c)
     }
     // prism beam: horizontal rainbow bar, baked at the weapon's max length/width,
     // anchored so local (0,0) sits at the left edge (player origin)
@@ -494,13 +507,12 @@ export function createRenderer(app) {
   const orbLayer = new Container()
   const homingLayer = new Container()
   const beamLayer = new Container()
-  const zapG = new Graphics()
-  const arcG = new Graphics() // elemental combo arcs (frostarc/conduct) — sibling to zapG, same draw technique
+  const arcG = new Graphics() // elemental shock arcs (shockarc/frostarc/conduct)
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer, enemyLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, zapG, arcG,
+    bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, arcG,
     particleLayer, textLayer,
   )
 
@@ -769,29 +781,27 @@ export function createRenderer(app) {
   // beam streaks) that need independent per-frame transforms on their children, so they
   // can't be a flat syncPool() of single Sprites — each pool slot is a small Container rig
   // instead, grown/hidden with the same acquire-once/hide-tail pattern as syncPool above.
+  // Hole rig: gradient disc + crisp vector rim sized to the REAL radius per frame
+  // (both upscale cleanly); the twirl sprites stay near their native resolution as a
+  // fixed-size spinning core — stretching them to a 700px+ radius washes them to fog.
+  const HOLE_TWIRL_MAX = 460 // px, twirl detail size cap
   function acquireHole() {
     const root = new Container()
-    const rim = new Sprite(T.fx.light_02)
-    rim.anchor.set(0.5)
-    rim.tint = 0x5a2fb0
-    rim.alpha = 0.35
-    // twirl/light glyphs fill less of their canvas than FX_FILL assumes — multipliers
-    // trimmed so the visible swirl matches the gameplay pull radius, not overshoots it
-    rim.scale.set(fxScale(T.fx.light_02, T.holeRefR * 1.25))
+    const disc = new Sprite(T.holeDisc)
+    disc.anchor.set(0.5)
+    const ring = new Graphics()
     const vortexA = new Sprite(T.fx.twirl_01)
     vortexA.anchor.set(0.5)
     vortexA.tint = 0x2f1a66
     vortexA.alpha = 1
-    vortexA.scale.set(fxScale(T.fx.twirl_01, T.holeRefR * 1.2))
     const vortexB = new Sprite(T.fx.twirl_02)
     vortexB.anchor.set(0.5)
     vortexB.tint = 0x5a2fb0
     vortexB.alpha = 0.9
-    vortexB.scale.set(fxScale(T.fx.twirl_02, T.holeRefR * 1.0))
     const core = spriteOf(T.holeCore)
-    root.addChild(rim, vortexA, vortexB, core)
+    root.addChild(disc, ring, vortexA, vortexB, core)
     holeLayer.addChild(root)
-    return { root, rim, vortexA, vortexB, core }
+    return { root, disc, ring, vortexA, vortexB, core, _r: 0 }
   }
 
   function syncHoles(list) {
@@ -1135,30 +1145,15 @@ export function createRenderer(app) {
     }
   }
 
-  // shared Graphics for lightning: rare + short-lived, so a per-frame redraw is fine
-  function redrawZaps(run) {
-    zapG.clear()
-    for (let zi = 0; zi < run.zaps.length; zi++) {
-      const z = run.zaps[zi]
-      const pts = z.points
-      if (!pts || pts.length < 2) continue
-      const alpha = Math.max(0, Math.min(1, z.life / 0.25))
-      const path = jitterPath(pts, zi * 3.7)
-      // two-pass stroke: thick soft indigo/violet outer glow, thin bright core
-      strokePath(zapG, path, 7, 0x6c5ce7, alpha * 0.35)
-      strokePath(zapG, path, 2, 0xffe94d, alpha)
-    }
-  }
-
   function strokePath(g, path, width, color, alpha) {
     g.moveTo(path[0][0], path[0][1])
     for (let i = 1; i < path.length; i++) g.lineTo(path[i][0], path[i][1])
     g.stroke({ width, color, alpha, join: 'round', cap: 'round' })
   }
 
-  // Elemental combo arcs (frostarc/conduct): same jagged-polyline look as zaps, but a
-  // one-off render-local pool instead of run-state (these are single combo-proc events,
-  // not a persisting sim list like run.zaps) — spawn once, fade over `dur`, then recycle.
+  // Elemental shock arcs (shockarc/frostarc/conduct): jagged-polyline visuals driven by a
+  // one-off render-local pool instead of run-state (these are single-shock proc events,
+  // not a persisting sim list) — spawn once, fade over `dur`, then recycle.
   const MAX_ARCS = 8
   const arcs = []
   for (let i = 0; i < MAX_ARCS; i++) {
@@ -1191,8 +1186,8 @@ export function createRenderer(app) {
     arcG.clear()
   }
 
-  // Jagged-jitter builder shared by redrawZaps/redrawArcs: same deterministic-hash trick
-  // (stable frame-to-frame, freezes cleanly at dt=0) — factored out so arcs don't duplicate it.
+  // Jagged-jitter builder used by redrawArcs: deterministic-hash trick (stable frame-to-frame,
+  // freezes cleanly at dt=0).
   function jitterPath(pts, salt) {
     const path = [pts[0]]
     for (let i = 0; i < pts.length - 1; i++) {
@@ -1271,19 +1266,6 @@ export function createRenderer(app) {
           explosionBurst(e.x, e.y, e.radius)
           addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
           break
-        case 'zap': {
-          addShake(1.5, 0.1)
-          // flare flash at each chain node + a bolt sprite at the final hit point
-          const z = run.zaps[run.zaps.length - 1]
-          if (z && z.points && z.points.length > 1) {
-            for (const [zx, zy] of z.points) {
-              spawnParticle(T.fx.flare_01, zx, zy, 0, 0, 0.22, 0.09, 0xffe94d, -0.1, 0)
-            }
-            const [fx, fy] = z.points[z.points.length - 1]
-            spawnParticle(T.fx.spark_05, fx, fy, 0, 0, 0.2, 0.14, 0xffffff, 0.3, 0)
-          }
-          break
-        }
         case 'hole':
           // vortex opening reads fine on its own — no shake
           break
@@ -1358,7 +1340,6 @@ export function createRenderer(app) {
     for (const bv of beamPool) bv.root.visible = false
     clearParticles()
     clearRings()
-    zapG.clear()
     clearArcs()
     clearDamage()
     clearFloorLayer()
@@ -1567,7 +1548,6 @@ export function createRenderer(app) {
     syncPool(homingPool, homingLayer, run.homingShots, 'homing', T.homing, placeHoming)
     syncHoles(run.holes)
     syncBeams(run.beams)
-    redrawZaps(run)
     updateArcs(dt)
     redrawArcs()
 
@@ -1636,12 +1616,23 @@ export function createRenderer(app) {
   }
   function placeHole(hv, h, i) {
     hv.root.position.set(h.x, h.y)
-    const k = h.radius / T.holeRefR
     const breathe = 1 + 0.05 * Math.sin(animT * 4 + i * 1.7) // subtle scale breathing
-    hv.root.scale.set(k * breathe)
+    hv.root.scale.set(breathe)
+    // children sized to the real radius (root stays ~1 so the twirl cap holds)
+    hv.disc.scale.set((h.radius * 2) / 512)
+    const twirlPx = Math.min(h.radius * 1.2, HOLE_TWIRL_MAX)
+    hv.vortexA.scale.set(fxScale(T.fx.twirl_01, twirlPx))
+    hv.vortexB.scale.set(fxScale(T.fx.twirl_02, twirlPx * 0.85))
+    hv.core.scale.set((h.radius * HOLE_CORE_FRAC) / (T.holeRefR * 0.16))
+    if (hv._r !== h.radius) { // crisp rim ring, redrawn only when the radius changes
+      hv._r = h.radius
+      hv.ring.clear()
+      hv.ring.circle(0, 0, h.radius).stroke({ width: 5, color: 0x5a2fb0, alpha: 0.4 })
+      hv.ring.circle(0, 0, h.radius * 0.985).stroke({ width: 2, color: 0xc9b3f5, alpha: 0.35 })
+    }
     hv.vortexA.rotation = animT * 1.8 + i * 0.6
     hv.vortexB.rotation = -animT * 1.8 * 1.4 + i * 0.9 // counter-rotating, 1.4x speed
-    hv.rim.rotation = animT * 0.4
+    hv.ring.rotation = animT * 0.4
 
     const elapsed = h.duration - h.life
     let a = elapsed < 0.2 ? elapsed / 0.2 : 1

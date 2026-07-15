@@ -71,21 +71,19 @@ export function shopBonus(meta, id) {
  * v2 weapon entities (all sim-owned, render-drawn):
  * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set }  (hit cleared at turnaround)
  * mines[i]:     { x, y, arm (s until armed), dmg, radius }
- * zaps[i]:      { points:[[x,y],...], life }        transient lightning visuals; damage applied on spawn
  * homingShots[i]: { x, y, vx, vy, dmg, life }
  * holes[i]:     { x, y, radius, coreRadius, life, duration, dmg, tick, pull }
  *               coreRadius is the inner "consumed" zone (amplified tick damage; see stepHoles)
  * beams[i]:     { angle, life, duration, dmg, tick, width, length }  origin = player
  *
  * Extra events beyond v1: {type:'explode',x,y,radius} mine pop or star-blast explosion (radius
- * from config: mine's own blast radius, or STAR_BLAST_RADIUS for star blasts) · {type:'zap'} ·
+ * from config: mine's own blast radius, or STAR_BLAST_RADIUS for star blasts) ·
  * {type:'hole'} vortex opens · {type:'beam'} beam starts.
  *
  * Shock arc visual (see applyShock in sim.js): every lightning shock arc emits exactly one of
  * the three events below — frostarc/conduct when their combo triggers on that shock, otherwise
- * the plain {type:'shockarc', points:[[x,y],…]} (polyline: source enemy, then each arc target,
- * same shape as frostarc/conduct/run.zaps' points) — never more than one per shock, so the arc
- * never double-renders.
+ * the plain {type:'shockarc', points:[[x,y],…]} (polyline: source enemy, then each arc target)
+ * — never more than one per shock, so the arc never double-renders.
  *
  * Combo events (see COMBOS in config.js, emitted by stepStatuses' shock/status handling):
  *   {type:'shatter', x, y, radius}       fire+cold: fire hitting a chilled/frozen enemy (or cold
@@ -93,13 +91,13 @@ export function shopBonus(meta, id) {
  *                                        chill/freeze.
  *   {type:'frostarc', points:[[x,y],…]}  cold+lightning: a shock arc launched from a chilled
  *                                        enemy also chills every enemy it hits. points is a
- *                                        polyline like run.zaps' points (source, then each target).
+ *                                        polyline (source, then each target), same shape as shockarc.
  *   {type:'overload', x, y, radius}      fire+lightning: a shock arc landing on an ignited enemy
  *                                        detonates its remaining ignite damage instantly as an
  *                                        AoE burst, consuming the ignite.
  *   {type:'conduct', points:[[x,y],…]}   lightning+venom: a shock arc launched from a venomed
  *                                        enemy copies its venom stacks onto every arc target.
- *                                        points is a polyline like run.zaps' points.
+ *                                        points is a polyline, same shape as shockarc.
  *   (fire+venom Acid Burn and cold+venom Brittle are passive DoT/amp modifiers with no event.)
  *
  * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus }
@@ -150,7 +148,6 @@ export function createRun(meta) {
     orbs: [],
     boomerangs: [],
     mines: [],
-    zaps: [],
     homingShots: [],
     holes: [],
     beams: [],

@@ -1,7 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { createRun } from '../src/state.js'
-import { SHOP, PASSIVES, RARITIES } from '../src/config.js'
+import { SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
@@ -106,7 +106,6 @@ function testVictory() {
 const NEW_WEAPON_ENTITY = {
   boomerang: 'boomerangs',
   mines: 'mines',
-  zap: 'zaps',
   homing: 'homingShots',
   hole: 'holes',
   rainbow: 'beams',
@@ -511,6 +510,41 @@ function testHolePullsCoins() {
   console.log(`PASS run H (black hole pulls coins, not gems): before=${before.toFixed(1)} after=${after.toFixed(1)}`)
 }
 
+// Difficulty must keep climbing all the way to the end, not flatten out once a build comes
+// online: (a) the spawnRate/hpScale/elite-cadence curves hit their late-game targets, and (b)
+// with weapons stripped (so nothing ever dies and enemies simply pile up — contact damage hurts
+// the player but never removes an enemy, see stepContactDamage) a late-run alive-count snapshot
+// beats an early one, showing the higher spawn rate + MAX_ALIVE cap actually let more enemies
+// stack up on screen later in the run.
+function testEscalation() {
+  assert(spawnRate(300) >= 15, `expected spawnRate(300) >= 15, got ${spawnRate(300)}`)
+  assert(hpScale(300) >= 7, `expected hpScale(300) >= 7, got ${hpScale(300)}`)
+  assert(eliteEveryAt(290) <= 15, `expected elite step at t=290 <= 15s, got ${eliteEveryAt(290)}`)
+
+  const run = createRun(makeMeta())
+  run.weapons = []
+  run.player.hp = 1e9
+  run.player.maxHP = 1e9
+
+  const dt = 1 / 60
+  let earlyAlive = 0
+  let lateAlive = 0
+  const steps = Math.round(280 / dt)
+  for (let i = 0; i < steps; i++) {
+    if (run.phase === 'levelup') { declineLevelUp(run); continue }
+    if (run.phase !== 'playing') break
+    stepSim(run, { x: 0, y: 0 }, dt)
+    if (Math.abs(run.time - 60) < dt) earlyAlive = run.enemies.length
+    if (Math.abs(run.time - 280) < dt) lateAlive = run.enemies.length
+  }
+
+  assert(earlyAlive > 0, `expected some enemies alive at the t=60 snapshot, got ${earlyAlive}`)
+  assert(lateAlive > earlyAlive,
+    `expected late-run alive count (${lateAlive}) > early-run alive count (${earlyAlive})`)
+
+  console.log(`PASS run I (escalating difficulty): spawnRate(300)=${spawnRate(300).toFixed(2)} hpScale(300)=${hpScale(300).toFixed(2)} eliteStep(290)=${eliteEveryAt(290).toFixed(2)} earlyAlive=${earlyAlive} lateAlive=${lateAlive}`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -521,6 +555,7 @@ try {
   testAdvancedStarMods()
   testElements()
   testHolePullsCoins()
+  testEscalation()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
