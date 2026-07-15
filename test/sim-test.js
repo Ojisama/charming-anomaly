@@ -32,14 +32,26 @@ function finite(n) {
   return typeof n === 'number' && Number.isFinite(n)
 }
 
+// Elements now compete for level-up slots alongside weapons/passives/star-mods. Auto-picking
+// index 0 could occasionally hand a run a free elemental infusion it didn't ask for, which
+// would contaminate tests that are specifically isolating another system's effect (e.g. star
+// mods vs a star-only baseline). Picking the first non-'element' offer keeps those tests'
+// power budget exactly what they set up explicitly; runs that want elements force them onto
+// run.elements directly (see testElements), mirroring how testStarMods forces run.starMods.
+function pickNonElementIndex(run) {
+  const choices = run.levelUpChoices || []
+  const idx = choices.findIndex((c) => c.kind !== 'element')
+  return idx >= 0 ? idx : 0
+}
+
 // Advances `run` by stepping stepSim, auto-resolving any levelup screens
-// (always picks choice 0) so the run keeps flowing like main.js would drive it.
+// (picks the first non-element choice) so the run keeps flowing like main.js would drive it.
 function advance(run, seconds, dt, input) {
   const steps = Math.round(seconds / dt)
   const eventsSeen = new Set()
   for (let i = 0; i < steps; i++) {
     if (run.phase === 'levelup') {
-      applyChoice(run, 0)
+      applyChoice(run, pickNonElementIndex(run))
       run.phase = 'playing'
       continue
     }
@@ -112,7 +124,7 @@ function testNewWeapons() {
     let t = 0
     for (let i = 0; i < steps; i++) {
       if (run.phase === 'levelup') {
-        applyChoice(run, 0)
+        applyChoice(run, pickNonElementIndex(run))
         run.phase = 'playing'
         continue
       }
@@ -176,25 +188,60 @@ function testRaritySanity() {
   console.log(`PASS run E (rarity sanity): L1=${JSON.stringify(seenL1)} L12=${JSON.stringify(seenL12)}`)
 }
 
-// Star mods: force a star-only run with pierce+blast maxed out and check it kills more than
-// a plain star-only baseline over the same time, plus that blast actually emits radius'd
-// explode events (pierce is harder to observe directly from outside sim.js internals).
+// Declines every level-up screen (still banks the xp/level, per stepLevelUp, but grants no
+// weapon/passive/mod/element bonus). Used by controlled A/B comparisons below so the two
+// runs' power gap is exactly whatever was forced onto them — organic level-up picks are
+// themselves RNG-driven and would otherwise contaminate the comparison with an unrelated
+// (and unequal, since the two runs walk the same global RNG stream one after another)
+// weapon/passive/element path.
+function declineLevelUp(run) {
+  run.levelUpChoices = null
+  run.phase = 'playing'
+}
+
+// A hand-placed enemy with every elemental-status field initialized, matching what
+// spawnEnemy sets up in sim.js (see state.js's enemies[] doc block for the field contract).
+function makeStatusEnemy(run, { x, y, type = 'drone', elite = false, hp = 1e6, speed = 90 }) {
+  return {
+    id: run._nextId++, type, x, y,
+    hp, maxHP: hp, radius: 16, speed, dmg: 8, elite, xp: 1,
+    hitFlash: 0, orbCd: 0, kb: { x: 0, y: 0 }, holePull: 0,
+    ignite: 0, igniteDps: 0, chill: 0, chillSlow: 0, frozen: 0, venom: 0, venomT: 0,
+    _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
+  }
+}
+
+// Ring of near-immortal drones around the origin, close enough together that pierce/blast
+// mods (and, in run G, shock arcs) have plenty of neighbors to reach — a fixed target-rich
+// field so a stronger build's extra damage shows up as more total damage dealt instead of
+// being masked by target starvation (a strong build can clear a small finite spawn faster and
+// then simply run out of things to shoot, which is what made the original kill-count race
+// between star-mod baseline/modded a near-tie: both cleared everything spawnable either way).
+function seedTargetRing(run, count, hp, radius) {
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2
+    run.enemies.push(makeStatusEnemy(run, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius, hp, speed: 0 }))
+  }
+}
+
+// Star mods: force a star-only run with pierce+blast maxed out and check it deals more total
+// damage than a plain star-only baseline over the same time against a saturated target ring,
+// plus that blast actually emits radius'd explode events (pierce is harder to observe directly
+// from outside sim.js internals).
 function testStarMods() {
   const dt = 1 / 60
-  const steps = Math.round(45 / dt)
+  const steps = Math.round(20 / dt)
 
   function runStarOnly(mods) {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }]
     if (mods) Object.assign(run.starMods, mods)
+    seedTargetRing(run, 24, 1e6, 200)
     const explodeEvents = []
+    let totalDmg = 0
     let t = 0
     for (let i = 0; i < steps; i++) {
-      if (run.phase === 'levelup') {
-        applyChoice(run, 0)
-        run.phase = 'playing'
-        continue
-      }
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
       if (run.phase !== 'playing') break
       t += dt
       const input = { x: Math.cos(t), y: Math.sin(t) }
@@ -203,23 +250,202 @@ function testStarMods() {
       run.events = [] // drain, mirroring main.js — otherwise events keep re-appearing every frame
       for (const e of events) {
         if (e.type === 'explode') explodeEvents.push(e)
+        if (e.type === 'hit') totalDmg += e.dmg
       }
     }
-    return { run, explodeEvents }
+    return { run, explodeEvents, totalDmg }
   }
 
   const baseline = runStarOnly(null)
   const modded = runStarOnly({ pierce: 3, blast: 0.9 })
 
-  assert(baseline.run.kills > 0, `expected baseline kills > 0, got ${baseline.run.kills}`)
-  assert(modded.run.kills > baseline.run.kills,
-    `expected modded kills (${modded.run.kills}) > baseline kills (${baseline.run.kills})`)
+  assert(baseline.totalDmg > 0, `expected baseline total damage > 0, got ${baseline.totalDmg}`)
+  assert(modded.totalDmg > baseline.totalDmg,
+    `expected modded total damage (${modded.totalDmg}) > baseline total damage (${baseline.totalDmg})`)
   assert(modded.explodeEvents.length > 0, 'expected exploding-stars mod to emit explode events')
   for (const e of modded.explodeEvents) {
     assert(finite(e.radius) && e.radius > 0, `explode event missing/invalid radius: ${e.radius}`)
   }
 
-  console.log(`PASS run F (star mods): baseline kills=${baseline.run.kills} modded kills=${modded.run.kills} explosions=${modded.explodeEvents.length}`)
+  console.log(`PASS run F (star mods): baseline dmg=${baseline.totalDmg} modded dmg=${modded.totalDmg} explosions=${modded.explodeEvents.length}`)
+}
+
+// Multishot/split/chain/ricochet: force all four maxed alongside pierce/blast and check the
+// cumulative damage against a saturated target ring beats a pierce/blast-only baseline (same
+// seed/duration), that split actually produces _shard bullets, and that at least one bullet
+// chain-retargeted (run._chains debug counter, see state.js bullets[] doc).
+function testAdvancedStarMods() {
+  const dt = 1 / 60
+  const steps = Math.round(20 / dt)
+
+  function runStarOnly(mods) {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 3 }]
+    if (mods) Object.assign(run.starMods, mods)
+    seedTargetRing(run, 24, 1e6, 200)
+    let totalDmg = 0
+    let sawShard = false
+    let t = 0
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      t += dt
+      const input = { x: Math.cos(t), y: Math.sin(t) }
+      stepSim(run, input, dt)
+      const events = run.events
+      run.events = [] // drain, mirroring main.js
+      for (const e of events) if (e.type === 'hit') totalDmg += e.dmg
+      if (!sawShard && run.bullets.some((b) => b._shard)) sawShard = true
+    }
+    return { run, totalDmg, sawShard }
+  }
+
+  const baseline = runStarOnly({ pierce: 3, blast: 0.9 })
+  const advanced = runStarOnly({ pierce: 3, blast: 0.9, multishot: 3, split: 2, chain: 3, ricochet: 2 })
+
+  assert(baseline.totalDmg > 0, `expected baseline total damage > 0, got ${baseline.totalDmg}`)
+  assert(advanced.totalDmg > baseline.totalDmg,
+    `expected advanced-mod total damage (${advanced.totalDmg}) > pierce/blast-only baseline (${baseline.totalDmg})`)
+  assert(advanced.sawShard, 'expected Split Stars to produce at least one _shard bullet')
+  assert((advanced.run._chains ?? 0) > 0, `expected at least one Chain Stars retarget, got ${advanced.run._chains}`)
+
+  console.log(`PASS run F2 (multishot/split/chain/ricochet): baseline dmg=${baseline.totalDmg} advanced dmg=${advanced.totalDmg} chains=${advanced.run._chains} ricochets=${advanced.run._ricochets ?? 0}`)
+}
+
+// Elements + combos: (a) ignite DoT alone can finish a kill, (b) chill slows movement and
+// stacks into a freeze on non-elites while elites/tanks never freeze, (c) every combo event
+// fires at least once when its element pair is forced, (d) a combo-loaded run outkills a
+// no-element baseline against the same saturated target field.
+function testElements() {
+  const dt = 1 / 60
+
+  // (a) Ignite DoT alone can kill: land exactly one hit, strip the weapon (and any bullet
+  // still in flight) so nothing but the burn can finish the job, then watch it happen.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 1 }]
+    Object.assign(run.elements, { fire: 5 })
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.enemies.push(makeStatusEnemy(run, { x: 100, y: 0, hp: 30, speed: 0 }))
+
+    let hitOnce = false
+    for (let i = 0; i < Math.round(2 / dt) && !hitOnce; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'hit')) hitOnce = true
+    }
+    assert(hitOnce, 'expected the seeded drone to take at least one hit')
+    const target = run.enemies.find((e) => !e._dead)
+    assert(target, 'expected the drone to survive the single hit (hp budgeted above one star hit)')
+    assert(target.ignite > 0, `expected ignite to be applied by the hit, got ${target.ignite}`)
+
+    run.weapons = [] // no more hits from here on
+    run.bullets = [] // ...and no in-flight bullet gets to land a second one either
+
+    let dotKilled = false
+    for (let i = 0; i < Math.round(4 / dt) && !dotKilled; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.kills > 0) dotKilled = true
+    }
+    assert(dotKilled, 'expected the ignite DoT alone (weapon removed) to kill the seeded drone')
+    console.log('PASS run G.a (ignite DoT alone kills)')
+  }
+
+  // (b) Chill slows movement; enough chilling hits within the chill window freeze a
+  // non-elite; an elite/tank is chilled the same way but never freezes.
+  function runChillScenario(elite) {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 1 }]
+    Object.assign(run.elements, { cold: 5 })
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const seed = makeStatusEnemy(run, { x: 120, y: 0, type: elite ? 'tank' : 'drone', elite, speed: 90 })
+    run.enemies.push(seed)
+
+    let sawSlower = false
+    let sawFreeze = false
+    const steps = Math.round(20 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      const before = run.enemies.find((e) => e.id === seed.id)
+      if (before && !sawSlower && before.chillSlow > 0 && before.frozen <= 0) {
+        const startX = before.x
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const after = run.enemies.find((e) => e.id === seed.id)
+        if (after) {
+          const actualDist = Math.abs(startX - after.x)
+          const fullSpeedDist = before.speed * dt
+          if (actualDist < fullSpeedDist * 0.95) sawSlower = true
+        }
+        continue
+      }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const after = run.enemies.find((e) => e.id === seed.id)
+      if (after && after.frozen > 0) sawFreeze = true
+    }
+    return { sawSlower, sawFreeze }
+  }
+
+  const chillDrone = runChillScenario(false)
+  assert(chillDrone.sawSlower, 'expected a chilled drone to move slower than its full speed')
+  assert(chillDrone.sawFreeze, 'expected the chilled non-elite drone to freeze at some point')
+
+  const chillTank = runChillScenario(true)
+  assert(chillTank.sawSlower, 'expected a chilled elite/tank to still be slowed')
+  assert.strictEqual(chillTank.sawFreeze, false, 'expected an elite/type tank to never freeze')
+  console.log(`PASS run G.b (chill slows + freezes non-elites, never elites/tanks)`)
+
+  // (c) Every combo event fires at least once when its element pair is forced, against a
+  // saturated ring of near-immortal targets (so DoT/stack windows have time to build up
+  // instead of the run just running out of nearby enemies).
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 3 }, { id: 'orbit', level: 3 }]
+    Object.assign(run.elements, { fire: 3, cold: 3, lightning: 4, venom: 3 })
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    seedTargetRing(run, 24, 1e6, 200)
+
+    const eventsSeen = new Set()
+    const steps = Math.round(30 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      for (const e of run.events) eventsSeen.add(e.type)
+    }
+    for (const type of ['shatter', 'frostarc', 'overload', 'conduct']) {
+      assert(eventsSeen.has(type), `expected combo event '${type}' to fire at least once (saw: ${[...eventsSeen].join(',')})`)
+    }
+    console.log('PASS run G.c (all four combo events fired: shatter, frostarc, overload, conduct)')
+  }
+
+  // (d) A combo-loaded run outkills a no-element baseline over the same saturated target
+  // field and duration.
+  function runComboKills(elements) {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 3 }, { id: 'orbit', level: 3 }]
+    if (elements) Object.assign(run.elements, elements)
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    seedTargetRing(run, 40, 150, 220)
+
+    const steps = Math.round(20 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    return run.kills
+  }
+
+  const baselineKills = runComboKills(null)
+  const comboKills = runComboKills({ fire: 3, cold: 3, lightning: 4, venom: 3 })
+  assert(comboKills > baselineKills,
+    `expected combo-loaded kills (${comboKills}) > no-element baseline kills (${baselineKills})`)
+
+  console.log(`PASS run G.d (combo run outkills baseline): baseline=${baselineKills} combo=${comboKills}`)
 }
 
 try {
@@ -229,6 +455,8 @@ try {
   testNewWeapons()
   testRaritySanity()
   testStarMods()
+  testAdvancedStarMods()
+  testElements()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

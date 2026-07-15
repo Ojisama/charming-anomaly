@@ -251,6 +251,14 @@ export function createRenderer(app) {
       g.circle(0, 0, 57).stroke({ width: 4, color: 0xffe0b8, alpha: 0.7 })
       T.novaWarm = bake(g)
     }
+    // neutral-white ring, same geometry as novaWarm, for spawnRing's optional tint param
+    // (elemental combo bursts like 'shatter' recolor this live instead of baking one per hue)
+    {
+      const g = new Graphics()
+      g.circle(0, 0, 64).stroke({ width: 10, color: 0xffffff })
+      g.circle(0, 0, 57).stroke({ width: 4, color: 0xffffff, alpha: 0.7 })
+      T.novaRing = bake(g)
+    }
     // black hole: dark near-black core, baked once at the weapon's max radius so most
     // instances (lower levels) scale down rather than blur up. The swirling vortex itself
     // is live counter-rotating fx sprites (see acquireHole()), not part of this bake.
@@ -487,11 +495,12 @@ export function createRenderer(app) {
   const homingLayer = new Container()
   const beamLayer = new Container()
   const zapG = new Graphics()
+  const arcG = new Graphics() // elemental combo arcs (frostarc/conduct) — sibling to zapG, same draw technique
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer, enemyLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, zapG,
+    bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, zapG, arcG,
     particleLayer, textLayer,
   )
 
@@ -947,13 +956,19 @@ export function createRenderer(app) {
   for (let i = 0; i < MAX_RINGS; i++) rings.push({ s: null, live: false, x: 0, y: 0, t: 0, dur: 0.35, maxR: 90 })
   let ringCursor = 0
 
-  function spawnRing(x, y, maxR = 90, dur = 0.35) {
+  // look: baked {tex,ax,ay} to draw (defaults to the warm explosion ring); tint: applied
+  // on top (defaults to white = baked colors as-is). Both optional/backward-compatible —
+  // existing explosionBurst() calls are untouched; elemental bursts (e.g. 'shatter') pass
+  // T.novaRing (neutral white) + a saturated tint so the same geometry can be recolored.
+  function spawnRing(x, y, maxR = 90, dur = 0.35, look = T.novaWarm, tint = 0xffffff) {
     const rg = rings[ringCursor]
     ringCursor = (ringCursor + 1) % MAX_RINGS
     if (!rg.s) {
-      rg.s = spriteOf(T.novaWarm)
+      rg.s = spriteOf(look)
       novaLayer.addChild(rg.s)
     }
+    if (rg.s.texture !== look.tex) rg.s.texture = look.tex
+    rg.s.tint = tint
     rg.live = true
     rg.x = x
     rg.y = y
@@ -985,7 +1000,7 @@ export function createRenderer(app) {
 
   // damage numbers: pooled Text objects, reuse the oldest when full
   const dmgTexts = []
-  function spawnDamage(x, y, dmg, crit) {
+  function spawnDamage(x, y, dmg, crit, dot) {
     let d = dmgTexts.find((t) => !t.live)
     if (!d && dmgTexts.length < MAX_DMG_TEXTS) {
       const t = new Text({
@@ -1012,9 +1027,10 @@ export function createRenderer(app) {
     d.x = x + (Math.random() * 10 - 5)
     d.y = y - 10
     d.t.text = String(Math.round(dmg))
-    d.t.tint = crit ? 0xff8c42 : 0xffffff
+    // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen
+    d.t.tint = crit ? 0xff8c42 : dot ? 0xd8cbbd : 0xffffff
     d.t.visible = true
-    d._base = crit ? 1.25 : 0.85
+    d._base = crit ? 1.25 : dot ? 0.6 : 0.85
   }
 
   function updateDamage(dt) {
@@ -1127,36 +1143,92 @@ export function createRenderer(app) {
       const pts = z.points
       if (!pts || pts.length < 2) continue
       const alpha = Math.max(0, Math.min(1, z.life / 0.25))
-      const path = [pts[0]]
-      for (let i = 0; i < pts.length - 1; i++) {
-        const [x1, y1] = pts[i]
-        const [x2, y2] = pts[i + 1]
-        const dx = x2 - x1
-        const dy = y2 - y1
-        const len = Math.hypot(dx, dy) || 1
-        const nx = -dy / len
-        const ny = dx / len
-        const subN = 2 + (hash(x1 * 12.9898 + y1 * 78.233 + zi * 3.7) > 0.5 ? 1 : 0) // 2-3 points
-        for (let s = 1; s <= subN; s++) {
-          const t = s / (subN + 1)
-          const bx = x1 + dx * t
-          const by = y1 + dy * t
-          const seed = x1 * 12.9898 + y1 * 78.233 + x2 * 4.14 + y2 * 9.23 + s * 17.17 + zi * 3.7
-          const j = (hash(seed) - 0.5) * 18
-          path.push([bx + nx * j, by + ny * j])
-        }
-        path.push([x2, y2])
-      }
+      const path = jitterPath(pts, zi * 3.7)
       // two-pass stroke: thick soft indigo/violet outer glow, thin bright core
-      strokeZapPath(path, 7, 0x6c5ce7, alpha * 0.35)
-      strokeZapPath(path, 2, 0xffe94d, alpha)
+      strokePath(zapG, path, 7, 0x6c5ce7, alpha * 0.35)
+      strokePath(zapG, path, 2, 0xffe94d, alpha)
     }
   }
 
-  function strokeZapPath(path, width, color, alpha) {
-    zapG.moveTo(path[0][0], path[0][1])
-    for (let i = 1; i < path.length; i++) zapG.lineTo(path[i][0], path[i][1])
-    zapG.stroke({ width, color, alpha, join: 'round', cap: 'round' })
+  function strokePath(g, path, width, color, alpha) {
+    g.moveTo(path[0][0], path[0][1])
+    for (let i = 1; i < path.length; i++) g.lineTo(path[i][0], path[i][1])
+    g.stroke({ width, color, alpha, join: 'round', cap: 'round' })
+  }
+
+  // Elemental combo arcs (frostarc/conduct): same jagged-polyline look as zaps, but a
+  // one-off render-local pool instead of run-state (these are single combo-proc events,
+  // not a persisting sim list like run.zaps) — spawn once, fade over `dur`, then recycle.
+  const MAX_ARCS = 8
+  const arcs = []
+  for (let i = 0; i < MAX_ARCS; i++) {
+    arcs.push({ live: false, points: null, life: 0, dur: 0.25, outer: 0x6c5ce7, inner: 0xffffff })
+  }
+  let arcCursor = 0
+
+  function spawnArc(points, outer, inner = 0xffffff, dur = 0.25) {
+    const a = arcs[arcCursor]
+    arcCursor = (arcCursor + 1) % MAX_ARCS
+    a.live = true
+    a.points = points
+    a.life = dur
+    a.dur = dur
+    a.outer = outer
+    a.inner = inner
+  }
+
+  function updateArcs(dt) {
+    if (dt <= 0) return
+    for (const a of arcs) {
+      if (!a.live) continue
+      a.life -= dt
+      if (a.life <= 0) a.live = false
+    }
+  }
+
+  function clearArcs() {
+    for (const a of arcs) a.live = false
+    arcG.clear()
+  }
+
+  // Jagged-jitter builder shared by redrawZaps/redrawArcs: same deterministic-hash trick
+  // (stable frame-to-frame, freezes cleanly at dt=0) — factored out so arcs don't duplicate it.
+  function jitterPath(pts, salt) {
+    const path = [pts[0]]
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x1, y1] = pts[i]
+      const [x2, y2] = pts[i + 1]
+      const dx = x2 - x1
+      const dy = y2 - y1
+      const len = Math.hypot(dx, dy) || 1
+      const nx = -dy / len
+      const ny = dx / len
+      const subN = 2 + (hash(x1 * 12.9898 + y1 * 78.233 + salt) > 0.5 ? 1 : 0) // 2-3 points
+      for (let s = 1; s <= subN; s++) {
+        const t = s / (subN + 1)
+        const bx = x1 + dx * t
+        const by = y1 + dy * t
+        const seed = x1 * 12.9898 + y1 * 78.233 + x2 * 4.14 + y2 * 9.23 + s * 17.17 + salt
+        const j = (hash(seed) - 0.5) * 18
+        path.push([bx + nx * j, by + ny * j])
+      }
+      path.push([x2, y2])
+    }
+    return path
+  }
+
+  function redrawArcs() {
+    arcG.clear()
+    for (let ai = 0; ai < arcs.length; ai++) {
+      const a = arcs[ai]
+      if (!a.live) continue
+      const pts = a.points
+      if (!pts || pts.length < 2) continue
+      const alpha = Math.max(0, Math.min(1, a.life / a.dur))
+      const path = jitterPath(pts, ai * 3.7)
+      strokePath(arcG, path, 7, a.outer, alpha * 0.35)
+      strokePath(arcG, path, 2, a.inner, alpha)
+    }
   }
 
   function levelupBurst(x, y) {
@@ -1173,7 +1245,7 @@ export function createRenderer(app) {
     for (const e of events) {
       switch (e.type) {
         case 'hit':
-          spawnDamage(e.x, e.y, e.dmg, e.crit)
+          spawnDamage(e.x, e.y, e.dmg, e.crit, e.dot)
           break
         case 'kill':
           killPoof(e.x, e.y, e.etype, e.elite)
@@ -1219,6 +1291,43 @@ export function createRenderer(app) {
           beamSparkle(run.player.x, run.player.y)
           addShake(2, 0.12)
           break
+        case 'shatter': {
+          // icy burst: neutral ring recolored ice-blue + shard particles flung outward
+          const radius = e.radius || 60
+          spawnRing(e.x, e.y, radius, 0.35, T.novaRing, 0x9fd8ff)
+          const n = 6 + (Math.random() * 3 | 0) // 6-8
+          for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 90 + Math.random() * 130
+            spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.3 + Math.random() * 0.15, 0.1 + Math.random() * 0.05, 0x9fd8ff, -0.15, 3)
+          }
+          addShake(2, 0.12)
+          break
+        }
+        case 'overload':
+          // fiery burst: reuse the (already radius-scaled) explosion visuals
+          explosionBurst(e.x, e.y, e.radius || 90)
+          addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
+          break
+        case 'frostarc':
+          if (e.points && e.points.length > 1) {
+            spawnArc(e.points, 0x59b7ff, 0xffffff, 0.25)
+            for (const [ax, ay] of e.points) {
+              spawnParticle(T.fx.flare_01, ax, ay, 0, 0, 0.22, 0.09, 0x9fd8ff, -0.1, 0)
+            }
+          }
+          addShake(1.5, 0.1)
+          break
+        case 'conduct':
+          if (e.points && e.points.length > 1) {
+            spawnArc(e.points, 0x4fae4f, 0xe3f7df, 0.25)
+            for (const [ax, ay] of e.points) {
+              spawnParticle(T.fx.circle_05, ax, ay, 0, 0, 0.22, 0.09, 0x4fae4f, -0.1, 0)
+            }
+          }
+          addShake(1.5, 0.1)
+          break
       }
     }
   }
@@ -1242,6 +1351,7 @@ export function createRenderer(app) {
     clearParticles()
     clearRings()
     zapG.clear()
+    clearArcs()
     clearDamage()
     clearFloorLayer()
     shake.t = 0
@@ -1317,6 +1427,12 @@ export function createRenderer(app) {
         }
         s.visible = true
         s._look = null
+        // per-status particle cadence timers, kept on the sprite itself (it's the stable
+        // per-enemy-id slot, same idea as holeParticleTimers but keyed by id via the Map
+        // rather than a flat pool index — enemies don't have one)
+        s._frostT = 0
+        s._igniteT = 0
+        s._venomT = 0
         enemySprites.set(e.id, s)
       }
       s._seen = true
@@ -1334,14 +1450,65 @@ export function createRenderer(app) {
       const pull = e.holePull || 0
       const shrink = 1 - pull * 0.45
       s.scale.set(k * flip * shrink, k * shrink)
-      const wobble = e.type === 'wisp' ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
+
+      // Elemental status (contract fields, guarded — sim half may not have landed yet).
+      const frozen = e.frozen || 0
+      const chill = e.chill || 0
+      const venom = e.venom || 0
+      const ignite = e.ignite || 0
+
+      // frozen also halts walk/idle animation (here: the wisp's rotation wobble)
+      const wobble = (e.type === 'wisp' && frozen <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
       s.rotation = wobble + pull * animT * 5
       s.position.set(e.x, e.y)
+
+      // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
+      // hit-flash white silhouette overrides all of these so the hit pop still reads white.
+      if (e.hitFlash > 0) s.tint = 0xffffff
+      else if (frozen > 0) s.tint = 0x9fd8ff
+      else if (chill > 0) s.tint = 0xc4e4ff
+      else if (venom > 0) s.tint = 0xa8e6a0
+      else if (ignite > 0) s.tint = 0xffc09a
+      else s.tint = 0xffffff
+
+      // cheap status particles, dt-gated (no spawns while frozen behind a modal)
+      if (frameDt > 0) {
+        if (frozen > 0) {
+          s._frostT += frameDt
+          if (s._frostT >= 0.4) {
+            s._frostT -= 0.4
+            spawnParticle(T.fx.star_08, e.x, e.y - e.radius * 0.3, 0, -12,
+              0.4, 0.1, 0xcdeeff, -0.1, 1)
+          }
+        } else s._frostT = 0
+
+        if (ignite > 0) {
+          s._igniteT += frameDt
+          if (s._igniteT >= 0.25) {
+            s._igniteT -= 0.25
+            spawnParticle(T.fx.flame_05, e.x + (Math.random() * 8 - 4), e.y, 0, -34,
+              0.35, 0.09, 0xff7a30, 0.15, 0.5)
+          }
+        } else s._igniteT = 0
+
+        if (venom > 0) {
+          s._venomT += frameDt
+          if (s._venomT >= 0.4) {
+            s._venomT -= 0.4
+            const stacks = Math.min(venom, 8)
+            spawnParticle(T.fx.circle_05, e.x, e.y + e.radius * 0.25, 0, -18 - stacks * 3,
+              0.45, 0.05 + stacks * 0.006, 0x4fae4f, 0.06, 0.35)
+          }
+        } else s._venomT = 0
+      }
     }
     for (const [id, s] of enemySprites) {
       if (s._seen) s._seen = false
       else {
         s.visible = false
+        s._frostT = 0
+        s._igniteT = 0
+        s._venomT = 0
         enemyFree.push(s)
         enemySprites.delete(id)
       }
@@ -1393,6 +1560,8 @@ export function createRenderer(app) {
     syncHoles(run.holes)
     syncBeams(run.beams)
     redrawZaps(run)
+    updateArcs(dt)
+    redrawArcs()
 
     updateParticles(dt)
     updateRings(dt)

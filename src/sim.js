@@ -4,14 +4,23 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, STAR_MODS, MAX_STAR_MOD_PICKS,
+  PASSIVES, MAX_PASSIVE_LEVEL, STAR_MODS, MAX_STAR_MOD_PICKS, STAR_MOD_TIER_BONUS,
+  ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
   RARITIES, RARITY_ORDER, rarityWeights,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, ELITE_EVERY, SPAWN_RING,
   xpForLevel, GEM_VALUE,
   STAR_LIFE, STAR_R, STAR_FAN, STAR_BLAST_RADIUS, ORB_R, NOVA_LIFE,
+  STAR_SPLIT_DMG_FRAC, STAR_SPLIT_BASE_ANGLE, STAR_SPLIT_MAX_SPREAD,
+  STAR_CHAIN_RANGE, STAR_CHAIN_DMG_MUL, STAR_CHAIN_EXTRA_LIFE,
+  STAR_RICOCHET_DMG_MUL, STAR_RICOCHET_ANGLE_MIN, STAR_RICOCHET_ANGLE_MAX, STAR_RICOCHET_EXTRA_LIFE,
   HOLE_CORE_FRAC, HOLE_RIM_PULL_MUL, HOLE_RESIST_CAP, HOLE_SPIRAL_MUL,
   HOLE_CORE_DMG_MUL, HOLE_PULL_DECAY,
+  STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
+  CHILL_SLOW_BASE, CHILL_SLOW_PER_POTENCY, CHILL_SLOW_CAP, CHILL_DURATION,
+  CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
+  SHOCK_ARC_FRAC, SHOCK_BASE_TARGETS, SHOCK_RANGE, SHOCK_CD,
+  VENOM_MAX_STACKS, VENOM_DURATION, VENOM_DOT_PER_STACK, VENOM_AMP_PER_STACK,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -41,6 +50,7 @@ export function stepSim(run, input, dt) {
   if (stepContactDamage(run)) return // phase is now 'dead'
 
   stepWeapons(run, dt)
+  stepStatuses(run, dt)
   stepPickups(run, dt)
   stepLevelUp(run)
 }
@@ -66,6 +76,9 @@ export function applyChoice(run, i) {
   } else if (choice.kind === 'mod') {
     run.starMods[choice.id] = (run.starMods[choice.id] ?? 0) + choice.bonus
     run.starModPicks[choice.id] = (run.starModPicks[choice.id] ?? 0) + 1
+  } else if (choice.kind === 'element') {
+    run.elements[choice.id] = (run.elements[choice.id] ?? 0) + choice.bonus
+    run.elementPicks[choice.id] = (run.elementPicks[choice.id] ?? 0) + 1
   } else if (choice.kind === 'heal') {
     p.hp = Math.min(p.maxHP, p.hp + 30)
   }
@@ -159,6 +172,11 @@ function spawnEnemy(run) {
     orbCd: 0,
     kb: { x: 0, y: 0 },
     holePull: 0,
+    // Elemental status (see ELEMENTS/COMBOS in config.js; ticked by stepStatuses).
+    ignite: 0, igniteDps: 0,
+    chill: 0, chillSlow: 0, frozen: 0,
+    venom: 0, venomT: 0,
+    _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
   })
 }
 
@@ -173,9 +191,10 @@ function stepEnemyMovement(run, dt) {
   for (const e of run.enemies) {
     const dx = p.x - e.x, dy = p.y - e.y
     const d = Math.hypot(dx, dy)
-    if (d > 1e-6) {
-      e.x += (dx / d) * e.speed * dt
-      e.y += (dy / d) * e.speed * dt
+    const slowMul = e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) // chill/freeze slow the seek movement only
+    if (d > 1e-6 && slowMul > 0) {
+      e.x += (dx / d) * e.speed * slowMul * dt
+      e.y += (dy / d) * e.speed * slowMul * dt
     }
 
     e.x += e.kb.x * dt
@@ -222,10 +241,21 @@ function stepContactDamage(run) {
 // 'hit' event, and handle death/xp/coin drops. Used by applyDamage after it rolls the
 // player's multipliers/crit, and directly by effects (like star blasts) that derive
 // their damage from an already-rolled hit and shouldn't re-roll crit/multipliers.
-function dealDamage(run, enemy, dmg, crit) {
+function dealDamage(run, enemy, dmg, crit, dot = false) {
+  // Venom: amplifies ALL damage the enemy takes; Brittle (cold+venom) doubles the amp
+  // while the enemy is chilled/frozen.
+  if (enemy.venom > 0) {
+    let amp = enemy.venom * VENOM_AMP_PER_STACK
+    if (enemy.chill > 0 || enemy.frozen > 0) amp *= COMBOS.brittleAmpMul
+    dmg *= (1 + amp)
+  }
+  dmg = Math.round(dmg)
+
   enemy.hp -= dmg
-  enemy.hitFlash = 0.12
-  run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit })
+  // DoT ticks don't white-flash: with ignite/venom up they fire every STATUS_TICK and
+  // the enemy would strobe white permanently
+  if (!dot) enemy.hitFlash = 0.12
+  run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit, dot })
 
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
@@ -258,7 +288,212 @@ function applyDamage(run, enemy, baseDmg) {
   }
   dmg = Math.round(dmg)
   dealDamage(run, enemy, dmg, crit)
+  if (!enemy._dead) applyElements(run, enemy, dmg)
   return dmg
+}
+
+// ---- Elemental status + combos (see ELEMENTS/COMBOS in config.js) -----------------------
+// Applied once per real weapon hit (from applyDamage), using that hit's final dealt damage
+// as the basis for ignite/shock potency. DoT ticks and combo bursts deal their damage via
+// dealDamage directly (not applyDamage) so they don't re-roll crit/player multipliers or
+// recursively re-trigger elemental application.
+
+function comboReady(enemy, name) {
+  return (enemy._comboCd[name] || 0) <= 0
+}
+
+function triggerCombo(enemy, name) {
+  enemy._comboCd[name] = COMBOS.comboCd
+}
+
+function applyIgnite(enemy, potency, dmgDealt) {
+  enemy.ignite = IGNITE_DURATION
+  enemy.igniteDps = (IGNITE_DOT_FRAC * potency * dmgDealt) / IGNITE_DURATION
+}
+
+// Shared by the primary hit and Frost Arc's arc targets.
+function applyChill(enemy, potency) {
+  const wasChilling = enemy.chill > 0 && enemy.frozen <= 0
+  const slow = Math.min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency)
+  enemy.chill = CHILL_DURATION
+  if (enemy.frozen > 0) return // already frozen; window refreshed, no restacking needed
+
+  if (enemy._freezeImmuneT > 0) {
+    enemy.chillSlow = slow
+    enemy._chillStack = 0
+    return
+  }
+
+  enemy._chillStack = wasChilling ? enemy._chillStack + 1 : 1
+  if (enemy._chillStack >= CHILL_STACK_TO_FREEZE) {
+    enemy._chillStack = 0
+    if (enemy.elite || enemy.type === 'tank') {
+      // Elites/tanks never freeze — a stronger slow instead.
+      enemy.chillSlow = Math.min(1, slow * ELITE_FREEZE_SLOW_MUL)
+    } else {
+      enemy.chillSlow = slow
+      enemy.frozen = FREEZE_DURATION
+    }
+  } else {
+    enemy.chillSlow = slow
+  }
+}
+
+// Shared by the primary hit and Conduct's arc targets.
+function applyVenomStack(enemy, stacks = 1) {
+  enemy.venom = Math.min(VENOM_MAX_STACKS, enemy.venom + stacks)
+  enemy.venomT = VENOM_DURATION
+}
+
+// fire+cold Shatter: fire landing on a chilled/frozen enemy (or cold landing on an ignited
+// one) bursts AoE damage in COMBOS.shatterRadius, consuming the chill/freeze.
+function triggerShatter(run, enemy, dmgDealt) {
+  triggerCombo(enemy, 'shatter')
+  const dmg = Math.round(dmgDealt * COMBOS.shatterMul)
+  const radSq = COMBOS.shatterRadius * COMBOS.shatterRadius
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - enemy.x, dy = e.y - enemy.y
+    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+  }
+  enemy.chill = 0
+  enemy.frozen = 0
+  enemy.chillSlow = 0
+  enemy._chillStack = 0
+  run.events.push({ type: 'shatter', x: enemy.x, y: enemy.y, radius: COMBOS.shatterRadius })
+}
+
+// fire+lightning Overload: a shock arc landing on an ignited enemy detonates its remaining
+// ignite damage instantly as an AoE burst in COMBOS.overloadRadius, consuming the ignite.
+function triggerOverload(run, enemy) {
+  triggerCombo(enemy, 'overload')
+  const remaining = Math.round(enemy.igniteDps * enemy.ignite)
+  enemy.ignite = 0
+  enemy.igniteDps = 0
+  if (remaining > 0) {
+    const radSq = COMBOS.overloadRadius * COMBOS.overloadRadius
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - enemy.x, dy = e.y - enemy.y
+      if (dx * dx + dy * dy <= radSq) dealDamage(run, e, remaining, false)
+    }
+  }
+  run.events.push({ type: 'overload', x: enemy.x, y: enemy.y, radius: COMBOS.overloadRadius })
+}
+
+// Shock (lightning): arcs a share of this hit's dealt damage to nearby enemies, and carries
+// Overload/Frost Arc/Conduct depending on the source enemy's/targets' current status.
+function applyShock(run, enemy, potency, dmgDealt) {
+  if (enemy._shockCd > 0) return // per-source cooldown so continuous weapons don't spam arcs
+  const rangeSq = SHOCK_RANGE * SHOCK_RANGE
+  const nearby = []
+  for (const e of run.enemies) {
+    if (e === enemy || e._dead) continue
+    const dx = e.x - enemy.x, dy = e.y - enemy.y
+    const dSq = dx * dx + dy * dy
+    if (dSq <= rangeSq) nearby.push({ e, dSq })
+  }
+  if (nearby.length === 0) return
+  enemy._shockCd = SHOCK_CD
+
+  nearby.sort((a, b) => a.dSq - b.dSq)
+  const maxTargets = SHOCK_BASE_TARGETS + Math.floor(potency)
+  const targets = nearby.slice(0, maxTargets).map((n) => n.e)
+
+  const arcDmg = Math.round(SHOCK_ARC_FRAC * potency * dmgDealt)
+  const sourceChilled = enemy.chill > 0 || enemy.frozen > 0
+  const sourceVenomStacks = enemy.venom
+
+  const frostPoints = []
+  const conductPoints = []
+  for (const t of targets) {
+    if (arcDmg > 0) dealDamage(run, t, arcDmg, false)
+
+    if (t.ignite > 0 && comboReady(t, 'overload')) triggerOverload(run, t)
+
+    if (sourceChilled && comboReady(enemy, 'frostarc')) {
+      applyChill(t, potency)
+      frostPoints.push([t.x, t.y])
+    }
+    if (sourceVenomStacks > 0 && comboReady(enemy, 'conduct')) {
+      applyVenomStack(t, sourceVenomStacks)
+      conductPoints.push([t.x, t.y])
+    }
+  }
+  if (frostPoints.length > 0) {
+    triggerCombo(enemy, 'frostarc')
+    run.events.push({ type: 'frostarc', points: [[enemy.x, enemy.y], ...frostPoints] })
+  }
+  if (conductPoints.length > 0) {
+    triggerCombo(enemy, 'conduct')
+    run.events.push({ type: 'conduct', points: [[enemy.x, enemy.y], ...conductPoints] })
+  }
+}
+
+// Entry point called by applyDamage after every real weapon hit lands.
+function applyElements(run, enemy, dmgDealt) {
+  const pot = run.elements
+  const preChill = enemy.chill > 0 || enemy.frozen > 0
+  const preIgnite = enemy.ignite > 0
+
+  // fire+cold Shatter: both directions, but only one burst per hit.
+  if (pot.fire > 0 && preChill && comboReady(enemy, 'shatter')) {
+    triggerShatter(run, enemy, dmgDealt)
+  } else if (pot.cold > 0 && preIgnite && comboReady(enemy, 'shatter')) {
+    triggerShatter(run, enemy, dmgDealt)
+  }
+
+  if (pot.fire > 0) applyIgnite(enemy, pot.fire, dmgDealt)
+  if (pot.cold > 0) applyChill(enemy, pot.cold)
+  if (pot.venom > 0) applyVenomStack(enemy)
+  if (pot.lightning > 0) applyShock(run, enemy, pot.lightning, dmgDealt)
+}
+
+// Ticks ignite/venom DoTs (fire+venom Acid Burn speeds both up together), decays chill/freeze
+// and their windows/cooldowns. Chill/freeze's movement effect lives in stepEnemyMovement.
+function stepStatuses(run, dt) {
+  const potVenom = run.elements.venom
+  for (const e of run.enemies) {
+    if (e._dead) continue
+
+    for (const k of Object.keys(e._comboCd)) e._comboCd[k] = Math.max(0, e._comboCd[k] - dt)
+    if (e._shockCd > 0) e._shockCd = Math.max(0, e._shockCd - dt)
+
+    const acidBurn = e.ignite > 0 && e.venom > 0 // fire+venom: both DoTs tick faster together
+    const tickMul = acidBurn ? COMBOS.acidBurnTickMul : 1
+
+    if (e.ignite > 0) {
+      e.ignite = Math.max(0, e.ignite - dt)
+      e._igniteAcc = (e._igniteAcc || 0) + dt * tickMul
+      while (!e._dead && e._igniteAcc >= STATUS_TICK) {
+        e._igniteAcc -= STATUS_TICK
+        dealDamage(run, e, e.igniteDps * STATUS_TICK, false, true)
+      }
+      if (e.ignite <= 0) { e.igniteDps = 0; e._igniteAcc = 0 }
+    }
+
+    if (e.venom > 0) {
+      e.venomT = Math.max(0, e.venomT - dt)
+      e._venomAcc = (e._venomAcc || 0) + dt * tickMul
+      const perSecond = VENOM_DOT_PER_STACK * potVenom * e.venom
+      while (!e._dead && e._venomAcc >= STATUS_TICK) {
+        e._venomAcc -= STATUS_TICK
+        dealDamage(run, e, perSecond * STATUS_TICK, false, true)
+      }
+      if (e.venomT <= 0) { e.venom = 0; e._venomAcc = 0 }
+    }
+
+    if (e.chill > 0) {
+      e.chill = Math.max(0, e.chill - dt)
+      if (e.chill <= 0) { e.chillSlow = 0; e._chillStack = 0 }
+    }
+
+    if (e.frozen > 0) {
+      e.frozen = Math.max(0, e.frozen - dt)
+      if (e.frozen <= 0) e._freezeImmuneT = FREEZE_IMMUNITY
+    }
+    if (e._freezeImmuneT > 0) e._freezeImmuneT = Math.max(0, e._freezeImmuneT - dt)
+  }
 }
 
 // Nearest enemy within (viewRadius + pad), or null. Shared by weapons that target on fire.
@@ -332,8 +567,12 @@ function fireStar(run, stats) {
     ? Math.atan2(target.y - p.y, target.x - p.x)
     : (p.facing >= 0 ? 0 : Math.PI)
 
-  const count = stats.count
+  // Multi Stars: more volleys widen the fan gracefully for free, since each extra star is
+  // just another STAR_FAN-spaced slot in the same (count-1)/2-centered spread below.
+  const count = stats.count + (run.starMods?.multishot ?? 0)
   const pierce = stats.pierce + (run.starMods?.pierce ?? 0)
+  const chainsLeft = run.starMods?.chain ?? 0
+  const ricochetsLeft = run.starMods?.ricochet ?? 0
   for (let i = 0; i < count; i++) {
     const angle = baseAngle + (i - (count - 1) / 2) * STAR_FAN
     run.bullets.push({
@@ -344,10 +583,96 @@ function fireStar(run, stats) {
       pierce,
       life: STAR_LIFE,
       r: STAR_R,
+      speed: stats.speed, // kept so chain/ricochet redirects preserve the original travel speed
       hitIds: new Set(),
+      _shard: false,
+      _splitDone: false,
+      _chainsLeft: chainsLeft,
+      _ricochetsLeft: ricochetsLeft,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'star' })
+}
+
+// Split Stars: actual shard count = run.starMods.split + 1 (0 picks = no split; see STAR_MODS
+// doc in config.js). Shards are plain bullets flagged _shard so they never re-split, but they
+// still carry a fresh chain/ricochet budget off run.starMods, same as any other bullet.
+function splitCountFor(run) {
+  const picks = run.starMods?.split ?? 0
+  return picks > 0 ? picks + 1 : 0
+}
+
+function spawnSplitShards(run, b, hitEnemy, shardCount) {
+  const baseAngle = Math.atan2(b.vy, b.vx)
+  const spreadTotal = shardCount <= 2 ? STAR_SPLIT_BASE_ANGLE * 2 : STAR_SPLIT_MAX_SPREAD
+  const chainsLeft = run.starMods?.chain ?? 0
+  const ricochetsLeft = run.starMods?.ricochet ?? 0
+  const shardDmg = b.dmg * STAR_SPLIT_DMG_FRAC
+  for (let i = 0; i < shardCount; i++) {
+    const offset = shardCount > 1 ? -spreadTotal / 2 + i * (spreadTotal / (shardCount - 1)) : 0
+    const angle = baseAngle + offset
+    run.bullets.push({
+      x: hitEnemy.x, y: hitEnemy.y,
+      vx: Math.cos(angle) * b.speed,
+      vy: Math.sin(angle) * b.speed,
+      dmg: shardDmg,
+      pierce: 1, // shards die on their first hit unless chain/ricochet picks keep them alive
+      life: STAR_LIFE,
+      r: STAR_R,
+      speed: b.speed,
+      hitIds: new Set([hitEnemy.id]), // don't let a shard immediately re-hit the enemy it spawned from
+      _shard: true,
+      _splitDone: true,
+      _chainsLeft: chainsLeft,
+      _ricochetsLeft: ricochetsLeft,
+    })
+  }
+}
+
+// Chain Stars: when a bullet's pierce is exhausted, re-target the nearest not-yet-hit enemy
+// within STAR_CHAIN_RANGE of the last hit and keep flying (damage decays per jump).
+// @returns true if the bullet was redirected (caller should not also try ricochet).
+function tryChainBullet(run, b, fromEnemy) {
+  const rangeSq = STAR_CHAIN_RANGE * STAR_CHAIN_RANGE
+  let target = null
+  let bestSq = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || b.hitIds.has(e.id)) continue
+    const dx = e.x - fromEnemy.x, dy = e.y - fromEnemy.y
+    const dSq = dx * dx + dy * dy
+    if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
+  }
+  if (!target) return false
+
+  b._chainsLeft--
+  const dx = target.x - fromEnemy.x, dy = target.y - fromEnemy.y
+  const d = Math.hypot(dx, dy) || 1
+  b.x = fromEnemy.x
+  b.y = fromEnemy.y
+  b.vx = (dx / d) * b.speed
+  b.vy = (dy / d) * b.speed
+  b.dmg *= STAR_CHAIN_DMG_MUL
+  b.pierce = 1
+  b.life = Math.max(b.life, STAR_CHAIN_EXTRA_LIFE)
+  run._chains = (run._chains ?? 0) + 1
+  return true
+}
+
+// Ricochet Stars: once a spent bullet has no chain jumps left (or none targetable), bounce it
+// off in a random new direction instead of letting it die.
+function tryRicochetBullet(run, b) {
+  b._ricochetsLeft--
+  const curAngle = Math.atan2(b.vy, b.vx)
+  const sign = Math.random() < 0.5 ? -1 : 1
+  const turn = sign * (STAR_RICOCHET_ANGLE_MIN + Math.random() * (STAR_RICOCHET_ANGLE_MAX - STAR_RICOCHET_ANGLE_MIN))
+  const newAngle = curAngle + turn
+  b.vx = Math.cos(newAngle) * b.speed
+  b.vy = Math.sin(newAngle) * b.speed
+  b.dmg *= STAR_RICOCHET_DMG_MUL
+  b.pierce = 1
+  b.hitIds.clear() // allow re-hits after bouncing away; bounce count itself caps any loop
+  b.life = Math.max(b.life, STAR_RICOCHET_EXTRA_LIFE)
+  run._ricochets = (run._ricochets ?? 0) + 1
 }
 
 // Exploding Stars mod: splash a % of the hit's dealt damage onto everything else within
@@ -367,12 +692,14 @@ function starBlast(run, hitEnemy, dmgDealt, blastPct) {
 function stepBullets(run, dt) {
   const bullets = run.bullets
   const blastPct = run.starMods?.blast ?? 0
+  const splitCount = splitCountFor(run)
   for (const b of bullets) {
     b.x += b.vx * dt
     b.y += b.vy * dt
     b.life -= dt
     if (b.life <= 0 || b.pierce <= 0) continue
 
+    let justHit = null
     for (const e of run.enemies) {
       if (b.pierce <= 0) break
       if (e._dead || b.hitIds.has(e.id)) continue
@@ -382,7 +709,21 @@ function stepBullets(run, dt) {
         const dmgDealt = applyDamage(run, e, b.dmg)
         b.hitIds.add(e.id)
         b.pierce--
+        justHit = e
         if (blastPct > 0) starBlast(run, e, dmgDealt, blastPct)
+        // Split Stars: only the original star splits, and only on its first hit ever.
+        if (!b._shard && !b._splitDone && splitCount > 0) {
+          b._splitDone = true
+          spawnSplitShards(run, b, e, splitCount)
+        }
+      }
+    }
+
+    // Resolution order once a bullet is spent this frame: chain re-target first, ricochet
+    // bounce only if chain isn't available/found a target.
+    if (justHit && b.pierce <= 0) {
+      if (!(b._chainsLeft > 0 && tryChainBullet(run, b, justHit)) && b._ricochetsLeft > 0) {
+        tryRicochetBullet(run, b)
       }
     }
   }
@@ -863,6 +1204,11 @@ function eligibleStarModIds(run) {
   return Object.keys(STAR_MODS).filter((id) => (run.starModPicks[id] ?? 0) < MAX_STAR_MOD_PICKS)
 }
 
+// Elements are offered always (no weapon prerequisite), up to their pick cap.
+function eligibleElementIds(run) {
+  return Object.keys(ELEMENTS).filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
+}
+
 // A passive card adopts whatever rarity was rolled for its slot.
 function makePassiveCard(run, id, rarity) {
   const cfg = PASSIVES[id]
@@ -877,23 +1223,36 @@ function makePassiveCard(run, id, rarity) {
 }
 
 // A star-mod card adopts whatever rarity was rolled for its slot, same as passives.
-// pierce (flat) rounds to a whole extra hit (min 1); blast (pct) is additive %.
+// pierce/split/ricochet (flat) round to a whole extra hit/shard/bounce (min 1); blast (pct)
+// is additive %; multishot/chain (tier) look up a per-rarity bonus instead of rarityMult
+// (see STAR_MOD_TIER_BONUS in config.js — keeps volley size/jump count from spiraling).
 function makeStarModCard(run, id, rarity) {
   const cfg = STAR_MODS[id]
   const mult = RARITIES[rarity].mult
-  const bonus = cfg.kind === 'flat'
-    ? Math.max(1, Math.round(cfg.base * mult))
-    : cfg.base * mult
+  let bonus
+  if (cfg.kind === 'tier') bonus = STAR_MOD_TIER_BONUS[rarity]
+  else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * mult))
+  else bonus = cfg.base * mult
   const desc = cfg.kind === 'pct'
     ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
     : `+${bonus} ${cfg.desc}`
   return { kind: 'mod', id, title: cfg.name, desc, tag: 'Star upgrade', rarity, icon: cfg.icon, bonus }
 }
 
+// An element card adopts whatever rarity was rolled for its slot, same as passives.
+// desc already carries a combo hint (see ELEMENTS in config.js).
+function makeElementCard(run, id, rarity) {
+  const cfg = ELEMENTS[id]
+  const mult = RARITIES[rarity].mult
+  const bonus = cfg.base * mult
+  const picks = run.elementPicks[id] ?? 0
+  return { kind: 'element', id, title: cfg.name, desc: cfg.desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
+}
+
 // Roll one card: pick a rarity weighted by player level, gather candidates at that rarity
-// (inherent-rarity weapons + all eligible passives/star-mods adopting the roll), and walk
-// down RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
-function rollCard(run, weaponPool, passiveIds, modIds, pickedIds) {
+// (inherent-rarity weapons + all eligible passives/star-mods/elements adopting the roll), and
+// walk down RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
+function rollCard(run, weaponPool, passiveIds, modIds, elementIds, pickedIds) {
   let idx = RARITY_ORDER.indexOf(pickWeighted(rarityWeights(run.player.level)))
   while (idx >= 0) {
     const rarity = RARITY_ORDER[idx]
@@ -907,6 +1266,9 @@ function rollCard(run, weaponPool, passiveIds, modIds, pickedIds) {
     for (const mid of modIds) {
       if (!pickedIds.has(mid)) options.push(makeStarModCard(run, mid, rarity))
     }
+    for (const eid of elementIds) {
+      if (!pickedIds.has(eid)) options.push(makeElementCard(run, eid, rarity))
+    }
     if (options.length > 0) return options[Math.floor(Math.random() * options.length)]
     idx--
   }
@@ -917,15 +1279,16 @@ function buildLevelUpChoices(run) {
   const weaponPool = weaponCandidates(run)
   const passiveIds = eligiblePassiveIds(run)
   const modIds = eligibleStarModIds(run)
+  const elementIds = eligibleElementIds(run)
 
-  if (weaponPool.length === 0 && passiveIds.length === 0 && modIds.length === 0) {
+  if (weaponPool.length === 0 && passiveIds.length === 0 && modIds.length === 0 && elementIds.length === 0) {
     return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
   }
 
   const pickedIds = new Set()
   const cards = []
   for (let i = 0; i < 3; i++) {
-    const card = rollCard(run, weaponPool, passiveIds, modIds, pickedIds)
+    const card = rollCard(run, weaponPool, passiveIds, modIds, elementIds, pickedIds)
     if (!card) break
     cards.push(card)
     pickedIds.add(card.id)

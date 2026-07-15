@@ -1,9 +1,9 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'hud', 'levelup', 'pause', 'summary']
-const CHOICE_ICONS = { weapon: '⭐', passive: '💪', heal: '🍡' }
+const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 
 function fmtTime(s) {
   const t = Math.max(0, Math.floor(s))
@@ -128,14 +128,22 @@ export function initUI(hooks) {
       last.xpPct = xpPct
       hud.xpFill.style.width = `${xpPct}%`
     }
+    const elementEntries = Object.entries(run.elementPicks || {}).filter(([, n]) => n > 0)
     const weaponsSig = run.weapons.map((w) => `${w.id}${w.level}`).join(',')
+      + '|' + elementEntries.map(([id, n]) => `${id}${n}`).join(',')
     if (weaponsSig !== last.weaponsSig) {
       last.weaponsSig = weaponsSig
-      hud.weaponRow.innerHTML = run.weapons.map((w) => `
+      const weaponChips = run.weapons.map((w) => `
         <span class="weapon-chip">
           <span class="weapon-chip-icon">${WEAPONS[w.id]?.icon ?? '❔'}</span>
           <span class="weapon-chip-lv">${w.level}</span>
         </span>`).join('')
+      const elementChips = elementEntries.map(([id, n]) => `
+        <span class="weapon-chip weapon-chip--element">
+          <span class="weapon-chip-icon">${ELEMENTS[id]?.icon ?? '❔'}</span>
+          <span class="weapon-chip-lv">${n}</span>
+        </span>`).join('')
+      hud.weaponRow.innerHTML = weaponChips + elementChips
     }
   }
 

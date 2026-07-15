@@ -190,11 +190,123 @@ export const MAX_PASSIVE_LEVEL = 5
 // pierce (flat): bonus = max(1, round(base * rarityMult)) extra enemies a star can hit.
 // blast (pct): bonus = base * rarityMult, additive — % of a star hit's damage dealt
 // to everything else within STAR_BLAST_RADIUS of the hit enemy.
+// multishot (tier): bonus = STAR_MOD_TIER_BONUS[rarity], extra stars fired per volley
+// (a flat rarityMult multiply would spiral the volley size out of control at mythic).
+// split (flat): bonus = max(1, round(base * rarityMult)), accumulates in run.starMods.split;
+// actual shard count fired on a star's first hit = run.starMods.split + 1 (so one normal
+// pick = 2 shards, a second pick = 3, etc — see fireStar/spawnSplitShards in sim.js).
+// chain (tier): bonus = STAR_MOD_TIER_BONUS[rarity], extra re-target jumps a spent bullet
+// gets (same reasoning as multishot: tiered, not rarityMult-multiplied).
+// ricochet (flat): bonus = max(1, round(base * rarityMult)), extra random-bounce jumps a
+// spent bullet gets once it has no chain jumps left.
 export const STAR_MODS = {
-  pierce: { name: 'Piercing Stars',  desc: 'star pierce',            icon: '🎯', base: 1,    kind: 'flat' },
-  blast:  { name: 'Exploding Stars', desc: 'star explosion damage',  icon: '💥', base: 0.30, kind: 'pct' },
+  pierce:    { name: 'Piercing Stars',  desc: 'star pierce',                    icon: '🎯', base: 1,    kind: 'flat' },
+  blast:     { name: 'Exploding Stars', desc: 'star explosion damage',          icon: '💥', base: 0.30, kind: 'pct' },
+  multishot: { name: 'Multi Stars',     desc: 'stars per volley',              icon: '💫', kind: 'tier' },
+  split:     { name: 'Split Stars',     desc: "shard(s) on a star's first hit", icon: '🔱', base: 1,    kind: 'flat' },
+  chain:     { name: 'Chain Stars',     desc: 'chain jump(s) on spent stars',  icon: '🔗', kind: 'tier' },
+  ricochet:  { name: 'Ricochet Stars',  desc: 'bounce(s) on spent stars',      icon: '🪀', base: 1,    kind: 'flat' },
 }
 export const MAX_STAR_MOD_PICKS = 5
+// Shared by multishot/chain: a single pick's bonus is looked up by rolled rarity rather than
+// base*rarityMult, so high-rarity picks stay meaningful without letting volley/jump counts
+// explode (a mythic pierce/blast pick multiplies fine; a mythic +6.5 stars-per-volley would not).
+export const STAR_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2, mythic: 3 }
+
+// Split: shard damage/angle shape (picks-per-shard count lives on STAR_MODS.split above).
+export const STAR_SPLIT_DMG_FRAC = 0.5                    // shard damage, as a fraction of the star's own damage
+export const STAR_SPLIT_BASE_ANGLE = (35 * Math.PI) / 180 // ± half-angle used for exactly 2 shards
+export const STAR_SPLIT_MAX_SPREAD = (90 * Math.PI) / 180 // total fan spread once 3+ shards are out
+
+// Chain: when a bullet's pierce is exhausted, it re-targets the nearest not-yet-hit enemy
+// within range instead of dying (falls back to ricochet if none is found or no jumps remain).
+export const STAR_CHAIN_RANGE = 200       // px, re-target search radius from the last hit enemy
+export const STAR_CHAIN_DMG_MUL = 0.8     // damage multiplier applied per jump
+export const STAR_CHAIN_EXTRA_LIFE = 0.4  // s, minimum flight time granted on a chain jump
+
+// Ricochet: once a spent bullet has no chain jumps left, it bounces off in a random new
+// direction (deflected 60-120° from its incoming heading) instead of dying.
+export const STAR_RICOCHET_DMG_MUL = 0.7                      // damage multiplier applied per bounce
+export const STAR_RICOCHET_ANGLE_MIN = (60 * Math.PI) / 180   // min deflection from incoming heading
+export const STAR_RICOCHET_ANGLE_MAX = (120 * Math.PI) / 180  // max deflection from incoming heading
+export const STAR_RICOCHET_EXTRA_LIFE = 0.4                   // s, minimum flight time granted on a bounce
+
+// ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
+// Offered always (not gated behind a weapon), rolls a rarity like passives: applied
+// potency = base * RARITIES[rarity].mult, added per pick. run.elements[id] accumulates
+// potency; run.elementPicks[id] counts picks (max MAX_ELEMENT_PICKS). desc doubles as
+// the level-up card description, so it includes a short combo hint.
+export const ELEMENTS = {
+  fire: {
+    name: 'Fire Infusion', icon: '🔥', base: 1,
+    desc: 'Ignites enemies for burn damage over time. Combo: shatters chilled foes, detonates with ⚡.',
+  },
+  cold: {
+    name: 'Cold Infusion', icon: '❄️', base: 1,
+    desc: 'Chills and freezes enemies. Combo: shatters with 🔥, chilling arcs with ⚡.',
+  },
+  lightning: {
+    name: 'Lightning Infusion', icon: '⚡', base: 1,
+    desc: 'Shocks arc damage to nearby foes. Combo: detonates 🔥 ignites, spreads ❄️ chill, copies ☠️ venom.',
+  },
+  venom: {
+    name: 'Venom Infusion', icon: '☠️', base: 1,
+    desc: 'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.',
+  },
+}
+export const MAX_ELEMENT_PICKS = 5
+
+// Shared DoT tick period for ignite/venom (finer than 3s duration so damage reads smoothly
+// without spamming a 'hit' event every single simulation frame).
+export const STATUS_TICK = 0.25
+
+// Ignite (fire): a hit deals (IGNITE_DOT_FRAC * potency) of its OWN dealt damage as a DoT
+// spread over IGNITE_DURATION seconds. Reapplying refreshes (replaces) duration + DPS.
+export const IGNITE_DOT_FRAC = 0.35
+export const IGNITE_DURATION = 3
+
+// Chill (cold): slow = min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency)
+// for CHILL_DURATION seconds. CHILL_STACK_TO_FREEZE chilling hits landing within an
+// still-active chill window freeze the enemy (full stop) for FREEZE_DURATION, followed by
+// FREEZE_IMMUNITY seconds where chill still slows but can't build back toward a freeze
+// (prevents a perma-freeze lock). Elites/type 'tank' never freeze; the freeze converts into
+// a stronger slow instead (chillSlow multiplied by ELITE_FREEZE_SLOW_MUL, capped at 100%).
+export const CHILL_SLOW_BASE = 0.30
+export const CHILL_SLOW_PER_POTENCY = 0.06
+export const CHILL_SLOW_CAP = 0.70
+export const CHILL_DURATION = 2
+export const CHILL_STACK_TO_FREEZE = 3
+export const FREEZE_DURATION = 0.9
+export const FREEZE_IMMUNITY = 3
+export const ELITE_FREEZE_SLOW_MUL = 1.6
+
+// Shock (lightning): a hit arcs (SHOCK_ARC_FRAC * potency) of its own dealt damage to up to
+// SHOCK_BASE_TARGETS + floor(potency) nearest OTHER enemies within SHOCK_RANGE of the hit
+// enemy. SHOCK_CD is a per-source-enemy internal cooldown so continuous weapons (orbit,
+// beam) don't spam arcs every tick.
+export const SHOCK_ARC_FRAC = 0.30
+export const SHOCK_BASE_TARGETS = 2
+export const SHOCK_RANGE = 140
+export const SHOCK_CD = 0.3
+
+// Venom: each hit adds a stack (max VENOM_MAX_STACKS), refreshing duration to VENOM_DURATION.
+// Per-second DoT = VENOM_DOT_PER_STACK * potency * stacks. Damage amp = VENOM_AMP_PER_STACK
+// per stack, applied to ALL damage the enemy takes (see COMBOS.brittleAmpMul for chilled foes).
+export const VENOM_MAX_STACKS = 8
+export const VENOM_DURATION = 4
+export const VENOM_DOT_PER_STACK = 1.5
+export const VENOM_AMP_PER_STACK = 0.02
+
+// ---- Combos (element x element reactions) ------------------------------------------
+// comboCd: per-enemy, per-combo internal cooldown so ticking weapons can't machine-gun
+// the same reaction every frame.
+export const COMBOS = {
+  shatterMul: 1.2, shatterRadius: 90,     // fire+cold Shatter
+  overloadRadius: 80,                     // fire+lightning Overload
+  acidBurnTickMul: 1.5,                   // fire+venom Acid Burn (both DoTs tick faster)
+  brittleAmpMul: 2,                       // cold+venom Brittle (venom amp doubled on chilled foes)
+  comboCd: 0.5,
+}
 
 // ---- Enemies -----------------------------------------------------------------
 export const ENEMIES = {
