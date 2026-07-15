@@ -1064,9 +1064,11 @@ function testDifficulty() {
 
   const d3 = createRun(makeMeta(), { difficulty: 3 })
   assert.strictEqual(d3.mods.enemyHpMul, 1.5, `difficulty 3 => enemyHpMul 1.5, got ${d3.mods.enemyHpMul}`)
+  assert.strictEqual(d3.mods.coinMul, 1.5, `difficulty 3 => coinMul 1.5, got ${d3.mods.coinMul}`)
 
   const d5bulky = createRun(makeMeta(), { difficulty: 5, mutators: ['bulky'] })
   assert.strictEqual(d5bulky.mods.enemyHpMul, 1.5 * 2, `bulky(1.5) x difficulty5(2) => 3, got ${d5bulky.mods.enemyHpMul}`)
+  assert.strictEqual(d5bulky.mods.coinMul, 1.6 * 2, `bulky coins(1.6) x difficulty5(2) => 3.2, got ${d5bulky.mods.coinMul}`)
 
   for (let i = 0; i < 50; i++) {
     const ids = randomMutators(4)

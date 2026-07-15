@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -159,6 +159,7 @@ export function createRun(meta, opts = {}) {
   const difficulty = opts.difficulty ?? 1
   const mods = mergeMutatorMods(opts.mutators ?? [])
   mods.enemyHpMul *= difficultyHpMul(difficulty)
+  mods.coinMul *= difficultyCoinMul(difficulty)
   return {
     phase: 'playing',
     time: 0,

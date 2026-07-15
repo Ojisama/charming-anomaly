@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, createRun } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul } from './config.js'
 import { stepSim, applyChoice } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -89,7 +89,7 @@ const SFX_FOR_EVENT = {
 }
 
 function endRun(victory) {
-  const bonus = runBonusCoins(run.kills)
+  const bonus = Math.round(runBonusCoins(run.kills) * difficultyCoinMul(run.difficulty ?? 1))
   const earned = run.coinsEarned + bonus
   meta.coins += earned
   meta.runs += 1

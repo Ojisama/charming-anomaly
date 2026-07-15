@@ -343,6 +343,10 @@ export const ELEMENT_CARD_WEIGHT = 0.25
 export const MAX_DIFFICULTY = 5
 export const DIFFICULTY_HP_PER_LEVEL = 0.25
 export const difficultyHpMul = (d) => 1 + DIFFICULTY_HP_PER_LEVEL * (Math.max(1, d) - 1)
+// The payout matching the tax: +25% coins per level above 1 (multiplied into
+// run.mods.coinMul, and applied to the end-of-run kill bonus in main.js).
+export const DIFFICULTY_COIN_PER_LEVEL = 0.25
+export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.max(1, d) - 1)
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 export const randomMutators = (count) => {
   const pool = Object.keys(MUTATORS)
