@@ -148,6 +148,9 @@ export function initUI(hooks) {
   }
 
   // ---- level-up modal ----------------------------------------------------
+  let lvCards = []
+  let lvFocus = 0
+
   function renderLevelup(choices) {
     const cards = choices.map((c, i) => {
       const rarity = c.rarity ?? 'normal'
@@ -168,8 +171,48 @@ export function initUI(hooks) {
       <div class="modal">
         <h2 class="modal-title">LEVEL UP!</h2>
         <div class="lv-cards">${cards}</div>
+        <p class="lv-hint">1-3 · arrows · enter</p>
       </div>
     `
+    lvCards = Array.from(screens.levelup.querySelectorAll('.lv-card'))
+    setLvFocus(0)
+  }
+
+  // ---- level-up keyboard nav (only wired while the level-up screen shows) ----
+  function setLvFocus(i) {
+    if (lvCards.length === 0) return
+    lvFocus = ((i % lvCards.length) + lvCards.length) % lvCards.length
+    lvCards.forEach((el, idx) => el.classList.toggle('card--focused', idx === lvFocus))
+  }
+
+  function chooseLvCard(i) {
+    if (i < 0 || i >= lvCards.length) return
+    hooks.onChoose(i)
+  }
+
+  function onLevelupKeydown(e) {
+    if (e.repeat) return
+    const digit = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]
+    if (digit !== undefined) {
+      e.preventDefault()
+      e.stopPropagation()
+      chooseLvCard(digit)
+      return
+    }
+    switch (e.code) {
+      case 'ArrowUp': case 'KeyW': case 'ArrowLeft': case 'KeyA':
+        e.preventDefault(); e.stopPropagation()
+        setLvFocus(lvFocus - 1)
+        break
+      case 'ArrowDown': case 'KeyS': case 'ArrowRight': case 'KeyD':
+        e.preventDefault(); e.stopPropagation()
+        setLvFocus(lvFocus + 1)
+        break
+      case 'Enter': case 'Space':
+        e.preventDefault(); e.stopPropagation()
+        chooseLvCard(lvFocus)
+        break
+    }
   }
 
   // ---- pause modal (static) ----------------------------------------------
@@ -210,6 +253,9 @@ export function initUI(hooks) {
     for (const [n, el] of Object.entries(screens)) {
       el.classList.toggle('screen--visible', n === name || (hudUnder && n === 'hud'))
     }
+    // keyboard nav for the level-up cards is only live while that screen shows
+    document.removeEventListener('keydown', onLevelupKeydown)
+    if (name === 'levelup') document.addEventListener('keydown', onLevelupKeydown)
     active = name
   }
 

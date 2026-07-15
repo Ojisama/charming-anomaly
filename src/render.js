@@ -1328,6 +1328,14 @@ export function createRenderer(app) {
           }
           addShake(1.5, 0.1)
           break
+        case 'shockarc':
+          // plain lightning-infusion arc (no combo): violet outer, bright yellow core
+          if (e.points && e.points.length > 1) {
+            spawnArc(e.points, 0x8a7bff, 0xffe94d, 0.2)
+            const [lx, ly] = e.points[e.points.length - 1]
+            spawnParticle(T.fx.flare_01, lx, ly, 0, 0, 0.18, 0.08, 0xffe94d, -0.1, 0)
+          }
+          break
       }
     }
   }

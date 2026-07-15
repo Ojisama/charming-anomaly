@@ -125,11 +125,11 @@ export const WEAPONS = {
     desc: 'Opens a vortex that swallows the swarm.',
     icon: '🕳️', rarity: 'legendary',
     levels: [
-      { dmg: 8,  tick: 0.25, interval: 6.5, radius: 120, duration: 1.8, pull: 260 },
-      { dmg: 10, tick: 0.25, interval: 6.0, radius: 140, duration: 2.0, pull: 300 },
-      { dmg: 12, tick: 0.22, interval: 5.5, radius: 160, duration: 2.2, pull: 340 },
-      { dmg: 15, tick: 0.22, interval: 5.0, radius: 175, duration: 2.4, pull: 380 },
-      { dmg: 18, tick: 0.20, interval: 4.5, radius: 190, duration: 2.6, pull: 420 },
+      { dmg: 4, tick: 0.25, interval: 6.5, radius: 170, duration: 1.8, pull: 260 },
+      { dmg: 5, tick: 0.25, interval: 6.0, radius: 195, duration: 2.0, pull: 300 },
+      { dmg: 6, tick: 0.22, interval: 5.5, radius: 225, duration: 2.2, pull: 340 },
+      { dmg: 8, tick: 0.22, interval: 5.0, radius: 245, duration: 2.4, pull: 380 },
+      { dmg: 9, tick: 0.20, interval: 4.5, radius: 265, duration: 2.6, pull: 420 },
     ],
   },
   rainbow: {
@@ -255,6 +255,11 @@ export const ELEMENTS = {
   },
 }
 export const MAX_ELEMENT_PICKS = 5
+// Level-up pool rarity: each eligible element id only joins a level-up's candidate pool with
+// this probability (rolled once per buildLevelUpChoices call, shared across all 3 card slots —
+// see eligibleElementIds in sim.js). Weapons/passives/star-mods always join when eligible, so
+// this makes element infusion cards appear roughly half as often as those in the level-up pool.
+export const ELEMENT_CARD_WEIGHT = 0.5
 
 // Shared DoT tick period for ignite/venom (finer than 3s duration so damage reads smoothly
 // without spamming a 'hit' event every single simulation frame).
@@ -280,12 +285,11 @@ export const FREEZE_DURATION = 0.9
 export const FREEZE_IMMUNITY = 3
 export const ELITE_FREEZE_SLOW_MUL = 1.6
 
-// Shock (lightning): a hit arcs (SHOCK_ARC_FRAC * potency) of its own dealt damage to up to
-// SHOCK_BASE_TARGETS + floor(potency) nearest OTHER enemies within SHOCK_RANGE of the hit
-// enemy. SHOCK_CD is a per-source-enemy internal cooldown so continuous weapons (orbit,
-// beam) don't spam arcs every tick.
+// Shock (lightning): a hit arcs (SHOCK_ARC_FRAC * potency) of its own dealt damage to exactly
+// run.elementPicks.lightning nearest OTHER enemies within SHOCK_RANGE of the hit enemy — one
+// arc target per lightning pick (not per potency point). SHOCK_CD is a per-source-enemy
+// internal cooldown so continuous weapons (orbit, beam) don't spam arcs every tick.
 export const SHOCK_ARC_FRAC = 0.30
-export const SHOCK_BASE_TARGETS = 2
 export const SHOCK_RANGE = 140
 export const SHOCK_CD = 0.3
 

@@ -5,7 +5,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, STAR_MODS, MAX_STAR_MOD_PICKS, STAR_MOD_TIER_BONUS,
-  ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
+  ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
   RARITIES, RARITY_ORDER, rarityWeights,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, ELITE_EVERY, SPAWN_RING,
@@ -19,7 +19,7 @@ import {
   STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
   CHILL_SLOW_BASE, CHILL_SLOW_PER_POTENCY, CHILL_SLOW_CAP, CHILL_DURATION,
   CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
-  SHOCK_ARC_FRAC, SHOCK_BASE_TARGETS, SHOCK_RANGE, SHOCK_CD,
+  SHOCK_ARC_FRAC, SHOCK_RANGE, SHOCK_CD,
   VENOM_MAX_STACKS, VENOM_DURATION, VENOM_DOT_PER_STACK, VENOM_AMP_PER_STACK,
 } from './config.js'
 
@@ -393,11 +393,11 @@ function applyShock(run, enemy, potency, dmgDealt) {
     const dSq = dx * dx + dy * dy
     if (dSq <= rangeSq) nearby.push({ e, dSq })
   }
-  if (nearby.length === 0) return
+  const maxTargets = run.elementPicks.lightning ?? 0
+  if (nearby.length === 0 || maxTargets <= 0) return
   enemy._shockCd = SHOCK_CD
 
   nearby.sort((a, b) => a.dSq - b.dSq)
-  const maxTargets = SHOCK_BASE_TARGETS + Math.floor(potency)
   const targets = nearby.slice(0, maxTargets).map((n) => n.e)
 
   const arcDmg = Math.round(SHOCK_ARC_FRAC * potency * dmgDealt)
@@ -420,13 +420,17 @@ function applyShock(run, enemy, potency, dmgDealt) {
       conductPoints.push([t.x, t.y])
     }
   }
+  // Exactly one arc-visual event per shock: frostarc/conduct already carry the arc's shape
+  // (source + every target) when their combo fires, so only fall back to the plain shockarc
+  // visual when neither combo triggered this hit — otherwise the arc would double-render.
   if (frostPoints.length > 0) {
     triggerCombo(enemy, 'frostarc')
     run.events.push({ type: 'frostarc', points: [[enemy.x, enemy.y], ...frostPoints] })
-  }
-  if (conductPoints.length > 0) {
+  } else if (conductPoints.length > 0) {
     triggerCombo(enemy, 'conduct')
     run.events.push({ type: 'conduct', points: [[enemy.x, enemy.y], ...conductPoints] })
+  } else {
+    run.events.push({ type: 'shockarc', points: [[enemy.x, enemy.y], ...targets.map((t) => [t.x, t.y])] })
   }
 }
 
@@ -1026,6 +1030,14 @@ function fireHole(run, stats) {
   run.events.push({ type: 'hole' })
 }
 
+// Suction ramps from HOLE_RIM_PULL_MUL at the rim up to full strength at the core, so things
+// near the edge can still resist while anything close in gets locked down. Shared by enemies
+// and coins (see stepHoles); returns 0..1, pre elite-resist-cap/pull multiplier.
+function holePullT(d, h) {
+  const span = Math.max(1e-6, h.radius - h.coreRadius)
+  return d <= h.coreRadius ? 1 : Math.max(0, 1 - (d - h.coreRadius) / span)
+}
+
 // Runs after stepEnemyMovement, so the vortex always wins the tug-of-war near the core
 // instead of enemies "escaping" on the same frame they were pulled in.
 function stepHoles(run, dt) {
@@ -1040,10 +1052,7 @@ function stepHoles(run, dt) {
       const dx = h.x - e.x, dy = h.y - e.y
       const d = Math.hypot(dx, dy)
       if (d > 1e-6 && d <= h.radius) {
-        // Suction ramps from HOLE_RIM_PULL_MUL at the rim up to full strength at the core,
-        // so enemies near the edge can still resist while anything close in gets locked down.
-        const span = Math.max(1e-6, h.radius - h.coreRadius)
-        const t = d <= h.coreRadius ? 1 : Math.max(0, 1 - (d - h.coreRadius) / span)
+        const t = holePullT(d, h)
         let strength = HOLE_RIM_PULL_MUL + (1 - HOLE_RIM_PULL_MUL) * t
 
         // Elites and tanks are heavier — they resist getting yanked all the way in.
@@ -1058,6 +1067,23 @@ function stepHoles(run, dt) {
 
         e.holePull = Math.max(e.holePull ?? 0, t)
         pulled.add(e.id)
+      }
+    }
+
+    // Coins get sucked in too (same rim-to-core ramp, no elite-style resist); gems are left
+    // alone so a hole doesn't yank xp away from where the player is standing.
+    for (const c of run.coins) {
+      const dx = h.x - c.x, dy = h.y - c.y
+      const d = Math.hypot(dx, dy)
+      if (d > 1e-6 && d <= h.radius) {
+        const t = holePullT(d, h)
+        const strength = HOLE_RIM_PULL_MUL + (1 - HOLE_RIM_PULL_MUL) * t
+        const ux = dx / d, uy = dy / d
+        const radialSpeed = h.pull * strength
+        const tangentSpeed = radialSpeed * HOLE_SPIRAL_MUL
+        const radial = Math.min(d, radialSpeed * dt)
+        c.x += ux * radial - uy * tangentSpeed * dt
+        c.y += uy * radial + ux * tangentSpeed * dt
       }
     }
 
@@ -1204,9 +1230,13 @@ function eligibleStarModIds(run) {
   return Object.keys(STAR_MODS).filter((id) => (run.starModPicks[id] ?? 0) < MAX_STAR_MOD_PICKS)
 }
 
-// Elements are offered always (no weapon prerequisite), up to their pick cap.
+// Elements are offered always (no weapon prerequisite), up to their pick cap — but each
+// eligible id only joins this level-up's pool with ELEMENT_CARD_WEIGHT probability (rolled
+// once here, shared by all 3 card slots below), making them rarer than weapons/passives/mods.
 function eligibleElementIds(run) {
-  return Object.keys(ELEMENTS).filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
+  return Object.keys(ELEMENTS)
+    .filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
+    .filter(() => Math.random() < ELEMENT_CARD_WEIGHT)
 }
 
 // A passive card adopts whatever rarity was rolled for its slot.

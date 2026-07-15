@@ -283,7 +283,7 @@ body {
 }
 
 /* ---- modals (level-up / pause / summary) ---- */
-.screen--levelup, .screen--pause, .screen--summary {
+.screen--pause, .screen--summary {
   background: rgba(53, 53, 74, 0.45);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
@@ -303,6 +303,34 @@ body {
 }
 .modal .btn { min-width: 0; width: 100%; }
 .modal-title { margin: 0; font-size: 1.6rem; font-weight: 900; }
+
+/* level-up: keep the battlefield readable — light veil, no blur, panel
+   docked out of the way of the screen-centered player instead of a centered
+   modal (see also placement rules further down) */
+.screen--levelup {
+  background: rgba(53, 53, 74, 0.14);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+.screen--levelup .modal {
+  width: auto;
+  gap: 10px;
+  padding: 16px;
+  margin: 0 12px calc(10px + env(safe-area-inset-bottom));
+}
+.screen--levelup .modal-title { font-size: 1.25rem; }
+@media (min-width: 700px) {
+  .screen--levelup {
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .screen--levelup .modal {
+    width: clamp(300px, 30vw, 380px);
+    margin: 0 calc(28px + env(safe-area-inset-right)) 0 0;
+  }
+}
 
 /* level-up cards */
 .lv-cards { display: flex; flex-direction: column; gap: 10px; }
@@ -329,6 +357,26 @@ body {
 }
 .tag--new { background: var(--pink); color: #fff; }
 .tag--lv { background: var(--mint); color: var(--ink); }
+
+/* keyboard-armed card (digit/arrow/WASD nav on the level-up screen) */
+.lv-card.card--focused {
+  transform: scale(1.035);
+  outline: 4px solid var(--ink);
+  outline-offset: 2px;
+}
+.lv-card.card--focused:active { transform: translateY(2px) scale(0.98); }
+
+/* keyboard hint — desktop/mouse only, hidden on touch or narrow screens */
+.lv-hint {
+  display: none;
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+@media (min-width: 700px) and (pointer: fine) {
+  .lv-hint { display: block; }
+}
 
 /* rarity accents on level-up cards */
 .rarity-chip {

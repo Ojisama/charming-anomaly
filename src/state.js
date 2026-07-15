@@ -81,6 +81,12 @@ export function shopBonus(meta, id) {
  * from config: mine's own blast radius, or STAR_BLAST_RADIUS for star blasts) · {type:'zap'} ·
  * {type:'hole'} vortex opens · {type:'beam'} beam starts.
  *
+ * Shock arc visual (see applyShock in sim.js): every lightning shock arc emits exactly one of
+ * the three events below — frostarc/conduct when their combo triggers on that shock, otherwise
+ * the plain {type:'shockarc', points:[[x,y],…]} (polyline: source enemy, then each arc target,
+ * same shape as frostarc/conduct/run.zaps' points) — never more than one per shock, so the arc
+ * never double-renders.
+ *
  * Combo events (see COMBOS in config.js, emitted by stepStatuses' shock/status handling):
  *   {type:'shatter', x, y, radius}       fire+cold: fire hitting a chilled/frozen enemy (or cold
  *                                        hitting an ignited one) bursts AoE damage, consuming the

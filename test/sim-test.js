@@ -199,6 +199,18 @@ function declineLevelUp(run) {
   run.phase = 'playing'
 }
 
+// Tests force elemental potency directly onto run.elements (bypassing the level-up roll — see
+// pickNonElementIndex above), so also force the matching run.elementPicks: applyShock's arc
+// target count now reads run.elementPicks.lightning directly (one arc target per lightning
+// pick, not per potency point), so a test that sets elements.lightning without elementPicks
+// would silently get zero shock targets.
+function setElements(run, elements) {
+  Object.assign(run.elements, elements)
+  for (const id of Object.keys(elements)) {
+    run.elementPicks[id] = Math.max(run.elementPicks[id] ?? 0, Math.round(elements[id]))
+  }
+}
+
 // A hand-placed enemy with every elemental-status field initialized, matching what
 // spawnEnemy sets up in sim.js (see state.js's enemies[] doc block for the field contract).
 function makeStatusEnemy(run, { x, y, type = 'drone', elite = false, hp = 1e6, speed = 90 }) {
@@ -324,7 +336,7 @@ function testElements() {
   {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 1 }]
-    Object.assign(run.elements, { fire: 5 })
+    setElements(run, { fire: 5 })
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
     run.enemies.push(makeStatusEnemy(run, { x: 100, y: 0, hp: 30, speed: 0 }))
@@ -358,7 +370,7 @@ function testElements() {
   function runChillScenario(elite) {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 1 }]
-    Object.assign(run.elements, { cold: 5 })
+    setElements(run, { cold: 5 })
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
     const seed = makeStatusEnemy(run, { x: 120, y: 0, type: elite ? 'tank' : 'drone', elite, speed: 90 })
@@ -403,7 +415,7 @@ function testElements() {
   {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }, { id: 'orbit', level: 3 }]
-    Object.assign(run.elements, { fire: 3, cold: 3, lightning: 4, venom: 3 })
+    setElements(run, { fire: 3, cold: 3, lightning: 4, venom: 3 })
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
     seedTargetRing(run, 24, 1e6, 200)
@@ -426,7 +438,7 @@ function testElements() {
   function runComboKills(elements) {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }, { id: 'orbit', level: 3 }]
-    if (elements) Object.assign(run.elements, elements)
+    if (elements) setElements(run, elements)
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
     seedTargetRing(run, 40, 150, 220)
@@ -446,6 +458,57 @@ function testElements() {
     `expected combo-loaded kills (${comboKills}) > no-element baseline kills (${baselineKills})`)
 
   console.log(`PASS run G.d (combo run outkills baseline): baseline=${baselineKills} combo=${comboKills}`)
+
+  // (e) Lightning-only (no chill/venom potency, so neither frostarc nor conduct's combo
+  // condition can hold) must still visibly arc: applyShock's plain 'shockarc' event is the
+  // fallback emitted when neither combo triggers on a given shock.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 3 }]
+    setElements(run, { lightning: 4 })
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    seedTargetRing(run, 24, 1e6, 200)
+
+    let sawShockArc = false
+    let t = 0
+    const steps = Math.round(20 / dt)
+    for (let i = 0; i < steps && !sawShockArc; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      t += dt
+      const input = { x: Math.cos(t), y: Math.sin(t) }
+      stepSim(run, input, dt)
+      if (run.events.some((e) => e.type === 'shockarc')) sawShockArc = true
+    }
+    assert(sawShockArc, 'expected a lightning-only run to emit at least one shockarc event')
+    console.log('PASS run G.e (lightning-only run emits shockarc event)')
+  }
+}
+
+// Black holes pull coins toward their center (not gems): spawn a coin at the vortex rim,
+// step the sim once, and check its distance to the hole's center strictly decreased. Also
+// checks a gem at the same spot is left untouched (holes only pull coins per the spec).
+function testHolePullsCoins() {
+  const run = createRun(makeMeta())
+  run.player.x = 0; run.player.y = 0
+  run.holes.push({
+    x: 0, y: 0, radius: 225, coreRadius: 225 * 0.22,
+    life: 2.2, duration: 2.2, dmg: 6, tick: 0.22, pull: 340, acc: 0,
+  })
+  run.coins.push({ x: 220, y: 0, value: 1 }) // at the rim
+  const gem = { x: 220, y: 0, xp: 1 }
+  run.gems.push(gem)
+
+  const before = Math.hypot(run.coins[0].x, run.coins[0].y)
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
+
+  assert.strictEqual(run.coins.length, 1, 'expected the coin to still exist after one step (not collected)')
+  const after = Math.hypot(run.coins[0].x, run.coins[0].y)
+  assert(after < before, `expected coin distance to hole center to decrease (before=${before.toFixed(1)}, after=${after.toFixed(1)})`)
+  assert.strictEqual(gem.x, 220, 'expected gems to NOT be pulled by black holes')
+  assert.strictEqual(gem.y, 0, 'expected gems to NOT be pulled by black holes')
+
+  console.log(`PASS run H (black hole pulls coins, not gems): before=${before.toFixed(1)} after=${after.toFixed(1)}`)
 }
 
 try {
@@ -457,6 +520,7 @@ try {
   testStarMods()
   testAdvancedStarMods()
   testElements()
+  testHolePullsCoins()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
