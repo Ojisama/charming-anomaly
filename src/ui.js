@@ -2,7 +2,7 @@
 import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, dailyMutators, todayKey } from './config.js'
 import { playSfx } from './audio.js'
 
-const SCREEN_NAMES = ['title', 'shop', 'hud', 'levelup', 'pause', 'summary']
+const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 
 function fmtTime(s) {
@@ -16,8 +16,9 @@ function fmtTime(s) {
  *   const ui = initUI({ meta, onPlay(mode), onBuy(id)->bool, onChoose(i), onPauseToggle, onQuit })
  *     - onPlay(mode): mode is 'classic' | 'daily'. 'classic' fires from the title Play button
  *       and from the summary "Play again" button (which replays whatever mode the just-ended
- *       run used); 'daily' fires from the title Daily Anomaly button.
- *   ui.showScreen('title' | 'shop' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
+ *       run used); 'daily' fires from the daily briefing screen's Start button (the title
+ *       Daily Anomaly button opens the 'daily' briefing screen first).
+ *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
  *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode }
  *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
@@ -231,6 +232,59 @@ export function initUI(hooks) {
     }
   }
 
+  // ---- daily briefing (shown before a daily run starts) ---------------------
+  // Human labels for MUTATORS effect keys + whether a value above 1 helps the player
+  // (drives the green/red chip color; a nerf direction shows red).
+  const EFFECT_LABELS = {
+    spawnMul: ['enemy spawns', false],
+    enemyHpMul: ['enemy HP', false],
+    enemySpeedMul: ['enemy speed', false],
+    enemyDmgMul: ['enemy damage', false],
+    enemyRadiusMul: ['enemy size', false],
+    contactDmgTakenMul: ['damage you take', false],
+    playerDmgMul: ['your damage', true],
+    playerSpeedMul: ['your move speed', true],
+    coinMul: ['coins', true],
+    xpMul: ['XP', true],
+    eliteEveryMul: ['time between elites', true],
+    elementWeightMul: ['infusion card chance', true],
+    magnetMul: ['pickup magnet', true],
+  }
+
+  function effectChips(effects) {
+    return Object.entries(effects).map(([key, v]) => {
+      const [label, goodUp] = EFFECT_LABELS[key] ?? [key, true]
+      const pct = Math.round((v - 1) * 100)
+      const good = (pct > 0) === goodUp
+      return `<span class="fx-chip ${good ? 'fx-chip--good' : 'fx-chip--bad'}">${pct > 0 ? '+' : ''}${pct}% ${label}</span>`
+    }).join('')
+  }
+
+  function renderDaily() {
+    const ids = dailyMutators(todayKey())
+    screens.daily.innerHTML = `
+      <div class="modal daily-brief">
+        <h2 class="modal-title">🌀 Daily Anomaly</h2>
+        <p class="daily-date">${todayKey()}</p>
+        ${ids.map((id) => {
+          const m = MUTATORS[id]
+          return `
+          <div class="daily-mutator">
+            <span class="daily-mutator-icon">${m?.icon ?? '❔'}</span>
+            <span class="daily-mutator-body">
+              <span class="daily-mutator-name">${m?.name ?? id}</span>
+              <span class="daily-mutator-desc">${m?.desc ?? ''}</span>
+              <span class="daily-mutator-fx">${m ? effectChips(m.effects) : ''}</span>
+            </span>
+          </div>`
+        }).join('')}
+        <p class="daily-note">Everyone gets the same anomaly today — new one at midnight.</p>
+        <button class="btn btn--big" data-act="daily-start">▶&nbsp; Start Daily Run</button>
+        <button class="btn btn--soft" data-act="back">← Back</button>
+      </div>
+    `
+  }
+
   // ---- pause modal -------------------------------------------------------
   function renderPause(d) {
     const mutatorIds = d.mutators || []
@@ -286,6 +340,7 @@ export function initUI(hooks) {
   function showScreen(name, data) {
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
+    else if (name === 'daily') renderDaily()
     else if (name === 'levelup') renderLevelup(data ?? [])
     else if (name === 'pause') renderPause(data ?? {})
     else if (name === 'summary') renderSummary(data ?? {})
@@ -313,7 +368,8 @@ export function initUI(hooks) {
     }
     switch (el.dataset.act) {
       case 'play': hooks.onPlay(el.dataset.mode || 'classic'); break
-      case 'daily': hooks.onPlay('daily'); break
+      case 'daily': playSfx('click'); showScreen('daily'); break
+      case 'daily-start': hooks.onPlay('daily'); break
       case 'shop': playSfx('click'); showScreen('shop'); break
       case 'back': playSfx('click'); showScreen('title'); break
       case 'pause':

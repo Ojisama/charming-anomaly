@@ -529,3 +529,32 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .title-logo, .modal, .lv-card, .card--bounce, .lv-card[data-rarity="mythic"] { animation: none; }
 }
+
+/* daily-anomaly briefing screen (shown between title and a daily run) */
+.daily-brief { max-width: 420px; }
+.daily-date { font-weight: 700; font-size: 0.8rem; color: var(--ink-soft); margin-top: -6px; }
+.daily-mutator {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #efe6fb;
+  border: 2px solid #8a5fd0;
+  text-align: left;
+}
+.daily-mutator-icon { font-size: 1.6rem; line-height: 1.2; }
+.daily-mutator-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.daily-mutator-name { font-weight: 800; font-size: 0.95rem; }
+.daily-mutator-desc { font-weight: 600; font-size: 0.78rem; color: var(--ink-soft); }
+.daily-mutator-fx { display: flex; flex-wrap: wrap; gap: 4px; }
+.fx-chip {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.fx-chip--good { background: #d9f4e3; color: #1e7d4f; }
+.fx-chip--bad { background: #fde2e6; color: #c23a52; }
+.daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
