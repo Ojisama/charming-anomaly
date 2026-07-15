@@ -217,9 +217,11 @@ export function createRenderer(app) {
     // bullet star, orbit spark, nova ring: built in buildFxTextures() below (fx sprites)
     // gems vs coins: gems flat yellow, coins gold with shine arc + inner circle
     {
+      // xp gem: blue crystal — must NOT read as gold (coins are the other drop)
       const g = new Graphics()
-      g.circle(0, 0, 5.5).fill(0xffd93d).stroke({ width: 2, color: 0xc9a227 })
-      g.circle(-1.6, -1.6, 1.4).fill({ color: 0xffffff, alpha: 0.8 })
+      g.poly([0, -7, 5, 0, 0, 7, -5, 0]).fill(0x4da3ff).stroke({ width: 1.8, color: 0x2a6fd1 })
+      g.poly([0, -7, 5, 0, 0, 0]).fill({ color: 0x9fd0ff, alpha: 0.9 }) // top-right facet
+      g.circle(-1.5, -2.2, 1.2).fill({ color: 0xffffff, alpha: 0.9 })
       T.gem = bake(g)
     }
     {
