@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, STARTING_WEAPON, xpForLevel } from './config.js'
+import { PLAYER, SHOP, PASSIVES, STAR_MODS, STARTING_WEAPON, xpForLevel } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -62,12 +62,16 @@ export function shopBonus(meta, id) {
  *               coreRadius is the inner "consumed" zone (amplified tick damage; see stepHoles)
  * beams[i]:     { angle, life, duration, dmg, tick, width, length }  origin = player
  *
- * Extra events beyond v1: {type:'explode',x,y} mine pop · {type:'zap'} · {type:'hole'} vortex
- * opens · {type:'beam'} beam starts.
+ * Extra events beyond v1: {type:'explode',x,y,radius} mine pop or star-blast explosion (radius
+ * from config: mine's own blast radius, or STAR_BLAST_RADIUS for star blasts) · {type:'zap'} ·
+ * {type:'hole'} vortex opens · {type:'beam'} beam starts.
  *
- * levelUpChoices[i]: { kind:'weapon'|'passive'|'heal', id, title, desc, tag, rarity, icon, bonus }
- *   rarity: key of RARITIES (weapons: inherent; passives: rolled). icon: from config.
- *   bonus: passives only — the pre-multiplied amount applyChoice will add.
+ * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'heal', id, title, desc, tag, rarity, icon, bonus }
+ *   rarity: key of RARITIES (weapons: inherent; passives/mods: rolled). icon: from config.
+ *   bonus: passives/mods only — the pre-multiplied amount applyChoice will add.
+ *   kind 'mod': star weapon upgrades (see STAR_MODS in config.js), offered only while the
+ *   star weapon is owned. run.starMods[id] accumulates applied bonus; run.starModPicks[id]
+ *   counts picks (max MAX_STAR_MOD_PICKS), mirroring passives/passivePicks.
  */
 export function createRun(meta) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
@@ -95,6 +99,9 @@ export function createRun(meta) {
     // accumulated applied bonuses (base * rarity mult per pick) and pick counts
     passives: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
     passivePicks: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
+    // star weapon mods (see STAR_MODS in config.js), offered only while star is owned
+    starMods: Object.fromEntries(Object.keys(STAR_MODS).map((id) => [id, 0])),
+    starModPicks: Object.fromEntries(Object.keys(STAR_MODS).map((id) => [id, 0])),
     enemies: [],
     bullets: [],
     novas: [],

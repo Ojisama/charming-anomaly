@@ -4,11 +4,12 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, RARITIES, RARITY_ORDER, rarityWeights,
+  PASSIVES, MAX_PASSIVE_LEVEL, STAR_MODS, MAX_STAR_MOD_PICKS,
+  RARITIES, RARITY_ORDER, rarityWeights,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, ELITE_EVERY, SPAWN_RING,
   xpForLevel, GEM_VALUE,
-  STAR_LIFE, STAR_R, STAR_FAN, ORB_R, NOVA_LIFE,
+  STAR_LIFE, STAR_R, STAR_FAN, STAR_BLAST_RADIUS, ORB_R, NOVA_LIFE,
   HOLE_CORE_FRAC, HOLE_RIM_PULL_MUL, HOLE_RESIST_CAP, HOLE_SPIRAL_MUL,
   HOLE_CORE_DMG_MUL, HOLE_PULL_DECAY,
 } from './config.js'
@@ -62,6 +63,9 @@ export function applyChoice(run, i) {
       p.maxHP += choice.bonus
       p.hp = Math.min(p.maxHP, p.hp + choice.bonus)
     }
+  } else if (choice.kind === 'mod') {
+    run.starMods[choice.id] = (run.starMods[choice.id] ?? 0) + choice.bonus
+    run.starModPicks[choice.id] = (run.starModPicks[choice.id] ?? 0) + 1
   } else if (choice.kind === 'heal') {
     p.hp = Math.min(p.maxHP, p.hp + 30)
   }
@@ -214,16 +218,11 @@ function stepContactDamage(run) {
 
 // ---- Damage application (shared by all weapons) -----------------------------------
 
-function applyDamage(run, enemy, baseDmg) {
-  const p = run.player
-  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage)
-  let crit = false
-  if (Math.random() < p.critChance + run.passives.critChance) {
-    dmg *= (p.critDamage + run.passives.critDamage)
-    crit = true
-  }
-  dmg = Math.round(dmg)
-
+// Shared tail: apply a final (already-multiplied) damage number to an enemy, push the
+// 'hit' event, and handle death/xp/coin drops. Used by applyDamage after it rolls the
+// player's multipliers/crit, and directly by effects (like star blasts) that derive
+// their damage from an already-rolled hit and shouldn't re-roll crit/multipliers.
+function dealDamage(run, enemy, dmg, crit) {
   enemy.hp -= dmg
   enemy.hitFlash = 0.12
   run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit })
@@ -246,6 +245,20 @@ function applyDamage(run, enemy, baseDmg) {
       run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
     }
   }
+}
+
+/** @returns the final applied damage number (post multiplier/crit), for effects like star blast. */
+function applyDamage(run, enemy, baseDmg) {
+  const p = run.player
+  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage)
+  let crit = false
+  if (Math.random() < p.critChance + run.passives.critChance) {
+    dmg *= (p.critDamage + run.passives.critDamage)
+    crit = true
+  }
+  dmg = Math.round(dmg)
+  dealDamage(run, enemy, dmg, crit)
+  return dmg
 }
 
 // Nearest enemy within (viewRadius + pad), or null. Shared by weapons that target on fire.
@@ -320,6 +333,7 @@ function fireStar(run, stats) {
     : (p.facing >= 0 ? 0 : Math.PI)
 
   const count = stats.count
+  const pierce = stats.pierce + (run.starMods?.pierce ?? 0)
   for (let i = 0; i < count; i++) {
     const angle = baseAngle + (i - (count - 1) / 2) * STAR_FAN
     run.bullets.push({
@@ -327,7 +341,7 @@ function fireStar(run, stats) {
       vx: Math.cos(angle) * stats.speed,
       vy: Math.sin(angle) * stats.speed,
       dmg: stats.dmg,
-      pierce: stats.pierce,
+      pierce,
       life: STAR_LIFE,
       r: STAR_R,
       hitIds: new Set(),
@@ -336,8 +350,23 @@ function fireStar(run, stats) {
   run.events.push({ type: 'shoot', weapon: 'star' })
 }
 
+// Exploding Stars mod: splash a % of the hit's dealt damage onto everything else within
+// STAR_BLAST_RADIUS of the hit enemy (the hit enemy itself already took full damage).
+function starBlast(run, hitEnemy, dmgDealt, blastPct) {
+  const blastDmg = Math.round(dmgDealt * blastPct)
+  if (blastDmg <= 0) return
+  const radSq = STAR_BLAST_RADIUS * STAR_BLAST_RADIUS
+  for (const e of run.enemies) {
+    if (e._dead || e.id === hitEnemy.id) continue
+    const dx = e.x - hitEnemy.x, dy = e.y - hitEnemy.y
+    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, blastDmg, false)
+  }
+  run.events.push({ type: 'explode', x: hitEnemy.x, y: hitEnemy.y, radius: STAR_BLAST_RADIUS })
+}
+
 function stepBullets(run, dt) {
   const bullets = run.bullets
+  const blastPct = run.starMods?.blast ?? 0
   for (const b of bullets) {
     b.x += b.vx * dt
     b.y += b.vy * dt
@@ -350,9 +379,10 @@ function stepBullets(run, dt) {
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
-        applyDamage(run, e, b.dmg)
+        const dmgDealt = applyDamage(run, e, b.dmg)
         b.hitIds.add(e.id)
         b.pierce--
+        if (blastPct > 0) starBlast(run, e, dmgDealt, blastPct)
       }
     }
   }
@@ -506,7 +536,7 @@ function stepMines(run, dt) {
       const dx = e.x - m.x, dy = e.y - m.y
       if (dx * dx + dy * dy <= m.radius * m.radius) applyDamage(run, e, m.dmg)
     }
-    run.events.push({ type: 'explode', x: m.x, y: m.y })
+    run.events.push({ type: 'explode', x: m.x, y: m.y, radius: m.radius })
     m._dead = true
   }
   run.mines = run.mines.filter((m) => !m._dead)
@@ -827,6 +857,12 @@ function eligiblePassiveIds(run) {
   return Object.keys(PASSIVES).filter((id) => (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL)
 }
 
+// Star mods are offered only while the star weapon is owned, and only up to their pick cap.
+function eligibleStarModIds(run) {
+  if (!run.weapons.some((w) => w.id === 'star')) return []
+  return Object.keys(STAR_MODS).filter((id) => (run.starModPicks[id] ?? 0) < MAX_STAR_MOD_PICKS)
+}
+
 // A passive card adopts whatever rarity was rolled for its slot.
 function makePassiveCard(run, id, rarity) {
   const cfg = PASSIVES[id]
@@ -840,10 +876,24 @@ function makePassiveCard(run, id, rarity) {
   return { kind: 'passive', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: '💪', bonus }
 }
 
+// A star-mod card adopts whatever rarity was rolled for its slot, same as passives.
+// pierce (flat) rounds to a whole extra hit (min 1); blast (pct) is additive %.
+function makeStarModCard(run, id, rarity) {
+  const cfg = STAR_MODS[id]
+  const mult = RARITIES[rarity].mult
+  const bonus = cfg.kind === 'flat'
+    ? Math.max(1, Math.round(cfg.base * mult))
+    : cfg.base * mult
+  const desc = cfg.kind === 'pct'
+    ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
+    : `+${bonus} ${cfg.desc}`
+  return { kind: 'mod', id, title: cfg.name, desc, tag: 'Star upgrade', rarity, icon: cfg.icon, bonus }
+}
+
 // Roll one card: pick a rarity weighted by player level, gather candidates at that rarity
-// (inherent-rarity weapons + all eligible passives adopting the roll), and walk down
-// RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
-function rollCard(run, weaponPool, passiveIds, pickedIds) {
+// (inherent-rarity weapons + all eligible passives/star-mods adopting the roll), and walk
+// down RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
+function rollCard(run, weaponPool, passiveIds, modIds, pickedIds) {
   let idx = RARITY_ORDER.indexOf(pickWeighted(rarityWeights(run.player.level)))
   while (idx >= 0) {
     const rarity = RARITY_ORDER[idx]
@@ -854,6 +904,9 @@ function rollCard(run, weaponPool, passiveIds, pickedIds) {
     for (const pid of passiveIds) {
       if (!pickedIds.has(pid)) options.push(makePassiveCard(run, pid, rarity))
     }
+    for (const mid of modIds) {
+      if (!pickedIds.has(mid)) options.push(makeStarModCard(run, mid, rarity))
+    }
     if (options.length > 0) return options[Math.floor(Math.random() * options.length)]
     idx--
   }
@@ -863,15 +916,16 @@ function rollCard(run, weaponPool, passiveIds, pickedIds) {
 function buildLevelUpChoices(run) {
   const weaponPool = weaponCandidates(run)
   const passiveIds = eligiblePassiveIds(run)
+  const modIds = eligibleStarModIds(run)
 
-  if (weaponPool.length === 0 && passiveIds.length === 0) {
+  if (weaponPool.length === 0 && passiveIds.length === 0 && modIds.length === 0) {
     return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
   }
 
   const pickedIds = new Set()
   const cards = []
   for (let i = 0; i < 3; i++) {
-    const card = rollCard(run, weaponPool, passiveIds, pickedIds)
+    const card = rollCard(run, weaponPool, passiveIds, modIds, pickedIds)
     if (!card) break
     cards.push(card)
     pickedIds.add(card.id)

@@ -65,11 +65,11 @@ export const WEAPONS = {
     desc: 'A bouncy shockwave pushes everything back.',
     icon: '🌊', rarity: 'rare',
     levels: [
-      { dmg: 18, interval: 2.4, radius: 130, knockback: 140 },
-      { dmg: 22, interval: 2.2, radius: 150, knockback: 160 },
-      { dmg: 27, interval: 2.0, radius: 170, knockback: 180 },
-      { dmg: 33, interval: 1.8, radius: 190, knockback: 200 },
-      { dmg: 42, interval: 1.5, radius: 220, knockback: 240 },
+      { dmg: 18, interval: 2.4, radius: 150, knockback: 140 },
+      { dmg: 22, interval: 2.2, radius: 175, knockback: 160 },
+      { dmg: 27, interval: 2.0, radius: 195, knockback: 180 },
+      { dmg: 33, interval: 1.8, radius: 220, knockback: 200 },
+      { dmg: 42, interval: 1.5, radius: 255, knockback: 240 },
     ],
   },
   boomerang: {
@@ -89,11 +89,11 @@ export const WEAPONS = {
     desc: 'Drops wobbly bombs that pop on contact.',
     icon: '💣', rarity: 'rare',
     levels: [
-      { dmg: 30, interval: 2.2, radius: 85,  maxAlive: 3 },
-      { dmg: 37, interval: 2.0, radius: 95,  maxAlive: 4 },
-      { dmg: 45, interval: 1.8, radius: 105, maxAlive: 4 },
-      { dmg: 54, interval: 1.6, radius: 115, maxAlive: 5 },
-      { dmg: 65, interval: 1.4, radius: 125, maxAlive: 6 },
+      { dmg: 30, interval: 2.2, radius: 100, maxAlive: 3 },
+      { dmg: 37, interval: 2.0, radius: 115, maxAlive: 4 },
+      { dmg: 45, interval: 1.8, radius: 125, maxAlive: 4 },
+      { dmg: 54, interval: 1.6, radius: 140, maxAlive: 6 },
+      { dmg: 65, interval: 1.4, radius: 150, maxAlive: 7 },
     ],
   },
   zap: {
@@ -104,8 +104,8 @@ export const WEAPONS = {
       { dmg: 22, interval: 1.70, chains: 3, chainRange: 150 },
       { dmg: 27, interval: 1.55, chains: 4, chainRange: 160 },
       { dmg: 33, interval: 1.40, chains: 4, chainRange: 170 },
-      { dmg: 39, interval: 1.25, chains: 5, chainRange: 180 },
-      { dmg: 45, interval: 1.10, chains: 6, chainRange: 195 },
+      { dmg: 39, interval: 1.25, chains: 6, chainRange: 180 },
+      { dmg: 45, interval: 1.10, chains: 7, chainRange: 195 },
     ],
   },
   homing: {
@@ -155,6 +155,7 @@ export const STAR_R = 10      // px, star hit radius
 export const STAR_FAN = 0.15  // rad between fan shots
 export const ORB_R = 12       // px, orbit spark hit radius
 export const NOVA_LIFE = 0.45 // s, nova ring expansion time
+export const STAR_BLAST_RADIUS = 70 // px, Exploding Stars mod splash radius
 
 // Black hole vortex shape (applies to all levels; per-level dmg/tick/radius/pull/etc above)
 export const HOLE_CORE_FRAC = 0.22     // core radius as a fraction of hole radius — the "consumed" zone
@@ -181,6 +182,19 @@ export const PASSIVES = {
   xpGain:     { name: 'Big Brain',    desc: 'XP gain',      base: 0.08, kind: 'pct' },
 }
 export const MAX_PASSIVE_LEVEL = 5
+
+// ---- Star weapon mods --------------------------------------------------------
+// Offered only while the star weapon is owned; joins the weapon/passive pool with
+// equal footing (rolls a rarity like passives). run.starMods[id] accumulates the
+// applied bonus; run.starModPicks[id] counts picks (max MAX_STAR_MOD_PICKS).
+// pierce (flat): bonus = max(1, round(base * rarityMult)) extra enemies a star can hit.
+// blast (pct): bonus = base * rarityMult, additive — % of a star hit's damage dealt
+// to everything else within STAR_BLAST_RADIUS of the hit enemy.
+export const STAR_MODS = {
+  pierce: { name: 'Piercing Stars',  desc: 'star pierce',            icon: '🎯', base: 1,    kind: 'flat' },
+  blast:  { name: 'Exploding Stars', desc: 'star explosion damage',  icon: '💥', base: 0.30, kind: 'pct' },
+}
+export const MAX_STAR_MOD_PICKS = 5
 
 // ---- Enemies -----------------------------------------------------------------
 export const ENEMIES = {

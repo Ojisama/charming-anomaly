@@ -1090,24 +1090,25 @@ export function createRenderer(app) {
     }
   }
 
-  function explosionBurst(x, y) {
+  function explosionBurst(x, y, radius = 90) {
+    const k = radius / 90 // visuals tuned at 90px; scale to the actual blast radius
     const n = 8 + (Math.random() * 3 | 0) // 8-10
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
-      const sp = 90 + Math.random() * 140
+      const sp = (90 + Math.random() * 140) * k
       spawnParticle(T.dot.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
-        0.3 + Math.random() * 0.2, 0.4 + Math.random() * 0.4, 0xffb37a, -0.8, 4)
+        0.3 + Math.random() * 0.2, (0.4 + Math.random() * 0.4) * k, 0xffb37a, -0.8, 4)
     }
     // scorch flash: quick scale-up + fast fade, reads as an impact flash under the ring
-    spawnParticle(T.fx.scorch_01, x, y, 0, 0, 0.22, 0.05, 0xffcf6b, 1.0, 0)
+    spawnParticle(T.fx.scorch_01, x, y, 0, 0, 0.22, 0.05 * k, 0xffcf6b, 1.0, 0)
     // a few jagged spark shards flung outward
     for (let i = 0; i < 4; i++) {
       const a = Math.random() * Math.PI * 2
-      const sp = 160 + Math.random() * 120
+      const sp = (160 + Math.random() * 120) * k
       spawnParticle(T.fx.spark_04, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
-        0.22 + Math.random() * 0.1, 0.06 + Math.random() * 0.03, 0xff8c42, 0, 5)
+        0.22 + Math.random() * 0.1, (0.06 + Math.random() * 0.03) * k, 0xff8c42, 0, 5)
     }
-    spawnRing(x, y, 90, 0.35)
+    spawnRing(x, y, radius, 0.35)
   }
 
   function beamSparkle(x, y) {
@@ -1195,8 +1196,8 @@ export function createRenderer(app) {
           if (e.weapon === 'wave') addShake(2.5, 0.12)
           break
         case 'explode':
-          explosionBurst(e.x, e.y)
-          addShake(3, 0.16)
+          explosionBurst(e.x, e.y, e.radius)
+          addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
           break
         case 'zap': {
           addShake(1.5, 0.1)

@@ -176,12 +176,59 @@ function testRaritySanity() {
   console.log(`PASS run E (rarity sanity): L1=${JSON.stringify(seenL1)} L12=${JSON.stringify(seenL12)}`)
 }
 
+// Star mods: force a star-only run with pierce+blast maxed out and check it kills more than
+// a plain star-only baseline over the same time, plus that blast actually emits radius'd
+// explode events (pierce is harder to observe directly from outside sim.js internals).
+function testStarMods() {
+  const dt = 1 / 60
+  const steps = Math.round(45 / dt)
+
+  function runStarOnly(mods) {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 3 }]
+    if (mods) Object.assign(run.starMods, mods)
+    const explodeEvents = []
+    let t = 0
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') {
+        applyChoice(run, 0)
+        run.phase = 'playing'
+        continue
+      }
+      if (run.phase !== 'playing') break
+      t += dt
+      const input = { x: Math.cos(t), y: Math.sin(t) }
+      stepSim(run, input, dt)
+      const events = run.events
+      run.events = [] // drain, mirroring main.js — otherwise events keep re-appearing every frame
+      for (const e of events) {
+        if (e.type === 'explode') explodeEvents.push(e)
+      }
+    }
+    return { run, explodeEvents }
+  }
+
+  const baseline = runStarOnly(null)
+  const modded = runStarOnly({ pierce: 3, blast: 0.9 })
+
+  assert(baseline.run.kills > 0, `expected baseline kills > 0, got ${baseline.run.kills}`)
+  assert(modded.run.kills > baseline.run.kills,
+    `expected modded kills (${modded.run.kills}) > baseline kills (${baseline.run.kills})`)
+  assert(modded.explodeEvents.length > 0, 'expected exploding-stars mod to emit explode events')
+  for (const e of modded.explodeEvents) {
+    assert(finite(e.radius) && e.radius > 0, `explode event missing/invalid radius: ${e.radius}`)
+  }
+
+  console.log(`PASS run F (star mods): baseline kills=${baseline.run.kills} modded kills=${modded.run.kills} explosions=${modded.explodeEvents.length}`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
   testVictory()
   testNewWeapons()
   testRaritySanity()
+  testStarMods()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
