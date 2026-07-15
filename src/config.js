@@ -13,14 +13,9 @@ export const RARITIES = {
   mythic:    { name: 'Mythic',    color: 0xff4d6d, mult: 6.5 },
 }
 export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic']
-// Roll weights shift toward high tiers as the player levels.
-export const rarityWeights = (level) => ({
-  normal: Math.max(24, 62 - level * 3),
-  rare: 25,
-  epic: 8 + Math.min(12, level),
-  legendary: Math.min(12, 2 + level * 0.8),
-  mythic: Math.min(6, level * 0.4),
-})
+// Fixed roll weights, halving per tier (user-tuned; no level scaling).
+export const RARITY_WEIGHTS = { normal: 50, rare: 25, epic: 12, legendary: 6, mythic: 3 }
+export const rarityWeights = () => RARITY_WEIGHTS
 
 export const PLAYER = {
   radius: 22,

@@ -186,9 +186,16 @@ function testRaritySanity() {
   for (let i = 0; i < 200; i++) sample(12, seenL12)
 
   assert(passiveBonusChecked, 'expected at least one passive card to verify bonus math against')
-  assert((seenL12.mythic ?? 0) > 0, `expected mythic to appear at level 12, got ${seenL12.mythic ?? 0}`)
-  assert((seenL12.mythic ?? 0) >= (seenL1.mythic ?? 0),
-    `expected mythic to appear at least as often at level 12 (${seenL12.mythic ?? 0}) as level 1 (${seenL1.mythic ?? 0})`)
+  // Fixed 50/25/12/6/3 weights (no level scaling): same shape at any level — normal is the
+  // plurality, every tier still shows up across both samples, and rarity falls off monotonically.
+  for (const seen of [seenL1, seenL12]) {
+    assert((seen.normal ?? 0) > (seen.rare ?? 0), `expected normal > rare, got ${JSON.stringify(seen)}`)
+    assert((seen.rare ?? 0) > (seen.legendary ?? 0), `expected rare > legendary, got ${JSON.stringify(seen)}`)
+  }
+  const both = (id) => (seenL1[id] ?? 0) + (seenL12[id] ?? 0)
+  for (const id of ['normal', 'rare', 'epic', 'legendary', 'mythic']) {
+    assert(both(id) > 0, `expected some ${id} rolls across 400 samples`)
+  }
 
   console.log(`PASS run E (rarity sanity): L1=${JSON.stringify(seenL1)} L12=${JSON.stringify(seenL12)}`)
 }
