@@ -36,6 +36,8 @@ import {
   ORBIT_TWIN_RING_RADIUS_FRAC, WAVE_ECHO_DELAY, WAVE_ECHO_DMG_FRAC,
   MINE_CLUSTER_DMG_FRAC, MINE_CLUSTER_RADIUS_FRAC, MINE_CLUSTER_ARM,
   MINE_CLUSTER_SCATTER_MIN, MINE_CLUSTER_SCATTER_MAX, HOLE_SINGULARITY_FRAC,
+  ORBIT_NOVA_RADIUS, UNDERTOW_KB_PER_STACK, TSUNAMI_EVERY, SEEKER_TURN_RATE,
+  MINE_CRAWL_SPEED, WISP_NOVA_RADIUS, SWARM_DMG_FRAC, SWARM_LIFE, CRUNCH_DMG_MUL,
   STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
   CHILL_SLOW_BASE, CHILL_SLOW_PER_POTENCY, CHILL_SLOW_CAP, CHILL_DURATION,
   CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
@@ -899,16 +901,31 @@ function stepBullets(run, dt) {
   run.bullets = bullets.filter((b) => b.life > 0 && b.pierce > 0)
 }
 
+// Supernova Sparks: when an orb hit KILLS an enemy, splash bonus × that hit's dealt damage to
+// everything else within ORBIT_NOVA_RADIUS of the kill spot (dealDamage, no re-roll) + explode.
+function orbitSupernova(run, deadEnemy, dealtDmg, bonus) {
+  const dmg = Math.round(dealtDmg * bonus)
+  if (dmg <= 0) return
+  const radSq = ORBIT_NOVA_RADIUS * ORBIT_NOVA_RADIUS
+  for (const e of run.enemies) {
+    if (e._dead || e.id === deadEnemy.id) continue
+    const dx = e.x - deadEnemy.x, dy = e.y - deadEnemy.y
+    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+  }
+  run.events.push({ type: 'explode', x: deadEnemy.x, y: deadEnemy.y, radius: ORBIT_NOVA_RADIUS })
+}
+
 // Shared by the main ring and the Twin Ring inner ring: damages the nearest not-on-cooldown
 // enemy touching an orb at (ox, oy), same dmg/tick logic for both rings.
-function hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul) {
+function hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul, supernovaBonus) {
   for (const e of run.enemies) {
     if (e._dead || e.orbCd > 0) continue
     const dx = e.x - ox, dy = e.y - oy
     const rad = orbR + e.radius
     if (dx * dx + dy * dy <= rad * rad) {
-      applyDamage(run, e, stats.dmg)
+      const dealt = applyDamage(run, e, stats.dmg)
       e.orbCd = stats.tick / fireRateMul
+      if (supernovaBonus > 0 && e._dead) orbitSupernova(run, e, dealt, supernovaBonus)
     }
   }
 }
@@ -917,13 +934,14 @@ function stepOrbitWeapon(run, stats, fireRateMul) {
   const p = run.player
   const mods = run.weaponMods.orbit
   const orbR = ORB_R * (1 + (mods?.bigOrbs ?? 0)) // bigOrbs scales ORB_R, a constant, not a levels[] field
+  const supernovaBonus = mods?.supernova ?? 0
 
   for (let i = 0; i < stats.orbs; i++) {
     const angle = (i / stats.orbs) * Math.PI * 2 + run.time * stats.rotSpeed
     const ox = p.x + Math.cos(angle) * stats.radius
     const oy = p.y + Math.sin(angle) * stats.radius
     run.orbs.push({ x: ox, y: oy, r: orbR })
-    hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul)
+    hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul, supernovaBonus)
   }
 
   // Twin Ring: N orbs on an inner, counter-rotating ring (negative angular velocity), same
@@ -936,7 +954,7 @@ function stepOrbitWeapon(run, stats, fireRateMul) {
       const ox = p.x + Math.cos(angle) * innerRadius
       const oy = p.y + Math.sin(angle) * innerRadius
       run.orbs.push({ x: ox, y: oy, r: orbR })
-      hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul)
+      hitOrbitAt(run, ox, oy, orbR, stats, fireRateMul, supernovaBonus)
     }
   }
 }
@@ -948,15 +966,27 @@ function spawnNova(run, x, y, maxR, dmg, knockback) {
 function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const echoCount = run.weaponMods.wave?.echo ?? 0
+  const undertowStacks = run.weaponMods.wave?.undertow ?? 0
+  const tsunamiBonus = run.weaponMods.wave?.tsunami ?? 0
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
-    spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback)
+    run._waveCasts = (run._waveCasts ?? 0) + 1
+    // Tsunami: every TSUNAMI_EVERY-th cast is a "monster wave" — radius AND damage multiplied.
+    const isTsunami = tsunamiBonus > 0 && run._waveCasts % TSUNAMI_EVERY === 0
+    const radius = isTsunami ? stats.radius * (1 + tsunamiBonus) : stats.radius
+    const dmg = isTsunami ? stats.dmg * (1 + tsunamiBonus) : stats.dmg
+    // Undertow: bake the inverted (pulling) + amplified knockback into the nova at cast time, so
+    // mid-run picks don't retroactively change already-live waves (see spawnNova/stepNovas).
+    const knockback = undertowStacks > 0
+      ? -stats.knockback * (1 + UNDERTOW_KB_PER_STACK * undertowStacks)
+      : stats.knockback
+    spawnNova(run, p.x, p.y, radius, dmg, knockback)
     run.events.push({ type: 'shoot', weapon: 'wave' })
     // Echo Wave: queue N delayed re-casts at the same spot, each WAVE_ECHO_DELAY later than the
-    // previous, at WAVE_ECHO_DMG_FRAC damage (full radius/knockback) — see stepWaveEchoes below.
+    // previous, at WAVE_ECHO_DMG_FRAC damage (full radius/knockback, already tsunami/undertow-adjusted).
     for (let i = 1; i <= echoCount; i++) {
       run._waveEchoes.push({
         delay: WAVE_ECHO_DELAY * i, x: p.x, y: p.y,
-        radius: stats.radius, dmg: stats.dmg * WAVE_ECHO_DMG_FRAC, knockback: stats.knockback,
+        radius, dmg: dmg * WAVE_ECHO_DMG_FRAC, knockback,
       })
     }
   })
@@ -1024,6 +1054,10 @@ function fireBoomerang(run, stats) {
   // bigBlade scales BOOMERANG_HIT_R, a constant, not a levels[] field — read directly and
   // snapshotted per boomerang at throw time, like bigOrbs is for orbit.
   const hitR = BOOMERANG_HIT_R * (1 + (run.weaponMods.boomerang?.bigBlade ?? 0))
+  // Backhand/Seeker: also snapshotted per boomerang at throw time (same reasoning as Undertow —
+  // mid-run picks shouldn't retroactively change blades already in flight).
+  const backhandMul = 1 + (run.weaponMods.boomerang?.backhand ?? 0)
+  const seekerTurnRate = SEEKER_TURN_RATE * (run.weaponMods.boomerang?.seeker ?? 0)
   for (let i = 0; i < count; i++) {
     const angle = count > 1 ? baseAngle - BOOMERANG_FAN + i * step : baseAngle
     run.boomerangs.push({
@@ -1031,15 +1065,35 @@ function fireBoomerang(run, stats) {
       angle, phase: 'out',
       dmg: stats.dmg, hit: new Set(),
       speed: stats.speed, range: stats.range, hitR,
+      backhandMul, seekerTurnRate,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'boomerang' })
+}
+
+// Seeker Blades: steer an outbound ('out' phase only) boomerang's travel angle toward the
+// nearest enemy, same clamped-turn approach as homing wisps.
+function steerSeekerBoomerang(run, b, dt) {
+  let target = null
+  let bestSq = Infinity
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - b.x, dy = e.y - b.y
+    const dSq = dx * dx + dy * dy
+    if (dSq < bestSq) { bestSq = dSq; target = e }
+  }
+  if (!target) return
+  const desired = Math.atan2(target.y - b.y, target.x - b.x)
+  const diff = Math.atan2(Math.sin(desired - b.angle), Math.cos(desired - b.angle))
+  const maxTurn = b.seekerTurnRate * dt
+  b.angle += Math.max(-maxTurn, Math.min(maxTurn, diff))
 }
 
 function stepBoomerangs(run, dt) {
   const p = run.player
   for (const b of run.boomerangs) {
     if (b.phase === 'out') {
+      if (b.seekerTurnRate > 0) steerSeekerBoomerang(run, b, dt)
       b.x += Math.cos(b.angle) * b.speed * dt
       b.y += Math.sin(b.angle) * b.speed * dt
       const traveled = Math.hypot(b.x - b.ox, b.y - b.oy)
@@ -1059,7 +1113,9 @@ function stepBoomerangs(run, dt) {
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.hitR + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
-        applyDamage(run, e, b.dmg)
+        // Backhand: bonus damage while returning ('back' phase only).
+        const dmg = b.phase === 'back' ? b.dmg * b.backhandMul : b.dmg
+        applyDamage(run, e, dmg)
         b.hit.add(e.id)
       }
     }
@@ -1101,9 +1157,49 @@ function spawnClusterMines(run, parent, count) {
   }
 }
 
+// Magnetic Mines: an armed (arm <= 0, not yet triggered) mine crawls toward the nearest enemy.
+function stepMagneticMines(run, dt, bonus) {
+  const speed = MINE_CRAWL_SPEED * bonus
+  for (const m of run.mines) {
+    if (m.arm > 0 || m._dead) continue
+    let target = null
+    let bestSq = Infinity
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - m.x, dy = e.y - m.y
+      const dSq = dx * dx + dy * dy
+      if (dSq < bestSq) { bestSq = dSq; target = e }
+    }
+    if (!target || bestSq <= 1e-6) continue
+    const d = Math.sqrt(bestSq)
+    m.x += ((target.x - m.x) / d) * speed * dt
+    m.y += ((target.y - m.y) / d) * speed * dt
+  }
+}
+
+// A single mine's detonation: AoE damage + explode event + (non-bomblet) Cluster Bombs.
+// Shared by the natural trigger path and Chain Reaction cascades below.
+function detonateMine(run, m) {
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - m.x, dy = e.y - m.y
+    if (dx * dx + dy * dy <= m.radius * m.radius) applyDamage(run, e, m.dmg)
+  }
+  run.events.push({ type: 'explode', x: m.x, y: m.y, radius: m.radius })
+  m._dead = true
+  if (!m.small) {
+    const cluster = run.weaponMods.mines?.cluster ?? 0
+    if (cluster > 0) spawnClusterMines(run, m, cluster)
+  }
+}
+
 function stepMines(run, dt) {
+  const magneticBonus = run.weaponMods.mines?.magnetic ?? 0
+  if (magneticBonus > 0) stepMagneticMines(run, dt, magneticBonus)
+
   for (const m of run.mines) {
     if (m.arm > 0) { m.arm = Math.max(0, m.arm - dt); continue }
+    if (m._dead || m._detonate) continue
 
     let triggered = false
     for (const e of run.enemies) {
@@ -1112,20 +1208,32 @@ function stepMines(run, dt) {
       const trig = MINE_TRIGGER_R + e.radius
       if (dx * dx + dy * dy <= trig * trig) { triggered = true; break }
     }
-    if (!triggered) continue
+    if (triggered) m._detonate = true
+  }
 
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      const dx = e.x - m.x, dy = e.y - m.y
-      if (dx * dx + dy * dy <= m.radius * m.radius) applyDamage(run, e, m.dmg)
-    }
-    run.events.push({ type: 'explode', x: m.x, y: m.y, radius: m.radius })
-    m._dead = true
-    if (!m.small) {
-      const cluster = run.weaponMods.mines?.cluster ?? 0
-      if (cluster > 0) spawnClusterMines(run, m, cluster)
+  // Chain Reaction: process detonations breadth-first (a mine only ever detonates once) so a
+  // cascade can also trigger other ARMED mines within its own blast radius.
+  const chainCap = run.weaponMods.mines?.chainReaction ?? 0
+  const queue = run.mines.filter((m) => m._detonate && !m._dead)
+  for (let qi = 0; qi < queue.length; qi++) {
+    const m = queue[qi]
+    if (m._dead) continue
+    detonateMine(run, m)
+    if (chainCap <= 0) continue
+    const radSq = m.radius * m.radius
+    let chained = 0
+    for (const other of run.mines) {
+      if (chained >= chainCap) break
+      if (other === m || other._dead || other.arm > 0 || other._detonate) continue
+      const dx = other.x - m.x, dy = other.y - m.y
+      if (dx * dx + dy * dy <= radSq) {
+        other._detonate = true
+        queue.push(other)
+        chained++
+      }
     }
   }
+
   run.mines = run.mines.filter((m) => !m._dead)
 }
 
@@ -1159,10 +1267,49 @@ function fireHoming(run, stats) {
   run.events.push({ type: 'shoot', weapon: 'homing' })
 }
 
+// Popping Wisps: on death (spent its last pierce on a hit, OR lifetime expiry) a wisp pops an
+// AoE splash = bonus × its own dmg in WISP_NOVA_RADIUS + explode event. Mini-wisps (Swarm) can
+// pop too — only re-triggering Swarm itself is disallowed (see the hit loop below).
+function wispPop(run, h, bonus) {
+  const dmg = Math.round(h.dmg * bonus)
+  if (dmg <= 0) return
+  const radSq = WISP_NOVA_RADIUS * WISP_NOVA_RADIUS
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - h.x, dy = e.y - h.y
+    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+  }
+  run.events.push({ type: 'explode', x: h.x, y: h.y, radius: WISP_NOVA_RADIUS })
+}
+
+// Swarm: a (non-mini) wisp's hit that KILLS an enemy spawns `count` mini-wisps at the kill spot,
+// flagged `_mini` so they never re-trigger Swarm themselves (no exponential cascade).
+function spawnSwarmWisps(run, x, y, source, count) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2
+    run.homingShots.push({
+      x, y,
+      vx: Math.cos(angle) * source.speed,
+      vy: Math.sin(angle) * source.speed,
+      dmg: source.dmg * SWARM_DMG_FRAC,
+      life: SWARM_LIFE,
+      speed: source.speed, turnRate: source.turnRate,
+      pierce: 1, hitIds: new Set(),
+      _mini: true,
+    })
+  }
+}
+
 function stepHomingShots(run, dt) {
+  const wispNovaBonus = run.weaponMods.homing?.wispNova ?? 0
+  const swarmBonus = run.weaponMods.homing?.swarm ?? 0
   for (const h of run.homingShots) {
+    if (h.pierce <= 0) continue // already resolved (popped) when its last hit spent pierce
     h.life -= dt
-    if (h.life <= 0 || h.pierce <= 0) continue
+    if (h.life <= 0) {
+      if (wispNovaBonus > 0) wispPop(run, h, wispNovaBonus)
+      continue
+    }
 
     let target = null
     let bestSq = Infinity
@@ -1192,8 +1339,12 @@ function stepHomingShots(run, dt) {
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, h.dmg)
         h.hitIds.add(e.id)
+        if (!h._mini && swarmBonus > 0 && e._dead) spawnSwarmWisps(run, e.x, e.y, h, swarmBonus)
         h.pierce--
-        if (h.pierce <= 0) h.life = 0
+        if (h.pierce <= 0) {
+          h.life = 0
+          if (wispNovaBonus > 0) wispPop(run, h, wispNovaBonus)
+        }
         break
       }
     }
@@ -1237,6 +1388,7 @@ function fireHole(run, stats) {
     x: main.x, y: main.y, radius: stats.radius, coreRadius: stats.radius * HOLE_CORE_FRAC,
     life: stats.duration, duration: stats.duration,
     dmg: stats.dmg, tick: stats.tick, pull: stats.pull, acc: 0,
+    spawnRadius: stats.radius, // Hungry Hole: growth is a fraction of THIS (per-hole) radius
   })
   run.events.push({ type: 'hole' })
 
@@ -1251,9 +1403,24 @@ function fireHole(run, stats) {
       x: spot.x, y: spot.y, radius, coreRadius: radius * HOLE_CORE_FRAC,
       life: stats.duration, duration: stats.duration,
       dmg: stats.dmg, tick: stats.tick, pull: stats.pull * HOLE_SINGULARITY_FRAC, acc: 0,
+      spawnRadius: radius,
     })
     run.events.push({ type: 'hole' })
   }
+}
+
+// Big Crunch: on expiry, a hole collapses in a detonation — damage = tick dmg × CRUNCH_DMG_MUL ×
+// (1 + bonus) to everything within its FINAL radius + explode event there.
+function holeCrunch(run, h, bonus) {
+  const dmg = Math.round(h.dmg * CRUNCH_DMG_MUL * (1 + bonus))
+  if (dmg <= 0) return
+  const radSq = h.radius * h.radius
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - h.x, dy = e.y - h.y
+    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+  }
+  run.events.push({ type: 'explode', x: h.x, y: h.y, radius: h.radius })
 }
 
 // Suction ramps from HOLE_RIM_PULL_MUL at the rim up to full strength at the core, so things
@@ -1268,10 +1435,22 @@ function holePullT(d, h) {
 // instead of enemies "escaping" on the same frame they were pulled in.
 function stepHoles(run, dt) {
   const pulled = new Set() // enemy ids affected by a hole this frame; rest decay e.holePull toward 0
+  const hungryBonus = run.weaponMods.hole?.hungry ?? 0
+  const crunchBonus = run.weaponMods.hole?.crunch ?? 0
 
   for (const h of run.holes) {
     h.life -= dt
-    if (h.life <= 0) continue
+    if (h.life <= 0) {
+      if (crunchBonus > 0) holeCrunch(run, h, crunchBonus)
+      continue
+    }
+
+    // Hungry Hole: radius (and coreRadius, kept proportional) grows while alive. Render is
+    // visual-safe here — it already re-reads h.radius/coreRadius every frame.
+    if (hungryBonus > 0 && h.spawnRadius) {
+      h.radius += hungryBonus * h.spawnRadius * dt
+      h.coreRadius = h.radius * HOLE_CORE_FRAC
+    }
 
     for (const e of run.enemies) {
       if (e._dead) continue
@@ -1354,11 +1533,16 @@ function fireBeam(run, stats) {
   // relative spacing fixed for the whole cast).
   const beamCount = 1 + (run.weaponMods.rainbow?.prismatic ?? 0)
   const angleStep = (2 * Math.PI) / beamCount
+  // Strobe Ray: bake the faster tick period in at cast time (mid-run picks shouldn't retroactively
+  // speed up an already-live beam). Focus Lens's ramp is recomputed every tick instead (see below).
+  const strobeBonus = run.weaponMods.rainbow?.strobe ?? 0
+  const tick = stats.tick / (1 + strobeBonus)
+  const focusBonus = run.weaponMods.rainbow?.focus ?? 0
   for (let i = 0; i < beamCount; i++) {
     run.beams.push({
       angle: baseAngle + i * angleStep, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
-      tick: stats.tick, width: stats.width, length: stats.length,
-      rotSpeed: stats.rotSpeed, acc: 0,
+      tick, width: stats.width, length: stats.length,
+      rotSpeed: stats.rotSpeed, acc: 0, focusBonus,
     })
   }
   run.events.push({ type: 'beam' })
@@ -1374,6 +1558,11 @@ function stepBeams(run, dt) {
     b.acc += dt
     while (b.acc >= b.tick) {
       b.acc -= b.tick
+      // Focus Lens: damage ramps linearly from 1x at cast to (1 + focusBonus)x by the end of
+      // the beam's duration, recomputed fresh from elapsed/duration on every tick.
+      const focusBonus = b.focusBonus ?? 0
+      const elapsed = Math.min(b.duration, b.duration - b.life)
+      const dmg = focusBonus > 0 ? b.dmg * (1 + focusBonus * (elapsed / b.duration)) : b.dmg
       const cos = Math.cos(b.angle), sin = Math.sin(b.angle)
       for (const e of run.enemies) {
         if (e._dead) continue
@@ -1381,7 +1570,7 @@ function stepBeams(run, dt) {
         const along = dx * cos + dy * sin           // distance projected onto the beam axis
         const perp = -dx * sin + dy * cos            // perpendicular distance from the axis
         if (along >= 0 && along <= b.length && Math.abs(perp) < b.width / 2 + e.radius) {
-          applyDamage(run, e, b.dmg)
+          applyDamage(run, e, dmg)
         }
       }
     }

@@ -7,6 +7,7 @@ import {
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
+  ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -1081,6 +1082,301 @@ function testDifficulty() {
   console.log('PASS run N (difficulty): hp scaling stacks with mutators, randomMutators sane')
 }
 
+// ---- Run O: v4.3 "crazy-mod pass" (13 new behavioral mods, one focused check each) ----------
+function testCrazyMods() {
+  const dt = 1 / 60
+
+  // 1. orbit.supernova: an orb-killed enemy splashes an explode event (radius ORBIT_NOVA_RADIUS).
+  function testSupernova() {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'orbit', level: 1 }]
+    run.weaponMods.orbit.supernova = 1
+    run.player.x = 0; run.player.y = 0
+    run.enemies.push(makeStatusEnemy(run, { x: WEAPONS.orbit.levels[0].radius, y: 0, hp: 1, speed: 0 }))
+    let exploded = false
+    const steps = Math.round(3 / dt)
+    for (let i = 0; i < steps && !exploded; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'explode' && Math.abs(e.radius - ORBIT_NOVA_RADIUS) < 1e-6)) exploded = true
+    }
+    assert(exploded, 'expected an orb kill to trigger a Supernova Sparks explosion')
+    console.log('PASS run O.1 (orbit supernova): explosion on orb kill confirmed')
+  }
+
+  // 2. wave.undertow: nova knockback points toward the player (negative radial) instead of away.
+  function testUndertow() {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'wave', level: 1 }]
+    run.weaponMods.wave.undertow = 1
+    run.player.x = 0; run.player.y = 0
+    const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(target)
+    let sawKb = false
+    const steps = Math.round(3 / dt)
+    for (let i = 0; i < steps && !sawKb; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const t = run.enemies.find((e) => e.id === target.id)
+      if (t && (t.kb.x !== 0 || t.kb.y !== 0)) sawKb = true
+    }
+    const t = run.enemies.find((e) => e.id === target.id)
+    assert(sawKb, 'expected the nova to knock back (pull) the target')
+    assert(t.kb.x < 0, `expected undertow knockback to pull the target toward the player (negative kb.x), got ${t.kb.x}`)
+    console.log(`PASS run O.2 (undertow): kb.x=${t.kb.x.toFixed(2)}`)
+  }
+
+  // 3. wave.tsunami: every 3rd wave cast has a bigger maxR than the 1st.
+  function testTsunami() {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'wave', level: 1 }] // interval 2.4s
+    run.weaponMods.wave.tsunami = 1
+    run.player.x = 0; run.player.y = 0
+    const seenSet = new Set()
+    const seenNovas = []
+    const steps = Math.round(8 / dt)
+    for (let i = 0; i < steps; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      for (const n of run.novas) if (!seenSet.has(n)) { seenSet.add(n); seenNovas.push(n) }
+    }
+    assert(seenNovas.length >= 3, `expected at least 3 wave casts, got ${seenNovas.length}`)
+    assert(seenNovas[2].maxR > seenNovas[0].maxR,
+      `expected the 3rd (tsunami) cast's maxR (${seenNovas[2].maxR}) > the 1st's (${seenNovas[0].maxR})`)
+    console.log(`PASS run O.3 (tsunami): 1st maxR=${seenNovas[0].maxR.toFixed(1)} 3rd maxR=${seenNovas[2].maxR.toFixed(1)}`)
+  }
+
+  // 4. boomerang.backhand: the same stationary target takes more damage on the return hit than
+  // the outbound hit (the boomerang naturally re-crosses it: out -> hit -> range -> back -> hit).
+  function testBackhand() {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'boomerang', level: 1 }]
+    run.weaponMods.boomerang.backhand = 1
+    run.player.critChance = 0
+    run.player.x = 0; run.player.y = 0; run.player.facing = 1
+    const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e9, speed: 0 })
+    run.enemies.push(target)
+    let outDmg = null, backDmg = null
+    const steps = Math.round(3 / dt)
+    for (let i = 0; i < steps; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const events = run.events
+      run.events = []
+      const b = run.boomerangs[0]
+      for (const e of events) {
+        if (e.type !== 'hit' || !b) continue
+        if (b.phase === 'out' && outDmg === null) outDmg = e.dmg
+        if (b.phase === 'back' && backDmg === null) backDmg = e.dmg
+      }
+    }
+    assert(outDmg !== null, 'expected an outbound boomerang hit')
+    assert(backDmg !== null, 'expected a return-phase boomerang hit')
+    assert(backDmg > outDmg, `expected backhand return dmg (${backDmg}) > outbound dmg (${outDmg})`)
+    console.log(`PASS run O.4 (backhand): out=${outDmg} back=${backDmg}`)
+  }
+
+  // 5. boomerang.seeker: an outbound boomerang's angle converges toward an off-axis enemy.
+  // Enemy placed very far away so the boomerang's own (short) travel barely shifts the bearing
+  // to it — isolating the steering effect from incidental position-drift geometry.
+  function testSeeker() {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'boomerang', level: 1 }]
+    run.weaponMods.boomerang.seeker = 1
+    run.player.x = 0; run.player.y = 0; run.player.facing = 1
+    let fired = false
+    const fireSteps = Math.round(2 / dt)
+    for (let i = 0; i < fireSteps && !fired; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt) // no enemies yet -> baseAngle = facing = 0
+      if (run.boomerangs.length > 0) fired = true
+    }
+    assert(fired, 'expected the boomerang to fire')
+    const b = run.boomerangs[0]
+    const enemyAngle = b.angle + Math.PI / 2 // 90 degrees off its current heading
+    const ex = b.x + Math.cos(enemyAngle) * 3000
+    const ey = b.y + Math.sin(enemyAngle) * 3000
+    run.enemies.push(makeStatusEnemy(run, { x: ex, y: ey, hp: 1e6, speed: 0 }))
+    const angleDiff = (a, c) => Math.abs(Math.atan2(Math.sin(a - c), Math.cos(a - c)))
+    const diffBefore = angleDiff(b.angle, Math.atan2(ey - b.y, ex - b.x))
+    for (let i = 0; i < 50; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const bAfter = run.boomerangs.find((x) => x === b)
+    assert(bAfter, 'expected the boomerang to still be flying (out phase)')
+    const diffAfter = angleDiff(bAfter.angle, Math.atan2(ey - bAfter.y, ex - bAfter.x))
+    assert(diffAfter < diffBefore, `expected seeker angle diff to shrink (before=${diffBefore.toFixed(3)}, after=${diffAfter.toFixed(3)})`)
+    console.log(`PASS run O.5 (seeker): angleDiff before=${diffBefore.toFixed(3)} after=${diffAfter.toFixed(3)}`)
+  }
+
+  // 6. mines.magnetic: an armed mine crawls toward a distant enemy (too far to trigger).
+  function testMagneticMines() {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.weaponMods.mines.magnetic = 1
+    run.player.x = 5000; run.player.y = 0
+    run.mines.push({ x: 0, y: 0, arm: 0, dmg: 10, radius: 30 })
+    run.enemies.push(makeStatusEnemy(run, { x: 300, y: 0, hp: 1e6, speed: 0 }))
+    const before = Math.hypot(run.mines[0].x - 300, run.mines[0].y)
+    for (let i = 0; i < 30; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.mines.length, 1, 'expected the mine to still exist (too far to trigger)')
+    const after = Math.hypot(run.mines[0].x - 300, run.mines[0].y)
+    assert(after < before, `expected the magnetic mine to crawl toward the enemy (before=${before.toFixed(1)}, after=${after.toFixed(1)})`)
+    console.log(`PASS run O.6 (magnetic mines): before=${before.toFixed(1)} after=${after.toFixed(1)}`)
+  }
+
+  // 7. mines.chainReaction: one triggered mine detonates a second in-radius (but otherwise
+  // untriggered) armed mine — 2 explode events, both dealing damage.
+  function testChainReaction() {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.weaponMods.mines.chainReaction = 2
+    run.player.x = 5000; run.player.y = 0 // clear of the mines, no contact damage
+    run.mines.push({ x: 0, y: 0, arm: 0, dmg: 20, radius: 80 })  // triggers naturally
+    run.mines.push({ x: 70, y: 0, arm: 0, dmg: 20, radius: 80 }) // in A's blast, no enemy of its own
+    run.enemies.push(makeStatusEnemy(run, { x: 2, y: 0, hp: 1e6, speed: 0 }))
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const explodes = run.events.filter((e) => e.type === 'explode')
+    assert.strictEqual(explodes.length, 2, `expected both mines to detonate (2 explode events), got ${explodes.length}`)
+    console.log(`PASS run O.7 (chain reaction): explodes=${explodes.length}`)
+  }
+
+  // 8. homing.wispNova: a wisp popping on lifetime expiry emits an explode event of the right radius.
+  function testWispNova() {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.weaponMods.homing.wispNova = 1
+    run.player.x = 0; run.player.y = 0
+    run.homingShots.push({ x: 0, y: 0, vx: 0, vy: 0, dmg: 50, life: 0.05, speed: 0, turnRate: 0, pierce: 1, hitIds: new Set() })
+    let exploded = false
+    for (let i = 0; i < 10 && !exploded; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'explode' && Math.abs(e.radius - WISP_NOVA_RADIUS) < 1e-6)) exploded = true
+    }
+    assert(exploded, 'expected an expiring wisp to trigger a Popping Wisps explosion')
+    console.log('PASS run O.8 (wisp nova): explosion on wisp expiry confirmed')
+  }
+
+  // 9. homing.swarm: a wisp kill spawns exactly the tier-bonus count of mini wisps, and none of
+  // those minis (even after killing more enemies themselves) ever spawn further minis.
+  function testSwarm() {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.weaponMods.homing.swarm = 3
+    run.player.x = 0; run.player.y = 0
+    seedTargetRing(run, 12, 4, 60) // low-hp ring: minis can also land kills if swarm ever misfires
+    run.homingShots.push({ x: 0, y: 0, vx: 300, vy: 0, dmg: 50, life: 3, speed: 300, turnRate: 8, pierce: 1, hitIds: new Set() })
+    const seenMinis = new Set()
+    const steps = Math.round(6 / dt)
+    for (let i = 0; i < steps; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      for (const h of run.homingShots) if (h._mini) seenMinis.add(h)
+    }
+    assert(seenMinis.size >= 3, `expected at least 3 mini wisps spawned on kill, got ${seenMinis.size}`)
+    assert(seenMinis.size <= 3, `expected exactly the swarm tier bonus (3) mini wisps total, no re-swarm cascade — got ${seenMinis.size}`)
+    console.log(`PASS run O.9 (swarm): minis=${seenMinis.size}`)
+  }
+
+  // 10. hole.hungry: a hole's radius grows over time while alive.
+  function testHungryHole() {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.weaponMods.hole.hungry = 1
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const h = { x: 0, y: 0, radius: 100, coreRadius: 22, spawnRadius: 100, life: 3, duration: 3, dmg: 5, tick: 0.5, pull: 100, acc: 0 }
+    run.holes.push(h)
+    const before = h.radius
+    for (let i = 0; i < Math.round(1 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const after = run.holes.find((x) => x === h)
+    assert(after, 'expected the hole to still be alive')
+    assert(after.radius > before, `expected Hungry Hole to grow radius over time (before=${before}, after=${after.radius.toFixed(1)})`)
+    console.log(`PASS run O.10 (hungry hole): before=${before} after=${after.radius.toFixed(1)}`)
+  }
+
+  // 11. hole.crunch: an expiring hole detonates at its final radius, damaging enemies inside.
+  function testCrunch() {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.weaponMods.hole.crunch = 1
+    run.player.x = 5000; run.player.y = 0
+    const target = makeStatusEnemy(run, { x: 50, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(target)
+    const h = { x: 0, y: 0, radius: 150, coreRadius: 33, spawnRadius: 150, life: 0.05, duration: 2, dmg: 5, tick: 5, pull: 0, acc: 0 }
+    run.holes.push(h)
+    let exploded = false
+    for (let i = 0; i < 10 && !exploded; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'explode' && Math.abs(e.radius - 150) < 1e-6)) exploded = true
+    }
+    assert(exploded, 'expected the expiring hole to detonate (Big Crunch) at its final radius')
+    const expectedDmg = Math.round(5 * CRUNCH_DMG_MUL * (1 + 1))
+    const after = run.enemies.find((e) => e.id === target.id)
+    assert(after.hp <= 1e6 - expectedDmg + 1, `expected the crunch detonation to deal ~${expectedDmg} dmg, hp=${after.hp}`)
+    console.log(`PASS run O.11 (big crunch): expectedDmg=${expectedDmg} targetHp=${after.hp}`)
+  }
+
+  // 12. rainbow.focus: a late beam tick deals more damage than an early tick on an identical target.
+  function testFocus() {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.critChance = 0
+    run.player.x = 0; run.player.y = 0
+    const target = makeStatusEnemy(run, { x: 200, y: 0, hp: 1e9, speed: 0 })
+    run.enemies.push(target)
+    const duration = 2
+    run.beams.push({ angle: 0, life: duration, duration, dmg: 10, tick: 0.1, width: 60, length: 400, rotSpeed: 0, acc: 0, focusBonus: 1 })
+    let earlyDmg = null, lateDmg = null
+    const steps = Math.round(duration / dt)
+    for (let i = 0; i < steps; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const events = run.events
+      run.events = []
+      for (const e of events) {
+        if (e.type !== 'hit') continue
+        if (earlyDmg === null) earlyDmg = e.dmg
+        lateDmg = e.dmg
+      }
+    }
+    assert(earlyDmg !== null && lateDmg !== null, 'expected hit events from the focused beam')
+    assert(lateDmg > earlyDmg, `expected late-beam tick damage (${lateDmg}) > early tick damage (${earlyDmg})`)
+    console.log(`PASS run O.12 (focus lens): early=${earlyDmg} late=${lateDmg}`)
+  }
+
+  // 13. rainbow.strobe: a strobed beam lands more hit events than an unmodded one over the same time.
+  function testStrobe() {
+    function totalHits(strobeBonus) {
+      const run = createRun(makeMeta())
+      run.weapons = [{ id: 'rainbow', level: 1 }] // interval 8.0s, duration 2.2s
+      if (strobeBonus) run.weaponMods.rainbow.strobe = strobeBonus
+      run.mods.spawnMul = 0
+      run.player.x = 0; run.player.y = 0
+      const target = makeStatusEnemy(run, { x: 2, y: 0, hp: 1e12, speed: 0 })
+      target.radius = 500 // always within beam width/length regardless of rotation angle
+      run.enemies.push(target)
+      let hits = 0
+      const steps = Math.round(11 / dt)
+      for (let i = 0; i < steps; i++) {
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const e of run.events) if (e.type === 'hit') hits++
+        run.events = []
+      }
+      return hits
+    }
+    const baseline = totalHits(0)
+    const strobed = totalHits(1)
+    assert(strobed > baseline, `expected strobe to increase hit count over the same duration (baseline=${baseline}, strobed=${strobed})`)
+    console.log(`PASS run O.13 (strobe ray): baseline hits=${baseline} strobed hits=${strobed}`)
+  }
+
+  testSupernova()
+  testUndertow()
+  testTsunami()
+  testBackhand()
+  testSeeker()
+  testMagneticMines()
+  testChainReaction()
+  testWispNova()
+  testSwarm()
+  testHungryHole()
+  testCrunch()
+  testFocus()
+  testStrobe()
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1097,6 +1393,7 @@ try {
   testWeaponModParity()
   testFocusNudge()
   testDifficulty()
+  testCrazyMods()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

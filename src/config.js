@@ -204,6 +204,40 @@ export const MAX_PASSIVE_LEVEL = 5
 //   rainbow.prismatic: N extra beams per cast, evenly spread around the circle (2 beams total
 //                      = 180° apart, 3 = 120°, ...), same stats, all rotating together.
 //
+// v4.3 "crazy-mod pass" behavioral mods (bring every weapon to 6 mods — see sim.js for the
+// exact trigger sites):
+//   orbit.supernova:    when an orbit-orb hit KILLS an enemy, it splashes bonus × that hit's
+//                       dealt damage to everything else in ORBIT_NOVA_RADIUS (no re-roll) + an
+//                       explode event.
+//   wave.undertow:      inverts nova knockback into a pull, baked into the nova at cast time;
+//                       each stack (flat) adds +UNDERTOW_KB_PER_STACK magnitude on top.
+//   wave.tsunami:       every TSUNAMI_EVERY-th cast (tracked by run._waveCasts) multiplies that
+//                       cast's radius AND damage by (1 + bonus) — a "monster wave".
+//   boomerang.backhand: boomerangs deal (1 + bonus)× damage while in their 'back' (return) phase.
+//   boomerang.seeker:   outbound ('out' phase only) boomerangs steer toward the nearest enemy at
+//                       SEEKER_TURN_RATE × bonus rad/s, baked into the boomerang at throw time.
+//   mines.magnetic:     armed (not-yet-triggered) mines crawl toward the nearest enemy at
+//                       MINE_CRAWL_SPEED × bonus px/s.
+//   mines.chainReaction: when a mine explodes, up to <tier bonus> other ARMED mines within its
+//                       blast radius detonate immediately too (cascading breadth-first; a mine
+//                       only ever detonates once).
+//   homing.wispNova:    when a wisp dies (spent its last pierce on a hit, or its lifetime
+//                       expired) it pops: AoE splash = bonus × the wisp's dmg in
+//                       WISP_NOVA_RADIUS + explode event. Mini-wisps (see swarm) can pop too.
+//   homing.swarm:       when a (non-mini) wisp's hit KILLS an enemy, spawn <tier bonus> mini
+//                       wisps at the kill spot (SWARM_DMG_FRAC × dmg, SWARM_LIFE lifetime, same
+//                       speed/turn rate) flagged `_mini` — mini wisps never re-trigger swarm.
+//   hole.hungry:        a hole's radius (and coreRadius, kept proportional) grows by
+//                       bonus × its spawn radius per second while alive — visual-safe since
+//                       render already re-reads h.radius/coreRadius every frame.
+//   hole.crunch:        when a hole expires, it collapses in a detonation: damage = hole tick
+//                       dmg × CRUNCH_DMG_MUL × (1 + bonus) to everything within its final
+//                       radius + explode event there.
+//   rainbow.focus:      a beam's damage ramps linearly from 1× at cast to (1 + bonus)× at the
+//                       end of its duration (recomputed every tick from elapsed/duration).
+//   rainbow.strobe:     beam tick period divided by (1 + bonus), baked in at cast time (faster
+//                       ticks = more hits over the same duration).
+//
 // Everything else (extraOrb/wideRing/overdrive/bigWave/shove/amplitude/extraRang/longThrow/
 // heavyBlade/minefield/bigBoom/heavyCharge/extraWisp/longLife/agile/biggerHole/lasting/denser/
 // wideBeam/longBeam/sustain) is a plain STAT mod folded into a weapon's per-level numbers by
@@ -223,42 +257,55 @@ export const WEAPON_MODS = {
     wideRing:  { name: 'Wide Orbit',   desc: 'ring radius',                        icon: '🪐', base: 0.20, kind: 'pct' },
     overdrive: { name: 'Overdrive',    desc: 'orbit rotation speed',               icon: '🌀', base: 0.20, kind: 'pct' },
     twinRing:  { name: 'Twin Ring',    desc: 'counter-rotating inner ring of orbs', icon: '💠', kind: 'tier' },
+    supernova: { name: 'Supernova Sparks', desc: 'orb-kill splash damage',         icon: '🌟', base: 0.50, kind: 'pct' },
   },
   wave: {
     bigWave:   { name: 'Big Wave',  desc: 'nova radius',           icon: '🌊', base: 0.20, kind: 'pct' },
     shove:     { name: 'Big Shove', desc: 'nova knockback',        icon: '👊', base: 0.20, kind: 'pct' },
     amplitude: { name: 'Amplitude', desc: 'wave damage',           icon: '📢', base: 0.20, kind: 'pct' },
     echo:      { name: 'Echo Wave', desc: 'echo wave(s) per cast', icon: '🔁', kind: 'tier' },
+    undertow:  { name: 'Undertow',  desc: 'knockback stack(s) (pulls in instead of pushing out)', icon: '↩️', base: 1, kind: 'flat' },
+    tsunami:   { name: 'Tsunami',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
   },
   boomerang: {
     extraRang:  { name: 'Extra Blades', desc: 'boomerangs per throw', icon: '🪃', base: 1,    kind: 'flat' },
     longThrow:  { name: 'Long Throw',   desc: 'boomerang range',      icon: '📏', base: 0.20, kind: 'pct' },
     bigBlade:   { name: 'Big Blade',    desc: 'boomerang hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
     heavyBlade: { name: 'Heavy Blade',  desc: 'boomerang damage',     icon: '🔨', base: 0.20, kind: 'pct' },
+    backhand:   { name: 'Backhand',      desc: 'boomerang return-swing damage',       icon: '🤛', base: 0.50, kind: 'pct' },
+    seeker:     { name: 'Seeker Blades', desc: 'outbound curve-toward-target strength', icon: '🧭', base: 0.50, kind: 'pct' },
   },
   mines: {
     minefield:   { name: 'Minefield',     desc: 'max mines alive',             icon: '🪤', base: 1,    kind: 'flat' },
     bigBoom:     { name: 'Big Boom',      desc: 'mine blast radius',           icon: '💥', base: 0.20, kind: 'pct' },
     heavyCharge: { name: 'Heavy Charge',  desc: 'mine damage',                 icon: '🧨', base: 0.20, kind: 'pct' },
     cluster:     { name: 'Cluster Bombs', desc: 'bomblet(s) when a mine pops', icon: '🎆', kind: 'tier' },
+    magnetic:      { name: 'Magnetic Mines', desc: 'armed-mine crawl speed toward foes', icon: '🧲', base: 0.50, kind: 'pct' },
+    chainReaction: { name: 'Chain Reaction', desc: 'nearby armed mine(s) detonated by a blast', icon: '⛓️', kind: 'tier' },
   },
   homing: {
     extraWisp: { name: 'Extra Wisps',   desc: 'wisps per volley', icon: '🔮', base: 1,    kind: 'flat' },
     longLife:  { name: 'Long Life',     desc: 'wisp lifetime',    icon: '⏳', base: 0.20, kind: 'pct' },
     agile:     { name: 'Agile Wisps',   desc: 'wisp turn rate',   icon: '🦋', base: 0.20, kind: 'pct' },
     phantom:   { name: 'Phantom Wisps', desc: 'pierce per wisp',  icon: '👻', base: 1,    kind: 'flat' },
+    wispNova:  { name: 'Popping Wisps', desc: 'wisp death-pop splash damage',  icon: '💥', base: 0.60, kind: 'pct' },
+    swarm:     { name: 'Swarm',         desc: 'mini wisp(s) spawned on a wisp kill', icon: '🐝', kind: 'tier' },
   },
   hole: {
     biggerHole:  { name: 'Bigger Hole',    desc: 'vortex radius',             icon: '🕳️', base: 0.20, kind: 'pct' },
     lasting:     { name: 'Lasting Vortex', desc: 'vortex duration',           icon: '⏱️', base: 0.20, kind: 'pct' },
     denser:      { name: 'Denser Pull',    desc: 'vortex pull',               icon: '🌌', base: 0.20, kind: 'pct' },
     singularity: { name: 'Singularity',    desc: 'extra vortex(es) per cast', icon: '🌠', kind: 'tier' },
+    hungry:      { name: 'Hungry Hole', desc: 'vortex growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
+    crunch:      { name: 'Big Crunch',  desc: 'vortex collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
   },
   rainbow: {
     wideBeam:  { name: 'Wide Beam',       desc: 'beam width',             icon: '📡', base: 0.20, kind: 'pct' },
     longBeam:  { name: 'Long Beam',       desc: 'beam length',            icon: '↔️', base: 0.20, kind: 'pct' },
     sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
     prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier' },
+    focus:     { name: 'Focus Lens', desc: 'beam damage ramp by the end of its duration', icon: '🔎', base: 0.80, kind: 'pct' },
+    strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct' },
   },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
@@ -305,6 +352,33 @@ export const STAR_RICOCHET_DMG_MUL = 0.7                      // damage multipli
 export const STAR_RICOCHET_ANGLE_MIN = (60 * Math.PI) / 180   // min deflection from incoming heading
 export const STAR_RICOCHET_ANGLE_MAX = (120 * Math.PI) / 180  // max deflection from incoming heading
 export const STAR_RICOCHET_EXTRA_LIFE = 0.4                   // s, minimum flight time granted on a bounce
+
+// ---- v4.3 "crazy-mod pass" tuning (13 new behavioral mods, one set per weapon below) --------
+
+// Supernova Sparks (orbit): splash radius around an orb-killed enemy.
+export const ORBIT_NOVA_RADIUS = 85 // px
+
+// Undertow (wave): extra knockback magnitude per stack, on top of the inverted (pulling) nova.
+export const UNDERTOW_KB_PER_STACK = 0.5 // +50% knockback magnitude per stack
+
+// Tsunami (wave): cast cadence for a "monster wave" (radius/damage both multiplied).
+export const TSUNAMI_EVERY = 3 // every 3rd wave cast
+
+// Seeker Blades (boomerang): outbound curve-toward-target turn rate at bonus=1.
+export const SEEKER_TURN_RATE = 2.5 // rad/s
+
+// Magnetic Mines: armed-mine crawl speed toward the nearest enemy at bonus=1.
+export const MINE_CRAWL_SPEED = 55 // px/s
+
+// Popping Wisps (homing): death-pop splash radius (hit-with-no-pierce-left OR lifetime expiry).
+export const WISP_NOVA_RADIUS = 70 // px
+
+// Swarm (homing): mini-wisps spawned on a (non-mini) wisp kill.
+export const SWARM_DMG_FRAC = 0.5 // mini-wisp damage, as a fraction of the source wisp's
+export const SWARM_LIFE = 1.2     // s, mini-wisp lifetime
+
+// Big Crunch (black hole): collapse-detonation damage multiplier on top of the hole's own tick dmg.
+export const CRUNCH_DMG_MUL = 10
 
 // ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
 // Offered always (not gated behind a weapon), rolls a rarity like passives: applied

@@ -75,34 +75,65 @@ export function shopBonus(meta, id) {
  *               tryChainBullet/tryRicochetBullet in sim.js). run._chains/_ricochets are debug
  *               counters incremented each time one of those triggers (not a render contract).
  * novas[i]:   { x, y, r, maxR, dmg, knockback, life, hit:Set<enemyId> }  (r grows; render draws the ring)
+ *             knockback (v4.3): Undertow (see WEAPON_MODS.wave) bakes a NEGATIVE knockback in
+ *             at cast time to invert push into pull (magnitude also amplified per stack) —
+ *             stepNovas' math is unchanged, it just applies whatever signed value is here.
+ *             Tsunami (v4.3) similarly bakes a bigger maxR/dmg into every TSUNAMI_EVERY-th cast
+ *             (tracked by run._waveCasts, a sim-internal counter, not a render contract).
  * orbs[i]:    { x, y, r } positions + effective hit radius computed by sim each frame (render
  *             just draws them; r = ORB_R × (1 + orbit.bigOrbs bonus), same for main-ring and
  *             twinRing orbs — see WEAPON_MODS.orbit in config.js)
  * gems[i]:    { x, y, xp }   coins[i]: { x, y, value }
  *
  * v2 weapon entities (all sim-owned, render-drawn):
- * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set, hitR }  (hit cleared at
- *               turnaround; hitR (v4.1) = BOOMERANG_HIT_R × (1 + boomerang.bigBlade bonus),
- *               snapshotted per throw — sim-internal collision radius, not required by render)
- * mines[i]:     { x, y, arm (s until armed), dmg, radius, small? }
+ * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set, hitR, backhandMul, seekerTurnRate }
+ *               (hit cleared at turnaround; hitR (v4.1) = BOOMERANG_HIT_R × (1 + boomerang.bigBlade
+ *               bonus), snapshotted per throw — sim-internal collision radius, not required by
+ *               render). backhandMul/seekerTurnRate (v4.3, see WEAPON_MODS.boomerang): also
+ *               snapshotted per throw — backhandMul (= 1 + backhand bonus) multiplies dmg only
+ *               while phase==='back'; seekerTurnRate (= SEEKER_TURN_RATE × seeker bonus, 0 = off)
+ *               steers the travel angle toward the nearest enemy, 'out' phase only.
+ * mines[i]:     { x, y, arm (s until armed), dmg, radius, small?, _detonate? }
  *               small (v4.1, optional): true for Cluster Bombs bomblets (see WEAPON_MODS.mines
  *               in config.js) — smaller/weaker mines popped from a mine's death; render draws
  *               them at a reduced scale. Absent (falsy) on ordinary player-deployed mines.
- * homingShots[i]: { x, y, vx, vy, dmg, life, pierce, hitIds:Set<enemyId> }
+ *               _detonate (v4.3, sim-internal, not a render contract): set once a mine is queued
+ *               to explode this frame (natural proximity trigger OR a Chain Reaction cascade from
+ *               another mine's blast) — guarantees a mine only ever detonates once. Magnetic Mines
+ *               (v4.3) crawls an armed (arm<=0) mine's x/y toward the nearest enemy every frame —
+ *               plain position mutation, no new render contract.
+ * homingShots[i]: { x, y, vx, vy, dmg, life, pierce, hitIds:Set<enemyId>, _mini? }
  *               pierce (v4.1): starts at 1 + WEAPON_MODS.homing.phantom bonus; a wisp
  *               decrements it on each hit instead of always dying on first contact, and keeps
  *               homing toward enemies not yet in hitIds (see stepHomingShots in sim.js).
- * holes[i]:     { x, y, radius, coreRadius, life, duration, dmg, tick, pull }
+ *               _mini (v4.3, optional): true for Swarm's bonus mini-wisps, spawned when a
+ *               (non-mini) wisp's hit kills an enemy (see WEAPON_MODS.homing.swarm) — same shape,
+ *               smaller dmg/life, never itself triggers another Swarm spawn (still eligible for
+ *               a Popping Wisps death-pop, see below). Popping Wisps (wispNova, v4.3): any wisp
+ *               that dies (spent its last pierce on a hit, OR its life ran out) pops an AoE
+ *               splash — no new field, just an {type:'explode'} event at its (x,y).
+ * holes[i]:     { x, y, radius, coreRadius, life, duration, dmg, tick, pull, spawnRadius? }
  *               coreRadius is the inner "consumed" zone (amplified tick damage; see stepHoles).
  *               Singularity (v4.1, see WEAPON_MODS.hole) spawns extra hole entries of this same
- *               shape at HOLE_SINGULARITY_FRAC radius/coreRadius/pull.
- * beams[i]:     { angle, life, duration, dmg, tick, width, length }  origin = player.
+ *               shape at HOLE_SINGULARITY_FRAC radius/coreRadius/pull. spawnRadius (v4.3,
+ *               optional): the hole's radius at creation — Hungry Hole (see WEAPON_MODS.hole)
+ *               grows radius/coreRadius by a fraction of it per second while alive; render is
+ *               already visual-safe here since it re-reads h.radius/coreRadius every frame. Big
+ *               Crunch (v4.3): on expiry a hole collapses in one last detonation at its FINAL
+ *               radius — an {type:'explode'} event, no new field.
+ * beams[i]:     { angle, life, duration, dmg, tick, width, length, focusBonus? }  origin = player.
  *               Prismatic Split (v4.1, see WEAPON_MODS.rainbow) spawns extra beam entries of
  *               this same shape, angle offset evenly around the circle, all rotating together.
+ *               focusBonus (v4.3, optional): Focus Lens — each tick's damage is ramped by
+ *               (1 + focusBonus × elapsed/duration), recomputed fresh every tick (not baked).
+ *               Strobe Ray (v4.3) instead bakes a faster `tick` period in at cast time (no new
+ *               field — it's applied straight to `tick` above).
  *
- * Extra events beyond v1: {type:'explode',x,y,radius} mine pop or star-blast explosion (radius
- * from config: mine's own blast radius, or STAR_BLAST_RADIUS for star blasts) ·
- * {type:'hole'} vortex opens · {type:'beam'} beam starts.
+ * Extra events beyond v1: {type:'explode',x,y,radius} mine pop, star-blast explosion, Supernova
+ * Sparks orb-kill splash, Popping Wisps death-pop, or Big Crunch hole-collapse (radius from
+ * config: mine's own blast radius, STAR_BLAST_RADIUS, ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, or
+ * the hole's own final radius, respectively) · {type:'hole'} vortex opens · {type:'beam'} beam
+ * starts.
  *
  * Shock arc visual (see applyShock in sim.js): every lightning shock arc emits exactly one of
  * the three events below — frostarc/conduct when their combo triggers on that shock, otherwise
@@ -218,6 +249,9 @@ export function createRun(meta, opts = {}) {
     // Sim-internal only (not a render contract): pending Echo Wave casts (see WEAPON_MODS.wave
     // in config.js and stepWaveEchoes in sim.js) — { delay, x, y, radius, dmg, knockback }[].
     _waveEchoes: [],
+    // Sim-internal only: count of wave casts so far this run (see WEAPON_MODS.wave.tsunami in
+    // config.js and stepWaveWeapon in sim.js) — every TSUNAMI_EVERY-th cast is a "monster wave".
+    _waveCasts: 0,
     // Debug counters only (see bullets[] doc above) — not consumed by render/main.
     _chains: 0,
     _ricochets: 0,

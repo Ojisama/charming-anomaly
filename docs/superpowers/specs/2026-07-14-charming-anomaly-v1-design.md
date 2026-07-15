@@ -251,3 +251,70 @@ enemies via `hitIds`, Singularity yielding a second 55%-scale hole, Prismatic Sp
 second beam ~180° apart, a few plain stat mods (extraRang/extraWisp/bigWave) raising their
 entity counts/`maxR`, and level-up pool gating (no non-star mod ever appears star-only; orbit
 mods appear once orbit is owned).
+
+## v4.3 addendum (2026-07-16) — crazy-mod pass: every weapon to 6 mods
+
+Feedback: non-star weapons still felt thinner than star's six behavioral mods. 13 new
+behavioral mods (`src/config.js` `WEAPON_MODS`) bring every weapon up to 6 — no render-contract
+changes (hard constraint: renderer untouched), reusing `{type:'explode', x, y, radius}` for
+every new splash/detonation and mutating existing live fields (`h.radius`, mine `x/y`) for
+growth/movement effects.
+
+**orbit** Supernova Sparks — an orb hit that KILLS an enemy splashes `bonus × that hit's dealt
+damage` to everything else within `ORBIT_NOVA_RADIUS` (checked via `e._dead` right after
+`applyDamage`, same pattern used for the homing/mines on-kill hooks below) + an explode event.
+
+**wave** Undertow (flat) inverts nova knockback into a pull, plus `UNDERTOW_KB_PER_STACK` extra
+magnitude per stack — baked into the nova's (signed) `knockback` field at cast time so mid-run
+picks never retroactively change an already-live wave. Tsunami multiplies radius AND damage by
+`(1 + bonus)` on every `TSUNAMI_EVERY`-th cast (`run._waveCasts`, a sim-internal per-run
+counter) — also baked in at cast, so its echoes (if Echo Wave is also owned) inherit the
+tsunami-adjusted numbers for free.
+
+**boomerang** Backhand multiplies damage by `(1 + bonus)` only while `phase === 'back'`. Seeker
+Blades steers the *outbound* ('out' phase only — the return already homes on the player) travel
+angle toward the nearest enemy at `SEEKER_TURN_RATE × bonus` rad/s, same clamped-turn shape as
+homing wisps. Both snapshotted onto the boomerang object at throw time.
+
+**mines** Magnetic Mines crawls an armed (not-yet-triggered) mine's `x/y` toward the nearest
+enemy at `MINE_CRAWL_SPEED × bonus` px/s — a plain position mutation, no new render contract.
+Chain Reaction (tier): a mine's detonation cascades to up to `<tier bonus>` other ARMED mines
+within its own blast radius. `stepMines` now resolves detonations via a breadth-first queue
+(`m._detonate` flag, sim-internal) so a mine only ever detonates once even mid-cascade, instead
+of the single combined arm/trigger/explode loop it used before.
+
+**homing** Popping Wisps (wispNova) makes a wisp — real or mini — pop an AoE splash
+(`bonus × its own dmg` in `WISP_NOVA_RADIUS`) + explode event whenever it dies, whether that's
+spending its last pierce on a hit or its lifetime simply running out. Swarm (tier) spawns
+`<tier bonus>` mini-wisps (`_mini: true`, `SWARM_DMG_FRAC × dmg`, `SWARM_LIFE` lifetime, same
+speed/turn rate) at the spot where a *non-mini* wisp's hit kills an enemy — minis never
+re-trigger Swarm themselves (no exponential cascade) but can still pop via wispNova.
+
+**hole** Hungry Hole grows a hole's `radius` (and `coreRadius`, kept proportional) by
+`bonus × its own spawn radius` per second while alive — visual-safe since render already
+re-reads `h.radius`/`h.coreRadius` every frame; a new `h.spawnRadius` field (baked at creation)
+anchors the growth rate. Big Crunch detonates a hole at the moment it expires: damage =
+`hole tick dmg × CRUNCH_DMG_MUL × (1 + bonus)` to everything within its FINAL radius + an
+explode event there.
+
+**rainbow** Focus Lens ramps a beam's damage linearly from 1× at cast to `(1 + bonus)×` by the
+end of its duration — recomputed fresh every tick from `elapsed/duration` (not baked, since it
+has to keep changing across the beam's life). Strobe Ray divides the beam's tick period by
+`(1 + bonus)`, baked into `tick` at cast time (mirrors Undertow/Seeker: mid-run picks shouldn't
+speed up an already-live beam).
+
+`test/sim-test.js` gained **Run O** (`testCrazyMods`), one focused check per new mod: an orb
+kill triggering a Supernova explosion; Undertow's knockback pointing at the player (negative
+radial); the 3rd wave cast having a bigger `maxR` than the 1st; a boomerang's return-phase hit
+outdamaging its outbound hit on the same stationary target; a seeker boomerang's heading
+converging toward a far off-axis enemy (placed far away specifically to isolate the steering
+effect from the incidental bearing-drift caused by the boomerang's own short travel); a
+magnetic mine's position closing distance on an enemy too far away to trigger it; one mine's
+blast detonating a second in-radius (but otherwise untriggered) armed mine — 2 explode events;
+an expiring wisp popping (Popping Wisps); a wisp kill spawning exactly the tier-bonus count of
+mini-wisps and never more (no re-swarm cascade, checked against a saturated low-HP ring that
+would expose a cascade if one existed); a hole's radius growing over one second (Hungry Hole);
+an expiring hole's Big Crunch detonation dealing the expected `tick × 10 × (1+bonus)` damage;
+a late beam tick outdamaging an early one on an identical target (Focus Lens); and a strobed
+beam landing more hit events than an unmodded one over the same real time. All prior runs
+A–N still pass unchanged.
