@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS } from './config.js'
 
 const DARK = 0x3b3345
 const MAX_PARTICLES = 200
@@ -502,7 +502,15 @@ export function createRenderer(app) {
   const holeLayer = new Container()
   const novaLayer = new Container()
   const mineLayer = new Container()
+  // elite affix ground fx (bomb telegraphs + pacer auras): per-frame vector layers,
+  // cleared/redrawn each sync() like arcG below — must sit under enemyLayer/playerC
+  // so danger circles read as floor decals, not overlays on top of the entities
+  const bombG = new Graphics()
+  const pacerG = new Graphics()
   const enemyLayer = new Container()
+  // shield bubble overlay: drawn on top of the elite body it protects
+  const shieldG = new Graphics()
+  const affixLayer = new Container() // per-elite affix icon badges (Text), see syncAffixBadges
   const playerC = new Container()
   const bulletLayer = new Container()
   const boomerangLayer = new Container()
@@ -513,7 +521,8 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    gemLayer, coinLayer, holeLayer, novaLayer, mineLayer, enemyLayer, playerC,
+    gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
+    bombG, pacerG, enemyLayer, shieldG, affixLayer, playerC,
     bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, arcG,
     particleLayer, textLayer,
   )
@@ -1328,9 +1337,13 @@ export function createRenderer(app) {
   function clearWorld() {
     for (const [id, s] of enemySprites) {
       s.visible = false
+      hideAffixBadges(s)
       enemyFree.push(s)
       enemySprites.delete(id)
     }
+    shieldG.clear()
+    pacerG.clear()
+    bombG.clear()
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
@@ -1406,8 +1419,63 @@ export function createRenderer(app) {
     playerC.alpha = p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
   }
 
+  // Elite affix badges: small Text icons floating above an elite's sprite, one per
+  // affix id (side by side when there's 2). Pooled/cached on the enemy sprite slot
+  // itself (s._affixTexts), same lifetime as that slot (survives enemy-id recycling
+  // via enemyFree, just like s._frostT etc. above) — texts live in affixLayer, not
+  // as Sprite children, so they don't inherit the enemy's tint/rotation/flip.
+  const AFFIX_BADGE_SPACING = 15
+  function syncAffixBadges(s, e) {
+    const affixes = e.affixes
+    const n = affixes ? affixes.length : 0
+    if (!s._affixTexts) s._affixTexts = []
+    while (s._affixTexts.length < n) {
+      const t = new Text({
+        text: '',
+        style: { fontFamily: 'Trebuchet MS, Verdana, sans-serif', fontSize: 14 },
+      })
+      t.anchor.set(0.5)
+      affixLayer.addChild(t)
+      s._affixTexts.push(t)
+    }
+    const baseX = e.x - ((n - 1) * AFFIX_BADGE_SPACING) / 2
+    const y = e.y - e.radius - 14
+    for (let i = 0; i < s._affixTexts.length; i++) {
+      const t = s._affixTexts[i]
+      if (i < n) {
+        const info = ELITE_AFFIXES[affixes[i]]
+        t.text = info ? info.icon : '?'
+        t.position.set(baseX + i * AFFIX_BADGE_SPACING, y)
+        t.visible = true
+      } else {
+        t.visible = false
+      }
+    }
+  }
+  function hideAffixBadges(s) {
+    if (!s._affixTexts) return
+    for (const t of s._affixTexts) t.visible = false
+  }
+
+  // Volatile bomb telegraphs (run.bombs): danger circles under enemies/player, urgency
+  // (fill alpha, rim strength, pulse rate) ramping up as fuse -> 0. One shared Graphics
+  // cleared/redrawn per frame, same pattern as arcG/redrawArcs above.
+  function redrawBombs(run) {
+    bombG.clear()
+    for (const b of run.bombs || []) {
+      const urgency = b.duration > 0 ? 1 - b.fuse / b.duration : 1
+      const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 16))
+      const fillA = Math.min(0.32, 0.12 + urgency * 0.14 + pulse * 0.04)
+      const rimA = Math.min(1, 0.55 + urgency * 0.35 + pulse * 0.1)
+      bombG.circle(b.x, b.y, b.radius).fill({ color: 0xff6b81, alpha: fillA })
+      bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color: 0xff6b81, alpha: rimA })
+    }
+  }
+
   function syncEnemies(run) {
     const px = run.player.x
+    shieldG.clear()
+    pacerG.clear()
     for (const e of run.enemies) {
       let s = enemySprites.get(e.id)
       if (!s) {
@@ -1492,6 +1560,25 @@ export function createRenderer(app) {
           }
         } else s._venomT = 0
       }
+
+      // ---- v4 elite affixes (contract fields, guarded — sim half may not have landed yet)
+      syncAffixBadges(s, e)
+
+      if (e.affixes && e.affixes.includes('shielded') && e.hp > e.maxHP * SHIELD_HP_FRAC) {
+        // soap-bubble shield: low-alpha fill + saturated rim, gentle scale pulse.
+        // Vanishes the instant hp crosses the threshold (redrawn fresh every frame,
+        // nothing persists once this branch stops running for the enemy).
+        const pulse = 1 + 0.04 * Math.sin(animT * 5 + e.id * 1.3)
+        const r = (e.radius + 6) * pulse
+        shieldG.circle(e.x, e.y, r).fill({ color: 0x4da3ff, alpha: 0.10 })
+        shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: 0x4da3ff, alpha: 0.7 })
+      }
+
+      if (e.affixes && e.affixes.includes('pacer')) {
+        // subtle warm aura ring at the affix's push/pull radius, slow pulse
+        const pulse = 0.5 + 0.5 * Math.sin(animT * 1.5 + e.id * 0.7)
+        pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
+      }
     }
     for (const [id, s] of enemySprites) {
       if (s._seen) s._seen = false
@@ -1500,6 +1587,7 @@ export function createRenderer(app) {
         s._frostT = 0
         s._igniteT = 0
         s._venomT = 0
+        hideAffixBadges(s)
         enemyFree.push(s)
         enemySprites.delete(id)
       }
@@ -1539,6 +1627,7 @@ export function createRenderer(app) {
 
     syncPlayer(run.player, dt)
     syncEnemies(run)
+    redrawBombs(run)
 
     syncPool(bulletPool, bulletLayer, run.bullets, 'bullet', T.bullet, placeBullet)
     syncPool(novaPool, novaLayer, run.novas, 'nova', T.nova, placeNova)

@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, STAR_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel } from './config.js'
+import { PLAYER, SHOP, PASSIVES, STAR_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -48,6 +48,14 @@ export function shopBonus(meta, id) {
  *               holePull: 0..1 vortex suction strength this frame (0 = unaffected, 1 = at a black
  *               hole's core); set by stepHoles each frame an enemy is inside a hole's radius, decays
  *               back to 0 over time otherwise. Render can use it to squash/shrink sprites being sucked in.
+ *
+ *               affixes: array of ELITE_AFFIXES ids (see config.js) — present ONLY on elites;
+ *               non-elites always carry affixes: [] (harmless to check unconditionally, but
+ *               sim.js still guards elite-only affix logic behind `e.elite &&` first for cost).
+ *               Elites roll 1 random affix at spawn, 2 distinct ones once run.time >=
+ *               AFFIX_SECOND_AT. Render/shield contract: draw a shield bubble while `affixes`
+ *               includes 'shielded' AND `hp > maxHP * SHIELD_HP_FRAC` (the shield "breaks" once
+ *               hp drops under that fraction, matching the reduced-damage window in sim.js).
  *
  *               Elemental status (see ELEMENTS/COMBOS in config.js, ticked by stepStatuses):
  *               ignite (s of burn DoT remaining, 0 = none), igniteDps (current burn rate),
@@ -100,6 +108,23 @@ export function shopBonus(meta, id) {
  *                                        points is a polyline, same shape as shockarc.
  *   (fire+venom Acid Burn and cold+venom Brittle are passive DoT/amp modifiers with no event.)
  *
+ * mutators (v4.0): run.mutators is the array of MUTATORS ids (see config.js) selected before
+ * the run started — opts.mutators passed to createRun, e.g. from the Daily Anomaly
+ * (dailyMutators(todayKey())) or a future free-pick screen. run.mods is the derived,
+ * pre-multiplied modifier object (mergeMutatorMods(run.mutators)) that sim.js reads at fixed
+ * points (spawn rate, enemy hp/speed/dmg/radius, elite cadence, contact damage taken, player
+ * outgoing damage, player move speed, magnet range, xp/coin pickup value, element card weight)
+ * — see sim.js's module doc for the exact list. Both are set once at createRun and never
+ * mutated mid-run.
+ *
+ * bombs[i]: { x, y, radius, fuse, duration, dmg }  volatile-elite death bombs (v4.0). fuse
+ *           counts down to 0 (duration is its starting value, kept so render can draw a
+ *           growing warning telegraph from fuse/duration); when the fuse expires sim.js
+ *           removes the bomb, damages the player if inside radius (same armor/
+ *           contactDmgTakenMul path as contact damage) and any enemies inside radius (via
+ *           dealDamage), and emits {type:'explode', x, y, radius} (same event shape as a
+ *           mine pop or star blast).
+ *
  * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus }
  *   rarity: key of RARITIES (weapons: inherent; passives/mods/elements: rolled). icon: from config.
  *   bonus: passives/mods/elements only — the pre-multiplied amount applyChoice will add.
@@ -110,12 +135,15 @@ export function shopBonus(meta, id) {
  *   run.elements[id] accumulates applied potency; run.elementPicks[id] counts picks (max
  *   MAX_ELEMENT_PICKS), mirroring passives/passivePicks.
  */
-export function createRun(meta) {
+export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
   return {
     phase: 'playing',
     time: 0,
     events: [],
+    // Pre-run modifiers (see MUTATORS in config.js and the doc block above).
+    mutators: opts.mutators ?? [],
+    mods: mergeMutatorMods(opts.mutators ?? []),
     player: {
       x: 0, y: 0,
       hp: maxHP, maxHP,
@@ -153,6 +181,7 @@ export function createRun(meta) {
     beams: [],
     gems: [],
     coins: [],
+    bombs: [],
     kills: 0,
     coinsEarned: 0,
     levelUpChoices: null,

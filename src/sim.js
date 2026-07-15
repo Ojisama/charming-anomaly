@@ -1,6 +1,23 @@
 // Pure simulation. No Pixi/DOM/localStorage — mutates `run` (see state.js) and
 // pushes events consumed once per frame by main.js/render.js.
 // Contract: see state.js (run shape + events) and config.js (all numbers).
+//
+// Mutators (v4.0, see MUTATORS/mergeMutatorMods in config.js): run.mods is applied at exactly
+// these points, nowhere else —
+//   spawnMul            stepSpawning (spawn rate)
+//   enemyHpMul/enemySpeedMul/enemyDmgMul/enemyRadiusMul   spawnEnemy (per-enemy stats)
+//   eliteEveryMul        spawnEnemy (elite cadence step)
+//   contactDmgTakenMul   hurtPlayer (contact damage + volatile bomb blasts)
+//   playerDmgMul         applyDamage (player-side outgoing damage only, not raw DoT/combo ticks)
+//   playerSpeedMul       stepPlayerMovement
+//   magnetMul            stepPickups (magnet range)
+//   xpMul/coinMul        stepPickups (gem xp / coin value, at pickup time)
+//   elementWeightMul     eligibleElementIds (level-up pool weight)
+//
+// Elite affixes (v4.0, see ELITE_AFFIXES in config.js): rolled once at elite spawn, stored on
+// e.affixes. shielded/gilded apply in dealDamage; splitter/volatile apply in dealDamage's death
+// branch; pacer/frenzied apply in stepEnemyMovement; anchored is checked in stepNovas
+// (knockback) and stepHoles (pull) — see each function for the guard.
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
@@ -21,6 +38,9 @@ import {
   CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
   SHOCK_ARC_FRAC, SHOCK_RANGE, SHOCK_CD,
   VENOM_MAX_STACKS, VENOM_DURATION, VENOM_DOT_PER_STACK, VENOM_AMP_PER_STACK,
+  ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
+  VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, PACER_RADIUS, PACER_SPEED_MUL,
+  FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -48,6 +68,7 @@ export function stepSim(run, input, dt) {
   stepEnemyMovement(run, dt)
 
   if (stepContactDamage(run)) return // phase is now 'dead'
+  if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
 
   stepWeapons(run, dt)
   stepStatuses(run, dt)
@@ -93,7 +114,7 @@ function stepPlayerMovement(run, input, dt) {
   const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
-  const speed = p.speed * (1 + run.passives.moveSpeed)
+  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul
   p.x += ix * speed * dt
   p.y += iy * speed * dt
 
@@ -136,37 +157,65 @@ function pickWeighted(weights) {
 }
 
 function stepSpawning(run, dt) {
-  run._spawnAcc += spawnRate(run.time) * dt
+  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * dt
   while (run._spawnAcc >= 1 && run.enemies.length < MAX_ALIVE) {
     run._spawnAcc -= 1
     spawnEnemy(run)
   }
 }
 
-function spawnEnemy(run) {
-  const isElite = run.time >= run._nextEliteAt
-  if (isElite) run._nextEliteAt += eliteEveryAt(run.time)
+// Rolls ELITE_AFFIXES.length equal-weight distinct affix ids: 1 normally, 2 once
+// run.time >= AFFIX_SECOND_AT. Called only for elites.
+function rollAffixes(run) {
+  const count = run.time >= AFFIX_SECOND_AT ? 2 : 1
+  const pool = Object.keys(ELITE_AFFIXES)
+  const picked = []
+  for (let i = 0; i < count && pool.length > 0; i++) {
+    const idx = Math.floor(Math.random() * pool.length)
+    picked.push(pool.splice(idx, 1)[0])
+  }
+  return picked
+}
 
-  const type = pickWeighted(waveWeights(run.time))
+// opts: { type, x, y, forceNormal } — lets splitter deaths spawn wisps at a fixed position
+// (never elite, but still time-scaled like any other spawn). Called with no opts by the
+// normal spawn-timer path in stepSpawning.
+function spawnEnemy(run, opts = {}) {
+  const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
+  if (isElite) run._nextEliteAt += eliteEveryAt(run.time) * run.mods.eliteEveryMul
+
+  const type = opts.type ?? pickWeighted(waveWeights(run.time))
   const base = ENEMIES[type]
   const p = run.player
 
-  const angle = Math.random() * Math.PI * 2
-  const dist = run.viewRadius + SPAWN_RING
-  const x = p.x + Math.cos(angle) * dist
-  const y = p.y + Math.sin(angle) * dist
+  let x, y
+  if (opts.x !== undefined && opts.y !== undefined) {
+    x = opts.x; y = opts.y
+  } else {
+    const angle = Math.random() * Math.PI * 2
+    const dist = run.viewRadius + SPAWN_RING
+    x = p.x + Math.cos(angle) * dist
+    y = p.y + Math.sin(angle) * dist
+  }
 
-  const hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1)
+  let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul
+  const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul
+  const dmg = base.dmg * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
+  const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul
+
+  const affixes = isElite ? rollAffixes(run) : []
+  if (isElite && affixes.includes('gilded')) hp *= GILDED_HP_MUL
 
   run.enemies.push({
     id: run._nextId++,
     type,
     x, y,
     hp, maxHP: hp,
-    radius: base.radius * (isElite ? ELITE.sizeMul : 1),
-    speed: base.speed * speedCreepMul(run.time),
-    dmg: base.dmg * (isElite ? ELITE.dmgMul : 1),
+    radius,
+    speed,
+    dmg,
     elite: isElite,
+    affixes,
     xp: base.xp,
     hitFlash: 0,
     orbCd: 0,
@@ -188,13 +237,36 @@ function spawnEnemy(run) {
 function stepEnemyMovement(run, dt) {
   const p = run.player
   const kbDecay = Math.max(0, 1 - dt * KB_DECAY_RATE)
+
+  // Cheerleader (pacer) affix: pre-collect live pacer elites before the main loop below
+  // starts moving anyone, so "nearby" is judged from this frame's starting positions.
+  const pacers = []
+  for (const e of run.enemies) {
+    if (!e._dead && e.affixes && e.affixes.includes('pacer')) pacers.push(e)
+  }
+  const pacerRadSq = PACER_RADIUS * PACER_RADIUS
+
   for (const e of run.enemies) {
     const dx = p.x - e.x, dy = p.y - e.y
     const d = Math.hypot(dx, dy)
     const slowMul = e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) // chill/freeze slow the seek movement only
+
+    // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
+    let affixSpeedMul = 1
+    if (e.affixes && e.affixes.includes('frenzied') && e.hp < e.maxHP * FRENZY_HP_FRAC) {
+      affixSpeedMul *= FRENZY_SPEED_MUL
+    }
+    if (pacers.length > 0) {
+      for (const pc of pacers) {
+        if (pc === e) continue
+        const pdx = pc.x - e.x, pdy = pc.y - e.y
+        if (pdx * pdx + pdy * pdy <= pacerRadSq) { affixSpeedMul *= PACER_SPEED_MUL; break }
+      }
+    }
+
     if (d > 1e-6 && slowMul > 0) {
-      e.x += (dx / d) * e.speed * slowMul * dt
-      e.y += (dy / d) * e.speed * slowMul * dt
+      e.x += (dx / d) * e.speed * affixSpeedMul * slowMul * dt
+      e.y += (dy / d) * e.speed * affixSpeedMul * slowMul * dt
     }
 
     e.x += e.kb.x * dt
@@ -211,6 +283,23 @@ function stepEnemyMovement(run, dt) {
 
 // ---- Contact damage ---------------------------------------------------------------
 
+// Shared player-hit resolution: contact damage and volatile-bomb blasts both apply
+// armor + contactDmgTakenMul the same way, set invuln, push 'hurt', and handle death
+// identically. @returns true if the player died (phase now 'dead').
+function hurtPlayer(run, rawDmg) {
+  const p = run.player
+  const dmg = Math.max(1, Math.round((rawDmg - run.passives.armor) * run.mods.contactDmgTakenMul))
+  p.hp -= dmg
+  p.invuln = PLAYER.invulnTime
+  run.events.push({ type: 'hurt', dmg })
+  if (p.hp <= 0) {
+    run.phase = 'dead'
+    run.events.push({ type: 'dead' })
+    return true
+  }
+  return false
+}
+
 /** @returns true if the player died this frame (phase set to 'dead'). */
 function stepContactDamage(run) {
   const p = run.player
@@ -220,19 +309,39 @@ function stepContactDamage(run) {
     const dx = e.x - p.x, dy = e.y - p.y
     const rad = PLAYER.radius + e.radius
     if (dx * dx + dy * dy < rad * rad) {
-      const dmg = Math.max(1, e.dmg - run.passives.armor)
-      p.hp -= dmg
-      p.invuln = PLAYER.invulnTime
-      run.events.push({ type: 'hurt', dmg })
-      if (p.hp <= 0) {
-        run.phase = 'dead'
-        run.events.push({ type: 'dead' })
-        return true
-      }
-      return false // one hit per frame; invuln now active
+      return hurtPlayer(run, e.dmg) // one hit per frame; invuln now active either way
     }
   }
   return false
+}
+
+// -- Volatile-elite death bombs (v4.0) ------------------------------------------------
+
+/** @returns true if the player died this frame (phase set to 'dead'). */
+function stepBombs(run, dt) {
+  const p = run.player
+  let playerDied = false
+  for (const b of run.bombs) {
+    b.fuse -= dt
+    if (b.fuse > 0) continue
+
+    if (!playerDied && p.invuln <= 0) {
+      const dx = p.x - b.x, dy = p.y - b.y
+      if (dx * dx + dy * dy <= b.radius * b.radius && hurtPlayer(run, b.dmg)) playerDied = true
+    }
+
+    const radSq = b.radius * b.radius
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - b.x, dy = e.y - b.y
+      if (dx * dx + dy * dy <= radSq) dealDamage(run, e, b.dmg, false)
+    }
+
+    run.events.push({ type: 'explode', x: b.x, y: b.y, radius: b.radius })
+    b._dead = true
+  }
+  run.bombs = run.bombs.filter((b) => !b._dead)
+  return playerDied
 }
 
 // ---- Damage application (shared by all weapons) -----------------------------------
@@ -242,6 +351,11 @@ function stepContactDamage(run) {
 // player's multipliers/crit, and directly by effects (like star blasts) that derive
 // their damage from an already-rolled hit and shouldn't re-roll crit/multipliers.
 function dealDamage(run, enemy, dmg, crit, dot = false) {
+  // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
+  // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
+  if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
+    dmg *= SHIELD_DMG_MUL
+  }
   // Venom: amplifies ALL damage the enemy takes; Brittle (cold+venom) doubles the amp
   // while the enemy is chilled/frozen.
   if (enemy.venom > 0) {
@@ -266,7 +380,9 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     run.gems.push({ x: enemy.x, y: enemy.y, xp })
 
     if (enemy.elite) {
-      for (let i = 0; i < ELITE.coins; i++) {
+      const gilded = enemy.affixes && enemy.affixes.includes('gilded')
+      const coinCount = gilded ? Math.round(ELITE.coins * GILDED_COIN_MUL) : ELITE.coins
+      for (let i = 0; i < coinCount; i++) {
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
         run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
@@ -274,13 +390,26 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     } else if (Math.random() < ENEMIES[enemy.type].coinChance) {
       run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
     }
+
+    // Splitter (elite affix): spawns SPLITTER_COUNT wisps around the corpse.
+    if (enemy.elite && enemy.affixes && enemy.affixes.includes('splitter')) {
+      for (let i = 0; i < SPLITTER_COUNT; i++) {
+        const a = Math.random() * Math.PI * 2
+        const d = Math.random() * 20
+        spawnEnemy(run, { type: 'wisp', x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, forceNormal: true })
+      }
+    }
+    // Volatile (elite affix): a timed bomb goes off where the enemy died (see stepBombs).
+    if (enemy.elite && enemy.affixes && enemy.affixes.includes('volatile')) {
+      run.bombs.push({ x: enemy.x, y: enemy.y, radius: VOLATILE_RADIUS, fuse: VOLATILE_FUSE, duration: VOLATILE_FUSE, dmg: VOLATILE_DMG })
+    }
   }
 }
 
 /** @returns the final applied damage number (post multiplier/crit), for effects like star blast. */
 function applyDamage(run, enemy, baseDmg) {
   const p = run.player
-  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage)
+  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul
   let crit = false
   if (Math.random() < p.critChance + run.passives.critChance) {
     dmg *= (p.critDamage + run.passives.critDamage)
@@ -780,10 +909,13 @@ function stepNovas(run, dt) {
       if (dist <= n.r + e.radius) {
         applyDamage(run, e, n.dmg)
         n.hit.add(e.id)
-        const kdx = dist > 1e-6 ? dx / dist : 1
-        const kdy = dist > 1e-6 ? dy / dist : 0
-        e.kb.x += kdx * n.knockback
-        e.kb.y += kdy * n.knockback
+        // Anchored (elite affix): still takes the damage above, just never gets knocked back.
+        if (!(e.affixes && e.affixes.includes('anchored'))) {
+          const kdx = dist > 1e-6 ? dx / dist : 1
+          const kdy = dist > 1e-6 ? dy / dist : 0
+          e.kb.x += kdx * n.knockback
+          e.kb.y += kdy * n.knockback
+        }
       }
     }
   }
@@ -1005,6 +1137,7 @@ function stepHoles(run, dt) {
 
     for (const e of run.enemies) {
       if (e._dead) continue
+      if (e.affixes && e.affixes.includes('anchored')) continue // anchored: never pulled (still takes tick damage below)
       const dx = h.x - e.x, dy = h.y - e.y
       const d = Math.hypot(dx, dy)
       if (d > 1e-6 && d <= h.radius) {
@@ -1120,7 +1253,7 @@ function magnetSpeed(dist, magnet) {
 
 function stepPickups(run, dt) {
   const p = run.player
-  const magnet = p.magnet * (1 + run.passives.magnet)
+  const magnet = p.magnet * (1 + run.passives.magnet) * run.mods.magnetMul
   const magnetSq = magnet * magnet
   const pickupSq = PLAYER.pickupRadius * PLAYER.pickupRadius
 
@@ -1142,11 +1275,11 @@ function stepPickups(run, dt) {
   }
 
   run.gems = collect(run.gems, (g) => {
-    p.xp += g.xp * GEM_VALUE * (1 + run.passives.xpGain)
+    p.xp += g.xp * GEM_VALUE * (1 + run.passives.xpGain) * run.mods.xpMul
     run.events.push({ type: 'gem', x: g.x, y: g.y })
   })
   run.coins = collect(run.coins, (c) => {
-    run.coinsEarned += Math.round(c.value * p.coinGainMul)
+    run.coinsEarned += Math.round(c.value * p.coinGainMul * run.mods.coinMul)
     run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value })
   })
 }
@@ -1190,9 +1323,10 @@ function eligibleStarModIds(run) {
 // eligible id only joins this level-up's pool with ELEMENT_CARD_WEIGHT probability (rolled
 // once here, shared by all 3 card slots below), making them rarer than weapons/passives/mods.
 function eligibleElementIds(run) {
+  const weight = Math.min(1, ELEMENT_CARD_WEIGHT * run.mods.elementWeightMul)
   return Object.keys(ELEMENTS)
     .filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
-    .filter(() => Math.random() < ELEMENT_CARD_WEIGHT)
+    .filter(() => Math.random() < weight)
 }
 
 // A passive card adopts whatever rarity was rolled for its slot.

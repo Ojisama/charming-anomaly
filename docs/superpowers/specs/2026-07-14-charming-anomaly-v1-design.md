@@ -144,3 +144,68 @@ movement/death/victory checks:
   level 1 and level 12, asserts every card's rarity key is valid, checks the passive
   bonus formula (`base × mult`, flat rounded to 1 decimal) against every passive card
   seen, and asserts Mythic appears at level 12 and at least as often as at level 1.
+
+## v4.0 addendum (2026-07-15) — run variety: mutators + elite affixes
+
+### Mutators (`MUTATORS` in `src/config.js`)
+
+Eight pre-run modifiers (Overtime Shift, Bulky Batch, Caffeinated Swarm, Elite
+Convention, Unstable Physics, Glass Goo, Sticky Floor, Jumbo Anomalies), each a small
+bundle of multipliers (`spawnMul`, `enemyHpMul`, `coinMul`, `playerDmgMul`, …) that
+trade a buff for a drawback (e.g. Glass Goo: +35% player damage, +75% damage taken).
+`mergeMutatorMods(ids)` is a pure helper that starts every key at 1 (neutral) and
+multiplies in each selected mutator's `effects` — stacking mutators compounds their
+effects independently rather than overriding. `createRun(meta, opts)` now accepts
+`opts.mutators` (an array of ids); the derived `run.mods` object is computed once at
+run start and read by `src/sim.js` at exactly nine fixed points (spawn rate, per-enemy
+hp/speed/dmg/radius, elite cadence, contact damage taken, player outgoing damage,
+player move speed, magnet range, xp/coin pickup value, and level-up element-card
+weight) — see sim.js's module doc comment for the authoritative list.
+
+A **Daily Anomaly** seeding scheme rides on top: `todayKey()` returns the player's
+local `YYYY-MM-DD` date, and `dailyMutators(dateKey)` hashes that string (FNV-1a-style)
+into a seed for a small mulberry32 PRNG to deterministically pick `DAILY_MUTATOR_COUNT`
+(2) distinct mutator ids — same key always yields the same pair, so every player sees
+the same featured mutators on a given day without any server or persisted state, and
+the pick is independent of (never perturbs) the sim's own `Math.random()` stream.
+
+### Elite affixes (`ELITE_AFFIXES` in `src/config.js`)
+
+Elites now roll 1 random affix at spawn (2 distinct ones once `run.time >=
+AFFIX_SECOND_AT`, so late-run elites compound two effects), stored on `enemy.affixes`
+— always `[]` on non-elites, so every affix check in sim.js is guarded (`e.elite &&`
+or `e.affixes &&`) to cost effectively nothing off the hot path for the common case:
+
+- **🛡️ Shielded** — takes `SHIELD_DMG_MUL` (0.6×) damage while above `SHIELD_HP_FRAC`
+  (50%) of max HP; the shield "breaks" below that threshold and it takes full damage.
+- **🧬 Splitter** — death spawns `SPLITTER_COUNT` (4) wisps around the corpse (via a
+  refactored `spawnEnemy(run, opts)` that now accepts `{ type, x, y, forceNormal }`).
+- **💥 Volatile** — death arms a timed bomb (`run.bombs`, ticked by a new `stepBombs`)
+  that detonates after `VOLATILE_FUSE` (0.8s), damaging the player and any enemies
+  within `VOLATILE_RADIUS` and emitting the same `{type:'explode'}` event as a mine pop.
+- **📣 Cheerleader (pacer)** — speeds up any other enemy within `PACER_RADIUS` by
+  `PACER_SPEED_MUL` (1.3×).
+- **⚓ Anchored** — immune to nova knockback (still takes the damage) and to black-hole
+  pull entirely (still takes a hole's tick damage — only the pull loop skips it).
+- **😤 Frenzied** — speeds up by `FRENZY_SPEED_MUL` (1.6×) once below `FRENZY_HP_FRAC`
+  (30%) of max HP.
+- **👑 Gilded** — spawns with `GILDED_HP_MUL` (1.3×) extra max HP and drops
+  `GILDED_COIN_MUL` (2×) as many coins on death.
+
+### Test coverage additions
+
+`test/sim-test.js` gained two more runs on top of A–I:
+- **Run J** (`testMutators`) — `mergeMutatorMods` defaulting/stacking math,
+  `dailyMutators` determinism (two calls on the same date key match) and validity
+  (2 distinct known ids), `spawnMul` roughly doubling total spawns over a fixed
+  simulated duration (spawn accumulation is deterministic, only enemy type/position
+  roll RNG), and that `xpMul`/`coinMul`/`contactDmgTakenMul` visibly move pickup and
+  hurt-damage amounts.
+- **Run K** (`testAffixes`) — hand-crafted elites with a forced `affixes` array
+  (via a small addition to the existing `makeStatusEnemy` test helper) verifying each
+  affix in isolation: shielded's damage reduction flips off exactly at the HP
+  threshold, splitter's death wisps (killed via ignite DoT rather than a live star
+  bullet, whose leftover pierce could otherwise collaterally snipe a freshly-spawned
+  wisp in the same `dealDamage` call), volatile's bomb-then-blast sequence, gilded's
+  doubled coin drop, frenzied's HP-gated speed boost, pacer's proximity speed boost,
+  and anchored's immunity to both nova knockback and black-hole pull.

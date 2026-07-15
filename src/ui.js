@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, dailyMutators, todayKey } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'hud', 'levelup', 'pause', 'summary']
@@ -13,9 +13,14 @@ function fmtTime(s) {
 
 /**
  * Contract used by main.js:
- *   const ui = initUI({ meta, onPlay, onBuy(id)->bool, onChoose(i), onPauseToggle, onQuit })
+ *   const ui = initUI({ meta, onPlay(mode), onBuy(id)->bool, onChoose(i), onPauseToggle, onQuit })
+ *     - onPlay(mode): mode is 'classic' | 'daily'. 'classic' fires from the title Play button
+ *       and from the summary "Play again" button (which replays whatever mode the just-ended
+ *       run used); 'daily' fires from the title Daily Anomaly button.
  *   ui.showScreen('title' | 'shop' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
- *   ui.updateHUD(run)   called every frame while playing
+ *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
+ *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode }
+ *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
  */
 export function initUI(hooks) {
   const root = document.getElementById('ui')
@@ -34,11 +39,15 @@ export function initUI(hooks) {
   // ---- title -----------------------------------------------------------
   function renderTitle() {
     const { coins, best, runs } = meta
+    const dailyIds = dailyMutators(todayKey())
+    const dailyPreview = dailyIds.map((id) => `${MUTATORS[id]?.icon ?? '❔'} ${MUTATORS[id]?.name ?? id}`).join(' · ')
     screens.title.innerHTML = `
       <div class="coins-badge">🪙 <b>${coins}</b></div>
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
       <p class="subtitle">escape the lab · outlive the swarm</p>
       <button class="btn btn--big" data-act="play">▶&nbsp; Play</button>
+      <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
+      <p class="daily-preview">${dailyPreview}</p>
       <button class="btn btn--soft" data-act="shop">🛒&nbsp; Shop</button>
       ${runs > 0 ? `<p class="best-line">best ${fmtTime(best.time)} · ${best.kills} kills · ${runs} run${runs === 1 ? '' : 's'}</p>` : ''}
     `
@@ -129,8 +138,10 @@ export function initUI(hooks) {
       hud.xpFill.style.width = `${xpPct}%`
     }
     const elementEntries = Object.entries(run.elementPicks || {}).filter(([, n]) => n > 0)
+    const mutatorIds = run.mutators || []
     const weaponsSig = run.weapons.map((w) => `${w.id}${w.level}`).join(',')
       + '|' + elementEntries.map(([id, n]) => `${id}${n}`).join(',')
+      + '|' + mutatorIds.join(',')
     if (weaponsSig !== last.weaponsSig) {
       last.weaponsSig = weaponsSig
       const weaponChips = run.weapons.map((w) => `
@@ -143,7 +154,12 @@ export function initUI(hooks) {
           <span class="weapon-chip-icon">${ELEMENTS[id]?.icon ?? '❔'}</span>
           <span class="weapon-chip-lv">${n}</span>
         </span>`).join('')
-      hud.weaponRow.innerHTML = weaponChips + elementChips
+      // mutator chips are run-wide rules, not gameplay progress — icon-only, never change mid-run
+      const mutatorChips = mutatorIds.map((id) => `
+        <span class="weapon-chip weapon-chip--mutator" title="${MUTATORS[id]?.name ?? id}">
+          <span class="weapon-chip-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
+        </span>`).join('')
+      hud.weaponRow.innerHTML = weaponChips + elementChips + mutatorChips
     }
   }
 
@@ -215,17 +231,39 @@ export function initUI(hooks) {
     }
   }
 
-  // ---- pause modal (static) ----------------------------------------------
-  screens.pause.innerHTML = `
-    <div class="modal">
-      <h2 class="modal-title">Paused</h2>
-      <button class="btn btn--big" data-act="resume">▶&nbsp; Resume</button>
-      <button class="btn btn--soft" data-act="quit">Quit to menu</button>
-    </div>
-  `
+  // ---- pause modal -------------------------------------------------------
+  function renderPause(d) {
+    const mutatorIds = d.mutators || []
+    const mutatorBlock = mutatorIds.length ? `
+      <div class="pause-mutators">
+        <div class="pause-mutators-head">🌀 Daily Anomaly</div>
+        ${mutatorIds.map((id) => `
+          <div class="pause-mutator-line">
+            <span class="pause-mutator-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
+            <span class="pause-mutator-body">
+              <span class="pause-mutator-name">${MUTATORS[id]?.name ?? id}</span>
+              <span class="pause-mutator-desc">${MUTATORS[id]?.desc ?? ''}</span>
+            </span>
+          </div>`).join('')}
+      </div>` : ''
+    screens.pause.innerHTML = `
+      <div class="modal">
+        <h2 class="modal-title">Paused</h2>
+        ${mutatorBlock}
+        <button class="btn btn--big" data-act="resume">▶&nbsp; Resume</button>
+        <button class="btn btn--soft" data-act="quit">Quit to menu</button>
+      </div>
+    `
+  }
 
   // ---- summary modal -------------------------------------------------------
   function renderSummary(d) {
+    const mutatorIds = d.mutators || []
+    const mutatorBlock = mutatorIds.length ? `
+      <div class="summary-mutators">
+        <div class="summary-mutators-head">🌀 Daily Anomaly</div>
+        ${mutatorIds.map((id) => `<div class="summary-mutator-line">${MUTATORS[id]?.icon ?? '❔'} ${MUTATORS[id]?.name ?? id}</div>`).join('')}
+      </div>` : ''
     screens.summary.innerHTML = `
       <div class="modal">
         <h2 class="modal-title">${d.victory ? 'You escaped! 🎉' : 'Squished… 💦'}</h2>
@@ -234,10 +272,11 @@ export function initUI(hooks) {
           <div class="stat-row"><span>Kills</span><b>${d.kills}</b></div>
           <div class="stat-row"><span>Level reached</span><b>${d.level}</b></div>
         </div>
+        ${mutatorBlock}
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} finish bonus</span>` : ''}
         </div>
-        <button class="btn btn--big" data-act="play">▶&nbsp; Play again</button>
+        <button class="btn btn--big" data-act="play" data-mode="${d.mode ?? 'classic'}">▶&nbsp; Play again</button>
         <button class="btn btn--soft" data-act="quit">Menu</button>
       </div>
     `
@@ -248,6 +287,7 @@ export function initUI(hooks) {
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
     else if (name === 'levelup') renderLevelup(data ?? [])
+    else if (name === 'pause') renderPause(data ?? {})
     else if (name === 'summary') renderSummary(data ?? {})
     const hudUnder = name === 'levelup' || name === 'pause'   // hud stays visible under these modals
     for (const [n, el] of Object.entries(screens)) {
@@ -272,7 +312,8 @@ export function initUI(hooks) {
       return
     }
     switch (el.dataset.act) {
-      case 'play': hooks.onPlay(); break
+      case 'play': hooks.onPlay(el.dataset.mode || 'classic'); break
+      case 'daily': hooks.onPlay('daily'); break
       case 'shop': playSfx('click'); showScreen('shop'); break
       case 'back': playSfx('click'); showScreen('title'); break
       case 'pause':

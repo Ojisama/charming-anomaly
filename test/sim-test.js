@@ -1,7 +1,12 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { createRun } from '../src/state.js'
-import { SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt } from '../src/config.js'
+import {
+  SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
+  MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT,
+  SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
+  FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
+} from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
@@ -212,13 +217,16 @@ function setElements(run, elements) {
 
 // A hand-placed enemy with every elemental-status field initialized, matching what
 // spawnEnemy sets up in sim.js (see state.js's enemies[] doc block for the field contract).
-function makeStatusEnemy(run, { x, y, type = 'drone', elite = false, hp = 1e6, speed = 90 }) {
+// affixes (v4.0): defaults to [] like a real non-elite spawn; tests force elite affixes by
+// passing e.g. affixes: ['shielded'] (mirrors how testElements forces run.elements directly).
+function makeStatusEnemy(run, { x, y, type = 'drone', elite = false, hp = 1e6, speed = 90, affixes = [] }) {
   return {
     id: run._nextId++, type, x, y,
     hp, maxHP: hp, radius: 16, speed, dmg: 8, elite, xp: 1,
     hitFlash: 0, orbCd: 0, kb: { x: 0, y: 0 }, holePull: 0,
     ignite: 0, igniteDps: 0, chill: 0, chillSlow: 0, frozen: 0, venom: 0, venomT: 0,
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
+    affixes,
   }
 }
 
@@ -545,6 +553,299 @@ function testEscalation() {
   console.log(`PASS run I (escalating difficulty): spawnRate(300)=${spawnRate(300).toFixed(2)} hpScale(300)=${hpScale(300).toFixed(2)} eliteStep(290)=${eliteEveryAt(290).toFixed(2)} earlyAlive=${earlyAlive} lateAlive=${lateAlive}`)
 }
 
+// Mutators (v4.0): mergeMutatorMods math, dailyMutators determinism, and that run.mods
+// actually moves the needle at each of its application points in sim.js.
+function testMutators() {
+  const dt = 1 / 60
+
+  // mergeMutatorMods: every key defaults to 1, and each mutator's effects multiply in
+  // (stacking two mutators multiplies both sets of effects independently).
+  const empty = mergeMutatorMods([])
+  for (const k of Object.keys(empty)) assert.strictEqual(empty[k], 1, `expected ${k} to default to 1 with no mutators`)
+
+  const single = mergeMutatorMods(['overtime'])
+  assert.strictEqual(single.spawnMul, MUTATORS.overtime.effects.spawnMul)
+  assert.strictEqual(single.xpMul, MUTATORS.overtime.effects.xpMul)
+  assert.strictEqual(single.enemyHpMul, 1, 'expected an unrelated key to stay at 1')
+
+  const stacked = mergeMutatorMods(['overtime', 'bulky'])
+  assert.strictEqual(stacked.spawnMul, MUTATORS.overtime.effects.spawnMul)
+  assert.strictEqual(stacked.xpMul, MUTATORS.overtime.effects.xpMul)
+  assert.strictEqual(stacked.enemyHpMul, MUTATORS.bulky.effects.enemyHpMul)
+  assert.strictEqual(stacked.coinMul, MUTATORS.bulky.effects.coinMul)
+
+  // dailyMutators: deterministic per date key, DAILY_MUTATOR_COUNT distinct valid ids.
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(todayKey()), `expected todayKey() to look like YYYY-MM-DD, got ${todayKey()}`)
+  const day = '2026-07-15'
+  const firstRoll = dailyMutators(day)
+  const secondRoll = dailyMutators(day)
+  assert.deepStrictEqual(firstRoll, secondRoll, 'expected dailyMutators to be deterministic for the same date key')
+  assert.strictEqual(firstRoll.length, DAILY_MUTATOR_COUNT, `expected ${DAILY_MUTATOR_COUNT} daily mutators, got ${firstRoll.length}`)
+  assert.strictEqual(new Set(firstRoll).size, firstRoll.length, 'expected distinct daily mutator ids')
+  for (const id of firstRoll) assert(id in MUTATORS, `unexpected mutator id from dailyMutators: ${id}`)
+
+  // spawnMul: spawn accumulation has no RNG in it (only enemy type/position do), so doubling
+  // it should almost exactly double the total number of enemies spawned over the same time.
+  function spawnedCount(spawnMul) {
+    const run = createRun(makeMeta())
+    run.mods.spawnMul = spawnMul
+    run.weapons = []
+    run.player.hp = 1e9
+    run.player.maxHP = 1e9
+    const steps = Math.round(100 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    return run._nextId - 1
+  }
+  const baselineSpawned = spawnedCount(1)
+  const doubledSpawned = spawnedCount(2)
+  assert(doubledSpawned > baselineSpawned * 1.7,
+    `expected spawnMul=2 to roughly double spawn count (baseline=${baselineSpawned}, doubled=${doubledSpawned})`)
+
+  // xpMul/coinMul: change gem/coin pickup amounts (applied at pickup time).
+  function pickupAmounts(xpMul, coinMul) {
+    const run = createRun(makeMeta())
+    run.mods.xpMul = xpMul
+    run.mods.coinMul = coinMul
+    run.player.x = 0; run.player.y = 0
+    run.gems.push({ x: 0, y: 0, xp: 10 })
+    run.coins.push({ x: 0, y: 0, value: 10 })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    return { xp: run.player.xp, coins: run.coinsEarned }
+  }
+  const plainPickup = pickupAmounts(1, 1)
+  const boostedPickup = pickupAmounts(2, 2)
+  assert(boostedPickup.xp > plainPickup.xp, `expected xpMul to increase xp gained (plain=${plainPickup.xp}, boosted=${boostedPickup.xp})`)
+  assert(boostedPickup.coins > plainPickup.coins, `expected coinMul to increase coins earned (plain=${plainPickup.coins}, boosted=${boostedPickup.coins})`)
+
+  // contactDmgTakenMul: increases hurt damage from contact.
+  function hurtDamage(mul) {
+    const run = createRun(makeMeta())
+    run.mods.contactDmgTakenMul = mul
+    run.weapons = []
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.enemies.push(makeStatusEnemy(run, { x: 0, y: 0 }))
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const hurtEvt = run.events.find((e) => e.type === 'hurt')
+    return hurtEvt ? hurtEvt.dmg : 0
+  }
+  const normalHurt = hurtDamage(1)
+  const boostedHurt = hurtDamage(2)
+  assert(boostedHurt > normalHurt, `expected contactDmgTakenMul to increase hurt damage (normal=${normalHurt}, boosted=${boostedHurt})`)
+
+  console.log(`PASS run J (mutators): daily=${JSON.stringify(firstRoll)} spawns baseline=${baselineSpawned} doubled=${doubledSpawned} hurt normal=${normalHurt} boosted=${boostedHurt}`)
+}
+
+// Elite affixes (v4.0): craft elites with forced affixes (via makeStatusEnemy's affixes
+// option) and check each affix's isolated effect on damage, death, and movement.
+function testAffixes() {
+  const dt = 1 / 60
+
+  // Shielded: reduced damage while above SHIELD_HP_FRAC of maxHP, full damage below it.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 3 }]
+    run.player.x = 0; run.player.y = 0
+    run.player.critChance = 0 // keep hit damage deterministic (no crit roll)
+    const target = makeStatusEnemy(run, { x: 300, y: 0, hp: 1e6, speed: 0, elite: true, affixes: ['shielded'] })
+    run.enemies.push(target)
+
+    const aboveHits = []
+    const belowHits = []
+    let droppedThreshold = false
+    const steps = Math.round(12 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const events = run.events
+      run.events = [] // drain, mirroring main.js — otherwise old events re-classify on every later frame
+      for (const e of events) {
+        if (e.type === 'hit') (droppedThreshold ? belowHits : aboveHits).push(e.dmg)
+      }
+      if (!droppedThreshold && aboveHits.length >= 3) {
+        target.hp = target.maxHP * (SHIELD_HP_FRAC / 2) // force below the shield threshold
+        droppedThreshold = true
+      }
+      if (droppedThreshold && belowHits.length >= 3) break
+    }
+
+    assert(aboveHits.length >= 3, `expected shielded hits above the threshold, got ${aboveHits.length}`)
+    assert(belowHits.length >= 3, `expected hits below the threshold, got ${belowHits.length}`)
+    const starLv3Dmg = 16 // WEAPONS.star.levels[2].dmg
+    const expectedShielded = Math.round(starLv3Dmg * SHIELD_DMG_MUL)
+    for (const d of aboveHits) assert.strictEqual(d, expectedShielded, `expected shielded dmg ${expectedShielded} above threshold, got ${d}`)
+    for (const d of belowHits) assert.strictEqual(d, starLv3Dmg, `expected full dmg ${starLv3Dmg} below shield threshold, got ${d}`)
+    console.log(`PASS run K.a (shielded): above=${aboveHits[0]} below=${belowHits[0]}`)
+  }
+
+  // Splitter: dying spawns SPLITTER_COUNT wisps around the corpse. Kill via ignite DoT
+  // (mirroring run G.a) rather than a still-in-flight star bullet: a level-3 star's leftover
+  // pierce could otherwise immediately catch a freshly-spawned wisp as collateral within the
+  // very same dealDamage call, undercounting survivors for reasons unrelated to splitter itself.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 1 }]
+    setElements(run, { fire: 5 })
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 30, speed: 0, elite: true, affixes: ['splitter'] })
+    run.enemies.push(target)
+
+    let hitOnce = false
+    for (let i = 0; i < Math.round(2 / dt) && !hitOnce; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'hit')) hitOnce = true
+    }
+    assert(hitOnce, 'expected the splitter target to take at least one hit')
+    run.weapons = [] // no more hits from here on
+    run.bullets = [] // ...and no in-flight bullet lands a second one either
+
+    let killed = false
+    for (let i = 0; i < Math.round(4 / dt) && !killed; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.kills > 0) killed = true
+    }
+    assert(killed, 'expected the ignite DoT to finish off the splitter elite')
+    const wisps = run.enemies.filter((e) => e.type === 'wisp' && !e.elite)
+    assert(wisps.length >= SPLITTER_COUNT, `expected at least ${SPLITTER_COUNT} splitter wisps, got ${wisps.length}`)
+    console.log(`PASS run K.b (splitter): wisps=${wisps.length}`)
+  }
+
+  // Volatile: dying arms a bomb; once its fuse ends, a nearby player takes damage.
+  {
+    const run = createRun(makeMeta())
+    run.mods.spawnMul = 0 // isolate the bomb as the only source of player damage
+    run.weapons = [{ id: 'star', level: 3 }]
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const target = makeStatusEnemy(run, { x: 50, y: 0, hp: 10, speed: 0, elite: true, affixes: ['volatile'] })
+    run.enemies.push(target)
+
+    let killed = false
+    for (let i = 0; i < Math.round(3 / dt) && !killed; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.kills > 0) killed = true
+    }
+    assert(killed, 'expected the volatile elite to die')
+    assert(run.bombs.length > 0, 'expected a volatile death to arm a bomb')
+
+    const hpBefore = run.player.hp
+    let exploded = false
+    for (let i = 0; i < Math.round((VOLATILE_FUSE + 1) / dt) && !exploded; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'explode')) exploded = true
+    }
+    assert(exploded, 'expected the bomb to explode after its fuse')
+    assert(run.player.hp < hpBefore, `expected the bomb blast to damage the player (before=${hpBefore}, after=${run.player.hp})`)
+    console.log('PASS run K.c (volatile bomb)')
+  }
+
+  // Gilded: dying drops GILDED_COIN_MUL times as many coins as a plain elite kill.
+  {
+    function killElite(affixes) {
+      const run = createRun(makeMeta())
+      run.weapons = [{ id: 'star', level: 3 }]
+      run.player.x = 0; run.player.y = 0
+      const target = makeStatusEnemy(run, { x: 200, y: 0, hp: 10, speed: 0, elite: true, affixes })
+      run.enemies.push(target)
+      let killed = false
+      for (let i = 0; i < Math.round(3 / dt) && !killed; i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.kills > 0) killed = true
+      }
+      assert(killed, 'expected the elite to die')
+      return run.coins.length
+    }
+    const plainCoins = killElite([])
+    const gildedCoins = killElite(['gilded'])
+    assert.strictEqual(plainCoins, ELITE.coins, `expected a plain elite to drop ${ELITE.coins} coins, got ${plainCoins}`)
+    assert.strictEqual(gildedCoins, Math.round(ELITE.coins * GILDED_COIN_MUL),
+      `expected a gilded elite to drop ${Math.round(ELITE.coins * GILDED_COIN_MUL)} coins, got ${gildedCoins}`)
+    console.log(`PASS run K.d (gilded coins): plain=${plainCoins} gilded=${gildedCoins}`)
+  }
+
+  // Frenzied: moves faster once below FRENZY_HP_FRAC of maxHP than the same enemy above it.
+  {
+    function frenziedDist(hpFrac) {
+      const run = createRun(makeMeta())
+      run.weapons = []
+      run.player.x = 5000; run.player.y = 0 // far away: fixed seek direction, never contacts
+      const maxHP = 100
+      const e = makeStatusEnemy(run, { x: 0, y: 0, hp: maxHP * hpFrac, speed: 100, elite: true, affixes: ['frenzied'] })
+      e.maxHP = maxHP
+      run.enemies.push(e)
+      const startX = e.x
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const after = run.enemies.find((en) => en.id === e.id)
+      return Math.abs(after.x - startX)
+    }
+    const distAbove = frenziedDist(Math.min(1, FRENZY_HP_FRAC + 0.2))
+    const distBelow = frenziedDist(Math.max(0.01, FRENZY_HP_FRAC - 0.1))
+    assert(distBelow > distAbove,
+      `expected a frenzied enemy below ${FRENZY_HP_FRAC * 100}% hp to move faster (above=${distAbove}, below=${distBelow})`)
+    console.log(`PASS run K.e (frenzied): above=${distAbove.toFixed(2)} below=${distBelow.toFixed(2)}`)
+  }
+
+  // Pacer (Cheerleader): speeds up other enemies within PACER_RADIUS.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 5000; run.player.y = 0 // far away: fixed seek direction for both enemies
+    const pacer = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0, elite: true, affixes: ['pacer'] })
+    const near = makeStatusEnemy(run, { x: PACER_RADIUS - 10, y: 0, hp: 1e6, speed: 100 })
+    const far = makeStatusEnemy(run, { x: PACER_RADIUS + 500, y: 0, hp: 1e6, speed: 100 })
+    run.enemies.push(pacer, near, far)
+
+    const nearStartX = near.x
+    const farStartX = far.x
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const nearAfter = run.enemies.find((e) => e.id === near.id)
+    const farAfter = run.enemies.find((e) => e.id === far.id)
+    const nearDist = Math.abs(nearAfter.x - nearStartX)
+    const farDist = Math.abs(farAfter.x - farStartX)
+    assert(nearDist > farDist * 1.1, `expected the enemy near a pacer to move faster (near=${nearDist}, far=${farDist})`)
+    console.log(`PASS run K.f (pacer): near=${nearDist.toFixed(2)} far=${farDist.toFixed(2)}`)
+  }
+
+  // Anchored: no nova knockback (still takes damage) and never pulled into a black hole.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 0; run.player.y = 0
+    const anchored = makeStatusEnemy(run, { x: 60, y: 0, hp: 1e6, speed: 0, elite: true, affixes: ['anchored'] })
+    run.enemies.push(anchored)
+    run.novas.push({ x: 0, y: 0, r: 0, maxR: 200, dmg: 5, knockback: 300, life: NOVA_LIFE, hit: new Set() })
+
+    let hit = false
+    for (let i = 0; i < Math.round(NOVA_LIFE / dt) + 5 && !hit; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'hit')) hit = true
+    }
+    assert(hit, 'expected the nova to hit the anchored enemy')
+    const afterNova = run.enemies.find((e) => e.id === anchored.id)
+    assert(afterNova, 'expected the anchored enemy to survive the nova hit')
+    assert.strictEqual(afterNova.kb.x, 0, `expected no nova knockback on an anchored enemy, got kb.x=${afterNova.kb.x}`)
+    assert.strictEqual(afterNova.kb.y, 0, `expected no nova knockback on an anchored enemy, got kb.y=${afterNova.kb.y}`)
+
+    const beforeHoleX = afterNova.x
+    run.holes.push({ x: 0, y: 0, radius: 300, coreRadius: 300 * 0.22, life: 2, duration: 2, dmg: 1, tick: 5, pull: 400, acc: 0 })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const afterHole = run.enemies.find((e) => e.id === anchored.id)
+    assert.strictEqual(afterHole.x, beforeHoleX, `expected an anchored enemy's x to be untouched by hole pull, got ${afterHole.x} vs ${beforeHoleX}`)
+    console.log('PASS run K.g (anchored: no knockback, no hole pull)')
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -556,6 +857,8 @@ try {
   testElements()
   testHolePullsCoins()
   testEscalation()
+  testMutators()
+  testAffixes()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

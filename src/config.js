@@ -379,3 +379,111 @@ export const shopCost = (id, level) => Math.round(SHOP[id].base * Math.pow(1.6, 
 
 // End-of-run coin bonus
 export const runBonusCoins = (kills) => Math.floor(kills / 10)
+
+// ---- Mutators (pre-run modifiers; see run.mods in state.js) ----
+export const MUTATORS = {
+  overtime: { name: 'Overtime Shift',    icon: '🏭', desc: 'Way more anomalies, way more XP.',            effects: { spawnMul: 1.4, xpMul: 1.3 } },
+  bulky:    { name: 'Bulky Batch',       icon: '🫧', desc: 'Tougher enemies, richer coin drops.',          effects: { enemyHpMul: 1.5, coinMul: 1.6 } },
+  caffeine: { name: 'Caffeinated Swarm', icon: '☕', desc: 'Faster enemies, faster leveling.',             effects: { enemySpeedMul: 1.25, xpMul: 1.25 } },
+  eliterush:{ name: 'Elite Convention',  icon: '👑', desc: 'Elites arrive twice as often, drop way more.', effects: { eliteEveryMul: 0.55, coinMul: 1.5 } },
+  unstable: { name: 'Unstable Physics',  icon: '🌀', desc: 'Elemental infusions everywhere, weapons hit softer.', effects: { elementWeightMul: 3, playerDmgMul: 0.85 } },
+  glass:    { name: 'Glass Goo',         icon: '💔', desc: 'You hit much harder but take much more.',      effects: { contactDmgTakenMul: 1.75, playerDmgMul: 1.35 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
+}
+// Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
+// multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
+const MUTATOR_MOD_KEYS = [
+  'spawnMul', 'enemyHpMul', 'enemySpeedMul', 'enemyDmgMul', 'enemyRadiusMul',
+  'contactDmgTakenMul', 'playerDmgMul', 'playerSpeedMul', 'coinMul', 'xpMul',
+  'eliteEveryMul', 'elementWeightMul', 'magnetMul',
+]
+// Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
+// every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown
+// ids are ignored so a stale/typo'd id in a save never throws.
+export function mergeMutatorMods(ids) {
+  const mods = Object.fromEntries(MUTATOR_MOD_KEYS.map((k) => [k, 1]))
+  for (const id of ids ?? []) {
+    const mut = MUTATORS[id]
+    if (!mut) continue
+    for (const [k, v] of Object.entries(mut.effects)) mods[k] *= v
+  }
+  return mods
+}
+
+// ---- Daily Anomaly (deterministic daily mutator pair) ------------------------------
+// A fixed number of mutators are "featured" each real-world day, the same for every
+// player: dailyMutators(todayKey()) hashes the date string into a PRNG seed so the
+// pick is stable across repeated calls/sessions without persisting anything.
+export const DAILY_MUTATOR_COUNT = 2
+
+// Local-date YYYY-MM-DD key (not UTC, so the daily set flips at local midnight for
+// the player rather than at a possibly-yesterday UTC boundary).
+export function todayKey() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// Tiny FNV-1a-style string hash -> 32-bit seed.
+function hashString(s) {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+// mulberry32: small deterministic PRNG (same construction test/sim-test.js uses to seed
+// Math.random) — kept as a private, self-contained generator here so dailyMutators never
+// depends on (or perturbs) the global Math.random stream.
+function mulberry32(seed) {
+  return function () {
+    seed |= 0
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+// Deterministic: the same dateKey always returns the same DAILY_MUTATOR_COUNT distinct
+// mutator ids (order is part of the result, but callers should treat it as a set).
+export function dailyMutators(dateKey) {
+  const rand = mulberry32(hashString(dateKey))
+  const pool = Object.keys(MUTATORS)
+  const picked = []
+  for (let i = 0; i < DAILY_MUTATOR_COUNT && pool.length > 0; i++) {
+    const idx = Math.floor(rand() * pool.length)
+    picked.push(pool[idx])
+    pool.splice(idx, 1)
+  }
+  return picked
+}
+
+// ---- Elite affixes (rolled at elite spawn; see enemy.affixes in state.js) ----------
+export const ELITE_AFFIXES = {
+  shielded:  { name: 'Shielded',    icon: '🛡️' },
+  splitter:  { name: 'Splitter',    icon: '🧬' },
+  volatile:  { name: 'Volatile',    icon: '💥' },
+  pacer:     { name: 'Cheerleader', icon: '📣' },
+  anchored:  { name: 'Anchored',    icon: '⚓' },
+  frenzied:  { name: 'Frenzied',    icon: '😤' },
+  gilded:    { name: 'Gilded',      icon: '👑' },
+}
+export const AFFIX_SECOND_AT = 150   // s; elites spawned after this roll 2 distinct affixes instead of 1
+export const SHIELD_HP_FRAC = 0.5    // shielded: shield active while hp > maxHP * this fraction
+export const SHIELD_DMG_MUL = 0.6    // shielded: incoming damage multiplier while the shield is up
+export const SPLITTER_COUNT = 4      // splitter: wisps spawned around the corpse on death
+export const VOLATILE_FUSE = 0.8     // s, volatile: delay between death and the bomb's detonation
+export const VOLATILE_RADIUS = 120   // px, volatile: bomb blast radius
+export const VOLATILE_DMG = 20       // volatile: damage dealt to the player (and enemies) caught in the blast
+export const PACER_RADIUS = 160      // px, pacer: range within which other enemies get sped up
+export const PACER_SPEED_MUL = 1.3   // pacer: speed multiplier applied to enemies within PACER_RADIUS
+export const FRENZY_HP_FRAC = 0.3    // frenzied: speed boost kicks in once hp drops below this fraction of maxHP
+export const FRENZY_SPEED_MUL = 1.6  // frenzied: speed multiplier once below FRENZY_HP_FRAC
+export const GILDED_HP_MUL = 1.3     // gilded: extra maxHP/hp multiplier at spawn (stacks with ELITE.hpMul)
+export const GILDED_COIN_MUL = 2     // gilded: death coin count multiplier (on top of ELITE.coins)

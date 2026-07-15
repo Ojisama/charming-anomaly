@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, createRun } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey } from './config.js'
 import { stepSim, applyChoice } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -15,6 +15,7 @@ boot()
 async function boot() {
 const meta = loadMeta()
 let run = null
+let runMode = 'classic'
 
 const app = new Application()
 await app.init({
@@ -33,9 +34,10 @@ initInput(document.body)
 
 const ui = initUI({
   meta,
-  onPlay() {
+  onPlay(mode) {
     initAudio()
-    run = createRun(meta)
+    runMode = mode
+    run = createRun(meta, { mutators: mode === 'daily' ? dailyMutators(todayKey()) : [] })
     if (new URLSearchParams(location.search).has('debug')) window.__run = run
     renderer.reset(run)
     ui.showScreen('hud')
@@ -59,7 +61,7 @@ const ui = initUI({
   },
   onPauseToggle() {
     if (!run) return
-    if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause') }
+    if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', { mutators: run.mutators }) }
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
   },
   onQuit() {  // from pause or summary back to title
@@ -85,7 +87,7 @@ function endRun(victory) {
   meta.best.time = Math.max(meta.best.time, Math.floor(run.time))
   meta.best.kills = Math.max(meta.best.kills, run.kills)
   saveMeta(meta)
-  ui.showScreen('summary', { victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus })
+  ui.showScreen('summary', { victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus, mutators: run.mutators, mode: runMode })
 }
 
 app.ticker.add((ticker) => {
