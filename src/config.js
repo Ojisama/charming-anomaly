@@ -341,6 +341,15 @@ export const MAX_ELEMENT_PICKS = 5
 // this makes element infusion cards appear roughly half as often as those in the level-up pool.
 export const ELEMENT_CARD_WEIGHT = 0.25
 
+// ---- Build-focus nudge -------------------------------------------------------
+// The more level-up picks a player invests in their arsenal (weapon upgrades + weapon
+// mods), the rarer NEW-weapon cards get: each unowned weapon only joins a level-up's
+// candidate pool with probability NEW_WEAPON_FADE^invested (floored). A fresh run is
+// unchanged (p=1); a committed build stops getting nagged with weapons it doesn't want.
+export const NEW_WEAPON_FADE = 0.85
+export const NEW_WEAPON_FADE_MIN = 0.1
+export const newWeaponChance = (invested) => Math.max(NEW_WEAPON_FADE_MIN, Math.pow(NEW_WEAPON_FADE, invested))
+
 // Shared DoT tick period for ignite/venom (finer than 3s duration so damage reads smoothly
 // without spamming a 'hit' event every single simulation frame).
 export const STATUS_TICK = 0.25

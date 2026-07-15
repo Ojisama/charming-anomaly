@@ -44,6 +44,7 @@ import {
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
+  newWeaponChance,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -1432,13 +1433,25 @@ function stepPickups(run, dt) {
 
 // Weapon candidates: new (unowned, only if under MAX_WEAPONS) + upgrades (below max level).
 // Each carries its inherent config rarity; passives are added per-card once a rarity is rolled.
+// Build-focus nudge (see NEW_WEAPON_FADE in config.js): arsenal investment = every pick
+// spent upgrading an owned weapon or buying a weapon mod. Derived from state, no counter.
+function arsenalInvestment(run) {
+  let n = 0
+  for (const w of run.weapons) n += w.level - 1
+  for (const mods of Object.values(run.weaponModPicks)) {
+    for (const picks of Object.values(mods)) n += picks
+  }
+  return n
+}
+
 function weaponCandidates(run) {
   const ownedIds = new Set(run.weapons.map((w) => w.id))
   const list = []
 
   if (run.weapons.length < MAX_WEAPONS) {
+    const pNew = newWeaponChance(arsenalInvestment(run))
     for (const id of Object.keys(WEAPONS)) {
-      if (!ownedIds.has(id)) {
+      if (!ownedIds.has(id) && Math.random() < pNew) {
         const cfg = WEAPONS[id]
         list.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon })
       }

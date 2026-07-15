@@ -1019,6 +1019,35 @@ function testWeaponModParity() {
   }
 }
 
+// ---- Run M: build-focus nudge -----------------------------------------------------
+// The more picks invested in owned weapons (upgrades + mods), the less often NEW weapons
+// join the level-up pool (see NEW_WEAPON_FADE/newWeaponChance in config.js).
+function testFocusNudge() {
+  const countNewOffers = (run, rounds) => {
+    let n = 0
+    for (let i = 0; i < rounds; i++) {
+      for (const c of buildLevelUpChoices(run)) {
+        if (c.kind === 'weapon' && c.tag === 'New!') n++
+      }
+    }
+    return n
+  }
+
+  const fresh = createRun(makeMeta())
+  const freshOffers = countNewOffers(fresh, 400)
+
+  const committed = createRun(makeMeta())
+  committed.weapons = [{ id: 'star', level: 5 }] // 4 upgrade picks
+  committed.weaponModPicks.star.pierce = 5
+  committed.weaponModPicks.star.blast = 5       // +10 mod picks => invested 14, p at the 0.1 floor
+  const committedOffers = countNewOffers(committed, 400)
+
+  assert(freshOffers > 0, 'expected a fresh run to be offered new weapons')
+  assert(committedOffers < freshOffers * 0.35,
+    `expected a committed build to see far fewer new-weapon cards (fresh=${freshOffers}, committed=${committedOffers})`)
+  console.log(`PASS run M (focus nudge): new-weapon offers fresh=${freshOffers} committed=${committedOffers}`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1033,6 +1062,7 @@ try {
   testMutators()
   testAffixes()
   testWeaponModParity()
+  testFocusNudge()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
