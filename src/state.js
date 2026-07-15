@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, STARTING_WEAPON, xpForLevel } from './config.js'
+import { PLAYER, SHOP, PASSIVES, STARTING_WEAPON, xpForLevel } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -44,12 +44,30 @@ export function shopBonus(meta, id) {
  *   { type:'dead' } / { type:'victory' }     run ended (phase already set)
  *
  * enemies[i]: { id, type, x, y, hp, maxHP, radius, speed, dmg, elite, xp,
- *               hitFlash (s remaining), orbCd (s until orbit can hit again), kb: {x,y} knockback velocity }
+ *               hitFlash (s remaining), orbCd (s until orbit can hit again), kb: {x,y} knockback velocity,
+ *               holePull: 0..1 vortex suction strength this frame (0 = unaffected, 1 = at a black
+ *               hole's core); set by stepHoles each frame an enemy is inside a hole's radius, decays
+ *               back to 0 over time otherwise. Render can use it to squash/shrink sprites being sucked in. }
  * bullets[i]: { x, y, vx, vy, dmg, pierce, life, r }
  * novas[i]:   { x, y, r, maxR, dmg, knockback, life, hit:Set<enemyId> }  (r grows; render draws the ring)
  * orbs[i]:    { x, y } positions computed by sim each frame (render just draws them)
  * gems[i]:    { x, y, xp }   coins[i]: { x, y, value }
- * levelUpChoices[i]: { kind:'weapon'|'passive'|'heal', id, title, desc, tag } (tag: 'New!'|'Lv N'|'')
+ *
+ * v2 weapon entities (all sim-owned, render-drawn):
+ * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set }  (hit cleared at turnaround)
+ * mines[i]:     { x, y, arm (s until armed), dmg, radius }
+ * zaps[i]:      { points:[[x,y],...], life }        transient lightning visuals; damage applied on spawn
+ * homingShots[i]: { x, y, vx, vy, dmg, life }
+ * holes[i]:     { x, y, radius, coreRadius, life, duration, dmg, tick, pull }
+ *               coreRadius is the inner "consumed" zone (amplified tick damage; see stepHoles)
+ * beams[i]:     { angle, life, duration, dmg, tick, width, length }  origin = player
+ *
+ * Extra events beyond v1: {type:'explode',x,y} mine pop · {type:'zap'} · {type:'hole'} vortex
+ * opens · {type:'beam'} beam starts.
+ *
+ * levelUpChoices[i]: { kind:'weapon'|'passive'|'heal', id, title, desc, tag, rarity, icon, bonus }
+ *   rarity: key of RARITIES (weapons: inherent; passives: rolled). icon: from config.
+ *   bonus: passives only — the pre-multiplied amount applyChoice will add.
  */
 export function createRun(meta) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
@@ -74,11 +92,19 @@ export function createRun(meta) {
     },
     weapons: [{ id: STARTING_WEAPON, level: 1 }],
     weaponTimers: {},      // id -> s until next fire
-    passives: { moveSpeed: 0, magnet: 0, maxHP: 0, fireRate: 0 },
+    // accumulated applied bonuses (base * rarity mult per pick) and pick counts
+    passives: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
+    passivePicks: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
     enemies: [],
     bullets: [],
     novas: [],
     orbs: [],
+    boomerangs: [],
+    mines: [],
+    zaps: [],
+    homingShots: [],
+    holes: [],
+    beams: [],
     gems: [],
     coins: [],
     kills: 0,

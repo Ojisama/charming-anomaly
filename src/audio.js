@@ -1,11 +1,11 @@
 // Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin,
-// levelup, hurt, death, victory, click, buy.
+// levelup, hurt, death, victory, click, buy, explode, zap, hole, beam.
 
 let ctx = null
 let master = null
 let noiseBuf = null
 const lastPlay = {}
-const THROTTLE_MS = { shoot: 40, hit: 40 } // these fire constantly — avoid mush
+const THROTTLE_MS = { shoot: 40, hit: 40, zap: 40 } // these fire constantly — avoid mush
 
 /** Create/resume the AudioContext. Must be called from a user gesture (Play button). */
 export function initAudio() {
@@ -83,6 +83,22 @@ const SFX = {
   buy() {
     tone(950, { dur: 0.07, gain: 0.12 })
     tone(1400, { dur: 0.1, gain: 0.12, at: 0.08 })
+  },
+  explode() {
+    tone(150, { type: 'sine', dur: 0.25, gain: 0.18, slide: 60 })
+    noise({ dur: 0.2, gain: 0.16 })
+  },
+  zap() {
+    const blips = Math.random() < 0.5 ? 3 : 2
+    for (let i = 0; i < blips; i++) {
+      tone(rnd(1800, 2400), { type: 'square', dur: 0.02, gain: 0.045, at: i * 0.03 })
+    }
+  },
+  hole() { tone(300, { type: 'triangle', dur: 0.4, gain: 0.09, slide: 70 }) },
+  beam() {
+    tone(900, { type: 'sine', dur: 0.1, gain: 0.09 })
+    tone(1300, { type: 'sine', dur: 0.1, gain: 0.09, at: 0.09 })
+    tone(1800, { type: 'sine', dur: 0.12, gain: 0.1, at: 0.18 })
   },
 }
 

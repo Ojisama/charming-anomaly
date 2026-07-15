@@ -58,3 +58,89 @@ weapon evolutions.
 
 PWA (manifest + minimal service worker), auto-deployed to GitHub Pages via
 GitHub Actions from `main` on a public repo.
+
+## v2 addendum (2026-07-15)
+
+### Rarity system
+
+Level-up cards now roll a **rarity** (Normal/Rare/Epic/Legendary/Mythic, `RARITIES` in
+`src/config.js`) with multipliers 1.0 / 1.6 / 2.5 / 4.0 / 6.5. `rarityWeights(level)`
+shifts the roll toward high tiers as the player levels — Mythic is 0 at level 1 and
+ramps in, Legendary and Epic likewise scale with level, Normal shrinks.
+
+Weapons and passives use the roll differently, on purpose (hybrid model):
+- **Weapons have an inherent rarity** (e.g. Boomerang is always Rare, Prism Beam is
+  always Mythic) that gates *when* they can appear, not how strong they are — a
+  weapon only shows up in a card slot when the rolled tier matches its rarity.
+- **Passives have no inherent rarity**; a passive card *adopts* whatever rarity was
+  rolled for that slot, and its bonus scales with the tier: `bonus = base × mult`.
+
+`rollCard` walks down `RARITY_ORDER` from the rolled tier if that tier has no eligible
+candidates (no matching weapon, and no passive under its 5-pick cap), so a slot never
+comes up empty just because the dice landed on a tier nothing currently occupies. This
+means low-level runs can still surface a Rare/Epic weapon slot via a passive, while
+high-rarity weapons (Legendary Black Hole, Mythic Prism Beam) stay rare early and
+become reachable as the run goes on. Cards in one pool never repeat an id.
+
+### New weapons
+
+Six weapons join the original three, each with its own inherent rarity, bringing the
+equip cap to `MAX_WEAPONS = 4` (new weapons stop appearing in the pool once the player
+already has 4 equipped):
+
+- **🪃 Boomerang** (Rare) — flies out to `range` and back along the same path, hitting
+  everything on the way both directions.
+- **💣 Slime Mines** (Rare) — drops wobbly bombs (`maxAlive` cap) that detonate in a
+  radius on contact.
+- **⚡ Chain Zap** (Epic) — lightning arcs drone-to-drone up to `chains` hops within
+  `chainRange`.
+- **🔮 Homing Wisps** (Epic) — sparks with a `turnRate` that curve toward the nearest
+  target and expire after `life` seconds.
+- **🕳️ Black Hole** (Legendary) — opens a vortex for `duration` seconds that `pull`s
+  enemies in and ticks damage.
+- **🌈 Prism Beam** (Mythic) — a sweeping ray (`rotSpeed`, `width`, `length`) that ticks
+  damage on everything it passes over.
+
+All six follow the same 5-level cumulative stat table shape as the original three.
+
+### Passive rework
+
+Passives moved from flat per-pick bonuses to an **accumulated-bonus model**: each pick
+still rolls a rarity and computes `bonus = base × RARITIES[rarity].mult` (rounded to
+one decimal for `flat`-kind passives), but instead of a fixed per-level number the
+bonus is added into `run.passives[id]`, and `run.passivePicks[id]` just counts picks
+(capped at `MAX_PASSIVE_LEVEL = 5`) for display (`Lv N` tag) and eligibility. Net
+effect: two picks of the same passive at different rarities stack their *actual*
+rolled bonuses rather than both applying some fixed per-level value, so a lucky
+Legendary/Mythic passive roll meaningfully outpaces a string of Normal rolls of the
+same passive.
+
+### Background redesign
+
+Rejected: a visible tile grid over the play field — read as sterile/debug-looking and
+fought the "cute lab" theme once the world scrolled past a couple of screens.
+
+Shipped: an organic floor with no grid at all —
+- Canvas-drawn radial-gradient "blotches" (soft green/sand/sage/blush) as translucent
+  ground mottling, scattered deterministically per world cell via a hash function so
+  the same cell always looks the same across sessions without storing anything.
+- 16 tinted-white Kenney CC0 foliage PNGs (`src/props/`: bushes, clusters, flowers,
+  grass, leaf, mushroom, reed, scatter) scattered on top the same way, pooled as
+  sprites rather than recreated per frame. Attribution: Kenney (www.kenney.nl),
+  CC0 — see `src/props/LICENSE-kenney-cc0.txt`; crediting is optional under CC0 but
+  the license file is kept in-repo.
+- Ambient dust motes drifting in screen space for parallax life.
+- `entitiesLayer` (player/enemies/bullets/etc.) is hidden until `reset(run)` runs, so
+  the title screen shows only the organic floor + idle layer, no gameplay entities.
+
+### Test coverage additions
+
+`test/sim-test.js` (plain Node, `npm test`) gained two runs on top of the original
+movement/death/victory checks:
+- **Run D** (`testNewWeapons`) — for each of the 6 new weapons, equips it alone at
+  level 3, circles the player around enemies for 45s, and asserts kills > 0 and that
+  the weapon's entity array (e.g. `run.mines`, `run.beams`) saw activity.
+- **Run E** (`testRaritySanity`) — samples 200 fresh level-up pools each at player
+  level 1 and level 12, asserts every card's rarity key is valid, checks the passive
+  bonus formula (`base × mult`, flat rounded to 1 decimal) against every passive card
+  seen, and asserts Mythic appears at level 12 and at least as often as at level 1.

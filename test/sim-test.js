@@ -1,8 +1,8 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { createRun } from '../src/state.js'
-import { SHOP } from '../src/config.js'
-import { stepSim, applyChoice } from '../src/sim.js'
+import { SHOP, PASSIVES, RARITIES } from '../src/config.js'
+import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -88,10 +88,100 @@ function testVictory() {
   console.log(`PASS run C (victory): time=${run.time.toFixed(1)}s kills=${run.kills}`)
 }
 
+// Fresh run per new weapon id, forced to be the only equipped weapon at level 3.
+// Drives 45s with a circling input (so enemies approach from every angle) and checks
+// the weapon dealt damage and its dedicated entity array actually saw activity.
+const NEW_WEAPON_ENTITY = {
+  boomerang: 'boomerangs',
+  mines: 'mines',
+  zap: 'zaps',
+  homing: 'homingShots',
+  hole: 'holes',
+  rainbow: 'beams',
+}
+
+function testNewWeapons() {
+  const dt = 1 / 60
+  const steps = Math.round(45 / dt)
+
+  for (const [id, arrKey] of Object.entries(NEW_WEAPON_ENTITY)) {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id, level: 3 }]
+
+    let sawActivity = false
+    let t = 0
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') {
+        applyChoice(run, 0)
+        run.phase = 'playing'
+        continue
+      }
+      if (run.phase !== 'playing') break
+
+      t += dt
+      const input = { x: Math.cos(t), y: Math.sin(t) } // circle around, so enemies close in from all sides
+      stepSim(run, input, dt)
+
+      if (run[arrKey].length > 0) sawActivity = true
+
+      assert(finite(run.player.x), `[${id}] player.x not finite: ${run.player.x}`)
+      assert(finite(run.player.y), `[${id}] player.y not finite: ${run.player.y}`)
+      for (const e of run.enemies) {
+        assert(finite(e.x), `[${id}] enemy.x not finite: ${e.x}`)
+        assert(finite(e.y), `[${id}] enemy.y not finite: ${e.y}`)
+      }
+    }
+
+    assert(run.kills > 0, `[${id}] expected kills > 0, got ${run.kills}`)
+    assert(sawActivity, `[${id}] expected run.${arrKey} to see activity at some point`)
+    console.log(`PASS run D (${id}): kills=${run.kills} time=${run.time.toFixed(1)}s ${arrKey} active`)
+  }
+}
+
+// Rarity sanity: sample 200 level-up pools each at player level 1 and 12 (fresh run each
+// time, so pools aren't depleted by earlier picks), and check the rarity distribution and
+// passive bonus math the hybrid model promises.
+function testRaritySanity() {
+  const seenL1 = {}
+  const seenL12 = {}
+  let passiveBonusChecked = false
+
+  function sample(level, counter) {
+    const run = createRun(makeMeta())
+    run.player.level = level
+    const choices = buildLevelUpChoices(run)
+    for (const c of choices) {
+      assert(c.rarity in RARITIES, `invalid rarity key: ${c.rarity}`)
+      counter[c.rarity] = (counter[c.rarity] ?? 0) + 1
+
+      if (c.kind === 'passive') {
+        const cfg = PASSIVES[c.id]
+        const mult = RARITIES[c.rarity].mult
+        let expected = cfg.base * mult
+        if (cfg.kind === 'flat') expected = Math.round(expected * 10) / 10
+        assert.strictEqual(c.bonus, expected, `[${c.id}] bonus ${c.bonus} != expected ${expected} for rarity ${c.rarity}`)
+        passiveBonusChecked = true
+      }
+    }
+  }
+
+  for (let i = 0; i < 200; i++) sample(1, seenL1)
+  for (let i = 0; i < 200; i++) sample(12, seenL12)
+
+  assert(passiveBonusChecked, 'expected at least one passive card to verify bonus math against')
+  assert((seenL12.mythic ?? 0) > 0, `expected mythic to appear at level 12, got ${seenL12.mythic ?? 0}`)
+  assert((seenL12.mythic ?? 0) >= (seenL1.mythic ?? 0),
+    `expected mythic to appear at least as often at level 12 (${seenL12.mythic ?? 0}) as level 1 (${seenL1.mythic ?? 0})`)
+
+  console.log(`PASS run E (rarity sanity): L1=${JSON.stringify(seenL1)} L12=${JSON.stringify(seenL12)}`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
   testVictory()
+  testNewWeapons()
+  testRaritySanity()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

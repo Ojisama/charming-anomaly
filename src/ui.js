@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'hud', 'levelup', 'pause', 'summary']
@@ -87,6 +87,7 @@ export function initUI(hooks) {
       <span class="lv-badge">Lv 1</span>
       <div class="xp-bar"><div class="xp-fill"></div></div>
     </div>
+    <div class="weapon-row"></div>
   `
   const hud = {
     hpFill: screens.hud.querySelector('.hp-fill'),
@@ -95,8 +96,9 @@ export function initUI(hooks) {
     coins: screens.hud.querySelector('.hud-coins'),
     lv: screens.hud.querySelector('.lv-badge'),
     xpFill: screens.hud.querySelector('.xp-fill'),
+    weaponRow: screens.hud.querySelector('.weapon-row'),
   }
-  const last = { hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN }
+  const last = { hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '' }
 
   function updateHUD(run) {
     const p = run.player
@@ -126,20 +128,34 @@ export function initUI(hooks) {
       last.xpPct = xpPct
       hud.xpFill.style.width = `${xpPct}%`
     }
+    const weaponsSig = run.weapons.map((w) => `${w.id}${w.level}`).join(',')
+    if (weaponsSig !== last.weaponsSig) {
+      last.weaponsSig = weaponsSig
+      hud.weaponRow.innerHTML = run.weapons.map((w) => `
+        <span class="weapon-chip">
+          <span class="weapon-chip-icon">${WEAPONS[w.id]?.icon ?? '❔'}</span>
+          <span class="weapon-chip-lv">${w.level}</span>
+        </span>`).join('')
+    }
   }
 
   // ---- level-up modal ----------------------------------------------------
   function renderLevelup(choices) {
-    const cards = choices.map((c, i) => `
-      <button class="card lv-card" data-choose="${i}" style="animation-delay:${i * 90}ms">
-        <span class="lv-card-icon">${CHOICE_ICONS[c.kind] ?? '✨'}</span>
+    const cards = choices.map((c, i) => {
+      const rarity = c.rarity ?? 'normal'
+      const rarityName = RARITIES[rarity]?.name ?? RARITIES.normal.name
+      return `
+      <button class="card lv-card" data-choose="${i}" data-rarity="${rarity}" style="animation-delay:${i * 90}ms">
+        <i class="rarity-chip">${rarityName}</i>
+        <span class="lv-card-icon">${c.icon ?? CHOICE_ICONS[c.kind] ?? '✨'}</span>
         <span class="lv-card-body">
           <span class="lv-card-title">${c.title}
             ${c.tag ? `<i class="tag ${c.tag === 'New!' ? 'tag--new' : 'tag--lv'}">${c.tag}</i>` : ''}
           </span>
           <span class="lv-card-desc">${c.desc}</span>
         </span>
-      </button>`).join('')
+      </button>`
+    }).join('')
     screens.levelup.innerHTML = `
       <div class="modal">
         <h2 class="modal-title">LEVEL UP!</h2>

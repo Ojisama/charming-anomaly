@@ -27,6 +27,8 @@ await app.init({
 document.getElementById('game').appendChild(app.canvas)
 
 const renderer = createRenderer(app)
+await renderer.ready // prop sprites load async
+if (new URLSearchParams(location.search).has('debug')) window.__app = app
 initInput(document.body)
 
 const ui = initUI({
@@ -34,6 +36,7 @@ const ui = initUI({
   onPlay() {
     initAudio()
     run = createRun(meta)
+    if (new URLSearchParams(location.search).has('debug')) window.__run = run
     renderer.reset(run)
     ui.showScreen('hud')
   },
@@ -69,6 +72,7 @@ const ui = initUI({
 const SFX_FOR_EVENT = {
   hit: 'hit', kill: 'kill', gem: 'gem', coin: 'coin',
   levelup: 'levelup', hurt: 'hurt', dead: 'death', victory: 'victory', shoot: 'shoot',
+  explode: 'explode', zap: 'zap', hole: 'hole', beam: 'beam',
 }
 
 function endRun(victory) {

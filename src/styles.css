@@ -262,6 +262,26 @@ body {
 }
 .xp-fill { height: 100%; width: 0%; border-radius: 999px; background: var(--gold); transition: width 0.15s; }
 
+/* equipped-weapons chip row */
+.weapon-row { display: flex; flex-wrap: wrap; gap: 5px; pointer-events: none; }
+.weapon-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  background: var(--cream-soft);
+  border: 2px solid var(--ink);
+  line-height: 1;
+}
+.weapon-chip-icon { font-size: 0.95rem; }
+.weapon-chip-lv {
+  font-size: 0.66rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
 /* ---- modals (level-up / pause / summary) ---- */
 .screen--levelup, .screen--pause, .screen--summary {
   background: rgba(53, 53, 74, 0.45);
@@ -287,6 +307,7 @@ body {
 /* level-up cards */
 .lv-cards { display: flex; flex-direction: column; gap: 10px; }
 .lv-card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -308,6 +329,47 @@ body {
 }
 .tag--new { background: var(--pink); color: #fff; }
 .tag--lv { background: var(--mint); color: var(--ink); }
+
+/* rarity accents on level-up cards */
+.rarity-chip {
+  position: absolute;
+  top: -9px;
+  right: 12px;
+  font-style: normal;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #9aa0a6;
+  color: #fff;
+  box-shadow: 0 2px 0 rgba(53, 53, 74, 0.25);
+}
+.lv-card[data-rarity="normal"]    { border-color: #9aa0a6; box-shadow: 0 4px 0 rgba(154, 160, 166, 0.4); }
+.lv-card[data-rarity="rare"]      { border-color: #4da3ff; box-shadow: 0 4px 0 rgba(77, 163, 255, 0.4), 0 0 14px rgba(77, 163, 255, 0.35); }
+.lv-card[data-rarity="epic"]      { border-color: #b06cf0; box-shadow: 0 4px 0 rgba(176, 108, 240, 0.4), 0 0 16px rgba(176, 108, 240, 0.4); }
+.lv-card[data-rarity="legendary"] { border-color: #ff9d3c; box-shadow: 0 4px 0 rgba(255, 157, 60, 0.4), 0 0 18px rgba(255, 157, 60, 0.45); }
+.lv-card[data-rarity="mythic"]    { box-shadow: 0 4px 0 rgba(255, 77, 106, 0.4), 0 0 20px rgba(255, 77, 106, 0.5); }
+
+.lv-card[data-rarity="normal"] .rarity-chip    { background: #9aa0a6; }
+.lv-card[data-rarity="rare"] .rarity-chip      { background: #4da3ff; }
+.lv-card[data-rarity="epic"] .rarity-chip      { background: #b06cf0; }
+.lv-card[data-rarity="legendary"] .rarity-chip { background: #ff9d3c; color: #3a2000; }
+.lv-card[data-rarity="mythic"] .rarity-chip    { background: #ff4d6d; }
+
+/* mythic: extra-special animated rainbow border */
+.lv-card[data-rarity="mythic"] {
+  border: 3px solid transparent;
+  background:
+    linear-gradient(var(--cream-soft), var(--cream-soft)) padding-box,
+    linear-gradient(90deg, #ff4d6d, #ff9d3c, #ffd93d, #7de3c3, #4da3ff, #b06cf0, #ff4d6d) border-box;
+  background-size: 100% 100%, 300% 100%;
+  animation: pop-in 0.3s ease-out backwards, mythic-shift 3s linear infinite;
+}
+@keyframes mythic-shift {
+  0% { background-position: 0 0, 0% 0; }
+  100% { background-position: 0 0, 300% 0; }
+}
 
 @keyframes pop-in {
   from { transform: scale(0.6); opacity: 0; }
@@ -359,5 +421,5 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .title-logo, .modal, .lv-card, .card--bounce { animation: none; }
+  .title-logo, .modal, .lv-card, .card--bounce, .lv-card[data-rarity="mythic"] { animation: none; }
 }

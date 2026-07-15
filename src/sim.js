@@ -3,14 +3,25 @@
 // Contract: see state.js (run shape + events) and config.js (all numbers).
 
 import {
-  RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL,
-  PASSIVES, MAX_PASSIVE_LEVEL, ENEMIES, ELITE, WAVE_TABLE,
+  RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
+  PASSIVES, MAX_PASSIVE_LEVEL, RARITIES, RARITY_ORDER, rarityWeights,
+  ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, ELITE_EVERY, SPAWN_RING,
   xpForLevel, GEM_VALUE,
   STAR_LIFE, STAR_R, STAR_FAN, ORB_R, NOVA_LIFE,
+  HOLE_CORE_FRAC, HOLE_RIM_PULL_MUL, HOLE_RESIST_CAP, HOLE_SPIRAL_MUL,
+  HOLE_CORE_DMG_MUL, HOLE_PULL_DECAY,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
+
+// Fixed tuning for v2 weapons (no per-level config entries; same shape at every level).
+const BOOMERANG_FAN = 0.25    // rad, half-spread when several boomerangs are thrown
+const BOOMERANG_HIT_R = 14    // px, hit radius added to enemy radius
+const BOOMERANG_RETURN_R = 24 // px, distance from player at which a returning boomerang despawns
+const MINE_TRIGGER_R = 28     // px, proximity (added to enemy radius) that arms a mine's detonation
+const HOMING_FAN = 0.35       // rad, half-spread when several homing shots are fired
+const HOMING_HIT_R = 10       // px, hit radius added to enemy radius
 
 /** Advance the simulation by dt seconds. input = {x, y} normalized move vector. */
 export function stepSim(run, input, dt) {
@@ -22,6 +33,7 @@ export function stepSim(run, input, dt) {
   }
 
   stepPlayerMovement(run, input, dt)
+  stepRegen(run, dt)
   stepSpawning(run, dt)
   stepEnemyMovement(run, dt)
 
@@ -42,12 +54,13 @@ export function applyChoice(run, i) {
   if (choice.kind === 'weapon') {
     const existing = run.weapons.find((w) => w.id === choice.id)
     if (existing) existing.level = Math.min(MAX_WEAPON_LEVEL, existing.level + 1)
-    else run.weapons.push({ id: choice.id, level: 1 })
+    else if (run.weapons.length < MAX_WEAPONS) run.weapons.push({ id: choice.id, level: 1 })
   } else if (choice.kind === 'passive') {
-    run.passives[choice.id] = (run.passives[choice.id] ?? 0) + 1
+    run.passives[choice.id] = (run.passives[choice.id] ?? 0) + choice.bonus
+    run.passivePicks[choice.id] = (run.passivePicks[choice.id] ?? 0) + 1
     if (choice.id === 'maxHP') {
-      p.maxHP += PASSIVES.maxHP.perLevel
-      p.hp = Math.min(p.maxHP, p.hp + PASSIVES.maxHP.perLevel)
+      p.maxHP += choice.bonus
+      p.hp = Math.min(p.maxHP, p.hp + choice.bonus)
     }
   } else if (choice.kind === 'heal') {
     p.hp = Math.min(p.maxHP, p.hp + 30)
@@ -63,8 +76,7 @@ function stepPlayerMovement(run, input, dt) {
   const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
-  const speedMul = 1 + run.passives.moveSpeed * PASSIVES.moveSpeed.perLevel
-  const speed = p.speed * speedMul
+  const speed = p.speed * (1 + run.passives.moveSpeed)
   p.x += ix * speed * dt
   p.y += iy * speed * dt
 
@@ -73,6 +85,13 @@ function stepPlayerMovement(run, input, dt) {
   else if (ix < -1e-6) p.facing = -1
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
+}
+
+function stepRegen(run, dt) {
+  const p = run.player
+  if (run.passives.regen > 0) {
+    p.hp = Math.min(p.maxHP, p.hp + run.passives.regen * dt)
+  }
 }
 
 // ---- Spawning -------------------------------------------------------------------
@@ -86,14 +105,15 @@ function waveWeights(t) {
   return table
 }
 
-function pickWeightedType(weights) {
+// Generic weighted-random key pick; used for both enemy-type spawns and rarity rolls.
+function pickWeighted(weights) {
   const entries = Object.entries(weights)
   let total = 0
   for (const [, w] of entries) total += w
   let r = Math.random() * total
-  for (const [type, w] of entries) {
+  for (const [key, w] of entries) {
     r -= w
-    if (r <= 0) return type
+    if (r <= 0) return key
   }
   return entries[entries.length - 1][0]
 }
@@ -110,7 +130,7 @@ function spawnEnemy(run) {
   const isElite = run.time >= run._nextEliteAt
   if (isElite) run._nextEliteAt += ELITE_EVERY
 
-  const type = pickWeightedType(waveWeights(run.time))
+  const type = pickWeighted(waveWeights(run.time))
   const base = ENEMIES[type]
   const p = run.player
 
@@ -134,6 +154,7 @@ function spawnEnemy(run) {
     hitFlash: 0,
     orbCd: 0,
     kb: { x: 0, y: 0 },
+    holePull: 0,
   })
 }
 
@@ -176,9 +197,10 @@ function stepContactDamage(run) {
     const dx = e.x - p.x, dy = e.y - p.y
     const rad = PLAYER.radius + e.radius
     if (dx * dx + dy * dy < rad * rad) {
-      p.hp -= e.dmg
+      const dmg = Math.max(1, e.dmg - run.passives.armor)
+      p.hp -= dmg
       p.invuln = PLAYER.invulnTime
-      run.events.push({ type: 'hurt', dmg: e.dmg })
+      run.events.push({ type: 'hurt', dmg })
       if (p.hp <= 0) {
         run.phase = 'dead'
         run.events.push({ type: 'dead' })
@@ -194,10 +216,10 @@ function stepContactDamage(run) {
 
 function applyDamage(run, enemy, baseDmg) {
   const p = run.player
-  let dmg = baseDmg * p.damageMul
+  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage)
   let crit = false
-  if (Math.random() < p.critChance) {
-    dmg *= p.critDamage
+  if (Math.random() < p.critChance + run.passives.critChance) {
+    dmg *= (p.critDamage + run.passives.critDamage)
     crit = true
   }
   dmg = Math.round(dmg)
@@ -226,22 +248,48 @@ function applyDamage(run, enemy, baseDmg) {
   }
 }
 
+// Nearest enemy within (viewRadius + pad), or null. Shared by weapons that target on fire.
+function nearestEnemy(run, pad = 100) {
+  const p = run.player
+  const rangeSq = (run.viewRadius + pad) ** 2
+  let target = null
+  let bestSq = Infinity
+  for (const e of run.enemies) {
+    const dx = e.x - p.x, dy = e.y - p.y
+    const dSq = dx * dx + dy * dy
+    if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
+  }
+  return target
+}
+
 // ---- Weapons ------------------------------------------------------------------------
 
 function stepWeapons(run, dt) {
   const p = run.player
   run.orbs = []
-  const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate * PASSIVES.fireRate.perLevel)
+  const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate)
 
   for (const w of run.weapons) {
     const stats = WEAPONS[w.id].levels[w.level - 1]
     if (w.id === 'star') stepStarWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'wave') stepWaveWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'orbit') stepOrbitWeapon(run, stats, fireRateMul)
+    else if (w.id === 'boomerang') stepBoomerangWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'mines') stepMinesWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'zap') stepZapWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'homing') stepHomingWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'hole') stepHoleWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'rainbow') stepBeamWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
   stepNovas(run, dt)
+  stepBoomerangs(run, dt)
+  stepMines(run, dt)
+  stepZaps(run, dt)
+  stepHomingShots(run, dt)
+  stepHoles(run, dt)
+  stepBeams(run, dt)
 
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
 }
@@ -265,15 +313,7 @@ function stepStarWeapon(run, w, stats, fireRateMul, dt) {
 
 function fireStar(run, stats) {
   const p = run.player
-  const rangeSq = (run.viewRadius + 100) ** 2
-
-  let target = null
-  let bestSq = Infinity
-  for (const e of run.enemies) {
-    const dx = e.x - p.x, dy = e.y - p.y
-    const dSq = dx * dx + dy * dy
-    if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
-  }
+  const target = nearestEnemy(run)
 
   const baseAngle = target
     ? Math.atan2(target.y - p.y, target.x - p.x)
@@ -377,6 +417,347 @@ function stepNovas(run, dt) {
   run.novas = novas.filter((n) => n.life > 0)
 }
 
+// -- Boomerang --------------------------------------------------------------------
+
+function stepBoomerangWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireBoomerang(run, stats))
+}
+
+function fireBoomerang(run, stats) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  const baseAngle = target
+    ? Math.atan2(target.y - p.y, target.x - p.x)
+    : (p.facing >= 0 ? 0 : Math.PI)
+
+  const count = stats.count
+  const step = count > 1 ? (2 * BOOMERANG_FAN) / (count - 1) : 0
+  for (let i = 0; i < count; i++) {
+    const angle = count > 1 ? baseAngle - BOOMERANG_FAN + i * step : baseAngle
+    run.boomerangs.push({
+      x: p.x, y: p.y, ox: p.x, oy: p.y,
+      angle, phase: 'out',
+      dmg: stats.dmg, hit: new Set(),
+      speed: stats.speed, range: stats.range,
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'boomerang' })
+}
+
+function stepBoomerangs(run, dt) {
+  const p = run.player
+  for (const b of run.boomerangs) {
+    if (b.phase === 'out') {
+      b.x += Math.cos(b.angle) * b.speed * dt
+      b.y += Math.sin(b.angle) * b.speed * dt
+      const traveled = Math.hypot(b.x - b.ox, b.y - b.oy)
+      if (traveled >= b.range) { b.phase = 'back'; b.hit.clear() }
+    } else {
+      const dx = p.x - b.x, dy = p.y - b.y
+      const d = Math.hypot(dx, dy)
+      if (d > 1e-6) {
+        b.x += (dx / d) * b.speed * dt
+        b.y += (dy / d) * b.speed * dt
+      }
+      if (d < BOOMERANG_RETURN_R) b._done = true
+    }
+
+    for (const e of run.enemies) {
+      if (e._dead || b.hit.has(e.id)) continue
+      const dx = e.x - b.x, dy = e.y - b.y
+      const rad = BOOMERANG_HIT_R + e.radius
+      if (dx * dx + dy * dy <= rad * rad) {
+        applyDamage(run, e, b.dmg)
+        b.hit.add(e.id)
+      }
+    }
+  }
+  run.boomerangs = run.boomerangs.filter((b) => !b._done)
+}
+
+// -- Mines --------------------------------------------------------------------------
+
+function stepMinesWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+    if (run.mines.length >= stats.maxAlive) return
+    const p = run.player
+    run.mines.push({
+      x: p.x - p.facing * 20, y: p.y,
+      arm: 0.4, dmg: stats.dmg, radius: stats.radius,
+    })
+  })
+}
+
+function stepMines(run, dt) {
+  for (const m of run.mines) {
+    if (m.arm > 0) { m.arm = Math.max(0, m.arm - dt); continue }
+
+    let triggered = false
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - m.x, dy = e.y - m.y
+      const trig = MINE_TRIGGER_R + e.radius
+      if (dx * dx + dy * dy <= trig * trig) { triggered = true; break }
+    }
+    if (!triggered) continue
+
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - m.x, dy = e.y - m.y
+      if (dx * dx + dy * dy <= m.radius * m.radius) applyDamage(run, e, m.dmg)
+    }
+    run.events.push({ type: 'explode', x: m.x, y: m.y })
+    m._dead = true
+  }
+  run.mines = run.mines.filter((m) => !m._dead)
+}
+
+// -- Chain zap ------------------------------------------------------------------------
+
+function stepZapWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireZap(run, stats))
+}
+
+function fireZap(run, stats) {
+  const p = run.player
+  const viewRangeSq = (run.viewRadius + 100) ** 2
+  const chainRangeSq = stats.chainRange * stats.chainRange
+  const hitIds = new Set()
+  const points = [[p.x, p.y]]
+  let last = { x: p.x, y: p.y }
+
+  for (let i = 0; i < stats.chains; i++) {
+    const maxSq = i === 0 ? viewRangeSq : chainRangeSq
+    let target = null
+    let bestSq = Infinity
+    for (const e of run.enemies) {
+      if (e._dead || hitIds.has(e.id)) continue
+      const dx = e.x - last.x, dy = e.y - last.y
+      const dSq = dx * dx + dy * dy
+      if (dSq <= maxSq && dSq < bestSq) { bestSq = dSq; target = e }
+    }
+    if (!target) break
+    applyDamage(run, target, stats.dmg)
+    hitIds.add(target.id)
+    points.push([target.x, target.y])
+    last = target
+  }
+
+  if (points.length > 1) {
+    run.zaps.push({ points, life: 0.25 })
+    run.events.push({ type: 'zap' })
+  }
+}
+
+function stepZaps(run, dt) {
+  for (const z of run.zaps) z.life -= dt
+  run.zaps = run.zaps.filter((z) => z.life > 0)
+}
+
+// -- Homing wisps ---------------------------------------------------------------------
+
+function stepHomingWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireHoming(run, stats))
+}
+
+function fireHoming(run, stats) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  const baseAngle = target
+    ? Math.atan2(target.y - p.y, target.x - p.x)
+    : (p.facing >= 0 ? 0 : Math.PI)
+
+  const count = stats.count
+  for (let i = 0; i < count; i++) {
+    const angle = count > 1 ? baseAngle + (i - (count - 1) / 2) * HOMING_FAN : baseAngle
+    run.homingShots.push({
+      x: p.x, y: p.y,
+      vx: Math.cos(angle) * stats.speed,
+      vy: Math.sin(angle) * stats.speed,
+      dmg: stats.dmg, life: stats.life,
+      speed: stats.speed, turnRate: stats.turnRate,
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'homing' })
+}
+
+function stepHomingShots(run, dt) {
+  for (const h of run.homingShots) {
+    h.life -= dt
+    if (h.life <= 0) continue
+
+    let target = null
+    let bestSq = Infinity
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - h.x, dy = e.y - h.y
+      const dSq = dx * dx + dy * dy
+      if (dSq < bestSq) { bestSq = dSq; target = e }
+    }
+    if (target) {
+      const desired = Math.atan2(target.y - h.y, target.x - h.x)
+      const cur = Math.atan2(h.vy, h.vx)
+      const diff = Math.atan2(Math.sin(desired - cur), Math.cos(desired - cur))
+      const maxTurn = h.turnRate * dt
+      const turn = Math.max(-maxTurn, Math.min(maxTurn, diff))
+      const newAngle = cur + turn
+      h.vx = Math.cos(newAngle) * h.speed
+      h.vy = Math.sin(newAngle) * h.speed
+    }
+    h.x += h.vx * dt
+    h.y += h.vy * dt
+
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - h.x, dy = e.y - h.y
+      const rad = HOMING_HIT_R + e.radius
+      if (dx * dx + dy * dy <= rad * rad) {
+        applyDamage(run, e, h.dmg)
+        h.life = 0
+        break
+      }
+    }
+  }
+  run.homingShots = run.homingShots.filter((h) => h.life > 0)
+}
+
+// -- Black hole -------------------------------------------------------------------------
+
+function stepHoleWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireHole(run, stats))
+}
+
+function fireHole(run, stats) {
+  const p = run.player
+  const viewSq = run.viewRadius * run.viewRadius
+  const inView = run.enemies.filter((e) => {
+    if (e._dead) return false
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= viewSq
+  })
+
+  let x, y
+  if (inView.length > 0) {
+    const e = inView[Math.floor(Math.random() * inView.length)]
+    x = e.x; y = e.y
+  } else {
+    const a = Math.random() * Math.PI * 2
+    const d = 250 + Math.random() * 150
+    x = p.x + Math.cos(a) * d
+    y = p.y + Math.sin(a) * d
+  }
+
+  run.holes.push({
+    x, y, radius: stats.radius, coreRadius: stats.radius * HOLE_CORE_FRAC,
+    life: stats.duration, duration: stats.duration,
+    dmg: stats.dmg, tick: stats.tick, pull: stats.pull, acc: 0,
+  })
+  run.events.push({ type: 'hole' })
+}
+
+// Runs after stepEnemyMovement, so the vortex always wins the tug-of-war near the core
+// instead of enemies "escaping" on the same frame they were pulled in.
+function stepHoles(run, dt) {
+  const pulled = new Set() // enemy ids affected by a hole this frame; rest decay e.holePull toward 0
+
+  for (const h of run.holes) {
+    h.life -= dt
+    if (h.life <= 0) continue
+
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = h.x - e.x, dy = h.y - e.y
+      const d = Math.hypot(dx, dy)
+      if (d > 1e-6 && d <= h.radius) {
+        // Suction ramps from HOLE_RIM_PULL_MUL at the rim up to full strength at the core,
+        // so enemies near the edge can still resist while anything close in gets locked down.
+        const span = Math.max(1e-6, h.radius - h.coreRadius)
+        const t = d <= h.coreRadius ? 1 : Math.max(0, 1 - (d - h.coreRadius) / span)
+        let strength = HOLE_RIM_PULL_MUL + (1 - HOLE_RIM_PULL_MUL) * t
+
+        // Elites and tanks are heavier — they resist getting yanked all the way in.
+        if (e.elite || e.type === 'tank') strength = Math.min(strength, HOLE_RESIST_CAP)
+
+        const ux = dx / d, uy = dy / d
+        const radialSpeed = h.pull * strength
+        const tangentSpeed = radialSpeed * HOLE_SPIRAL_MUL // spiral instead of a straight beeline
+        const radial = Math.min(d, radialSpeed * dt) // never fling an enemy past the center
+        e.x += ux * radial - uy * tangentSpeed * dt
+        e.y += uy * radial + ux * tangentSpeed * dt
+
+        e.holePull = Math.max(e.holePull ?? 0, t)
+        pulled.add(e.id)
+      }
+    }
+
+    h.acc += dt
+    while (h.acc >= h.tick) {
+      h.acc -= h.tick
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        const dx = e.x - h.x, dy = e.y - h.y
+        const distSq = dx * dx + dy * dy
+        if (distSq <= h.radius * h.radius) {
+          const inCore = distSq <= h.coreRadius * h.coreRadius
+          applyDamage(run, e, h.dmg * (inCore ? HOLE_CORE_DMG_MUL : 1))
+        }
+      }
+    }
+  }
+  run.holes = run.holes.filter((h) => h.life > 0)
+
+  for (const e of run.enemies) {
+    if (e._dead || pulled.has(e.id)) continue
+    if (e.holePull > 0) e.holePull = Math.max(0, e.holePull - HOLE_PULL_DECAY * dt)
+  }
+}
+
+// -- Prism beam -------------------------------------------------------------------------
+
+function stepBeamWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireBeam(run, stats))
+}
+
+function fireBeam(run, stats) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  const angle = target
+    ? Math.atan2(target.y - p.y, target.x - p.x)
+    : (p.facing >= 0 ? 0 : Math.PI)
+
+  run.beams.push({
+    angle, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
+    tick: stats.tick, width: stats.width, length: stats.length,
+    rotSpeed: stats.rotSpeed, acc: 0,
+  })
+  run.events.push({ type: 'beam' })
+}
+
+function stepBeams(run, dt) {
+  const p = run.player
+  for (const b of run.beams) {
+    b.life -= dt
+    if (b.life <= 0) continue
+    b.angle += b.rotSpeed * dt
+
+    b.acc += dt
+    while (b.acc >= b.tick) {
+      b.acc -= b.tick
+      const cos = Math.cos(b.angle), sin = Math.sin(b.angle)
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        const dx = e.x - p.x, dy = e.y - p.y
+        const along = dx * cos + dy * sin           // distance projected onto the beam axis
+        const perp = -dx * sin + dy * cos            // perpendicular distance from the axis
+        if (along >= 0 && along <= b.length && Math.abs(perp) < b.width / 2 + e.radius) {
+          applyDamage(run, e, b.dmg)
+        }
+      }
+    }
+  }
+  run.beams = run.beams.filter((b) => b.life > 0)
+}
+
 // ---- Pickups ------------------------------------------------------------------------
 
 function magnetSpeed(dist, magnet) {
@@ -386,7 +767,7 @@ function magnetSpeed(dist, magnet) {
 
 function stepPickups(run, dt) {
   const p = run.player
-  const magnet = p.magnet * (1 + run.passives.magnet * PASSIVES.magnet.perLevel)
+  const magnet = p.magnet * (1 + run.passives.magnet)
   const magnetSq = magnet * magnet
   const pickupSq = PLAYER.pickupRadius * PLAYER.pickupRadius
 
@@ -408,7 +789,7 @@ function stepPickups(run, dt) {
   }
 
   run.gems = collect(run.gems, (g) => {
-    p.xp += g.xp * GEM_VALUE
+    p.xp += g.xp * GEM_VALUE * (1 + run.passives.xpGain)
     run.events.push({ type: 'gem', x: g.x, y: g.y })
   })
   run.coins = collect(run.coins, (c) => {
@@ -419,38 +800,87 @@ function stepPickups(run, dt) {
 
 // ---- Level up -----------------------------------------------------------------------
 
-function buildLevelUpChoices(run) {
-  const pool = []
+// Weapon candidates: new (unowned, only if under MAX_WEAPONS) + upgrades (below max level).
+// Each carries its inherent config rarity; passives are added per-card once a rarity is rolled.
+function weaponCandidates(run) {
   const ownedIds = new Set(run.weapons.map((w) => w.id))
+  const list = []
 
-  for (const id of Object.keys(WEAPONS)) {
-    if (!ownedIds.has(id)) {
-      pool.push({ kind: 'weapon', id, title: WEAPONS[id].name, desc: WEAPONS[id].desc, tag: 'New!' })
+  if (run.weapons.length < MAX_WEAPONS) {
+    for (const id of Object.keys(WEAPONS)) {
+      if (!ownedIds.has(id)) {
+        const cfg = WEAPONS[id]
+        list.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon })
+      }
     }
   }
   for (const w of run.weapons) {
     if (w.level < MAX_WEAPON_LEVEL) {
-      pool.push({ kind: 'weapon', id: w.id, title: WEAPONS[w.id].name, desc: WEAPONS[w.id].desc, tag: `Lv ${w.level + 1}` })
+      const cfg = WEAPONS[w.id]
+      list.push({ kind: 'weapon', id: w.id, title: cfg.name, desc: cfg.desc, tag: `Lv ${w.level + 1}`, rarity: cfg.rarity, icon: cfg.icon })
     }
   }
-  for (const id of Object.keys(PASSIVES)) {
-    const lvl = run.passives[id] ?? 0
-    if (lvl < MAX_PASSIVE_LEVEL) {
-      pool.push({ kind: 'passive', id, title: PASSIVES[id].name, desc: PASSIVES[id].desc, tag: `Lv ${lvl + 1}` })
+  return list
+}
+
+function eligiblePassiveIds(run) {
+  return Object.keys(PASSIVES).filter((id) => (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL)
+}
+
+// A passive card adopts whatever rarity was rolled for its slot.
+function makePassiveCard(run, id, rarity) {
+  const cfg = PASSIVES[id]
+  const mult = RARITIES[rarity].mult
+  let bonus = cfg.base * mult
+  if (cfg.kind === 'flat') bonus = Math.round(bonus * 10) / 10
+  const picks = run.passivePicks[id] ?? 0
+  const desc = cfg.kind === 'pct'
+    ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
+    : `+${bonus} ${cfg.desc}`
+  return { kind: 'passive', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: '💪', bonus }
+}
+
+// Roll one card: pick a rarity weighted by player level, gather candidates at that rarity
+// (inherent-rarity weapons + all eligible passives adopting the roll), and walk down
+// RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
+function rollCard(run, weaponPool, passiveIds, pickedIds) {
+  let idx = RARITY_ORDER.indexOf(pickWeighted(rarityWeights(run.player.level)))
+  while (idx >= 0) {
+    const rarity = RARITY_ORDER[idx]
+    const options = []
+    for (const wc of weaponPool) {
+      if (wc.rarity === rarity && !pickedIds.has(wc.id)) options.push(wc)
     }
+    for (const pid of passiveIds) {
+      if (!pickedIds.has(pid)) options.push(makePassiveCard(run, pid, rarity))
+    }
+    if (options.length > 0) return options[Math.floor(Math.random() * options.length)]
+    idx--
+  }
+  return null
+}
+
+function buildLevelUpChoices(run) {
+  const weaponPool = weaponCandidates(run)
+  const passiveIds = eligiblePassiveIds(run)
+
+  if (weaponPool.length === 0 && passiveIds.length === 0) {
+    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
   }
 
-  if (pool.length === 0) {
-    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '' }]
+  const pickedIds = new Set()
+  const cards = []
+  for (let i = 0; i < 3; i++) {
+    const card = rollCard(run, weaponPool, passiveIds, pickedIds)
+    if (!card) break
+    cards.push(card)
+    pickedIds.add(card.id)
   }
 
-  const picks = []
-  const n = Math.min(3, pool.length)
-  for (let i = 0; i < n; i++) {
-    const idx = Math.floor(Math.random() * pool.length)
-    picks.push(pool.splice(idx, 1)[0])
+  if (cards.length === 0) {
+    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
   }
-  return picks
+  return cards
 }
 
 function stepLevelUp(run) {
@@ -466,3 +896,7 @@ function stepLevelUp(run) {
   run.phase = 'levelup'
   run.events.push({ type: 'levelup' })
 }
+
+// Exported for test/sim-test.js only (rarity distribution sanity checks); main.js does
+// not use this directly — it just drives stepSim/applyChoice.
+export { buildLevelUpChoices }
