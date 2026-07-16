@@ -53,7 +53,7 @@ import {
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
-  newWeaponChance, NEW_WEAPON_MIN_RATE,
+  newWeaponChance, NEW_WEAPON_MIN_RATE, LEVELUP_BASE_CHOICES, LEVELUP_MAX_CHOICES,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB,
 } from './config.js'
 
@@ -1809,7 +1809,9 @@ function buildLevelUpChoices(run) {
   const pickedIds = new Set()
   const modWeaponCounts = new Map() // weaponId -> mod cards already placed this pool (per-weapon cap)
   const cards = []
-  for (let i = 0; i < 3; i++) {
+  // Roll every slot up front (base + purchasable extras, see LEVELUP_* in config.js) so
+  // buying the 3rd/4th card reveals a pre-committed roll instead of a fresh one.
+  for (let i = 0; i < LEVELUP_MAX_CHOICES; i++) {
     const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts)
     if (!card) break
     cards.push(card)
@@ -1830,7 +1832,10 @@ function buildLevelUpChoices(run) {
   if (!hasNewCard && unowned.length > 0 && run.weapons.length < MAX_WEAPONS && Math.random() < NEW_WEAPON_MIN_RATE) {
     const id = unowned[Math.floor(Math.random() * unowned.length)]
     const cfg = WEAPONS[id]
-    cards[cards.length - 1] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon }
+    // Swap the last BASE slot (not the last card) — the guarantee must land somewhere visible
+    // without paying for extra slots.
+    const slot = Math.min(LEVELUP_BASE_CHOICES, cards.length) - 1
+    cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon }
   }
   return cards
 }
@@ -1845,6 +1850,7 @@ function stepLevelUp(run) {
   p.level += 1
   p.xpNext = xpForLevel(p.level)
   run.levelUpChoices = buildLevelUpChoices(run)
+  run._choicesVisible = LEVELUP_BASE_CHOICES // extra slots re-lock on every new level-up
   run.phase = 'levelup'
   run.events.push({ type: 'levelup' })
 }

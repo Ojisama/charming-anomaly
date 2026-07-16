@@ -654,3 +654,4 @@ body {
 .diff-pip:active { transform: translateY(1px); }
 .diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }
 .diff-hint-reward { color: #1e7d4f; }
+.lv-unlock { border-style: dashed; }

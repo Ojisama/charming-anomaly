@@ -4,6 +4,7 @@ import { createRun } from '../src/state.js'
 import {
   SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
+  LEVELUP_BASE_CHOICES, LEVELUP_MAX_CHOICES, extraChoiceCost,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
@@ -1581,6 +1582,37 @@ function testGoldSinks() {
   }
 }
 
+// ---- Run R: level-up choice slots + retuned rarity (v4.7) --------------------------------
+function testChoiceSlots() {
+  // Slot mechanics: 4 pre-rolled cards, 2 visible by default, extra slots priced 20/40.
+  const run = createRun(makeMeta())
+  assert.strictEqual(run._choicesVisible, LEVELUP_BASE_CHOICES, 'run starts at base visible choices')
+  run.player.xp = run.player.xpNext + 1
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
+  run.events = []
+  assert.strictEqual(run.phase, 'levelup', 'expected a level-up to trigger')
+  assert.strictEqual(run.levelUpChoices.length, LEVELUP_MAX_CHOICES,
+    `expected ${LEVELUP_MAX_CHOICES} pre-rolled cards, got ${run.levelUpChoices.length}`)
+  assert.strictEqual(run._choicesVisible, LEVELUP_BASE_CHOICES, 'level-up resets visible to base')
+  assert.strictEqual(extraChoiceCost(2), 20, '3rd card costs 20')
+  assert.strictEqual(extraChoiceCost(3), 40, '4th card costs 40')
+  assert.strictEqual(extraChoiceCost(4), null, 'no 5th card')
+
+  // Rarity retune: epic-or-better ≈ 12.3% per card (33% per 3-card screen). Wide statistical band.
+  let high = 0
+  let total = 0
+  const sampler = createRun(makeMeta())
+  for (let i = 0; i < 3000; i++) {
+    for (const c of buildLevelUpChoices(sampler)) {
+      total++
+      if (c.rarity === 'epic' || c.rarity === 'legendary' || c.rarity === 'mythic') high++
+    }
+  }
+  const rate = high / total
+  assert(rate > 0.09 && rate < 0.16, `expected epic+ per-card rate ≈ 12.3%, got ${(rate * 100).toFixed(1)}%`)
+  console.log(`PASS run R (choice slots + rarity retune): 4 pre-rolled/2 visible, costs 20/40, epic+ per card=${(rate * 100).toFixed(1)}%`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1600,6 +1632,7 @@ try {
   testCrazyMods()
   testStarBalance()
   testGoldSinks()
+  testChoiceSlots()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

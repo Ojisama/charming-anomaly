@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, createRun } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, extraChoiceCost, LEVELUP_MAX_CHOICES } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -100,7 +100,19 @@ const ui = initUI({
     saveMeta(meta)
     run.levelUpChoices = buildLevelUpChoices(run)
     playSfx('buy')
-    ui.showScreen('levelup', { choices: run.levelUpChoices, rerollCost: rerollCost(run._rerolls), coins: meta.coins })
+    ui.showScreen('levelup', levelupData())
+  },
+  onUnlockChoice() {
+    if (!run || run.phase !== 'levelup') return
+    const visible = run._choicesVisible ?? 2
+    if (visible >= Math.min(LEVELUP_MAX_CHOICES, run.levelUpChoices.length)) return
+    const cost = extraChoiceCost(visible)
+    if (cost == null || meta.coins < cost) return
+    meta.coins -= cost
+    run._choicesVisible = visible + 1
+    saveMeta(meta)
+    playSfx('buy')
+    ui.showScreen('levelup', levelupData())
   },
   onQuit() {  // from pause or summary back to title
     run = null
@@ -108,6 +120,19 @@ const ui = initUI({
     ui.showScreen('title')
   },
 })
+
+// Everything the level-up screen needs to render its cards + footer buttons.
+function levelupData() {
+  const visible = run._choicesVisible ?? 2
+  const canUnlock = visible < Math.min(LEVELUP_MAX_CHOICES, run.levelUpChoices.length)
+  return {
+    choices: run.levelUpChoices,
+    visible,
+    extraCost: canUnlock ? extraChoiceCost(visible) : null,
+    rerollCost: rerollCost(run._rerolls ?? 0),
+    coins: meta.coins,
+  }
+}
 
 const SFX_FOR_EVENT = {
   hit: 'hit', kill: 'kill', gem: 'gem', coin: 'coin',
@@ -146,7 +171,7 @@ app.ticker.add((ticker) => {
       if (s) playSfx(s)
     }
     ui.updateHUD(run)
-    if (run.phase === 'levelup') ui.showScreen('levelup', { choices: run.levelUpChoices, rerollCost: rerollCost(run._rerolls ?? 0), coins: meta.coins })
+    if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
     else if (run.phase === 'dead') endRun(false)
     else if (run.phase === 'victory') endRun(true)
   } else {

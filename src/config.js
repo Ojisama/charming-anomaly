@@ -13,9 +13,19 @@ export const RARITIES = {
   mythic:    { name: 'Mythic',    color: 0xff4d6d, mult: 6.5 },
 }
 export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic']
-// Fixed roll weights, halving per tier (user-tuned; no level scaling).
-export const RARITY_WEIGHTS = { normal: 50, rare: 25, epic: 12, legendary: 6, mythic: 3 }
+// Fixed roll weights (user-tuned v4.7; no level scaling). Epic-or-better ≈ 12.3% per card,
+// so a screen shows at least one epic+ on ~23% (2 cards) / ~33% (3) / ~41% (4) of level-ups.
+export const RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
 export const rarityWeights = () => RARITY_WEIGHTS
+
+// ---- Level-up choice slots (gold sink, v4.7) ----------------------------------------
+// A level-up screen shows LEVELUP_BASE_CHOICES cards; the 3rd/4th can be revealed by
+// spending meta coins (per screen — the purchase doesn't persist to the next level-up).
+// Cards are pre-rolled for all LEVELUP_MAX_CHOICES slots so unlocking can't be re-rolled.
+export const LEVELUP_BASE_CHOICES = 2
+export const LEVELUP_MAX_CHOICES = 4
+export const EXTRA_CHOICE_COSTS = [20, 40] // coins: [3rd card, 4th card]
+export const extraChoiceCost = (visible) => EXTRA_CHOICE_COSTS[visible - LEVELUP_BASE_CHOICES] ?? null
 
 export const PLAYER = {
   radius: 22,

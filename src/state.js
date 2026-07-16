@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, LEVELUP_BASE_CHOICES } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -201,6 +201,9 @@ export function shopBonus(meta, id) {
  * _rerolls: count of level-up rerolls used so far this run (main.js increments this and
  *   recomputes the next reroll's price via rerollCost(run._rerolls) — see config.js).
  *   buildLevelUpChoices itself is reroll-agnostic; rerolling is just calling it again.
+ * _choicesVisible (v4.7): how many of levelUpChoices' pre-rolled LEVELUP_MAX_CHOICES cards
+ *   the UI may show. Reset to LEVELUP_BASE_CHOICES by stepLevelUp on every level-up; main.js
+ *   increments it when the player buys the 3rd/4th slot (extraChoiceCost in config.js).
  */
 export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
@@ -225,6 +228,7 @@ export function createRun(meta, opts = {}) {
     consumables,
     revives: consumables.includes('revive') ? 1 : 0,
     _rerolls: 0,
+    _choicesVisible: LEVELUP_BASE_CHOICES,
     player: {
       x: 0, y: 0,
       hp: maxHP, maxHP,

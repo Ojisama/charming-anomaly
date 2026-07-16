@@ -14,7 +14,7 @@ function fmtTime(s) {
 /**
  * Contract used by main.js:
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
- *                       onPauseToggle, onQuit, onDifficulty(d), onReroll() })
+ *                       onPauseToggle, onQuit, onDifficulty(d), onReroll(), onUnlockChoice() })
  *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists meta.difficulty.
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the title shelf's session-local selection, an array of
@@ -27,8 +27,10 @@ function fmtTime(s) {
  *       no-op silently if unaffordable/wrong phase, otherwise deduct coins, bump run._rerolls,
  *       rebuild run.levelUpChoices, and call showScreen('levelup', ...) again with fresh data.
  *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
- *     - 'levelup' data: { choices, rerollCost, coins } — choices is run.levelUpChoices;
- *       rerollCost/coins drive the footer's Reroll button label + disabled state.
+ *     - 'levelup' data: { choices, visible, extraCost, rerollCost, coins } — choices is
+ *       run.levelUpChoices (pre-rolled up to LEVELUP_MAX_CHOICES); only the first `visible`
+ *       are shown. extraCost (null = maxed out) drives the ➕ Card unlock button, which fires
+ *       onUnlockChoice(); rerollCost/coins drive the Reroll button label + disabled states.
  *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode }
  *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
@@ -213,8 +215,8 @@ export function initUI(hooks) {
   let lvFocus = 0
 
   function renderLevelup(data = {}) {
-    const { choices = [], rerollCost: rerollN = 0, coins = 0 } = data
-    const cards = choices.map((c, i) => {
+    const { choices = [], visible = choices.length, extraCost = null, rerollCost: rerollN = 0, coins = 0 } = data
+    const cards = choices.slice(0, visible).map((c, i) => {
       const rarity = c.rarity ?? 'normal'
       const rarityName = RARITIES[rarity]?.name ?? RARITIES.normal.name
       return `
@@ -230,13 +232,17 @@ export function initUI(hooks) {
       </button>`
     }).join('')
     const rerollDisabled = coins < rerollN
+    const unlockBtn = extraCost != null
+      ? `<button class="btn btn--soft btn--small lv-unlock" data-act="unlock-choice" ${coins < extraCost ? 'disabled' : ''}>➕ Card (${extraCost}🪙)</button>`
+      : ''
     screens.levelup.innerHTML = `
       <div class="modal">
         <h2 class="modal-title">LEVEL UP!</h2>
         <div class="lv-cards">${cards}</div>
-        <p class="lv-hint">1-3 · arrows · enter · R reroll</p>
+        <p class="lv-hint">1-${visible} · arrows · enter · R reroll</p>
         <div class="lv-footer">
           <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 Reroll (${rerollN}🪙)</button>
+          ${unlockBtn}
           <span class="lv-coins">🪙 ${coins}</span>
         </div>
       </div>
@@ -259,7 +265,7 @@ export function initUI(hooks) {
 
   function onLevelupKeydown(e) {
     if (e.repeat) return
-    const digit = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code]
+    const digit = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3 }[e.code]
     if (digit !== undefined) {
       e.preventDefault()
       e.stopPropagation()
@@ -445,6 +451,7 @@ export function initUI(hooks) {
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
       case 'quit': playSfx('click'); hooks.onQuit(); break
       case 'reroll': hooks.onReroll(); break
+      case 'unlock-choice': hooks.onUnlockChoice(); break
     }
   })
 
