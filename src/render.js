@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS } from './config.js'
 
 const DARK = 0x3b3345
 const MAX_PARTICLES = 200
@@ -47,6 +47,20 @@ function mix(a, b, t) {
   return r << 16 | g << 8 | c
 }
 
+// Channel-wise multiply of two colours (== Pixi tint compositing) — lets a chapter's
+// floorTint/playerTint modulate a sprite's already-baked tint. White (0xffffff) is the
+// identity, so a body-chapter tint of 0xffffff leaves every baked colour untouched.
+function tintMul(a, b) {
+  const r = ((a >> 16 & 255) * (b >> 16 & 255) / 255) | 0
+  const g = ((a >> 8 & 255) * (b >> 8 & 255) / 255) | 0
+  const c = ((a & 255) * (b & 255) / 255) | 0
+  return r << 16 | g << 8 | c
+}
+
+// Per-chapter render palette (CHAPTERS[id].render, config.js). BODY_RENDER is the neutral
+// identity used for the title screen and any chapter that omits render data.
+const BODY_RENDER = { bgColor: 0xf4efe6, floorTint: 0xffffff, playerTint: 0xffffff, tail: false }
+
 // Deterministic pseudo-random in [0,1) from a numeric seed. Used for arc jitter so the
 // jagged shape is stable frame-to-frame (no flicker, stays frozen when dt=0) instead of
 // re-rolling with Math.random() every redraw.
@@ -66,6 +80,12 @@ function cellHash(i, j, salt) {
 
 export function createRenderer(app) {
   const R = app.renderer
+
+  // Active chapter palette + whether this chapter's signature is drift currents. Set once per
+  // reset(run); read by the floor populate* callbacks, syncPlayer, obstacle/enemy tinting and
+  // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
+  let chapterRender = BODY_RENDER
+  let chapterHasCurrents = false
 
   // ---------------------------------------------------------------- textures
   // Bake a Graphics into a texture; return anchor so sprite.position = drawing origin.
@@ -450,6 +470,8 @@ export function createRenderer(app) {
       T.homing = bakeComposite(c)
       T.homingScale = 1
     }
+    // pond player's flagellum tail: a soft streak glyph, double-stacked (one layer washes out)
+    for (const t of [tailA, tailB]) t.texture = T.fx.trace_05
   }
 
   // Prop + fx sprite sheets (bush/grass/.../leaf, star/flare/twirl/...) load async;
@@ -494,8 +516,17 @@ export function createRenderer(app) {
   const vignette = new Sprite(T.vignette)
   vignette.alpha = 0
   world.addChild(floorLayer, entitiesLayer)
-  app.stage.addChild(world, idleLayer, dustLayer, vignette)
+  app.stage.addChild(world, currentLayer, idleLayer, dustLayer, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
+
+  // v5.0 pond biome layers (empty/hidden for body): ambient current motes live on the stage
+  // (screen space, like dust); obstacles + hazard pools read as ground decals under the roster;
+  // toxin blooms hang over enemies but under the player; whip flashes sit over the weapons.
+  const currentLayer = new Container()
+  const poolLayer = new Container()
+  const obstacleLayer = new Container()
+  const bloomLayer = new Container()
+  const whipLayer = new Container()
 
   const gemLayer = new Container()
   const coinLayer = new Container()
@@ -521,9 +552,10 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
+    poolLayer, obstacleLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
-    bombG, pacerG, enemyLayer, shieldG, affixLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, arcG,
+    bombG, pacerG, enemyLayer, bloomLayer, shieldG, affixLayer, playerC,
+    bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, whipLayer, arcG,
     particleLayer, textLayer,
   )
 
@@ -553,7 +585,7 @@ export function createRenderer(app) {
     const idx = Math.floor(cellHash(i, j, 1) * T.blotches.length)
     s.texture = T.blotches[idx]
     s.anchor.set(0.5)
-    s.tint = 0xffffff
+    s.tint = chapterRender.floorTint // white for body; teal multiply recolours the pond ground
     s.alpha = 1
     s.rotation = cellHash(i, j, 2) * Math.PI * 2
     s.scale.set(lerp(0.9, 1.6, cellHash(i, j, 3)))
@@ -569,7 +601,7 @@ export function createRenderer(app) {
     const name = cellHash(i, j, 1) < 0.5 ? 'bush_a' : 'bush_b'
     s.texture = T.props[name]
     s.anchor.set(0.5, 0.85)
-    s.tint = BUSH_TINTS[cellHash(i, j, 2) < 0.5 ? 0 : 1]
+    s.tint = tintMul(BUSH_TINTS[cellHash(i, j, 2) < 0.5 ? 0 : 1], chapterRender.floorTint)
     s.alpha = 1
     s.rotation = (cellHash(i, j, 3) - 0.5) * 0.12
     const px = lerp(90, 145, cellHash(i, j, 4)) // target on-screen size
@@ -596,7 +628,7 @@ export function createRenderer(app) {
   function populateMid(s, i, j, cell) {
     const kind = MID_KINDS[Math.floor(cellHash(i, j, 1) * MID_KINDS.length)]
     s.texture = T.props[kind.name]
-    s.tint = kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)]
+    s.tint = tintMul(kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)], chapterRender.floorTint)
     s.alpha = 1
     if (kind.upright) {
       s.anchor.set(0.5, 0.9)
@@ -627,13 +659,13 @@ export function createRenderer(app) {
       const look = T[kind.name]
       s.texture = look.tex
       s.anchor.set(look.ax, look.ay)
-      s.tint = 0xffffff
+      s.tint = chapterRender.floorTint
       s.alpha = 1
       s.scale.set(lerp(0.7, 1.4, cellHash(i, j, 4)))
     } else {
       s.texture = T.props[kind.name]
       s.anchor.set(0.5, 0.5)
-      s.tint = kind.tint
+      s.tint = tintMul(kind.tint, chapterRender.floorTint)
       s.alpha = kind.alpha
       const px = lerp(kind.size[0], kind.size[1], cellHash(i, j, 4))
       s.scale.set(px / 1024)
@@ -699,7 +731,15 @@ export function createRenderer(app) {
   const pFlash = spriteOf(T.playerFlash)
   pFlash.alpha = 0
   bodyC.addChild(pBody, pupilL, pupilR, pFlash)
-  playerC.addChild(pShadow, bodyC)
+  // flagellum tail (pond skin only): two stacked streak glyphs behind the blob, trailing the
+  // player's facingAngle with a wiggle. Textures are fx sprites so they're assigned once the fx
+  // sheet loads (buildFxTextures); this rig starts hidden and is revealed by chapterRender.tail.
+  const pTail = new Container()
+  pTail.visible = false
+  const tailA = new Sprite(Texture.EMPTY)
+  const tailB = new Sprite(Texture.EMPTY)
+  for (const t of [tailA, tailB]) { t.anchor.set(0.04, 0.5); pTail.addChild(t) }
+  playerC.addChild(pShadow, pTail, bodyC) // tail sits above the shadow, behind the body
 
   // title-screen ambient blobs
   const idleBlobs = []
@@ -754,6 +794,48 @@ export function createRenderer(app) {
     }
   }
 
+  // Current motes (pond signature): sparse teal specks drifting in a slow, spatially-coherent
+  // direction to hint at the flow field WITHOUT touching sim internals — the drift angle rotates
+  // gently over time with a mild per-mote spatial curl, so neighbouring motes agree (reads as
+  // flow, not noise). Screen-space + low alpha = ambient, never competes with the entities.
+  const CURRENT_COUNT = 20
+  const currentMotes = []
+  let currentT = 0
+  for (let i = 0; i < CURRENT_COUNT; i++) {
+    const s = new Sprite(T.dot.tex)
+    s.anchor.set(0.5)
+    s.visible = false
+    currentLayer.addChild(s)
+    currentMotes.push({ s, x: hash(i * 3.1 + 0.2), y: hash(i * 5.7 + 1.1), ph: hash(i * 2.3 + 4.4) * Math.PI * 2 })
+  }
+
+  function updateCurrents(dt) {
+    if (!chapterHasCurrents) { currentLayer.visible = false; return }
+    currentLayer.visible = true
+    if (dt <= 0) return
+    currentT += dt
+    const w = app.screen.width
+    const h = app.screen.height
+    const base = Math.sin(currentT * 0.12) * 0.9 // whole-field drift heading, slowly rotating
+    for (let i = 0; i < currentMotes.length; i++) {
+      const m = currentMotes[i]
+      const ang = base + Math.sin(m.y * 6 + currentT * 0.3) * 0.5 // spatial curl → coherent swirl
+      const spd = 0.02 + 0.012 * Math.sin(currentT * 0.5 + m.ph)
+      m.x = (m.x + Math.cos(ang) * spd * dt + 1.1) % 1.1
+      m.y = (m.y + Math.sin(ang) * spd * dt + 1.1) % 1.1
+      m.s.position.set(m.x * w, m.y * h)
+      m.s.tint = 0x8fe8e0
+      m.s.scale.set(0.7 + 0.3 * Math.sin(currentT + m.ph))
+      m.s.alpha = 0.1 + 0.06 * Math.sin(currentT * 2 + m.ph)
+      m.s.visible = true
+    }
+  }
+
+  function clearCurrents() {
+    currentLayer.visible = false
+    for (const m of currentMotes) m.s.visible = false
+  }
+
   // ------------------------------------------------------------------- pools
   const enemySprites = new Map() // id -> Sprite
   const enemyFree = []
@@ -770,6 +852,7 @@ export function createRenderer(app) {
   const prevCount = {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
+    pool: 0, bloom: 0,
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -868,6 +951,170 @@ export function createRenderer(app) {
     }
     for (let i = n; i < prevCount.beam; i++) beamPool[i].root.visible = false
     prevCount.beam = n
+  }
+
+  // ---- v5.0 pond field elements ------------------------------------------------------------
+  // Obstacles (run.obstacles): reed/bubble clumps scaled to each collider's radius. The list is
+  // generated once at createRun and never mutates, so this rebuilds only when the array identity
+  // changes (new run) — otherwise it's a no-op. Two stacked prop clumps (deep tint for punch on
+  // the light floor) over a soft bubble glow rim; tinted with the chapter floorTint.
+  const obstacleSprites = []
+  let obstacleToken = null
+  const OBSTACLE_CLUMPS = ['cluster_a', 'cluster_b', 'cluster_c']
+  function acquireObstacle() {
+    const root = new Container()
+    const glow = new Sprite(Texture.EMPTY)
+    glow.anchor.set(0.5)
+    const clumpA = new Sprite(Texture.EMPTY)
+    clumpA.anchor.set(0.5)
+    const clumpB = new Sprite(Texture.EMPTY)
+    clumpB.anchor.set(0.5)
+    root.addChild(glow, clumpA, clumpB)
+    obstacleLayer.addChild(root)
+    return { root, glow, clumpA, clumpB }
+  }
+  function syncObstacles(run) {
+    const list = run.obstacles || []
+    if (obstacleToken === list) return // static per run — only rebuild on a fresh array
+    obstacleToken = list
+    while (obstacleSprites.length < list.length) obstacleSprites.push(acquireObstacle())
+    const glowTex = T.fx.circle_05
+    for (let i = 0; i < obstacleSprites.length; i++) {
+      const ov = obstacleSprites[i]
+      if (i >= list.length) { ov.root.visible = false; continue }
+      const o = list[i]
+      ov.root.visible = true
+      ov.root.position.set(o.x, o.y)
+      const name = OBSTACLE_CLUMPS[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * OBSTACLE_CLUMPS.length)]
+      const tex = T.props[name]
+      const rot = hash(o.x + o.y * 3.3) * Math.PI * 2
+      const sc = (o.r * 2.3) / 1024 // source props are 1024px; target on-screen ≈ 2.3×radius
+      const tint = tintMul(0x8fbf6f, chapterRender.floorTint)
+      ov.clumpA.texture = tex; ov.clumpA.tint = tint; ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot
+      ov.clumpB.texture = tex; ov.clumpB.tint = tint; ov.clumpB.scale.set(sc); ov.clumpB.rotation = rot + 0.6
+      ov.glow.texture = glowTex
+      ov.glow.tint = tintMul(0xbfe8dd, chapterRender.floorTint)
+      ov.glow.alpha = 0.5
+      ov.glow.scale.set(fxScale(glowTex, o.r * 2.2))
+    }
+  }
+  function clearObstacles() {
+    obstacleToken = null
+    for (const ov of obstacleSprites) ov.root.visible = false
+  }
+
+  // Hazard pools (run.pools, acid + soap): soft saturated-green discs. One shared readable style
+  // (deep green, double-stacked for punch on the light floor); alpha fades over the pool's final
+  // moments as its remaining life `t` runs down.
+  const poolPool = []
+  function acquirePoolDisc() {
+    const root = new Container()
+    const a = new Sprite(T.fx.circle_05); a.anchor.set(0.5)
+    const b = new Sprite(T.fx.circle_05); b.anchor.set(0.5)
+    root.addChild(a, b)
+    poolLayer.addChild(root)
+    return { root, a, b }
+  }
+  function syncPools(list) {
+    const n = list.length
+    while (poolPool.length < n) poolPool.push(acquirePoolDisc())
+    for (let i = 0; i < n; i++) {
+      const pv = poolPool[i]
+      const p = list[i]
+      pv.root.visible = true
+      pv.root.position.set(p.x, p.y)
+      const fade = Math.min(1, p.t / 0.6) // dissolve over the last 0.6s of life
+      const sc = fxScale(T.fx.circle_05, Math.max(p.r, 1) * 2)
+      pv.a.scale.set(sc); pv.a.tint = 0x2fbf3f; pv.a.alpha = 0.5 * fade
+      pv.b.scale.set(sc * 0.68); pv.b.tint = 0x7fe86a; pv.b.alpha = 0.55 * fade
+    }
+    for (let i = n; i < prevCount.pool; i++) poolPool[i].root.visible = false
+    prevCount.pool = n
+  }
+
+  // Toxin blooms (run.blooms): expanding venom-green clouds. Three stacked soft puffs sized to the
+  // sim-grown radius `r`, alpha ramps in as the cloud forms and out as it expires (t → dur).
+  const bloomPool = []
+  function acquireBloom() {
+    const root = new Container()
+    const a = new Sprite(T.fx.circle_05); a.anchor.set(0.5)
+    const b = new Sprite(T.fx.circle_05); b.anchor.set(0.5)
+    const c = new Sprite(T.fx.circle_05); c.anchor.set(0.5)
+    root.addChild(a, b, c)
+    bloomLayer.addChild(root)
+    return { root, puffs: [a, b, c] }
+  }
+  function syncBlooms(list) {
+    const n = list.length
+    while (bloomPool.length < n) bloomPool.push(acquireBloom())
+    for (let i = 0; i < n; i++) {
+      const bv = bloomPool[i]
+      const bl = list[i]
+      bv.root.visible = true
+      bv.root.position.set(bl.x, bl.y)
+      const dur = Math.max(0.001, bl.dur)
+      const inA = Math.min(1, bl.t / (dur * 0.2))
+      const outA = Math.min(1, (dur - bl.t) / (dur * 0.25))
+      const alpha = Math.max(0, Math.min(inA, outA))
+      const sc = fxScale(T.fx.circle_05, Math.max(bl.r, 1) * 2)
+      for (let k = 0; k < 3; k++) {
+        const s = bv.puffs[k]
+        const off = k === 0 ? 0 : bl.r * 0.4
+        const ang = animT * 0.6 + k * 2.1
+        s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
+        s.scale.set(sc * (k === 0 ? 1 : 0.72) * (1 + 0.05 * Math.sin(animT * 3 + k)))
+        s.tint = k % 2 ? 0x6fe04a : 0x3fae2f
+        s.alpha = alpha * (k === 0 ? 0.5 : 0.4)
+      }
+    }
+    for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
+    prevCount.bloom = n
+  }
+
+  // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs): a slash glyph flung
+  // out at the strike radius and swept across the arc while it flashes in and out. Double-stacked
+  // + teal so the soft-alpha crescent reads on the light floor.
+  const MAX_WHIPS = 8
+  const whips = []
+  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.18, root: null, a: null, b: null })
+  let whipCursor = 0
+  function spawnWhip(x, y, angle, range, arc) {
+    const wp = whips[whipCursor]
+    whipCursor = (whipCursor + 1) % MAX_WHIPS
+    if (!wp.root) {
+      wp.root = new Container()
+      wp.a = new Sprite(T.fx.slash_02); wp.a.anchor.set(0.5)
+      wp.b = new Sprite(T.fx.slash_02); wp.b.anchor.set(0.5)
+      wp.root.addChild(wp.a, wp.b)
+      whipLayer.addChild(wp.root)
+    }
+    wp.live = true
+    wp.x = x; wp.y = y; wp.angle = angle; wp.range = range; wp.arc = arc || 1
+    wp.t = 0
+    wp.root.visible = true
+  }
+  function updateWhips(dt) {
+    for (const wp of whips) {
+      if (!wp.live) continue
+      if (dt > 0) wp.t += dt
+      if (wp.t >= wp.dur) { wp.live = false; wp.root.visible = false; continue }
+      const k = wp.t / wp.dur
+      wp.root.position.set(wp.x, wp.y)
+      wp.root.rotation = wp.angle - wp.arc / 2 + wp.arc * k // sweep from one arc edge to the other
+      const alpha = Math.sin(Math.PI * k) * 0.85 // flash in then out
+      const rad = wp.range * 0.55
+      const sc = fxScale(T.fx.slash_02, wp.range * 0.9)
+      for (const s of [wp.a, wp.b]) {
+        s.position.set(rad, 0)
+        s.rotation = Math.PI / 2 // crescent tangent to the sweep
+        s.tint = 0x9ff0e0
+        s.alpha = alpha
+        s.scale.set(sc, sc * 1.15)
+      }
+    }
+  }
+  function clearWhips() {
+    for (const wp of whips) { wp.live = false; if (wp.root) wp.root.visible = false }
   }
 
   // particles: fixed-size freelist of sprites + plain data
@@ -1281,6 +1528,11 @@ export function createRenderer(app) {
         case 'shoot':
           if (e.weapon === 'wave') addShake(2.5, 0.12)
           break
+        case 'whip':
+          // flagella lash: arc sweep flash + a soft shake (melee weight)
+          spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
+          addShake(2, 0.1)
+          break
         case 'explode':
           explosionBurst(e.x, e.y, e.radius)
           addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
@@ -1361,6 +1613,11 @@ export function createRenderer(app) {
     }
     for (const hv of holePool) hv.root.visible = false
     for (const bv of beamPool) bv.root.visible = false
+    for (const pv of poolPool) pv.root.visible = false
+    for (const bv of bloomPool) bv.root.visible = false
+    clearObstacles()
+    clearWhips()
+    clearCurrents()
     clearParticles()
     clearRings()
     clearArcs()
@@ -1381,6 +1638,22 @@ export function createRenderer(app) {
   // -------------------------------------------------------------------- sync
   function syncPlayer(p, dt) {
     playerC.position.set(p.x, p.y)
+
+    // per-chapter blob tint (white = identity for body) + optional flagellum tail
+    pBody.tint = chapterRender.playerTint
+    if (chapterRender.tail) {
+      pTail.visible = true
+      const ang = (p.facingAngle == null ? Math.PI * 0.5 : p.facingAngle) + Math.PI // trail behind
+      pTail.rotation = ang + Math.sin(animT * 9) * 0.35 // wiggle
+      const sc = fxScale(T.fx.trace_05, PLAYER.radius * 1.6)
+      const tint = chapterRender.tailTint ?? 0x66e0d0
+      tailA.tint = tailB.tint = tint
+      tailA.scale.set(sc, sc * 0.5)
+      tailB.scale.set(sc * 0.9, sc * 0.42)
+      tailB.rotation = Math.sin(animT * 9 + 1.2) * 0.25 // secondary flutter on the far segment
+    } else {
+      pTail.visible = false
+    }
 
     if (dt > 0) {
       if (p.moving) hop += dt * 11
@@ -1480,6 +1753,13 @@ export function createRenderer(app) {
     }
   }
 
+  // Per-roster pond skin lookup ({tint, scale}) by rosterId — null for body (whose rosterIds
+  // aren't in chapterRender.enemies), so body enemies keep their exact baked look + scale.
+  function rosterLook(e) {
+    const map = chapterRender.enemies
+    return (map && e.rosterId && map[e.rosterId]) || null
+  }
+
   function syncEnemies(run) {
     const px = run.player.x
     shieldG.clear()
@@ -1516,7 +1796,10 @@ export function createRenderer(app) {
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
       const pull = e.holePull || 0
       const shrink = 1 - pull * 0.45
-      s.scale.set(k * flip * shrink, k * shrink)
+      // render-only per-roster scale nudge (pond distinction); 1 for body, so no size change
+      const rl = rosterLook(e)
+      const rs = rl ? rl.scale : 1
+      s.scale.set(k * flip * shrink * rs, k * shrink * rs)
 
       // Elemental status (contract fields, guarded — sim half may not have landed yet).
       const frozen = e.frozen || 0
@@ -1536,6 +1819,16 @@ export function createRenderer(app) {
       else if (chill > 0) s.tint = 0xc4e4ff
       else if (venom > 0) s.tint = 0xa8e6a0
       else if (ignite > 0) s.tint = 0xffc09a
+      else if (rl) {
+        // pond roster: statusless soap-bubble elites shimmer through pale iridescent hues;
+        // everything else takes its flat per-roster hue.
+        if (e.elite && chapterRender.eliteIridescent) {
+          const hues = chapterRender.eliteIridescent
+          const seg = ((animT * 0.4 + e.id * 0.31) % 1) * hues.length
+          const a0 = Math.floor(seg) % hues.length
+          s.tint = mix(hues[a0], hues[(a0 + 1) % hues.length], seg - Math.floor(seg))
+        } else s.tint = rl.tint
+      }
       else s.tint = 0xffffff
 
       // cheap status particles, dt-gated (no spawns while frozen behind a modal)
@@ -1633,8 +1926,11 @@ export function createRenderer(app) {
     vignetteA = Math.max(0, vignetteA - (dt > 0 ? dt : 1 / 60) * 2.6)
     vignette.alpha = vignetteA
 
+    syncObstacles(run)
+    syncPools(run.pools || [])
     syncPlayer(run.player, dt)
     syncEnemies(run)
+    syncBlooms(run.blooms || [])
     redrawBombs(run)
 
     syncPool(bulletPool, bulletLayer, run.bullets, 'bullet', T.bullet, placeBullet)
@@ -1650,10 +1946,12 @@ export function createRenderer(app) {
     updateArcs(dt)
     redrawArcs()
 
+    updateWhips(dt)
     updateParticles(dt)
     updateRings(dt)
     updateDamage(dt)
     updateDustMotes(dt)
+    updateCurrents(dt)
   }
 
   // Hoisted syncPool callbacks (fresh closures per frame are pointless garbage)
@@ -1814,6 +2112,12 @@ export function createRenderer(app) {
 
   // ------------------------------------------------------------------- reset
   function reset(run) {
+    // Latch the per-chapter palette BEFORE clearing/repainting so the floor repopulates and the
+    // player rig tints under the new chapter. Title (run == null) falls back to the body look.
+    const cfg = run ? CHAPTERS[run.chapter] : null
+    chapterRender = cfg?.render ?? BODY_RENDER
+    chapterHasCurrents = cfg?.signature?.type === 'currents'
+    R.background.color = chapterRender.bgColor
     clearWorld()
     if (run) {
       entitiesLayer.visible = true

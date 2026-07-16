@@ -703,6 +703,17 @@ export const CHAPTERS = {
     eliteFlags: ['acidPool'],           // pill elites dissolve into acid pools
     signature: null,                    // intro chapter has no signature mechanic
     obstacles: null,                    // keeps the open field
+    // ---- render-only (v5.0 task 6; interpreted by render.js, ZERO effect on sim) ----
+    // body is the baseline look: every field is an identity so chapter 1 stays pixel-identical
+    // to pre-v5.0. bgColor = the app's clear colour (main.js); tints are multiply-identity white;
+    // no player tail and no per-roster enemy tints (render.js only recolours rosterIds it finds
+    // in `render.enemies`, which body omits).
+    render: {
+      bgColor: 0xf4efe6,   // == main.js app background
+      floorTint: 0xffffff, // multiply-identity → floor sprites keep their baked pastel tints
+      playerTint: 0xffffff,
+      tail: false,
+    },
   },
   pond: {
     name: 'The Pond', tagline: 'sink or swim', icon: '🦠→💧',
@@ -715,6 +726,24 @@ export const CHAPTERS = {
     eliteFlags: ['soapTrail'],
     signature: { type: 'currents', strength: 55, scale: 0.0011, drift: 0.13 },
     obstacles: { count: 14, minR: 26, maxR: 44, minDist: 220 }, // minDist from spawn point
+    // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
+    // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
+    // multiplies playerTint onto the blob + shows an animated flagellum tail (tailTint), looks up
+    // per-roster enemy {tint, scale} by rosterId, and gives statusless soap-bubble elites an
+    // iridescent shimmer cycling `eliteIridescent`. currents motes are driven off signature.type.
+    render: {
+      bgColor: 0x2e6258,    // murky teal water showing between the floor blotches
+      floorTint: 0x66c2a9,  // teal multiply — pushes the green foliage toward pond weeds
+      playerTint: 0xb0f0ff, // cools the mint blob toward a saturated cyan-teal
+      tail: true,
+      tailTint: 0x66e0d0,
+      enemies: {            // rosterId -> visual distinction (hue + a subtle render-only scale)
+        amoeba:     { tint: 0x9ae8c0, scale: 1.0 },
+        paramecium: { tint: 0xfff0a0, scale: 0.92 },
+        tardigrade: { tint: 0xe6c88a, scale: 1.12 },
+      },
+      eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8], // pale hues soap-bubble elites cycle through
+    },
   },
 }
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
