@@ -96,58 +96,8 @@ body {
   border-color: #b9b2a0;
   color: var(--ink-soft);
 }
-/* Daily Anomaly — soft violet, matches the element/mutator accent color elsewhere */
-.btn--daily {
-  background: #dfcdfb;
-  border-color: #8a5fd0;
-  box-shadow: 0 4px 0 #8a5fd0, 0 8px 18px rgba(53, 53, 74, 0.12);
-}
-.btn--daily:active { box-shadow: 0 1px 0 #8a5fd0; }
-
-/* Play + run-options chevron (v5.0.1 title declutter) — Play keeps its full .btn--big size and
-   prominence; the chevron is a small square pastel-soft toggle at the same height beside it. */
-.play-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-.options-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 64px;
-  width: 64px;
-  min-width: 0;
-  padding: 0;
-  border: 3px solid var(--cream-edge);
-  border-radius: var(--radius);
-  background: var(--cream-soft);
-  color: var(--ink);
-  font-size: 1.4rem;
-  font-weight: 800;
-  line-height: 1;
-  box-shadow: 0 4px 0 var(--cream-edge), 0 8px 18px rgba(53, 53, 74, 0.08);
-  cursor: pointer;
-  transform-origin: center;
-  transition: transform 0.2s, box-shadow 0.1s;
-}
-.options-toggle:active { transform: translateY(3px) scale(0.97); box-shadow: 0 1px 0 var(--cream-edge); }
-/* rotate the ▾ glyph to read as ▴ once the panel is open */
-.options-toggle--open { transform: rotate(180deg); }
-.options-toggle--open:active { transform: rotate(180deg) translateY(3px) scale(0.97); }
-
-/* collapsed-by-default "next run options" panel (Boosters shelf + Daily Anomaly) */
-.run-options {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-  padding: 12px 10px;
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.35);
-}
+/* Play button on the title (v5.1) — full-width-ish, pinned near the bottom above the nav. */
+.btn--play { width: 100%; max-width: 340px; margin-top: auto; }
 
 /* ---- coins badge ---- */
 .coins-badge {
@@ -169,29 +119,27 @@ body {
   top: calc(14px + env(safe-area-inset-top));
   right: calc(14px + env(safe-area-inset-right));
 }
+/* v5.1: compact logo — the hero card is the centerpiece now, so the wordmark shrinks and sits on
+   one line worth of vertical space rather than dominating. */
 .title-logo {
   margin: 0;
   text-align: center;
-  font-size: clamp(2.6rem, 13vw, 4.6rem);
+  font-size: clamp(1.9rem, 8vw, 2.9rem);
   font-weight: 900;
-  line-height: 0.95;
+  line-height: 0.92;
   letter-spacing: -0.02em;
   animation: wobble 3.2s ease-in-out infinite;
-  text-shadow: 0 4px 0 rgba(53, 53, 74, 0.08);
+  text-shadow: 0 3px 0 rgba(53, 53, 74, 0.08);
 }
 .title-logo span { display: block; }
 .title-logo span:last-child { color: var(--mint-dark); }
-.subtitle { margin: 0 0 8px; font-weight: 700; color: var(--ink-soft); }
-.best-line { margin: 6px 0 0; font-size: 0.9rem; font-weight: 700; color: var(--ink-soft); }
-/* title screen can get tall on small phones once the daily button/preview join the mix */
-.screen--title { gap: 10px; overflow-y: auto; }
-.daily-preview {
-  margin: -2px 0 0;
-  max-width: 320px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  text-align: center;
-  color: #7a5fb0;
+/* v5.1 title is a top-anchored column with a fixed bottom nav; reserve room for the nav so the
+   scrollable content never hides under it. */
+.screen--title {
+  justify-content: flex-start;
+  gap: 12px;
+  overflow-y: auto;
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
 
 @keyframes wobble {
@@ -693,107 +641,210 @@ body {
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
 
-/* pre-run consumables shelf on the title screen (v4.5 gold sink) */
-.consumables-shelf {
+/* ---- chapter hero card (v5.1 title centerpiece) ---- */
+/* One big rounded card per browsed chapter. The per-chapter gradient + text colour are inline
+   (derived from CHAPTERS[id].render.bgColor in ui.js); everything here is layout + the ‹ › arrows
+   and the progress chip, which adapt to light/dark cards via .hero-card--light overrides. */
+.hero-card {
+  position: relative;
+  flex-shrink: 0; /* fixed-height row in the title's flex column — never let it squish */
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  max-width: 340px;
-}
-.consumables-label {
-  font-weight: 800;
-  font-size: 0.72rem;
-  color: var(--ink-soft);
-}
-.consumables-row {
-  display: flex;
-  flex-wrap: wrap;
   justify-content: center;
   gap: 6px;
+  width: 100%;
+  max-width: 340px;
+  min-height: 168px;
+  padding: 20px 46px;
+  border-radius: 24px;
+  color: #f5f9f7;
+  box-shadow: 0 8px 22px rgba(53, 53, 74, 0.22);
+  overflow: hidden;
 }
-.chip--consumable {
-  display: inline-flex;
-  align-items: center;
-  padding: 7px 12px;
-  border: 2px solid var(--cream-edge);
+.hero-card--locked {
+  background: linear-gradient(160deg, #6a6a78, #3a3a46 60%, #26262e);
+}
+.hero-icon { font-size: 3.2rem; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.18)); }
+.hero-card--locked .hero-icon { opacity: 0.85; }
+.hero-name { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.01em; text-align: center; }
+.hero-tagline { font-size: 0.85rem; font-weight: 700; opacity: 0.9; text-align: center; }
+.hero-chip {
+  margin-top: 4px;
+  padding: 4px 12px;
   border-radius: 999px;
-  background: var(--cream-soft);
-  color: var(--ink);
-  font: inherit;
+  background: rgba(255, 255, 255, 0.2);
   font-size: 0.76rem;
-  font-weight: 700;
+  font-weight: 800;
   white-space: nowrap;
+}
+.hero-card--light .hero-chip { background: rgba(53, 53, 74, 0.1); }
+.hero-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.24);
+  color: inherit;
+  font: inherit;
+  font-size: 1.6rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+.hero-card--light .hero-arrow { background: rgba(53, 53, 74, 0.1); }
+.hero-arrow--left { left: 8px; }
+.hero-arrow--right { right: 8px; }
+.hero-arrow:active { transform: translateY(-50%) scale(0.9); }
+.hero-arrow:disabled { opacity: 0.28; cursor: default; }
+.hero-arrow:disabled:active { transform: translateY(-50%); }
+
+/* ---- booster slots (title) ---- */
+.booster-row {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  gap: 10px;
+}
+.booster-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border: 3px dashed var(--cream-edge);
+  border-radius: 16px;
+  background: var(--cream-soft);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 1.6rem;
+  font-weight: 800;
   cursor: pointer;
   box-shadow: 0 3px 0 var(--cream-edge);
   transition: transform 0.1s, box-shadow 0.1s;
 }
-.chip--consumable:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--cream-edge); }
-.chip--consumable.chip--selected {
-  background: var(--mint);
+.booster-slot:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--cream-edge); }
+.booster-slot--filled {
+  border-style: solid;
   border-color: var(--mint-dark);
+  background: var(--mint);
+  color: var(--ink);
   box-shadow: 0 3px 0 var(--mint-dark);
-  transform: translateY(1px);
 }
-.chip--consumable:disabled {
-  opacity: 0.45;
-  cursor: default;
-  box-shadow: none;
-  transform: none;
-}
+.booster-slot--filled:active { box-shadow: 0 1px 0 var(--mint-dark); }
+.booster-slot-icon { font-size: 1.7rem; line-height: 1; }
+.booster-slot-cost { font-size: 0.6rem; font-weight: 800; }
 
-/* chapter selector on the title screen (v5.0) — horizontal scroller so it keeps fitting once
-   later chapters push the card count from 2 up toward 7; max-width matches the consumables
-   shelf so neither ever forces the 360px-wide screen to scroll horizontally. */
-.chapter-row {
-  display: flex;
-  flex-shrink: 0; /* title screen is a flex column — without this the cards squish (labels clip) when the run-options panel opens */
-  gap: 8px;
+/* ---- booster bottom-sheet (D-pattern; reuses .modal-backdrop) ---- */
+.sheet-backdrop { align-items: flex-end; padding: 0; }
+.bottom-sheet {
   width: 100%;
-  max-width: 340px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 2px 2px 6px;
-  -webkit-overflow-scrolling: touch;
-}
-.chapter-card {
-  flex: 0 0 auto;
+  max-width: 520px;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 8px 16px calc(20px + env(safe-area-inset-bottom));
+  border-radius: 24px 24px 0 0;
+  background: var(--cream);
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.22);
+  animation: sheet-up 0.22s ease-out;
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.sheet-handle {
+  align-self: center;
+  width: 44px;
+  height: 5px;
+  margin: 6px 0 2px;
+  border-radius: 999px;
+  background: var(--cream-edge);
+}
+.sheet-title { margin: 0; font-size: 1.1rem; font-weight: 900; text-align: center; }
+.sheet-note { font-size: 0.72rem; font-weight: 700; color: var(--ink-soft); }
+.sheet-list { display: flex; flex-direction: column; gap: 8px; }
+.booster-item {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  min-width: 68px;
-  padding: 8px 10px;
-  border: 3px solid var(--cream-edge);
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 2px solid var(--cream-edge);
   border-radius: 14px;
   background: var(--cream-soft);
   color: var(--ink);
   font: inherit;
+  text-align: left;
   cursor: pointer;
-  box-shadow: 0 3px 0 var(--cream-edge);
-  transition: transform 0.1s, box-shadow 0.1s;
 }
-.chapter-card:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--cream-edge); }
-.chapter-card--selected {
-  border-color: var(--mint-dark);
-  background: #eafaf3;
-  box-shadow: 0 3px 0 var(--mint-dark);
+.booster-item:active { transform: translateY(1px); }
+.booster-item--on { border-color: var(--mint-dark); background: #eafaf3; }
+.booster-item:disabled { opacity: 0.45; cursor: default; }
+.booster-item:disabled:active { transform: none; }
+.booster-item-icon { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
+.booster-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.booster-item-name { font-weight: 800; font-size: 0.92rem; }
+.booster-item-desc { font-weight: 600; font-size: 0.76rem; color: var(--ink-soft); }
+.booster-item-cost { flex-shrink: 0; font-weight: 800; font-size: 0.82rem; color: var(--gold-edge); }
+.booster-item-check { flex-shrink: 0; width: 1.1rem; font-size: 1.1rem; font-weight: 900; color: var(--mint-dark); }
+.sheet-done { align-self: center; margin-top: 2px; }
+
+/* ---- title bottom nav (title screen only) ---- */
+.title-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  border-top: 2px solid var(--cream-edge);
+  background: var(--cream-soft);
 }
-.chapter-card--locked {
-  opacity: 0.5;
-  background: #e5e0d4;
-  border-color: #b9b2a0;
+.nav-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 4px;
+  border: none;
+  border-radius: 14px;
+  background: none;
   color: var(--ink-soft);
-  cursor: default;
+  font: inherit;
+  cursor: pointer;
 }
-.chapter-card--locked:active { transform: none; box-shadow: 0 3px 0 #b9b2a0; }
-.chapter-card-icon { font-size: 1.4rem; line-height: 1.1; }
-.chapter-card-name { font-size: 0.68rem; font-weight: 800; text-align: center; white-space: nowrap; }
-.chapter-tagline { margin: -4px 0 0; font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); text-align: center; }
-.chapter-hint--locked { margin: -2px 0 0; font-size: 0.72rem; font-weight: 600; color: var(--ink-soft); text-align: center; }
+.nav-tab:active { transform: scale(0.95); }
+.nav-tab-icon { position: relative; font-size: 1.4rem; line-height: 1; }
+.nav-tab-label { font-size: 0.66rem; font-weight: 800; }
+.nav-tab-badge {
+  position: absolute;
+  top: -6px;
+  right: -12px;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+.nav-tab--active {
+  background: var(--mint);
+  color: var(--ink);
+  box-shadow: 0 2px 0 var(--mint-dark);
+}
 
 /* difficulty selector on the title screen */
-.diff-row { display: flex; align-items: center; gap: 6px; }
+.diff-row { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
 .diff-label { font-weight: 800; font-size: 0.78rem; color: var(--ink-soft); margin-right: 2px; }
 .diff-pip {
   width: 34px;

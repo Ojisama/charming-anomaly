@@ -357,6 +357,7 @@ function generateObstacles(cfg) {
  *   REVIVE_SHOVE_RADIUS is knocked back (a {type:'revive', x, y} event fires — see above).
  * _rerolls: count of level-up rerolls used so far this run (main.js increments this and
  *   recomputes the next reroll's price via rerollCost(run._rerolls) — see config.js).
+ *   Rerolls are paid from run.coinsEarned (this run's coins), never the meta bank (v5.1).
  *   buildLevelUpChoices itself is reroll-agnostic; rerolling is just calling it again.
  * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
  *   snapshotted from meta.choiceSlots at createRun (2..4) and constant for the run's duration

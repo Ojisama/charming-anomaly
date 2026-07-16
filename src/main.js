@@ -118,10 +118,12 @@ const ui = initUI({
   onReroll() {
     if (!run || run.phase !== 'levelup') return
     const cost = rerollCost(run._rerolls ?? 0)
-    if (meta.coins < cost) return
-    meta.coins -= cost
+    // Rerolls spend the RUN's coins (the HUD counter), not the meta bank — spending mid-run
+    // shrinks the end-of-run payout, and the number next to the button matches what you see
+    // in the HUD (v5.1 fix; players read the two same-icon wallets as one).
+    if ((run.coinsEarned ?? 0) < cost) return
+    run.coinsEarned -= cost
     run._rerolls = (run._rerolls ?? 0) + 1
-    saveMeta(meta)
     run.levelUpChoices = buildLevelUpChoices(run)
     playSfx('buy')
     ui.showScreen('levelup', levelupData())
@@ -164,7 +166,7 @@ function levelupData() {
   return {
     choices: run.levelUpChoices,
     rerollCost: rerollCost(run._rerolls ?? 0),
-    coins: meta.coins,
+    coins: run.coinsEarned,  // run coins — rerolls spend these, see onReroll
   }
 }
 

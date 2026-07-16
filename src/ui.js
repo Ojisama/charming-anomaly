@@ -12,29 +12,35 @@ function selectedChapterMeta(meta) {
   return meta.chapters?.[meta.chapter] ?? { maxDifficulty: 1, difficulty: 1 }
 }
 
-// v5.0 chapter selector (title screen). One card per CHAPTER_ORDER entry: unlocked chapters
-// show icon + name (mint border when selected); locked chapters render as an anonymous "???"
-// card (🔒, no icon/name leak) and are disabled — the delegated click handler double-guards
-// against a locked id ever reaching onChapter.
-function chapterRowHtml(meta) {
-  const cards = CHAPTER_ORDER.map((id) => {
-    const chapter = CHAPTERS[id]
-    const unlocked = meta.chapters?.[id]?.unlocked
-    if (!unlocked) {
-      return `
-        <button class="chapter-card chapter-card--locked" data-act="chapter" data-id="${id}" disabled>
-          <span class="chapter-card-icon">🔒</span>
-          <span class="chapter-card-name">???</span>
-        </button>`
-    }
-    const selected = id === meta.chapter
-    return `
-      <button class="chapter-card${selected ? ' chapter-card--selected' : ''}" data-act="chapter" data-id="${id}">
-        <span class="chapter-card-icon">${chapter.icon}</span>
-        <span class="chapter-card-name">${chapter.name}</span>
-      </button>`
-  }).join('')
-  return `<div class="chapter-row">${cards}</div>`
+// v5.1 title redesign: the chapter picker is a single large "hero card" (heroCardHtml, inside
+// initUI) showing ONE chapter at a time — the browsed chapter — with ‹ › arrows + horizontal
+// swipe cycling through titleChapterList: every unlocked chapter plus the first locked one, which
+// renders as an anonymous dark "???" preview whose Play is disabled. Selecting an unlocked card
+// persists via hooks.onChapter; the locked card never reaches it.
+function titleChapterList(meta) {
+  const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
+  const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
+  if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
+  return ids.length ? ids : [CHAPTER_ORDER[0]]
+}
+
+// Pixi int colour (0xrrggbb) -> '#rrggbb'; shade() blends a hex toward white (amt > 0) or black
+// (amt < 0) by |amt| for the hero card's gradient stops; luminance() picks dark-on-light vs
+// light-on-dark card text so every chapter's per-bgColor gradient still reads.
+function pixiHex(int) {
+  return '#' + (int & 0xffffff).toString(16).padStart(6, '0')
+}
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16)
+  const t = amt < 0 ? 0 : 255, p = Math.min(1, Math.abs(amt))
+  const r = Math.round(((n >> 16) & 255) + (t - ((n >> 16) & 255)) * p)
+  const g = Math.round(((n >> 8) & 255) + (t - ((n >> 8) & 255)) * p)
+  const b = Math.round((n & 255) + (t - (n & 255)) * p)
+  return `rgb(${r}, ${g}, ${b})`
+}
+function luminance(hex) {
+  const n = parseInt(hex.slice(1), 16)
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
 }
 
 // The furthest-progressed chapter this save has unlocked (last CHAPTER_ORDER id whose
@@ -80,11 +86,12 @@ function formatShopBonus(id, levels) {
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(),
  *                       onSacrifice(picks)->bool, onReset() })
- *     - onChapter(id): title screen's chapter-card row (see chapterRowHtml above). Only fires
- *       for CHAPTER_ORDER ids the delegated click handler already sees as unlocked (locked
- *       cards render disabled) — main.js re-guards via ensureChapterMeta(meta, id).unlocked,
- *       sets meta.chapter, saveMeta, plays 'click'. Like onDifficulty below, ui.js re-renders
- *       the title itself right after calling the hook — main.js never calls showScreen for it.
+ *     - onChapter(id): title screen's chapter hero card (v5.1 — see heroCardHtml/navChapter).
+ *       Fires only for unlocked CHAPTER_ORDER ids as the ‹ › arrows / swipe move the browsed
+ *       chapter onto one (the locked preview card never calls it) — main.js re-guards via
+ *       ensureChapterMeta(meta, id).unlocked, sets meta.chapter, saveMeta, plays 'click'. Like
+ *       onDifficulty below, ui.js re-renders the title itself right after — main.js never calls
+ *       showScreen for it.
  *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists to the
  *       SELECTED chapter's ladder, meta.chapters[meta.chapter].difficulty (v5.0 — see
  *       selectedChapterMeta below and state.js's meta.chapters doc block). Pips above that
@@ -92,14 +99,15 @@ function formatShopBonus(id, levels) {
  *       d+1 only unlocks by winning a classic run at level d in that same chapter (see endRun in
  *       main.js). Chapter selection itself is the onChapter hook right above.
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
- *       Play button (consumableIds = the title shelf's session-local selection, an array of
- *       CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
+ *       Play button (consumableIds = the booster bottom-sheet's session-local selection, an array
+ *       of CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
  *       "Play again" button (which replays whatever mode the just-ended run used, selection
  *       cleared the same way). 'daily' fires from the daily briefing screen's Start button with
- *       consumableIds always [] — boosters never apply to daily runs (the title Daily Anomaly
- *       button opens the 'daily' briefing screen first; the shelf itself only lives on title).
+ *       consumableIds always [] — boosters never apply to daily runs (the title's Daily nav tab
+ *       opens the 'daily' briefing screen first; the booster slots/sheet only live on title).
  *     - onReroll(): level-up screen's Reroll button (or the 'R' key). main.js is expected to
- *       no-op silently if unaffordable/wrong phase, otherwise deduct coins, bump run._rerolls,
+ *       no-op silently if unaffordable/wrong phase, otherwise deduct RUN coins (run.coinsEarned,
+ *       the HUD counter — not the meta bank), bump run._rerolls,
  *       rebuild run.levelUpChoices, and call showScreen('levelup', ...) again with fresh data.
  *     - onSacrifice(picks): fired by the sacrifice modal's "Confirm sacrifice" button. picks is
  *       { [statId]: count }, the shop levels offered per stat (sum === sacrificeCost(meta.choiceSlots)).
@@ -143,55 +151,141 @@ export function initUI(hooks) {
   // cleared as soon as a run actually starts (see the 'play'/'daily-start' click cases below).
   let selectedConsumables = new Set()
 
-  // v5.0.1: "next run options" panel (Boosters shelf + Daily Anomaly) collapsed by default to
-  // declutter the title screen. Session-only, like selectedConsumables above — never persisted,
-  // never reset on its own (just toggled by the chevron next to Play).
-  let optionsOpen = false
+  // v5.1 title redesign — UI-local browse state (not persisted, scoped to this initUI call):
+  //   browseChapterId: which chapter the hero card shows. Starts at the saved meta.chapter; the
+  //     ‹ › arrows / swipe move it across titleChapterList. When it lands on an unlocked chapter we
+  //     persist the selection via hooks.onChapter (so meta.chapter tracks it); the locked preview
+  //     card never calls onChapter and its Play button is disabled.
+  //   boostersOpen: whether the booster bottom-sheet is up (replaces the v5.0.1 run-options panel).
+  let browseChapterId = meta.chapter
+  let boostersOpen = false
 
-  function consumablesShelfHtml() {
+  function heroCardHtml() {
+    const list = titleChapterList(meta)
+    const idx = Math.max(0, list.indexOf(browseChapterId))
+    const arrows = `
+      <button class="hero-arrow hero-arrow--left" data-act="chapter-nav" data-dir="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="previous chapter">‹</button>
+      <button class="hero-arrow hero-arrow--right" data-act="chapter-nav" data-dir="1" ${idx >= list.length - 1 ? 'disabled' : ''} aria-label="next chapter">›</button>`
+    if (!meta.chapters?.[browseChapterId]?.unlocked) {
+      const prevName = CHAPTERS[furthestUnlockedChapterId(meta)].name
+      return `
+        <div class="hero-card hero-card--locked" data-hero>
+          ${arrows}
+          <span class="hero-icon">🔒</span>
+          <span class="hero-name">???</span>
+          <span class="hero-tagline">win ${prevName} at difficulty 3+</span>
+        </div>`
+    }
+    const chapter = CHAPTERS[browseChapterId]
+    const chMeta = meta.chapters[browseChapterId]
+    const base = pixiHex(chapter.render.bgColor)
+    const light = luminance(base) > 0.5
+    const bg = light
+      ? `linear-gradient(160deg, ${shade(base, 0.4)}, ${base} 58%, ${shade(base, -0.1)})`
+      : `linear-gradient(160deg, ${shade(base, 0.22)}, ${base} 55%, ${shade(base, -0.32)})`
+    const best = chMeta.best?.time ? fmtTime(chMeta.best.time) : '—'
+    return `
+      <div class="hero-card${light ? ' hero-card--light' : ''}" data-hero style="background:${bg}; color:${light ? 'var(--ink)' : '#f5f9f7'}">
+        ${arrows}
+        <span class="hero-icon">${chapter.icon}</span>
+        <span class="hero-name">${chapter.name}</span>
+        <span class="hero-tagline">${chapter.tagline}</span>
+        <span class="hero-chip">difficulty ${chMeta.maxDifficulty}/${MAX_DIFFICULTY} · best ${best}</span>
+      </div>`
+  }
+
+  // 3 booster slots under the difficulty row: session-selected consumables fill left-to-right,
+  // the rest show ＋. Any slot opens the booster bottom-sheet. Boosters are classic-only.
+  function boosterSlotsHtml() {
+    const selected = [...selectedConsumables]
+    const slots = Array.from({ length: 3 }, (_, i) => {
+      const id = selected[i]
+      if (!id) return `<button class="booster-slot booster-slot--empty" data-act="boosters-open" aria-label="add booster">＋</button>`
+      const item = CONSUMABLES[id]
+      return `
+        <button class="booster-slot booster-slot--filled" data-act="boosters-open" aria-label="${item.name}">
+          <span class="booster-slot-icon">${item.icon}</span>
+          <span class="booster-slot-cost">${item.cost}🪙</span>
+        </button>`
+    }).join('')
+    return `<div class="booster-row">${slots}</div>`
+  }
+
+  // Bottom sheet (same .modal-backdrop idiom as the sacrifice modal): the 3 CONSUMABLES as toggle
+  // rows. A row is greyed (disabled) when adding it would push the running selection cost past
+  // meta.coins (cheapest-first affordability still finally resolved in main.js's onPlay).
+  function boosterSheetHtml() {
+    if (!boostersOpen) return ''
     const selectedCost = [...selectedConsumables].reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
-    const chips = Object.entries(CONSUMABLES).map(([id, item]) => {
+    const rows = Object.entries(CONSUMABLES).map(([id, item]) => {
       const selected = selectedConsumables.has(id)
       const otherCost = selectedCost - (selected ? item.cost : 0)
       const afford = selected || (meta.coins - otherCost) >= item.cost
       return `
-        <button class="chip--consumable${selected ? ' chip--selected' : ''}" data-consumable="${id}" ${afford ? '' : 'disabled'}>
-          ${item.icon} ${item.name} · ${item.cost}🪙
+        <button class="booster-item${selected ? ' booster-item--on' : ''}" data-consumable="${id}" ${afford ? '' : 'disabled'}>
+          <span class="booster-item-icon">${item.icon}</span>
+          <span class="booster-item-body">
+            <span class="booster-item-name">${item.name}</span>
+            <span class="booster-item-desc">${item.desc}</span>
+          </span>
+          <span class="booster-item-cost">${item.cost}🪙</span>
+          <span class="booster-item-check">${selected ? '✓' : ''}</span>
         </button>`
     }).join('')
     return `
-      <div class="consumables-shelf">
-        <span class="consumables-label">Boosters (this run only)</span>
-        <div class="consumables-row">${chips}</div>
+      <div class="modal-backdrop sheet-backdrop" data-act="boosters-close">
+        <div class="bottom-sheet">
+          <div class="sheet-handle"></div>
+          <h3 class="sheet-title">Boosters <span class="sheet-note">this run only</span></h3>
+          <div class="sheet-list">${rows}</div>
+          <button class="btn btn--soft btn--small sheet-done" data-act="boosters-close">Done</button>
+        </div>
       </div>`
   }
 
+  // Fixed bottom nav (title only): Shop | Battle (active/inert) | Daily. The Daily tab badges
+  // today's dailyChapter icon.
+  function titleNavHtml() {
+    const dailyIcon = CHAPTERS[dailyChapter(todayKey())]?.icon ?? '🌀'
+    return `
+      <nav class="title-nav">
+        <button class="nav-tab" data-act="shop">
+          <span class="nav-tab-icon">🛒</span><span class="nav-tab-label">Shop</span>
+        </button>
+        <button class="nav-tab nav-tab--active" data-act="battle" aria-current="page">
+          <span class="nav-tab-icon">⚔️</span><span class="nav-tab-label">Battle</span>
+        </button>
+        <button class="nav-tab" data-act="daily">
+          <span class="nav-tab-icon">🌀<sup class="nav-tab-badge">${dailyIcon}</sup></span><span class="nav-tab-label">Daily</span>
+        </button>
+      </nav>`
+  }
+
+  // ‹ › arrows + swipe: step browseChapterId one place across titleChapterList. Landing on an
+  // unlocked chapter persists it (hooks.onChapter also plays 'click' + re-saves); the locked
+  // preview only updates the browse state.
+  function navChapter(dir) {
+    const list = titleChapterList(meta)
+    const next = Math.max(0, list.indexOf(browseChapterId)) + dir
+    if (next < 0 || next >= list.length) return
+    browseChapterId = list[next]
+    if (meta.chapters?.[browseChapterId]?.unlocked) hooks.onChapter(browseChapterId)
+    else playSfx('click')
+    renderTitle()
+  }
+
   function renderTitle() {
-    const { coins, best, runs } = meta
-    const chMeta = selectedChapterMeta(meta)
-    const selectedChapter = CHAPTERS[meta.chapter] ?? CHAPTERS[CHAPTER_ORDER[0]]
-    const furthestId = furthestUnlockedChapterId(meta)
-    const lockedNextId = nextChapter(furthestId)
-    const dailyIds = dailyMutators(todayKey())
-    const dailyChapterInfo = CHAPTERS[dailyChapter(todayKey())]
-    const dailyPreview = dailyIds.map((id) => `${MUTATORS[id]?.icon ?? '❔'} ${MUTATORS[id]?.name ?? id}`).join(' · ')
-    screens.title.innerHTML = `
-      <div class="coins-badge">🪙 <b>${coins}</b></div>
-      <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
-      <p class="subtitle">escape the lab · outlive the swarm</p>
-      <div class="play-row">
-        <button class="btn btn--big" data-act="play">▶&nbsp; Play</button>
-        <button class="options-toggle${optionsOpen ? ' options-toggle--open' : ''}" data-act="options-toggle" aria-label="run options">▾</button>
-      </div>
-      ${chapterRowHtml(meta)}
-      <p class="chapter-tagline">${selectedChapter.tagline}</p>
-      ${lockedNextId ? `<p class="chapter-hint--locked">win ${CHAPTERS[furthestId].name} at difficulty 3+</p>` : ''}
+    if (!meta.chapters?.[browseChapterId]) browseChapterId = meta.chapter
+    const heroUnlocked = !!meta.chapters?.[browseChapterId]?.unlocked
+    const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
+    // Difficulty row + booster slots only make sense for a playable (unlocked) chapter; the locked
+    // preview shows just the hero card and a disabled Play.
+    const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">Difficulty</span>
         ${Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
           const d = i + 1
-          const locked = d > chMeta.maxDifficulty
-          if (locked) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
+          if (d > chMeta.maxDifficulty) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
           return `<button class="diff-pip${d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}
       </div>
@@ -199,16 +293,30 @@ export function initUI(hooks) {
         ? 'the base game'
         : `+${chMeta.difficulty - 1} random anomal${chMeta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
       ${chMeta.maxDifficulty < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
-      ${optionsOpen ? `
-      <div class="run-options">
-        ${consumablesShelfHtml()}
-        <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
-        <p class="daily-preview">${dailyChapterInfo.icon} ${dailyChapterInfo.name} · ${dailyPreview}</p>
-      </div>` : ''}
-      <button class="btn btn--soft" data-act="shop">🛒&nbsp; Shop</button>
-      ${runs > 0 ? `<p class="best-line">best ${fmtTime(best.time)} · ${best.kills} kills · ${runs} run${runs === 1 ? '' : 's'}</p>` : ''}
+      ${boosterSlotsHtml()}` : ''
+    screens.title.innerHTML = `
+      <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
+      <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
+      ${heroCardHtml()}
+      ${playBlock}
+      <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; Play</button>
+      ${titleNavHtml()}
+      ${boosterSheetHtml()}
     `
   }
+
+  // Horizontal swipe on the hero card cycles chapters (delta > 40px; left = next). Delegated on
+  // the title screen so it survives every renderTitle innerHTML rebuild.
+  let heroTouchX = null
+  screens.title.addEventListener('touchstart', (e) => {
+    heroTouchX = e.target.closest('[data-hero]') ? e.changedTouches[0].clientX : null
+  }, { passive: true })
+  screens.title.addEventListener('touchend', (e) => {
+    if (heroTouchX == null) return
+    const dx = e.changedTouches[0].clientX - heroTouchX
+    heroTouchX = null
+    if (Math.abs(dx) > 40) navChapter(dx < 0 ? 1 : -1)
+  })
 
   // ---- shop ------------------------------------------------------------
   // Sacrifice modal (v4.9 rework): ui-local, not persisted — sacrificeOpen toggles a full-screen
@@ -678,27 +786,31 @@ export function initUI(hooks) {
         const mode = el.dataset.mode || 'classic'
         const ids = mode === 'daily' ? [] : [...selectedConsumables]
         selectedConsumables.clear()
+        boostersOpen = false
         hooks.onPlay(mode, ids)
         break
       }
-      case 'options-toggle':
-        optionsOpen = !optionsOpen
+      case 'chapter-nav': navChapter(Number(el.dataset.dir)); break
+      case 'boosters-open':
+        boostersOpen = true
         playSfx('click')
         renderTitle()
         break
+      case 'boosters-close':
+        // Tapping inside the sheet also resolves to the backdrop (nothing stops propagation), so
+        // only the Done button or a *direct* backdrop hit closes it (same guard as the modals).
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        boostersOpen = false
+        playSfx('click')
+        renderTitle()
+        break
+      case 'battle': break // active tab, current screen — inert
       case 'daily': playSfx('click'); showScreen('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
       case 'diff': {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already
         hooks.onDifficulty(d)
-        renderTitle()
-        break
-      }
-      case 'chapter': {
-        const id = el.dataset.id
-        if (!meta.chapters?.[id]?.unlocked) break // belt-and-braces: locked cards are disabled already
-        hooks.onChapter(id)
         renderTitle()
         break
       }
