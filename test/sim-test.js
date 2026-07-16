@@ -18,6 +18,22 @@ import {
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS, STINGER_HIVE_EVERY,
+  POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LAND_T,
+  AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
+  FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL,
+  SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM, SNAP_TRAP_MIN_DIST,
+  LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
+  SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
+  TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG,
+  STRAFE_BANK_T, STRAFE_RUN_T,
+  MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
+  ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS,
+  BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS,
+  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST,
+  PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
+  GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
+  POUNCE_DASH_T, POUNCE_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
+  GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -269,7 +285,12 @@ function testStarMods() {
   const dt = 1 / 60
   const steps = Math.round(20 / dt)
 
+  // Reseed per run so baseline and modded see the SAME spawn stream. Without this both calls
+  // consume one continuous stream — they play two different games and the pierce comparison
+  // is meaningless. It only ever passed by luck; the v5.5 archetype-lookup fix shifted the
+  // stream and flipped the sign.
   function runStarOnly(mods) {
+    Math.random = mulberry32(20260714)
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }]
     if (mods) Object.assign(run.weaponMods.star, mods)
@@ -312,7 +333,10 @@ function testAdvancedStarMods() {
   const dt = 1 / 60
   const steps = Math.round(20 / dt)
 
+  // Reseed per run — the comment above already claims "same seed", which only holds if each
+  // run restarts the stream rather than continuing where the previous one stopped.
   function runStarOnly(mods) {
+    Math.random = mulberry32(20260714)
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }]
     if (mods) Object.assign(run.weaponMods.star, mods)
@@ -1738,7 +1762,12 @@ function testChapters() {
   // (c) nextChapter walks CHAPTER_ORDER, null past the end.
   assert.strictEqual(nextChapter('body'), 'pond', "nextChapter('body') === 'pond'")
   assert.strictEqual(nextChapter('pond'), 'garden', "nextChapter('pond') === 'garden'")
-  assert.strictEqual(nextChapter('garden'), null, "nextChapter('garden') === null (last shipped chapter)")
+  // Order-independent (v5.4: the arc grew from 3 to 7 chapters) — every id hands off to the next,
+  // and only the LAST one terminates the walk.
+  for (let i = 0; i < CHAPTER_ORDER.length - 1; i++) {
+    assert.strictEqual(nextChapter(CHAPTER_ORDER[i]), CHAPTER_ORDER[i + 1], `nextChapter('${CHAPTER_ORDER[i]}') === '${CHAPTER_ORDER[i + 1]}'`)
+  }
+  assert.strictEqual(nextChapter(CHAPTER_ORDER[CHAPTER_ORDER.length - 1]), null, `nextChapter('${CHAPTER_ORDER[CHAPTER_ORDER.length - 1]}') === null (last shipped chapter)`)
 
   // (d) dailyChapter is deterministic per date key, and both shipped chapters are reachable
   // over a spread of dates (date-seeded across CHAPTER_ORDER).
@@ -2618,6 +2647,1106 @@ function testGarden() {
   }
 }
 
+// ---- Run Y: v5.4 behavior flags (undergrowth/city/skies/beyond rosters) ------------------
+// One focused check per flag that carries phase state, in run V/X's idiom: drive the machine for a
+// known window and assert the phase it should be in actually behaves differently from its neighbour.
+function testV54Flags() {
+  const dt = 1 / 60
+
+  // Spawns one flagged enemy into a quiet run (no spawns, no weapons, immortal player) so the only
+  // thing moving is the machine under test. `at` is its distance from the player along -x.
+  function flagRun(chapter, flags, { at = 300, speed = 100, hp = 1e6, elite = false } = {}) {
+    const run = createRun(makeMeta(), { chapter })
+    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const e = makeStatusEnemy(run, { x: -at, y: 0, hp, speed, elite })
+    e.flags = flags
+    run.enemies.push(e)
+    return { run, e }
+  }
+  // Displacement of `e` over `seconds` of stepping.
+  function moved(run, e, seconds) {
+    const x0 = e.x, y0 = e.y
+    for (let i = 0; i < Math.round(seconds / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    return Math.hypot(e.x - x0, e.y - y0)
+  }
+
+  // (a) pounce: a cat inside POUNCE_RANGE stops dead for the aim telegraph, then leaps far — and
+  // the 'land' window that follows is a punish window (frozen AND unable to deal contact damage).
+  {
+    const { run, e } = flagRun('undergrowth', ['pounce'], { at: POUNCE_RANGE - 40 })
+    stepSim(run, { x: 0, y: 0 }, dt) // first step: in range -> 'aim'
+    assert.strictEqual(e._pounceState, 'aim', `expected a cat in range to enter 'aim', got '${e._pounceState}'`)
+    const aimDist = moved(run, e, POUNCE_AIM_T - 0.05)
+    const leapDist = moved(run, e, POUNCE_LEAP_T + 0.1) // +0.1: past the leap, into the land window
+    assert(aimDist < 1, `expected the aim telegraph to be a dead stop, moved ${aimDist.toFixed(2)}px`)
+    assert(leapDist > 100, `expected the leap to cover ground, moved ${leapDist.toFixed(1)}px`)
+    assert.strictEqual(e._pounceState, 'land', `expected 'land' after the leap, got '${e._pounceState}'`)
+
+    // land: parked on top of the player, it still can't hurt them (that's the free-hits window).
+    e.x = run.player.x; e.y = run.player.y
+    run.player.invuln = 0
+    const hp0 = run.player.hp
+    for (let i = 0; i < Math.round((POUNCE_LAND_T - 0.05) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.player.hp, hp0, 'expected a landed cat to deal no contact damage')
+    console.log(`PASS run Y.a (pounce): aim=${aimDist.toFixed(2)}px leap=${leapDist.toFixed(1)}px, land deals no contact damage`)
+  }
+
+  // (b) aerialStrike: an owl is UNTOUCHABLE while circling overhead (AERIAL_UNTOUCHABLE) — no
+  // damage in or out — and only becomes fightable once it marks and drops.
+  {
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    run.obstacles = []; run.mods.spawnMul = 0; run.traps = []
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    const owl = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
+    owl.flags = ['aerialStrike']
+    run.enemies.push(owl)
+
+    for (let i = 0; i < Math.round((AERIAL_CIRCLE_T - 0.1) / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert.strictEqual(owl._airState, 'circle', `expected the owl still circling, got '${owl._airState}'`)
+    assert.strictEqual(owl.hp, 1e6, `expected a circling owl to take NO damage, hp=${owl.hp}`)
+    const hp0 = run.player.hp
+    owl.x = run.player.x; owl.y = run.player.y // overhead, right on the player: still harmless
+    run.player.invuln = 0
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.player.hp, hp0, 'expected a circling owl to deal NO contact damage')
+
+    // ...through mark and into the strike, where it IS fightable.
+    for (let i = 0; i < Math.round((AERIAL_MARK_T + AERIAL_STRIKE_T + 0.4) / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert(owl.hp < 1e6, `expected a marking/striking owl to be hittable, hp=${owl.hp}`)
+    console.log(`PASS run Y.b (aerialStrike): untouchable while circling, hittable once it drops (hp=${owl.hp.toFixed(0)})`)
+  }
+
+  // (c) lineCharge: a vacuum lines up, stops for the lock telegraph, then charges much further.
+  {
+    const { run, e } = flagRun('city', ['lineCharge'], { at: LINE_CHARGE_RANGE - 40 })
+    run._laneAcc = 1e6 // park the traffic signature: this case is about the flag alone
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(e._chargeState, 'lock', `expected a vacuum in range to 'lock', got '${e._chargeState}'`)
+    const lockDist = moved(run, e, LINE_CHARGE_LOCK_T - 0.05)
+    const chargeDist = moved(run, e, LINE_CHARGE_T + 0.1) // +0.1: past the charge, into the stall
+    assert(lockDist < 1, `expected the lock telegraph to be a dead stop, moved ${lockDist.toFixed(2)}px`)
+    assert(chargeDist > lockDist * 10 && chargeDist > 200, `expected the charge to be a rush (lock=${lockDist.toFixed(1)}, charge=${chargeDist.toFixed(1)})`)
+    assert.strictEqual(e._chargeState, 'stall', `expected 'stall' after the charge, got '${e._chargeState}'`)
+    console.log(`PASS run Y.c (lineCharge): lock=${lockDist.toFixed(2)}px charge=${chargeDist.toFixed(1)}px`)
+  }
+
+  // (d) spawner: a van elite disgorges the chapter's 'fast' archetype through the normal spawn
+  // path — non-elite, correctly skinned — and never pushes past MAX_ALIVE.
+  {
+    const { run, e } = flagRun('city', ['spawner'], { at: 400, elite: true })
+    run._laneAcc = 1e6
+    const before = run.enemies.length
+    for (let i = 0; i < Math.round((SPAWNER_INTERVAL + 0.2) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const spawned = run.enemies.filter((en) => en.id !== e.id)
+    assert.strictEqual(run.enemies.length - before, SPAWNER_COUNT, `expected ${SPAWNER_COUNT} spawns, got ${run.enemies.length - before}`)
+    for (const s of spawned) {
+      assert.strictEqual(s.elite, false, 'expected spawned minions to never be elites')
+      // The van disgorges the chapter's SPAWNER_ARCHETYPE through the normal spawnEnemy path, so it
+      // hands it that archetype's spawn TYPE (see ARCHETYPE_TYPE in config.js).
+      // NOTE (pre-existing, v5.0, deliberately not fixed here): spawnEnemy maps the spawn type BACK
+      // to an archetype with `ARCHETYPE_TYPE[type]` — but ARCHETYPE_TYPE is keyed by ARCHETYPE, not
+      // type, so the lookup misses for drone/wisp and every 'fast' roster entry falls back to the
+      // 'normal' skin. That's why this asserts the type (what the spawner controls) rather than
+      // rosterId. Repairing the lookup would re-roll every shipped chapter's roster distribution.
+      assert.strictEqual(s.type, ARCHETYPE_TYPE[SPAWNER_ARCHETYPE], `expected the chapter's '${SPAWNER_ARCHETYPE}' archetype spawn type, got '${s.type}'`)
+      assert(Math.hypot(s.x - e.x, s.y - e.y) <= SPAWNER_SCATTER + 1e-6, 'expected minions scattered around the van')
+    }
+    assert(run.events.some((ev) => ev.type === 'explode'), 'expected each spawn point to pop an explode event')
+    console.log(`PASS run Y.d (spawner): ${spawned.length} × type '${spawned[0].type}' (non-elite) around the van`)
+  }
+
+  // (e) strafe: a jet banks out to its standoff, then flies a straight pass — the run window
+  // covers far more ground than the bank, and it ends up PAST the player, not on them.
+  {
+    const { run, e } = flagRun('skies', ['strafe'], { at: 500 })
+    const bankDist = moved(run, e, STRAFE_BANK_T)
+    assert.strictEqual(e._strafeState, 'run', `expected 'run' after the bank, got '${e._strafeState}'`)
+    const runDist = moved(run, e, STRAFE_RUN_T)
+    assert(runDist > bankDist * 2, `expected the strafing run to outpace the bank (bank=${bankDist.toFixed(1)}, run=${runDist.toFixed(1)})`)
+    console.log(`PASS run Y.e (strafe): bank=${bankDist.toFixed(1)}px run=${runDist.toFixed(1)}px`)
+  }
+
+  // (f) missileVolley: a helicopter holds its standoff and fires MISSILE_COUNT run.enemyShots per
+  // volley; a missile that reaches the player damages the PLAYER (and nothing else).
+  {
+    const { run } = flagRun('skies', ['missileVolley'], { at: 300 })
+    for (let i = 0; i < Math.round((MISSILE_INTERVAL + 0.6) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.enemyShots.length >= MISSILE_COUNT, `expected a volley of ${MISSILE_COUNT} missiles, got ${run.enemyShots.length}`)
+
+    const hit = createRun(makeMeta(), { chapter: 'skies' })
+    hit.weapons = []; hit.obstacles = []; hit.mods.spawnMul = 0
+    hit.player.x = 0; hit.player.y = 0; hit.player.hp = 1e9; hit.player.maxHP = 1e9; hit.player.invuln = 0
+    const victim = makeStatusEnemy(hit, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    hit.enemies.push(victim)
+    hit.enemyShots.push({ x: 40, y: 0, vx: -240, vy: 0, r: MISSILE_R, dmg: MISSILE_DMG, life: 4, turnRate: 1.6 })
+    const hp0 = hit.player.hp
+    let exploded = false
+    for (let i = 0; i < Math.round(0.5 / dt); i++) {
+      stepSim(hit, { x: 0, y: 0 }, dt)
+      if (hit.events.some((ev) => ev.type === 'explode')) exploded = true
+    }
+    assert(hit.player.hp < hp0, 'expected a missile to damage the player')
+    assert(exploded, 'expected a missile impact to emit an explode event')
+    assert.strictEqual(victim.hp, 1e6, 'expected an enemy missile to never damage enemies')
+    assert.strictEqual(hit.enemyShots.length, 0, 'expected the missile consumed on impact')
+    console.log('PASS run Y.f (missileVolley): volley fired, missile hurts the player only')
+  }
+
+  // (g) artillery: a tank column shells the player's PREDICTED position (velocity × ARTILLERY_LEAD)
+  // into run.bombs — the shared volatile-bomb array, so the blast damages BOTH sides. Elites shell
+  // wider (ARTILLERY_ELITE_RADIUS).
+  {
+    const { run } = flagRun('skies', ['artillery'], { at: 600, speed: 20 })
+    run._bombardAcc = 1e6 // park the bombardment signature: this case is about the flag's own shells
+    // Break on the FIRING frame: the shell is pushed after stepPlayerMovement, so the player's
+    // position/velocity at the end of that frame are exactly the ones it aimed with.
+    for (let i = 0; i < Math.round((ARTILLERY_INTERVAL + 0.5) / dt) && run.bombs.length === 0; i++) {
+      stepSim(run, { x: 1, y: 0 }, dt)
+    }
+    const shell = run.bombs.find((b) => b.radius === ARTILLERY_RADIUS)
+    assert(shell, `expected an artillery shell of radius ${ARTILLERY_RADIUS}, got ${run.bombs.map((b) => b.radius)}`)
+    const lead = shell.x - run.player.x
+    assert(Math.abs(lead - run.player.vx * ARTILLERY_LEAD) < 1e-6,
+      `expected the shell led by vx*${ARTILLERY_LEAD} (=${(run.player.vx * ARTILLERY_LEAD).toFixed(1)}), got ${lead.toFixed(1)}`)
+    assert(lead > 0, 'expected the shell aimed AHEAD of a player moving +x')
+
+    const el = flagRun('skies', ['artillery'], { at: 600, speed: 20, elite: true })
+    el.run._bombardAcc = 1e6 // park the bombardment signature: this is about the elite's own shells
+    for (let i = 0; i < Math.round(2.0 / dt); i++) stepSim(el.run, { x: 0, y: 0 }, dt)
+    assert(el.run.bombs.some((b) => b.radius === ARTILLERY_ELITE_RADIUS), 'expected an AA elite to shell with the wider elite radius')
+    console.log(`PASS run Y.g (artillery): shell led ${lead.toFixed(1)}px ahead; elites shell wider`)
+  }
+
+  // (h) blink: a blinker teleports toward the player — never landing closer than BLINK_MIN_DIST,
+  // and never inside an obstacle (it gives up rather than cheating through one).
+  {
+    const { run, e } = flagRun('beyond', ['blink'], { at: 600, speed: 40 })
+    const x0 = e.x
+    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const jumped = e.x - x0
+    assert(jumped > BLINK_DIST * 0.9, `expected a ~${BLINK_DIST}px blink toward the player, got ${jumped.toFixed(1)}px`)
+
+    // Clamp: from just outside BLINK_MIN_DIST it may only close the remaining gap, never overshoot.
+    const near = flagRun('beyond', ['blink'], { at: BLINK_MIN_DIST + 60, speed: 0 })
+    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(near.run, { x: 0, y: 0 }, dt)
+    const dist = Math.hypot(near.e.x - near.run.player.x, near.e.y - near.run.player.y)
+    assert(dist >= BLINK_MIN_DIST - 1e-6, `expected a blink never to land closer than ${BLINK_MIN_DIST}, got ${dist.toFixed(1)}`)
+
+    // Obstacle: block both the full-distance and the half-distance landing spots -> no blink at all.
+    const walled = flagRun('beyond', ['blink'], { at: 600, speed: 0 })
+    walled.run.obstacles = [
+      { x: -600 + BLINK_DIST, y: 0, r: 60 },
+      { x: -600 + BLINK_DIST / 2, y: 0, r: 60 },
+    ]
+    const wx0 = walled.e.x
+    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(walled.run, { x: 0, y: 0 }, dt)
+    assert(Math.abs(walled.e.x - wx0) < 1, `expected a blocked blink to be skipped entirely, moved ${(walled.e.x - wx0).toFixed(1)}px`)
+    console.log(`PASS run Y.h (blink): jumped ${jumped.toFixed(0)}px, clamped at ${dist.toFixed(0)}px, blocked by obstacles`)
+  }
+
+  // (i) phase: a ghosted flicker takes NO damage and deals none; a solid one is an ordinary enemy.
+  {
+    const run = createRun(makeMeta(), { chapter: 'beyond' })
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    run.obstacles = []; run.wells = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    const e = makeStatusEnemy(run, { x: 120, y: 0, hp: 1e6, speed: 0 })
+    e.flags = ['phase']
+    run.enemies.push(e)
+
+    stepSim(run, { x: 0, y: 0 }, dt)
+    e._phaseSolid = false; e._phaseT = PHASE_SOLID_T // force the ghost window
+    const ghostHp0 = e.hp
+    for (let i = 0; i < Math.round(0.8 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      e._phaseSolid = false // pin the window open for the measurement
+    }
+    assert.strictEqual(e.hp, ghostHp0, `expected a ghosted flicker to take no damage, hp ${ghostHp0} -> ${e.hp}`)
+
+    e._phaseSolid = true
+    for (let i = 0; i < Math.round(0.8 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      e._phaseSolid = true
+    }
+    assert(e.hp < ghostHp0, `expected a solid flicker to take damage, hp=${e.hp}`)
+    console.log(`PASS run Y.i (phase): ghost immune (hp=${ghostHp0}), solid hittable (hp=${e.hp.toFixed(0)})`)
+  }
+
+  // (j) pullBeam: a UFO's beam drags the player in and ticks dot damage — but at PULL_BEAM_FORCE
+  // (< PLAYER.baseSpeed), so walking away still nets outward movement. That's the whole design.
+  {
+    const { run, e } = flagRun('beyond', ['pullBeam'], { at: -200, speed: 0, elite: true }) // UFO at +200
+    run.wells = []
+    e.x = 200; e.y = 0
+    let dragged = false
+    let dotHurt = false
+    for (let i = 0; i < Math.round((PULL_BEAM_INTERVAL + 0.5) / dt); i++) {
+      const x0 = run.player.x
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.player.x > x0 + 1e-9) dragged = true
+      if (run.events.some((ev) => ev.type === 'hurt' && ev.dot)) dotHurt = true
+    }
+    assert(dragged, 'expected an open abduction beam to drag a standing player toward the UFO')
+    assert(dotHurt, 'expected an open abduction beam to tick dot-flagged damage')
+    assert(Math.hypot(run.player.x - e.x, run.player.y - e.y) <= PULL_BEAM_RANGE, 'expected the drag to have happened in range')
+
+    // Walk out: input away from the UFO beats the beam, since PULL_BEAM_FORCE < PLAYER.baseSpeed.
+    const x1 = run.player.x
+    for (let i = 0; i < Math.round(0.5 / dt); i++) stepSim(run, { x: -1, y: 0 }, dt)
+    assert(run.player.x < x1, `expected the player to out-walk the beam (${x1.toFixed(1)} -> ${run.player.x.toFixed(1)})`)
+    assert(PULL_BEAM_FORCE < PLAYER.baseSpeed, 'expected PULL_BEAM_FORCE under the player base speed by design')
+    console.log(`PASS run Y.j (pullBeam): drags + ticks, and a walking player still escapes (${PULL_BEAM_FORCE} < ${PLAYER.baseSpeed} px/s)`)
+  }
+
+  // (k) flashlightCone: an exterminator elite's cone ENRAGES other enemies (faster + harder contact)
+  // and damages NOTHING itself — no hit, no hurt, ever.
+  {
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.weapons = []; run.obstacles = []; run.traps = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    const elite = makeStatusEnemy(run, { x: -300, y: 0, hp: 1e6, speed: 0, elite: true })
+    elite.flags = ['flashlightCone']
+    const rat = makeStatusEnemy(run, { x: -200, y: 0, hp: 1e6, speed: 100 }) // between the elite and the player
+    rat.flags = []
+    run.enemies.push(elite, rat)
+
+    for (let i = 0; i < Math.round(0.2 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(rat.enrageT > 0, `expected a rat in the cone to be enraged, enrageT=${rat.enrageT}`)
+    assert(Math.abs(rat.enrageT - FLASHLIGHT_ENRAGE_T) < 0.02, `expected enrageT refreshed to ${FLASHLIGHT_ENRAGE_T}, got ${rat.enrageT}`)
+    assert(typeof elite._coneAngle === 'number', 'expected the elite to expose _coneAngle for render')
+    assert(!run.events.some((ev) => ev.type === 'hit' || ev.type === 'hurt'), 'expected the cone itself to damage NOTHING')
+
+    // The enrage is real: an enraged rat closes faster than a plain one over the same window.
+    function ratDx(enraged) {
+      const r = createRun(makeMeta(), { chapter: 'undergrowth' })
+      r.weapons = []; r.obstacles = []; r.traps = []; r.mods.spawnMul = 0
+      r.player.x = 2000; r.player.y = 0
+      const en = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e6, speed: 100 })
+      en.flags = []
+      if (enraged) en.enrageT = 10
+      r.enemies.push(en)
+      for (let i = 0; i < Math.round(0.3 / dt); i++) stepSim(r, { x: 0, y: 0 }, dt)
+      return en.x
+    }
+    const fast = ratDx(true), plain = ratDx(false)
+    assert(Math.abs(fast / plain - FLASHLIGHT_SPEED_MUL) < 0.01, `expected an enraged rat at ${FLASHLIGHT_SPEED_MUL}x speed, got ${(fast / plain).toFixed(3)}x`)
+    console.log(`PASS run Y.k (flashlightCone): enrages at ${(fast / plain).toFixed(2)}x speed, damages nothing`)
+  }
+
+  console.log('PASS run Y (v5.4 behavior flags): pounce, aerialStrike, lineCharge, spawner, strafe, missileVolley, artillery, blink, phase, pullBeam, flashlightCone')
+}
+
+// ---- Run Z: v5.4 signature mechanics (predators/traffic/bombardment/gravity) --------------
+function testV54Signatures() {
+  const dt = 1 / 60
+
+  // (a) predators: the trap field is seeded at createRun (never under the player), and an armed trap
+  // damages BOTH sides — the player AND enemies — then re-arms. Damaging both IS the mechanic.
+  {
+    const seeded = createRun(makeMeta(), { chapter: 'undergrowth' })
+    assert.strictEqual(seeded.traps.length, CHAPTERS.undergrowth.signature.traps,
+      `expected ${CHAPTERS.undergrowth.signature.traps} traps seeded, got ${seeded.traps.length}`)
+    for (const tr of seeded.traps) {
+      assert(Math.hypot(tr.x, tr.y) >= SNAP_TRAP_MIN_DIST, `expected traps >= ${SNAP_TRAP_MIN_DIST}px from the origin, got ${Math.hypot(tr.x, tr.y).toFixed(1)}`)
+      assert.strictEqual(tr.armed, true, 'expected a fresh trap armed')
+      assert.strictEqual(tr.r, SNAP_TRAP_R, `expected trap radius ${SNAP_TRAP_R}, got ${tr.r}`)
+    }
+    // Other chapters never seed one (the array exists and stays empty).
+    assert.strictEqual(createRun(makeMeta(), { chapter: 'city' }).traps.length, 0, 'expected a non-predators chapter to seed no traps')
+
+    // Player side: standing on an armed trap springs it, hurts, and puts it on cooldown.
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = 500; run.player.maxHP = 500; run.player.invuln = 0
+    run.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, cd: 0 }]
+    const hp0 = run.player.hp
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.player.hp < hp0, `expected a snap trap to damage the player (${hp0} -> ${run.player.hp})`)
+    assert.strictEqual(run.traps[0].armed, false, 'expected a sprung trap to disarm')
+    assert.strictEqual(run.traps[0].cd, SNAP_TRAP_REARM, `expected cd ${SNAP_TRAP_REARM}, got ${run.traps[0].cd}`)
+    assert(run.events.some((ev) => ev.type === 'explode'), 'expected a sprung trap to emit an explode event')
+
+    // ...and it re-arms rather than expiring (permanent furniture).
+    for (let i = 0; i < Math.round((SNAP_TRAP_REARM + 0.1) / dt); i++) {
+      run.player.invuln = 1e9 // hold the player harmless so it re-arms instead of instantly re-springing
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert.strictEqual(run.traps.length, 1, 'expected a trap to never expire')
+    assert.strictEqual(run.traps[0].armed, true, 'expected a sprung trap to re-arm after SNAP_TRAP_REARM')
+
+    // Enemy side (the kite mechanic): the same trap damages an enemy that walks onto it.
+    const kite = createRun(makeMeta(), { chapter: 'undergrowth' })
+    kite.weapons = []; kite.obstacles = []; kite.mods.spawnMul = 0
+    kite.player.x = 5000; kite.player.y = 0; kite.player.hp = 1e9; kite.player.maxHP = 1e9
+    const e = makeStatusEnemy(kite, { x: 0, y: 0, hp: 500, speed: 0 })
+    kite.enemies.push(e)
+    kite.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, cd: 0 }]
+    stepSim(kite, { x: 0, y: 0 }, dt)
+    assert.strictEqual(e.hp, 500 - SNAP_TRAP_DMG, `expected the trap to deal ${SNAP_TRAP_DMG} to the enemy, hp=${e.hp}`)
+    assert.strictEqual(kite.traps[0].armed, false, 'expected the enemy to spring the trap too')
+    console.log(`PASS run Z.a (predators): ${seeded.traps.length} traps seeded, snaps on BOTH sides, re-arms`)
+  }
+
+  // (b) traffic: 'warn' is a harmless telegraph; the 'sweep' vehicle damages BOTH sides + knocks back.
+  {
+    function laneRun() {
+      const run = createRun(makeMeta(), { chapter: 'city' })
+      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run._laneAcc = 1e6 // park the roller: this case drives one hand-placed lane
+      run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9; run.player.invuln = 0
+      run.lanes = [{
+        x: 0, y: 0, angle: 0, len: TRAFFIC_LEN, w: TRAFFIC_W,
+        phase: 'warn', t: TRAFFIC_WARN, carT: 0, dmg: TRAFFIC_DMG, hitIds: new Set(),
+      }]
+      return run
+    }
+    const warn = laneRun()
+    // In the lane, but well clear of the player — otherwise its own CONTACT damage, not the lane,
+    // is what the "telegraph is harmless" assertion would be measuring.
+    const victimW = makeStatusEnemy(warn, { x: 300, y: 0, hp: 1e6, speed: 0 })
+    victimW.flags = []
+    warn.enemies.push(victimW)
+    for (let i = 0; i < Math.round((TRAFFIC_WARN - 0.05) / dt); i++) stepSim(warn, { x: 0, y: 0 }, dt)
+    assert.strictEqual(warn.player.hp, 1e9, 'expected the lane telegraph to damage nobody')
+    assert.strictEqual(victimW.hp, 1e6, 'expected the lane telegraph to damage no enemies either')
+    assert.strictEqual(warn.lanes[0].phase, 'warn', 'expected the lane still telegraphing')
+
+    const sweep = laneRun()
+    const victim = makeStatusEnemy(sweep, { x: 300, y: 0, hp: 1e6, speed: 0 })
+    victim.flags = []
+    sweep.enemies.push(victim)
+    const hp0 = sweep.player.hp
+    for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(sweep, { x: 0, y: 0 }, dt)
+    assert(sweep.player.hp < hp0, `expected the car to flatten the player (${hp0} -> ${sweep.player.hp})`)
+    assert(victim.hp < 1e6, `expected the car to flatten enemies too (BOTH sides), hp=${victim.hp}`)
+    assert(victim.x > 301, `expected the car to knock the enemy along the lane (+x), moved to ${victim.x.toFixed(1)}px`)
+    assert.strictEqual(sweep.lanes.length, 0, 'expected the lane removed once the sweep ends')
+
+    // The signature actually rolls lanes on its own in a city run (capped by signature.lanes).
+    const auto = createRun(makeMeta(), { chapter: 'city' })
+    auto.weapons = []; auto.mods.spawnMul = 0; auto.player.hp = 1e9; auto.player.maxHP = 1e9
+    let maxAlive = 0
+    for (let i = 0; i < Math.round(12 / dt); i++) {
+      stepSim(auto, { x: 0, y: 0 }, dt)
+      maxAlive = Math.max(maxAlive, auto.lanes.length)
+    }
+    assert(maxAlive > 0, 'expected a city run to roll traffic lanes on its own')
+    assert(maxAlive <= CHAPTERS.city.signature.lanes, `expected at most ${CHAPTERS.city.signature.lanes} lanes alive, saw ${maxAlive}`)
+    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, <= ${maxAlive} lane(s) live`)
+  }
+
+  // (c) bombardment: telegraphed circles rain on the player's area continuously, and (being run.bombs)
+  // they damage BOTH sides.
+  {
+    const run = createRun(makeMeta(), { chapter: 'skies' })
+    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9; run.player.invuln = 0
+    const victim = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(victim)
+
+    let sawBombs = 0
+    let hurt = false
+    for (let i = 0; i < Math.round(9 / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      sawBombs = Math.max(sawBombs, run.bombs.length)
+      for (const b of run.bombs) {
+        assert.strictEqual(b.radius, BOMBARDMENT_RADIUS, `expected bombardment radius ${BOMBARDMENT_RADIUS}, got ${b.radius}`)
+        assert(Math.hypot(b.x - run.player.x, b.y - run.player.y) <= BOMBARDMENT_SPREAD + 1e-6, 'expected bombs scattered within BOMBARDMENT_SPREAD of the player')
+      }
+      if (run.events.some((ev) => ev.type === 'hurt')) hurt = true
+    }
+    assert(sawBombs >= BOMBARDMENT_COUNT, `expected >= ${BOMBARDMENT_COUNT} bombs alive at once, saw ${sawBombs}`)
+    assert(hurt, 'expected the bombardment to damage a player standing in it')
+    assert(victim.hp < 1e6, `expected the bombardment to damage enemies too (BOTH sides), hp=${victim.hp}`)
+    // Only the skies get shelled by the sky.
+    const quiet = createRun(makeMeta(), { chapter: 'city' })
+    quiet.weapons = []; quiet.mods.spawnMul = 0; quiet.player.hp = 1e9; quiet.player.maxHP = 1e9
+    for (let i = 0; i < Math.round(9 / dt); i++) stepSim(quiet, { x: 0, y: 0 }, dt)
+    assert.strictEqual(quiet.bombs.length, 0, 'expected a non-bombardment chapter never to rain bombs')
+    console.log(`PASS run Z.c (bombardment): >= ${sawBombs} telegraphed circles, damages BOTH sides`)
+  }
+
+  // (d) gravity: the wells are seeded at createRun, they BEND projectiles WITHOUT changing their
+  // speed (curvature, not acceleration), and they leave bodies alone.
+  {
+    const seeded = createRun(makeMeta(), { chapter: 'beyond' })
+    assert.strictEqual(seeded.wells.length, CHAPTERS.beyond.signature.wells,
+      `expected ${CHAPTERS.beyond.signature.wells} wells seeded, got ${seeded.wells.length}`)
+    for (const w of seeded.wells) {
+      assert(Math.hypot(w.x, w.y) >= GRAVITY_MIN_DIST, `expected wells >= ${GRAVITY_MIN_DIST}px from the origin, got ${Math.hypot(w.x, w.y).toFixed(1)}`)
+      assert.strictEqual(w.r, GRAVITY_WELL_R, `expected well radius ${GRAVITY_WELL_R}, got ${w.r}`)
+      assert.strictEqual(w.g, GRAVITY_FORCE, `expected well force ${GRAVITY_FORCE}, got ${w.g}`)
+    }
+    for (let i = 0; i < seeded.wells.length; i++) {
+      for (let j = i + 1; j < seeded.wells.length; j++) {
+        const a = seeded.wells[i], b = seeded.wells[j]
+        const gap = Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r
+        assert(gap >= GRAVITY_MIN_GAP - 1e-6, `expected wells spaced >= ${GRAVITY_MIN_GAP}px edge-to-edge, got ${gap.toFixed(1)}`)
+      }
+    }
+    assert.strictEqual(createRun(makeMeta(), { chapter: 'skies' }).wells.length, 0, 'expected a non-gravity chapter to seed no wells')
+
+    // THE contract: a well bends a bullet's path and its speed is preserved exactly.
+    const run = createRun(makeMeta(), { chapter: 'beyond' })
+    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.wells = [{ x: 0, y: 160, r: GRAVITY_WELL_R, g: GRAVITY_FORCE }] // straddles the flight path
+    const speed = 480
+    run.bullets.push({
+      x: -150, y: 0, vx: speed, vy: 0, dmg: 1, pierce: 1, life: 5, r: 10, speed,
+      hitIds: new Set(), weapon: 'quill', _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+    })
+    const b = run.bullets[0]
+    let maxSpeedErr = 0
+    for (let i = 0; i < Math.round(0.5 / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (!run.bullets.includes(b)) break
+      maxSpeedErr = Math.max(maxSpeedErr, Math.abs(Math.hypot(b.vx, b.vy) - speed))
+    }
+    assert(maxSpeedErr < 1e-6, `expected a well to preserve projectile SPEED exactly (curvature, not acceleration), max error ${maxSpeedErr}`)
+    assert(b.vy > 20, `expected the well to bend the bullet toward it (+y), vy=${b.vy.toFixed(1)}`)
+    assert(b.y > 1, `expected the bent path to actually curve, y=${b.y.toFixed(1)}`)
+
+    // ...and it bends nothing else: bodies, beams, orbitals and zones are not projectiles.
+    const bodies = createRun(makeMeta(), { chapter: 'beyond' })
+    bodies.weapons = []; bodies.obstacles = []; bodies.mods.spawnMul = 0
+    bodies.player.x = 0; bodies.player.y = 0; bodies.player.hp = 1e9; bodies.player.maxHP = 1e9
+    bodies.wells = [{ x: 60, y: 0, r: GRAVITY_WELL_R, g: GRAVITY_FORCE }]
+    const still = makeStatusEnemy(bodies, { x: 0, y: 60, hp: 1e6, speed: 0 })
+    still.flags = []
+    bodies.enemies.push(still)
+    const px0 = bodies.player.x, py0 = bodies.player.y
+    for (let i = 0; i < Math.round(0.5 / dt); i++) stepSim(bodies, { x: 0, y: 0 }, dt)
+    assert.strictEqual(still.x, 0, `expected a well to never move an enemy body, x=${still.x}`)
+    assert.strictEqual(still.y, 60, `expected a well to never move an enemy body, y=${still.y}`)
+    assert.strictEqual(bodies.player.x, px0, 'expected a well to never move the player')
+    assert.strictEqual(bodies.player.y, py0, 'expected a well to never move the player')
+    assert(!bodies.events.some((ev) => ev.type === 'hurt' || ev.type === 'hit'), 'expected wells to damage nothing')
+    console.log(`PASS run Z.d (gravity): ${seeded.wells.length} wells seeded, bullet bent to vy=${b.vy.toFixed(0)} with speed error ${maxSpeedErr.toExponential(1)}, bodies untouched`)
+  }
+
+  console.log('PASS run Z (v5.4 signatures): predators traps, traffic lanes, bombardment, gravity wells')
+}
+
+// ---- Run AA: v5.4 weapons + per-chapter balance bands (run W/X style) ---------------------
+function testV54Weapons() {
+  const dt = 1 / 60
+
+  // A quiet run in a chapter, with one weapon at max level and nothing else moving.
+  function weaponRun(chapter, id, level = MAX_WEAPON_LEVEL) {
+    const run = createRun(makeMeta(), { chapter })
+    run.weapons = [{ id, level }]
+    run.obstacles = []; run.traps = []; run.wells = []; run.mods.spawnMul = 0
+    run._laneAcc = 1e6; run._bombardAcc = 1e6 // park the signatures: these cases are about the weapon
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    return run
+  }
+  function stepQuiet(run, seconds, input = { x: 0, y: 0 }) {
+    for (let i = 0; i < Math.round(seconds / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, input, dt)
+    }
+  }
+
+  // (a) pounceClaws: the cast DASHES the player at the nearest foe (landing ON it, never past it)
+  // and rakes on landing. throughLine also rakes what the leap passed; doublePounce chains a 2nd leap.
+  {
+    const run = weaponRun('undergrowth', 'pounceClaws')
+    // Nearer than the level's `dash`, so the "land ON it, never past it" cap is what's under test.
+    const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })
+    target.flags = []
+    run.enemies.push(target)
+    let sawPounce = null
+    for (let i = 0; i < Math.round(2 / dt) && !sawPounce; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      sawPounce = run.events.find((ev) => ev.type === 'pounce')
+    }
+    assert(sawPounce, 'expected a pounce event')
+    assert(run._pounceDash, 'expected the cast to put a dash in flight')
+    const edge = target.x - target.radius
+    assert(Math.abs(sawPounce.dash - edge) < 1e-6, `expected the leap capped at the foe's edge (${edge}), got ${sawPounce.dash.toFixed(1)}`)
+    stepQuiet(run, POUNCE_DASH_T + 0.02)
+    assert(run.player.x > 50, `expected the player dashed toward the foe, x=${run.player.x.toFixed(1)}`)
+    assert(run.player.x <= edge + 1e-6, `expected the leap to land ON the foe, never past it (x=${run.player.x.toFixed(1)}, edge=${edge})`)
+    assert(target.hp < 1e6, `expected the landing rake to damage the foe, hp=${target.hp}`)
+
+    // throughLine: an enemy beside the dash path (outside the landing sector's reach) still gets raked.
+    function passedHp(through) {
+      const r = weaponRun('undergrowth', 'pounceClaws')
+      if (through) r.weaponMods.pounceClaws.throughLine = 1
+      r.enemies.push(makeStatusEnemy(r, { x: 400, y: 0, hp: 1e9, speed: 0 })) // aim anchor, far ahead
+      const passed = makeStatusEnemy(r, { x: 60, y: 20, hp: 1e6, speed: 0 })  // beside the path
+      r.enemies.push(passed)
+      stepQuiet(r, 1.2)
+      return passed.hp
+    }
+    const withThrough = passedHp(true)
+    assert(withThrough < 1e6, `expected throughLine to rake what the leap passed, hp=${withThrough}`)
+
+    // doublePounce: every POUNCE_DOUBLE_EVERY-th cast queues a chained second leap.
+    const dbl = weaponRun('undergrowth', 'pounceClaws')
+    dbl.weaponMods.pounceClaws.doublePounce = 1
+    dbl.enemies.push(makeStatusEnemy(dbl, { x: 400, y: 0, hp: 1e9, speed: 0 }))
+    let pounces = 0
+    for (let i = 0; i < Math.round((POUNCE_DOUBLE_EVERY + 1) * 1.0 / dt); i++) {
+      if (dbl.phase === 'levelup') { declineLevelUp(dbl); continue }
+      dbl.events = [] // main.js drains events every frame; tests must too, or counts compound
+      stepSim(dbl, { x: 0, y: 0 }, dt)
+      pounces += dbl.events.filter((ev) => ev.type === 'pounce').length
+    }
+    assert(dbl._pounceCasts >= POUNCE_DOUBLE_EVERY, `expected several casts, got ${dbl._pounceCasts}`)
+    assert(pounces > dbl._pounceCasts, `expected doublePounce to add leaps beyond the casts (casts=${dbl._pounceCasts}, leaps=${pounces})`)
+    console.log(`PASS run AA.a (pounceClaws): dash lands on the foe + rakes; throughLine rakes the path; doublePounce chains (${pounces} leaps / ${dbl._pounceCasts} casts)`)
+  }
+
+  // (b) quillBurst: a ring of quills in every direction (never aimed — the panic button), tagged
+  // weapon:'quill'; retaliate fires a free burst the instant the player is hurt.
+  {
+    const run = weaponRun('undergrowth', 'quillBurst')
+    run.enemies.push(makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 }))
+    const lvl = WEAPONS.quillBurst.levels[MAX_WEAPON_LEVEL - 1]
+    let burst = []
+    for (let i = 0; i < Math.round(2 / dt) && burst.length === 0; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.bullets.length > 0) burst = run.bullets.slice()
+    }
+    assert.strictEqual(burst.length, lvl.count, `expected ${lvl.count} quills per burst, got ${burst.length}`)
+    for (const b of burst) {
+      assert.strictEqual(b.weapon, 'quill', 'expected each quill tagged weapon:quill')
+      assert.strictEqual(b._chainsLeft, 0, "expected star's chain disabled on quills")
+    }
+    // Evenly around the full circle: the headings span way more than any cone.
+    const angles = burst.map((b) => Math.atan2(b.vy, b.vx)).sort((a, z) => a - z)
+    assert(angles[angles.length - 1] - angles[0] > Math.PI, `expected quills all around, span=${(angles[angles.length - 1] - angles[0]).toFixed(2)}rad`)
+
+    // retaliate: taking a hit fires a free burst off the weapon timer (once per QUILL_RETALIATE_CD).
+    const ret = weaponRun('undergrowth', 'quillBurst')
+    ret.weaponMods.quillBurst.retaliate = 1
+    ret.player.hp = 500; ret.player.maxHP = 500; ret.player.invuln = 0
+    ret.weaponTimers.quillBurst = 1e6 // park the timer: any burst now can only be the retaliation
+    ret.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, cd: 0 }] // a trap under the player = a free hit
+    stepSim(ret, { x: 0, y: 0 }, dt)
+    assert(ret.bullets.length > 0, 'expected retaliate to fire a free burst when the player is hurt')
+    assert.strictEqual(ret.bullets.length, lvl.count + 1, `expected the level's count + 1 retaliate pick, got ${ret.bullets.length}`)
+    // The cd is set when the hit lands, then stepQuillWeapon ticks it down later in the same frame.
+    assert(ret._quillRetalCd > 0 && ret._quillRetalCd <= QUILL_RETALIATE_CD,
+      `expected retaliate on cooldown (0, ${QUILL_RETALIATE_CD}], got ${ret._quillRetalCd}`)
+    console.log(`PASS run AA.b (quillBurst): ${burst.length} quills all around; retaliate fires ${lvl.count + 1} on being hit`)
+  }
+
+  // (c) chitterShriek: the ring FEARS what it hits — a feared enemy runs AWAY (inverted seek) at
+  // FEAR_SPEED_MUL and stops dealing contact damage. panicRout amplifies damage on fleeing foes.
+  {
+    const run = weaponRun('undergrowth', 'chitterShriek')
+    const victim = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
+    victim.flags = []
+    run.enemies.push(victim)
+    let feared = false
+    for (let i = 0; i < Math.round(4 / dt) && !feared; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (victim.fearT > 0) feared = true
+    }
+    assert(feared, 'expected the shriek to fear the enemies it hits')
+
+    // A feared enemy flees at FEAR_SPEED_MUL of its own speed (vs seeking at 1x).
+    function fleeDx(fear) {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      r.player.x = 1000; r.player.y = 0 // player to the +x
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e6, speed: 100 })
+      e.flags = []
+      if (fear) e.fearT = 10
+      r.enemies.push(e)
+      const x0 = e.x
+      stepQuiet(r, 0.3)
+      return e.x - x0
+    }
+    const flee = fleeDx(true), seek = fleeDx(false)
+    assert(seek > 0, `expected a calm enemy to seek the player (+x), got ${seek.toFixed(1)}`)
+    assert(flee < 0, `expected a feared enemy to FLEE (-x), got ${flee.toFixed(1)}`)
+    assert(Math.abs(Math.abs(flee / seek) - FEAR_SPEED_MUL) < 0.01, `expected fleeing at ${FEAR_SPEED_MUL}x, got ${Math.abs(flee / seek).toFixed(3)}x`)
+
+    // A feared enemy deals no contact damage.
+    const safe = weaponRun('undergrowth', 'chitterShriek')
+    safe.weapons = []
+    safe.player.hp = 500; safe.player.maxHP = 500; safe.player.invuln = 0
+    const scared = makeStatusEnemy(safe, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    scared.flags = []; scared.fearT = 10
+    safe.enemies.push(scared)
+    stepQuiet(safe, 0.5)
+    assert.strictEqual(safe.player.hp, 500, 'expected a fleeing enemy to deal no contact damage')
+
+    // panicRout: the same hit lands harder on a fleeing foe.
+    function routHp(rout) {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      if (rout) r.weaponMods.chitterShriek.panicRout = 0.40
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []; e.fearT = 10
+      r.enemies.push(e)
+      r.novas.push({ x: 0, y: 0, r: 0, maxR: 200, dmg: 100, knockback: 0, fear: 0, life: NOVA_LIFE, hit: new Set() })
+      stepQuiet(r, NOVA_LIFE + 0.1)
+      return 1e6 - e.hp
+    }
+    const routed = routHp(true), plainHit = routHp(false)
+    assert(routed > plainHit, `expected panicRout to amplify damage on a fleeing foe (${plainHit} -> ${routed})`)
+    console.log(`PASS run AA.c (chitterShriek): fears + inverts the seek at ${FEAR_SPEED_MUL}x, no contact damage, panicRout ${plainHit} -> ${routed}`)
+  }
+
+  // (d) trashTornado: an always-on orbital rewritten into run.debris every frame (the run.orbs
+  // contract); suction drags foes in; flingDebris hurls chunks out as run.bullets tagged 'trash'.
+  {
+    const run = weaponRun('city', 'trashTornado')
+    const lvl = WEAPONS.trashTornado.levels[MAX_WEAPON_LEVEL - 1]
+    const victim = makeStatusEnemy(run, { x: lvl.radius, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(victim)
+    stepQuiet(run, 1.0)
+    assert.strictEqual(run.debris.length, lvl.chunks, `expected ${lvl.chunks} chunks in run.debris, got ${run.debris.length}`)
+    for (const d of run.debris) {
+      assert(Math.abs(Math.hypot(d.x - run.player.x, d.y - run.player.y) - lvl.radius) < 1e-6, 'expected chunks on the orbit ring')
+    }
+    assert(victim.hp < 1e6, `expected the chunks to grind an enemy on the ring, hp=${victim.hp}`)
+
+    // suction: a foe just inside the suction range is dragged toward the player.
+    function suctionDx(on) {
+      const r = weaponRun('city', 'trashTornado')
+      if (on) r.weaponMods.trashTornado.suction = 0.50
+      const e = makeStatusEnemy(r, { x: 200, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      r.enemies.push(e)
+      stepQuiet(r, 0.3)
+      return e.x
+    }
+    assert(suctionDx(true) < suctionDx(false) - 1, 'expected suction to drag a nearby foe inward')
+
+    // flingDebris: chunks are hurled outward as bullets.
+    const fling = weaponRun('city', 'trashTornado')
+    fling.weaponMods.trashTornado.flingDebris = 2
+    stepQuiet(fling, 2.0)
+    assert(fling.bullets.some((b) => b.weapon === 'trash'), 'expected flingDebris to hurl chunks as weapon:trash bullets')
+    console.log(`PASS run AA.d (trashTornado): ${run.debris.length} orbiting chunks grind + suction + fling`)
+  }
+
+  // (e) sewerGeyser: telegraph (harmless) -> one eruption -> gone. Enemies only, never the player.
+  // launch flings and stuns; chainGeyser scatters follow-ups that never chain further.
+  {
+    const run = weaponRun('city', 'sewerGeyser')
+    const lvl = WEAPONS.sewerGeyser.levels[MAX_WEAPON_LEVEL - 1]
+    const victim = makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 }) // in castRange, clear of the player
+    victim.flags = []
+    run.enemies.push(victim)
+    let planted = null
+    for (let i = 0; i < Math.round(4 / dt) && !planted; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      planted = run.geysers[0]
+    }
+    assert(planted, 'expected the weapon to plant a geyser')
+    assert.strictEqual(planted.dur, lvl.fuse, 'expected dur to snapshot the starting fuse (render grows the warning ring from fuse/dur)')
+    const hpAtPlant = victim.hp
+    stepQuiet(run, 0.02)
+    assert.strictEqual(victim.hp, hpAtPlant, 'expected the geyser fuse to be a harmless telegraph')
+    stepQuiet(run, lvl.fuse + 0.2)
+    assert(victim.hp < hpAtPlant, `expected the eruption to damage the enemy, hp=${victim.hp}`)
+
+    // Enemies only, NEVER the player: a geyser erupting right on top of them does nothing at all.
+    const safe = weaponRun('city', 'sewerGeyser')
+    safe.weapons = [] // no re-planting, no enemies: the hand-placed zone is the only thing live
+    safe.player.hp = 500; safe.player.maxHP = 500; safe.player.invuln = 0
+    safe.geysers.push({ x: 0, y: 0, r: 150, fuse: 0.05, dur: 0.05, dmg: 999 })
+    stepQuiet(safe, 0.3)
+    assert.strictEqual(safe.player.hp, 500, 'expected a geyser to NEVER damage the player')
+    assert.strictEqual(safe.geysers.length, 0, 'expected the geyser to erupt ONCE and be removed')
+
+    // launch: the eruption flings and stuns.
+    const launch = weaponRun('city', 'sewerGeyser')
+    launch.weapons = []
+    launch.weaponMods.sewerGeyser.launch = 1
+    const caught = makeStatusEnemy(launch, { x: 40, y: 0, hp: 1e6, speed: 0 })
+    caught.flags = []
+    launch.enemies.push(caught)
+    launch.geysers.push({ x: 0, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 10 })
+    stepQuiet(launch, 0.2)
+    assert(caught.stunT > 0, `expected launch to stun what it catches, stunT=${caught.stunT}`)
+    assert(caught.x > 40, `expected launch to fling the enemy outward, x=${caught.x.toFixed(1)}`)
+
+    // chainGeyser: follow-ups appear, flagged _chained, and never chain further.
+    const chain = weaponRun('city', 'sewerGeyser')
+    chain.weapons = []
+    chain.weaponMods.sewerGeyser.chainGeyser = 2
+    chain.geysers.push({ x: 0, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 50 })
+    stepQuiet(chain, 0.2)
+    assert.strictEqual(chain.geysers.length, 2, `expected 2 chained follow-ups, got ${chain.geysers.length}`)
+    for (const g of chain.geysers) {
+      assert.strictEqual(g._chained, true, 'expected follow-ups flagged _chained')
+      assert(Math.abs(g.r - 100 * GEYSER_CHAIN_FRAC) < 1e-6, `expected follow-up radius at GEYSER_CHAIN_FRAC, got ${g.r}`)
+    }
+    stepQuiet(chain, 1.0)
+    assert.strictEqual(chain.geysers.length, 0, 'expected a _chained geyser to erupt and never chain further')
+    console.log('PASS run AA.e (sewerGeyser): telegraph -> erupt (enemies only) -> gone; launch stuns; chain never re-chains')
+  }
+
+  // (f) roar: a narrow sector sweep aimed at the NEAREST enemy that shoves; stagger stuns;
+  // resonance opens every ROAR_RESONANCE_EVERY-th roar to a full circle (flagella's cyclone shape).
+  {
+    const run = weaponRun('skies', 'roar')
+    const foe = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })
+    foe.flags = []
+    run.enemies.push(foe)
+    let sawRoar = false
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((ev) => ev.type === 'roar')) sawRoar = true
+    }
+    assert(sawRoar, 'expected a roar event')
+    assert(foe.hp < 1e6, 'expected the roar to damage what it hits')
+    assert(foe.x > 100, `expected the roar to shove the foe away, x=${foe.x.toFixed(1)}`)
+
+    // stagger: roared foes are stunned.
+    const stag = weaponRun('skies', 'roar')
+    stag.weaponMods.roar.stagger = 0.50
+    const s = makeStatusEnemy(stag, { x: 100, y: 0, hp: 1e6, speed: 0 })
+    s.flags = []
+    stag.enemies.push(s)
+    stepQuiet(stag, 1.5)
+    assert(s.stunT > 0, `expected stagger to stun a roared foe, stunT=${s.stunT}`)
+
+    // resonance: an in-range foe BEHIND the aim anchor is only ever reached by the 360° roar.
+    function behindHp(resonance) {
+      const r = weaponRun('skies', 'roar')
+      if (resonance) r.weaponMods.roar.resonance = 1
+      // The anchor pins the aim +x. It must be 'anchored': the roar's own shove would otherwise
+      // walk it past the behind foe, which would flip "nearest" and hand the aim to the wrong side.
+      r.enemies.push(makeStatusEnemy(r, { x: 60, y: 0, hp: 1e9, speed: 0, affixes: ['anchored'] }))
+      const behind = makeStatusEnemy(r, { x: -100, y: 0, hp: 1e6, speed: 0 })
+      behind.flags = []
+      r.enemies.push(behind)
+      stepQuiet(r, (ROAR_RESONANCE_EVERY + 2) * 0.7)
+      return behind.hp
+    }
+    const withRes = behindHp(true), without = behindHp(false)
+    assert.strictEqual(without, 1e6, `expected no resonance to never reach the behind foe (hp ${without})`)
+    assert(withRes < 1e6, `expected resonance's 360° roar to reach the behind foe (hp ${withRes})`)
+    console.log(`PASS run AA.f (roar): sweeps + shoves, stagger stuns, resonance reaches behind (${withRes.toFixed(0)} vs ${without.toFixed(0)})`)
+  }
+
+  // (g) tailSwipe: a wide sector that launches; wreckingTail turns the launched body into
+  // collateral where it lands; counterSwipe swings for free when the player is hit.
+  {
+    const run = weaponRun('skies', 'tailSwipe')
+    const foe = makeStatusEnemy(run, { x: 80, y: 0, hp: 1e6, speed: 0 })
+    foe.flags = []
+    run.enemies.push(foe)
+    let sawTail = false
+    for (let i = 0; i < Math.round(2 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((ev) => ev.type === 'tail')) sawTail = true
+    }
+    assert(sawTail, 'expected a tail event')
+    assert(foe.hp < 1e6, 'expected the swipe to damage what it hits')
+    assert(foe.x > 80, `expected the swipe to launch the foe, x=${foe.x.toFixed(1)}`)
+
+    // wreckingTail: a bystander near where the launched foe ends up takes collateral.
+    function bystanderHp(wrecking) {
+      const r = weaponRun('skies', 'tailSwipe')
+      if (wrecking) r.weaponMods.tailSwipe.wreckingTail = 0.40
+      // struck sits just inside the swipe's reach; bystander sits just OUTSIDE it (so the swipe can
+      // never hit it directly) but within TAIL_COLLIDE_R of where the launched body comes down.
+      const struck = makeStatusEnemy(r, { x: 190, y: 0, hp: 1e9, speed: 0 })
+      struck.flags = []
+      const bystander = makeStatusEnemy(r, { x: 240, y: 0, hp: 1e6, speed: 0 })
+      bystander.flags = []
+      r.enemies.push(struck, bystander)
+      stepQuiet(r, 1.5) // one swipe
+      return bystander.hp
+    }
+    const wrecked = bystanderHp(true), clean = bystanderHp(false)
+    assert(wrecked < clean, `expected wreckingTail collateral on a bystander (${clean} -> ${wrecked})`)
+
+    // counterSwipe: getting hurt swings for free, off the weapon timer.
+    const ctr = weaponRun('skies', 'tailSwipe')
+    ctr.player.hp = 500; ctr.player.maxHP = 500; ctr.player.invuln = 0
+    ctr.weaponMods.tailSwipe.counterSwipe = 1
+    ctr.weaponTimers.tailSwipe = 1e6 // park the timer: any swipe now can only be the counter
+    const hitMe = makeStatusEnemy(ctr, { x: 90, y: 0, hp: 1e6, speed: 0 })
+    hitMe.flags = []
+    ctr.enemies.push(hitMe)
+    ctr.bombs.push({ x: 0, y: 0, radius: 60, fuse: 0.01, duration: 0.01, dmg: 5 }) // hurt the player
+    stepQuiet(ctr, 0.1)
+    assert(ctr.events.some((ev) => ev.type === 'tail') || hitMe.hp < 1e6, 'expected counterSwipe to swing when the player is hurt')
+    console.log(`PASS run AA.g (tailSwipe): launches, wreckingTail collateral (${clean} -> ${wrecked}), counterSwipe on being hit`)
+  }
+
+  // (h) debrisToss: chunks arc onto foes (run.lobs, t counting UP to flight) and burst ONCE on
+  // landing — enemies only. shrapnel scatters splinters as run.bullets tagged 'debris'.
+  {
+    const run = weaponRun('skies', 'debrisToss')
+    const victim = makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 }) // in castRange, clear of the player
+    victim.flags = []
+    run.enemies.push(victim)
+    let lob = null
+    for (let i = 0; i < Math.round(4 / dt) && !lob; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      lob = run.lobs[0]
+    }
+    assert(lob, 'expected the weapon to lob a chunk')
+    assert(lob.t >= 0 && lob.t < lob.flight, `expected t counting UP toward flight, t=${lob.t}`)
+    const hpAtLob = victim.hp
+    stepQuiet(run, lob.flight + 0.1)
+    assert(victim.hp < hpAtLob, `expected the chunk to burst on the enemy, hp=${victim.hp}`)
+
+    // Enemies only, NEVER the player: a chunk landing right on them does nothing at all.
+    const safe = weaponRun('skies', 'debrisToss')
+    safe.weapons = [] // no re-throwing, no enemies: the hand-placed lob is the only thing live
+    safe.player.hp = 500; safe.player.maxHP = 500; safe.player.invuln = 0
+    safe.lobs.push({ x: 0, y: 0, fromX: 0, fromY: 0, tx: 0, ty: 0, t: 0, flight: 0.05, r: 150, dmg: 999 })
+    stepQuiet(safe, 0.3)
+    assert.strictEqual(safe.player.hp, 500, 'expected a lob to NEVER damage the player')
+    assert.strictEqual(safe.lobs.length, 0, 'expected the chunk to burst ONCE and be removed')
+
+    // shrapnel: the impact scatters splinters.
+    const shr = weaponRun('skies', 'debrisToss')
+    shr.weapons = []
+    shr.weaponMods.debrisToss.shrapnel = 3
+    shr.lobs.push({ x: 0, y: 0, fromX: 0, fromY: 0, tx: 100, ty: 0, t: 0, flight: 0.05, r: 80, dmg: 30 })
+    stepQuiet(shr, 0.2)
+    const splinters = shr.bullets.filter((b) => b.weapon === 'debris')
+    assert.strictEqual(splinters.length, 3, `expected 3 shrapnel splinters, got ${splinters.length}`)
+    console.log('PASS run AA.h (debrisToss): lobs arc + burst on enemies only; shrapnel scatters')
+  }
+
+  // (i) realityShard: shards SKIP through space (a blink jumps blinkDist along the heading without
+  // sweeping the gap). riftScar leaves _chained rifts (so chainGeyser can't fire off them);
+  // recursion forks a shard whose LIFE expired.
+  {
+    const run = weaponRun('beyond', 'realityShard')
+    run.enemies.push(makeStatusEnemy(run, { x: 400, y: 0, hp: 1e9, speed: 0 }))
+    let shard = null
+    for (let i = 0; i < Math.round(2 / dt) && !shard; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      shard = run.bullets.find((b) => b.weapon === 'shard')
+    }
+    assert(shard, 'expected the weapon to fire shards')
+    const lvl = WEAPONS.realityShard.levels[MAX_WEAPON_LEVEL - 1]
+    // Across one blinkEvery window a shard covers its own flight PLUS a whole blinkDist jump.
+    const x0 = shard.x
+    stepQuiet(run, lvl.blinkEvery + 0.02)
+    const covered = shard.x - x0
+    const flown = lvl.speed * (lvl.blinkEvery + 0.02)
+    assert(covered > flown + lvl.blinkDist * 0.9, `expected a blink to skip ~${lvl.blinkDist}px on top of the flight (covered=${covered.toFixed(1)}, flown=${flown.toFixed(1)})`)
+
+    // riftScar: each blink scars its departure point into a _chained rift.
+    const rift = weaponRun('beyond', 'realityShard')
+    rift.weaponMods.realityShard.riftScar = 0.50
+    rift.enemies.push(makeStatusEnemy(rift, { x: 400, y: 0, hp: 1e9, speed: 0 }))
+    // Sample WHILE stepping: a rift's whole life is SHARD_RIFT_FUSE, so it plants, erupts and is
+    // gone well inside any window long enough to have produced one.
+    let rifts = []
+    for (let i = 0; i < Math.round(2 / dt) && rifts.length === 0; i++) {
+      if (rift.phase === 'levelup') { declineLevelUp(rift); continue }
+      stepSim(rift, { x: 0, y: 0 }, dt)
+      rifts = rift.geysers.slice()
+    }
+    assert(rifts.length > 0, 'expected riftScar to leave rifts at blink departure points')
+    for (const g of rifts) assert.strictEqual(g._chained, true, "expected rifts flagged _chained so sewerGeyser's chainGeyser can never fire off them")
+
+    // recursion: a shard that runs out of LIFE forks into _fork shards.
+    const rec = weaponRun('beyond', 'realityShard')
+    rec.weapons = []
+    rec.weaponMods.realityShard.recursion = 2
+    rec.bullets.push({
+      x: 0, y: 0, vx: 380, vy: 0, dmg: 13, pierce: 1, life: 0.02, r: 9, speed: 380,
+      hitIds: new Set(), weapon: 'shard', _blinkCd: 99, _blinkEvery: 0.28, _blinkDist: 70, _life0: 0.8,
+      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+    })
+    stepQuiet(rec, 0.05)
+    const forks = rec.bullets.filter((b) => b._fork)
+    assert.strictEqual(forks.length, 2, `expected recursion to fork 2 shards on life expiry, got ${forks.length}`)
+    stepQuiet(rec, 1.0)
+    assert.strictEqual(rec.bullets.filter((b) => b._fork).length, 0, 'expected forks to expire without re-forking')
+    console.log(`PASS run AA.i (realityShard): blink skips ${(covered - flown).toFixed(0)}px, riftScar leaves _chained rifts, recursion forks once`)
+  }
+
+  // (j) tesseractBeam: ONE folded run.beams entry sweeping TESSERACT_ARMS arms at once (a plain
+  // Neon Beam rakes only the one it points at); collapse damages + yanks everything in any arm.
+  {
+    const run = weaponRun('beyond', 'tesseractBeam')
+    const front = makeStatusEnemy(run, { x: 150, y: 0, hp: 1e9, speed: 0 }) // aim anchor
+    const back = makeStatusEnemy(run, { x: -150, y: 0, hp: 1e6, speed: 0 }) // the FOLD's other arm
+    front.flags = []; back.flags = []
+    run.enemies.push(front, back)
+    let beam = null
+    for (let i = 0; i < Math.round(6 / dt) && !beam; i++) { // the fold's cast cadence is ~4.5s at max
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      beam = run.beams[0]
+    }
+    assert(beam, 'expected the weapon to cast a beam')
+    assert.strictEqual(beam.folded, true, 'expected the cast flagged folded')
+    assert.strictEqual(beam.arms, TESSERACT_ARMS, `expected ${TESSERACT_ARMS} arms on a plain fold, got ${beam.arms}`)
+
+    // The fold itself, isolated: a non-rotating folded beam aimed +x rakes BOTH sides at once,
+    // where the plain (unfolded) Neon Beam of the same shape only ever rakes the side it points at.
+    // (Left to sweep, any beam eventually crosses everything — that would prove nothing.)
+    function farSideHp(folded) {
+      const r = weaponRun('beyond', 'tesseractBeam')
+      r.weapons = []
+      const far = makeStatusEnemy(r, { x: -150, y: 0, hp: 1e6, speed: 0 })
+      far.flags = []
+      r.enemies.push(far)
+      r.beams.push({
+        angle: 0, life: 0.5, duration: 0.5, dmg: 22, tick: 0.05, width: 46, length: 430,
+        rotSpeed: 0, acc: 0, ...(folded ? { folded: true, arms: TESSERACT_ARMS } : {}),
+      })
+      stepQuiet(r, 0.3)
+      return far.hp
+    }
+    const foldedFar = farSideHp(true), plainFar = farSideHp(false)
+    assert.strictEqual(plainFar, 1e6, `expected an unfolded beam to never reach the far side (hp ${plainFar})`)
+    assert(foldedFar < 1e6, `expected the fold's opposite arm to rake the far side too, hp=${foldedFar}`)
+
+    // hyperfold adds arms; collapse detonates + yanks when the fold snaps shut.
+    const col = weaponRun('beyond', 'tesseractBeam')
+    col.weapons = []
+    col.weaponMods.tesseractBeam.collapse = 0.80
+    const caught = makeStatusEnemy(col, { x: 150, y: 0, hp: 1e6, speed: 0 })
+    caught.flags = []
+    col.enemies.push(caught)
+    col.beams.push({
+      angle: 0, life: 0.05, duration: 2, dmg: 22, tick: 99, width: 46, length: 430,
+      rotSpeed: 0, acc: 0, folded: true, arms: TESSERACT_ARMS, collapseBonus: 0.80,
+    })
+    stepQuiet(col, 0.1)
+    assert(caught.hp < 1e6, `expected collapse to detonate on what the fold held, hp=${caught.hp}`)
+    assert(caught.kb.x < 0, `expected collapse to yank the foe toward the player, kb.x=${caught.kb.x.toFixed(1)}`)
+    assert(col.events.some((ev) => ev.type === 'explode'), 'expected collapse to emit an explode at the player')
+
+    const hyper = weaponRun('beyond', 'tesseractBeam')
+    hyper.weaponMods.tesseractBeam.hyperfold = 2
+    stepQuiet(hyper, 6.0)
+    assert(hyper.beams.length > 0, 'expected the hyperfold cast to land')
+    assert.strictEqual(hyper.beams[0].arms, TESSERACT_ARMS + 2, `expected hyperfold to add arms, got ${hyper.beams[0].arms}`)
+    console.log(`PASS run AA.j (tesseractBeam): ${beam.arms} arms rake at once, hyperfold adds more, collapse detonates + yanks`)
+  }
+
+  // (k) each v5.4 chapter's level-up pool offers ONLY its own natives, as weapon AND mod cards
+  // (run U.c / W.f / X.g, extended to the four new chapters — this is what routes the new weapons
+  // through weaponCandidates/buildLevelUpChoices at all).
+  {
+    for (const chapter of ['undergrowth', 'city', 'skies', 'beyond']) {
+      const allowed = new Set(CHAPTERS[chapter].weapons)
+      const fresh = createRun(makeMeta(), { chapter })
+      fresh.choiceSlots = 4
+      let sawWeapon = false
+      for (let i = 0; i < 400; i++) {
+        for (const c of buildLevelUpChoices(fresh)) {
+          if (c.kind !== 'weapon') continue
+          sawWeapon = true
+          assert(allowed.has(c.id), `expected a ${chapter} run to only offer its natives, got weapon '${c.id}'`)
+        }
+      }
+      assert(sawWeapon, `expected at least one weapon card over 400 ${chapter} pools`)
+
+      const owned = createRun(makeMeta(), { chapter })
+      owned.weapons = CHAPTERS[chapter].weapons.map((id) => ({ id, level: 3 }))
+      owned.choiceSlots = 4
+      let sawMod = false
+      for (let i = 0; i < 400; i++) {
+        for (const c of buildLevelUpChoices(owned)) {
+          if (c.kind !== 'mod') continue
+          assert(allowed.has(c.weapon), `expected only ${chapter} weapon mods, got a '${c.weapon}' mod`)
+          sawMod = true
+        }
+      }
+      assert(sawMod, `expected ${chapter} weapon mods to appear over 400 pools`)
+    }
+    console.log('PASS run AA.k (pools): undergrowth/city/skies/beyond each offer only their own natives + mods')
+  }
+
+  // Balance bands (run W/X style): in every new chapter, the starter + 2 mods must clear a realistic
+  // converging ring no slower than 3.5x that chapter's median native. Kill-time on a converging ring,
+  // NOT an immortal-ring DPS race (the v4.4 lesson).
+  {
+    function measureTTK(weaponId, applyMods) {
+      const run = createRun(makeMeta()) // body chapter: no signature/obstacles skewing the clear
+      run.weapons = [{ id: weaponId, level: MAX_WEAPON_LEVEL }]
+      run.mods.spawnMul = 0
+      run.player.hp = 1e9; run.player.maxHP = 1e9
+      if (applyMods) applyMods(run)
+      const N = 14, radius = 150, hp = 50
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2
+        run.enemies.push(makeStatusEnemy(run, { x: Math.cos(a) * radius, y: Math.sin(a) * radius, hp, speed: 45 }))
+      }
+      let t = 0
+      const cap = 60
+      for (let i = 0; i < Math.round(cap / dt); i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        t += dt
+        // Pin the player: enemies converge on the origin. (pounceClaws' dash moves them — pinning
+        // each frame keeps every chapter's measurement on the same converging-ring footing.)
+        run.player.x = 0; run.player.y = 0
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.enemies.length === 0) return t
+      }
+      return cap
+    }
+    // { chapter: [[weaponId, mods], ...] } — the first entry of each is that chapter's STARTER.
+    const bands = {
+      undergrowth: [
+        ['pounceClaws', (r) => { r.weaponMods.pounceClaws.rend = 0.35; r.weaponMods.pounceClaws.wideRake = 0.30 }],
+        ['quillBurst', (r) => { r.weaponMods.quillBurst.sharpQuills = 0.25; r.weaponMods.quillBurst.moreQuills = 2 }],
+        ['chitterShriek', (r) => { r.weaponMods.chitterShriek.shrill = 0.30; r.weaponMods.chitterShriek.shockwave = 0.30 }],
+      ],
+      city: [
+        ['rainbow', (r) => { r.weaponMods.rainbow.wideBeam = 0.20; r.weaponMods.rainbow.longBeam = 0.20 }],
+        ['trashTornado', (r) => { r.weaponMods.trashTornado.heavyTrash = 0.25; r.weaponMods.trashTornado.moreTrash = 1 }],
+        ['sewerGeyser', (r) => { r.weaponMods.sewerGeyser.pressure = 0.30; r.weaponMods.sewerGeyser.wideGeyser = 0.30 }],
+      ],
+      skies: [
+        ['roar', (r) => { r.weaponMods.roar.bellow = 0.30; r.weaponMods.roar.wideRoar = 0.30 }],
+        ['tailSwipe', (r) => { r.weaponMods.tailSwipe.heavyTail = 0.30; r.weaponMods.tailSwipe.longTail = 0.30 }],
+        ['debrisToss', (r) => { r.weaponMods.debrisToss.heavyDebris = 0.30; r.weaponMods.debrisToss.bigImpact = 0.30 }],
+      ],
+      beyond: [
+        ['realityShard', (r) => { r.weaponMods.realityShard.keenShard = 0.25; r.weaponMods.realityShard.moreShards = 1 }],
+        ['hole', (r) => { r.weaponMods.hole.biggerHole = 0.20; r.weaponMods.hole.denser = 0.20 }],
+        ['tesseractBeam', (r) => { r.weaponMods.tesseractBeam.wideFold = 0.20; r.weaponMods.tesseractBeam.longFold = 0.20 }],
+      ],
+    }
+    for (const [chapter, entries] of Object.entries(bands)) {
+      const ttks = entries.map(([id, mods]) => [id, measureTTK(id, mods)])
+      const [starterId, starterTTK] = ttks[0]
+      const others = ttks.slice(1).map(([, t]) => t).sort((a, b) => a - b)
+      const median = others[Math.floor(others.length / 2)]
+      for (const [id, t] of ttks) {
+        assert(t < 60, `expected ${chapter}'s ${id} to clear the ring within the cap, got ${t.toFixed(1)}s`)
+      }
+      assert(starterTTK <= median * 3.5,
+        `expected ${chapter}'s starter within 3.5x the chapter median (${starterId}=${starterTTK.toFixed(1)}s, median=${median.toFixed(1)}s, ratio=${(starterTTK / median).toFixed(2)})`)
+      console.log(`PASS run AA (${chapter} balance band): ${ttks.map(([id, t]) => `${id}TTK=${t.toFixed(1)}s`).join(' ')} ratio=${(starterTTK / median).toFixed(2)}x`)
+    }
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -2644,6 +3773,9 @@ try {
   testChapterBehaviors()
   testPondWeapons()
   testGarden()
+  testV54Flags()
+  testV54Signatures()
+  testV54Weapons()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

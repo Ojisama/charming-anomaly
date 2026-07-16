@@ -55,7 +55,7 @@ import {
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB,
-  ARCHETYPE_TYPE, LATCH_SLOW_T, LATCH_SLOW_MUL,
+  ARCHETYPE_TYPE, TYPE_ARCHETYPE, LATCH_SLOW_T, LATCH_SLOW_MUL,
   SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
@@ -67,6 +67,42 @@ import {
   DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
   WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
   SPRAY_INTERVAL, SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS,
+  // v5.4 undergrowth
+  POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, POUNCE_LAND_T,
+  AERIAL_RADIUS, AERIAL_ORBIT_SPEED, AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
+  AERIAL_STRIKE_SPEED_MUL, AERIAL_CLIMB_T, AERIAL_UNTOUCHABLE,
+  FLASHLIGHT_RANGE, FLASHLIGHT_ARC, FLASHLIGHT_SWEEP, FLASHLIGHT_SWEEP_SPEED,
+  FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL, FLASHLIGHT_DMG_MUL,
+  SNAP_TRAP_DMG, SNAP_TRAP_REARM,
+  POUNCE_DASH_T, POUNCE_DOUBLE_EVERY, POUNCE_DOUBLE_DELAY, POUNCE_DOUBLE_DMG_FRAC,
+  POUNCE_PATH_R, POUNCE_PATH_DMG_FRAC, QUILL_R, QUILL_RETALIATE_CD,
+  FEAR_SPEED_MUL, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
+  // v5.4 city
+  LINE_CHARGE_RANGE, LINE_CHARGE_TRACK_SPEED_MUL, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
+  LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
+  SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
+  TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET,
+  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB,
+  DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
+  TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
+  GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
+  GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
+  // v5.4 skies
+  STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
+  MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_INTERVAL, MISSILE_COUNT,
+  MISSILE_GAP, MISSILE_SPEED, MISSILE_TURN, MISSILE_LIFE, MISSILE_R, MISSILE_DMG, MISSILE_BLAST,
+  ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
+  ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG,
+  BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_FUSE, BOMBARDMENT_RADIUS, BOMBARDMENT_DMG,
+  ROAR_STUN, ROAR_RESONANCE_EVERY, TAIL_COLLIDE_R, TAIL_COLLIDE_FRAC, TAIL_COUNTER_CD,
+  LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
+  // v5.4 beyond
+  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
+  PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
+  PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
+  SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
+  SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
+  TESSERACT_ARMS, TESSERACT_COLLAPSE_MUL, TESSERACT_COLLAPSE_PULL,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -92,7 +128,9 @@ export function stepSim(run, input, dt) {
   stepRegen(run, dt)
   stepSpawning(run, dt)
   stepEnemyMovement(run, dt)
+  stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
+  stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any)
   stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
   stepWebs(run, dt)       // v5.3 garden: expire spider web slow-zones (no-op unless any exist)
@@ -101,7 +139,12 @@ export function stepSim(run, input, dt) {
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
+  if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
+  if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
+  if (stepEnemyShots(run, dt)) return // phase is now 'dead' (helicopter missile — v5.4)
+  if (stepPullBeams(run, dt)) return // phase is now 'dead' (UFO abduction beam DoT — v5.4)
 
+  stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
   stepWeapons(run, dt)
   stepStatuses(run, dt)
   stepPickups(run, dt)
@@ -161,8 +204,21 @@ function stepPlayerMovement(run, input, dt) {
   }
   const slowMul = Math.min(latchMul, webMul)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul
-  p.x += ix * speed * dt
-  p.y += iy * speed * dt
+  // Pounce Claws' dash (v5.4): while a leap is in flight the player is UNCONTROLLABLE — the leap
+  // velocity replaces their input entirely (they're not invulnerable, and stepObstacles still stops
+  // them at a wall like any other frame). See stepPounceWeapon/stepPounceDash below.
+  const dash = run._pounceDash
+  if (dash) {
+    p.x += dash.dirX * dash.speed * dt
+    p.y += dash.dirY * dash.speed * dt
+  } else {
+    p.x += ix * speed * dt
+    p.y += iy * speed * dt
+  }
+  // The player's own input velocity, snapshotted for the skies' artillery flag to lead its shells
+  // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read.
+  p.vx = ix * speed
+  p.vy = iy * speed
 
   p.moving = len > 1e-6
   if (ix > 1e-6) p.facing = 1
@@ -243,6 +299,9 @@ function freshEnemyFields() {
     venom: 0, venomT: 0,
     // Bleed DoT (v5.0, flagella's barbed mod — see applyBleed): dot-flagged, ticks like ignite.
     bleed: 0, bleedDps: 0,
+    // Status effects (v5.4, see the enemies[] contract in state.js): fear inverts the seek, stun
+    // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
+    fearT: 0, stunT: 0, enrageT: 0,
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
   }
 }
@@ -261,7 +320,7 @@ function spawnEnemy(run, opts = {}) {
   // Roster (v5.0, see CHAPTERS[run.chapter].roster in config.js): pick a random roster entry
   // matching this spawn type's archetype, apply its hp/speed multipliers, and carry its behavior
   // flags onto the enemy (elites additionally get the chapter's eliteFlags — see below).
-  const archetype = ARCHETYPE_TYPE[type] ?? 'normal'
+  const archetype = TYPE_ARCHETYPE[type] ?? 'normal'
   const rosterPool = CHAPTERS[run.chapter].roster.filter((r) => r.archetype === archetype)
   const roster = rosterPool.length > 0 ? rosterPool[Math.floor(Math.random() * rosterPool.length)] : null
 
@@ -408,11 +467,47 @@ function stepEnemyMovement(run, dt) {
       }
     }
 
-    // diveBomb flag (v5.3 garden's wasps): a hover/telegraph/dive/recover cycle (stepDiveBomb)
-    // that REPLACES the normal seek; the normal seek runs for everyone else. slowMul still applies
-    // (chill/freeze), and lured wasps dive at the decoy since stepDiveBomb takes the seek target.
-    if (e.flags && e.flags.includes('diveBomb')) {
+    // phase flag (v5.4 beyond's flickers): windows the enemy solid <-> ghosted. Only its speed
+    // shows up here (a ghost hurries); its damage immunity lives in dealDamage/stepContactDamage
+    // and its obstacle pass-through in stepObstacles, all keyed off e._phaseSolid.
+    if (e.flags && e.flags.includes('phase')) {
+      stepPhaseWindow(e, dt)
+      if (!e._phaseSolid) flagSpeedMul *= PHASE_GHOST_SPEED_MUL
+    }
+    // Status effects (v5.4, see state.js): enrage is a plain speed multiplier; fear and stun
+    // REPLACE the movement outright below. All guarded — other chapters never set these.
+    const enrageMul = (e.enrageT || 0) > 0 ? FLASHLIGHT_SPEED_MUL : 1
+    flagSpeedMul *= enrageMul
+
+    // Movement resolution, most-overriding first. stun/fear beat every behavior flag (a panicking
+    // or stunned animal doesn't run its hunting routine); the flag machines REPLACE the normal
+    // seek for everyone else; the plain seek runs for the rest. slowMul (chill/freeze) applies
+    // throughout. Machines take the seek target, so lured foes run their routine at the decoy.
+    if ((e.stunT || 0) > 0) {
+      // stunned (geyser launch / roar stagger): no seek at all — knockback still carries it below.
+    } else if ((e.fearT || 0) > 0) {
+      // feared (chitter shriek): flee — the seek direction, inverted, at FEAR_SPEED_MUL.
+      if (d > 1e-6 && slowMul > 0) {
+        e.x -= (dx / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
+        e.y -= (dy / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
+      }
+    } else if (e.flags && e.flags.includes('diveBomb')) {
       stepDiveBomb(e, tx, ty, dt, slowMul)
+    } else if (e.flags && e.flags.includes('pounce')) {
+      stepPounce(e, tx, ty, dt, slowMul, enrageMul)
+    } else if (e.flags && e.flags.includes('aerialStrike')) {
+      stepAerialStrike(e, tx, ty, dt, slowMul, enrageMul)
+    } else if (e.flags && e.flags.includes('lineCharge')) {
+      stepLineCharge(e, tx, ty, dt, slowMul, enrageMul)
+    } else if (e.flags && e.flags.includes('strafe')) {
+      stepStrafe(e, tx, ty, dt, slowMul, enrageMul)
+    } else if (e.flags && e.flags.includes('missileVolley')) {
+      stepMissileVolley(run, e, tx, ty, dt, slowMul, enrageMul)
+    } else if (e.flags && e.flags.includes('blink')) {
+      stepBlink(run, e, tx, ty, dt, slowMul, enrageMul)
+    } else if (e.elite && e.flags && e.flags.includes('pullBeam') && e._beamState === 'beam') {
+      // pullBeam (v5.4 beyond's UFO elites): the UFO holds still while its beam is open. The beam
+      // itself (drag + DoT) is stepPullBeams' business — this branch is only its movement.
     } else if (d > 1e-6 && slowMul > 0) {
       e.x += (dx / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
       e.y += (dy / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
@@ -427,6 +522,11 @@ function stepEnemyMovement(run, dt) {
 
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt)
     if (e.orbCd > 0) e.orbCd = Math.max(0, e.orbCd - dt)
+    if (e._debrisCd > 0) e._debrisCd = Math.max(0, e._debrisCd - dt) // Trash Tornado's per-chunk cd
+    // v5.4 status effects: tick down every frame, like invuln does for the player.
+    if (e.fearT > 0) e.fearT = Math.max(0, e.fearT - dt)
+    if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
+    if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
 
     // soapTrail elite flag (v5.0, e.g. pond's soap-bubble elites): drops a damaging pool node
     // into the shared run.pools array every SOAP_INTERVAL while alive (see stepPools below).
@@ -455,6 +555,45 @@ function stepEnemyMovement(run, dt) {
       if (e._sprayAcc >= SPRAY_INTERVAL) {
         e._sprayAcc -= SPRAY_INTERVAL
         run.strips.push({ x: p.x, y: p.y, angle: Math.random() * Math.PI, len: SPRAY_LEN, w: SPRAY_W, fuse: SPRAY_FUSE, t: SPRAY_ACTIVE, dps: SPRAY_DPS })
+      }
+    }
+
+    // artillery flag (v5.4 skies' tank columns AND its AA-turret elites): a plain slow seek (above)
+    // that shells the player's PREDICTED position from wherever it stands. It pushes the EXISTING
+    // volatile-bomb array (run.bombs), so it inherits that telegraph -> explode contract for free —
+    // and with it, the fact that a shell damages the player and the enemies around it alike.
+    if (e.flags && e.flags.includes('artillery') && !e._dead) {
+      const interval = e.elite ? ARTILLERY_ELITE_INTERVAL : ARTILLERY_INTERVAL
+      e._shellT = (e._shellT ?? interval) - dt
+      if (e._shellT <= 0) {
+        e._shellT += interval
+        run.bombs.push({
+          x: p.x + (p.vx ?? 0) * ARTILLERY_LEAD,
+          y: p.y + (p.vy ?? 0) * ARTILLERY_LEAD,
+          radius: e.elite ? ARTILLERY_ELITE_RADIUS : ARTILLERY_RADIUS,
+          fuse: ARTILLERY_FUSE, duration: ARTILLERY_FUSE,
+          dmg: e.elite ? ARTILLERY_ELITE_DMG : ARTILLERY_DMG,
+        })
+      }
+    }
+
+    // spawner elite flag (v5.4 city's exterminator vans): disgorges the chapter's SPAWNER_ARCHETYPE
+    // roster entry through the NORMAL spawnEnemy path (forceNormal, so they're never elites and
+    // never eat the elite cadence) — they get this chapter's roster skin/flags and the run's current
+    // hp/speed scaling like any other spawn. Capped so a van can't push the field past MAX_ALIVE.
+    if (e.elite && e.flags && e.flags.includes('spawner') && !e._dead) {
+      e._spawnT = (e._spawnT ?? SPAWNER_INTERVAL) - dt
+      if (e._spawnT <= 0) {
+        e._spawnT += SPAWNER_INTERVAL
+        for (let i = 0; i < SPAWNER_COUNT && run.enemies.length < MAX_ALIVE; i++) {
+          const a = Math.random() * Math.PI * 2
+          const sd = Math.random() * SPAWNER_SCATTER
+          const sx = e.x + Math.cos(a) * sd
+          const sy = e.y + Math.sin(a) * sd
+          spawnEnemy(run, { type: ARCHETYPE_TYPE[SPAWNER_ARCHETYPE], x: sx, y: sy, forceNormal: true })
+          const spawned = run.enemies[run.enemies.length - 1]
+          run.events.push({ type: 'explode', x: sx, y: sy, radius: spawned.radius * 2 })
+        }
       }
     }
   }
@@ -498,6 +637,266 @@ function stepDiveBomb(e, tx, ty, dt, slowMul) {
   e.y += vy * slowMul * dt
 }
 
+// pounce (v5.4 undergrowth's cats): hold -> aim -> leap -> land, on _pounceState/_pounceT/
+// _pounceDirX/_pounceDirY (the diveBomb idiom). The heading locks at the START of 'aim' and the
+// leap never steers, so a dodge beats it and it overshoots; 'land' is the punish window (frozen,
+// and stepContactDamage won't let it hurt you there). It has no attack of its own — a cat that
+// lands on you damages you through ordinary contact damage, like any other enemy.
+// (tx,ty) is the seek target; spdMul folds in enrage. slowMul folds in chill/freeze (0 = frozen).
+function stepPounce(e, tx, ty, dt, slowMul, spdMul) {
+  if (e._pounceState === undefined) { e._pounceState = 'hold'; e._pounceT = 0 }
+  e._pounceT -= dt
+  const dx = tx - e.x, dy = ty - e.y
+  const d = Math.hypot(dx, dy) || 1
+  const ux = dx / d, uy = dy / d
+  let vx = 0, vy = 0
+  if (e._pounceState === 'hold') {
+    const spd = e.speed * spdMul * POUNCE_HOLD_SPEED_MUL
+    vx = ux * spd; vy = uy * spd
+    if (d <= POUNCE_RANGE) { e._pounceState = 'aim'; e._pounceT = POUNCE_AIM_T; e._pounceDirX = ux; e._pounceDirY = uy }
+  } else if (e._pounceState === 'aim') {
+    // Dead stop, heading already snapshotted on entry — the telegraph the player reacts to.
+    if (e._pounceT <= 0) { e._pounceState = 'leap'; e._pounceT = POUNCE_LEAP_T }
+  } else if (e._pounceState === 'leap') {
+    const spd = e.speed * spdMul * POUNCE_LEAP_SPEED_MUL
+    vx = e._pounceDirX * spd; vy = e._pounceDirY * spd
+    if (e._pounceT <= 0) { e._pounceState = 'land'; e._pounceT = POUNCE_LAND_T }
+  } else { // land: frozen (the free-hits window)
+    if (e._pounceT <= 0) { e._pounceState = 'hold'; e._pounceT = 0 }
+  }
+  e.x += vx * slowMul * dt
+  e.y += vy * slowMul * dt
+}
+
+// aerialStrike (v5.4 undergrowth's owls): circle -> mark -> strike -> climb, on _airState/_airT/
+// _airAngle/_airTargX/_airTargY. While circling/marking its position is SET on a circle around the
+// target (it isn't seeking); the marked point locks at the start of 'mark' (the shadow render draws)
+// and 'strike' flies to THAT point without re-aiming. Under AERIAL_UNTOUCHABLE it can neither be
+// hit nor hit you while 'circle'/'climb' (see damageImmune/contactHarmless) — it's overhead.
+function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul) {
+  if (e._airState === undefined) {
+    e._airState = 'circle'
+    e._airT = AERIAL_CIRCLE_T
+    e._airAngle = Math.atan2(e.y - ty, e.x - tx)
+  }
+  e._airT -= dt
+  if (e._airState === 'circle' || e._airState === 'mark') {
+    e._airAngle += AERIAL_ORBIT_SPEED * slowMul * dt
+    e.x = tx + Math.cos(e._airAngle) * AERIAL_RADIUS
+    e.y = ty + Math.sin(e._airAngle) * AERIAL_RADIUS
+    if (e._airT <= 0) {
+      if (e._airState === 'circle') { e._airState = 'mark'; e._airT = AERIAL_MARK_T; e._airTargX = tx; e._airTargY = ty }
+      else { e._airState = 'strike'; e._airT = AERIAL_STRIKE_T }
+    }
+  } else if (e._airState === 'strike') {
+    const dx = e._airTargX - e.x, dy = e._airTargY - e.y
+    const d = Math.hypot(dx, dy)
+    if (d > 1e-6) {
+      const step = Math.min(d, e.speed * spdMul * AERIAL_STRIKE_SPEED_MUL * slowMul * dt)
+      e.x += (dx / d) * step
+      e.y += (dy / d) * step
+    }
+    if (e._airT <= 0) { e._airState = 'climb'; e._airT = AERIAL_CLIMB_T }
+  } else { // climb: drift back out to the circling standoff, then resume circling from where it is
+    const dx = e.x - tx, dy = e.y - ty
+    const d = Math.hypot(dx, dy) || 1
+    const diff = AERIAL_RADIUS - d
+    const step = Math.sign(diff) * Math.min(Math.abs(diff), e.speed * spdMul * slowMul * dt)
+    e.x += (dx / d) * step
+    e.y += (dy / d) * step
+    if (e._airT <= 0) { e._airState = 'circle'; e._airT = AERIAL_CIRCLE_T; e._airAngle = Math.atan2(e.y - ty, e.x - tx) }
+  }
+}
+
+// lineCharge (v5.4 city's robot vacuums): track -> lock -> charge -> stall, on _chargeState/
+// _chargeT/_chargeDirX/_chargeDirY. Same shape as pounce (heading locks at the start of 'lock',
+// the charge never steers), but it lines up from much further out and spins down afterwards —
+// 'stall' is its punish window (motionless, no contact damage). Render draws the lane off the state.
+function stepLineCharge(e, tx, ty, dt, slowMul, spdMul) {
+  if (e._chargeState === undefined) { e._chargeState = 'track'; e._chargeT = 0 }
+  e._chargeT -= dt
+  const dx = tx - e.x, dy = ty - e.y
+  const d = Math.hypot(dx, dy) || 1
+  const ux = dx / d, uy = dy / d
+  let vx = 0, vy = 0
+  if (e._chargeState === 'track') {
+    const spd = e.speed * spdMul * LINE_CHARGE_TRACK_SPEED_MUL
+    vx = ux * spd; vy = uy * spd
+    if (d <= LINE_CHARGE_RANGE) { e._chargeState = 'lock'; e._chargeT = LINE_CHARGE_LOCK_T; e._chargeDirX = ux; e._chargeDirY = uy }
+  } else if (e._chargeState === 'lock') {
+    if (e._chargeT <= 0) { e._chargeState = 'charge'; e._chargeT = LINE_CHARGE_T }
+  } else if (e._chargeState === 'charge') {
+    const spd = e.speed * spdMul * LINE_CHARGE_SPEED_MUL
+    vx = e._chargeDirX * spd; vy = e._chargeDirY * spd
+    if (e._chargeT <= 0) { e._chargeState = 'stall'; e._chargeT = LINE_CHARGE_STALL_T }
+  } else { // stall: spinning down, motionless
+    if (e._chargeT <= 0) { e._chargeState = 'track'; e._chargeT = 0 }
+  }
+  e.x += vx * slowMul * dt
+  e.y += vy * slowMul * dt
+}
+
+// strafe (v5.4 skies' fighter jets): bank -> run, on _strafeState/_strafeT/_strafeDirX/_strafeDirY.
+// It never chases — it drifts out to a standoff point on a random bearing, locks onto you at the
+// END of the bank, then flies a straight pass THROUGH you and well beyond. Damages the player only,
+// via ordinary contact damage while it passes.
+function stepStrafe(e, tx, ty, dt, slowMul, spdMul) {
+  if (e._strafeState === undefined) { e._strafeState = 'bank'; e._strafeT = STRAFE_BANK_T; e._strafeBearing = Math.random() * Math.PI * 2 }
+  e._strafeT -= dt
+  if (e._strafeState === 'bank') {
+    const px = tx + Math.cos(e._strafeBearing) * STRAFE_STANDOFF
+    const py = ty + Math.sin(e._strafeBearing) * STRAFE_STANDOFF
+    const dx = px - e.x, dy = py - e.y
+    const d = Math.hypot(dx, dy)
+    if (d > 1e-6) {
+      const step = Math.min(d, e.speed * spdMul * STRAFE_BANK_SPEED_MUL * slowMul * dt)
+      e.x += (dx / d) * step
+      e.y += (dy / d) * step
+    }
+    if (e._strafeT <= 0) {
+      const ax = tx - e.x, ay = ty - e.y
+      const ad = Math.hypot(ax, ay) || 1
+      e._strafeDirX = ax / ad; e._strafeDirY = ay / ad
+      e._strafeState = 'run'; e._strafeT = STRAFE_RUN_T
+    }
+  } else {
+    const spd = e.speed * spdMul * STRAFE_RUN_SPEED_MUL
+    e.x += e._strafeDirX * spd * slowMul * dt
+    e.y += e._strafeDirY * spd * slowMul * dt
+    if (e._strafeT <= 0) { e._strafeState = 'bank'; e._strafeT = STRAFE_BANK_T; e._strafeBearing = Math.random() * Math.PI * 2 }
+  }
+}
+
+// missileVolley (v5.4 skies' helicopters): holds MISSILE_STANDOFF (the diveBomb hover, deadzone and
+// all) and shoots instead of closing. Firing state on _volleyT (s to the next volley) / _volleyLeft
+// (missiles left in the current one) / _volleyGapT. Each shot is a run.enemyShots entry aimed at the
+// player's CURRENT position — the only enemy-owned projectile in the game (see stepEnemyShots).
+function stepMissileVolley(run, e, tx, ty, dt, slowMul, spdMul) {
+  const dx = tx - e.x, dy = ty - e.y
+  const d = Math.hypot(dx, dy) || 1
+  const diff = d - MISSILE_STANDOFF
+  if (Math.abs(diff) > MISSILE_DEADZONE) {
+    const dir = diff > 0 ? 1 : -1
+    const spd = e.speed * spdMul * MISSILE_HOVER_SPEED_MUL
+    e.x += (dx / d) * dir * spd * slowMul * dt
+    e.y += (dy / d) * dir * spd * slowMul * dt
+  }
+
+  if (e._volleyT === undefined) { e._volleyT = MISSILE_INTERVAL; e._volleyLeft = 0; e._volleyGapT = 0 }
+  if (e._volleyLeft > 0) {
+    e._volleyGapT -= dt
+    if (e._volleyGapT <= 0) {
+      e._volleyGapT += MISSILE_GAP
+      e._volleyLeft -= 1
+      fireEnemyMissile(run, e)
+    }
+  } else {
+    e._volleyT -= dt
+    if (e._volleyT <= 0) { e._volleyT += MISSILE_INTERVAL; e._volleyLeft = MISSILE_COUNT; e._volleyGapT = 0 }
+  }
+}
+
+function fireEnemyMissile(run, e) {
+  const p = run.player
+  const angle = Math.atan2(p.y - e.y, p.x - e.x)
+  run.enemyShots.push({
+    x: e.x, y: e.y,
+    vx: Math.cos(angle) * MISSILE_SPEED,
+    vy: Math.sin(angle) * MISSILE_SPEED,
+    r: MISSILE_R, dmg: MISSILE_DMG, life: MISSILE_LIFE, turnRate: MISSILE_TURN,
+  })
+}
+
+// blink (v5.4 beyond's glitch blinkers): the blink IS its movement — it barely crawls between
+// jumps. State on _blinkT (s to the next blink). A jump is clamped so it never lands closer than
+// BLINK_MIN_DIST (no free contact hit) and never inside an obstacle: it retries the same heading at
+// half distance, then gives up on this blink entirely rather than cheating through a wall.
+function stepBlink(run, e, tx, ty, dt, slowMul, spdMul) {
+  const dx = tx - e.x, dy = ty - e.y
+  const d = Math.hypot(dx, dy)
+  if (d > 1e-6 && slowMul > 0) {
+    const spd = e.speed * spdMul * BLINK_CRAWL_SPEED_MUL
+    e.x += (dx / d) * spd * slowMul * dt
+    e.y += (dy / d) * spd * slowMul * dt
+  }
+
+  if (e._blinkT === undefined) e._blinkT = BLINK_INTERVAL
+  e._blinkT -= dt
+  if (e._blinkT > 0) return
+  e._blinkT += BLINK_INTERVAL
+
+  const ndx = tx - e.x, ndy = ty - e.y
+  const nd = Math.hypot(ndx, ndy)
+  if (nd <= BLINK_MIN_DIST) return // already close enough — nothing to close
+  const ux = ndx / nd, uy = ndy / nd
+  const tryJump = (want) => {
+    const dist = Math.min(want, nd - BLINK_MIN_DIST) // clamp: never overshoot into the player's lap
+    if (dist <= 0) return null
+    const x = e.x + ux * dist, y = e.y + uy * dist
+    return blockedByObstacle(run, x, y, e.radius) ? null : { x, y }
+  }
+  const spot = tryJump(BLINK_DIST) ?? tryJump(BLINK_DIST / 2)
+  if (!spot) return
+  run.events.push({ type: 'explode', x: e.x, y: e.y, radius: BLINK_FX_R })
+  e.x = spot.x
+  e.y = spot.y
+  run.events.push({ type: 'explode', x: e.x, y: e.y, radius: BLINK_FX_R })
+}
+
+// Would a body of radius `r` centered at (x,y) overlap one of this chapter's obstacles? Only the
+// blink teleport asks — every other mover is resolved by stepObstacles pushing it back out, which
+// a teleport can't rely on (it would let a blinker pop through a root and get shoved out the far side).
+function blockedByObstacle(run, x, y, r) {
+  if (!run.obstacles || run.obstacles.length === 0) return false
+  for (const o of run.obstacles) {
+    const dx = x - o.x, dy = y - o.y
+    const minSep = o.r + r
+    if (dx * dx + dy * dy < minSep * minSep) return true
+  }
+  return false
+}
+
+// phase (v5.4 beyond's flickers): alternates solid <-> ghosted forever on _phaseSolid/_phaseT,
+// starting solid with _phaseT randomised across PHASE_SOLID_T so a wave doesn't blink in unison.
+function stepPhaseWindow(e, dt) {
+  if (e._phaseSolid === undefined) { e._phaseSolid = true; e._phaseT = Math.random() * PHASE_SOLID_T }
+  e._phaseT -= dt
+  if (e._phaseT <= 0) {
+    e._phaseSolid = !e._phaseSolid
+    e._phaseT += e._phaseSolid ? PHASE_SOLID_T : PHASE_GHOST_T
+  }
+}
+
+// -- flashlightCone (v5.4 undergrowth's exterminator elites) ----------------------------
+// Sweeps a cone back and forth across FLASHLIGHT_SWEEP rad centered on the direction to the player
+// (heading on e._coneAngle, which render reads; the sweep's own offset/direction are internal).
+// Every OTHER enemy caught in the sector gets e.enrageT refreshed. Damages NOTHING — the cone hurts
+// neither the player nor the enemies. It is pure buff + telegraph: the threat is what it turns the
+// swarm into. A no-op unless a live elite carries the flag.
+function stepFlashlightCones(run, dt) {
+  const p = run.player
+  for (const src of run.enemies) {
+    if (src._dead || !src.elite || !src.flags || !src.flags.includes('flashlightCone')) continue
+
+    src._coneDir = src._coneDir ?? 1
+    src._coneOff = (src._coneOff ?? 0) + src._coneDir * FLASHLIGHT_SWEEP_SPEED * dt
+    const halfSweep = FLASHLIGHT_SWEEP / 2
+    if (src._coneOff > halfSweep) { src._coneOff = halfSweep; src._coneDir = -1 }
+    else if (src._coneOff < -halfSweep) { src._coneOff = -halfSweep; src._coneDir = 1 }
+    src._coneAngle = Math.atan2(p.y - src.y, p.x - src.x) + src._coneOff
+
+    for (const e of run.enemies) {
+      if (e === src || e._dead) continue
+      const dx = e.x - src.x, dy = e.y - src.y
+      if (dx * dx + dy * dy > FLASHLIGHT_RANGE * FLASHLIGHT_RANGE) continue
+      const ea = Math.atan2(dy, dx)
+      const da = Math.atan2(Math.sin(ea - src._coneAngle), Math.cos(ea - src._coneAngle)) // signed offset
+      if (Math.abs(da) > FLASHLIGHT_ARC) continue
+      e.enrageT = FLASHLIGHT_ENRAGE_T
+    }
+  }
+}
+
 // ---- Contact damage ---------------------------------------------------------------
 
 // Shared player-hit resolution: contact damage and volatile-bomb blasts both apply
@@ -514,6 +913,11 @@ function hurtPlayer(run, rawDmg, dot = false) {
   p.hp -= dmg
   if (!dot) p.invuln = PLAYER.invulnTime
   run.events.push({ type: 'hurt', dmg, dot })
+  // v5.4 reaction mods: taking damage (contact OR zone — every path routes through here) fires a
+  // free Quill Burst / Tail Swipe off the weapon timer, each on its own internal cooldown. No-ops
+  // unless the weapon is equipped AND the mod is picked.
+  tryQuillRetaliate(run)
+  tryCounterSwipe(run)
   if (p.hp <= 0) {
     // Revive Token (v4.5, see CONSUMABLES.revive in config.js): consume one revive instead of
     // dying — restore hp, grant a longer invuln window, and radially shove every nearby enemy
@@ -546,11 +950,33 @@ function hurtPlayer(run, rawDmg, dot = false) {
   return false
 }
 
+// v5.4: is this enemy untouchable right now? An owl overhead (AERIAL_UNTOUCHABLE, 'circle'/'climb')
+// and a ghosted phase flicker take NO damage at all — dealDamage/applyDamage return before any
+// number, status, crit or death is rolled, so a DoT already on them keeps counting down but lands
+// nothing while the window is up. Guarded on the state fields, so an enemy that never ran either
+// machine is never immune.
+function damageImmune(e) {
+  if (AERIAL_UNTOUCHABLE && (e._airState === 'circle' || e._airState === 'climb')) return true
+  if (e._phaseSolid === false) return true
+  return false
+}
+
+// v5.4: is this enemy harmless to touch right now? The mirror of damageImmune (an enemy that can't
+// be hit can't hit you either), plus the phases and statuses that disarm an enemy without making it
+// invulnerable: a landed cat and a stalled vacuum are punish windows, and a stunned or fleeing
+// enemy isn't attacking anyone.
+function contactHarmless(e) {
+  if (damageImmune(e)) return true
+  if ((e.stunT || 0) > 0 || (e.fearT || 0) > 0) return true
+  if (e._pounceState === 'land' || e._chargeState === 'stall') return true
+  return false
+}
+
 /** @returns true if the player died this frame (phase set to 'dead'). */
 function stepContactDamage(run) {
   const p = run.player
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || contactHarmless(e)) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const rad = PLAYER.radius + e.radius
     if (dx * dx + dy * dy >= rad * rad) continue
@@ -565,7 +991,9 @@ function stepContactDamage(run) {
     }
 
     if (p.invuln > 0) return false
-    return hurtPlayer(run, e.dmg) // one hit per frame; invuln now active either way
+    // enrage (v5.4, flashlightCone elites): a lit-up enemy hits harder, not just faster.
+    const dmg = (e.enrageT || 0) > 0 ? e.dmg * FLASHLIGHT_DMG_MUL : e.dmg
+    return hurtPlayer(run, dmg) // one hit per frame; invuln now active either way
   }
   return false
 }
@@ -650,6 +1078,7 @@ function stepObstacles(run) {
   }
   for (const e of run.enemies) {
     if (e._dead) continue
+    if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes straight through
     for (const o of run.obstacles) {
       const dx = e.x - o.x, dy = e.y - o.y
       const d = Math.hypot(dx, dy)
@@ -712,6 +1141,279 @@ function stepStrips(run, dt) {
   return playerDied
 }
 
+// -- Predators signature mechanic (v5.4, e.g. undergrowth) ----------------------------
+// Snap traps (run.traps, seeded once at createRun — see state.js). Permanent field furniture: they
+// never expire, they only spring and re-arm. An ARMED trap containing the center of the player OR
+// of any enemy snaps on THAT ONE entity for SNAP_TRAP_DMG and goes on cooldown.
+// It damages BOTH sides, and that IS the mechanic: the trap field is only a hazard until you learn
+// to kite the swarm across it. Gated on the chapter's 'predators' signature so a trap array in a
+// future chapter could mean something else.
+// @returns true if the player died this frame (phase set to 'dead').
+function stepTraps(run, dt) {
+  if (!run.traps || run.traps.length === 0) return false
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'predators') return false
+  const p = run.player
+  let playerDied = false
+
+  for (const tr of run.traps) {
+    if (!tr.armed) {
+      tr.cd -= dt
+      if (tr.cd <= 0) { tr.armed = true; tr.cd = 0 }
+      continue
+    }
+    const rSq = tr.r * tr.r
+    // The player trips it first when they're standing in it — but an invulnerable player walks over
+    // a trap without springing it (it would otherwise be spent for free, on nothing).
+    if (p.invuln <= 0) {
+      const dx = p.x - tr.x, dy = p.y - tr.y
+      if (dx * dx + dy * dy <= rSq) {
+        springTrap(run, tr)
+        if (!playerDied && hurtPlayer(run, SNAP_TRAP_DMG)) playerDied = true
+        continue
+      }
+    }
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - tr.x, dy = e.y - tr.y
+      if (dx * dx + dy * dy > rSq) continue
+      springTrap(run, tr)
+      dealDamage(run, e, SNAP_TRAP_DMG, false)
+      break // one entity per snap
+    }
+  }
+  return playerDied
+}
+
+function springTrap(run, tr) {
+  tr.armed = false
+  tr.cd = SNAP_TRAP_REARM
+  run.events.push({ type: 'explode', x: tr.x, y: tr.y, radius: tr.r })
+}
+
+// -- Traffic signature mechanic (v5.4, e.g. city) --------------------------------------
+// Lanes (run.lanes, see state.js): while fewer than signature.lanes are alive, a new one is rolled
+// every TRAFFIC_INTERVAL seconds — a band at a random angle, offset perpendicular from the player by
+// up to ±TRAFFIC_OFFSET so it always CROSSES them but can never be dropped unavoidably on top of
+// them. 'warn' telegraphs it harmlessly, then 'sweep' runs a vehicle down it that flattens BOTH
+// sides. A no-op unless the chapter's signature is 'traffic'.
+// @returns true if the player died this frame (phase set to 'dead').
+function stepLanes(run, dt) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'traffic') return false
+  const p = run.player
+
+  run._laneAcc = (run._laneAcc ?? TRAFFIC_INTERVAL) - dt
+  if (run._laneAcc <= 0) {
+    run._laneAcc += TRAFFIC_INTERVAL
+    if (run.lanes.length < sig.lanes) {
+      const angle = Math.random() * Math.PI * 2
+      const off = (Math.random() * 2 - 1) * TRAFFIC_OFFSET
+      run.lanes.push({
+        x: p.x - Math.sin(angle) * off, y: p.y + Math.cos(angle) * off, // perpendicular offset
+        angle, len: TRAFFIC_LEN, w: TRAFFIC_W,
+        phase: 'warn', t: TRAFFIC_WARN, carT: 0,
+        dmg: TRAFFIC_DMG, // snapshotted so a mid-run retune can't desync a live lane
+        hitIds: new Set(),
+      })
+    }
+  }
+
+  let playerDied = false
+  for (const lane of run.lanes) {
+    lane.t -= dt
+    if (lane.phase === 'warn') {
+      if (lane.t <= 0) { lane.phase = 'sweep'; lane.t = TRAFFIC_SWEEP; lane.carT = 0 }
+      continue // telegraph: nothing is damaged
+    }
+    lane.carT = Math.min(1, Math.max(0, 1 - lane.t / TRAFFIC_SWEEP))
+    const cos = Math.cos(lane.angle), sin = Math.sin(lane.angle)
+    const cx = lane.x + cos * (lane.carT - 0.5) * lane.len
+    const cy = lane.y + sin * (lane.carT - 0.5) * lane.len
+
+    // The vehicle's hitbox: a TRAFFIC_CAR_LEN × TRAFFIC_CAR_W box on (cx, cy), aligned to the lane.
+    const inCar = (x, y, pad) => {
+      const dx = x - cx, dy = y - cy
+      const along = dx * cos + dy * sin
+      const perp = -dx * sin + dy * cos
+      return Math.abs(along) <= TRAFFIC_CAR_LEN / 2 + pad && Math.abs(perp) <= TRAFFIC_CAR_W / 2 + pad
+    }
+
+    if (!playerDied && p.invuln <= 0 && inCar(p.x, p.y, 0)) {
+      // invuln makes "once per pass" implicit for the player, the way contact damage does.
+      if (hurtPlayer(run, lane.dmg)) playerDied = true
+    }
+    for (const e of run.enemies) {
+      if (e._dead || lane.hitIds.has(e.id)) continue
+      if (!inCar(e.x, e.y, e.radius)) continue
+      lane.hitIds.add(e.id) // one hit per enemy per pass
+      dealDamage(run, e, lane.dmg, false)
+      e.kb.x += cos * TRAFFIC_KB
+      e.kb.y += sin * TRAFFIC_KB
+    }
+    if (lane.t <= 0) lane._done = true
+  }
+  run.lanes = run.lanes.filter((lane) => !lane._done)
+  return playerDied
+}
+
+// -- Bombardment signature mechanic (v5.4, e.g. skies) ---------------------------------
+// Area denial, independent of the artillery-flagged roster: this is the sky itself shelling you.
+// Every signature.rate seconds it pushes BOMBARDMENT_COUNT run.bombs entries around the player —
+// the EXISTING volatile-bomb array, so it inherits the telegraph -> explode contract AND the fact
+// that a blast damages the player and the enemies standing in it alike. A no-op elsewhere.
+function stepBombardment(run, dt) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'bombardment') return
+  run._bombardAcc = (run._bombardAcc ?? sig.rate) - dt
+  if (run._bombardAcc > 0) return
+  run._bombardAcc += sig.rate
+  const p = run.player
+  for (let i = 0; i < BOMBARDMENT_COUNT; i++) {
+    const a = Math.random() * Math.PI * 2
+    const d = Math.random() * BOMBARDMENT_SPREAD
+    run.bombs.push({
+      x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
+      radius: BOMBARDMENT_RADIUS, fuse: BOMBARDMENT_FUSE, duration: BOMBARDMENT_FUSE,
+      dmg: BOMBARDMENT_DMG,
+    })
+  }
+}
+
+// -- Gravity signature mechanic (v5.4, e.g. beyond) ------------------------------------
+// Wells (run.wells, seeded once at createRun — see state.js) BEND every projectile in flight, the
+// player's (run.bullets/homingShots/lobs) and the enemies' (run.enemyShots) alike, and touch nothing
+// else: bodies, beams, orbitals and zones are not projectiles. They damage nothing — they only curve.
+// The whole mechanic is CURVATURE, not chaos: each well adds g × (1 - dist/r) px/s² toward its
+// center, and the projectile's speed is then renormalised back to exactly what it was, so a well
+// steers a shot without ever making it faster or slower.
+function stepGravityWells(run, dt) {
+  if (!run.wells || run.wells.length === 0) return
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'gravity') return
+
+  for (const list of [run.bullets, run.homingShots, run.enemyShots]) {
+    if (!list) continue
+    for (const pr of list) bendProjectile(run, pr, dt)
+  }
+  if (run.lobs) for (const lo of run.lobs) bendLob(run, lo, dt)
+}
+
+// The field's acceleration at (x, y), summed over every well in range. { ax, ay } px/s².
+function wellForce(run, x, y) {
+  let ax = 0, ay = 0
+  for (const w of run.wells) {
+    const dx = w.x - x, dy = w.y - y
+    const d = Math.hypot(dx, dy)
+    if (d <= 1e-6 || d > w.r) continue
+    const a = w.g * (1 - d / w.r) // full strength at the center, linearly to 0 at the rim
+    ax += (dx / d) * a
+    ay += (dy / d) * a
+  }
+  return { ax, ay }
+}
+
+function bendProjectile(run, pr, dt) {
+  const speed = Math.hypot(pr.vx, pr.vy)
+  if (speed <= 1e-6) return
+  const { ax, ay } = wellForce(run, pr.x, pr.y)
+  if (ax === 0 && ay === 0) return
+  const vx = pr.vx + ax * dt
+  const vy = pr.vy + ay * dt
+  const mag = Math.hypot(vx, vy)
+  if (mag <= 1e-6) return
+  pr.vx = (vx / mag) * speed // renormalise: curvature, not acceleration
+  pr.vy = (vy / mag) * speed
+}
+
+// A lob has no velocity to bend — its position is a t/flight lerp onto a fixed landing point (see
+// run.lobs in state.js). So a well bends its LANDING POINT instead, by exactly the displacement the
+// same acceleration would have produced over this frame (a·dt²). Its flight TIME is untouched,
+// which is the lob's analogue of the speed preservation above: a well curves where the chunk comes
+// down, never how long it hangs.
+function bendLob(run, lo, dt) {
+  const { ax, ay } = wellForce(run, lo.x, lo.y)
+  if (ax === 0 && ay === 0) return
+  lo.tx += ax * dt * dt
+  lo.ty += ay * dt * dt
+}
+
+// -- Enemy missiles (v5.4, skies' missileVolley helicopters) ---------------------------
+// run.enemyShots is the ONLY enemy-owned projectile array (see state.js). Each shot homes at
+// turnRate rad/s (slow — outrunning them is the counterplay), fizzles silently at life <= 0, and on
+// touching the player damages the PLAYER only and pops. It never damages enemies; it IS bent by the
+// beyond's gravity wells like any other projectile.
+// @returns true if the player died this frame (phase set to 'dead').
+function stepEnemyShots(run, dt) {
+  if (!run.enemyShots || run.enemyShots.length === 0) return false
+  const p = run.player
+  let playerDied = false
+
+  for (const s of run.enemyShots) {
+    s.life -= dt
+    if (s.life <= 0) { s._done = true; continue } // fizzles: removed, no blast
+
+    const speed = Math.hypot(s.vx, s.vy) || 1
+    const desired = Math.atan2(p.y - s.y, p.x - s.x)
+    const cur = Math.atan2(s.vy, s.vx)
+    const diff = Math.atan2(Math.sin(desired - cur), Math.cos(desired - cur))
+    const maxTurn = s.turnRate * dt
+    const angle = cur + Math.max(-maxTurn, Math.min(maxTurn, diff))
+    s.vx = Math.cos(angle) * speed
+    s.vy = Math.sin(angle) * speed
+    s.x += s.vx * dt
+    s.y += s.vy * dt
+
+    const dx = p.x - s.x, dy = p.y - s.y
+    const rad = s.r + PLAYER.radius
+    if (dx * dx + dy * dy > rad * rad) continue
+    s._done = true
+    run.events.push({ type: 'explode', x: s.x, y: s.y, radius: MISSILE_BLAST })
+    if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg)) playerDied = true
+  }
+  run.enemyShots = run.enemyShots.filter((s) => !s._done)
+  return playerDied
+}
+
+// -- pullBeam (v5.4, beyond's UFO elites) ----------------------------------------------
+// An abduction beam on _beamState ('idle'|'beam') / _beamT: every PULL_BEAM_INTERVAL it opens for
+// PULL_BEAM_T seconds, dragging a player within PULL_BEAM_RANGE toward the UFO at PULL_BEAM_FORCE
+// px/s and ticking PULL_BEAM_DPS at the run.pools cadence. The force is deliberately under
+// PLAYER.baseSpeed, so you can always walk out — you just can't ignore it. (The UFO holds still
+// while beaming; that half lives in stepEnemyMovement.)
+// Contract deviation: the drag is applied here rather than inside stepPlayerMovement — same
+// "after their own input" ordering (this runs later in the frame), but it reads the UFO's CURRENT
+// position instead of last frame's, and it can end the run cleanly like every other DoT step.
+// @returns true if the player died this frame (phase set to 'dead').
+function stepPullBeams(run, dt) {
+  const p = run.player
+  let playerDied = false
+  for (const e of run.enemies) {
+    if (e._dead || !e.elite || !e.flags || !e.flags.includes('pullBeam')) continue
+
+    if (e._beamState === undefined) { e._beamState = 'idle'; e._beamT = PULL_BEAM_INTERVAL }
+    e._beamT -= dt
+    if (e._beamT <= 0) {
+      if (e._beamState === 'idle') { e._beamState = 'beam'; e._beamT += PULL_BEAM_T }
+      else { e._beamState = 'idle'; e._beamT += PULL_BEAM_INTERVAL }
+    }
+    if (e._beamState !== 'beam') continue
+
+    const dx = e.x - p.x, dy = e.y - p.y
+    const d = Math.hypot(dx, dy)
+    if (d > PULL_BEAM_RANGE || d <= 1e-6) continue
+    p.x += (dx / d) * PULL_BEAM_FORCE * dt
+    p.y += (dy / d) * PULL_BEAM_FORCE * dt
+
+    e._beamAcc = (e._beamAcc ?? 0) + dt
+    while (e._beamAcc >= STATUS_TICK) {
+      e._beamAcc -= STATUS_TICK
+      if (!playerDied && hurtPlayer(run, PULL_BEAM_DPS * STATUS_TICK, true)) playerDied = true
+    }
+  }
+  return playerDied
+}
+
 // -- Volatile-elite death bombs (v4.0) ------------------------------------------------
 
 /** @returns true if the player died this frame (phase set to 'dead'). */
@@ -748,6 +1450,9 @@ function stepBombs(run, dt) {
 // player's multipliers/crit, and directly by effects (like star blasts) that derive
 // their damage from an already-rolled hit and shouldn't re-roll crit/multipliers.
 function dealDamage(run, enemy, dmg, crit, dot = false) {
+  // Untouchable windows (v5.4): an owl overhead / a ghosted flicker eats nothing at all — no
+  // number, no flash, no status, no death. Checked before everything else, including DoT ticks.
+  if (damageImmune(enemy)) return
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
   // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
   if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
@@ -759,6 +1464,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     let amp = enemy.venom * VENOM_AMP_PER_STACK
     if (enemy.chill > 0 || enemy.frozen > 0) amp *= COMBOS.brittleAmpMul
     dmg *= (1 + amp)
+  }
+  // panicRout (v5.4 chitterShriek mod): a FLEEING enemy takes amplified damage from EVERY source —
+  // applied here alongside the venom amp, so DoT ticks and combo bursts get it too.
+  if ((enemy.fearT || 0) > 0) {
+    const rout = run.weaponMods.chitterShriek?.panicRout ?? 0
+    if (rout > 0) dmg *= (1 + rout)
   }
   dmg = Math.round(dmg)
 
@@ -822,6 +1533,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
 
 /** @returns the final applied damage number (post multiplier/crit), for effects like star blast. */
 function applyDamage(run, enemy, baseDmg) {
+  if (damageImmune(enemy)) return 0 // v5.4 untouchable window: no crit roll, no elements either
   const p = run.player
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul
   let crit = false
@@ -1094,6 +1806,22 @@ const WEAPON_STAT_MODS = {
   // they're read at the fire/plant/burst site instead (see stepStingerWeapon/stepLureWeapon).
   stinger:   { sharper: ['dmg', 'pct'], volley: ['count', 'flat'] },
   lure:      { widerTaunt: ['aggro', 'pct'], longerLure: ['dur', 'pct'] },
+  // v5.4 natives. Same two exclusions as above, applied uniformly: every attack-RATE mod
+  // (quickPaws/rapidQuills/rapidShriek/rapidGeyser/rapidRoar/quickTail/rapidToss/rapidShard/
+  // rapidFold) divides the interval at its fire site rather than folding into `rate` — folding it
+  // in would SLOW the weapon — and so does every mod that has to touch two fields at once
+  // (longPounce = dash AND range, longQuills = range AND speed, longToss = castRange at the throw
+  // site). The rest is plain stat folding.
+  pounceClaws:   { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'] },
+  quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'], piercingQuills: ['pierce', 'flat'] },
+  chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
+  trashTornado:  { heavyTrash: ['dmg', 'pct'], wideTornado: ['radius', 'pct'], fasterSpin: ['rotSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
+  sewerGeyser:   { pressure: ['dmg', 'pct'], wideGeyser: ['r', 'pct'], moreGeysers: ['count', 'flat'] },
+  roar:          { bellow: ['dmg', 'pct'], wideRoar: ['arc', 'pct'], farRoar: ['range', 'pct'] },
+  tailSwipe:     { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'], broadSweep: ['arc', 'pct'] },
+  debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
+  realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
+  tesseractBeam: { wideFold: ['width', 'pct'], longFold: ['length', 'pct'], sustainFold: ['duration', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -1116,6 +1844,7 @@ function effectiveWeaponStats(run, w) {
 function stepWeapons(run, dt) {
   const p = run.player
   run.orbs = []
+  run.debris = [] // rewritten every frame by the Trash Tornado, exactly like run.orbs
   const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate)
 
   for (const w of run.weapons) {
@@ -1132,6 +1861,16 @@ function stepWeapons(run, dt) {
     else if (w.id === 'bloom') stepBloomWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'stinger') stepStingerWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'lure') stepLureWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'pounceClaws') stepPounceWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'quillBurst') stepQuillWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'chitterShriek') stepShriekWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'trashTornado') stepTornadoWeapon(run, stats, fireRateMul, dt)
+    else if (w.id === 'sewerGeyser') stepGeyserWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'roar') stepRoarWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'tailSwipe') stepTailWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'debrisToss') stepDebrisWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'realityShard') stepShardWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'tesseractBeam') stepTesseractWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -1143,6 +1882,9 @@ function stepWeapons(run, dt) {
   stepBeams(run, dt)
   stepBlooms(run, dt)
   stepLures(run, dt)
+  stepPounceDash(run, dt)
+  stepGeysers(run, dt)
+  stepLobs(run, dt)
 
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
 }
@@ -1287,7 +2029,16 @@ function stepBullets(run, dt) {
     b.x += b.vx * dt
     b.y += b.vy * dt
     b.life -= dt
-    if (b.life <= 0 || b.pierce <= 0) continue
+    // Reality Shard: every blinkEvery seconds a shard SKIPS blinkDist px along its current heading
+    // (post any gravity-well curvature), passing over the gap without touching it.
+    if (b.weapon === 'shard' && b.life > 0) stepShardBlink(run, b, dt)
+    if (b.life <= 0) {
+      // recursion: a shard that ran out of LIFE (not one whose pierce was spent) forks. Checked
+      // here, on the frame the life expires, so it fires exactly once before the filter drops it.
+      if (b.weapon === 'shard' && b.pierce > 0 && !b._fork) tryShardRecursion(run, b)
+      continue
+    }
+    if (b.pierce <= 0) continue
 
     let justHit = null
     for (const e of run.enemies) {
@@ -1382,8 +2133,10 @@ function stepOrbitWeapon(run, stats, fireRateMul) {
   }
 }
 
-function spawnNova(run, x, y, maxR, dmg, knockback) {
-  run.novas.push({ x, y, r: 0, maxR, dmg, knockback, life: NOVA_LIFE, hit: new Set() })
+// fear (v5.4, the Chitter Shriek's whole point): seconds of flee applied to every enemy the ring
+// touches. 0 (the wave's novas, and every other caller) means the ring only damages and shoves.
+function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0) {
+  run.novas.push({ x, y, r: 0, maxR, dmg, knockback, fear, life: NOVA_LIFE, hit: new Set() })
 }
 
 function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
@@ -1446,6 +2199,8 @@ function stepNovas(run, dt) {
       if (dist <= n.r + e.radius) {
         applyDamage(run, e, n.dmg)
         n.hit.add(e.id)
+        // Chitter Shriek: the ring panics what it hits (see FEAR_SPEED_MUL / stepEnemyMovement).
+        if ((n.fear ?? 0) > 0) e.fearT = Math.max(e.fearT || 0, n.fear)
         // Anchored (elite affix): still takes the damage above, just never gets knocked back.
         if (!(e.affixes && e.affixes.includes('anchored'))) {
           const kdx = dist > 1e-6 ? dx / dist : 1
@@ -1971,11 +2726,54 @@ function fireBeam(run, stats) {
   run.events.push({ type: 'beam' })
 }
 
-function stepBeams(run, dt) {
+// Is an enemy inside the beam arm at `angle`? Shared by the tick loop and Collapse.
+function inBeamArm(run, b, e, angle) {
   const p = run.player
+  const cos = Math.cos(angle), sin = Math.sin(angle)
+  const dx = e.x - p.x, dy = e.y - p.y
+  const along = dx * cos + dy * sin           // distance projected onto the beam axis
+  const perp = -dx * sin + dy * cos            // perpendicular distance from the axis
+  return along >= 0 && along <= b.length && Math.abs(perp) < b.width / 2 + e.radius
+}
+
+// A beam's arms: 1 for the Neon Beam, or `arms` evenly around the circle for a folded Tesseract
+// Beam (2 = the fold itself, 180° apart; hyperfold adds more). One entity rakes them all, so
+// Collapse can resolve the whole fold at once — that's why the fold isn't N separate beams.
+function beamArmAngles(b) {
+  if (!b.folded) return [b.angle]
+  const arms = b.arms ?? TESSERACT_ARMS
+  const out = []
+  for (let i = 0; i < arms; i++) out.push(b.angle + (i / arms) * Math.PI * 2)
+  return out
+}
+
+// Collapse (tesseractBeam): when the fold snaps shut, everything inside ANY arm is yanked toward
+// the player and takes a multiple of the beam's per-tick damage, plus one explode at the player.
+function collapseFold(run, b) {
+  const p = run.player
+  const dmg = Math.round(b.dmg * TESSERACT_COLLAPSE_MUL * (1 + b.collapseBonus))
+  const angles = beamArmAngles(b)
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    if (!angles.some((a) => inBeamArm(run, b, e, a))) continue
+    const dx = p.x - e.x, dy = p.y - e.y
+    const d = Math.hypot(dx, dy)
+    if (d > 1e-6 && !(e.affixes && e.affixes.includes('anchored'))) {
+      e.kb.x += (dx / d) * TESSERACT_COLLAPSE_PULL
+      e.kb.y += (dy / d) * TESSERACT_COLLAPSE_PULL
+    }
+    if (dmg > 0) dealDamage(run, e, dmg, false)
+  }
+  run.events.push({ type: 'explode', x: p.x, y: p.y, radius: b.length })
+}
+
+function stepBeams(run, dt) {
   for (const b of run.beams) {
     b.life -= dt
-    if (b.life <= 0) continue
+    if (b.life <= 0) {
+      if (b.folded && (b.collapseBonus ?? 0) > 0) collapseFold(run, b)
+      continue
+    }
     b.angle += b.rotSpeed * dt
 
     b.acc += dt
@@ -1986,14 +2784,10 @@ function stepBeams(run, dt) {
       const focusBonus = b.focusBonus ?? 0
       const elapsed = Math.min(b.duration, b.duration - b.life)
       const dmg = focusBonus > 0 ? b.dmg * (1 + focusBonus * (elapsed / b.duration)) : b.dmg
-      const cos = Math.cos(b.angle), sin = Math.sin(b.angle)
-      for (const e of run.enemies) {
-        if (e._dead) continue
-        const dx = e.x - p.x, dy = e.y - p.y
-        const along = dx * cos + dy * sin           // distance projected onto the beam axis
-        const perp = -dx * sin + dy * cos            // perpendicular distance from the axis
-        if (along >= 0 && along <= b.length && Math.abs(perp) < b.width / 2 + e.radius) {
-          applyDamage(run, e, dmg)
+      for (const angle of beamArmAngles(b)) {
+        for (const e of run.enemies) {
+          if (e._dead) continue
+          if (inBeamArm(run, b, e, angle)) applyDamage(run, e, dmg)
         }
       }
     }
@@ -2233,6 +3027,634 @@ function stepLures(run, dt) {
     if (lu.sticky) run.webs.push({ x: lu.x, y: lu.y, r: LURE_STICKY_R, t: LURE_STICKY_DUR })
   }
   run.lures = run.lures.filter((lu) => !lu._burst)
+}
+
+// ---- v5.4 natives (undergrowth / city / skies / beyond) --------------------------------
+// Shared by every v5.4 weapon that aims: the NEAREST enemy first, the last move direction only if
+// there is none, p.facing last. This is fireFlagella's hard-won rule (v5.1.2) — in a survivors-like
+// the player kites AWAY from the pack, so aiming at the move direction points at empty ground.
+function aimAngle(run) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  if (target) return Math.atan2(target.y - p.y, target.x - p.x)
+  if (p.facingAngle != null) return p.facingAngle
+  return p.facing >= 0 ? 0 : Math.PI
+}
+
+// Shared by every sector sweep (pounceClaws' rake, roar, tailSwipe): is the enemy's CENTER inside
+// the sector of half-angle arc/2 and radius `range` centered on `angle` at (ox, oy)? fullCircle
+// skips the angular test (cyclone/resonance's 360° swings).
+function inSector(ox, oy, angle, range, arc, e, fullCircle) {
+  const dx = e.x - ox, dy = e.y - oy
+  const dSq = dx * dx + dy * dy
+  if (dSq > range * range) return false
+  if (fullCircle) return true
+  // The sector's apex is INSIDE the enemy's own body: it's in every arc, and the angular test is
+  // meaningless there anyway (a bearing of ~zero length is arbitrary — atan2(0,0) is just 0). Without
+  // this, an enemy hugging the player can flip from one side of the sweep to the other between a
+  // pounce's aim and its landing rake, and the leap "misses" something it landed on top of.
+  if (dSq <= e.radius * e.radius) return true
+  const ea = Math.atan2(dy, dx)
+  const da = Math.atan2(Math.sin(ea - angle), Math.cos(ea - angle)) // signed angular offset
+  return Math.abs(da) <= arc / 2
+}
+
+// -- Pounce Claws (v5.4 undergrowth starter) ---------------------------------------------
+// A cast DASHES the player toward the nearest enemy over POUNCE_DASH_T (stepPlayerMovement hands
+// them over to run._pounceDash for the duration), then rakes the sector where it lands. Dash
+// distance is capped at the distance to the target's edge, so you land ON the foe, never past it.
+// quickPaws divides the interval (a `rate` fold would slow it); longPounce scales dash AND range;
+// doublePounce chains a second, weaker leap every POUNCE_DOUBLE_EVERY-th cast; throughLine makes
+// the leap itself rake what it passes.
+function stepPounceWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.pounceClaws
+  const quickPaws = mods?.quickPaws ?? 0
+  const longMul = 1 + (mods?.longPounce ?? 0)
+  const doubleOn = (mods?.doublePounce ?? 0) > 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickPaws)), dt, () => {
+    run._pounceCasts = (run._pounceCasts ?? 0) + 1
+    launchPounce(run, {
+      dash: stats.dash * longMul,
+      range: stats.range * longMul,
+      arc: stats.arc,
+      dmg: stats.dmg,
+      through: (mods?.throughLine ?? 0) > 0,
+      chain: doubleOn && run._pounceCasts % POUNCE_DOUBLE_EVERY === 0,
+    })
+  })
+}
+
+// Starts one leap. o = { dash, range, arc, dmg, through, chain } — already mod-resolved, so a
+// chained second leap can reuse it verbatim at reduced damage.
+function launchPounce(run, o) {
+  const p = run.player
+  const angle = aimAngle(run)
+  const target = nearestEnemy(run)
+  let dist = o.dash
+  if (target) {
+    const toTarget = Math.hypot(target.x - p.x, target.y - p.y) - target.radius
+    dist = Math.max(0, Math.min(o.dash, toTarget)) // land ON it, never past it
+  }
+  run._pounceDash = {
+    dirX: Math.cos(angle), dirY: Math.sin(angle),
+    speed: dist / POUNCE_DASH_T,
+    t: POUNCE_DASH_T,
+    fromX: p.x, fromY: p.y,
+    angle, o,
+  }
+  run.events.push({ type: 'pounce', x: p.x, y: p.y, angle, range: o.range, arc: o.arc, dash: dist })
+}
+
+// Ticks the in-flight leap (the player's movement itself is stepPlayerMovement's job) and the
+// doublePounce chain delay. A no-op unless a pounce is live.
+function stepPounceDash(run, dt) {
+  const d = run._pounceDash
+  if (d) {
+    d.t -= dt
+    if (d.t <= 0) {
+      run._pounceDash = null
+      rakePounce(run, d)
+    }
+  }
+  const chain = run._pounceChain
+  if (chain) {
+    chain.delay -= dt
+    if (chain.delay <= 0) {
+      run._pounceChain = null
+      launchPounce(run, chain.o)
+    }
+  }
+}
+
+function rakePounce(run, d) {
+  const p = run.player
+  const o = d.o
+  // throughLine: the dash PATH rakes too — every enemy within POUNCE_PATH_R of the segment it just
+  // travelled takes a fraction of the swing. Resolved once per pounce; the sector rake below is a
+  // separate pass, so an enemy standing at the landing spot can eat both.
+  if (o.through) {
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      if (distToSegment(e.x, e.y, d.fromX, d.fromY, p.x, p.y) > POUNCE_PATH_R + e.radius) continue
+      applyDamage(run, e, o.dmg * POUNCE_PATH_DMG_FRAC)
+    }
+  }
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    if (!inSector(p.x, p.y, d.angle, o.range, o.arc, e, false)) continue
+    applyDamage(run, e, o.dmg)
+  }
+  // doublePounce: chain a second, weaker leap after a beat. The chained leap never chains further.
+  if (o.chain) {
+    run._pounceChain = {
+      delay: POUNCE_DOUBLE_DELAY,
+      o: { ...o, dmg: o.dmg * POUNCE_DOUBLE_DMG_FRAC, chain: false },
+    }
+  }
+}
+
+// Shortest distance from (px,py) to the segment (ax,ay)-(bx,by). Only throughLine needs it.
+function distToSegment(px, py, ax, ay, bx, by) {
+  const vx = bx - ax, vy = by - ay
+  const lenSq = vx * vx + vy * vy
+  if (lenSq <= 1e-9) return Math.hypot(px - ax, py - ay)
+  let t = ((px - ax) * vx + (py - ay) * vy) / lenSq
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (ax + vx * t), py - (ay + vy * t))
+}
+
+// -- Quill Burst (v5.4 undergrowth) -------------------------------------------------------
+// A ring of quills fired evenly around the FULL circle — never aimed: this is the panic button,
+// not the sniper. Each quill is a run.bullets entry tagged weapon:'quill' with star's split/chain/
+// ricochet budgets zeroed, exactly like the stinger's needles. longQuills scales range AND speed;
+// rapidQuills divides the interval; retaliate fires a free (bigger) burst whenever the player is hit.
+function stepQuillWeapon(run, w, stats, fireRateMul, dt) {
+  if (run._quillRetalCd > 0) run._quillRetalCd = Math.max(0, run._quillRetalCd - dt)
+  const rapid = run.weaponMods.quillBurst?.rapidQuills ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireQuills(run, stats, stats.count))
+}
+
+function fireQuills(run, stats, count) {
+  const p = run.player
+  const longMul = 1 + (run.weaponMods.quillBurst?.longQuills ?? 0) // longQuills: +range AND +speed
+  const speed = stats.speed * longMul
+  const range = stats.range * longMul
+  const life = range / speed
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2
+    run.bullets.push({
+      x: p.x, y: p.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      dmg: stats.dmg,
+      pierce: stats.pierce,
+      life,
+      r: QUILL_R,
+      speed,
+      hitIds: new Set(),
+      weapon: 'quill',
+      // Disable star's bullet behaviours on quills (they share run.bullets/stepBullets).
+      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'quillBurst' })
+}
+
+// retaliate: getting hurt (contact or zone — hurtPlayer is the one shared path) bristles a free
+// burst, at most once per QUILL_RETALIATE_CD. Each pick adds a quill on top of the level's count.
+function tryQuillRetaliate(run) {
+  const bonus = run.weaponMods.quillBurst?.retaliate ?? 0
+  if (bonus <= 0 || (run._quillRetalCd ?? 0) > 0) return
+  const w = run.weapons.find((x) => x.id === 'quillBurst')
+  if (!w) return
+  run._quillRetalCd = QUILL_RETALIATE_CD
+  const stats = effectiveWeaponStats(run, w)
+  fireQuills(run, stats, stats.count + bonus)
+}
+
+// -- Chitter Shriek (v5.4 undergrowth utility) --------------------------------------------
+// A run.novas ring carrying `fear`: it damages, shoves, AND panics what it touches (see
+// FEAR_SPEED_MUL / stepEnemyMovement). The slowest clear in the pool on purpose — its value is the
+// rout, not the DPS. terror/shockwave/shrill fold into the stats; rapidShriek divides the interval;
+// echoShriek queues delayed re-casts (the wave's Echo Wave shape); panicRout lives in dealDamage.
+function stepShriekWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.chitterShriek
+  const rapid = mods?.rapidShriek ?? 0
+  const echoCount = mods?.echoShriek ?? 0
+  const p = run.player
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
+    spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, stats.fear)
+    run.events.push({ type: 'shoot', weapon: 'chitterShriek' })
+    run._shriekEchoes = run._shriekEchoes ?? []
+    for (let i = 1; i <= echoCount; i++) {
+      run._shriekEchoes.push({
+        delay: SHRIEK_ECHO_DELAY * i, x: p.x, y: p.y,
+        radius: stats.radius, dmg: stats.dmg * SHRIEK_ECHO_DMG_FRAC,
+        knockback: stats.knockback, fear: stats.fear * SHRIEK_ECHO_DMG_FRAC,
+      })
+    }
+  })
+  stepShriekEchoes(run, dt)
+}
+
+// Ticks down pending Echo Shriek casts (run._shriekEchoes, sim-internal) — cf. stepWaveEchoes.
+function stepShriekEchoes(run, dt) {
+  const echoes = run._shriekEchoes
+  if (!echoes || echoes.length === 0) return
+  for (const ec of echoes) {
+    ec.delay -= dt
+    if (ec.delay <= 0) {
+      spawnNova(run, ec.x, ec.y, ec.radius, ec.dmg, ec.knockback, ec.fear)
+      ec._done = true
+    }
+  }
+  run._shriekEchoes = echoes.filter((ec) => !ec._done)
+}
+
+// -- Trash Tornado (v5.4 city) -------------------------------------------------------------
+// An always-on orbital, exactly orbit's shape: sim rewrites every chunk's position into run.debris
+// each frame and ticks damage to whatever they overlap, on a per-chunk-per-enemy cooldown
+// (e._debrisCd, the run.orbs/orbCd bookkeeping). flingDebris hurls chunks outward as run.bullets
+// tagged weapon:'trash'; suction drags nearby foes in (elites/tanks resist, like a black hole's).
+function stepTornadoWeapon(run, stats, fireRateMul, dt) {
+  const p = run.player
+  const mods = run.weaponMods.trashTornado
+
+  for (let i = 0; i < stats.chunks; i++) {
+    const angle = (i / stats.chunks) * Math.PI * 2 + run.time * stats.rotSpeed
+    const ox = p.x + Math.cos(angle) * stats.radius
+    const oy = p.y + Math.sin(angle) * stats.radius
+    run.debris.push({ x: ox, y: oy, r: DEBRIS_R })
+    for (const e of run.enemies) {
+      if (e._dead || (e._debrisCd || 0) > 0) continue
+      const dx = e.x - ox, dy = e.y - oy
+      const rad = DEBRIS_R + e.radius
+      if (dx * dx + dy * dy > rad * rad) continue
+      applyDamage(run, e, stats.dmg)
+      e._debrisCd = stats.tick / fireRateMul
+    }
+  }
+
+  // suction: everything nearby is dragged toward the player (the tornado's eye). Elites/tanks are
+  // heavier — capped at TORNADO_SUCTION_RESIST of the pull, mirroring HOLE_RESIST_CAP.
+  const suction = mods?.suction ?? 0
+  if (suction > 0) {
+    const rangeSq = TORNADO_SUCTION_RANGE * TORNADO_SUCTION_RANGE
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      if (e.affixes && e.affixes.includes('anchored')) continue
+      const dx = p.x - e.x, dy = p.y - e.y
+      const dSq = dx * dx + dy * dy
+      if (dSq > rangeSq || dSq <= 1e-6) continue
+      const d = Math.sqrt(dSq)
+      let pull = TORNADO_SUCTION_PULL * suction
+      if (e.elite || e.type === 'tank') pull *= TORNADO_SUCTION_RESIST
+      const step = Math.min(d, pull * dt)
+      e.x += (dx / d) * step
+      e.y += (dy / d) * step
+    }
+  }
+
+  // flingDebris: every TORNADO_FLING_EVERY seconds, hurl <tier bonus> chunks straight outward.
+  const fling = mods?.flingDebris ?? 0
+  if (fling > 0) {
+    run._tornadoFlingAcc = (run._tornadoFlingAcc ?? 0) + dt
+    while (run._tornadoFlingAcc >= TORNADO_FLING_EVERY) {
+      run._tornadoFlingAcc -= TORNADO_FLING_EVERY
+      for (let i = 0; i < fling; i++) {
+        const angle = (i / fling) * Math.PI * 2 + run.time * stats.rotSpeed
+        run.bullets.push({
+          x: p.x + Math.cos(angle) * stats.radius,
+          y: p.y + Math.sin(angle) * stats.radius,
+          vx: Math.cos(angle) * TORNADO_FLING_SPEED,
+          vy: Math.sin(angle) * TORNADO_FLING_SPEED,
+          dmg: stats.dmg * TORNADO_FLING_DMG_FRAC,
+          pierce: 1,
+          life: TORNADO_FLING_RANGE / TORNADO_FLING_SPEED,
+          r: DEBRIS_R,
+          speed: TORNADO_FLING_SPEED,
+          hitIds: new Set(),
+          weapon: 'trash',
+          _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+        })
+      }
+    }
+  }
+}
+
+// -- Sewer Geyser (v5.4 city utility) ------------------------------------------------------
+// Plants telegraphed eruption zones (run.geysers) on/near random enemies within castRange; each
+// waits out its harmless fuse, then erupts ONCE against ENEMIES only. The utility native — slowest
+// clear in the pool on purpose. rapidGeyser divides the interval; launch flings and stuns what an
+// eruption catches; chainGeyser scatters weaker follow-ups off each eruption.
+function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
+  const rapid = run.weaponMods.sewerGeyser?.rapidGeyser ?? 0
+  const p = run.player
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
+    for (let i = 0; i < stats.count; i++) {
+      const spot = pickBloomSpot(run, stats.castRange) // random enemy in range, else a random offset
+      run.geysers.push({ x: spot.x, y: spot.y, r: stats.r, fuse: stats.fuse, dur: stats.fuse, dmg: stats.dmg })
+    }
+    run.events.push({ type: 'geyser', x: p.x, y: p.y })
+  })
+}
+
+// Shared by the Sewer Geyser and the Reality Shard's riftScar (same telegraph -> erupt -> gone
+// contract, see run.geysers in state.js). Never touches the player.
+function stepGeysers(run, dt) {
+  if (!run.geysers || run.geysers.length === 0) return
+  const launchBonus = run.weaponMods.sewerGeyser?.launch ?? 0
+  const chain = run.weaponMods.sewerGeyser?.chainGeyser ?? 0
+  const followUps = []
+
+  for (const g of run.geysers) {
+    g.fuse -= dt
+    if (g.fuse > 0) continue // telegraph — harmless
+    g._done = true
+    const rSq = g.r * g.r
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - g.x, dy = e.y - g.y
+      if (dx * dx + dy * dy > rSq) continue
+      applyDamage(run, e, g.dmg)
+      // launch: the jet throws them clear and leaves them stunned (see e.stunT in state.js).
+      if (launchBonus > 0 && !e._dead) {
+        const d = Math.hypot(dx, dy)
+        const ux = d > 1e-6 ? dx / d : 1
+        const uy = d > 1e-6 ? dy / d : 0
+        if (!(e.affixes && e.affixes.includes('anchored'))) {
+          e.kb.x += ux * GEYSER_LAUNCH_KB
+          e.kb.y += uy * GEYSER_LAUNCH_KB
+        }
+        e.stunT = Math.max(e.stunT || 0, GEYSER_STUN * launchBonus)
+      }
+    }
+    run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r })
+    // chainGeyser: scatter weaker follow-ups. _chained ones never chain further — and a riftScar
+    // rift arrives already flagged _chained, so this can never fire off another weapon's zone.
+    if (chain > 0 && !g._chained) {
+      for (let i = 0; i < chain; i++) {
+        const a = Math.random() * Math.PI * 2
+        const d = GEYSER_CHAIN_SCATTER_MIN + Math.random() * (GEYSER_CHAIN_SCATTER_MAX - GEYSER_CHAIN_SCATTER_MIN)
+        followUps.push({
+          x: g.x + Math.cos(a) * d, y: g.y + Math.sin(a) * d,
+          r: g.r * GEYSER_CHAIN_FRAC, fuse: GEYSER_CHAIN_FUSE, dur: GEYSER_CHAIN_FUSE,
+          dmg: g.dmg * GEYSER_CHAIN_FRAC, _chained: true,
+        })
+      }
+    }
+  }
+  for (const g of followUps) run.geysers.push(g)
+  run.geysers = run.geysers.filter((g) => !g._done)
+}
+
+// -- Roar (v5.4 skies starter) -------------------------------------------------------------
+// The flagella/pounce sector test again, but long, narrow and shoving — and the player doesn't move
+// with it. rapidRoar divides the interval; stagger stuns what it catches; resonance opens every
+// ROAR_RESONANCE_EVERY-th roar to a full circle (flagella's cyclone shape).
+function stepRoarWeapon(run, w, stats, fireRateMul, dt) {
+  const rapid = run.weaponMods.roar?.rapidRoar ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireRoar(run, stats))
+}
+
+function fireRoar(run, stats) {
+  const p = run.player
+  const angle = aimAngle(run)
+  const resonanceOn = (run.weaponMods.roar?.resonance ?? 0) > 0
+  run._roarCasts = (run._roarCasts ?? 0) + 1
+  const fullCircle = resonanceOn && run._roarCasts % ROAR_RESONANCE_EVERY === 0
+  const arc = fullCircle ? Math.PI * 2 : stats.arc
+  const staggerBonus = run.weaponMods.roar?.stagger ?? 0
+
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    if (!inSector(p.x, p.y, angle, stats.range, arc, e, fullCircle)) continue
+    applyDamage(run, e, stats.dmg)
+    if (e._dead) continue
+    shoveFromPlayer(run, e, stats.knockback)
+    if (staggerBonus > 0) e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus)
+  }
+  run.events.push({ type: 'roar', x: p.x, y: p.y, angle, range: stats.range, arc })
+}
+
+// Radial shove away from the player (the sector sweeps' knockback). Anchored elites take the
+// damage and stand their ground, exactly as they do against a nova.
+function shoveFromPlayer(run, e, knockback) {
+  if (e.affixes && e.affixes.includes('anchored')) return
+  const p = run.player
+  const dx = e.x - p.x, dy = e.y - p.y
+  const d = Math.hypot(dx, dy)
+  const ux = d > 1e-6 ? dx / d : 1
+  const uy = d > 1e-6 ? dy / d : 0
+  e.kb.x += ux * knockback
+  e.kb.y += uy * knockback
+}
+
+// -- Tail Swipe (v5.4 skies) ---------------------------------------------------------------
+// The sector again, WIDE and short: slow, hard, and it launches. quickTail divides the interval;
+// counterSwipe fires a free swipe when the player is hit; wreckingTail turns the launched bodies
+// into collateral where they come down.
+function stepTailWeapon(run, w, stats, fireRateMul, dt) {
+  if (run._tailCounterCd > 0) run._tailCounterCd = Math.max(0, run._tailCounterCd - dt)
+  const quick = run.weaponMods.tailSwipe?.quickTail ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireTail(run, stats))
+}
+
+function fireTail(run, stats) {
+  const p = run.player
+  const angle = aimAngle(run)
+  const wrecking = run.weaponMods.tailSwipe?.wreckingTail ?? 0
+  const struck = []
+
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    if (!inSector(p.x, p.y, angle, stats.range, stats.arc, e, false)) continue
+    const dealt = applyDamage(run, e, stats.dmg)
+    if (e._dead) continue
+    shoveFromPlayer(run, e, stats.knockback)
+    struck.push({ e, dealt })
+  }
+
+  // wreckingTail: resolved in a second pass, AFTER every knockback of this swipe is applied, so a
+  // launched body's collateral lands where it's actually headed. "Where it ends up" is derived from
+  // the knockback we just gave it: e.kb decays exponentially at KB_DECAY_RATE, so its remaining
+  // travel integrates to kb/KB_DECAY_RATE. Collateral never re-triggers collateral.
+  if (wrecking > 0) {
+    for (const { e, dealt } of struck) {
+      const lx = e.x + e.kb.x / KB_DECAY_RATE
+      const ly = e.y + e.kb.y / KB_DECAY_RATE
+      const dmg = Math.round(dealt * TAIL_COLLIDE_FRAC * wrecking)
+      if (dmg <= 0) continue
+      for (const other of run.enemies) {
+        if (other._dead || other.id === e.id) continue
+        const dx = other.x - lx, dy = other.y - ly
+        if (dx * dx + dy * dy > TAIL_COLLIDE_R * TAIL_COLLIDE_R) continue
+        dealDamage(run, other, dmg, false)
+      }
+    }
+  }
+  run.events.push({ type: 'tail', x: p.x, y: p.y, angle, range: stats.range, arc: stats.arc })
+}
+
+// counterSwipe: getting hurt swings the tail for free, at most every TAIL_COUNTER_CD (cf. retaliate).
+function tryCounterSwipe(run) {
+  const bonus = run.weaponMods.tailSwipe?.counterSwipe ?? 0
+  if (bonus <= 0 || (run._tailCounterCd ?? 0) > 0) return
+  const w = run.weapons.find((x) => x.id === 'tailSwipe')
+  if (!w) return
+  run._tailCounterCd = TAIL_COUNTER_CD
+  fireTail(run, effectiveWeaponStats(run, w))
+}
+
+// -- Debris Toss (v5.4 skies utility) ------------------------------------------------------
+// Lobs chunks (run.lobs) on an arc toward random enemies within castRange; each bursts ONCE where
+// it lands, against ENEMIES only. longToss extends castRange and rapidToss divides the interval,
+// both at the throw site; shrapnel scatters splinters (run.bullets tagged weapon:'debris').
+function stepDebrisWeapon(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.debrisToss
+  const rapid = mods?.rapidToss ?? 0
+  const castRange = stats.castRange * (1 + (mods?.longToss ?? 0))
+  const p = run.player
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
+    for (let i = 0; i < stats.count; i++) {
+      const spot = pickBloomSpot(run, castRange)
+      run.lobs.push({
+        x: p.x, y: p.y, fromX: p.x, fromY: p.y, tx: spot.x, ty: spot.y,
+        t: 0, flight: stats.flight, r: stats.r, dmg: stats.dmg,
+      })
+    }
+    run.events.push({ type: 'toss', x: p.x, y: p.y })
+  })
+}
+
+// Ages each lob along its (fromX,fromY)->(tx,ty) lerp (render adds the parabola), then bursts it on
+// landing. A gravity well may have moved tx/ty mid-flight — the lerp just follows (see bendLob).
+function stepLobs(run, dt) {
+  if (!run.lobs || run.lobs.length === 0) return
+  const shrapnel = run.weaponMods.debrisToss?.shrapnel ?? 0
+
+  for (const lo of run.lobs) {
+    lo.t += dt
+    const f = Math.min(1, lo.t / lo.flight)
+    lo.x = lo.fromX + (lo.tx - lo.fromX) * f
+    lo.y = lo.fromY + (lo.ty - lo.fromY) * f
+    if (lo.t < lo.flight) continue
+    lo._done = true
+
+    const rSq = lo.r * lo.r
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - lo.tx, dy = e.y - lo.ty
+      if (dx * dx + dy * dy <= rSq) applyDamage(run, e, lo.dmg)
+    }
+    run.events.push({ type: 'explode', x: lo.tx, y: lo.ty, radius: lo.r })
+
+    // shrapnel: splinters fly radially out of the impact.
+    for (let i = 0; i < shrapnel; i++) {
+      const angle = (i / shrapnel) * Math.PI * 2
+      run.bullets.push({
+        x: lo.tx, y: lo.ty,
+        vx: Math.cos(angle) * LOB_SHRAPNEL_SPEED,
+        vy: Math.sin(angle) * LOB_SHRAPNEL_SPEED,
+        dmg: lo.dmg * LOB_SHRAPNEL_DMG_FRAC,
+        pierce: 1,
+        life: LOB_SHRAPNEL_RANGE / LOB_SHRAPNEL_SPEED,
+        r: LOB_SHRAPNEL_R,
+        speed: LOB_SHRAPNEL_SPEED,
+        hitIds: new Set(),
+        weapon: 'debris',
+        _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      })
+    }
+  }
+  run.lobs = run.lobs.filter((lo) => !lo._done)
+}
+
+// -- Reality Shard (v5.4 beyond starter) ---------------------------------------------------
+// Fans `count` shards at the nearest enemy (star's STAR_FAN volley shape). Each is a run.bullets
+// entry tagged weapon:'shard' that flies normally but TELEPORTS along its own heading every
+// blinkEvery seconds — skipping the gap entirely, which is the point (nothing in between is hit).
+// rapidShard divides the interval; riftScar leaves a detonating rift at each departure point;
+// recursion forks a shard that outlives its range (see the shard branch of stepBullets).
+function stepShardWeapon(run, w, stats, fireRateMul, dt) {
+  const rapid = run.weaponMods.realityShard?.rapidShard ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireShards(run, stats))
+}
+
+function fireShards(run, stats) {
+  const p = run.player
+  const baseAngle = aimAngle(run)
+  const life = stats.range / stats.speed
+  for (let i = 0; i < stats.count; i++) {
+    const angle = baseAngle + (i - (stats.count - 1) / 2) * STAR_FAN
+    run.bullets.push({
+      x: p.x, y: p.y,
+      vx: Math.cos(angle) * stats.speed,
+      vy: Math.sin(angle) * stats.speed,
+      dmg: stats.dmg,
+      pierce: stats.pierce,
+      life,
+      r: SHARD_R,
+      speed: stats.speed,
+      hitIds: new Set(),
+      weapon: 'shard',
+      _blinkCd: stats.blinkEvery, _blinkEvery: stats.blinkEvery, _blinkDist: stats.blinkDist,
+      _life0: life, // recursion forks at a fraction of the ORIGINAL life, not what's left
+      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'realityShard' })
+}
+
+// A blink: jump blinkDist px along the CURRENT heading (so a gravity well's curvature carries
+// through it) without consuming life, and without sweeping the gap.
+function stepShardBlink(run, b, dt) {
+  b._blinkCd -= dt
+  if (b._blinkCd > 0) return
+  b._blinkCd += b._blinkEvery
+  const speed = Math.hypot(b.vx, b.vy) || 1
+  const fromX = b.x, fromY = b.y
+  b.x += (b.vx / speed) * b._blinkDist
+  b.y += (b.vy / speed) * b._blinkDist
+  // riftScar: the departure point scars over and detonates. Rifts reuse run.geysers (the same
+  // "telegraph then erupt, enemies only" contract) flagged _chained so sewerGeyser's chainGeyser —
+  // a different weapon's mod — can never fire off them.
+  const rift = run.weaponMods.realityShard?.riftScar ?? 0
+  if (rift > 0) {
+    run.geysers.push({
+      x: fromX, y: fromY, r: SHARD_RIFT_R,
+      fuse: SHARD_RIFT_FUSE, dur: SHARD_RIFT_FUSE,
+      dmg: b.dmg * SHARD_RIFT_FRAC * rift, _chained: true,
+    })
+  }
+}
+
+// recursion: a shard whose LIFE expired forks into <tier bonus> weaker, shorter-lived shards in
+// random directions, flagged _fork so a fork never re-forks.
+function tryShardRecursion(run, b) {
+  const count = run.weaponMods.realityShard?.recursion ?? 0
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2
+    run.bullets.push({
+      x: b.x, y: b.y,
+      vx: Math.cos(angle) * b.speed,
+      vy: Math.sin(angle) * b.speed,
+      dmg: b.dmg * SHARD_RECURSE_DMG_FRAC,
+      pierce: 1,
+      life: (b._life0 ?? 1) * SHARD_RECURSE_LIFE_FRAC,
+      r: SHARD_R,
+      speed: b.speed,
+      hitIds: new Set(),
+      weapon: 'shard',
+      _blinkCd: b._blinkEvery, _blinkEvery: b._blinkEvery, _blinkDist: b._blinkDist,
+      _life0: (b._life0 ?? 1) * SHARD_RECURSE_LIFE_FRAC,
+      _fork: true,
+      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+    })
+  }
+}
+
+// -- Tesseract Beam (v5.4 beyond) ----------------------------------------------------------
+// One run.beams entry flagged folded: the "fold" is a second arm 180° opposite the first, sweeping
+// with it, so a cast rakes both sides at once (hyperfold adds arms — 3 = 120° apart, 4 = 90°...).
+// Baking the whole fold into ONE entity (rather than N beams, the way rainbow.prismatic does) is
+// what lets collapse resolve it as a single event. rapidFold divides the cast interval.
+function stepTesseractWeapon(run, w, stats, fireRateMul, dt) {
+  const rapid = run.weaponMods.tesseractBeam?.rapidFold ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireTesseract(run, stats))
+}
+
+function fireTesseract(run, stats) {
+  const mods = run.weaponMods.tesseractBeam
+  run.beams.push({
+    angle: aimAngle(run), life: stats.duration, duration: stats.duration, dmg: stats.dmg,
+    tick: stats.tick, width: stats.width, length: stats.length,
+    rotSpeed: stats.rotSpeed, acc: 0,
+    folded: true,
+    arms: TESSERACT_ARMS + (mods?.hyperfold ?? 0),
+    collapseBonus: mods?.collapse ?? 0,
+  })
+  run.events.push({ type: 'beam' })
 }
 
 // ---- Pickups ------------------------------------------------------------------------

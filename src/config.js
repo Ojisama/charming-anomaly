@@ -119,7 +119,10 @@ export const WEAPONS = {
     ],
   },
   hole: {
-    name: 'Black Hole',
+    // v5.4: re-themed as The Beyond's native (Black-Hole Vortex) — COPY ONLY, behavior/numbers
+    // unchanged (still the hole weapon step/mods in sim.js, entity array run.holes). Moved from
+    // vaulted into the beyond's weapon pool (see CHAPTERS.beyond.weapons) — its thematic home.
+    name: 'Black-Hole Vortex',
     desc: 'Opens a vortex that swallows the swarm.',
     icon: '🕳️', rarity: 'legendary',
     levels: [
@@ -131,8 +134,14 @@ export const WEAPONS = {
     ],
   },
   rainbow: {
-    name: 'Prism Beam',
-    desc: 'A rainbow ray sweeps everything it touches.',
+    // v5.4: re-themed as The City's starter (Neon Beam) — COPY ONLY, behavior/numbers unchanged
+    // (still the rainbow weapon step/mods in sim.js, entity array run.beams, and the
+    // WEAPON_MODS.rainbow set below). Keeping the id 'rainbow' keeps render.js/main.js working;
+    // the display name is what the player sees. Moved from vaulted into the city's weapon pool.
+    // NOTE its rarity stays 'mythic': a chapter's starter is GRANTED by createRun (state.js), so
+    // rarity only gates how often it comes BACK as a level-up card — it never gates the start.
+    name: 'Neon Beam',
+    desc: 'A hard neon ray sweeps everything it touches.',
     icon: '🌈', rarity: 'mythic',
     levels: [
       { dmg: 12, tick: 0.15, interval: 8.0, duration: 2.2, rotSpeed: 2.6, width: 30, length: 380 },
@@ -196,6 +205,159 @@ export const WEAPONS = {
       { rate: 3.9, castRange: 260, dur: 3.4, aggro: 230, burstR: 126, burstDmg: 42 },
       { rate: 3.5, castRange: 275, dur: 3.6, aggro: 250, burstR: 136, burstDmg: 52 },
       { rate: 3.1, castRange: 290, dur: 3.8, aggro: 270, burstR: 148, burstDmg: 64 },
+    ],
+  },
+  // Undergrowth chapter natives (v5.4). See stepPounceWeapon/stepQuillWeapon/stepShriekWeapon in sim.js.
+  pounceClaws: {
+    name: 'Pounce Claws',
+    desc: 'Leap at the nearest foe and rake an arc on landing.',
+    icon: '🐾', rarity: 'normal',
+    // A cast DASHES the player up to `dash` px toward the nearest enemy (capped so you never
+    // overshoot past it), then rakes every enemy whose CENTER falls in the sector (arc rad,
+    // range px) centered on the dash direction — like flagella's swing, but you move with it.
+    levels: [
+      { dmg: 16, rate: 0.95, dash: 90,  range: 120, arc: 1.20 },
+      { dmg: 19, rate: 0.88, dash: 100, range: 128, arc: 1.30 },
+      { dmg: 24, rate: 0.80, dash: 110, range: 136, arc: 1.40 },
+      { dmg: 29, rate: 0.72, dash: 120, range: 146, arc: 1.50 },
+      { dmg: 36, rate: 0.64, dash: 135, range: 160, arc: 1.65 },
+    ],
+  },
+  quillBurst: {
+    name: 'Quill Burst',
+    desc: 'Bristles a ring of quills outward in every direction.',
+    icon: '🦔', rarity: 'rare',
+    // count = quills per burst, fired evenly around the full circle (never aimed — this is the
+    // panic button, not the sniper). Each quill is a run.bullets projectile tagged weapon:'quill'
+    // (life = range/speed, derived at fire time), same as stinger's needles.
+    levels: [
+      { dmg: 10, rate: 1.30, count: 6,  speed: 460, range: 240, pierce: 1 },
+      { dmg: 12, rate: 1.20, count: 7,  speed: 480, range: 255, pierce: 1 },
+      { dmg: 14, rate: 1.10, count: 9,  speed: 500, range: 270, pierce: 2 },
+      { dmg: 17, rate: 1.00, count: 10, speed: 520, range: 285, pierce: 2 },
+      { dmg: 20, rate: 0.90, count: 12, speed: 540, range: 300, pierce: 2 },
+    ],
+  },
+  chitterShriek: {
+    name: 'Chitter Shriek',
+    desc: 'A shrill scream that hurts, shoves, and panics the swarm.',
+    icon: '📣', rarity: 'rare',
+    // The utility native (slowest clear on purpose): a run.novas ring flagged `fear` — it damages,
+    // knocks back, AND makes struck enemies flee for `fear` seconds (see FEAR_* below).
+    levels: [
+      { dmg: 14, rate: 3.2, radius: 150, knockback: 180, fear: 1.0 },
+      { dmg: 17, rate: 3.0, radius: 168, knockback: 200, fear: 1.2 },
+      { dmg: 21, rate: 2.8, radius: 188, knockback: 225, fear: 1.4 },
+      { dmg: 25, rate: 2.6, radius: 208, knockback: 250, fear: 1.6 },
+      { dmg: 30, rate: 2.4, radius: 230, knockback: 280, fear: 1.8 },
+    ],
+  },
+  // City chapter natives (v5.4). Neon Beam = the rainbow re-theme (see WEAPONS.rainbow).
+  // See stepTornadoWeapon/stepGeyserWeapon in sim.js.
+  trashTornado: {
+    name: 'Trash Tornado',
+    desc: 'Whips up street trash to orbit and batter what it touches.',
+    icon: '🌪️', rarity: 'rare',
+    // Always-on orbital, like orbit: sim recomputes every chunk's position each frame into
+    // run.debris ({x, y, r}) and ticks damage to whatever they overlap every `tick` seconds.
+    levels: [
+      { dmg: 11, chunks: 3, radius: 90,  rotSpeed: 2.6, tick: 0.5 },
+      { dmg: 13, chunks: 3, radius: 98,  rotSpeed: 2.8, tick: 0.5 },
+      { dmg: 16, chunks: 4, radius: 108, rotSpeed: 3.1, tick: 0.45 },
+      { dmg: 20, chunks: 5, radius: 118, rotSpeed: 3.4, tick: 0.4 },
+      { dmg: 26, chunks: 6, radius: 130, rotSpeed: 3.8, tick: 0.35 },
+    ],
+  },
+  sewerGeyser: {
+    name: 'Sewer Geyser',
+    desc: 'Cracks the street open; scalding jets erupt where foes stand.',
+    icon: '⛲', rarity: 'rare',
+    // The utility native (slowest clear on purpose): plants `count` telegraphed eruption zones
+    // (run.geysers) on/near random enemies within castRange; each waits `fuse` seconds (harmless
+    // telegraph), then erupts ONCE for dmg in r. Enemies only — never hurts the player.
+    levels: [
+      { rate: 3.0, castRange: 260, fuse: 0.70, r: 90,  dmg: 34, count: 1 },
+      { rate: 2.8, castRange: 270, fuse: 0.70, r: 98,  dmg: 42, count: 1 },
+      { rate: 2.6, castRange: 285, fuse: 0.65, r: 106, dmg: 52, count: 2 },
+      { rate: 2.3, castRange: 300, fuse: 0.65, r: 116, dmg: 64, count: 2 },
+      { rate: 2.0, castRange: 320, fuse: 0.60, r: 128, dmg: 80, count: 3 },
+    ],
+  },
+  // Skies chapter natives (v5.4). See stepRoarWeapon/stepTailWeapon/stepDebrisWeapon in sim.js.
+  roar: {
+    name: 'Roar',
+    desc: 'A sonic cone that flattens everything in front of you.',
+    icon: '🗣️', rarity: 'normal',
+    // Same sector geometry as flagella/pounceClaws (arc rad, range px, aimed at the nearest enemy
+    // and falling back to player.facingAngle when none exists — exactly fireFlagella's rule), but
+    // longer and narrower, and it shoves what it hits. The player does NOT move (unlike pounceClaws).
+    levels: [
+      { dmg: 15, rate: 1.00, range: 200, arc: 0.90, knockback: 60 },
+      { dmg: 18, rate: 0.92, range: 215, arc: 0.95, knockback: 70 },
+      { dmg: 22, rate: 0.84, range: 230, arc: 1.05, knockback: 80 },
+      { dmg: 27, rate: 0.75, range: 250, arc: 1.15, knockback: 95 },
+      { dmg: 34, rate: 0.66, range: 275, arc: 1.30, knockback: 110 },
+    ],
+  },
+  tailSwipe: {
+    name: 'Tail Swipe',
+    desc: 'A heavy sweep that clears the ground around you.',
+    icon: '🦖', rarity: 'rare',
+    // Sector geometry again, but WIDE and short: slow, hard, and it launches. Sits between roar
+    // (fast chip) and debrisToss (slow burst) in the skies pool.
+    levels: [
+      { dmg: 26, rate: 1.60, range: 150, arc: 2.20, knockback: 140 },
+      { dmg: 31, rate: 1.50, range: 160, arc: 2.35, knockback: 155 },
+      { dmg: 38, rate: 1.40, range: 172, arc: 2.50, knockback: 170 },
+      { dmg: 46, rate: 1.28, range: 185, arc: 2.70, knockback: 190 },
+      { dmg: 58, rate: 1.15, range: 200, arc: 2.95, knockback: 220 },
+    ],
+  },
+  debrisToss: {
+    name: 'Debris Toss',
+    desc: 'Hurls a chunk of the skyline that bursts where it lands.',
+    icon: '🪨', rarity: 'rare',
+    // Lobs `count` chunks (run.lobs) on a `flight`-second arc toward random enemies within
+    // castRange, each bursting for dmg in r on landing. Enemies only — never hurts the player.
+    levels: [
+      { dmg: 30, rate: 2.6, castRange: 280, flight: 0.60, r: 85,  count: 1 },
+      { dmg: 37, rate: 2.4, castRange: 295, flight: 0.60, r: 92,  count: 1 },
+      { dmg: 45, rate: 2.2, castRange: 310, flight: 0.55, r: 100, count: 2 },
+      { dmg: 55, rate: 2.0, castRange: 330, flight: 0.55, r: 110, count: 2 },
+      { dmg: 70, rate: 1.8, castRange: 350, flight: 0.50, r: 122, count: 3 },
+    ],
+  },
+  // Beyond chapter natives (v5.4). Black-Hole Vortex = the hole re-theme (see WEAPONS.hole).
+  // See stepShardWeapon/stepTesseractWeapon in sim.js.
+  realityShard: {
+    name: 'Reality Shard',
+    desc: 'Splinters of elsewhere that skip through space as they fly.',
+    icon: '🔺', rarity: 'normal',
+    // Fires `count` shards at the nearest enemy (fanned STAR_FAN apart, like star's volley). Each
+    // shard is a run.bullets projectile tagged weapon:'shard': it flies normally, but every
+    // blinkEvery seconds it TELEPORTS blinkDist px further along its own heading (skipping the
+    // gap — no damage in between). life = range/speed, and a blink does NOT consume range.
+    levels: [
+      { dmg: 13, rate: 0.80, count: 2, speed: 380, range: 300, blinkEvery: 0.28, blinkDist: 70,  pierce: 1 },
+      { dmg: 15, rate: 0.74, count: 2, speed: 395, range: 320, blinkEvery: 0.26, blinkDist: 75,  pierce: 1 },
+      { dmg: 18, rate: 0.68, count: 3, speed: 410, range: 340, blinkEvery: 0.24, blinkDist: 82,  pierce: 2 },
+      { dmg: 22, rate: 0.60, count: 3, speed: 430, range: 360, blinkEvery: 0.22, blinkDist: 90,  pierce: 2 },
+      { dmg: 27, rate: 0.52, count: 4, speed: 450, range: 390, blinkEvery: 0.20, blinkDist: 100, pierce: 3 },
+    ],
+  },
+  tesseractBeam: {
+    name: 'Tesseract Beam',
+    desc: 'Folds the arena in half and sweeps the crease.',
+    icon: '🔷', rarity: 'epic',
+    // A run.beams entry (same shape/step as the Neon Beam) flagged `folded: true`: the "fold" is a
+    // second arm 180° opposite the first, sweeping together — i.e. one cast rakes both sides at
+    // once. rate (not `interval`) is the cast cadence, matching the other v5.x natives.
+    levels: [
+      { dmg: 10, tick: 0.16, rate: 6.5, duration: 2.0, rotSpeed: 2.2, width: 34, length: 340 },
+      { dmg: 12, tick: 0.16, rate: 6.0, duration: 2.2, rotSpeed: 2.4, width: 36, length: 360 },
+      { dmg: 15, tick: 0.15, rate: 5.5, duration: 2.4, rotSpeed: 2.6, width: 38, length: 380 },
+      { dmg: 18, tick: 0.15, rate: 5.0, duration: 2.7, rotSpeed: 2.8, width: 42, length: 405 },
+      { dmg: 22, tick: 0.14, rate: 4.5, duration: 3.0, rotSpeed: 3.1, width: 46, length: 430 },
     ],
   },
 }
@@ -428,6 +590,119 @@ export const WEAPON_MODS = {
     twinLure:    { name: 'Twin Lure',     desc: 'extra decoy(s) per cast', icon: '🌺', base: 1, kind: 'flat' },
     stickyScent: { name: 'Sticky Scent',  desc: 'burst leaves a slow zone', icon: '🕸️', base: 1, kind: 'flat' },
   },
+  // ---- Undergrowth natives (v5.4) ----
+  // rend/wideRake fold into pounceClaws' levels[] via WEAPON_STAT_MODS; longPounce (dash AND
+  // range) and quickPaws (attack rate — dividing it into the levels[] `rate` would SLOW it, like
+  // flagella.frenzy) are read at the fire site. doublePounce/throughLine are behavioral (see
+  // stepPounceWeapon in sim.js).
+  pounceClaws: {
+    rend:         { name: 'Rending Claws', desc: 'claw damage',        icon: '🩸', base: 0.35, kind: 'pct' },
+    wideRake:     { name: 'Wide Rake',     desc: 'claw arc',           icon: '🪭', base: 0.30, kind: 'pct' },
+    longPounce:   { name: 'Long Pounce',   desc: 'leap distance & reach', icon: '📏', base: 0.30, kind: 'pct' },
+    quickPaws:    { name: 'Quick Paws',    desc: 'pounce rate',        icon: '💨', base: 0.25, kind: 'pct' },
+    doublePounce: { name: 'Double Pounce', desc: 'every 3rd pounce chains into a second leap', icon: '🐈', base: 1, kind: 'flat' },
+    throughLine:  { name: 'Through Line',  desc: 'the leap itself rakes what it passes',       icon: '➡️', base: 1, kind: 'flat' },
+  },
+  // sharpQuills/moreQuills/piercingQuills fold into quillBurst's levels[] via WEAPON_STAT_MODS;
+  // longQuills (range AND speed) and rapidQuills (burst rate) are read at the fire site.
+  // retaliate is behavioral (read in hurtPlayer's path — see QUILL_RETALIATE_CD below).
+  quillBurst: {
+    sharpQuills:    { name: 'Sharp Quills',   desc: 'quill damage',        icon: '🗡️', base: 0.25, kind: 'pct' },
+    moreQuills:     { name: 'Bristling',      desc: 'quills per burst',    icon: '🦔', base: 2,    kind: 'flat' },
+    longQuills:     { name: 'Long Quills',    desc: 'quill range & speed', icon: '📏', base: 0.30, kind: 'pct' },
+    rapidQuills:    { name: 'Twitchy Spine',  desc: 'burst rate',          icon: '⏩', base: 0.25, kind: 'pct' },
+    piercingQuills: { name: 'Barbed Quills',  desc: 'quill pierce',        icon: '🎯', base: 1,    kind: 'flat' },
+    retaliate:      { name: 'Retaliation',    desc: 'getting hit fires a free burst', icon: '💢', base: 1, kind: 'flat' },
+  },
+  // terror/shockwave/shrill fold into chitterShriek's levels[] via WEAPON_STAT_MODS; rapidShriek
+  // (cast rate) is read at the cast site. echoShriek/panicRout are behavioral (see stepShriekWeapon
+  // and the fear handling in dealDamage/stepEnemyMovement).
+  chitterShriek: {
+    terror:      { name: 'Terror',       desc: 'fear duration',  icon: '😱', base: 0.35, kind: 'pct' },
+    shockwave:   { name: 'Shockwave',    desc: 'shriek radius',  icon: '📡', base: 0.30, kind: 'pct' },
+    shrill:      { name: 'Shrill',       desc: 'shriek damage',  icon: '📢', base: 0.30, kind: 'pct' },
+    rapidShriek: { name: 'Chatterbox',   desc: 'shriek rate',    icon: '⏩', base: 0.25, kind: 'pct' },
+    echoShriek:  { name: 'Echo Shriek',  desc: 'echo shriek(s) per cast',      icon: '🔁', kind: 'tier' },
+    panicRout:   { name: 'Panic Rout',   desc: 'damage taken by fleeing foes',  icon: '🏃', base: 0.40, kind: 'pct' },
+  },
+  // ---- City natives (v5.4; Neon Beam rides the existing WEAPON_MODS.rainbow set above) ----
+  // heavyTrash/wideTornado/fasterSpin/moreTrash fold into trashTornado's levels[] via
+  // WEAPON_STAT_MODS. flingDebris/suction are behavioral (see stepTornadoWeapon in sim.js).
+  trashTornado: {
+    heavyTrash:  { name: 'Heavy Trash',   desc: 'debris damage',   icon: '🔨', base: 0.25, kind: 'pct' },
+    wideTornado: { name: 'Wide Tornado',  desc: 'orbit radius',    icon: '🪐', base: 0.25, kind: 'pct' },
+    fasterSpin:  { name: 'Faster Spin',   desc: 'spin speed',      icon: '🌀', base: 0.25, kind: 'pct' },
+    moreTrash:   { name: 'More Trash',    desc: 'debris chunks',   icon: '🗑️', base: 1,    kind: 'flat' },
+    flingDebris: { name: 'Fling Debris',  desc: 'chunk(s) hurled outward periodically', icon: '🎯', kind: 'tier' },
+    suction:     { name: 'Suction',       desc: 'inward pull on nearby foes',           icon: '🌬️', base: 0.50, kind: 'pct' },
+  },
+  // pressure/wideGeyser/moreGeysers fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
+  // rapidGeyser (cast rate) is read at the cast site. launch/chainGeyser are behavioral (see
+  // stepGeysers in sim.js).
+  sewerGeyser: {
+    pressure:    { name: 'High Pressure', desc: 'eruption damage', icon: '💥', base: 0.30, kind: 'pct' },
+    wideGeyser:  { name: 'Wide Geyser',   desc: 'eruption radius', icon: '📡', base: 0.30, kind: 'pct' },
+    rapidGeyser: { name: 'Burst Main',    desc: 'cast rate',       icon: '⏩', base: 0.25, kind: 'pct' },
+    moreGeysers: { name: 'Broken Mains',  desc: 'geysers per cast', icon: '⛲', base: 1,   kind: 'flat' },
+    launch:      { name: 'Launch',        desc: 'eruptions fling and stun what they catch', icon: '🚀', base: 1, kind: 'flat' },
+    chainGeyser: { name: 'Chain Burst',   desc: 'follow-up geyser(s) per eruption',         icon: '🎆', kind: 'tier' },
+  },
+  // ---- Skies natives (v5.4) ----
+  // bellow/wideRoar/farRoar fold into roar's levels[] via WEAPON_STAT_MODS; rapidRoar (attack
+  // rate) is read at the fire site. stagger/resonance are behavioral (see stepRoarWeapon).
+  roar: {
+    bellow:    { name: 'Bellow',      desc: 'roar damage', icon: '📢', base: 0.30, kind: 'pct' },
+    wideRoar:  { name: 'Wide Roar',   desc: 'roar arc',    icon: '🪭', base: 0.30, kind: 'pct' },
+    farRoar:   { name: 'Carrying Roar', desc: 'roar range', icon: '📏', base: 0.30, kind: 'pct' },
+    rapidRoar: { name: 'Short Breath', desc: 'roar rate',   icon: '💨', base: 0.25, kind: 'pct' },
+    stagger:   { name: 'Stagger',     desc: 'stun on roared foes',              icon: '💫', base: 0.50, kind: 'pct' },
+    resonance: { name: 'Resonance',   desc: 'every 3rd roar goes all around',   icon: '🌀', base: 1, kind: 'flat' },
+  },
+  // heavyTail/longTail/broadSweep fold into tailSwipe's levels[] via WEAPON_STAT_MODS; quickTail
+  // (attack rate) is read at the fire site. wreckingTail/counterSwipe are behavioral (see
+  // stepTailWeapon and the counter hook in hurtPlayer).
+  tailSwipe: {
+    heavyTail:    { name: 'Heavy Tail',    desc: 'swipe damage', icon: '🔨', base: 0.30, kind: 'pct' },
+    longTail:     { name: 'Long Tail',     desc: 'swipe reach',  icon: '📏', base: 0.30, kind: 'pct' },
+    broadSweep:   { name: 'Broad Sweep',   desc: 'swipe arc',    icon: '🪭', base: 0.25, kind: 'pct' },
+    quickTail:    { name: 'Quick Tail',    desc: 'swipe rate',   icon: '💨', base: 0.25, kind: 'pct' },
+    wreckingTail: { name: 'Wrecking Tail', desc: 'collateral damage where launched foes land', icon: '🎳', base: 0.40, kind: 'pct' },
+    counterSwipe: { name: 'Counter Swipe', desc: 'getting hit triggers a free swipe',          icon: '💢', base: 1, kind: 'flat' },
+  },
+  // heavyDebris/bigImpact/moreDebris fold into debrisToss' levels[] via WEAPON_STAT_MODS; longToss
+  // (castRange) and rapidToss (cast rate) are read at the throw site. shrapnel is behavioral
+  // (see stepLobs in sim.js).
+  debrisToss: {
+    heavyDebris: { name: 'Heavy Debris', desc: 'impact damage', icon: '🔨', base: 0.30, kind: 'pct' },
+    bigImpact:   { name: 'Big Impact',   desc: 'burst radius',  icon: '💥', base: 0.30, kind: 'pct' },
+    longToss:    { name: 'Long Toss',    desc: 'throw range',   icon: '📏', base: 0.30, kind: 'pct' },
+    rapidToss:   { name: 'Quick Hands',  desc: 'throw rate',    icon: '⏩', base: 0.25, kind: 'pct' },
+    moreDebris:  { name: 'Both Hands',   desc: 'chunks per throw', icon: '🪨', base: 1,  kind: 'flat' },
+    shrapnel:    { name: 'Shrapnel',     desc: 'splinter(s) scattered by each impact', icon: '🎆', kind: 'tier' },
+  },
+  // ---- Beyond natives (v5.4; the Black-Hole Vortex rides the existing WEAPON_MODS.hole set) ----
+  // keenShard/moreShards/pierceShard fold into realityShard's levels[] via WEAPON_STAT_MODS;
+  // rapidShard (fire rate) is read at the fire site. riftScar/recursion are behavioral (see
+  // stepShardWeapon / the shard branch of stepBullets).
+  realityShard: {
+    keenShard:   { name: 'Keen Shards',  desc: 'shard damage',     icon: '🗡️', base: 0.25, kind: 'pct' },
+    moreShards:  { name: 'Splintering',  desc: 'shards per volley', icon: '🔺', base: 1,    kind: 'flat' },
+    pierceShard: { name: 'Phase Edge',   desc: 'shard pierce',     icon: '🎯', base: 1,    kind: 'flat' },
+    rapidShard:  { name: 'Quick Draw',   desc: 'volley rate',      icon: '⏩', base: 0.25, kind: 'pct' },
+    riftScar:    { name: 'Rift Scar',    desc: 'each blink leaves a detonating rift', icon: '🌀', base: 0.50, kind: 'pct' },
+    recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one expires',    icon: '♾️', kind: 'tier' },
+  },
+  // wideFold/longFold/sustainFold fold into tesseractBeam's levels[] via WEAPON_STAT_MODS;
+  // rapidFold (cast rate) is read at the cast site. hyperfold/collapse are behavioral (see
+  // stepTesseractWeapon / the folded branch of stepBeams).
+  tesseractBeam: {
+    wideFold:    { name: 'Wide Fold',    desc: 'beam width',    icon: '📡', base: 0.20, kind: 'pct' },
+    longFold:    { name: 'Long Fold',    desc: 'beam length',   icon: '↔️', base: 0.20, kind: 'pct' },
+    sustainFold: { name: 'Held Fold',    desc: 'beam duration', icon: '⌛', base: 0.20, kind: 'pct' },
+    rapidFold:   { name: 'Quick Fold',   desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
+    hyperfold:   { name: 'Hyperfold',    desc: 'extra fold arm(s) per cast',        icon: '🔷', kind: 'tier' },
+    collapse:    { name: 'Collapse',     desc: 'damage when the fold snaps shut',   icon: '🌋', base: 0.80, kind: 'pct' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -548,6 +823,129 @@ export const STINGER_HIVE_EVERY = 4   // hive (behavioral): every Nth volley fir
 // in sim.js). stickyScent (behavioral) drops a slow zone into run.webs on burst:
 export const LURE_STICKY_R = 80       // px, stickyScent slow-zone radius
 export const LURE_STICKY_DUR = 2      // s, stickyScent slow-zone lifetime
+
+// ---- Undergrowth weapons (v5.4: Pounce Claws + Quill Burst + Chitter Shriek) -----------------
+// Pounce Claws (undergrowth starter — see WEAPONS.pounceClaws + stepPounceWeapon in sim.js). The
+// cast teleport-free DASHES the player toward the nearest enemy over POUNCE_DASH_T seconds (the
+// player is uncontrollable but NOT invulnerable during it; obstacles still stop them), then rakes
+// the sector. Dash distance = min(levels.dash, distance to the target - its radius) so you land
+// ON the foe, never past it.
+export const POUNCE_DASH_T = 0.12        // s the dash itself takes (short — this reads as a hop)
+export const POUNCE_DOUBLE_EVERY = 3     // doublePounce (behavioral): every Nth pounce chains a second leap
+export const POUNCE_DOUBLE_DELAY = 0.15  // s between the first rake and the chained leap
+export const POUNCE_DOUBLE_DMG_FRAC = 0.7 // chained leap's damage, as a fraction of the first rake's
+// throughLine (behavioral): the dash path itself rakes. Every enemy whose center is within
+// POUNCE_PATH_R of the dash SEGMENT takes POUNCE_PATH_DMG_FRAC of the swing's damage (once per
+// pounce — the end-of-dash sector rake is applied separately and can hit the same enemy again).
+export const POUNCE_PATH_R = 34
+export const POUNCE_PATH_DMG_FRAC = 0.5
+
+// Quill Burst (undergrowth — see WEAPONS.quillBurst + stepQuillWeapon in sim.js): each quill is a
+// run.bullets projectile tagged weapon:'quill' so stepBullets applies quill-only behaviour without
+// touching star's split/chain/ricochet (all disabled per-quill, exactly like stinger's needles).
+export const QUILL_R = 8              // px, quill hit radius (added to enemy radius)
+// retaliate (behavioral): a burst also fires the instant the player TAKES contact/zone damage
+// (hurtPlayer), free of the weapon timer, at most once per QUILL_RETALIATE_CD seconds. Each pick
+// (flat) adds another quill to the retaliation burst on top of the level's `count`.
+export const QUILL_RETALIATE_CD = 1.2
+
+// Chitter Shriek (undergrowth utility — see WEAPONS.chitterShriek + stepShriekWeapon in sim.js): a
+// run.novas ring carrying an extra `fear` field (s). Enemies the ring hits get e.fearT = fear and
+// flee: while e.fearT > 0, stepEnemyMovement INVERTS the seek direction (they run from the player)
+// at FEAR_SPEED_MUL of their own speed and never deal contact damage. Ticks down every frame.
+export const FEAR_SPEED_MUL = 1.25    // fleeing enemies scatter a bit faster than they chase
+export const SHRIEK_ECHO_DELAY = 0.22 // s between an echoShriek cast and the next (cf. WAVE_ECHO_DELAY)
+export const SHRIEK_ECHO_DMG_FRAC = 0.6 // each echo's damage/fear, as a fraction of the original cast's
+// panicRout (behavioral): a FLEEING enemy (fearT > 0) takes (1 + bonus) × damage from EVERY source
+// (applied in dealDamage, alongside the venom amp). No constant — the bonus is the whole knob.
+
+// ---- City weapons (v5.4: Trash Tornado + Sewer Geyser; Neon Beam = the rainbow re-theme) -------
+// Trash Tornado (city — see WEAPONS.trashTornado + stepTornadoWeapon in sim.js): chunks are evenly
+// spaced on a ring around the player, sim rewrites run.debris ({x, y, r}) every frame (same
+// contract as run.orbs), and each chunk damages enemies it overlaps every `tick` s (per-chunk,
+// per-enemy cooldown — same bookkeeping orbit uses).
+export const DEBRIS_R = 14            // px, base chunk hit radius (cf. ORB_R)
+// flingDebris (behavioral): every TORNADO_FLING_EVERY seconds the tornado hurls <tier bonus> chunks
+// straight outward as run.bullets tagged weapon:'trash', at TORNADO_FLING_DMG_FRAC of chunk damage.
+export const TORNADO_FLING_EVERY = 1.5
+export const TORNADO_FLING_DMG_FRAC = 0.8
+export const TORNADO_FLING_SPEED = 430 // px/s
+export const TORNADO_FLING_RANGE = 260 // px before a flung chunk expires (life = range/speed)
+// suction (behavioral): enemies within TORNADO_SUCTION_RANGE of the player are dragged inward at
+// TORNADO_SUCTION_PULL × bonus px/s (elites/tanks resist — capped at TORNADO_SUCTION_RESIST of it,
+// mirroring HOLE_RESIST_CAP so the tornado can't trivially hold a tank).
+export const TORNADO_SUCTION_RANGE = 220
+export const TORNADO_SUCTION_PULL = 120
+export const TORNADO_SUCTION_RESIST = 0.5
+
+// Sewer Geyser (city utility — see WEAPONS.sewerGeyser + stepGeyserWeapon/stepGeysers in sim.js).
+// run.geysers entries: { x, y, r, fuse, dur, dmg, _chained? } — fuse counts down (harmless
+// telegraph; dur is its starting value so render can grow a warning ring from fuse/dur), then the
+// geyser erupts ONCE (damaging ENEMIES only, never the player), emits {type:'explode', x, y,
+// radius:r}, and is removed. _chained marks a chainGeyser follow-up so it never chains further.
+export const GEYSER_LAUNCH_KB = 260   // launch (behavioral): knockback applied to caught enemies
+export const GEYSER_STUN = 0.6        // launch: stun seconds × bonus (e.stunT — no seek, no contact damage)
+export const GEYSER_CHAIN_FRAC = 0.6  // chainGeyser: follow-up radius/damage, as a fraction of the parent's
+export const GEYSER_CHAIN_FUSE = 0.35 // s, follow-up telegraph (shorter than the parent's)
+export const GEYSER_CHAIN_SCATTER_MIN = 70  // px, min scatter from the parent eruption
+export const GEYSER_CHAIN_SCATTER_MAX = 150 // px, max scatter from the parent eruption
+
+// ---- Skies weapons (v5.4: Roar + Tail Swipe + Debris Toss) ------------------------------------
+// Roar (skies starter — see WEAPONS.roar + stepRoarWeapon in sim.js): the same sector test
+// flagella/pounceClaws use, plus a radial shove away from the player.
+export const ROAR_STUN = 0.5              // stagger (behavioral): stun seconds × bonus on roared foes (e.stunT)
+export const ROAR_RESONANCE_EVERY = 3     // resonance (behavioral): every Nth roar opens to a full 360° (cf. FLAGELLA_CYCLONE_EVERY)
+
+// Tail Swipe (skies — see WEAPONS.tailSwipe + stepTailWeapon in sim.js).
+// wreckingTail (behavioral): a struck enemy is knocked back as usual, and where it ENDS UP it
+// deals TAIL_COLLIDE_FRAC × bonus × the swipe's dealt damage to every OTHER enemy within
+// TAIL_COLLIDE_R of it (resolved once per swipe, after all knockbacks are applied; collateral
+// never re-triggers collateral).
+export const TAIL_COLLIDE_R = 60
+export const TAIL_COLLIDE_FRAC = 0.5
+export const TAIL_COUNTER_CD = 1.5        // counterSwipe (behavioral): free swipe on taking damage, at most every N s (cf. QUILL_RETALIATE_CD)
+
+// Debris Toss (skies utility — see WEAPONS.debrisToss + stepDebrisWeapon/stepLobs in sim.js).
+// run.lobs entries: { x, y, fromX, fromY, tx, ty, t, flight, r, dmg } — t counts UP from 0 to
+// flight; the chunk's drawn position lerps (fromX,fromY)->(tx,ty) with a render-side parabolic
+// hop (sim only needs t/flight). On landing it bursts ONCE for dmg in r, damaging ENEMIES only
+// (never the player), emits {type:'explode', x:tx, y:ty, radius:r}, and is removed. A lob is a
+// projectile for gravity-well purposes (beyond bends it) but it is NOT a run.bullets entry.
+export const LOB_SHRAPNEL_DMG_FRAC = 0.4   // shrapnel (behavioral): splinter damage, as a fraction of the impact's
+export const LOB_SHRAPNEL_SPEED = 420      // px/s, splinters fly radially from the impact
+export const LOB_SHRAPNEL_RANGE = 200      // px before a splinter expires (life = range/speed)
+export const LOB_SHRAPNEL_R = 7            // px, splinter hit radius (run.bullets tagged weapon:'debris')
+
+// ---- Beyond weapons (v5.4: Reality Shard + Tesseract Beam; Black-Hole Vortex = the hole) -------
+// Reality Shard (beyond starter — see WEAPONS.realityShard + stepShardWeapon in sim.js): a
+// run.bullets projectile tagged weapon:'shard' carrying _blinkCd (s until its next blink). A blink
+// jumps it blinkDist px along its CURRENT heading (post gravity-well curvature) without consuming
+// life, and without sweeping the gap (nothing in between is hit — that's the point).
+export const SHARD_R = 9                   // px, shard hit radius (added to enemy radius)
+// riftScar (behavioral): each blink leaves a rift at the shard's DEPARTURE point that detonates
+// after SHARD_RIFT_FUSE for SHARD_RIFT_FRAC × bonus × the shard's damage in SHARD_RIFT_R. Rifts
+// reuse run.geysers (same "telegraph then erupt, enemies only" contract) with _chained: true set
+// so chainGeyser — a sewerGeyser mod — can never fire off them.
+export const SHARD_RIFT_FUSE = 0.30
+export const SHARD_RIFT_R = 55
+export const SHARD_RIFT_FRAC = 0.8
+// recursion (behavioral): when a shard's life expires (NOT when its pierce is spent) it forks into
+// <tier bonus> new shards in random directions at SHARD_RECURSE_DMG_FRAC damage and
+// SHARD_RECURSE_LIFE_FRAC life, flagged `_fork` so a fork never re-forks.
+export const SHARD_RECURSE_DMG_FRAC = 0.5
+export const SHARD_RECURSE_LIFE_FRAC = 0.6
+
+// Tesseract Beam (beyond — see WEAPONS.tesseractBeam + stepTesseractWeapon in sim.js): a run.beams
+// entry with `folded: true`. A folded beam sweeps `arms` arms evenly around the circle (2 by
+// default = the fold, 180° apart; hyperfold adds more, so 3 arms = 120°, 4 = 90°, ...) — the same
+// geometry rainbow.prismatic uses, but baked into ONE beam entity rather than several, so
+// collapse can resolve the whole fold at once.
+export const TESSERACT_ARMS = 2            // arms on a plain (unmodded) fold
+// collapse (behavioral): when a folded beam expires, everything currently inside ANY of its arms
+// is yanked toward the player at TESSERACT_COLLAPSE_PULL px/s and takes TESSERACT_COLLAPSE_MUL ×
+// (1 + bonus) × the beam's per-tick damage, plus an {type:'explode'} at the player.
+export const TESSERACT_COLLAPSE_MUL = 8
+export const TESSERACT_COLLAPSE_PULL = 400
 
 // ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
 // Offered always (not gated behind a weapon), rolls a rarity like passives: applied
@@ -760,10 +1158,9 @@ export const runBonusCoins = (kills) => Math.floor(kills / 10)
 // ---- Chapters (v5.0: macro progression above difficulty) ---------------------------
 // Pure data — sim stays theme-agnostic and reads roster archetypes/behavior flags, weapon
 // pools, and signature/obstacle config from the run's chapter snapshot (see state.js
-// createRun). Later chapters (garden, undergrowth, city, skies, beyond) append here in
-// v5.1+; CHAPTER_ORDER is the single source of truth for sequencing, daily seeding, and
-// how many chapters currently ship.
-export const CHAPTER_ORDER = ['body', 'pond', 'garden']
+// createRun). v5.4 completes the seven-chapter arc from the design doc — CHAPTER_ORDER is the
+// single source of truth for sequencing, daily seeding, and how many chapters currently ship.
+export const CHAPTER_ORDER = ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -842,6 +1239,113 @@ export const CHAPTERS = {
       tail: false,
     },
   },
+  undergrowth: {
+    name: 'The Undergrowth', tagline: 'everything here eats you', icon: '🐾',
+    weapons: ['pounceClaws', 'quillBurst', 'chitterShriek'], starter: 'pounceClaws',
+    roster: [
+      { id: 'cat', archetype: 'tank',   name: 'Cat', hpMul: 1.6,  speedMul: 0.8, flags: ['pounce'] },
+      { id: 'owl', archetype: 'fast',   name: 'Owl', hpMul: 1.4,  speedMul: 0.9, flags: ['aerialStrike'] },
+      { id: 'rat', archetype: 'normal', name: 'Rat', hpMul: 0.85, speedMul: 1.15, flags: [] },
+    ],
+    eliteFlags: ['flashlightCone'],       // exterminator elites sweep a cone that ENRAGES other enemies
+    // Signature: predator telegraphs (the pounce/aerialStrike roster flags are the telegraphs
+    // themselves — no extra step) PLUS a field of snap traps seeded at createRun. `traps` = how
+    // many traps to scatter; every other trap number is a SNAP_TRAP_* constant below. sim.js gates
+    // its trap step on signature.type === 'predators' and seeds run.traps from signature.traps.
+    signature: { type: 'predators', traps: 10 },
+    obstacles: { count: 15, minR: 24, maxR: 46, minDist: 220 }, // roots / bones (traps are separate, see run.traps)
+    // ---- render-only (v5.4; interpreted by render.js, ZERO effect on sim) ---- dim forest floor
+    // seen from ankle height: dark loam showing between leaf litter, a drab dead-leaf floorTint, a
+    // furry tan critter with a tail. Deliberately the DARKEST biome so far (the garden's sunlit lawn
+    // gives way to the shade under it). Enemy silhouettes are baked per rosterId (cat/owl/rat).
+    render: {
+      bgColor: 0x2b2417,    // dark loam/soil showing between the leaf litter
+      floorTint: 0x8a7a4e,  // drab dead-leaf brown multiply on the floor sprites
+      playerTint: 0xd8a86a, // warm tan fur for the blob (you're a small furry critter now)
+      tail: true,
+      tailTint: 0xc99a5e,   // slightly darker tan — a critter tail, not a flagellum
+    },
+  },
+  city: {
+    name: 'The City', tagline: 'mind the traffic', icon: '🏙️',
+    // Neon Beam is the rainbow re-theme (id kept as 'rainbow', see WEAPONS.rainbow); trashTornado
+    // + sewerGeyser are new v5.4 natives. Starter = the neon beam (rainbow).
+    weapons: ['rainbow', 'trashTornado', 'sewerGeyser'], starter: 'rainbow',
+    roster: [
+      { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge'] },
+      { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
+      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.2,  flags: [] },
+    ],
+    eliteFlags: ['spawner'],              // exterminator-van elites periodically disgorge minions
+    // Signature: traffic lanes (run.lanes) — a marked band is telegraphed, then a vehicle sweeps
+    // it end to end, deadly to the player AND to enemies. All tuning is in TRAFFIC_* below; the
+    // per-chapter knob is how many lanes may be live at once.
+    signature: { type: 'traffic', lanes: 2 },
+    obstacles: { count: 16, minR: 22, maxR: 42, minDist: 220 }, // hydrants / dumpsters / cones
+    // ---- render-only (v5.4) ---- night street: wet asphalt showing between concrete slabs, cold
+    // grey floor, a neon-lit slime monster (no tail). Enemy silhouettes baked per rosterId
+    // (vacuum/ratDrone/pigeon). render.js also draws run.lanes (hazard-striped band -> headlights).
+    render: {
+      bgColor: 0x2c2f38,    // wet night asphalt between the pavement slabs
+      floorTint: 0x9aa0ac,  // cold concrete grey multiply on the floor sprites
+      playerTint: 0x9ef0c8, // neon-sign green — an urban monster lit by the storefronts
+      tail: false,
+    },
+  },
+  skies: {
+    name: 'The Skies', tagline: 'they brought the air force', icon: '🌩️',
+    weapons: ['roar', 'tailSwipe', 'debrisToss'], starter: 'roar',
+    roster: [
+      { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe'] },
+      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 1.2, speedMul: 0.9,  flags: ['missileVolley'] },
+      { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.8, speedMul: 0.55, flags: ['artillery'] },
+    ],
+    eliteFlags: ['artillery'],            // AA-turret elites shell you too, just harder (see ARTILLERY_*)
+    // Signature: bombardment (area denial) — telegraphed artillery circles rain on the player's
+    // area CONTINUOUSLY, independent of the artillery-flagged roster. Both feed run.bombs (the
+    // existing volatile-bomb array: telegraph fuse -> explode, damages player AND enemies).
+    // `rate` = seconds between bombardment volleys; the rest is BOMBARDMENT_* below.
+    signature: { type: 'bombardment', rate: 2.6 },
+    obstacles: { count: 13, minR: 30, maxR: 60, minDist: 240 }, // building rubble — fewer but chunkier
+    // ---- render-only (v5.4) ---- you are the kaiju and the camera zoomed OUT: pale open sky
+    // between shattered concrete, a bright rubble floor, a green kaiju with a heavy tail. Read as
+    // the brightest, most washed-out biome (daylight at altitude). rosterId: jet/helicopter/tankColumn.
+    render: {
+      bgColor: 0x6f9ecf,    // open daylight sky showing between the rubble
+      floorTint: 0xc9d6e4,  // pale shattered-concrete multiply on the floor sprites
+      playerTint: 0x7ad07a, // classic rubber-suit kaiju green
+      tail: true,
+      tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailSwipe's business end)
+    },
+  },
+  beyond: {
+    name: 'The Beyond', tagline: 'you were never local', icon: '🌌',
+    // Black-Hole Vortex comes home here (id kept as 'hole', see WEAPONS.hole); realityShard +
+    // tesseractBeam are new v5.4 natives. Starter = the reality shard.
+    weapons: ['realityShard', 'hole', 'tesseractBeam'], starter: 'realityShard',
+    roster: [
+      { id: 'blinker',    archetype: 'tank',   name: 'Glitch Blinker', hpMul: 1.4,  speedMul: 0.7, flags: ['blink'] },
+      { id: 'flicker',    archetype: 'normal', name: 'Phase Flicker',  hpMul: 0.9,  speedMul: 1,   flags: ['phase'] },
+      { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',    hpMul: 0.75, speedMul: 1.25, flags: [] },
+    ],
+    eliteFlags: ['pullBeam'],             // UFO elites open an abduction beam that drags the player in
+    // Signature: gravity wells (run.wells) — persistent field entities that BEND every projectile
+    // in flight, the player's (run.bullets/homingShots/lobs) and the enemies' (run.enemyShots)
+    // alike. They never damage anything; they only curve. `wells` = how many are alive at once.
+    signature: { type: 'gravity', wells: 4 },
+    obstacles: { count: 11, minR: 28, maxR: 55, minDist: 240 }, // asteroid chunks
+    // ---- render-only (v5.4) ---- deep space: near-black violet void between the asteroid crust,
+    // a cold violet floor, a luminous cosmic blob (no tail — you're a shape, not an animal any
+    // more). eliteIridescent gives UFO elites the same statusless shimmer the pond's soap bubbles
+    // use. rosterId: blinker/flicker/swarmDrone.
+    render: {
+      bgColor: 0x120a26,    // deep violet-black void showing between the asteroid crust
+      floorTint: 0x6a5fa0,  // cold violet multiply — dead rock lit only by starlight
+      playerTint: 0xe0b0ff, // luminous cosmic violet-white for the blob
+      tail: false,
+      eliteIridescent: [0xbfffe8, 0xd9c0ff, 0xffe8bf], // pale hues UFO elites cycle through
+    },
+  },
 }
 // ---- Chapter teasers (v5.3, DISPLAY-ONLY) ------------------------------------------
 // The title carousel shows [unlocked chapters] + [first real locked CHAPTERS entry] + [all teasers].
@@ -849,12 +1353,11 @@ export const CHAPTERS = {
 // NEVER reach createRun/onChapter/dailyChapter: they're never unlocked (so onChapter/Play skip them),
 // they're not in CHAPTER_ORDER (so dailyChapter never picks them), and every CHAPTERS[id] lookup on
 // the card/dot/select paths is guarded (ui.js). icon = a dim greyscale silhouette on the teaser card.
-export const CHAPTER_TEASERS = [
-  { id: 'undergrowth', icon: '🐾' },
-  { id: 'city', icon: '🏙️' },
-  { id: 'skies', icon: '🌩️' },
-  { id: 'beyond', icon: '🌌' },
-]
+// v5.4: EMPTY — undergrowth/city/skies/beyond all became real CHAPTERS entries, so the whole
+// seven-chapter arc now ships and nothing is "coming soon" any more. The export (and the ui.js
+// teaser-card path it drives) stays for the NEXT batch of future chapters: add {id, icon} rows
+// here for any chapter that has no CHAPTERS entry yet and is absent from CHAPTER_ORDER.
+export const CHAPTER_TEASERS = []
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -883,6 +1386,12 @@ export const dailyChapter = (dateKey) => CHAPTER_ORDER[hashString(dateKey + 'cha
 // existing spawn-type keys (ENEMIES above) that drive its base hp/speed/dmg/radius/xp —
 // archetypes are just the theme-agnostic vocabulary spawnEnemy uses to pick a roster skin.
 export const ARCHETYPE_TYPE = { normal: 'drone', tank: 'tank', fast: 'wisp' }
+// The inverse (spawn type -> archetype), used by spawnEnemy to pick which roster entries a
+// given wave-table spawn may wear. Do NOT index ARCHETYPE_TYPE by a type to get this: it
+// silently "worked" for tank (its own inverse) and fell through to 'normal' for drone (right
+// by luck) and wisp (WRONG) — which made every 'fast' roster entry unreachable by natural
+// spawning until v5.5.
+export const TYPE_ARCHETYPE = { drone: 'normal', tank: 'tank', wisp: 'fast' }
 
 // latch (e.g. body's antibody): on contact the enemy applies a move-speed debuff to the
 // player then dies (spends itself) instead of dealing normal contact damage — see
@@ -968,6 +1477,266 @@ export const SPRAY_LEN = 340       // px, strip length
 export const SPRAY_W = 92          // px, strip width
 export const SPRAY_ACTIVE = 1.2    // s the live strip keeps ticking after its fuse
 export const SPRAY_DPS = 10        // damage/second to a player standing in a live strip
+
+// ---- Undergrowth chapter behavior flags (v5.4, see sim.js) ----------------------------------
+// pounce (undergrowth's cat): a hold -> telegraph -> flat leap -> land/recover cycle, state on
+// e._pounceState ('hold'|'aim'|'leap'|'land') / _pounceT (s left in the phase) / _pounceDirX,
+// _pounceDirY (leap heading, LOCKED at the START of 'aim' so the leap is dodgeable) — same
+// bookkeeping idiom as diveBomb's _diveState/_diveT/_diveDirX/_diveDirY.
+//   hold:  seeks the player normally at POUNCE_HOLD_SPEED_MUL until within POUNCE_RANGE, then 'aim'
+//   aim:   STOPS dead for POUNCE_AIM_T (the telegraph; heading locks here — render draws the arc)
+//   leap:  POUNCE_LEAP_T of straight flight at POUNCE_LEAP_SPEED_MUL, ignoring the player's moves
+//          (it overshoots if you dodge). Contact damage is normal during the leap — no bonus.
+//   land:  POUNCE_LAND_T frozen (the punish window: it can't move or deal contact damage), then 'hold'
+// Damages: the PLAYER only, and only via ordinary contact damage (stepContactDamage) — a pounce
+// has no attack of its own. It reads/writes nothing on run.*.
+export const POUNCE_RANGE = 260          // px, distance at which a holding cat commits to a leap
+export const POUNCE_HOLD_SPEED_MUL = 0.8 // seek speed while stalking (multiplier of the cat's OWN speed)
+export const POUNCE_AIM_T = 0.55         // s, telegraphed crouch (dead stop; heading locks at its start)
+export const POUNCE_LEAP_T = 0.40        // s, leap phase (straight, no steering)
+export const POUNCE_LEAP_SPEED_MUL = 6.0 // leap speed multiplier — fast enough that only a dodge beats it
+export const POUNCE_LAND_T = 0.70        // s frozen after a leap (the free-hits window)
+
+// aerialStrike (undergrowth's owl): circles out of reach, marks the ground, then drops. State on
+// e._airState ('circle'|'mark'|'strike'|'climb') / _airT / _airAngle (its angle on the circle) /
+// _airTargX, _airTargY (the marked point, LOCKED at the start of 'mark').
+//   circle: orbits the player at AERIAL_RADIUS px, advancing _airAngle at AERIAL_ORBIT_SPEED rad/s
+//           (position is SET on the circle, not seeked), for AERIAL_CIRCLE_T, then 'mark'
+//   mark:   keeps circling for AERIAL_MARK_T while _airTargX/_airTargY hold the player's position
+//           at the phase's start — this is the shadow telegraph render draws on the ground
+//   strike: AERIAL_STRIKE_T of straight flight from wherever it is to the marked point at
+//           AERIAL_STRIKE_SPEED_MUL of its own speed; it does NOT re-aim
+//   climb:  AERIAL_CLIMB_T drifting back out to AERIAL_RADIUS, then 'circle'
+// Damages: the PLAYER only, via ordinary contact damage — same as pounce, no attack of its own.
+// While circling/climbing the owl is AERIAL_UNTOUCHABLE-gated: if true it takes no damage and
+// deals none (it's overhead); it's only fightable during 'mark'/'strike'.
+export const AERIAL_RADIUS = 240          // px, the circling standoff
+export const AERIAL_ORBIT_SPEED = 1.1     // rad/s around the player while circling
+export const AERIAL_CIRCLE_T = 2.0        // s of plain circling before a mark
+export const AERIAL_MARK_T = 0.8          // s of telegraph (the shadow lands here)
+export const AERIAL_STRIKE_T = 0.45       // s, the dive itself
+export const AERIAL_STRIKE_SPEED_MUL = 5.0
+export const AERIAL_CLIMB_T = 1.2         // s, recover/climb back to the circle
+export const AERIAL_UNTOUCHABLE = true    // owls can't be hit (or hit you) while 'circle'/'climb'
+
+// flashlightCone (undergrowth's exterminator elites): sweeps a cone of light that ENRAGES other
+// enemies. State on e._coneAngle (current sweep heading, rad) — it sweeps back and forth across
+// FLASHLIGHT_SWEEP rad centered on the direction to the player, at FLASHLIGHT_SWEEP_SPEED rad/s.
+// Every frame, any OTHER enemy whose center falls in the sector (FLASHLIGHT_ARC rad,
+// FLASHLIGHT_RANGE px, centered on _coneAngle, origin = the elite) gets e.enrageT =
+// FLASHLIGHT_ENRAGE_T; while e.enrageT > 0 that enemy's seek speed is × FLASHLIGHT_SPEED_MUL and
+// its contact damage × FLASHLIGHT_DMG_MUL. Ticks down like fearT.
+// Damages: NOTHING directly — the cone hurts neither the player nor enemies. It is pure buff +
+// telegraph (the threat is what it turns the swarm into). No run.* array; render reads _coneAngle.
+export const FLASHLIGHT_RANGE = 320
+export const FLASHLIGHT_ARC = 0.55         // rad, the cone's half-angle
+export const FLASHLIGHT_SWEEP = 1.4        // rad, total sweep span (± half of this around the player-facing)
+export const FLASHLIGHT_SWEEP_SPEED = 1.0  // rad/s
+export const FLASHLIGHT_ENRAGE_T = 2.0     // s of enrage granted (refreshed every frame in the cone)
+export const FLASHLIGHT_SPEED_MUL = 1.5
+export const FLASHLIGHT_DMG_MUL = 1.4
+
+// predators signature (undergrowth): snap traps. run.traps is seeded ONCE at createRun with
+// signature.traps entries, rejection-sampled exactly like run.obstacles (same
+// OBSTACLE_FIELD_RADIUS / OBSTACLE_MIN_GAP / OBSTACLE_PLACEMENT_ATTEMPTS, min SNAP_TRAP_MIN_DIST
+// from the origin) — traps do NOT block movement, so they may overlap obstacles freely.
+// run.traps entries: { x, y, r, armed, cd } — armed (bool) = ready to snap; cd (s) = time left
+// until it re-arms (0 while armed). Every frame, an ARMED trap whose radius r contains the center
+// of the player OR of any enemy snaps: it damages THAT ONE entity for SNAP_TRAP_DMG (BOTH sides —
+// this is the whole point: kite the swarm over them), sets armed=false / cd=SNAP_TRAP_REARM, and
+// emits {type:'explode', x, y, radius:r}. Player damage goes through the normal armor/
+// contactDmgTakenMul path and respects player.invuln; enemy damage goes through dealDamage.
+// Traps are permanent field furniture — they never expire, they only re-arm.
+export const SNAP_TRAP_R = 30          // px, trigger radius
+export const SNAP_TRAP_DMG = 24        // damage to whichever single entity trips it (player or enemy)
+export const SNAP_TRAP_REARM = 4.0     // s before a sprung trap can snap again
+export const SNAP_TRAP_MIN_DIST = 200  // px, min distance from the run's origin (don't spawn one under the player)
+
+// ---- City chapter behavior flags (v5.4, see sim.js) ------------------------------------------
+// lineCharge (city's robot vacuums): line up -> telegraph a straight lane -> charge down it.
+// State on e._chargeState ('track'|'lock'|'charge'|'stall') / _chargeT / _chargeDirX, _chargeDirY
+// (heading, LOCKED at the start of 'lock').
+//   track:  seeks normally at LINE_CHARGE_TRACK_SPEED_MUL until within LINE_CHARGE_RANGE -> 'lock'
+//   lock:   stops for LINE_CHARGE_LOCK_T; heading locks at its start (render draws the lane —
+//           LINE_CHARGE_W wide, LINE_CHARGE_LEN long, from the vacuum along the heading)
+//   charge: LINE_CHARGE_T of straight flight at LINE_CHARGE_SPEED_MUL, no steering
+//   stall:  LINE_CHARGE_STALL_T motionless (spinning down; no contact damage) -> 'track'
+// Damages: the PLAYER only, via ordinary contact damage. No run.* array; render reads the state.
+export const LINE_CHARGE_RANGE = 340
+export const LINE_CHARGE_TRACK_SPEED_MUL = 0.85
+export const LINE_CHARGE_LOCK_T = 0.6
+export const LINE_CHARGE_T = 0.8
+export const LINE_CHARGE_SPEED_MUL = 5.5
+export const LINE_CHARGE_STALL_T = 0.9
+export const LINE_CHARGE_LEN = 520     // px, telegraph lane length (render-only; the charge itself is speed×time)
+export const LINE_CHARGE_W = 48        // px, telegraph lane width (render-only)
+
+// spawner (city's exterminator-van elites): every SPAWNER_INTERVAL seconds, spawns SPAWNER_COUNT
+// enemies of the chapter's SPAWNER_ARCHETYPE roster entry, scattered SPAWNER_SCATTER px around
+// itself (spawnEnemy's normal path, so they get the chapter's roster skin/flags and the run's
+// current hp/speed scaling — they are NOT elites). Emits {type:'explode', x, y, radius} at each
+// spawn point so the pop reads. Capped: a spawner won't push past MAX_ALIVE.
+// Damages: nothing directly — it makes more of the things that do.
+export const SPAWNER_INTERVAL = 3.5
+export const SPAWNER_COUNT = 3
+export const SPAWNER_ARCHETYPE = 'fast'  // which of the chapter roster's archetypes it disgorges (pigeons)
+export const SPAWNER_SCATTER = 70        // px, spawn scatter around the van
+
+// traffic signature (city): run.lanes. Up to signature.lanes are alive at once; whenever fewer
+// exist, sim rolls a new one every TRAFFIC_INTERVAL seconds. A lane is a band of length
+// TRAFFIC_LEN and width TRAFFIC_W at a random angle, positioned so it CROSSES the player's current
+// position (center offset perpendicular by up to ±TRAFFIC_OFFSET px, so it's dodgeable and can
+// never be "spawned on top of you" unavoidably).
+// run.lanes entries: { x, y, angle, len, w, phase, t, carT, dmg }
+//   x, y     = the lane band's CENTER; angle = its direction; len/w = its extent
+//   phase    = 'warn' | 'sweep'
+//   t        = seconds left in the current phase (TRAFFIC_WARN, then TRAFFIC_SWEEP)
+//   carT     = 0..1, the vehicle's progress along the lane — sim advances it during 'sweep'
+//              only (carT = 1 - t/TRAFFIC_SWEEP). The vehicle's center is
+//              (x, y) + dir × ((carT - 0.5) × len) where dir = (cos angle, sin angle).
+//   dmg      = TRAFFIC_DMG, snapshotted so a mid-run retune can't desync live lanes
+//   hitIds   = Set<enemyId>, sim-internal: one hit per enemy per pass
+// 'warn': the band is drawn hazard-striped, NOTHING is damaged. 'sweep': a TRAFFIC_CAR_LEN ×
+// TRAFFIC_CAR_W box centered on the vehicle damages BOTH sides — the player (normal armor/
+// contactDmgTakenMul path, gated by player.invuln, once per pass is implicit via invuln) and every
+// enemy it touches (dealDamage, once each via hitIds) — plus TRAFFIC_KB knockback along `angle`.
+// The lane is removed when t hits 0 in 'sweep'.
+export const TRAFFIC_INTERVAL = 3.0   // s between lane rolls (while under signature.lanes alive)
+export const TRAFFIC_WARN = 1.3       // s of harmless telegraph before the vehicle enters
+export const TRAFFIC_SWEEP = 1.1      // s for the vehicle to traverse the full lane length
+export const TRAFFIC_LEN = 1100       // px, lane length (comfortably longer than a screen)
+export const TRAFFIC_W = 130          // px, lane band width
+export const TRAFFIC_OFFSET = 90      // px, max perpendicular offset of the band from the player
+export const TRAFFIC_CAR_LEN = 150    // px, the vehicle's hitbox length (along `angle`)
+export const TRAFFIC_CAR_W = 110      // px, the vehicle's hitbox width (across `angle`)
+export const TRAFFIC_DMG = 34         // damage to the player AND to each enemy the vehicle hits
+export const TRAFFIC_KB = 420         // knockback applied along the lane to struck enemies
+
+// ---- Skies chapter behavior flags (v5.4, see sim.js) -----------------------------------------
+// strafe (skies' fighter jets): flies straight passes THROUGH the player rather than chasing.
+// State on e._strafeState ('bank'|'run') / _strafeT / _strafeDirX, _strafeDirY (LOCKED at the
+// start of each 'run').
+//   bank: STRAFE_BANK_T of drifting toward a point STRAFE_STANDOFF px from the player on a random
+//         bearing, at STRAFE_BANK_SPEED_MUL. At its END the heading locks onto the player.
+//   run:  STRAFE_RUN_T of straight flight at STRAFE_RUN_SPEED_MUL, no steering (it flies past and
+//         well beyond you), then back to 'bank'.
+// Damages: the PLAYER only, via ordinary contact damage. No run.* array.
+export const STRAFE_STANDOFF = 420
+export const STRAFE_BANK_T = 1.3
+export const STRAFE_BANK_SPEED_MUL = 1.6
+export const STRAFE_RUN_T = 1.0
+export const STRAFE_RUN_SPEED_MUL = 4.5
+
+// missileVolley (skies' helicopters): holds a standoff and shoots. State on e._volleyT (s until
+// the next volley) / e._volleyLeft (missiles remaining in the current volley) / e._volleyGapT.
+//   Movement: seeks to hold MISSILE_STANDOFF px from the player at MISSILE_HOVER_SPEED_MUL
+//             (in/out, with the same MISSILE_DEADZONE band diveBomb uses, so it doesn't jitter).
+//   Firing:   every MISSILE_INTERVAL s it fires MISSILE_COUNT shots MISSILE_GAP apart, each a
+//             run.enemyShots entry aimed at the player's CURRENT position.
+// run.enemyShots entries: { x, y, vx, vy, r, dmg, life, turnRate } — the ONLY enemy-owned
+// projectile array. Sim steps it: homes toward the player at turnRate rad/s, expires at life <= 0,
+// and on overlapping the player (r + PLAYER.radius) damages the PLAYER only (normal armor/
+// contactDmgTakenMul path, respects invuln) and emits {type:'explode', x, y, radius: MISSILE_BLAST}.
+// It never damages enemies. It IS a projectile for the beyond's gravity wells (they bend it).
+// Damages: the PLAYER only.
+export const MISSILE_STANDOFF = 300
+export const MISSILE_HOVER_SPEED_MUL = 0.9
+export const MISSILE_DEADZONE = 10      // px band around the standoff where it holds still (cf. DIVE_HOVER_DEADZONE)
+export const MISSILE_INTERVAL = 3.2     // s between volleys
+export const MISSILE_COUNT = 3          // missiles per volley
+export const MISSILE_GAP = 0.16         // s between missiles within one volley
+export const MISSILE_SPEED = 240        // px/s
+export const MISSILE_TURN = 1.6         // rad/s homing (slow — outrunning them is the counterplay)
+export const MISSILE_LIFE = 4.0         // s before a missile fizzles (removed, no blast)
+export const MISSILE_R = 8              // px, missile hit radius
+export const MISSILE_DMG = 14
+export const MISSILE_BLAST = 40         // px, explode-event radius on impact (visual only — no splash)
+
+// artillery (skies' tank columns AND its AA-turret elites): a slow mover that shells the player
+// from wherever it stands. State on e._shellT (s until the next shell).
+// Every ARTILLERY_INTERVAL s it pushes a run.bombs entry (the EXISTING volatile-bomb array —
+// { x, y, radius, fuse, duration, dmg }) at the player's PREDICTED position: player position +
+// player velocity × ARTILLERY_LEAD. So it telegraphs for ARTILLERY_FUSE seconds, then explodes,
+// damaging the PLAYER and ENEMIES alike (stepBombs already does exactly this — no new code path).
+// Movement is otherwise a plain slow seek. Elites use the same flag with ARTILLERY_ELITE_* below.
+export const ARTILLERY_INTERVAL = 3.0
+export const ARTILLERY_FUSE = 1.1       // s of telegraph (stepBombs grows the warning from fuse/duration)
+export const ARTILLERY_RADIUS = 95      // px, blast radius
+export const ARTILLERY_DMG = 22
+export const ARTILLERY_LEAD = 0.35      // s of player-velocity lead baked into the aim (strafe to beat it)
+export const ARTILLERY_ELITE_INTERVAL = 1.8  // AA-turret elites shell nearly twice as often...
+export const ARTILLERY_ELITE_RADIUS = 130    // ...wider...
+export const ARTILLERY_ELITE_DMG = 30        // ...and harder.
+
+// bombardment signature (skies): continuous area denial, INDEPENDENT of the artillery roster —
+// this is the sky itself shelling you. Every signature.rate seconds, pushes BOMBARDMENT_COUNT
+// run.bombs entries (same array/step as artillery above, so it's the same explode-both-sides
+// contract) at uniformly random points within BOMBARDMENT_SPREAD px of the player.
+export const BOMBARDMENT_COUNT = 2
+export const BOMBARDMENT_SPREAD = 280   // px, scatter radius around the player
+export const BOMBARDMENT_FUSE = 1.2     // s of telegraph
+export const BOMBARDMENT_RADIUS = 85    // px, blast radius
+export const BOMBARDMENT_DMG = 18
+
+// ---- Beyond chapter behavior flags (v5.4, see sim.js) ----------------------------------------
+// blink (beyond's glitch blinkers): teleports instead of closing distance. State on e._blinkT
+// (s until the next blink). Moves at BLINK_CRAWL_SPEED_MUL of its own speed between blinks (it
+// barely walks — the blink IS its movement). Every BLINK_INTERVAL s, if further than
+// BLINK_MIN_DIST from the player, it jumps BLINK_DIST px straight toward them (clamped so it never
+// lands closer than BLINK_MIN_DIST, and never inside an obstacle — retry along the same heading at
+// BLINK_DIST/2, else skip this blink) and emits {type:'explode', x, y, radius: BLINK_FX_R} at BOTH
+// the departure and arrival points so the pop reads.
+// Damages: the PLAYER only, via ordinary contact damage. No run.* array.
+export const BLINK_INTERVAL = 2.2
+export const BLINK_DIST = 220
+export const BLINK_MIN_DIST = 120       // px, it never blinks to closer than this (no free contact hit)
+export const BLINK_CRAWL_SPEED_MUL = 0.25
+export const BLINK_FX_R = 30            // px, explode-event radius at the departure/arrival points (visual only)
+
+// phase (beyond's phase flickers): a windowed-vulnerability enemy. State on e._phaseSolid (bool) /
+// e._phaseT (s left in the current window). Alternates PHASE_SOLID_T solid <-> PHASE_GHOST_T
+// ghosted, forever, starting solid with _phaseT randomised across PHASE_SOLID_T at spawn so a wave
+// doesn't blink in unison.
+//   solid:  ordinary enemy in every respect.
+//   ghost:  takes NO damage (dealDamage returns early — no numbers, no status, no crit), deals NO
+//           contact damage, ignores obstacles (passes through), and moves at PHASE_GHOST_SPEED_MUL.
+// Status effects already on it (ignite/venom/chill) keep ticking DOWN but deal no damage while
+// ghosted. render.js reads _phaseSolid for the alpha.
+// Damages: the PLAYER only (while solid), via ordinary contact damage. No run.* array.
+export const PHASE_SOLID_T = 1.6
+export const PHASE_GHOST_T = 1.0
+export const PHASE_GHOST_SPEED_MUL = 1.4  // it hurries while it can't be punished
+
+// pullBeam (beyond's UFO elites): an abduction beam. State on e._beamState ('idle'|'beam') /
+// e._beamT. Every PULL_BEAM_INTERVAL s it opens a beam for PULL_BEAM_T seconds: while open, if the
+// player is within PULL_BEAM_RANGE, they are dragged toward the UFO at PULL_BEAM_FORCE px/s
+// (applied in stepPlayerMovement AFTER their own input, so you can fight it but not fully beat it
+// — PULL_BEAM_FORCE is deliberately under PLAYER.baseSpeed) and take PULL_BEAM_DPS dot-flagged
+// damage every STATUS_TICK (same path as run.pools). The UFO holds still while beaming.
+// Damages: the PLAYER only. No run.* array; render reads _beamState/_beamT plus the UFO->player line.
+export const PULL_BEAM_INTERVAL = 5.0
+export const PULL_BEAM_T = 2.0
+export const PULL_BEAM_RANGE = 380
+export const PULL_BEAM_FORCE = 150      // px/s toward the UFO (< PLAYER.baseSpeed 220, so you can walk out)
+export const PULL_BEAM_DPS = 7
+export const PULL_BEAM_W = 90           // px, beam width (render-only; the pull is a radius test)
+
+// gravity signature (beyond): run.wells. signature.wells entries are seeded ONCE at createRun,
+// rejection-sampled like run.obstacles (same OBSTACLE_FIELD_RADIUS/OBSTACLE_PLACEMENT_ATTEMPTS,
+// GRAVITY_MIN_DIST from the origin, GRAVITY_MIN_GAP between two wells' edges). They are permanent
+// field furniture: they never expire, never move, never damage, and never block movement.
+// run.wells entries: { x, y, r, g } — r = the influence radius, g = GRAVITY_FORCE.
+// Every frame, for EVERY projectile in flight — the player's (run.bullets, run.homingShots,
+// run.lobs) AND the enemies' (run.enemyShots) — each well within r of it applies an acceleration
+// of g × (1 - dist/r) px/s² toward (x, y), added to the projectile's velocity. Speed is then
+// renormalised back to the projectile's own speed, so a well BENDS a projectile's path without
+// making it faster or slower (that's the whole mechanic: curvature, not chaos). Beams (run.beams),
+// orbitals (run.orbs/run.debris), zones (run.pools/blooms/geysers) and novas are NOT projectiles
+// and are untouched. Enemies and the player are untouched too — this bends shots, not bodies.
+export const GRAVITY_FORCE = 900        // px/s² at the well's center, falling linearly to 0 at r
+export const GRAVITY_WELL_R = 190       // px, influence radius
+export const GRAVITY_MIN_DIST = 260     // px, min distance from the run's origin
+export const GRAVITY_MIN_GAP = 120      // px, min gap between two wells' edges
 
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
 export const CONSUMABLES = {

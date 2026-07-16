@@ -3,6 +3,8 @@ import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
   difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
+  SNAP_TRAP_R, SNAP_TRAP_MIN_DIST,
+  GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
 } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -127,6 +129,44 @@ function generateObstacles(cfg) {
   return obstacles
 }
 
+// Shared rejection sampler for the v5.4 fixed-radius signature fields (run.traps, run.wells —
+// see below): `count` centers of radius `r`, each at a random angle and a distance in
+// [minDist, OBSTACLE_FIELD_RADIUS] from the run's origin, rejected if it comes within minGap
+// (edge-to-edge) of one already placed. Same unseeded-Math.random / give-up-per-entry contract
+// as generateObstacles above — placement is never something sim.js depends on being deterministic.
+// Unlike obstacles these fields don't block movement, so they're only spaced against THEMSELVES
+// (a trap under a root is fine); one field never checks against another.
+function scatterField(count, r, minDist, minGap) {
+  const out = []
+  for (let i = 0; i < count; i++) {
+    for (let attempt = 0; attempt < OBSTACLE_PLACEMENT_ATTEMPTS; attempt++) {
+      const angle = Math.random() * Math.PI * 2
+      const dist = minDist + Math.random() * Math.max(0, OBSTACLE_FIELD_RADIUS - minDist)
+      const x = Math.cos(angle) * dist
+      const y = Math.sin(angle) * dist
+      const clear = out.every((o) => Math.hypot(x - o.x, y - o.y) - r - r >= minGap)
+      if (clear) { out.push({ x, y }); break }
+    }
+  }
+  return out
+}
+
+// Snap traps (v5.4 undergrowth 'predators' signature, see run.traps below): seeded once here from
+// CHAPTERS[chapter].signature.traps. Any chapter whose signature isn't 'predators' yields [].
+function generateTraps(sig) {
+  if (!sig || sig.type !== 'predators' || !sig.traps) return []
+  return scatterField(sig.traps, SNAP_TRAP_R, SNAP_TRAP_MIN_DIST, OBSTACLE_MIN_GAP)
+    .map(({ x, y }) => ({ x, y, r: SNAP_TRAP_R, armed: true, cd: 0 }))
+}
+
+// Gravity wells (v5.4 beyond 'gravity' signature, see run.wells below): seeded once here from
+// CHAPTERS[chapter].signature.wells. Any chapter whose signature isn't 'gravity' yields [].
+function generateWells(sig) {
+  if (!sig || sig.type !== 'gravity' || !sig.wells) return []
+  return scatterField(sig.wells, GRAVITY_WELL_R, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP)
+    .map(({ x, y }) => ({ x, y, r: GRAVITY_WELL_R, g: GRAVITY_FORCE }))
+}
+
 /**
  * Run state — the single mutable object the whole game shares each run.
  *
@@ -202,8 +242,24 @@ function generateObstacles(cfg) {
  *               bleed (v5.0, s of bleed DoT remaining, 0 = none), bleedDps (current bleed rate) —
  *               a plain dot-flagged DoT applied by the Flagella Whip's barbed mod (see applyBleed
  *               in sim.js), ticked like ignite with no combo/element interaction.
+ *
+ *               Status effects (v5.4, chapter-agnostic like the elemental ones — every reader
+ *               guards them with `|| 0` since saves and other chapters never set them). All three
+ *               tick down every frame in stepEnemyMovement:
+ *               fearT (s of flee remaining): while > 0 the enemy INVERTS its seek (runs from the
+ *                 player) at FEAR_SPEED_MUL of its own speed, overriding any behavior-flag state
+ *                 machine, and deals no contact damage. Applied by a run.novas entry carrying a
+ *                 `fear` field (the Chitter Shriek — see stepNovas/stepShriekWeapon in sim.js).
+ *                 chitterShriek's panicRout mod amplifies ALL damage a fearT > 0 enemy takes.
+ *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
+ *                 damage (knockback still carries it). Applied by the Sewer Geyser's launch mod
+ *                 and the Roar's stagger mod (see GEYSER_STUN/ROAR_STUN in config.js).
+ *               enrageT (s of enrage remaining): while > 0 the enemy's seek speed is ×
+ *                 FLASHLIGHT_SPEED_MUL and its contact damage × FLASHLIGHT_DMG_MUL. Applied by the
+ *                 undergrowth's flashlightCone elites (see stepFlashlightCones in sim.js).
  *               Sim-internal only (not a render contract, do not rely on these): _chillStack,
- *               _freezeImmuneT, _shockCd, _comboCd, _bleedAcc. }
+ *               _freezeImmuneT, _shockCd, _comboCd, _bleedAcc, _debrisCd (Trash Tornado's
+ *               per-enemy chunk cooldown, the run.debris analogue of orbCd). }
  * bullets[i]: { x, y, vx, vy, dmg, pierce, life, r, speed, hitIds:Set<enemyId>,
  *               _shard (true for Split Stars shards; they never re-split), _splitDone,
  *               _chainsLeft (Chain Stars jumps remaining), _ricochetsLeft (Ricochet Stars
@@ -378,6 +434,82 @@ function generateObstacles(cfg) {
  *   burstR + an {type:'explode', x, y, radius} event, and (sticky, from the stickyScent mod) a
  *   LURE_STICKY_R/DUR slow zone into run.webs (stepLures). Removed on burst. See WEAPONS.lure.
  *
+ * ---- v5.4 chapters (undergrowth/city/skies/beyond) ----------------------------------------
+ * Behavior flags added to the enemies[].flags vocabulary above (all documented phase by phase on
+ * their tuning blocks in config.js; every one of them is chapter-agnostic, sim.js only ever reads
+ * the flag): 'pounce' (undergrowth cat), 'aerialStrike' (owl, untouchable while overhead),
+ * 'flashlightCone' (exterminator elites), 'lineCharge' (city vacuum), 'spawner' (van elites),
+ * 'strafe' (jet), 'missileVolley' (helicopter -> run.enemyShots), 'artillery' (tank columns AND AA
+ * elites -> run.bombs), 'blink' (glitch blinker), 'phase' (phase flicker), 'pullBeam' (UFO elites).
+ * Their phase state lives on sim-internal `_`-prefixed fields following the diveBomb idiom; the
+ * two render.js may read are `e._phaseSolid` (bool, phase's alpha) and `e._coneAngle` (rad,
+ * flashlightCone's sweep heading).
+ *
+ * traps[i]: { x, y, r, armed, cd } — snap traps, seeded ONCE at createRun (generateTraps above)
+ *   from CHAPTERS[chapter].signature.traps under the undergrowth's 'predators' signature; [] for
+ *   every other chapter. Permanent field furniture: they never expire, never move, never block
+ *   movement (they may overlap obstacles) — they only spring and re-arm. An ARMED trap containing
+ *   the center of the player OR of any enemy snaps: it damages THAT ONE entity for SNAP_TRAP_DMG —
+ *   BOTH sides, that's the mechanic (kite the swarm over them) — then armed=false / cd=
+ *   SNAP_TRAP_REARM and emits {type:'explode', x, y, radius:r}. cd counts down to 0, then re-arms
+ *   (cd is 0 while armed). See stepTraps in sim.js.
+ * wells[i]: { x, y, r, g } — gravity wells, seeded ONCE at createRun (generateWells above) from
+ *   CHAPTERS[chapter].signature.wells under the beyond's 'gravity' signature; [] elsewhere. r =
+ *   influence radius, g = GRAVITY_FORCE (px/s² at the center, falling linearly to 0 at r). Permanent:
+ *   never expire, never move, never damage, never block. They BEND every projectile in flight —
+ *   run.bullets, run.homingShots, run.lobs, run.enemyShots — and nothing else (bodies, beams,
+ *   orbitals and zones are untouched). Speed is renormalised after the bend: curvature, not
+ *   acceleration. See stepGravityWells in sim.js.
+ * lanes[i]: { x, y, angle, len, w, phase, t, carT, dmg, hitIds:Set<enemyId> } — traffic lanes
+ *   (city's 'traffic' signature); empty elsewhere. x,y = the band's CENTER, angle = its direction,
+ *   len/w = its extent. phase 'warn' (a harmless hazard-striped telegraph) for t = TRAFFIC_WARN
+ *   seconds, then phase 'sweep' for t = TRAFFIC_SWEEP while a vehicle traverses the band: carT
+ *   goes 0 -> 1 and the vehicle's center is (x, y) + dir × ((carT - 0.5) × len), dir =
+ *   (cos angle, sin angle). A TRAFFIC_CAR_LEN × TRAFFIC_CAR_W box on that center damages BOTH the
+ *   player (normal armor/contactDmgTakenMul path, gated by invuln) and every enemy it touches
+ *   (dealDamage, once each — hitIds) for `dmg`, plus TRAFFIC_KB knockback along `angle`. Removed
+ *   when t hits 0 in 'sweep'. See stepLanes in sim.js.
+ * enemyShots[i]: { x, y, vx, vy, r, dmg, life, turnRate } — the ONLY enemy-owned projectile array,
+ *   fed by 'missileVolley' helicopters. Homes toward the player at turnRate rad/s, expires at
+ *   life <= 0 (removed, no blast), and on overlapping the player (r + PLAYER.radius) damages the
+ *   PLAYER only (normal armor path, respects invuln) and emits {type:'explode', x, y, radius:
+ *   MISSILE_BLAST}. Never damages enemies. Bent by run.wells like any other projectile. See
+ *   stepEnemyShots in sim.js.
+ * debris[i]: { x, y, r } — Trash Tornado chunks (city weapon). Exactly the run.orbs contract: sim
+ *   REWRITES the whole array every frame from the player's position (render just draws them; r =
+ *   DEBRIS_R × (1 + trashTornado.heavyTrash-independent constants) — see stepTornadoWeapon).
+ * geysers[i]: { x, y, r, fuse, dur, dmg, _chained? } — telegraphed eruption zones (Sewer Geyser,
+ *   city weapon; also reused by the Reality Shard's riftScar rifts). fuse counts down as a HARMLESS
+ *   telegraph (dur is its starting value, so render can grow a warning ring from fuse/dur), then
+ *   the zone erupts ONCE for dmg in r against ENEMIES only (never the player), emits
+ *   {type:'explode', x, y, radius:r} and is removed. _chained marks a follow-up (chainGeyser's, or
+ *   a riftScar rift) so chainGeyser can never fire off it. See stepGeysers in sim.js.
+ * lobs[i]: { x, y, fromX, fromY, tx, ty, t, flight, r, dmg } — Debris Toss chunks (skies weapon).
+ *   t counts UP from 0 to flight; x/y are the straight (fromX,fromY)->(tx,ty) lerp at t/flight,
+ *   and render adds the parabolic hop (sim only needs t/flight). On landing the chunk bursts ONCE
+ *   for dmg in r against ENEMIES only (never the player), emits {type:'explode', x:tx, y:ty,
+ *   radius:r} and is removed. A lob is a projectile for gravity-well purposes (a well bends its
+ *   landing point) but it is NOT a run.bullets entry. See stepDebrisWeapon/stepLobs in sim.js.
+ *
+ * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
+ * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
+ * chunks and Debris Toss' splinters are all ordinary run.bullets entries tagged weapon:'quill' /
+ * 'shard' / 'trash' / 'debris' (star's split/chain/ricochet budgets zeroed, exactly like the
+ * stinger's needles); the Chitter Shriek is a run.novas entry carrying `fear` (s); the Tesseract
+ * Beam is a run.beams entry carrying `folded: true` + `arms` (n arms evenly around the circle,
+ * sweeping together) + `collapseBonus`. New events:
+ *   {type:'pounce', x, y, angle, range, arc, dash}  a Pounce Claws leap (x,y = the take-off point;
+ *                                                   dash = the leap distance actually taken)
+ *   {type:'roar', x, y, angle, range, arc}          a Roar sector sweep (same shape as 'whip')
+ *   {type:'tail', x, y, angle, range, arc}          a Tail Swipe sector sweep
+ *   {type:'geyser', x, y}                           a Sewer Geyser cast (x,y = player, for sfx;
+ *                                                   the zones live in run.geysers above)
+ *   {type:'toss', x, y}                             a Debris Toss cast (x,y = player, for sfx)
+ *   {type:'shoot', weapon:'quillBurst'|'realityShard'|'chitterShriek'}  volley/cast fired
+ * player.vx/vy (v5.4): the player's own input velocity in px/s this frame (0 while standing still;
+ *   drift/pull forces are NOT folded in). Written by stepPlayerMovement, read by the 'artillery'
+ *   flag to lead its shells (ARTILLERY_LEAD).
+ *
  * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
  *   rarity: key of RARITIES (weapons: inherent; passives/mods/elements: rolled). icon: from config.
  *   bonus: passives/mods/elements only — the pre-multiplied amount applyChoice will add.
@@ -460,6 +592,7 @@ export function createRun(meta, opts = {}) {
                           // move. Render orients the pond tail to it; the Flagella Whip aims at the
                           // nearest enemy and only falls back here when none exists (see fireFlagella).
       moving: false,
+      vx: 0, vy: 0,       // v5.4: this frame's own input velocity, px/s (see the doc block above)
     },
     weapons: [{ id: CHAPTERS[chapter].starter, level: startWeaponLevel }],
     weaponTimers: {},      // id -> s until next fire
@@ -499,6 +632,18 @@ export function createRun(meta, opts = {}) {
     webs: [],
     strips: [],
     lures: [],
+    // v5.4 chapter behavior (see doc block above). traps/wells are permanent signature FURNITURE,
+    // seeded once here from this chapter's signature (any other signature -> []); the rest are fed
+    // during the run — lanes by the city's traffic signature, enemyShots by missileVolley
+    // helicopters, debris by the Trash Tornado (rewritten every frame, like orbs), geysers by the
+    // Sewer Geyser (and the Reality Shard's rifts), lobs by the Debris Toss.
+    traps: generateTraps(CHAPTERS[chapter].signature),
+    wells: generateWells(CHAPTERS[chapter].signature),
+    lanes: [],
+    enemyShots: [],
+    debris: [],
+    geysers: [],
+    lobs: [],
     kills: 0,
     coinsEarned: 0,
     levelUpChoices: null,

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -87,6 +87,10 @@ export function createRenderer(app) {
   // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
   let chapterRender = BODY_RENDER
   let chapterHasCurrents = false
+  // Active chapter's prop/obstacle biome (BIOMES, declared with the floor section below). Left null
+  // here on purpose: BIOMES is a `const` further down, so reading it at construction time would be a
+  // TDZ crash — it's seeded right after BIOMES itself and re-latched per reset(run).
+  let chapterBiome = null
 
   // ---------------------------------------------------------------- textures
   // Bake a Graphics into a texture; return anchor so sprite.position = drawing origin.
@@ -828,6 +832,697 @@ export function createRenderer(app) {
     if (elite) eliteCrown(g, -r * 0.72, r, white)
   }
 
+  // --- Undergrowth chapter (dead-leaf loam) ---
+  // The undergrowth floor is the DARKEST biome yet: bg 0x2b2417 under blotches multiplied by
+  // floorTint 0x8a7a4e lands around 0x514628, relative luminance ~0.06. Dark-on-dark is the failure
+  // mode, and going darker still cannot win (pure black only reaches 2.3x against a floor this dim),
+  // so all three predators are LIGHT — spread across the light half so they also stay mutually
+  // distinct by VALUE, not just by hue and shape:
+  //   cat = LIGHTEST  (pale silver tabby, 5.6x on the loam)
+  //   owl = MID-LIGHT (tawny gold, 4.3x)
+  //   rat = DIMMEST   (dusty grey-mauve, 2.8x — still well clear of the ~1.5x invisibility floor)
+  //
+  // cat: a crouched tabby in profile — ONE tapered outline carrying the whole feline back line (a
+  // raised haunch, a dipped waist, a rising shoulder) as terms of its own width profile, rather than
+  // a chain of discs. Real leg joints: the hind leg zigzags hip->stifle->hock->paw, which is what
+  // makes it read as a cat gathering itself rather than a quadruped diagram.
+  function drawCat(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x453b2e)
+    const far = white ? 0xffffff : 0x8f8673
+    const lw = Math.max(2.6, r * 0.11)
+    const rearX = -r * 0.88
+    const len = r * 1.58 // rump -0.88r -> chest +0.7r
+    const H = r * 0.42
+    const spine = (t) => [rearX + t * len, -r * 0.03 - Math.sin(t * Math.PI * 1.1 + 0.4) * r * 0.07]
+    // profile = blunt end caps × (haunch bulge - waist pinch + shoulder bulge). Keeping the three
+    // masses as separate gaussian terms on ONE profile is what gives the back its curve.
+    const body = (t) => {
+      const cap = bulge(t, 0.3)
+      const haunch = 0.48 * Math.exp(-Math.pow((t - 0.15) / 0.2, 2))
+      const waist = -0.22 * Math.exp(-Math.pow((t - 0.52) / 0.18, 2))
+      const shoulder = 0.3 * Math.exp(-Math.pow((t - 0.86) / 0.22, 2))
+      return H * cap * (1 + haunch + waist + shoulder)
+    }
+    groundShadow(g, r * 1.05, r * 0.92)
+    const leg = (pts, col, w) => taperStroke(g, pts, w, w * 0.5, col)
+    // far side first (behind the body, darker + tucked shorter) — depth without mirror symmetry
+    leg([[-r * 0.5, r * 0.1], [-r * 0.3, r * 0.46], [-r * 0.5, r * 0.72], [-r * 0.28, r * 0.84]], far, r * 0.14)
+    leg([[r * 0.34, r * 0.12], [r * 0.38, r * 0.5], [r * 0.3, r * 0.82]], far, r * 0.13)
+    // tail: three real joints off the rump, tapering as it curls up (never a uniform-width arc)
+    taperStroke(g, [[-r * 0.8, -r * 0.06], [-r * 1.18, -r * 0.24], [-r * 1.36, -r * 0.64], [-r * 1.16, -r * 0.98]],
+      r * 0.17, r * 0.05, f(0xb9b0a0), 4)
+    g.poly(spineOutline(spine, body, 40)).fill(f(0xcfc8b8)).stroke({ width: lw, color: line })
+    // near legs: the hind one gathered under the haunch, the fore one planted — different poses
+    leg([[-r * 0.4, r * 0.14], [-r * 0.16, r * 0.5], [-r * 0.42, r * 0.78], [-r * 0.14, r * 0.92]], f(0xbcb3a2), r * 0.19)
+    leg([[r * 0.5, r * 0.14], [r * 0.46, r * 0.56], [r * 0.58, r * 0.9]], f(0xbcb3a2), r * 0.17)
+    // ears: wedges, not cones — a wide base narrowing to an off-vertical tip, the near one bigger
+    g.poly([r * 0.66, -r * 0.44, r * 0.58, -r * 0.9, r * 0.86, -r * 0.56]).fill(f(0xcfc8b8)).stroke({ width: lw * 0.7, color: line })
+    g.poly([r * 0.92, -r * 0.46, r * 1.04, -r * 0.86, r * 1.12, -r * 0.4]).fill(f(0xcfc8b8)).stroke({ width: lw * 0.7, color: line })
+    // head: egg, a touch deeper than tall, with the muzzle carried on the same outline
+    g.poly(radialOutline((a) => r * 0.3 * (1 - 0.1 * Math.cos(a)), 40, 1, 0.94, r * 0.86, -r * 0.26))
+      .fill(f(0xcfc8b8)).stroke({ width: lw, color: line })
+    if (!white) {
+      // volume: darker belly crescent, lighter dorsal sheen along the back (same hue family)
+      g.ellipse(-r * 0.14, r * 0.26, r * 0.72, r * 0.24).fill({ color: 0x6b6153, alpha: 0.22 })
+      g.ellipse(-r * 0.2, -r * 0.28, r * 0.6, r * 0.16).fill({ color: mix(0xcfc8b8, 0xffffff, 0.5), alpha: 0.16 })
+      g.ellipse(r * 0.8, -r * 0.4, r * 0.18, r * 0.09).fill({ color: mix(0xcfc8b8, 0xffffff, 0.5), alpha: 0.18 })
+      // tabby bars: slices of the body's OWN outline, so the stripes follow the taper
+      for (const [t0, t1] of [[0.16, 0.24], [0.36, 0.43], [0.56, 0.62]]) {
+        g.poly(spineOutline(spine, (t) => body(t) * 0.92, 6, t0, t1)).fill({ color: 0x6b6153, alpha: 0.34 })
+      }
+      g.beginPath() // fur tufts along the belly line — hairline, reads as texture not outline
+      for (const t of [0.3, 0.45, 0.6, 0.75]) {
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x, y + w * 0.8).lineTo(x - r * 0.06, y + w * 1.04)
+      }
+      g.stroke({ width: 1.2, color: 0x8b8273, alpha: 0.6 })
+      g.beginPath() // inner ear
+      g.moveTo(r * 0.68, -r * 0.48).lineTo(r * 0.64, -r * 0.8).lineTo(r * 0.8, -r * 0.56)
+      g.stroke({ width: 1.4, color: 0x9c8878, alpha: 0.7 })
+      g.ellipse(r * 1.1, -r * 0.16, r * 0.13, r * 0.1).fill({ color: 0xb0a695, alpha: 0.9 }) // muzzle
+      g.ellipse(r * 1.14, -r * 0.2, r * 0.05, r * 0.04).fill({ color: 0x5b4a3f, alpha: 0.9 })  // nose
+      darkEye(g, r * 0.96, -r * 0.3, r * 0.1, r * 0.08, 0x1e2a12, true) // slit-ish predator eye
+    }
+    // whiskers: they reach past the ears, so they are part of the SILHOUETTE, not interior detail —
+    // drawn in both variants (identical geometry) or the white twin's bounds would come up short
+    g.beginPath()
+    for (const s of [-1, 1]) g.moveTo(r * 1.08, -r * 0.14).lineTo(r * 1.42, -r * 0.14 + s * r * 0.16)
+    g.stroke({ width: 1, color: white ? 0xffffff : 0xe8e2d4, alpha: white ? 1 : 0.5 })
+    if (elite) eliteCrown(g, -r * 0.95, r, white)
+  }
+  // owl: seen from above-behind mid-swoop — body along x (head right), wings spread ±y and swept
+  // back, each ONE tapered membrane with a scalloped trailing edge. The primaries are separate
+  // tapered fingers off each tip (that splay is the owl read), and the barbs ride each wing's own
+  // half-width profile — the same trick the wasp's venation uses, so they fan with the taper and can
+  // never escape the outline, keeping the white twin's bounds identical.
+  function drawOwl(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x6b4715)
+    const lw = Math.max(1.8, r * 0.13)
+    groundShadow(g, r * 1.2, r * 1.05)
+    const wing = (s, tipX, tipY, W) => {
+      const bx = r * 0.1
+      const by = s * r * 0.3
+      const sp = (t) => [bx + (tipX - bx) * t, by + (tipY - by) * t + s * Math.sin(t * Math.PI) * r * 0.16]
+      // fat at the shoulder, tapering to the wrist; scalloped along the trailing half
+      const w = (t) => W * bulge(Math.pow(t, 0.5), 0.8) * (1 + 0.09 * Math.cos(t * 9))
+      g.poly(spineOutline(sp, w, 24)).fill(f(0xd9a959)).stroke({ width: lw * 0.8, color: line })
+      // primaries: 4 tapered fingers fanning off the wingtip, each at its own angle
+      for (let i = 0; i < 4; i++) {
+        const a = Math.atan2(tipY - by, tipX - bx) + (i - 1.5) * 0.3
+        taperStroke(g, [[tipX, tipY], [tipX + Math.cos(a) * r * 0.5, tipY + Math.sin(a) * r * 0.5]],
+          W * 0.5, W * 0.14, f(0xc99447), 3)
+      }
+      if (!white) {
+        const nx = -(tipY - by)
+        const ny = tipX - bx
+        const m = Math.hypot(nx, ny) || 1
+        g.beginPath()
+        for (const v of [-0.45, 0.5]) { // barbs, riding the wing's own half-width
+          for (let i = 0; i <= 5; i++) {
+            const t = 0.12 + 0.76 * (i / 5)
+            const [sx, sy] = sp(t)
+            const o = w(t) * v
+            const px = sx + (nx / m) * o
+            const py = sy + (ny / m) * o
+            if (i === 0) g.moveTo(px, py)
+            else g.lineTo(px, py)
+          }
+        }
+        g.stroke({ width: 1, color: 0x8a5d1e, alpha: 0.5 })
+      }
+    }
+    wing(-1, -r * 0.62, -r * 1.5, r * 0.34) // swept back, unequal reach per side
+    wing(1, -r * 0.5, r * 1.42, r * 0.3)
+    // tail fan: short tapered rectrices off the rear
+    for (let i = 0; i < 3; i++) {
+      const a = Math.PI + (i - 1) * 0.28
+      taperStroke(g, [[-r * 0.62, 0], [-r * 0.62 + Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6]],
+        r * 0.16, r * 0.07, f(0xc99447), 3)
+    }
+    // talons: two small hooked grabs under the body
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 0.2, s * r * 0.24], [r * 0.44, s * r * 0.5], [r * 0.66, s * r * 0.44]], r * 0.11, r * 0.035, f(0x8a6a2a))
+    }
+    // body: one blunt ovoid, tail-end left
+    const bSpine = (t) => [-r * 0.66 + t * r * 1.4, 0]
+    g.poly(spineOutline(bSpine, (t) => r * 0.44 * bulge(0.12 + 0.82 * t, 0.5), 26))
+      .fill(f(0xd9a959)).stroke({ width: lw, color: line })
+    // head: big and round, set forward-right, the classic owl disc
+    g.poly(radialOutline((a) => r * 0.42 * (1 - 0.05 * Math.cos(a)), 36, 1, 0.96, r * 0.72, -r * 0.06))
+      .fill(f(0xd9a959)).stroke({ width: lw, color: line })
+    if (!white) {
+      g.ellipse(0, r * 0.24, r * 0.5, r * 0.2).fill({ color: 0x7d5518, alpha: 0.24 })
+      g.ellipse(-r * 0.1, -r * 0.22, r * 0.42, r * 0.14).fill({ color: mix(0xd9a959, 0xffffff, 0.5), alpha: 0.16 })
+      g.beginPath() // breast barring — hairline chevrons, the owl's texture
+      for (const t of [0.35, 0.5, 0.65]) {
+        const [x] = bSpine(t)
+        g.moveTo(x - r * 0.1, -r * 0.24).lineTo(x, -r * 0.06).lineTo(x - r * 0.1, r * 0.12)
+      }
+      g.stroke({ width: 1.1, color: 0x8a5d1e, alpha: 0.5 })
+      // facial disc: a pale heart-shaped mask, the one light accent, carrying both eyes
+      g.poly(radialOutline((a) => r * 0.34 * (1 + 0.14 * Math.cos(a * 2)), 32, 1, 1, r * 0.76, -r * 0.04))
+        .fill({ color: 0xf2dcae, alpha: 0.85 })
+      for (const s of [-1, 1]) darkEye(g, r * 0.78, s * r * 0.17, r * 0.11, r * 0.11, 0x120c05, true)
+    }
+    taperStroke(g, [[r * 0.94, -r * 0.02], [r * 1.16, r * 0.1]], r * 0.09, 0.8, f(0x3a2a10)) // beak (silhouette)
+    if (elite) eliteCrown(g, -r * 1.62, r, white)
+  }
+  // rat: nose to rump is ONE tapered path (fat over the hips, closing to a pointed snout on the
+  // right) with a long NAKED tail — the tail is the silhouette read, so it's a separate S-curved
+  // taper that keeps narrowing all the way to a whip tip, and it carries hairline scale rings
+  // instead of fur.
+  function drawRat(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x413533)
+    const lw = Math.max(2.2, r * 0.13)
+    const snoutX = r * 1.05
+    const len = r * 1.85 // snout +1.05r -> rump -0.8r
+    const spine = (t) => [snoutX - t * len, -r * 0.04 + Math.sin(t * Math.PI * 0.9) * r * 0.06]
+    // snout cap on the right closes to a near-point; the mass sits over the hips at t~0.7
+    const body = (t) => {
+      const cap = bulge(0.04 + 0.94 * t, t < 0.4 ? 1.1 : 0.42)
+      return r * 0.56 * cap * (1 + 0.22 * Math.exp(-Math.pow((t - 0.72) / 0.26, 2)))
+    }
+    groundShadow(g, r * 1.05, r * 0.72)
+    // tail: an S that keeps tapering to a whip tip — three joints, drawn before the body
+    const tail = [[-r * 0.72, r * 0.04], [-r * 1.3, -r * 0.14], [-r * 1.85, r * 0.16], [-r * 2.3, -r * 0.02]]
+    taperStroke(g, tail, r * 0.15, r * 0.035, f(0xc2a49c), 5)
+    // legs: hind gathered under the hips, fore short and forward — real joints, far side darker
+    const far = white ? 0xffffff : 0x6b5a56
+    taperStroke(g, [[-r * 0.42, r * 0.24], [-r * 0.24, r * 0.52], [-r * 0.44, r * 0.7]], r * 0.11, r * 0.04, far)
+    taperStroke(g, [[r * 0.36, r * 0.2], [r * 0.42, r * 0.48], [r * 0.56, r * 0.62]], r * 0.1, r * 0.035, far)
+    g.poly(spineOutline(spine, body, 34)).fill(f(0x9b8a86)).stroke({ width: lw, color: line })
+    taperStroke(g, [[-r * 0.34, r * 0.26], [-r * 0.1, r * 0.58], [-r * 0.34, r * 0.8], [-r * 0.06, r * 0.86]], r * 0.13, r * 0.045, f(0x8d7d79))
+    taperStroke(g, [[r * 0.44, r * 0.22], [r * 0.5, r * 0.54], [r * 0.66, r * 0.7]], r * 0.12, r * 0.04, f(0x8d7d79))
+    // ears: big thin rounded discs, the near one larger — a rat's ears are half its head
+    g.poly(radialOutline((a) => r * 0.26, 24, 1, 1, r * 0.24, -r * 0.5)).fill(f(0x9b8a86)).stroke({ width: lw * 0.7, color: line })
+    g.poly(radialOutline((a) => r * 0.2, 24, 1, 1, r * 0.44, -r * 0.42)).fill(f(0x9b8a86)).stroke({ width: lw * 0.7, color: line })
+    if (!white) {
+      g.ellipse(-r * 0.2, r * 0.24, r * 0.6, r * 0.2).fill({ color: 0x4e4240, alpha: 0.24 })
+      g.ellipse(-r * 0.3, -r * 0.26, r * 0.5, r * 0.14).fill({ color: mix(0x9b8a86, 0xffffff, 0.5), alpha: 0.16 })
+      g.circle(r * 0.24, -r * 0.5, r * 0.15).fill({ color: 0xc99a96, alpha: 0.75 }) // inner ear
+      g.beginPath()
+      for (let i = 0; i < 5; i++) { // tail scale rings — hairline, the "naked tail" cue
+        const t = 0.2 + i * 0.18
+        const a = tail[0]
+        const x = lerp(-r * 0.9, -r * 2.2, t)
+        g.moveTo(x, -r * 0.16 + Math.sin(t * 4) * r * 0.1).lineTo(x + r * 0.04, r * 0.16 + Math.sin(t * 4) * r * 0.1)
+      }
+      g.stroke({ width: 1, color: 0x8a6c66, alpha: 0.45 })
+      g.beginPath() // guard-hair tufts along the back
+      for (const t of [0.45, 0.6, 0.75]) {
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x, y - w * 0.85).lineTo(x - r * 0.06, y - w * 1.1)
+      }
+      g.stroke({ width: 1.1, color: 0x6b5a56, alpha: 0.55 })
+      g.ellipse(r * 1.0, r * 0.02, r * 0.07, r * 0.06).fill({ color: 0xd0a0a0, alpha: 0.9 }) // nose
+      darkEye(g, r * 0.6, -r * 0.16, r * 0.09, r * 0.085, 0x160f0e, true)
+    }
+    // whiskers reach past the snout — silhouette, not detail: same geometry in both variants
+    g.beginPath()
+    for (const s of [-1, 1]) g.moveTo(r * 0.98, r * 0.04).lineTo(r * 1.5, r * 0.04 + s * r * 0.24)
+    g.stroke({ width: 1, color: white ? 0xffffff : 0xd8ccc8, alpha: white ? 1 : 0.45 })
+    if (elite) eliteCrown(g, -r * 0.6, r, white)
+  }
+
+  // --- City chapter (cold concrete) ---
+  // The city floor is a dim neutral grey (bg 0x2c2f38 under floorTint 0x9aa0ac → ~0x585c5c,
+  // luminance ~0.11). Everything here is a MACHINE or a city animal, so no creature eyes: lenses,
+  // sensors and beaks instead. Value ladder (a grey floor gives no hue to hide behind, so value is
+  // doing all the work):
+  //   vacuum   = LIGHTEST (white appliance plastic, 5.6x)
+  //   ratDrone = MID      (safety-amber chassis, 3.6x)
+  //   pigeon   = DIMMEST  (slate blue-grey, 2.8x)
+  //
+  // vacuum: a disc robot in 3/4 — the silhouette is ONE closed loop (the top ellipse's upper arc,
+  // then the same ellipse's lower arc dropped by the shell height), which is what draws a real
+  // cylinder rather than two stacked ovals. Bumper band, sensor turret with a dark lens, panel
+  // seams and rivets as hairline detail.
+  function drawVacuum(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x5c5f66)
+    const lw = Math.max(2.6, r * 0.1)
+    const rx = r * 0.92
+    const ry = r * 0.44
+    const hgt = r * 0.34
+    // one continuous shell loop: over the top, down the right wall, back under, up the left wall
+    const shell = () => {
+      const p = []
+      for (let i = 0; i <= 30; i++) { const a = Math.PI + (i / 30) * Math.PI; p.push(Math.cos(a) * rx, Math.sin(a) * ry) }
+      for (let i = 0; i <= 30; i++) { const a = (i / 30) * Math.PI; p.push(Math.cos(a) * rx, Math.sin(a) * ry + hgt) }
+      return p
+    }
+    groundShadow(g, r * 1.05, ry + hgt + r * 0.14)
+    // caster wheel peeking under the front rim (same geometry in both variants)
+    g.ellipse(r * 0.5, ry + hgt * 0.9, r * 0.12, r * 0.09).fill(f(0x3f434a))
+    g.poly(shell()).fill(f(0xe9eaec)).stroke({ width: lw, color: line })
+    if (!white) {
+      // volume: the wall in shadow under the lit top face — a cylinder, not a sticker
+      g.poly(shell()).fill({ color: 0x000000, alpha: 0 })
+      g.ellipse(0, hgt * 0.5, rx * 0.99, ry * 0.62).fill({ color: 0x6f747c, alpha: 0.2 })
+      g.ellipse(0, 0, rx, ry).fill(0xdfe1e4).stroke({ width: 1.6, color: 0xa8adb5, alpha: 0.8 }) // top face
+      g.ellipse(-r * 0.18, -r * 0.14, rx * 0.6, ry * 0.42).fill({ color: 0xffffff, alpha: 0.5 })  // dorsal sheen
+      // bumper band: a slice of the shell's own lower wall, so it wraps with the curve
+      const bump = []
+      for (let i = 0; i <= 24; i++) { const a = (i / 24) * Math.PI; bump.push(Math.cos(a) * rx, Math.sin(a) * ry + hgt * 0.22) }
+      for (let i = 24; i >= 0; i--) { const a = (i / 24) * Math.PI; bump.push(Math.cos(a) * rx, Math.sin(a) * ry + hgt) }
+      g.poly(bump).fill({ color: 0x4a4e55, alpha: 0.85 })
+      g.beginPath() // panel seams across the top face — hairline, reads as moulding
+      g.ellipse(0, 0, rx * 0.72, ry * 0.72).stroke({ width: 1.2, color: 0xa8adb5, alpha: 0.7 })
+      g.ellipse(0, 0, rx * 0.3, ry * 0.3).stroke({ width: 1.2, color: 0xa8adb5, alpha: 0.55 })
+      for (let i = 0; i < 8; i++) { // rivets around the rim
+        const a = (i / 8) * Math.PI * 2
+        g.circle(Math.cos(a) * rx * 0.86, Math.sin(a) * ry * 0.86, 1.3).fill({ color: 0x8f959d, alpha: 0.8 })
+      }
+      // sensor turret + lens: the "face" a machine is allowed — a dark lens with one specular
+      g.ellipse(r * 0.34, -r * 0.06, r * 0.2, r * 0.13).fill(0xc4c8cd).stroke({ width: 1.4, color: 0x8f959d })
+      darkEye(g, r * 0.36, -r * 0.07, r * 0.1, r * 0.07, 0x14171c, true)
+      g.rect(-r * 0.3, hgt * 0.62, r * 0.6, r * 0.09).fill({ color: 0x2f333a, alpha: 0.8 }) // brush slot
+      g.circle(-r * 0.56, -r * 0.02, r * 0.05).fill({ color: 0x59d08a, alpha: 0.9 }) // status LED
+    }
+    if (elite) eliteCrown(g, -ry - r * 0.06, r, white)
+  }
+  // ratDrone: a quadrotor — small hard chassis, four arms that TAPER out to motor pods (real joints:
+  // each arm elbows once), spinning rotors as low-alpha discs (solid on the white twin, the wasp-wing
+  // trick, so bounds match), a forward sensor lens, and the rat-catcher's cage slung underneath.
+  function drawRatDrone(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x6b4a10)
+    const lw = Math.max(2, r * 0.12)
+    groundShadow(g, r * 1.05, r * 0.86)
+    // arms + pods first, so the chassis overlaps their roots. Front pair reaches further forward.
+    const arms = [[r * 1.05, -r * 0.86], [r * 0.95, r * 0.8], [-r * 0.86, -r * 0.78], [-r * 0.8, r * 0.72]]
+    for (const [px, py] of arms) {
+      const ex = px * 0.45
+      const ey = py * 0.62 // the elbow: arms kink, they don't sweep
+      taperStroke(g, [[ex * 0.3, ey * 0.3], [ex, ey], [px, py]], r * 0.16, r * 0.08, f(0xc98f2a), 3)
+      g.circle(px, py, r * 0.14).fill(f(0xa8741f)).stroke({ width: 1.4, color: line })
+    }
+    for (const [px, py] of arms) { // rotor discs: the blur of a blade, not a blade
+      g.ellipse(px, py, r * 0.42, r * 0.4).fill(white ? 0xffffff : { color: 0xf6e3b4, alpha: 0.3 })
+        .stroke({ width: 1, color: white ? 0xffffff : 0xf6e3b4, alpha: white ? 1 : 0.45 })
+    }
+    // chassis: a hard tapered wedge, nose right — a machine reads by its straightness
+    const cSpine = (t) => [-r * 0.58 + t * r * 1.28, 0]
+    const cW = (t) => r * 0.4 * (0.55 + 0.45 * bulge(Math.pow(t, 0.7), 1.3))
+    g.poly(spineOutline(cSpine, cW, 22)).fill(f(0xf2b13c)).stroke({ width: lw, color: line })
+    if (!white) {
+      g.ellipse(0, r * 0.16, r * 0.5, r * 0.14).fill({ color: 0x8a6210, alpha: 0.24 })
+      g.ellipse(-r * 0.06, -r * 0.16, r * 0.42, r * 0.1).fill({ color: mix(0xf2b13c, 0xffffff, 0.5), alpha: 0.2 })
+      g.beginPath() // panel lines along the chassis — hairline
+      g.moveTo(-r * 0.44, -r * 0.1).lineTo(r * 0.5, -r * 0.1)
+      g.moveTo(-r * 0.44, r * 0.1).lineTo(r * 0.5, r * 0.1)
+      g.stroke({ width: 1, color: 0x8a6210, alpha: 0.5 })
+      g.rect(-r * 0.3, -r * 0.12, r * 0.26, r * 0.24).fill({ color: 0x2f2a1c, alpha: 0.7 }) // battery bay
+      // cage: the rat-catcher's business end, slung under the nose
+      g.beginPath()
+      g.moveTo(r * 0.2, r * 0.16).lineTo(r * 0.2, r * 0.5).lineTo(r * 0.7, r * 0.5).lineTo(r * 0.7, r * 0.14)
+      for (const cx of [r * 0.33, r * 0.46, r * 0.58]) g.moveTo(cx, r * 0.18).lineTo(cx, r * 0.5)
+      g.stroke({ width: 1.2, color: 0x5c4a28, alpha: 0.85 })
+      // forward sensor lens (no eyes — it's a drone)
+      g.circle(r * 0.62, 0, r * 0.14).fill(0x9c6f1c)
+      darkEye(g, r * 0.62, 0, r * 0.09, r * 0.09, 0x12100a, true)
+      g.circle(-r * 0.5, 0, r * 0.05).fill({ color: 0xff4d5e, alpha: 0.9 }) // tail beacon
+    }
+    if (elite) eliteCrown(g, -r * 1.28, r, white)
+  }
+  // pigeon: a plump city bird in profile facing right — ONE outline that swells over the crop and
+  // closes into a wedge tail on the left, a folded wing sitting inside it with hairline covert
+  // edges, and the iridescent neck patch (the only saturated thing on it) as a two-pass shimmer.
+  function drawPigeon(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x3f4a57)
+    const lw = Math.max(1.9, r * 0.13)
+    groundShadow(g, r * 1.0, r * 0.92)
+    // feet: two small jointed grabs, drawn before the body so the tarsi tuck under it
+    for (const s of [0, 1]) {
+      const ox = s ? r * 0.42 : r * 0.16
+      taperStroke(g, [[ox, r * 0.42], [ox + r * 0.04, r * 0.72], [ox + r * 0.2, r * 0.8]], r * 0.09, r * 0.035, f(0xd98a6a))
+      taperStroke(g, [[ox + r * 0.04, r * 0.72], [ox - r * 0.14, r * 0.8]], r * 0.06, 0.7, f(0xd98a6a), 2)
+    }
+    // tail: a wedge of rectrices off the rear, tapering to a squared-off fan
+    const tSpine = (t) => [-r * 0.5 - t * r * 0.9, t * r * 0.12]
+    g.poly(spineOutline(tSpine, (t) => r * 0.3 * (1 - 0.45 * t), 12)).fill(f(0x7b90a6)).stroke({ width: lw * 0.7, color: line })
+    // body: fat over the crop (front), closing toward the tail — a pigeon is front-heavy
+    const bSpine = (t) => [r * 0.62 - t * r * 1.24, -r * 0.06 + t * r * 0.1]
+    const body = (t) => r * 0.56 * bulge(0.16 + 0.74 * t, 0.55) * (1 + 0.16 * Math.exp(-Math.pow((t - 0.24) / 0.3, 2)))
+    g.poly(spineOutline(bSpine, body, 28)).fill(f(0x8fa8bf)).stroke({ width: lw, color: line })
+    // head + neck: one small blunt taper rising forward-right off the crop
+    const hSpine = (t) => [r * 0.44 + t * r * 0.62, -r * 0.36 - t * r * 0.28]
+    g.poly(spineOutline(hSpine, (t) => r * 0.3 * bulge(0.3 + 0.65 * t, 0.6), 16)).fill(f(0x8fa8bf)).stroke({ width: lw * 0.8, color: line })
+    g.poly(radialOutline((a) => r * 0.28, 28, 1, 0.96, r * 0.98, -r * 0.62)).fill(f(0x8fa8bf)).stroke({ width: lw * 0.8, color: line })
+    taperStroke(g, [[r * 1.16, -r * 0.6], [r * 1.5, -r * 0.5]], r * 0.1, r * 0.03, f(0x4a4a52)) // beak
+    if (!white) {
+      g.ellipse(-r * 0.1, r * 0.24, r * 0.5, r * 0.2).fill({ color: 0x4f6070, alpha: 0.26 })
+      g.ellipse(-r * 0.06, -r * 0.3, r * 0.42, r * 0.14).fill({ color: mix(0x8fa8bf, 0xffffff, 0.5), alpha: 0.18 })
+      // folded wing: a lanceolate plate riding the body's own profile, with covert hairlines
+      const wg = []
+      for (let i = 0; i <= 20; i++) { const t = 0.14 + 0.66 * (i / 20); const [x, y] = bSpine(t); wg.push(x, y + body(t) * 0.1) }
+      for (let i = 20; i >= 0; i--) { const t = 0.14 + 0.66 * (i / 20); const [x, y] = bSpine(t); wg.push(x, y + body(t) * 0.86) }
+      g.poly(wg).fill({ color: 0x6d829a, alpha: 0.9 })
+      g.beginPath()
+      for (const t of [0.3, 0.45, 0.6, 0.75]) {
+        const [x, y] = bSpine(t)
+        g.moveTo(x, y + body(t) * 0.18).lineTo(x - r * 0.08, y + body(t) * 0.8)
+      }
+      g.stroke({ width: 1, color: 0x46586b, alpha: 0.6 })
+      g.beginPath() // the two dark wing bars every city pigeon has
+      for (const t of [0.36, 0.52]) {
+        const [x, y] = bSpine(t)
+        g.moveTo(x + r * 0.02, y + body(t) * 0.22).lineTo(x - r * 0.06, y + body(t) * 0.82)
+      }
+      g.stroke({ width: 2.2, color: 0x36414e, alpha: 0.8 })
+      // iridescent neck: two low-alpha passes (green over violet) on the throat only
+      g.poly(spineOutline(hSpine, (t) => r * 0.3 * bulge(0.3 + 0.65 * t, 0.6) * 0.9, 12, 0.05, 0.8))
+        .fill({ color: 0x3fd08a, alpha: 0.5 })
+      g.poly(spineOutline(hSpine, (t) => r * 0.3 * bulge(0.3 + 0.65 * t, 0.6) * 0.55, 12, 0.3, 0.95))
+        .fill({ color: 0xa06cf0, alpha: 0.45 })
+      // pigeon eye: orange iris ring + dark pupil (a bird's eye, no sclera)
+      g.circle(r * 1.06, -r * 0.66, r * 0.1).fill(0xf2913a)
+      darkEye(g, r * 1.06, -r * 0.66, r * 0.05, r * 0.05, 0x140c06, true)
+      g.circle(r * 1.2, -r * 0.56, r * 0.05).fill({ color: 0xe8e2d8, alpha: 0.8 }) // cere
+    }
+    if (elite) eliteCrown(g, -r * 0.98, r, white)
+  }
+
+  // --- Skies chapter (pale shattered concrete) ---
+  // The skies floor is the FIRST LIGHT floor since the body: bg 0x6f9ecf under floorTint 0xc9d6e4
+  // → ~0x8eaabc, luminance ~0.38. This inverts the rule the last three chapters ran on — here every
+  // machine must go DARK, and pale military greys would vanish. The dark band is narrow, so the
+  // three are spread across what it has and lean hard on hue + silhouette too:
+  //   jet        = DARKEST (cold gunmetal, 4.9x)
+  //   helicopter = MID     (olive drab, 3.5x)
+  //   tankColumn = LIGHTEST of the three (dark khaki, 2.9x)
+  //
+  // jet: top-down, nose right — fuselage is ONE spine tapering from a needle nose to the exhaust,
+  // and the delta wings are real polygons with a swept leading edge meeting a straight trailing edge
+  // at a hard angle (a fighter's read is its ANGLES; anything rounded looks like a toy).
+  function drawJet(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x14181e)
+    const lw = Math.max(1.8, r * 0.11)
+    groundShadow(g, r * 1.1, r * 1.0)
+    // delta wings: leading edge sweeps back from the shoulder, trailing edge runs straight across
+    for (const s of [-1, 1]) {
+      const sc = s < 0 ? 1 : 0.94 // a hair of asymmetry so it never reads as a stencil
+      g.poly([
+        r * 0.5, s * r * 0.16,
+        -r * 0.32, s * r * 1.34 * sc,
+        -r * 0.72, s * r * 1.3 * sc,
+        -r * 0.66, s * r * 0.2,
+      ]).fill(f(0x2f3742)).stroke({ width: lw * 0.8, color: line })
+    }
+    for (const s of [-1, 1]) { // tailplanes: the same wedge, smaller, further aft
+      g.poly([-r * 0.7, s * r * 0.16, -r * 1.14, s * r * 0.66, -r * 1.32, s * r * 0.6, -r * 1.22, s * r * 0.14])
+        .fill(f(0x2f3742)).stroke({ width: lw * 0.7, color: line })
+    }
+    // fuselage: needle nose right, tapering back to a blunt exhaust
+    const spine = (t) => [r * 1.5 - t * r * 2.9, 0]
+    const body = (t) => r * 0.3 * bulge(0.02 + 0.9 * t, t < 0.35 ? 1.4 : 0.4)
+    g.poly(spineOutline(spine, body, 30)).fill(f(0x2f3742)).stroke({ width: lw, color: line })
+    if (!white) {
+      g.ellipse(-r * 0.2, r * 0.12, r * 0.7, r * 0.12).fill({ color: 0x0e1116, alpha: 0.3 })
+      g.ellipse(-r * 0.2, -r * 0.1, r * 0.7, r * 0.08).fill({ color: 0x7d8b9c, alpha: 0.22 }) // dorsal sheen
+      g.beginPath() // panel lines + wing spars — hairline, the whole "military hardware" texture
+      g.moveTo(r * 0.9, 0).lineTo(-r * 1.2, 0)
+      for (const s of [-1, 1]) {
+        g.moveTo(r * 0.36, s * r * 0.18).lineTo(-r * 0.4, s * r * 1.1)
+        g.moveTo(-r * 0.16, s * r * 0.2).lineTo(-r * 0.5, s * r * 1.16)
+      }
+      g.stroke({ width: 1, color: 0x6b7684, alpha: 0.45 })
+      for (const s of [-1, 1]) { // intakes
+        g.ellipse(r * 0.24, s * r * 0.26, r * 0.16, r * 0.08).fill({ color: 0x0b0e12, alpha: 0.9 })
+      }
+      // canopy: a glass bubble, the one bright specular on the whole airframe
+      g.poly(radialOutline((a) => r * 0.2 * (1 - 0.3 * Math.cos(a)), 24, 1, 0.7, r * 0.62, 0)).fill(0x1d2b3a)
+      g.ellipse(r * 0.68, -r * 0.05, r * 0.11, r * 0.05).fill({ color: 0x9fd8ff, alpha: 0.75 })
+      g.ellipse(-r * 1.3, 0, r * 0.09, r * 0.14).fill({ color: 0xff8c42, alpha: 0.55 }) // afterburner
+      for (const s of [-1, 1]) { // roundels
+        g.circle(-r * 0.34, s * r * 0.62, r * 0.09).fill({ color: 0xd94d4d, alpha: 0.7 })
+      }
+    }
+    if (elite) eliteCrown(g, -r * 1.36, r, white)
+  }
+  // helicopter: top-down, nose right — a fat cockpit tapering into a long thin tail boom is ONE
+  // profile (that length ratio IS the helicopter read), with the rotor as a big low-alpha disc
+  // implying spin over it. The disc is drawn solid on the white twin (wasp-wing trick) since it
+  // sets the bounds, and two blade streaks inside it keep it from reading as a bubble.
+  function drawHelicopter(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x1c2216)
+    const lw = Math.max(2, r * 0.11)
+    groundShadow(g, r * 1.1, r * 1.05)
+    // tail fin + tail rotor, drawn first so the boom overlaps their roots
+    g.poly([-r * 1.32, -r * 0.1, -r * 1.62, -r * 0.44, -r * 1.72, -r * 0.1, -r * 1.6, r * 0.12])
+      .fill(f(0x44503a)).stroke({ width: lw * 0.7, color: line })
+    g.ellipse(-r * 1.62, -r * 0.28, r * 0.1, r * 0.34).fill(white ? 0xffffff : { color: 0xc4d0b4, alpha: 0.35 })
+    for (const s of [-1, 1]) { // skids: two straight rails, offset — not a smooth arc
+      g.rect(-r * 0.5, s * r * 0.46 - r * 0.04, r * 1.16, r * 0.08).fill(f(0x333c2b))
+      taperStroke(g, [[r * 0.3, s * r * 0.2], [r * 0.34, s * r * 0.44]], r * 0.07, r * 0.05, f(0x333c2b), 2)
+      taperStroke(g, [[-r * 0.3, s * r * 0.2], [-r * 0.34, s * r * 0.44]], r * 0.07, r * 0.05, f(0x333c2b), 2)
+    }
+    // fuselage: bulbous cockpit right, closing into a slender boom left — one continuous taper
+    const spine = (t) => [r * 0.98 - t * r * 2.3, 0]
+    const body = (t) => {
+      const cab = 0.52 * Math.exp(-Math.pow((t - 0.14) / 0.24, 2))
+      const boom = 0.12 * Math.pow(Math.max(0, 1 - t), 0.5)
+      return r * bulge(0.04 + 0.9 * t, 0.7) * (cab + boom)
+    }
+    g.poly(spineOutline(spine, body, 34)).fill(f(0x44503a)).stroke({ width: lw, color: line })
+    if (!white) {
+      g.ellipse(r * 0.3, r * 0.2, r * 0.5, r * 0.14).fill({ color: 0x232b1b, alpha: 0.3 })
+      g.ellipse(r * 0.3, -r * 0.2, r * 0.44, r * 0.1).fill({ color: 0x93a37f, alpha: 0.22 })
+      g.beginPath() // boom frames + door seam
+      g.moveTo(-r * 0.4, 0).lineTo(-r * 1.3, 0)
+      for (const x of [-r * 0.6, -r * 0.9, -r * 1.15]) g.moveTo(x, -r * 0.14).lineTo(x, r * 0.14)
+      g.moveTo(r * 0.24, -r * 0.44).lineTo(r * 0.24, r * 0.44)
+      g.stroke({ width: 1, color: 0x8d9c79, alpha: 0.45 })
+      g.poly(radialOutline((a) => r * 0.3 * (1 - 0.28 * Math.cos(a)), 24, 1, 0.86, r * 0.78, 0)).fill(0x1f2c33) // canopy glass
+      g.ellipse(r * 0.84, -r * 0.08, r * 0.14, r * 0.07).fill({ color: 0x9fd8ff, alpha: 0.7 })
+      g.circle(r * 0.2, 0, r * 0.1).fill({ color: 0x2a3320, alpha: 0.8 }) // rotor mast head
+    }
+    // rotor disc LAST: the blur sits over everything it turns above. It sets the bounds, so the rim
+    // stroke has to exist in BOTH variants (solid on the twin) — the wasp-wing rule.
+    g.ellipse(r * 0.2, 0, r * 1.34, r * 1.26).fill(white ? 0xffffff : { color: 0xdfe8d2, alpha: 0.22 })
+      .stroke({ width: 1.2, color: white ? 0xffffff : 0xdfe8d2, alpha: white ? 1 : 0.4 })
+    if (!white) {
+      g.beginPath() // two blade smears inside the disc — spin, not a bubble
+      for (const a of [0.5, 2.6]) {
+        g.moveTo(r * 0.2 - Math.cos(a) * r * 1.28, -Math.sin(a) * r * 1.2)
+        g.lineTo(r * 0.2 + Math.cos(a) * r * 1.28, Math.sin(a) * r * 1.2)
+      }
+      g.stroke({ width: 1.5, color: 0xeef4e6, alpha: 0.3 })
+    }
+    if (elite) eliteCrown(g, -r * 1.3, r, white)
+  }
+  // tankColumn: 3/4 from the front-right — a sloped hull whose glacis, roof and rear are ONE
+  // outline (a tank is a faceted box; the silhouette must have real corners, so this is a poly with
+  // deliberate angles, not a sin profile), riding a track band with road wheels, turret and a
+  // tapered gun barrel with a muzzle brake pointing right.
+  function drawTankColumn(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x2b2718)
+    const lw = Math.max(2.6, r * 0.1)
+    groundShadow(g, r * 1.15, r * 0.78)
+    // track band: a slab with rounded ends (idler + drive sprocket), the whole thing sits low
+    const trk = []
+    for (let i = 0; i <= 16; i++) { const a = -Math.PI / 2 + (i / 16) * Math.PI; trk.push(r * 0.86 + Math.cos(a) * r * 0.24, r * 0.44 + Math.sin(a) * r * 0.24) }
+    for (let i = 0; i <= 16; i++) { const a = Math.PI / 2 + (i / 16) * Math.PI; trk.push(-r * 0.86 + Math.cos(a) * r * 0.24, r * 0.44 + Math.sin(a) * r * 0.24) }
+    g.poly(trk).fill(f(0x3a3524)).stroke({ width: lw * 0.8, color: line })
+    // hull: hard facets — sloped glacis on the right, flat roof, cut-back rear
+    g.poly([
+      r * 1.02, r * 0.3, r * 0.62, -r * 0.16, // glacis slope
+      r * 0.34, -r * 0.28, -r * 0.72, -r * 0.28, // roof
+      -r * 0.98, r * 0.04, -r * 0.98, r * 0.34, // rear plate
+    ]).fill(f(0x61573c)).stroke({ width: lw, color: line })
+    // turret: a squat faceted mass, offset back from the glacis
+    g.poly([
+      r * 0.42, -r * 0.3, r * 0.26, -r * 0.66, -r * 0.28, -r * 0.72,
+      -r * 0.52, -r * 0.5, -r * 0.5, -r * 0.3,
+    ]).fill(f(0x6d6344)).stroke({ width: lw, color: line })
+    // gun: a long taper to a muzzle brake — the reach IS the threat read
+    taperStroke(g, [[r * 0.2, -r * 0.5], [r * 1.5, -r * 0.5]], r * 0.1, r * 0.07, f(0x4e4630), 4)
+    g.rect(r * 1.42, -r * 0.6, r * 0.18, r * 0.2).fill(f(0x4e4630)).stroke({ width: 1.4, color: line })
+    if (!white) {
+      g.poly([r * 1.02, r * 0.3, r * 0.62, -r * 0.16, r * 0.34, -r * 0.28, -r * 0.72, -r * 0.28, -r * 0.98, r * 0.04, -r * 0.98, r * 0.34])
+        .fill({ color: 0x000000, alpha: 0 })
+      g.rect(-r * 0.98, r * 0.1, r * 2.0, r * 0.24).fill({ color: 0x3b3423, alpha: 0.3 }) // hull in shadow, low
+      g.beginPath()
+      g.moveTo(r * 0.62, -r * 0.16).lineTo(-r * 0.72, -r * 0.16)
+      g.stroke({ width: 2, color: 0xa2966d, alpha: 0.25 }) // lit roof edge
+      // road wheels + track links: hairline, the detail that sells "tracks"
+      for (let i = 0; i < 5; i++) {
+        const x = -r * 0.72 + i * r * 0.36
+        g.circle(x, r * 0.44, r * 0.12).fill({ color: 0x2b2718, alpha: 0.55 })
+        g.circle(x, r * 0.44, r * 0.05).fill({ color: 0x6d6344, alpha: 0.5 })
+      }
+      g.beginPath()
+      for (let i = 0; i < 14; i++) {
+        const x = -r * 1.08 + i * r * 0.16
+        g.moveTo(x, r * 0.2).lineTo(x, r * 0.68)
+      }
+      g.stroke({ width: 1, color: 0x1f1c11, alpha: 0.4 })
+      g.beginPath() // turret + hull panel seams
+      g.moveTo(r * 0.26, -r * 0.62).lineTo(-r * 0.26, -r * 0.66)
+      g.moveTo(-r * 0.5, -r * 0.34).lineTo(-r * 0.28, -r * 0.68)
+      g.stroke({ width: 1.2, color: 0x9a8f66, alpha: 0.4 })
+      for (const [rx, ry] of [[r * 0.5, -r * 0.24], [-r * 0.6, -r * 0.22], [-r * 0.9, r * 0.1]]) {
+        g.circle(rx, ry, 1.4).fill({ color: 0x9a8f66, alpha: 0.55 }) // rivets
+      }
+      // vision block: a dark glass slit, a machine's "eye"
+      g.rect(r * 0.28, -r * 0.56, r * 0.14, r * 0.07).fill(0x141208)
+      g.rect(r * 0.29, -r * 0.555, r * 0.05, r * 0.02).fill({ color: 0x9fd8ff, alpha: 0.6 })
+      g.circle(-r * 0.36, -r * 0.68, r * 0.05).fill({ color: 0x3a3524, alpha: 0.9 }) // hatch periscope
+    }
+    if (elite) eliteCrown(g, -r * 0.76, r, white)
+  }
+
+  // --- Beyond chapter (violet void) ---
+  // The beyond floor is the DARKEST of all seven: bg 0x120a26 under floorTint 0x6a5fa0 → ~0x362d4e,
+  // luminance ~0.03. Everything here therefore GLOWS — these are the brightest bodies in the game
+  // (7-9x), which is also what makes them survive the eliteIridescent multiply: the pale hues mix
+  // 50% to white before tinting, so the worst-case channel factor is ~0.87 and no body here leans on
+  // a channel that could be crushed to mud.
+  //   blinker    = BRIGHTEST (cyan glitch, 9.1x)
+  //   swarmDrone = MID       (amber, 7.0x)
+  //   flicker    = DIMMEST   (violet, 5.2x — it is the one that's half-there)
+  //
+  // blinker: a form that cannot hold still — a faceted crystal (hard angular radius, jittered per
+  // vertex by the deterministic hash so it's irregular but stable) with two GHOST ECHOES offset
+  // fore/aft of it, drawn solid on the white twin so bounds match. The echoes are the whole idea:
+  // you see where it just was and where it's about to be.
+  function drawBlinker(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x1d6e8c)
+    const N = 9
+    // faceted radius: a hard polygon, each vertex kicked out/in by a stable hash — never a circle
+    const facet = (k) => {
+      const p = []
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2 - 0.2
+        const rad = r * 0.76 * k * (0.74 + hash(i * 7.13 + 2.9) * 0.5)
+        p.push(Math.cos(a) * rad, Math.sin(a) * rad * 0.92)
+      }
+      return p
+    }
+    groundShadow(g, r * 0.95, r * 0.86)
+    // ghost echoes: the same crystal displaced, low-alpha (solid on the twin so bounds hold)
+    for (const [ox, oy, al] of [[-r * 0.34, r * 0.08, 0.3], [r * 0.3, -r * 0.06, 0.22]]) {
+      const e = facet(0.94)
+      for (let i = 0; i < e.length; i += 2) { e[i] += ox; e[i + 1] += oy }
+      // the echoes set the bounds, so their rim is stroked in BOTH variants (wasp-wing rule)
+      g.poly(e).fill(white ? 0xffffff : { color: 0x7fe8ff, alpha: al })
+        .stroke({ width: 1.4, color: white ? 0xffffff : 0xbff4ff, alpha: white ? 1 : al * 0.9 })
+    }
+    g.poly(facet(1)).fill(f(0x7fe8ff)).stroke({ width: Math.max(2.6, r * 0.11), color: line })
+    if (!white) {
+      g.poly(facet(1)).fill({ color: 0x1d6e8c, alpha: 0 })
+      g.ellipse(r * 0.04, r * 0.28, r * 0.5, r * 0.26).fill({ color: 0x1d6e8c, alpha: 0.24 })
+      g.ellipse(-r * 0.1, -r * 0.28, r * 0.42, r * 0.2).fill({ color: 0xdcfaff, alpha: 0.3 })
+      g.beginPath() // internal facet edges from the core to each vertex — a crystal, not a blob
+      const p = facet(1)
+      for (let i = 0; i < N; i++) {
+        g.moveTo(0, 0).lineTo(p[i * 2] * 0.94, p[i * 2 + 1] * 0.94)
+      }
+      g.stroke({ width: 1.1, color: 0x2f8fb0, alpha: 0.45 })
+      g.poly(facet(0.34)).fill({ color: 0xeafdff, alpha: 0.9 }) // core
+      g.poly(facet(0.16)).fill({ color: 0xffffff, alpha: 0.95 })
+      g.beginPath() // scan bars: the glitch tell
+      for (const y of [-r * 0.4, -r * 0.06, r * 0.3]) g.moveTo(-r * 0.66, y).lineTo(r * 0.66, y)
+      g.stroke({ width: 1.4, color: 0xdcfaff, alpha: 0.3 })
+    }
+    if (elite) eliteCrown(g, -r * 0.76, r, white)
+  }
+  // flicker: a shape that is only half here. ONE soft membrane, but the LEADING (right) half is
+  // solid while the trailing half is a low-alpha wash cut by hairline scan gaps — it reads as a form
+  // resolving out of the void rather than a translucent ball. The whole outline (both halves) is
+  // drawn in the white twin so bounds match; sim's _phaseSolid drives the sprite alpha on top.
+  function drawFlicker(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const membrane = (a) => r * 0.86 * (0.9 + 0.09 * Math.cos(a * 2 + 0.7) + 0.05 * Math.sin(a * 5 - 1.1))
+    groundShadow(g, r * 0.9, r * 0.9)
+    // full silhouette: on the twin it's solid white; on the normal it's the faint "not-there" wash.
+    // The rim is stroked in BOTH variants — it's what sets the bounds (wasp-wing rule).
+    g.poly(radialOutline(membrane, 48, 1, 0.94)).fill(white ? 0xffffff : { color: 0xb894f5, alpha: 0.3 })
+      .stroke({ width: 1.6, color: white ? 0xffffff : 0xd9c0ff, alpha: white ? 1 : 0.4 })
+    if (!white) {
+      // the solid half: the same membrane, sampled only over the leading arc, closed back through
+      // the center — same curve, so the "materialised" edge is unmistakably part of one form. Inset
+      // to 0.95 so its heavier stroke still lands inside the full membrane's rim.
+      const half = []
+      for (let i = 0; i <= 24; i++) {
+        const a = -Math.PI / 2 + (i / 24) * Math.PI
+        const rad = membrane(a) * 0.95
+        half.push(Math.cos(a) * rad, Math.sin(a) * rad * 0.94)
+      }
+      g.poly(half).fill({ color: 0xb894f5, alpha: 0.95 })
+      g.poly(half).stroke({ width: 2.4, color: 0x6f4fa8, alpha: 0.9 })
+      g.ellipse(r * 0.3, r * 0.28, r * 0.34, r * 0.2).fill({ color: 0x5e3f96, alpha: 0.3 })
+      g.ellipse(r * 0.24, -r * 0.3, r * 0.3, r * 0.16).fill({ color: 0xf0e2ff, alpha: 0.35 })
+      g.beginPath() // scan gaps: hairline slices missing out of the form
+      for (let i = 0; i < 6; i++) {
+        const y = -r * 0.66 + i * r * 0.26
+        g.moveTo(-r * 0.76, y).lineTo(r * 0.76, y)
+      }
+      g.stroke({ width: 1.2, color: 0x1c0f33, alpha: 0.4 })
+      // core: the part that is always real, and the one place it has an eye
+      g.poly(radialOutline((a) => membrane(a) * 0.3, 24, 1, 1, r * 0.24, 0)).fill({ color: 0xf6ecff, alpha: 0.9 })
+      darkEye(g, r * 0.3, 0, r * 0.11, r * 0.13, 0x1a0b33, true)
+    }
+    if (elite) eliteCrown(g, -r * 0.82, r, white)
+  }
+  // swarmDrone: small, sharp, many-eyed — a dart-shaped chitin wedge (hard poly, nose right) with
+  // spines raking backward off it and a cluster of seven lenses on the leading face. Everything
+  // about it is a point: at 24px it should read as an arrowhead coming at you.
+  function drawSwarmDrone(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x8a4a08)
+    const lw = Math.max(1.8, r * 0.12)
+    groundShadow(g, r * 0.95, r * 0.72)
+    // spines: raked back, unequal — drawn first so their roots vanish under the wedge
+    for (const [a, len] of [[2.5, 0.95], [3.0, 1.2], [3.5, 0.9], [2.1, 0.7], [3.9, 0.75], [4.5, 0.5], [1.7, 0.45]]) {
+      taperStroke(g, [[Math.cos(a) * r * 0.3, Math.sin(a) * r * 0.3], [Math.cos(a) * r * len, Math.sin(a) * r * len]],
+        r * 0.14, 0.7, f(0xd98a1e), 3)
+    }
+    // wedge: a hard dart — nose, two swept shoulders, a notched tail
+    g.poly([
+      r * 1.15, 0, r * 0.1, -r * 0.62, -r * 0.5, -r * 0.5,
+      -r * 0.28, 0, -r * 0.5, r * 0.5, r * 0.1, r * 0.62,
+    ]).fill(f(0xffb03d)).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly([r * 1.15, 0, r * 0.1, r * 0.62, -r * 0.5, r * 0.5, -r * 0.28, 0]).fill({ color: 0x9c5a0c, alpha: 0.28 })
+      g.poly([r * 1.15, 0, r * 0.1, -r * 0.62, -r * 0.5, -r * 0.5, -r * 0.28, 0]).fill({ color: 0xffe6b0, alpha: 0.22 })
+      g.beginPath() // carapace ridges — hairline, raked like the spines
+      for (const s of [-1, 1]) {
+        g.moveTo(r * 0.86, s * r * 0.08).lineTo(-r * 0.16, s * r * 0.4)
+        g.moveTo(r * 0.6, s * r * 0.06).lineTo(-r * 0.3, s * r * 0.24)
+      }
+      g.stroke({ width: 1, color: 0x8a4a08, alpha: 0.5 })
+      // seven lenses, two ranks, biggest forward — many-eyed, no sclera, one specular each
+      for (const [ex, ey, er] of [[0.72, 0, 0.13], [0.5, -0.19, 0.1], [0.5, 0.19, 0.1],
+        [0.26, -0.3, 0.075], [0.26, 0.3, 0.075], [0.06, -0.18, 0.06], [0.06, 0.18, 0.06]]) {
+        darkEye(g, r * ex, r * ey, r * er, r * er, 0x2b0f02, er > 0.07)
+      }
+    }
+    if (elite) eliteCrown(g, -r * 0.66, r, white)
+  }
+
   const ROSTER_LOOKS = {
     redcell: { archetype: 'normal', draw: drawRedcell },
     wbc: { archetype: 'tank', draw: drawWbc },
@@ -838,6 +1533,18 @@ export function createRenderer(app) {
     ant: { archetype: 'normal', draw: drawAnt },
     wasp: { archetype: 'fast', draw: drawWasp },
     spider: { archetype: 'tank', draw: drawSpider },
+    cat: { archetype: 'tank', draw: drawCat },
+    owl: { archetype: 'fast', draw: drawOwl },
+    rat: { archetype: 'normal', draw: drawRat },
+    vacuum: { archetype: 'tank', draw: drawVacuum },
+    ratDrone: { archetype: 'normal', draw: drawRatDrone },
+    pigeon: { archetype: 'fast', draw: drawPigeon },
+    jet: { archetype: 'fast', draw: drawJet },
+    helicopter: { archetype: 'normal', draw: drawHelicopter },
+    tankColumn: { archetype: 'tank', draw: drawTankColumn },
+    blinker: { archetype: 'tank', draw: drawBlinker },
+    flicker: { archetype: 'normal', draw: drawFlicker },
+    swarmDrone: { archetype: 'fast', draw: drawSwarmDrone },
   }
   function makeRosterLook(id, elite) {
     const entry = ROSTER_LOOKS[id]
@@ -1062,6 +1769,232 @@ export function createRenderer(app) {
       g.beginPath().arc(-4, -2.5, 6, Math.PI * 1.1, Math.PI * 1.7).stroke({ width: 1.4, color: 0xffffff, alpha: 0.5, cap: 'round' })
       T.puddle = bake(g)
     }
+    // ---- per-chapter baked props (v5.4) ------------------------------------
+    // The prop sheet (src/props/) is entirely foliage, and chapters 4-7 have no botany to scatter —
+    // a city street strewn with mushrooms is the tell. So their floor furniture is hand-drawn here
+    // exactly the way pebble/puddle already are: baked once in its own natural colours, then
+    // multiplied by the chapter floorTint at populate time so it sits in the biome's light.
+    // UPRIGHT props are drawn with their ORIGIN AT THE BASE (y=0 is the ground line) — bake() hands
+    // back the matching anchor, so they plant on the floor instead of floating.
+    {
+      // root arch (undergrowth): knuckled roots breaking the loam. Real joints at each knuckle and a
+      // taper to every tip — the same rule the creatures follow, so it never reads as bent tubing.
+      const g = new Graphics()
+      const bark = 0x6b5334
+      taperStroke(g, [[-46, 1], [-30, -19], [-4, -27], [22, -15], [41, 2]], 11, 3.4, bark, 4)
+      taperStroke(g, [[-25, 1], [-10, -11], [12, -13], [31, -1]], 7, 2.2, bark, 4)
+      for (const [x0, y0, x1, y1] of [[-30, -19, -43, -33], [22, -15, 33, -29], [-4, -27, -2, -42]]) {
+        taperStroke(g, [[x0, y0], [x1, y1]], 5, 1.2, bark, 3)
+      }
+      g.beginPath() // bark grain: hairline, follows the run of the root
+      for (const [x0, y0, x1, y1] of [[-38, -6, -12, -22], [-8, -24, 18, -18], [4, -20, 28, -8]]) {
+        g.moveTo(x0, y0).lineTo(x1, y1)
+      }
+      g.stroke({ width: 1.2, color: 0x8a6d45, alpha: 0.5 })
+      T.root = bake(g)
+    }
+    {
+      // bone (undergrowth): a long bone with two epiphyses — pale ivory, the one LIGHT thing on the
+      // dark loam, so it reads as a warning about what lives here.
+      const g = new Graphics()
+      const ivory = 0xd8cfb8
+      const line = 0x9c9078
+      taperStroke(g, [[-13, 1], [13, -1]], 6.5, 6, ivory, 3)
+      for (const [x, s] of [[-14, 1], [14, -1]]) { // knuckle pairs at each end
+        g.circle(x, -4 * s, 5).fill(ivory).stroke({ width: 1.2, color: line })
+        g.circle(x + s * 1.5, 4 * s, 4.4).fill(ivory).stroke({ width: 1.2, color: line })
+      }
+      g.beginPath().moveTo(-9, -2).lineTo(9, -3).stroke({ width: 1, color: line, alpha: 0.5 })
+      T.bone = bake(g)
+    }
+    {
+      // fire hydrant (city): upright, origin at the base. Dome cap, side nozzles, base flange —
+      // a silhouette every player already knows, so it only needs its proportions right.
+      const g = new Graphics()
+      const red = 0xc4432f
+      const line = 0x6e2318
+      g.rect(-11, -4, 22, 4).fill(red).stroke({ width: 1.4, color: line })       // base flange
+      g.poly(spineOutline((t) => [0, -5 - t * 22], (t) => 7.5 * (1 - 0.12 * Math.sin(t * Math.PI * 2)), 14))
+        .fill(red).stroke({ width: 1.6, color: line })                            // barrel
+      for (const s of [-1, 1]) taperStroke(g, [[s * 5, -16], [s * 11, -16]], 4, 3.2, red, 2) // nozzles
+      g.circle(0, -29, 6).fill(red).stroke({ width: 1.6, color: line })          // dome cap
+      g.circle(0, -33, 2.2).fill(red).stroke({ width: 1.2, color: line })        // bonnet nut
+      g.ellipse(-3, -22, 2.2, 6).fill({ color: 0xf2937f, alpha: 0.45 })          // lit edge
+      g.ellipse(3.5, -18, 2.4, 8).fill({ color: 0x6e2318, alpha: 0.22 })         // shaded side
+      T.hydrant = bake(g)
+    }
+    {
+      // dumpster (city, big layer): a steel bin in 3/4 — a hard trapezoid body with a lid slab,
+      // corrugation as hairline ribs, small casters. Origin at the base.
+      const g = new Graphics()
+      const steel = 0x3f6b4a
+      const line = 0x1f3a27
+      for (const x of [-26, 26]) g.circle(x, -3, 3.4).fill(0x22252a) // casters
+      g.poly([-34, -4, -29, -34, 29, -34, 34, -4]).fill(steel).stroke({ width: 2, color: line }) // body
+      g.poly([-33, -34, -37, -41, 37, -41, 33, -34]).fill(0x4d7d58).stroke({ width: 2, color: line }) // lid
+      g.beginPath() // corrugation ribs — hairline, what makes it steel and not a box
+      for (let i = -3; i <= 3; i++) g.moveTo(i * 8.5, -32).lineTo(i * 8.2, -6)
+      g.stroke({ width: 1.2, color: 0x2b4f36, alpha: 0.55 })
+      g.poly([-34, -12, -33, -4, 34, -4, 34, -12]).fill({ color: 0x1f3a27, alpha: 0.25 }) // shaded skirt
+      g.poly([-36, -40, -37, -41, 37, -41, 36, -40]).fill({ color: 0x8fbf9c, alpha: 0.3 }) // lit lid edge
+      T.dumpster = bake(g)
+    }
+    {
+      // traffic cone (city): upright, origin at the base — one tapered cone with the two reflective
+      // bands taken as slices of its OWN profile, so they wrap with the taper.
+      const g = new Graphics()
+      const orange = 0xe8712f
+      const line = 0x8a3a12
+      const spine = (t) => [0, -2 - t * 24]
+      const wide = (t) => 8.5 * (1 - 0.82 * t) + 1.2
+      g.rect(-11, -4, 22, 4).fill(orange).stroke({ width: 1.4, color: line }) // base plate
+      g.poly(spineOutline(spine, wide, 14)).fill(orange).stroke({ width: 1.5, color: line })
+      for (const [t0, t1] of [[0.3, 0.46], [0.6, 0.74]]) { // reflective bands, following the cone
+        g.poly(spineOutline(spine, wide, 6, t0, t1)).fill({ color: 0xf2ece0, alpha: 0.9 })
+      }
+      g.poly(spineOutline(spine, (t) => wide(t) * 0.34, 10, 0, 0.9)).fill({ color: 0xf7a06a, alpha: 0.35 }) // lit centre
+      T.cone = bake(g)
+    }
+    {
+      // rubble (skies): a shattered concrete slab with rebar. Value here is a three-way squeeze —
+      // the floor is PALE and the whole roster is DARK, so the prop must not sit in the enemies'
+      // band or a tank parked on rubble disappears (measured: 1.41x at the first pass). So the
+      // chunk is drawn LIGHT, well above every aircraft (2.3-3.9x clear of them), and its read
+      // against the pale floor is carried by the dark outline + rebar rather than by its fill —
+      // the same trick the white blood cell uses to sit on pale pink.
+      const g = new Graphics()
+      const crete = 0xb5b0a2
+      const line = 0x4f4a41
+      for (const [x0, y0, kx, ky, x1, y1] of [[-14, -12, -18, -20, -21, -24], [6, -16, 9, -23, 13, -26], [-2, -14, -1, -20, 1, -23]]) {
+        // rebar: kinked at a real joint and SHORT — long straight spikes read as antennae, not steel
+        taperStroke(g, [[x0, y0], [kx, ky], [x1, y1]], 2.6, 1.1, 0x6b4a2f, 3)
+      }
+      g.poly([-30, 2, -24, -14, -6, -20, 16, -16, 28, -2, 20, 4]).fill(crete).stroke({ width: 1.8, color: line })
+      g.poly([-24, -14, -6, -20, 16, -16, 12, -10, -12, -8]).fill({ color: 0xd6d1c2, alpha: 0.4 }) // lit top face
+      g.poly([-30, 2, -12, -8, 20, 4]).fill({ color: 0x4f4a41, alpha: 0.22 })                      // shaded base
+      g.beginPath() // fracture lines — hairline, the "shattered" read
+      g.moveTo(-18, -12).lineTo(-8, 0)
+      g.moveTo(4, -17).lineTo(10, -3)
+      g.moveTo(-6, -19).lineTo(-2, -6)
+      g.stroke({ width: 1.1, color: 0x5f5a50, alpha: 0.5 })
+      T.rubble = bake(g)
+    }
+    {
+      // asteroid (beyond): an irregular cratered rock. The void floor is near-black, so the rock is
+      // drawn LIGHT and the cold violet floorTint pushes it back down into the dark.
+      const g = new Graphics()
+      const rock = 0xa9a2bb
+      const line = 0x4e4763
+      const shape = (a) => 26 * (0.78 + 0.14 * Math.cos(a * 3 + 0.9) + 0.09 * Math.cos(a * 5 - 2.2) + 0.06 * Math.sin(a * 8))
+      g.poly(radialOutline(shape, 40, 1, 0.86)).fill(rock).stroke({ width: 1.8, color: line })
+      g.ellipse(2, 6, 17, 8).fill({ color: 0x4e4763, alpha: 0.26 })   // shaded underside
+      g.ellipse(-4, -7, 14, 6).fill({ color: 0xd6d0e6, alpha: 0.3 })  // lit dorsal
+      for (const [cx, cy, cr] of [[-8, -3, 5], [7, 2, 3.6], [-2, 8, 2.6], [12, -6, 2.2]]) {
+        g.circle(cx, cy, cr).fill({ color: 0x6f6788, alpha: 0.5 })           // craters
+        g.circle(cx - cr * 0.2, cy - cr * 0.2, cr * 0.6).fill({ color: 0x8b83a4, alpha: 0.5 })
+      }
+      T.asteroid = bake(g)
+    }
+
+    // ---- v5.4 signature/weapon props ---------------------------------------
+    // snap traps (undergrowth signature, run.traps): they damage the PLAYER AND ENEMIES, so armed
+    // vs sprung has to be readable in a glance, at speed, while being chased. The two states are
+    // baked as separate textures and swapped in placeTrap rather than redrawn per frame:
+    //   ARMED  = jaws SPREAD WIDE with bared teeth + a pale trigger plate. Wide + toothy + bright.
+    //   SPRUNG = jaws SHUT into a single closed bar, teeth hidden, dulled. Narrow + smooth + dim.
+    // The silhouettes differ (a ring vs a bar), so the read survives even at a glance in the dark.
+    {
+      const g = new Graphics()
+      const steel = 0xa8b0ba
+      const line = 0x2f333a
+      g.circle(0, 0, 15).fill({ color: 0x1c1f24, alpha: 0.55 })                       // pit shadow
+      for (const s of [-1, 1]) { // the two open jaws: arcs sprung back, teeth pointing IN
+        g.beginPath().arc(0, 0, 15, s > 0 ? -0.3 : Math.PI - 0.3, s > 0 ? 0.3 + 0 : Math.PI + 0.3)
+        g.stroke({ width: 4.5, color: steel, cap: 'round' })
+        g.beginPath().arc(0, 0, 15, s > 0 ? -1.15 : Math.PI - 1.15, s > 0 ? 1.15 : Math.PI + 1.15)
+        g.stroke({ width: 4, color: steel, cap: 'round' })
+        for (let i = -2; i <= 2; i++) { // bared teeth, tapering inward
+          const a = (s > 0 ? 0 : Math.PI) + i * 0.42
+          taperStroke(g, [[Math.cos(a) * 14, Math.sin(a) * 14], [Math.cos(a) * 7.5, Math.sin(a) * 7.5]], 2.6, 0.8, steel, 2)
+        }
+      }
+      g.circle(0, 0, 6).fill(0xd8cfb0).stroke({ width: 1.6, color: line })            // trigger plate
+      g.circle(0, 0, 2.2).fill({ color: line, alpha: 0.7 })
+      g.beginPath().arc(0, 0, 15, 0.5, 1.1).stroke({ width: 2, color: 0x5f666f })     // spring bridge
+      g.beginPath().arc(0, 0, 15, Math.PI + 0.5, Math.PI + 1.1).stroke({ width: 2, color: 0x5f666f })
+      T.trapArmed = bake(g)
+    }
+    {
+      const g = new Graphics()
+      const dull = 0x6b727c
+      const g2 = 0x3a3f47
+      g.circle(0, 0, 12).fill({ color: 0x1c1f24, alpha: 0.4 })
+      g.poly(spineOutline((t) => [-13 + t * 26, 0], (t) => 3.4 * bulge(0.12 + 0.8 * t, 0.5), 14))
+        .fill(dull).stroke({ width: 1.6, color: g2 })                                 // jaws shut: one bar
+      g.beginPath().moveTo(-11, 0).lineTo(11, 0).stroke({ width: 1, color: 0x8f959d, alpha: 0.6 }) // seam
+      g.circle(0, 0, 4).fill({ color: g2, alpha: 0.8 })
+      T.trapSprung = bake(g)
+    }
+    {
+      // traffic car (city signature, run.lanes): top-down, nose +x, drawn at the real
+      // TRAFFIC_CAR_LEN × TRAFFIC_CAR_W hitbox so what sweeps you is what you saw coming.
+      const g = new Graphics()
+      const body = 0xf2c53d
+      const line = 0x6b4f0e
+      const L = TRAFFIC_CAR_LEN
+      const W = TRAFFIC_CAR_W
+      for (const s of [-1, 1]) { // tyres, under the shell
+        g.rect(L * 0.16, s * W * 0.42 - W * 0.06, L * 0.16, W * 0.12).fill(0x1c1f24)
+        g.rect(-L * 0.3, s * W * 0.42 - W * 0.06, L * 0.16, W * 0.12).fill(0x1c1f24)
+      }
+      // shell: one tapered outline, blunt at the boot and narrowing over the bonnet
+      g.poly(spineOutline((t) => [-L * 0.5 + t * L, 0], (t) => W * 0.44 * bulge(0.14 + 0.8 * (1 - t), 0.34), 26))
+        .fill(body).stroke({ width: 2.4, color: line })
+      g.poly(spineOutline((t) => [-L * 0.24 + t * L * 0.44, 0], (t) => W * 0.3 * bulge(0.2 + 0.7 * t, 0.5), 14))
+        .fill(0x2b3a4a).stroke({ width: 1.6, color: line })                            // cabin glass
+      g.ellipse(-L * 0.06, -W * 0.1, L * 0.18, W * 0.08).fill({ color: 0x9fd8ff, alpha: 0.35 }) // glass sheen
+      g.ellipse(0, W * 0.26, L * 0.4, W * 0.14).fill({ color: 0x8a6512, alpha: 0.2 })  // shaded flank
+      g.ellipse(0, -W * 0.28, L * 0.36, W * 0.1).fill({ color: 0xfae79a, alpha: 0.3 }) // lit flank
+      g.beginPath() // panel seams — hairline
+      g.moveTo(L * 0.28, -W * 0.3).lineTo(L * 0.28, W * 0.3)
+      g.moveTo(-L * 0.32, -W * 0.32).lineTo(-L * 0.32, W * 0.32)
+      g.stroke({ width: 1.2, color: 0x8a6512, alpha: 0.5 })
+      for (const s of [-1, 1]) {
+        g.ellipse(L * 0.45, s * W * 0.22, L * 0.04, W * 0.08).fill(0xfff6d0)          // headlights
+        g.ellipse(-L * 0.47, s * W * 0.24, L * 0.03, W * 0.07).fill(0xff5545)         // tail lights
+      }
+      T.car = bake(g)
+    }
+    {
+      // trash chunk (city, run.debris): an angular scrap of junk — hard facets, nothing rounded
+      const g = new Graphics()
+      const pts = []
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2
+        const rr = 11 * (0.62 + hash(i * 3.31 + 7.7) * 0.6)
+        pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+      }
+      g.poly(pts).fill(0xb9a98f).stroke({ width: 1.8, color: 0x5f5442 })
+      g.poly(pts.slice(0, 6)).fill({ color: 0xe0d4bc, alpha: 0.4 })
+      g.beginPath().moveTo(-6, -3).lineTo(4, 5).stroke({ width: 1.1, color: 0x5f5442, alpha: 0.5 })
+      T.trashChunk = bake(g)
+    }
+    {
+      // rock chunk (skies, run.lobs): the kaiju's thrown masonry — chunkier and colder than trash
+      const g = new Graphics()
+      const pts = []
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2
+        const rr = 12 * (0.68 + hash(i * 5.17 + 2.3) * 0.5)
+        pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+      }
+      g.poly(pts).fill(0x9aa0a8).stroke({ width: 1.8, color: 0x474d55 })
+      g.ellipse(-3, -3, 6, 4).fill({ color: 0xd0d6de, alpha: 0.45 })
+      g.ellipse(3, 4, 6, 3).fill({ color: 0x474d55, alpha: 0.3 })
+      g.beginPath().moveTo(-7, 2).lineTo(2, -5).stroke({ width: 1.1, color: 0x474d55, alpha: 0.5 })
+      T.rockChunk = bake(g)
+    }
+
     // dust mote: tiny soft blurred dot (screen-space ambience, title + gameplay)
     {
       const c = document.createElement('canvas')
@@ -1168,6 +2101,33 @@ export function createRenderer(app) {
       c.addChild(tip)
       T.needle = bakeComposite(c)
     }
+    // enemy missile (skies helicopters, run.enemyShots): the only enemy-owned projectile, so it must
+    // never be confused with the player's amber stinger needle — cold steel body, hot red exhaust
+    // flare behind it, pointing +x natively so placeShot can aim it along its velocity.
+    {
+      const c = new Container()
+      const flare = new Sprite(T.fx.flare_01)
+      flare.anchor.set(0.5)
+      flare.tint = 0xff5545
+      flare.alpha = 0.85
+      flare.position.x = -9
+      flare.scale.set(fxScale(T.fx.flare_01, 16))
+      c.addChild(flare)
+      for (let i = 0; i < 2; i++) { // double-stacked: one soft-alpha layer washes out
+        const b = new Sprite(T.fx.trace_05)
+        b.anchor.set(0.5)
+        b.tint = 0xd8dde4
+        b.scale.set(fxScale(T.fx.trace_05, 24), fxScale(T.fx.trace_05, 7))
+        c.addChild(b)
+      }
+      const tip = new Sprite(T.fx.spark_04)
+      tip.anchor.set(0.5)
+      tip.tint = 0xff8c42
+      tip.position.x = 10
+      tip.scale.set(fxScale(T.fx.spark_04, 9))
+      c.addChild(tip)
+      T.missile = bakeComposite(c)
+    }
     // pond player's flagellum tail: a soft streak glyph, double-stacked (one layer washes out)
     for (const t of [tailA, tailB]) t.texture = T.fx.trace_05
   }
@@ -1235,6 +2195,25 @@ export function createRenderer(app) {
   const webLayer = new Container()
   const lureLayer = new Container()
   const stripG = new Graphics()
+  // v5.4 chapter-4-7 field layers. Like the garden/pond layers above these need no chapter gate —
+  // they're driven purely by the presence of their run.* array, which createRun leaves empty
+  // elsewhere. Declared HERE, above the entitiesLayer.addChild below: the v5.0 pond crash was a
+  // layer being addChild'd before its own const, which only blew up in the minified bundle.
+  //   wellG/trapLayer  = permanent ground furniture, under the roster
+  //   laneG/hazardG    = telegraph Graphics, same idiom as bombG/stripG
+  //   teleG            = the roster's own attack telegraphs (see redrawTelegraphs), likewise
+  //   debrisLayer      = the tornado's orbiting junk (player weapon, sits with the orbs)
+  //   shotLayer/carLayer/lobLayer = airborne things, over the crowd
+  const wellLayer = new Container()
+  const wellG = new Graphics()
+  const trapLayer = new Container()
+  const laneG = new Graphics()
+  const hazardG = new Graphics()
+  const teleG = new Graphics()
+  const debrisLayer = new Container()
+  const shotLayer = new Container()
+  const carLayer = new Container()
+  const lobLayer = new Container()
   const gemLayer = new Container()
   const coinLayer = new Container()
   const holeLayer = new Container()
@@ -1259,11 +2238,11 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    poolLayer, trailLayer, webLayer, obstacleLayer,
+    wellLayer, wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
-    bombG, stripG, pacerG, enemyLayer, bloomLayer, lureLayer, shieldG, affixLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, whipLayer, arcG,
-    particleLayer, textLayer,
+    bombG, stripG, laneG, hazardG, teleG, pacerG, enemyLayer, bloomLayer, lureLayer, shieldG, affixLayer, playerC,
+    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
+    lobLayer, carLayer, particleLayer, textLayer,
   )
 
   // ---------------------------------------------------------- organic floor
@@ -1301,86 +2280,172 @@ export function createRenderer(app) {
     s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
   }
 
-  // big: bushes. Source PNGs are 1024px square; scale is expressed as a target
-  // on-screen size (px) converted to a Pixi scale factor, not used as a raw scale.
+  // ---- prop kinds + per-chapter biomes (v5.4) ------------------------------------------------
+  // A "kind" is one scatterable thing. Two flavours, and applyPropKind handles both:
+  //   sheet prop — { name } resolves in T.props (1024px source PNGs), so `size` is a TARGET
+  //                ON-SCREEN SIZE in px, converted to a scale factor; `tints` pick a baked hue.
+  //   baked prop — { baked: true } resolves in T (pebble/root/hydrant/...), already drawn at its
+  //                natural size, so `scale` is a plain factor range and its colours are its own.
+  // `upright` props keep their footing (small rotation jitter only, anchored at the base for baked
+  // ones); top-down props spin freely. Everything is multiplied by chapterRender.floorTint, so one
+  // prop set reads differently under each chapter's light.
   const BUSH_TINTS = [0x86b877, 0x76a869]
+  const GRASS_TINTS = [0x9ccc80, 0x8bbf76, 0xa5cb8a]
+  const CLUSTER_TINTS = [0xa8d19a, 0xc2dfae, 0x9bc98f]
+
+  function applyPropKind(s, kind, i, j) {
+    if (kind.baked) {
+      const look = T[kind.name]
+      s.texture = look.tex
+      s.anchor.set(look.ax, look.ay)
+      s.tint = tintMul(kind.tint ?? 0xffffff, chapterRender.floorTint)
+      s.alpha = kind.alpha ?? 1
+      s.scale.set(lerp(kind.scale[0], kind.scale[1], cellHash(i, j, 4)))
+    } else {
+      s.texture = T.props[kind.name]
+      s.anchor.set(0.5, kind.upright ? 0.9 : 0.5)
+      s.tint = tintMul(kind.tints ? kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)] : (kind.tint ?? 0xffffff), chapterRender.floorTint)
+      s.alpha = kind.alpha ?? 1
+      s.scale.set(lerp(kind.size[0], kind.size[1], cellHash(i, j, 4)) / 1024)
+    }
+    // upright things stay upright — only top-down scatter is free to spin
+    s.rotation = kind.upright ? (cellHash(i, j, 3) - 0.5) * 0.16 : cellHash(i, j, 3) * Math.PI * 2
+  }
+
+  // big: one bulky landmark per cell — bushes on the green chapters, hard furniture elsewhere
+  const BIG_BUSH = [
+    { name: 'bush_a', tints: BUSH_TINTS, upright: true, size: [90, 145] },
+    { name: 'bush_b', tints: BUSH_TINTS, upright: true, size: [90, 145] },
+  ]
+  const BIG_UNDERGROWTH = [
+    { name: 'root', baked: true, upright: true, scale: [0.85, 1.5] },
+    { name: 'bush_a', tints: [0x6f7a4a, 0x5d6840], upright: true, size: [80, 130] },
+  ]
+  const BIG_CITY = [{ name: 'dumpster', baked: true, upright: true, scale: [0.9, 1.5] }]
+  const BIG_SKIES = [{ name: 'rubble', baked: true, upright: true, scale: [1.1, 2.0] }]
+  const BIG_BEYOND = [{ name: 'asteroid', baked: true, scale: [1.0, 1.9] }]
+
   function populateBig(s, i, j, cell) {
-    const name = cellHash(i, j, 1) < 0.5 ? 'bush_a' : 'bush_b'
-    s.texture = T.props[name]
-    s.anchor.set(0.5, 0.85)
-    s.tint = tintMul(BUSH_TINTS[cellHash(i, j, 2) < 0.5 ? 0 : 1], chapterRender.floorTint)
-    s.alpha = 1
-    s.rotation = (cellHash(i, j, 3) - 0.5) * 0.12
-    const px = lerp(90, 145, cellHash(i, j, 4)) // target on-screen size
-    s.scale.set(px / 1024)
+    const kinds = chapterBiome.big
+    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j)
     const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
     s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
   }
 
   // mid: grass/flowers/mushroom/reed (upright, side-view) + clusters (top-down)
-  const MID_KINDS = [
-    { name: 'grass_a', tints: [0x9ccc80, 0x8bbf76, 0xa5cb8a], upright: true, size: [28, 48] },
-    { name: 'grass_b', tints: [0x9ccc80, 0x8bbf76, 0xa5cb8a], upright: true, size: [28, 48] },
-    { name: 'grass_c', tints: [0x9ccc80, 0x8bbf76, 0xa5cb8a], upright: true, size: [28, 48] },
-    { name: 'grass_d', tints: [0x9ccc80, 0x8bbf76, 0xa5cb8a], upright: true, size: [28, 48] },
+  const MID_GARDEN = [
+    { name: 'grass_a', tints: GRASS_TINTS, upright: true, size: [28, 48] },
+    { name: 'grass_b', tints: GRASS_TINTS, upright: true, size: [28, 48] },
+    { name: 'grass_c', tints: GRASS_TINTS, upright: true, size: [28, 48] },
+    { name: 'grass_d', tints: GRASS_TINTS, upright: true, size: [28, 48] },
     { name: 'flower_a', tints: [0xffd1e0, 0xffd93d], upright: true, size: [34, 55] },
     { name: 'flower_b', tints: [0xfff3f8], upright: true, size: [34, 55] },
     { name: 'mushroom', tints: [0xffb3c6], upright: true, size: [26, 42] },
     { name: 'reed', tints: [0x8fae7a], upright: true, size: [45, 70] },
-    { name: 'cluster_a', tints: [0xa8d19a, 0xc2dfae, 0x9bc98f], upright: false, size: [50, 78] },
-    { name: 'cluster_b', tints: [0xa8d19a, 0xc2dfae, 0x9bc98f], upright: false, size: [50, 78] },
-    { name: 'cluster_c', tints: [0xa8d19a, 0xc2dfae, 0x9bc98f], upright: false, size: [50, 78] },
+    { name: 'cluster_a', tints: CLUSTER_TINTS, upright: false, size: [50, 78] },
+    { name: 'cluster_b', tints: CLUSTER_TINTS, upright: false, size: [50, 78] },
+    { name: 'cluster_c', tints: CLUSTER_TINTS, upright: false, size: [50, 78] },
   ]
+  // undergrowth: shade botany only — no sunlit flowers down here, and the mushrooms go pallid
+  const MID_UNDERGROWTH = [
+    { name: 'grass_c', tints: [0x7f8a52, 0x6d7746], upright: true, size: [30, 52] },
+    { name: 'grass_d', tints: [0x7f8a52, 0x6d7746], upright: true, size: [30, 52] },
+    { name: 'mushroom', tints: [0xd8cfb0, 0xc4b294], upright: true, size: [26, 44] },
+    { name: 'bone', baked: true, scale: [0.7, 1.2] },
+    { name: 'cluster_b', tints: [0x6f7a4a, 0x59623a], upright: false, size: [46, 74] },
+  ]
+  // city: street furniture, plus weeds coming up through the cracks (the city is still alive)
+  const MID_CITY = [
+    { name: 'hydrant', baked: true, upright: true, scale: [0.9, 1.3] },
+    { name: 'cone', baked: true, upright: true, scale: [0.85, 1.25] },
+    { name: 'grass_a', tints: [0x6f8a52], upright: true, size: [22, 38] },
+  ]
+  // skies + beyond: nothing grows. Smaller siblings of the big layer's chunks, scattered.
+  const MID_SKIES = [{ name: 'rubble', baked: true, upright: true, scale: [0.5, 0.95] }]
+  const MID_BEYOND = [{ name: 'asteroid', baked: true, scale: [0.35, 0.75] }]
+
   function populateMid(s, i, j, cell) {
-    const kind = MID_KINDS[Math.floor(cellHash(i, j, 1) * MID_KINDS.length)]
-    s.texture = T.props[kind.name]
-    s.tint = tintMul(kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)], chapterRender.floorTint)
-    s.alpha = 1
-    if (kind.upright) {
-      s.anchor.set(0.5, 0.9)
-      s.rotation = (cellHash(i, j, 3) - 0.5) * 0.16
-    } else {
-      s.anchor.set(0.5, 0.5)
-      s.rotation = cellHash(i, j, 3) * Math.PI * 2
-    }
-    const px = lerp(kind.size[0], kind.size[1], cellHash(i, j, 4))
-    s.scale.set(px / 1024)
+    const kinds = chapterBiome.mid
+    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j)
     const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
     s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
   }
 
-  // detail: scatter/leaf sprites + 2 hand-drawn baked bits (pebble, puddle)
-  const DETAIL_KINDS = [
+  // detail: scatter/leaf sprites + hand-drawn baked bits (pebble, puddle, bone, ...)
+  const DETAIL_GARDEN = [
     { name: 'scatter_a', tint: 0xd9e6c0, alpha: 0.55, size: [24, 42] },
     { name: 'scatter_b', tint: 0xd9e6c0, alpha: 0.55, size: [24, 42] },
     { name: 'leaf', tint: 0xe8b28a, alpha: 0.7, size: [18, 32] },
-    { name: 'pebble', baked: true },
-    { name: 'puddle', baked: true },
+    { name: 'pebble', baked: true, scale: [0.7, 1.4] },
+    { name: 'puddle', baked: true, scale: [0.7, 1.4] },
   ]
+  // undergrowth: deep leaf litter — the floor IS dead leaves, so scatter/leaf dominate
+  const DETAIL_UNDERGROWTH = [
+    { name: 'leaf', tint: 0xb08050, alpha: 0.8, size: [20, 36] },
+    { name: 'leaf', tint: 0x8a6a3e, alpha: 0.7, size: [18, 32] },
+    { name: 'scatter_a', tint: 0xa89466, alpha: 0.6, size: [24, 42] },
+    { name: 'bone', baked: true, scale: [0.45, 0.8] },
+    { name: 'pebble', baked: true, scale: [0.7, 1.3] },
+  ]
+  // city: litter and wet asphalt — the puddle earns its keep on a night street
+  const DETAIL_CITY = [
+    { name: 'scatter_b', tint: 0xc9c4b8, alpha: 0.45, size: [22, 38] },
+    { name: 'leaf', tint: 0xb8b0a0, alpha: 0.5, size: [16, 28] },
+    { name: 'puddle', baked: true, scale: [0.9, 1.7] },
+    { name: 'pebble', baked: true, scale: [0.6, 1.1] },
+  ]
+  const DETAIL_SKIES = [
+    { name: 'pebble', baked: true, scale: [0.7, 1.5] },
+    { name: 'scatter_b', tint: 0xd8d2c4, alpha: 0.4, size: [22, 38] },
+  ]
+  const DETAIL_BEYOND = [
+    { name: 'pebble', baked: true, scale: [0.5, 1.1] },
+    { name: 'asteroid', baked: true, scale: [0.16, 0.3] },
+  ]
+
   function populateDetail(s, i, j, cell) {
-    const kind = DETAIL_KINDS[Math.floor(cellHash(i, j, 1) * DETAIL_KINDS.length)]
-    s.rotation = cellHash(i, j, 3) * Math.PI * 2
-    if (kind.baked) {
-      const look = T[kind.name]
-      s.texture = look.tex
-      s.anchor.set(look.ax, look.ay)
-      s.tint = chapterRender.floorTint
-      s.alpha = 1
-      s.scale.set(lerp(0.7, 1.4, cellHash(i, j, 4)))
-    } else {
-      s.texture = T.props[kind.name]
-      s.anchor.set(0.5, 0.5)
-      s.tint = tintMul(kind.tint, chapterRender.floorTint)
-      s.alpha = kind.alpha
-      const px = lerp(kind.size[0], kind.size[1], cellHash(i, j, 4))
-      s.scale.set(px / 1024)
-    }
+    const kinds = chapterBiome.detail
+    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j)
     const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
     s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
   }
+
+  // Per-chapter biome: which prop kinds scatter on each floor layer, and how the chapter's
+  // run.obstacles colliders are dressed. Keyed by chapter id and latched in reset(run) alongside
+  // chapterRender — the CHAPTERS[].render block is data the sim shares, this is render's own.
+  // `obstacle.clumps` names sheet props stacked twice over a glow rim (the pond's reed idiom);
+  // `obstacle.baked` names baked props scattered around the collider instead (hard furniture).
+  const OBSTACLE_CLUMPS = ['cluster_a', 'cluster_b', 'cluster_c']
+  const BIOME_GARDEN = {
+    big: BIG_BUSH, mid: MID_GARDEN, detail: DETAIL_GARDEN,
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x8fbf6f, glow: 0xbfe8dd, glowAlpha: 0.5 },
+  }
+  const BIOMES = {
+    body: BIOME_GARDEN,
+    pond: BIOME_GARDEN,
+    garden: BIOME_GARDEN,
+    undergrowth: {
+      big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
+      // roots + bones: a knot of root arches with a bone half-buried in it
+      obstacle: { baked: ['root', 'root', 'bone'], tint: 0xbfae86, glow: 0x6b5a34, glowAlpha: 0.4 },
+    },
+    city: {
+      big: BIG_CITY, mid: MID_CITY, detail: DETAIL_CITY,
+      obstacle: { baked: ['dumpster', 'hydrant', 'cone'], tint: 0xd8d4cc, glow: 0x6f7684, glowAlpha: 0.35 },
+    },
+    skies: {
+      big: BIG_SKIES, mid: MID_SKIES, detail: DETAIL_SKIES,
+      obstacle: { baked: ['rubble', 'rubble'], tint: 0xbfb8a8, glow: 0x5f5a50, glowAlpha: 0.3 },
+    },
+    beyond: {
+      big: BIG_BEYOND, mid: MID_BEYOND, detail: DETAIL_BEYOND,
+      obstacle: { baked: ['asteroid', 'asteroid'], tint: 0xcfc8e0, glow: 0x8f7fd8, glowAlpha: 0.45 },
+    },
+  }
+  chapterBiome = BIOMES.body // title-screen default; reset(run) latches the run's chapter
 
   const FLOOR_LAYERS = [
     { name: 'blotch', cell: 420, chance: 1.00, parent: blotchLayer, populate: populateBlotch },
@@ -1620,10 +2685,13 @@ export function createRenderer(app) {
   const homingPool = []
   const holePool = []
   const beamPool = []
+  const debrisPool = []
+  const shotPool = []
   const prevCount = {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
+    trap: 0, debris: 0, shot: 0, well: 0,
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -1725,13 +2793,17 @@ export function createRenderer(app) {
   }
 
   // ---- v5.0 pond field elements ------------------------------------------------------------
-  // Obstacles (run.obstacles): reed/bubble clumps scaled to each collider's radius. The list is
-  // generated once at createRun and never mutates, so this rebuilds only when the array identity
-  // changes (new run) — otherwise it's a no-op. Two stacked prop clumps (deep tint for punch on
-  // the light floor) over a soft bubble glow rim; tinted with the chapter floorTint.
+  // Obstacles (run.obstacles): each collider is dressed in its chapter's own furniture, sized to
+  // the collider's radius so what you see is what you bump into. The list is generated once at
+  // createRun and never mutates, so this rebuilds only when the array identity changes (new run) —
+  // otherwise it's a no-op. Two styles, both a soft glow rim under two stacked pieces:
+  //   clumps (body/pond/garden) — one sheet prop drawn twice at different rotations: reeds/weeds.
+  //   baked  (chapters 4-7)     — two baked props (roots+bone, dumpster/hydrant/cone, rubble,
+  //                               asteroids), the second offset and scaled down so the pair reads
+  //                               as a heap rather than one thing double-printed.
+  // Everything is multiplied by chapterRender.floorTint, so the furniture sits in the biome's light.
   const obstacleSprites = []
   let obstacleToken = null
-  const OBSTACLE_CLUMPS = ['cluster_a', 'cluster_b', 'cluster_c']
   function acquireObstacle() {
     const root = new Container()
     const glow = new Sprite(Texture.EMPTY)
@@ -1750,22 +2822,41 @@ export function createRenderer(app) {
     obstacleToken = list
     while (obstacleSprites.length < list.length) obstacleSprites.push(acquireObstacle())
     const glowTex = T.fx.circle_05
+    const style = chapterBiome.obstacle
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
       const o = list[i]
       ov.root.visible = true
       ov.root.position.set(o.x, o.y)
-      const name = OBSTACLE_CLUMPS[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * OBSTACLE_CLUMPS.length)]
-      const tex = T.props[name]
       const rot = hash(o.x + o.y * 3.3) * Math.PI * 2
-      const sc = (o.r * 2.3) / 1024 // source props are 1024px; target on-screen ≈ 2.3×radius
-      const tint = tintMul(0x8fbf6f, chapterRender.floorTint)
-      ov.clumpA.texture = tex; ov.clumpA.tint = tint; ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot
-      ov.clumpB.texture = tex; ov.clumpB.tint = tint; ov.clumpB.scale.set(sc); ov.clumpB.rotation = rot + 0.6
+      const tint = tintMul(style.tint, chapterRender.floorTint)
+      if (style.baked) {
+        // baked furniture: pick two pieces off the chapter's list by position hash, plant the big
+        // one and tuck a smaller second beside it. Baked props carry their own origin (upright ones
+        // sit on their base), so the anchor comes from the look, not a fixed 0.5.
+        const pick = (salt) => style.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * style.baked.length)]
+        const a = T[pick(0)]
+        const b = T[pick(11.3)]
+        const scA = (o.r * 2.0) / Math.max(a.tex.width, a.tex.height)
+        const scB = (o.r * 1.2) / Math.max(b.tex.width, b.tex.height)
+        ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = tint
+        ov.clumpA.scale.set(scA); ov.clumpA.rotation = 0
+        ov.clumpA.position.set(0, o.r * 0.34)
+        ov.clumpB.texture = b.tex; ov.clumpB.anchor.set(b.ax, b.ay); ov.clumpB.tint = tint
+        ov.clumpB.scale.set(scB); ov.clumpB.rotation = (hash(o.x * 2.9 + o.y) - 0.5) * 0.5
+        ov.clumpB.position.set((hash(o.x + o.y * 5.1) - 0.5) * o.r * 1.2, o.r * 0.5)
+      } else {
+        const tex = T.props[style.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * style.clumps.length)]]
+        const sc = (o.r * 2.3) / 1024 // source props are 1024px; target on-screen ≈ 2.3×radius
+        ov.clumpA.texture = tex; ov.clumpA.anchor.set(0.5); ov.clumpA.tint = tint
+        ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot; ov.clumpA.position.set(0, 0)
+        ov.clumpB.texture = tex; ov.clumpB.anchor.set(0.5); ov.clumpB.tint = tint
+        ov.clumpB.scale.set(sc); ov.clumpB.rotation = rot + 0.6; ov.clumpB.position.set(0, 0)
+      }
       ov.glow.texture = glowTex
-      ov.glow.tint = tintMul(0xbfe8dd, chapterRender.floorTint)
-      ov.glow.alpha = 0.5
+      ov.glow.tint = tintMul(style.glow, chapterRender.floorTint)
+      ov.glow.alpha = style.glowAlpha
       ov.glow.scale.set(fxScale(glowTex, o.r * 2.2))
     }
   }
@@ -1963,6 +3054,384 @@ export function createRenderer(app) {
         stripG.poly(flat).stroke({ width: 2.5, color: 0xbfff6a, alpha: 0.7 * fade })
       }
     }
+  }
+
+  // ---- v5.4 chapter-4-7 field elements -----------------------------------------------------
+  // Every one of these guards its run.* field (`run.traps || []`): the sim half lands in parallel,
+  // and a chapter that never seeds the array must render nothing rather than throw.
+  //
+  // Snap traps (undergrowth signature, run.traps {x,y,r,armed,cd}): permanent furniture that bites
+  // BOTH sides, so it's drawn to be read at a glance — the armed texture is a wide toothed ring, the
+  // sprung one a shut bar (see the bakes). A sprung trap dims to alpha 0.45 and lifts back to full
+  // as its cd runs down toward SNAP_TRAP_REARM, so "this one is about to be live again" is legible
+  // without a number; an armed trap breathes so it reads as hot even when you're not looking at it.
+  const trapPool = []
+  function placeTrap(s, tr) {
+    const look = tr.armed ? T.trapArmed : T.trapSprung
+    if (s.texture !== look.tex) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
+    s.position.set(tr.x, tr.y)
+    const sc = (tr.r || 30) / 15 // both traps are baked at a 15px working radius
+    if (tr.armed) {
+      s.tint = 0xffffff
+      s.alpha = 1
+      s.scale.set(sc * (1 + 0.03 * Math.sin(animT * 3 + (tr.x + tr.y) * 0.05)))
+      s.rotation = 0
+    } else {
+      // re-arm tell: the closer cd gets to 0, the brighter/steadier the sprung trap sits
+      const k = SNAP_TRAP_REARM > 0 ? 1 - Math.max(0, Math.min(1, tr.cd / SNAP_TRAP_REARM)) : 1
+      s.tint = mix(0x6b727c, 0xffffff, k)
+      s.alpha = 0.45 + k * 0.5
+      s.scale.set(sc)
+      s.rotation = 0
+    }
+  }
+
+  // Traffic lanes (city signature, run.lanes): 'warn' telegraphs a hazard-striped band (the
+  // redrawStrips idiom — a shared Graphics cleared and redrawn per frame), then 'sweep' runs a car
+  // down it. The band stays drawn (fainter) during the sweep so you can still see where the lane is
+  // while the car is in it. Chevrons point the way the car will come — a lane you can't read the
+  // direction of is a coin flip, and this thing hits for TRAFFIC_DMG.
+  function redrawLanes(run) {
+    laneG.clear()
+    for (const ln of run.lanes || []) {
+      const cos = Math.cos(ln.angle)
+      const sin = Math.sin(ln.angle)
+      const hx = ln.len / 2
+      const hy = ln.w / 2
+      const flat = []
+      for (const [lx, ly] of [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]]) {
+        flat.push(ln.x + lx * cos - ly * sin, ln.y + lx * sin + ly * cos)
+      }
+      const warn = ln.phase === 'warn'
+      const urgency = warn ? (TRAFFIC_WARN > 0 ? 1 - ln.t / TRAFFIC_WARN : 1) : 1
+      const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
+      const fillA = warn ? 0.06 + urgency * 0.1 + pulse * 0.04 : 0.05
+      const rimA = warn ? Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.12) : 0.3
+      laneG.poly(flat).fill({ color: 0xffd24a, alpha: fillA })
+      laneG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
+      // chevrons along the lane, pointing downstream — the "which way" cue
+      const n = 7
+      for (let i = 0; i < n; i++) {
+        const d = -hx + ((i + 0.5) / n) * ln.len
+        const cx = ln.x + d * cos
+        const cy = ln.y + d * sin
+        const tip = [cx + cos * hy * 0.5, cy + sin * hy * 0.5]
+        const back = hy * 0.45
+        laneG.beginPath()
+        for (const s of [-1, 1]) {
+          laneG.moveTo(tip[0] - cos * back - sin * s * hy * 0.55, tip[1] - sin * back + cos * s * hy * 0.55)
+          laneG.lineTo(tip[0], tip[1])
+        }
+        laneG.stroke({ width: 3, color: 0xffe37a, alpha: (warn ? 0.3 + urgency * 0.3 : 0.16) * (0.7 + 0.3 * pulse) })
+      }
+    }
+  }
+
+  // The car itself: one rig per live sweep — the baked car plus a headlight wash thrown ahead of it.
+  // Its centre is (x,y) + dir × ((carT - 0.5) × len), straight off the contract.
+  const carPool = []
+  let carCount = 0
+  function acquireCar() {
+    const root = new Container()
+    const glow = new Sprite(T.fx.light_02)
+    glow.anchor.set(0.5)
+    glow.tint = 0xfff3c4
+    const body = spriteOf(T.car)
+    root.addChild(glow, body)
+    carLayer.addChild(root)
+    return { root, glow, body }
+  }
+  function syncCars(run) {
+    const lanes = (run.lanes || []).filter((l) => l.phase === 'sweep')
+    while (carPool.length < lanes.length) carPool.push(acquireCar())
+    for (let i = 0; i < lanes.length; i++) {
+      const ln = lanes[i]
+      const cv = carPool[i]
+      cv.root.visible = true
+      const d = ((ln.carT ?? 0) - 0.5) * ln.len
+      const cx = ln.x + Math.cos(ln.angle) * d
+      const cy = ln.y + Math.sin(ln.angle) * d
+      cv.root.position.set(cx, cy)
+      cv.root.rotation = ln.angle
+      cv.body.scale.set(1)
+      // headlight wash: thrown forward along the lane, flickering just enough to feel driven
+      cv.glow.position.set(TRAFFIC_CAR_LEN * 0.75, 0)
+      cv.glow.scale.set(fxScale(T.fx.light_02, TRAFFIC_CAR_W * 2.4), fxScale(T.fx.light_02, TRAFFIC_CAR_W * 1.5))
+      cv.glow.alpha = 0.5 + 0.08 * Math.sin(animT * 22)
+      if (frameDt > 0 && Math.random() < 0.5) { // exhaust/road spray off the back
+        spawnParticle(T.fx.circle_05, cx - Math.cos(ln.angle) * TRAFFIC_CAR_LEN * 0.5,
+          cy - Math.sin(ln.angle) * TRAFFIC_CAR_LEN * 0.5,
+          -Math.cos(ln.angle) * 40, -Math.sin(ln.angle) * 40, 0.3, 0.08, 0x8f959d, 0.1, 2)
+      }
+    }
+    for (let i = lanes.length; i < carCount; i++) carPool[i].root.visible = false
+    carCount = lanes.length
+  }
+
+  // Gravity wells (beyond signature, run.wells {x,y,r,g}): permanent, harmless, and they BEND every
+  // projectile that flies through — so the field has to be legible without ever reading as damage.
+  // Deliberately NOT the black hole's look (that's the player's weapon and it kills): no dark core,
+  // no vortex. Instead a cold open ring with inward-drifting contour rings and CURVED streamlines
+  // that show which way a shot gets bent — the animation flows inward, so the pull direction reads.
+  const wellPool = []
+  function syncWells(run) {
+    const list = run.wells || []
+    syncPool(wellPool, wellLayer, list, 'well', { tex: T.holeDisc, ax: 0.5, ay: 0.5 }, (s, w) => {
+      s.position.set(w.x, w.y)
+      s.tint = 0x6f7fd8
+      s.alpha = 0.3
+      s.scale.set((w.r * 2) / 512)
+    })
+    wellG.clear()
+    for (let i = 0; i < list.length; i++) {
+      const w = list[i]
+      const r = w.r || 190
+      wellG.circle(w.x, w.y, r).stroke({ width: 2, color: 0x9fb0ff, alpha: 0.3 }) // influence edge
+      // contour rings drifting inward: three rings sharing one phase, respawning at the rim
+      for (let k = 0; k < 3; k++) {
+        const p = ((animT * 0.35 + k / 3 + i * 0.17) % 1)
+        const rr = r * (1 - p)
+        wellG.circle(w.x, w.y, Math.max(2, rr)).stroke({ width: 1.6, color: 0xbfc8ff, alpha: 0.32 * p })
+      }
+      // streamlines: short arcs spiralling in, drawn as real curves so the BEND is the message
+      for (let k = 0; k < 8; k++) {
+        const a0 = (k / 8) * Math.PI * 2 + animT * 0.25 + i * 0.4
+        wellG.beginPath()
+        for (let j = 0; j <= 8; j++) {
+          const f = j / 8
+          const rr = r * (0.92 - f * 0.55)
+          const a = a0 + f * 0.85 // the swirl: angle advances as the radius closes
+          const px = w.x + Math.cos(a) * rr
+          const py = w.y + Math.sin(a) * rr
+          if (j === 0) wellG.moveTo(px, py)
+          else wellG.lineTo(px, py)
+        }
+        wellG.stroke({ width: 1.4, color: 0x9fb0ff, alpha: 0.28 })
+      }
+      const core = 0.5 + 0.5 * Math.sin(animT * 2 + i)
+      wellG.circle(w.x, w.y, r * 0.07 + core * 2).fill({ color: 0xdfe4ff, alpha: 0.5 })
+    }
+  }
+
+  // Sewer geysers + reality rifts (run.geysers {x,y,r,fuse,dur,dmg}) and Debris Toss landing rings
+  // (run.lobs): both are "this circle is about to go off", so they share one telegraph Graphics.
+  // Geysers damage ENEMIES ONLY, so they're drawn in a cool sewer-green that can never be mistaken
+  // for the red volatile-bomb telegraph (bombG) that hurts YOU — the colour IS the safety cue.
+  function redrawHazards(run) {
+    hazardG.clear()
+    for (const gy of run.geysers || []) {
+      const dur = Math.max(0.001, gy.dur || 1)
+      const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
+      const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 18))
+      hazardG.circle(gy.x, gy.y, gy.r).fill({ color: 0x3fae7a, alpha: 0.1 + urgency * 0.14 + pulse * 0.04 })
+      hazardG.circle(gy.x, gy.y, gy.r).stroke({ width: 2.5 + urgency * 2, color: 0x6fe0a8, alpha: Math.min(1, 0.5 + urgency * 0.4) })
+      // the charge: an inner ring swelling toward the rim as the fuse burns down
+      hazardG.circle(gy.x, gy.y, gy.r * urgency).stroke({ width: 2, color: 0xbfffe0, alpha: 0.35 + pulse * 0.2 })
+      if (frameDt > 0 && Math.random() < 0.35) { // bubbles boiling up out of the grate
+        const a = Math.random() * Math.PI * 2
+        const d = Math.random() * gy.r * 0.7
+        spawnParticle(T.fx.circle_05, gy.x + Math.cos(a) * d, gy.y + Math.sin(a) * d,
+          0, -30 - urgency * 40, 0.4, 0.05, 0x6fe0a8, 0.05, 0.5)
+      }
+    }
+    for (const lb of run.lobs || []) { // where the thrown chunk is going to land
+      const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
+      hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: 0xffb37a, alpha: 0.25 + k * 0.45 })
+      hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: 0xffb37a, alpha: 0.12 })
+    }
+  }
+
+  // ---- v5.4 roster attack telegraphs -------------------------------------------------------
+  // The chapter-4-7 predators all commit to an attack they cannot steer out of, and every one of
+  // them snapshots its heading/target at the START of a telegraph phase — so what render draws
+  // here is not a hint, it's the literal path. Sidestepping it always works; that's the contract.
+  // Read off the phase state each sim step keeps on the enemy (_pounceState/_airState/
+  // _chargeState/_beamState/_coneAngle), all of which MUST be guarded: the roster flags are
+  // per-chapter, and title/daily/archetype-fallback enemies carry none of them.
+  //
+  // The colour IS the safety cue, the same rule redrawHazards' green geysers follow. Four of these
+  // five end in the player taking damage, so they speak the established amber hazard language of
+  // the traffic lanes and spray strips (0xffd24a fill / 0xffe37a rim), tightening and quickening
+  // as the fuse burns down. The flashlight cone is the deliberate exception — see its block.
+  function redrawTelegraphs(run) {
+    teleG.clear()
+    const p = run.player
+    for (const e of run.enemies) {
+      // pounce 'aim' (undergrowth's cat): it has stopped dead and its heading is already locked, so
+      // the leap is knowable before it happens — draw it and stepping aside beats it. The lane ends
+      // exactly where the cat will (speed × POUNCE_LEAP_T), and it vanishes the moment it leaps:
+      // during 'leap' there is nothing left to warn about, the cat itself is the thing you see.
+      if (e._pounceState === 'aim') {
+        const urgency = POUNCE_AIM_T > 0 ? 1 - Math.max(0, e._pounceT || 0) / POUNCE_AIM_T : 1
+        const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
+        const ux = e._pounceDirX || 0
+        const uy = e._pounceDirY || 0
+        const len = e.speed * POUNCE_LEAP_SPEED_MUL * POUNCE_LEAP_T
+        const ex = e.x + ux * len
+        const ey = e.y + uy * len
+        const hw = e.radius * 1.5
+        const nx = -uy * hw
+        const ny = ux * hw
+        teleG.poly([e.x + nx, e.y + ny, ex + nx, ey + ny, ex - nx, ey - ny, e.x - nx, e.y - ny])
+          .fill({ color: 0xffd24a, alpha: 0.05 + urgency * 0.08 + pulse * 0.03 })
+        // the leap line: the spine of the arc, thickening as the crouch winds up
+        teleG.moveTo(e.x, e.y)
+        teleG.lineTo(ex, ey)
+        teleG.stroke({ width: 2 + urgency * 2.5, color: 0xffe37a, alpha: Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.1) })
+        // landing ring: closes onto the impact point as it commits — a shrinking ring reads as
+        // "something is arriving here", which is exactly what is about to happen
+        teleG.circle(ex, ey, hw * (1.9 - urgency * 0.8))
+          .stroke({ width: 2 + urgency * 2, color: 0xffe37a, alpha: Math.min(1, 0.35 + urgency * 0.5 + pulse * 0.12) })
+      }
+
+      // aerialStrike 'mark' (undergrowth's owl): the owl is overhead and untouchable, so the shadow
+      // on the ground IS the attack — it's the only part of it the player can see or act on. The
+      // blot swells (the owl is getting closer to the ground) while the amber ring tightens onto the
+      // locked point. The point never re-aims, so walking off the mark always beats it.
+      if (e._airState === 'mark') {
+        const urgency = AERIAL_MARK_T > 0 ? 1 - Math.max(0, e._airT || 0) / AERIAL_MARK_T : 1
+        const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
+        const tx = e._airTargX ?? e.x
+        const ty = e._airTargY ?? e.y
+        const r = e.radius * 1.4
+        teleG.circle(tx, ty, r * (0.4 + urgency * 0.6)).fill({ color: 0x2a2438, alpha: 0.16 + urgency * 0.26 })
+        teleG.circle(tx, ty, r * (2.4 - urgency * 1.4))
+          .stroke({ width: 2 + urgency * 2.5, color: 0xffe37a, alpha: Math.min(1, 0.4 + urgency * 0.45 + pulse * 0.12) })
+        teleG.circle(tx, ty, r).stroke({ width: 1.6, color: 0xffd24a, alpha: 0.25 + pulse * 0.2 })
+      }
+
+      // lineCharge 'lock' (city's robot vacuum): deliberately the SAME band-and-chevrons lane the
+      // traffic signature draws (redrawLanes) — both are city hazards that run you down in a
+      // straight line, so they must read as one rule rather than two things to learn. Only the
+      // anchoring differs: a traffic lane is centred on its band, this one starts at the vacuum and
+      // runs LINE_CHARGE_LEN forward along the heading it just locked.
+      if (e._chargeState === 'lock') {
+        const urgency = LINE_CHARGE_LOCK_T > 0 ? 1 - Math.max(0, e._chargeT || 0) / LINE_CHARGE_LOCK_T : 1
+        const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
+        const cos = e._chargeDirX || 0
+        const sin = e._chargeDirY || 0
+        const hy = LINE_CHARGE_W / 2
+        const flat = []
+        for (const [lx, ly] of [[0, -hy], [LINE_CHARGE_LEN, -hy], [LINE_CHARGE_LEN, hy], [0, hy]]) {
+          flat.push(e.x + lx * cos - ly * sin, e.y + lx * sin + ly * cos)
+        }
+        teleG.poly(flat).fill({ color: 0xffd24a, alpha: 0.06 + urgency * 0.1 + pulse * 0.04 })
+        teleG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.12) })
+        // chevrons pointing downstream — the redrawLanes "which way" cue, same geometry
+        const n = 6
+        for (let i = 0; i < n; i++) {
+          const d = ((i + 0.5) / n) * LINE_CHARGE_LEN
+          const tipX = e.x + (d + hy * 0.5) * cos
+          const tipY = e.y + (d + hy * 0.5) * sin
+          const back = hy * 0.45
+          teleG.beginPath()
+          for (const s of [-1, 1]) {
+            teleG.moveTo(tipX - cos * back - sin * s * hy * 0.55, tipY - sin * back + cos * s * hy * 0.55)
+            teleG.lineTo(tipX, tipY)
+          }
+          teleG.stroke({ width: 3, color: 0xffe37a, alpha: (0.3 + urgency * 0.3) * (0.7 + 0.3 * pulse) })
+        }
+      }
+
+      // flashlightCone (undergrowth's exterminator elite): the one telegraph here that is NOT a
+      // damage cue — the cone hurts nothing at all, it ENRAGES the swarm standing in it. So it
+      // breaks the amber hazard language on purpose: no rim stroke, no fuse, nothing tightening,
+      // nothing to dodge. It's a soft edgeless wash in the exact orange an enraged enemy tints to
+      // (0xff8a5c, see syncEnemies) — the light is the colour of the thing it makes. Three nested
+      // sectors give it a lamp's falloff instead of an edge, so it can never be misread as a floor
+      // hazard you must stay out of: what walks OUT of it is the threat, not the standing in it.
+      if (e._coneAngle !== undefined && e._coneAngle !== null) {
+        const breathe = 0.5 + 0.5 * Math.sin(animT * 3)
+        for (let k = 0; k < 3; k++) {
+          const f = 1 - k * 0.3 // outermost sector is the true FLASHLIGHT_RANGE/ARC extent
+          teleG.moveTo(e.x, e.y)
+          teleG.arc(e.x, e.y, FLASHLIGHT_RANGE * f, e._coneAngle - FLASHLIGHT_ARC * f, e._coneAngle + FLASHLIGHT_ARC * f)
+          teleG.lineTo(e.x, e.y)
+          teleG.fill({ color: 0xff8a5c, alpha: 0.05 + k * 0.03 + breathe * 0.015 })
+        }
+      }
+
+      // pullBeam 'beam' (beyond's UFO elite): the pull is a radius test, not a shaft — so the ring
+      // is the real information (inside it you are being taken) and the tether is the confirmation
+      // of which way. PULL_BEAM_FORCE sits under the player's own speed, so "walk out" is always
+      // the answer and the ring is what tells you how far out is out. PULL_BEAM_T is a window
+      // rather than a fuse, so instead of tightening, the beam irises open and snaps shut — it
+      // should never pop into existence already at full strength.
+      if (e._beamState === 'beam') {
+        const left = Math.max(0, e._beamT || 0)
+        const k = Math.max(0, Math.min(1, Math.min(PULL_BEAM_T - left, left) / 0.18))
+        const flick = 0.85 + 0.15 * Math.sin(animT * 30) // the tractor hum
+        teleG.circle(e.x, e.y, PULL_BEAM_RANGE)
+          .stroke({ width: 2 + k, color: 0xffd24a, alpha: 0.32 * k * flick })
+        teleG.circle(e.x, e.y, (PULL_BEAM_W / 2) * 1.15 * k).fill({ color: 0xffe37a, alpha: 0.22 * k * flick })
+        const dx = e.x - p.x
+        const dy = e.y - p.y
+        const d = Math.hypot(dx, dy)
+        if (d <= PULL_BEAM_RANGE && d > 1e-6) {
+          const ux = dx / d
+          const uy = dy / d
+          const hw = (PULL_BEAM_W / 2) * k
+          const nx = -uy * hw
+          const ny = ux * hw
+          const band = [p.x + nx, p.y + ny, e.x + nx, e.y + ny, e.x - nx, e.y - ny, p.x - nx, p.y - ny]
+          teleG.poly(band).fill({ color: 0xffd24a, alpha: 0.12 * k * flick })
+          teleG.poly(band).stroke({ width: 2, color: 0xffe37a, alpha: 0.45 * k * flick })
+          // motes crawling UP the tether toward the saucer: the arrows point where you are being
+          // taken, scrolling so the drag is legible even while you're winning against it
+          const n = Math.max(2, Math.round(d / 60))
+          for (let i = 0; i < n; i++) {
+            const f = ((i + (animT * 0.9) % 1) / n)
+            const cx = p.x + ux * d * f
+            const cy = p.y + uy * d * f
+            teleG.beginPath()
+            for (const s of [-1, 1]) {
+              teleG.moveTo(cx - ux * hw * 0.5 - uy * s * hw * 0.6, cy - uy * hw * 0.5 + ux * s * hw * 0.6)
+              teleG.lineTo(cx + ux * hw * 0.5, cy + uy * hw * 0.5)
+            }
+            teleG.stroke({ width: 2, color: 0xffe37a, alpha: 0.5 * k * flick * (1 - f) })
+          }
+        }
+      }
+    }
+  }
+
+  // Debris Toss lobs (run.lobs): the sim only tracks t counting UP to flight — THE ARC IS RENDER'S.
+  // Ground position lerps (fromX,fromY) -> (tx,ty); the chunk lifts off it by a parabola peaking at
+  // the halfway point (4k(1-k), scaled to the throw's length), and a shadow stays on the ground
+  // beneath it. The shadow is what sells the height — without it a lob just slides.
+  const lobPool = []
+  function acquireLob() {
+    const root = new Container()
+    const shadow = spriteOf(T.playerShadow)
+    shadow.tint = 0x000000
+    const chunk = spriteOf(T.rockChunk)
+    root.addChild(shadow, chunk)
+    lobLayer.addChild(root)
+    return { root, shadow, chunk }
+  }
+  let lobCount = 0
+  function syncLobs(run) {
+    const list = run.lobs || []
+    while (lobPool.length < list.length) lobPool.push(acquireLob())
+    for (let i = 0; i < list.length; i++) {
+      const lb = list[i]
+      const lv = lobPool[i]
+      lv.root.visible = true
+      const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
+      const gx = lerp(lb.fromX, lb.tx, k)
+      const gy = lerp(lb.fromY, lb.ty, k)
+      const throwLen = Math.hypot(lb.tx - lb.fromX, lb.ty - lb.fromY)
+      const hop = Math.min(160, 40 + throwLen * 0.3) * 4 * k * (1 - k) // parabola, peaks at k=0.5
+      lv.root.position.set(gx, gy)
+      lv.shadow.position.set(0, 0)
+      lv.shadow.alpha = 0.1 + 0.2 * (1 - hop / 160)
+      lv.shadow.scale.set((lb.r / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
+      lv.chunk.position.set(0, -hop)
+      lv.chunk.rotation = k * 9 + i
+      lv.chunk.scale.set((lb.r || 20) / 12)
+    }
+    for (let i = list.length; i < lobCount; i++) lobPool[i].root.visible = false
+    lobCount = list.length
   }
 
   // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs). An ANCHORED melee
@@ -2252,6 +3721,7 @@ export function createRenderer(app) {
   let playerX = 0      // player position, for pool callbacks whose entities are player-anchored (beams)
   let playerY = 0
   const homingTimers = [] // per-slot accumulator: index-aligned with homingPool, trail particle cadence
+  const shotTimers = []   // per-slot accumulator: index-aligned with the enemyShots pool, smoke cadence
   const holeParticleTimers = [] // per-slot accumulator: index-aligned with holePool, suction particle cadence
   const shake = { t: 0, dur: 1, amp: 0, ox: 0, oy: 0 }
 
@@ -2525,13 +3995,21 @@ export function createRenderer(app) {
     pacerG.clear()
     bombG.clear()
     stripG.clear()
+    laneG.clear()
+    hazardG.clear()
+    teleG.clear()
+    wellG.clear()
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
-      boomerangPool, minePool, homingPool,
+      boomerangPool, minePool, homingPool, trapPool, debrisPool, shotPool, wellPool,
     ]) {
       for (const s of pool) s.visible = false
     }
+    for (const cv of carPool) cv.root.visible = false
+    for (const lv of lobPool) lv.root.visible = false
+    carCount = 0
+    lobCount = 0
     for (const hv of holePool) hv.root.visible = false
     for (const bv of beamPool) bv.root.visible = false
     for (const pv of poolPool) pv.root.visible = false
@@ -2697,6 +4175,8 @@ export function createRenderer(app) {
         s._frostT = 0
         s._igniteT = 0
         s._venomT = 0
+        s._stunT = 0
+        s._enrageT = 0
         enemySprites.set(e.id, s)
       }
       s._seen = true
@@ -2723,9 +4203,14 @@ export function createRenderer(app) {
       const chill = e.chill || 0
       const venom = e.venom || 0
       const ignite = e.ignite || 0
+      // v5.4 behavioural statuses (same guarded-contract rule): enrage = the flashlight cone turned
+      // this thing up, stun = it can't act, fear = it's running from you.
+      const fear = e.fearT || 0
+      const stun = e.stunT || 0
+      const enrage = e.enrageT || 0
 
-      // frozen also halts walk/idle animation (here: the wisp's rotation wobble)
-      const wobble = (e.type === 'wisp' && frozen <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
+      // frozen and stun both halt walk/idle animation (here: the wisp's rotation wobble)
+      const wobble = (e.type === 'wisp' && frozen <= 0 && stun <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
       s.rotation = wobble + pull * animT * 5
       s.position.set(e.x, e.y)
 
@@ -2736,6 +4221,12 @@ export function createRenderer(app) {
       else if (chill > 0) s.tint = 0xc4e4ff
       else if (venom > 0) s.tint = 0xa8e6a0
       else if (ignite > 0) s.tint = 0xffc09a
+      // Behavioural statuses rank BELOW the elemental ones (those are ticking damage — the more
+      // urgent read) but above the elite shimmer. Among themselves: enrage first, because it's the
+      // only one of the three that makes an enemy MORE dangerous.
+      else if (enrage > 0) s.tint = 0xff8a5c
+      else if (stun > 0) s.tint = 0xb9b0a2
+      else if (fear > 0) s.tint = 0xcfc2ff
       else if (e.elite && chapterRender.eliteIridescent) {
         // pond soap-bubble elites shimmer through pale iridescent hues. Bodies are now baked
         // saturated, and tint multiplies, so mix the hue 50% toward white first — otherwise the
@@ -2776,7 +4267,33 @@ export function createRenderer(app) {
               0.45, 0.05 + stacks * 0.006, 0x4fae4f, 0.06, 0.35)
           }
         } else s._venomT = 0
+
+        // stun: dazed sparks circling overhead — the classic "it can't act" read
+        if (stun > 0) {
+          s._stunT += frameDt
+          if (s._stunT >= 0.16) {
+            s._stunT -= 0.16
+            const a = animT * 6
+            spawnParticle(T.fx.star_08, e.x + Math.cos(a) * e.radius * 0.7, e.y - e.radius - 4,
+              Math.cos(a) * 20, -6, 0.35, 0.07, 0xffe94d, -0.02, 0)
+          }
+        } else s._stunT = 0
+
+        // enrage: embers boiling off it. Faster cadence than any other status — this one is a
+        // WARNING, and the flashlight cone can light up a whole crowd at once.
+        if (enrage > 0) {
+          s._enrageT += frameDt
+          if (s._enrageT >= 0.18) {
+            s._enrageT -= 0.18
+            spawnParticle(T.fx.flame_05, e.x + (Math.random() * 10 - 5), e.y - e.radius * 0.2,
+              0, -46, 0.3, 0.07, 0xff5545, 0.1, 0.4)
+          }
+        } else s._enrageT = 0
       }
+
+      // phase (beyond's flickers): _phaseSolid false = ghosted, untouchable and harmless. Always
+      // assigned, never left dangling — a recycled slot must not inherit a ghost's alpha.
+      s.alpha = e._phaseSolid === false ? 0.35 : 1
 
       // ---- v4 elite affixes (contract fields, guarded — sim half may not have landed yet)
       syncAffixBadges(s, e)
@@ -2801,9 +4318,12 @@ export function createRenderer(app) {
       if (s._seen) s._seen = false
       else {
         s.visible = false
+        s.alpha = 1
         s._frostT = 0
         s._igniteT = 0
         s._venomT = 0
+        s._stunT = 0
+        s._enrageT = 0
         hideAffixBadges(s)
         enemyFree.push(s)
         enemySprites.delete(id)
@@ -2843,15 +4363,22 @@ export function createRenderer(app) {
     vignette.alpha = vignetteA
 
     syncObstacles(run)
+    syncWells(run)
     syncPools(run.pools || [])
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
+    syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPlayer(run.player, dt)
     syncEnemies(run)
     syncBlooms(run.blooms || [])
     syncLures(run.lures || [])
     redrawBombs(run)
     redrawStrips(run)
+    redrawLanes(run)
+    redrawHazards(run)
+    redrawTelegraphs(run)
+    syncCars(run)
+    syncLobs(run)
 
     syncPool(bulletPool, bulletLayer, run.bullets, 'bullet', T.bullet, placeBullet)
     syncPool(novaPool, novaLayer, run.novas, 'nova', T.nova, placeNova)
@@ -2861,6 +4388,8 @@ export function createRenderer(app) {
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
     syncPool(minePool, mineLayer, run.mines, 'mine', T.mine, placeMine)
     syncPool(homingPool, homingLayer, run.homingShots, 'homing', T.homing, placeHoming)
+    syncPool(debrisPool, debrisLayer, run.debris || [], 'debris', T.trashChunk, placeDebris)
+    syncPool(shotPool, shotLayer, run.enemyShots || [], 'shot', T.missile, placeShot)
     syncHoles(run.holes)
     syncBeams(run.beams)
     updateArcs(dt)
@@ -2929,6 +4458,31 @@ export function createRenderer(app) {
     } else {
       s.alpha = 1
       s.scale.set(base * (1 + 0.1 * Math.sin(animT * 8 + (m.x + m.y) * 0.05))) // armed: faster pulse
+    }
+  }
+  // Trash Tornado chunks (run.debris): same contract as run.orbs — the sim rewrites the ring every
+  // frame. Each chunk spins on its own phase so the ring reads as tumbling junk, not a cog.
+  function placeDebris(s, d, i) {
+    s.position.set(d.x, d.y)
+    s.tint = 0xffffff
+    s.rotation = animT * 3.4 + i * 2.1
+    s.scale.set(((d.r ?? DEBRIS_R) / DEBRIS_R) * (1 + 0.08 * Math.sin(animT * 7 + i)))
+  }
+  // Enemy missiles (run.enemyShots): aimed along velocity, trailing smoke. These are the only
+  // things on screen shooting AT the player, so they get a trail — motion you can track and outrun.
+  function placeShot(s, sh, i) {
+    s.position.set(sh.x, sh.y)
+    s.tint = 0xffffff
+    s.rotation = Math.atan2(sh.vy, sh.vx)
+    s.scale.set(1)
+    if (shotTimers[i] === undefined) shotTimers[i] = 0
+    if (frameDt > 0) {
+      shotTimers[i] += frameDt
+      if (shotTimers[i] >= 0.05) {
+        shotTimers[i] -= 0.05
+        spawnParticle(T.fx.circle_05, sh.x, sh.y, -sh.vx * 0.1, -sh.vy * 0.1,
+          0.3, 0.06, 0x9aa0a8, 0.12, 2)
+      }
     }
   }
   function placeHoming(s, h, i) {
@@ -3048,6 +4602,9 @@ export function createRenderer(app) {
     const cfg = run ? CHAPTERS[run.chapter] : null
     chapterRender = cfg?.render ?? BODY_RENDER
     chapterHasCurrents = cfg?.signature?.type === 'currents'
+    // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
+    // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
+    chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body
     R.background.color = chapterRender.bgColor
     clearWorld()
     if (run) {
