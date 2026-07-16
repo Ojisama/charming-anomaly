@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .claude/worktrees/
+
+# verification screenshots (never commit — they land in the worktree root during browser checks)
+/*.png
