@@ -1073,46 +1073,50 @@ export function createRenderer(app) {
   }
 
   // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs). An ANCHORED melee
-  // sweep — NOT a projectile: a teal crescent blade rooted at the player that PIVOTS across the
-  // swept wedge (angle-arc/2 -> angle+arc/2) over its short life, its tip reaching `range`. The
-  // blade is a few crescents strung along the radius (near player -> tip); trailing ghost copies
-  // lag the leading edge to smear the swept area into a wedge. cyclone (arc = 2pi) spins the blade
-  // a full turn. Each crescent is double-stacked + teal so the soft alpha reads on the pale floor.
+  // swoosh — NOT a projectile: one big curved twirl glyph (Kenney twirl = an arc curling around a
+  // center) pinned to the player, double-stacked (soft alpha needs it), deep mint over the murky
+  // floor, rotating across the swept wedge over its short life with a fainter trailing ghost as
+  // motion smear and a bright spark cracking at the tip. Segment-chain approaches read as
+  // "concatenated blobs" (twice user-rejected) — one glyph IS the arc, don't rebuild it from parts.
   const MAX_WHIPS = 8
-  const WHIP_ARMS = 3                       // 1 leading blade + 2 trailing afterimage ghosts
-  const WHIP_BLADE_FR = [0.4, 0.65, 0.9]    // crescent centres along the blade, as a fraction of range
+  const WHIP_CORE = 0x2fd6a0         // vivid spring-green swoosh — must sit clearly ABOVE the murky floor
+  const WHIP_EDGE = 0x9fffd9         // lighter mint on the stacked top copy
+  const WHIP_TIP = 0xcafff0          // the crack: the one light accent, tip only
+  const WHIP_GHOST_LAG = 0.5         // rad the ghost swoosh trails the leading one
   const whips = []
-  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.18, root: null, arms: null })
+  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.18, root: null, lead: null, ghost: null, tip: null })
   let whipCursor = 0
+  function makeSwoosh(tintA, tintB) {
+    const c = new Container()
+    for (const tint of [tintA, tintB]) {
+      const s = new Sprite(T.fx.slash_02)
+      s.anchor.set(0.5)
+      s.tint = tint
+      c.addChild(s)
+    }
+    return c
+  }
   function spawnWhip(x, y, angle, range, arc) {
     const wp = whips[whipCursor]
     whipCursor = (whipCursor + 1) % MAX_WHIPS
     if (!wp.root) {
       wp.root = new Container()
-      wp.arms = []
-      for (let a = 0; a < WHIP_ARMS; a++) {
-        const arm = new Container()
-        arm.glyphs = []
-        for (const fr of WHIP_BLADE_FR) {
-          const pair = [] // double-stacked crescent (one layer washes out on the light floor)
-          for (let s = 0; s < 2; s++) {
-            const g = new Sprite(T.fx.slash_02)
-            g.anchor.set(0.5)
-            g.rotation = Math.PI / 2 // crescent curls tangent to the sweep
-            arm.addChild(g)
-            pair.push(g)
-          }
-          arm.glyphs.push({ fr, pair })
-        }
-        wp.root.addChild(arm)
-        wp.arms.push(arm)
-      }
+      wp.ghost = makeSwoosh(WHIP_CORE, WHIP_CORE)
+      wp.lead = makeSwoosh(WHIP_CORE, WHIP_EDGE)
+      wp.tip = new Sprite(T.fx.spark_04)
+      wp.tip.anchor.set(0.5)
+      wp.tip.tint = WHIP_TIP
+      wp.root.addChild(wp.ghost, wp.lead, wp.tip)
       whipLayer.addChild(wp.root)
     }
     wp.live = true
     wp.x = x; wp.y = y; wp.angle = angle; wp.range = range; wp.arc = arc || 1
     wp.t = 0
     wp.root.visible = true
+    // size the swoosh so its arc reaches `range` from the player (twirl art spans ~90% of its frame)
+    const sc = (range * 2) / (T.fx.slash_02.width * 0.9)
+    wp.lead.scale.set(sc)
+    wp.ghost.scale.set(sc)
   }
   function updateWhips(dt) {
     for (const wp of whips) {
@@ -1121,25 +1125,19 @@ export function createRenderer(app) {
       if (wp.t >= wp.dur) { wp.live = false; wp.root.visible = false; continue }
       const k = wp.t / wp.dur
       wp.root.position.set(wp.x, wp.y)
-      // leading edge pivots from one arc rim to the other (a full turn when arc = 2pi / cyclone)
-      wp.root.rotation = wp.angle - wp.arc / 2 + wp.arc * k
-      const flash = Math.sin(Math.PI * k) * 0.9 // ramp in then out
-      const sc = fxScale(T.fx.slash_02, wp.range * 0.5) // crescents overlap into a continuous blade
-      const ghostStep = Math.min(wp.arc, Math.PI * 0.5) * 0.12 // trail behind the leading edge
-      for (let a = 0; a < wp.arms.length; a++) {
-        const arm = wp.arms[a]
-        arm.rotation = -a * ghostStep
-        const armAlpha = flash * Math.pow(0.5, a) // each ghost half as bright as the one ahead
-        for (const { fr, pair } of arm.glyphs) {
-          const rad = wp.range * fr
-          for (const g of pair) {
-            g.position.set(rad, 0)
-            g.tint = 0x8ff0dd
-            g.alpha = armAlpha
-            g.scale.set(sc, sc * 1.2)
-          }
-        }
-      }
+      const flash = Math.sin(Math.PI * k) // ramp in then out
+      // the swoosh cracks from one arc rim to the other (a full turn when arc = 2pi / cyclone)
+      const sweep = wp.angle - wp.arc / 2 + wp.arc * k
+      // slash_02's crescent bulge natively points DOWN (+y) in its frame — offset by -pi/2 so the
+      // bulge tracks the sweep direction (the side the swing actually hits)
+      wp.lead.rotation = sweep - Math.PI / 2
+      wp.lead.alpha = flash
+      wp.ghost.rotation = sweep - Math.PI / 2 - Math.min(wp.arc, WHIP_GHOST_LAG)
+      wp.ghost.alpha = flash * 0.3
+      wp.tip.position.set(wp.range * Math.cos(sweep), wp.range * Math.sin(sweep))
+      wp.tip.rotation = k * 6 // a little spin on the spark
+      wp.tip.alpha = Math.pow(flash, 1.6) * 0.95 // sharp pop, concentrated at full extension
+      wp.tip.scale.set(fxScale(T.fx.spark_04, wp.range * 0.3))
     }
   }
   function clearWhips() {
