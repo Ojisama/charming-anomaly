@@ -606,6 +606,47 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // End-of-run coin bonus
 export const runBonusCoins = (kills) => Math.floor(kills / 10)
 
+// ---- Chapters (v5.0: macro progression above difficulty) ---------------------------
+// Pure data — sim stays theme-agnostic and reads roster archetypes/behavior flags, weapon
+// pools, and signature/obstacle config from the run's chapter snapshot (see state.js
+// createRun). Later chapters (garden, undergrowth, city, skies, beyond) append here in
+// v5.1+; CHAPTER_ORDER is the single source of truth for sequencing, daily seeding, and
+// how many chapters currently ship.
+export const CHAPTER_ORDER = ['body', 'pond']
+export const CHAPTERS = {
+  body: {
+    name: 'The Body', tagline: 'escape the host', icon: '🦠',
+    weapons: ['star', 'orbit', 'wave', 'homing'], starter: 'star',
+    // roster: archetype = existing spawn type ('normal'|'tank'|'fast'), muls vs current stats,
+    // flags = behavior flags implemented in sim.js (Task 3)
+    roster: [
+      { id: 'tcell',    archetype: 'normal', name: 'T Cell',            hpMul: 1, speedMul: 1,   flags: [] },
+      { id: 'wbc',      archetype: 'tank',   name: 'White Blood Cell',  hpMul: 1, speedMul: 1,   flags: [] },
+      { id: 'antibody', archetype: 'fast',   name: 'Antibody',          hpMul: 1, speedMul: 1,   flags: ['latch'] },
+    ],
+    eliteFlags: ['acidPool'],           // pill elites dissolve into acid pools
+    signature: null,                    // intro chapter has no signature mechanic
+    obstacles: null,                    // keeps the open field
+  },
+  pond: {
+    name: 'The Pond', tagline: 'sink or swim', icon: '🦠→💧',
+    weapons: ['flagella', 'mines', 'bloom'], starter: 'flagella',
+    roster: [
+      { id: 'amoeba',     archetype: 'normal', name: 'Amoeba',     hpMul: 1,   speedMul: 0.9, flags: ['split'] },
+      { id: 'paramecium', archetype: 'fast',   name: 'Paramecium', hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
+      { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: [] },
+    ],
+    eliteFlags: ['soapTrail'],
+    signature: { type: 'currents', strength: 55, scale: 0.0011, drift: 0.13 },
+    obstacles: { count: 14, minR: 26, maxR: 44, minDist: 220 }, // minDist from spawn point
+  },
+}
+export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
+// Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
+// dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks
+// are independent draws from the same date key.
+export const dailyChapter = (dateKey) => CHAPTER_ORDER[hashString(dateKey + 'chapter') % CHAPTER_ORDER.length]
+
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
 export const CONSUMABLES = {
   revive:    { name: 'Revive Token', icon: '💖', desc: 'Come back once at 50% HP', cost: 150 },

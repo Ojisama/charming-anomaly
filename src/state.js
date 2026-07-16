@@ -1,7 +1,41 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_ORDER } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
+
+// ---- Meta shape (persisted save, see loadMeta/saveMeta) — contract, keep in sync ----------
+// meta.chapter: selected chapter id (default 'body').
+// meta.chapters[id] = { unlocked, maxDifficulty, difficulty, best: { time, kills } } — one
+//   entry per CHAPTER_ORDER id (config.js), created/repaired by ensureChapterMeta below.
+//   difficulty/maxDifficulty here are that chapter's OWN 1..MAX_DIFFICULTY ladder (replaces
+//   the pre-v5.0 top-level meta.difficulty/meta.maxDifficulty, which no longer exist).
+// meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
+//   single chapters[id].best; still updated by endRun (main.js) on every run.
+// meta.coins / meta.shop / meta.choiceSlots / meta.runs: shared, chapter-agnostic, untouched
+//   by the v4 -> v5 migration below.
+// Migration from a pre-v5.0 (v4) save: detected by the absence of meta.chapters. chapters.body
+// absorbs the save's top-level maxDifficulty/difficulty (grandfathered in as chapters.body's
+// ladder, unlocked); top-level meta.best is KEPT (still updated by endRun); top-level
+// meta.difficulty/meta.maxDifficulty are deleted once migrated.
+
+// ensureChapterMeta (v5.0): fetches meta.chapters[id], creating it if missing (unlocked only
+// for the 'body' chapter — every later chapter starts locked), and always clamps
+// maxDifficulty into [1, MAX_DIFFICULTY] and difficulty into [1, maxDifficulty], filling in a
+// missing best.{time,kills}. Called for every CHAPTER_ORDER id on every loadMeta so a save
+// that predates a newly-shipped chapter (or has a corrupted/garbage entry) always resolves to
+// a well-formed one. Returns the (mutated, in-place) entry.
+export function ensureChapterMeta(meta, id) {
+  meta.chapters ??= {}
+  const entry = meta.chapters[id] ?? { unlocked: id === 'body', maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } }
+  entry.unlocked ??= id === 'body'
+  entry.maxDifficulty = Math.max(1, Math.min(MAX_DIFFICULTY, entry.maxDifficulty ?? 1))
+  entry.difficulty = Math.max(1, Math.min(entry.maxDifficulty, entry.difficulty ?? 1))
+  entry.best ??= { time: 0, kills: 0 }
+  entry.best.time ??= 0
+  entry.best.kills ??= 0
+  meta.chapters[id] = entry
+  return entry
+}
 
 export function loadMeta() {
   try {
@@ -9,26 +43,34 @@ export function loadMeta() {
     if (raw) {
       const m = JSON.parse(raw)
       for (const id of Object.keys(SHOP)) m.shop[id] ??= 0
-      m.difficulty ??= 1
-      // maxDifficulty (v4.10): grandfather existing saves — whatever difficulty they already had
-      // selected stays reachable — then clamp both to [1, MAX_DIFFICULTY] and difficulty <= maxDifficulty.
-      m.maxDifficulty ??= Math.max(1, Math.min(MAX_DIFFICULTY, m.difficulty ?? 1))
-      m.maxDifficulty = Math.max(1, Math.min(MAX_DIFFICULTY, m.maxDifficulty))
-      m.difficulty = Math.max(1, Math.min(m.maxDifficulty, m.difficulty))
+      // v4 -> v5 migration (one-time, detected by the absence of meta.chapters): the top-level
+      // difficulty ladder (whatever difficulty/maxDifficulty the save already had — see the
+      // v4.10 grandfathering this replaces) becomes chapters.body's ladder, then top-level
+      // meta.difficulty/meta.maxDifficulty are removed. Top-level meta.best is an all-time
+      // aggregate across every chapter and is KEPT untouched (endRun still updates it).
+      if (!m.chapters) {
+        m.chapters = { body: { unlocked: true, maxDifficulty: m.maxDifficulty ?? m.difficulty ?? 1, difficulty: m.difficulty ?? 1 } }
+        delete m.difficulty
+        delete m.maxDifficulty
+      }
+      m.chapter ??= 'body'
+      for (const id of CHAPTER_ORDER) ensureChapterMeta(m, id)
       m.choiceSlots ??= 2
       m.choiceSlots = Math.max(2, Math.min(4, m.choiceSlots))
       return m
     }
   } catch { /* corrupted save -> fresh */ }
-  return {
+  const fresh = {
     coins: 0,
     shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])),
     best: { time: 0, kills: 0 },
     runs: 0,
-    difficulty: 1,
-    maxDifficulty: 1,
     choiceSlots: 2,
+    chapter: 'body',
+    chapters: {},
   }
+  for (const id of CHAPTER_ORDER) ensureChapterMeta(fresh, id)
+  return fresh
 }
 
 export function saveMeta(meta) {

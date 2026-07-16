@@ -1,6 +1,6 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
-import { createRun, loadMeta } from '../src/state.js'
+import { createRun, loadMeta, ensureChapterMeta } from '../src/state.js'
 import {
   SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
@@ -12,6 +12,7 @@ import {
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY,
+  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -1648,12 +1649,14 @@ function testChoiceSlots() {
 
 // ---- Run S: sequential difficulty unlock (v4.10) -----------------------------------------
 // The unlock-on-victory bump itself lives in main.js's endRun (untestable glue, no DOM/main.js
-// import here) — this only covers loadMeta's grandfathering/clamping of meta.maxDifficulty.
+// import here) — this only covers loadMeta's grandfathering/clamping of the ladder, which as of
+// v5.0 lives per-chapter at meta.chapters.body.{maxDifficulty,difficulty} (see run T for the
+// migration itself; this run keeps covering the plain clamping behavior at that new location).
 function testDifficultyUnlock() {
   // (a) Fresh meta (no localStorage in this Node harness) starts locked to level 1.
   const fresh = loadMeta()
-  assert.strictEqual(fresh.maxDifficulty, 1, 'fresh meta starts at maxDifficulty 1')
-  assert.strictEqual(fresh.difficulty, 1, 'fresh meta starts at difficulty 1')
+  assert.strictEqual(fresh.chapters.body.maxDifficulty, 1, 'fresh meta starts at maxDifficulty 1')
+  assert.strictEqual(fresh.chapters.body.difficulty, 1, 'fresh meta starts at difficulty 1')
 
   // (b) A pre-v4.10 save (difficulty set, no maxDifficulty field) is grandfathered: whatever
   // difficulty was already selected stays reachable, and stays selected.
@@ -1666,26 +1669,98 @@ function testDifficultyUnlock() {
   stub.coins = 0
   stub.difficulty = 4
   const grandfathered = loadMeta()
-  assert.strictEqual(grandfathered.maxDifficulty, 4, 'a stored difficulty=4 with no maxDifficulty grandfathers maxDifficulty to 4')
-  assert.strictEqual(grandfathered.difficulty, 4, 'grandfathered difficulty stays 4')
+  assert.strictEqual(grandfathered.chapters.body.maxDifficulty, 4, 'a stored difficulty=4 with no maxDifficulty grandfathers maxDifficulty to 4')
+  assert.strictEqual(grandfathered.chapters.body.difficulty, 4, 'grandfathered difficulty stays 4')
 
   // (c) A save with difficulty ahead of its own maxDifficulty (stale/edited save) gets
   // difficulty clamped down to maxDifficulty.
   stub.difficulty = 5
   stub.maxDifficulty = 2
   const clamped = loadMeta()
-  assert.strictEqual(clamped.maxDifficulty, 2, 'stored maxDifficulty=2 is kept as-is')
-  assert.strictEqual(clamped.difficulty, 2, 'difficulty=5 > maxDifficulty=2 clamps down to 2')
+  assert.strictEqual(clamped.chapters.body.maxDifficulty, 2, 'stored maxDifficulty=2 is kept as-is')
+  assert.strictEqual(clamped.chapters.body.difficulty, 2, 'difficulty=5 > maxDifficulty=2 clamps down to 2')
 
   // (d) Garbage maxDifficulty values clamp into [1, MAX_DIFFICULTY].
   stub.difficulty = 1
   stub.maxDifficulty = 0
-  assert.strictEqual(loadMeta().maxDifficulty, 1, 'maxDifficulty=0 clamps up to 1')
+  assert.strictEqual(loadMeta().chapters.body.maxDifficulty, 1, 'maxDifficulty=0 clamps up to 1')
   stub.maxDifficulty = 99
-  assert.strictEqual(loadMeta().maxDifficulty, MAX_DIFFICULTY, `maxDifficulty=99 clamps down to ${MAX_DIFFICULTY}`)
+  assert.strictEqual(loadMeta().chapters.body.maxDifficulty, MAX_DIFFICULTY, `maxDifficulty=99 clamps down to ${MAX_DIFFICULTY}`)
   delete globalThis.localStorage
 
   console.log('PASS run S (sequential difficulty unlock): fresh=1, grandfathered=4, stale-difficulty clamps to maxDifficulty, garbage maxDifficulty clamps to [1,5]')
+}
+
+// ---- Run T: chapter data model + meta migration (v5.0) -----------------------------------
+function testChapters() {
+  // (a) Fresh meta (no localStorage) defaults to chapter 'body', chapters.body unlocked at
+  // maxDifficulty 1, chapters.pond present but locked.
+  const fresh = loadMeta()
+  assert.strictEqual(fresh.chapter, 'body', 'fresh meta selects the body chapter by default')
+  assert.strictEqual(fresh.chapters.body.unlocked, true, 'fresh meta: body chapter starts unlocked')
+  assert.strictEqual(fresh.chapters.body.maxDifficulty, 1, 'fresh meta: body chapter starts at maxDifficulty 1')
+  assert.strictEqual(fresh.chapters.body.difficulty, 1, 'fresh meta: body chapter starts at difficulty 1')
+  assert.strictEqual(fresh.chapters.pond.unlocked, false, 'fresh meta: pond chapter starts locked')
+
+  // (b) A pre-v5.0 (v4) save migrates its top-level difficulty ladder into chapters.body, once,
+  // and leaves coins/best/choiceSlots/runs untouched. Top-level difficulty/maxDifficulty are gone.
+  const stub = {
+    difficulty: 4,
+    maxDifficulty: 4,
+    best: { time: 280, kills: 900 },
+    coins: 50,
+    shop: {},
+    runs: 3,
+    choiceSlots: 3,
+  }
+  globalThis.localStorage = {
+    getItem: () => JSON.stringify(stub),
+    setItem: () => {},
+  }
+  const migrated = loadMeta()
+  assert.strictEqual(migrated.chapters.body.unlocked, true, 'migrated save: body chapter unlocked')
+  assert.strictEqual(migrated.chapters.body.maxDifficulty, 4, 'migrated save: chapters.body absorbs top-level maxDifficulty')
+  assert.strictEqual(migrated.chapters.body.difficulty, 4, 'migrated save: chapters.body absorbs top-level difficulty')
+  assert.strictEqual(migrated.best.time, 280, 'migrated save: top-level meta.best.time preserved')
+  assert.strictEqual(migrated.best.kills, 900, 'migrated save: top-level meta.best.kills preserved')
+  assert.strictEqual(migrated.coins, 50, 'migrated save: coins preserved')
+  assert.strictEqual(migrated.choiceSlots, 3, 'migrated save: choiceSlots preserved')
+  assert.strictEqual(migrated.runs, 3, 'migrated save: runs preserved')
+  assert.strictEqual('difficulty' in migrated, false, 'migrated save: top-level meta.difficulty deleted')
+  assert.strictEqual('maxDifficulty' in migrated, false, 'migrated save: top-level meta.maxDifficulty deleted')
+  delete globalThis.localStorage
+
+  // (c) nextChapter walks CHAPTER_ORDER, null past the end.
+  assert.strictEqual(nextChapter('body'), 'pond', "nextChapter('body') === 'pond'")
+  assert.strictEqual(nextChapter('pond'), null, "nextChapter('pond') === null")
+
+  // (d) dailyChapter is deterministic per date key, and both shipped chapters are reachable
+  // over a spread of dates (date-seeded across CHAPTER_ORDER).
+  assert.strictEqual(dailyChapter('2026-07-16'), dailyChapter('2026-07-16'), 'dailyChapter is deterministic for a given date key')
+  const seen = new Set()
+  for (let d = 1; d <= 28; d++) {
+    seen.add(dailyChapter(`2026-08-${String(d).padStart(2, '0')}`))
+  }
+  for (const id of CHAPTER_ORDER) {
+    assert(seen.has(id), `dailyChapter should reach chapter '${id}' over a spread of dates`)
+  }
+  assert.strictEqual(seen.size, CHAPTER_ORDER.length, 'dailyChapter never returns an id outside CHAPTER_ORDER')
+
+  // (e) ensureChapterMeta clamps garbage entries into range and fills in missing fields.
+  const garbageMeta = { chapters: { pond: { unlocked: true, maxDifficulty: 99, difficulty: -5 } } }
+  const pond = ensureChapterMeta(garbageMeta, 'pond')
+  assert.strictEqual(pond.maxDifficulty, MAX_DIFFICULTY, `garbage maxDifficulty=99 clamps down to ${MAX_DIFFICULTY}`)
+  assert.strictEqual(pond.difficulty, 1, 'garbage difficulty=-5 clamps up to 1')
+  assert.strictEqual(pond.best.time, 0, 'ensureChapterMeta fills in a missing best.time')
+  assert.strictEqual(pond.best.kills, 0, 'ensureChapterMeta fills in a missing best.kills')
+
+  const missingMeta = {}
+  const body = ensureChapterMeta(missingMeta, 'body')
+  assert.strictEqual(body.unlocked, true, 'ensureChapterMeta creates a missing body entry unlocked')
+  const missingPond = ensureChapterMeta(missingMeta, 'pond')
+  assert.strictEqual(missingPond.unlocked, false, 'ensureChapterMeta creates a missing non-body entry locked')
+
+  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps')
 }
 
 try {
@@ -1709,6 +1784,7 @@ try {
   testGoldSinks()
   testChoiceSlots()
   testDifficultyUnlock()
+  testChapters()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
