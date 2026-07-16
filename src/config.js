@@ -317,6 +317,16 @@ export const WEAPON_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2
 // each with several mods still under MAX_WEAPON_MOD_PICKS), uniformly sample this many per
 // buildLevelUpChoices call so mods don't crowd out weapon/passive/element cards.
 export const MOD_POOL_MAX = 6
+// Per-weapon fairness for the level-up mod pool (v4.4): a single weapon contributes at most this
+// many of its eligible mods (randomly chosen) to the candidate list per level-up. Star is the
+// STARTING weapon and the only one owned early, so without this its 6 mods flooded every pool —
+// ~32% of ALL early cards were star mods and ~70% of level-ups offered at least one, making
+// "just take another star mod" a no-brainer. Capping per-weapon candidates cuts that flood and
+// keeps the pool fair once several weapons are owned (no single one dominates).
+export const MOD_CANDIDATES_PER_WEAPON = 2
+// Belt-and-braces with the candidate cap: at most this many mod cards from the SAME weapon may
+// land in one 3-card level-up pool, so a roll can never hand a player an all-one-weapon screen.
+export const MAX_MODS_PER_WEAPON_PER_POOL = 1
 
 // Twin Ring (orbit): inner ring radius, as a fraction of the main ring's radius.
 export const ORBIT_TWIN_RING_RADIUS_FRAC = 0.6
@@ -336,19 +346,24 @@ export const MINE_CLUSTER_SCATTER_MAX = 120 // px, max scatter distance from the
 export const HOLE_SINGULARITY_FRAC = 0.55
 
 // Split: shard damage/angle shape (picks-per-shard count lives on WEAPON_MODS.star.split above).
-export const STAR_SPLIT_DMG_FRAC = 0.5                    // shard damage, as a fraction of the star's own damage
+// v4.4: 0.5 -> 0.4. Split/chain/ricochet all multiply a star's total hits, so their per-shard/
+// per-jump damage fractions compound multiplicatively when stacked together (a heavily-invested
+// star hit ~9.5x its own pierce/blast baseline — the runaway that made pouring picks into star a
+// no-brainer). Trimming these fractions shaves that stacked tail while barely touching a 1-pick
+// dip, so star stays a strong, fun starter without spiralling past the AoE weapons.
+export const STAR_SPLIT_DMG_FRAC = 0.4                    // shard damage, as a fraction of the star's own damage
 export const STAR_SPLIT_BASE_ANGLE = (35 * Math.PI) / 180 // ± half-angle used for exactly 2 shards
 export const STAR_SPLIT_MAX_SPREAD = (90 * Math.PI) / 180 // total fan spread once 3+ shards are out
 
 // Chain: when a bullet's pierce is exhausted, it re-targets the nearest not-yet-hit enemy
 // within range instead of dying (falls back to ricochet if none is found or no jumps remain).
 export const STAR_CHAIN_RANGE = 200       // px, re-target search radius from the last hit enemy
-export const STAR_CHAIN_DMG_MUL = 0.8     // damage multiplier applied per jump
+export const STAR_CHAIN_DMG_MUL = 0.7     // damage multiplier applied per jump (v4.4: 0.8 -> 0.7, tames stacked compounding)
 export const STAR_CHAIN_EXTRA_LIFE = 0.4  // s, minimum flight time granted on a chain jump
 
 // Ricochet: once a spent bullet has no chain jumps left, it bounces off in a random new
 // direction (deflected 60-120° from its incoming heading) instead of dying.
-export const STAR_RICOCHET_DMG_MUL = 0.7                      // damage multiplier applied per bounce
+export const STAR_RICOCHET_DMG_MUL = 0.6                      // damage multiplier applied per bounce (v4.4: 0.7 -> 0.6, tames stacked compounding)
 export const STAR_RICOCHET_ANGLE_MIN = (60 * Math.PI) / 180   // min deflection from incoming heading
 export const STAR_RICOCHET_ANGLE_MAX = (120 * Math.PI) / 180  // max deflection from incoming heading
 export const STAR_RICOCHET_EXTRA_LIFE = 0.4                   // s, minimum flight time granted on a bounce

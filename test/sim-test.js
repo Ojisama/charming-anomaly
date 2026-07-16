@@ -8,6 +8,7 @@ import {
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL,
+  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -1377,6 +1378,126 @@ function testCrazyMods() {
   testStrobe()
 }
 
+// ---- Run P: star balance invariants (v4.4) ---------------------------------------
+// Guards the two levers that made star a no-brainer: (1) offer flooding — star is the
+// starting/only weapon, so its 6 mods used to be ~32% of all early cards and appeared in ~70%
+// of level-up pools; (2) runaway multiplicative compounding — a heavily-modded star hit ~9.5x
+// its own pierce/blast baseline (F2). This asserts both are reined in, WITHOUT making star weak
+// (it must still clearly beat a plain star and stay under the strong AoE weapons, not vanish).
+function testStarBalance() {
+  const dt = 1 / 60
+  const RARITIES_MULT = RARITIES
+
+  // Bonus for one pick of a mod at a rarity, mirroring makeWeaponModCard in sim.js.
+  function modBonus(weaponId, modId, rarity) {
+    const c = WEAPON_MODS[weaponId][modId]
+    const mult = RARITIES_MULT[rarity].mult
+    if (c.kind === 'tier') return WEAPON_MOD_TIER_BONUS[rarity]
+    if (c.kind === 'flat') return Math.max(1, Math.round(c.base * mult))
+    return c.base * mult
+  }
+  // Apply "6-spread": one normal-rarity pick on each of the weapon's 6 mods.
+  function applySpread6(run, weaponId) {
+    for (const modId of Object.keys(WEAPON_MODS[weaponId])) {
+      run.weaponMods[weaponId][modId] += modBonus(weaponId, modId, 'normal')
+      run.weaponModPicks[weaponId][modId] += 1
+    }
+  }
+  // Total hit-event damage over `seconds` vs a saturated immortal ring (same setup as F2).
+  function measureDamage(weaponId, level, apply, seconds = 20) {
+    const steps = Math.round(seconds / dt)
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: weaponId, level }]
+    run.mods.spawnMul = 0
+    if (apply) apply(run)
+    seedTargetRing(run, 24, 1e15, 200)
+    let totalDmg = 0
+    let t = 0
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      t += dt
+      stepSim(run, { x: Math.cos(t), y: Math.sin(t) }, dt)
+      for (const e of run.events) if (e.type === 'hit') totalDmg += e.dmg
+      run.events = []
+    }
+    return Math.round(totalDmg)
+  }
+
+  // --- Invariant 1: offer fairness. Over many fresh star-only pools, star mods must be a modest
+  // slice of cards (not the ~32% flood they were), and no single weapon may exceed the per-pool
+  // card cap.
+  {
+    const starOnly = createRun(makeMeta())
+    starOnly.weapons = [{ id: 'star', level: 3 }]
+    let starMods = 0
+    let totalCards = 0
+    let maxStarPerPool = 0
+    const N = 2000
+    for (let i = 0; i < N; i++) {
+      const cards = buildLevelUpChoices(starOnly)
+      let perPool = 0
+      for (const c of cards) {
+        totalCards++
+        if (c.kind === 'mod' && c.weapon === 'star') { starMods++; perPool++ }
+      }
+      maxStarPerPool = Math.max(maxStarPerPool, perPool)
+    }
+    const share = starMods / totalCards
+    assert(maxStarPerPool <= MAX_MODS_PER_WEAPON_PER_POOL,
+      `expected <= ${MAX_MODS_PER_WEAPON_PER_POOL} star mod(s) per pool, saw ${maxStarPerPool}`)
+    assert(share < 0.20, `expected star-mod share of early cards < 20%, got ${(share * 100).toFixed(1)}%`)
+    console.log(`PASS run P.1 (offer fairness): star-mod share=${(share * 100).toFixed(1)}% maxPerPool=${maxStarPerPool}`)
+  }
+
+  // --- Invariant 2: multi-weapon per-pool cap. No single owned weapon may flood a pool.
+  {
+    const multi = createRun(makeMeta())
+    multi.weapons = [{ id: 'star', level: 5 }, { id: 'orbit', level: 3 }, { id: 'wave', level: 2 }, { id: 'boomerang', level: 4 }]
+    let worst = 0
+    for (let i = 0; i < 2000; i++) {
+      const counts = {}
+      for (const c of buildLevelUpChoices(multi)) {
+        if (c.kind === 'mod') counts[c.weapon] = (counts[c.weapon] ?? 0) + 1
+      }
+      for (const n of Object.values(counts)) worst = Math.max(worst, n)
+    }
+    assert(worst <= MAX_MODS_PER_WEAPON_PER_POOL,
+      `expected no weapon to exceed ${MAX_MODS_PER_WEAPON_PER_POOL} mod card(s)/pool, saw ${worst}`)
+    console.log(`PASS run P.2 (multi-weapon cap): worst per-weapon mods/pool=${worst}`)
+  }
+
+  // --- Invariant 3: power band. A 6-modded star must (a) still clearly beat a plain star (stays a
+  // solid starter), (b) not exceed the strongest other 6-modded weapon (it isn't the top raw
+  // weapon), and (c) sit within a bounded multiple of the MEDIAN other 6-modded weapon.
+  {
+    const others = ['orbit', 'wave', 'boomerang', 'mines', 'homing', 'hole', 'rainbow']
+    const level = 3
+    const starPlain = measureDamage('star', level, null)
+    const star6 = measureDamage('star', level, (r) => applySpread6(r, 'star'))
+    const otherDmg = others.map((w) => measureDamage(w, level, (r) => applySpread6(r, w))).sort((a, b) => a - b)
+    const median = otherDmg[Math.floor(otherDmg.length / 2)]
+    const strongest = otherDmg[otherDmg.length - 1]
+
+    assert(star6 > starPlain * 1.5, `expected 6-modded star to stay a solid starter (>1.5x plain), got ${star6} vs ${starPlain}`)
+    assert(star6 <= strongest, `expected 6-modded star not to exceed the strongest other 6-modded weapon (star=${star6}, strongest-other=${strongest})`)
+    assert(star6 <= median * 3.5, `expected 6-modded star within 3.5x the median other 6-modded weapon (star=${star6}, median=${median}, ratio=${(star6 / median).toFixed(2)})`)
+    console.log(`PASS run P.3 (power band): starPlain=${starPlain} star6=${star6} median-other=${median} strongest-other=${strongest} star6/median=${(star6 / median).toFixed(2)}x`)
+  }
+
+  // --- Invariant 4: compounding bound. The F2 stack (multishot/split/chain/ricochet on top of
+  // pierce/blast) must stay under an 8x runaway over its own pierce/blast baseline (was ~9.5x).
+  {
+    const level = 3
+    const baseline = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, blast: 0.9 }))
+    const advanced = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, blast: 0.9, multishot: 3, split: 2, chain: 3, ricochet: 2 }))
+    const ratio = advanced / baseline
+    assert(advanced > baseline, `expected advanced star mods to still beat the pierce/blast baseline (adv=${advanced}, base=${baseline})`)
+    assert(ratio <= 8.0, `expected star compounding <= 8x its pierce/blast baseline, got ${ratio.toFixed(2)}x`)
+    console.log(`PASS run P.4 (compounding bound): baseline=${baseline} advanced=${advanced} ratio=${ratio.toFixed(2)}x`)
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1394,6 +1515,7 @@ try {
   testFocusNudge()
   testDifficulty()
   testCrazyMods()
+  testStarBalance()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

@@ -22,6 +22,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
+  MOD_CANDIDATES_PER_WEAPON, MAX_MODS_PER_WEAPON_PER_POOL,
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
   RARITIES, RARITY_ORDER, rarityWeights,
   ENEMIES, ELITE, WAVE_TABLE,
@@ -1659,20 +1660,34 @@ function eligiblePassiveIds(run) {
   return Object.keys(PASSIVES).filter((id) => (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL)
 }
 
-// Weapon-mod candidates: for every OWNED weapon, every one of its WEAPON_MODS entries still
-// under its pick cap — as { weapon, mod } pairs (a mod id alone isn't enough to look up its
-// config once mods are split per-weapon). If more are eligible than MOD_POOL_MAX (several
-// weapons owned, each with several mods left), uniformly sample MOD_POOL_MAX of them per call
-// so mods don't crowd out weapon/passive/element cards.
+// Fisher-Yates shuffle in place (used for per-weapon mod candidate fairness below).
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const t = arr[i]
+    arr[i] = arr[j]
+    arr[j] = t
+  }
+  return arr
+}
+
+// Weapon-mod candidates: for every OWNED weapon, its WEAPON_MODS entries still under the pick cap
+// — as { weapon, mod } pairs (a mod id alone isn't enough to look up its config once mods are
+// split per-weapon). Per-weapon fairness (v4.4, see MOD_CANDIDATES_PER_WEAPON): each weapon only
+// contributes up to MOD_CANDIDATES_PER_WEAPON of its eligible mods (randomly chosen) so the
+// starting/only weapon (star) can't flood every early pool with all 6 of its mods, and no single
+// weapon dominates once several are owned. If the combined list still exceeds MOD_POOL_MAX
+// (several weapons owned), uniformly sample MOD_POOL_MAX so mods don't crowd out weapon/passive/
+// element cards.
 function eligibleWeaponModCandidates(run) {
   const candidates = []
   for (const w of run.weapons) {
     const modCfgs = WEAPON_MODS[w.id]
     if (!modCfgs) continue
     const picks = run.weaponModPicks[w.id]
-    for (const modId of Object.keys(modCfgs)) {
-      if ((picks?.[modId] ?? 0) < MAX_WEAPON_MOD_PICKS) candidates.push({ weapon: w.id, mod: modId })
-    }
+    const owned = Object.keys(modCfgs).filter((modId) => (picks?.[modId] ?? 0) < MAX_WEAPON_MOD_PICKS)
+    shuffleInPlace(owned)
+    for (const modId of owned.slice(0, MOD_CANDIDATES_PER_WEAPON)) candidates.push({ weapon: w.id, mod: modId })
   }
   if (candidates.length <= MOD_POOL_MAX) return candidates
 
@@ -1739,7 +1754,7 @@ function makeElementCard(run, id, rarity) {
 // Roll one card: pick a rarity weighted by player level, gather candidates at that rarity
 // (inherent-rarity weapons + all eligible passives/weapon-mods/elements adopting the roll), and
 // walk down RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
-function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds) {
+function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts) {
   let idx = RARITY_ORDER.indexOf(pickWeighted(rarityWeights(run.player.level)))
   while (idx >= 0) {
     const rarity = RARITY_ORDER[idx]
@@ -1751,7 +1766,11 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
       if (!pickedIds.has(pid)) options.push(makePassiveCard(run, pid, rarity))
     }
     for (const mc of modCandidates) {
-      if (!pickedIds.has(mc.mod)) options.push(makeWeaponModCard(run, mc.weapon, mc.mod, rarity))
+      // Skip if already offered this pool, or its weapon already hit the per-pool card cap
+      // (MAX_MODS_PER_WEAPON_PER_POOL) — so one weapon can't monopolize a level-up screen.
+      if (pickedIds.has(mc.mod)) continue
+      if ((modWeaponCounts.get(mc.weapon) ?? 0) >= MAX_MODS_PER_WEAPON_PER_POOL) continue
+      options.push(makeWeaponModCard(run, mc.weapon, mc.mod, rarity))
     }
     for (const eid of elementIds) {
       if (!pickedIds.has(eid)) options.push(makeElementCard(run, eid, rarity))
@@ -1773,12 +1792,14 @@ function buildLevelUpChoices(run) {
   }
 
   const pickedIds = new Set()
+  const modWeaponCounts = new Map() // weaponId -> mod cards already placed this pool (per-weapon cap)
   const cards = []
   for (let i = 0; i < 3; i++) {
-    const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds)
+    const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts)
     if (!card) break
     cards.push(card)
     pickedIds.add(card.id)
+    if (card.kind === 'mod') modWeaponCounts.set(card.weapon, (modWeaponCounts.get(card.weapon) ?? 0) + 1)
   }
 
   if (cards.length === 0) {
