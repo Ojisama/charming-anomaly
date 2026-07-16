@@ -1,6 +1,6 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, createRun } from './state.js'
+import { loadMeta, saveMeta, resetSave, createRun } from './state.js'
 import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
@@ -126,6 +126,12 @@ const ui = initUI({
     run = null
     renderer.reset(null)
     ui.showScreen('title')
+  },
+  // Shop's "Reset all progress" button (full new-game wipe) — erase the save and reload so
+  // every module re-reads a fresh loadMeta() rather than trying to reconcile in-memory state.
+  onReset() {
+    resetSave()
+    location.reload()
   },
 })
 

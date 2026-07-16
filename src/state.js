@@ -29,6 +29,12 @@ export function saveMeta(meta) {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(meta)) } catch { /* private mode */ }
 }
 
+// Full new-game wipe (shop's "Reset all progress" button, see hooks.onReset in main.js) —
+// erases the save outright; the caller is expected to reload the page right after.
+export function resetSave() {
+  try { localStorage.removeItem(SAVE_KEY) } catch { /* private mode */ }
+}
+
 // Effective permanent multipliers/bonuses from shop levels.
 export function shopBonus(meta, id) {
   return SHOP[id].perLevel * (meta.shop[id] ?? 0)

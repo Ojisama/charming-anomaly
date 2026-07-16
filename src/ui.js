@@ -11,10 +11,32 @@ function fmtTime(s) {
   return `${m}:${String(t % 60).padStart(2, '0')}`
 }
 
+// Interpolates two '#rrggbb' colors at t (0..1) — used for the sacrifice modal's counter,
+// which reads from ink-soft toward the danger red as the offered total climbs.
+function lerpColor(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16)
+  const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255
+  const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255
+  const k = Math.max(0, Math.min(1, t))
+  const r = Math.round(ar + (br - ar) * k)
+  const g = Math.round(ag + (bg - ag) * k)
+  const b2 = Math.round(ab + (bb - ab) * k)
+  return `rgb(${r}, ${g}, ${b2})`
+}
+
+// Formats a SHOP stat's total bonus at a given level the same way its shop-card desc reads
+// (e.g. "+25%" for percentage stats, "+150" for flat ones like maxHP) — used by the sacrifice
+// modal's per-row "current -> after" preview.
+function formatShopBonus(id, levels) {
+  const per = SHOP[id].perLevel
+  return per < 1 ? `+${Math.round(per * levels * 100)}%` : `+${Math.round(per * levels)}`
+}
+
 /**
  * Contract used by main.js:
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
- *                       onPauseToggle, onQuit, onDifficulty(d), onReroll(), onSacrifice(picks)->bool })
+ *                       onPauseToggle, onQuit, onDifficulty(d), onReroll(), onSacrifice(picks)->bool,
+ *                       onReset() })
  *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists meta.difficulty.
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the title shelf's session-local selection, an array of
@@ -26,10 +48,13 @@ function fmtTime(s) {
  *     - onReroll(): level-up screen's Reroll button (or the 'R' key). main.js is expected to
  *       no-op silently if unaffordable/wrong phase, otherwise deduct coins, bump run._rerolls,
  *       rebuild run.levelUpChoices, and call showScreen('levelup', ...) again with fresh data.
- *     - onSacrifice(picks): shop's sacrifice-mode Confirm button. picks is { [statId]: count },
- *       the shop levels offered per stat (sum === sacrificeCost(meta.choiceSlots)). Returns
- *       true/false; the UI exits sacrifice mode and re-renders the shop either way (main.js
+ *     - onSacrifice(picks): fired by the sacrifice modal's "Confirm sacrifice" button. picks is
+ *       { [statId]: count }, the shop levels offered per stat (sum === sacrificeCost(meta.choiceSlots)).
+ *       Returns true/false; the UI closes the modal and re-renders the shop either way (main.js
  *       already validates, so false should only happen if the two ever disagree).
+ *     - onReset(): shop's "🗑 Reset all progress" button, after its own confirm modal. Full
+ *       new-game wipe — main.js is expected to clear the save and reload the page; the UI has
+ *       nothing left to re-render after that.
  *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
  *     - 'levelup' data: { choices, rerollCost, coins } — choices is run.levelUpChoices
  *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
@@ -103,17 +128,25 @@ export function initUI(hooks) {
   }
 
   // ---- shop ------------------------------------------------------------
-  // Sacrifice mode (v4.8): ui-local, not persisted — a session-scoped "am I picking levels to
-  // give up" toggle + the running per-stat offer counts. Exited (discarding picks) on Cancel,
-  // Confirm, or leaving the shop screen entirely.
-  let sacrificeMode = false
+  // Sacrifice modal (v4.9 rework): ui-local, not persisted — sacrificeOpen toggles a full-screen
+  // modal (rendered as a backdrop node appended into screens.shop's own innerHTML, not a new
+  // SCREEN_NAMES entry) over the shop grid; sacrificePicks tracks the running per-stat offer
+  // counts for that session. sacrificeBounceId names the one row that just changed (for a
+  // one-shot CSS pulse, the .card--bounce idiom below applied to a single stat row instead of
+  // a whole card). All three reset on Cancel, backdrop tap, Confirm, or leaving the shop screen.
+  let sacrificeOpen = false
   let sacrificePicks = {} // statId -> levels offered so far this sacrifice session
+  let sacrificeBounceId = null
+
+  // Reset-all-progress confirmation modal — same backdrop idiom as the sacrifice modal, just a
+  // small confirm/cancel sheet instead of a scrollable stat list. Not persisted either.
+  let resetOpen = false
 
   function sacrificeOffered() {
     return Object.values(sacrificePicks).reduce((sum, n) => sum + n, 0)
   }
 
-  function sacrificeSectionHtml(slots, cost, offered) {
+  function sacrificeSectionHtml(slots, cost) {
     if (slots >= 4) {
       return `
         <div class="sacrifice-panel">
@@ -122,24 +155,85 @@ export function initUI(hooks) {
         </div>`
     }
     const nth = slots === 2 ? '3rd' : '4th'
-    if (!sacrificeMode) {
-      const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
-      const afford = owned >= cost
-      return `
-        <div class="sacrifice-panel">
-          <span class="sacrifice-title">🩸 Sacrifice</span>
-          <p class="sacrifice-desc">Unlock the ${nth} level-up card — sacrifice ${cost} upgrade levels (no coin refund).</p>
-          <button class="btn btn--soft btn--small" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>Sacrifice ${cost} levels</button>
-          ${afford ? '' : `<p class="sacrifice-hint">Not enough upgrade levels owned (${owned}/${cost}).</p>`}
-        </div>`
-    }
+    const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
+    const afford = owned >= cost
     return `
-      <div class="sacrifice-panel sacrifice-panel--active">
-        <span class="sacrifice-title">🩸 Offered ${offered}/${cost}</span>
-        <p class="sacrifice-desc">Use − on the stats above to offer their levels for the ${nth} card slot.</p>
-        <div class="sacrifice-actions">
-          <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">Cancel</button>
-          <button class="btn btn--big btn--small" data-act="sacrifice-confirm" ${offered === cost ? '' : 'disabled'}>Confirm</button>
+      <div class="sacrifice-panel">
+        <span class="sacrifice-title">🩸 Sacrifice</span>
+        <p class="sacrifice-desc">Unlock the ${nth} level-up card — sacrifice ${cost} upgrade levels (no coin refund).</p>
+        <button class="btn btn--soft btn--small" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>Sacrifice ${cost} levels</button>
+        ${afford ? '' : `<p class="sacrifice-hint">Not enough upgrade levels owned (${owned}/${cost}).</p>`}
+      </div>`
+  }
+
+  // Full-screen sacrifice modal: a dim backdrop (tapping it directly, not the sheet, cancels —
+  // see the sacrifice-cancel case below) centering a rounded sheet with a fixed header/footer
+  // and a scrollable middle listing every owned SHOP stat. Stepper scheme: − offers one FEWER
+  // level (undo), + offers one MORE (commit) — never ambiguous about which direction burns levels.
+  function sacrificeModalHtml(cost) {
+    if (!sacrificeOpen || cost == null) return ''
+    const offered = sacrificeOffered()
+    const ready = offered === cost
+    const counterColor = ready ? 'var(--mint-dark)' : lerpColor('#7a7a90', '#c23a52', offered / cost)
+    const rows = Object.entries(SHOP).filter(([id]) => (meta.shop[id] ?? 0) > 0).map(([id, item]) => {
+      const level = meta.shop[id]
+      const picked = sacrificePicks[id] ?? 0
+      const kept = level - picked
+      const pips = Array.from({ length: MAX_SHOP_LEVEL }, (_, i) => {
+        const cls = i < kept ? 'pip pip--on' : i < level ? 'pip pip--lost' : 'pip'
+        return `<i class="${cls}"></i>`
+      }).join('')
+      const canUndo = picked > 0
+      const canOffer = picked < level && offered < cost
+      // "disappearing" preview: current total bonus at this level -> what's left after the offer
+      const preview = picked > 0
+        ? `<span class="sacrifice-bonus-before">${formatShopBonus(id, level)}</span> → <span class="sacrifice-bonus-after">${formatShopBonus(id, kept)}</span>`
+        : `<span class="sacrifice-bonus-before">${formatShopBonus(id, level)}</span>`
+      return `
+        <div class="sacrifice-stat-row${id === sacrificeBounceId ? ' sacrifice-stat-row--bounce' : ''}">
+          <div class="sacrifice-stat-info">
+            <span class="sacrifice-stat-name">${item.name}</span>
+            <span class="sacrifice-bonus-preview">${preview}</span>
+            <span class="pips">${pips}</span>
+          </div>
+          <div class="sacrifice-stepper">
+            <button class="sacrifice-step sacrifice-step--minus" data-act="sacrifice-minus" data-id="${id}" ${canUndo ? '' : 'disabled'}>−</button>
+            <span class="sacrifice-stepper-count${picked > 0 ? ' sacrifice-stepper-count--active' : ''}">${picked > 0 ? picked : '·'}</span>
+            <button class="sacrifice-step sacrifice-step--plus" data-act="sacrifice-plus" data-id="${id}" ${canOffer ? '' : 'disabled'}>+</button>
+          </div>
+        </div>`
+    }).join('')
+    return `
+      <div class="modal-backdrop sacrifice-modal" data-act="sacrifice-cancel">
+        <div class="sacrifice-sheet">
+          <header class="sacrifice-sheet-head">
+            <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 Offered ${offered}/${cost}</span>
+            <p class="sacrifice-modal-hint">Choose which upgrade levels to give up — this can't be undone.</p>
+          </header>
+          <div class="sacrifice-sheet-body">${rows}</div>
+          <footer class="sacrifice-sheet-foot">
+            <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">Cancel</button>
+            <button class="btn btn--danger btn--small" data-act="sacrifice-confirm" ${ready ? '' : 'disabled'}>Confirm sacrifice</button>
+          </footer>
+        </div>
+      </div>`
+  }
+
+  function resetSectionHtml() {
+    return `<button class="reset-link" data-act="reset-start">🗑 Reset all progress</button>`
+  }
+
+  function resetModalHtml() {
+    if (!resetOpen) return ''
+    return `
+      <div class="modal-backdrop reset-modal" data-act="reset-cancel">
+        <div class="confirm-sheet">
+          <h2 class="confirm-sheet-title">Erase everything?</h2>
+          <p class="confirm-sheet-body">Coins, upgrades, card slots and best scores will be permanently erased.</p>
+          <div class="confirm-sheet-actions">
+            <button class="btn btn--soft btn--small" data-act="reset-cancel">Cancel</button>
+            <button class="btn btn--danger btn--small" data-act="reset-confirm">Erase everything</button>
+          </div>
         </div>
       </div>`
   }
@@ -147,34 +241,20 @@ export function initUI(hooks) {
   function renderShop(bounceId) {
     const slots = meta.choiceSlots ?? 2
     const cost = sacrificeCost(slots)
-    const offered = sacrificeOffered()
     const cards = Object.entries(SHOP).map(([id, item]) => {
       const level = meta.shop[id]
       const maxed = level >= MAX_SHOP_LEVEL
       const buyCost = maxed ? 0 : shopCost(id, level)
-      const afford = !maxed && meta.coins >= buyCost && !sacrificeMode
+      const afford = !maxed && meta.coins >= buyCost
       const pips = Array.from({ length: MAX_SHOP_LEVEL },
         (_, i) => `<i class="pip${i < level ? ' pip--on' : ''}"></i>`).join('')
-      const picked = sacrificePicks[id] ?? 0
-      const sacrificeRow = sacrificeMode ? `
-          <div class="sacrifice-row">
-            <button class="sacrifice-step sacrifice-step--minus" data-act="sacrifice-minus" data-id="${id}"
-              ${(cost == null || offered >= cost || picked >= level) ? 'disabled' : ''}>−</button>
-            <span class="sacrifice-offered${picked > 0 ? ' sacrifice-offered--active' : ''}">${picked > 0 ? `-${picked}` : '—'}</span>
-            <button class="sacrifice-step sacrifice-step--plus" data-act="sacrifice-plus" data-id="${id}" ${picked > 0 ? '' : 'disabled'}>+</button>
-          </div>` : ''
-      const body = `
+      return `
+        <button class="card shop-card${afford ? '' : ' card--disabled'}${id === bounceId ? ' card--bounce' : ''}" data-buy="${id}">
           <span class="shop-card-name">${item.name}</span>
           <span class="shop-card-desc">${item.desc}</span>
           <span class="pips">${pips}</span>
           <span class="shop-card-cost">${maxed ? 'MAX' : `🪙 ${buyCost}`}</span>
-          ${sacrificeRow}`
-      // Sacrifice mode swaps the card from a Buy button to a plain div (the +/- controls are
-      // real buttons inside it, and a button can't nest another button) — Buy is unreachable
-      // either way so the two flows never tangle.
-      return sacrificeMode
-        ? `<div class="card shop-card card--disabled">${body}</div>`
-        : `<button class="card shop-card${afford ? '' : ' card--disabled'}${id === bounceId ? ' card--bounce' : ''}" data-buy="${id}">${body}</button>`
+        </button>`
     }).join('')
     screens.shop.innerHTML = `
       <header class="shop-head">
@@ -182,7 +262,10 @@ export function initUI(hooks) {
         <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       </header>
       <div class="shop-grid">${cards}</div>
-      ${sacrificeSectionHtml(slots, cost, offered)}
+      ${sacrificeSectionHtml(slots, cost)}
+      ${resetSectionHtml()}
+      ${sacrificeModalHtml(cost)}
+      ${resetModalHtml()}
     `
   }
 
@@ -503,8 +586,10 @@ export function initUI(hooks) {
       case 'diff': hooks.onDifficulty(Number(el.dataset.diff)); renderTitle(); break
       case 'shop': playSfx('click'); showScreen('shop'); break
       case 'back':
-        sacrificeMode = false
+        sacrificeOpen = false
         sacrificePicks = {}
+        sacrificeBounceId = null
+        resetOpen = false
         playSfx('click')
         showScreen('title')
         break
@@ -513,32 +598,44 @@ export function initUI(hooks) {
       case 'quit': playSfx('click'); hooks.onQuit(); break
       case 'reroll': hooks.onReroll(); break
       case 'sacrifice-start':
-        sacrificeMode = true
+        sacrificeOpen = true
         sacrificePicks = {}
+        sacrificeBounceId = null
         playSfx('click')
         renderShop()
         break
       case 'sacrifice-cancel':
-        sacrificeMode = false
+        // A tap anywhere inside the sheet also resolves to this backdrop element (nothing in
+        // the sheet stops propagation), so only close on a *direct* hit on the backdrop itself.
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        sacrificeOpen = false
         sacrificePicks = {}
+        sacrificeBounceId = null
         playSfx('click')
         renderShop()
         break
       case 'sacrifice-minus': {
+        // − undoes one previously-offered level (offer fewer)
         const id = el.dataset.id
-        const cost = sacrificeCost(meta.choiceSlots ?? 2)
         const have = sacrificePicks[id] ?? 0
-        if (cost != null && sacrificeOffered() < cost && have < (meta.shop[id] ?? 0)) {
-          sacrificePicks[id] = have + 1
+        if (have > 0) {
+          sacrificePicks[id] = have - 1
+          sacrificeBounceId = id
+          playSfx('click')
           renderShop()
         }
         break
       }
       case 'sacrifice-plus': {
+        // + offers one more level (offer more), capped at both the stat's owned level and the
+        // sacrifice's total cost
         const id = el.dataset.id
+        const cost = sacrificeCost(meta.choiceSlots ?? 2)
         const have = sacrificePicks[id] ?? 0
-        if (have > 0) {
-          sacrificePicks[id] = have - 1
+        if (cost != null && sacrificeOffered() < cost && have < (meta.shop[id] ?? 0)) {
+          sacrificePicks[id] = have + 1
+          sacrificeBounceId = id
+          playSfx('click')
           renderShop()
         }
         break
@@ -547,11 +644,27 @@ export function initUI(hooks) {
         // main.js plays the 'buy' sfx itself on success; nothing extra to do here either way.
         const cost = sacrificeCost(meta.choiceSlots ?? 2)
         if (cost != null && sacrificeOffered() === cost) hooks.onSacrifice(sacrificePicks)
-        sacrificeMode = false
+        sacrificeOpen = false
         sacrificePicks = {}
+        sacrificeBounceId = null
         renderShop()
         break
       }
+      case 'reset-start':
+        resetOpen = true
+        playSfx('click')
+        renderShop()
+        break
+      case 'reset-cancel':
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        resetOpen = false
+        playSfx('click')
+        renderShop()
+        break
+      case 'reset-confirm':
+        playSfx('click')
+        hooks.onReset()
+        break
     }
   })
 

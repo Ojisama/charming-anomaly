@@ -18,6 +18,9 @@ html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; touch-action
   --pink: #ff8fab;
   --gold: #ffd93d;
   --gold-edge: #c9a227;
+  --danger: #c23a52;
+  --danger-edge: #7a2338;
+  --danger-soft: #fde2e6;
   --radius: 18px;
 }
 
@@ -74,6 +77,25 @@ body {
 }
 .btn--soft:active { box-shadow: 0 1px 0 var(--cream-edge); }
 .btn--small { min-height: 48px; min-width: 0; padding: 8px 18px; font-size: 1rem; }
+/* danger fill (sacrifice/reset confirm) — a red so a disabled-vs-enabled Confirm reads instantly */
+.btn--danger {
+  background: var(--danger);
+  border-color: var(--danger-edge);
+  color: #fff;
+  box-shadow: 0 4px 0 var(--danger-edge), 0 8px 18px rgba(53, 53, 74, 0.12);
+}
+.btn--danger:active { box-shadow: 0 1px 0 var(--danger-edge); }
+/* a disabled .btn must LOOK dead, not just be unclickable — v4.8's disabled Confirm rendered
+   full mint with no visual cue, which is the bug this whole rework started from */
+.btn:disabled, .btn[disabled] {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none !important;
+  transform: none !important;
+  background: #d8d3c8;
+  border-color: #b9b2a0;
+  color: var(--ink-soft);
+}
 /* Daily Anomaly — soft violet, matches the element/mutator accent color elsewhere */
 .btn--daily {
   background: #dfcdfb;
@@ -177,6 +199,8 @@ body {
 .pips { display: flex; gap: 3px; }
 .pip { width: 8px; height: 8px; border-radius: 50%; background: #e0d6c4; }
 .pip--on { background: var(--mint-dark); }
+/* sacrifice modal: a pip about to be given up (still owned, but offered) */
+.pip--lost { background: var(--danger); }
 .shop-card-cost { font-weight: 800; font-size: 0.95rem; color: #9a7b00; }
 
 @keyframes bounce {
@@ -555,7 +579,9 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .title-logo, .modal, .lv-card, .card--bounce, .lv-card[data-rarity="mythic"] { animation: none; }
+  .title-logo, .modal, .lv-card, .card--bounce, .lv-card[data-rarity="mythic"],
+  .modal-backdrop, .sacrifice-sheet, .confirm-sheet, .sacrifice-counter,
+  .sacrifice-counter--ready, .sacrifice-stat-row--bounce { animation: none; }
 }
 
 /* daily-anomaly briefing screen (shown between title and a daily run) */
@@ -655,7 +681,7 @@ body {
 .diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }
 .diff-hint-reward { color: #1e7d4f; }
 
-/* sacrifice section (shop screen, v4.8): sacrifice owned SHOP levels for a permanent 3rd/4th
+/* sacrifice section (shop screen, v4.8/v4.9): sacrifice owned SHOP levels for a permanent 3rd/4th
    level-up card slot. Danger accent (matches .fx-chip--bad) since it's a one-way, no-refund cost. */
 .sacrifice-panel {
   width: 100%;
@@ -665,39 +691,161 @@ body {
   align-items: center;
   gap: 6px;
   padding: 12px;
-  border: 3px solid #c23a52;
+  border: 3px solid var(--danger);
   border-radius: 16px;
-  background: #fde2e6;
+  background: var(--danger-soft);
   text-align: center;
 }
-.sacrifice-title { font-weight: 800; font-size: 0.95rem; color: #7a2338; }
+.sacrifice-title { font-weight: 800; font-size: 0.95rem; color: var(--danger-edge); }
 .sacrifice-desc { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
-.sacrifice-hint { margin: 0; font-size: 0.74rem; font-weight: 700; color: #c23a52; }
-.sacrifice-actions { display: flex; gap: 10px; }
-.sacrifice-row {
+.sacrifice-hint { margin: 0; font-size: 0.74rem; font-weight: 700; color: var(--danger); }
+
+/* ---- generic modal backdrop (sacrifice sheet + reset confirm both use it) ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  margin-top: 2px;
+  padding: 16px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  background: rgba(53, 53, 74, 0.45);
+  animation: pop-in 0.15s ease-out;
 }
+
+/* ---- sacrifice sheet ---- */
+.sacrifice-sheet {
+  width: min(92vw, 420px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 3px solid var(--ink);
+  border-radius: 20px;
+  background: var(--cream);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  animation: pop-in 0.22s ease-out;
+  overflow: hidden;
+}
+.sacrifice-sheet-head {
+  flex-shrink: 0;
+  padding: 16px 18px 12px;
+  border-bottom: 2px dashed #e0d6c4;
+  text-align: center;
+}
+.sacrifice-counter {
+  display: inline-block;
+  font-weight: 900;
+  font-size: 1.6rem;
+  animation: counter-pop 0.25s ease-out;
+}
+.sacrifice-counter--ready { animation: counter-pop 0.25s ease-out, ready-pulse 0.9s ease-in-out infinite; }
+.sacrifice-modal-hint { margin: 6px 0 0; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
+.sacrifice-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+.sacrifice-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 2px solid var(--cream-edge);
+  border-radius: 14px;
+  background: var(--cream-soft);
+}
+.sacrifice-stat-row--bounce { animation: bounce 0.35s ease-out; }
+.sacrifice-stat-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sacrifice-stat-name {
+  font-weight: 800;
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sacrifice-bonus-preview { font-size: 0.8rem; font-weight: 700; }
+.sacrifice-bonus-before { color: var(--ink-soft); }
+.sacrifice-bonus-after { color: var(--danger); font-weight: 800; }
+.sacrifice-stepper { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
 .sacrifice-step {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 2px solid #c23a52;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 2px solid var(--danger);
   background: #fff;
-  color: #c23a52;
+  color: var(--danger);
+  font-size: 1.15rem;
   font-weight: 800;
   line-height: 1;
   cursor: pointer;
 }
+.sacrifice-step:active { transform: translateY(1px) scale(0.95); }
 .sacrifice-step:disabled { opacity: 0.35; cursor: default; }
-.sacrifice-step--plus { border-color: var(--mint-dark); color: var(--mint-dark); }
-.sacrifice-offered {
-  min-width: 28px;
-  font-weight: 800;
-  font-size: 0.8rem;
+.sacrifice-step--minus { border-color: var(--cream-edge); color: var(--ink-soft); }
+.sacrifice-stepper-count {
+  min-width: 26px;
+  text-align: center;
+  font-weight: 900;
+  font-size: 1.15rem;
   color: var(--ink-soft);
 }
-.sacrifice-offered--active { color: #c23a52; }
+.sacrifice-stepper-count--active { color: var(--danger); }
+.sacrifice-sheet-foot {
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 2px dashed #e0d6c4;
+}
+.sacrifice-sheet-foot .btn { flex: 1; width: auto; min-width: 0; }
+
+@keyframes counter-pop {
+  0% { transform: scale(0.85); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+@keyframes ready-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+/* reset-all-progress: a deliberately unassuming text link at the very bottom of the shop, plus
+   a small confirm sheet reusing the same .modal-backdrop idiom as the sacrifice modal above. */
+.reset-link {
+  margin-top: 2px;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.reset-link:active { opacity: 1; }
+.confirm-sheet {
+  width: min(88vw, 340px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 3px solid var(--ink);
+  border-radius: 20px;
+  background: var(--cream);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  text-align: center;
+  animation: pop-in 0.22s ease-out;
+}
+.confirm-sheet-title { margin: 0; font-size: 1.25rem; font-weight: 900; }
+.confirm-sheet-body { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
+.confirm-sheet-actions { display: flex; gap: 10px; }
+.confirm-sheet-actions .btn { flex: 1; width: auto; min-width: 0; }
