@@ -143,6 +143,11 @@ export function initUI(hooks) {
   // cleared as soon as a run actually starts (see the 'play'/'daily-start' click cases below).
   let selectedConsumables = new Set()
 
+  // v5.0.1: "next run options" panel (Boosters shelf + Daily Anomaly) collapsed by default to
+  // declutter the title screen. Session-only, like selectedConsumables above — never persisted,
+  // never reset on its own (just toggled by the chevron next to Play).
+  let optionsOpen = false
+
   function consumablesShelfHtml() {
     const selectedCost = [...selectedConsumables].reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
     const chips = Object.entries(CONSUMABLES).map(([id, item]) => {
@@ -174,7 +179,10 @@ export function initUI(hooks) {
       <div class="coins-badge">🪙 <b>${coins}</b></div>
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
       <p class="subtitle">escape the lab · outlive the swarm</p>
-      <button class="btn btn--big" data-act="play">▶&nbsp; Play</button>
+      <div class="play-row">
+        <button class="btn btn--big" data-act="play">▶&nbsp; Play</button>
+        <button class="options-toggle${optionsOpen ? ' options-toggle--open' : ''}" data-act="options-toggle" aria-label="run options">▾</button>
+      </div>
       ${chapterRowHtml(meta)}
       <p class="chapter-tagline">${selectedChapter.tagline}</p>
       ${lockedNextId ? `<p class="chapter-hint--locked">win ${CHAPTERS[furthestId].name} at difficulty 3+</p>` : ''}
@@ -191,9 +199,12 @@ export function initUI(hooks) {
         ? 'the base game'
         : `+${chMeta.difficulty - 1} random anomal${chMeta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
       ${chMeta.maxDifficulty < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
-      ${consumablesShelfHtml()}
-      <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
-      <p class="daily-preview">${dailyChapterInfo.icon} ${dailyChapterInfo.name} · ${dailyPreview}</p>
+      ${optionsOpen ? `
+      <div class="run-options">
+        ${consumablesShelfHtml()}
+        <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
+        <p class="daily-preview">${dailyChapterInfo.icon} ${dailyChapterInfo.name} · ${dailyPreview}</p>
+      </div>` : ''}
       <button class="btn btn--soft" data-act="shop">🛒&nbsp; Shop</button>
       ${runs > 0 ? `<p class="best-line">best ${fmtTime(best.time)} · ${best.kills} kills · ${runs} run${runs === 1 ? '' : 's'}</p>` : ''}
     `
@@ -670,6 +681,11 @@ export function initUI(hooks) {
         hooks.onPlay(mode, ids)
         break
       }
+      case 'options-toggle':
+        optionsOpen = !optionsOpen
+        playSfx('click')
+        renderTitle()
+        break
       case 'daily': playSfx('click'); showScreen('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
       case 'diff': {

@@ -104,6 +104,51 @@ body {
 }
 .btn--daily:active { box-shadow: 0 1px 0 #8a5fd0; }
 
+/* Play + run-options chevron (v5.0.1 title declutter) — Play keeps its full .btn--big size and
+   prominence; the chevron is a small square pastel-soft toggle at the same height beside it. */
+.play-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.options-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  width: 64px;
+  min-width: 0;
+  padding: 0;
+  border: 3px solid var(--cream-edge);
+  border-radius: var(--radius);
+  background: var(--cream-soft);
+  color: var(--ink);
+  font-size: 1.4rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 4px 0 var(--cream-edge), 0 8px 18px rgba(53, 53, 74, 0.08);
+  cursor: pointer;
+  transform-origin: center;
+  transition: transform 0.2s, box-shadow 0.1s;
+}
+.options-toggle:active { transform: translateY(3px) scale(0.97); box-shadow: 0 1px 0 var(--cream-edge); }
+/* rotate the ▾ glyph to read as ▴ once the panel is open */
+.options-toggle--open { transform: rotate(180deg); }
+.options-toggle--open:active { transform: rotate(180deg) translateY(3px) scale(0.97); }
+
+/* collapsed-by-default "next run options" panel (Boosters shelf + Daily Anomaly) */
+.run-options {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.35);
+}
+
 /* ---- coins badge ---- */
 .coins-badge {
   display: inline-flex;
@@ -702,6 +747,7 @@ body {
    shelf so neither ever forces the 360px-wide screen to scroll horizontally. */
 .chapter-row {
   display: flex;
+  flex-shrink: 0; /* title screen is a flex column — without this the cards squish (labels clip) when the run-options panel opens */
   gap: 8px;
   width: 100%;
   max-width: 340px;
