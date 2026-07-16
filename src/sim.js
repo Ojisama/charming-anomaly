@@ -147,9 +147,9 @@ function stepPlayerMovement(run, input, dt) {
   p.moving = len > 1e-6
   if (ix > 1e-6) p.facing = 1
   else if (ix < -1e-6) p.facing = -1
-  // v5.0: last non-zero move direction as a full angle — the Flagella Whip aims its arc here
-  // (see fireFlagella); stays null until the player first moves, so the whip falls back to the
-  // nearest enemy before any input.
+  // v5.0: last non-zero move direction as a full angle — render orients the pond tail to it, and
+  // the Flagella Whip falls back to it only when no enemy exists to aim at (see fireFlagella).
+  // Stays null until the player first moves.
   if (len > 1e-6) p.facingAngle = Math.atan2(iy, ix)
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
@@ -1822,7 +1822,7 @@ function stepBeams(run, dt) {
 // -- Flagella Whip (v5.0 pond starter) --------------------------------------------------
 // A melee arc sweep: every `rate` seconds (frenzy divides that interval, like the global fire
 // rate) it damages every enemy whose CENTER falls in the sector (arc rad, range px) centered on
-// the player's facing. cyclone opens every 3rd swing to a full circle; barbed adds a bleed DoT.
+// the nearest enemy. cyclone opens every 3rd swing to a full circle; barbed adds a bleed DoT.
 // Emits one {type:'whip', x, y, angle, range, arc} event per swing (render draws the sweep) plus
 // the usual per-enemy {type:'hit'} from applyDamage.
 function stepFlagellaWeapon(run, w, stats, fireRateMul, dt) {
@@ -1832,13 +1832,14 @@ function stepFlagellaWeapon(run, w, stats, fireRateMul, dt) {
 
 function fireFlagella(run, stats) {
   const p = run.player
-  // Facing = last non-zero move direction; fall back to the nearest enemy (then p.facing) before
-  // the player has moved at all this run.
-  let angle = p.facingAngle
-  if (angle == null || angle === undefined) {
-    const target = nearestEnemy(run)
-    angle = target ? Math.atan2(target.y - p.y, target.x - p.x) : (p.facing >= 0 ? 0 : Math.PI)
-  }
+  // Aim at the nearest enemy so the arc sweeps INTO the swarm: in a survivors-like the player kites
+  // AWAY from the pack, so the last move direction (p.facingAngle) points the opposite way. Only
+  // when there is no enemy to target do we fall back to the last move direction, then p.facing.
+  const target = nearestEnemy(run)
+  let angle
+  if (target) angle = Math.atan2(target.y - p.y, target.x - p.x)
+  else if (p.facingAngle != null) angle = p.facingAngle
+  else angle = p.facing >= 0 ? 0 : Math.PI
 
   // cyclone (behavioral): every FLAGELLA_CYCLONE_EVERY-th swing opens to a full circle.
   const cycloneOn = (run.weaponMods.flagella?.cyclone ?? 0) > 0

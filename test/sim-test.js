@@ -2080,35 +2080,57 @@ function testChapterBehaviors() {
 function testPondWeapons() {
   const dt = 1 / 60
 
-  // (a) flagella hits only enemies whose center is inside the facing sector: one dead ahead
-  // (in-arc, in-range) dies; one directly behind the player is never touched.
+  // (a) the whip aims at the NEAREST enemy (v5.1.2 fix), not the player's move direction: the arc
+  // locks onto a near enemy in front (it dies), while a far one beyond range stays untouched even
+  // after the near one dies (range check excludes it).
   {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'flagella', level: MAX_WEAPON_LEVEL }]
     run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
-    run.player.facingAngle = 0 // face +x
+    run.player.facingAngle = 0 // moved +x (kiting away) — no longer where the whip aims
     const ahead = makeStatusEnemy(run, { x: 100, y: 0, hp: 20, speed: 0 })
-    const behind = makeStatusEnemy(run, { x: -100, y: 0, hp: 1e6, speed: 0 })
-    run.enemies.push(ahead, behind)
+    const farBehind = makeStatusEnemy(run, { x: -500, y: 0, hp: 1e6, speed: 0 }) // beyond range
+    run.enemies.push(ahead, farBehind)
 
     let sawWhip = false
     for (let i = 0; i < Math.round(1.5 / dt); i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
-      run.player.facingAngle = 0 // pin the aim (no move input would leave it anyway)
+      run.player.facingAngle = 0 // pin the (now-irrelevant) move direction
       stepSim(run, { x: 0, y: 0 }, dt)
       if (run.events.some((e) => e.type === 'whip')) sawWhip = true
     }
-    assert(!run.enemies.find((e) => e.id === ahead.id), 'expected the in-arc enemy to die to the whip')
-    const behindNow = run.enemies.find((e) => e.id === behind.id)
-    assert(behindNow && behindNow.hp === 1e6, `expected the behind-player enemy untouched (hp ${behindNow && behindNow.hp})`)
+    assert(!run.enemies.find((e) => e.id === ahead.id), 'expected the near in-front enemy to die to the whip')
+    const farNow = run.enemies.find((e) => e.id === farBehind.id)
+    assert(farNow && farNow.hp === 1e6, `expected the out-of-range enemy untouched (hp ${farNow && farNow.hp})`)
     // (b) whip event emitted, carrying the render fields.
     assert(sawWhip, 'expected at least one whip event')
-    console.log('PASS run W.a/b (flagella sector hit + whip event)')
+    console.log('PASS run W.a/b (whip aims at nearest; out-of-range foe untouched + whip event)')
   }
 
-  // (c) cyclone: every 3rd swing is a full 360°, so a behind-player enemy is hit only via cyclone.
+  // (a2) THE FIX: a lone enemy directly BEHIND a player who moved forward is now HIT, because the
+  // whip aims at the nearest enemy rather than the move direction (which would swing the arc away).
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'flagella', level: MAX_WEAPON_LEVEL }]
+    run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.player.facingAngle = 0 // faces +x, but the only enemy is behind at -x
+    const behind = makeStatusEnemy(run, { x: -100, y: 0, hp: 20, speed: 0 })
+    run.enemies.push(behind)
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      run.player.facingAngle = 0
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert(!run.enemies.find((e) => e.id === behind.id), 'expected the behind enemy to be hit now the whip aims at nearest')
+    console.log('PASS run W.a2 (fix: whip hits an enemy behind the player\'s move direction)')
+  }
+
+  // (c) cyclone: every 3rd swing is a full 360°. A never-dying anchor in front keeps the aim locked
+  // to +x, so an in-range enemy behind sits OUTSIDE the normal arc and is reached only by cyclone.
   {
     function behindHp(cyclone) {
       const run = createRun(makeMeta())
@@ -2117,12 +2139,13 @@ function testPondWeapons() {
       run.player.x = 0; run.player.y = 0
       run.player.hp = 1e9; run.player.maxHP = 1e9
       if (cyclone) run.weaponMods.flagella.cyclone = 1
+      // Anchor (nearest, never dies) pins the aim forward; behind is in range but outside the arc.
+      run.enemies.push(makeStatusEnemy(run, { x: 60, y: 0, hp: 1e9, speed: 0 }))
       const behind = makeStatusEnemy(run, { x: -100, y: 0, hp: 1e6, speed: 0 })
       run.enemies.push(behind)
       // Enough time for well past FLAGELLA_CYCLONE_EVERY swings (rate ~0.58s at max level).
       for (let i = 0; i < Math.round((FLAGELLA_CYCLONE_EVERY + 2) * 0.9 / dt); i++) {
         if (run.phase === 'levelup') { declineLevelUp(run); continue }
-        run.player.facingAngle = 0 // always face away from the behind enemy
         stepSim(run, { x: 0, y: 0 }, dt)
       }
       return run.enemies.find((e) => e.id === behind.id).hp
@@ -2263,8 +2286,7 @@ function testPondWeapons() {
         if (run.phase === 'levelup') { declineLevelUp(run); continue }
         t += dt
         run.player.x = 0; run.player.y = 0        // pin: enemies converge on the origin
-        run.player.facingAngle = t * 4            // sweep the whip's aim around
-        stepSim(run, { x: 0, y: 0 }, dt)
+        stepSim(run, { x: 0, y: 0 }, dt)          // whip auto-aims at the nearest of the ring
         if (run.enemies.length === 0) return t
       }
       return cap

@@ -142,7 +142,7 @@ export const WEAPONS = {
   // (arc sweep / toxin cloud) and mods; these numbers are placeholders it may retune.
   flagella: {
     name: 'Flagella Whip',
-    desc: 'Lashes a melee arc in your facing direction.',
+    desc: 'Lashes a melee arc toward the nearest enemy.',
     icon: '🧫', rarity: 'normal',
     levels: [
       { dmg: 14, rate: 0.90, range: 130, arc: 1.40 },

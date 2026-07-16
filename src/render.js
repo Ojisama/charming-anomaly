@@ -1072,21 +1072,41 @@ export function createRenderer(app) {
     prevCount.bloom = n
   }
 
-  // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs): a slash glyph flung
-  // out at the strike radius and swept across the arc while it flashes in and out. Double-stacked
-  // + teal so the soft-alpha crescent reads on the light floor.
+  // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs). An ANCHORED melee
+  // sweep — NOT a projectile: a teal crescent blade rooted at the player that PIVOTS across the
+  // swept wedge (angle-arc/2 -> angle+arc/2) over its short life, its tip reaching `range`. The
+  // blade is a few crescents strung along the radius (near player -> tip); trailing ghost copies
+  // lag the leading edge to smear the swept area into a wedge. cyclone (arc = 2pi) spins the blade
+  // a full turn. Each crescent is double-stacked + teal so the soft alpha reads on the pale floor.
   const MAX_WHIPS = 8
+  const WHIP_ARMS = 3                       // 1 leading blade + 2 trailing afterimage ghosts
+  const WHIP_BLADE_FR = [0.4, 0.65, 0.9]    // crescent centres along the blade, as a fraction of range
   const whips = []
-  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.18, root: null, a: null, b: null })
+  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.18, root: null, arms: null })
   let whipCursor = 0
   function spawnWhip(x, y, angle, range, arc) {
     const wp = whips[whipCursor]
     whipCursor = (whipCursor + 1) % MAX_WHIPS
     if (!wp.root) {
       wp.root = new Container()
-      wp.a = new Sprite(T.fx.slash_02); wp.a.anchor.set(0.5)
-      wp.b = new Sprite(T.fx.slash_02); wp.b.anchor.set(0.5)
-      wp.root.addChild(wp.a, wp.b)
+      wp.arms = []
+      for (let a = 0; a < WHIP_ARMS; a++) {
+        const arm = new Container()
+        arm.glyphs = []
+        for (const fr of WHIP_BLADE_FR) {
+          const pair = [] // double-stacked crescent (one layer washes out on the light floor)
+          for (let s = 0; s < 2; s++) {
+            const g = new Sprite(T.fx.slash_02)
+            g.anchor.set(0.5)
+            g.rotation = Math.PI / 2 // crescent curls tangent to the sweep
+            arm.addChild(g)
+            pair.push(g)
+          }
+          arm.glyphs.push({ fr, pair })
+        }
+        wp.root.addChild(arm)
+        wp.arms.push(arm)
+      }
       whipLayer.addChild(wp.root)
     }
     wp.live = true
@@ -1101,16 +1121,24 @@ export function createRenderer(app) {
       if (wp.t >= wp.dur) { wp.live = false; wp.root.visible = false; continue }
       const k = wp.t / wp.dur
       wp.root.position.set(wp.x, wp.y)
-      wp.root.rotation = wp.angle - wp.arc / 2 + wp.arc * k // sweep from one arc edge to the other
-      const alpha = Math.sin(Math.PI * k) * 0.85 // flash in then out
-      const rad = wp.range * 0.55
-      const sc = fxScale(T.fx.slash_02, wp.range * 0.9)
-      for (const s of [wp.a, wp.b]) {
-        s.position.set(rad, 0)
-        s.rotation = Math.PI / 2 // crescent tangent to the sweep
-        s.tint = 0x9ff0e0
-        s.alpha = alpha
-        s.scale.set(sc, sc * 1.15)
+      // leading edge pivots from one arc rim to the other (a full turn when arc = 2pi / cyclone)
+      wp.root.rotation = wp.angle - wp.arc / 2 + wp.arc * k
+      const flash = Math.sin(Math.PI * k) * 0.9 // ramp in then out
+      const sc = fxScale(T.fx.slash_02, wp.range * 0.5) // crescents overlap into a continuous blade
+      const ghostStep = Math.min(wp.arc, Math.PI * 0.5) * 0.12 // trail behind the leading edge
+      for (let a = 0; a < wp.arms.length; a++) {
+        const arm = wp.arms[a]
+        arm.rotation = -a * ghostStep
+        const armAlpha = flash * Math.pow(0.5, a) // each ghost half as bright as the one ahead
+        for (const { fr, pair } of arm.glyphs) {
+          const rad = wp.range * fr
+          for (const g of pair) {
+            g.position.set(rad, 0)
+            g.tint = 0x8ff0dd
+            g.alpha = armAlpha
+            g.scale.set(sc, sc * 1.2)
+          }
+        }
       }
     }
   }

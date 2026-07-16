@@ -411,7 +411,8 @@ export function createRun(meta, opts = {}) {
       slowT: 0,           // s remaining of the latch-flag movement debuff (see doc block above)
       facing: 1,          // 1 right, -1 left (render flips the face)
       facingAngle: null,  // v5.0: last non-zero move direction (full angle, rad); null until first
-                          // move. The Flagella Whip aims its arc here (see fireFlagella in sim.js).
+                          // move. Render orients the pond tail to it; the Flagella Whip aims at the
+                          // nearest enemy and only falls back here when none exists (see fireFlagella).
       moving: false,
     },
     weapons: [{ id: CHAPTERS[chapter].starter, level: startWeaponLevel }],
