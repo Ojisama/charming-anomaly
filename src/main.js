@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, createRun } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, extraChoiceCost, LEVELUP_MAX_CHOICES } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -102,17 +102,25 @@ const ui = initUI({
     playSfx('buy')
     ui.showScreen('levelup', levelupData())
   },
-  onUnlockChoice() {
-    if (!run || run.phase !== 'levelup') return
-    const visible = run._choicesVisible ?? 2
-    if (visible >= Math.min(LEVELUP_MAX_CHOICES, run.levelUpChoices.length)) return
-    const cost = extraChoiceCost(visible)
-    if (cost == null || meta.coins < cost) return
-    meta.coins -= cost
-    run._choicesVisible = visible + 1
+  // Sacrifice already-purchased shop levels for a permanent 3rd/4th level-up card slot (v4.8;
+  // see meta.choiceSlots in state.js and sacrificeCost in config.js). picks: { [statId]: count }.
+  // Validates independently of the UI (which disables the confirm button) — belt and braces.
+  onSacrifice(picks) {
+    const slots = meta.choiceSlots ?? 2
+    if (slots >= 4) return false
+    const cost = sacrificeCost(slots)
+    if (cost == null) return false
+    let total = 0
+    for (const [id, count] of Object.entries(picks ?? {})) {
+      if (!SHOP[id] || !Number.isInteger(count) || count < 0 || count > (meta.shop[id] ?? 0)) return false
+      total += count
+    }
+    if (total !== cost) return false
+    for (const [id, count] of Object.entries(picks)) meta.shop[id] -= count
+    meta.choiceSlots = slots + 1
     saveMeta(meta)
     playSfx('buy')
-    ui.showScreen('levelup', levelupData())
+    return true
   },
   onQuit() {  // from pause or summary back to title
     run = null
@@ -123,12 +131,8 @@ const ui = initUI({
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {
-  const visible = run._choicesVisible ?? 2
-  const canUnlock = visible < Math.min(LEVELUP_MAX_CHOICES, run.levelUpChoices.length)
   return {
     choices: run.levelUpChoices,
-    visible,
-    extraCost: canUnlock ? extraChoiceCost(visible) : null,
     rerollCost: rerollCost(run._rerolls ?? 0),
     coins: meta.coins,
   }

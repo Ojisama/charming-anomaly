@@ -654,4 +654,50 @@ body {
 .diff-pip:active { transform: translateY(1px); }
 .diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }
 .diff-hint-reward { color: #1e7d4f; }
-.lv-unlock { border-style: dashed; }
+
+/* sacrifice section (shop screen, v4.8): sacrifice owned SHOP levels for a permanent 3rd/4th
+   level-up card slot. Danger accent (matches .fx-chip--bad) since it's a one-way, no-refund cost. */
+.sacrifice-panel {
+  width: 100%;
+  max-width: 540px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  border: 3px solid #c23a52;
+  border-radius: 16px;
+  background: #fde2e6;
+  text-align: center;
+}
+.sacrifice-title { font-weight: 800; font-size: 0.95rem; color: #7a2338; }
+.sacrifice-desc { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
+.sacrifice-hint { margin: 0; font-size: 0.74rem; font-weight: 700; color: #c23a52; }
+.sacrifice-actions { display: flex; gap: 10px; }
+.sacrifice-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.sacrifice-step {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #c23a52;
+  background: #fff;
+  color: #c23a52;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+.sacrifice-step:disabled { opacity: 0.35; cursor: default; }
+.sacrifice-step--plus { border-color: var(--mint-dark); color: var(--mint-dark); }
+.sacrifice-offered {
+  min-width: 28px;
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+.sacrifice-offered--active { color: #c23a52; }

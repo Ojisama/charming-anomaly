@@ -1,10 +1,10 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
-import { createRun } from '../src/state.js'
+import { createRun, loadMeta } from '../src/state.js'
 import {
   SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
-  LEVELUP_BASE_CHOICES, LEVELUP_MAX_CHOICES, extraChoiceCost,
+  sacrificeCost,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
@@ -1040,10 +1040,15 @@ function testFocusNudge() {
     return n
   }
 
-  const fresh = createRun(makeMeta())
+  // 4 card slots (not the meta default of 2): more cards per pool means more natural chances
+  // for a New! card to land, so the focus-nudge signal isn't swamped by the flat
+  // NEW_WEAPON_MIN_RATE apparition floor (which applies per-pool regardless of slot count).
+  const fourSlotMeta = () => { const m = makeMeta(); m.choiceSlots = 4; return m }
+
+  const fresh = createRun(fourSlotMeta())
   const freshOffers = countNewOffers(fresh, 400)
 
-  const committed = createRun(makeMeta())
+  const committed = createRun(fourSlotMeta())
   committed.weapons = [{ id: 'star', level: 5 }] // 4 upgrade picks
   committed.weaponModPicks.star.pierce = 5
   committed.weaponModPicks.star.multishot = 5   // +10 mod picks => invested 14, p at the 0.1 floor
@@ -1582,21 +1587,48 @@ function testGoldSinks() {
   }
 }
 
-// ---- Run R: level-up choice slots + retuned rarity (v4.7) --------------------------------
+// ---- Run R: permanent level-up choice slots (v4.8) + retuned rarity (v4.7) ---------------
 function testChoiceSlots() {
-  // Slot mechanics: 4 pre-rolled cards, 2 visible by default, extra slots priced 20/40.
-  const run = createRun(makeMeta())
-  assert.strictEqual(run._choicesVisible, LEVELUP_BASE_CHOICES, 'run starts at base visible choices')
-  run.player.xp = run.player.xpNext + 1
-  stepSim(run, { x: 0, y: 0 }, 1 / 60)
-  run.events = []
-  assert.strictEqual(run.phase, 'levelup', 'expected a level-up to trigger')
-  assert.strictEqual(run.levelUpChoices.length, LEVELUP_MAX_CHOICES,
-    `expected ${LEVELUP_MAX_CHOICES} pre-rolled cards, got ${run.levelUpChoices.length}`)
-  assert.strictEqual(run._choicesVisible, LEVELUP_BASE_CHOICES, 'level-up resets visible to base')
-  assert.strictEqual(extraChoiceCost(2), 20, '3rd card costs 20')
-  assert.strictEqual(extraChoiceCost(3), 40, '4th card costs 40')
-  assert.strictEqual(extraChoiceCost(4), null, 'no 5th card')
+  // Fresh meta defaults to 2 slots (no localStorage in this Node harness -> loadMeta's
+  // try/catch always takes the fresh-meta branch — still worth asserting explicitly).
+  const fresh = loadMeta()
+  assert.strictEqual(fresh.choiceSlots, 2, 'fresh meta starts at 2 choice slots')
+
+  // loadMeta clamps a stored choiceSlots into [2, 4] and defaults it when missing.
+  const stub = {}
+  globalThis.localStorage = {
+    getItem: () => JSON.stringify(stub),
+    setItem: () => {},
+  }
+  stub.shop = Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0]))
+  stub.coins = 0
+  const noField = loadMeta()
+  assert.strictEqual(noField.choiceSlots, 2, 'loadMeta defaults a missing choiceSlots to 2')
+  stub.choiceSlots = 99
+  assert.strictEqual(loadMeta().choiceSlots, 4, 'loadMeta clamps choiceSlots above 4 down to 4')
+  stub.choiceSlots = 0
+  assert.strictEqual(loadMeta().choiceSlots, 2, 'loadMeta clamps choiceSlots below 2 up to 2')
+  delete globalThis.localStorage
+
+  // createRun snapshots meta.choiceSlots -> run.choiceSlots, and buildLevelUpChoices rolls
+  // exactly that many cards, for every value 2..4.
+  for (const slots of [2, 3, 4]) {
+    const meta = makeMeta()
+    meta.choiceSlots = slots
+    const run = createRun(meta)
+    assert.strictEqual(run.choiceSlots, slots, `run.choiceSlots should snapshot meta.choiceSlots=${slots}`)
+    run.player.xp = run.player.xpNext + 1
+    stepSim(run, { x: 0, y: 0 }, 1 / 60)
+    run.events = []
+    assert.strictEqual(run.phase, 'levelup', 'expected a level-up to trigger')
+    assert.strictEqual(run.levelUpChoices.length, slots,
+      `expected ${slots} cards for choiceSlots=${slots}, got ${run.levelUpChoices.length}`)
+  }
+
+  // Sacrifice pricing: 20 levels for the 3rd slot, 40 for the 4th, no 5th slot to buy.
+  assert.strictEqual(sacrificeCost(2), 20, '3rd card slot costs 20 levels')
+  assert.strictEqual(sacrificeCost(3), 40, '4th card slot costs 40 levels')
+  assert.strictEqual(sacrificeCost(4), null, 'no 5th card slot')
 
   // Rarity retune: epic-or-better ≈ 12.3% per card (33% per 3-card screen). Wide statistical band.
   let high = 0
@@ -1610,7 +1642,7 @@ function testChoiceSlots() {
   }
   const rate = high / total
   assert(rate > 0.09 && rate < 0.16, `expected epic+ per-card rate ≈ 12.3%, got ${(rate * 100).toFixed(1)}%`)
-  console.log(`PASS run R (choice slots + rarity retune): 4 pre-rolled/2 visible, costs 20/40, epic+ per card=${(rate * 100).toFixed(1)}%`)
+  console.log(`PASS run R (permanent choice slots + rarity retune): slots 2/3/4 -> that many cards, sacrifice costs 20/40, epic+ per card=${(rate * 100).toFixed(1)}%`)
 }
 
 try {

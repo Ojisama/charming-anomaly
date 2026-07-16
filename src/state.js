@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, LEVELUP_BASE_CHOICES } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -10,6 +10,8 @@ export function loadMeta() {
       const m = JSON.parse(raw)
       for (const id of Object.keys(SHOP)) m.shop[id] ??= 0
       m.difficulty ??= 1
+      m.choiceSlots ??= 2
+      m.choiceSlots = Math.max(2, Math.min(4, m.choiceSlots))
       return m
     }
   } catch { /* corrupted save -> fresh */ }
@@ -19,6 +21,7 @@ export function loadMeta() {
     best: { time: 0, kills: 0 },
     runs: 0,
     difficulty: 1,
+    choiceSlots: 2,
   }
 }
 
@@ -201,9 +204,11 @@ export function shopBonus(meta, id) {
  * _rerolls: count of level-up rerolls used so far this run (main.js increments this and
  *   recomputes the next reroll's price via rerollCost(run._rerolls) — see config.js).
  *   buildLevelUpChoices itself is reroll-agnostic; rerolling is just calling it again.
- * _choicesVisible (v4.7): how many of levelUpChoices' pre-rolled LEVELUP_MAX_CHOICES cards
- *   the UI may show. Reset to LEVELUP_BASE_CHOICES by stepLevelUp on every level-up; main.js
- *   increments it when the player buys the 3rd/4th slot (extraChoiceCost in config.js).
+ * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
+ *   snapshotted from meta.choiceSlots at createRun (2..4) and constant for the run's duration
+ *   (unlocking a slot mid-meta-shop never retroactively changes an in-progress run). Permanently
+ *   unlocked in the meta shop by sacrificing SHOP levels (see sacrificeCost in config.js and
+ *   hooks.onSacrifice in main.js) — applies to every mode, including Daily.
  */
 export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
@@ -228,7 +233,7 @@ export function createRun(meta, opts = {}) {
     consumables,
     revives: consumables.includes('revive') ? 1 : 0,
     _rerolls: 0,
-    _choicesVisible: LEVELUP_BASE_CHOICES,
+    choiceSlots: meta.choiceSlots ?? 2,
     player: {
       x: 0, y: 0,
       hp: maxHP, maxHP,

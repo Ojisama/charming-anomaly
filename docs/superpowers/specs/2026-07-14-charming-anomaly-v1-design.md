@@ -356,3 +356,16 @@ one banked revive takes a lethal contact hit and survives at `maxHP × REVIVE_HP
 invuln expires) kills for real; a `headstart` run reaches player level 3 after declining a
 couple of level-ups with zero kills; a `charged` run's starting weapon is level 2; and
 `rerollCost(0|1|2)` matches 10/15/23. All prior runs A–P still pass unchanged.
+
+## v4.8 addendum (2026-07-16) — permanent level-up card slots via shop sacrifice
+
+Replaces v4.7's in-run "➕ Card" purchase (which unlocked the 3rd/4th level-up card for that
+screen only, for meta coins) with a **permanent**, meta-shop-side unlock: `meta.choiceSlots`
+(2..4, persisted, clamped on `loadMeta`) is unlocked by *sacrificing* already-purchased `SHOP`
+upgrade levels — 20 levels for the 3rd slot, 40 for the 4th (`sacrificeCost` in `config.js`) —
+with no coin refund for the levels given up. `createRun` snapshots `meta.choiceSlots` onto
+`run.choiceSlots` at run start (constant for that run's duration), and `buildLevelUpChoices`
+now rolls exactly that many cards (was always 4 pre-rolled, with only the first 2 shown). This
+applies to every mode, including Daily. The shop screen gained a "🩸 Sacrifice" panel with its
+own local pick-then-confirm mode (`hooks.onSacrifice(picks)`, `picks: { [statId]: count }`),
+mutually exclusive with the normal Buy flow while active.

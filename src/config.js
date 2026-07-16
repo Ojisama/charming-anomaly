@@ -18,14 +18,12 @@ export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic']
 export const RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
 export const rarityWeights = () => RARITY_WEIGHTS
 
-// ---- Level-up choice slots (gold sink, v4.7) ----------------------------------------
-// A level-up screen shows LEVELUP_BASE_CHOICES cards; the 3rd/4th can be revealed by
-// spending meta coins (per screen — the purchase doesn't persist to the next level-up).
-// Cards are pre-rolled for all LEVELUP_MAX_CHOICES slots so unlocking can't be re-rolled.
-export const LEVELUP_BASE_CHOICES = 2
+// ---- Level-up choice slots (v4.8: permanent, meta-shop-unlocked) ---------------------
+// A level-up screen shows meta.choiceSlots/run.choiceSlots cards (2 by default). The 3rd/4th
+// slot is unlocked PERMANENTLY (applies to every future run, all modes) by sacrificing already-
+// purchased SHOP levels in the meta shop — see SACRIFICE_COSTS/sacrificeCost below and
+// hooks.onSacrifice in main.js. No coin refund for sacrificed levels.
 export const LEVELUP_MAX_CHOICES = 4
-export const EXTRA_CHOICE_COSTS = [20, 40] // coins: [3rd card, 4th card]
-export const extraChoiceCost = (visible) => EXTRA_CHOICE_COSTS[visible - LEVELUP_BASE_CHOICES] ?? null
 
 export const PLAYER = {
   radius: 22,
@@ -599,6 +597,11 @@ export const SHOP = {
 }
 export const MAX_SHOP_LEVEL = 10
 export const shopCost = (id, level) => Math.round(SHOP[id].base * Math.pow(1.6, level))
+
+// Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
+// level-up card slot (see meta.choiceSlots in state.js and hooks.onSacrifice in main.js).
+export const SACRIFICE_COSTS = [20, 40]  // shop levels to give up for the 3rd, then 4th card slot
+export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // slots = current unlocked count (2..4)
 
 // End-of-run coin bonus
 export const runBonusCoins = (kills) => Math.floor(kills / 10)
