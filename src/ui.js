@@ -328,6 +328,13 @@ export function initUI(hooks) {
   let sacrificeOpen = false
   let sacrificePicks = {} // statId -> levels offered so far this sacrifice session
   let sacrificeBounceId = null
+  // The shop re-renders wholesale on every tap (screens.shop.innerHTML is rebuilt), which recreates
+  // the modal node and would restart its CSS enter animation each tap — the "janky replay" bug.
+  // sacrificeAnimated is flipped false when the modal opens and consumed on the FIRST render after
+  // (see sacrificeModalHtml): only that first paint carries the .sacrifice-modal--enter class, so
+  // the slide-up plays exactly once. Per-tap feedback (counter + touched chip) uses its own always-on
+  // pulse, which is fine to replay because it SHOULD fire on every offer.
+  let sacrificeAnimated = false
 
   // Reset-all-progress confirmation modal — same backdrop idiom as the sacrifice modal, just a
   // small confirm/cancel sheet instead of a scrollable stat list. Not persisted either.
@@ -357,50 +364,64 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // Full-screen sacrifice modal: a dim backdrop (tapping it directly, not the sheet, cancels —
-  // see the sacrifice-cancel case below) centering a rounded sheet with a fixed header/footer
-  // and a scrollable middle listing every owned SHOP stat. Stepper scheme: − offers one FEWER
-  // level (undo), + offers one MORE (commit) — never ambiguous about which direction burns levels.
+  // Full-screen sacrifice modal (v5.1.1 altar rework): a dim backdrop (tapping it directly, not the
+  // sheet, cancels — see the sacrifice-cancel case below) centering a rounded sheet. Top is a pinned
+  // ALTAR zone — the big Offered X/COST counter plus one chip per offered stat (tap a chip to un-offer
+  // one level). Below scrolls the stat list where the WHOLE row is one tap target offering ONE level
+  // (no +/− steppers): unambiguous, since the only action a row affords is "give up a level here".
+  // enter animation: gated by sacrificeAnimated so the slide-up plays only on the first paint.
   function sacrificeModalHtml(cost) {
     if (!sacrificeOpen || cost == null) return ''
     const offered = sacrificeOffered()
     const ready = offered === cost
+    const full = offered >= cost
     const counterColor = ready ? 'var(--mint-dark)' : lerpColor('#7a7a90', '#c23a52', offered / cost)
+    // Consume the once-only enter flag: only this first render after opening tags the modal with
+    // --enter (the animated class), so subsequent tap re-renders can't replay the slide-up.
+    const enter = !sacrificeAnimated
+    sacrificeAnimated = true
+
+    // Altar chips: one per offered stat, tap to take ONE level back off the altar. The just-touched
+    // one gets --pop so it scale-pops on appear/increment (recreated each render → restart-safe).
+    const chips = Object.entries(sacrificePicks).filter(([, n]) => n > 0).map(([id, n]) => `
+      <button class="sacrifice-chip${id === sacrificeBounceId ? ' sacrifice-chip--pop' : ''}" data-act="sacrifice-unoffer" data-id="${id}">
+        <span class="sacrifice-chip-name">${SHOP[id].name}</span>
+        <span class="sacrifice-chip-count">×${n}</span>
+      </button>`).join('')
+    const altarInner = chips || '<span class="sacrifice-altar-empty">tap a stat below to offer its levels</span>'
+
     const rows = Object.entries(SHOP).filter(([id]) => (meta.shop[id] ?? 0) > 0).map(([id, item]) => {
       const level = meta.shop[id]
       const picked = sacrificePicks[id] ?? 0
       const kept = level - picked
+      const canOffer = picked < level && !full
       const pips = Array.from({ length: MAX_SHOP_LEVEL }, (_, i) => {
         const cls = i < kept ? 'pip pip--on' : i < level ? 'pip pip--lost' : 'pip'
         return `<i class="${cls}"></i>`
       }).join('')
-      const canUndo = picked > 0
-      const canOffer = picked < level && offered < cost
       // "disappearing" preview: current total bonus at this level -> what's left after the offer
       const preview = picked > 0
-        ? `<span class="sacrifice-bonus-before">${formatShopBonus(id, level)}</span> → <span class="sacrifice-bonus-after">${formatShopBonus(id, kept)}</span>`
-        : `<span class="sacrifice-bonus-before">${formatShopBonus(id, level)}</span>`
+        ? `<span class="sacrifice-bonus-preview"><span class="sacrifice-bonus-before">${formatShopBonus(id, level)}</span> → <span class="sacrifice-bonus-after">${formatShopBonus(id, kept)}</span></span>`
+        : ''
       return `
-        <div class="sacrifice-stat-row${id === sacrificeBounceId ? ' sacrifice-stat-row--bounce' : ''}">
+        <button class="sacrifice-stat-row${id === sacrificeBounceId ? ' sacrifice-stat-row--bounce' : ''}" data-act="sacrifice-offer" data-id="${id}" ${canOffer ? '' : 'disabled'}>
           <div class="sacrifice-stat-info">
             <span class="sacrifice-stat-name">${item.name}</span>
-            <span class="sacrifice-bonus-preview">${preview}</span>
+            <span class="sacrifice-stat-effect">${item.desc} / level</span>
+            ${preview}
             <span class="pips">${pips}</span>
           </div>
-          <div class="sacrifice-stepper">
-            <button class="sacrifice-step sacrifice-step--minus" data-act="sacrifice-minus" data-id="${id}" ${canUndo ? '' : 'disabled'}>−</button>
-            <span class="sacrifice-stepper-count${picked > 0 ? ' sacrifice-stepper-count--active' : ''}">${picked > 0 ? picked : '·'}</span>
-            <button class="sacrifice-step sacrifice-step--plus" data-act="sacrifice-plus" data-id="${id}" ${canOffer ? '' : 'disabled'}>+</button>
-          </div>
-        </div>`
+          <span class="sacrifice-offer-affordance">🩸<span class="sacrifice-offer-label">Offer</span></span>
+        </button>`
     }).join('')
+
     return `
-      <div class="modal-backdrop sacrifice-modal" data-act="sacrifice-cancel">
+      <div class="modal-backdrop sacrifice-modal${enter ? ' sacrifice-modal--enter' : ''}" data-act="sacrifice-cancel">
         <div class="sacrifice-sheet">
-          <header class="sacrifice-sheet-head">
+          <div class="sacrifice-altar${ready ? ' sacrifice-altar--ready' : ''}">
             <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 Offered ${offered}/${cost}</span>
-            <p class="sacrifice-modal-hint">Choose which upgrade levels to give up — this can't be undone.</p>
-          </header>
+            <div class="sacrifice-altar-chips">${altarInner}</div>
+          </div>
           <div class="sacrifice-sheet-body">${rows}</div>
           <footer class="sacrifice-sheet-foot">
             <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">Cancel</button>
@@ -831,6 +852,7 @@ export function initUI(hooks) {
         sacrificeOpen = true
         sacrificePicks = {}
         sacrificeBounceId = null
+        sacrificeAnimated = false // arm the once-only enter animation for the next render
         playSfx('click')
         renderShop()
         break
@@ -844,26 +866,28 @@ export function initUI(hooks) {
         playSfx('click')
         renderShop()
         break
-      case 'sacrifice-minus': {
-        // − undoes one previously-offered level (offer fewer)
+      case 'sacrifice-offer': {
+        // whole-row tap: offer ONE more level of this stat onto the altar, capped at both the
+        // stat's owned level and the sacrifice's total cost
         const id = el.dataset.id
+        const cost = sacrificeCost(meta.choiceSlots ?? 2)
         const have = sacrificePicks[id] ?? 0
-        if (have > 0) {
-          sacrificePicks[id] = have - 1
+        if (cost != null && sacrificeOffered() < cost && have < (meta.shop[id] ?? 0)) {
+          sacrificePicks[id] = have + 1
           sacrificeBounceId = id
           playSfx('click')
           renderShop()
         }
         break
       }
-      case 'sacrifice-plus': {
-        // + offers one more level (offer more), capped at both the stat's owned level and the
-        // sacrifice's total cost
+      case 'sacrifice-unoffer': {
+        // tap an altar chip: take ONE level back off the altar (drop the key at zero so no empty
+        // chip lingers and picks stays clean for the onSacrifice contract)
         const id = el.dataset.id
-        const cost = sacrificeCost(meta.choiceSlots ?? 2)
         const have = sacrificePicks[id] ?? 0
-        if (cost != null && sacrificeOffered() < cost && have < (meta.shop[id] ?? 0)) {
-          sacrificePicks[id] = have + 1
+        if (have > 0) {
+          if (have - 1 === 0) delete sacrificePicks[id]
+          else sacrificePicks[id] = have - 1
           sacrificeBounceId = id
           playSfx('click')
           renderShop()

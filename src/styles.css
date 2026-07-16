@@ -596,7 +596,9 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .title-logo, .modal, .lv-card, .card--bounce, .lv-card[data-rarity="mythic"],
   .modal-backdrop, .sacrifice-sheet, .confirm-sheet, .sacrifice-counter,
-  .sacrifice-counter--ready, .sacrifice-stat-row--bounce { animation: none; }
+  .sacrifice-counter--ready, .sacrifice-stat-row--bounce,
+  .sacrifice-modal--enter, .sacrifice-modal--enter .sacrifice-sheet,
+  .sacrifice-chip--pop { animation: none; }
 }
 
 /* daily-anomaly briefing screen (shown between title and a daily run) */
@@ -899,6 +901,13 @@ body {
 }
 
 /* ---- sacrifice sheet ---- */
+/* Enter animation (backdrop fade + sheet pop) is gated behind --enter, which ui.js applies ONLY on
+   the first render after the modal opens (sacrificeAnimated). The shop re-renders wholesale on each
+   tap, recreating this node — without the gate the enter would replay every tap (the "janky" bug).
+   The base rules deliberately carry NO animation so those re-renders paint silently. */
+.sacrifice-modal { animation: none; }
+.sacrifice-modal--enter { animation: pop-in 0.15s ease-out; }
+.sacrifice-modal--enter .sacrifice-sheet { animation: pop-in 0.22s ease-out; }
 .sacrifice-sheet {
   width: min(92vw, 420px);
   max-height: 85vh;
@@ -909,23 +918,57 @@ body {
   border-radius: 20px;
   background: var(--cream);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-  animation: pop-in 0.22s ease-out;
   overflow: hidden;
 }
-.sacrifice-sheet-head {
+/* ---- altar zone (pinned top): counter + one chip per offered stat ---- */
+.sacrifice-altar {
   flex-shrink: 0;
-  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 12px;
   border-bottom: 2px dashed #e0d6c4;
+  background: var(--danger-soft);
   text-align: center;
 }
+.sacrifice-altar--ready { background: #dff5ec; } /* mint tint once the altar is exactly full */
 .sacrifice-counter {
   display: inline-block;
   font-weight: 900;
   font-size: 1.6rem;
-  animation: counter-pop 0.25s ease-out;
+  animation: counter-pop 0.25s ease-out; /* per-tap pulse — meant to replay on every re-render */
 }
 .sacrifice-counter--ready { animation: counter-pop 0.25s ease-out, ready-pulse 0.9s ease-in-out infinite; }
-.sacrifice-modal-hint { margin: 6px 0 0; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
+.sacrifice-altar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+.sacrifice-altar-empty { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); opacity: 0.75; }
+.sacrifice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 11px;
+  border: 2px solid var(--danger);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--danger-edge);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+.sacrifice-chip:active { transform: scale(0.94); }
+.sacrifice-chip--pop { animation: counter-pop 0.25s ease-out; }
+.sacrifice-chip-name { white-space: nowrap; }
+.sacrifice-chip-count { color: var(--danger); font-weight: 900; }
 .sacrifice-sheet-body {
   flex: 1;
   min-height: 0;
@@ -936,18 +979,29 @@ body {
   gap: 8px;
   padding: 12px 14px;
 }
+/* whole-row offer target: no +/− buttons — one tap offers one level (see sacrifice-offer) */
 .sacrifice-stat-row {
   display: flex;
+  flex-shrink: 0; /* the sheet body is a scrollable flex column — without this, rows squish and clip their pips */
   align-items: center;
   gap: 10px;
+  width: 100%;
+  min-height: 48px;
   min-width: 0;
   padding: 10px 12px;
   border: 2px solid var(--cream-edge);
   border-radius: 14px;
   background: var(--cream-soft);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+.sacrifice-stat-row:active { transform: scale(0.99); background: var(--danger-soft); }
+.sacrifice-stat-row:disabled { opacity: 0.45; cursor: default; }
+.sacrifice-stat-row:disabled:active { transform: none; background: var(--cream-soft); }
 .sacrifice-stat-row--bounce { animation: bounce 0.35s ease-out; }
-.sacrifice-stat-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sacrifice-stat-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .sacrifice-stat-name {
   font-weight: 800;
   font-size: 0.92rem;
@@ -955,33 +1009,22 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.sacrifice-stat-effect { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); }
 .sacrifice-bonus-preview { font-size: 0.8rem; font-weight: 700; }
 .sacrifice-bonus-before { color: var(--ink-soft); }
 .sacrifice-bonus-after { color: var(--danger); font-weight: 800; }
-.sacrifice-stepper { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
-.sacrifice-step {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  border: 2px solid var(--danger);
-  background: #fff;
+.sacrifice-offer-affordance {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   color: var(--danger);
   font-size: 1.15rem;
-  font-weight: 800;
   line-height: 1;
-  cursor: pointer;
 }
-.sacrifice-step:active { transform: translateY(1px) scale(0.95); }
-.sacrifice-step:disabled { opacity: 0.35; cursor: default; }
-.sacrifice-step--minus { border-color: var(--cream-edge); color: var(--ink-soft); }
-.sacrifice-stepper-count {
-  min-width: 26px;
-  text-align: center;
-  font-weight: 900;
-  font-size: 1.15rem;
-  color: var(--ink-soft);
-}
-.sacrifice-stepper-count--active { color: var(--danger); }
+.sacrifice-offer-label { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+.sacrifice-stat-row:disabled .sacrifice-offer-affordance { color: var(--ink-soft); }
 .sacrifice-sheet-foot {
   flex-shrink: 0;
   display: flex;
