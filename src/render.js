@@ -515,18 +515,19 @@ export function createRenderer(app) {
   const dustLayer = new Container()
   const vignette = new Sprite(T.vignette)
   vignette.alpha = 0
-  world.addChild(floorLayer, entitiesLayer)
-  app.stage.addChild(world, currentLayer, idleLayer, dustLayer, vignette)
-  entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
-
   // v5.0 pond biome layers (empty/hidden for body): ambient current motes live on the stage
   // (screen space, like dust); obstacles + hazard pools read as ground decals under the roster;
   // toxin blooms hang over enemies but under the player; whip flashes sit over the weapons.
+  // Declared BEFORE the stage addChild below — currentLayer is referenced there (TDZ otherwise).
   const currentLayer = new Container()
   const poolLayer = new Container()
   const obstacleLayer = new Container()
   const bloomLayer = new Container()
   const whipLayer = new Container()
+
+  world.addChild(floorLayer, entitiesLayer)
+  app.stage.addChild(world, currentLayer, idleLayer, dustLayer, vignette)
+  entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   const gemLayer = new Container()
   const coinLayer = new Container()
