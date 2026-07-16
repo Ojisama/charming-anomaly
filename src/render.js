@@ -181,6 +181,675 @@ export function createRenderer(app) {
     return { tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay, baseR: ENEMIES[type].radius }
   }
 
+  // ---- Per-chapter creature silhouettes (v5.4) --------------------------------------
+  // Each creature is built from FLOWING PARAMETRIC PATHS, not stacked circles: a spine plus a
+  // half-width profile (`spineOutline`) for anything elongated, a radius-modulated closed loop
+  // (`radialOutline`) for anything blobby, and arc-length-tapered polylines (`taperStroke`) for
+  // legs / antennae / stingers. Volume comes from two low-alpha overlay passes in the same hue
+  // (a darker underside crescent + a lighter dorsal highlight) plus hairline detail strokes.
+  //
+  // Each drawXxx(g, elite, white) draws IDENTICAL OUTLINE geometry in both variants — `white`
+  // forces every body fill/stroke to 0xffffff for the hit-flash texture, so bounds (and thus the
+  // baked anchor) match and textures swap freely. Interior detail (shading, organelles, eyes,
+  // bands, veins) is normal-only since it never changes bounds. The soft ground-shadow stays
+  // normal-coloured in both variants (same trick as drawEnemy). Elites gain the golden crown
+  // above the silhouette's actual top.
+  //
+  // Every creature faces RIGHT: syncEnemies' default flip (+1) puts the player to the sprite's
+  // right, so heads/snouts point right and trailing bits (tadpole tail, wasp stinger) go left.
+  const ROSTER_BASE_R = { normal: ENEMIES.drone.radius, fast: ENEMIES.wisp.radius, tank: ENEMIES.tank.radius }
+
+  // soft ground shadow (drawn normal-coloured in both variants so bounds match)
+  function groundShadow(g, halfW, cy) {
+    g.ellipse(0, cy, halfW * 0.85, Math.max(4, halfW * 0.3)).fill({ color: 0x000000, alpha: 0.12 })
+  }
+  // elite golden crown, centred over the silhouette's top edge (`top` = that y)
+  function eliteCrown(g, top, r, white) {
+    g.poly([-r * 0.34, top, -r * 0.17, top - r * 0.42, 0, top - r * 0.14, r * 0.17, top - r * 0.42, r * 0.34, top])
+      .fill(white ? 0xffffff : 0xffd93d).stroke({ width: 1.5, color: white ? 0xffffff : 0xc9a227 })
+  }
+
+  // ---- silhouette construction helpers ----
+  // Closed loop from a polar radius function: fn(angle) -> radius. For blobs whose outline is one
+  // continuous membrane (cells) rather than an assembly of discs.
+  function radialOutline(fn, n = 48, sx = 1, sy = 1, cx = 0, cy = 0) {
+    const pts = []
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2
+      const rad = fn(a)
+      pts.push(cx + Math.cos(a) * rad * sx, cy + Math.sin(a) * rad * sy)
+    }
+    return pts
+  }
+  // Closed outline swept from a spine and a half-width profile: walk t0..t1 down one side, back up
+  // the other. spine(t) -> [x, y]; halfW(t) -> half-thickness normal to the spine. A profile that
+  // reaches 0 at an end closes to a point there (tail tips, stingers, gaster apex); one that stays
+  // fat gives a blunt cap. This is what makes a body taper instead of being a chain of circles.
+  function spineOutline(spine, halfW, n = 26, t0 = 0, t1 = 1) {
+    const top = []
+    const bot = []
+    for (let i = 0; i <= n; i++) {
+      const t = t0 + (t1 - t0) * (i / n)
+      const [x, y] = spine(t)
+      const [ax, ay] = spine(Math.max(0, t - 0.008))
+      const [bx, by] = spine(Math.min(1, t + 0.008))
+      const dx = bx - ax
+      const dy = by - ay
+      const len = Math.hypot(dx, dy) || 1
+      const nx = -dy / len
+      const ny = dx / len
+      const w = halfW(t)
+      top.push(x + nx * w, y + ny * w)
+      bot.unshift(x - nx * w, y - ny * w)
+    }
+    return [...top, ...bot]
+  }
+  // Stroke a jointed polyline with a linear width profile along its arc length. Sub-segments with
+  // round caps fuse into one smooth tapered limb, so legs/antennae narrow toward the tarsus/tip
+  // instead of being uniform-width sticks. `pts` = [[x,y], ...] — real joints, not smooth arcs.
+  function taperStroke(g, pts, w0, w1, color, sub = 3) {
+    const segs = []
+    let total = 0
+    for (let i = 0; i < pts.length - 1; i++) {
+      const d = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+      segs.push(d)
+      total += d
+    }
+    if (total <= 0) return
+    let done = 0
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i]
+      const [x1, y1] = pts[i + 1]
+      for (let s = 0; s < sub; s++) {
+        const fa = s / sub
+        const fb = (s + 1) / sub
+        const t = (done + segs[i] * (fa + fb) * 0.5) / total
+        g.beginPath()
+          .moveTo(x0 + (x1 - x0) * fa, y0 + (y1 - y0) * fa)
+          .lineTo(x0 + (x1 - x0) * fb, y0 + (y1 - y0) * fb)
+          .stroke({ width: Math.max(0.7, w0 + (w1 - w0) * t), color, cap: 'round' })
+      }
+      done += segs[i]
+    }
+  }
+  // Half-width profile primitive: a sine bulge over u in [0,1] shaped by exponent k (k<1 = blunt
+  // and full-shouldered, k>1 = slender). u is clamped and the sine floored at 0 because float
+  // drift at the endpoints (0.28 + 0.72 === 1.0000000000000002) would otherwise hand Math.pow a
+  // negative base and silently produce NaN — one NaN point blanks the whole baked texture.
+  function bulge(u, k) {
+    return Math.pow(Math.max(0, Math.sin(Math.PI * Math.min(1, Math.max(0, u)))), k)
+  }
+  // A dark creature eye: no white sclera, just the lens + at most one pinprick specular.
+  function darkEye(g, x, y, rx, ry, color, hi) {
+    g.ellipse(x, y, rx, ry).fill(color)
+    if (hi) g.circle(x + rx * 0.34, y - ry * 0.38, Math.max(0.6, rx * 0.3)).fill({ color: 0xffffff, alpha: 0.9 })
+  }
+
+  // --- Body chapter (warm pink interior) ---
+  // The Body floor is a PALE warm pink (~0xf3e2dc, relative luminance ~0.79). Every creature here
+  // must therefore separate from it by VALUE, not hue: deep/saturated fills and — where the fill has
+  // to stay pale (the white cell IS white) — a thick dark membrane that carries the silhouette on
+  // its own. Pale-on-pale is the failure mode; a hard dark edge is the fix.
+  //
+  // redcell: one tilted biconcave disc, but a FLEXED one — the outline radius carries a soft concave
+  // dent on the upper-left plus a low 2-lobe wobble, so it is never a clean lozenge (real RBCs
+  // deform as they squeeze through). Thick dark rim for edge contrast on pink, a bright specular
+  // crescent along the upper-left rim so it reads as a solid object rather than a flat sticker.
+  function drawRedcell(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const tilt = -0.13
+    const ct = Math.cos(tilt)
+    const st = Math.sin(tilt)
+    const rot = (x, y) => [x * ct - y * st, x * st + y * ct]
+    groundShadow(g, r, r * 0.85)
+    // the fold: a gaussian bite out of the radius around a=2.35rad, plus a gentle 2-lobe wobble
+    const fold = (a) => {
+      let d = a - 2.35
+      while (d > Math.PI) d -= Math.PI * 2
+      while (d < -Math.PI) d += Math.PI * 2
+      return Math.exp(-(d / 0.62) * (d / 0.62))
+    }
+    const edge = (a) => r * (1 + 0.05 * Math.cos(a * 2 + 0.8) - 0.19 * fold(a))
+    const disc = (k) => {
+      const pts = []
+      for (let i = 0; i < 56; i++) {
+        const a = (i / 56) * Math.PI * 2
+        const e = edge(a) * k
+        pts.push(...rot(Math.cos(a) * e, Math.sin(a) * e * 0.71))
+      }
+      return pts
+    }
+    g.poly(disc(1)).fill(f(0xd64545)).stroke({ width: Math.max(3, r * 0.2), color: f(0x6e1a1a) })
+    if (!white) {
+      // volume: darker underside crescent, lighter dorsal sheen (both same hue family)
+      g.ellipse(r * 0.05, r * 0.2, r * 0.8, r * 0.42).fill({ color: 0x8a2424, alpha: 0.26 })
+      g.ellipse(-r * 0.12, -r * 0.24, r * 0.68, r * 0.3).fill({ color: mix(0xd64545, 0xffffff, 0.45), alpha: 0.16 })
+      // rim specular: the top-left slice of the outline, inset and stroked bright — a lit edge
+      const lit = []
+      for (let i = 0; i <= 14; i++) {
+        const a = Math.PI * (0.98 + (i / 14) * 0.62)
+        const e = edge(a) * 0.9
+        lit.push(...rot(Math.cos(a) * e, Math.sin(a) * e * 0.71))
+      }
+      g.poly(lit, false).stroke({ width: Math.max(1.6, r * 0.1), color: mix(0xd64545, 0xffffff, 0.6), alpha: 0.55, cap: 'round' })
+      // the torus rim reads as a faint lighter ring around the biconcave dimple
+      g.poly(disc(0.66)).stroke({ width: 2, color: mix(0xd64545, 0xffffff, 0.3), alpha: 0.32 })
+      const [dx, dy] = rot(-r * 0.04, 0)
+      g.ellipse(dx, dy, r * 0.42, r * 0.29).fill({ color: 0x8a2424, alpha: 0.34 })
+      g.ellipse(dx, dy, r * 0.24, r * 0.16).fill({ color: 0x6e1a1a, alpha: 0.4 })
+    }
+    if (elite) eliteCrown(g, -r * 0.74, r, white)
+  }
+  // wbc: amoeboid ivory cell — ONE closed membrane with irregular lobes of varying depth (three
+  // beat frequencies, no regular flower). The fill stays pale (it IS a white cell), so ALL of the
+  // contrast against the pale pink floor is carried by a thick near-black-brown membrane plus a
+  // ragged fringe of pseudopodia/filopodia around the leading (right) half — the fringe is both the
+  // "this is hunting you" motion cue and what makes the silhouette unmistakably not a bubble.
+  // Internal contrast comes from a deep saturated violet nucleus.
+  function drawWbc(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x4a3f33)
+    groundShadow(g, r, r * 1.0)
+    const membrane = (a) => r * (0.82 + 0.085 * Math.cos(a * 3 + 0.6) + 0.06 * Math.cos(a * 5 - 2.1) + 0.045 * Math.sin(a * 8 + 1.2))
+    // filopodia: fine tapered spikes, irregular in angle/length, clustered on the leading half.
+    // Drawn before the membrane so their roots vanish under the body. Geometry is identical in both
+    // variants (only the colour differs) so the white twin's bounds still match.
+    const spikes = [[-1.15, 0.3], [-0.78, 0.19], [-0.42, 0.26], [-0.16, 0.14], [0.18, 0.31], [0.5, 0.17],
+      [0.86, 0.24], [1.24, 0.13], [1.66, 0.22], [2.5, 0.16], [3.02, 0.25], [4.55, 0.15], [5.1, 0.21], [5.66, 0.12]]
+    for (const [a, len] of spikes) {
+      const rad = membrane(a)
+      const x0 = Math.cos(a) * rad * 0.86
+      const y0 = Math.sin(a) * rad * 0.94 * 0.86
+      const x1 = Math.cos(a) * (rad + r * len)
+      const y1 = Math.sin(a) * (rad + r * len) * 0.94
+      taperStroke(g, [[x0, y0], [x1, y1]], Math.max(2, r * 0.11), 0.8, line, 4)
+    }
+    g.poly(radialOutline(membrane, 60, 1, 0.94)).fill(f(0xf2ead8)).stroke({ width: Math.max(3, r * 0.18), color: line })
+    if (!white) {
+      g.ellipse(r * 0.04, r * 0.3, r * 0.72, r * 0.44).fill({ color: 0xa89678, alpha: 0.3 })
+      g.ellipse(-r * 0.1, -r * 0.3, r * 0.6, r * 0.34).fill({ color: 0xfffaf0, alpha: 0.3 })
+      // multi-lobed nucleus: one path, three overlapping lobes (a real neutrophil read)
+      const nucleus = (a) => r * 0.46 * (0.78 + 0.28 * Math.cos(a * 3 - 0.9))
+      g.poly(radialOutline(nucleus, 44, 1, 1, -r * 0.06, r * 0.02)).fill({ color: 0x4a2a6b, alpha: 0.92 })
+      g.poly(radialOutline((a) => nucleus(a) * 0.62, 44, 1, 1, -r * 0.06, r * 0.02)).fill({ color: 0x2d1745, alpha: 0.75 })
+      for (const [gx, gy, gr] of [[-r * 0.5, -r * 0.34, r * 0.075], [r * 0.42, -r * 0.2, r * 0.06], [r * 0.5, r * 0.24, r * 0.05], [-r * 0.34, r * 0.46, r * 0.065], [r * 0.16, r * 0.52, r * 0.045], [-r * 0.62, r * 0.1, r * 0.05]]) {
+        g.circle(gx, gy, gr).fill({ color: 0x6b5a8c, alpha: 0.5 })
+      }
+    }
+    if (elite) eliteCrown(g, -r * 0.92, r, white)
+  }
+  // antibody: an immunoglobulin — two Fab arms + one Fc stem, built as ONE union outline (each limb
+  // tapers from a wide hinge to a rounded tip, with a concave notch where the three meet). No face:
+  // it's a protein. Bronze/amber rather than pale gold, because pale gold sat at nearly the same
+  // value as the pink floor and disappeared; the arms are chunky and rooted in a hinge mass so it
+  // reads as something that GRABS.
+  function drawAntibody(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const hx = 0
+    const hy = -r * 0.12
+    // [angle, length, halfW at hinge, halfW at tip] — slight length/angle asymmetry keeps it organic
+    const limbs = [
+      [Math.PI * 0.5, r * 0.98, r * 0.42, r * 0.3],   // Fc stem, down
+      [Math.PI * 1.32, r * 0.98, r * 0.4, r * 0.27],  // Fab, up-left
+      [Math.PI * 1.72, r * 0.94, r * 0.38, r * 0.25], // Fab, up-right (a touch shorter)
+    ].sort((a, b) => a[0] - b[0])
+    groundShadow(g, r, r * 1.0)
+    // hinge mass: a chunk of protein where the three limbs meet. Drawn under the union so its dark
+    // ring only shows in the notches between limbs — it fills them out into a grabbing claw rather
+    // than a thin letter Y. Same geometry in both variants; well inside the union's bounds.
+    g.circle(hx, hy, r * 0.52).fill(f(0xb87a24)).stroke({ width: Math.max(2, r * 0.2), color: f(0x5e360b) })
+    const pts = []
+    for (const [th, len, wH, wT] of limbs) {
+      const ux = Math.cos(th)
+      const uy = Math.sin(th)
+      const nx = -uy
+      const ny = ux
+      // base corners sit slightly BEHIND the hinge so the limbs fuse; the chord between adjacent
+      // limbs' base corners becomes the subtle hinge notch.
+      const bx = hx - ux * r * 0.06
+      const by = hy - uy * r * 0.06
+      const ex = hx + ux * len
+      const ey = hy + uy * len
+      pts.push(bx - nx * wH, by - ny * wH)
+      for (let i = 0; i <= 6; i++) { // rounded tip cap
+        const a = th - Math.PI * 0.5 + (i / 6) * Math.PI
+        pts.push(ex + Math.cos(a) * wT, ey + Math.sin(a) * wT)
+      }
+      pts.push(bx + nx * wH, by + ny * wH)
+    }
+    g.poly(pts).fill(f(0xb87a24)).stroke({ width: Math.max(2.4, r * 0.2), color: f(0x5e360b) })
+    if (!white) {
+      g.ellipse(hx, hy + r * 0.5, r * 0.34, r * 0.44).fill({ color: 0x5e360b, alpha: 0.22 })
+      g.ellipse(hx - r * 0.44, hy - r * 0.46, r * 0.3, r * 0.32).fill({ color: mix(0xb87a24, 0xffffff, 0.45), alpha: 0.2 })
+      g.circle(hx, hy, r * 0.3).fill({ color: 0x8c5511, alpha: 0.5 }) // hinge core
+      g.circle(hx, hy, r * 0.13).fill({ color: 0x5e360b, alpha: 0.55 })
+      for (const [th] of limbs) { // a crease from the hinge core into each limb — reads as a joint
+        g.beginPath().moveTo(hx + Math.cos(th) * r * 0.28, hy + Math.sin(th) * r * 0.28)
+          .lineTo(hx + Math.cos(th) * r * 0.62, hy + Math.sin(th) * r * 0.62)
+          .stroke({ width: 1.4, color: 0x5e360b, alpha: 0.4, cap: 'round' })
+      }
+    }
+    if (elite) eliteCrown(g, -r * 1.1, r, white)
+  }
+
+  // --- Pond chapter (teal water) ---
+  // The pond floor is a mid-dark teal (bg 0x2e6258 under blotches multiplied by floorTint 0x66c2a9).
+  // The old roster was a low-saturation green/olive/tan family — i.e. the floor's own family — and
+  // camouflaged itself. The three creatures are now pushed apart on BOTH value and hue, and each
+  // takes a different corner so they are also mutually distinct:
+  //   amoeba     = BRIGHT (luminous chartreuse, glows off the teal)
+  //   tadpole    = DARK   (near-black, a silhouette on the teal)
+  //   tardigrade = LIGHT-WARM (pale amber sand, the only warm thing in the water)
+  // Elite pond bodies are tinted by a pale iridescent hue (mixed 50% to white first), so the tint
+  // multiply is gentle — these fills all survive it without going muddy (nothing here relies on a
+  // channel that a pale blue/pink/mint multiply would crush).
+  //
+  // amoeba: one membrane whose radius is a sum of broad blunt pseudopod bumps over a low base, so
+  // 4 pods reach out further than the rest, ringed on the leading side by a ragged cilia fringe.
+  // Translucent ectoplasm + solid endoplasm + a much darker nucleus for internal contrast.
+  function drawAmoeba(g, elite, white) {
+    const r = 16
+    groundShadow(g, r, r * 1.0)
+    // blunt pseudopods: wide gaussians in 4 directions, unequal reach (nothing bilaterally boring)
+    const pods = [[0.35, 1.0, 0.85], [1.95, 0.86, 1.0], [3.4, 0.95, 0.78], [5.05, 0.72, 0.92]]
+    const membrane = (a) => {
+      let rad = 0.54
+      for (const [dir, len, wid] of pods) {
+        let d = a - dir
+        while (d > Math.PI) d -= Math.PI * 2
+        while (d < -Math.PI) d += Math.PI * 2
+        rad += 0.44 * len * Math.exp(-(d / wid) * (d / wid))
+      }
+      return r * Math.min(1, rad)
+    }
+    const lw = Math.max(2.5, r * 0.17)
+    const line = white ? 0xffffff : 0x3f6a0c
+    // cilia: short irregular tapered spikes, densest on the leading (right) side. Under the membrane
+    // so the roots are hidden; identical geometry in both variants.
+    const cilia = [[-0.95, 0.22], [-0.6, 0.13], [-0.28, 0.24], [0.06, 0.15], [0.34, 0.26], [0.62, 0.12],
+      [0.94, 0.2], [1.3, 0.14], [2.62, 0.19], [2.95, 0.11], [3.9, 0.13], [4.3, 0.2], [5.5, 0.12], [5.9, 0.18]]
+    for (const [a, len] of cilia) {
+      const rad = membrane(a)
+      taperStroke(g, [[Math.cos(a) * rad * 0.85, Math.sin(a) * rad * 0.85], [Math.cos(a) * (rad + r * len), Math.sin(a) * (rad + r * len)]],
+        Math.max(1.8, r * 0.1), 0.7, line, 4)
+    }
+    if (white) {
+      g.poly(radialOutline(membrane, 60)).fill(0xffffff).stroke({ width: lw, color: 0xffffff })
+    } else {
+      g.poly(radialOutline(membrane, 60)).fill({ color: 0xd8f24a, alpha: 0.55 }).stroke({ width: lw, color: line })
+      g.poly(radialOutline((a) => membrane(a) * 0.68, 60, 1, 1, -r * 0.03, r * 0.02)).fill(0xd8f24a)
+      g.ellipse(r * 0.02, r * 0.3, r * 0.44, r * 0.24).fill({ color: 0x6d9414, alpha: 0.28 })
+      g.ellipse(-r * 0.14, -r * 0.24, r * 0.36, r * 0.2).fill({ color: 0xf4ffb0, alpha: 0.35 })
+      g.ellipse(r * 0.3, r * 0.16, r * 0.32, r * 0.27).fill({ color: 0x27400a, alpha: 0.85 }) // nucleus
+      g.ellipse(r * 0.3, r * 0.16, r * 0.14, r * 0.12).fill({ color: 0x101c03, alpha: 0.7 })
+      g.circle(-r * 0.3, -r * 0.02, r * 0.16).stroke({ width: 1.6, color: 0x3f6a0c, alpha: 0.75 }) // vacuoles
+      g.circle(-r * 0.06, -r * 0.34, r * 0.1).stroke({ width: 1.3, color: 0x3f6a0c, alpha: 0.65 })
+    }
+    if (elite) eliteCrown(g, -r * 0.95, r, white)
+  }
+  // tadpole: head + trunk + tail are ONE tapered path (no seam) — a spine that runs right-to-left
+  // with an S-wave and a sin profile that is fat at the head and closes to a point at the tail tip,
+  // wrapped in a translucent caudal fin. Near-black body + a bright pale belly + pale-rimmed eyes:
+  // at 24px on mid-teal water it reads as a dark darting silhouette with two visible eye points.
+  function drawTadpole(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const noseX = r * 1.0
+    const len = r * 3.2 // nose at +1.0r -> tail tip at -2.2r
+    const R0 = r * 0.82
+    const spine = (t) => [noseX - t * len, Math.sin(t * Math.PI * 1.65) * r * 0.3 * Math.pow(t, 1.25)]
+    // Profile = a fat trunk lobe (gaussian, peaking just behind the nose) + a thin muscular tail
+    // rod that carries on to a point. Keeping the two terms separate is what makes the trunk read
+    // as a body and the tail as a TAIL — a single sin() bulge just gives you a leaf.
+    const body = (t) => {
+      const nose = t < 0.1 ? Math.sqrt(1 - Math.pow((0.1 - t) / 0.1, 2)) : 1
+      const trunk = Math.exp(-Math.pow((t - 0.18) / 0.24, 2))
+      const rod = 0.22 * Math.pow(Math.max(0, 1 - t), 0.85)
+      return R0 * nose * (trunk + rod)
+    }
+    // caudal fin: a tall translucent membrane wrapping the tail rod, closing at the tip
+    const fin = (t) => (t < 0.28 ? 0 : R0 * 0.95 * bulge((t - 0.28) / 0.72, 0.65))
+    groundShadow(g, r * 1.5, r * 0.85)
+    // fin first (behind the body); solid on the white twin so bounds match its translucent self
+    g.poly(spineOutline(spine, fin, 26, 0.28, 1)).fill(white ? 0xffffff : { color: 0x2f2a20, alpha: 0.5 })
+    g.poly(spineOutline(spine, body, 30)).fill(f(0x241d16)).stroke({ width: Math.max(2.2, r * 0.16), color: f(0x0b0806) })
+    if (!white) {
+      g.ellipse(r * 0.32, r * 0.34, r * 0.52, r * 0.28).fill({ color: 0xd9cfae, alpha: 0.85 }) // pale belly
+      g.ellipse(r * 0.3, -r * 0.36, r * 0.42, r * 0.2).fill({ color: 0x8c8068, alpha: 0.3 })   // dorsal sheen
+      g.beginPath()
+      for (let i = 0; i < 3; i++) { // myotome creases across the trunk, where there is still width
+        const t = 0.3 + i * 0.075
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x + r * 0.05, y - w * 0.82).lineTo(x - r * 0.05, y + w * 0.82)
+      }
+      g.stroke({ width: 1.1, color: 0x8c8068, alpha: 0.4 })
+      for (const s of [-1, 1]) { // lateral eyes: prominent, set wide, bright pale rim carries them
+        g.ellipse(r * 0.56, s * r * 0.52, r * 0.22, r * 0.2).fill(0xe8dfc2)
+        darkEye(g, r * 0.56, s * r * 0.52, r * 0.14, r * 0.13, 0x000000, true)
+      }
+    }
+    if (elite) eliteCrown(g, -r * 0.92, r, white)
+  }
+  // tardigrade: water bear in a slight 3/4 profile — ONE lumpy tapered outline (4 segment lumps
+  // riding a rear-narrowing taper, rounded snout cap on the right), 4 prominent near-side legs with
+  // claws + 3 darker far-side legs behind for depth. Pale warm sand body with dark legs and dark
+  // segment creases: the only warm-LIGHT thing in the cool mid-value water, and the creases keep it
+  // from being a featureless light blob.
+  function drawTardigrade(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const far = white ? 0xffffff : 0x4a2c10
+    const near = f(0x8a5320)
+    const frontX = r * 0.95
+    const len = r * 1.95 // snout +0.95r -> rear -1.0r
+    const H = r * 0.66
+    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI) * r * 0.03]
+    const body = (t) => {
+      const cap = bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.5 ? 0.22 : 0.4)
+      const ripple = 1 + 0.075 * Math.cos((t * 4 - 0.12) * Math.PI * 2)
+      return H * cap * ripple * (1 - 0.3 * t)
+    }
+    groundShadow(g, r * 1.1, H + r * 0.32)
+    const leg = (x, y, kx, ky, fx, fy, col, w) => {
+      taperStroke(g, [[x, y], [kx, ky], [fx, fy]], w, w * 0.42, col)
+      const ux = fx - kx
+      const uy = fy - ky
+      const m = Math.hypot(ux, uy) || 1
+      for (const s of [-1, 1]) { // two tiny claws
+        taperStroke(g, [[fx, fy], [fx + (ux / m) * r * 0.1 + s * (-uy / m) * r * 0.07, fy + (uy / m) * r * 0.1 + s * (ux / m) * r * 0.07]], w * 0.42, 0.8, col)
+      }
+    }
+    // far side first (behind the body, darker) — shorter and higher, so the body overlaps them
+    for (const t of [0.28, 0.55, 0.82]) {
+      const [x, y] = spine(t)
+      leg(x, y + H * 0.2, x - r * 0.14, y + H * 0.62, x - r * 0.2, y + H * 0.95, far, r * 0.13)
+    }
+    g.poly(spineOutline(spine, body, 40)).fill(f(0xecc888)).stroke({ width: Math.max(3, r * 0.14), color: f(0x6b4520) })
+    // near side legs: stubby, jointed, splayed — angle/length varied per pair
+    const nearLegs = [[0.2, 0.22, 1.0], [0.44, 0.06, 0.94], [0.68, -0.1, 1.0], [0.9, -0.2, 0.86]]
+    for (const [t, sweep, scale] of nearLegs) {
+      const [x, y] = spine(t)
+      const oy = y + body(t) * 0.55
+      leg(x, oy, x + sweep * r * 0.2, oy + r * 0.3 * scale, x + sweep * r * 0.34, oy + r * 0.58 * scale, near, r * 0.19)
+    }
+    if (!white) {
+      g.ellipse(-r * 0.02, H * 0.42, r * 0.72, H * 0.44).fill({ color: 0x8a5320, alpha: 0.24 })
+      g.ellipse(r * 0.06, -H * 0.4, r * 0.6, H * 0.3).fill({ color: 0xfff3d2, alpha: 0.4 })
+      g.beginPath()
+      for (const t of [0.24, 0.48, 0.72]) { // segment creases: deep and dark, the light body's detail
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x + r * 0.05, y - w * 0.86).lineTo(x - r * 0.04, y + w * 0.86)
+      }
+      g.stroke({ width: 2, color: 0x6b4520, alpha: 0.85 })
+      g.beginPath() // far-side leg roots read as creases too
+      g.moveTo(frontX - r * 0.02, -r * 0.12).lineTo(frontX - r * 0.02, r * 0.12)
+      g.stroke({ width: 1.2, color: 0x6b4520, alpha: 0.5 })
+      g.circle(r * 0.84, r * 0.02, r * 0.11).stroke({ width: 2.2, color: 0x4e2f12, alpha: 0.9 }) // terminal mouth ring
+      g.circle(r * 0.84, r * 0.02, r * 0.045).fill({ color: 0x2a1806, alpha: 0.8 })
+      // primitive eyespot: a pigment cup, but sat on a pale rim so the eye still lands at 24px
+      g.ellipse(r * 0.6, -r * 0.16, r * 0.14, r * 0.125).fill(0xfff3d2)
+      darkEye(g, r * 0.6, -r * 0.16, r * 0.085, r * 0.075, 0x1a1206, false)
+      g.ellipse(r * 0.71, -r * 0.03, r * 0.055, r * 0.048).fill({ color: 0x1a1206, alpha: 0.5 })
+    }
+    if (elite) eliteCrown(g, -H * 1.05, r, white)
+  }
+
+  // --- Garden chapter (lawn green) ---
+  // ant: head (right) + narrow thorax + a VISIBLE petiole node + a big tapered gaster (left) — three
+  // separate flowing paths so the waist reads, 6 jointed legs (coxa->femur->tibia->tarsus) in
+  // forward/mid/back pairs, elbowed antennae (scape then funiculus), mandibles.
+  function drawAnt(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x5e2e18)
+    const lw = Math.max(2.2, r * 0.12)
+    groundShadow(g, r, r * 0.72)
+    // legs: 3 per side, each 3 straight-ish segments to a fine tarsus; the far side (s=-1) is
+    // slightly shorter/tighter so the pose is not mirror-boring.
+    const legSets = [
+      [[0.46, 0.16], [0.96, 0.72], [1.2, 1.02]],   // fore, angled forward
+      [[0.28, 0.17], [0.44, 0.82], [0.32, 1.15]],  // mid, straight out
+      [[0.04, 0.16], [-0.44, 0.76], [-0.88, 1.05]], // hind, angled back
+    ]
+    for (const s of [-1, 1]) {
+      const ys = s < 0 ? 0.9 : 1
+      const xs = s < 0 ? 1.04 : 1
+      for (const set of legSets) {
+        const p = set.map(([lx, ly]) => [lx * r * xs, s * ly * r * ys])
+        taperStroke(g, [[p[0][0], p[0][1] * 0.4], ...p], r * 0.16, r * 0.05, line)
+      }
+    }
+    // elbowed antennae: long scape, then a bent funiculus (different bends per side)
+    taperStroke(g, [[r * 0.96, -r * 0.1], [r * 1.3, -r * 0.42], [r * 1.16, -r * 0.86]], r * 0.13, r * 0.045, line)
+    taperStroke(g, [[r * 0.96, r * 0.1], [r * 1.34, r * 0.36], [r * 1.1, r * 0.8]], r * 0.13, r * 0.045, line)
+    // mandibles: two small forward points
+    taperStroke(g, [[r * 1.02, -r * 0.14], [r * 1.28, -r * 0.04]], r * 0.11, r * 0.035, line)
+    taperStroke(g, [[r * 1.02, r * 0.14], [r * 1.26, r * 0.06]], r * 0.11, r * 0.035, line)
+    // gaster: egg tapering to a rounded apex at the rear
+    const gSpine = (t) => [-r * 0.35 - t * r * 1.0, t * r * 0.04]
+    const gW = (t) => r * 0.5 * bulge(0.1 + 0.9 * t, 0.62)
+    g.poly(spineOutline(gSpine, gW, 30)).fill(f(0x9e5230)).stroke({ width: lw, color: line })
+    // petiole: the ant signature — a thin waist with a raised node
+    taperStroke(g, [[-r * 0.36, 0], [-r * 0.06, 0]], r * 0.15, r * 0.17, f(0x9e5230))
+    g.circle(-r * 0.22, -r * 0.03, r * 0.11).fill(f(0x9e5230)).stroke({ width: 1.4, color: line })
+    // thorax: narrow, humped
+    const tSpine = (t) => [-r * 0.06 + t * r * 0.62, -t * r * 0.04]
+    const tW = (t) => r * 0.27 * (0.72 + 0.28 * bulge(Math.pow(t, 0.8), 1))
+    g.poly(spineOutline(tSpine, tW, 20)).fill(f(0x9e5230)).stroke({ width: lw * 0.85, color: line })
+    // head: egg, wider behind the eyes than at the mandibles
+    g.poly(radialOutline((a) => r * 0.36 * (1 - 0.1 * Math.cos(a)), 40, 1, 0.95, r * 0.76, -r * 0.02))
+      .fill(f(0x9e5230)).stroke({ width: lw, color: line })
+    if (!white) {
+      g.ellipse(-r * 0.8, r * 0.16, r * 0.42, r * 0.26).fill({ color: 0x5e2e18, alpha: 0.22 })
+      g.ellipse(-r * 0.78, -r * 0.16, r * 0.34, r * 0.18).fill({ color: mix(0x9e5230, 0xffffff, 0.45), alpha: 0.16 })
+      g.ellipse(r * 0.72, -r * 0.14, r * 0.2, r * 0.1).fill({ color: mix(0x9e5230, 0xffffff, 0.45), alpha: 0.16 })
+      g.beginPath()
+      for (const t of [0.34, 0.55, 0.75]) { // gaster tergite plates
+        const [x, y] = gSpine(t)
+        const w = gW(t)
+        g.moveTo(x + r * 0.03, y - w * 0.88).lineTo(x - r * 0.03, y + w * 0.88)
+      }
+      g.stroke({ width: 1.2, color: 0x5e2e18, alpha: 0.5 })
+      for (const s of [-1, 1]) darkEye(g, r * 0.84, s * r * 0.17, r * 0.13, r * 0.15, 0x2a1409, true)
+    }
+    if (elite) eliteCrown(g, -r * 0.52, r, white)
+  }
+  // wasp: pinched waist between a dark thorax and a TAPERED abdomen that closes into a fine stinger
+  // (left); the 3 yellow/black bands are slices of the abdomen's own outline so they follow the
+  // taper. Two translucent wings with hairline venation, swept back. Dark head, compound eyes.
+  function drawWasp(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const lw = Math.max(2, r * 0.14)
+    groundShadow(g, r, r * 0.8)
+    const aSpine = (t) => [r * 0.18 - t * r * 1.22, t * r * 0.06]
+    const aW = (t) => r * 0.62 * bulge(0.1 + 0.9 * t, 0.55)
+    // wings first (behind); solid white on the twin so the translucent originals' bounds match
+    const wing = (bx, by, tx, ty, W) => {
+      const s = (t) => [bx + (tx - bx) * t, by + (ty - by) * t]
+      const w = (t) => W * bulge(Math.pow(t, 0.55), 0.85)
+      g.poly(spineOutline(s, w, 20)).fill(white ? 0xffffff : { color: 0xffffff, alpha: 0.4 })
+        .stroke({ width: 1.2, color: white ? 0xffffff : 0xbcd2dd, alpha: white ? 1 : 0.8 })
+      if (!white) {
+        // Hairline venation. Each vein rides the wing's OWN half-width profile (offset = w(t)*v,
+        // |v| <= 0.55), so it fans with the taper and can never reach past the wing's stroked
+        // outline — which keeps the normal variant's bounds identical to the white twin's.
+        const nx = -(ty - by)
+        const ny = tx - bx
+        const m = Math.hypot(nx, ny) || 1
+        g.beginPath()
+        for (const v of [-0.5, 0.05, 0.55]) {
+          for (let i = 0; i <= 5; i++) {
+            const t = 0.08 + (0.9 - 0.08) * (i / 5)
+            const [sx, sy] = s(t)
+            const o = w(t) * v
+            const px = sx + (nx / m) * o
+            const py = sy + (ny / m) * o
+            if (i === 0) g.moveTo(px, py)
+            else g.lineTo(px, py)
+          }
+        }
+        g.stroke({ width: 1, color: 0x8fb0c0, alpha: 0.55 })
+      }
+    }
+    wing(r * 0.5, -r * 0.16, -r * 0.9, -r * 0.82, r * 0.26)
+    wing(r * 0.5, r * 0.16, -r * 0.78, r * 0.72, r * 0.22)
+    // stinger: fine tapered spike off the abdomen apex (sets the left bound in both variants)
+    taperStroke(g, [[-r * 1.02, r * 0.06], [-r * 1.36, r * 0.12]], r * 0.16, 0.7, f(0x2a2a2a))
+    g.poly(spineOutline(aSpine, aW, 30)).fill(f(0xf2c93a)).stroke({ width: lw, color: f(0xb8942a) })
+    if (!white) {
+      for (const [t0, t1] of [[0.1, 0.26], [0.4, 0.56], [0.7, 0.86]]) {
+        g.poly(spineOutline(aSpine, aW, 8, t0, t1)).fill(0x2a2a2a) // bands follow the taper
+      }
+      g.ellipse(-r * 0.4, r * 0.3, r * 0.5, r * 0.2).fill({ color: 0xb8942a, alpha: 0.2 })
+      g.ellipse(-r * 0.4, -r * 0.3, r * 0.42, r * 0.14).fill({ color: mix(0xf2c93a, 0xffffff, 0.5), alpha: 0.18 })
+    }
+    // pinched waist (petiole)
+    taperStroke(g, [[r * 0.14, 0], [r * 0.36, 0]], r * 0.14, r * 0.16, f(0x2a2a2a))
+    // legs: 6 short danglers off the thorax
+    for (const s of [-1, 1]) {
+      const ys = s < 0 ? 0.88 : 1
+      for (const [ox, kx, ky, fx, fy] of [[0.72, 0.98, 0.5, 1.1, 0.76], [0.55, 0.6, 0.58, 0.44, 0.84], [0.4, 0.24, 0.56, 0.02, 0.8]]) {
+        taperStroke(g, [[r * ox, s * r * 0.1], [r * kx, s * r * ky * ys], [r * fx, s * r * fy * ys]], r * 0.12, r * 0.04, f(0x1c1c1c))
+      }
+    }
+    // thorax + head
+    const thSpine = (t) => [r * 0.34 + t * r * 0.5, 0]
+    g.poly(spineOutline(thSpine, (t) => r * 0.36 * (0.76 + 0.24 * bulge(Math.pow(t, 0.7), 1)), 20))
+      .fill(f(0x2a2a2a)).stroke({ width: lw * 0.8, color: f(0x101010) })
+    g.poly(radialOutline((a) => r * 0.3 * (1 - 0.14 * Math.cos(a)), 32, 0.86, 1, r * 0.98, -r * 0.02))
+      .fill(f(0x2a2a2a)).stroke({ width: lw * 0.7, color: f(0x101010) })
+    if (!white) {
+      g.ellipse(r * 0.58, -r * 0.14, r * 0.2, r * 0.1).fill({ color: 0x6a6a6a, alpha: 0.35 })
+      for (const s of [-1, 1]) darkEye(g, r * 0.98, s * r * 0.15, r * 0.09, r * 0.13, 0x0b0b12, true)
+    }
+    if (elite) eliteCrown(g, -r * 0.9, r, white)
+  }
+  // spider: a large egg-shaped abdomen (left) + a distinctly smaller cephalothorax (right) joined at
+  // a pedicel, 8 jointed legs (femur raised out to a knee, then tibia back down to a fine tarsus)
+  // with the front pair reaching furthest, pedipalps, folium marking, and an 8-eye cluster.
+  function drawSpider(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x3a2337)
+    const lw = Math.max(2.5, r * 0.12)
+    const farLine = white ? 0xffffff : mix(0x3a2337, 0x000000, 0.35)
+    groundShadow(g, r, r * 0.95)
+    // Abdomen as a TRUE OVOID. A spine + width-profile is the wrong primitive here: a sin^k profile
+    // holds ~95% of max across its whole middle, which draws a barrel with flat parallel sides. So
+    // parametrise the closed curve directly — x sweeps as cos(u) while the half-width carries an
+    // asymmetry term (1 + k*cos u), k<0. That fattens the rear and narrows the front, putting the
+    // widest point ~64% back from the pedicel, and every point sits on a curve: no straight runs,
+    // no corner radius. NORM rescales the peak of that term back to 1.
+    const AB = { cx: -r * 0.52, cy: -r * 0.02, L: r * 0.78, W: r * 0.6, k: -0.32, tilt: -0.1 }
+    const NORM = 1.046
+    const abPt = (u, sw = 1) => {
+      const x = AB.L * Math.cos(u)
+      const y = AB.W * sw * Math.sin(u) * (1 + AB.k * Math.cos(u)) / NORM
+      const c = Math.cos(AB.tilt)
+      const s = Math.sin(AB.tilt)
+      return [AB.cx + x * c - y * s, AB.cy + x * s + y * c]
+    }
+    const abPath = (n = 56, sw = 1) => {
+      const p = []
+      for (let i = 0; i < n; i++) { const [x, y] = abPt((i / n) * Math.PI * 2, sw); p.push(x, y) }
+      return p
+    }
+    // A band between two half-width scales over a u range. Both edges share the same x(u), so the
+    // band tracks the abdomen's own curvature and cannot escape the silhouette at any tilt.
+    const abBand = (u0, u1, swOut, swIn, n = 22) => {
+      const p = []
+      for (let i = 0; i <= n; i++) { const [x, y] = abPt(u0 + (u1 - u0) * (i / n), swOut); p.push(x, y) }
+      for (let i = n; i >= 0; i--) { const [x, y] = abPt(u0 + (u1 - u0) * (i / n), swIn); p.push(x, y) }
+      return p
+    }
+    // legs: origin on the cephalothorax -> raised femur to an outermost knee -> descending tibia ->
+    // fine tarsus. Four distinct radial directions per side (forward / fwd-mid / back-mid / back)
+    // so they splay instead of clustering; the front pair reaches furthest.
+    const legSets = [
+      [[0.85, 0.2], [1.5, 0.8], [1.95, 0.5], [2.08, 0.38]],
+      [[0.7, 0.26], [1.1, 1.15], [1.35, 1.48], [1.44, 1.58]],
+      [[0.52, 0.28], [0.32, 1.25], [0.26, 1.55], [0.24, 1.66]],
+      [[0.36, 0.26], [-0.35, 1.05], [-0.9, 1.35], [-1.08, 1.45]],
+    ]
+    const legs = (s, col) => {
+      const ys = s < 0 ? 0.9 : 1
+      const xs = s < 0 ? 1.02 : 1
+      for (const set of legSets) {
+        taperStroke(g, set.map(([lx, ly]) => [lx * r * xs, s * ly * r * ys]), r * 0.15, r * 0.028, col)
+      }
+    }
+    legs(-1, farLine) // far side first: darker and behind the body, for depth
+    g.poly(abPath()).fill(f(0x5b3a52)).stroke({ width: lw, color: line })
+    // pedicel + cephalothorax (clearly smaller)
+    taperStroke(g, [[r * 0.16, 0], [r * 0.34, 0]], r * 0.1, r * 0.12, f(0x5b3a52))
+    const cSpine = (t) => [r * 0.24 + t * r * 0.72, 0]
+    const cW = (t) => r * 0.48 * bulge(0.2 + 0.7 * t, 0.5)
+    g.poly(spineOutline(cSpine, cW, 24)).fill(f(0x5b3a52)).stroke({ width: lw * 0.85, color: line })
+    legs(1, line) // near side on top, so the legs read as attaching to the cephalothorax
+    // pedipalps
+    for (const s of [-1, 1]) taperStroke(g, [[r * 0.86, s * r * 0.12], [r * 1.08, s * r * 0.3], [r * 1.2, s * r * 0.22]], r * 0.1, r * 0.04, line)
+    if (!white) {
+      // folium: a soft lanceolate dorsal marking that rides the abdomen's own curvature (it reuses
+      // the same (1 + k*cos u) asymmetry), pointed at both ends, gently scalloped. Its half-width is
+      // <=0.45 of the outline's at the same u while its x is pulled in, so it stays well inside.
+      const fol = []
+      for (let i = 0; i < 48; i++) {
+        const u = (i / 48) * Math.PI * 2
+        const su = Math.sin(u)
+        const x = AB.L * 0.78 * Math.cos(u)
+        const y = AB.W * 0.4 * Math.sign(su) * Math.pow(Math.abs(su), 1.45) *
+          (1 + AB.k * Math.cos(u)) / NORM * (1 + 0.12 * Math.cos(u * 3))
+        const c = Math.cos(AB.tilt)
+        const s = Math.sin(AB.tilt)
+        fol.push(AB.cx + x * c - y * s, AB.cy + x * s + y * c)
+      }
+      g.poly(fol).fill({ color: 0xe0b8d8, alpha: 0.26 })
+      g.poly(abBand(0.12 * Math.PI, 0.92 * Math.PI, 1, 0.42)).fill({ color: 0x3a2337, alpha: 0.2 })
+      g.poly(abBand(-0.85 * Math.PI, -0.25 * Math.PI, 0.86, 0.4)).fill({ color: mix(0x5b3a52, 0xffffff, 0.45), alpha: 0.15 })
+      g.ellipse(r * 0.58, -r * 0.14, r * 0.24, r * 0.1).fill({ color: mix(0x5b3a52, 0xffffff, 0.5), alpha: 0.16 })
+      g.beginPath()
+      for (const u of [0.42 * Math.PI, 0.66 * Math.PI]) { // faint chitin ridges, across the curve
+        const [x0, y0] = abPt(u, 0.82)
+        const [x1, y1] = abPt(-u, 0.82)
+        g.moveTo(x0, y0).lineTo(x1, y1)
+      }
+      g.stroke({ width: 1.1, color: 0x3a2337, alpha: 0.3 })
+      // eye cluster: 2 big + 6 small, two ranks, each with a pinprick
+      for (const [ex, ey, er] of [[0.85, -0.09, 0.062], [0.85, 0.09, 0.062], [0.74, -0.19, 0.036], [0.74, 0.19, 0.036], [0.93, -0.19, 0.034], [0.93, 0.19, 0.034], [0.69, -0.04, 0.032], [0.69, 0.04, 0.032]]) {
+        darkEye(g, r * ex, r * ey, r * er, r * er, 0x150d16, er > 0.05)
+      }
+    }
+    if (elite) eliteCrown(g, -r * 0.72, r, white)
+  }
+
+  const ROSTER_LOOKS = {
+    redcell: { archetype: 'normal', draw: drawRedcell },
+    wbc: { archetype: 'tank', draw: drawWbc },
+    antibody: { archetype: 'fast', draw: drawAntibody },
+    amoeba: { archetype: 'normal', draw: drawAmoeba },
+    tadpole: { archetype: 'fast', draw: drawTadpole },
+    tardigrade: { archetype: 'tank', draw: drawTardigrade },
+    ant: { archetype: 'normal', draw: drawAnt },
+    wasp: { archetype: 'fast', draw: drawWasp },
+    spider: { archetype: 'tank', draw: drawSpider },
+  }
+  function makeRosterLook(id, elite) {
+    const entry = ROSTER_LOOKS[id]
+    const g = new Graphics()
+    entry.draw(g, elite, false)
+    const normal = bake(g)
+    const w = new Graphics()
+    entry.draw(w, elite, true)
+    const white = bake(w)
+    return { tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay, baseR: ROSTER_BASE_R[entry.archetype] }
+  }
+
   // Generic cute blob (title-screen ambience)
   function makeBlobTexture(fill, line, r) {
     const g = new Graphics()
@@ -204,6 +873,14 @@ export function createRenderer(app) {
     for (const type of Object.keys(ENEMIES)) {
       T.enemies[type] = makeEnemyLook(type, false)
       T.enemies[type + '_elite'] = makeEnemyLook(type, true)
+    }
+
+    // Per-rosterId themed creature silhouettes (v5.4). Keyed by rosterId (+ '_elite'); syncEnemies
+    // prefers these over the archetype T.enemies fallback whenever e.rosterId names one.
+    T.roster = {}
+    for (const id of Object.keys(ROSTER_LOOKS)) {
+      T.roster[id] = makeRosterLook(id, false)
+      T.roster[id + '_elite'] = makeRosterLook(id, true)
     }
 
     // player body (eye whites, blush, smile baked; pupils are live sprites)
@@ -2000,13 +2677,6 @@ export function createRenderer(app) {
     }
   }
 
-  // Per-roster pond skin lookup ({tint, scale}) by rosterId — null for body (whose rosterIds
-  // aren't in chapterRender.enemies), so body enemies keep their exact baked look + scale.
-  function rosterLook(e) {
-    const map = chapterRender.enemies
-    return (map && e.rosterId && map[e.rosterId]) || null
-  }
-
   function syncEnemies(run) {
     const px = run.player.x
     shieldG.clear()
@@ -2030,7 +2700,10 @@ export function createRenderer(app) {
         enemySprites.set(e.id, s)
       }
       s._seen = true
-      const look = T.enemies[e.elite ? e.type + '_elite' : e.type]
+      // prefer the per-rosterId themed silhouette; fall back to the archetype look for enemies
+      // whose rosterId has no baked creature (daily/title/future chapters)
+      const rkey = e.rosterId ? e.rosterId + (e.elite ? '_elite' : '') : null
+      const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       const tex = e.hitFlash > 0 ? look.white : look.tex
       if (s._look !== look) {
         s._look = look
@@ -2043,10 +2716,7 @@ export function createRenderer(app) {
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
       const pull = e.holePull || 0
       const shrink = 1 - pull * 0.45
-      // render-only per-roster scale nudge (pond distinction); 1 for body, so no size change
-      const rl = rosterLook(e)
-      const rs = rl ? rl.scale : 1
-      s.scale.set(k * flip * shrink * rs, k * shrink * rs)
+      s.scale.set(k * flip * shrink, k * shrink)
 
       // Elemental status (contract fields, guarded — sim half may not have landed yet).
       const frozen = e.frozen || 0
@@ -2066,15 +2736,14 @@ export function createRenderer(app) {
       else if (chill > 0) s.tint = 0xc4e4ff
       else if (venom > 0) s.tint = 0xa8e6a0
       else if (ignite > 0) s.tint = 0xffc09a
-      else if (rl) {
-        // pond roster: statusless soap-bubble elites shimmer through pale iridescent hues;
-        // everything else takes its flat per-roster hue.
-        if (e.elite && chapterRender.eliteIridescent) {
-          const hues = chapterRender.eliteIridescent
-          const seg = ((animT * 0.4 + e.id * 0.31) % 1) * hues.length
-          const a0 = Math.floor(seg) % hues.length
-          s.tint = mix(hues[a0], hues[(a0 + 1) % hues.length], seg - Math.floor(seg))
-        } else s.tint = rl.tint
+      else if (e.elite && chapterRender.eliteIridescent) {
+        // pond soap-bubble elites shimmer through pale iridescent hues. Bodies are now baked
+        // saturated, and tint multiplies, so mix the hue 50% toward white first — otherwise the
+        // shimmer muddies the creature colours instead of glazing them.
+        const hues = chapterRender.eliteIridescent
+        const seg = ((animT * 0.4 + e.id * 0.31) % 1) * hues.length
+        const a0 = Math.floor(seg) % hues.length
+        s.tint = mix(mix(hues[a0], hues[(a0 + 1) % hues.length], seg - Math.floor(seg)), 0xffffff, 0.5)
       }
       else s.tint = 0xffffff
 

@@ -387,7 +387,7 @@ function stepEnemyMovement(run, dt) {
       }
     }
 
-    // dashBurst flag (v5.0, e.g. pond's paramecium): cycles idle (slow) <-> dash (fast), still
+    // dashBurst flag (v5.0, e.g. pond's tadpole): cycles idle (slow) <-> dash (fast), still
     // seeking the player the whole time — just a speed multiplier on top of the normal seek.
     let flagSpeedMul = 1
     if (e.flags && e.flags.includes('dashBurst')) {

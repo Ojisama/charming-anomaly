@@ -771,7 +771,7 @@ export const CHAPTERS = {
     // roster: archetype = existing spawn type ('normal'|'tank'|'fast'), muls vs current stats,
     // flags = behavior flags implemented in sim.js (Task 3)
     roster: [
-      { id: 'tcell',    archetype: 'normal', name: 'T Cell',            hpMul: 1, speedMul: 1,   flags: [] },
+      { id: 'redcell',  archetype: 'normal', name: 'Red Blood Cell',    hpMul: 1, speedMul: 1,   flags: [] },
       { id: 'wbc',      archetype: 'tank',   name: 'White Blood Cell',  hpMul: 1, speedMul: 1,   flags: [] },
       { id: 'antibody', archetype: 'fast',   name: 'Antibody',          hpMul: 1, speedMul: 1,   flags: ['latch'] },
     ],
@@ -779,10 +779,9 @@ export const CHAPTERS = {
     signature: null,                    // intro chapter has no signature mechanic
     obstacles: null,                    // keeps the open field
     // ---- render-only (v5.0 task 6; interpreted by render.js, ZERO effect on sim) ----
-    // body is the baseline look: every field is an identity so chapter 1 stays pixel-identical
-    // to pre-v5.0. bgColor = the app's clear colour (main.js); tints are multiply-identity white;
-    // no player tail and no per-roster enemy tints (render.js only recolours rosterIds it finds
-    // in `render.enemies`, which body omits).
+    // body is the baseline look: bgColor = the app's clear colour (main.js); tints are
+    // multiply-identity white and there's no player tail. Enemy silhouettes are baked per
+    // rosterId in render.js (v5.4 — redcell/wbc/antibody), so no per-chapter enemy map here.
     render: {
       bgColor: 0xf4efe6,   // == main.js app background
       floorTint: 0xffffff, // multiply-identity → floor sprites keep their baked pastel tints
@@ -795,7 +794,7 @@ export const CHAPTERS = {
     weapons: ['flagella', 'mines', 'bloom'], starter: 'flagella',
     roster: [
       { id: 'amoeba',     archetype: 'normal', name: 'Amoeba',     hpMul: 1,   speedMul: 0.9, flags: ['split'] },
-      { id: 'paramecium', archetype: 'fast',   name: 'Paramecium', hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
+      { id: 'tadpole',    archetype: 'fast',   name: 'Tadpole',    hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
       { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: [] },
     ],
     eliteFlags: ['soapTrail'],
@@ -803,20 +802,15 @@ export const CHAPTERS = {
     obstacles: { count: 14, minR: 26, maxR: 44, minDist: 220 }, // minDist from spawn point
     // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
     // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
-    // multiplies playerTint onto the blob + shows an animated flagellum tail (tailTint), looks up
-    // per-roster enemy {tint, scale} by rosterId, and gives statusless soap-bubble elites an
-    // iridescent shimmer cycling `eliteIridescent`. currents motes are driven off signature.type.
+    // multiplies playerTint onto the blob + shows an animated flagellum tail (tailTint). Enemy
+    // silhouettes are baked per rosterId (v5.4 — amoeba/tadpole/tardigrade), and statusless
+    // soap-bubble elites shimmer through `eliteIridescent`. currents motes driven off signature.type.
     render: {
       bgColor: 0x2e6258,    // murky teal water showing between the floor blotches
       floorTint: 0x66c2a9,  // teal multiply — pushes the green foliage toward pond weeds
       playerTint: 0xb0f0ff, // cools the mint blob toward a saturated cyan-teal
       tail: true,
       tailTint: 0x66e0d0,
-      enemies: {            // rosterId -> visual distinction (hue + a subtle render-only scale)
-        amoeba:     { tint: 0x9ae8c0, scale: 1.0 },
-        paramecium: { tint: 0xfff0a0, scale: 0.92 },
-        tardigrade: { tint: 0xe6c88a, scale: 1.12 },
-      },
       eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8], // pale hues soap-bubble elites cycle through
     },
   },
@@ -838,18 +832,14 @@ export const CHAPTERS = {
     obstacles: { count: 12, minR: 22, maxR: 40, minDist: 220 }, // grass stalks / pebbles
     // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
     // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
-    // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). render.js also draws the five
-    // garden sim systems (trails/webs/strips/lures + stinger needles), all data-driven no-ops elsewhere.
+    // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). Enemy silhouettes are baked
+    // per rosterId (v5.4 — ant/wasp/spider). render.js also draws the five garden sim systems
+    // (trails/webs/strips/lures + stinger needles), all data-driven no-ops elsewhere.
     render: {
       bgColor: 0x4e8240,    // sunlit lawn green between the grass blades (brighter than pond)
       floorTint: 0xaad066,  // warm sunny grass-green multiply on the floor sprites
       playerTint: 0xc2f070, // bug-ish warm caterpillar green for the blob
       tail: false,
-      enemies: {            // rosterId -> visual distinction (hue + a subtle render-only scale)
-        ant:    { tint: 0x9e5230, scale: 0.88 }, // warm red-brown, slightly smaller
-        wasp:   { tint: 0xf2c93a, scale: 1.0 },  // yellow-amber
-        spider: { tint: 0x5b3a52, scale: 1.15 }, // deep violet-brown, slightly bigger
-      },
     },
   },
 }
@@ -906,7 +896,7 @@ export const SPLIT_CHILD_COUNT = 2
 export const SPLIT_HP_FRAC = 0.45     // child hp/maxHP, as a fraction of the parent's maxHP
 export const SPLIT_RADIUS_FRAC = 0.7  // child radius, as a fraction of the parent's radius
 
-// dashBurst (e.g. pond's paramecium): alternates idle (slow) <-> dash (fast) toward the
+// dashBurst (e.g. pond's tadpole): alternates idle (slow) <-> dash (fast) toward the
 // player, both still along the normal seek direction — see stepEnemyMovement in sim.js.
 export const DASH_IDLE_T = 1.1        // s, idle phase duration
 export const DASH_T = 0.5             // s, dash phase duration
