@@ -254,10 +254,9 @@ function seedTargetRing(run, count, hp, radius) {
   }
 }
 
-// Star mods: force a star-only run with pierce+blast maxed out and check it deals more total
-// damage than a plain star-only baseline over the same time against a saturated target ring,
-// plus that blast actually emits radius'd explode events (pierce is harder to observe directly
-// from outside sim.js internals).
+// Star mods: force a star-only run with pierce maxed out and check it deals more total
+// damage than a plain star-only baseline over the same time against a saturated target ring.
+// (blast/"Exploding Stars" was removed in v4.6 — star has no AoE splash anymore.)
 function testStarMods() {
   const dt = 1 / 60
   const steps = Math.round(20 / dt)
@@ -287,21 +286,18 @@ function testStarMods() {
   }
 
   const baseline = runStarOnly(null)
-  const modded = runStarOnly({ pierce: 3, blast: 0.9 })
+  const modded = runStarOnly({ pierce: 3 })
 
   assert(baseline.totalDmg > 0, `expected baseline total damage > 0, got ${baseline.totalDmg}`)
   assert(modded.totalDmg > baseline.totalDmg,
     `expected modded total damage (${modded.totalDmg}) > baseline total damage (${baseline.totalDmg})`)
-  assert(modded.explodeEvents.length > 0, 'expected exploding-stars mod to emit explode events')
-  for (const e of modded.explodeEvents) {
-    assert(finite(e.radius) && e.radius > 0, `explode event missing/invalid radius: ${e.radius}`)
-  }
+  assert(modded.explodeEvents.length === 0, 'star must emit NO explode events since Exploding Stars was removed (v4.6)')
 
-  console.log(`PASS run F (star mods): baseline dmg=${baseline.totalDmg} modded dmg=${modded.totalDmg} explosions=${modded.explodeEvents.length}`)
+  console.log(`PASS run F (star mods): baseline dmg=${baseline.totalDmg} modded dmg=${modded.totalDmg} (no explosions — blast removed)`)
 }
 
-// Multishot/split/chain/ricochet: force all four maxed alongside pierce/blast and check the
-// cumulative damage against a saturated target ring beats a pierce/blast-only baseline (same
+// Multishot/split/chain/ricochet: force all four maxed alongside pierce and check the
+// cumulative damage against a saturated target ring beats a pierce-only baseline (same
 // seed/duration), that split actually produces _shard bullets, and that at least one bullet
 // chain-retargeted (run._chains debug counter, see state.js bullets[] doc).
 function testAdvancedStarMods() {
@@ -330,12 +326,12 @@ function testAdvancedStarMods() {
     return { run, totalDmg, sawShard }
   }
 
-  const baseline = runStarOnly({ pierce: 3, blast: 0.9 })
-  const advanced = runStarOnly({ pierce: 3, blast: 0.9, multishot: 3, split: 2, chain: 3, ricochet: 2 })
+  const baseline = runStarOnly({ pierce: 3 })
+  const advanced = runStarOnly({ pierce: 3, multishot: 3, split: 2, chain: 3, ricochet: 2 })
 
   assert(baseline.totalDmg > 0, `expected baseline total damage > 0, got ${baseline.totalDmg}`)
   assert(advanced.totalDmg > baseline.totalDmg,
-    `expected advanced-mod total damage (${advanced.totalDmg}) > pierce/blast-only baseline (${baseline.totalDmg})`)
+    `expected advanced-mod total damage (${advanced.totalDmg}) > pierce-only baseline (${baseline.totalDmg})`)
   assert(advanced.sawShard, 'expected Split Stars to produce at least one _shard bullet')
   assert((advanced.run._chains ?? 0) > 0, `expected at least one Chain Stars retarget, got ${advanced.run._chains}`)
 
@@ -1049,13 +1045,24 @@ function testFocusNudge() {
   const committed = createRun(makeMeta())
   committed.weapons = [{ id: 'star', level: 5 }] // 4 upgrade picks
   committed.weaponModPicks.star.pierce = 5
-  committed.weaponModPicks.star.blast = 5       // +10 mod picks => invested 14, p at the 0.1 floor
+  committed.weaponModPicks.star.multishot = 5   // +10 mod picks => invested 14, p at the 0.1 floor
   const committedOffers = countNewOffers(committed, 400)
 
   assert(freshOffers > 0, 'expected a fresh run to be offered new weapons')
   assert(committedOffers < freshOffers * 0.35,
     `expected a committed build to see far fewer new-weapon cards (fresh=${freshOffers}, committed=${committedOffers})`)
-  console.log(`PASS run M (focus nudge): new-weapon offers fresh=${freshOffers} committed=${committedOffers}`)
+
+  // v4.6 apparition floor: even a fully committed build must see a New! weapon card in at
+  // least ~5% of level-ups (NEW_WEAPON_MIN_RATE guarantee; 3% bound leaves statistical room).
+  let poolsWithNew = 0
+  const ROUNDS = 3000
+  for (let i = 0; i < ROUNDS; i++) {
+    const cards = buildLevelUpChoices(committed)
+    if (cards.some((c) => c.kind === 'weapon' && c.tag === 'New!')) poolsWithNew++
+  }
+  const rate = poolsWithNew / ROUNDS
+  assert(rate > 0.03, `expected >=~5% of committed-build level-ups to offer a new weapon, got ${(rate * 100).toFixed(1)}%`)
+  console.log(`PASS run M (focus nudge): new-weapon offers fresh=${freshOffers} committed=${committedOffers}; floored apparition=${(rate * 100).toFixed(1)}%/level-up`)
 }
 
 // ---- Run N: difficulty levels -------------------------------------------------------
@@ -1487,14 +1494,15 @@ function testStarBalance() {
   }
 
   // --- Invariant 4: compounding bound. The F2 stack (multishot/split/chain/ricochet on top of
-  // pierce/blast) must stay under an 8x runaway over its own pierce/blast baseline (was ~9.5x).
+  // pierce) must stay under an 8x runaway over its own pierce-only baseline.
+  // (blast removed v4.6 — both sides of the ratio lost it.)
   {
     const level = 3
-    const baseline = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, blast: 0.9 }))
-    const advanced = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, blast: 0.9, multishot: 3, split: 2, chain: 3, ricochet: 2 }))
+    const baseline = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3 }))
+    const advanced = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, multishot: 3, split: 2, chain: 3, ricochet: 2 }))
     const ratio = advanced / baseline
-    assert(advanced > baseline, `expected advanced star mods to still beat the pierce/blast baseline (adv=${advanced}, base=${baseline})`)
-    assert(ratio <= 8.0, `expected star compounding <= 8x its pierce/blast baseline, got ${ratio.toFixed(2)}x`)
+    assert(advanced > baseline, `expected advanced star mods to still beat the pierce-only baseline (adv=${advanced}, base=${baseline})`)
+    assert(ratio <= 8.0, `expected star compounding <= 8x its pierce-only baseline, got ${ratio.toFixed(2)}x`)
     console.log(`PASS run P.4 (compounding bound): baseline=${baseline} advanced=${advanced} ratio=${ratio.toFixed(2)}x`)
   }
 }

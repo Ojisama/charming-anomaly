@@ -34,7 +34,7 @@ import {
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
   xpForLevel, GEM_VALUE,
-  STAR_LIFE, STAR_R, STAR_FAN, STAR_BLAST_RADIUS, ORB_R, NOVA_LIFE,
+  STAR_LIFE, STAR_R, STAR_FAN, ORB_R, NOVA_LIFE,
   STAR_SPLIT_DMG_FRAC, STAR_SPLIT_BASE_ANGLE, STAR_SPLIT_MAX_SPREAD,
   STAR_CHAIN_RANGE, STAR_CHAIN_DMG_MUL, STAR_CHAIN_EXTRA_LIFE,
   STAR_RICOCHET_DMG_MUL, STAR_RICOCHET_ANGLE_MIN, STAR_RICOCHET_ANGLE_MAX, STAR_RICOCHET_EXTRA_LIFE,
@@ -53,7 +53,7 @@ import {
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
-  newWeaponChance,
+  newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB,
 } from './config.js'
 
@@ -878,23 +878,8 @@ function tryRicochetBullet(run, b) {
   run._ricochets = (run._ricochets ?? 0) + 1
 }
 
-// Exploding Stars mod: splash a % of the hit's dealt damage onto everything else within
-// STAR_BLAST_RADIUS of the hit enemy (the hit enemy itself already took full damage).
-function starBlast(run, hitEnemy, dmgDealt, blastPct) {
-  const blastDmg = Math.round(dmgDealt * blastPct)
-  if (blastDmg <= 0) return
-  const radSq = STAR_BLAST_RADIUS * STAR_BLAST_RADIUS
-  for (const e of run.enemies) {
-    if (e._dead || e.id === hitEnemy.id) continue
-    const dx = e.x - hitEnemy.x, dy = e.y - hitEnemy.y
-    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, blastDmg, false)
-  }
-  run.events.push({ type: 'explode', x: hitEnemy.x, y: hitEnemy.y, radius: STAR_BLAST_RADIUS })
-}
-
 function stepBullets(run, dt) {
   const bullets = run.bullets
-  const blastPct = run.weaponMods.star?.blast ?? 0
   const splitCount = splitCountFor(run)
   for (const b of bullets) {
     b.x += b.vx * dt
@@ -909,11 +894,10 @@ function stepBullets(run, dt) {
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
-        const dmgDealt = applyDamage(run, e, b.dmg)
+        applyDamage(run, e, b.dmg)
         b.hitIds.add(e.id)
         b.pierce--
         justHit = e
-        if (blastPct > 0) starBlast(run, e, dmgDealt, blastPct)
         // Split Stars: only the original star splits, and only on its first hit ever.
         if (!b._shard && !b._splitDone && splitCount > 0) {
           b._splitDone = true
@@ -1835,6 +1819,18 @@ function buildLevelUpChoices(run) {
 
   if (cards.length === 0) {
     return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
+  }
+
+  // Hard new-weapon apparition floor (see NEW_WEAPON_MIN_RATE in config.js): if the pool has
+  // room for a new weapon but none made it into the cards, occasionally force one in so the
+  // focus nudge can never fade discovery out entirely.
+  const ownedIds = new Set(run.weapons.map((w) => w.id))
+  const unowned = Object.keys(WEAPONS).filter((id) => !ownedIds.has(id))
+  const hasNewCard = cards.some((c) => c.kind === 'weapon' && c.tag === 'New!')
+  if (!hasNewCard && unowned.length > 0 && run.weapons.length < MAX_WEAPONS && Math.random() < NEW_WEAPON_MIN_RATE) {
+    const id = unowned[Math.floor(Math.random() * unowned.length)]
+    const cfg = WEAPONS[id]
+    cards[cards.length - 1] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon }
   }
   return cards
 }

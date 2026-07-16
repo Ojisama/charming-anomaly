@@ -138,7 +138,6 @@ export const STAR_R = 10      // px, star hit radius
 export const STAR_FAN = 0.15  // rad between fan shots
 export const ORB_R = 12       // px, orbit spark hit radius
 export const NOVA_LIFE = 0.45 // s, nova ring expansion time
-export const STAR_BLAST_RADIUS = 70 // px, Exploding Stars mod splash radius
 
 // Black hole vortex shape (applies to all levels; per-level dmg/tick/radius/pull/etc above)
 export const HOLE_CORE_FRAC = 0.22     // core radius as a fraction of hole radius — the "consumed" zone
@@ -244,8 +243,9 @@ export const MAX_PASSIVE_LEVEL = 5
 // effectiveWeaponStats — see sim.js.
 export const WEAPON_MODS = {
   star: {
+    // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
+    // no-brainer even after the v4.4 offer caps (user call: star keeps 5 mods, no explosions).
     pierce:    { name: 'Piercing Stars',  desc: 'star pierce',                    icon: '🎯', base: 1,    kind: 'flat' },
-    blast:     { name: 'Exploding Stars', desc: 'star explosion damage',          icon: '💥', base: 0.30, kind: 'pct' },
     multishot: { name: 'Multi Stars',     desc: 'stars per volley',              icon: '💫', kind: 'tier' },
     split:     { name: 'Split Stars',     desc: "shard(s) on a star's first hit", icon: '🔱', base: 1,    kind: 'flat' },
     chain:     { name: 'Chain Stars',     desc: 'chain jump(s) on spent stars',  icon: '🔗', kind: 'tier' },
@@ -456,6 +456,11 @@ export const randomMutators = (count) => {
 export const NEW_WEAPON_FADE = 0.85
 export const NEW_WEAPON_FADE_MIN = 0.1
 export const newWeaponChance = (invested) => Math.max(NEW_WEAPON_FADE_MIN, Math.pow(NEW_WEAPON_FADE, invested))
+// Hard apparition floor (v4.6): if a level-up's 3 cards ended up with no New! weapon card
+// (and the player can still equip one), this is the chance the last card gets swapped for a
+// random unowned weapon — guarantees new weapons appear on at least ~5% of level-ups no
+// matter how deep the focus-nudge fade goes.
+export const NEW_WEAPON_MIN_RATE = 0.05
 
 // Shared DoT tick period for ignite/venom (finer than 3s duration so damage reads smoothly
 // without spamming a 'hit' event every single simulation frame).
