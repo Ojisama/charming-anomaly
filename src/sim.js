@@ -55,6 +55,10 @@ import {
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB,
+  ARCHETYPE_TYPE, LATCH_SLOW_T, LATCH_SLOW_MUL,
+  SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
+  DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
+  ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -80,9 +84,12 @@ export function stepSim(run, input, dt) {
   stepRegen(run, dt)
   stepSpawning(run, dt)
   stepEnemyMovement(run, dt)
+  stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
+  stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any)
 
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
+  if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
 
   stepWeapons(run, dt)
   stepStatuses(run, dt)
@@ -130,7 +137,8 @@ function stepPlayerMovement(run, input, dt) {
   const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
-  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul
+  const slowMul = p.slowT > 0 ? LATCH_SLOW_MUL : 1 // v5.0: latch-flag debuff (see stepContactDamage)
+  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul
   p.x += ix * speed * dt
   p.y += iy * speed * dt
 
@@ -139,6 +147,7 @@ function stepPlayerMovement(run, input, dt) {
   else if (ix < -1e-6) p.facing = -1
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
+  if (p.slowT > 0) p.slowT = Math.max(0, p.slowT - dt)
 }
 
 function stepRegen(run, dt) {
@@ -193,6 +202,23 @@ function rollAffixes(run) {
   return picked
 }
 
+// Shared init for every field an enemy needs beyond its combat stats (elemental status, hit/
+// knockback bookkeeping) — used by both spawnEnemy and spawnSplitChildren so the two spawn
+// paths can't drift out of sync with the enemies[] contract in state.js.
+function freshEnemyFields() {
+  return {
+    hitFlash: 0,
+    orbCd: 0,
+    kb: { x: 0, y: 0 },
+    holePull: 0,
+    // Elemental status (see ELEMENTS/COMBOS in config.js; ticked by stepStatuses).
+    ignite: 0, igniteDps: 0,
+    chill: 0, chillSlow: 0, frozen: 0,
+    venom: 0, venomT: 0,
+    _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
+  }
+}
+
 // opts: { type, x, y, forceNormal } — lets splitter deaths spawn wisps at a fixed position
 // (never elite, but still time-scaled like any other spawn). Called with no opts by the
 // normal spawn-timer path in stepSpawning.
@@ -204,6 +230,13 @@ function spawnEnemy(run, opts = {}) {
   const base = ENEMIES[type]
   const p = run.player
 
+  // Roster (v5.0, see CHAPTERS[run.chapter].roster in config.js): pick a random roster entry
+  // matching this spawn type's archetype, apply its hp/speed multipliers, and carry its behavior
+  // flags onto the enemy (elites additionally get the chapter's eliteFlags — see below).
+  const archetype = ARCHETYPE_TYPE[type] ?? 'normal'
+  const rosterPool = CHAPTERS[run.chapter].roster.filter((r) => r.archetype === archetype)
+  const roster = rosterPool.length > 0 ? rosterPool[Math.floor(Math.random() * rosterPool.length)] : null
+
   let x, y
   if (opts.x !== undefined && opts.y !== undefined) {
     x = opts.x; y = opts.y
@@ -214,13 +247,16 @@ function spawnEnemy(run, opts = {}) {
     y = p.y + Math.sin(angle) * dist
   }
 
-  let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul
-  const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul
+  let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
+  const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
   const dmg = base.dmg * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
   const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul
 
   const affixes = isElite ? rollAffixes(run) : []
   if (isElite && affixes.includes('gilded')) hp *= GILDED_HP_MUL
+
+  const flags = roster ? [...roster.flags] : []
+  if (isElite) flags.push(...CHAPTERS[run.chapter].eliteFlags)
 
   run.enemies.push({
     id: run._nextId++,
@@ -232,17 +268,42 @@ function spawnEnemy(run, opts = {}) {
     dmg,
     elite: isElite,
     affixes,
+    flags,
+    rosterId: roster?.id ?? null,
     xp: base.xp,
-    hitFlash: 0,
-    orbCd: 0,
-    kb: { x: 0, y: 0 },
-    holePull: 0,
-    // Elemental status (see ELEMENTS/COMBOS in config.js; ticked by stepStatuses).
-    ignite: 0, igniteDps: 0,
-    chill: 0, chillSlow: 0, frozen: 0,
-    venom: 0, venomT: 0,
-    _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
+    ...freshEnemyFields(),
   })
+}
+
+// split flag (v5.0, see CHAPTERS roster in config.js): spawns SPLIT_CHILD_COUNT smaller clones
+// of a dying enemy around its corpse — reuses the same corpse-scatter shape as the elite
+// splitter affix (see dealDamage's death branch), but derives the children's hp/radius as a
+// fraction of the PARENT's own stats (not a fresh ENEMIES/hpScale spawn) per the v5.0 spec.
+// Children are flagged `_splitChild: true` so a further death never re-triggers this (see the
+// guard at the call site).
+function spawnSplitChildren(run, parent, count) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2
+    const d = Math.random() * 20
+    const hp = parent.maxHP * SPLIT_HP_FRAC
+    run.enemies.push({
+      id: run._nextId++,
+      type: parent.type,
+      x: parent.x + Math.cos(a) * d,
+      y: parent.y + Math.sin(a) * d,
+      hp, maxHP: hp,
+      radius: parent.radius * SPLIT_RADIUS_FRAC,
+      speed: parent.speed,
+      dmg: parent.dmg,
+      elite: false,
+      affixes: [],
+      flags: parent.flags,
+      rosterId: parent.rosterId,
+      xp: parent.xp,
+      _splitChild: true,
+      ...freshEnemyFields(),
+    })
+  }
 }
 
 // ---- Enemy movement -------------------------------------------------------------
@@ -280,9 +341,22 @@ function stepEnemyMovement(run, dt) {
       }
     }
 
+    // dashBurst flag (v5.0, e.g. pond's paramecium): cycles idle (slow) <-> dash (fast), still
+    // seeking the player the whole time — just a speed multiplier on top of the normal seek.
+    let flagSpeedMul = 1
+    if (e.flags && e.flags.includes('dashBurst')) {
+      if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = DASH_IDLE_T }
+      e._dashT -= dt
+      if (e._dashT <= 0) {
+        if (e._dashPhase === 'idle') { e._dashPhase = 'dash'; e._dashT += DASH_T }
+        else { e._dashPhase = 'idle'; e._dashT += DASH_IDLE_T }
+      }
+      flagSpeedMul = e._dashPhase === 'dash' ? DASH_SPEED_MUL : DASH_IDLE_SPEED_MUL
+    }
+
     if (d > 1e-6 && slowMul > 0) {
-      e.x += (dx / d) * e.speed * affixSpeedMul * slowMul * dt
-      e.y += (dy / d) * e.speed * affixSpeedMul * slowMul * dt
+      e.x += (dx / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
+      e.y += (dy / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
     }
 
     e.x += e.kb.x * dt
@@ -294,6 +368,16 @@ function stepEnemyMovement(run, dt) {
 
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt)
     if (e.orbCd > 0) e.orbCd = Math.max(0, e.orbCd - dt)
+
+    // soapTrail elite flag (v5.0, e.g. pond's soap-bubble elites): drops a damaging pool node
+    // into the shared run.pools array every SOAP_INTERVAL while alive (see stepPools below).
+    if (e.elite && e.flags && e.flags.includes('soapTrail') && !e._dead) {
+      e._soapAcc = (e._soapAcc ?? 0) + dt
+      if (e._soapAcc >= SOAP_INTERVAL) {
+        e._soapAcc -= SOAP_INTERVAL
+        run.pools.push({ x: e.x, y: e.y, r: SOAP_R, t: SOAP_DUR, dps: SOAP_DPS })
+      }
+    }
   }
 }
 
@@ -301,13 +385,18 @@ function stepEnemyMovement(run, dt) {
 
 // Shared player-hit resolution: contact damage and volatile-bomb blasts both apply
 // armor + contactDmgTakenMul the same way, set invuln, push 'hurt', and handle death
-// identically. @returns true if the player died (phase now 'dead').
-function hurtPlayer(run, rawDmg) {
+// identically. dot (v5.0, see run.pools in state.js): pool DoT ticks skip armor/
+// contactDmgTakenMul (like enemy ignite/venom skip enemy mitigation) and don't grant/require
+// invuln — standing in a pool keeps ticking every STATUS_TICK regardless of the contact-damage
+// invuln window. @returns true if the player died (phase now 'dead').
+function hurtPlayer(run, rawDmg, dot = false) {
   const p = run.player
-  const dmg = Math.max(1, Math.round((rawDmg - run.passives.armor) * run.mods.contactDmgTakenMul))
+  const dmg = dot
+    ? Math.max(1, Math.round(rawDmg))
+    : Math.max(1, Math.round((rawDmg - run.passives.armor) * run.mods.contactDmgTakenMul))
   p.hp -= dmg
-  p.invuln = PLAYER.invulnTime
-  run.events.push({ type: 'hurt', dmg })
+  if (!dot) p.invuln = PLAYER.invulnTime
+  run.events.push({ type: 'hurt', dmg, dot })
   if (p.hp <= 0) {
     // Revive Token (v4.5, see CONSUMABLES.revive in config.js): consume one revive instead of
     // dying — restore hp, grant a longer invuln window, and radially shove every nearby enemy
@@ -343,16 +432,113 @@ function hurtPlayer(run, rawDmg) {
 /** @returns true if the player died this frame (phase set to 'dead'). */
 function stepContactDamage(run) {
   const p = run.player
-  if (p.invuln > 0) return false
-
   for (const e of run.enemies) {
+    if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const rad = PLAYER.radius + e.radius
-    if (dx * dx + dy * dy < rad * rad) {
-      return hurtPlayer(run, e.dmg) // one hit per frame; invuln now active either way
+    if (dx * dx + dy * dy >= rad * rad) continue
+
+    // latch flag (v5.0, e.g. body's antibody): applies a movement debuff then spends itself —
+    // no normal contact damage, and unlike the plain path below, not gated behind p.invuln (the
+    // antibody still latches on and dies even while the player is briefly invulnerable).
+    if (e.flags && e.flags.includes('latch')) {
+      p.slowT = LATCH_SLOW_T
+      dealDamage(run, e, e.hp, false)
+      continue
     }
+
+    if (p.invuln > 0) return false
+    return hurtPlayer(run, e.dmg) // one hit per frame; invuln now active either way
   }
   return false
+}
+
+// -- Pools: acidPool/soapTrail elite flags (v5.0) -------------------------------------
+// Shared array + step for both flags (see run.pools in state.js) — pools only ever damage the
+// PLAYER, ticked at STATUS_TICK cadence like other DoTs (see applyIgnite/applyVenomStack below).
+// @returns true if the player died this frame (phase set to 'dead').
+function stepPools(run, dt) {
+  if (!run.pools || run.pools.length === 0) return false
+  const p = run.player
+  let playerDied = false
+  for (const pool of run.pools) {
+    pool.t -= dt
+    if (pool.t <= 0) continue
+    const dx = p.x - pool.x, dy = p.y - pool.y
+    if (dx * dx + dy * dy > pool.r * pool.r) continue
+    pool._tickAcc = (pool._tickAcc ?? 0) + dt
+    while (pool._tickAcc >= STATUS_TICK) {
+      pool._tickAcc -= STATUS_TICK
+      if (!playerDied && hurtPlayer(run, pool.dps * STATUS_TICK, true)) playerDied = true
+    }
+  }
+  run.pools = run.pools.filter((pl) => pl.t > 0)
+  return playerDied
+}
+
+// -- Currents signature mechanic (v5.0, e.g. pond) ------------------------------------
+// Smooth vector flow field from 2 summed sine pairs per axis, phase-offset by run._driftSeed
+// (see createRun in state.js) so no two runs drift identically. Displaces player AND enemy
+// POSITIONS directly each frame (drift, not a stored velocity/control loss) — gated entirely on
+// the run's chapter having a 'currents' signature (config.js CHAPTERS[id].signature); a no-op
+// otherwise (e.g. body).
+function currentForce(sig, seed, x, y, t) {
+  const fx = Math.sin(x * sig.scale + t * sig.drift + seed) +
+             Math.sin(y * sig.scale * 1.3 - t * sig.drift * 0.7 + seed * 1.7)
+  const fy = Math.cos(y * sig.scale + t * sig.drift * 0.9 + seed * 2.3) +
+             Math.cos(x * sig.scale * 1.6 - t * sig.drift * 1.2 + seed * 0.6)
+  return { fx: fx * sig.strength * 0.5, fy: fy * sig.strength * 0.5 }
+}
+
+function stepCurrents(run, dt) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'currents') return
+  const seed = run._driftSeed ?? 0
+  const t = run.time
+  const p = run.player
+  const pf = currentForce(sig, seed, p.x, p.y, t)
+  p.x += pf.fx * dt
+  p.y += pf.fy * dt
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const ef = currentForce(sig, seed, e.x, e.y, t)
+    e.x += ef.fx * dt
+    e.y += ef.fy * dt
+  }
+}
+
+// -- Obstacles (v5.0) ------------------------------------------------------------------
+// Circular colliders (run.obstacles, generated once at createRun — see state.js) push the
+// player and every enemy out of overlap; projectiles are never affected (not checked here or
+// anywhere bullets/novas/etc. move). A no-op when the chapter has none (e.g. body: []).
+function stepObstacles(run) {
+  if (!run.obstacles || run.obstacles.length === 0) return
+  const p = run.player
+  for (const o of run.obstacles) {
+    const dx = p.x - o.x, dy = p.y - o.y
+    const d = Math.hypot(dx, dy)
+    const minSep = o.r + PLAYER.radius
+    if (d < minSep) {
+      const nx = d > 1e-6 ? dx / d : 1
+      const ny = d > 1e-6 ? dy / d : 0
+      p.x = o.x + nx * minSep
+      p.y = o.y + ny * minSep
+    }
+  }
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    for (const o of run.obstacles) {
+      const dx = e.x - o.x, dy = e.y - o.y
+      const d = Math.hypot(dx, dy)
+      const minSep = o.r + e.radius
+      if (d < minSep) {
+        const nx = d > 1e-6 ? dx / d : 1
+        const ny = d > 1e-6 ? dy / d : 0
+        e.x = o.x + nx * minSep
+        e.y = o.y + ny * minSep
+      }
+    }
+  }
 }
 
 // -- Volatile-elite death bombs (v4.0) ------------------------------------------------
@@ -442,6 +628,17 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     // Volatile (elite affix): a timed bomb goes off where the enemy died (see stepBombs).
     if (enemy.elite && enemy.affixes && enemy.affixes.includes('volatile')) {
       run.bombs.push({ x: enemy.x, y: enemy.y, radius: VOLATILE_RADIUS, fuse: VOLATILE_FUSE, duration: VOLATILE_FUSE, dmg: VOLATILE_DMG })
+    }
+    // split flag (v5.0, e.g. pond's amoeba): generalized version of the splitter affix above —
+    // spawns SPLIT_CHILD_COUNT smaller clones of THIS enemy (not fresh wisps). Guarded by
+    // `!enemy._splitChild` so a spawned child's own death never re-splits.
+    if (enemy.flags && enemy.flags.includes('split') && !enemy._splitChild) {
+      spawnSplitChildren(run, enemy, SPLIT_CHILD_COUNT)
+    }
+    // acidPool elite flag (v5.0, e.g. body's pill elites): leaves a damaging pool where the
+    // elite died (see run.pools in state.js / stepPools above).
+    if (enemy.elite && enemy.flags && enemy.flags.includes('acidPool')) {
+      run.pools.push({ x: enemy.x, y: enemy.y, r: ACID_R, t: ACID_DUR, dps: ACID_DPS })
     }
   }
 }

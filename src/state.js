@@ -1,5 +1,9 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_ORDER, CHAPTERS } from './config.js'
+import {
+  PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
+  difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
+  OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
+} from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -88,6 +92,33 @@ export function shopBonus(meta, id) {
   return SHOP[id].perLevel * (meta.shop[id] ?? 0)
 }
 
+// Rejection-sample a chapter's obstacle field (v5.0, see CHAPTERS[id].obstacles in config.js
+// and run.obstacles below): cfg null/undefined (e.g. body) yields []. Each obstacle's center is
+// sampled at a random angle and a distance in [minDist, OBSTACLE_FIELD_RADIUS] from the run's
+// origin (so minDist is automatically satisfied, not just checked), then rejected if it comes
+// within OBSTACLE_MIN_GAP (edge-to-edge) of an already-placed obstacle. Plain Math.random is
+// fine here (unseeded, run-to-run variety) — sim.js never depends on obstacle placement being
+// deterministic. Gives up on an individual obstacle (not the whole field) after
+// OBSTACLE_PLACEMENT_ATTEMPTS tries, so a tight config degrades to fewer obstacles rather than
+// looping forever.
+function generateObstacles(cfg) {
+  if (!cfg) return []
+  const { count, minR, maxR, minDist } = cfg
+  const obstacles = []
+  for (let i = 0; i < count; i++) {
+    for (let attempt = 0; attempt < OBSTACLE_PLACEMENT_ATTEMPTS; attempt++) {
+      const r = minR + Math.random() * (maxR - minR)
+      const angle = Math.random() * Math.PI * 2
+      const dist = minDist + Math.random() * Math.max(0, OBSTACLE_FIELD_RADIUS - minDist)
+      const x = Math.cos(angle) * dist
+      const y = Math.sin(angle) * dist
+      const clear = obstacles.every((o) => Math.hypot(x - o.x, y - o.y) - r - o.r >= OBSTACLE_MIN_GAP)
+      if (clear) { obstacles.push({ x, y, r }); break }
+    }
+  }
+  return obstacles
+}
+
 /**
  * Run state — the single mutable object the whole game shares each run.
  *
@@ -106,7 +137,9 @@ export function shopBonus(meta, id) {
  *   { type:'gem', x, y }                     xp gem collected
  *   { type:'coin', x, y, value }             coin collected
  *   { type:'levelup' }                       player leveled (run.levelUpChoices is set, phase='levelup')
- *   { type:'hurt', dmg }                     player took damage
+ *   { type:'hurt', dmg, dot? }                player took damage (dot=true for pool/DoT ticks —
+ *                                            see run.pools below and hurtPlayer in sim.js; absent/
+ *                                            false for ordinary contact damage and bomb blasts)
  *   { type:'revive', x, y }                  player death was prevented (see hurtPlayer in
  *                                            sim.js and run.revives below) — render draws a
  *                                            burst at (x,y), main.js plays a sfx
@@ -125,6 +158,25 @@ export function shopBonus(meta, id) {
  *               AFFIX_SECOND_AT. Render/shield contract: draw a shield bubble while `affixes`
  *               includes 'shielded' AND `hp > maxHP * SHIELD_HP_FRAC` (the shield "breaks" once
  *               hp drops under that fraction, matching the reduced-damage window in sim.js).
+ *
+ *               flags (v5.0, see CHAPTERS[chapter].roster/eliteFlags in config.js): array of
+ *               chapter-agnostic behavior-flag ids, set once at spawn by spawnEnemy (sim.js) —
+ *               ARCHETYPE_TYPE maps the roster entry matching this enemy's spawn type (drone/
+ *               wisp/tank) to an archetype ('normal'/'fast'/'tank'), a random roster entry of
+ *               that archetype is picked (hpMul/speedMul applied to hp/maxHP/speed), and its
+ *               `flags` are copied in; elites additionally get CHAPTERS[chapter].eliteFlags
+ *               appended (so an elite can carry both its roster's own flags and its chapter's
+ *               elite-only ones). Always present (possibly []), safe to check unconditionally.
+ *               Known flags (sim.js): 'latch' (stepContactDamage: contact slows the player via
+ *               player.slowT/LATCH_SLOW_MUL then the enemy dies), 'split' (dealDamage's death
+ *               branch: non-`_splitChild` deaths spawn SPLIT_CHILD_COUNT children at
+ *               SPLIT_HP_FRAC hp / SPLIT_RADIUS_FRAC radius, flagged `_splitChild: true` so they
+ *               never re-split), 'dashBurst' (stepEnemyMovement: cycles idle <-> dash speed
+ *               multipliers via sim-internal `_dashPhase`/`_dashT`, not a render contract),
+ *               'acidPool'/'soapTrail' (elite-only: feed run.pools — see below).
+ * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
+ *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
+ *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
  *
  *               Elemental status (see ELEMENTS/COMBOS in config.js, ticked by stepStatuses):
  *               ignite (s of burn DoT remaining, 0 = none), igniteDps (current burn rate),
@@ -239,6 +291,26 @@ export function shopBonus(meta, id) {
  *           dealDamage), and emits {type:'explode', x, y, radius} (same event shape as a
  *           mine pop or star blast).
  *
+ * v5.0 chapter behavior flags (see CHAPTERS in config.js and sim.js's spawnEnemy/dealDamage/
+ * stepEnemyMovement/stepContactDamage/stepPools/stepCurrents/stepObstacles):
+ * player.slowT: s remaining of a movement-speed debuff (0 = none) — set to LATCH_SLOW_T by a
+ *   'latch'-flagged enemy's contact (stepContactDamage); while > 0, stepPlayerMovement
+ *   multiplies move speed by LATCH_SLOW_MUL. Ticks down like invuln, every frame.
+ * pools[i]: { x, y, r, t, dps } — circular zones that damage the PLAYER only while they stand
+ *   inside (dot-flagged {type:'hurt', dmg, dot:true} events, ticked every STATUS_TICK like other
+ *   DoTs — see stepPools in sim.js), removed once t <= 0. Fed by two elite-only flags: acidPool
+ *   (a pool left at an elite's death spot) and soapTrail (nodes dropped periodically while the
+ *   elite is alive, via sim-internal `_soapAcc` on the enemy). One shared array/step function
+ *   for both — see the ACID_ and SOAP_ constants in config.js. Not gated by chapter: empty
+ *   unless something pushes to it.
+ * obstacles[i]: { x, y, r } — circular colliders generated once at createRun from
+ *   CHAPTERS[chapter].obstacles (config.js; null/absent, e.g. body, yields []). Push the player
+ *   and every enemy out of overlap every frame (stepObstacles in sim.js); projectiles are
+ *   unaffected. Rendered from real sprite assets (Task 6), not drawn here.
+ * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
+ *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
+ *   don't drift identically.
+ *
  * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
  *   rarity: key of RARITIES (weapons: inherent; passives/mods/elements: rolled). icon: from config.
  *   bonus: passives/mods/elements only — the pre-multiplied amount applyChoice will add.
@@ -314,6 +386,7 @@ export function createRun(meta, opts = {}) {
       coinGainMul: 1 + shopBonus(meta, 'coinGain'),
       xp: startXp, level: 1, xpNext: xpForLevel(1),
       invuln: 0,
+      slowT: 0,           // s remaining of the latch-flag movement debuff (see doc block above)
       facing: 1,          // 1 right, -1 left (render flips the face)
       moving: false,
     },
@@ -343,6 +416,10 @@ export function createRun(meta, opts = {}) {
     gems: [],
     coins: [],
     bombs: [],
+    // v5.0 chapter behavior (see doc block above): pools fed by acidPool/soapTrail elite flags;
+    // obstacles rejection-sampled once here from this chapter's config (null/absent -> []).
+    pools: [],
+    obstacles: generateObstacles(CHAPTERS[chapter].obstacles),
     kills: 0,
     coinsEarned: 0,
     levelUpChoices: null,
@@ -350,6 +427,8 @@ export function createRun(meta, opts = {}) {
     _nextId: 1,
     _spawnAcc: 0,
     _nextEliteAt: 40,
+    // Sim-internal only (see doc block above): random phase offset for stepCurrents' field.
+    _driftSeed: Math.random() * Math.PI * 2,
     // Sim-internal only (not a render contract): pending Echo Wave casts (see WEAPON_MODS.wave
     // in config.js and stepWaveEchoes in sim.js) — { delay, x, y, radius, dmg, knockback }[].
     _waveEchoes: [],

@@ -673,6 +673,52 @@ export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] 
 // are independent draws from the same date key.
 export const dailyChapter = (dateKey) => CHAPTER_ORDER[hashString(dateKey + 'chapter') % CHAPTER_ORDER.length]
 
+// ---- Chapter behavior flags (v5.0 task 3, see sim.js) -------------------------------
+// Maps a roster entry's `archetype` (config.js CHAPTERS[id].roster, see above) onto the
+// existing spawn-type keys (ENEMIES above) that drive its base hp/speed/dmg/radius/xp —
+// archetypes are just the theme-agnostic vocabulary spawnEnemy uses to pick a roster skin.
+export const ARCHETYPE_TYPE = { normal: 'drone', tank: 'tank', fast: 'wisp' }
+
+// latch (e.g. body's antibody): on contact the enemy applies a move-speed debuff to the
+// player then dies (spends itself) instead of dealing normal contact damage — see
+// stepContactDamage in sim.js.
+export const LATCH_SLOW_T = 0.9    // s, duration of the player's movement-speed debuff
+export const LATCH_SLOW_MUL = 0.55 // player move speed multiplier while run.player.slowT > 0
+
+// split (e.g. pond's amoeba): on death, spawns children at reduced hp/radius; children never
+// re-split (see e._splitChild in sim.js's dealDamage death branch / spawnSplitChildren).
+export const SPLIT_CHILD_COUNT = 2
+export const SPLIT_HP_FRAC = 0.45     // child hp/maxHP, as a fraction of the parent's maxHP
+export const SPLIT_RADIUS_FRAC = 0.7  // child radius, as a fraction of the parent's radius
+
+// dashBurst (e.g. pond's paramecium): alternates idle (slow) <-> dash (fast) toward the
+// player, both still along the normal seek direction — see stepEnemyMovement in sim.js.
+export const DASH_IDLE_T = 1.1        // s, idle phase duration
+export const DASH_T = 0.5             // s, dash phase duration
+export const DASH_IDLE_SPEED_MUL = 0.4
+export const DASH_SPEED_MUL = 2.6
+
+// Pools (run.pools, see state.js): a shared array of {x, y, r, t, dps} zones that damage the
+// PLAYER only (dot-flagged 'hurt' events), ticked every STATUS_TICK like other DoTs, and
+// removed once t <= 0. Fed by two elite flags below.
+// acidPool (body's pill elites): a pool left where the elite died.
+export const ACID_R = 70
+export const ACID_DUR = 3
+export const ACID_DPS = 8
+// soapTrail (pond's soap-bubble elites): pool nodes dropped periodically while alive.
+export const SOAP_INTERVAL = 0.35 // s between dropped trail nodes
+export const SOAP_R = 26
+export const SOAP_DUR = 2.5
+export const SOAP_DPS = 6
+
+// Obstacles (run.obstacles, see state.js/createRun): circular colliders that push the player
+// and enemies out (never projectiles), rejection-sampled from each chapter's `obstacles` config
+// ({count, minR, maxR, minDist}, minDist measured from the run's origin) at createRun. These two
+// are generic placement tunables shared by every chapter's obstacle field (not per-chapter data):
+export const OBSTACLE_FIELD_RADIUS = 900       // px, obstacles scatter within this radius of the origin
+export const OBSTACLE_MIN_GAP = 40             // px, min gap between two obstacles' edges (beyond their radii)
+export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts per obstacle before giving up
+
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
 export const CONSUMABLES = {
   revive:    { name: 'Revive Token', icon: '💖', desc: 'Come back once at 50% HP', cost: 150 },

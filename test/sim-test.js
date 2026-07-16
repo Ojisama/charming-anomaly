@@ -11,8 +11,10 @@ import {
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
-  MAX_DIFFICULTY,
+  MAX_DIFFICULTY, PLAYER,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter,
+  LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
+  DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -1832,6 +1834,247 @@ function testChapterRuns() {
   console.log('PASS run U (per-chapter runs + weapon pool filtering): default chapter, pond starter, charged bump, pool filtering both directions')
 }
 
+// ---- Run V: chapter behavior flags, drift currents, field obstacles (v5.0 task 3) -------
+function testChapterBehaviors() {
+  const dt = 1 / 60
+
+  // (a) latch: contact sets the player's movement debuff, and the latch enemy dies (spends
+  // itself) instead of dealing normal contact damage.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 0; run.player.y = 0
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 50, speed: 0 })
+    e.flags = ['latch']
+    run.enemies.push(e)
+    const killsBefore = run.kills
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.player.slowT > 0, `expected latch contact to set player.slowT, got ${run.player.slowT}`)
+    assert(run.kills > killsBefore, 'expected the latch enemy to die on contact')
+
+    // The debuff actually slows movement (not just bookkeeping).
+    const slowed = createRun(makeMeta())
+    slowed.weapons = []
+    slowed.player.x = 0; slowed.player.y = 0
+    slowed.player.slowT = LATCH_SLOW_T
+    stepSim(slowed, { x: 1, y: 0 }, dt)
+    const slowedDist = Math.hypot(slowed.player.x, slowed.player.y)
+
+    const plain = createRun(makeMeta())
+    plain.weapons = []
+    plain.player.x = 0; plain.player.y = 0
+    stepSim(plain, { x: 1, y: 0 }, dt)
+    const plainDist = Math.hypot(plain.player.x, plain.player.y)
+
+    assert(slowedDist < plainDist, `expected the latch debuff to slow movement (slowed=${slowedDist}, plain=${plainDist})`)
+    console.log(`PASS run V.a (latch): slowT=${run.player.slowT.toFixed(2)} slowedDist=${slowedDist.toFixed(2)} plainDist=${plainDist.toFixed(2)}`)
+  }
+
+  // (b) split: death spawns SPLIT_CHILD_COUNT children at reduced hp/radius; children never re-split.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 1 }]
+    setElements(run, { fire: 5 })
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const parent = makeStatusEnemy(run, { x: 100, y: 0, hp: 30, speed: 0 })
+    parent.flags = ['split']
+    run.enemies.push(parent)
+
+    let hitOnce = false
+    for (let i = 0; i < Math.round(2 / dt) && !hitOnce; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'hit')) hitOnce = true
+    }
+    assert(hitOnce, 'expected the split target to take at least one hit')
+    run.weapons = []
+    run.bullets = []
+
+    let killed = false
+    for (let i = 0; i < Math.round(4 / dt) && !killed; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.kills > 0) killed = true
+    }
+    assert(killed, 'expected the ignite DoT to finish off the split target')
+
+    const children = run.enemies.filter((e) => e._splitChild)
+    assert.strictEqual(children.length, SPLIT_CHILD_COUNT, `expected ${SPLIT_CHILD_COUNT} split children, got ${children.length}`)
+    const expectedHp = parent.maxHP * SPLIT_HP_FRAC
+    const expectedRadius = parent.radius * SPLIT_RADIUS_FRAC
+    for (const c of children) {
+      assert(Math.abs(c.maxHP - expectedHp) < 1e-6, `expected child maxHP ${expectedHp}, got ${c.maxHP}`)
+      assert(Math.abs(c.radius - expectedRadius) < 1e-6, `expected child radius ${expectedRadius}, got ${c.radius}`)
+    }
+
+    // No re-split: isolate one child (drop its sibling so nothing else can be hit), kill it the
+    // same way, and confirm no further _splitChild enemies appear (a broken guard adds 2 more).
+    const [child, sibling] = children
+    run.enemies = run.enemies.filter((e) => e.id !== sibling.id)
+    run.player.x = child.x; run.player.y = child.y
+    run.weapons = [{ id: 'star', level: 5 }]
+    run.events = [] // drain stale 'hit' events from the parent's death so this check is fresh
+    let childHit = false
+    for (let i = 0; i < Math.round(2 / dt) && !childHit; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'hit')) childHit = true
+    }
+    assert(childHit, 'expected the split child to take at least one hit')
+    run.weapons = []
+    run.bullets = []
+    let childDead = false
+    for (let i = 0; i < Math.round(4 / dt) && !childDead; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (!run.enemies.find((e) => e.id === child.id)) childDead = true
+    }
+    assert(childDead, 'expected the split child to die from the ignite DoT')
+    assert.strictEqual(run.enemies.filter((e) => e._splitChild).length, 0,
+      "expected a split child's own death to spawn no further children (no re-split)")
+    console.log(`PASS run V.b (split): children=${children.length} hp=${children[0].maxHP.toFixed(1)} radius=${children[0].radius.toFixed(1)}`)
+  }
+
+  // (c) dashBurst: displacement over the dash window far exceeds the idle window.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 5000; run.player.y = 0 // far away: fixed seek direction, never contacts
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
+    e.flags = ['dashBurst']
+    run.enemies.push(e)
+
+    const idleStart = { x: e.x, y: e.y }
+    const idleSteps = Math.round(DASH_IDLE_T / dt)
+    for (let i = 0; i < idleSteps; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const afterIdle = run.enemies.find((en) => en.id === e.id)
+    const idleDist = Math.hypot(afterIdle.x - idleStart.x, afterIdle.y - idleStart.y)
+
+    const dashStart = { x: afterIdle.x, y: afterIdle.y }
+    const dashSteps = Math.round(DASH_T / dt)
+    for (let i = 0; i < dashSteps; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const afterDash = run.enemies.find((en) => en.id === e.id)
+    const dashDist = Math.hypot(afterDash.x - dashStart.x, afterDash.y - dashStart.y)
+
+    const idleRate = idleDist / DASH_IDLE_T
+    const dashRate = dashDist / DASH_T
+    assert(dashRate > idleRate * 3, `expected dash-phase speed >> idle-phase speed (idleRate=${idleRate.toFixed(1)}, dashRate=${dashRate.toFixed(1)})`)
+    console.log(`PASS run V.c (dashBurst): idleRate=${idleRate.toFixed(1)}px/s dashRate=${dashRate.toFixed(1)}px/s`)
+  }
+
+  // (d) acidPool (elite flag): death leaves a pool that damages a standing player and expires.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'star', level: 3 }]
+    run.player.x = 100; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const e = makeStatusEnemy(run, { x: 100, y: 0, hp: 10, speed: 0, elite: true })
+    e.flags = ['acidPool']
+    run.enemies.push(e)
+
+    let killed = false
+    for (let i = 0; i < Math.round(2 / dt) && !killed; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.kills > 0) killed = true
+    }
+    assert(killed, 'expected the acidPool elite to die')
+    assert(run.pools.length > 0, 'expected an acidPool death to leave a pool')
+    const pool = run.pools[0]
+    assert.strictEqual(pool.r, ACID_R, `expected pool radius ${ACID_R}, got ${pool.r}`)
+    assert.strictEqual(pool.dps, ACID_DPS, `expected pool dps ${ACID_DPS}, got ${pool.dps}`)
+
+    const hpBefore = run.player.hp
+    let dotHit = false
+    for (let i = 0; i < Math.round(1 / dt) && !dotHit; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((ev) => ev.type === 'hurt' && ev.dot)) dotHit = true
+    }
+    assert(dotHit, 'expected the acid pool to deal at least one dot-flagged hurt event')
+    assert(run.player.hp < hpBefore, `expected the acid pool to damage a standing player (before=${hpBefore}, after=${run.player.hp})`)
+
+    for (let i = 0; i < Math.round((ACID_DUR + 0.5) / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert.strictEqual(run.pools.length, 0, 'expected the acid pool to expire')
+    console.log('PASS run V.d (acidPool): pool damages standing player and expires')
+  }
+
+  // (e) soapTrail (elite flag): drops trail nodes into run.pools periodically while alive.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 5000; run.player.y = 0 // far away: never contacts, never dies
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 80, elite: true })
+    e.flags = ['soapTrail']
+    run.enemies.push(e)
+
+    const steps = Math.round(1.5 / dt)
+    for (let i = 0; i < steps; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.pools.length >= 3, `expected a soapTrail elite to leave >= 3 pool nodes over 1.5s, got ${run.pools.length}`)
+    for (const p of run.pools) {
+      assert.strictEqual(p.r, SOAP_R, `expected soap pool radius ${SOAP_R}, got ${p.r}`)
+      assert.strictEqual(p.t <= SOAP_DUR, true, `expected soap pool duration <= ${SOAP_DUR}, got ${p.t}`)
+    }
+    console.log(`PASS run V.e (soapTrail): nodes=${run.pools.length}`)
+  }
+
+  // (f) currents signature: a stationary pond player drifts, a stationary body player never does.
+  {
+    const pond = createRun(makeMeta(), { chapter: 'pond' })
+    pond.weapons = []
+    pond.player.x = 0; pond.player.y = 0
+    const steps = Math.round(3 / dt)
+    for (let i = 0; i < steps; i++) stepSim(pond, { x: 0, y: 0 }, dt)
+    const pondDrift = Math.hypot(pond.player.x, pond.player.y)
+
+    const body = createRun(makeMeta())
+    body.weapons = []
+    body.player.x = 0; body.player.y = 0
+    for (let i = 0; i < steps; i++) stepSim(body, { x: 0, y: 0 }, dt)
+    const bodyDrift = Math.hypot(body.player.x, body.player.y)
+
+    assert(pondDrift > 20, `expected a stationary pond-run player to drift > 20px over 3s, got ${pondDrift.toFixed(1)}`)
+    assert.strictEqual(bodyDrift, 0, `expected a stationary body-run player to never drift (no signature), got ${bodyDrift}`)
+    console.log(`PASS run V.f (currents): pondDrift=${pondDrift.toFixed(1)}px bodyDrift=${bodyDrift.toFixed(1)}px`)
+  }
+
+  // (g) obstacles: pond generates the configured field (no overlaps), body has none, and the
+  // player is pushed back out after being steered into one.
+  {
+    const pond = createRun(makeMeta(), { chapter: 'pond' })
+    assert.strictEqual(pond.obstacles.length, CHAPTERS.pond.obstacles.count,
+      `expected ${CHAPTERS.pond.obstacles.count} pond obstacles, got ${pond.obstacles.length}`)
+    for (let i = 0; i < pond.obstacles.length; i++) {
+      for (let j = i + 1; j < pond.obstacles.length; j++) {
+        const a = pond.obstacles[i], b = pond.obstacles[j]
+        const gap = Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r
+        assert(gap >= -1e-6, `expected no two pond obstacles to overlap, got gap=${gap}`)
+      }
+    }
+    const body = createRun(makeMeta())
+    assert.strictEqual(body.obstacles.length, 0, 'expected a body run to have no obstacles')
+
+    // Push-out: steer a player straight into a nearby (manually placed) obstacle for 1s.
+    const run = createRun(makeMeta(), { chapter: 'pond' })
+    run.weapons = []
+    run.player.x = 0; run.player.y = 0
+    const obstacle = { x: 150, y: 0, r: 40 }
+    run.obstacles = [obstacle]
+    const minSep = obstacle.r + PLAYER.radius
+    const steps2 = Math.round(1 / dt)
+    for (let i = 0; i < steps2; i++) stepSim(run, { x: 1, y: 0 }, dt)
+    const dist = Math.hypot(run.player.x - obstacle.x, run.player.y - obstacle.y)
+    assert(dist >= minSep - 0.5, `expected the player pushed out of the obstacle (dist=${dist.toFixed(1)}, min=${minSep.toFixed(1)})`)
+    console.log(`PASS run V.g (obstacles): pond count=${pond.obstacles.length} body count=${body.obstacles.length} pushed dist=${dist.toFixed(1)}`)
+  }
+
+  console.log('PASS run V (chapter behavior flags, drift currents, field obstacles): latch, split, dashBurst, acidPool, soapTrail, currents, obstacles')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1855,6 +2098,7 @@ try {
   testDifficultyUnlock()
   testChapters()
   testChapterRuns()
+  testChapterBehaviors()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
