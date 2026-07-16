@@ -369,3 +369,18 @@ now rolls exactly that many cards (was always 4 pre-rolled, with only the first 
 applies to every mode, including Daily. The shop screen gained a "🩸 Sacrifice" panel with its
 own local pick-then-confirm mode (`hooks.onSacrifice(picks)`, `picks: { [statId]: count }`),
 mutually exclusive with the normal Buy flow while active.
+
+## v5.0 addendum (2026-07-16) — chapters: framework + The Body + The Pond
+
+Ships the Spore-style chapter arc's framework plus its first two chapters. `CHAPTERS`
+(config.js) is pure data — theme, roster, weapon pool, elite/signature flags, obstacles — and
+`sim.js` stays theme-agnostic, reading only behavior flags off `run.chapter`'s snapshot. Meta
+gains a per-chapter ladder, `meta.chapters[id] = { unlocked, maxDifficulty, difficulty, best }`,
+migrated losslessly from v4 saves (body absorbs the old top-level difficulty/maxDifficulty; the
+top-level `meta.best`/coins/shop/choiceSlots are untouched). Level-up pools are scoped per run to
+`CHAPTERS[run.chapter].weapons` — a pond run never offers a body card and vice versa. Winning a
+chapter's classic mode at difficulty 3+ unlocks the next chapter (`nextChapter`); Daily seeds a
+chapter deterministically from the date (`dailyChapter`) and allows locked chapters as a preview.
+The Pond adds drift currents, field obstacles, and two new weapons (Flagella Whip, Toxin Bloom;
+Toxin Cysts is a mines re-theme). `boomerang`, `hole`, and `rainbow` are pulled from the active
+pool and vaulted until their own future chapters ship — not deleted, just chapter-less for now.
