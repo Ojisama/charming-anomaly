@@ -59,6 +59,8 @@ import {
   SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
+  FLAGELLA_CYCLONE_EVERY, BARBED_DMG_MUL, BARBED_DURATION,
+  BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -145,6 +147,10 @@ function stepPlayerMovement(run, input, dt) {
   p.moving = len > 1e-6
   if (ix > 1e-6) p.facing = 1
   else if (ix < -1e-6) p.facing = -1
+  // v5.0: last non-zero move direction as a full angle — the Flagella Whip aims its arc here
+  // (see fireFlagella); stays null until the player first moves, so the whip falls back to the
+  // nearest enemy before any input.
+  if (len > 1e-6) p.facingAngle = Math.atan2(iy, ix)
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
   if (p.slowT > 0) p.slowT = Math.max(0, p.slowT - dt)
@@ -215,6 +221,8 @@ function freshEnemyFields() {
     ignite: 0, igniteDps: 0,
     chill: 0, chillSlow: 0, frozen: 0,
     venom: 0, venomT: 0,
+    // Bleed DoT (v5.0, flagella's barbed mod — see applyBleed): dot-flagged, ticks like ignite.
+    bleed: 0, bleedDps: 0,
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
   }
 }
@@ -853,6 +861,18 @@ function stepStatuses(run, dt) {
       if (e.venomT <= 0) { e.venom = 0; e._venomAcc = 0 }
     }
 
+    // Bleed (v5.0, flagella's barbed mod): a plain dot-flagged DoT, same tick shape as ignite —
+    // no combo interactions, no element potency, just BARBED_DURATION seconds of bleedDps.
+    if (e.bleed > 0) {
+      e.bleed = Math.max(0, e.bleed - dt)
+      e._bleedAcc = (e._bleedAcc || 0) + dt
+      while (!e._dead && e._bleedAcc >= STATUS_TICK) {
+        e._bleedAcc -= STATUS_TICK
+        dealDamage(run, e, e.bleedDps * STATUS_TICK, false, true)
+      }
+      if (e.bleed <= 0) { e.bleedDps = 0; e._bleedAcc = 0 }
+    }
+
     if (e.chill > 0) {
       e.chill = Math.max(0, e.chill - dt)
       if (e.chill <= 0) { e.chillSlow = 0; e._chillStack = 0 }
@@ -895,6 +915,11 @@ const WEAPON_STAT_MODS = {
   homing:    { extraWisp: ['count', 'flat'], longLife: ['life', 'pct'], agile: ['turnRate', 'pct'] },
   hole:      { biggerHole: ['radius', 'pct'], lasting: ['duration', 'pct'], denser: ['pull', 'pct'] },
   rainbow:   { wideBeam: ['width', 'pct'], longBeam: ['length', 'pct'], sustain: ['duration', 'pct'] },
+  // v5.0 pond natives: frenzy/quickCast (attack-speed mods) are NOT here — folding them into the
+  // `rate` field would SLOW the weapon (rate is the interval); they divide the interval at the
+  // fire site instead (see stepFlagellaWeapon/stepBloomWeapon), like the global fire rate.
+  flagella:  { reach: ['range', 'pct'], wideArc: ['arc', 'pct'], heavyLash: ['dmg', 'pct'] },
+  bloom:     { bigBloom: ['maxR', 'pct'], lasting: ['dur', 'pct'], virulent: ['dmgPerTick', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -929,6 +954,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'homing') stepHomingWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'hole') stepHoleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'rainbow') stepBeamWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'flagella') stepFlagellaWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'bloom') stepBloomWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -938,6 +965,7 @@ function stepWeapons(run, dt) {
   stepHomingShots(run, dt)
   stepHoles(run, dt)
   stepBeams(run, dt)
+  stepBlooms(run, dt)
 
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
 }
@@ -1789,6 +1817,137 @@ function stepBeams(run, dt) {
     }
   }
   run.beams = run.beams.filter((b) => b.life > 0)
+}
+
+// -- Flagella Whip (v5.0 pond starter) --------------------------------------------------
+// A melee arc sweep: every `rate` seconds (frenzy divides that interval, like the global fire
+// rate) it damages every enemy whose CENTER falls in the sector (arc rad, range px) centered on
+// the player's facing. cyclone opens every 3rd swing to a full circle; barbed adds a bleed DoT.
+// Emits one {type:'whip', x, y, angle, range, arc} event per swing (render draws the sweep) plus
+// the usual per-enemy {type:'hit'} from applyDamage.
+function stepFlagellaWeapon(run, w, stats, fireRateMul, dt) {
+  const frenzy = run.weaponMods.flagella?.frenzy ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + frenzy)), dt, () => fireFlagella(run, stats))
+}
+
+function fireFlagella(run, stats) {
+  const p = run.player
+  // Facing = last non-zero move direction; fall back to the nearest enemy (then p.facing) before
+  // the player has moved at all this run.
+  let angle = p.facingAngle
+  if (angle == null || angle === undefined) {
+    const target = nearestEnemy(run)
+    angle = target ? Math.atan2(target.y - p.y, target.x - p.x) : (p.facing >= 0 ? 0 : Math.PI)
+  }
+
+  // cyclone (behavioral): every FLAGELLA_CYCLONE_EVERY-th swing opens to a full circle.
+  const cycloneOn = (run.weaponMods.flagella?.cyclone ?? 0) > 0
+  run._flagellaSwings = (run._flagellaSwings ?? 0) + 1
+  const fullCircle = cycloneOn && run._flagellaSwings % FLAGELLA_CYCLONE_EVERY === 0
+  const arc = fullCircle ? Math.PI * 2 : stats.arc
+  const half = arc / 2
+  const barbedBonus = run.weaponMods.flagella?.barbed ?? 0
+
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    if (dx * dx + dy * dy > stats.range * stats.range) continue // center within range
+    if (!fullCircle) {
+      const ea = Math.atan2(dy, dx)
+      const da = Math.atan2(Math.sin(ea - angle), Math.cos(ea - angle)) // signed angular offset
+      if (Math.abs(da) > half) continue
+    }
+    const dealt = applyDamage(run, e, stats.dmg)
+    if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)
+  }
+  run.events.push({ type: 'whip', x: p.x, y: p.y, angle, range: stats.range, arc })
+}
+
+// barbed: refresh (replace, like ignite) a bleed whose total = dmgDealt × BARBED_DMG_MUL × bonus
+// over BARBED_DURATION seconds. dmgDealt is already the fully-rolled hit (player mult + crit), so
+// the bleed ticks it straight through dealDamage (dot-flagged) without re-scaling — see stepStatuses.
+function applyBleed(enemy, dmgDealt, bonus) {
+  const total = dmgDealt * BARBED_DMG_MUL * bonus
+  if (total <= 0) return
+  enemy.bleed = BARBED_DURATION
+  enemy.bleedDps = total / BARBED_DURATION
+}
+
+// -- Toxin Bloom (v5.0 rare AoE zoner) --------------------------------------------------
+// Every `rate` seconds (quickCast divides that interval) plants a toxin cloud (twinBloom plants
+// extra clouds) on a random enemy within castRange, falling back to a random offset near the
+// player. Clouds live in run.blooms (see state.js) and are ticked by stepBlooms below.
+function stepBloomWeapon(run, w, stats, fireRateMul, dt) {
+  const quickCast = run.weaponMods.bloom?.quickCast ?? 0
+  const cloudCount = 1 + (run.weaponMods.bloom?.twinBloom ?? 0) // twinBloom: +1 cloud per pick
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickCast)), dt, () => {
+    for (let i = 0; i < cloudCount; i++) {
+      const spot = pickBloomSpot(run, stats.castRange)
+      run.blooms.push({ x: spot.x, y: spot.y, r: 0, maxR: stats.maxR, t: 0, dur: stats.dur, dmgPerTick: stats.dmgPerTick })
+    }
+    run.events.push({ type: 'bloom', x: run.player.x, y: run.player.y })
+  })
+}
+
+// A random live enemy within castRange, else a random offset within castRange of the player.
+function pickBloomSpot(run, castRange) {
+  const p = run.player
+  const rangeSq = castRange * castRange
+  const inRange = run.enemies.filter((e) => {
+    if (e._dead) return false
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= rangeSq
+  })
+  if (inRange.length > 0) {
+    const e = inRange[Math.floor(Math.random() * inRange.length)]
+    return { x: e.x, y: e.y }
+  }
+  const a = Math.random() * Math.PI * 2
+  const d = Math.random() * castRange
+  return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }
+}
+
+// Player-scaled but dot-flagged damage (no crit, no white flash, no element application) — a
+// bloom tick reads as a poison DoT, not a bright weapon hit, while still benefiting from the
+// player's damage passives/shop like every other weapon.
+function applyDotDamage(run, enemy, baseDmg) {
+  const p = run.player
+  const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul
+  dealDamage(run, enemy, dmg, false, true)
+}
+
+// Grows each cloud 0 -> maxR over dur × BLOOM_GROW_FRAC (then holds maxR), ticks dot-flagged
+// damage every BLOOM_TICK to enemies inside, and expires once t reaches dur. sporeburst: a foe
+// killed by a (non-mini) cloud's own tick emits a mini-cloud (SPOREBURST_FRAC maxR, flagged
+// `_mini` so it never chains). New minis are collected and appended after the pass so they don't
+// perturb the in-progress iteration.
+function stepBlooms(run, dt) {
+  if (run.blooms.length === 0) return
+  const sporeOn = (run.weaponMods.bloom?.sporeburst ?? 0) > 0
+  const minis = []
+  for (const bl of run.blooms) {
+    bl.t += dt
+    const growT = bl.dur * BLOOM_GROW_FRAC
+    bl.r = bl.t >= growT ? bl.maxR : bl.maxR * (bl.t / Math.max(1e-6, growT))
+    bl._tickAcc = (bl._tickAcc ?? 0) + dt
+    while (bl._tickAcc >= BLOOM_TICK) {
+      bl._tickAcc -= BLOOM_TICK
+      const rSq = bl.r * bl.r
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        const dx = e.x - bl.x, dy = e.y - bl.y
+        if (dx * dx + dy * dy > rSq) continue
+        applyDotDamage(run, e, bl.dmgPerTick)
+        if (sporeOn && !bl._mini && e._dead) {
+          minis.push({ x: e.x, y: e.y, maxR: bl.maxR * SPOREBURST_FRAC, dur: bl.dur, dmgPerTick: bl.dmgPerTick })
+        }
+      }
+    }
+  }
+  for (const m of minis) {
+    run.blooms.push({ x: m.x, y: m.y, r: 0, maxR: m.maxR, t: 0, dur: m.dur, dmgPerTick: m.dmgPerTick, _mini: true })
+  }
+  run.blooms = run.blooms.filter((bl) => bl.t < bl.dur)
 }
 
 // ---- Pickups ------------------------------------------------------------------------

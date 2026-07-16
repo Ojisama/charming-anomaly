@@ -88,9 +88,11 @@ export const WEAPONS = {
     ],
   },
   mines: {
-    name: 'Slime Mines',
-    desc: 'Drops wobbly bombs that pop on contact.',
-    icon: '💣', rarity: 'rare',
+    // v5.0: re-themed as a pond native (Toxin Cysts) — copy only, behavior unchanged
+    // (still the mines weapon step/mods in sim.js). Moved into the pond's weapon pool.
+    name: 'Toxin Cysts',
+    desc: 'Buds toxic cysts that burst on contact.',
+    icon: '🫧', rarity: 'rare',
     levels: [
       { dmg: 30, interval: 2.2, radius: 100, maxAlive: 3 },
       { dmg: 37, interval: 2.0, radius: 115, maxAlive: 4 },
@@ -341,6 +343,32 @@ export const WEAPON_MODS = {
     focus:     { name: 'Focus Lens', desc: 'beam damage ramp by the end of its duration', icon: '🔎', base: 0.80, kind: 'pct' },
     strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct' },
   },
+  // Pond natives (v5.0 task 4). Percents match the contract exactly (base = the normal-rarity
+  // headline; rarity scales it, like every pct mod). reach/wideArc/heavyLash fold into
+  // flagella's levels[] via WEAPON_STAT_MODS (sim.js); frenzy (attack speed) is read at the
+  // swing's fire site (it divides the swing interval, like the global fire-rate does — a
+  // levels[] `rate` bump would slow it, so it can't ride WEAPON_STAT_MODS). cyclone/barbed are
+  // behavioral (read at their trigger sites — see fireFlagella/applyBleed in sim.js).
+  flagella: {
+    reach:     { name: 'Long Reach',  desc: 'whip range',  icon: '📏', base: 0.35, kind: 'pct' },
+    wideArc:   { name: 'Wide Arc',    desc: 'whip arc',    icon: '🪭', base: 0.30, kind: 'pct' },
+    frenzy:    { name: 'Frenzy',      desc: 'whip speed',  icon: '💨', base: 0.25, kind: 'pct' },
+    heavyLash: { name: 'Heavy Lash',  desc: 'whip damage', icon: '🔨', base: 0.40, kind: 'pct' },
+    cyclone:   { name: 'Cyclone',     desc: 'full 360° sweep (every 3rd swing)', icon: '🌀', base: 1, kind: 'flat' },
+    barbed:    { name: 'Barbed Lash', desc: 'bleed on struck foes (over 3s, dot)', icon: '🩸', base: 0.50, kind: 'pct' },
+  },
+  // bigBloom/lasting/virulent fold into bloom's levels[] via WEAPON_STAT_MODS; quickCast (cast
+  // rate) is read at the plant site (divides the plant interval, same reason as flagella.frenzy).
+  // twinBloom/sporeburst are behavioral (read at their trigger sites — see stepBloomWeapon/
+  // stepBlooms in sim.js). twinBloom is a flat entity-count mod (+1 cloud/pick, like extraOrb).
+  bloom: {
+    bigBloom:   { name: 'Big Bloom',       desc: 'cloud radius',      icon: '🌸', base: 0.35, kind: 'pct' },
+    lasting:    { name: 'Lingering Spores', desc: 'cloud duration',    icon: '⏳', base: 0.40, kind: 'pct' },
+    virulent:   { name: 'Virulent',        desc: 'cloud tick damage', icon: '☣️', base: 0.35, kind: 'pct' },
+    quickCast:  { name: 'Quick Cast',      desc: 'cast rate',         icon: '⏩', base: 0.25, kind: 'pct' },
+    twinBloom:  { name: 'Twin Bloom',      desc: 'extra cloud(s) per cast',        icon: '🌺', base: 1, kind: 'flat' },
+    sporeburst: { name: 'Sporeburst',      desc: 'mini-cloud when a foe dies inside', icon: '💥', base: 1, kind: 'flat' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -428,6 +456,28 @@ export const SWARM_LIFE = 1.2     // s, mini-wisp lifetime
 
 // Big Crunch (black hole): collapse-detonation damage multiplier on top of the hole's own tick dmg.
 export const CRUNCH_DMG_MUL = 10
+
+// ---- Pond weapons (v5.0 task 4: Flagella Whip + Toxin Bloom) --------------------------------
+// Flagella Whip (pond starter, melee arc sweep — see WEAPONS.flagella above and stepFlagellaWeapon
+// in sim.js): a swing damages every enemy whose CENTER falls in the sector (arc rad, range px)
+// centered on the player's facing. cyclone (behavioral): every FLAGELLA_CYCLONE_EVERY-th swing
+// opens to a full 360° instead of the arc.
+export const FLAGELLA_CYCLONE_EVERY = 3
+// barbed (behavioral): a struck enemy bleeds a DoT whose TOTAL = the hit's dealt damage ×
+// BARBED_DMG_MUL × (accumulated barbed bonus), spread over BARBED_DURATION seconds and ticked
+// dot-flagged every STATUS_TICK (like ignite). Reapplying refreshes (replaces) it. One normal
+// pick (bonus 0.5) bleeds ~1.5× the hit; investment/rarity ramps it toward the 3× headline.
+export const BARBED_DMG_MUL = 3
+export const BARBED_DURATION = 3
+
+// Toxin Bloom (rare AoE zoner — see WEAPONS.bloom above and stepBloomWeapon/stepBlooms in sim.js):
+// a planted cloud (run.blooms, see state.js) grows 0 -> maxR over dur × BLOOM_GROW_FRAC, then holds
+// maxR, ticking dot-flagged damage every BLOOM_TICK to enemies inside until t reaches dur.
+export const BLOOM_GROW_FRAC = 0.35
+export const BLOOM_TICK = 0.5
+// sporeburst (behavioral): a foe killed by a (non-mini) cloud's own tick emits a mini-cloud at
+// SPOREBURST_FRAC of the parent's maxR (same dur/dmgPerTick), flagged `_mini` so it never chains.
+export const SPOREBURST_FRAC = 0.35
 
 // ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
 // Offered always (not gated behind a weapon), rolls a rarity like passives: applied

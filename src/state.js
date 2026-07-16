@@ -184,8 +184,11 @@ function generateObstacles(cfg) {
  *               fraction, applied as a speed multiplier in stepEnemyMovement), frozen (s of
  *               full-stop remaining; elites/type 'tank' never freeze — see ELITE_FREEZE_SLOW_MUL),
  *               venom (stacks 0..8), venomT (s remaining before stacks clear).
+ *               bleed (v5.0, s of bleed DoT remaining, 0 = none), bleedDps (current bleed rate) —
+ *               a plain dot-flagged DoT applied by the Flagella Whip's barbed mod (see applyBleed
+ *               in sim.js), ticked like ignite with no combo/element interaction.
  *               Sim-internal only (not a render contract, do not rely on these): _chillStack,
- *               _freezeImmuneT, _shockCd, _comboCd. }
+ *               _freezeImmuneT, _shockCd, _comboCd, _bleedAcc. }
  * bullets[i]: { x, y, vx, vy, dmg, pierce, life, r, speed, hitIds:Set<enemyId>,
  *               _shard (true for Split Stars shards; they never re-split), _splitDone,
  *               _chainsLeft (Chain Stars jumps remaining), _ricochetsLeft (Ricochet Stars
@@ -240,6 +243,16 @@ function generateObstacles(cfg) {
  *               already visual-safe here since it re-reads h.radius/coreRadius every frame. Big
  *               Crunch (v4.3): on expiry a hole collapses in one last detonation at its FINAL
  *               radius — an {type:'explode'} event, no new field.
+ * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, _mini? }  Toxin Bloom clouds (v5.0 pond
+ *               native, sim-owned/render-drawn). Planted by stepBloomWeapon at a random enemy
+ *               within castRange (fallback: a random offset near the player); r grows 0 -> maxR
+ *               over dur × BLOOM_GROW_FRAC (see config.js) then holds maxR; every BLOOM_TICK it
+ *               deals dot-flagged damage (dmgPerTick, player-scaled — {type:'hit', dot:true}) to
+ *               enemies within r; removed once t reaches dur. _mini (optional): true for
+ *               sporeburst mini-clouds (SPOREBURST_FRAC of the parent's maxR), spawned when a
+ *               non-mini cloud's own tick kills an enemy — minis never spawn further minis.
+ *               twinBloom (see WEAPON_MODS.bloom) plants extra clouds per cast. Render re-reads
+ *               r/maxR/t every frame (alpha/size ramp), no per-frame event.
  * beams[i]:     { angle, life, duration, dmg, tick, width, length, focusBonus? }  origin = player.
  *               Prismatic Split (v4.1, see WEAPON_MODS.rainbow) spawns extra beam entries of
  *               this same shape, angle offset evenly around the circle, all rotating together.
@@ -252,7 +265,15 @@ function generateObstacles(cfg) {
  * Sparks orb-kill splash, Popping Wisps death-pop, or Big Crunch hole-collapse (radius from
  * config: mine's own blast radius, STAR_BLAST_RADIUS, ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, or
  * the hole's own final radius, respectively) · {type:'hole'} vortex opens · {type:'beam'} beam
- * starts.
+ * starts · {type:'bloom', x, y} a Toxin Bloom is cast (x,y = player, for a cast sfx; the clouds
+ * themselves live in run.blooms above).
+ *
+ * v5.0 pond weapons (see WEAPONS.flagella/bloom + WEAPON_MODS in config.js, stepFlagellaWeapon/
+ * stepBloomWeapon in sim.js):
+ *   {type:'whip', x, y, angle, range, arc}  one per Flagella Whip swing (x,y = player origin;
+ *                                           angle = arc centre, range/arc = sector size — render
+ *                                           draws the sweep). Per-enemy {type:'hit'} events fire
+ *                                           alongside it as usual. cyclone opens arc to 2π.
  *
  * Shock arc visual (see applyShock in sim.js): every lightning shock arc emits exactly one of
  * the three events below — frostarc/conduct when their combo triggers on that shock, otherwise
@@ -388,6 +409,8 @@ export function createRun(meta, opts = {}) {
       invuln: 0,
       slowT: 0,           // s remaining of the latch-flag movement debuff (see doc block above)
       facing: 1,          // 1 right, -1 left (render flips the face)
+      facingAngle: null,  // v5.0: last non-zero move direction (full angle, rad); null until first
+                          // move. The Flagella Whip aims its arc here (see fireFlagella in sim.js).
       moving: false,
     },
     weapons: [{ id: CHAPTERS[chapter].starter, level: startWeaponLevel }],
@@ -413,6 +436,7 @@ export function createRun(meta, opts = {}) {
     homingShots: [],
     holes: [],
     beams: [],
+    blooms: [],
     gems: [],
     coins: [],
     bombs: [],

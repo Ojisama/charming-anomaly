@@ -15,6 +15,7 @@ import {
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
+  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -2075,6 +2076,210 @@ function testChapterBehaviors() {
   console.log('PASS run V (chapter behavior flags, drift currents, field obstacles): latch, split, dashBurst, acidPool, soapTrail, currents, obstacles')
 }
 
+// ---- Run W: new pond weapons — Flagella Whip + Toxin Bloom (v5.0 task 4) -----------------
+function testPondWeapons() {
+  const dt = 1 / 60
+
+  // (a) flagella hits only enemies whose center is inside the facing sector: one dead ahead
+  // (in-arc, in-range) dies; one directly behind the player is never touched.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'flagella', level: MAX_WEAPON_LEVEL }]
+    run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.player.facingAngle = 0 // face +x
+    const ahead = makeStatusEnemy(run, { x: 100, y: 0, hp: 20, speed: 0 })
+    const behind = makeStatusEnemy(run, { x: -100, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(ahead, behind)
+
+    let sawWhip = false
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      run.player.facingAngle = 0 // pin the aim (no move input would leave it anyway)
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'whip')) sawWhip = true
+    }
+    assert(!run.enemies.find((e) => e.id === ahead.id), 'expected the in-arc enemy to die to the whip')
+    const behindNow = run.enemies.find((e) => e.id === behind.id)
+    assert(behindNow && behindNow.hp === 1e6, `expected the behind-player enemy untouched (hp ${behindNow && behindNow.hp})`)
+    // (b) whip event emitted, carrying the render fields.
+    assert(sawWhip, 'expected at least one whip event')
+    console.log('PASS run W.a/b (flagella sector hit + whip event)')
+  }
+
+  // (c) cyclone: every 3rd swing is a full 360°, so a behind-player enemy is hit only via cyclone.
+  {
+    function behindHp(cyclone) {
+      const run = createRun(makeMeta())
+      run.weapons = [{ id: 'flagella', level: MAX_WEAPON_LEVEL }]
+      run.mods.spawnMul = 0
+      run.player.x = 0; run.player.y = 0
+      run.player.hp = 1e9; run.player.maxHP = 1e9
+      if (cyclone) run.weaponMods.flagella.cyclone = 1
+      const behind = makeStatusEnemy(run, { x: -100, y: 0, hp: 1e6, speed: 0 })
+      run.enemies.push(behind)
+      // Enough time for well past FLAGELLA_CYCLONE_EVERY swings (rate ~0.58s at max level).
+      for (let i = 0; i < Math.round((FLAGELLA_CYCLONE_EVERY + 2) * 0.9 / dt); i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        run.player.facingAngle = 0 // always face away from the behind enemy
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return run.enemies.find((e) => e.id === behind.id).hp
+    }
+    const withCyclone = behindHp(true)
+    const without = behindHp(false)
+    assert(without === 1e6, `expected no cyclone to never hit the behind enemy (hp ${without})`)
+    assert(withCyclone < 1e6, `expected cyclone's 360° swing to hit the behind enemy (hp ${withCyclone})`)
+    console.log(`PASS run W.c (cyclone): behind hp with=${withCyclone.toFixed(0)} without=${without.toFixed(0)}`)
+  }
+
+  // (d) bloom: the weapon plants a cloud; a hand-placed cloud expands from 0, ticks dot-flagged
+  // damage to enemies inside, and expires at dur.
+  {
+    // d1: the weapon actually plants a cloud on a nearby enemy within castRange.
+    const planter = createRun(makeMeta())
+    planter.weapons = [{ id: 'bloom', level: 1 }]
+    planter.mods.spawnMul = 0
+    planter.player.x = 0; planter.player.y = 0
+    planter.player.hp = 1e9; planter.player.maxHP = 1e9
+    planter.enemies.push(makeStatusEnemy(planter, { x: 100, y: 0, hp: 1e6, speed: 0 }))
+    let planted = false
+    for (let i = 0; i < Math.round(4 / dt) && !planted; i++) {
+      if (planter.phase === 'levelup') { declineLevelUp(planter); continue }
+      stepSim(planter, { x: 0, y: 0 }, dt)
+      if (planter.blooms.length > 0) planted = true
+    }
+    assert(planted, 'expected the bloom weapon to plant a cloud within 4s')
+
+    // d2: lifecycle of a hand-placed cloud — grows, ticks dot-flagged damage, expires.
+    const run = createRun(makeMeta())
+    run.weapons = [] // no re-planting; isolate this one cloud
+    run.mods.spawnMul = 0
+    run.player.x = 5000; run.player.y = 0 // far from the cloud/enemies (no contact damage)
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const target = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(target)
+    run.blooms.push({ x: 0, y: 0, r: 0, maxR: 90, t: 0, dur: 3, dmgPerTick: 6 })
+
+    let sawDotHit = false
+    let grew = false
+    const hpBefore = target.hp
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.blooms[0] && run.blooms[0].r > 0) grew = true
+      if (run.events.some((e) => e.type === 'hit' && e.dot)) sawDotHit = true
+    }
+    assert(grew, 'expected the cloud radius to grow from 0')
+    assert(sawDotHit, 'expected the bloom to tick dot-flagged hit events')
+    assert(target.hp < hpBefore, `expected the bloom to damage an enemy inside it (before=${hpBefore}, after=${target.hp})`)
+
+    // Expiry: step past dur; the cloud is gone (no weapon re-plants).
+    for (let i = 0; i < Math.round(3 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.blooms.length, 0, 'expected the cloud to expire at dur')
+    console.log('PASS run W.d (bloom plants, expands, ticks dot damage, expires)')
+  }
+
+  // (e) sporeburst: a foe killed by a (non-mini) cloud emits a mini-cloud; a mini-cloud's own
+  // kill emits NOTHING (no chaining).
+  {
+    // Positive: parent cloud kills an enemy inside -> a _mini cloud appears at SPOREBURST_FRAC size.
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.mods.spawnMul = 0
+    run.weaponMods.bloom.sporeburst = 1
+    run.player.x = 5000; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.enemies.push(makeStatusEnemy(run, { x: 0, y: 0, hp: 5, speed: 0 }))
+    run.blooms.push({ x: 0, y: 0, r: 0, maxR: 60, t: 0, dur: 3, dmgPerTick: 100 })
+    let miniSeen = null
+    for (let i = 0; i < Math.round(1 / dt) && !miniSeen; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      miniSeen = run.blooms.find((b) => b._mini)
+    }
+    assert(miniSeen, 'expected sporeburst to emit a mini-cloud on an in-bloom death')
+    assert(Math.abs(miniSeen.maxR - 60 * SPOREBURST_FRAC) < 1e-6, `expected mini maxR ${60 * SPOREBURST_FRAC}, got ${miniSeen.maxR}`)
+
+    // Negative: a _mini cloud that kills an enemy spawns no further cloud (never chains).
+    const noChain = createRun(makeMeta())
+    noChain.weapons = []
+    noChain.mods.spawnMul = 0
+    noChain.weaponMods.bloom.sporeburst = 1
+    noChain.player.x = 5000; noChain.player.y = 0
+    noChain.player.hp = 1e9; noChain.player.maxHP = 1e9
+    noChain.enemies.push(makeStatusEnemy(noChain, { x: 0, y: 0, hp: 5, speed: 0 }))
+    noChain.blooms.push({ x: 0, y: 0, r: 0, maxR: 40, t: 0, dur: 3, dmgPerTick: 100, _mini: true })
+    let maxBlooms = noChain.blooms.length
+    for (let i = 0; i < Math.round(1 / dt); i++) {
+      stepSim(noChain, { x: 0, y: 0 }, dt)
+      maxBlooms = Math.max(maxBlooms, noChain.blooms.length)
+    }
+    assert.strictEqual(maxBlooms, 1, `expected a mini-cloud kill to spawn no further clouds, saw up to ${maxBlooms}`)
+    console.log('PASS run W.e (sporeburst emits a mini-cloud but never chains)')
+  }
+
+  // (f) a pond run's mod pool offers ONLY flagella/mines/bloom weapon mods (never a body weapon's).
+  {
+    const pond = createRun(makeMeta(), { chapter: 'pond' })
+    pond.weapons = [{ id: 'flagella', level: 3 }, { id: 'mines', level: 3 }, { id: 'bloom', level: 3 }]
+    pond.choiceSlots = 4
+    const pondMods = new Set(CHAPTERS.pond.weapons)
+    let sawPondMod = false
+    for (let i = 0; i < 500; i++) {
+      for (const c of buildLevelUpChoices(pond)) {
+        if (c.kind !== 'mod') continue
+        assert(pondMods.has(c.weapon), `expected only pond weapon mods, got a '${c.weapon}' mod`)
+        sawPondMod = true
+      }
+    }
+    assert(sawPondMod, 'expected pond weapon mods to appear over 500 pools')
+    console.log('PASS run W.f (pond mod pool offers only pond weapon mods)')
+  }
+
+  // (g) mines re-theme is copy-only: the display name is now 'Toxin Cysts'.
+  {
+    assert.strictEqual(WEAPONS.mines.name, 'Toxin Cysts', `expected mines re-themed to 'Toxin Cysts', got '${WEAPONS.mines.name}'`)
+    console.log('PASS run W.g (mines re-themed to Toxin Cysts)')
+  }
+
+  // Balance band (run P style, kill-time on a realistic ring — not an immortal-ring DPS race,
+  // per the v4.4 lesson): a fully-leveled flagella + 2 mods must clear the ring no slower than
+  // 3.5x the pond-median kill-time of the OTHER pond natives (mines, bloom).
+  {
+    function measureTTK(weaponId, applyMods) {
+      const run = createRun(makeMeta()) // body chapter: no currents/obstacles skewing the clear
+      run.weapons = [{ id: weaponId, level: MAX_WEAPON_LEVEL }]
+      run.mods.spawnMul = 0
+      run.player.hp = 1e9; run.player.maxHP = 1e9
+      if (applyMods) applyMods(run)
+      const N = 14, radius = 150, hp = 50
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2
+        run.enemies.push(makeStatusEnemy(run, { x: Math.cos(a) * radius, y: Math.sin(a) * radius, hp, speed: 45 }))
+      }
+      let t = 0
+      const cap = 60
+      for (let i = 0; i < Math.round(cap / dt); i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        t += dt
+        run.player.x = 0; run.player.y = 0        // pin: enemies converge on the origin
+        run.player.facingAngle = t * 4            // sweep the whip's aim around
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.enemies.length === 0) return t
+      }
+      return cap
+    }
+    const flagellaTTK = measureTTK('flagella', (r) => { r.weaponMods.flagella.heavyLash = 0.40; r.weaponMods.flagella.barbed = 0.50 })
+    const minesTTK = measureTTK('mines', (r) => { r.weaponMods.mines.heavyCharge = 0.20; r.weaponMods.mines.bigBoom = 0.20 })
+    const bloomTTK = measureTTK('bloom', (r) => { r.weaponMods.bloom.virulent = 0.35; r.weaponMods.bloom.quickCast = 0.25 })
+    const others = [minesTTK, bloomTTK].sort((a, b) => a - b)
+    const median = others[Math.floor(others.length / 2)]
+    assert(flagellaTTK < 60, `expected flagella to clear the ring within the cap, got ${flagellaTTK.toFixed(1)}s`)
+    assert(flagellaTTK <= median * 3.5, `expected flagella kill-time within 3.5x the pond-median (flagella=${flagellaTTK.toFixed(1)}s, median=${median.toFixed(1)}s, ratio=${(flagellaTTK / median).toFixed(2)})`)
+    console.log(`PASS run W (balance band): flagellaTTK=${flagellaTTK.toFixed(1)}s minesTTK=${minesTTK.toFixed(1)}s bloomTTK=${bloomTTK.toFixed(1)}s ratio=${(flagellaTTK / median).toFixed(2)}x`)
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -2099,6 +2304,7 @@ try {
   testChapters()
   testChapterRuns()
   testChapterBehaviors()
+  testPondWeapons()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
