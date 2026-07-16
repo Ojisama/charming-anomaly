@@ -26,7 +26,7 @@
 // flipping phase to 'dead' when one is banked — see hurtPlayer below.
 
 import {
-  RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
+  RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, MAX_MODS_PER_WEAPON_PER_POOL,
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
@@ -1655,7 +1655,9 @@ function weaponCandidates(run) {
 
   if (run.weapons.length < MAX_WEAPONS) {
     const pNew = newWeaponChance(arsenalInvestment(run))
-    for (const id of Object.keys(WEAPONS)) {
+    // New-weapon offers are scoped to the run's chapter (see CHAPTERS in config.js) — the other
+    // chapters' natives simply never appear in this run's pool.
+    for (const id of CHAPTERS[run.chapter].weapons) {
       if (!ownedIds.has(id) && Math.random() < pNew) {
         const cfg = WEAPONS[id]
         list.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon })
@@ -1828,7 +1830,7 @@ function buildLevelUpChoices(run) {
   // room for a new weapon but none made it into the cards, occasionally force one in so the
   // focus nudge can never fade discovery out entirely.
   const ownedIds = new Set(run.weapons.map((w) => w.id))
-  const unowned = Object.keys(WEAPONS).filter((id) => !ownedIds.has(id))
+  const unowned = CHAPTERS[run.chapter].weapons.filter((id) => !ownedIds.has(id))
   const hasNewCard = cards.some((c) => c.kind === 'weapon' && c.tag === 'New!')
   if (!hasNewCard && unowned.length > 0 && run.weapons.length < MAX_WEAPONS && Math.random() < NEW_WEAPON_MIN_RATE) {
     const id = unowned[Math.floor(Math.random() * unowned.length)]

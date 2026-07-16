@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_ORDER } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_ORDER, CHAPTERS } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -91,6 +91,13 @@ export function shopBonus(meta, id) {
 /**
  * Run state — the single mutable object the whole game shares each run.
  *
+ * chapter (v5.0): the run's CHAPTERS id (config.js), snapshotted at createRun (opts.chapter,
+ *   default 'body') and constant for the run's duration. Picks the starting weapon
+ *   (CHAPTERS[chapter].starter) and scopes sim.js's level-up weapon pool
+ *   (weaponCandidates/buildLevelUpChoices) to CHAPTERS[chapter].weapons — other chapters'
+ *   natives never appear as offers, though nothing stops a weapon id from being pushed onto
+ *   run.weapons directly (e.g. tests) and stepping normally; only the OFFER pool is scoped.
+ *   Weapon mods (WEAPON_MODS) and elements stay global systems, unscoped by chapter.
  * phase: 'playing' | 'levelup' | 'paused' | 'dead' | 'victory'
  * events: drained by main.js every frame. Event shapes:
  *   { type:'hit', x, y, dmg, crit }          weapon damaged an enemy
@@ -277,10 +284,17 @@ export function createRun(meta, opts = {}) {
   const hasHeadstart = consumables.includes('headstart')
   const startXp = hasHeadstart ? xpForLevel(1) + xpForLevel(2) : 0
   const startWeaponLevel = consumables.includes('charged') ? 2 : 1
+  // Chapter snapshot (v5.0, see CHAPTERS in config.js): opts.chapter (default 'body') picks the
+  // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
+  // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole
+  // run. Caller (main.js) is responsible for sourcing opts.difficulty/opts.mutators from that
+  // same chapter's meta.chapters[id] ladder/daily mutators — createRun itself doesn't read meta.chapters.
+  const chapter = opts.chapter ?? 'body'
   return {
     phase: 'playing',
     time: 0,
     events: [],
+    chapter,
     difficulty,
     mutators: opts.mutators ?? [],
     mods,
@@ -303,7 +317,7 @@ export function createRun(meta, opts = {}) {
       facing: 1,          // 1 right, -1 left (render flips the face)
       moving: false,
     },
-    weapons: [{ id: STARTING_WEAPON, level: startWeaponLevel }],
+    weapons: [{ id: CHAPTERS[chapter].starter, level: startWeaponLevel }],
     weaponTimers: {},      // id -> s until next fire
     // accumulated applied bonuses (base * rarity mult per pick) and pick counts
     passives: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),

@@ -5,6 +5,15 @@ import { playSfx } from './audio.js'
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 
+// v5.0: difficulty pips/hints/gating used to read top-level meta.difficulty/meta.maxDifficulty;
+// those fields are gone (see state.js's meta.chapters migration) — the ladder now lives per
+// chapter at meta.chapters[id]. This is the minimal read needed to keep the existing (single
+// visible chapter) title screen working; the full chapter-select UI (cards, locked previews,
+// tagline, etc.) is Task 5.
+function selectedChapterMeta(meta) {
+  return meta.chapters?.[meta.chapter] ?? { maxDifficulty: 1, difficulty: 1 }
+}
+
 function fmtTime(s) {
   const t = Math.max(0, Math.floor(s))
   const m = String(Math.floor(t / 60)).padStart(2, '0')
@@ -37,9 +46,13 @@ function formatShopBonus(id, levels) {
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onReroll(), onSacrifice(picks)->bool,
  *                       onReset() })
- *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists meta.difficulty.
- *       Pips above meta.maxDifficulty render locked (🔒, disabled) and never fire this at all —
- *       level d+1 only unlocks by winning a classic run at level d (see endRun in main.js).
+ *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists to the
+ *       SELECTED chapter's ladder, meta.chapters[meta.chapter].difficulty (v5.0 — see
+ *       selectedChapterMeta below and state.js's meta.chapters doc block). Pips above that
+ *       chapter's maxDifficulty render locked (🔒, disabled) and never fire this at all — level
+ *       d+1 only unlocks by winning a classic run at level d in that same chapter (see endRun in
+ *       main.js). Chapter selection itself (meta.chapter) is Task 5 — this file currently always
+ *       reads/writes whatever chapter is already selected (default 'body').
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the title shelf's session-local selection, an array of
  *       CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
@@ -62,8 +75,11 @@ function formatShopBonus(id, levels) {
  *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
  *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
- *       unlockedDifficulty? }   unlockedDifficulty is the newly-unlocked level number when this
- *       win just raised meta.maxDifficulty (see endRun in main.js), else null.
+ *       unlockedDifficulty?, unlockedChapter? }   unlockedDifficulty is the newly-unlocked level
+ *       number when this win just raised the run's chapter's maxDifficulty (see endRun in
+ *       main.js), else null. unlockedChapter (v5.0) is the newly-unlocked NEXT chapter's name
+ *       when this win (classic, difficulty 3+) just unlocked it, else null — not yet rendered
+ *       (badge is Task 5), but always present on the data object.
  *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
  */
 export function initUI(hooks) {
@@ -106,6 +122,7 @@ export function initUI(hooks) {
 
   function renderTitle() {
     const { coins, best, runs } = meta
+    const chMeta = selectedChapterMeta(meta)
     const dailyIds = dailyMutators(todayKey())
     const dailyPreview = dailyIds.map((id) => `${MUTATORS[id]?.icon ?? '❔'} ${MUTATORS[id]?.name ?? id}`).join(' · ')
     screens.title.innerHTML = `
@@ -117,15 +134,15 @@ export function initUI(hooks) {
         <span class="diff-label">Difficulty</span>
         ${Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
           const d = i + 1
-          const locked = d > (meta.maxDifficulty ?? 1)
+          const locked = d > chMeta.maxDifficulty
           if (locked) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
-          return `<button class="diff-pip${d <= (meta.difficulty ?? 1) ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
+          return `<button class="diff-pip${d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}
       </div>
-      <p class="diff-hint">${(meta.difficulty ?? 1) === 1
+      <p class="diff-hint">${chMeta.difficulty === 1
         ? 'the base game'
-        : `+${meta.difficulty - 1} random anomal${meta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((meta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((meta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
-      ${(meta.maxDifficulty ?? 1) < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${meta.maxDifficulty} to unlock ${meta.maxDifficulty + 1}</p>` : ''}
+        : `+${chMeta.difficulty - 1} random anomal${chMeta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
+      ${chMeta.maxDifficulty < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
       ${consumablesShelfHtml()}
       <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
       <p class="daily-preview">${dailyPreview}</p>
@@ -593,7 +610,7 @@ export function initUI(hooks) {
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
       case 'diff': {
         const d = Number(el.dataset.diff)
-        if (d > (meta.maxDifficulty ?? 1)) break // belt-and-braces: locked pips are disabled already
+        if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already
         hooks.onDifficulty(d)
         renderTitle()
         break

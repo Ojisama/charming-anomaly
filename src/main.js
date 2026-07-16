@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, createRun } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost } from './config.js'
+import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta } from './state.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost, CHAPTERS, nextChapter, dailyChapter } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -55,11 +55,23 @@ const ui = initUI({
         playSfx('buy')
       }
     }
-    // Daily = fixed shared seed at base difficulty; classic = meta.difficulty
-    // (level 1 adds nothing, each level above adds one random mutator + enemy HP).
-    run = mode === 'daily'
-      ? createRun(meta, { mutators: dailyMutators(todayKey()) })
-      : createRun(meta, { mutators: randomMutators((meta.difficulty ?? 1) - 1), difficulty: meta.difficulty ?? 1, consumables: ids })
+    // Daily = fixed shared seed, date-seeded chapter (see dailyChapter in config.js), base
+    // difficulty — allowed on a chapter this player hasn't unlocked yet (spec: preview day).
+    // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
+    // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
+    // state.js.
+    if (mode === 'daily') {
+      const chapter = dailyChapter(todayKey())
+      run = createRun(meta, { chapter, mutators: dailyMutators(todayKey()) })
+    } else {
+      const chMeta = ensureChapterMeta(meta, meta.chapter)
+      run = createRun(meta, {
+        chapter: meta.chapter,
+        mutators: randomMutators(chMeta.difficulty - 1),
+        difficulty: chMeta.difficulty,
+        consumables: ids,
+      })
+    }
     if (new URLSearchParams(location.search).has('debug')) window.__run = run
     renderer.reset(run)
     ui.showScreen('hud')
@@ -87,9 +99,10 @@ const ui = initUI({
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
   },
   onDifficulty(d) {
-    // Belt-and-braces with the UI: never let a locked level (above meta.maxDifficulty) stick,
-    // even if a stray click somehow got through disabled/no-op pips.
-    meta.difficulty = Math.max(1, Math.min(meta.maxDifficulty ?? 1, Math.min(MAX_DIFFICULTY, d)))
+    // Belt-and-braces with the UI: never let a locked level (above the SELECTED chapter's
+    // maxDifficulty) stick, even if a stray click somehow got through disabled/no-op pips.
+    const chMeta = ensureChapterMeta(meta, meta.chapter)
+    chMeta.difficulty = Math.max(1, Math.min(chMeta.maxDifficulty, Math.min(MAX_DIFFICULTY, d)))
     saveMeta(meta)
     playSfx('click')
   },
@@ -161,16 +174,46 @@ function endRun(victory) {
   const earned = run.coinsEarned + bonus
   meta.coins += earned
   meta.runs += 1
+  // meta.best: all-time aggregate across every chapter (see state.js doc block), kept
+  // unconditionally alongside the per-chapter best below.
   meta.best.time = Math.max(meta.best.time, Math.floor(run.time))
   meta.best.kills = Math.max(meta.best.kills, run.kills)
-  // Difficulty unlock (v4.10): winning a classic run at meta's current ceiling unlocks the next
-  // level. Only fires on the level actually at the ceiling (winning a lower, already-unlocked
-  // level doesn't re-unlock anything), and only while there's a level left to unlock.
-  const unlocked = victory && runMode === 'classic' &&
-    (run.difficulty ?? 1) >= (meta.maxDifficulty ?? 1) && (meta.maxDifficulty ?? 1) < MAX_DIFFICULTY
-  if (unlocked) meta.maxDifficulty = Math.min(MAX_DIFFICULTY, (run.difficulty ?? 1) + 1)
+
+  const chMeta = ensureChapterMeta(meta, run.chapter)
+  chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run.time))
+  chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
+
+  // Difficulty unlock (v4.10, now per-chapter): winning a classic run at the run's chapter's
+  // current ceiling unlocks the next level FOR THAT CHAPTER. Only fires on the level actually
+  // at the ceiling (winning a lower, already-unlocked level doesn't re-unlock anything), and
+  // only while there's a level left to unlock.
+  const unlockedDifficulty = victory && runMode === 'classic' &&
+    (run.difficulty ?? 1) >= chMeta.maxDifficulty && chMeta.maxDifficulty < MAX_DIFFICULTY
+  if (unlockedDifficulty) chMeta.maxDifficulty = Math.min(MAX_DIFFICULTY, (run.difficulty ?? 1) + 1)
+
+  // Chapter unlock (v5.0): winning a classic run at difficulty 3+ unlocks the NEXT chapter (see
+  // nextChapter in config.js), if there is one and it isn't already unlocked. Guarded on "not
+  // already unlocked" purely so the summary badge only fires once (replaying at 3+ afterward
+  // shouldn't keep announcing it).
+  let unlockedChapter = null
+  if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= 3) {
+    const next = nextChapter(run.chapter)
+    if (next) {
+      const nextMeta = ensureChapterMeta(meta, next)
+      if (!nextMeta.unlocked) {
+        nextMeta.unlocked = true
+        unlockedChapter = CHAPTERS[next].name
+      }
+    }
+  }
+
   saveMeta(meta)
-  ui.showScreen('summary', { victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus, mutators: run.mutators, mode: runMode, unlockedDifficulty: unlocked ? meta.maxDifficulty : null })
+  ui.showScreen('summary', {
+    victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
+    mutators: run.mutators, mode: runMode,
+    unlockedDifficulty: unlockedDifficulty ? chMeta.maxDifficulty : null,
+    unlockedChapter,
+  })
 }
 
 app.ticker.add((ticker) => {

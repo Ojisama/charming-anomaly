@@ -1763,6 +1763,75 @@ function testChapters() {
   console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps')
 }
 
+// ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
+// Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —
+// this covers what sim/state own: createRun's chapter snapshot + starter weapon, and
+// weaponCandidates/buildLevelUpChoices scoping level-up weapon OFFERS to the run's chapter
+// (mods/elements stay global — see the run.chapter doc block in state.js).
+function testChapterRuns() {
+  // (a) Default chapter is 'body'; starting weapon is CHAPTERS.body.starter (star), level 1.
+  {
+    const run = createRun(makeMeta())
+    assert.strictEqual(run.chapter, 'body', "expected createRun's default chapter to be 'body'")
+    assert.strictEqual(run.weapons.length, 1, 'expected exactly one starting weapon')
+    assert.strictEqual(run.weapons[0].id, CHAPTERS.body.starter, `expected the body starter (${CHAPTERS.body.starter}), got ${run.weapons[0].id}`)
+    assert.strictEqual(run.weapons[0].level, 1, 'expected the starting weapon at level 1')
+  }
+
+  // (b) chapter: 'pond' starts with the pond starter (flagella) instead of body's star.
+  {
+    const run = createRun(makeMeta(), { chapter: 'pond' })
+    assert.strictEqual(run.chapter, 'pond', "expected run.chapter === 'pond'")
+    assert.strictEqual(run.weapons[0].id, CHAPTERS.pond.starter, `expected the pond starter (${CHAPTERS.pond.starter}), got ${run.weapons[0].id}`)
+  }
+
+  // The charged consumable still bumps the CHAPTER'S OWN starter to level 2, not hardcoded star.
+  {
+    const run = createRun(makeMeta(), { chapter: 'pond', consumables: ['charged'] })
+    assert.strictEqual(run.weapons[0].id, CHAPTERS.pond.starter, 'expected charged core to keep the chapter starter id')
+    assert.strictEqual(run.weapons[0].level, 2, 'expected charged core to bump the chapter starter to level 2')
+  }
+
+  // (c) A pond run's level-up pool never offers body/vaulted-chapter weapons (star, boomerang,
+  // hole, rainbow) as 'weapon' cards — only CHAPTERS.pond.weapons can appear. Sampled generously
+  // (500 pools x up to 4 cards) to catch any leak.
+  {
+    const pond = createRun(makeMeta(), { chapter: 'pond' })
+    pond.choiceSlots = 4 // more cards per pool -> more chances to catch a leak
+    const forbidden = new Set(['star', 'boomerang', 'hole', 'rainbow'])
+    let sawWeaponCard = false
+    for (let i = 0; i < 500; i++) {
+      for (const c of buildLevelUpChoices(pond)) {
+        if (c.kind !== 'weapon') continue
+        sawWeaponCard = true
+        assert(!forbidden.has(c.id), `expected a pond run to never offer '${c.id}' as a weapon card`)
+        assert(CHAPTERS.pond.weapons.includes(c.id), `expected every pond weapon card to be a pond native, got '${c.id}'`)
+      }
+    }
+    assert(sawWeaponCard, 'expected at least one weapon card to appear over 500 pond pools')
+    console.log('PASS run U.c (pond pool never offers body/vaulted weapons)')
+  }
+
+  // (d) A body run's level-up pool never offers mines (a pond native) — the flip side of (c).
+  {
+    const body = createRun(makeMeta())
+    body.choiceSlots = 4
+    let sawWeaponCard = false
+    for (let i = 0; i < 500; i++) {
+      for (const c of buildLevelUpChoices(body)) {
+        if (c.kind !== 'weapon') continue
+        sawWeaponCard = true
+        assert.notStrictEqual(c.id, 'mines', "expected a body run to never offer 'mines' as a weapon card")
+        assert(CHAPTERS.body.weapons.includes(c.id), `expected every body weapon card to be a body native, got '${c.id}'`)
+      }
+    }
+    assert(sawWeaponCard, 'expected at least one weapon card to appear over 500 body pools')
+    console.log('PASS run U.d (body pool never offers pond weapons)')
+  }
+
+  console.log('PASS run U (per-chapter runs + weapon pool filtering): default chapter, pond starter, charged bump, pool filtering both directions')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1785,6 +1854,7 @@ try {
   testChoiceSlots()
   testDifficultyUnlock()
   testChapters()
+  testChapterRuns()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

@@ -135,8 +135,34 @@ export const WEAPONS = {
       { dmg: 26, tick: 0.13, interval: 5.5, duration: 3.2, rotSpeed: 3.5, width: 40, length: 480 },
     ],
   },
+  // Pond chapter natives (v5.0). Minimal stat tables so the level-up pool + weapon-stat
+  // pipeline (effectiveWeaponStats in sim.js) resolve — Task 4 owns their actual step logic
+  // (arc sweep / toxin cloud) and mods; these numbers are placeholders it may retune.
+  flagella: {
+    name: 'Flagella Whip',
+    desc: 'Lashes a melee arc in your facing direction.',
+    icon: '🧫', rarity: 'normal',
+    levels: [
+      { dmg: 14, rate: 0.90, range: 130, arc: 1.40 },
+      { dmg: 17, rate: 0.82, range: 140, arc: 1.50 },
+      { dmg: 21, rate: 0.74, range: 150, arc: 1.60 },
+      { dmg: 26, rate: 0.66, range: 160, arc: 1.70 },
+      { dmg: 32, rate: 0.58, range: 175, arc: 1.85 },
+    ],
+  },
+  bloom: {
+    name: 'Toxin Bloom',
+    desc: 'Plants a spreading toxin cloud that ticks damage.',
+    icon: '🧪', rarity: 'rare',
+    levels: [
+      { rate: 3.4, castRange: 260, dur: 3.0, maxR: 90,  dmgPerTick: 6 },
+      { rate: 3.1, castRange: 270, dur: 3.2, maxR: 100, dmgPerTick: 7 },
+      { rate: 2.8, castRange: 280, dur: 3.4, maxR: 110, dmgPerTick: 9 },
+      { rate: 2.5, castRange: 300, dur: 3.6, maxR: 125, dmgPerTick: 11 },
+      { rate: 2.2, castRange: 320, dur: 3.8, maxR: 140, dmgPerTick: 14 },
+    ],
+  },
 }
-export const STARTING_WEAPON = 'star'
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
 
