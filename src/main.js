@@ -106,6 +106,15 @@ const ui = initUI({
     saveMeta(meta)
     playSfx('click')
   },
+  // Title screen's chapter selector (v5.0). Belt-and-braces with the UI: never select a chapter
+  // that isn't unlocked, even if a stray click somehow got through a disabled locked card. ui.js
+  // re-renders the title itself right after calling this (same pattern as onDifficulty above).
+  onChapter(id) {
+    if (!ensureChapterMeta(meta, id).unlocked) return
+    meta.chapter = id
+    saveMeta(meta)
+    playSfx('click')
+  },
   onReroll() {
     if (!run || run.phase !== 'levelup') return
     const cost = rerollCost(run._rerolls ?? 0)

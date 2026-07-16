@@ -1,17 +1,51 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 
-// v5.0: difficulty pips/hints/gating used to read top-level meta.difficulty/meta.maxDifficulty;
-// those fields are gone (see state.js's meta.chapters migration) — the ladder now lives per
-// chapter at meta.chapters[id]. This is the minimal read needed to keep the existing (single
-// visible chapter) title screen working; the full chapter-select UI (cards, locked previews,
-// tagline, etc.) is Task 5.
+// v5.0: difficulty pips/hints/gating read the SELECTED chapter's ladder (meta.chapters[id],
+// see state.js's meta.chapters doc block) rather than the pre-v5.0 top-level
+// meta.difficulty/meta.maxDifficulty (removed at migration).
 function selectedChapterMeta(meta) {
   return meta.chapters?.[meta.chapter] ?? { maxDifficulty: 1, difficulty: 1 }
+}
+
+// v5.0 chapter selector (title screen). One card per CHAPTER_ORDER entry: unlocked chapters
+// show icon + name (mint border when selected); locked chapters render as an anonymous "???"
+// card (🔒, no icon/name leak) and are disabled — the delegated click handler double-guards
+// against a locked id ever reaching onChapter.
+function chapterRowHtml(meta) {
+  const cards = CHAPTER_ORDER.map((id) => {
+    const chapter = CHAPTERS[id]
+    const unlocked = meta.chapters?.[id]?.unlocked
+    if (!unlocked) {
+      return `
+        <button class="chapter-card chapter-card--locked" data-act="chapter" data-id="${id}" disabled>
+          <span class="chapter-card-icon">🔒</span>
+          <span class="chapter-card-name">???</span>
+        </button>`
+    }
+    const selected = id === meta.chapter
+    return `
+      <button class="chapter-card${selected ? ' chapter-card--selected' : ''}" data-act="chapter" data-id="${id}">
+        <span class="chapter-card-icon">${chapter.icon}</span>
+        <span class="chapter-card-name">${chapter.name}</span>
+      </button>`
+  }).join('')
+  return `<div class="chapter-row">${cards}</div>`
+}
+
+// The furthest-progressed chapter this save has unlocked (last CHAPTER_ORDER id whose
+// chapters[id].unlocked is true) — used to phrase the "win X at difficulty 3+" hint under the
+// chapter selector for the next (locked) chapter, if any.
+function furthestUnlockedChapterId(meta) {
+  let furthest = CHAPTER_ORDER[0]
+  for (const id of CHAPTER_ORDER) {
+    if (meta.chapters?.[id]?.unlocked) furthest = id
+  }
+  return furthest
 }
 
 function fmtTime(s) {
@@ -44,15 +78,19 @@ function formatShopBonus(id, levels) {
 /**
  * Contract used by main.js:
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
- *                       onPauseToggle, onQuit, onDifficulty(d), onReroll(), onSacrifice(picks)->bool,
- *                       onReset() })
+ *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(),
+ *                       onSacrifice(picks)->bool, onReset() })
+ *     - onChapter(id): title screen's chapter-card row (see chapterRowHtml above). Only fires
+ *       for CHAPTER_ORDER ids the delegated click handler already sees as unlocked (locked
+ *       cards render disabled) — main.js re-guards via ensureChapterMeta(meta, id).unlocked,
+ *       sets meta.chapter, saveMeta, plays 'click'. Like onDifficulty below, ui.js re-renders
+ *       the title itself right after calling the hook — main.js never calls showScreen for it.
  *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists to the
  *       SELECTED chapter's ladder, meta.chapters[meta.chapter].difficulty (v5.0 — see
  *       selectedChapterMeta below and state.js's meta.chapters doc block). Pips above that
  *       chapter's maxDifficulty render locked (🔒, disabled) and never fire this at all — level
  *       d+1 only unlocks by winning a classic run at level d in that same chapter (see endRun in
- *       main.js). Chapter selection itself (meta.chapter) is Task 5 — this file currently always
- *       reads/writes whatever chapter is already selected (default 'body').
+ *       main.js). Chapter selection itself is the onChapter hook right above.
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the title shelf's session-local selection, an array of
  *       CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
@@ -77,9 +115,12 @@ function formatShopBonus(id, levels) {
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
  *       unlockedDifficulty?, unlockedChapter? }   unlockedDifficulty is the newly-unlocked level
  *       number when this win just raised the run's chapter's maxDifficulty (see endRun in
- *       main.js), else null. unlockedChapter (v5.0) is the newly-unlocked NEXT chapter's name
- *       when this win (classic, difficulty 3+) just unlocked it, else null — not yet rendered
- *       (badge is Task 5), but always present on the data object.
+ *       main.js), else null — rendered as a mint .summary-unlock badge. unlockedChapter (v5.0)
+ *       is the newly-unlocked NEXT chapter's name when this win (classic, difficulty 3+) just
+ *       unlocked it, else null — rendered as a second, violet .summary-unlock--chapter badge;
+ *       both can and do appear together. renderSummary itself resolves which chapter was just
+ *       played (meta.chapter for classic, dailyChapter(todayKey()) for daily — the data object
+ *       doesn't carry it) purely to show its icon/name in the header, unrelated to these unlocks.
  *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
  */
 export function initUI(hooks) {
@@ -123,13 +164,20 @@ export function initUI(hooks) {
   function renderTitle() {
     const { coins, best, runs } = meta
     const chMeta = selectedChapterMeta(meta)
+    const selectedChapter = CHAPTERS[meta.chapter] ?? CHAPTERS[CHAPTER_ORDER[0]]
+    const furthestId = furthestUnlockedChapterId(meta)
+    const lockedNextId = nextChapter(furthestId)
     const dailyIds = dailyMutators(todayKey())
+    const dailyChapterInfo = CHAPTERS[dailyChapter(todayKey())]
     const dailyPreview = dailyIds.map((id) => `${MUTATORS[id]?.icon ?? '❔'} ${MUTATORS[id]?.name ?? id}`).join(' · ')
     screens.title.innerHTML = `
       <div class="coins-badge">🪙 <b>${coins}</b></div>
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
       <p class="subtitle">escape the lab · outlive the swarm</p>
       <button class="btn btn--big" data-act="play">▶&nbsp; Play</button>
+      ${chapterRowHtml(meta)}
+      <p class="chapter-tagline">${selectedChapter.tagline}</p>
+      ${lockedNextId ? `<p class="chapter-hint--locked">win ${CHAPTERS[furthestId].name} at difficulty 3+</p>` : ''}
       <div class="diff-row">
         <span class="diff-label">Difficulty</span>
         ${Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
@@ -145,7 +193,7 @@ export function initUI(hooks) {
       ${chMeta.maxDifficulty < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
       ${consumablesShelfHtml()}
       <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
-      <p class="daily-preview">${dailyPreview}</p>
+      <p class="daily-preview">${dailyChapterInfo.icon} ${dailyChapterInfo.name} · ${dailyPreview}</p>
       <button class="btn btn--soft" data-act="shop">🛒&nbsp; Shop</button>
       ${runs > 0 ? `<p class="best-line">best ${fmtTime(best.time)} · ${best.kills} kills · ${runs} run${runs === 1 ? '' : 's'}</p>` : ''}
     `
@@ -485,10 +533,18 @@ export function initUI(hooks) {
 
   function renderDaily() {
     const ids = dailyMutators(todayKey())
+    const chId = dailyChapter(todayKey())
+    const chapter = CHAPTERS[chId]
+    const isPreview = !meta.chapters?.[chId]?.unlocked
     screens.daily.innerHTML = `
       <div class="modal daily-brief">
         <h2 class="modal-title">🌀 Daily Anomaly</h2>
         <p class="daily-date">${todayKey()}</p>
+        <div class="daily-chapter">
+          <span class="daily-chapter-icon">${chapter.icon}</span>
+          <span class="daily-chapter-name">${chapter.name}</span>
+          ${isPreview ? '<span class="daily-chapter-preview">preview</span>' : ''}
+        </div>
         ${ids.map((id) => {
           const m = MUTATORS[id]
           return `
@@ -536,6 +592,12 @@ export function initUI(hooks) {
   // ---- summary modal -------------------------------------------------------
   function renderSummary(d) {
     const mutatorIds = d.mutators || []
+    // The data object doesn't carry which chapter was played (see the header contract above) —
+    // reconstruct it: classic runs play whatever's currently selected (meta.chapter can't have
+    // changed mid-run, the chapter row only lives on the title screen); daily runs play the
+    // date-seeded chapter, recomputed the same way the daily briefing screen does.
+    const chapterId = d.mode === 'daily' ? dailyChapter(todayKey()) : meta.chapter
+    const chapter = CHAPTERS[chapterId] ?? CHAPTERS[CHAPTER_ORDER[0]]
     const mutatorBlock = mutatorIds.length ? `
       <div class="summary-mutators">
         <div class="summary-mutators-head">${d.mode === 'daily' ? '🌀 Daily Anomaly' : '🌀 Anomalies'}</div>
@@ -544,6 +606,7 @@ export function initUI(hooks) {
     screens.summary.innerHTML = `
       <div class="modal">
         <h2 class="modal-title">${d.victory ? 'You escaped! 🎉' : 'Squished… 💦'}</h2>
+        <p class="summary-chapter">${chapter.icon} ${chapter.name}</p>
         <div class="stats">
           <div class="stat-row"><span>Time</span><b>${fmtTime(d.time)}</b></div>
           <div class="stat-row"><span>Kills</span><b>${d.kills}</b></div>
@@ -551,6 +614,7 @@ export function initUI(hooks) {
         </div>
         ${mutatorBlock}
         ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 Difficulty ${d.unlockedDifficulty} unlocked!</div>` : ''}
+        ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🌊 Chapter unlocked: ${d.unlockedChapter}!</div>` : ''}
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} finish bonus</span>` : ''}
         </div>
@@ -612,6 +676,13 @@ export function initUI(hooks) {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already
         hooks.onDifficulty(d)
+        renderTitle()
+        break
+      }
+      case 'chapter': {
+        const id = el.dataset.id
+        if (!meta.chapters?.[id]?.unlocked) break // belt-and-braces: locked cards are disabled already
+        hooks.onChapter(id)
         renderTitle()
         break
       }

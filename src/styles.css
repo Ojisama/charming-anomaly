@@ -548,6 +548,9 @@ body {
 .summary-mutators-head { font-size: 0.78rem; font-weight: 800; color: #5d3fa0; margin-bottom: 4px; }
 .summary-mutator-line { font-size: 0.85rem; font-weight: 700; padding: 2px 0; }
 
+/* chapter played, shown under the summary screen's headline (v5.0) */
+.summary-chapter { margin: -6px 0 0; font-weight: 800; font-size: 0.95rem; color: var(--ink-soft); }
+
 /* difficulty-unlock celebration badge on the summary screen (v4.10) — mint, matches diff-hint-reward */
 .summary-unlock {
   padding: 8px 10px;
@@ -557,6 +560,14 @@ body {
   color: #1e7d4f;
   font-size: 0.9rem;
   font-weight: 800;
+}
+/* chapter-unlock celebration badge (v5.0) — violet, matches the daily/mutator accent; can
+   appear stacked right below a difficulty-unlock badge (.summary-unlock), so it gets its own
+   accent rather than reusing mint for both. */
+.summary-unlock--chapter {
+  background: #efe6fb;
+  border-color: #5d3fa0;
+  color: #5d3fa0;
 }
 
 /* ---- floating joystick (visual only, never blocks touches) ---- */
@@ -598,6 +609,19 @@ body {
 /* daily-anomaly briefing screen (shown between title and a daily run) */
 .daily-brief { max-width: 420px; }
 .daily-date { font-weight: 700; font-size: 0.8rem; color: var(--ink-soft); margin-top: -6px; }
+/* today's chapter, shown above the mutator cards (v5.0) */
+.daily-chapter { display: flex; align-items: center; gap: 8px; }
+.daily-chapter-icon { font-size: 1.5rem; line-height: 1.1; }
+.daily-chapter-name { font-weight: 800; font-size: 0.95rem; }
+.daily-chapter-preview {
+  font-size: 0.66rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #efe6fb;
+  color: #5d3fa0;
+  border: 1px solid #8a5fd0;
+}
 .daily-mutator {
   display: flex;
   align-items: flex-start;
@@ -672,6 +696,55 @@ body {
   box-shadow: none;
   transform: none;
 }
+
+/* chapter selector on the title screen (v5.0) — horizontal scroller so it keeps fitting once
+   later chapters push the card count from 2 up toward 7; max-width matches the consumables
+   shelf so neither ever forces the 360px-wide screen to scroll horizontally. */
+.chapter-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 6px;
+  -webkit-overflow-scrolling: touch;
+}
+.chapter-card {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 68px;
+  padding: 8px 10px;
+  border: 3px solid var(--cream-edge);
+  border-radius: 14px;
+  background: var(--cream-soft);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--cream-edge);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.chapter-card:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--cream-edge); }
+.chapter-card--selected {
+  border-color: var(--mint-dark);
+  background: #eafaf3;
+  box-shadow: 0 3px 0 var(--mint-dark);
+}
+.chapter-card--locked {
+  opacity: 0.5;
+  background: #e5e0d4;
+  border-color: #b9b2a0;
+  color: var(--ink-soft);
+  cursor: default;
+}
+.chapter-card--locked:active { transform: none; box-shadow: 0 3px 0 #b9b2a0; }
+.chapter-card-icon { font-size: 1.4rem; line-height: 1.1; }
+.chapter-card-name { font-size: 0.68rem; font-weight: 800; text-align: center; white-space: nowrap; }
+.chapter-tagline { margin: -4px 0 0; font-size: 0.78rem; font-weight: 700; color: var(--ink-soft); text-align: center; }
+.chapter-hint--locked { margin: -2px 0 0; font-size: 0.72rem; font-weight: 600; color: var(--ink-soft); text-align: center; }
 
 /* difficulty selector on the title screen */
 .diff-row { display: flex; align-items: center; gap: 6px; }
