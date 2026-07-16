@@ -1766,7 +1766,25 @@ function testChapters() {
   const missingPond = ensureChapterMeta(missingMeta, 'pond')
   assert.strictEqual(missingPond.unlocked, false, 'ensureChapterMeta creates a missing non-body entry locked')
 
-  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps')
+  // (f) Retroactive chapter unlock (v5.3.3): a save whose pond ladder proves a difficulty-3+
+  // win (maxDifficulty 4 = won level 3) unlocks garden on load, even though garden didn't
+  // exist when the win happened. A ladder at maxDifficulty 3 (won only level 2) does not.
+  const earnedStub = {
+    coins: 0, shop: {}, best: { time: 0, kills: 0 }, runs: 5, choiceSlots: 2, chapter: 'pond',
+    chapters: {
+      body: { unlocked: true, maxDifficulty: 5, difficulty: 3, best: { time: 300, kills: 100 } },
+      pond: { unlocked: true, maxDifficulty: 4, difficulty: 3, best: { time: 300, kills: 100 } },
+    },
+  }
+  globalThis.localStorage = { getItem: () => JSON.stringify(earnedStub), setItem: () => {} }
+  const earned = loadMeta()
+  assert.strictEqual(earned.chapters.garden.unlocked, true, 'pond maxDifficulty 4 (won lvl 3) retroactively unlocks garden')
+  earnedStub.chapters.pond.maxDifficulty = 3
+  const notEarned = loadMeta()
+  assert.strictEqual(notEarned.chapters.garden.unlocked, false, 'pond maxDifficulty 3 (won only lvl 2) leaves garden locked')
+  delete globalThis.localStorage
+
+  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock')
 }
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------

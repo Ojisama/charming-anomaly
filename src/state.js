@@ -1,7 +1,7 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
 import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
-  difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
+  difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
 } from './config.js'
 
@@ -59,6 +59,14 @@ export function loadMeta() {
       }
       m.chapter ??= 'body'
       for (const id of CHAPTER_ORDER) ensureChapterMeta(m, id)
+      // Retroactive chapter unlocks: a chapter that shipped AFTER the player already beat the
+      // previous one at CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load — winning level d raises that
+      // chapter's maxDifficulty to d+1, so maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY proves the
+      // qualifying win even though endRun couldn't unlock a chapter that didn't exist yet.
+      for (let i = 1; i < CHAPTER_ORDER.length; i++) {
+        const prev = m.chapters[CHAPTER_ORDER[i - 1]]
+        if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[CHAPTER_ORDER[i]].unlocked = true
+      }
       m.choiceSlots ??= 2
       m.choiceSlots = Math.max(2, Math.min(4, m.choiceSlots))
       return m

@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost, CHAPTERS, nextChapter, dailyChapter } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost, CHAPTERS, nextChapter, dailyChapter } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -207,7 +207,7 @@ function endRun(victory) {
   // already unlocked" purely so the summary badge only fires once (replaying at 3+ afterward
   // shouldn't keep announcing it).
   let unlockedChapter = null
-  if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= 3) {
+  if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     if (next) {
       const nextMeta = ensureChapterMeta(meta, next)

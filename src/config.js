@@ -584,6 +584,11 @@ export const ELEMENT_CARD_WEIGHT = 0.25
 // stacks +DIFFICULTY_HP_PER_LEVEL enemy HP (multiplied into run.mods.enemyHpMul on top of
 // whatever the mutators themselves do). The Daily Anomaly ignores this (fixed shared seed).
 export const MAX_DIFFICULTY = 5
+// Winning a classic run at this difficulty (or higher) unlocks the next chapter — used by
+// endRun (main.js) at victory time AND by loadMeta (state.js) retroactively, since a chapter
+// can ship AFTER a player already earned its unlock (their win is encoded in the previous
+// chapter's maxDifficulty ladder: winning level d sets it to d+1).
+export const CHAPTER_UNLOCK_DIFFICULTY = 3
 export const DIFFICULTY_HP_PER_LEVEL = 0.25
 export const difficultyHpMul = (d) => 1 + DIFFICULTY_HP_PER_LEVEL * (Math.max(1, d) - 1)
 // The payout matching the tax: +25% coins per level above 1 (multiplied into
