@@ -7,7 +7,8 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS } from './config.js'
+import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
 const MAX_PARTICLES = 200
@@ -795,46 +796,110 @@ export function createRenderer(app) {
     }
   }
 
-  // Current motes (pond signature): sparse teal specks drifting in a slow, spatially-coherent
-  // direction to hint at the flow field WITHOUT touching sim internals — the drift angle rotates
-  // gently over time with a mild per-mote spatial curl, so neighbouring motes agree (reads as
-  // flow, not noise). Screen-space + low alpha = ambient, never competes with the entities.
-  const CURRENT_COUNT = 20
-  const currentMotes = []
-  let currentT = 0
-  for (let i = 0; i < CURRENT_COUNT; i++) {
-    const s = new Sprite(T.dot.tex)
-    s.anchor.set(0.5)
-    s.visible = false
-    currentLayer.addChild(s)
-    currentMotes.push({ s, x: hash(i * 3.1 + 0.2), y: hash(i * 5.7 + 1.1), ph: hash(i * 2.3 + 4.4) * Math.PI * 2 })
+  // Current streaks (pond signature): world-space flow streaks that sample the REAL drift field
+  // (sim.js currentForce) and advect along it — exaggerated (CURRENT_VIS.speedMul) so the gentle
+  // sim push reads as an obvious water flow. Each streak is a double-stacked soft trace glyph
+  // (one layer washes out on the light floor) rotated to the local flow direction and stretched by
+  // speed, in a teal-white tint. Streaks fade in, live a few seconds while advecting, then fade out
+  // and respawn in view; they also respawn on straying past the viewport (+margin). Pooled — only
+  // transform/alpha touched per frame. currentLayer stays on the stage; world coords are converted
+  // to screen with the frame's camera offset (cx,cy: screen = world + (cx,cy)).
+  const currentStreaks = []
+  let currentTexReady = false
+  let rippleTimer = 0
+  for (let i = 0; i < CURRENT_VIS.count; i++) {
+    const g = new Container()
+    g.visible = false
+    const a = new Sprite(Texture.EMPTY)
+    const b = new Sprite(Texture.EMPTY)
+    for (const s of [a, b]) { s.anchor.set(0.5); s.tint = CURRENT_VIS.tint; g.addChild(s) }
+    b.alpha = 0.7 // far copy slightly softer — double-stack punches through the murky floor
+    currentLayer.addChild(g)
+    currentStreaks.push({ g, a, b, x: 0, y: 0, age: 0, life: 0, ang: 0, spawned: false })
   }
 
-  function updateCurrents(dt) {
+  // Drop a streak at a fresh world position somewhere in the current view (+ a little jitter).
+  function respawnStreak(p, cx, cy, w, h, atX, atY) {
+    if (atX == null) {
+      p.x = -cx + Math.random() * w
+      p.y = -cy + Math.random() * h
+    } else { p.x = atX; p.y = atY }
+    p.age = 0
+    p.life = CURRENT_VIS.life * (1 + (Math.random() * 2 - 1) * CURRENT_VIS.lifeJitter)
+    p.spawned = true
+  }
+
+  function updateCurrents(run, dt, cx, cy) {
     if (!chapterHasCurrents) { currentLayer.visible = false; return }
     currentLayer.visible = true
-    if (dt <= 0) return
-    currentT += dt
+    if (!currentTexReady && T.fx && T.fx.trace_05) {
+      const lx = fxScale(T.fx.trace_05, CURRENT_VIS.lenPx)
+      const ly = fxScale(T.fx.trace_05, CURRENT_VIS.widthPx)
+      for (const p of currentStreaks) {
+        p.a.texture = p.b.texture = T.fx.trace_05
+        p.a.scale.set(lx, ly)
+        p.b.scale.set(lx * 0.9, ly * 0.85)
+      }
+      currentTexReady = true
+    }
+    if (!currentTexReady || dt <= 0) return
     const w = app.screen.width
     const h = app.screen.height
-    const base = Math.sin(currentT * 0.12) * 0.9 // whole-field drift heading, slowly rotating
-    for (let i = 0; i < currentMotes.length; i++) {
-      const m = currentMotes[i]
-      const ang = base + Math.sin(m.y * 6 + currentT * 0.3) * 0.5 // spatial curl → coherent swirl
-      const spd = 0.02 + 0.012 * Math.sin(currentT * 0.5 + m.ph)
-      m.x = (m.x + Math.cos(ang) * spd * dt + 1.1) % 1.1
-      m.y = (m.y + Math.sin(ang) * spd * dt + 1.1) % 1.1
-      m.s.position.set(m.x * w, m.y * h)
-      m.s.tint = 0x8fe8e0
-      m.s.scale.set(0.7 + 0.3 * Math.sin(currentT + m.ph))
-      m.s.alpha = 0.1 + 0.06 * Math.sin(currentT * 2 + m.ph)
-      m.s.visible = true
+    const mg = CURRENT_VIS.margin
+
+    for (const p of currentStreaks) {
+      if (!p.spawned) respawnStreak(p, cx, cy, w, h)
+      p.age += dt
+      // advect along the exaggerated real field
+      const f = currentForce(run, p.x, p.y)
+      const vx = f.fx * CURRENT_VIS.speedMul
+      const vy = f.fy * CURRENT_VIS.speedMul
+      p.x += vx * dt
+      p.y += vy * dt
+      const speed = Math.hypot(vx, vy)
+      if (speed > 1) p.ang = Math.atan2(vy, vx) // keep last heading in dead spots
+      // screen position (world + camera)
+      const sx = p.x + cx
+      const sy = p.y + cy
+      const off = sx < -mg || sx > w + mg || sy < -mg || sy > h + mg
+      if (p.age >= p.life || off) { respawnStreak(p, cx, cy, w, h); continue }
+      // fade envelope: in over fadeIn, out over the last fadeOut
+      let env = 1
+      if (p.age < CURRENT_VIS.fadeIn) env = p.age / CURRENT_VIS.fadeIn
+      else if (p.age > p.life - CURRENT_VIS.fadeOut) env = Math.max(0, (p.life - p.age) / CURRENT_VIS.fadeOut)
+      p.g.position.set(sx, sy)
+      p.g.rotation = p.ang
+      p.g.scale.set(1 + speed * CURRENT_VIS.stretchPerSpeed, 1) // stretch length with speed
+      p.g.alpha = CURRENT_VIS.alpha * env * (p.boost || 1)
+      p.g.visible = true
+    }
+
+    // Ripple-train accent: every rippleEvery seconds, restart 3 streaks single-file along one
+    // streamline (seeded in view, each offset downstream) with a brief brightness boost — a moving
+    // arrow emphasising flow direction. Cheap: it just re-seeds existing pooled streaks.
+    for (const p of currentStreaks) if (p.boost) p.boost = Math.max(1, p.boost - dt * 1.2)
+    if (CURRENT_VIS.rippleEvery > 0 && currentStreaks.length >= 3) {
+      rippleTimer += dt
+      if (rippleTimer >= CURRENT_VIS.rippleEvery) {
+        rippleTimer = 0
+        const ox = -cx + Math.random() * w
+        const oy = -cy + Math.random() * h
+        const f = currentForce(run, ox, oy)
+        const sp = Math.hypot(f.fx, f.fy) || 1
+        const dx = f.fx / sp, dy = f.fy / sp
+        for (let k = 0; k < 3; k++) {
+          const p = currentStreaks[(Math.floor(Math.random() * currentStreaks.length) + k) % currentStreaks.length]
+          respawnStreak(p, cx, cy, w, h, ox + dx * k * CURRENT_VIS.lenPx * 0.9, oy + dy * k * CURRENT_VIS.lenPx * 0.9)
+          p.boost = 2
+        }
+      }
     }
   }
 
   function clearCurrents() {
     currentLayer.visible = false
-    for (const m of currentMotes) m.s.visible = false
+    for (const p of currentStreaks) { p.g.visible = false; p.spawned = false; p.boost = 1 }
+    rippleTimer = 0
   }
 
   // ------------------------------------------------------------------- pools
@@ -1978,7 +2043,7 @@ export function createRenderer(app) {
     updateRings(dt)
     updateDamage(dt)
     updateDustMotes(dt)
-    updateCurrents(dt)
+    updateCurrents(run, dt, cx, cy)
   }
 
   // Hoisted syncPool callbacks (fresh closures per frame are pointless garbage)

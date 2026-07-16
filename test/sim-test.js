@@ -17,7 +17,7 @@ import {
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -2041,6 +2041,39 @@ function testChapterBehaviors() {
     assert(pondDrift > 20, `expected a stationary pond-run player to drift > 20px over 3s, got ${pondDrift.toFixed(1)}`)
     assert.strictEqual(bodyDrift, 0, `expected a stationary body-run player to never drift (no signature), got ${bodyDrift}`)
     console.log(`PASS run V.f (currents): pondDrift=${pondDrift.toFixed(1)}px bodyDrift=${bodyDrift.toFixed(1)}px`)
+  }
+
+  // (f2) currentForce pure query (v5.2, powers the render visualization): nonzero + continuous for
+  // a pond run, {0,0} for a body run, and the applied drift == currentForce * dt (same field).
+  {
+    const pondF = createRun(makeMeta(), { chapter: 'pond' })
+    // nonzero somewhere across a few spread world points (a ~55px/s sine-sum field won't vanish everywhere)
+    const pts = [[200, 200], [-400, 900], [1500, -600]]
+    const maxMag = Math.max(...pts.map(([x, y]) => { const f = currentForce(pondF, x, y); return Math.hypot(f.fx, f.fy) }))
+    assert(maxMag > 1, `expected the pond drift field to be nonzero, got maxMag=${maxMag.toFixed(3)}`)
+    // continuity: a 1px step barely changes the force (smooth field, no discontinuities)
+    const a = currentForce(pondF, 100, 100)
+    const b = currentForce(pondF, 101, 100)
+    const jump = Math.hypot(a.fx - b.fx, a.fy - b.fy)
+    assert(jump < 1, `expected a continuous field (small step -> small change), got jump=${jump.toFixed(4)}`)
+
+    // body run: no currents signature -> exactly the zero vector everywhere
+    const bodyF = createRun(makeMeta())
+    const bz = currentForce(bodyF, 300, -200)
+    assert.strictEqual(bz.fx, 0, `expected body-run currentForce fx=0, got ${bz.fx}`)
+    assert.strictEqual(bz.fy, 0, `expected body-run currentForce fy=0, got ${bz.fy}`)
+
+    // the sim applies exactly this field: a lone player's one-frame drift == currentForce * dt.
+    const run = createRun(makeMeta(), { chapter: 'pond' })
+    run.weapons = []; run.obstacles = []; run.enemies = []
+    run.player.x = 123; run.player.y = -456
+    const x0 = run.player.x, y0 = run.player.y
+    stepSim(run, { x: 0, y: 0 }, dt) // run.time is advanced by the step; sample the field after so it matches
+    const f = currentForce(run, x0, y0)
+    const dx = run.player.x - x0, dy = run.player.y - y0
+    assert(Math.abs(dx - f.fx * dt) < 1e-6 && Math.abs(dy - f.fy * dt) < 1e-6,
+      `expected drift == currentForce*dt, got d=(${dx.toFixed(4)},${dy.toFixed(4)}) vs f*dt=(${(f.fx * dt).toFixed(4)},${(f.fy * dt).toFixed(4)})`)
+    console.log(`PASS run V.f2 (currentForce): maxMag=${maxMag.toFixed(1)}px/s continuityJump=${jump.toFixed(4)} bodyZero drift==force*dt`)
   }
 
   // (g) obstacles: pond generates the configured field (no overlaps), body has none, and the

@@ -490,7 +490,15 @@ function stepPools(run, dt) {
 // POSITIONS directly each frame (drift, not a stored velocity/control loss) — gated entirely on
 // the run's chapter having a 'currents' signature (config.js CHAPTERS[id].signature); a no-op
 // otherwise (e.g. body).
-function currentForce(sig, seed, x, y, t) {
+// Pure query: the drift-field force (px/s) at WORLD position (x,y) for this run, exactly what
+// stepCurrents applies. Zero vector when the run's chapter has no 'currents' signature. Exported
+// so render.js can visualize the REAL field (not an approximation). Reads run.time internally so
+// the field animates in lockstep with the sim.
+export function currentForce(run, x, y) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'currents') return { fx: 0, fy: 0 }
+  const seed = run._driftSeed ?? 0
+  const t = run.time
   const fx = Math.sin(x * sig.scale + t * sig.drift + seed) +
              Math.sin(y * sig.scale * 1.3 - t * sig.drift * 0.7 + seed * 1.7)
   const fy = Math.cos(y * sig.scale + t * sig.drift * 0.9 + seed * 2.3) +
@@ -501,15 +509,13 @@ function currentForce(sig, seed, x, y, t) {
 function stepCurrents(run, dt) {
   const sig = CHAPTERS[run.chapter].signature
   if (!sig || sig.type !== 'currents') return
-  const seed = run._driftSeed ?? 0
-  const t = run.time
   const p = run.player
-  const pf = currentForce(sig, seed, p.x, p.y, t)
+  const pf = currentForce(run, p.x, p.y)
   p.x += pf.fx * dt
   p.y += pf.fy * dt
   for (const e of run.enemies) {
     if (e._dead) continue
-    const ef = currentForce(sig, seed, e.x, e.y, t)
+    const ef = currentForce(run, e.x, e.y)
     e.x += ef.fx * dt
     e.y += ef.fy * dt
   }

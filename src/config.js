@@ -746,6 +746,23 @@ export const CHAPTERS = {
     },
   },
 }
+// Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
+// currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
+export const CURRENT_VIS = {
+  count: 40,          // streaks alive at once (world-space, pooled)
+  speedMul: 3.6,      // exaggeration over the sim's gentle push so the flow direction reads
+  life: 3.0,          // s a streak lives before fading out and respawning in view
+  lifeJitter: 0.5,    // ± fraction randomising each streak's life so they don't pulse in unison
+  fadeIn: 0.5,        // s ramp up from spawn
+  fadeOut: 0.9,       // s ramp down before respawn
+  margin: 90,         // px past the viewport a streak may stray before it respawns in view
+  lenPx: 34,          // base streak length (long axis)
+  widthPx: 7,         // base streak width
+  stretchPerSpeed: 0.02, // extra length multiplier per px/s of exaggerated flow speed
+  tint: 0xa8fbef,     // saturated teal-white — reads on the murky pond floor (pale washes out, dark vanishes)
+  alpha: 0.5,         // peak alpha at full fade-in
+  rippleEvery: 3.2,   // s between "ripple train" accents (3 streaks single-file); 0 disables
+}
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
 // dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks

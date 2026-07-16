@@ -12,11 +12,15 @@ function selectedChapterMeta(meta) {
   return meta.chapters?.[meta.chapter] ?? { maxDifficulty: 1, difficulty: 1 }
 }
 
-// v5.1 title redesign: the chapter picker is a single large "hero card" (heroCardHtml, inside
-// initUI) showing ONE chapter at a time — the browsed chapter — with ‹ › arrows + horizontal
-// swipe cycling through titleChapterList: every unlocked chapter plus the first locked one, which
-// renders as an anonymous dark "???" preview whose Play is disabled. Selecting an unlocked card
-// persists via hooks.onChapter; the locked card never reaches it.
+// v5.2 title redesign: the chapter picker is a native CSS scroll-snap CAROUSEL (carouselHtml,
+// inside initUI) — one diorama "hero card" (heroCardHtml) per chapter, laid out horizontally so
+// the prev/next cards PEEK at both edges. Cards come from titleChapterList: every unlocked chapter
+// plus the first locked one, which renders as an anonymous dark "???" preview whose Play is
+// disabled. Page dots (carouselDotsHtml) sit under the strip. Selection follows the SCROLL: when a
+// card settles under the viewport centre (scrollend, with a scroll-timeout fallback for Safari) the
+// browsed chapter updates; an unlocked one persists via hooks.onChapter, the locked one never
+// reaches it. The v5.1 single-card + ‹ › arrows + custom touch swipe (navChapter, heroTouch*) are
+// gone — native scroll handles paging.
 function titleChapterList(meta) {
   const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
   const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
@@ -25,8 +29,8 @@ function titleChapterList(meta) {
 }
 
 // Pixi int colour (0xrrggbb) -> '#rrggbb'; shade() blends a hex toward white (amt > 0) or black
-// (amt < 0) by |amt| for the hero card's gradient stops; luminance() picks dark-on-light vs
-// light-on-dark card text so every chapter's per-bgColor gradient still reads.
+// (amt < 0) by |amt| for the hero card's diorama gradient stops; luminance() picks dark-on-light
+// vs light-on-dark card text so every chapter's per-bgColor gradient still reads.
 function pixiHex(int) {
   return '#' + (int & 0xffffff).toString(16).padStart(6, '0')
 }
@@ -86,12 +90,13 @@ function formatShopBonus(id, levels) {
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(),
  *                       onSacrifice(picks)->bool, onReset() })
- *     - onChapter(id): title screen's chapter hero card (v5.1 — see heroCardHtml/navChapter).
- *       Fires only for unlocked CHAPTER_ORDER ids as the ‹ › arrows / swipe move the browsed
- *       chapter onto one (the locked preview card never calls it) — main.js re-guards via
- *       ensureChapterMeta(meta, id).unlocked, sets meta.chapter, saveMeta, plays 'click'. Like
- *       onDifficulty below, ui.js re-renders the title itself right after — main.js never calls
- *       showScreen for it.
+ *     - onChapter(id): title screen's chapter carousel (v5.2 — see carouselHtml/wireCarousel).
+ *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
+ *       centre (the locked preview card never calls it) — main.js re-guards via
+ *       ensureChapterMeta(meta, id).unlocked, sets meta.chapter, saveMeta, plays 'click'. ui.js
+ *       then surgically updates the parts BELOW the carousel (dots + difficulty row + Play state)
+ *       without rebuilding the carousel DOM (a full renderTitle would reset the scroll position) —
+ *       main.js never calls showScreen for it.
  *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists to the
  *       SELECTED chapter's ladder, meta.chapters[meta.chapter].difficulty (v5.0 — see
  *       selectedChapterMeta below and state.js's meta.chapters doc block). Pips above that
@@ -151,47 +156,113 @@ export function initUI(hooks) {
   // cleared as soon as a run actually starts (see the 'play'/'daily-start' click cases below).
   let selectedConsumables = new Set()
 
-  // v5.1 title redesign — UI-local browse state (not persisted, scoped to this initUI call):
-  //   browseChapterId: which chapter the hero card shows. Starts at the saved meta.chapter; the
-  //     ‹ › arrows / swipe move it across titleChapterList. When it lands on an unlocked chapter we
-  //     persist the selection via hooks.onChapter (so meta.chapter tracks it); the locked preview
-  //     card never calls onChapter and its Play button is disabled.
+  // v5.2 title redesign — UI-local browse state (not persisted, scoped to this initUI call):
+  //   browseChapterId: which carousel card is currently centred. Starts at the saved meta.chapter;
+  //     native scroll moves it across titleChapterList (see wireCarousel). When it settles on an
+  //     unlocked chapter we persist the selection via hooks.onChapter (so meta.chapter tracks it);
+  //     the locked preview card never calls onChapter and its Play button is disabled.
   //   boostersOpen: whether the booster bottom-sheet is up (replaces the v5.0.1 run-options panel).
   let browseChapterId = meta.chapter
   let boostersOpen = false
 
-  function heroCardHtml() {
-    const list = titleChapterList(meta)
-    const idx = Math.max(0, list.indexOf(browseChapterId))
-    const arrows = `
-      <button class="hero-arrow hero-arrow--left" data-act="chapter-nav" data-dir="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="previous chapter">‹</button>
-      <button class="hero-arrow hero-arrow--right" data-act="chapter-nav" data-dir="1" ${idx >= list.length - 1 ? 'disabled' : ''} aria-label="next chapter">›</button>`
-    if (!meta.chapters?.[browseChapterId]?.unlocked) {
+  // Per-chapter DECORATIVE ambient shapes for the diorama card (v5.2). Pure CSS overlay INSIDE the
+  // DOM card (the "no procedural shapes" rule is about the Pixi canvas, not this HTML overlay):
+  //   body → soft cells/blobs drifting slowly; pond → small bubbles rising. Each item carries its
+  // own position/size/loop-duration/delay so the loop never looks synchronised. Locked cards get
+  // none. All motion is transform/opacity only + reduced-motion-gated (see styles.css).
+  const CHAPTER_AMBIENT = {
+    body: {
+      cls: 'amb-cell',
+      items: [
+        { x: 14, y: 24, s: 26, d: 12, delay: 0, dx: 10, dy: -16 },
+        { x: 72, y: 30, s: 18, d: 10, delay: 2.5, dx: -12, dy: -12 },
+        { x: 40, y: 60, s: 30, d: 14, delay: 1.2, dx: 8, dy: -20 },
+        { x: 84, y: 66, s: 14, d: 9, delay: 4, dx: -8, dy: -14 },
+        { x: 26, y: 78, s: 20, d: 11, delay: 3.2, dx: 14, dy: -10 },
+      ],
+    },
+    pond: {
+      cls: 'amb-bubble',
+      items: [
+        { x: 18, s: 14, d: 9, delay: 0 },
+        { x: 34, s: 10, d: 7.5, delay: 2 },
+        { x: 50, s: 18, d: 11, delay: 1 },
+        { x: 63, s: 12, d: 8.5, delay: 3.5 },
+        { x: 78, s: 9, d: 7, delay: 0.8 },
+        { x: 88, s: 15, d: 10, delay: 4.2 },
+      ],
+    },
+  }
+  function ambientHtml(id) {
+    const spec = CHAPTER_AMBIENT[id]
+    if (!spec) return ''
+    return spec.items.map((it) => {
+      const pos = spec.cls === 'amb-bubble'
+        ? `left:${it.x}%;`
+        : `left:${it.x}%; top:${it.y}%; --dx:${it.dx}px; --dy:${it.dy}px;`
+      return `<span class="amb ${spec.cls}" style="${pos} width:${it.s}px; height:${it.s}px; animation-duration:${it.d}s; animation-delay:${it.delay}s"></span>`
+    }).join('')
+  }
+
+  // One diorama card for chapter `id`. Unlocked: per-chapter gradient (from render.bgColor) with a
+  // drifting ambient layer, a glowing bobbing creature (the chapter emoji), a ★ progress row and a
+  // "best" line. Locked: flat greyscale + 🔒 + "???" + unlock hint, no ambient/stars.
+  //
+  // ★ ROW SEMANTICS: chMeta.maxDifficulty is the highest UNLOCKED level, so levels actually BEATEN
+  // = maxDifficulty - 1 (clamped ≥ 0) → that many gold stars. A 5th (all-MAX) gold star would mean
+  // "won level 5", which the save does NOT track today; so at maxDifficulty === MAX_DIFFICULTY we
+  // still fill 4 and render the 5th as a hollow, gently PULSING star (a "one to go" tease) rather
+  // than inventing a win-flag.
+  function heroCardHtml(id) {
+    if (!meta.chapters?.[id]?.unlocked) {
       const prevName = CHAPTERS[furthestUnlockedChapterId(meta)].name
       return `
-        <div class="hero-card hero-card--locked" data-hero>
-          ${arrows}
+        <div class="hero-card hero-card--locked" data-chapter="${id}" data-hero>
           <span class="hero-icon">🔒</span>
           <span class="hero-name">???</span>
           <span class="hero-tagline">win ${prevName} at difficulty 3+</span>
         </div>`
     }
-    const chapter = CHAPTERS[browseChapterId]
-    const chMeta = meta.chapters[browseChapterId]
+    const chapter = CHAPTERS[id]
+    const chMeta = meta.chapters[id]
     const base = pixiHex(chapter.render.bgColor)
     const light = luminance(base) > 0.5
     const bg = light
       ? `linear-gradient(160deg, ${shade(base, 0.4)}, ${base} 58%, ${shade(base, -0.1)})`
       : `linear-gradient(160deg, ${shade(base, 0.22)}, ${base} 55%, ${shade(base, -0.32)})`
-    const best = chMeta.best?.time ? fmtTime(chMeta.best.time) : '—'
+    const filled = Math.max(0, chMeta.maxDifficulty - 1)
+    const stars = Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
+      const on = i < filled
+      const pulse = !on && i === MAX_DIFFICULTY - 1 && chMeta.maxDifficulty === MAX_DIFFICULTY
+      return `<span class="hero-star${on ? ' hero-star--on' : ''}${pulse ? ' hero-star--pulse' : ''}">${on ? '★' : '☆'}</span>`
+    }).join('')
+    const best = chMeta.best?.time ? `<span class="hero-best">best ${fmtTime(chMeta.best.time)}</span>` : ''
     return `
-      <div class="hero-card${light ? ' hero-card--light' : ''}" data-hero style="background:${bg}; color:${light ? 'var(--ink)' : '#f5f9f7'}">
-        ${arrows}
-        <span class="hero-icon">${chapter.icon}</span>
+      <div class="hero-card${light ? ' hero-card--light' : ''}" data-chapter="${id}" data-hero style="background:${bg}; color:${light ? 'var(--ink)' : '#f5f9f7'}">
+        <div class="hero-ambient" aria-hidden="true">${ambientHtml(id)}</div>
+        <div class="hero-creature">
+          <span class="hero-glow"></span>
+          <span class="hero-icon">${chapter.icon}</span>
+        </div>
         <span class="hero-name">${chapter.name}</span>
         <span class="hero-tagline">${chapter.tagline}</span>
-        <span class="hero-chip">difficulty ${chMeta.maxDifficulty}/${MAX_DIFFICULTY} · best ${best}</span>
+        <div class="hero-stars" aria-label="progress">${stars}</div>
+        ${best}
       </div>`
+  }
+
+  // The scroll-snap carousel: one card per titleChapterList entry, plus page dots under it. The
+  // active/locked dot state mirrors browseChapterId and is patched in place by updateTitleBelow.
+  function carouselHtml() {
+    const list = titleChapterList(meta)
+    const cards = list.map((id) => heroCardHtml(id)).join('')
+    const dots = list.map((id) => {
+      const locked = !meta.chapters?.[id]?.unlocked
+      return `<span class="carousel-dot${id === browseChapterId ? ' carousel-dot--active' : ''}${locked ? ' carousel-dot--locked' : ''}" data-dot="${id}"></span>`
+    }).join('')
+    return `
+      <div class="chapter-carousel" data-carousel>${cards}</div>
+      <div class="carousel-dots">${dots}</div>`
   }
 
   // 3 booster slots under the difficulty row: session-selected consumables fill left-to-right,
@@ -243,43 +314,31 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // Fixed bottom nav (title only): Shop | Battle (active/inert) | Daily. The Daily tab badges
-  // today's dailyChapter icon.
-  function titleNavHtml() {
+  // Fixed bottom nav, shared by every menu screen (v5.2): Shop | Battle | Daily. `active` is one of
+  // 'shop' | 'battle' | 'daily' — that tab renders highlighted + inert (see switchTab). The Daily
+  // tab badges today's dailyChapter icon.
+  function navHtml(active) {
     const dailyIcon = CHAPTERS[dailyChapter(todayKey())]?.icon ?? '🌀'
+    const tab = (act, icon, label, extra = '') => {
+      const on = active === act
+      return `<button class="nav-tab${on ? ' nav-tab--active' : ''}" data-act="${act}"${on ? ' aria-current="page"' : ''}>
+          <span class="nav-tab-icon">${icon}${extra}</span><span class="nav-tab-label">${label}</span>
+        </button>`
+    }
     return `
-      <nav class="title-nav">
-        <button class="nav-tab" data-act="shop">
-          <span class="nav-tab-icon">🛒</span><span class="nav-tab-label">Shop</span>
-        </button>
-        <button class="nav-tab nav-tab--active" data-act="battle" aria-current="page">
-          <span class="nav-tab-icon">⚔️</span><span class="nav-tab-label">Battle</span>
-        </button>
-        <button class="nav-tab" data-act="daily">
-          <span class="nav-tab-icon">🌀<sup class="nav-tab-badge">${dailyIcon}</sup></span><span class="nav-tab-label">Daily</span>
-        </button>
+      <nav class="menu-nav">
+        ${tab('shop', '🛒', 'Shop')}
+        ${tab('battle', '⚔️', 'Battle')}
+        ${tab('daily', '🌀', 'Daily', `<sup class="nav-tab-badge">${dailyIcon}</sup>`)}
       </nav>`
   }
 
-  // ‹ › arrows + swipe: step browseChapterId one place across titleChapterList. Landing on an
-  // unlocked chapter persists it (hooks.onChapter also plays 'click' + re-saves); the locked
-  // preview only updates the browse state.
-  function navChapter(dir) {
-    const list = titleChapterList(meta)
-    const next = Math.max(0, list.indexOf(browseChapterId)) + dir
-    if (next < 0 || next >= list.length) return
-    browseChapterId = list[next]
-    if (meta.chapters?.[browseChapterId]?.unlocked) hooks.onChapter(browseChapterId)
-    else playSfx('click')
-    renderTitle()
-  }
-
-  function renderTitle() {
-    if (!meta.chapters?.[browseChapterId]) browseChapterId = meta.chapter
+  // Everything BELOW the carousel: the difficulty row + hint + booster slots (unlocked chapters
+  // only) and the Play button. Split out so scroll-driven selection can rebuild JUST this part
+  // (via updateTitleBelow) without touching the carousel node and resetting its scroll position.
+  function titleBelowHtml() {
     const heroUnlocked = !!meta.chapters?.[browseChapterId]?.unlocked
     const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
-    // Difficulty row + booster slots only make sense for a playable (unlocked) chapter; the locked
-    // preview shows just the hero card and a disabled Play.
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">Difficulty</span>
@@ -294,29 +353,75 @@ export function initUI(hooks) {
         : `+${chMeta.difficulty - 1} random anomal${chMeta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
       ${chMeta.maxDifficulty < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
       ${boosterSlotsHtml()}` : ''
+    return `
+      ${playBlock}
+      <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; Play</button>`
+  }
+
+  // Surgical update after a scroll settles / a difficulty pip is tapped: rebuild only the
+  // below-carousel block and re-point the active/locked page dots — the carousel node (and its
+  // live scroll offset) is left untouched, so the strip doesn't jump back to the start.
+  function updateTitleBelow() {
+    const below = screens.title.querySelector('.title-below')
+    if (below) below.innerHTML = titleBelowHtml()
+    for (const dot of screens.title.querySelectorAll('.carousel-dot')) {
+      dot.classList.toggle('carousel-dot--active', dot.dataset.dot === browseChapterId)
+    }
+  }
+
+  // Centre the browsed card in the carousel WITHOUT animation. Must run while the title screen is
+  // visible (a display:none element measures as zero-width) — hence it's also called from
+  // showScreen right after the screen is shown, not only from renderTitle.
+  function positionCarousel() {
+    const car = screens.title.querySelector('[data-carousel]')
+    if (!car) return
+    const t = car.querySelector(`[data-chapter="${browseChapterId}"]`)
+    if (t) car.scrollLeft = Math.max(0, t.offsetLeft - (car.clientWidth - t.clientWidth) / 2)
+  }
+
+  // Attach the scroll-settle selection to a freshly-rendered carousel. Safari lacks 'scrollend', so
+  // a debounced scroll-timeout backs it up (both funnel into settle(); the second is a no-op once
+  // browseChapterId already matches the centred card).
+  function wireCarousel() {
+    const car = screens.title.querySelector('[data-carousel]')
+    if (!car) return
+    positionCarousel()
+    let timer = null
+    const settle = () => {
+      const centre = car.scrollLeft + car.clientWidth / 2
+      let best = null, bestDist = Infinity
+      for (const el of car.querySelectorAll('[data-chapter]')) {
+        const c = el.offsetLeft + el.clientWidth / 2
+        const dist = Math.abs(c - centre)
+        if (dist < bestDist) { bestDist = dist; best = el }
+      }
+      if (!best || best.dataset.chapter === browseChapterId) return
+      browseChapterId = best.dataset.chapter
+      // Unlocked + a real change persists via onChapter (which itself plays 'click'); the locked
+      // preview only browses, so click here instead. Then patch the below-carousel block in place.
+      if (meta.chapters?.[browseChapterId]?.unlocked && browseChapterId !== meta.chapter) hooks.onChapter(browseChapterId)
+      else playSfx('click')
+      updateTitleBelow()
+    }
+    car.addEventListener('scrollend', settle)
+    car.addEventListener('scroll', () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(settle, 130)
+    }, { passive: true })
+  }
+
+  function renderTitle() {
+    if (!meta.chapters?.[browseChapterId]) browseChapterId = meta.chapter
     screens.title.innerHTML = `
       <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
-      ${heroCardHtml()}
-      ${playBlock}
-      <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; Play</button>
-      ${titleNavHtml()}
+      ${carouselHtml()}
+      <div class="title-below">${titleBelowHtml()}</div>
+      ${navHtml('battle')}
       ${boosterSheetHtml()}
     `
+    wireCarousel()
   }
-
-  // Horizontal swipe on the hero card cycles chapters (delta > 40px; left = next). Delegated on
-  // the title screen so it survives every renderTitle innerHTML rebuild.
-  let heroTouchX = null
-  screens.title.addEventListener('touchstart', (e) => {
-    heroTouchX = e.target.closest('[data-hero]') ? e.changedTouches[0].clientX : null
-  }, { passive: true })
-  screens.title.addEventListener('touchend', (e) => {
-    if (heroTouchX == null) return
-    const dx = e.changedTouches[0].clientX - heroTouchX
-    heroTouchX = null
-    if (Math.abs(dx) > 40) navChapter(dx < 0 ? 1 : -1)
-  })
 
   // ---- shop ------------------------------------------------------------
   // Sacrifice modal (v4.9 rework): ui-local, not persisted — sacrificeOpen toggles a full-screen
@@ -471,14 +576,13 @@ export function initUI(hooks) {
     // Full re-render resets scroll positions — carry the sacrifice list's scroll across so
     // offering a stat at the bottom doesn't fling the player back to the top of the list.
     const prevScroll = screens.shop.querySelector('.sacrifice-sheet-body')?.scrollTop ?? 0
+    // Nav (below) replaces the old "← Back" header; the coins badge floats top-right like the title.
     screens.shop.innerHTML = `
-      <header class="shop-head">
-        <button class="btn btn--soft btn--small" data-act="back">← Back</button>
-        <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
-      </header>
+      <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       <div class="shop-grid">${cards}</div>
       ${sacrificeSectionHtml(slots, cost)}
       ${resetSectionHtml()}
+      ${navHtml('shop')}
       ${sacrificeModalHtml(cost)}
       ${resetModalHtml()}
     `
@@ -704,8 +808,8 @@ export function initUI(hooks) {
         }).join('')}
         <p class="daily-note">Everyone gets the same anomaly today — new one at midnight.</p>
         <button class="btn btn--big" data-act="daily-start">▶&nbsp; Start Daily Run</button>
-        <button class="btn btn--soft" data-act="back">← Back</button>
       </div>
+      ${navHtml('daily')}
     `
   }
 
@@ -781,10 +885,30 @@ export function initUI(hooks) {
     for (const [n, el] of Object.entries(screens)) {
       el.classList.toggle('screen--visible', n === name || (hudUnder && n === 'hud'))
     }
+    // The carousel can only be scroll-positioned once the title screen is actually visible (a
+    // display:none element measures as zero-width, so renderTitle's own positionCarousel no-ops on
+    // first show / tab-return) — re-run it now that the screen is laid out.
+    if (name === 'title') positionCarousel()
     // keyboard nav for the level-up cards is only live while that screen shows
     document.removeEventListener('keydown', onLevelupKeydown)
     if (name === 'levelup') document.addEventListener('keydown', onLevelupKeydown)
     active = name
+  }
+
+  // Persistent bottom-nav tab switch (v5.2). `target` is the destination SCREEN ('title' | 'shop' |
+  // 'daily'); a tap on the tab already showing is inert. Leaving the shop resets its transient
+  // modal state (sacrifice / reset) — the cleanup the old '← Back' case used to own.
+  function resetShopModals() {
+    sacrificeOpen = false
+    sacrificePicks = {}
+    sacrificeBounceId = null
+    resetOpen = false
+  }
+  function switchTab(target) {
+    if (active === target) return
+    if (active === 'shop') resetShopModals()
+    playSfx('click')
+    showScreen(target)
   }
 
   // ---- one delegated click handler for every screen ---------------------------
@@ -816,7 +940,6 @@ export function initUI(hooks) {
         hooks.onPlay(mode, ids)
         break
       }
-      case 'chapter-nav': navChapter(Number(el.dataset.dir)); break
       case 'boosters-open':
         boostersOpen = true
         playSfx('click')
@@ -830,25 +953,19 @@ export function initUI(hooks) {
         playSfx('click')
         renderTitle()
         break
-      case 'battle': break // active tab, current screen — inert
-      case 'daily': playSfx('click'); showScreen('daily'); break
+      // Persistent bottom nav (v5.2): 'battle' → title, 'shop' → shop, 'daily' → daily. A tap on
+      // the current tab is inert. See switchTab (leaving the shop resets its modal state).
+      case 'battle': switchTab('title'); break
+      case 'shop': switchTab('shop'); break
+      case 'daily': switchTab('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
       case 'diff': {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already
         hooks.onDifficulty(d)
-        renderTitle()
+        updateTitleBelow() // surgical: keep the carousel's scroll position (a full renderTitle would reset it)
         break
       }
-      case 'shop': playSfx('click'); showScreen('shop'); break
-      case 'back':
-        sacrificeOpen = false
-        sacrificePicks = {}
-        sacrificeBounceId = null
-        resetOpen = false
-        playSfx('click')
-        showScreen('title')
-        break
       case 'pause':
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
       case 'quit': playSfx('click'); hooks.onQuit(); break

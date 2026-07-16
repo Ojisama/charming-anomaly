@@ -148,13 +148,18 @@ body {
 }
 
 /* ---- shop ---- */
-.screen--shop { justify-content: flex-start; gap: 12px; }
-.shop-head {
-  width: 100%;
-  max-width: 540px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+/* v5.2: the '← Back' header is gone (the persistent bottom nav replaces it), so reserve room top
+   (floating coins badge) and bottom (fixed nav), mirroring the title screen. */
+.screen--shop {
+  justify-content: flex-start;
+  gap: 12px;
+  padding-top: calc(62px + env(safe-area-inset-top));
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+.screen--shop .coins-badge {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
 }
 .shop-grid {
   width: 100%;
@@ -598,10 +603,15 @@ body {
   .modal-backdrop, .sacrifice-sheet, .confirm-sheet, .sacrifice-counter,
   .sacrifice-counter--ready, .sacrifice-stat-row--bounce,
   .sacrifice-modal--enter, .sacrifice-modal--enter .sacrifice-sheet,
-  .sacrifice-chip--pop { animation: none; }
+  .sacrifice-chip--pop,
+  .amb, .hero-creature, .hero-star--pulse { animation: none; }
+  /* the drifting ambient decor only reads as motion — hide it entirely when motion is unwanted */
+  .hero-ambient { display: none; }
 }
 
 /* daily-anomaly briefing screen (shown between title and a daily run) */
+/* v5.2: back affordance is now the persistent bottom nav — reserve room for it under the modal. */
+.screen--daily { padding-bottom: calc(84px + env(safe-area-inset-bottom)); overflow-y: auto; }
 .daily-brief { max-width: 420px; }
 .daily-date { font-weight: 700; font-size: 0.8rem; color: var(--ink-soft); margin-top: -6px; }
 /* today's chapter, shown above the mutator cards (v5.0) */
@@ -643,22 +653,37 @@ body {
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
 
-/* ---- chapter hero card (v5.1 title centerpiece) ---- */
-/* One big rounded card per browsed chapter. The per-chapter gradient + text colour are inline
-   (derived from CHAPTERS[id].render.bgColor in ui.js); everything here is layout + the ‹ › arrows
-   and the progress chip, which adapt to light/dark cards via .hero-card--light overrides. */
+/* ---- chapter carousel + diorama hero cards (v5.2 title centerpiece) ---- */
+/* Native CSS scroll-snap strip: one diorama card per chapter, prev/next PEEKING at both edges
+   (card ~85% wide, 7.5% side padding leaves room for the neighbours + centre-snapping). The
+   per-chapter gradient + text colour are inline (from CHAPTERS[id].render.bgColor, ui.js); the
+   card's ambient shapes, glowing creature and ★ row are decorative CSS below, gated on
+   .hero-card--light for dark-on-light chapters and disabled under prefers-reduced-motion. */
+.chapter-carousel {
+  flex-shrink: 0; /* fixed-height row in the title's flex column — never let it squish */
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 420px;
+  padding: 6px 7.5%;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;            /* Firefox */
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+.chapter-carousel::-webkit-scrollbar { display: none; } /* WebKit/Blink */
 .hero-card {
   position: relative;
-  flex-shrink: 0; /* fixed-height row in the title's flex column — never let it squish */
+  flex: 0 0 85%;
+  scroll-snap-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 100%;
-  max-width: 340px;
-  min-height: 168px;
-  padding: 20px 46px;
+  gap: 5px;
+  min-height: 182px;
+  padding: 20px 18px;
   border-radius: 24px;
   color: #f5f9f7;
   box-shadow: 0 8px 22px rgba(53, 53, 74, 0.22);
@@ -666,47 +691,96 @@ body {
 }
 .hero-card--locked {
   background: linear-gradient(160deg, #6a6a78, #3a3a46 60%, #26262e);
+  filter: grayscale(0.4);
 }
-.hero-icon { font-size: 3.2rem; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.18)); }
-.hero-card--locked .hero-icon { opacity: 0.85; }
-.hero-name { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.01em; text-align: center; }
-.hero-tagline { font-size: 0.85rem; font-weight: 700; opacity: 0.9; text-align: center; }
-.hero-chip {
-  margin-top: 4px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.2);
-  font-size: 0.76rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-.hero-card--light .hero-chip { background: rgba(53, 53, 74, 0.1); }
-.hero-arrow {
+/* ambient drifting decor (soft, blurred, low-opacity — see CHAPTER_AMBIENT in ui.js) */
+.hero-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.amb {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  border-radius: 50%;
+  will-change: transform, opacity;
+}
+.amb-cell {
+  background: rgba(255, 232, 240, 0.5);
+  box-shadow: 0 0 9px 3px rgba(255, 222, 236, 0.35);
+  animation: amb-drift linear infinite;
+}
+.amb-bubble {
+  bottom: -22px;
+  background: rgba(222, 246, 255, 0.32);
+  box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.6), 0 0 6px 2px rgba(200, 240, 255, 0.28);
+  animation: amb-rise linear infinite;
+}
+@keyframes amb-drift {
+  0%   { transform: translate(0, 0); opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translate(var(--dx, 8px), var(--dy, -14px)); opacity: 0; }
+}
+@keyframes amb-rise {
+  0%   { transform: translateY(0); opacity: 0; }
+  15%  { opacity: 0.85; }
+  85%  { opacity: 0.85; }
+  100% { transform: translateY(-150px); opacity: 0; }
+}
+/* creature: chapter emoji in a soft glow ring, gentle idle bob */
+.hero-creature {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.24);
-  color: inherit;
-  font: inherit;
-  font-size: 1.6rem;
-  font-weight: 900;
-  line-height: 1;
-  cursor: pointer;
+  animation: hero-bob 2.6s ease-in-out infinite;
 }
-.hero-card--light .hero-arrow { background: rgba(53, 53, 74, 0.1); }
-.hero-arrow--left { left: 8px; }
-.hero-arrow--right { right: 8px; }
-.hero-arrow:active { transform: translateY(-50%) scale(0.9); }
-.hero-arrow:disabled { opacity: 0.28; cursor: default; }
-.hero-arrow:disabled:active { transform: translateY(-50%); }
+.hero-glow {
+  position: absolute;
+  width: 94px;
+  height: 94px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 68%);
+}
+.hero-card--light .hero-glow { background: radial-gradient(circle, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 68%); }
+@keyframes hero-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.hero-icon { position: relative; font-size: 3.4rem; line-height: 1; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22)); }
+.hero-card--locked .hero-icon { opacity: 0.85; }
+.hero-name { font-size: 1.6rem; font-weight: 900; letter-spacing: -0.01em; text-align: center; }
+.hero-tagline { font-size: 0.82rem; font-weight: 700; opacity: 0.9; text-align: center; }
+/* ★ progress row — filled = levels BEATEN (maxDifficulty-1); the 5th pulses hollow at MAX */
+.hero-stars { display: flex; gap: 3px; margin-top: 3px; font-size: 1rem; line-height: 1; }
+.hero-star { color: rgba(255, 255, 255, 0.42); }
+.hero-card--light .hero-star { color: rgba(53, 53, 74, 0.28); }
+.hero-star--on { color: var(--gold); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
+.hero-star--pulse { color: var(--gold); animation: star-pulse 2s ease-in-out infinite; }
+@keyframes star-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.16); }
+}
+.hero-best { font-size: 0.72rem; font-weight: 700; opacity: 0.85; }
+
+/* page dots under the carousel — active dot elongates mint (mockup-C idiom) */
+.carousel-dots { display: flex; flex-shrink: 0; justify-content: center; gap: 6px; margin-top: 2px; }
+.carousel-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--cream-edge);
+  transition: width 0.2s, background 0.2s;
+}
+.carousel-dot--active { width: 18px; background: var(--mint-dark); }
+.carousel-dot--locked { background: #b9b2a0; }
+.carousel-dot--locked.carousel-dot--active { background: #8a8272; }
+
+/* below-carousel column (difficulty row + booster slots + Play); Play pins to the bottom */
+.title-below {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  flex: 1 1 auto;
+}
 
 /* ---- booster slots (title) ---- */
 .booster-row {
@@ -799,8 +873,8 @@ body {
 .booster-item-check { flex-shrink: 0; width: 1.1rem; font-size: 1.1rem; font-weight: 900; color: var(--mint-dark); }
 .sheet-done { align-self: center; margin-top: 2px; }
 
-/* ---- title bottom nav (title screen only) ---- */
-.title-nav {
+/* ---- persistent bottom nav (title / shop / daily) ---- */
+.menu-nav {
   position: fixed;
   left: 0;
   right: 0;
