@@ -1264,6 +1264,14 @@ export function createRenderer(app) {
         case 'levelup':
           levelupBurst(run.player.x, run.player.y)
           break
+        case 'revive':
+          // Revive Token fired (see CONSUMABLES in config.js): a heart-warm double ring +
+          // levelup-style burst sells the second chance; the sim already shoved enemies back.
+          levelupBurst(e.x, e.y)
+          spawnRing(e.x, e.y, 300, 0.45, T.novaRing, 0xff8fb1)
+          spawnRing(e.x, e.y, 180, 0.35, T.novaRing, 0xffd166)
+          addShake(5, 0.3)
+          break
         case 'gem':
           pickupSparkle(e.x, e.y, false)
           break

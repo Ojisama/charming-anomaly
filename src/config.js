@@ -588,6 +588,20 @@ export const shopCost = (id, level) => Math.round(SHOP[id].base * Math.pow(1.6, 
 // End-of-run coin bonus
 export const runBonusCoins = (kills) => Math.floor(kills / 10)
 
+// ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
+export const CONSUMABLES = {
+  revive:    { name: 'Revive Token', icon: '💖', desc: 'Come back once at 50% HP', cost: 150 },
+  headstart: { name: 'Head Start',   icon: '🧪', desc: 'Start with 2 level-ups banked', cost: 60 },
+  charged:   { name: 'Charged Core', icon: '🔋', desc: 'Starting weapon begins at Lv 2', cost: 80 },
+}
+export const REVIVE_HP_FRAC = 0.5      // hp restored on revive, as a fraction of maxHP
+export const REVIVE_INVULN = 2         // s of invulnerability after reviving
+export const REVIVE_SHOVE_RADIUS = 300 // px, radial knockback zone on revive
+export const REVIVE_SHOVE_KB = 500     // knockback velocity applied to enemies in the zone
+export const REROLL_BASE_COST = 10     // coins, first reroll of a run
+export const REROLL_COST_MUL = 1.5     // cost multiplier per reroll already used this run
+export const rerollCost = (used) => Math.ceil(REROLL_BASE_COST * Math.pow(REROLL_COST_MUL, used))
+
 // ---- Mutators (pre-run modifiers; see run.mods in state.js) ----
 export const MUTATORS = {
   overtime: { name: 'Overtime Shift',    icon: '🏭', desc: 'Way more anomalies, way more XP.',            effects: { spawnMul: 1.4, xpMul: 1.3 } },

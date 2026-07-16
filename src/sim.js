@@ -18,6 +18,12 @@
 // e.affixes. shielded/gilded apply in dealDamage; splitter/volatile apply in dealDamage's death
 // branch; pacer/frenzied apply in stepEnemyMovement; anchored is checked in stepNovas
 // (knockback) and stepHoles (pull) — see each function for the guard.
+//
+// Gold sinks (v4.5, see CONSUMABLES/REVIVE_* in config.js): pre-run consumables are applied once
+// at createRun (state.js) — headstart/charged just pre-load player.xp/starting weapon level, no
+// sim.js involvement. Revive Token is the one with sim-side behavior: hurtPlayer (the shared
+// player-death path used by contact damage and volatile bombs) consumes run.revives instead of
+// flipping phase to 'dead' when one is banked — see hurtPlayer below.
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
@@ -48,6 +54,7 @@ import {
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance,
+  REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -302,6 +309,30 @@ function hurtPlayer(run, rawDmg) {
   p.invuln = PLAYER.invulnTime
   run.events.push({ type: 'hurt', dmg })
   if (p.hp <= 0) {
+    // Revive Token (v4.5, see CONSUMABLES.revive in config.js): consume one revive instead of
+    // dying — restore hp, grant a longer invuln window, and radially shove every nearby enemy
+    // off the player so they aren't instantly re-hit the next frame.
+    if (run.revives > 0) {
+      run.revives -= 1
+      p.hp = p.maxHP * REVIVE_HP_FRAC
+      p.invuln = REVIVE_INVULN
+      const radSq = REVIVE_SHOVE_RADIUS * REVIVE_SHOVE_RADIUS
+      for (const e of run.enemies) {
+        const dx = e.x - p.x, dy = e.y - p.y
+        const distSq = dx * dx + dy * dy
+        if (distSq > radSq) continue
+        const dist = Math.sqrt(distSq)
+        const kdx = dist > 1e-6 ? dx / dist : 1
+        const kdy = dist > 1e-6 ? dy / dist : 0
+        // Flat magnitude (like the wave nova's knockback) rather than distance-scaled — every
+        // enemy in the zone gets shoved equally hard, clearing space around the player reliably
+        // regardless of exactly how close they'd wandered.
+        e.kb.x += kdx * REVIVE_SHOVE_KB
+        e.kb.y += kdy * REVIVE_SHOVE_KB
+      }
+      run.events.push({ type: 'revive', x: p.x, y: p.y })
+      return false
+    }
     run.phase = 'dead'
     run.events.push({ type: 'dead' })
     return true

@@ -1,8 +1,8 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, createRun } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul } from './config.js'
-import { stepSim, applyChoice } from './sim.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost } from './config.js'
+import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput } from './input.js'
@@ -34,14 +34,32 @@ initInput(document.body)
 
 const ui = initUI({
   meta,
-  onPlay(mode) {
+  onPlay(mode, consumableIds = []) {
     initAudio()
     runMode = mode
+    // Boosters never apply to daily runs (ui.js already passes [] there, but classic is the
+    // only mode that gets to spend meta.coins on them — belt-and-braces here too).
+    let ids = []
+    if (mode === 'classic' && consumableIds && consumableIds.length) {
+      // Affordability: keep cheapest-first until meta.coins runs out, silently drop the rest.
+      const sorted = [...consumableIds].sort((a, b) => (CONSUMABLES[a]?.cost ?? 0) - (CONSUMABLES[b]?.cost ?? 0))
+      let remaining = meta.coins
+      for (const id of sorted) {
+        const cost = CONSUMABLES[id]?.cost ?? 0
+        if (cost <= remaining) { ids.push(id); remaining -= cost }
+      }
+      if (ids.length > 0) {
+        const totalCost = ids.reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
+        meta.coins -= totalCost
+        saveMeta(meta)
+        playSfx('buy')
+      }
+    }
     // Daily = fixed shared seed at base difficulty; classic = meta.difficulty
     // (level 1 adds nothing, each level above adds one random mutator + enemy HP).
     run = mode === 'daily'
       ? createRun(meta, { mutators: dailyMutators(todayKey()) })
-      : createRun(meta, { mutators: randomMutators((meta.difficulty ?? 1) - 1), difficulty: meta.difficulty ?? 1 })
+      : createRun(meta, { mutators: randomMutators((meta.difficulty ?? 1) - 1), difficulty: meta.difficulty ?? 1, consumables: ids })
     if (new URLSearchParams(location.search).has('debug')) window.__run = run
     renderer.reset(run)
     ui.showScreen('hud')
@@ -73,6 +91,17 @@ const ui = initUI({
     saveMeta(meta)
     playSfx('click')
   },
+  onReroll() {
+    if (!run || run.phase !== 'levelup') return
+    const cost = rerollCost(run._rerolls ?? 0)
+    if (meta.coins < cost) return
+    meta.coins -= cost
+    run._rerolls = (run._rerolls ?? 0) + 1
+    saveMeta(meta)
+    run.levelUpChoices = buildLevelUpChoices(run)
+    playSfx('buy')
+    ui.showScreen('levelup', { choices: run.levelUpChoices, rerollCost: rerollCost(run._rerolls), coins: meta.coins })
+  },
   onQuit() {  // from pause or summary back to title
     run = null
     renderer.reset(null)
@@ -86,6 +115,8 @@ const SFX_FOR_EVENT = {
   explode: 'explode', hole: 'hole', beam: 'beam',
   // element combos reuse the closest existing sfx
   shatter: 'explode', overload: 'explode', frostarc: 'zap', conduct: 'zap',
+  // Revive Token firing reuses the levelup jingle — it's a "good news" beat, same register
+  revive: 'levelup',
 }
 
 function endRun(victory) {
@@ -115,7 +146,7 @@ app.ticker.add((ticker) => {
       if (s) playSfx(s)
     }
     ui.updateHUD(run)
-    if (run.phase === 'levelup') ui.showScreen('levelup', run.levelUpChoices)
+    if (run.phase === 'levelup') ui.showScreen('levelup', { choices: run.levelUpChoices, rerollCost: rerollCost(run._rerolls ?? 0), coins: meta.coins })
     else if (run.phase === 'dead') endRun(false)
     else if (run.phase === 'victory') endRun(true)
   } else {

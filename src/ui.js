@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
@@ -13,14 +13,22 @@ function fmtTime(s) {
 
 /**
  * Contract used by main.js:
- *   const ui = initUI({ meta, onPlay(mode), onBuy(id)->bool, onChoose(i), onPauseToggle, onQuit,
- *                       onDifficulty(d) })
+ *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
+ *                       onPauseToggle, onQuit, onDifficulty(d), onReroll() })
  *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists meta.difficulty.
- *     - onPlay(mode): mode is 'classic' | 'daily'. 'classic' fires from the title Play button
- *       and from the summary "Play again" button (which replays whatever mode the just-ended
- *       run used); 'daily' fires from the daily briefing screen's Start button (the title
- *       Daily Anomaly button opens the 'daily' briefing screen first).
+ *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
+ *       Play button (consumableIds = the title shelf's session-local selection, an array of
+ *       CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
+ *       "Play again" button (which replays whatever mode the just-ended run used, selection
+ *       cleared the same way). 'daily' fires from the daily briefing screen's Start button with
+ *       consumableIds always [] — boosters never apply to daily runs (the title Daily Anomaly
+ *       button opens the 'daily' briefing screen first; the shelf itself only lives on title).
+ *     - onReroll(): level-up screen's Reroll button (or the 'R' key). main.js is expected to
+ *       no-op silently if unaffordable/wrong phase, otherwise deduct coins, bump run._rerolls,
+ *       rebuild run.levelUpChoices, and call showScreen('levelup', ...) again with fresh data.
  *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
+ *     - 'levelup' data: { choices, rerollCost, coins } — choices is run.levelUpChoices;
+ *       rerollCost/coins drive the footer's Reroll button label + disabled state.
  *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode }
  *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
@@ -40,6 +48,29 @@ export function initUI(hooks) {
   }
 
   // ---- title -----------------------------------------------------------
+  // Session-local pre-run booster selection (v4.5). Not saved to meta — plain in-memory Set,
+  // scoped to this initUI() call. Only applies to classic runs (see onPlay hook doc above);
+  // cleared as soon as a run actually starts (see the 'play'/'daily-start' click cases below).
+  let selectedConsumables = new Set()
+
+  function consumablesShelfHtml() {
+    const selectedCost = [...selectedConsumables].reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
+    const chips = Object.entries(CONSUMABLES).map(([id, item]) => {
+      const selected = selectedConsumables.has(id)
+      const otherCost = selectedCost - (selected ? item.cost : 0)
+      const afford = selected || (meta.coins - otherCost) >= item.cost
+      return `
+        <button class="chip--consumable${selected ? ' chip--selected' : ''}" data-consumable="${id}" ${afford ? '' : 'disabled'}>
+          ${item.icon} ${item.name} · ${item.cost}🪙
+        </button>`
+    }).join('')
+    return `
+      <div class="consumables-shelf">
+        <span class="consumables-label">Boosters (this run only)</span>
+        <div class="consumables-row">${chips}</div>
+      </div>`
+  }
+
   function renderTitle() {
     const { coins, best, runs } = meta
     const dailyIds = dailyMutators(todayKey())
@@ -59,6 +90,7 @@ export function initUI(hooks) {
       <p class="diff-hint">${(meta.difficulty ?? 1) === 1
         ? 'the base game'
         : `+${meta.difficulty - 1} random anomal${meta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((meta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((meta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
+      ${consumablesShelfHtml()}
       <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
       <p class="daily-preview">${dailyPreview}</p>
       <button class="btn btn--soft" data-act="shop">🛒&nbsp; Shop</button>
@@ -180,7 +212,8 @@ export function initUI(hooks) {
   let lvCards = []
   let lvFocus = 0
 
-  function renderLevelup(choices) {
+  function renderLevelup(data = {}) {
+    const { choices = [], rerollCost: rerollN = 0, coins = 0 } = data
     const cards = choices.map((c, i) => {
       const rarity = c.rarity ?? 'normal'
       const rarityName = RARITIES[rarity]?.name ?? RARITIES.normal.name
@@ -196,11 +229,16 @@ export function initUI(hooks) {
         </span>
       </button>`
     }).join('')
+    const rerollDisabled = coins < rerollN
     screens.levelup.innerHTML = `
       <div class="modal">
         <h2 class="modal-title">LEVEL UP!</h2>
         <div class="lv-cards">${cards}</div>
-        <p class="lv-hint">1-3 · arrows · enter</p>
+        <p class="lv-hint">1-3 · arrows · enter · R reroll</p>
+        <div class="lv-footer">
+          <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 Reroll (${rerollN}🪙)</button>
+          <span class="lv-coins">🪙 ${coins}</span>
+        </div>
       </div>
     `
     lvCards = Array.from(screens.levelup.querySelectorAll('.lv-card'))
@@ -240,6 +278,10 @@ export function initUI(hooks) {
       case 'Enter': case 'Space':
         e.preventDefault(); e.stopPropagation()
         chooseLvCard(lvFocus)
+        break
+      case 'KeyR':
+        e.preventDefault(); e.stopPropagation()
+        hooks.onReroll()
         break
     }
   }
@@ -353,7 +395,7 @@ export function initUI(hooks) {
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
     else if (name === 'daily') renderDaily()
-    else if (name === 'levelup') renderLevelup(data ?? [])
+    else if (name === 'levelup') renderLevelup(data ?? {})
     else if (name === 'pause') renderPause(data ?? {})
     else if (name === 'summary') renderSummary(data ?? {})
     const hudUnder = name === 'levelup' || name === 'pause'   // hud stays visible under these modals
@@ -368,7 +410,7 @@ export function initUI(hooks) {
 
   // ---- one delegated click handler for every screen ---------------------------
   root.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act], [data-buy], [data-choose]')
+    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable]')
     if (!el) return
     if (el.dataset.buy !== undefined) {
       if (hooks.onBuy(el.dataset.buy)) renderShop(el.dataset.buy)
@@ -378,16 +420,31 @@ export function initUI(hooks) {
       hooks.onChoose(Number(el.dataset.choose))
       return
     }
+    if (el.dataset.consumable !== undefined) {
+      const id = el.dataset.consumable
+      if (selectedConsumables.has(id)) selectedConsumables.delete(id)
+      else selectedConsumables.add(id)
+      playSfx('click')
+      renderTitle()
+      return
+    }
     switch (el.dataset.act) {
-      case 'play': hooks.onPlay(el.dataset.mode || 'classic'); break
+      case 'play': {
+        const mode = el.dataset.mode || 'classic'
+        const ids = mode === 'daily' ? [] : [...selectedConsumables]
+        selectedConsumables.clear()
+        hooks.onPlay(mode, ids)
+        break
+      }
       case 'daily': playSfx('click'); showScreen('daily'); break
-      case 'daily-start': hooks.onPlay('daily'); break
+      case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
       case 'diff': hooks.onDifficulty(Number(el.dataset.diff)); renderTitle(); break
       case 'shop': playSfx('click'); showScreen('shop'); break
       case 'back': playSfx('click'); showScreen('title'); break
       case 'pause':
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
       case 'quit': playSfx('click'); hooks.onQuit(); break
+      case 'reroll': hooks.onReroll(); break
     }
   })
 

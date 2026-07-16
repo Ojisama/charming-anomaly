@@ -9,6 +9,7 @@ import {
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
+  xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -1498,6 +1499,80 @@ function testStarBalance() {
   }
 }
 
+// v4.5 gold sinks: pre-run consumables (revive/headstart/charged) + level-up reroll pricing.
+function testGoldSinks() {
+  const dt = 1 / 60
+
+  // Q.a revive: a banked revive prevents death once (restoring hp, granting invuln, shoving
+  // nearby enemies, emitting a 'revive' event), then a second lethal hit (after invuln expires,
+  // with the revive already spent) kills for real.
+  {
+    const run = createRun(makeMeta(), { consumables: ['revive'] })
+    assert.strictEqual(run.revives, 1, `expected the revive consumable to bank 1 revive, got ${run.revives}`)
+    run.mods.spawnMul = 0 // isolate hand-placed enemies as the only source of player damage
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1 // guarantees the very next contact hit is lethal
+
+    const contactEnemy = makeStatusEnemy(run, { x: 10, y: 0, hp: 1e6, speed: 0 })
+    const nearbyEnemy = makeStatusEnemy(run, { x: 150, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(contactEnemy, nearbyEnemy)
+
+    stepSim(run, { x: 0, y: 0 }, dt)
+
+    assert.strictEqual(run.phase, 'playing', `expected the run to keep playing after a revive, got '${run.phase}'`)
+    assert.strictEqual(run.revives, 0, `expected the revive to be consumed, got ${run.revives}`)
+    assert.strictEqual(run.player.hp, run.player.maxHP * REVIVE_HP_FRAC, `expected hp restored to REVIVE_HP_FRAC of maxHP, got ${run.player.hp}`)
+    assert(run.events.some((e) => e.type === 'revive'), 'expected a revive event')
+    assert(!run.events.some((e) => e.type === 'dead'), 'expected no dead event on a revived hit')
+    assert(nearbyEnemy.kb.x > 0, `expected the nearby enemy (at +x) to be knocked back away from the player (positive kb.x), got kb.x=${nearbyEnemy.kb.x}`)
+
+    // Second lethal hit: wait out the revive's longer invuln window, then take a fresh contact
+    // hit (the original contact/nearby enemies got shoved away by the revive itself) with no
+    // revives left banked — this time the run actually ends.
+    run.player.hp = 1
+    const contactEnemy2 = makeStatusEnemy(run, { x: 5, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(contactEnemy2)
+    let died = false
+    const steps = Math.round((REVIVE_INVULN + 0.5) / dt)
+    for (let i = 0; i < steps && !died; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.phase === 'dead') died = true
+    }
+    assert(died, `expected the second lethal hit (after invuln expired, no revives left) to kill the player, phase='${run.phase}'`)
+    console.log('PASS run Q.a (revive)')
+  }
+
+  // Q.b headstart: pre-loaded xp banks exactly two level-ups (declined, per the existing
+  // declineLevelUp helper) with zero enemies killed.
+  {
+    const run = createRun(makeMeta(), { consumables: ['headstart'] })
+    assert.strictEqual(run.player.xp, xpForLevel(1) + xpForLevel(2), `expected headstart to pre-load xp, got ${run.player.xp}`)
+    run.mods.spawnMul = 0
+    for (let i = 0; i < 10 && run.player.level < 3; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert.strictEqual(run.player.level, 3, `expected headstart to bank 2 level-ups (level 1 -> 3), got ${run.player.level}`)
+    assert.strictEqual(run.kills, 0, `expected zero kills from banked headstart level-ups, got ${run.kills}`)
+    console.log('PASS run Q.b (headstart)')
+  }
+
+  // Q.c charged: the starting weapon begins at level 2.
+  {
+    const run = createRun(makeMeta(), { consumables: ['charged'] })
+    assert.strictEqual(run.weapons[0].level, 2, `expected charged core to start the weapon at level 2, got ${run.weapons[0].level}`)
+    console.log('PASS run Q.c (charged)')
+  }
+
+  // Q.d rerollCost: ceil(10 * 1.5^used) for used=0,1,2 -> 10, 15, 23.
+  {
+    assert.strictEqual(rerollCost(0), 10, `expected rerollCost(0)=10, got ${rerollCost(0)}`)
+    assert.strictEqual(rerollCost(1), 15, `expected rerollCost(1)=15, got ${rerollCost(1)}`)
+    assert.strictEqual(rerollCost(2), 23, `expected rerollCost(2)=23, got ${rerollCost(2)}`)
+    console.log('PASS run Q.d (rerollCost)')
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1516,6 +1591,7 @@ try {
   testDifficulty()
   testCrazyMods()
   testStarBalance()
+  testGoldSinks()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

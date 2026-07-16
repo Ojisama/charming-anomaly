@@ -318,3 +318,41 @@ an expiring hole's Big Crunch detonation dealing the expected `tick × 10 × (1+
 a late beam tick outdamaging an early one on an identical target (Focus Lens); and a strobed
 beam landing more hit events than an unmodded one over the same real time. All prior runs
 A–N still pass unchanged.
+
+## v4.5 addendum (2026-07-16) — gold sinks: reroll + pre-run consumables
+
+Two ways to spend banked coins beyond the meta shop: pre-run consumables (bought before a run
+starts, main.js-side purchase flow) and level-up rerolls (spent mid-run). `sim.js` itself only
+gains one small behavior (Revive Token); everything else is `state.js`-at-creation or
+main.js-side (reroll cost/spend, `buildLevelUpChoices` is already exported and reroll-agnostic
+— rerolling a level-up screen is just calling it again).
+
+**Consumables** (`CONSUMABLES` in `config.js`, ids passed as `opts.consumables` to `createRun`):
+`revive` (banks `run.revives = 1`), `headstart` (pre-loads `player.xp = xpForLevel(1) +
+xpForLevel(2)` so `stepLevelUp` fires twice naturally on the first 'playing' frames, banking two
+level-ups before any enemy is killed), `charged` (starting weapon entry begins at level 2). All
+three are applied once, at `createRun` — no ongoing sim-side bookkeeping beyond the revive
+counter below.
+
+**Revive Token**: the shared player-death path (`hurtPlayer` in `sim.js`, used by both contact
+damage and volatile-bomb blasts) now checks `run.revives > 0` before flipping `phase` to
+`'dead'`. On a banked revive: decrement `run.revives`, restore `hp` to `maxHP × REVIVE_HP_FRAC`,
+grant `REVIVE_INVULN` seconds of invulnerability (longer than the normal hit-invuln window, so
+the player has a real window to reposition), and radially knock back every enemy within
+`REVIVE_SHOVE_RADIUS` at a flat `REVIVE_SHOVE_KB` magnitude (direction-only distance dependence,
+same shape as the wave nova's knockback — not falloff-scaled, so the whole shove zone clears
+evenly) — then push `{type:'revive', x, y}` (render draws a burst, main.js plays a sfx) instead
+of `{type:'dead'}`, and return `false` (player survives) to the caller.
+
+**Rerolls**: `run._rerolls` (added in `createRun`, starts at 0) counts rerolls used this run;
+main.js increments it and re-derives the next reroll's price via `rerollCost(run._rerolls)`
+(`config.js`: `Math.ceil(REROLL_BASE_COST × REROLL_COST_MUL^used)`, so 10/15/23/... coins).
+`sim.js` has no reroll-specific code — a reroll is main.js discarding `run.levelUpChoices` and
+calling `buildLevelUpChoices(run)` again after charging the player.
+
+`test/sim-test.js` gained **Run Q** (revive/headstart/charged/rerollCost): a low-hp player with
+one banked revive takes a lethal contact hit and survives at `maxHP × REVIVE_HP_FRAC` with a
+`revive` event and a nearby enemy knocked back, revives now 0, and a second lethal hit (after
+invuln expires) kills for real; a `headstart` run reaches player level 3 after declining a
+couple of level-ups with zero kills; a `charged` run's starting weapon is level 2; and
+`rerollCost(0|1|2)` matches 10/15/23. All prior runs A–P still pass unchanged.

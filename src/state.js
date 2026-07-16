@@ -43,6 +43,9 @@ export function shopBonus(meta, id) {
  *   { type:'coin', x, y, value }             coin collected
  *   { type:'levelup' }                       player leveled (run.levelUpChoices is set, phase='levelup')
  *   { type:'hurt', dmg }                     player took damage
+ *   { type:'revive', x, y }                  player death was prevented (see hurtPlayer in
+ *                                            sim.js and run.revives below) — render draws a
+ *                                            burst at (x,y), main.js plays a sfx
  *   { type:'dead' } / { type:'victory' }     run ended (phase already set)
  *
  * enemies[i]: { id, type, x, y, hp, maxHP, radius, speed, dmg, elite, xp,
@@ -182,6 +185,22 @@ export function shopBonus(meta, id) {
  *   kind 'element': elemental infusions (see ELEMENTS/COMBOS in config.js), offered always.
  *   run.elements[id] accumulates applied potency; run.elementPicks[id] counts picks (max
  *   MAX_ELEMENT_PICKS), mirroring passives/passivePicks.
+ *
+ * v4.5 gold sinks (see CONSUMABLES/REROLL_* in config.js):
+ * consumables: run.consumables is the array of CONSUMABLES ids (opts.consumables passed to
+ *   createRun, default []) bought pre-run and spent at run creation:
+ *     'revive'    -> run.revives = 1 (see below)
+ *     'headstart' -> player.xp pre-loaded to xpForLevel(1) + xpForLevel(2) so stepLevelUp
+ *                    (sim.js) fires twice naturally on the first 'playing' frames, banking
+ *                    two level-ups before any enemy is killed
+ *     'charged'   -> the starting weapon entry (weapons[0]) begins at level 2 instead of 1
+ * revives: count of revives remaining this run (1 if 'revive' was bought, else 0). Consumed
+ *   by hurtPlayer (sim.js): instead of dying, the player is restored to maxHP *
+ *   REVIVE_HP_FRAC, granted REVIVE_INVULN invulnerability, and every enemy within
+ *   REVIVE_SHOVE_RADIUS is knocked back (a {type:'revive', x, y} event fires — see above).
+ * _rerolls: count of level-up rerolls used so far this run (main.js increments this and
+ *   recomputes the next reroll's price via rerollCost(run._rerolls) — see config.js).
+ *   buildLevelUpChoices itself is reroll-agnostic; rerolling is just calling it again.
  */
 export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
@@ -191,6 +210,11 @@ export function createRun(meta, opts = {}) {
   const mods = mergeMutatorMods(opts.mutators ?? [])
   mods.enemyHpMul *= difficultyHpMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
+  // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
+  const consumables = opts.consumables ?? []
+  const hasHeadstart = consumables.includes('headstart')
+  const startXp = hasHeadstart ? xpForLevel(1) + xpForLevel(2) : 0
+  const startWeaponLevel = consumables.includes('charged') ? 2 : 1
   return {
     phase: 'playing',
     time: 0,
@@ -198,6 +222,9 @@ export function createRun(meta, opts = {}) {
     difficulty,
     mutators: opts.mutators ?? [],
     mods,
+    consumables,
+    revives: consumables.includes('revive') ? 1 : 0,
+    _rerolls: 0,
     player: {
       x: 0, y: 0,
       hp: maxHP, maxHP,
@@ -208,12 +235,12 @@ export function createRun(meta, opts = {}) {
       damageMul: 1 + shopBonus(meta, 'damage'),
       fireRateMul: 1 + shopBonus(meta, 'fireRate'),
       coinGainMul: 1 + shopBonus(meta, 'coinGain'),
-      xp: 0, level: 1, xpNext: xpForLevel(1),
+      xp: startXp, level: 1, xpNext: xpForLevel(1),
       invuln: 0,
       facing: 1,          // 1 right, -1 left (render flips the face)
       moving: false,
     },
-    weapons: [{ id: STARTING_WEAPON, level: 1 }],
+    weapons: [{ id: STARTING_WEAPON, level: startWeaponLevel }],
     weaponTimers: {},      // id -> s until next fire
     // accumulated applied bonuses (base * rarity mult per pick) and pick counts
     passives: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),

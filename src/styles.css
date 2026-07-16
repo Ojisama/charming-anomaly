@@ -425,6 +425,34 @@ body {
   .lv-hint { display: block; }
 }
 
+/* level-up footer: reroll (v4.5 gold sink) — kept subtle, under the cards, not competing */
+.lv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 2px dashed #e0d6c4;
+}
+.lv-reroll {
+  min-height: 0;
+  min-width: 0;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+.lv-reroll:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+  transform: none !important;
+}
+.lv-coins {
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: #9a7b00;
+}
+
 /* rarity accents on level-up cards */
 .rarity-chip {
   position: absolute;
@@ -558,6 +586,55 @@ body {
 .fx-chip--good { background: #d9f4e3; color: #1e7d4f; }
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
+
+/* pre-run consumables shelf on the title screen (v4.5 gold sink) */
+.consumables-shelf {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 340px;
+}
+.consumables-label {
+  font-weight: 800;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+.consumables-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.chip--consumable {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border: 2px solid var(--cream-edge);
+  border-radius: 999px;
+  background: var(--cream-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--cream-edge);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.chip--consumable:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--cream-edge); }
+.chip--consumable.chip--selected {
+  background: var(--mint);
+  border-color: var(--mint-dark);
+  box-shadow: 0 3px 0 var(--mint-dark);
+  transform: translateY(1px);
+}
+.chip--consumable:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
 
 /* difficulty selector on the title screen */
 .diff-row { display: flex; align-items: center; gap: 6px; }
