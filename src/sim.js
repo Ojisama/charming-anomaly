@@ -61,6 +61,12 @@ import {
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
   FLAGELLA_CYCLONE_EVERY, BARBED_DMG_MUL, BARBED_DURATION,
   BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC,
+  STINGER_R, STINGER_HIVE_EVERY, LURE_STICKY_R, LURE_STICKY_DUR,
+  PHEROMONE_LIFE, PHEROMONE_FOLLOW_RADIUS, PHEROMONE_SPEED_MUL,
+  DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T, DIVE_RECOVER_T,
+  DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
+  WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
+  SPRAY_INTERVAL, SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -88,10 +94,13 @@ export function stepSim(run, input, dt) {
   stepEnemyMovement(run, dt)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any)
+  stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
+  stepWebs(run, dt)       // v5.3 garden: expire spider web slow-zones (no-op unless any exist)
 
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
+  if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
 
   stepWeapons(run, dt)
   stepStatuses(run, dt)
@@ -139,7 +148,18 @@ function stepPlayerMovement(run, input, dt) {
   const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
-  const slowMul = p.slowT > 0 ? LATCH_SLOW_MUL : 1 // v5.0: latch-flag debuff (see stepContactDamage)
+  // Move-speed debuffs: latch (v5.0) sets a timed player.slowT; web (v5.3 garden) slows while the
+  // player stands in any run.webs patch. They STACK via a MIN of the two multipliers — the stronger
+  // slow wins rather than compounding (documented on WEB_SLOW_MUL in config.js).
+  const latchMul = p.slowT > 0 ? LATCH_SLOW_MUL : 1
+  let webMul = 1
+  if (run.webs && run.webs.length > 0) {
+    for (const web of run.webs) {
+      const wdx = p.x - web.x, wdy = p.y - web.y
+      if (wdx * wdx + wdy * wdy <= web.r * web.r) { webMul = WEB_SLOW_MUL; break }
+    }
+  }
+  const slowMul = Math.min(latchMul, webMul)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul
   p.x += ix * speed * dt
   p.y += iy * speed * dt
@@ -331,8 +351,26 @@ function stepEnemyMovement(run, dt) {
   }
   const pacerRadSq = PACER_RADIUS * PACER_RADIUS
 
+  // v5.3 garden: does this chapter's signature drive pheromone trails? (gates trailFollow logic)
+  const sig = CHAPTERS[run.chapter].signature
+  const pheromones = sig != null && sig.type === 'pheromones'
+  const hasTrails = pheromones && run.trails && run.trails.length > 0
+  const hasLures = run.lures && run.lures.length > 0
+  const followRadSq = PHEROMONE_FOLLOW_RADIUS * PHEROMONE_FOLLOW_RADIUS
+
   for (const e of run.enemies) {
-    const dx = p.x - e.x, dy = p.y - e.y
+    // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
+    // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
+    let tx = p.x, ty = p.y
+    if (hasLures) {
+      let bestSq = Infinity
+      for (const lu of run.lures) {
+        const ldx = lu.x - e.x, ldy = lu.y - e.y
+        const lsq = ldx * ldx + ldy * ldy
+        if (lsq <= lu.aggro * lu.aggro && lsq < bestSq) { bestSq = lsq; tx = lu.x; ty = lu.y }
+      }
+    }
+    const dx = tx - e.x, dy = ty - e.y
     const d = Math.hypot(dx, dy)
     const slowMul = e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) // chill/freeze slow the seek movement only
 
@@ -361,8 +399,21 @@ function stepEnemyMovement(run, dt) {
       }
       flagSpeedMul = e._dashPhase === 'dash' ? DASH_SPEED_MUL : DASH_IDLE_SPEED_MUL
     }
+    // trailFollow flag (v5.3 garden's ants): while within PHEROMONE_FOLLOW_RADIUS of any live
+    // pheromone node, accelerate along the seek (design: ants "follow & accelerate on" the trail).
+    if (hasTrails && e.flags && e.flags.includes('trailFollow')) {
+      for (const tr of run.trails) {
+        const trdx = tr.x - e.x, trdy = tr.y - e.y
+        if (trdx * trdx + trdy * trdy <= followRadSq) { flagSpeedMul *= PHEROMONE_SPEED_MUL; break }
+      }
+    }
 
-    if (d > 1e-6 && slowMul > 0) {
+    // diveBomb flag (v5.3 garden's wasps): a hover/telegraph/dive/recover cycle (stepDiveBomb)
+    // that REPLACES the normal seek; the normal seek runs for everyone else. slowMul still applies
+    // (chill/freeze), and lured wasps dive at the decoy since stepDiveBomb takes the seek target.
+    if (e.flags && e.flags.includes('diveBomb')) {
+      stepDiveBomb(e, tx, ty, dt, slowMul)
+    } else if (d > 1e-6 && slowMul > 0) {
       e.x += (dx / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
       e.y += (dy / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
     }
@@ -386,7 +437,65 @@ function stepEnemyMovement(run, dt) {
         run.pools.push({ x: e.x, y: e.y, r: SOAP_R, t: SOAP_DUR, dps: SOAP_DPS })
       }
     }
+
+    // webZone flag (v5.3 garden's spiders): drop a player-slowing web patch into run.webs every
+    // WEB_INTERVAL while alive (NOT elite-gated — spiders are ordinary tank-archetype enemies).
+    if (e.flags && e.flags.includes('webZone') && !e._dead) {
+      e._webAcc = (e._webAcc ?? 0) + dt
+      if (e._webAcc >= WEB_INTERVAL) {
+        e._webAcc -= WEB_INTERVAL
+        run.webs.push({ x: e.x, y: e.y, r: WEB_R, t: WEB_DUR })
+      }
+    }
+
+    // sprayStrip elite flag (v5.3 garden's pesticide-drone elites): periodically mark a telegraphed
+    // rectangular spray strip centered on the player (see run.strips / stepStrips below).
+    if (e.elite && e.flags && e.flags.includes('sprayStrip') && !e._dead) {
+      e._sprayAcc = (e._sprayAcc ?? 0) + dt
+      if (e._sprayAcc >= SPRAY_INTERVAL) {
+        e._sprayAcc -= SPRAY_INTERVAL
+        run.strips.push({ x: p.x, y: p.y, angle: Math.random() * Math.PI, len: SPRAY_LEN, w: SPRAY_W, fuse: SPRAY_FUSE, t: SPRAY_ACTIVE, dps: SPRAY_DPS })
+      }
+    }
   }
+}
+
+// diveBomb (v5.3 garden's wasps): a four-phase state machine on the enemy — hover at DIVE_STANDOFF,
+// telegraph (a brief pause, aim locked at its start), dive in a straight accelerating line through
+// the target and overshoot, then recover — repeating. (tx,ty) is the enemy's current seek target
+// (player or lure). Speeds are multipliers of e.speed; slowMul folds in chill/freeze (0 = frozen).
+function stepDiveBomb(e, tx, ty, dt, slowMul) {
+  if (e._diveState === undefined) { e._diveState = 'hover'; e._diveT = DIVE_HOVER_T }
+  e._diveT -= dt
+  const dx = tx - e.x, dy = ty - e.y
+  const d = Math.hypot(dx, dy) || 1
+  const ux = dx / d, uy = dy / d
+  let vx = 0, vy = 0
+  if (e._diveState === 'hover') {
+    // Hold DIVE_STANDOFF: close in if too far, back off if too near, hold still within the deadzone.
+    const diff = d - DIVE_STANDOFF
+    if (Math.abs(diff) > DIVE_HOVER_DEADZONE) {
+      const dir = diff > 0 ? 1 : -1
+      const spd = e.speed * DIVE_HOVER_SPEED_MUL
+      vx = ux * dir * spd; vy = uy * dir * spd
+    }
+    if (e._diveT <= 0) { e._diveState = 'telegraph'; e._diveT = DIVE_TELEGRAPH_T; e._diveDirX = ux; e._diveDirY = uy }
+  } else if (e._diveState === 'telegraph') {
+    // Locked pause (aim already snapshotted on entry) — the telegraph the player reacts to.
+    if (e._diveT <= 0) { e._diveState = 'dive'; e._diveT = DIVE_T; e._diveElapsed = 0 }
+  } else if (e._diveState === 'dive') {
+    e._diveElapsed = (e._diveElapsed ?? 0) + dt
+    const frac = Math.min(1, e._diveElapsed / DIVE_T)
+    const spdMul = DIVE_SPEED_START + (DIVE_SPEED_END - DIVE_SPEED_START) * frac // accelerating line
+    vx = e._diveDirX * e.speed * spdMul; vy = e._diveDirY * e.speed * spdMul
+    if (e._diveT <= 0) { e._diveState = 'recover'; e._diveT = DIVE_RECOVER_T }
+  } else { // recover: slow drift back toward the target before hovering again
+    const spd = e.speed * DIVE_RECOVER_SPEED_MUL
+    vx = ux * spd; vy = uy * spd
+    if (e._diveT <= 0) { e._diveState = 'hover'; e._diveT = DIVE_HOVER_T }
+  }
+  e.x += vx * slowMul * dt
+  e.y += vy * slowMul * dt
 }
 
 // ---- Contact damage ---------------------------------------------------------------
@@ -555,6 +664,54 @@ function stepObstacles(run) {
   }
 }
 
+// -- Pheromone trails (v5.3 garden signature) -----------------------------------------
+// Fading nodes dropped by dying trailFollow ants (dealDamage) that living ants accelerate along
+// (stepEnemyMovement). No damage, no player interaction — just age out. A no-op unless nodes exist.
+function stepTrails(run, dt) {
+  if (!run.trails || run.trails.length === 0) return
+  for (const tr of run.trails) tr.t -= dt
+  run.trails = run.trails.filter((tr) => tr.t > 0)
+}
+
+// -- Spider web slow-zones (v5.3 garden) ----------------------------------------------
+// Patches dropped by webZone spiders (stepEnemyMovement) that slow the PLAYER while standing in
+// them (stepPlayerMovement). No damage — just age out. A no-op unless patches exist.
+function stepWebs(run, dt) {
+  if (!run.webs || run.webs.length === 0) return
+  for (const web of run.webs) web.t -= dt
+  run.webs = run.webs.filter((web) => web.t > 0)
+}
+
+// -- Pesticide spray strips (v5.3 garden's sprayStrip elites) --------------------------
+// Telegraphed rectangles marked on the player (stepEnemyMovement). Each strip counts down its
+// `fuse` (telegraph, no damage) first, then goes live and ticks dot-flagged damage to the PLAYER
+// standing inside the rotated rectangle for `t` seconds (like run.pools). Removed once spent.
+// @returns true if the player died this frame (phase set to 'dead').
+function stepStrips(run, dt) {
+  if (!run.strips || run.strips.length === 0) return false
+  const p = run.player
+  let playerDied = false
+  for (const s of run.strips) {
+    if (s.fuse > 0) { s.fuse -= dt; continue } // telegraph phase — no damage yet
+    s.t -= dt
+    if (s.t <= 0) continue
+    // Point-in-rotated-rectangle: project the player offset onto the strip's axis (along) and its
+    // perpendicular (perp); inside iff within half the length/width on each.
+    const dx = p.x - s.x, dy = p.y - s.y
+    const c = Math.cos(s.angle), sn = Math.sin(s.angle)
+    const along = dx * c + dy * sn
+    const perp = -dx * sn + dy * c
+    if (Math.abs(along) > s.len / 2 || Math.abs(perp) > s.w / 2) continue
+    s._tickAcc = (s._tickAcc ?? 0) + dt
+    while (s._tickAcc >= STATUS_TICK) {
+      s._tickAcc -= STATUS_TICK
+      if (!playerDied && hurtPlayer(run, s.dps * STATUS_TICK, true)) playerDied = true
+    }
+  }
+  run.strips = run.strips.filter((s) => s.fuse > 0 || s.t > 0)
+  return playerDied
+}
+
 // -- Volatile-elite death bombs (v4.0) ------------------------------------------------
 
 /** @returns true if the player died this frame (phase set to 'dead'). */
@@ -653,6 +810,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     // elite died (see run.pools in state.js / stepPools above).
     if (enemy.elite && enemy.flags && enemy.flags.includes('acidPool')) {
       run.pools.push({ x: enemy.x, y: enemy.y, r: ACID_R, t: ACID_DUR, dps: ACID_DPS })
+    }
+    // trailFollow flag (v5.3 garden's ants): a dying ant drops a fading pheromone node that other
+    // ants follow & accelerate on (see run.trails / stepEnemyMovement). Gated on the chapter's
+    // 'pheromones' signature so an ant roster in a non-pheromone chapter simply wouldn't lay trails.
+    if (enemy.flags && enemy.flags.includes('trailFollow') && CHAPTERS[run.chapter].signature?.type === 'pheromones') {
+      run.trails.push({ x: enemy.x, y: enemy.y, t: PHEROMONE_LIFE })
     }
   }
 }
@@ -926,6 +1089,11 @@ const WEAPON_STAT_MODS = {
   // fire site instead (see stepFlagellaWeapon/stepBloomWeapon), like the global fire rate.
   flagella:  { reach: ['range', 'pct'], wideArc: ['arc', 'pct'], heavyLash: ['dmg', 'pct'] },
   bloom:     { bigBloom: ['maxR', 'pct'], lasting: ['dur', 'pct'], virulent: ['dmgPerTick', 'pct'] },
+  // v5.3 garden natives: rapid/fastLure (attack rate) and longNeedles (range AND speed)/bigBurst
+  // (burst dmg AND radius) are NOT here — they'd need to divide `rate` or touch two fields, so
+  // they're read at the fire/plant/burst site instead (see stepStingerWeapon/stepLureWeapon).
+  stinger:   { sharper: ['dmg', 'pct'], volley: ['count', 'flat'] },
+  lure:      { widerTaunt: ['aggro', 'pct'], longerLure: ['dur', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -962,6 +1130,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'rainbow') stepBeamWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'flagella') stepFlagellaWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bloom') stepBloomWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'stinger') stepStingerWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'lure') stepLureWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -972,6 +1142,7 @@ function stepWeapons(run, dt) {
   stepHoles(run, dt)
   stepBeams(run, dt)
   stepBlooms(run, dt)
+  stepLures(run, dt)
 
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
 }
@@ -1126,6 +1297,11 @@ function stepBullets(run, dt) {
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, b.dmg)
+        // Venom Tips (v5.3 stinger's venomTips mod, snapshotted as b._venomTips at fire time):
+        // a needle injects 1 venom stack WITHOUT needing the venom element card — reuses the
+        // element system's applyVenomStack (its DoT scales with venom potency, but the stacks
+        // still amplify all damage the enemy takes even at zero potency; see dealDamage/stepStatuses).
+        if (b._venomTips && !e._dead) applyVenomStack(e, 1)
         b.hitIds.add(e.id)
         b.pierce--
         justHit = e
@@ -1955,6 +2131,108 @@ function stepBlooms(run, dt) {
     run.blooms.push({ x: m.x, y: m.y, r: 0, maxR: m.maxR, t: 0, dur: m.dur, dmgPerTick: m.dmgPerTick, _mini: true })
   }
   run.blooms = run.blooms.filter((bl) => bl.t < bl.dur)
+}
+
+// -- Stinger (v5.3 garden native) -------------------------------------------------------
+// Every `rate` seconds (rapid divides that interval, like the global fire rate) fires a tight cone
+// of `count` needle projectiles into run.bullets, aimed at the nearest enemy. Needles reuse the
+// bullet system (stepBullets) but are tagged weapon:'stinger' and carry disabled split/chain/
+// ricochet budgets so star's mods never touch them. longNeedles scales range AND speed; venomTips
+// injects a venom stack per needle hit (stepBullets); hive fires the whole volley in all directions
+// every STINGER_HIVE_EVERY-th cast.
+function stepStingerWeapon(run, w, stats, fireRateMul, dt) {
+  const rapid = run.weaponMods.stinger?.rapid ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireStinger(run, stats))
+}
+
+function fireStinger(run, stats) {
+  const p = run.player
+  const target = nearestEnemy(run)
+  let baseAngle
+  if (target) baseAngle = Math.atan2(target.y - p.y, target.x - p.x)
+  else if (p.facingAngle != null) baseAngle = p.facingAngle
+  else baseAngle = p.facing >= 0 ? 0 : Math.PI
+
+  const longMul = 1 + (run.weaponMods.stinger?.longNeedles ?? 0) // longNeedles: +range AND +speed
+  const speed = stats.speed * longMul
+  const range = stats.range * longMul
+  const life = range / speed
+  const count = stats.count // volley (+needles) already folded in via effectiveWeaponStats
+  const venomOn = (run.weaponMods.stinger?.venomTips ?? 0) > 0
+
+  // hive: every STINGER_HIVE_EVERY-th volley opens from the tight cone to a full 360° spread.
+  const hiveOn = (run.weaponMods.stinger?.hive ?? 0) > 0
+  run._stingerVolleys = (run._stingerVolleys ?? 0) + 1
+  const allAround = hiveOn && run._stingerVolleys % STINGER_HIVE_EVERY === 0
+  const spread = stats.spread
+
+  for (let i = 0; i < count; i++) {
+    let angle
+    if (allAround) angle = baseAngle + (i / count) * Math.PI * 2
+    else angle = baseAngle + (count > 1 ? -spread + i * ((2 * spread) / (count - 1)) : 0)
+    run.bullets.push({
+      x: p.x, y: p.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      dmg: stats.dmg,
+      pierce: 1,
+      life,
+      r: STINGER_R,
+      speed,
+      hitIds: new Set(),
+      weapon: 'stinger',
+      _venomTips: venomOn,
+      // Disable star's bullet behaviours on needles (they share run.bullets/stepBullets).
+      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'stinger' })
+}
+
+// -- Pheromone Lure (v5.3 garden native) ------------------------------------------------
+// Every `rate` seconds (fastLure divides that interval) plants a decoy (twinLure plants extra ones)
+// at a random spot within castRange. Enemies within a lure's aggro radius path to it instead of the
+// player (stepEnemyMovement); the lure bursts for AoE damage at expiry (stepLures). widerTaunt/
+// longerLure fold into stats; bigBurst scales burst dmg/radius; stickyScent drops a slow zone.
+function stepLureWeapon(run, w, stats, fireRateMul, dt) {
+  const fastLure = run.weaponMods.lure?.fastLure ?? 0
+  const decoyCount = 1 + (run.weaponMods.lure?.twinLure ?? 0) // twinLure: +1 decoy per pick
+  const burstMul = 1 + (run.weaponMods.lure?.bigBurst ?? 0)   // bigBurst: +dmg AND +radius
+  const sticky = (run.weaponMods.lure?.stickyScent ?? 0) > 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + fastLure)), dt, () => {
+    for (let i = 0; i < decoyCount; i++) {
+      const a = Math.random() * Math.PI * 2
+      const d = Math.random() * stats.castRange
+      run.lures.push({
+        x: run.player.x + Math.cos(a) * d,
+        y: run.player.y + Math.sin(a) * d,
+        t: 0, dur: stats.dur, aggro: stats.aggro,
+        burstR: stats.burstR * burstMul, burstDmg: stats.burstDmg * burstMul,
+        sticky,
+      })
+    }
+    run.events.push({ type: 'lure', x: run.player.x, y: run.player.y })
+  })
+}
+
+// Ages each lure; on expiry it BURSTS — player-scaled AoE damage (applyDamage, like a mine pop) to
+// enemies within burstR + an explode event, and (stickyScent) a slow zone dropped into run.webs.
+function stepLures(run, dt) {
+  if (!run.lures || run.lures.length === 0) return
+  for (const lu of run.lures) {
+    lu.t += dt
+    if (lu.t < lu.dur) continue
+    lu._burst = true
+    const radSq = lu.burstR * lu.burstR
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - lu.x, dy = e.y - lu.y
+      if (dx * dx + dy * dy <= radSq) applyDamage(run, e, lu.burstDmg)
+    }
+    run.events.push({ type: 'explode', x: lu.x, y: lu.y, radius: lu.burstR })
+    if (lu.sticky) run.webs.push({ x: lu.x, y: lu.y, r: LURE_STICKY_R, t: LURE_STICKY_DUR })
+  }
+  run.lures = run.lures.filter((lu) => !lu._burst)
 }
 
 // ---- Pickups ------------------------------------------------------------------------

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -471,6 +471,26 @@ export function createRenderer(app) {
       T.homing = bakeComposite(c)
       T.homingScale = 1
     }
+    // stinger needle (v5.3 garden): a thin amber streak, double-stacked (soft alpha washes out solo),
+    // pointing +x natively so placeBullet can rotate it to the needle's velocity. A bright tip spark
+    // sells the "point". Visually distinct from the round spinning star bullet.
+    {
+      const c = new Container()
+      for (let i = 0; i < 2; i++) {
+        const s = new Sprite(T.fx.trace_05)
+        s.anchor.set(0.5)
+        s.tint = 0xffb347
+        s.scale.set(fxScale(T.fx.trace_05, 26), fxScale(T.fx.trace_05, 6))
+        c.addChild(s)
+      }
+      const tip = new Sprite(T.fx.spark_04)
+      tip.anchor.set(0.5)
+      tip.tint = 0xffe4a0
+      tip.position.x = 11
+      tip.scale.set(fxScale(T.fx.spark_04, 10))
+      c.addChild(tip)
+      T.needle = bakeComposite(c)
+    }
     // pond player's flagellum tail: a soft streak glyph, double-stacked (one layer washes out)
     for (const t of [tailA, tailB]) t.texture = T.fx.trace_05
   }
@@ -530,6 +550,14 @@ export function createRenderer(app) {
   app.stage.addChild(world, currentLayer, idleLayer, dustLayer, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
+  // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
+  // lures presence — no hard chapter gate needed since createRun leaves them [] elsewhere):
+  //   trailLayer/webLayer sit with the ground decals (under enemies); lureLayer floats the decoy
+  //   beacon over the swarm; stripG is a telegraph Graphics like bombG (see redrawStrips).
+  const trailLayer = new Container()
+  const webLayer = new Container()
+  const lureLayer = new Container()
+  const stripG = new Graphics()
   const gemLayer = new Container()
   const coinLayer = new Container()
   const holeLayer = new Container()
@@ -554,9 +582,9 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    poolLayer, obstacleLayer,
+    poolLayer, trailLayer, webLayer, obstacleLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
-    bombG, pacerG, enemyLayer, bloomLayer, shieldG, affixLayer, playerC,
+    bombG, stripG, pacerG, enemyLayer, bloomLayer, lureLayer, shieldG, affixLayer, playerC,
     bulletLayer, boomerangLayer, orbLayer, homingLayer, beamLayer, whipLayer, arcG,
     particleLayer, textLayer,
   )
@@ -918,7 +946,7 @@ export function createRenderer(app) {
   const prevCount = {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
-    pool: 0, bloom: 0,
+    pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -1135,6 +1163,129 @@ export function createRenderer(app) {
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
     prevCount.bloom = n
+  }
+
+  // ---- v5.3 garden field elements ----------------------------------------------------------
+  // Pheromone trails (run.trails, {x,y,t}): faint amber dots dropped under dying ants that living
+  // ants accelerate along. Soft ground decals, brightest when fresh, fading as t → 0 (t counts down
+  // from PHEROMONE_LIFE). Amber reads on the warm lawn floor (a saturated tint, not a pale wash).
+  const trailPool = []
+  function acquireTrail() {
+    const s = new Sprite(T.fx.circle_05)
+    s.anchor.set(0.5)
+    trailLayer.addChild(s)
+    return s
+  }
+  function syncTrails(list) {
+    const n = list.length
+    while (trailPool.length < n) trailPool.push(acquireTrail())
+    for (let i = 0; i < n; i++) {
+      const s = trailPool[i]
+      const tr = list[i]
+      s.visible = true
+      s.position.set(tr.x, tr.y)
+      const fade = Math.max(0, Math.min(1, tr.t / PHEROMONE_LIFE))
+      s.tint = 0xe8a23a // warm amber pheromone
+      s.alpha = 0.42 * fade
+      s.scale.set(fxScale(T.fx.circle_05, 26))
+    }
+    for (let i = n; i < prevCount.trail; i++) trailPool[i].visible = false
+    prevCount.trail = n
+  }
+
+  // Spider web slow-zones (run.webs, {x,y,r,t}): pale silvery-cool discs that must read against the
+  // warm floor (cool pale wins on warm ground). Double-stacked like hazard pools — a soft outer disc
+  // + a brighter cool core — dissolving over their final moments as t runs down.
+  const webPool = []
+  function acquireWeb() {
+    const root = new Container()
+    const a = new Sprite(T.fx.circle_05); a.anchor.set(0.5)
+    const b = new Sprite(T.fx.circle_05); b.anchor.set(0.5)
+    root.addChild(a, b)
+    webLayer.addChild(root)
+    return { root, a, b }
+  }
+  function syncWebs(list) {
+    const n = list.length
+    while (webPool.length < n) webPool.push(acquireWeb())
+    for (let i = 0; i < n; i++) {
+      const wv = webPool[i]
+      const web = list[i]
+      wv.root.visible = true
+      wv.root.position.set(web.x, web.y)
+      const fade = Math.min(1, web.t / 0.8) // dissolve over the last 0.8s of life
+      const sc = fxScale(T.fx.circle_05, Math.max(web.r, 1) * 2)
+      wv.a.scale.set(sc); wv.a.tint = 0xbcd2e0; wv.a.alpha = 0.4 * fade   // pale silvery-cool
+      wv.b.scale.set(sc * 0.7); wv.b.tint = 0xeef6fb; wv.b.alpha = 0.5 * fade // brighter cool core
+    }
+    for (let i = n; i < prevCount.web; i++) webPool[i].root.visible = false
+    prevCount.web = n
+  }
+
+  // Pheromone Lure decoys (run.lures, {x,y,t,dur,...}): a cute beacon the swarm converges on — soft
+  // amber glow + a pulsing double-stacked gold star, floated over the crowd so it POPS. Fades in over
+  // its first moments; the one-shot burst on expiry renders via the {type:'explode'} event elsewhere.
+  const lurePool = []
+  function acquireLure() {
+    const root = new Container()
+    const glow = new Sprite(T.fx.circle_05); glow.anchor.set(0.5)
+    const ring = new Sprite(T.fx.light_02); ring.anchor.set(0.5)
+    const star1 = new Sprite(T.fx.star_04); star1.anchor.set(0.5)
+    const star2 = new Sprite(T.fx.star_04); star2.anchor.set(0.5)
+    root.addChild(glow, ring, star1, star2)
+    lureLayer.addChild(root)
+    return { root, glow, ring, star1, star2 }
+  }
+  function syncLures(list) {
+    const n = list.length
+    while (lurePool.length < n) lurePool.push(acquireLure())
+    for (let i = 0; i < n; i++) {
+      const lv = lurePool[i]
+      const lu = list[i]
+      lv.root.visible = true
+      lv.root.position.set(lu.x, lu.y)
+      const pulse = 0.5 + 0.5 * Math.sin(animT * 6 + i * 1.3)
+      const inA = Math.min(1, lu.t / 0.25) // fade in over the first 0.25s (lu.t ages up to lu.dur)
+      lv.glow.tint = 0xffd36b; lv.glow.alpha = 0.5 * inA * (0.7 + 0.3 * pulse)
+      lv.glow.scale.set(fxScale(T.fx.circle_05, 70 + pulse * 14))
+      lv.ring.tint = 0xffe9a0; lv.ring.alpha = 0.55 * inA
+      lv.ring.scale.set(fxScale(T.fx.light_02, 54 + pulse * 10))
+      const ssc = fxScale(T.fx.star_04, 30 + pulse * 6)
+      lv.star1.tint = lv.star2.tint = 0xff9d1a
+      lv.star1.scale.set(ssc); lv.star2.scale.set(ssc)
+      lv.star1.rotation = animT * 1.5; lv.star2.rotation = -animT * 1.2
+      lv.star1.alpha = lv.star2.alpha = inA
+    }
+    for (let i = n; i < prevCount.lure; i++) lurePool[i].root.visible = false
+    prevCount.lure = n
+  }
+
+  // Pesticide spray strips (run.strips): telegraphed rotated rectangles — one shared Graphics cleared/
+  // redrawn per frame, same telegraph idiom as redrawBombs (Graphics is the sanctioned exception for
+  // ground telegraphs). During `fuse`: a pulsing amber warning outline that ramps urgency toward 0
+  // (no hazard fill yet). Once live: a filled acid-green hazard strip fading over its remaining life.
+  function redrawStrips(run) {
+    stripG.clear()
+    for (const s of run.strips || []) {
+      const cos = Math.cos(s.angle), sin = Math.sin(s.angle)
+      const hx = s.len / 2, hy = s.w / 2
+      const flat = []
+      for (const [lx, ly] of [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]]) {
+        flat.push(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos)
+      }
+      if (s.fuse > 0) {
+        const urgency = SPRAY_FUSE > 0 ? 1 - s.fuse / SPRAY_FUSE : 1
+        const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
+        const fillA = 0.05 + urgency * 0.08 + pulse * 0.03
+        const rimA = Math.min(1, 0.5 + urgency * 0.35 + pulse * 0.1)
+        stripG.poly(flat).fill({ color: 0xffd24a, alpha: fillA })
+        stripG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
+      } else {
+        const fade = Math.min(1, s.t / SPRAY_ACTIVE)
+        stripG.poly(flat).fill({ color: 0x8fe04a, alpha: 0.34 * fade })
+        stripG.poly(flat).stroke({ width: 2.5, color: 0xbfff6a, alpha: 0.7 * fade })
+      }
+    }
   }
 
   // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs). An ANCHORED melee
@@ -1696,6 +1847,7 @@ export function createRenderer(app) {
     shieldG.clear()
     pacerG.clear()
     bombG.clear()
+    stripG.clear()
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
@@ -1707,6 +1859,9 @@ export function createRenderer(app) {
     for (const bv of beamPool) bv.root.visible = false
     for (const pv of poolPool) pv.root.visible = false
     for (const bv of bloomPool) bv.root.visible = false
+    for (const s of trailPool) s.visible = false
+    for (const wv of webPool) wv.root.visible = false
+    for (const lv of lurePool) lv.root.visible = false
     clearObstacles()
     clearWhips()
     clearCurrents()
@@ -2020,10 +2175,14 @@ export function createRenderer(app) {
 
     syncObstacles(run)
     syncPools(run.pools || [])
+    syncTrails(run.trails || [])
+    syncWebs(run.webs || [])
     syncPlayer(run.player, dt)
     syncEnemies(run)
     syncBlooms(run.blooms || [])
+    syncLures(run.lures || [])
     redrawBombs(run)
+    redrawStrips(run)
 
     syncPool(bulletPool, bulletLayer, run.bullets, 'bullet', T.bullet, placeBullet)
     syncPool(novaPool, novaLayer, run.novas, 'nova', T.nova, placeNova)
@@ -2049,6 +2208,17 @@ export function createRenderer(app) {
   // Hoisted syncPool callbacks (fresh closures per frame are pointless garbage)
   function placeBullet(s, b, i) {
     s.position.set(b.x, b.y)
+    // Stinger needles (v5.3 garden) share run.bullets with star shots but render as thin amber
+    // streaks aimed along their velocity — swap this pool slot's texture/anchor/tint on the fly.
+    if (b.weapon === 'stinger') {
+      if (s.texture !== T.needle.tex) { s.texture = T.needle.tex; s.anchor.set(T.needle.ax, T.needle.ay) }
+      s.tint = 0xffcf6b
+      s.rotation = Math.atan2(b.vy, b.vx)
+      s.scale.set(1)
+      return
+    }
+    if (s.texture !== T.bullet.tex) { s.texture = T.bullet.tex; s.anchor.set(T.bullet.ax, T.bullet.ay) }
+    s.tint = 0xffffff // star tint is baked; keep white so a slot recycled from a needle resets
     s.rotation = animT * 2.2 + i * 0.9 // slow spin
     s.scale.set(1 + 0.1 * Math.sin(animT * 7 + i * 2.4)) // slight scale pulse
   }

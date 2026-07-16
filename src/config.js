@@ -76,9 +76,14 @@ export const WEAPONS = {
     ],
   },
   boomerang: {
-    name: 'Boomerang',
-    desc: 'Flies out and back, slicing everything on the path.',
-    icon: '🪃', rarity: 'rare',
+    // v5.3: re-themed as The Garden's starter (Leaf Blade) — COPY ONLY, behavior unchanged
+    // (still the boomerang weapon step/mods in sim.js, entity array run.boomerangs, and the
+    // WEAPON_MODS.boomerang set below). Keeping the id 'boomerang' keeps render.js/main.js
+    // (outside the v5.3 sim scope) working; the display name is what the player sees. Moved
+    // from vaulted into the garden's weapon pool (see CHAPTERS.garden.weapons).
+    name: 'Leaf Blade',
+    desc: 'Flings a spinning leaf that slices out and curves back.',
+    icon: '🍃', rarity: 'rare',
     levels: [
       { dmg: 16, interval: 1.20, count: 1, speed: 420, range: 240 },
       { dmg: 19, interval: 1.10, count: 1, speed: 450, range: 260 },
@@ -162,6 +167,35 @@ export const WEAPONS = {
       { rate: 2.8, castRange: 280, dur: 3.4, maxR: 110, dmgPerTick: 9 },
       { rate: 2.5, castRange: 300, dur: 3.6, maxR: 125, dmgPerTick: 11 },
       { rate: 2.2, castRange: 320, dur: 3.8, maxR: 140, dmgPerTick: 14 },
+    ],
+  },
+  // Garden chapter natives (v5.3). See stepStingerWeapon/stepLureWeapon in sim.js for behavior.
+  stinger: {
+    name: 'Stinger',
+    desc: 'Fires a tight cone of piercing needles at the nearest enemy.',
+    icon: '🪡', rarity: 'normal',
+    // count = needles per volley; spread = cone half-angle (rad); range/speed give a short-mid
+    // reach (life = range/speed, derived at fire time). pierce is a fixed 1 (no pierce mod).
+    levels: [
+      { dmg: 8,  rate: 0.85, count: 3, speed: 620, range: 320, spread: 0.20 },
+      { dmg: 9,  rate: 0.78, count: 3, speed: 640, range: 340, spread: 0.20 },
+      { dmg: 11, rate: 0.70, count: 4, speed: 660, range: 360, spread: 0.22 },
+      { dmg: 13, rate: 0.62, count: 4, speed: 690, range: 380, spread: 0.22 },
+      { dmg: 16, rate: 0.54, count: 5, speed: 720, range: 410, spread: 0.24 },
+    ],
+  },
+  lure: {
+    name: 'Pheromone Lure',
+    desc: 'Plants a decoy that taunts nearby foes, then bursts.',
+    icon: '🌼', rarity: 'rare',
+    // aggro = taunt radius (enemies within it path to the lure instead of the player); dur = s
+    // before it bursts; burstR/burstDmg = the one-shot AoE on burst. castRange = plant scatter.
+    levels: [
+      { rate: 4.5, castRange: 240, dur: 3.0, aggro: 200, burstR: 110, burstDmg: 28 },
+      { rate: 4.2, castRange: 250, dur: 3.2, aggro: 215, burstR: 118, burstDmg: 34 },
+      { rate: 3.9, castRange: 260, dur: 3.4, aggro: 230, burstR: 126, burstDmg: 42 },
+      { rate: 3.5, castRange: 275, dur: 3.6, aggro: 250, burstR: 136, burstDmg: 52 },
+      { rate: 3.1, castRange: 290, dur: 3.8, aggro: 270, burstR: 148, burstDmg: 64 },
     ],
   },
 }
@@ -303,12 +337,14 @@ export const WEAPON_MODS = {
     undertow:  { name: 'Undertow',  desc: 'knockback stack(s) (pulls in instead of pushing out)', icon: '↩️', base: 1, kind: 'flat' },
     tsunami:   { name: 'Tsunami',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
   },
+  // v5.3: the id stays 'boomerang' (Leaf Blade re-theme is copy-only, see WEAPONS.boomerang);
+  // only the desc copy was retouched from 'boomerang' to 'leaf blade' where it named the weapon.
   boomerang: {
-    extraRang:  { name: 'Extra Blades', desc: 'boomerangs per throw', icon: '🪃', base: 1,    kind: 'flat' },
-    longThrow:  { name: 'Long Throw',   desc: 'boomerang range',      icon: '📏', base: 0.20, kind: 'pct' },
-    bigBlade:   { name: 'Big Blade',    desc: 'boomerang hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
-    heavyBlade: { name: 'Heavy Blade',  desc: 'boomerang damage',     icon: '🔨', base: 0.20, kind: 'pct' },
-    backhand:   { name: 'Backhand',      desc: 'boomerang return-swing damage',       icon: '🤛', base: 0.50, kind: 'pct' },
+    extraRang:  { name: 'Extra Blades', desc: 'leaf blades per throw', icon: '🍃', base: 1,    kind: 'flat' },
+    longThrow:  { name: 'Long Throw',   desc: 'leaf blade range',      icon: '📏', base: 0.20, kind: 'pct' },
+    bigBlade:   { name: 'Big Blade',    desc: 'leaf blade hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
+    heavyBlade: { name: 'Heavy Blade',  desc: 'leaf blade damage',     icon: '🔨', base: 0.20, kind: 'pct' },
+    backhand:   { name: 'Backhand',      desc: 'leaf blade return-swing damage',      icon: '🤛', base: 0.50, kind: 'pct' },
     seeker:     { name: 'Seeker Blades', desc: 'outbound curve-toward-target strength', icon: '🧭', base: 0.50, kind: 'pct' },
   },
   mines: {
@@ -368,6 +404,29 @@ export const WEAPON_MODS = {
     quickCast:  { name: 'Quick Cast',      desc: 'cast rate',         icon: '⏩', base: 0.25, kind: 'pct' },
     twinBloom:  { name: 'Twin Bloom',      desc: 'extra cloud(s) per cast',        icon: '🌺', base: 1, kind: 'flat' },
     sporeburst: { name: 'Sporeburst',      desc: 'mini-cloud when a foe dies inside', icon: '💥', base: 1, kind: 'flat' },
+  },
+  // Garden natives (v5.3 task, see stepStingerWeapon/stepLureWeapon in sim.js). sharper/volley fold
+  // into stinger's levels[] via WEAPON_STAT_MODS; longNeedles (range AND speed) and rapid (attack
+  // rate — dividing it into the levels[] `rate` would SLOW it, like flagella.frenzy) are read at the
+  // fire site. venomTips/hive are behavioral (needle hit site / volley fire site).
+  stinger: {
+    sharper:     { name: 'Sharper Tips', desc: 'needle damage',        icon: '🗡️', base: 0.25, kind: 'pct' },
+    volley:      { name: 'Wider Volley', desc: 'needles per volley',   icon: '🎯', base: 2,    kind: 'flat' },
+    longNeedles: { name: 'Long Needles', desc: 'needle range & speed', icon: '📏', base: 0.30, kind: 'pct' },
+    rapid:       { name: 'Rapid Fire',   desc: 'volley rate',          icon: '🚀', base: 0.25, kind: 'pct' },
+    venomTips:   { name: 'Venom Tips',   desc: 'needles inject 1 venom stack', icon: '☠️', base: 1, kind: 'flat' },
+    hive:        { name: 'Hive Mind',    desc: 'every 4th volley fires all around', icon: '🐝', base: 1, kind: 'flat' },
+  },
+  // widerTaunt/longerLure fold into lure's levels[] via WEAPON_STAT_MODS; bigBurst (burst dmg AND
+  // radius) and fastLure (plant rate) are read at the plant/burst site. twinLure (+decoy, a flat
+  // entity-count mod like twinBloom) and stickyScent are behavioral (plant/burst site).
+  lure: {
+    widerTaunt:  { name: 'Wider Taunt',   desc: 'lure aggro radius',     icon: '📡', base: 0.30, kind: 'pct' },
+    bigBurst:    { name: 'Big Burst',     desc: 'burst damage & radius', icon: '💥', base: 0.30, kind: 'pct' },
+    longerLure:  { name: 'Lasting Lure',  desc: 'lure duration',         icon: '⏳', base: 0.35, kind: 'pct' },
+    fastLure:    { name: 'Quick Bait',    desc: 'plant rate',            icon: '⏩', base: 0.25, kind: 'pct' },
+    twinLure:    { name: 'Twin Lure',     desc: 'extra decoy(s) per cast', icon: '🌺', base: 1, kind: 'flat' },
+    stickyScent: { name: 'Sticky Scent',  desc: 'burst leaves a slow zone', icon: '🕸️', base: 1, kind: 'flat' },
   },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
@@ -478,6 +537,17 @@ export const BLOOM_TICK = 0.5
 // sporeburst (behavioral): a foe killed by a (non-mini) cloud's own tick emits a mini-cloud at
 // SPOREBURST_FRAC of the parent's maxR (same dur/dmgPerTick), flagged `_mini` so it never chains.
 export const SPOREBURST_FRAC = 0.35
+
+// ---- Garden weapons (v5.3: Stinger + Pheromone Lure; Leaf Blade = boomerang re-theme) --------
+// Stinger (garden native, needle-cone — see WEAPONS.stinger + stepStingerWeapon in sim.js): each
+// needle is a run.bullets projectile tagged weapon:'stinger' so stepBullets can apply stinger-only
+// behaviour (venomTips) without touching star's split/chain/ricochet (disabled per-needle).
+export const STINGER_R = 7            // px, needle hit radius (added to enemy radius)
+export const STINGER_HIVE_EVERY = 4   // hive (behavioral): every Nth volley fires in all directions
+// Pheromone Lure (garden native, taunt decoy + burst — see WEAPONS.lure + stepLureWeapon/stepLures
+// in sim.js). stickyScent (behavioral) drops a slow zone into run.webs on burst:
+export const LURE_STICKY_R = 80       // px, stickyScent slow-zone radius
+export const LURE_STICKY_DUR = 2      // s, stickyScent slow-zone lifetime
 
 // ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
 // Offered always (not gated behind a weapon), rolls a rarity like passives: applied
@@ -688,7 +758,7 @@ export const runBonusCoins = (kills) => Math.floor(kills / 10)
 // createRun). Later chapters (garden, undergrowth, city, skies, beyond) append here in
 // v5.1+; CHAPTER_ORDER is the single source of truth for sequencing, daily seeding, and
 // how many chapters currently ship.
-export const CHAPTER_ORDER = ['body', 'pond']
+export const CHAPTER_ORDER = ['body', 'pond', 'garden']
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -745,7 +815,51 @@ export const CHAPTERS = {
       eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8], // pale hues soap-bubble elites cycle through
     },
   },
+  garden: {
+    name: 'The Garden', tagline: 'the lawn is a jungle', icon: '🐜',
+    // Leaf Blade is the boomerang re-theme (id kept as 'boomerang', see WEAPONS.boomerang);
+    // stinger + lure are new v5.3 natives. Starter = the leaf blade (boomerang).
+    weapons: ['boomerang', 'stinger', 'lure'], starter: 'boomerang',
+    roster: [
+      { id: 'ant',    archetype: 'normal', name: 'Ant',    hpMul: 0.85, speedMul: 1.1, flags: ['trailFollow'] },
+      { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, flags: ['diveBomb'] },
+      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.5,  speedMul: 0.9, flags: ['webZone'] },
+    ],
+    eliteFlags: ['sprayStrip'],           // pesticide-drone elites paint telegraphed spray strips
+    // Signature: dying trailFollow ants drop fading pheromone nodes (run.trails) that living ants
+    // accelerate along. No field force (unlike currents) — the mechanic IS the ant behaviour, so
+    // sim.js gates its trail logic on signature.type === 'pheromones' (future chapters' ants differ).
+    signature: { type: 'pheromones' },
+    obstacles: { count: 12, minR: 22, maxR: 40, minDist: 220 }, // grass stalks / pebbles
+    // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
+    // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
+    // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). render.js also draws the five
+    // garden sim systems (trails/webs/strips/lures + stinger needles), all data-driven no-ops elsewhere.
+    render: {
+      bgColor: 0x4e8240,    // sunlit lawn green between the grass blades (brighter than pond)
+      floorTint: 0xaad066,  // warm sunny grass-green multiply on the floor sprites
+      playerTint: 0xc2f070, // bug-ish warm caterpillar green for the blob
+      tail: false,
+      enemies: {            // rosterId -> visual distinction (hue + a subtle render-only scale)
+        ant:    { tint: 0x9e5230, scale: 0.88 }, // warm red-brown, slightly smaller
+        wasp:   { tint: 0xf2c93a, scale: 1.0 },  // yellow-amber
+        spider: { tint: 0x5b3a52, scale: 1.15 }, // deep violet-brown, slightly bigger
+      },
+    },
+  },
 }
+// ---- Chapter teasers (v5.3, DISPLAY-ONLY) ------------------------------------------
+// The title carousel shows [unlocked chapters] + [first real locked CHAPTERS entry] + [all teasers].
+// Teasers are future chapters with NO CHAPTERS entry yet — pure "coming soon" cards. Their ids MUST
+// NEVER reach createRun/onChapter/dailyChapter: they're never unlocked (so onChapter/Play skip them),
+// they're not in CHAPTER_ORDER (so dailyChapter never picks them), and every CHAPTERS[id] lookup on
+// the card/dot/select paths is guarded (ui.js). icon = a dim greyscale silhouette on the teaser card.
+export const CHAPTER_TEASERS = [
+  { id: 'undergrowth', icon: '🐾' },
+  { id: 'city', icon: '🏙️' },
+  { id: 'skies', icon: '🌩️' },
+  { id: 'beyond', icon: '🌌' },
+]
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -814,6 +928,51 @@ export const SOAP_DPS = 6
 export const OBSTACLE_FIELD_RADIUS = 900       // px, obstacles scatter within this radius of the origin
 export const OBSTACLE_MIN_GAP = 40             // px, min gap between two obstacles' edges (beyond their radii)
 export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts per obstacle before giving up
+
+// ---- Garden chapter behavior flags (v5.3, see sim.js) --------------------------------------
+// pheromones signature (garden): a dying 'trailFollow' ant drops a fading node into run.trails;
+// a living 'trailFollow' ant within PHEROMONE_FOLLOW_RADIUS of ANY node gets a seek-speed bonus
+// (design: "others follow & accelerate on" the trail). All of this is gated on the run's chapter
+// having a signature of type 'pheromones' (config CHAPTERS[id].signature) so future chapters' ants
+// can differ. run.trails entries: { x, y, t } (t = seconds of life left; stepped like run.pools).
+export const PHEROMONE_LIFE = 4            // s, a dropped trail node's lifetime
+export const PHEROMONE_FOLLOW_RADIUS = 130 // px, node proximity that grants an ant the speed bonus
+export const PHEROMONE_SPEED_MUL = 1.35    // seek-speed multiplier while following a trail
+
+// diveBomb (garden's wasps): a hover -> telegraph -> straight accelerating dive -> recover cycle
+// (state on e._diveState/_diveT/_diveDirX/_diveDirY/_diveElapsed). Every speed below is a
+// multiplier of the enemy's OWN speed; the dive ramps from _START to _END (accelerating line).
+export const DIVE_STANDOFF = 220        // px, hover distance held from the target
+export const DIVE_HOVER_T = 1.4         // s, hover phase before a dive
+export const DIVE_TELEGRAPH_T = 0.5     // s, telegraphed pause (dive aim locks at its start)
+export const DIVE_T = 0.55              // s, dive phase (straight, accelerating, overshoots)
+export const DIVE_RECOVER_T = 1.0       // s, recover drift before hovering again
+export const DIVE_HOVER_SPEED_MUL = 0.9 // repositioning speed while hovering toward standoff
+export const DIVE_SPEED_START = 2.0     // dive speed multiplier at dive start
+export const DIVE_SPEED_END = 5.0       // ...ramped to this by dive end (dive distance > standoff -> overshoots)
+export const DIVE_RECOVER_SPEED_MUL = 0.3
+export const DIVE_HOVER_DEADZONE = 8    // px band around standoff where the wasp holds still (no jitter)
+
+// webZone (garden's spiders): drop slow-zone web patches into run.webs while alive (NOT elite-gated,
+// unlike soapTrail). Webs slow the PLAYER only (stepPlayerMovement) — they stack with the latch
+// debuff via a MIN of the two multipliers (the stronger slow wins, they don't multiply together).
+// run.webs entries: { x, y, r, t } (t = seconds of life left; stepped like run.pools, but no damage).
+export const WEB_INTERVAL = 1.6  // s between dropped web patches
+export const WEB_R = 72          // px, web patch radius
+export const WEB_DUR = 4         // s, web patch lifetime
+export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing in a web
+
+// sprayStrip (garden's pesticide-drone elites): periodically mark a telegraphed rectangular strip
+// centered on the player (run.strips), reusing the volatile-bomb telegraph idea. After `fuse`
+// telegraph seconds the strip goes live and ticks dot-flagged damage to the PLAYER standing inside
+// it (like run.pools) for SPRAY_ACTIVE seconds. run.strips entries:
+// { x, y, angle, len, w, fuse, t, dps } (fuse counts down first, then t counts down while live).
+export const SPRAY_INTERVAL = 3.5  // s between marked strips
+export const SPRAY_FUSE = 0.9      // s telegraph before a strip goes live (no damage yet)
+export const SPRAY_LEN = 340       // px, strip length
+export const SPRAY_W = 92          // px, strip width
+export const SPRAY_ACTIVE = 1.2    // s the live strip keeps ticking after its fuse
+export const SPRAY_DPS = 10        // damage/second to a player standing in a live strip
 
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
 export const CONSUMABLES = {

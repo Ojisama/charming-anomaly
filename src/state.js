@@ -174,6 +174,13 @@ function generateObstacles(cfg) {
  *               never re-split), 'dashBurst' (stepEnemyMovement: cycles idle <-> dash speed
  *               multipliers via sim-internal `_dashPhase`/`_dashT`, not a render contract),
  *               'acidPool'/'soapTrail' (elite-only: feed run.pools — see below).
+ *               v5.3 garden flags: 'trailFollow' (dealDamage: a dying ant drops a run.trails node
+ *               under the 'pheromones' signature; stepEnemyMovement: living ants near a node get a
+ *               PHEROMONE_SPEED_MUL boost), 'diveBomb' (stepDiveBomb: a hover -> telegraph -> dive
+ *               -> recover state machine on sim-internal `_diveState`/`_diveT`/`_diveDirX`/
+ *               `_diveDirY`/`_diveElapsed`, replacing the normal seek — not a render contract),
+ *               'webZone' (stepEnemyMovement: drops run.webs slow-zones via `_webAcc`, NOT
+ *               elite-gated), 'sprayStrip' (elite-only: marks run.strips via `_sprayAcc`).
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
@@ -275,6 +282,16 @@ function generateObstacles(cfg) {
  *                                           draws the sweep). Per-enemy {type:'hit'} events fire
  *                                           alongside it as usual. cyclone opens arc to 2π.
  *
+ * v5.3 garden weapons (see WEAPONS.stinger/lure + WEAPON_MODS in config.js, stepStingerWeapon/
+ * stepLureWeapon/stepLures in sim.js):
+ *   Stinger needles are ordinary run.bullets entries (see bullets[] above) but tagged
+ *   weapon:'stinger' and _venomTips (snapshot of the venomTips mod — stepBullets injects 1 venom
+ *   stack per hit when set), with star's split/chain/ricochet budgets zeroed so those never apply.
+ *   {type:'shoot', weapon:'stinger'}  a stinger volley fired.
+ *   {type:'lure', x, y}               a Pheromone Lure decoy was planted (x,y = player, for sfx;
+ *                                     the decoys live in run.lures above). A lure's burst emits an
+ *                                     {type:'explode', x, y, radius} at the decoy (see stepLures).
+ *
  * Shock arc visual (see applyShock in sim.js): every lightning shock arc emits exactly one of
  * the three events below — frostarc/conduct when their combo triggers on that shock, otherwise
  * the plain {type:'shockarc', points:[[x,y],…]} (polyline: source enemy, then each arc target)
@@ -331,6 +348,27 @@ function generateObstacles(cfg) {
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
+ *
+ * v5.3 garden chapter behavior (see CHAPTERS.garden in config.js and sim.js's stepEnemyMovement/
+ * stepDiveBomb/dealDamage/stepTrails/stepWebs/stepStrips/stepPlayerMovement):
+ * trails[i]: { x, y, t } — fading pheromone nodes dropped by a dying 'trailFollow' ant (dealDamage,
+ *   gated on the chapter's signature.type === 'pheromones'). Living trailFollow ants within
+ *   PHEROMONE_FOLLOW_RADIUS of any node get a PHEROMONE_SPEED_MUL seek-speed bonus. t counts down;
+ *   removed once t <= 0 (stepTrails). No damage, no player interaction.
+ * webs[i]: { x, y, r, t } — slow-zone patches dropped periodically by 'webZone' spiders
+ *   (stepEnemyMovement, NOT elite-gated) and by the lure's stickyScent mod on burst. While the
+ *   player stands in any web, stepPlayerMovement multiplies move speed by WEB_SLOW_MUL (stacking
+ *   with the latch debuff via MIN, not multiply). t counts down; removed once t <= 0 (stepWebs).
+ * strips[i]: { x, y, angle, len, w, fuse, t, dps } — telegraphed rectangular pesticide spray
+ *   strips marked on the player by 'sprayStrip' elites (stepEnemyMovement). fuse (telegraph)
+ *   counts down first with NO damage; once fuse <= 0 the strip is live and t counts down while it
+ *   ticks dot-flagged {type:'hurt', dmg, dot:true} damage every STATUS_TICK to the player inside
+ *   the rotated rectangle (stepStrips), same DoT contract as run.pools. Removed once fuse<=0 && t<=0.
+ * lures[i]: { x, y, t, dur, aggro, burstR, burstDmg, sticky } — Pheromone Lure decoys (garden
+ *   weapon). Enemies within `aggro` of a lure path to it instead of the player (stepEnemyMovement).
+ *   t ages to dur, then the lure BURSTS: player-scaled AoE damage (applyDamage) to enemies within
+ *   burstR + an {type:'explode', x, y, radius} event, and (sticky, from the stickyScent mod) a
+ *   LURE_STICKY_R/DUR slow zone into run.webs (stepLures). Removed on burst. See WEAPONS.lure.
  *
  * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
  *   rarity: key of RARITIES (weapons: inherent; passives/mods/elements: rolled). icon: from config.
@@ -446,6 +484,13 @@ export function createRun(meta, opts = {}) {
     // obstacles rejection-sampled once here from this chapter's config (null/absent -> []).
     pools: [],
     obstacles: generateObstacles(CHAPTERS[chapter].obstacles),
+    // v5.3 garden behavior (see doc block above): trails fed by dying trailFollow ants (pheromone
+    // signature), webs by webZone spiders + the lure's stickyScent mod, strips by sprayStrip elites,
+    // lures by the Pheromone Lure weapon. All empty unless something pushes to them.
+    trails: [],
+    webs: [],
+    strips: [],
+    lures: [],
     kills: 0,
     coinsEarned: 0,
     levelUpChoices: null,

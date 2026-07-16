@@ -745,6 +745,18 @@ body {
 }
 .hero-icon { position: relative; font-size: 3.4rem; line-height: 1; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22)); }
 .hero-card--locked .hero-icon { opacity: 0.85; }
+/* teaser card (v5.3): dimmer + flatter than the locked card; its icon is a dim greyscale
+   silhouette so the future chapter stays anonymous ("coming soon…"). Never selectable. */
+.hero-card--teaser {
+  background: linear-gradient(160deg, #4c4c58, #2f2f39 60%, #212129);
+  filter: grayscale(0.7);
+  opacity: 0.82;
+}
+.hero-icon--silhouette {
+  filter: grayscale(1) brightness(0.35) contrast(0.6) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  opacity: 0.5;
+}
+.hero-card--teaser .hero-tagline { opacity: 0.6; font-style: italic; letter-spacing: 0.02em; }
 .hero-name { font-size: 1.6rem; font-weight: 900; letter-spacing: -0.01em; text-align: center; }
 .hero-tagline { font-size: 0.82rem; font-weight: 700; opacity: 0.9; text-align: center; }
 /* ★ progress row — filled = levels BEATEN (maxDifficulty-1); the 5th pulses hollow at MAX */

@@ -16,6 +16,8 @@ import {
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
+  DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
+  SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS, STINGER_HIVE_EVERY,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -1735,7 +1737,8 @@ function testChapters() {
 
   // (c) nextChapter walks CHAPTER_ORDER, null past the end.
   assert.strictEqual(nextChapter('body'), 'pond', "nextChapter('body') === 'pond'")
-  assert.strictEqual(nextChapter('pond'), null, "nextChapter('pond') === null")
+  assert.strictEqual(nextChapter('pond'), 'garden', "nextChapter('pond') === 'garden'")
+  assert.strictEqual(nextChapter('garden'), null, "nextChapter('garden') === null (last shipped chapter)")
 
   // (d) dailyChapter is deterministic per date key, and both shipped chapters are reachable
   // over a spread of dates (date-seeded across CHAPTER_ORDER).
@@ -1795,9 +1798,9 @@ function testChapterRuns() {
     assert.strictEqual(run.weapons[0].level, 2, 'expected charged core to bump the chapter starter to level 2')
   }
 
-  // (c) A pond run's level-up pool never offers body/vaulted-chapter weapons (star, boomerang,
-  // hole, rainbow) as 'weapon' cards — only CHAPTERS.pond.weapons can appear. Sampled generously
-  // (500 pools x up to 4 cards) to catch any leak.
+  // (c) A pond run's level-up pool never offers other-chapter/vaulted weapons (star=body,
+  // boomerang=garden, hole/rainbow still vaulted) as 'weapon' cards — only CHAPTERS.pond.weapons
+  // can appear. Sampled generously (500 pools x up to 4 cards) to catch any leak.
   {
     const pond = createRun(makeMeta(), { chapter: 'pond' })
     pond.choiceSlots = 4 // more cards per pool -> more chances to catch a leak
@@ -2335,6 +2338,268 @@ function testPondWeapons() {
   }
 }
 
+// ---- Run X: garden roster flags + Stinger/Pheromone Lure weapons (v5.3) ------------------
+function testGarden() {
+  const dt = 1 / 60
+
+  // (a) trailFollow: a garden ant standing near a live pheromone node moves faster (accelerates on
+  // the trail) than the same ant with no node nearby — gated on the chapter's pheromones signature.
+  {
+    function antDist(withTrail) {
+      const run = createRun(makeMeta(), { chapter: 'garden' })
+      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run.player.x = 2000; run.player.y = 0 // far away: a fixed +x seek direction, never contacts
+      const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
+      e.flags = ['trailFollow']
+      run.enemies.push(e)
+      if (withTrail) run.trails.push({ x: 0, y: 0, t: 10 }) // node right on the ant (stays in range)
+      const x0 = e.x
+      for (let i = 0; i < Math.round(0.3 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+      return run.enemies.find((en) => en.id === e.id).x - x0
+    }
+    const withT = antDist(true)
+    const without = antDist(false)
+    assert(withT > without * 1.2, `expected an ant on a pheromone trail to accelerate (withTrail=${withT.toFixed(1)}, without=${without.toFixed(1)})`)
+    console.log(`PASS run X.a (trailFollow): withTrail=${withT.toFixed(1)}px without=${without.toFixed(1)}px`)
+  }
+
+  // (b) diveBomb: a wasp's displacement during its dive window far exceeds its hover window.
+  {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.player.x = 3000; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    const e = makeStatusEnemy(run, { x: 3000 - DIVE_STANDOFF, y: 0, hp: 1e6, speed: 120 }) // starts at standoff
+    e.flags = ['diveBomb']
+    run.enemies.push(e)
+
+    const hoverStart = { x: e.x, y: e.y }
+    for (let i = 0; i < Math.round(DIVE_HOVER_T / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const afterHover = run.enemies.find((en) => en.id === e.id)
+    const hoverDist = Math.hypot(afterHover.x - hoverStart.x, afterHover.y - hoverStart.y)
+
+    // advance through the telegraph pause into the dive
+    for (let i = 0; i < Math.round((DIVE_TELEGRAPH_T + 0.02) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const diveStart = { x: afterHover.x, y: afterHover.y }
+    for (let i = 0; i < Math.round(DIVE_T / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const afterDive = run.enemies.find((en) => en.id === e.id)
+    const diveDist = Math.hypot(afterDive.x - diveStart.x, afterDive.y - diveStart.y)
+
+    assert(hoverDist < 10, `expected a wasp at standoff to hover nearly in place, moved ${hoverDist.toFixed(1)}px`)
+    assert(diveDist > hoverDist * 3 && diveDist > 80, `expected the dive window to displace far more than hover (hover=${hoverDist.toFixed(1)}, dive=${diveDist.toFixed(1)})`)
+    console.log(`PASS run X.b (diveBomb): hoverDist=${hoverDist.toFixed(1)}px diveDist=${diveDist.toFixed(1)}px`)
+  }
+
+  // (c) webZone: a player standing in a web moves slower; the web slow STACKS with the latch debuff
+  // via a MIN (the stronger of the two multipliers wins — LATCH_SLOW_MUL < WEB_SLOW_MUL, so both == latch).
+  {
+    function moveDist(setup) {
+      const run = createRun(makeMeta(), { chapter: 'garden' })
+      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run.player.x = 0; run.player.y = 0
+      setup(run)
+      stepSim(run, { x: 1, y: 0 }, dt)
+      return Math.hypot(run.player.x, run.player.y)
+    }
+    const plain = moveDist(() => {})
+    const web = moveDist((r) => r.webs.push({ x: 0, y: 0, r: 72, t: 10 }))
+    const latch = moveDist((r) => { r.player.slowT = LATCH_SLOW_T })
+    const both = moveDist((r) => { r.webs.push({ x: 0, y: 0, r: 72, t: 10 }); r.player.slowT = LATCH_SLOW_T })
+    assert(web < plain, `expected a web to slow the player (web=${web.toFixed(2)}, plain=${plain.toFixed(2)})`)
+    assert(both <= web + 1e-9, `expected latch+web to be no faster than web alone (min-mul stack): both=${both.toFixed(3)}, web=${web.toFixed(3)}`)
+    assert(Math.abs(both - latch) < 1e-6, `expected latch+web == latch alone (the stronger slow wins): both=${both.toFixed(3)}, latch=${latch.toFixed(3)}`)
+    console.log(`PASS run X.c (webZone): plain=${plain.toFixed(2)} web=${web.toFixed(2)} latch=${latch.toFixed(2)} both=${both.toFixed(2)}`)
+  }
+
+  // (d) sprayStrip: a marked strip deals NO damage during its fuse (telegraph), then dot-flagged
+  // damage to the player standing inside it once the fuse elapses.
+  {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.strips.push({ x: 0, y: 0, angle: 0, len: SPRAY_LEN, w: SPRAY_W, fuse: SPRAY_FUSE, t: SPRAY_ACTIVE, dps: SPRAY_DPS })
+
+    let hurtDuringFuse = false
+    for (let i = 0; i < Math.round((SPRAY_FUSE - 0.05) / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'hurt')) hurtDuringFuse = true
+    }
+    assert(!hurtDuringFuse, 'expected no damage during the spray strip telegraph (fuse)')
+    const hpAfterFuse = run.player.hp
+
+    let dotHurt = false
+    for (let i = 0; i < Math.round((SPRAY_FUSE + 0.6) / dt) && !dotHurt; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'hurt' && e.dot)) dotHurt = true
+    }
+    assert(dotHurt, 'expected the live spray strip to deal dot-flagged damage after the fuse')
+    assert(run.player.hp < hpAfterFuse, `expected the live strip to damage the standing player (before=${hpAfterFuse}, after=${run.player.hp})`)
+    console.log('PASS run X.d (sprayStrip): no damage during fuse, dot damage after')
+  }
+
+  // (e) Pheromone Lure: an enemy inside a lure's aggro radius paths toward the DECOY (away from the
+  // player), and the lure's burst damages a nearby enemy + emits an explode event (+ stickyScent web).
+  {
+    function enemyDx(withLure) {
+      const run = createRun(makeMeta(), { chapter: 'garden' })
+      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run.player.x = 500; run.player.y = 0 // player to the +x; the lure sits to the -x
+      const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
+      run.enemies.push(e)
+      if (withLure) run.lures.push({ x: -150, y: 0, t: 0, dur: 10, aggro: 250, burstR: 100, burstDmg: 10, sticky: false })
+      const x0 = e.x
+      for (let i = 0; i < Math.round(0.3 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+      return run.enemies.find((en) => en.id === e.id).x - x0
+    }
+    const lured = enemyDx(true)
+    const normal = enemyDx(false)
+    assert(normal > 0, `expected an un-lured enemy to move toward the player (+x), got dx=${normal.toFixed(1)}`)
+    assert(lured < 0, `expected a lured enemy to move toward the decoy (-x), got dx=${lured.toFixed(1)}`)
+
+    // burst: a decoy expiring damages a nearby enemy and emits an explode; stickyScent leaves a web.
+    const burst = createRun(makeMeta(), { chapter: 'garden' })
+    burst.weapons = []; burst.obstacles = []; burst.mods.spawnMul = 0
+    burst.player.x = 3000; burst.player.y = 0; burst.player.hp = 1e9; burst.player.maxHP = 1e9
+    const victim = makeStatusEnemy(burst, { x: 0, y: 0, hp: 500, speed: 0 })
+    burst.enemies.push(victim)
+    burst.lures.push({ x: 0, y: 0, t: 0, dur: 0.25, aggro: 10, burstR: 100, burstDmg: 200, sticky: true })
+    const hp0 = victim.hp
+    let exploded = false
+    for (let i = 0; i < Math.round(0.6 / dt); i++) {
+      stepSim(burst, { x: 0, y: 0 }, dt)
+      if (burst.events.some((ev) => ev.type === 'explode')) exploded = true
+    }
+    assert(exploded, 'expected a lure burst to emit an explode event')
+    assert(victim.hp < hp0, `expected the lure burst to damage the nearby enemy (before=${hp0}, after=${victim.hp})`)
+    assert(burst.webs.length > 0, 'expected stickyScent to leave a web slow zone on burst')
+    console.log(`PASS run X.e (lure): luredDx=${lured.toFixed(1)} normalDx=${normal.toFixed(1)}, burst damages + sticky web`)
+  }
+
+  // (f) Stinger: a volley fires `count` needles in a tight cone (each pierce 1, tagged 'stinger');
+  // the hive mod makes every 4th volley fire in all directions (reaching a foe outside the cone).
+  {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = [{ id: 'stinger', level: MAX_WEAPON_LEVEL }]
+    run.obstacles = []; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.enemies.push(makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 }))
+    const lvl = WEAPONS.stinger.levels[MAX_WEAPON_LEVEL - 1]
+    let volley = []
+    for (let i = 0; i < Math.round(2 / dt) && volley.length === 0; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.bullets.length > 0) volley = run.bullets.slice()
+    }
+    assert.strictEqual(volley.length, lvl.count, `expected a volley of ${lvl.count} needles, got ${volley.length}`)
+    for (const b of volley) {
+      const ang = Math.atan2(b.vy, b.vx)
+      assert(Math.abs(ang) <= lvl.spread + 1e-6, `expected each needle within the ±${lvl.spread} cone, got angle ${ang.toFixed(3)}`)
+      assert.strictEqual(b.pierce, 1, 'expected needle base pierce 1')
+      assert.strictEqual(b.weapon, 'stinger', 'expected the needle tagged weapon:stinger')
+    }
+    console.log(`PASS run X.f1 (stinger cone): ${volley.length} needles within ±${lvl.spread}rad, pierce 1`)
+
+    // hive: an enemy well outside the cone (pinned there by a nearer anchor) is only reached by the
+    // every-4th-volley all-directions burst.
+    function behindHp(hive) {
+      const r = createRun(makeMeta(), { chapter: 'garden' })
+      r.weapons = [{ id: 'stinger', level: MAX_WEAPON_LEVEL }]
+      r.obstacles = []; r.mods.spawnMul = 0
+      r.player.x = 0; r.player.y = 0; r.player.hp = 1e9; r.player.maxHP = 1e9
+      if (hive) r.weaponMods.stinger.hive = 1
+      r.enemies.push(makeStatusEnemy(r, { x: 80, y: 0, hp: 1e9, speed: 0 })) // anchor: nearest, pins aim +x
+      const behind = makeStatusEnemy(r, { x: -140, y: 0, hp: 1e6, speed: 0 })
+      behind.radius = 100 // big enough that an all-directions needle passing left reaches it
+      r.enemies.push(behind)
+      for (let i = 0; i < Math.round((STINGER_HIVE_EVERY + 2) * 0.7 / dt); i++) stepSim(r, { x: 0, y: 0 }, dt)
+      return r.enemies.find((e) => e.id === behind.id).hp
+    }
+    const withHive = behindHp(true)
+    const without = behindHp(false)
+    assert(without === 1e6, `expected no hive to never reach the behind enemy (hp ${without})`)
+    assert(withHive < 1e6, `expected hive's all-directions volley to reach the behind enemy (hp ${withHive})`)
+    console.log(`PASS run X.f2 (hive): behind hp with=${withHive.toFixed(0)} without=${without.toFixed(0)}`)
+  }
+
+  // (g) A garden run's level-up pool offers ONLY its natives (boomerang/stinger/lure) as weapon
+  // AND mod cards — the flip side of run U.c / run W.f, extended to the garden pool.
+  {
+    const allowed = new Set(CHAPTERS.garden.weapons)
+    const garden = createRun(makeMeta(), { chapter: 'garden' })
+    garden.choiceSlots = 4
+    let sawWeapon = false
+    for (let i = 0; i < 500; i++) {
+      for (const c of buildLevelUpChoices(garden)) {
+        if (c.kind !== 'weapon') continue
+        sawWeapon = true
+        assert(allowed.has(c.id), `expected a garden run to only offer its natives, got weapon '${c.id}'`)
+      }
+    }
+    assert(sawWeapon, 'expected at least one weapon card over 500 garden pools')
+
+    const g2 = createRun(makeMeta(), { chapter: 'garden' })
+    g2.weapons = [{ id: 'boomerang', level: 3 }, { id: 'stinger', level: 3 }, { id: 'lure', level: 3 }]
+    g2.choiceSlots = 4
+    let sawMod = false
+    for (let i = 0; i < 500; i++) {
+      for (const c of buildLevelUpChoices(g2)) {
+        if (c.kind !== 'mod') continue
+        assert(allowed.has(c.weapon), `expected only garden weapon mods, got a '${c.weapon}' mod`)
+        sawMod = true
+      }
+    }
+    assert(sawMod, 'expected garden weapon mods to appear over 500 pools')
+    console.log('PASS run X.g (garden pool offers only boomerang/stinger/lure weapons + mods)')
+  }
+
+  // (h) garden sits after pond in the arc and the Daily can land on it (a preview day).
+  {
+    assert(CHAPTER_ORDER.includes('garden'), 'expected garden in CHAPTER_ORDER')
+    assert.strictEqual(nextChapter('pond'), 'garden', "expected nextChapter('pond') === 'garden'")
+    let dailyHitGarden = false
+    for (let d = 1; d <= 60 && !dailyHitGarden; d++) {
+      if (dailyChapter(`2026-09-${String(((d - 1) % 30) + 1).padStart(2, '0')}`) === 'garden') dailyHitGarden = true
+    }
+    assert(dailyHitGarden, 'expected the Daily Anomaly to land on garden over a spread of dates')
+    console.log('PASS run X.h (garden in arc + daily reachable)')
+  }
+
+  // Balance band (run W style): a fully-leveled Stinger + 2 mods clears a realistic converging ring
+  // no slower than 3.5x the garden-median kill-time of the other natives (Leaf Blade, Pheromone Lure).
+  {
+    function measureTTK(weaponId, applyMods) {
+      const run = createRun(makeMeta()) // body chapter: no garden obstacles/pheromones skewing the clear
+      run.weapons = [{ id: weaponId, level: MAX_WEAPON_LEVEL }]
+      run.mods.spawnMul = 0
+      run.player.hp = 1e9; run.player.maxHP = 1e9
+      if (applyMods) applyMods(run)
+      const N = 14, radius = 150, hp = 50
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2
+        run.enemies.push(makeStatusEnemy(run, { x: Math.cos(a) * radius, y: Math.sin(a) * radius, hp, speed: 45 }))
+      }
+      let t = 0
+      const cap = 60
+      for (let i = 0; i < Math.round(cap / dt); i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        t += dt
+        run.player.x = 0; run.player.y = 0 // pin: enemies converge on the origin
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.enemies.length === 0) return t
+      }
+      return cap
+    }
+    const leafTTK = measureTTK('boomerang', (r) => { r.weaponMods.boomerang.heavyBlade = 0.20; r.weaponMods.boomerang.longThrow = 0.20 })
+    const stingerTTK = measureTTK('stinger', (r) => { r.weaponMods.stinger.sharper = 0.25; r.weaponMods.stinger.volley = 2 })
+    const lureTTK = measureTTK('lure', (r) => { r.weaponMods.lure.bigBurst = 0.30; r.weaponMods.lure.widerTaunt = 0.30 })
+    const others = [leafTTK, lureTTK].sort((a, b) => a - b)
+    const median = others[Math.floor(others.length / 2)]
+    assert(stingerTTK < 60, `expected stinger to clear the ring within the cap, got ${stingerTTK.toFixed(1)}s`)
+    assert(stingerTTK <= median * 3.5, `expected stinger kill-time within 3.5x the garden-median (stinger=${stingerTTK.toFixed(1)}s, median=${median.toFixed(1)}s, ratio=${(stingerTTK / median).toFixed(2)})`)
+    console.log(`PASS run X (balance band): leafTTK=${leafTTK.toFixed(1)}s stingerTTK=${stingerTTK.toFixed(1)}s lureTTK=${lureTTK.toFixed(1)}s ratio=${(stingerTTK / median).toFixed(2)}x`)
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -2360,6 +2625,7 @@ try {
   testChapterRuns()
   testChapterBehaviors()
   testPondWeapons()
+  testGarden()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
