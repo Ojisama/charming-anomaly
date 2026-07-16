@@ -468,6 +468,9 @@ export function initUI(hooks) {
           <span class="shop-card-cost">${maxed ? 'MAX' : `🪙 ${buyCost}`}</span>
         </button>`
     }).join('')
+    // Full re-render resets scroll positions — carry the sacrifice list's scroll across so
+    // offering a stat at the bottom doesn't fling the player back to the top of the list.
+    const prevScroll = screens.shop.querySelector('.sacrifice-sheet-body')?.scrollTop ?? 0
     screens.shop.innerHTML = `
       <header class="shop-head">
         <button class="btn btn--soft btn--small" data-act="back">← Back</button>
@@ -479,6 +482,8 @@ export function initUI(hooks) {
       ${sacrificeModalHtml(cost)}
       ${resetModalHtml()}
     `
+    const body = screens.shop.querySelector('.sacrifice-sheet-body')
+    if (body && prevScroll) body.scrollTop = prevScroll
   }
 
   // ---- hud (built once; updateHUD mutates in place) ---------------------
