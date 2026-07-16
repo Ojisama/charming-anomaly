@@ -11,6 +11,7 @@ import {
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
+  MAX_DIFFICULTY,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from '../src/sim.js'
 
@@ -1645,6 +1646,48 @@ function testChoiceSlots() {
   console.log(`PASS run R (permanent choice slots + rarity retune): slots 2/3/4 -> that many cards, sacrifice costs 20/40, epic+ per card=${(rate * 100).toFixed(1)}%`)
 }
 
+// ---- Run S: sequential difficulty unlock (v4.10) -----------------------------------------
+// The unlock-on-victory bump itself lives in main.js's endRun (untestable glue, no DOM/main.js
+// import here) — this only covers loadMeta's grandfathering/clamping of meta.maxDifficulty.
+function testDifficultyUnlock() {
+  // (a) Fresh meta (no localStorage in this Node harness) starts locked to level 1.
+  const fresh = loadMeta()
+  assert.strictEqual(fresh.maxDifficulty, 1, 'fresh meta starts at maxDifficulty 1')
+  assert.strictEqual(fresh.difficulty, 1, 'fresh meta starts at difficulty 1')
+
+  // (b) A pre-v4.10 save (difficulty set, no maxDifficulty field) is grandfathered: whatever
+  // difficulty was already selected stays reachable, and stays selected.
+  const stub = {}
+  globalThis.localStorage = {
+    getItem: () => JSON.stringify(stub),
+    setItem: () => {},
+  }
+  stub.shop = Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0]))
+  stub.coins = 0
+  stub.difficulty = 4
+  const grandfathered = loadMeta()
+  assert.strictEqual(grandfathered.maxDifficulty, 4, 'a stored difficulty=4 with no maxDifficulty grandfathers maxDifficulty to 4')
+  assert.strictEqual(grandfathered.difficulty, 4, 'grandfathered difficulty stays 4')
+
+  // (c) A save with difficulty ahead of its own maxDifficulty (stale/edited save) gets
+  // difficulty clamped down to maxDifficulty.
+  stub.difficulty = 5
+  stub.maxDifficulty = 2
+  const clamped = loadMeta()
+  assert.strictEqual(clamped.maxDifficulty, 2, 'stored maxDifficulty=2 is kept as-is')
+  assert.strictEqual(clamped.difficulty, 2, 'difficulty=5 > maxDifficulty=2 clamps down to 2')
+
+  // (d) Garbage maxDifficulty values clamp into [1, MAX_DIFFICULTY].
+  stub.difficulty = 1
+  stub.maxDifficulty = 0
+  assert.strictEqual(loadMeta().maxDifficulty, 1, 'maxDifficulty=0 clamps up to 1')
+  stub.maxDifficulty = 99
+  assert.strictEqual(loadMeta().maxDifficulty, MAX_DIFFICULTY, `maxDifficulty=99 clamps down to ${MAX_DIFFICULTY}`)
+  delete globalThis.localStorage
+
+  console.log('PASS run S (sequential difficulty unlock): fresh=1, grandfathered=4, stale-difficulty clamps to maxDifficulty, garbage maxDifficulty clamps to [1,5]')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -1665,6 +1708,7 @@ try {
   testStarBalance()
   testGoldSinks()
   testChoiceSlots()
+  testDifficultyUnlock()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

@@ -38,6 +38,8 @@ function formatShopBonus(id, levels) {
  *                       onPauseToggle, onQuit, onDifficulty(d), onReroll(), onSacrifice(picks)->bool,
  *                       onReset() })
  *     - onDifficulty(d): title-screen difficulty pips (1..MAX_DIFFICULTY); persists meta.difficulty.
+ *       Pips above meta.maxDifficulty render locked (🔒, disabled) and never fire this at all —
+ *       level d+1 only unlocks by winning a classic run at level d (see endRun in main.js).
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the title shelf's session-local selection, an array of
  *       CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
@@ -59,7 +61,9 @@ function formatShopBonus(id, levels) {
  *     - 'levelup' data: { choices, rerollCost, coins } — choices is run.levelUpChoices
  *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
  *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
- *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode }
+ *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
+ *       unlockedDifficulty? }   unlockedDifficulty is the newly-unlocked level number when this
+ *       win just raised meta.maxDifficulty (see endRun in main.js), else null.
  *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
  */
 export function initUI(hooks) {
@@ -113,12 +117,15 @@ export function initUI(hooks) {
         <span class="diff-label">Difficulty</span>
         ${Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
           const d = i + 1
+          const locked = d > (meta.maxDifficulty ?? 1)
+          if (locked) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
           return `<button class="diff-pip${d <= (meta.difficulty ?? 1) ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}
       </div>
       <p class="diff-hint">${(meta.difficulty ?? 1) === 1
         ? 'the base game'
         : `+${meta.difficulty - 1} random anomal${meta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((meta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((meta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
+      ${(meta.maxDifficulty ?? 1) < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${meta.maxDifficulty} to unlock ${meta.maxDifficulty + 1}</p>` : ''}
       ${consumablesShelfHtml()}
       <button class="btn btn--daily" data-act="daily">🌀&nbsp; Daily Anomaly</button>
       <p class="daily-preview">${dailyPreview}</p>
@@ -526,6 +533,7 @@ export function initUI(hooks) {
           <div class="stat-row"><span>Level reached</span><b>${d.level}</b></div>
         </div>
         ${mutatorBlock}
+        ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 Difficulty ${d.unlockedDifficulty} unlocked!</div>` : ''}
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} finish bonus</span>` : ''}
         </div>
@@ -583,7 +591,13 @@ export function initUI(hooks) {
       }
       case 'daily': playSfx('click'); showScreen('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
-      case 'diff': hooks.onDifficulty(Number(el.dataset.diff)); renderTitle(); break
+      case 'diff': {
+        const d = Number(el.dataset.diff)
+        if (d > (meta.maxDifficulty ?? 1)) break // belt-and-braces: locked pips are disabled already
+        hooks.onDifficulty(d)
+        renderTitle()
+        break
+      }
       case 'shop': playSfx('click'); showScreen('shop'); break
       case 'back':
         sacrificeOpen = false

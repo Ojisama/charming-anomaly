@@ -548,6 +548,17 @@ body {
 .summary-mutators-head { font-size: 0.78rem; font-weight: 800; color: #5d3fa0; margin-bottom: 4px; }
 .summary-mutator-line { font-size: 0.85rem; font-weight: 700; padding: 2px 0; }
 
+/* difficulty-unlock celebration badge on the summary screen (v4.10) — mint, matches diff-hint-reward */
+.summary-unlock {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #dff5e8;
+  border: 2px solid #1e7d4f;
+  color: #1e7d4f;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
 /* ---- floating joystick (visual only, never blocks touches) ---- */
 #ui > .joy { pointer-events: none; }
 .joy {
@@ -678,8 +689,12 @@ body {
 }
 .diff-pip--on { background: #ffd9a8; border-color: #e08b3c; color: #8a4d12; }
 .diff-pip:active { transform: translateY(1px); }
+/* locked difficulty pip (v4.10): not yet unlocked — muted, no press feedback, default cursor */
+.diff-pip--locked { opacity: 0.45; cursor: default; }
+.diff-pip--locked:active { transform: none; }
 .diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }
 .diff-hint-reward { color: #1e7d4f; }
+.diff-hint--locked { margin-top: 0; }
 
 /* sacrifice section (shop screen, v4.8/v4.9): sacrifice owned SHOP levels for a permanent 3rd/4th
    level-up card slot. Danger accent (matches .fx-chip--bad) since it's a one-way, no-refund cost. */

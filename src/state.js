@@ -1,5 +1,5 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
-import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul } from './config.js'
+import { PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, STARTING_WEAPON, xpForLevel, mergeMutatorMods, difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -10,6 +10,11 @@ export function loadMeta() {
       const m = JSON.parse(raw)
       for (const id of Object.keys(SHOP)) m.shop[id] ??= 0
       m.difficulty ??= 1
+      // maxDifficulty (v4.10): grandfather existing saves — whatever difficulty they already had
+      // selected stays reachable — then clamp both to [1, MAX_DIFFICULTY] and difficulty <= maxDifficulty.
+      m.maxDifficulty ??= Math.max(1, Math.min(MAX_DIFFICULTY, m.difficulty ?? 1))
+      m.maxDifficulty = Math.max(1, Math.min(MAX_DIFFICULTY, m.maxDifficulty))
+      m.difficulty = Math.max(1, Math.min(m.maxDifficulty, m.difficulty))
       m.choiceSlots ??= 2
       m.choiceSlots = Math.max(2, Math.min(4, m.choiceSlots))
       return m
@@ -21,6 +26,7 @@ export function loadMeta() {
     best: { time: 0, kills: 0 },
     runs: 0,
     difficulty: 1,
+    maxDifficulty: 1,
     choiceSlots: 2,
   }
 }

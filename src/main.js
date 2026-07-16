@@ -87,7 +87,9 @@ const ui = initUI({
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
   },
   onDifficulty(d) {
-    meta.difficulty = Math.max(1, Math.min(MAX_DIFFICULTY, d))
+    // Belt-and-braces with the UI: never let a locked level (above meta.maxDifficulty) stick,
+    // even if a stray click somehow got through disabled/no-op pips.
+    meta.difficulty = Math.max(1, Math.min(meta.maxDifficulty ?? 1, Math.min(MAX_DIFFICULTY, d)))
     saveMeta(meta)
     playSfx('click')
   },
@@ -161,8 +163,14 @@ function endRun(victory) {
   meta.runs += 1
   meta.best.time = Math.max(meta.best.time, Math.floor(run.time))
   meta.best.kills = Math.max(meta.best.kills, run.kills)
+  // Difficulty unlock (v4.10): winning a classic run at meta's current ceiling unlocks the next
+  // level. Only fires on the level actually at the ceiling (winning a lower, already-unlocked
+  // level doesn't re-unlock anything), and only while there's a level left to unlock.
+  const unlocked = victory && runMode === 'classic' &&
+    (run.difficulty ?? 1) >= (meta.maxDifficulty ?? 1) && (meta.maxDifficulty ?? 1) < MAX_DIFFICULTY
+  if (unlocked) meta.maxDifficulty = Math.min(MAX_DIFFICULTY, (run.difficulty ?? 1) + 1)
   saveMeta(meta)
-  ui.showScreen('summary', { victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus, mutators: run.mutators, mode: runMode })
+  ui.showScreen('summary', { victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus, mutators: run.mutators, mode: runMode, unlockedDifficulty: unlocked ? meta.maxDifficulty : null })
 }
 
 app.ticker.add((ticker) => {
