@@ -132,8 +132,7 @@ export function createRenderer(app) {
     if (white) { fill = 0xffffff; line = 0xffffff }
     const lw = Math.max(2.5, r * 0.16)
 
-    // soft shadow (kept normal on the white variant so bounds match)
-    g.ellipse(0, r * 0.95, r * 0.85, r * 0.3).fill({ color: 0x000000, alpha: 0.12 })
+    groundShadow(r, r * 0.95)
 
     if (type === 'drone') {
       g.beginPath().moveTo(0, -r + 2).lineTo(0, -r - 6).stroke({ width: lw * 0.8, color: line })
@@ -145,11 +144,7 @@ export function createRenderer(app) {
       g.roundRect(-r, -r, r * 2, r * 2, r * 0.42).fill(fill).stroke({ width: lw, color: line })
     }
 
-    if (elite) {
-      const top = type === 'drone' ? -r - 10 : -r - 1
-      g.poly([-r * 0.34, top, -r * 0.17, top - r * 0.42, 0, top - r * 0.14, r * 0.17, top - r * 0.42, r * 0.34, top])
-        .fill(white ? 0xffffff : 0xffd93d).stroke({ width: 1.5, color: white ? 0xffffff : 0xc9a227 })
-    }
+    if (elite) eliteCrown(type === 'drone' ? -r - 10 : -r - 1, r)
 
     if (!white) {
       const ex = r * 0.36
@@ -175,14 +170,24 @@ export function createRenderer(app) {
     }
   }
 
+  // maxLean 0: these are the archetype fallback blobs (daily/title/future chapters). They aren't drawn
+  // nose-at-+x at all — the kawaii face looks straight OUT of the screen, eyes and smile symmetric
+  // about the vertical — so there is nothing to aim. They mirror left/right and that's it.
   function makeEnemyLook(type, elite) {
+    shadowSpec = null
+    crownSpec = null
     const g = new Graphics()
     drawEnemy(g, type, elite, false)
     const normal = bake(g)
+    const shadow = shadowSpec
+    const crown = crownSpec
     const w = new Graphics()
     drawEnemy(w, type, elite, true)
     const white = bake(w)
-    return { tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay, baseR: ENEMIES[type].radius }
+    return {
+      tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay,
+      baseR: ENEMIES[type].radius, maxLean: 0, shadow, crown,
+    }
   }
 
   // ---- Per-chapter creature silhouettes (v5.4) --------------------------------------
@@ -195,22 +200,36 @@ export function createRenderer(app) {
   // Each drawXxx(g, elite, white) draws IDENTICAL OUTLINE geometry in both variants — `white`
   // forces every body fill/stroke to 0xffffff for the hit-flash texture, so bounds (and thus the
   // baked anchor) match and textures swap freely. Interior detail (shading, organelles, eyes,
-  // bands, veins) is normal-only since it never changes bounds. The soft ground-shadow stays
-  // normal-coloured in both variants (same trick as drawEnemy). Elites gain the golden crown
-  // above the silhouette's actual top.
+  // bands, veins) is normal-only since it never changes bounds.
   //
   // Every creature is drawn facing +x (RIGHT): heads/snouts point right and trailing bits (tadpole
-  // tail, wasp stinger) go left. syncEnemies rotates the sprite BY the bearing to the player, so
-  // that +x nose is the contract — a creature drawn facing any other way will aim wrong.
+  // tail, wasp stinger) go left. syncEnemies aims the sprite at the player off that +x nose, so it
+  // is the contract — a creature drawn facing any other way will aim wrong. How FAR each one is
+  // allowed to turn is its own business: see the `lean` column in ROSTER_LOOKS below.
   const ROSTER_BASE_R = { normal: ENEMIES.drone.radius, fast: ENEMIES.wisp.radius, tank: ENEMIES.tank.radius }
 
-  // soft ground shadow (drawn normal-coloured in both variants so bounds match)
-  function groundShadow(g, halfW, cy) {
-    g.ellipse(0, cy, halfW * 0.85, Math.max(4, halfW * 0.3)).fill({ color: 0x000000, alpha: 0.12 })
+  // The ground shadow and the elite crown are NOT baked into the body (v5.6.5). They used to be, and
+  // then the body started rotating: a creature facing north wore its shadow swung out to the side and
+  // its crown lying on its ear. A shadow is cast by an overhead light and a crown is worn by gravity —
+  // both belong to the WORLD, not to the body. So each draw fn now merely DECLARES where its footprint
+  // and its crown sit, and makeRosterLook/makeEnemyLook hand those numbers to syncEnemies, which places
+  // shared textures for them in enemyShadowLayer (under the crowd) and enemyCrownLayer (over it) at
+  // rotation 0. Declaring instead of hardcoding a second table keeps the numbers next to the art that
+  // chose them; drawing nothing keeps the white twin's bounds identical to the normal one's for free.
+  let shadowSpec = null
+  let crownSpec = null
+  // soft ground shadow: an ellipse `halfW` wide, centred `cy` below the drawing origin
+  function groundShadow(halfW, cy) {
+    shadowSpec = { rx: halfW * 0.85, ry: Math.max(4, halfW * 0.3), y: cy }
   }
-  // elite golden crown, centred over the silhouette's top edge (`top` = that y)
-  function eliteCrown(g, top, r, white) {
-    g.poly([-r * 0.34, top, -r * 0.17, top - r * 0.42, 0, top - r * 0.14, r * 0.17, top - r * 0.42, r * 0.34, top])
+  // elite golden crown, centred over the silhouette's top edge (`top` = that y), sized off `r`
+  function eliteCrown(top, r) {
+    crownSpec = { top, r }
+  }
+  // The crown's own geometry, drawn with its base line on y=0 — baked once per distinct `r` by
+  // crownLook() rather than baked once and scaled, so the 1.5px rim stays 1.5px on every creature.
+  function crownPoly(g, r, white) {
+    g.poly([-r * 0.34, 0, -r * 0.17, -r * 0.42, 0, -r * 0.14, r * 0.17, -r * 0.42, r * 0.34, 0])
       .fill(white ? 0xffffff : 0xffd93d).stroke({ width: 1.5, color: white ? 0xffffff : 0xc9a227 })
   }
 
@@ -307,7 +326,7 @@ export function createRenderer(app) {
     const ct = Math.cos(tilt)
     const st = Math.sin(tilt)
     const rot = (x, y) => [x * ct - y * st, x * st + y * ct]
-    groundShadow(g, r, r * 0.85)
+    groundShadow(r, r * 0.85)
     // the fold: a gaussian bite out of the radius around a=2.35rad, plus a gentle 2-lobe wobble
     const fold = (a) => {
       let d = a - 2.35
@@ -344,7 +363,7 @@ export function createRenderer(app) {
       g.ellipse(dx, dy, r * 0.42, r * 0.29).fill({ color: 0x8a2424, alpha: 0.34 })
       g.ellipse(dx, dy, r * 0.24, r * 0.16).fill({ color: 0x6e1a1a, alpha: 0.4 })
     }
-    if (elite) eliteCrown(g, -r * 0.74, r, white)
+    if (elite) eliteCrown(-r * 0.74, r)
   }
   // wbc: amoeboid ivory cell — ONE closed membrane with irregular lobes of varying depth (three
   // beat frequencies, no regular flower). The fill stays pale (it IS a white cell), so ALL of the
@@ -356,7 +375,7 @@ export function createRenderer(app) {
     const r = 26
     const f = (c) => white ? 0xffffff : c
     const line = f(0x4a3f33)
-    groundShadow(g, r, r * 1.0)
+    groundShadow(r, r * 1.0)
     const membrane = (a) => r * (0.82 + 0.085 * Math.cos(a * 3 + 0.6) + 0.06 * Math.cos(a * 5 - 2.1) + 0.045 * Math.sin(a * 8 + 1.2))
     // filopodia: fine tapered spikes, irregular in angle/length, clustered on the leading half.
     // Drawn before the membrane so their roots vanish under the body. Geometry is identical in both
@@ -383,7 +402,7 @@ export function createRenderer(app) {
         g.circle(gx, gy, gr).fill({ color: 0x6b5a8c, alpha: 0.5 })
       }
     }
-    if (elite) eliteCrown(g, -r * 0.92, r, white)
+    if (elite) eliteCrown(-r * 0.92, r)
   }
   // antibody: an immunoglobulin — two Fab arms + one Fc stem, built as ONE union outline (each limb
   // tapers from a wide hinge to a rounded tip, with a concave notch where the three meet). No face:
@@ -401,7 +420,7 @@ export function createRenderer(app) {
       [Math.PI * 1.32, r * 0.98, r * 0.4, r * 0.27],  // Fab, up-left
       [Math.PI * 1.72, r * 0.94, r * 0.38, r * 0.25], // Fab, up-right (a touch shorter)
     ].sort((a, b) => a[0] - b[0])
-    groundShadow(g, r, r * 1.0)
+    groundShadow(r, r * 1.0)
     // hinge mass: a chunk of protein where the three limbs meet. Drawn under the union so its dark
     // ring only shows in the notches between limbs — it fills them out into a grabbing claw rather
     // than a thin letter Y. Same geometry in both variants; well inside the union's bounds.
@@ -437,7 +456,7 @@ export function createRenderer(app) {
           .stroke({ width: 1.4, color: 0x5e360b, alpha: 0.4, cap: 'round' })
       }
     }
-    if (elite) eliteCrown(g, -r * 1.1, r, white)
+    if (elite) eliteCrown(-r * 1.1, r)
   }
 
   // --- Pond chapter (teal water) ---
@@ -457,7 +476,7 @@ export function createRenderer(app) {
   // Translucent ectoplasm + solid endoplasm + a much darker nucleus for internal contrast.
   function drawAmoeba(g, elite, white) {
     const r = 16
-    groundShadow(g, r, r * 1.0)
+    groundShadow(r, r * 1.0)
     // blunt pseudopods: wide gaussians in 4 directions, unequal reach (nothing bilaterally boring)
     const pods = [[0.35, 1.0, 0.85], [1.95, 0.86, 1.0], [3.4, 0.95, 0.78], [5.05, 0.72, 0.92]]
     const membrane = (a) => {
@@ -493,7 +512,7 @@ export function createRenderer(app) {
       g.circle(-r * 0.3, -r * 0.02, r * 0.16).stroke({ width: 1.6, color: 0x3f6a0c, alpha: 0.75 }) // vacuoles
       g.circle(-r * 0.06, -r * 0.34, r * 0.1).stroke({ width: 1.3, color: 0x3f6a0c, alpha: 0.65 })
     }
-    if (elite) eliteCrown(g, -r * 0.95, r, white)
+    if (elite) eliteCrown(-r * 0.95, r)
   }
   // tadpole: head + trunk + tail are ONE tapered path (no seam) — a spine that runs right-to-left
   // with an S-wave and a sin profile that is fat at the head and closes to a point at the tail tip,
@@ -517,7 +536,7 @@ export function createRenderer(app) {
     }
     // caudal fin: a tall translucent membrane wrapping the tail rod, closing at the tip
     const fin = (t) => (t < 0.28 ? 0 : R0 * 0.95 * bulge((t - 0.28) / 0.72, 0.65))
-    groundShadow(g, r * 1.5, r * 0.85)
+    groundShadow(r * 1.5, r * 0.85)
     // fin first (behind the body); solid on the white twin so bounds match its translucent self
     g.poly(spineOutline(spine, fin, 26, 0.28, 1)).fill(white ? 0xffffff : { color: 0x2f2a20, alpha: 0.5 })
     g.poly(spineOutline(spine, body, 30)).fill(f(0x241d16)).stroke({ width: Math.max(2.2, r * 0.16), color: f(0x0b0806) })
@@ -537,7 +556,7 @@ export function createRenderer(app) {
         darkEye(g, r * 0.56, s * r * 0.52, r * 0.14, r * 0.13, 0x000000, true)
       }
     }
-    if (elite) eliteCrown(g, -r * 0.92, r, white)
+    if (elite) eliteCrown(-r * 0.92, r)
   }
   // tardigrade: water bear in a slight 3/4 profile — ONE lumpy tapered outline (4 segment lumps
   // riding a rear-narrowing taper, rounded snout cap on the right), 4 prominent near-side legs with
@@ -558,7 +577,7 @@ export function createRenderer(app) {
       const ripple = 1 + 0.075 * Math.cos((t * 4 - 0.12) * Math.PI * 2)
       return H * cap * ripple * (1 - 0.3 * t)
     }
-    groundShadow(g, r * 1.1, H + r * 0.32)
+    groundShadow(r * 1.1, H + r * 0.32)
     const leg = (x, y, kx, ky, fx, fy, col, w) => {
       taperStroke(g, [[x, y], [kx, ky], [fx, fy]], w, w * 0.42, col)
       const ux = fx - kx
@@ -601,7 +620,7 @@ export function createRenderer(app) {
       darkEye(g, r * 0.6, -r * 0.16, r * 0.085, r * 0.075, 0x1a1206, false)
       g.ellipse(r * 0.71, -r * 0.03, r * 0.055, r * 0.048).fill({ color: 0x1a1206, alpha: 0.5 })
     }
-    if (elite) eliteCrown(g, -H * 1.05, r, white)
+    if (elite) eliteCrown(-H * 1.05, r)
   }
 
   // --- Garden chapter (lawn green) ---
@@ -613,7 +632,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x5e2e18)
     const lw = Math.max(2.2, r * 0.12)
-    groundShadow(g, r, r * 0.72)
+    groundShadow(r, r * 0.72)
     // legs: 3 per side, each 3 straight-ish segments to a fine tarsus; the far side (s=-1) is
     // slightly shorter/tighter so the pose is not mirror-boring.
     const legSets = [
@@ -662,7 +681,7 @@ export function createRenderer(app) {
       g.stroke({ width: 1.2, color: 0x5e2e18, alpha: 0.5 })
       for (const s of [-1, 1]) darkEye(g, r * 0.84, s * r * 0.17, r * 0.13, r * 0.15, 0x2a1409, true)
     }
-    if (elite) eliteCrown(g, -r * 0.52, r, white)
+    if (elite) eliteCrown(-r * 0.52, r)
   }
   // wasp: pinched waist between a dark thorax and a TAPERED abdomen that closes into a fine stinger
   // (left); the 3 yellow/black bands are slices of the abdomen's own outline so they follow the
@@ -671,7 +690,7 @@ export function createRenderer(app) {
     const r = 12
     const f = (c) => white ? 0xffffff : c
     const lw = Math.max(2, r * 0.14)
-    groundShadow(g, r, r * 0.8)
+    groundShadow(r, r * 0.8)
     const aSpine = (t) => [r * 0.18 - t * r * 1.22, t * r * 0.06]
     const aW = (t) => r * 0.62 * bulge(0.1 + 0.9 * t, 0.55)
     // wings first (behind); solid white on the twin so the translucent originals' bounds match
@@ -733,7 +752,7 @@ export function createRenderer(app) {
       g.ellipse(r * 0.58, -r * 0.14, r * 0.2, r * 0.1).fill({ color: 0x6a6a6a, alpha: 0.35 })
       for (const s of [-1, 1]) darkEye(g, r * 0.98, s * r * 0.15, r * 0.09, r * 0.13, 0x0b0b12, true)
     }
-    if (elite) eliteCrown(g, -r * 0.9, r, white)
+    if (elite) eliteCrown(-r * 0.9, r)
   }
   // spider: a large egg-shaped abdomen (left) + a distinctly smaller cephalothorax (right) joined at
   // a pedicel, 8 jointed legs (femur raised out to a knee, then tibia back down to a fine tarsus)
@@ -744,7 +763,7 @@ export function createRenderer(app) {
     const line = f(0x3a2337)
     const lw = Math.max(2.5, r * 0.12)
     const farLine = white ? 0xffffff : mix(0x3a2337, 0x000000, 0.35)
-    groundShadow(g, r, r * 0.95)
+    groundShadow(r, r * 0.95)
     // Abdomen as a TRUE OVOID. A spine + width-profile is the wrong primitive here: a sin^k profile
     // holds ~95% of max across its whole middle, which draws a barrel with flat parallel sides. So
     // parametrise the closed curve directly — x sweeps as cos(u) while the half-width carries an
@@ -830,7 +849,7 @@ export function createRenderer(app) {
         darkEye(g, r * ex, r * ey, r * er, r * er, 0x150d16, er > 0.05)
       }
     }
-    if (elite) eliteCrown(g, -r * 0.72, r, white)
+    if (elite) eliteCrown(-r * 0.72, r)
   }
 
   // --- Undergrowth chapter (dead-leaf loam) ---
@@ -866,7 +885,7 @@ export function createRenderer(app) {
       const shoulder = 0.3 * Math.exp(-Math.pow((t - 0.86) / 0.22, 2))
       return H * cap * (1 + haunch + waist + shoulder)
     }
-    groundShadow(g, r * 1.05, r * 0.92)
+    groundShadow(r * 1.05, r * 0.92)
     const leg = (pts, col, w) => taperStroke(g, pts, w, w * 0.5, col)
     // far side first (behind the body, darker + tucked shorter) — depth without mirror symmetry
     leg([[-r * 0.5, r * 0.1], [-r * 0.3, r * 0.46], [-r * 0.5, r * 0.72], [-r * 0.28, r * 0.84]], far, r * 0.14)
@@ -912,7 +931,7 @@ export function createRenderer(app) {
     g.beginPath()
     for (const s of [-1, 1]) g.moveTo(r * 1.08, -r * 0.14).lineTo(r * 1.42, -r * 0.14 + s * r * 0.16)
     g.stroke({ width: 1, color: white ? 0xffffff : 0xe8e2d4, alpha: white ? 1 : 0.5 })
-    if (elite) eliteCrown(g, -r * 0.95, r, white)
+    if (elite) eliteCrown(-r * 0.95, r)
   }
   // owl: seen from above-behind mid-swoop — body along x (head right), wings spread ±y and swept
   // back, each ONE tapered membrane with a scalloped trailing edge. The primaries are separate
@@ -924,7 +943,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x6b4715)
     const lw = Math.max(1.8, r * 0.13)
-    groundShadow(g, r * 1.2, r * 1.05)
+    groundShadow(r * 1.2, r * 1.05)
     const wing = (s, tipX, tipY, W) => {
       const bx = r * 0.1
       const by = s * r * 0.3
@@ -991,7 +1010,7 @@ export function createRenderer(app) {
       for (const s of [-1, 1]) darkEye(g, r * 0.78, s * r * 0.17, r * 0.11, r * 0.11, 0x120c05, true)
     }
     taperStroke(g, [[r * 0.94, -r * 0.02], [r * 1.16, r * 0.1]], r * 0.09, 0.8, f(0x3a2a10)) // beak (silhouette)
-    if (elite) eliteCrown(g, -r * 1.62, r, white)
+    if (elite) eliteCrown(-r * 1.62, r)
   }
   // rat: nose to rump is ONE tapered path (fat over the hips, closing to a pointed snout on the
   // right) with a long NAKED tail — the tail is the silhouette read, so it's a separate S-curved
@@ -1010,7 +1029,7 @@ export function createRenderer(app) {
       const cap = bulge(0.04 + 0.94 * t, t < 0.4 ? 1.1 : 0.42)
       return r * 0.56 * cap * (1 + 0.22 * Math.exp(-Math.pow((t - 0.72) / 0.26, 2)))
     }
-    groundShadow(g, r * 1.05, r * 0.72)
+    groundShadow(r * 1.05, r * 0.72)
     // tail: an S that keeps tapering to a whip tip — three joints, drawn before the body
     const tail = [[-r * 0.72, r * 0.04], [-r * 1.3, -r * 0.14], [-r * 1.85, r * 0.16], [-r * 2.3, -r * 0.02]]
     taperStroke(g, tail, r * 0.15, r * 0.035, f(0xc2a49c), 5)
@@ -1050,7 +1069,7 @@ export function createRenderer(app) {
     g.beginPath()
     for (const s of [-1, 1]) g.moveTo(r * 0.98, r * 0.04).lineTo(r * 1.5, r * 0.04 + s * r * 0.24)
     g.stroke({ width: 1, color: white ? 0xffffff : 0xd8ccc8, alpha: white ? 1 : 0.45 })
-    if (elite) eliteCrown(g, -r * 0.6, r, white)
+    if (elite) eliteCrown(-r * 0.6, r)
   }
 
   // --- City chapter (cold concrete) ---
@@ -1081,7 +1100,7 @@ export function createRenderer(app) {
       for (let i = 0; i <= 30; i++) { const a = (i / 30) * Math.PI; p.push(Math.cos(a) * rx, Math.sin(a) * ry + hgt) }
       return p
     }
-    groundShadow(g, r * 1.05, ry + hgt + r * 0.14)
+    groundShadow(r * 1.05, ry + hgt + r * 0.14)
     // caster wheel peeking under the front rim (same geometry in both variants)
     g.ellipse(r * 0.5, ry + hgt * 0.9, r * 0.12, r * 0.09).fill(f(0x3f434a))
     g.poly(shell()).fill(f(0xe9eaec)).stroke({ width: lw, color: line })
@@ -1109,7 +1128,7 @@ export function createRenderer(app) {
       g.rect(-r * 0.3, hgt * 0.62, r * 0.6, r * 0.09).fill({ color: 0x2f333a, alpha: 0.8 }) // brush slot
       g.circle(-r * 0.56, -r * 0.02, r * 0.05).fill({ color: 0x59d08a, alpha: 0.9 }) // status LED
     }
-    if (elite) eliteCrown(g, -ry - r * 0.06, r, white)
+    if (elite) eliteCrown(-ry - r * 0.06, r)
   }
   // ratDrone: a quadrotor — small hard chassis, four arms that TAPER out to motor pods (real joints:
   // each arm elbows once), spinning rotors as low-alpha discs (solid on the white twin, the wasp-wing
@@ -1119,7 +1138,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x6b4a10)
     const lw = Math.max(2, r * 0.12)
-    groundShadow(g, r * 1.05, r * 0.86)
+    groundShadow(r * 1.05, r * 0.86)
     // arms + pods first, so the chassis overlaps their roots. Front pair reaches further forward.
     const arms = [[r * 1.05, -r * 0.86], [r * 0.95, r * 0.8], [-r * 0.86, -r * 0.78], [-r * 0.8, r * 0.72]]
     for (const [px, py] of arms) {
@@ -1154,7 +1173,7 @@ export function createRenderer(app) {
       darkEye(g, r * 0.62, 0, r * 0.09, r * 0.09, 0x12100a, true)
       g.circle(-r * 0.5, 0, r * 0.05).fill({ color: 0xff4d5e, alpha: 0.9 }) // tail beacon
     }
-    if (elite) eliteCrown(g, -r * 1.28, r, white)
+    if (elite) eliteCrown(-r * 1.28, r)
   }
   // pigeon: a plump city bird in profile facing right — ONE outline that swells over the crop and
   // closes into a wedge tail on the left, a folded wing sitting inside it with hairline covert
@@ -1164,7 +1183,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x3f4a57)
     const lw = Math.max(1.9, r * 0.13)
-    groundShadow(g, r * 1.0, r * 0.92)
+    groundShadow(r * 1.0, r * 0.92)
     // feet: two small jointed grabs, drawn before the body so the tarsi tuck under it
     for (const s of [0, 1]) {
       const ox = s ? r * 0.42 : r * 0.16
@@ -1213,7 +1232,7 @@ export function createRenderer(app) {
       darkEye(g, r * 1.06, -r * 0.66, r * 0.05, r * 0.05, 0x140c06, true)
       g.circle(r * 1.2, -r * 0.56, r * 0.05).fill({ color: 0xe8e2d8, alpha: 0.8 }) // cere
     }
-    if (elite) eliteCrown(g, -r * 0.98, r, white)
+    if (elite) eliteCrown(-r * 0.98, r)
   }
 
   // --- Skies chapter (pale shattered concrete) ---
@@ -1233,7 +1252,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x14181e)
     const lw = Math.max(1.8, r * 0.11)
-    groundShadow(g, r * 1.1, r * 1.0)
+    groundShadow(r * 1.1, r * 1.0)
     // delta wings: leading edge sweeps back from the shoulder, trailing edge runs straight across
     for (const s of [-1, 1]) {
       const sc = s < 0 ? 1 : 0.94 // a hair of asymmetry so it never reads as a stencil
@@ -1273,7 +1292,7 @@ export function createRenderer(app) {
         g.circle(-r * 0.34, s * r * 0.62, r * 0.09).fill({ color: 0xd94d4d, alpha: 0.7 })
       }
     }
-    if (elite) eliteCrown(g, -r * 1.36, r, white)
+    if (elite) eliteCrown(-r * 1.36, r)
   }
   // helicopter: top-down, nose right — a fat cockpit tapering into a long thin tail boom is ONE
   // profile (that length ratio IS the helicopter read), with the rotor as a big low-alpha disc
@@ -1284,7 +1303,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x1c2216)
     const lw = Math.max(2, r * 0.11)
-    groundShadow(g, r * 1.1, r * 1.05)
+    groundShadow(r * 1.1, r * 1.05)
     // tail fin + tail rotor, drawn first so the boom overlaps their roots
     g.poly([-r * 1.32, -r * 0.1, -r * 1.62, -r * 0.44, -r * 1.72, -r * 0.1, -r * 1.6, r * 0.12])
       .fill(f(0x44503a)).stroke({ width: lw * 0.7, color: line })
@@ -1326,7 +1345,7 @@ export function createRenderer(app) {
       }
       g.stroke({ width: 1.5, color: 0xeef4e6, alpha: 0.3 })
     }
-    if (elite) eliteCrown(g, -r * 1.3, r, white)
+    if (elite) eliteCrown(-r * 1.3, r)
   }
   // tankColumn: 3/4 from the front-right — a sloped hull whose glacis, roof and rear are ONE
   // outline (a tank is a faceted box; the silhouette must have real corners, so this is a poly with
@@ -1337,7 +1356,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x2b2718)
     const lw = Math.max(2.6, r * 0.1)
-    groundShadow(g, r * 1.15, r * 0.78)
+    groundShadow(r * 1.15, r * 0.78)
     // track band: a slab with rounded ends (idler + drive sprocket), the whole thing sits low
     const trk = []
     for (let i = 0; i <= 16; i++) { const a = -Math.PI / 2 + (i / 16) * Math.PI; trk.push(r * 0.86 + Math.cos(a) * r * 0.24, r * 0.44 + Math.sin(a) * r * 0.24) }
@@ -1388,7 +1407,7 @@ export function createRenderer(app) {
       g.rect(r * 0.29, -r * 0.555, r * 0.05, r * 0.02).fill({ color: 0x9fd8ff, alpha: 0.6 })
       g.circle(-r * 0.36, -r * 0.68, r * 0.05).fill({ color: 0x3a3524, alpha: 0.9 }) // hatch periscope
     }
-    if (elite) eliteCrown(g, -r * 0.76, r, white)
+    if (elite) eliteCrown(-r * 0.76, r)
   }
 
   // --- Beyond chapter (violet void) ---
@@ -1420,7 +1439,7 @@ export function createRenderer(app) {
       }
       return p
     }
-    groundShadow(g, r * 0.95, r * 0.86)
+    groundShadow(r * 0.95, r * 0.86)
     // ghost echoes: the same crystal displaced, low-alpha (solid on the twin so bounds hold)
     for (const [ox, oy, al] of [[-r * 0.34, r * 0.08, 0.3], [r * 0.3, -r * 0.06, 0.22]]) {
       const e = facet(0.94)
@@ -1446,7 +1465,7 @@ export function createRenderer(app) {
       for (const y of [-r * 0.4, -r * 0.06, r * 0.3]) g.moveTo(-r * 0.66, y).lineTo(r * 0.66, y)
       g.stroke({ width: 1.4, color: 0xdcfaff, alpha: 0.3 })
     }
-    if (elite) eliteCrown(g, -r * 0.76, r, white)
+    if (elite) eliteCrown(-r * 0.76, r)
   }
   // flicker: a shape that is only half here. ONE soft membrane, but the LEADING (right) half is
   // solid while the trailing half is a low-alpha wash cut by hairline scan gaps — it reads as a form
@@ -1456,7 +1475,7 @@ export function createRenderer(app) {
     const r = 16
     const f = (c) => white ? 0xffffff : c
     const membrane = (a) => r * 0.86 * (0.9 + 0.09 * Math.cos(a * 2 + 0.7) + 0.05 * Math.sin(a * 5 - 1.1))
-    groundShadow(g, r * 0.9, r * 0.9)
+    groundShadow(r * 0.9, r * 0.9)
     // full silhouette: on the twin it's solid white; on the normal it's the faint "not-there" wash.
     // The rim is stroked in BOTH variants — it's what sets the bounds (wasp-wing rule).
     g.poly(radialOutline(membrane, 48, 1, 0.94)).fill(white ? 0xffffff : { color: 0xb894f5, alpha: 0.3 })
@@ -1485,7 +1504,7 @@ export function createRenderer(app) {
       g.poly(radialOutline((a) => membrane(a) * 0.3, 24, 1, 1, r * 0.24, 0)).fill({ color: 0xf6ecff, alpha: 0.9 })
       darkEye(g, r * 0.3, 0, r * 0.11, r * 0.13, 0x1a0b33, true)
     }
-    if (elite) eliteCrown(g, -r * 0.82, r, white)
+    if (elite) eliteCrown(-r * 0.82, r)
   }
   // swarmDrone: small, sharp, many-eyed — a dart-shaped chitin wedge (hard poly, nose right) with
   // spines raking backward off it and a cluster of seven lenses on the leading face. Everything
@@ -1495,7 +1514,7 @@ export function createRenderer(app) {
     const f = (c) => white ? 0xffffff : c
     const line = f(0x8a4a08)
     const lw = Math.max(1.8, r * 0.12)
-    groundShadow(g, r * 0.95, r * 0.72)
+    groundShadow(r * 0.95, r * 0.72)
     // spines: raked back, unequal — drawn first so their roots vanish under the wedge
     for (const [a, len] of [[2.5, 0.95], [3.0, 1.2], [3.5, 0.9], [2.1, 0.7], [3.9, 0.75], [4.5, 0.5], [1.7, 0.45]]) {
       taperStroke(g, [[Math.cos(a) * r * 0.3, Math.sin(a) * r * 0.3], [Math.cos(a) * r * len, Math.sin(a) * r * len]],
@@ -1521,41 +1540,59 @@ export function createRenderer(app) {
         darkEye(g, r * ex, r * ey, r * er, r * er, 0x2b0f02, er > 0.07)
       }
     }
-    if (elite) eliteCrown(g, -r * 0.66, r, white)
+    if (elite) eliteCrown(-r * 0.66, r)
   }
 
+  // `lean` = MAX LEAN IN DEGREES, 0..90: how far off horizontal this creature may aim its +x nose
+  // at the player (syncEnemies mirrors it left/right on top of that, so lean+flip spans the circle).
+  // The number falls straight out of the VIEW the art is drawn in, so judge it from the geometry:
+  //   90 = TRUE TOP-DOWN. Bilaterally symmetric about the forward axis — appendages on both sides
+  //        (`for (const s of [-1, 1])`), eyes in ±y pairs — so there is no "up" to lose. Rotates freely.
+  //   30 = 3/4 or PROFILE. There is a distinct UP in the drawing (ears/roof at -y, every leg/track at
+  //        +y), and rotating one past vertical lands it upside down with its legs in the air. It leans
+  //        toward the player and mirrors, like it did before v5.6.4, but it never tips over.
+  //    0 = NO FORWARD AXIS. Discs, cells, vertical cylinders. Rotating them isn't "facing", it's
+  //        tumbling — and these are the ones whose art also violates the nose-at-+x contract.
   const ROSTER_LOOKS = {
-    redcell: { archetype: 'normal', draw: drawRedcell },
-    wbc: { archetype: 'tank', draw: drawWbc },
-    antibody: { archetype: 'fast', draw: drawAntibody },
-    amoeba: { archetype: 'normal', draw: drawAmoeba },
-    tadpole: { archetype: 'fast', draw: drawTadpole },
-    tardigrade: { archetype: 'tank', draw: drawTardigrade },
-    ant: { archetype: 'normal', draw: drawAnt },
-    wasp: { archetype: 'fast', draw: drawWasp },
-    spider: { archetype: 'tank', draw: drawSpider },
-    cat: { archetype: 'tank', draw: drawCat },
-    owl: { archetype: 'fast', draw: drawOwl },
-    rat: { archetype: 'normal', draw: drawRat },
-    vacuum: { archetype: 'tank', draw: drawVacuum },
-    ratDrone: { archetype: 'normal', draw: drawRatDrone },
-    pigeon: { archetype: 'fast', draw: drawPigeon },
-    jet: { archetype: 'fast', draw: drawJet },
-    helicopter: { archetype: 'normal', draw: drawHelicopter },
-    tankColumn: { archetype: 'tank', draw: drawTankColumn },
-    blinker: { archetype: 'tank', draw: drawBlinker },
-    flicker: { archetype: 'normal', draw: drawFlicker },
-    swarmDrone: { archetype: 'fast', draw: drawSwarmDrone },
+    redcell: { archetype: 'normal', draw: drawRedcell, lean: 0 },      // biconcave disc, no forward axis — it would just tumble
+    wbc: { archetype: 'tank', draw: drawWbc, lean: 0 },                // radial membrane, filopodia all round; no nose
+    antibody: { archetype: 'fast', draw: drawAntibody, lean: 0 },      // 3-fold Y (Fc stem at +y), no +x front — a protein has no heading
+    amoeba: { archetype: 'normal', draw: drawAmoeba, lean: 0 },        // radial blob, pseudopods in 4 directions; no nose
+    tadpole: { archetype: 'fast', draw: drawTadpole, lean: 90 },       // top-down: nose +x, tail -x, lateral eyes in a ±y pair
+    tardigrade: { archetype: 'tank', draw: drawTardigrade, lean: 30 }, // 3/4: all 7 legs at +y, eyespot at -y
+    ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
+    wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
+    spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
+    cat: { archetype: 'tank', draw: drawCat, lean: 30 },               // profile: ears at -y, all four legs at +y
+    owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // top-down mid-swoop: wings spread ±y, talons and eyes paired
+    rat: { archetype: 'normal', draw: drawRat, lean: 30 },             // 3/4: both ears at -y, every leg at +y
+    vacuum: { archetype: 'tank', draw: drawVacuum, lean: 0 },          // a vertical cylinder — its shell loop IS lit-top-over-shadowed-wall
+    ratDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 },   // top-down quadrotor: 4 arms + rotors in ±y pairs
+    pigeon: { archetype: 'fast', draw: drawPigeon, lean: 30 },         // profile: feet at +y, head raised at -y
+    jet: { archetype: 'fast', draw: drawJet, lean: 90 },               // top-down: delta wings, tailplanes, intakes, roundels all ±y
+    helicopter: { archetype: 'normal', draw: drawHelicopter, lean: 90 }, // top-down: skids ±y, rotor disc centred on the hub
+    tankColumn: { archetype: 'tank', draw: drawTankColumn, lean: 20 }, // 3/4: roof/turret at -y, track band and road wheels at +y
+    blinker: { archetype: 'tank', draw: drawBlinker, lean: 90 },       // void crystal, no gravity-up; its ghost echoes ride the ±x travel axis
+    flicker: { archetype: 'normal', draw: drawFlicker, lean: 90 },     // void phantom, no gravity-up; the solid half IS the leading (+x) half
+    swarmDrone: { archetype: 'fast', draw: drawSwarmDrone, lean: 90 }, // top-down dart: nose +x, spines raked back, 7 lenses in ±y ranks
   }
+  const DEG = Math.PI / 180
   function makeRosterLook(id, elite) {
     const entry = ROSTER_LOOKS[id]
+    shadowSpec = null
+    crownSpec = null
     const g = new Graphics()
-    entry.draw(g, elite, false)
+    entry.draw(g, elite, false) // records shadowSpec/crownSpec on the way past
     const normal = bake(g)
+    const shadow = shadowSpec
+    const crown = crownSpec
     const w = new Graphics()
     entry.draw(w, elite, true)
     const white = bake(w)
-    return { tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay, baseR: ROSTER_BASE_R[entry.archetype] }
+    return {
+      tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay,
+      baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG, shadow, crown,
+    }
   }
 
   // Generic cute blob (title-screen ambience)
@@ -1575,7 +1612,35 @@ export function createRenderer(app) {
   }
 
   const T = {}
+  // ---- lifted shadow + crown textures (see the groundShadow/eliteCrown note above) --------------
+  // ONE shadow disc for the whole roster: a flat alpha fill with no stroke, so squashing it per
+  // creature to (spec.rx, spec.ry) is exact — nothing to distort. Baked big (SHADOW_TEX_R) because
+  // it gets scaled UP for the tanks.
+  const SHADOW_TEX_R = 32
+  // Crowns bake once per distinct `r` instead: the rim is a constant 1.5px in drawing space, so a
+  // single scaled crown would thicken it on the big creatures and lose it on the small ones.
+  const crownTexes = new Map() // r -> { tex, white, ax, ay }
+  function crownLook(r) {
+    let l = crownTexes.get(r)
+    if (!l) {
+      const g = new Graphics()
+      crownPoly(g, r, false)
+      const normal = bake(g)
+      const w = new Graphics()
+      crownPoly(w, r, true)
+      const white = bake(w)
+      l = { tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay }
+      crownTexes.set(r, l)
+    }
+    return l
+  }
+
   function buildTextures() {
+    {
+      const g = new Graphics()
+      g.circle(0, 0, SHADOW_TEX_R).fill({ color: 0x000000, alpha: 0.12 })
+      T.enemyShadow = bake(g)
+    }
 
     T.enemies = {}
     for (const type of Object.keys(ENEMIES)) {
@@ -2225,7 +2290,14 @@ export function createRenderer(app) {
   // so danger circles read as floor decals, not overlays on top of the entities
   const bombG = new Graphics()
   const pacerG = new Graphics()
+  // v5.6.5: the crowd's shadows and the elites' crowns were lifted OUT of the creature textures so
+  // they stop inheriting the body's rotation — see groundShadow/eliteCrown up in the art section.
+  // Shadows go UNDER every enemy (they're ground decals, cast by an overhead light); crowns go OVER
+  // them. Both are declared HERE, above the entitiesLayer.addChild below, for the usual reason: a
+  // layer addChild'd before its own const is a TDZ crash that only ever shows in the minified bundle.
+  const enemyShadowLayer = new Container()
   const enemyLayer = new Container()
+  const enemyCrownLayer = new Container()
   // shield bubble overlay: drawn on top of the elite body it protects
   const shieldG = new Graphics()
   const affixLayer = new Container() // per-elite affix icon badges (Text), see syncAffixBadges
@@ -2241,7 +2313,9 @@ export function createRenderer(app) {
   entitiesLayer.addChild(
     wellLayer, wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
-    bombG, stripG, laneG, hazardG, teleG, pacerG, enemyLayer, bloomLayer, lureLayer, shieldG, affixLayer, playerC,
+    bombG, stripG, laneG, hazardG, teleG, pacerG,
+    enemyShadowLayer, enemyLayer, enemyCrownLayer,
+    bloomLayer, lureLayer, shieldG, affixLayer, playerC,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
     lobLayer, carLayer, particleLayer, textLayer,
   )
@@ -4122,6 +4196,7 @@ export function createRenderer(app) {
     for (const [id, s] of enemySprites) {
       s.visible = false
       hideAffixBadges(s)
+      hideEnemyDecor(s)
       enemyFree.push(s)
       enemySprites.delete(id)
     }
@@ -4275,6 +4350,49 @@ export function createRenderer(app) {
     for (const t of s._affixTexts) t.visible = false
   }
 
+  // The enemy's shadow and crown, which no longer ride inside its texture (see groundShadow/
+  // eliteCrown in the art section). They ride ALONGSIDE it instead: same world position, same
+  // scale `k` (= radius ratio × holePull shrink), same alpha — but rotation 0, always.
+  // Lifetime is the pooled enemy sprite's: created lazily on the slot, hidden by hideEnemyDecor()
+  // everywhere the slot is released (the syncEnemies sweep and clearWorld), so a recycled id can
+  // never inherit the previous occupant's crown. `look` changes under a slot when an enemy is
+  // recycled, so the crown texture is re-latched off it every frame, not just on creation.
+  function syncEnemyDecor(s, e, look, k, flash) {
+    const sh = look.shadow
+    if (sh) {
+      if (!s._shadow) {
+        s._shadow = spriteOf(T.enemyShadow)
+        enemyShadowLayer.addChild(s._shadow)
+      }
+      s._shadow.visible = true
+      s._shadow.position.set(e.x, e.y + sh.y * k)
+      s._shadow.scale.set((sh.rx / SHADOW_TEX_R) * k, (sh.ry / SHADOW_TEX_R) * k)
+      s._shadow.alpha = s.alpha
+    } else if (s._shadow) s._shadow.visible = false
+    // crown: elite-only, so look.crown is null for the rest and this whole branch never runs.
+    // No tint — a hit-flash swaps to the white twin like the body does, and the elemental tints
+    // multiplied a gold crown into mud anyway back when it was baked in.
+    const cr = look.crown
+    if (cr) {
+      const ct = crownLook(cr.r)
+      if (!s._crown) {
+        s._crown = new Sprite(Texture.EMPTY)
+        enemyCrownLayer.addChild(s._crown)
+      }
+      const tex = flash ? ct.white : ct.tex
+      if (s._crown.texture !== tex) s._crown.texture = tex
+      s._crown.anchor.set(ct.ax, ct.ay)
+      s._crown.visible = true
+      s._crown.position.set(e.x, e.y + cr.top * k)
+      s._crown.scale.set(k)
+      s._crown.alpha = s.alpha
+    } else if (s._crown) s._crown.visible = false
+  }
+  function hideEnemyDecor(s) {
+    if (s._shadow) s._shadow.visible = false
+    if (s._crown) s._crown.visible = false
+  }
+
   // Volatile bomb telegraphs (run.bombs): danger circles under enemies/player, urgency
   // (fill alpha, rim strength, pulse rate) ramping up as fuse -> 0. One shared Graphics
   // cleared/redrawn per frame, same pattern as arcG/redrawArcs above.
@@ -4326,24 +4444,28 @@ export function createRenderer(app) {
       }
       if (s.texture !== tex) s.texture = tex
       const k = e.radius / look.baseR
-      // Face the player. Every creature is drawn nose-at-+x, so the bearing IS the rotation — but
-      // the roster mixes two views and a naive rotate breaks half of it. The bugs (ant, wasp,
-      // spider) and the hardware are true top-down: symmetric about the forward axis, so they
-      // rotate freely. The animals are 3/4 with a distinct UP — the rat's ears sit above its body
-      // and every leg below — and rotating one of those past vertical lands it upside down, ears
-      // under the belly. Mirroring across its own forward axis whenever it points left keeps the
-      // up-side up, because scale runs BEFORE rotation: nose(1,0) and ears(0,-1) at rotation pi
-      // with scale.y<0 come out nose-left, ears-still-up.
-      // This is the old `px < e.x ? -1 : 1` flip generalised: identical at the two horizontal
-      // extremes, and it mirrors on the SAME crossing (the player passing directly above/below),
-      // so it adds no pop the flip didn't already have — it just fills in every angle between.
-      const face = Math.atan2(run.player.y - e.y, px - e.x)
-      const back = Math.abs(face) > Math.PI / 2 ? -1 : 1
+      // Aim at the player, as far as this creature's VIEW allows (look.maxLean — see ROSTER_LOOKS).
+      // The roster mixes three views, so no single bearing->rotation rule serves all of them: the
+      // bugs and airframes are true top-down and rotate freely, the animals are 3/4 with a distinct
+      // UP that turns upside down if rotated past vertical, and the cells have no forward axis at all.
+      // But those are not three code paths — they're one, with a different clamp. Split the bearing
+      // into a left/right MIRROR and an ELEVATION: `flip` covers the horizontal half-plane exactly as
+      // the pre-v5.6.4 code's `px < e.x ? -1 : 1` did, and `lean` — measured against |dx| so it
+      // mirrors along with the body, then clamped to maxLean — tilts the nose up or down toward the
+      // player. Together (flip, lean) still spans the whole circle: maxLean = 90deg reproduces full
+      // facing exactly, maxLean = 0 collapses to the original pure mirror. The mirror pops at dx = 0,
+      // exactly where the original flip popped, so this adds no pop that wasn't already there.
+      // Scale runs BEFORE rotation, hence the flip on X.
+      const dx = px - e.x
+      const flip = dx < 0 ? -1 : 1
+      const maxLean = look.maxLean
+      const lean = Math.atan2(run.player.y - e.y, Math.abs(dx))
+      const face = flip * Math.max(-maxLean, Math.min(maxLean, lean))
       // holePull (0..1, set by sim while an enemy is being sucked into a black hole) may
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
       const pull = e.holePull || 0
       const shrink = 1 - pull * 0.45
-      s.scale.set(k * shrink, k * back * shrink)
+      s.scale.set(k * flip * shrink, k * shrink)
 
       // Elemental status (contract fields, guarded — sim half may not have landed yet).
       const frozen = e.frozen || 0
@@ -4442,6 +4564,9 @@ export function createRenderer(app) {
       // assigned, never left dangling — a recycled slot must not inherit a ghost's alpha.
       s.alpha = e._phaseSolid === false ? 0.35 : 1
 
+      // shadow under it, crown over it — placed after s.alpha since they inherit it
+      syncEnemyDecor(s, e, look, k * shrink, e.hitFlash > 0)
+
       // ---- v4 elite affixes (contract fields, guarded — sim half may not have landed yet)
       syncAffixBadges(s, e)
 
@@ -4472,6 +4597,7 @@ export function createRenderer(app) {
         s._stunT = 0
         s._enrageT = 0
         hideAffixBadges(s)
+        hideEnemyDecor(s)
         enemyFree.push(s)
         enemySprites.delete(id)
       }
