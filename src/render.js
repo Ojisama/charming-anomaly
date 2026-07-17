@@ -1012,35 +1012,45 @@ export function createRenderer(app) {
     taperStroke(g, [[r * 0.94, -r * 0.02], [r * 1.16, r * 0.1]], r * 0.09, 0.8, f(0x3a2a10)) // beak (silhouette)
     if (elite) eliteCrown(-r * 1.62, r)
   }
-  // centipede: top-down forest-floor predator — ONE tapered trunk (spineOutline) carrying a gentle
-  // S-undulation (sine in the spine) so it reads sinuous, not a stick; ~12 tergite segments, ONE
-  // short leg pair per segment drawn on BOTH sides (for s of [-1,1] -> symmetric about the forward
-  // axis, which is why lean 90 works), the pairs raking in a slight metachronal wave. Head at +x with
-  // long forward antennae and prominent forward FORCIPULES (the venom pincer-claws that curve inward
-  // to a point — the read that makes it a hunter, not a worm), plus twin longer anal legs trailing the
-  // rear. Warm rust-amber body (0xdb7b3c, ~3.06x on the loam — above the rat's 2.8x) with a dark rim.
-  function drawCentipede(g, elite, white) {
+  // centipede: top-down forest-floor predator — ONE tapered trunk (spineOutline) carrying an
+  // S-undulation (sine in the spine) so it reads sinuous, not a stick; 16 tergite segments over a
+  // LONG (~4.4r) body, ONE short leg pair per segment drawn on BOTH sides (for s of [-1,1] ->
+  // symmetric about the forward axis, which is why lean 90 works), the pairs raking in a
+  // metachronal wave. Head at +x with long forward antennae and prominent forward FORCIPULES (the
+  // venom pincer-claws that curve inward to a point — the read that makes it a hunter, not a worm),
+  // plus twin longer anal legs trailing the rear. Warm rust-amber body (0xdb7b3c, ~3.06x on the
+  // loam — above the rat's 2.8x) with a dark rim.
+  // ANIMATED: the 4th arg `phase` shifts the spine's sine; ROSTER_LOOKS declares `phases: 6`, so
+  // makeRosterLook bakes 6 wave positions and syncEnemies flips through them — the wave travels
+  // head -> tail and the centipede SLITHERS. Everything derives from spine(t), so one parameter
+  // moves the outline, legs, creases and keel together.
+  function drawCentipede(g, elite, white, phase = 0) {
     const r = 12
     const f = (c) => white ? 0xffffff : c
     const line = f(0x5e2e18)
     const fang = f(0x47230f)
     const lw = Math.max(2, r * 0.13)
     const frontX = r * 1.05
-    const len = r * 3.15 // trunk front +1.05r -> rounded tail -2.1r
-    const undA = r * 0.26
-    // S-undulation: a full-ish sine along the length. spineOutline reads the local normal by
-    // sampling the spine, so the whole tapered outline (and every crease) rides the wiggle.
-    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.2) * undA]
+    const len = r * 4.4 // trunk front +1.05r -> rounded tail -3.35r: LONG, like the real thing
+    const undA = r * 0.28
+    // S-undulation: ~1.3 full sine cycles along the length, offset by `phase`. The whole drawing
+    // (outline, legs, creases, keel) derives from this one spine, so shifting the phase slithers
+    // everything coherently — makeRosterLook bakes several phases and syncEnemies flips through
+    // them, making the wave TRAVEL down the body. Minus phase => crests move head -> tail, which
+    // reads as the body pushing backward against the ground (forward locomotion).
+    // With >= a full cycle in view, some crest is always near max, so getLocalBounds is phase-
+    // invariant and the frames don't jitter against each other.
+    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.6 - phase) * undA]
     // near-uniform worm width, closing to a rounded (not pointed) rear; the anal legs give the point
     const body = (t) => r * 0.4 * bulge(0.05 + 0.9 * t, 0.4)
-    groundShadow(r * 2.0, r * 0.2) // long ellipse — the centipede is long along x
+    groundShadow(r * 2.6, r * 0.2) // long ellipse — the centipede is long along x
     // legs first, so the trunk overlaps their roots and they read as attaching underneath.
-    const N = 12
+    const N = 16
     for (let i = 0; i < N; i++) {
       const t = 0.08 + 0.84 * (i / (N - 1))
       const [x, y] = spine(t)
       const w = body(t)
-      const ph = Math.sin(i * 0.9)              // metachronal wave: some legs rake fwd, some back
+      const ph = Math.sin(i * 0.9 - phase)      // metachronal wave, rowing with the slither
       const reach = 1 + 0.16 * Math.sin(t * Math.PI) // mid-body legs a touch longer
       for (const s of [-1, 1]) {
         const base = [x, y + s * w * 0.6]
@@ -1070,7 +1080,7 @@ export function createRenderer(app) {
     if (!white) {
       // darker dorsal keel-ribbon, riding the same undulating spine (well inside the outline)
       g.poly(spineOutline(spine, (t) => body(t) * 0.3, 30)).fill({ color: 0x8f3f1a, alpha: 0.4 })
-      g.ellipse(-r * 0.5, r * 0.02, r * 1.3, r * 0.18).fill({ color: 0x5e2e18, alpha: 0.16 }) // low flank shadow
+      g.ellipse(-r * 0.9, r * 0.02, r * 1.9, r * 0.18).fill({ color: 0x5e2e18, alpha: 0.16 }) // low flank shadow
       g.beginPath()
       for (let i = 0; i < N; i++) { // hairline tergite creases at each segment, following the wiggle
         const t = 0.12 + 0.8 * (i / (N - 1))
@@ -1637,7 +1647,7 @@ export function createRenderer(app) {
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
     cat: { archetype: 'tank', draw: drawCat, lean: 30 },               // profile: ears at -y, all four legs at +y
     owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // PARKED (v5.6.8): aerialStrike is unkillable in a melee chapter — kept for a future ranged one
-    centipede: { archetype: 'fast', draw: drawCentipede, lean: 90 },   // top-down: segmented body, leg pair per segment, all ±y mirrored
+    centipede: { archetype: 'fast', draw: drawCentipede, lean: 90, phases: 6 }, // top-down, ±y mirrored; 6 baked wave phases = the slither
     rat: { archetype: 'normal', draw: drawRat, lean: 30 },             // 3/4: both ears at -y, every leg at +y
     vacuum: { archetype: 'tank', draw: drawVacuum, lean: 0 },          // a vertical cylinder — its shell loop IS lit-top-over-shadowed-wall
     ratDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 },   // top-down quadrotor: 4 arms + rotors in ±y pairs
@@ -1654,17 +1664,27 @@ export function createRenderer(app) {
     const entry = ROSTER_LOOKS[id]
     shadowSpec = null
     crownSpec = null
-    const g = new Graphics()
-    entry.draw(g, elite, false) // records shadowSpec/crownSpec on the way past
-    const normal = bake(g)
-    const shadow = shadowSpec
-    const crown = crownSpec
-    const w = new Graphics()
-    entry.draw(w, elite, true)
-    const white = bake(w)
+    // A look is 1 frame unless the entry declares `phases: n` — then the draw fn takes a 4th
+    // `phase` arg (0..2pi) and we bake n of them; syncEnemies flips through look.frames to animate
+    // (the centipede's slither). Normal and white twins are baked PER PHASE from identical
+    // geometry, so each frame keeps the hit-flash anchor parity on its own.
+    const bakePhase = (phase) => {
+      const g = new Graphics()
+      entry.draw(g, elite, false, phase) // records shadowSpec/crownSpec on the way past
+      const normal = bake(g)
+      const w = new Graphics()
+      entry.draw(w, elite, true, phase)
+      const white = bake(w)
+      return { tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay }
+    }
+    const n = entry.phases ?? 1
+    const frames = []
+    for (let p = 0; p < n; p++) frames.push(bakePhase((p / n) * Math.PI * 2))
     return {
-      tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay,
-      baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG, shadow, crown,
+      tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
+      frames: n > 1 ? frames : null,
+      baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG,
+      shadow: shadowSpec, crown: crownSpec,
     }
   }
 
@@ -4510,12 +4530,25 @@ export function createRenderer(app) {
       // whose rosterId has no baked creature (daily/title/future chapters)
       const rkey = e.rosterId ? e.rosterId + (e.elite ? '_elite' : '') : null
       const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
-      const tex = e.hitFlash > 0 ? look.white : look.tex
-      if (s._look !== look) {
-        s._look = look
-        s.anchor.set(look.ax, look.ay)
+      // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
+      // frames on animT, offset per enemy id so a pack doesn't slither in lockstep. Frozen/stunned
+      // creatures HOLD their current pose (matching the wisp-wobble rule below) instead of
+      // snapping to frame 0. Anchor rides the texture: each frame bakes its own (near-identical)
+      // anchor, and the white twin of the SAME frame shares it, so hit-flash still doesn't jump.
+      let frame = look
+      if (look.frames) {
+        const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
+        if (!halted || s._animFrame === undefined || s._animFrame >= look.frames.length) {
+          s._animFrame = Math.floor(animT * 10 + e.id * 1.7) % look.frames.length
+        }
+        frame = look.frames[s._animFrame]
       }
-      if (s.texture !== tex) s.texture = tex
+      const tex = e.hitFlash > 0 ? frame.white : frame.tex
+      if (s._look !== look) s._look = look
+      if (s.texture !== tex) {
+        s.texture = tex
+        s.anchor.set(frame.ax, frame.ay)
+      }
       const k = e.radius / look.baseR
       // Aim at the player, as far as this creature's VIEW allows (look.maxLean — see ROSTER_LOOKS).
       // The roster mixes three views, so no single bearing->rotation rule serves all of them: the
