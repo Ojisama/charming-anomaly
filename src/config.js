@@ -16,15 +16,12 @@ export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic']
 // Fixed roll weights (user-tuned v4.7; no level scaling). Epic-or-better ≈ 12.3% per card,
 // so a screen shows at least one epic+ on ~23% (2 cards) / ~33% (3) / ~41% (4) of level-ups.
 export const RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
-export const rarityWeights = () => RARITY_WEIGHTS
 
 // ---- Level-up choice slots (v4.8: permanent, meta-shop-unlocked) ---------------------
 // A level-up screen shows meta.choiceSlots/run.choiceSlots cards (2 by default). The 3rd/4th
 // slot is unlocked PERMANENTLY (applies to every future run, all modes) by sacrificing already-
 // purchased SHOP levels in the meta shop — see SACRIFICE_COSTS/sacrificeCost below and
 // hooks.onSacrifice in main.js. No coin refund for sacrificed levels.
-export const LEVELUP_MAX_CHOICES = 4
-
 export const PLAYER = {
   radius: 22,
   baseHP: 100,
@@ -1347,17 +1344,6 @@ export const CHAPTERS = {
     },
   },
 }
-// ---- Chapter teasers (v5.3, DISPLAY-ONLY) ------------------------------------------
-// The title carousel shows [unlocked chapters] + [first real locked CHAPTERS entry] + [all teasers].
-// Teasers are future chapters with NO CHAPTERS entry yet — pure "coming soon" cards. Their ids MUST
-// NEVER reach createRun/onChapter/dailyChapter: they're never unlocked (so onChapter/Play skip them),
-// they're not in CHAPTER_ORDER (so dailyChapter never picks them), and every CHAPTERS[id] lookup on
-// the card/dot/select paths is guarded (ui.js). icon = a dim greyscale silhouette on the teaser card.
-// v5.4: EMPTY — undergrowth/city/skies/beyond all became real CHAPTERS entries, so the whole
-// seven-chapter arc now ships and nothing is "coming soon" any more. The export (and the ui.js
-// teaser-card path it drives) stays for the NEXT batch of future chapters: add {id, icon} rows
-// here for any chapter that has no CHAPTERS entry yet and is absent from CHAPTER_ORDER.
-export const CHAPTER_TEASERS = []
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -1391,7 +1377,7 @@ export const ARCHETYPE_TYPE = { normal: 'drone', tank: 'tank', fast: 'wisp' }
 // silently "worked" for tank (its own inverse) and fell through to 'normal' for drone (right
 // by luck) and wisp (WRONG) — which made every 'fast' roster entry unreachable by natural
 // spawning until v5.5.
-export const TYPE_ARCHETYPE = { drone: 'normal', tank: 'tank', wisp: 'fast' }
+export const TYPE_ARCHETYPE = Object.fromEntries(Object.entries(ARCHETYPE_TYPE).map(([a, t]) => [t, a]))
 
 // latch (e.g. body's antibody): on contact the enemy applies a move-speed debuff to the
 // player then dies (spends itself) instead of dealing normal contact damage — see

@@ -98,7 +98,7 @@ export function resetSave() {
 }
 
 // Effective permanent multipliers/bonuses from shop levels.
-export function shopBonus(meta, id) {
+function shopBonus(meta, id) {
   return SHOP[id].perLevel * (meta.shop[id] ?? 0)
 }
 

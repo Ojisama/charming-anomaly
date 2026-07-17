@@ -30,7 +30,7 @@ import {
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, MAX_MODS_PER_WEAPON_PER_POOL,
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
-  RARITIES, RARITY_ORDER, rarityWeights,
+  RARITIES, RARITY_ORDER, RARITY_WEIGHTS,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
   xpForLevel, GEM_VALUE,
@@ -3831,11 +3831,12 @@ function makeElementCard(run, id, rarity) {
   return { kind: 'element', id, title: cfg.name, desc: cfg.desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
 }
 
-// Roll one card: pick a rarity weighted by player level, gather candidates at that rarity
+// Roll one card: roll a rarity on the fixed RARITY_WEIGHTS table (no level scaling — see
+// config.js), gather candidates at that rarity
 // (inherent-rarity weapons + all eligible passives/weapon-mods/elements adopting the roll), and
 // walk down RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
 function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts) {
-  let idx = RARITY_ORDER.indexOf(pickWeighted(rarityWeights(run.player.level)))
+  let idx = RARITY_ORDER.indexOf(pickWeighted(RARITY_WEIGHTS))
   while (idx >= 0) {
     const rarity = RARITY_ORDER[idx]
     const options = []

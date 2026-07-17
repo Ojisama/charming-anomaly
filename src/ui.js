@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, CHAPTERS, CHAPTER_ORDER, CHAPTER_TEASERS, nextChapter, dailyChapter } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
@@ -21,15 +21,13 @@ function selectedChapterMeta(meta) {
 // browsed chapter updates; an unlocked one persists via hooks.onChapter, the locked one never
 // reaches it. The v5.1 single-card + ‹ › arrows + custom touch swipe (navChapter, heroTouch*) are
 // gone — native scroll handles paging.
-// The carousel = [unlocked chapters] + [first real locked CHAPTERS entry] + [all teasers]. Teaser
-// ids (CHAPTER_TEASERS, config.js) have NO CHAPTERS entry — they're never unlocked, so they only
-// ever render the anonymous teaser card and never reach onChapter/createRun/dailyChapter.
+// The carousel = [unlocked chapters] + [the first still-locked CHAPTERS entry].
 function titleChapterList(meta) {
   const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
   const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
   if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
   const base = ids.length ? ids : [CHAPTER_ORDER[0]]
-  return [...base, ...CHAPTER_TEASERS.map((t) => t.id)]
+  return base
 }
 
 // Pixi int colour (0xrrggbb) -> '#rrggbb'; shade() blends a hex toward white (amt > 0) or black
@@ -218,18 +216,6 @@ export function initUI(hooks) {
   // still fill 4 and render the 5th as a hollow, gently PULSING star (a "one to go" tease) rather
   // than inventing a win-flag.
   function heroCardHtml(id) {
-    // Teaser card (v5.3): a future chapter with NO CHAPTERS entry — render it MORE anonymous than the
-    // locked card (silhouette icon, "coming soon…"), never touching CHAPTERS[id]. Checked FIRST so a
-    // teaser id can never fall through to the CHAPTERS[id] lookup below.
-    const teaser = CHAPTER_TEASERS.find((t) => t.id === id)
-    if (teaser) {
-      return `
-        <div class="hero-card hero-card--locked hero-card--teaser" data-chapter="${id}" data-hero>
-          <span class="hero-icon hero-icon--silhouette">${teaser.icon}</span>
-          <span class="hero-name">???</span>
-          <span class="hero-tagline">coming soon…</span>
-        </div>`
-    }
     if (!meta.chapters?.[id]?.unlocked) {
       const prevName = CHAPTERS[furthestUnlockedChapterId(meta)].name
       return `
