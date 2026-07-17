@@ -437,18 +437,7 @@ function stepEnemyMovement(run, dt) {
       }
     }
 
-    // dashBurst flag (v5.0, e.g. pond's tadpole): cycles idle (slow) <-> dash (fast), still
-    // seeking the player the whole time — just a speed multiplier on top of the normal seek.
     let flagSpeedMul = 1
-    if (e.flags && e.flags.includes('dashBurst')) {
-      if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = DASH_IDLE_T }
-      e._dashT -= dt
-      if (e._dashT <= 0) {
-        if (e._dashPhase === 'idle') { e._dashPhase = 'dash'; e._dashT += DASH_T }
-        else { e._dashPhase = 'idle'; e._dashT += DASH_IDLE_T }
-      }
-      flagSpeedMul = e._dashPhase === 'dash' ? DASH_SPEED_MUL : DASH_IDLE_SPEED_MUL
-    }
     // trailFollow flag (v5.3 garden's ants): while within PHEROMONE_FOLLOW_RADIUS of any live
     // pheromone node, accelerate along the seek (design: ants "follow & accelerate on" the trail).
     if (hasTrails && e.flags && e.flags.includes('trailFollow')) {
@@ -482,6 +471,11 @@ function stepEnemyMovement(run, dt) {
         e.x -= (dx / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
         e.y -= (dy / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
       }
+    } else if (e.flags && e.flags.includes('dashBurst')) {
+      // affixSpeedMul is passed through (unlike the other machines, which take enrageMul alone)
+      // because dashBurst used to ride the plain seek and therefore honoured pacer/frenzy. Keeping
+      // it means this change commits the DIRECTION and nothing else — no silent balance shift.
+      stepDashBurst(e, tx, ty, dt, slowMul, affixSpeedMul * enrageMul)
     } else if (e.flags && e.flags.includes('diveBomb')) {
       stepDiveBomb(e, tx, ty, dt, slowMul)
     } else if (e.flags && e.flags.includes('pounce')) {
@@ -703,6 +697,40 @@ function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul) {
 // _chargeT/_chargeDirX/_chargeDirY. Same shape as pounce (heading locks at the start of 'lock',
 // the charge never steers), but it lines up from much further out and spins down afterwards —
 // 'stall' is its punish window (motionless, no contact damage). Render draws the lane off the state.
+// dashBurst (v5.0, pond's tadpoles): idle -> dash, on _dashPhase/_dashT/_dashDirX/_dashDirY.
+// It idles slow, then LOCKS its heading and flies straight — it does NOT re-aim mid-dash, exactly
+// like pounce / lineCharge / strafe / aerialStrike.
+//
+// It used to re-aim: dashBurst was the only burst in the game that wasn't a machine, just a speed
+// multiplier bolted onto the plain seek, so it homed. At DASH_SPEED_MUL of a wisp's 165 that is
+// 429 px/s against PLAYER.baseSpeed 220 — a homing burst at ~2x your top speed that you can
+// neither outrun nor sidestep, i.e. a guaranteed hit with no counterplay. The player reported it
+// as simply "unavoidable" and they were right.
+//
+// The rule this restores is already the game's own, stated at the pull beam: a threat may be
+// impossible to IGNORE but never impossible to ESCAPE. Committing the heading is what turns the
+// dash from an unavoidable hit into a dodge — the speed is not the problem and is untouched.
+function stepDashBurst(e, tx, ty, dt, slowMul, spdMul) {
+  if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = DASH_IDLE_T }
+  e._dashT -= dt
+  const dx = tx - e.x, dy = ty - e.y
+  const d = Math.hypot(dx, dy) || 1
+  const ux = dx / d, uy = dy / d
+  let vx = 0, vy = 0
+  if (e._dashPhase === 'idle') {
+    const spd = e.speed * spdMul * DASH_IDLE_SPEED_MUL
+    vx = ux * spd; vy = uy * spd
+    // lock the heading on the way OUT of idle — this is the last moment it looks at you
+    if (e._dashT <= 0) { e._dashPhase = 'dash'; e._dashT += DASH_T; e._dashDirX = ux; e._dashDirY = uy }
+  } else {
+    const spd = e.speed * spdMul * DASH_SPEED_MUL
+    vx = e._dashDirX * spd; vy = e._dashDirY * spd
+    if (e._dashT <= 0) { e._dashPhase = 'idle'; e._dashT += DASH_IDLE_T }
+  }
+  e.x += vx * slowMul * dt
+  e.y += vy * slowMul * dt
+}
+
 function stepLineCharge(e, tx, ty, dt, slowMul, spdMul) {
   if (e._chargeState === undefined) { e._chargeState = 'track'; e._chargeT = 0 }
   e._chargeT -= dt

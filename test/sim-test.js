@@ -2014,6 +2014,36 @@ function testChapterBehaviors() {
     console.log(`PASS run V.c (dashBurst): idleRate=${idleRate.toFixed(1)}px/s dashRate=${dashRate.toFixed(1)}px/s`)
   }
 
+  // (c2) dashBurst COMMITS its heading: a dash must never track a player who sidesteps out of it.
+  // V.c above cannot catch this — it parks the player 5000px away, so the seek direction barely
+  // moves, which is exactly the one case a homing dash and a committed dash agree on. The dash runs
+  // at DASH_SPEED_MUL of the enemy's speed, well over PLAYER.baseSpeed, so if it re-aims there is
+  // no counterplay at all: you can neither outrun it nor step out of it.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 300; run.player.y = 0
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
+    e.flags = ['dashBurst']
+    run.enemies.push(e)
+    // walk it through the idle phase so the heading locks onto the player, out at +x
+    const idleSteps = Math.round(DASH_IDLE_T / dt) + 1
+    for (let i = 0; i < idleSteps; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const mid = run.enemies.find((en) => en.id === e.id)
+    assert.strictEqual(mid._dashPhase, 'dash', 'expected the enemy to be mid-dash after the idle phase')
+
+    // now sidestep hard — the player leaves the dash lane entirely
+    run.player.x = 0; run.player.y = 400
+    const from = { x: mid.x, y: mid.y }
+    for (let i = 0; i < Math.round((DASH_T / dt) * 0.6); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const after = run.enemies.find((en) => en.id === e.id)
+    const mvx = after.x - from.x, mvy = after.y - from.y
+    assert(mvx > 0, `expected the dash to keep flying along its locked +x heading (moved ${mvx.toFixed(1)}px)`)
+    const steer = Math.abs(mvy) / Math.max(1e-6, Math.abs(mvx))
+    assert(steer < 0.02, `a dash must not steer toward a sidestepping player (|dy|/|dx| = ${steer.toFixed(3)})`)
+    console.log(`PASS run V.c2 (dashBurst commits): flew ${mvx.toFixed(0)}px along the locked heading, steered ${(steer * 100).toFixed(1)}% toward the sidestep`)
+  }
+
   // (d) acidPool (elite flag): death leaves a pool that damages a standing player and expires.
   {
     const run = createRun(makeMeta())

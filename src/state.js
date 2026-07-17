@@ -219,8 +219,10 @@ function generateWells(sig) {
  *               player.slowT/LATCH_SLOW_MUL then the enemy dies), 'split' (dealDamage's death
  *               branch: non-`_splitChild` deaths spawn SPLIT_CHILD_COUNT children at
  *               SPLIT_HP_FRAC hp / SPLIT_RADIUS_FRAC radius, flagged `_splitChild: true` so they
- *               never re-split), 'dashBurst' (stepEnemyMovement: cycles idle <-> dash speed
- *               multipliers via sim-internal `_dashPhase`/`_dashT`, not a render contract),
+ *               never re-split), 'dashBurst' (stepDashBurst: an idle -> dash state machine on
+ *               sim-internal `_dashPhase`/`_dashT`/`_dashDirX`/`_dashDirY`, not a render contract.
+ *               The heading LOCKS on the way out of idle and the dash never re-aims — at
+ *               DASH_SPEED_MUL it outruns the player, so a homing version is undodgeable),
  *               'acidPool'/'soapTrail' (elite-only: feed run.pools — see below).
  *               v5.3 garden flags: 'trailFollow' (dealDamage: a dying ant drops a run.trails node
  *               under the 'pheromones' signature; stepEnemyMovement: living ants near a node get a
