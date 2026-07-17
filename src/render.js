@@ -3522,7 +3522,12 @@ export function createRenderer(app) {
   //     less than that (the old +-0.24) doesn't separate them at all — it just slides overlapping
   //     arcs along each other. Separation comes from the radius; the fan is only a slight splay.
   const CLAW_TINE_R = [0.72, 0.86, 1.0]
-  const CLAW_TINE_FAN = [-0.11, 0.0, 0.10]  // rad (x arc): a paw's claws splay a little, not a lot
+  // The fan and the sweep both spend the SAME angular budget as the gash itself — everything drawn
+  // has to fit inside arc/2 (see the q solve in updateClaws), so widening either one narrows the
+  // gashes. Keep them small: the drawn rake must never claim ground the sector doesn't test.
+  const CLAW_TINE_FAN = [-0.08, 0.0, 0.075] // rad (x arc): a paw's claws splay a little, not a lot
+  const CLAW_FAN_MAX = 0.08                 // == max |CLAW_TINE_FAN|, kept as a const for the solve
+  const CLAW_SWEEP = 0.15                   // fraction of arc the rake travels across during its life
   const CLAW_TINE_A = [0.82, 1.0, 0.78]     // outer gashes lighter — the middle claw bites deepest
   // A gash is DRAWN, not stamped from the Kenney slash glyph. That PNG's alpha falls off soft and
   // round, so it can only ever read as a fat smear — there is no needle tip anywhere in it, at any
@@ -3597,14 +3602,27 @@ export function createRenderer(app) {
       const flash = Math.sin(Math.PI * k) // ramp in then out, exactly like the whip's
       // The whole rake sweeps only a LITTLE across the wedge (the fan already covers it) and rakes
       // outward as it fades — a swing would re-read as the whip.
-      const sweep = cp.angle + cp.arc * (k - 0.5) * 0.35
-      const reach = 1 + CLAW_DRIFT * k
+      const sweep = cp.angle + cp.arc * (k - 0.5) * CLAW_SWEEP
+      // ...and it lands ON `range`, never past it: rake outward INTO the hitbox edge, don't
+      // overshoot it (a plain 1 + DRIFT*k put the outer gash 10% beyond what the sector tests).
+      const reach = 1 - CLAW_DRIFT + CLAW_DRIFT * k
+      // The gash is baked at a FIXED GASH_SPAN, but the wedge the sim tests is cp.arc — which
+      // changes with level and with wideRake. Squash across the bearing so the DRAWN wedge is the
+      // TESTED wedge: scaling y by q maps a local angle a to atan(q*tan a), so the span follows q.
+      // Budget the outermost drawn edge — half a gash + the fan + half the sweep travel — onto
+      // exactly arc/2 and invert that exactly (the tempting q ~= budget/(SPAN/2) linearisation is
+      // 4% wide at the tips, because tan is superlinear). Without this the rake drew ~50% wider
+      // than its own hitbox at lv1, and enemies sat visually inside the claws taking nothing.
+      const budget = cp.arc * (0.5 - CLAW_FAN_MAX - CLAW_SWEEP * 0.5)
+      const q = Math.tan(budget) / Math.tan(GASH_SPAN * 0.5)
       for (let i = 0; i < cp.tines.length; i++) {
         const tine = cp.tines[i]
         const rad = cp.range * CLAW_TINE_R[i] * reach
-        // The gash is drawn anchored at its arc's center and bulges +x from it, so rotation IS the
-        // bearing and scale IS the reach. Uniform: squashing would blunt the tips it's drawn to have.
-        tine.scale.set(rad / GASH_R)
+        // Anchored at its arc's center and bulging +x from it, so rotation IS the bearing and the
+        // x-scale IS the reach. Thickness is radial, so near the belly it rides sx and the squash
+        // barely blunts the tips.
+        const sx = rad / GASH_R
+        tine.scale.set(sx, sx * q)
         tine.rotation = sweep + CLAW_TINE_FAN[i] * cp.arc
         tine.alpha = Math.pow(flash, 1.3) * 0.95 * CLAW_TINE_A[i]
       }
