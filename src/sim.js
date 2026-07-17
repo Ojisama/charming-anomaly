@@ -975,7 +975,13 @@ function hurtPlayer(run, rawDmg, dot = false) {
 // nothing while the window is up. Guarded on the state fields, so an enemy that never ran either
 // machine is never immune.
 function damageImmune(e) {
-  if (AERIAL_UNTOUCHABLE && (e._airState === 'circle' || e._airState === 'climb')) return true
+  // Only while genuinely overhead at the standoff — 'circle'. NOT 'climb': a climbing owl is at
+  // ground level, right where it just landed on you, and that is exactly when the player swings at
+  // it. Gating the recovery too meant the bird dove, hit you, and peeled off invincible; the only
+  // window it could actually be killed in was the 0.45s strike (it is touchable during 'mark', but
+  // 'mark' happens out at AERIAL_RADIUS 240px, past every short-range weapon). So owls piled up
+  // unkillable — reported as "they're unkillable" and "just too far away".
+  if (AERIAL_UNTOUCHABLE && e._airState === 'circle') return true
   if (e._phaseSolid === false) return true
   return false
 }
@@ -986,6 +992,11 @@ function damageImmune(e) {
 // enemy isn't attacking anyone.
 function contactHarmless(e) {
   if (damageImmune(e)) return true
+  // ...but a climbing owl still can't HURT you. It's peeling away and its strike already had its
+  // hit; charging the exit for a second one would just punish the player for standing their ground.
+  // Deliberately asymmetric with damageImmune above: 'climb' is a PUNISH window — you can hit it,
+  // it can't hit you — the same shape as pounce's 'land' and lineCharge's 'stall' on the next line.
+  if (AERIAL_UNTOUCHABLE && e._airState === 'climb') return true
   if ((e.stunT || 0) > 0 || (e.fearT || 0) > 0) return true
   if (e._pounceState === 'land' || e._chargeState === 'stall') return true
   return false

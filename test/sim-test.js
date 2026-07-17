@@ -2755,6 +2755,44 @@ function testV54Flags() {
     console.log(`PASS run Y.b (aerialStrike): untouchable while circling, hittable once it drops (hp=${owl.hp.toFixed(0)})`)
   }
 
+  // (b2) 'climb' is the owl's PUNISH window: hittable, but still harmless. It used to be immune,
+  // which meant the bird dove onto you, connected, and peeled off invincible — the only window it
+  // could be killed in was the 0.45s strike ('mark' is touchable but happens out at AERIAL_RADIUS
+  // 240px, past every short-range weapon), so owls piled up unkillable. Measured over a 180s
+  // standing run: 56/57/51/56/63 owls alive at the end before, 13/15/11/15/10 after.
+  {
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    run.obstacles = []; run.mods.spawnMul = 0; run.traps = []
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    const owl = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
+    owl.flags = ['aerialStrike']
+    run.enemies.push(owl)
+    // fly it all the way round to 'climb'
+    const toClimb = Math.round((AERIAL_CIRCLE_T + AERIAL_MARK_T + AERIAL_STRIKE_T + 0.05) / dt)
+    for (let i = 0; i < toClimb; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert.strictEqual(owl._airState, 'climb', `expected the owl climbing, got '${owl._airState}'`)
+
+    // hittable on the way out...
+    owl.hp = 1e6
+    owl.x = run.player.x; owl.y = run.player.y
+    const hpBefore = owl.hp
+    const pHp0 = run.player.hp
+    run.player.invuln = 0
+    for (let i = 0; i < 20; i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      owl.x = run.player.x; owl.y = run.player.y // pin it on top of the player
+    }
+    assert(owl.hp < hpBefore, `a climbing owl must be hittable — this is the punish window (hp=${owl.hp})`)
+    // ...but still can't hurt you: its strike already had its hit.
+    assert.strictEqual(run.player.hp, pHp0, 'a climbing owl must deal NO contact damage')
+    console.log(`PASS run Y.b2 (aerialStrike climb): punish window — owl took ${(hpBefore - owl.hp).toFixed(0)} dmg while climbing, dealt 0`)
+  }
+
   // (c) lineCharge: a vacuum lines up, stops for the lock telegraph, then charges much further.
   {
     const { run, e } = flagRun('city', ['lineCharge'], { at: LINE_CHARGE_RANGE - 40 })
@@ -3333,6 +3371,11 @@ function testV54Weapons() {
 
     // panicRout: the same hit lands harder on a fleeing foe.
     function routHp(rout) {
+      // Reseed per run, exactly like runStarOnly: these two calls are a BASELINE vs MODDED
+      // comparison, and without this they draw from one continuous stream and play different
+      // games — the crit rolls diverge, so the assert passes or fails on luck rather than on
+      // panicRout. (It passed at 150 vs 140 only because the PLAIN run happened to crit.)
+      Math.random = mulberry32(20260714)
       const r = weaponRun('undergrowth', 'chitterShriek')
       r.weapons = []
       if (rout) r.weaponMods.chitterShriek.panicRout = 0.40
