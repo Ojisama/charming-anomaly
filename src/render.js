@@ -199,8 +199,9 @@ export function createRenderer(app) {
   // normal-coloured in both variants (same trick as drawEnemy). Elites gain the golden crown
   // above the silhouette's actual top.
   //
-  // Every creature faces RIGHT: syncEnemies' default flip (+1) puts the player to the sprite's
-  // right, so heads/snouts point right and trailing bits (tadpole tail, wasp stinger) go left.
+  // Every creature is drawn facing +x (RIGHT): heads/snouts point right and trailing bits (tadpole
+  // tail, wasp stinger) go left. syncEnemies rotates the sprite BY the bearing to the player, so
+  // that +x nose is the contract — a creature drawn facing any other way will aim wrong.
   const ROSTER_BASE_R = { normal: ENEMIES.drone.radius, fast: ENEMIES.wisp.radius, tank: ENEMIES.tank.radius }
 
   // soft ground shadow (drawn normal-coloured in both variants so bounds match)
@@ -4325,12 +4326,24 @@ export function createRenderer(app) {
       }
       if (s.texture !== tex) s.texture = tex
       const k = e.radius / look.baseR
-      const flip = px < e.x ? -1 : 1
+      // Face the player. Every creature is drawn nose-at-+x, so the bearing IS the rotation — but
+      // the roster mixes two views and a naive rotate breaks half of it. The bugs (ant, wasp,
+      // spider) and the hardware are true top-down: symmetric about the forward axis, so they
+      // rotate freely. The animals are 3/4 with a distinct UP — the rat's ears sit above its body
+      // and every leg below — and rotating one of those past vertical lands it upside down, ears
+      // under the belly. Mirroring across its own forward axis whenever it points left keeps the
+      // up-side up, because scale runs BEFORE rotation: nose(1,0) and ears(0,-1) at rotation pi
+      // with scale.y<0 come out nose-left, ears-still-up.
+      // This is the old `px < e.x ? -1 : 1` flip generalised: identical at the two horizontal
+      // extremes, and it mirrors on the SAME crossing (the player passing directly above/below),
+      // so it adds no pop the flip didn't already have — it just fills in every angle between.
+      const face = Math.atan2(run.player.y - e.y, px - e.x)
+      const back = Math.abs(face) > Math.PI / 2 ? -1 : 1
       // holePull (0..1, set by sim while an enemy is being sucked into a black hole) may
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
       const pull = e.holePull || 0
       const shrink = 1 - pull * 0.45
-      s.scale.set(k * flip * shrink, k * shrink)
+      s.scale.set(k * shrink, k * back * shrink)
 
       // Elemental status (contract fields, guarded — sim half may not have landed yet).
       const frozen = e.frozen || 0
@@ -4345,7 +4358,7 @@ export function createRenderer(app) {
 
       // frozen and stun both halt walk/idle animation (here: the wisp's rotation wobble)
       const wobble = (e.type === 'wisp' && frozen <= 0 && stun <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
-      s.rotation = wobble + pull * animT * 5
+      s.rotation = face + wobble + pull * animT * 5
       s.position.set(e.x, e.y)
 
       // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
