@@ -1012,6 +1012,78 @@ export function createRenderer(app) {
     taperStroke(g, [[r * 0.94, -r * 0.02], [r * 1.16, r * 0.1]], r * 0.09, 0.8, f(0x3a2a10)) // beak (silhouette)
     if (elite) eliteCrown(-r * 1.62, r)
   }
+  // centipede: top-down forest-floor predator — ONE tapered trunk (spineOutline) carrying a gentle
+  // S-undulation (sine in the spine) so it reads sinuous, not a stick; ~12 tergite segments, ONE
+  // short leg pair per segment drawn on BOTH sides (for s of [-1,1] -> symmetric about the forward
+  // axis, which is why lean 90 works), the pairs raking in a slight metachronal wave. Head at +x with
+  // long forward antennae and prominent forward FORCIPULES (the venom pincer-claws that curve inward
+  // to a point — the read that makes it a hunter, not a worm), plus twin longer anal legs trailing the
+  // rear. Warm rust-amber body (0xdb7b3c, ~3.06x on the loam — above the rat's 2.8x) with a dark rim.
+  function drawCentipede(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x5e2e18)
+    const fang = f(0x47230f)
+    const lw = Math.max(2, r * 0.13)
+    const frontX = r * 1.05
+    const len = r * 3.15 // trunk front +1.05r -> rounded tail -2.1r
+    const undA = r * 0.26
+    // S-undulation: a full-ish sine along the length. spineOutline reads the local normal by
+    // sampling the spine, so the whole tapered outline (and every crease) rides the wiggle.
+    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.2) * undA]
+    // near-uniform worm width, closing to a rounded (not pointed) rear; the anal legs give the point
+    const body = (t) => r * 0.4 * bulge(0.05 + 0.9 * t, 0.4)
+    groundShadow(r * 2.0, r * 0.2) // long ellipse — the centipede is long along x
+    // legs first, so the trunk overlaps their roots and they read as attaching underneath.
+    const N = 12
+    for (let i = 0; i < N; i++) {
+      const t = 0.08 + 0.84 * (i / (N - 1))
+      const [x, y] = spine(t)
+      const w = body(t)
+      const ph = Math.sin(i * 0.9)              // metachronal wave: some legs rake fwd, some back
+      const reach = 1 + 0.16 * Math.sin(t * Math.PI) // mid-body legs a touch longer
+      for (const s of [-1, 1]) {
+        const base = [x, y + s * w * 0.6]
+        const knee = [x - r * 0.12 + ph * r * 0.06, y + s * (w + r * 0.26 * reach)]
+        const foot = [x - r * 0.26 + ph * r * 0.12, y + s * (w + r * 0.46 * reach)]
+        taperStroke(g, [base, knee, foot], r * 0.09, r * 0.028, line)
+      }
+    }
+    // twin anal legs: longer, trailing back and out off the tail — a centipede signature
+    const [tx, ty] = spine(0.99)
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[tx, ty + s * r * 0.1], [tx - r * 0.3, ty + s * r * 0.32], [tx - r * 0.58, ty + s * r * 0.46]], r * 0.1, r * 0.03, line)
+    }
+    // antennae: long, forward and out — the furthest +x reach (sets the nose bound)
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 1.3, s * r * 0.12], [r * 1.7, s * r * 0.3], [r * 2.02, s * r * 0.22]], r * 0.09, r * 0.03, line)
+    }
+    // forcipules: forward venom claws that curve INWARD to a point (tips converge on the midline)
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 1.24, s * r * 0.22], [r * 1.54, s * r * 0.26], [r * 1.72, s * r * 0.05]], r * 0.11, r * 0.03, fang)
+    }
+    // trunk: one flowing tapered outline over the legs
+    g.poly(spineOutline(spine, body, 44)).fill(f(0xdb7b3c)).stroke({ width: lw, color: line })
+    // head: an egg that narrows toward the front, overlapping the trunk's front
+    g.poly(radialOutline((a) => r * 0.32 * (1 - 0.12 * Math.cos(a)), 36, 1, 0.92, r * 1.18, 0))
+      .fill(f(0xdb7b3c)).stroke({ width: lw, color: line })
+    if (!white) {
+      // darker dorsal keel-ribbon, riding the same undulating spine (well inside the outline)
+      g.poly(spineOutline(spine, (t) => body(t) * 0.3, 30)).fill({ color: 0x8f3f1a, alpha: 0.4 })
+      g.ellipse(-r * 0.5, r * 0.02, r * 1.3, r * 0.18).fill({ color: 0x5e2e18, alpha: 0.16 }) // low flank shadow
+      g.beginPath()
+      for (let i = 0; i < N; i++) { // hairline tergite creases at each segment, following the wiggle
+        const t = 0.12 + 0.8 * (i / (N - 1))
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x + r * 0.02, y - w * 0.85).lineTo(x - r * 0.02, y + w * 0.85)
+      }
+      g.stroke({ width: 1, color: 0x5e2e18, alpha: 0.5 })
+      g.ellipse(r * 1.24, -r * 0.12, r * 0.16, r * 0.09).fill({ color: mix(0xdb7b3c, 0xffffff, 0.5), alpha: 0.2 }) // head sheen
+      for (const s of [-1, 1]) darkEye(g, r * 1.3, s * r * 0.16, r * 0.06, r * 0.06, 0x1a0d05, true) // small ocelli
+    }
+    if (elite) eliteCrown(-r * 0.9, r)
+  }
   // rat: nose to rump is ONE tapered path (fat over the hips, closing to a pointed snout on the
   // right) with a long NAKED tail — the tail is the silhouette read, so it's a separate S-curved
   // taper that keeps narrowing all the way to a whip tip, and it carries hairline scale rings
@@ -1564,7 +1636,8 @@ export function createRenderer(app) {
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
     cat: { archetype: 'tank', draw: drawCat, lean: 30 },               // profile: ears at -y, all four legs at +y
-    owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // top-down mid-swoop: wings spread ±y, talons and eyes paired
+    owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // PARKED (v5.6.8): aerialStrike is unkillable in a melee chapter — kept for a future ranged one
+    centipede: { archetype: 'fast', draw: drawCentipede, lean: 90 },   // top-down: segmented body, leg pair per segment, all ±y mirrored
     rat: { archetype: 'normal', draw: drawRat, lean: 30 },             // 3/4: both ears at -y, every leg at +y
     vacuum: { archetype: 'tank', draw: drawVacuum, lean: 0 },          // a vertical cylinder — its shell loop IS lit-top-over-shadowed-wall
     ratDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 },   // top-down quadrotor: 4 arms + rotors in ±y pairs

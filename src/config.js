@@ -1250,12 +1250,18 @@ export const CHAPTERS = {
     weapons: ['clawRake', 'quillBurst', 'chitterShriek'], starter: 'clawRake',
     roster: [
       { id: 'cat', archetype: 'tank',   name: 'Cat', hpMul: 1.6,  speedMul: 0.8, flags: ['pounce'] },
-      { id: 'owl', archetype: 'fast',   name: 'Owl', hpMul: 1.4,  speedMul: 0.9, flags: ['aerialStrike'] },
+      // Centipede replaces the Owl (v5.6.8). The owl used 'aerialStrike' — circles overhead at
+      // AERIAL_RADIUS, dives to a marked spot — which is un-killable in a MELEE-ONLY chapter: it
+      // circles past every short-range weapon and dives to where a kiting player WAS, so a
+      // clawRake loadout cleared 0% of owls. aerialStrike / drawOwl are kept parked (see sim.js /
+      // render.js) for a future chapter that hands out a ranged weapon. The centipede is a plain
+      // fast ground predator — it closes into rake range and dies there, like every ground enemy.
+      { id: 'centipede', archetype: 'fast', name: 'Centipede', hpMul: 1.15, speedMul: 1.05, flags: [] },
       { id: 'rat', archetype: 'normal', name: 'Rat', hpMul: 0.85, speedMul: 1.15, flags: [] },
     ],
     eliteFlags: ['flashlightCone'],       // exterminator elites sweep a cone that ENRAGES other enemies
-    // Signature: predator telegraphs (the pounce/aerialStrike roster flags are the telegraphs
-    // themselves — no extra step) PLUS a field of snap traps seeded at createRun. `traps` = how
+    // Signature: predator telegraphs (the cat's 'pounce' is the telegraph — it crouches, aims, then
+    // leaps and lands in a punish window) PLUS a field of snap traps seeded at createRun. `traps` = how
     // many traps to scatter; every other trap number is a SNAP_TRAP_* constant below. sim.js gates
     // its trap step on signature.type === 'predators' and seeds run.traps from signature.traps.
     signature: { type: 'predators', traps: 10 },
