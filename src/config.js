@@ -204,20 +204,23 @@ export const WEAPONS = {
       { rate: 3.1, castRange: 290, dur: 3.8, aggro: 270, burstR: 148, burstDmg: 64 },
     ],
   },
-  // Undergrowth chapter natives (v5.4). See stepPounceWeapon/stepQuillWeapon/stepShriekWeapon in sim.js.
-  pounceClaws: {
-    name: 'Pounce Claws',
-    desc: 'Leap at the nearest foe and rake an arc on landing.',
+  // Undergrowth chapter natives (v5.4). See stepClawRake/stepQuillWeapon/stepShriekWeapon in sim.js.
+  clawRake: {
+    name: 'Claw Rake',
+    desc: 'Rake a fast arc at the nearest foe.',
     icon: '🐾', rarity: 'normal',
-    // A cast DASHES the player up to `dash` px toward the nearest enemy (capped so you never
-    // overshoot past it), then rakes every enemy whose CENTER falls in the sector (arc rad,
-    // range px) centered on the dash direction — like flagella's swing, but you move with it.
+    // A cast rakes every enemy whose CENTER falls in the sector (arc rad, range px) centered on the
+    // nearest enemy — flagella's swing geometry exactly, and like flagella it NEVER moves the player
+    // (see the CLAW_* block below for why). The two melee starters are separated by shape, not by a
+    // gimmick: the whip is a WIDE, SLOW, long single sweep (arc 1.40-1.85, rate 0.90-0.58, range
+    // 130-175); the rake is HALF the arc at ~1.6x the cadence and shorter reach — a narrow, rapid
+    // shred you must point at one foe, against a lazy crowd-clearing lash.
     levels: [
-      { dmg: 16, rate: 0.95, dash: 90,  range: 120, arc: 1.20 },
-      { dmg: 19, rate: 0.88, dash: 100, range: 128, arc: 1.30 },
-      { dmg: 24, rate: 0.80, dash: 110, range: 136, arc: 1.40 },
-      { dmg: 29, rate: 0.72, dash: 120, range: 146, arc: 1.50 },
-      { dmg: 36, rate: 0.64, dash: 135, range: 160, arc: 1.65 },
+      { dmg: 11, rate: 0.42, range: 100, arc: 0.70 },
+      { dmg: 13, rate: 0.39, range: 106, arc: 0.75 },
+      { dmg: 16, rate: 0.35, range: 112, arc: 0.82 },
+      { dmg: 20, rate: 0.31, range: 120, arc: 0.88 },
+      { dmg: 25, rate: 0.27, range: 130, arc: 0.95 },
     ],
   },
   quillBurst: {
@@ -285,9 +288,9 @@ export const WEAPONS = {
     name: 'Roar',
     desc: 'A sonic cone that flattens everything in front of you.',
     icon: '🗣️', rarity: 'normal',
-    // Same sector geometry as flagella/pounceClaws (arc rad, range px, aimed at the nearest enemy
+    // Same sector geometry as flagella/clawRake (arc rad, range px, aimed at the nearest enemy
     // and falling back to player.facingAngle when none exists — exactly fireFlagella's rule), but
-    // longer and narrower, and it shoves what it hits. The player does NOT move (unlike pounceClaws).
+    // longer and narrower, and it shoves what it hits.
     levels: [
       { dmg: 15, rate: 1.00, range: 200, arc: 0.90, knockback: 60 },
       { dmg: 18, rate: 0.92, range: 215, arc: 0.95, knockback: 70 },
@@ -588,17 +591,16 @@ export const WEAPON_MODS = {
     stickyScent: { name: 'Sticky Scent',  desc: 'burst leaves a slow zone', icon: '🕸️', base: 1, kind: 'flat' },
   },
   // ---- Undergrowth natives (v5.4) ----
-  // rend/wideRake fold into pounceClaws' levels[] via WEAPON_STAT_MODS; longPounce (dash AND
-  // range) and quickPaws (attack rate — dividing it into the levels[] `rate` would SLOW it, like
-  // flagella.frenzy) are read at the fire site. doublePounce/throughLine are behavioral (see
-  // stepPounceWeapon in sim.js).
-  pounceClaws: {
-    rend:         { name: 'Rending Claws', desc: 'claw damage',        icon: '🩸', base: 0.35, kind: 'pct' },
-    wideRake:     { name: 'Wide Rake',     desc: 'claw arc',           icon: '🪭', base: 0.30, kind: 'pct' },
-    longPounce:   { name: 'Long Pounce',   desc: 'leap distance & reach', icon: '📏', base: 0.30, kind: 'pct' },
-    quickPaws:    { name: 'Quick Paws',    desc: 'pounce rate',        icon: '💨', base: 0.25, kind: 'pct' },
-    doublePounce: { name: 'Double Pounce', desc: 'every 3rd pounce chains into a second leap', icon: '🐈', base: 1, kind: 'flat' },
-    throughLine:  { name: 'Through Line',  desc: 'the leap itself rakes what it passes',       icon: '➡️', base: 1, kind: 'flat' },
+  // rend/wideRake/longClaws fold into clawRake's levels[] via WEAPON_STAT_MODS; quickPaws (attack
+  // rate — dividing it into the levels[] `rate` would SLOW it, like flagella.frenzy) is read at the
+  // fire site. doubleSlash/bleedClaws are behavioral (see stepClawRake/applyBleed in sim.js).
+  clawRake: {
+    rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
+    wideRake:    { name: 'Wide Rake',     desc: 'claw arc',    icon: '🪭', base: 0.30, kind: 'pct' },
+    longClaws:   { name: 'Long Claws',    desc: 'claw reach',  icon: '📏', base: 0.30, kind: 'pct' },
+    quickPaws:   { name: 'Quick Paws',    desc: 'rake rate',   icon: '💨', base: 0.25, kind: 'pct' },
+    doubleSlash: { name: 'Double Slash',  desc: 'every 3rd rake slashes twice',        icon: '🐈', base: 1, kind: 'flat' },
+    bleedClaws:  { name: 'Bleeding Claws', desc: 'bleed on raked foes (over 3s, dot)', icon: '🩹', base: 0.50, kind: 'pct' },
   },
   // sharpQuills/moreQuills/piercingQuills fold into quillBurst's levels[] via WEAPON_STAT_MODS;
   // longQuills (range AND speed) and rapidQuills (burst rate) are read at the fire site.
@@ -821,21 +823,28 @@ export const STINGER_HIVE_EVERY = 4   // hive (behavioral): every Nth volley fir
 export const LURE_STICKY_R = 80       // px, stickyScent slow-zone radius
 export const LURE_STICKY_DUR = 2      // s, stickyScent slow-zone lifetime
 
-// ---- Undergrowth weapons (v5.4: Pounce Claws + Quill Burst + Chitter Shriek) -----------------
-// Pounce Claws (undergrowth starter — see WEAPONS.pounceClaws + stepPounceWeapon in sim.js). The
-// cast teleport-free DASHES the player toward the nearest enemy over POUNCE_DASH_T seconds (the
-// player is uncontrollable but NOT invulnerable during it; obstacles still stop them), then rakes
-// the sector. Dash distance = min(levels.dash, distance to the target - its radius) so you land
-// ON the foe, never past it.
-export const POUNCE_DASH_T = 0.12        // s the dash itself takes (short — this reads as a hop)
-export const POUNCE_DOUBLE_EVERY = 3     // doublePounce (behavioral): every Nth pounce chains a second leap
-export const POUNCE_DOUBLE_DELAY = 0.15  // s between the first rake and the chained leap
-export const POUNCE_DOUBLE_DMG_FRAC = 0.7 // chained leap's damage, as a fraction of the first rake's
-// throughLine (behavioral): the dash path itself rakes. Every enemy whose center is within
-// POUNCE_PATH_R of the dash SEGMENT takes POUNCE_PATH_DMG_FRAC of the swing's damage (once per
-// pounce — the end-of-dash sector rake is applied separately and can hit the same enemy again).
-export const POUNCE_PATH_R = 34
-export const POUNCE_PATH_DMG_FRAC = 0.5
+// ---- Undergrowth weapons (v5.5: Claw Rake + Quill Burst + Chitter Shriek) --------------------
+// Claw Rake (undergrowth starter — see WEAPONS.clawRake + stepClawRake in sim.js): a plain sector
+// rake at the nearest enemy, on flagella's geometry. It does NOT move the player, and must not.
+//
+// v5.5 — this weapon USED to be "Pounce Claws": the cast dashed the player onto the nearest foe and
+// raked on landing. It is gone, and nothing like it should come back as an AUTO-cast. Two reasons,
+// the second decisive:
+//   1. It fed the player into contact damage. The dash landed you ON a foe and the player is not
+//      invulnerable during it; post-hit invuln (0.75s) was SHORTER than the cast interval (0.95s),
+//      so the starter reliably damaged its own owner once per cast.
+//   2. It stole movement agency. Moving is the ONLY input this game has. An auto-cast on a timer
+//      that yanks the player toward the swarm takes the game away from them at an interval they
+//      never chose. I-frames would have fixed (1) and not touched (2) — the concept is simply wrong
+//      for an auto-attack game. A dash belongs on a button the player presses, and there is no
+//      button. Note the enemy 'pounce' below is the SAME verb done right: the CAT leaps, telegraphs
+//      it, and the player dodges — that reads as a predator because the player still gets to answer.
+// If you are here to re-add a dash, re-read (2) first.
+export const CLAW_DOUBLE_EVERY = 3       // doubleSlash (behavioral): every Nth rake slashes a second time
+export const CLAW_DOUBLE_DELAY = 0.12    // s between the first slash and its follow-up (reads as one flurry)
+export const CLAW_DOUBLE_DMG_FRAC = 0.7  // follow-up slash's damage, as a fraction of the first's
+// bleedClaws (behavioral) reuses flagella's barbed bleed verbatim (applyBleed / BARBED_DMG_MUL /
+// BARBED_DURATION above) — same DoT, re-themed as claw wounds. No constants of its own.
 
 // Quill Burst (undergrowth — see WEAPONS.quillBurst + stepQuillWeapon in sim.js): each quill is a
 // run.bullets projectile tagged weapon:'quill' so stepBullets applies quill-only behaviour without
@@ -889,7 +898,7 @@ export const GEYSER_CHAIN_SCATTER_MAX = 150 // px, max scatter from the parent e
 
 // ---- Skies weapons (v5.4: Roar + Tail Swipe + Debris Toss) ------------------------------------
 // Roar (skies starter — see WEAPONS.roar + stepRoarWeapon in sim.js): the same sector test
-// flagella/pounceClaws use, plus a radial shove away from the player.
+// flagella/clawRake use, plus a radial shove away from the player.
 export const ROAR_STUN = 0.5              // stagger (behavioral): stun seconds × bonus on roared foes (e.stunT)
 export const ROAR_RESONANCE_EVERY = 3     // resonance (behavioral): every Nth roar opens to a full 360° (cf. FLAGELLA_CYCLONE_EVERY)
 
@@ -1238,7 +1247,7 @@ export const CHAPTERS = {
   },
   undergrowth: {
     name: 'The Undergrowth', tagline: 'everything here eats you', icon: '🐾',
-    weapons: ['pounceClaws', 'quillBurst', 'chitterShriek'], starter: 'pounceClaws',
+    weapons: ['clawRake', 'quillBurst', 'chitterShriek'], starter: 'clawRake',
     roster: [
       { id: 'cat', archetype: 'tank',   name: 'Cat', hpMul: 1.6,  speedMul: 0.8, flags: ['pounce'] },
       { id: 'owl', archetype: 'fast',   name: 'Owl', hpMul: 1.4,  speedMul: 0.9, flags: ['aerialStrike'] },

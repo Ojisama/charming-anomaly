@@ -32,7 +32,7 @@ import {
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
-  POUNCE_DASH_T, POUNCE_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
+  CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
@@ -3159,56 +3159,67 @@ function testV54Weapons() {
     }
   }
 
-  // (a) pounceClaws: the cast DASHES the player at the nearest foe (landing ON it, never past it)
-  // and rakes on landing. throughLine also rakes what the leap passed; doublePounce chains a 2nd leap.
+  // (a) clawRake: a narrow sector rake at the nearest foe that NEVER moves the player (v5.5 — see
+  // the CLAW_* block in config.js). doubleSlash adds a follow-up slash; bleedClaws bleeds.
   {
-    const run = weaponRun('undergrowth', 'pounceClaws')
-    // Nearer than the level's `dash`, so the "land ON it, never past it" cap is what's under test.
+    const run = weaponRun('undergrowth', 'clawRake')
     const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })
     target.flags = []
     run.enemies.push(target)
-    let sawPounce = null
-    for (let i = 0; i < Math.round(2 / dt) && !sawPounce; i++) {
+    let sawRake = null
+    for (let i = 0; i < Math.round(2 / dt) && !sawRake; i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       stepSim(run, { x: 0, y: 0 }, dt)
-      sawPounce = run.events.find((ev) => ev.type === 'pounce')
+      sawRake = run.events.find((ev) => ev.type === 'clawRake')
     }
-    assert(sawPounce, 'expected a pounce event')
-    assert(run._pounceDash, 'expected the cast to put a dash in flight')
-    const edge = target.x - target.radius
-    assert(Math.abs(sawPounce.dash - edge) < 1e-6, `expected the leap capped at the foe's edge (${edge}), got ${sawPounce.dash.toFixed(1)}`)
-    stepQuiet(run, POUNCE_DASH_T + 0.02)
-    assert(run.player.x > 50, `expected the player dashed toward the foe, x=${run.player.x.toFixed(1)}`)
-    assert(run.player.x <= edge + 1e-6, `expected the leap to land ON the foe, never past it (x=${run.player.x.toFixed(1)}, edge=${edge})`)
-    assert(target.hp < 1e6, `expected the landing rake to damage the foe, hp=${target.hp}`)
+    assert(sawRake, 'expected a clawRake event')
+    assert(target.hp < 1e6, `expected the rake to damage the foe, hp=${target.hp}`)
 
-    // throughLine: an enemy beside the dash path (outside the landing sector's reach) still gets raked.
-    function passedHp(through) {
-      const r = weaponRun('undergrowth', 'pounceClaws')
-      if (through) r.weaponMods.pounceClaws.throughLine = 1
-      r.enemies.push(makeStatusEnemy(r, { x: 400, y: 0, hp: 1e9, speed: 0 })) // aim anchor, far ahead
-      const passed = makeStatusEnemy(r, { x: 60, y: 20, hp: 1e6, speed: 0 })  // beside the path
-      r.enemies.push(passed)
-      stepQuiet(r, 1.2)
-      return passed.hp
+    // THE regression (v5.5): the cast must not move the player. This weapon was "Pounce Claws" and
+    // dashed them onto the target — an auto-cast stealing the only input the game has, and feeding
+    // them into contact damage. Zero input + many casts must leave the player exactly where it was.
+    {
+      const still = weaponRun('undergrowth', 'clawRake')
+      still.weaponMods.clawRake.doubleSlash = 1 // the follow-up slash must not move them either
+      const foe = makeStatusEnemy(still, { x: 60, y: 0, hp: 1e9, speed: 0 })
+      foe.flags = []
+      still.enemies.push(foe)
+      const x0 = still.player.x, y0 = still.player.y
+      let rakes = 0
+      for (let i = 0; i < Math.round(4 / dt); i++) {
+        if (still.phase === 'levelup') { declineLevelUp(still); continue }
+        still.events = []
+        stepSim(still, { x: 0, y: 0 }, dt)
+        rakes += still.events.filter((ev) => ev.type === 'clawRake').length
+      }
+      assert(rakes >= 8, `expected many rakes to have fired, got ${rakes}`)
+      assert.strictEqual(still.player.x, x0, `expected clawRake to NEVER move the player (x moved ${still.player.x - x0} over ${rakes} rakes)`)
+      assert.strictEqual(still.player.y, y0, `expected clawRake to NEVER move the player (y moved ${still.player.y - y0} over ${rakes} rakes)`)
     }
-    const withThrough = passedHp(true)
-    assert(withThrough < 1e6, `expected throughLine to rake what the leap passed, hp=${withThrough}`)
 
-    // doublePounce: every POUNCE_DOUBLE_EVERY-th cast queues a chained second leap.
-    const dbl = weaponRun('undergrowth', 'pounceClaws')
-    dbl.weaponMods.pounceClaws.doublePounce = 1
-    dbl.enemies.push(makeStatusEnemy(dbl, { x: 400, y: 0, hp: 1e9, speed: 0 }))
-    let pounces = 0
-    for (let i = 0; i < Math.round((POUNCE_DOUBLE_EVERY + 1) * 1.0 / dt); i++) {
+    // doubleSlash: every CLAW_DOUBLE_EVERY-th rake queues a follow-up slash, so slashes outnumber casts.
+    const dbl = weaponRun('undergrowth', 'clawRake')
+    dbl.weaponMods.clawRake.doubleSlash = 1
+    dbl.enemies.push(makeStatusEnemy(dbl, { x: 60, y: 0, hp: 1e9, speed: 0 }))
+    let slashes = 0
+    for (let i = 0; i < Math.round((CLAW_DOUBLE_EVERY + 1) * 1.0 / dt); i++) {
       if (dbl.phase === 'levelup') { declineLevelUp(dbl); continue }
       dbl.events = [] // main.js drains events every frame; tests must too, or counts compound
       stepSim(dbl, { x: 0, y: 0 }, dt)
-      pounces += dbl.events.filter((ev) => ev.type === 'pounce').length
+      slashes += dbl.events.filter((ev) => ev.type === 'clawRake').length
     }
-    assert(dbl._pounceCasts >= POUNCE_DOUBLE_EVERY, `expected several casts, got ${dbl._pounceCasts}`)
-    assert(pounces > dbl._pounceCasts, `expected doublePounce to add leaps beyond the casts (casts=${dbl._pounceCasts}, leaps=${pounces})`)
-    console.log(`PASS run AA.a (pounceClaws): dash lands on the foe + rakes; throughLine rakes the path; doublePounce chains (${pounces} leaps / ${dbl._pounceCasts} casts)`)
+    assert(dbl._clawRakes >= CLAW_DOUBLE_EVERY, `expected several casts, got ${dbl._clawRakes}`)
+    assert(slashes > dbl._clawRakes, `expected doubleSlash to add slashes beyond the casts (casts=${dbl._clawRakes}, slashes=${slashes})`)
+
+    // bleedClaws: a raked foe bleeds (flagella's barbed DoT, verbatim).
+    const bleed = weaponRun('undergrowth', 'clawRake')
+    bleed.weaponMods.clawRake.bleedClaws = 0.5
+    const bleeder = makeStatusEnemy(bleed, { x: 60, y: 0, hp: 1e6, speed: 0 })
+    bleeder.flags = []
+    bleed.enemies.push(bleeder)
+    stepQuiet(bleed, 1.0)
+    assert(bleeder.bleed > 0 && bleeder.bleedDps > 0, `expected bleedClaws to bleed a raked foe (bleed=${bleeder.bleed}, dps=${bleeder.bleedDps})`)
+    console.log(`PASS run AA.a (clawRake): rakes the nearest foe and NEVER moves the player; doubleSlash chains (${slashes} slashes / ${dbl._clawRakes} casts); bleedClaws bleeds`)
   }
 
   // (b) quillBurst: a ring of quills in every direction (never aimed — the panic button), tagged
@@ -3701,8 +3712,7 @@ function testV54Weapons() {
       for (let i = 0; i < Math.round(cap / dt); i++) {
         if (run.phase === 'levelup') { declineLevelUp(run); continue }
         t += dt
-        // Pin the player: enemies converge on the origin. (pounceClaws' dash moves them — pinning
-        // each frame keeps every chapter's measurement on the same converging-ring footing.)
+        // Pin the player: enemies converge on the origin, and no weapon may drift them off it.
         run.player.x = 0; run.player.y = 0
         stepSim(run, { x: 0, y: 0 }, dt)
         if (run.enemies.length === 0) return t
@@ -3712,7 +3722,7 @@ function testV54Weapons() {
     // { chapter: [[weaponId, mods], ...] } — the first entry of each is that chapter's STARTER.
     const bands = {
       undergrowth: [
-        ['pounceClaws', (r) => { r.weaponMods.pounceClaws.rend = 0.35; r.weaponMods.pounceClaws.wideRake = 0.30 }],
+        ['clawRake', (r) => { r.weaponMods.clawRake.rend = 0.35; r.weaponMods.clawRake.wideRake = 0.30 }],
         ['quillBurst', (r) => { r.weaponMods.quillBurst.sharpQuills = 0.25; r.weaponMods.quillBurst.moreQuills = 2 }],
         ['chitterShriek', (r) => { r.weaponMods.chitterShriek.shrill = 0.30; r.weaponMods.chitterShriek.shockwave = 0.30 }],
       ],

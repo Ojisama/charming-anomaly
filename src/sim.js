@@ -74,8 +74,8 @@ import {
   FLASHLIGHT_RANGE, FLASHLIGHT_ARC, FLASHLIGHT_SWEEP, FLASHLIGHT_SWEEP_SPEED,
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL, FLASHLIGHT_DMG_MUL,
   SNAP_TRAP_DMG, SNAP_TRAP_REARM,
-  POUNCE_DASH_T, POUNCE_DOUBLE_EVERY, POUNCE_DOUBLE_DELAY, POUNCE_DOUBLE_DMG_FRAC,
-  POUNCE_PATH_R, POUNCE_PATH_DMG_FRAC, QUILL_R, QUILL_RETALIATE_CD,
+  CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
+  QUILL_R, QUILL_RETALIATE_CD,
   FEAR_SPEED_MUL, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   // v5.4 city
   LINE_CHARGE_RANGE, LINE_CHARGE_TRACK_SPEED_MUL, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
@@ -204,17 +204,8 @@ function stepPlayerMovement(run, input, dt) {
   }
   const slowMul = Math.min(latchMul, webMul)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul
-  // Pounce Claws' dash (v5.4): while a leap is in flight the player is UNCONTROLLABLE — the leap
-  // velocity replaces their input entirely (they're not invulnerable, and stepObstacles still stops
-  // them at a wall like any other frame). See stepPounceWeapon/stepPounceDash below.
-  const dash = run._pounceDash
-  if (dash) {
-    p.x += dash.dirX * dash.speed * dt
-    p.y += dash.dirY * dash.speed * dt
-  } else {
-    p.x += ix * speed * dt
-    p.y += iy * speed * dt
-  }
+  p.x += ix * speed * dt
+  p.y += iy * speed * dt
   // The player's own input velocity, snapshotted for the skies' artillery flag to lead its shells
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read.
   p.vx = ix * speed
@@ -1810,9 +1801,9 @@ const WEAPON_STAT_MODS = {
   // (quickPaws/rapidQuills/rapidShriek/rapidGeyser/rapidRoar/quickTail/rapidToss/rapidShard/
   // rapidFold) divides the interval at its fire site rather than folding into `rate` — folding it
   // in would SLOW the weapon — and so does every mod that has to touch two fields at once
-  // (longPounce = dash AND range, longQuills = range AND speed, longToss = castRange at the throw
-  // site). The rest is plain stat folding.
-  pounceClaws:   { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'] },
+  // (longQuills = range AND speed, longToss = castRange at the throw site). The rest is plain stat
+  // folding.
+  clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'], piercingQuills: ['pierce', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideTornado: ['radius', 'pct'], fasterSpin: ['rotSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
@@ -1861,7 +1852,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'bloom') stepBloomWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'stinger') stepStingerWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'lure') stepLureWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'pounceClaws') stepPounceWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'clawRake') stepClawRake(run, w, stats, fireRateMul, dt)
     else if (w.id === 'quillBurst') stepQuillWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'chitterShriek') stepShriekWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'trashTornado') stepTornadoWeapon(run, stats, fireRateMul, dt)
@@ -1882,7 +1873,7 @@ function stepWeapons(run, dt) {
   stepBeams(run, dt)
   stepBlooms(run, dt)
   stepLures(run, dt)
-  stepPounceDash(run, dt)
+  stepClawSlashes(run, dt)
   stepGeysers(run, dt)
   stepLobs(run, dt)
 
@@ -3041,7 +3032,7 @@ function aimAngle(run) {
   return p.facing >= 0 ? 0 : Math.PI
 }
 
-// Shared by every sector sweep (pounceClaws' rake, roar, tailSwipe): is the enemy's CENTER inside
+// Shared by every sector sweep (clawRake, roar, tailSwipe): is the enemy's CENTER inside
 // the sector of half-angle arc/2 and radius `range` centered on `angle` at (ox, oy)? fullCircle
 // skips the angular test (cyclone/resonance's 360° swings).
 function inSector(ox, oy, angle, range, arc, e, fullCircle) {
@@ -3051,116 +3042,69 @@ function inSector(ox, oy, angle, range, arc, e, fullCircle) {
   if (fullCircle) return true
   // The sector's apex is INSIDE the enemy's own body: it's in every arc, and the angular test is
   // meaningless there anyway (a bearing of ~zero length is arbitrary — atan2(0,0) is just 0). Without
-  // this, an enemy hugging the player can flip from one side of the sweep to the other between a
-  // pounce's aim and its landing rake, and the leap "misses" something it landed on top of.
+  // this, an enemy hugging the player would fall out of the sweep exactly when it is most obviously
+  // being clawed.
   if (dSq <= e.radius * e.radius) return true
   const ea = Math.atan2(dy, dx)
   const da = Math.atan2(Math.sin(ea - angle), Math.cos(ea - angle)) // signed angular offset
   return Math.abs(da) <= arc / 2
 }
 
-// -- Pounce Claws (v5.4 undergrowth starter) ---------------------------------------------
-// A cast DASHES the player toward the nearest enemy over POUNCE_DASH_T (stepPlayerMovement hands
-// them over to run._pounceDash for the duration), then rakes the sector where it lands. Dash
-// distance is capped at the distance to the target's edge, so you land ON the foe, never past it.
-// quickPaws divides the interval (a `rate` fold would slow it); longPounce scales dash AND range;
-// doublePounce chains a second, weaker leap every POUNCE_DOUBLE_EVERY-th cast; throughLine makes
-// the leap itself rake what it passes.
-function stepPounceWeapon(run, w, stats, fireRateMul, dt) {
-  const mods = run.weaponMods.pounceClaws
+// -- Claw Rake (v5.5 undergrowth starter) -------------------------------------------------
+// A narrow, fast sector rake at the nearest enemy — fireFlagella's shape, tuned the other way
+// (half the arc, ~1.6x the cadence). It NEVER touches the player's position: this weapon used to
+// dash them onto the target, which stole the only input the game has and fed them into contact
+// damage. See the CLAW_* block in config.js before changing that.
+// quickPaws divides the interval (a `rate` fold would slow it); doubleSlash adds a follow-up slash
+// every CLAW_DOUBLE_EVERY-th rake; bleedClaws adds flagella's barbed bleed.
+function stepClawRake(run, w, stats, fireRateMul, dt) {
+  const mods = run.weaponMods.clawRake
   const quickPaws = mods?.quickPaws ?? 0
-  const longMul = 1 + (mods?.longPounce ?? 0)
-  const doubleOn = (mods?.doublePounce ?? 0) > 0
+  const doubleOn = (mods?.doubleSlash ?? 0) > 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickPaws)), dt, () => {
-    run._pounceCasts = (run._pounceCasts ?? 0) + 1
-    launchPounce(run, {
-      dash: stats.dash * longMul,
-      range: stats.range * longMul,
+    run._clawRakes = (run._clawRakes ?? 0) + 1
+    slashClaws(run, {
+      range: stats.range,
       arc: stats.arc,
       dmg: stats.dmg,
-      through: (mods?.throughLine ?? 0) > 0,
-      chain: doubleOn && run._pounceCasts % POUNCE_DOUBLE_EVERY === 0,
+      chain: doubleOn && run._clawRakes % CLAW_DOUBLE_EVERY === 0,
     })
   })
 }
 
-// Starts one leap. o = { dash, range, arc, dmg, through, chain } — already mod-resolved, so a
-// chained second leap can reuse it verbatim at reduced damage.
-function launchPounce(run, o) {
+// One slash. o = { range, arc, dmg, chain } — already mod-resolved, so a doubleSlash follow-up can
+// reuse it verbatim at reduced damage. Re-aimed on every slash (including the follow-up): the
+// swarm moves between them.
+function slashClaws(run, o) {
   const p = run.player
   const angle = aimAngle(run)
-  const target = nearestEnemy(run)
-  let dist = o.dash
-  if (target) {
-    const toTarget = Math.hypot(target.x - p.x, target.y - p.y) - target.radius
-    dist = Math.max(0, Math.min(o.dash, toTarget)) // land ON it, never past it
-  }
-  run._pounceDash = {
-    dirX: Math.cos(angle), dirY: Math.sin(angle),
-    speed: dist / POUNCE_DASH_T,
-    t: POUNCE_DASH_T,
-    fromX: p.x, fromY: p.y,
-    angle, o,
-  }
-  run.events.push({ type: 'pounce', x: p.x, y: p.y, angle, range: o.range, arc: o.arc, dash: dist })
-}
-
-// Ticks the in-flight leap (the player's movement itself is stepPlayerMovement's job) and the
-// doublePounce chain delay. A no-op unless a pounce is live.
-function stepPounceDash(run, dt) {
-  const d = run._pounceDash
-  if (d) {
-    d.t -= dt
-    if (d.t <= 0) {
-      run._pounceDash = null
-      rakePounce(run, d)
-    }
-  }
-  const chain = run._pounceChain
-  if (chain) {
-    chain.delay -= dt
-    if (chain.delay <= 0) {
-      run._pounceChain = null
-      launchPounce(run, chain.o)
-    }
-  }
-}
-
-function rakePounce(run, d) {
-  const p = run.player
-  const o = d.o
-  // throughLine: the dash PATH rakes too — every enemy within POUNCE_PATH_R of the segment it just
-  // travelled takes a fraction of the swing. Resolved once per pounce; the sector rake below is a
-  // separate pass, so an enemy standing at the landing spot can eat both.
-  if (o.through) {
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      if (distToSegment(e.x, e.y, d.fromX, d.fromY, p.x, p.y) > POUNCE_PATH_R + e.radius) continue
-      applyDamage(run, e, o.dmg * POUNCE_PATH_DMG_FRAC)
-    }
-  }
+  const bleedBonus = run.weaponMods.clawRake?.bleedClaws ?? 0
   for (const e of run.enemies) {
     if (e._dead) continue
-    if (!inSector(p.x, p.y, d.angle, o.range, o.arc, e, false)) continue
-    applyDamage(run, e, o.dmg)
+    if (!inSector(p.x, p.y, angle, o.range, o.arc, e, false)) continue
+    const dealt = applyDamage(run, e, o.dmg)
+    // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
+    if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
   }
-  // doublePounce: chain a second, weaker leap after a beat. The chained leap never chains further.
+  run.events.push({ type: 'clawRake', x: p.x, y: p.y, angle, range: o.range, arc: o.arc })
+  // doubleSlash: queue a second, weaker slash after a beat. The follow-up never chains further.
   if (o.chain) {
-    run._pounceChain = {
-      delay: POUNCE_DOUBLE_DELAY,
-      o: { ...o, dmg: o.dmg * POUNCE_DOUBLE_DMG_FRAC, chain: false },
+    run._clawChain = {
+      delay: CLAW_DOUBLE_DELAY,
+      o: { ...o, dmg: o.dmg * CLAW_DOUBLE_DMG_FRAC, chain: false },
     }
   }
 }
 
-// Shortest distance from (px,py) to the segment (ax,ay)-(bx,by). Only throughLine needs it.
-function distToSegment(px, py, ax, ay, bx, by) {
-  const vx = bx - ax, vy = by - ay
-  const lenSq = vx * vx + vy * vy
-  if (lenSq <= 1e-9) return Math.hypot(px - ax, py - ay)
-  let t = ((px - ax) * vx + (py - ay) * vy) / lenSq
-  t = Math.max(0, Math.min(1, t))
-  return Math.hypot(px - (ax + vx * t), py - (ay + vy * t))
+// Ticks the doubleSlash follow-up delay. A no-op unless one is queued.
+function stepClawSlashes(run, dt) {
+  const chain = run._clawChain
+  if (!chain) return
+  chain.delay -= dt
+  if (chain.delay <= 0) {
+    run._clawChain = null
+    slashClaws(run, chain.o)
+  }
 }
 
 // -- Quill Burst (v5.4 undergrowth) -------------------------------------------------------

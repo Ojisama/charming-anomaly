@@ -498,8 +498,8 @@ function generateWells(sig) {
  * stinger's needles); the Chitter Shriek is a run.novas entry carrying `fear` (s); the Tesseract
  * Beam is a run.beams entry carrying `folded: true` + `arms` (n arms evenly around the circle,
  * sweeping together) + `collapseBonus`. New events:
- *   {type:'pounce', x, y, angle, range, arc, dash}  a Pounce Claws leap (x,y = the take-off point;
- *                                                   dash = the leap distance actually taken)
+ *   {type:'clawRake', x, y, angle, range, arc}      a Claw Rake slash (same shape as 'whip'; x,y =
+ *                                                   the player — the rake never moves them)
  *   {type:'roar', x, y, angle, range, arc}          a Roar sector sweep (same shape as 'whip')
  *   {type:'tail', x, y, angle, range, arc}          a Tail Swipe sector sweep
  *   {type:'geyser', x, y}                           a Sewer Geyser cast (x,y = player, for sfx;

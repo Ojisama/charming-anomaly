@@ -3506,6 +3506,113 @@ export function createRenderer(app) {
     for (const wp of whips) { wp.live = false; if (wp.root) wp.root.visible = false }
   }
 
+  // Claw Rake slashes (one-off {type:'clawRake'} events) — the whip's anchored-melee idiom, on a
+  // deliberately different shape. The whip is slash_02: one FAT solid swoosh curling across the
+  // wedge, and borrowing it made the rake read as a second whip. A rake is THREE THIN PARALLEL
+  // GASHES landing together, side by side at one reach, splayed across the wedge. They flash as one
+  // and drift outward as they fade — the arc reads as raked, not swung. Each tine is one drawn gash
+  // (see bakeClawGash), never a chain of segments — the same "one shape IS the arc" rule as the whip.
+  const MAX_CLAWS = 8
+  // Each tine's reach as a fraction of the rake's range. Keep these NEARLY EQUAL and splay the
+  // tines ACROSS the wedge with FAN instead: three arcs at stepped radii (0.52/0.76/1.0) are
+  // concentric, and concentric arcs read as a ripple/shockwave expanding out of the player, not as
+  // claws. A paw rakes three gashes SIDE BY SIDE at one reach. The slight stagger below is just the
+  // middle claw leading, the way a real paw's does.
+  const CLAW_TINE_R = [0.92, 1.0, 0.90]
+  // Fraction of the ARC each tine is offset across the wedge (multiplied by cp.arc at use). The
+  // wedge's half-width is 0.5, so ~0.34 splays the gashes to fill it without spilling past the
+  // hitbox — the separation IS the claw read, and it's what the stepped radii used to fake.
+  const CLAW_TINE_FAN = [-0.34, 0.0, 0.33]
+  const CLAW_TINE_A = [0.82, 1.0, 0.78]     // outer gashes lighter — the middle claw bites deepest
+  // A gash is DRAWN, not stamped from the Kenney slash glyph. That PNG's alpha falls off soft and
+  // round, so it can only ever read as a fat smear — there is no needle tip anywhere in it, at any
+  // scale or squash. A claw mark is the opposite shape: double-tapered, sharp at BOTH ends, fat at
+  // the belly, with a hard rim. Drawing it also deletes three workarounds the glyph needed — the
+  // hand-measured arc center (bake() returns the anchor), the 82°->50° squash (GASH_SPAN just IS
+  // the wedge), and the stacked rim+core copies (the stroke is the rim).
+  const GASH_R = 100            // baked arc radius; updateClaws scales by rad / GASH_R
+  const GASH_SPAN = 0.92        // rad the gash subtends
+  const GASH_W = 15             // width at the belly
+  const GASH_BELLY = 0.85       // <1 pushes the belly toward the tip — a claw drags deepest past the bite
+  const GASH_FILL = 0xf0834a    // warm rust, straight off the reference
+  const GASH_RIM = 0x5c1c0a     // dark rim: what actually separates the gashes on the loam floor
+  const CLAW_DRIFT = 0.10       // fraction of range the tines rake outward as they fade
+  const claws = []
+  for (let i = 0; i < MAX_CLAWS; i++) claws.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.16, root: null, tines: null })
+  let clawCursor = 0
+  // One curved, double-tapered gash, baked once and shared by every tine. Drawn with the arc's
+  // CENTER at the local origin, so bake()'s returned anchor puts that center on the player: then
+  // rotation is just the bearing and scale is just the reach.
+  let gashTex = null
+  function bakeClawGash() {
+    const g = new Graphics()
+    const N = 44
+    const left = [], right = []
+    for (let i = 0; i <= N; i++) {
+      const t = i / N
+      const a = -GASH_SPAN / 2 + GASH_SPAN * t
+      const ca = Math.cos(a), sa = Math.sin(a)
+      // Belly profile: 0 at both tips, fat in the middle. Clamp the sin's argument — t can land a
+      // hair outside [0,1] in float, and pow(negative, fraction) is NaN. One NaN vertex blanks the
+      // whole baked texture (the v5.4 bulge() bug, same shape).
+      const u = Math.min(1, Math.max(0, Math.pow(t, GASH_BELLY)))
+      const w = GASH_W * Math.pow(Math.max(0, Math.sin(Math.PI * u)), 0.8) * 0.5
+      left.push(GASH_R * ca + ca * w, GASH_R * sa + sa * w)   // offset along the radial: a gash
+      right.push(GASH_R * ca - ca * w, GASH_R * sa - sa * w)  // thickens across its own curve
+    }
+    // walk out one edge and back the other — right reversed, in x,y pairs
+    const back = []
+    for (let i = right.length - 2; i >= 0; i -= 2) back.push(right[i], right[i + 1])
+    g.poly([...left, ...back]).fill(GASH_FILL).stroke({ width: 2.4, color: GASH_RIM, join: 'round' })
+    return bake(g)
+  }
+  function makeTine() {
+    if (!gashTex) gashTex = bakeClawGash()
+    const s = new Sprite(gashTex.tex)
+    s.anchor.set(gashTex.ax, gashTex.ay) // the arc's center → sits on the player
+    return s
+  }
+  function spawnClaw(x, y, angle, range, arc) {
+    const cp = claws[clawCursor]
+    clawCursor = (clawCursor + 1) % MAX_CLAWS
+    if (!cp.root) {
+      cp.root = new Container()
+      cp.tines = CLAW_TINE_R.map(() => makeTine())
+      cp.root.addChild(...cp.tines)
+      whipLayer.addChild(cp.root)
+    }
+    cp.live = true
+    cp.x = x; cp.y = y; cp.angle = angle; cp.range = range; cp.arc = arc || 1
+    cp.t = 0
+    cp.root.visible = true
+  }
+  function updateClaws(dt) {
+    for (const cp of claws) {
+      if (!cp.live) continue
+      if (dt > 0) cp.t += dt
+      if (cp.t >= cp.dur) { cp.live = false; cp.root.visible = false; continue }
+      const k = cp.t / cp.dur
+      cp.root.position.set(cp.x, cp.y)
+      const flash = Math.sin(Math.PI * k) // ramp in then out, exactly like the whip's
+      // The whole rake sweeps only a LITTLE across the wedge (the fan already covers it) and rakes
+      // outward as it fades — a swing would re-read as the whip.
+      const sweep = cp.angle + cp.arc * (k - 0.5) * 0.35
+      const reach = 1 + CLAW_DRIFT * k
+      for (let i = 0; i < cp.tines.length; i++) {
+        const tine = cp.tines[i]
+        const rad = cp.range * CLAW_TINE_R[i] * reach
+        // The gash is drawn anchored at its arc's center and bulges +x from it, so rotation IS the
+        // bearing and scale IS the reach. Uniform: squashing would blunt the tips it's drawn to have.
+        tine.scale.set(rad / GASH_R)
+        tine.rotation = sweep + CLAW_TINE_FAN[i] * cp.arc
+        tine.alpha = Math.pow(flash, 1.3) * 0.95 * CLAW_TINE_A[i]
+      }
+    }
+  }
+  function clearClaws() {
+    for (const cp of claws) { cp.live = false; if (cp.root) cp.root.visible = false }
+  }
+
   // particles: fixed-size freelist of sprites + plain data
   const particles = []
   for (let i = 0; i < MAX_PARTICLES; i++) {
@@ -3923,6 +4030,13 @@ export function createRenderer(app) {
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
           addShake(2, 0.1)
           break
+        case 'clawRake':
+          // Claw Rake: three parallel gashes (spawnClaw — NOT the whip's swoosh; see there). A
+          // lighter shake than the lash: it's a quick shred, and at this cadence a full-weight one
+          // would rattle the screen nonstop.
+          spawnClaw(e.x, e.y, e.angle, e.range, e.arc)
+          addShake(1.2, 0.07)
+          break
         case 'explode':
           explosionBurst(e.x, e.y, e.radius)
           addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
@@ -4019,6 +4133,7 @@ export function createRenderer(app) {
     for (const lv of lurePool) lv.root.visible = false
     clearObstacles()
     clearWhips()
+    clearClaws()
     clearCurrents()
     clearParticles()
     clearRings()
@@ -4396,6 +4511,7 @@ export function createRenderer(app) {
     redrawArcs()
 
     updateWhips(dt)
+    updateClaws(dt)
     updateParticles(dt)
     updateRings(dt)
     updateDamage(dt)
