@@ -3035,10 +3035,22 @@ function aimAngle(run) {
 // Shared by every sector sweep (clawRake, roar, tailSwipe): is the enemy's CENTER inside
 // the sector of half-angle arc/2 and radius `range` centered on `angle` at (ox, oy)? fullCircle
 // skips the angular test (cyclone/resonance's 360° swings).
+// Tests the enemy's BODY against the sector, not its centre. A centre-only test is why a foe whose
+// sprite plainly overlaps the sweep — but whose centre sits a few px past the edge — took nothing:
+// the swing visibly passed through it and did nothing.
+//
+// The body radius is also what pays for "incoming" foes. Every sector sweep here is INSTANTANEOUS
+// while its FX lingers (~0.16-0.18s — the whip does the same), so a foe that closes during the
+// animation looks like it walked into a live blade and should have been cut. Widening by the foe's
+// own radius is the compensation, and it beats a magic pad constant twice over: it scales with the
+// foe (a tank's bulk earns more tolerance than a wisp's), and it never claims ground the DRAWING
+// doesn't cover, because what the eye judges is body-overlaps-claws — which is exactly this test.
+// It shrinks the walk-in window; only a live multi-frame hitbox would close it entirely.
 function inSector(ox, oy, angle, range, arc, e, fullCircle) {
   const dx = e.x - ox, dy = e.y - oy
   const dSq = dx * dx + dy * dy
-  if (dSq > range * range) return false
+  const reach = range + e.radius
+  if (dSq > reach * reach) return false
   if (fullCircle) return true
   // The sector's apex is INSIDE the enemy's own body: it's in every arc, and the angular test is
   // meaningless there anyway (a bearing of ~zero length is arbitrary — atan2(0,0) is just 0). Without
@@ -3047,7 +3059,9 @@ function inSector(ox, oy, angle, range, arc, e, fullCircle) {
   if (dSq <= e.radius * e.radius) return true
   const ea = Math.atan2(dy, dx)
   const da = Math.atan2(Math.sin(ea - angle), Math.cos(ea - angle)) // signed angular offset
-  return Math.abs(da) <= arc / 2
+  // A body of radius r at distance d subtends asin(r/d) either side of its centre's bearing, so a
+  // foe merely CLIPPED by the wedge's edge counts — same reason as the reach above.
+  return Math.abs(da) <= arc / 2 + Math.asin(Math.min(1, e.radius / Math.sqrt(dSq)))
 }
 
 // -- Claw Rake (v5.5 undergrowth starter) -------------------------------------------------
