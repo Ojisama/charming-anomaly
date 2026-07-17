@@ -3513,16 +3513,16 @@ export function createRenderer(app) {
   // and drift outward as they fade — the arc reads as raked, not swung. Each tine is one drawn gash
   // (see bakeClawGash), never a chain of segments — the same "one shape IS the arc" rule as the whip.
   const MAX_CLAWS = 8
-  // Each tine's reach as a fraction of the rake's range. Keep these NEARLY EQUAL and splay the
-  // tines ACROSS the wedge with FAN instead: three arcs at stepped radii (0.52/0.76/1.0) are
-  // concentric, and concentric arcs read as a ripple/shockwave expanding out of the player, not as
-  // claws. A paw rakes three gashes SIDE BY SIDE at one reach. The slight stagger below is just the
-  // middle claw leading, the way a real paw's does.
-  const CLAW_TINE_R = [0.92, 1.0, 0.90]
-  // Fraction of the ARC each tine is offset across the wedge (multiplied by cp.arc at use). The
-  // wedge's half-width is 0.5, so ~0.34 splays the gashes to fill it without spilling past the
-  // hitbox — the separation IS the claw read, and it's what the stepped radii used to fake.
-  const CLAW_TINE_FAN = [-0.34, 0.0, 0.33]
+  // Each tine's reach as a fraction of the rake's range. THE GASHES MUST NOT TOUCH — the gap
+  // between them is the whole claw read; the moment they overlap they fuse into one fat crescent
+  // and it's a swoosh again. Two things have to hold together:
+  //   - the spacing here must exceed a gash's thickness (GASH_W + rim). At range 100 these sit at
+  //     72/86/100px: ~14px apart against a ~9px gash, so ~5px of floor shows between them.
+  //   - the FAN must stay SMALL. A gash spans GASH_SPAN (0.92 rad) along its length, so fanning by
+  //     less than that (the old +-0.24) doesn't separate them at all — it just slides overlapping
+  //     arcs along each other. Separation comes from the radius; the fan is only a slight splay.
+  const CLAW_TINE_R = [0.72, 0.86, 1.0]
+  const CLAW_TINE_FAN = [-0.11, 0.0, 0.10]  // rad (x arc): a paw's claws splay a little, not a lot
   const CLAW_TINE_A = [0.82, 1.0, 0.78]     // outer gashes lighter — the middle claw bites deepest
   // A gash is DRAWN, not stamped from the Kenney slash glyph. That PNG's alpha falls off soft and
   // round, so it can only ever read as a fat smear — there is no needle tip anywhere in it, at any
@@ -3532,7 +3532,8 @@ export function createRenderer(app) {
   // the wedge), and the stacked rim+core copies (the stroke is the rim).
   const GASH_R = 100            // baked arc radius; updateClaws scales by rad / GASH_R
   const GASH_SPAN = 0.92        // rad the gash subtends
-  const GASH_W = 15             // width at the belly
+  const GASH_W = 6.5            // width at the belly — THIN. This plus the rim must stay under the
+                                // CLAW_TINE_R spacing above, or the three gashes merge into a smear.
   const GASH_BELLY = 0.85       // <1 pushes the belly toward the tip — a claw drags deepest past the bite
   const GASH_FILL = 0xf0834a    // warm rust, straight off the reference
   const GASH_RIM = 0x5c1c0a     // dark rim: what actually separates the gashes on the loam floor
@@ -3563,7 +3564,7 @@ export function createRenderer(app) {
     // walk out one edge and back the other — right reversed, in x,y pairs
     const back = []
     for (let i = right.length - 2; i >= 0; i -= 2) back.push(right[i], right[i + 1])
-    g.poly([...left, ...back]).fill(GASH_FILL).stroke({ width: 2.4, color: GASH_RIM, join: 'round' })
+    g.poly([...left, ...back]).fill(GASH_FILL).stroke({ width: 1.5, color: GASH_RIM, join: 'round' })
     return bake(g)
   }
   function makeTine() {
