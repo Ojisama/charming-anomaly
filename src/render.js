@@ -2068,6 +2068,88 @@ export function createRenderer(app) {
       g.circle(0, 0, REF).stroke({ width: REF * 0.14, color: 0xffffff, alpha: 1 })     // hard rim ON the edge
       T.obFoot = { ...bake(g), ref: REF }
     }
+    // ---- body interior props (v5.6) ----------------------------------------
+    // The Body is the intro chapter: a pale warm-cream floor (0xf4efe6) walked by soft-red cells,
+    // a pale white cell and an amber antibody. Its floor furniture is anatomy, not botany — but it
+    // must stay DECOR: every fill sits low-contrast on the floor (measured 1.1-1.6x WCAG luminance)
+    // and far below every enemy (3.9-6.4x), in a warm pink/rose/cream band hue-clear of the red
+    // cell, so a platelet is never mistaken for a cell in peripheral vision. Soft fills, no hard
+    // dark outlines — a dark edge is the enemy read, so props carry themselves on value alone.
+    {
+      // villi mound (big): a tuft of rounded intestinal villi rising off the floor. Each finger is a
+      // spine with a mild lean, a gentle taper and a ROUND cap (blunt, never a spike), over a soft
+      // basal mound. Fixed per-bake jitter (like pebble) so no two fingers match. Origin at the base.
+      const g = new Graphics()
+      const body = 0xe8b6c1
+      const hi = 0xf0cbd3
+      g.ellipse(1, -4, 27, 9).fill({ color: body, alpha: 0.85 }) // basal mound, drawn first
+      const fingers = [[-19, 30, 0.42], [-9, 44, 0.16], [3, 51, 0.61], [13, 42, 0.28], [22, 29, 0.53]]
+      for (const [bx, h, seed] of fingers) {
+        const lean = (hash(seed * 7.1 + 2.3) - 0.5) * 11
+        const wob = 0.78 + hash(seed * 3.7 + 1.1) * 0.42
+        const spine = (t) => [bx + lean * t * t, -t * h]
+        g.poly(spineOutline(spine, (t) => 6.6 * wob * (1 - 0.34 * t), 14)).fill(body) // stalk
+        g.circle(bx + lean, -h, 4.6 * wob).fill(body)                                  // round cap
+        g.ellipse(bx + lean - 1.6, -h - 1.4, 2.1 * wob, 2.8 * wob).fill({ color: hi, alpha: 0.5 }) // lit tip
+      }
+      T.villi = bake(g)
+    }
+    {
+      // vesicle cluster (big): a grape-bunch of translucent transport vesicles. Overlapping alpha
+      // discs darken where they stack, so the bunch reads without any hard line; each carries a soft
+      // pale specular. Top-down, spins freely.
+      const g = new Graphics()
+      const wall = 0xe3b7c2
+      const hi = 0xf3dde3
+      const bubs = [[0, 1, 15], [-15, 6, 11], [13, 8, 12], [-6, -13, 9], [8, -11, 9], [-19, -5, 7], [3, 16, 8], [18, -4, 7]]
+      for (const [x, y, r] of bubs) {
+        g.circle(x, y, r).fill({ color: wall, alpha: 0.5 }).stroke({ width: 1.1, color: wall, alpha: 0.55 })
+        g.circle(x - r * 0.32, y - r * 0.34, r * 0.28).fill({ color: hi, alpha: 0.7 }) // specular
+      }
+      T.vesicles = bake(g)
+    }
+    {
+      // platelet (mid/detail): a small irregular disc — a lumpy rounded plate with a paler granular
+      // centre. Blunt lobed outline, no hard edge. Reused small + dimmed on the detail layer.
+      const g = new Graphics()
+      const fill = 0xe7bcc4
+      const shape = (a) => 11 * (0.86 + 0.1 * Math.cos(a * 3 + 0.7) + 0.06 * Math.sin(a * 5 - 1.3))
+      g.poly(radialOutline(shape, 34)).fill(fill)
+      g.ellipse(-1.5, -1.5, 5.5, 4.5).fill({ color: 0xf3d6db, alpha: 0.6 }) // pale granular centre
+      T.platelet = bake(g)
+    }
+    {
+      // lipid droplet (mid): a soft fat globule — pale cream fill, a bright rim arc on the lit side
+      // and a round specular, a soft shaded base opposite. Reads as an oily bead. Top-down.
+      const g = new Graphics()
+      const cream = 0xefd9c8
+      const rim = 0xf6ead9
+      const shape = (a) => 13 * (0.94 + 0.05 * Math.cos(a * 2 + 0.4))
+      g.poly(radialOutline(shape, 32)).fill(cream)
+      g.ellipse(3, 4, 6, 4).fill({ color: 0xe4c3b4, alpha: 0.35 })                                      // shaded base
+      g.beginPath().arc(0, 0, 12, Math.PI * 0.85, Math.PI * 1.72).stroke({ width: 2, color: rim, alpha: 0.7, cap: 'round' }) // lit rim
+      g.circle(-4, -4.5, 3).fill({ color: rim, alpha: 0.8 })                                            // specular
+      T.lipid = bake(g)
+    }
+    {
+      // capillary squiggle (mid/detail): a thin branching vessel. taperStroke narrows toward every
+      // tip so it reads as a vessel and not a scribble, with a faint lighter lumen down the main run.
+      const g = new Graphics()
+      const vein = 0xe6b5bd
+      taperStroke(g, [[-24, 6], [-10, -4], [4, 2], [16, -6], [26, -2]], 4.2, 1.4, vein, 4) // main run
+      taperStroke(g, [[4, 2], [9, 12], [17, 17]], 3, 1, vein, 3)                            // lower branch
+      taperStroke(g, [[-10, -4], [-13, -14], [-9, -22]], 2.6, 0.9, vein, 3)                 // upper branch
+      taperStroke(g, [[-22, 5], [-9, -3], [4, 1.5], [15, -5]], 1.3, 0.6, 0xf0cbd3, 4)       // lumen
+      T.capillary = bake(g)
+    }
+    {
+      // plasma mote (detail): a tiny drifting plasma blob — a soft disc with a paler core. Kept very
+      // low alpha at populate time so it barely stains the floor.
+      const g = new Graphics()
+      g.circle(0, 0, 6).fill({ color: 0xecc9cf, alpha: 0.75 })
+      g.circle(-1.2, -1.2, 2.4).fill({ color: 0xf6ead9, alpha: 0.7 })
+      T.mote = bake(g)
+    }
 
     // ---- v5.4 signature/weapon props ---------------------------------------
     // snap traps (undergrowth signature, run.traps): they damage the PLAYER AND ENEMIES, so armed
@@ -2506,6 +2588,12 @@ export function createRenderer(app) {
   const BIG_CITY = [{ name: 'dumpster', baked: true, upright: true, scale: [0.9, 1.5] }]
   const BIG_SKIES = [{ name: 'rubble', baked: true, upright: true, scale: [1.1, 2.0] }]
   const BIG_BEYOND = [{ name: 'asteroid', baked: true, scale: [1.0, 1.9] }]
+  // body: one substantial piece of anatomy per cell — a villi mound (upright, planted) or a
+  // top-down bunch of transport vesicles. Both baked in warm pink, both low-contrast decor.
+  const BIG_BODY = [
+    { name: 'villi', baked: true, upright: true, scale: [0.9, 1.5] },
+    { name: 'vesicles', baked: true, scale: [0.85, 1.5] },
+  ]
 
   function populateBig(s, i, j, cell) {
     const kinds = chapterBiome.big
@@ -2546,6 +2634,13 @@ export function createRenderer(app) {
   // skies + beyond: nothing grows. Smaller siblings of the big layer's chunks, scattered.
   const MID_SKIES = [{ name: 'rubble', baked: true, upright: true, scale: [0.5, 0.95] }]
   const MID_BEYOND = [{ name: 'asteroid', baked: true, scale: [0.35, 0.75] }]
+  // body: medium accents — platelet plates, lipid beads, capillary squiggles. Mild alpha so they
+  // sit under the enemies. All top-down (spin freely).
+  const MID_BODY = [
+    { name: 'platelet', baked: true, alpha: 0.9, scale: [0.85, 1.5] },
+    { name: 'lipid', baked: true, alpha: 0.9, scale: [0.8, 1.35] },
+    { name: 'capillary', baked: true, alpha: 0.85, scale: [0.9, 1.6] },
+  ]
 
   function populateMid(s, i, j, cell) {
     const kinds = chapterBiome.mid
@@ -2586,6 +2681,13 @@ export function createRenderer(app) {
     { name: 'pebble', baked: true, scale: [0.5, 1.1] },
     { name: 'asteroid', baked: true, scale: [0.16, 0.3] },
   ]
+  // body: small low-alpha scatter — drifting plasma motes plus tiny dimmed platelets and capillary
+  // fragments. Barely stains the floor; pure background stipple.
+  const DETAIL_BODY = [
+    { name: 'mote', baked: true, alpha: 0.5, scale: [0.6, 1.3] },
+    { name: 'platelet', baked: true, alpha: 0.6, scale: [0.4, 0.7] },
+    { name: 'capillary', baked: true, alpha: 0.45, scale: [0.5, 0.85] },
+  ]
 
   function populateDetail(s, i, j, cell) {
     const kinds = chapterBiome.detail
@@ -2609,8 +2711,15 @@ export function createRenderer(app) {
     big: BIG_BUSH, mid: MID_GARDEN, detail: DETAIL_GARDEN,
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x5f8f4a, foot: 0x243617 },
   }
+  // The Body gets its OWN anatomy props (was reusing the Garden's bushes/grass — plants inside a
+  // host organism). obstacle kept identical to the Garden's: the body has no obstacles in config,
+  // so this field is inert here and another agent owns obstacle styling.
+  const BIOME_BODY = {
+    big: BIG_BODY, mid: MID_BODY, detail: DETAIL_BODY,
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x8fbf6f, glow: 0xbfe8dd, glowAlpha: 0.5 },
+  }
   const BIOMES = {
-    body: BIOME_GARDEN,
+    body: BIOME_BODY,
     pond: BIOME_GARDEN,
     garden: BIOME_GARDEN,
     undergrowth: {
