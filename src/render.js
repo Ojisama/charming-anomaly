@@ -1167,7 +1167,7 @@ export function createRenderer(app) {
   // then the same ellipse's lower arc dropped by the shell height), which is what draws a real
   // cylinder rather than two stacked ovals. Bumper band, sensor turret with a dark lens, panel
   // seams and rivets as hairline detail.
-  function drawVacuum(g, elite, white) {
+  function drawVacuum(g, elite, white, phase = 0) {
     const r = 26
     const f = (c) => white ? 0xffffff : c
     const line = f(0x5c5f66)
@@ -1208,7 +1208,18 @@ export function createRenderer(app) {
       g.ellipse(r * 0.34, -r * 0.06, r * 0.2, r * 0.13).fill(0xc4c8cd).stroke({ width: 1.4, color: 0x8f959d })
       darkEye(g, r * 0.36, -r * 0.07, r * 0.1, r * 0.07, 0x14171c, true)
       g.rect(-r * 0.3, hgt * 0.62, r * 0.6, r * 0.09).fill({ color: 0x2f333a, alpha: 0.8 }) // brush slot
-      g.circle(-r * 0.56, -r * 0.02, r * 0.05).fill({ color: 0x59d08a, alpha: 0.9 }) // status LED
+      // police light bar (v5.6.14, user: "police roombas"): twin domes on a dark base amidships,
+      // ALTERNATING red/blue via the baked-phase mechanism (phases: 2 in ROSTER_LOOKS — the
+      // centipede's slither machinery; syncEnemies strobes the two frames at ~10 flips/s). The
+      // lit side gets a soft halo; halos sit well inside the shell, so bounds stay phase-invariant.
+      const lit = phase >= Math.PI // phase 0 = red side on, phase pi = blue side on
+      const lamp = (x, col, on) => {
+        g.circle(x, -r * 0.3, r * 0.11).fill({ color: col, alpha: on ? 1 : 0.35 })
+        if (on) g.circle(x, -r * 0.3, r * 0.24).fill({ color: col, alpha: 0.22 }) // glow halo
+      }
+      g.roundRect(-r * 0.3, -r * 0.36, r * 0.6, r * 0.14, r * 0.05).fill({ color: 0x2f333a, alpha: 0.9 })
+      lamp(-r * 0.16, 0xff3040, !lit)
+      lamp(r * 0.16, 0x2f7bff, lit)
     }
     if (elite) eliteCrown(-ry - r * 0.06, r)
   }
@@ -1649,7 +1660,7 @@ export function createRenderer(app) {
     owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // PARKED (v5.6.8): aerialStrike is unkillable in a melee chapter — kept for a future ranged one
     centipede: { archetype: 'fast', draw: drawCentipede, lean: 90, phases: 6 }, // top-down, ±y mirrored; 6 baked wave phases = the slither
     rat: { archetype: 'normal', draw: drawRat, lean: 30 },             // 3/4: both ears at -y, every leg at +y
-    vacuum: { archetype: 'tank', draw: drawVacuum, lean: 0 },          // a vertical cylinder — its shell loop IS lit-top-over-shadowed-wall
+    vacuum: { archetype: 'tank', draw: drawVacuum, lean: 0, phases: 2 }, // vertical cylinder, never rotates; 2 phases strobe the police light bar
     ratDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 },   // top-down quadrotor: 4 arms + rotors in ±y pairs
     pigeon: { archetype: 'fast', draw: drawPigeon, lean: 30 },         // profile: feet at +y, head raised at -y
     jet: { archetype: 'fast', draw: drawJet, lean: 90 },               // top-down: delta wings, tailplanes, intakes, roundels all ±y

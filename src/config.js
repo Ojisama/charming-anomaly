@@ -144,12 +144,15 @@ export const WEAPONS = {
     // cycle, which is unbearable as a STARTER (a starter is the player's only weapon for minutes).
     // Now 3.8s of downtime at L1, tightening to 1.4s at L5. Also re-skinned red (sith saber, not
     // rainbow) — that half lives in render.js's T.beam bake; id stays 'rainbow' everywhere.
+    // v5.6.14 (user): DOUBLE-ENDED, Darth Maul style — every cast is 2 arms 180° apart (fireBeam),
+    // so `length` is ONE blade and the full staff spans 2x it; lengths are shorter than the old
+    // single beam's (240 vs 380 at L1) because the staff carries twice the coverage.
     levels: [
-      { dmg: 12, tick: 0.15, interval: 6.0, duration: 2.2, rotSpeed: 2.6, width: 30, length: 380 },
-      { dmg: 15, tick: 0.15, interval: 5.6, duration: 2.4, rotSpeed: 2.8, width: 32, length: 400 },
-      { dmg: 18, tick: 0.14, interval: 5.2, duration: 2.6, rotSpeed: 3.0, width: 34, length: 420 },
-      { dmg: 22, tick: 0.14, interval: 4.9, duration: 2.9, rotSpeed: 3.2, width: 36, length: 450 },
-      { dmg: 26, tick: 0.13, interval: 4.6, duration: 3.2, rotSpeed: 3.5, width: 40, length: 480 },
+      { dmg: 12, tick: 0.15, interval: 6.0, duration: 2.2, rotSpeed: 2.6, width: 30, length: 240 },
+      { dmg: 15, tick: 0.15, interval: 5.6, duration: 2.4, rotSpeed: 2.8, width: 32, length: 275 },
+      { dmg: 18, tick: 0.14, interval: 5.2, duration: 2.6, rotSpeed: 3.0, width: 34, length: 310 },
+      { dmg: 22, tick: 0.14, interval: 4.9, duration: 2.9, rotSpeed: 3.2, width: 36, length: 350 },
+      { dmg: 26, tick: 0.13, interval: 4.6, duration: 3.2, rotSpeed: 3.5, width: 40, length: 400 },
     ],
   },
   // Pond chapter natives (v5.0). Minimal stat tables so the level-up pool + weapon-stat
@@ -1626,6 +1629,10 @@ export const TRAFFIC_CAR_LEN = 150    // px, the vehicle's hitbox length (along 
 export const TRAFFIC_CAR_W = 110      // px, the vehicle's hitbox width (across `angle`)
 export const TRAFFIC_DMG = 34         // damage to the player AND to each enemy the vehicle hits
 export const TRAFFIC_KB = 420         // knockback applied along the lane to struck enemies
+// v5.6.14 (user): a car ONE-SHOTS the light roster — a pigeon or a cardboard drone does not
+// survive being run over; only elites (and the vacuum, which is street furniture itself) take
+// TRAFFIC_DMG like everyone else. rosterIds, checked non-elite-only in stepTraffic.
+export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon']
 
 // ---- Skies chapter behavior flags (v5.4, see sim.js) -----------------------------------------
 // strafe (skies' fighter jets): flies straight passes THROUGH the player rather than chasing.

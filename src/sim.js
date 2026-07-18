@@ -83,7 +83,7 @@ import {
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET,
-  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB,
+  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
   TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
   GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
@@ -1343,7 +1343,11 @@ function stepLanes(run, dt) {
       if (e._dead || lane.hitIds.has(e.id)) continue
       if (!inCar(e.x, e.y, e.radius)) continue
       lane.hitIds.add(e.id) // one hit per enemy per pass
-      dealDamage(run, e, lane.dmg, false)
+      // v5.6.14 (user): cars ONE-SHOT the light roster — a non-elite pigeon/drone dies outright
+      // under a car (dealt its remaining hp, so drops/death flow normally). Elites and everything
+      // not in TRAFFIC_SQUASH take the ordinary TRAFFIC_DMG.
+      const squash = !e.elite && TRAFFIC_SQUASH.includes(e.rosterId)
+      dealDamage(run, e, squash ? e.hp : lane.dmg, false)
       e.kb.x += cos * TRAFFIC_KB
       e.kb.y += sin * TRAFFIC_KB
     }
@@ -2802,10 +2806,10 @@ function fireBeam(run, stats) {
     ? Math.atan2(target.y - p.y, target.x - p.x)
     : (p.facing >= 0 ? 0 : Math.PI)
 
-  // Prismatic Split: N extra beams per cast, evenly spread around the circle (2 beams total =
-  // 180° apart, 3 = 120°, ...), same stats, all rotating together (same rotSpeed keeps their
-  // relative spacing fixed for the whole cast).
-  const beamCount = 1 + (run.weaponMods.rainbow?.prismatic ?? 0)
+  // v5.6.14 (user): the beam is DOUBLE-ENDED, Darth Maul style — the base cast is 2 arms 180°
+  // apart, one aimed at the target and one out the back, rotating together as a staff. Prismatic
+  // Split still adds arms on top (3 arms = 120°, ...), all evenly spread by the same machinery.
+  const beamCount = 2 + (run.weaponMods.rainbow?.prismatic ?? 0)
   const angleStep = (2 * Math.PI) / beamCount
   // Strobe Ray: bake the faster tick period in at cast time (mid-run picks shouldn't retroactively
   // speed up an already-live beam). Focus Lens's ramp is recomputed every tick instead (see below).

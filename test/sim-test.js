@@ -977,24 +977,35 @@ function testWeaponModParity() {
     console.log(`PASS run L.e (singularity): holes=${run.holes.length} radii=${radii.map((r) => r.toFixed(0)).join(',')}`)
   }
 
-  // f. Prismatic Split: one beam cast with prismatic=1 yields 2 beams, ~π (180°) apart.
+  // f. The beam is DOUBLE-ENDED (v5.6.14, Darth Maul): a plain cast is 2 arms ~π apart, and
+  // Prismatic Split adds arms on top (prismatic=1 -> 3 arms, evenly spread).
   {
-    const run = createRun(makeMeta())
-    run.weapons = [{ id: 'rainbow', level: 1 }] // interval 8.0s
-    run.weaponMods.rainbow.prismatic = 1
+    const base = createRun(makeMeta())
+    base.weapons = [{ id: 'rainbow', level: 1 }]
     let fired = false
-    const steps = Math.round(9 / dt)
-    for (let i = 0; i < steps && !fired; i++) {
+    for (let i = 0; i < Math.round(9 / dt) && !fired; i++) {
+      if (base.phase === 'levelup') { declineLevelUp(base); continue }
+      stepSim(base, { x: 0, y: 0 }, dt)
+      if (base.beams.length > 0) fired = true
+    }
+    assert(fired, 'expected the beam to cast at least once')
+    assert.strictEqual(base.beams.length, 2, `expected a double-ended staff (2 arms), got ${base.beams.length}`)
+    const diff = Math.abs(base.beams[0].angle - base.beams[1].angle)
+    const normalized = Math.min(diff, Math.abs(diff - 2 * Math.PI))
+    assert(Math.abs(normalized - Math.PI) < 0.05, `expected the two arms ~π apart, got ${normalized.toFixed(3)}`)
+
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'rainbow', level: 1 }]
+    run.weaponMods.rainbow.prismatic = 1
+    let fired2 = false
+    for (let i = 0; i < Math.round(9 / dt) && !fired2; i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       stepSim(run, { x: 0, y: 0 }, dt)
-      if (run.beams.length > 0) fired = true
+      if (run.beams.length > 0) fired2 = true
     }
-    assert(fired, 'expected the prism beam to cast at least once')
-    assert.strictEqual(run.beams.length, 2, `expected 1 main + 1 prismatic beam, got ${run.beams.length}`)
-    const diff = Math.abs(run.beams[0].angle - run.beams[1].angle)
-    const normalized = Math.min(diff, Math.abs(diff - 2 * Math.PI))
-    assert(Math.abs(normalized - Math.PI) < 0.05, `expected beams ~π apart, got ${normalized.toFixed(3)}`)
-    console.log(`PASS run L.f (prismatic split): beams=${run.beams.length} angleDiff=${normalized.toFixed(3)}`)
+    assert(fired2, 'expected the prismatic cast to fire')
+    assert.strictEqual(run.beams.length, 3, `expected 2 base arms + 1 prismatic, got ${run.beams.length}`)
+    console.log(`PASS run L.f (double-ended + prismatic): base arms=2 at ${normalized.toFixed(3)} rad, prismatic total=${run.beams.length}`)
   }
 
   // g. Plain stat mods: boomerang.extraRang / homing.extraWisp raise per-volley entity counts;
@@ -3128,6 +3139,19 @@ function testV54Signatures() {
     assert(victim.x > 301, `expected the car to knock the enemy along the lane (+x), moved to ${victim.x.toFixed(1)}px`)
     assert.strictEqual(sweep.lanes.length, 0, 'expected the lane removed once the sweep ends')
 
+    // v5.6.14: a car ONE-SHOTS the light roster (TRAFFIC_SQUASH: non-elite ratDrone/pigeon die
+    // outright, far beyond TRAFFIC_DMG), while an ELITE of the same species just takes TRAFFIC_DMG.
+    const squash = laneRun()
+    const drone = makeStatusEnemy(squash, { x: 300, y: 0, hp: 1e6, speed: 0 })
+    drone.flags = []; drone.rosterId = 'ratDrone'; drone.elite = false
+    const eliteDrone = makeStatusEnemy(squash, { x: -300, y: 0, hp: 1e6, speed: 0 })
+    eliteDrone.flags = []; eliteDrone.rosterId = 'ratDrone'; eliteDrone.elite = true
+    squash.enemies.push(drone, eliteDrone)
+    for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(squash, { x: 0, y: 0 }, dt)
+    assert(drone._dead || drone.hp <= 0, `expected the car to ONE-SHOT a basic drone, hp=${drone.hp}`)
+    assert(eliteDrone.hp >= 1e6 - TRAFFIC_DMG * 2 && eliteDrone.hp < 1e6,
+      `expected the ELITE drone to take ordinary car damage, not a one-shot (hp=${eliteDrone.hp})`)
+
     // The signature actually rolls lanes on its own in a city run (capped by signature.lanes).
     const auto = createRun(makeMeta(), { chapter: 'city' })
     auto.weapons = []; auto.mods.spawnMul = 0; auto.player.hp = 1e9; auto.player.maxHP = 1e9
@@ -3138,7 +3162,7 @@ function testV54Signatures() {
     }
     assert(maxAlive > 0, 'expected a city run to roll traffic lanes on its own')
     assert(maxAlive <= CHAPTERS.city.signature.lanes, `expected at most ${CHAPTERS.city.signature.lanes} lanes alive, saw ${maxAlive}`)
-    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, <= ${maxAlive} lane(s) live`)
+    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, one-shots basics, spares elites, <= ${maxAlive} lane(s) live`)
   }
 
   // (c) bombardment: telegraphed circles rain on the player's area continuously, and (being run.bombs)
