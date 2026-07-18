@@ -6,6 +6,7 @@ import {
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
   sacrificeCost,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
+  OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL,
@@ -2145,7 +2146,7 @@ function testChapterBehaviors() {
 
     // the sim applies exactly this field: a lone player's one-frame drift == currentForce * dt.
     const run = createRun(makeMeta(), { chapter: 'pond' })
-    run.weapons = []; run.obstacles = []; run.enemies = []
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.enemies = []
     run.player.x = 123; run.player.y = -456
     const x0 = run.player.x, y0 = run.player.y
     stepSim(run, { x: 0, y: 0 }, dt) // run.time is advanced by the step; sample the field after so it matches
@@ -2156,12 +2157,19 @@ function testChapterBehaviors() {
     console.log(`PASS run V.f2 (currentForce): maxMag=${maxMag.toFixed(1)}px/s continuityJump=${jump.toFixed(4)} bodyZero drift==force*dt`)
   }
 
-  // (g) obstacles: pond generates the configured field (no overlaps), body has none, and the
-  // player is pushed back out after being steered into one.
+  // (g) obstacles STREAM (v5.6.13): present around the spawn, present ANYWHERE the player roams
+  // (the old origin-only field left the world beyond 900px empty — "obstacles are only in the
+  // beginning zone"), deterministic per run (walk away and back -> the SAME rocks), dropped when
+  // far, spawn ring kept clear, no overlaps. Body still has none.
   {
     const pond = createRun(makeMeta(), { chapter: 'pond' })
-    assert.strictEqual(pond.obstacles.length, CHAPTERS.pond.obstacles.count,
-      `expected ${CHAPTERS.pond.obstacles.count} pond obstacles, got ${pond.obstacles.length}`)
+    stepSim(pond, { x: 0, y: 0 }, dt)
+    const nearSpawn = pond.obstacles.length
+    assert(nearSpawn > 0, 'expected streamed obstacles around the spawn after one step')
+    for (const o of pond.obstacles) {
+      assert(Math.hypot(o.x, o.y) >= CHAPTERS.pond.obstacles.minDist - 1e-6,
+        `spawn clear ring violated: obstacle at ${Math.hypot(o.x, o.y).toFixed(0)}px from origin`)
+    }
     for (let i = 0; i < pond.obstacles.length; i++) {
       for (let j = i + 1; j < pond.obstacles.length; j++) {
         const a = pond.obstacles[i], b = pond.obstacles[j]
@@ -2169,7 +2177,26 @@ function testChapterBehaviors() {
         assert(gap >= -1e-6, `expected no two pond obstacles to overlap, got gap=${gap}`)
       }
     }
+    // roam far beyond the old 900px field: obstacles must exist there too
+    pond.player.x = 5000; pond.player.y = -3000
+    stepSim(pond, { x: 0, y: 0 }, dt)
+    const farKey = (o) => `${o.x.toFixed(2)},${o.y.toFixed(2)},${o.r.toFixed(2)}`
+    const farOnes = pond.obstacles.filter((o) => Math.hypot(o.x - 5000, o.y + 3000) <= OBSTACLE_STREAM_RADIUS)
+    assert(farOnes.length > 0, 'expected obstacles far from the origin — the old field left this empty')
+    const snapshot = farOnes.map(farKey).sort().join('|')
+    // leave (everything old drops)...
+    pond.player.x = 20000; pond.player.y = 20000
+    stepSim(pond, { x: 0, y: 0 }, dt)
+    assert(pond.obstacles.every((o) => Math.hypot(o.x - 20000, o.y - 20000) <= OBSTACLE_DROP_RADIUS + 1e-6),
+      'expected far-behind obstacles to be dropped')
+    // ...and come back: the SAME cells regenerate the SAME rocks
+    pond.player.x = 5000; pond.player.y = -3000
+    stepSim(pond, { x: 0, y: 0 }, dt)
+    const again = pond.obstacles.filter((o) => Math.hypot(o.x - 5000, o.y + 3000) <= OBSTACLE_STREAM_RADIUS).map(farKey).sort().join('|')
+    assert.strictEqual(again, snapshot, 'expected the same cells to regenerate the same obstacles')
+
     const body = createRun(makeMeta())
+    stepSim(body, { x: 0, y: 0 }, dt)
     assert.strictEqual(body.obstacles.length, 0, 'expected a body run to have no obstacles')
 
     // Push-out: steer a player straight into a nearby (manually placed) obstacle for 1s.
@@ -2177,13 +2204,13 @@ function testChapterBehaviors() {
     run.weapons = []
     run.player.x = 0; run.player.y = 0
     const obstacle = { x: 150, y: 0, r: 40 }
-    run.obstacles = [obstacle]
+    run.obstacles = [obstacle]; run._obstacleSeed = null // manual field: keep streaming out of it
     const minSep = obstacle.r + PLAYER.radius
     const steps2 = Math.round(1 / dt)
     for (let i = 0; i < steps2; i++) stepSim(run, { x: 1, y: 0 }, dt)
     const dist = Math.hypot(run.player.x - obstacle.x, run.player.y - obstacle.y)
     assert(dist >= minSep - 0.5, `expected the player pushed out of the obstacle (dist=${dist.toFixed(1)}, min=${minSep.toFixed(1)})`)
-    console.log(`PASS run V.g (obstacles): pond count=${pond.obstacles.length} body count=${body.obstacles.length} pushed dist=${dist.toFixed(1)}`)
+    console.log(`PASS run V.g (obstacles stream): nearSpawn=${nearSpawn} far=${farOnes.length} deterministic revisit, body=0, pushed dist=${dist.toFixed(1)}`)
   }
 
   console.log('PASS run V (chapter behavior flags, drift currents, field obstacles): latch, split, dashBurst, acidPool, soapTrail, currents, obstacles')
@@ -2424,7 +2451,7 @@ function testGarden() {
   {
     function antDist(withTrail) {
       const run = createRun(makeMeta(), { chapter: 'garden' })
-      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
       run.player.x = 2000; run.player.y = 0 // far away: a fixed +x seek direction, never contacts
       const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
       e.flags = ['trailFollow']
@@ -2443,7 +2470,7 @@ function testGarden() {
   // (b) diveBomb: a wasp's displacement during its dive window far exceeds its hover window.
   {
     const run = createRun(makeMeta(), { chapter: 'garden' })
-    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 3000; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
     const e = makeStatusEnemy(run, { x: 3000 - DIVE_STANDOFF, y: 0, hp: 1e6, speed: 120 }) // starts at standoff
@@ -2472,7 +2499,7 @@ function testGarden() {
   {
     function moveDist(setup) {
       const run = createRun(makeMeta(), { chapter: 'garden' })
-      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
       run.player.x = 0; run.player.y = 0
       setup(run)
       stepSim(run, { x: 1, y: 0 }, dt)
@@ -2492,7 +2519,7 @@ function testGarden() {
   // damage to the player standing inside it once the fuse elapses.
   {
     const run = createRun(makeMeta(), { chapter: 'garden' })
-    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
     run.strips.push({ x: 0, y: 0, angle: 0, len: SPRAY_LEN, w: SPRAY_W, fuse: SPRAY_FUSE, t: SPRAY_ACTIVE, dps: SPRAY_DPS })
@@ -2520,7 +2547,7 @@ function testGarden() {
   {
     function enemyDx(withLure) {
       const run = createRun(makeMeta(), { chapter: 'garden' })
-      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
       run.player.x = 500; run.player.y = 0 // player to the +x; the lure sits to the -x
       const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
       run.enemies.push(e)
@@ -2536,7 +2563,7 @@ function testGarden() {
 
     // burst: a decoy expiring damages a nearby enemy and emits an explode; stickyScent leaves a web.
     const burst = createRun(makeMeta(), { chapter: 'garden' })
-    burst.weapons = []; burst.obstacles = []; burst.mods.spawnMul = 0
+    burst.weapons = []; burst.obstacles = []; burst._obstacleSeed = null; burst.mods.spawnMul = 0
     burst.player.x = 3000; burst.player.y = 0; burst.player.hp = 1e9; burst.player.maxHP = 1e9
     const victim = makeStatusEnemy(burst, { x: 0, y: 0, hp: 500, speed: 0 })
     burst.enemies.push(victim)
@@ -2558,7 +2585,7 @@ function testGarden() {
   {
     const run = createRun(makeMeta(), { chapter: 'garden' })
     run.weapons = [{ id: 'stinger', level: MAX_WEAPON_LEVEL }]
-    run.obstacles = []; run.mods.spawnMul = 0
+    run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     run.enemies.push(makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 }))
     const lvl = WEAPONS.stinger.levels[MAX_WEAPON_LEVEL - 1]
@@ -2581,7 +2608,7 @@ function testGarden() {
     function behindHp(hive) {
       const r = createRun(makeMeta(), { chapter: 'garden' })
       r.weapons = [{ id: 'stinger', level: MAX_WEAPON_LEVEL }]
-      r.obstacles = []; r.mods.spawnMul = 0
+      r.obstacles = []; r._obstacleSeed = null; r.mods.spawnMul = 0
       r.player.x = 0; r.player.y = 0; r.player.hp = 1e9; r.player.maxHP = 1e9
       if (hive) r.weaponMods.stinger.hive = 1
       r.enemies.push(makeStatusEnemy(r, { x: 80, y: 0, hp: 1e9, speed: 0 })) // anchor: nearest, pins aim +x
@@ -2687,7 +2714,7 @@ function testV54Flags() {
   // thing moving is the machine under test. `at` is its distance from the player along -x.
   function flagRun(chapter, flags, { at = 300, speed = 100, hp = 1e6, elite = false } = {}) {
     const run = createRun(makeMeta(), { chapter })
-    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
     const e = makeStatusEnemy(run, { x: -at, y: 0, hp, speed, elite })
@@ -2728,7 +2755,7 @@ function testV54Flags() {
   {
     const run = createRun(makeMeta(), { chapter: 'undergrowth' })
     run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
-    run.obstacles = []; run.mods.spawnMul = 0; run.traps = []
+    run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0; run.traps = []
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     const owl = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
     owl.flags = ['aerialStrike']
@@ -2763,7 +2790,7 @@ function testV54Flags() {
   {
     const run = createRun(makeMeta(), { chapter: 'undergrowth' })
     run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
-    run.obstacles = []; run.mods.spawnMul = 0; run.traps = []
+    run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0; run.traps = []
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     const owl = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
     owl.flags = ['aerialStrike']
@@ -2851,7 +2878,7 @@ function testV54Flags() {
     assert(run.enemyShots.length >= MISSILE_COUNT, `expected a volley of ${MISSILE_COUNT} missiles, got ${run.enemyShots.length}`)
 
     const hit = createRun(makeMeta(), { chapter: 'skies' })
-    hit.weapons = []; hit.obstacles = []; hit.mods.spawnMul = 0
+    hit.weapons = []; hit.obstacles = []; hit._obstacleSeed = null; hit.mods.spawnMul = 0
     hit.player.x = 0; hit.player.y = 0; hit.player.hp = 1e9; hit.player.maxHP = 1e9; hit.player.invuln = 0
     const victim = makeStatusEnemy(hit, { x: 0, y: 0, hp: 1e6, speed: 0 })
     hit.enemies.push(victim)
@@ -2925,7 +2952,7 @@ function testV54Flags() {
   {
     const run = createRun(makeMeta(), { chapter: 'beyond' })
     run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
-    run.obstacles = []; run.wells = []; run.mods.spawnMul = 0
+    run.obstacles = []; run._obstacleSeed = null; run.wells = []; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     const e = makeStatusEnemy(run, { x: 120, y: 0, hp: 1e6, speed: 0 })
     e.flags = ['phase']
@@ -2981,7 +3008,7 @@ function testV54Flags() {
   // and damages NOTHING itself — no hit, no hurt, ever.
   {
     const run = createRun(makeMeta(), { chapter: 'undergrowth' })
-    run.weapons = []; run.obstacles = []; run.traps = []; run.mods.spawnMul = 0
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.traps = []; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     const elite = makeStatusEnemy(run, { x: -300, y: 0, hp: 1e6, speed: 0, elite: true })
     elite.flags = ['flashlightCone']
@@ -2998,7 +3025,7 @@ function testV54Flags() {
     // The enrage is real: an enraged rat closes faster than a plain one over the same window.
     function ratDx(enraged) {
       const r = createRun(makeMeta(), { chapter: 'undergrowth' })
-      r.weapons = []; r.obstacles = []; r.traps = []; r.mods.spawnMul = 0
+      r.weapons = []; r.obstacles = []; r._obstacleSeed = null; r.traps = []; r.mods.spawnMul = 0
       r.player.x = 2000; r.player.y = 0
       const en = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e6, speed: 100 })
       en.flags = []
@@ -3035,7 +3062,7 @@ function testV54Signatures() {
 
     // Player side: standing on an armed trap springs it, hurts, and puts it on cooldown.
     const run = createRun(makeMeta(), { chapter: 'undergrowth' })
-    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = 500; run.player.maxHP = 500; run.player.invuln = 0
     run.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, cd: 0 }]
     const hp0 = run.player.hp
@@ -3055,7 +3082,7 @@ function testV54Signatures() {
 
     // Enemy side (the kite mechanic): the same trap damages an enemy that walks onto it.
     const kite = createRun(makeMeta(), { chapter: 'undergrowth' })
-    kite.weapons = []; kite.obstacles = []; kite.mods.spawnMul = 0
+    kite.weapons = []; kite.obstacles = []; kite._obstacleSeed = null; kite.mods.spawnMul = 0
     kite.player.x = 5000; kite.player.y = 0; kite.player.hp = 1e9; kite.player.maxHP = 1e9
     const e = makeStatusEnemy(kite, { x: 0, y: 0, hp: 500, speed: 0 })
     kite.enemies.push(e)
@@ -3070,7 +3097,7 @@ function testV54Signatures() {
   {
     function laneRun() {
       const run = createRun(makeMeta(), { chapter: 'city' })
-      run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
       run._laneAcc = 1e6 // park the roller: this case drives one hand-placed lane
       run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9; run.player.invuln = 0
       run.lanes = [{
@@ -3118,7 +3145,7 @@ function testV54Signatures() {
   // they damage BOTH sides.
   {
     const run = createRun(makeMeta(), { chapter: 'skies' })
-    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9; run.player.invuln = 0
     const victim = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 })
     run.enemies.push(victim)
@@ -3167,7 +3194,7 @@ function testV54Signatures() {
 
     // THE contract: a well bends a bullet's path and its speed is preserved exactly.
     const run = createRun(makeMeta(), { chapter: 'beyond' })
-    run.weapons = []; run.obstacles = []; run.mods.spawnMul = 0
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     run.wells = [{ x: 0, y: 160, r: GRAVITY_WELL_R, g: GRAVITY_FORCE }] // straddles the flight path
     const speed = 480
@@ -3188,7 +3215,7 @@ function testV54Signatures() {
 
     // ...and it bends nothing else: bodies, beams, orbitals and zones are not projectiles.
     const bodies = createRun(makeMeta(), { chapter: 'beyond' })
-    bodies.weapons = []; bodies.obstacles = []; bodies.mods.spawnMul = 0
+    bodies.weapons = []; bodies.obstacles = []; bodies._obstacleSeed = null; bodies.mods.spawnMul = 0
     bodies.player.x = 0; bodies.player.y = 0; bodies.player.hp = 1e9; bodies.player.maxHP = 1e9
     bodies.wells = [{ x: 60, y: 0, r: GRAVITY_WELL_R, g: GRAVITY_FORCE }]
     const still = makeStatusEnemy(bodies, { x: 0, y: 60, hp: 1e6, speed: 0 })
@@ -3215,7 +3242,7 @@ function testV54Weapons() {
   function weaponRun(chapter, id, level = MAX_WEAPON_LEVEL) {
     const run = createRun(makeMeta(), { chapter })
     run.weapons = [{ id, level }]
-    run.obstacles = []; run.traps = []; run.wells = []; run.mods.spawnMul = 0
+    run.obstacles = []; run._obstacleSeed = null; run.traps = []; run.wells = []; run.mods.spawnMul = 0
     run._laneAcc = 1e6; run._bombardAcc = 1e6 // park the signatures: these cases are about the weapon
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     return run

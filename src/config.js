@@ -138,14 +138,18 @@ export const WEAPONS = {
     // NOTE its rarity stays 'mythic': a chapter's starter is GRANTED by createRun (state.js), so
     // rarity only gates how often it comes BACK as a level-up card — it never gates the start.
     name: 'Neon Beam',
-    desc: 'A hard neon ray sweeps everything it touches.',
-    icon: '🌈', rarity: 'mythic',
+    desc: 'A searing crimson ray sweeps everything it touches.',
+    icon: '🚨', rarity: 'mythic',
+    // v5.6.13 (user): intervals lowered — L1 was 8.0s with a 2.2s beam, i.e. 5.8s of dead air per
+    // cycle, which is unbearable as a STARTER (a starter is the player's only weapon for minutes).
+    // Now 3.8s of downtime at L1, tightening to 1.4s at L5. Also re-skinned red (sith saber, not
+    // rainbow) — that half lives in render.js's T.beam bake; id stays 'rainbow' everywhere.
     levels: [
-      { dmg: 12, tick: 0.15, interval: 8.0, duration: 2.2, rotSpeed: 2.6, width: 30, length: 380 },
-      { dmg: 15, tick: 0.15, interval: 7.4, duration: 2.4, rotSpeed: 2.8, width: 32, length: 400 },
-      { dmg: 18, tick: 0.14, interval: 6.8, duration: 2.6, rotSpeed: 3.0, width: 34, length: 420 },
-      { dmg: 22, tick: 0.14, interval: 6.2, duration: 2.9, rotSpeed: 3.2, width: 36, length: 450 },
-      { dmg: 26, tick: 0.13, interval: 5.5, duration: 3.2, rotSpeed: 3.5, width: 40, length: 480 },
+      { dmg: 12, tick: 0.15, interval: 6.0, duration: 2.2, rotSpeed: 2.6, width: 30, length: 380 },
+      { dmg: 15, tick: 0.15, interval: 5.6, duration: 2.4, rotSpeed: 2.8, width: 32, length: 400 },
+      { dmg: 18, tick: 0.14, interval: 5.2, duration: 2.6, rotSpeed: 3.0, width: 34, length: 420 },
+      { dmg: 22, tick: 0.14, interval: 4.9, duration: 2.9, rotSpeed: 3.2, width: 36, length: 450 },
+      { dmg: 26, tick: 0.13, interval: 4.6, duration: 3.2, rotSpeed: 3.5, width: 40, length: 480 },
     ],
   },
   // Pond chapter natives (v5.0). Minimal stat tables so the level-up pool + weapon-stat
@@ -1430,9 +1434,19 @@ export const SOAP_DPS = 6
 // and enemies out (never projectiles), rejection-sampled from each chapter's `obstacles` config
 // ({count, minR, maxR, minDist}, minDist measured from the run's origin) at createRun. These two
 // are generic placement tunables shared by every chapter's obstacle field (not per-chapter data):
-export const OBSTACLE_FIELD_RADIUS = 900       // px, obstacles scatter within this radius of the origin
-export const OBSTACLE_MIN_GAP = 40             // px, min gap between two obstacles' edges (beyond their radii)
-export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts per obstacle before giving up
+// v5.6.13: obstacles STREAM with the player instead of being seeded once around the origin — the
+// old field left the entire world beyond OBSTACLE_FIELD_RADIUS obstacle-free ("obstacles are only
+// in the beginning zone", user). sim.js's streamObstacles rolls one obstacle per OBSTACLE_CELL
+// grid cell from a pure hash of (cell, run seed): deterministic per run, so walking away and back
+// finds the same rock; no RNG stream is consumed (seeded tests stay stable). The chapter config's
+// `count` keeps its old meaning — expected obstacles within the old origin field — and is
+// converted to a per-cell probability, so density matches what the origin field used to feel like.
+export const OBSTACLE_FIELD_RADIUS = 900       // px, the density reference area (and traps/wells scatter radius)
+export const OBSTACLE_CELL = 420               // px, streaming grid cell — at most one obstacle per cell
+export const OBSTACLE_STREAM_RADIUS = 1400     // px, cells within this of the player materialize (beyond any screen edge)
+export const OBSTACLE_DROP_RADIUS = 1900       // px, obstacles beyond this are dropped (hysteresis vs pop-in churn)
+export const OBSTACLE_MIN_GAP = 40             // px, min edge-to-edge gap (traps/wells scatterField spacing)
+export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts per entry (traps/wells scatterField)
 
 // ---- Garden chapter behavior flags (v5.3, see sim.js) --------------------------------------
 // pheromones signature (garden): a dying 'trailFollow' ant drops a fading node into run.trails;

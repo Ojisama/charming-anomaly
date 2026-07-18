@@ -33,6 +33,7 @@ import {
   RARITIES, RARITY_ORDER, RARITY_WEIGHTS,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
+  OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
   STAR_LIFE, STAR_R, STAR_FAN, ORB_R, NOVA_LIFE,
   STAR_SPLIT_DMG_FRAC, STAR_SPLIT_BASE_ANGLE, STAR_SPLIT_MAX_SPREAD,
@@ -131,6 +132,7 @@ export function stepSim(run, input, dt) {
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
+  streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any)
   stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
   stepWebs(run, dt)       // v5.3 garden: expire spider web slow-zones (no-op unless any exist)
@@ -1088,10 +1090,74 @@ function stepCurrents(run, dt) {
   }
 }
 
-// -- Obstacles (v5.0) ------------------------------------------------------------------
-// Circular colliders (run.obstacles, generated once at createRun — see state.js) push the
-// player and every enemy out of overlap; projectiles are never affected (not checked here or
-// anywhere bullets/novas/etc. move). A no-op when the chapter has none (e.g. body: []).
+// -- Obstacles (v5.0; streamed v5.6.13) ------------------------------------------------
+// Circular colliders (run.obstacles) push the player and every enemy out of overlap;
+// projectiles are never affected (not checked here or anywhere bullets/novas/etc. move).
+// A no-op when the chapter has none (e.g. body).
+//
+// The field STREAMS with the player. The old createRun origin field left the whole world beyond
+// OBSTACLE_FIELD_RADIUS obstacle-free — the player reported "obstacles are only in the beginning
+// zone". Now the world is a grid of OBSTACLE_CELL cells; each cell rolls at most one obstacle from
+// a pure hash of (cell, run._obstacleSeed), so:
+//   - a cell's obstacle is THE SAME every time you visit it (walk away and back, same rock);
+//   - no RNG stream is consumed at step time (adding a draw would shift every seeded test after
+//     it — the AA.c/runStarOnly incident, twice);
+//   - the chapter config's `count` keeps its old meaning (expected obstacles within the old
+//     origin field) via count -> per-cell probability, so the density is unchanged;
+//   - cfg.minDist still keeps a clear ring around the RUN ORIGIN (the spawn), not the player —
+//     streamed cells materialize at OBSTACLE_STREAM_RADIUS, beyond any screen edge, so nothing
+//     ever pops in on top of the player (or visibly at all).
+// Cells only re-scan when the player crosses a cell boundary; obstacles past OBSTACLE_DROP_RADIUS
+// are dropped (hysteresis, so pacing the same boundary doesn't churn). run._obstacleRev bumps on
+// any change — render's syncObstacles rebuilds only on that. _obstacleSeed null = streaming off
+// (body, and tests that blank the field).
+function obstacleCellHash(i, j, seed, salt) {
+  let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+
+function streamObstacles(run) {
+  if (run._obstacleSeed == null) return
+  const cfg = CHAPTERS[run.chapter].obstacles
+  if (!cfg) return
+  const p = run.player
+  const cs = OBSTACLE_CELL
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._obCellI && cj === run._obCellJ) return // same cell as last scan — field unchanged
+  run._obCellI = ci; run._obCellJ = cj
+
+  let changed = false
+  for (let k = run.obstacles.length - 1; k >= 0; k--) {
+    const o = run.obstacles[k]
+    if (Math.hypot(o.x - p.x, o.y - p.y) > OBSTACLE_DROP_RADIUS) { run.obstacles.splice(k, 1); changed = true }
+  }
+  const live = new Set()
+  for (const o of run.obstacles) live.add(o._cell)
+
+  // count over the old origin field's area -> per-cell probability (density preserved)
+  const prob = cfg.count * cs * cs / (Math.PI * OBSTACLE_FIELD_RADIUS * OBSTACLE_FIELD_RADIUS)
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      if (obstacleCellHash(i, j, seed, 0) >= prob) continue
+      const r = cfg.minR + obstacleCellHash(i, j, seed, 1) * (cfg.maxR - cfg.minR)
+      // jitter inside the cell, pulled in by the radius so neighbours can't overlap
+      const slack = Math.max(0, cs / 2 - r - 20)
+      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 2) - 0.5) * 2 * slack
+      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 3) - 0.5) * 2 * slack
+      if (Math.hypot(x, y) < cfg.minDist) continue                      // spawn ring stays clear
+      if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      run.obstacles.push({ x, y, r, _cell: key })
+      changed = true
+    }
+  }
+  if (changed) run._obstacleRev = (run._obstacleRev || 0) + 1
+}
+
 function stepObstacles(run) {
   if (!run.obstacles || run.obstacles.length === 0) return
   const p = run.player

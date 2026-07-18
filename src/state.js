@@ -102,38 +102,19 @@ function shopBonus(meta, id) {
   return SHOP[id].perLevel * (meta.shop[id] ?? 0)
 }
 
-// Rejection-sample a chapter's obstacle field (v5.0, see CHAPTERS[id].obstacles in config.js
-// and run.obstacles below): cfg null/undefined (e.g. body) yields []. Each obstacle's center is
-// sampled at a random angle and a distance in [minDist, OBSTACLE_FIELD_RADIUS] from the run's
-// origin (so minDist is automatically satisfied, not just checked), then rejected if it comes
-// within OBSTACLE_MIN_GAP (edge-to-edge) of an already-placed obstacle. Plain Math.random is
-// fine here (unseeded, run-to-run variety) — sim.js never depends on obstacle placement being
-// deterministic. Gives up on an individual obstacle (not the whole field) after
-// OBSTACLE_PLACEMENT_ATTEMPTS tries, so a tight config degrades to fewer obstacles rather than
-// looping forever.
-function generateObstacles(cfg) {
-  if (!cfg) return []
-  const { count, minR, maxR, minDist } = cfg
-  const obstacles = []
-  for (let i = 0; i < count; i++) {
-    for (let attempt = 0; attempt < OBSTACLE_PLACEMENT_ATTEMPTS; attempt++) {
-      const r = minR + Math.random() * (maxR - minR)
-      const angle = Math.random() * Math.PI * 2
-      const dist = minDist + Math.random() * Math.max(0, OBSTACLE_FIELD_RADIUS - minDist)
-      const x = Math.cos(angle) * dist
-      const y = Math.sin(angle) * dist
-      const clear = obstacles.every((o) => Math.hypot(x - o.x, y - o.y) - r - o.r >= OBSTACLE_MIN_GAP)
-      if (clear) { obstacles.push({ x, y, r }); break }
-    }
-  }
-  return obstacles
-}
+// Obstacles STREAM around the player (v5.6.13, sim.js streamObstacles) instead of being
+// rejection-sampled once here — the old origin field left everything beyond
+// OBSTACLE_FIELD_RADIUS obstacle-free. createRun only rolls the run's obstacle seed: an unseeded
+// Math.random here keeps the old run-to-run variety contract, while every cell WITHIN a run hashes
+// deterministically off this seed (no RNG stream consumed at step time — seeded tests stay
+// stable). A null seed disables streaming entirely; tests that blank run.obstacles set it null.
 
 // Shared rejection sampler for the v5.4 fixed-radius signature fields (run.traps, run.wells —
 // see below): `count` centers of radius `r`, each at a random angle and a distance in
 // [minDist, OBSTACLE_FIELD_RADIUS] from the run's origin, rejected if it comes within minGap
-// (edge-to-edge) of one already placed. Same unseeded-Math.random / give-up-per-entry contract
-// as generateObstacles above — placement is never something sim.js depends on being deterministic.
+// (edge-to-edge) of one already placed. Unseeded-Math.random, give-up-per-entry — placement is
+// never something sim.js depends on being deterministic. (These stay origin-seeded setpieces,
+// unlike obstacles, which stream — a signature field is the arena's opening hand, not terrain.)
 // Unlike obstacles these fields don't block movement, so they're only spaced against THEMSELVES
 // (a trap under a root is fine); one field never checks against another.
 function scatterField(count, r, minDist, minGap) {
@@ -407,7 +388,8 @@ function generateWells(sig) {
  *   elite is alive, via sim-internal `_soapAcc` on the enemy). One shared array/step function
  *   for both — see the ACID_ and SOAP_ constants in config.js. Not gated by chapter: empty
  *   unless something pushes to it.
- * obstacles[i]: { x, y, r } — circular colliders generated once at createRun from
+ * obstacles[i]: { x, y, r, _cell } — circular colliders STREAMED around the player by sim.js's
+ *               streamObstacles (v5.6.13; deterministic per _obstacleSeed cell hash) from
  *   CHAPTERS[chapter].obstacles (config.js; null/absent, e.g. body, yields []). Push the player
  *   and every enemy out of overlap every frame (stepObstacles in sim.js); projectiles are
  *   unaffected. Rendered from real sprite assets (Task 6), not drawn here.
@@ -624,9 +606,12 @@ export function createRun(meta, opts = {}) {
     coins: [],
     bombs: [],
     // v5.0 chapter behavior (see doc block above): pools fed by acidPool/soapTrail elite flags;
-    // obstacles rejection-sampled once here from this chapter's config (null/absent -> []).
+    // obstacles stream in around the player (sim.js streamObstacles, keyed on _obstacleSeed) —
+    // starts empty, populated on the first step. null seed (no chapter config, or tests) = none.
     pools: [],
-    obstacles: generateObstacles(CHAPTERS[chapter].obstacles),
+    obstacles: [],
+    _obstacleSeed: CHAPTERS[chapter].obstacles ? (Math.random() * 0x7fffffff) | 0 : null,
+    _obstacleRev: 0,
     // v5.3 garden behavior (see doc block above): trails fed by dying trailFollow ants (pheromone
     // signature), webs by webZone spiders + the lure's stickyScent mod, strips by sprayStrip elites,
     // lures by the Pheromone Lure weapon. All empty unless something pushes to them.

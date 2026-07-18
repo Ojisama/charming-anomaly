@@ -1848,19 +1848,23 @@ export function createRenderer(app) {
       ctx.fillRect(0, 0, 512, 512)
       T.holeDisc = Texture.from(c)
     }
-    // prism beam: horizontal rainbow bar, baked at the weapon's max length/width,
-    // anchored so local (0,0) sits at the left edge (player origin)
+    // neon beam: horizontal bar baked at the weapon's max length/width, anchored so local (0,0)
+    // sits at the left edge (player origin). v5.6.13 (user art direction): a SITH SABER, not a
+    // rainbow — a white-hot core sheathed in crimson inside a soft red bloom. No gradients in
+    // Graphics, so the bloom is stepped sleeves of rising alpha; normal-blend (additive washes to
+    // white on the city's light concrete, and a red saber that turns white has lost the point).
     {
       const len = WEAPONS.rainbow.levels[WEAPONS.rainbow.levels.length - 1].length
       const w = WEAPONS.rainbow.levels[WEAPONS.rainbow.levels.length - 1].width
-      // more saturated than the old v1 hues — additive is off (washes to white on the
-      // light floor), so normal-blend stripes need real color punch to read as "rainbow"
-      const hues = [0xff5d8f, 0xffb347, 0xffe94d, 0x5ddc8f, 0x59b7ff, 0xa06cf0]
+      const R = w / 2
       const g = new Graphics()
-      const seg = len / hues.length
-      for (let i = 0; i < hues.length; i++) g.rect(i * seg, -w / 2, seg + 1, w).fill(hues[i])
-      g.circle(len, 0, w / 2).fill(hues[hues.length - 1])
-      g.roundRect(-2, -w / 2, len + 2, w, w * 0.3).stroke({ width: 3, color: 0xffffff, alpha: 0.55 })
+      // bloom sleeves, widest first (each with round caps overhanging the emitter end a little)
+      g.roundRect(-R, -R, len + R * 2, w, R).fill({ color: 0xc41220, alpha: 0.22 })
+      g.roundRect(-R * 0.75, -R * 0.8, len + R * 1.5, w * 0.8, R * 0.8).fill({ color: 0xdc1f2b, alpha: 0.4 })
+      // the blade
+      g.roundRect(-R * 0.5, -R * 0.58, len + R, w * 0.58, R * 0.58).fill({ color: 0xff3b45, alpha: 0.95 })
+      // white-hot core
+      g.roundRect(-R * 0.3, -R * 0.27, len + R * 0.6, w * 0.27, R * 0.27).fill({ color: 0xfff2ef, alpha: 0.98 })
       T.beam = bake(g)
       T.beamRefLen = len
       T.beamRefWidth = w
@@ -3050,13 +3054,13 @@ export function createRenderer(app) {
     const bar = spriteOf(T.beam)
     const streakA = new Sprite(T.fx.trace_06)
     streakA.anchor.set(0.5)
-    streakA.tint = 0xffffff
+    streakA.tint = 0xffd9d4 // pale hot — shimmer INSIDE the red blade, not white paint over it
     streakA.alpha = 0.5
     streakA.rotation = Math.PI / 2 // trace_06 is a vertical streak; rotate to lie along the beam
     streakA.scale.set(fxScale(T.fx.trace_06, T.beamRefLen * 0.3), fxScale(T.fx.trace_06, T.beamRefWidth * 1.6))
     const streakB = new Sprite(T.fx.trace_06)
     streakB.anchor.set(0.5)
-    streakB.tint = 0xffffff
+    streakB.tint = 0xffd9d4
     streakB.alpha = 0.5
     streakB.rotation = Math.PI / 2
     streakB.scale.set(streakA.scale.x, streakA.scale.y)
@@ -3065,10 +3069,10 @@ export function createRenderer(app) {
     // tip/muzzle sit outside beamBody so the width-squash scale doesn't distort them
     const tip = new Sprite(T.fx.flare_01)
     tip.anchor.set(0.5)
-    tip.tint = 0xffffff
+    tip.tint = 0xff5a52 // the saber's tip burns red
     const muzzle = new Sprite(T.fx.muzzle_02)
     muzzle.anchor.set(0.5)
-    muzzle.tint = 0xffffff
+    muzzle.tint = 0xff5a52 // emitter flash, same red as the tip
 
     root.addChild(beamBody, tip, muzzle)
     beamLayer.addChild(root)
@@ -3089,9 +3093,9 @@ export function createRenderer(app) {
 
   // ---- v5.0 pond field elements ------------------------------------------------------------
   // Obstacles (run.obstacles): each collider is dressed in its chapter's own furniture, sized to
-  // the collider's radius so what you see is what you bump into. The list is generated once at
-  // createRun and never mutates, so this rebuilds only when the array identity changes (new run) —
-  // otherwise it's a no-op. Every obstacle sits on a HARD footprint ring (T.obFoot) whose rim lands
+  // the collider's radius so what you see is what you bump into. The list STREAMS with the player
+  // (sim.js streamObstacles, v5.6.13), so this rebuilds when the array identity changes (new run)
+  // OR run._obstacleRev bumps (cells materialized/dropped) — otherwise it's a no-op. Every obstacle sits on a HARD footprint ring (T.obFoot) whose rim lands
   // exactly on the collider edge o.r — the collision contract, drawn hard where decor shadows are
   // soft — under a denser mass than the floor props. Two mass styles:
   //   clumps (body/pond/garden) — one sheet prop stacked into a lifted mound: reeds/weeds.
@@ -3101,6 +3105,7 @@ export function createRenderer(app) {
   // Mass + ring are multiplied by chapterRender.floorTint, so the furniture sits in the biome's light.
   const obstacleSprites = []
   let obstacleToken = null
+  let obstacleRev = -1
   function acquireObstacle() {
     const root = new Container()
     const ring = new Sprite(Texture.EMPTY) // grounded footprint, UNDER the mass, rim on the collider edge
@@ -3115,8 +3120,11 @@ export function createRenderer(app) {
   }
   function syncObstacles(run) {
     const list = run.obstacles || []
-    if (obstacleToken === list) return // static per run — only rebuild on a fresh array
+    // v5.6.13: the list STREAMS as the player roams (sim.js streamObstacles mutates it in place
+    // and bumps run._obstacleRev) — rebuild on either a fresh array (new run) or a rev bump.
+    if (obstacleToken === list && obstacleRev === (run._obstacleRev || 0)) return
     obstacleToken = list
+    obstacleRev = run._obstacleRev || 0
     while (obstacleSprites.length < list.length) obstacleSprites.push(acquireObstacle())
     const foot = T.obFoot
     const style = chapterBiome.obstacle
@@ -3164,6 +3172,7 @@ export function createRenderer(app) {
   }
   function clearObstacles() {
     obstacleToken = null
+    obstacleRev = -1
     for (const ov of obstacleSprites) ov.root.visible = false
   }
 
