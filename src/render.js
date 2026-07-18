@@ -2584,12 +2584,16 @@ export function createRenderer(app) {
   // Per-chapter biome: which prop kinds scatter on each floor layer, and how the chapter's
   // run.obstacles colliders are dressed. Keyed by chapter id and latched in reset(run) alongside
   // chapterRender — the CHAPTERS[].render block is data the sim shares, this is render's own.
-  // `obstacle.clumps` names sheet props stacked twice over a glow rim (the pond's reed idiom);
-  // `obstacle.baked` names baked props scattered around the collider instead (hard furniture).
+  // `obstacle.clumps` names sheet props stacked into a mound (the pond's reed idiom);
+  // `obstacle.baked` names baked props planted on the pad instead (hard furniture).
+  // Every obstacle sits on a hard `foot` ring baked at T.obFoot and scaled so its rim lands EXACTLY
+  // on the collider edge o.r — that ring is the collision contract, so `foot` is picked for CONTRAST
+  // against each biome's floor (dark rings on pale floors, pale rings on dark floors), not for theme.
+  // `tint` is the obstacle mass: denser/darker than the floor props of the same family.
   const OBSTACLE_CLUMPS = ['cluster_a', 'cluster_b', 'cluster_c']
   const BIOME_GARDEN = {
     big: BIG_BUSH, mid: MID_GARDEN, detail: DETAIL_GARDEN,
-    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x8fbf6f, glow: 0xbfe8dd, glowAlpha: 0.5 },
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x5f8f4a, foot: 0x243617 },
   }
   const BIOMES = {
     body: BIOME_GARDEN,
@@ -2598,11 +2602,11 @@ export function createRenderer(app) {
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
       // roots + bones: a knot of root arches with a bone half-buried in it
-      obstacle: { baked: ['root', 'root', 'bone'], tint: 0xbfae86, glow: 0x6b5a34, glowAlpha: 0.4 },
+      obstacle: { baked: ['root', 'root', 'bone'], tint: 0xbfae86, foot: 0xffffff },
     },
     city: {
       big: BIG_CITY, mid: MID_CITY, detail: DETAIL_CITY,
-      obstacle: { baked: ['dumpster', 'hydrant', 'cone'], tint: 0xd8d4cc, glow: 0x6f7684, glowAlpha: 0.35 },
+      obstacle: { baked: ['dumpster', 'hydrant', 'cone'], tint: 0xd8d4cc, foot: 0x161a20 },
     },
     skies: {
       big: BIG_SKIES, mid: MID_SKIES, detail: DETAIL_SKIES,
@@ -3129,17 +3133,73 @@ export function createRenderer(app) {
     prevCount.trail = n
   }
 
-  // Spider web slow-zones (run.webs, {x,y,r,t}): pale silvery-cool discs that must read against the
-  // warm floor (cool pale wins on warm ground). Double-stacked like hazard pools — a soft outer disc
-  // + a brighter cool core — dissolving over their final moments as t runs down.
+  // Spider web slow-zones (run.webs, {x,y,r,t}): a real orb web baked ONCE and scaled per patch.
+  // Pale silvery-cool silk reads on the warm sunlit garden lawn (floorTint 0xaad066 — cool wins on
+  // warm ground). Off-centre hub, ~10 jittered radial spokes, sagging capture rings (each ring arc
+  // bows INWARD toward the hub — that catenary sag is THE thing that reads as silk, not a wheel), a
+  // few broken segments for wear, and a taut outer frame ring whose spoke-tips sit at EXACTLY the
+  // slow radius r (drawn extent == tested extent). Rotated per-patch so tiled webs don't look
+  // stamped; dissolves over its final 0.8s; a faint interior veil fills the zone so the hazard reads.
+  const WEB_BAKE_RIM = 144 // bake radius (2× WEB_R=72) so hairlines survive scaling down to r
+  const webTex = (() => {
+    const g = new Graphics()
+    const RIM = WEB_BAKE_RIM
+    const N = 10                                // radial spokes
+    const HX = RIM * 0.055, HY = -RIM * 0.04    // hub, slightly off-centre
+    const rings = [0.30, 0.47, 0.63, 0.80, 1.0] // capture-ring fractions hub→rim (last = frame)
+    const SAG = 0.35                            // sag depth as a fraction of ring spacing
+    // spoke tips on the origin-centred rim circle, with fixed angular jitter (baked once, no flicker)
+    const th = [], px = [], py = []
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2 + (hash(i * 12.9 + 3.1) - 0.5) * 0.14 // ±0.07rad jitter
+      th.push(a); px.push(Math.cos(a) * RIM); py.push(Math.sin(a) * RIM)
+    }
+    // faint interior veil so the slow-zone reads as a filled area — geometry carries the read
+    g.circle(0, 0, RIM).fill({ color: 0xdfeef6, alpha: 0.06 })
+    // radial spokes, hub → tip (dimmer/cooler structural threads)
+    for (let i = 0; i < N; i++) g.moveTo(HX, HY).lineTo(px[i], py[i])
+    g.stroke({ width: 1.2, color: 0xcfe2ee, alpha: 0.65, cap: 'round' })
+    // capture rings (inner) — concentric around the off-centre hub, each segment sagging toward it;
+    // a few segments broken for wear. quad control at M + 2·sag·û gives an actual mid-arc sag of `sag`.
+    for (let r = 0; r < rings.length - 1; r++) {
+      const f = rings[r], fp = r === 0 ? 0 : rings[r - 1]
+      for (let i = 0; i < N; i++) {
+        if (hash(r * 7.3 + i * 2.9 + 1.7) < 0.12) continue // broken segment
+        const j = (i + 1) % N
+        const vix = HX + f * (px[i] - HX), viy = HY + f * (py[i] - HY)
+        const vjx = HX + f * (px[j] - HX), vjy = HY + f * (py[j] - HY)
+        const mx = (vix + vjx) / 2, my = (viy + vjy) / 2
+        let ux = HX - mx, uy = HY - my; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul
+        const sag = SAG * (f - fp) * Math.hypot(px[i] - HX, py[i] - HY) // frac × radial ring spacing
+        g.moveTo(vix, viy).quadraticCurveTo(mx + ux * 2 * sag, my + uy * 2 * sag, vjx, vjy)
+      }
+    }
+    g.stroke({ width: 1.0, color: 0xeef6fb, alpha: 0.85, cap: 'round' })
+    // taut outer frame ring — spoke tips at EXACTLY r (= drawn rim), only a gentle bow between them
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N
+      const mx = (px[i] + px[j]) / 2, my = (py[i] + py[j]) / 2
+      let ux = -mx, uy = -my; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul
+      const sag = RIM * 0.05
+      g.moveTo(px[i], py[i]).quadraticCurveTo(mx + ux * sag, my + uy * sag, px[j], py[j])
+    }
+    g.stroke({ width: 1.4, color: 0xeef6fb, alpha: 0.9, cap: 'round' })
+    // 2 thin anchor tethers just past the rim (clearly tethers, not web body)
+    for (const i of [2, 7]) g.moveTo(px[i], py[i]).lineTo(Math.cos(th[i]) * (RIM + 7), Math.sin(th[i]) * (RIM + 7))
+    g.stroke({ width: 0.9, color: 0xcfe2ee, alpha: 0.5, cap: 'round' })
+    // messy hub tangle
+    for (let k = 0; k < 3; k++) {
+      const a = k * 2.1 + 0.4, ln = RIM * 0.05
+      g.moveTo(HX - Math.cos(a) * ln, HY - Math.sin(a) * ln).lineTo(HX + Math.cos(a) * ln, HY + Math.sin(a) * ln)
+    }
+    g.stroke({ width: 0.8, color: 0xeef6fb, alpha: 0.7, cap: 'round' })
+    return bake(g)
+  })()
   const webPool = []
   function acquireWeb() {
-    const root = new Container()
-    const a = new Sprite(T.fx.circle_05); a.anchor.set(0.5)
-    const b = new Sprite(T.fx.circle_05); b.anchor.set(0.5)
-    root.addChild(a, b)
-    webLayer.addChild(root)
-    return { root, a, b }
+    const spr = new Sprite(webTex.tex); spr.anchor.set(webTex.ax, webTex.ay)
+    webLayer.addChild(spr)
+    return { root: spr, spr }
   }
   function syncWebs(list) {
     const n = list.length
@@ -3150,9 +3210,10 @@ export function createRenderer(app) {
       wv.root.visible = true
       wv.root.position.set(web.x, web.y)
       const fade = Math.min(1, web.t / 0.8) // dissolve over the last 0.8s of life
-      const sc = fxScale(T.fx.circle_05, Math.max(web.r, 1) * 2)
-      wv.a.scale.set(sc); wv.a.tint = 0xbcd2e0; wv.a.alpha = 0.4 * fade   // pale silvery-cool
-      wv.b.scale.set(sc * 0.7); wv.b.tint = 0xeef6fb; wv.b.alpha = 0.5 * fade // brighter cool core
+      const ph = hash(web.x * 0.11 + web.y * 0.07) // fixed per-patch seed (rotation + shimmer phase)
+      wv.spr.rotation = ph * Math.PI * 2                        // fixed per position — no stamped tiling
+      wv.spr.scale.set(Math.max(web.r, 1) / WEB_BAKE_RIM)       // spoke tips land at EXACTLY r
+      wv.spr.alpha = fade * (0.86 + 0.14 * Math.sin(animT * 1.6 + ph * 6.28)) // cheap one-sprite shimmer
     }
     for (let i = n; i < prevCount.web; i++) webPool[i].root.visible = false
     prevCount.web = n
