@@ -327,11 +327,13 @@ export const WEAPONS = {
     // Lobs `count` chunks (run.lobs) on a `flight`-second arc toward random enemies within
     // castRange, each bursting for dmg in r on landing. Enemies only — never hurts the player.
     levels: [
-      { dmg: 30, rate: 2.6, castRange: 280, flight: 0.60, r: 85,  count: 1 },
-      { dmg: 37, rate: 2.4, castRange: 295, flight: 0.60, r: 92,  count: 1 },
-      { dmg: 45, rate: 2.2, castRange: 310, flight: 0.55, r: 100, count: 2 },
-      { dmg: 55, rate: 2.0, castRange: 330, flight: 0.55, r: 110, count: 2 },
-      { dmg: 70, rate: 1.8, castRange: 350, flight: 0.50, r: 122, count: 3 },
+      // v5.6.15: castRange raised — this is the skies' designated ANTI-AIR pick, so it must
+      // comfortably outrange anything that hovers (missile standoff, strafe bank arcs), not tie it.
+      { dmg: 30, rate: 2.6, castRange: 340, flight: 0.60, r: 85,  count: 1 },
+      { dmg: 37, rate: 2.4, castRange: 360, flight: 0.60, r: 92,  count: 1 },
+      { dmg: 45, rate: 2.2, castRange: 380, flight: 0.55, r: 100, count: 2 },
+      { dmg: 55, rate: 2.0, castRange: 400, flight: 0.55, r: 110, count: 2 },
+      { dmg: 70, rate: 1.8, castRange: 420, flight: 0.50, r: 122, count: 3 },
     ],
   },
   // Beyond chapter natives (v5.4). Black-Hole Vortex = the hole re-theme (see WEAPONS.hole).
@@ -1316,7 +1318,10 @@ export const CHAPTERS = {
     weapons: ['roar', 'tailSwipe', 'debrisToss'], starter: 'roar',
     roster: [
       { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe'] },
-      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 1.2, speedMul: 0.9,  flags: ['missileVolley'] },
+      // v5.6.15: hpMul 1.2 -> 0.75 — aircraft are FRAGILE; the tank column is this chapter's
+      // armor. At 1.2 the roar cone cleared ~0.7 helis/s against ~1.6/s spawning, so they
+      // accumulated into a missile hell (217 alive at t=180) regardless of standoff.
+      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley'] },
       { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.8, speedMul: 0.55, flags: ['artillery'] },
     ],
     eliteFlags: ['artillery'],            // AA-turret elites shell you too, just harder (see ARTILLERY_*)
@@ -1661,15 +1666,26 @@ export const STRAFE_RUN_SPEED_MUL = 4.5
 // contactDmgTakenMul path, respects invuln) and emits {type:'explode', x, y, radius: MISSILE_BLAST}.
 // It never damages enemies. It IS a projectile for the beyond's gravity wells (they bend it).
 // Damages: the PLAYER only.
-export const MISSILE_STANDOFF = 300
+// v5.6.15: was 300 — OUTSIDE every skies weapon's reach (roar L1 ~216 incl. body, tailSwipe 200,
+// debrisToss L1 280), so the chapter's COMMON spawn was effectively unkillable and accumulated:
+// measured 217 helicopters alive at t=180 on a kiting starter run, 2796 damage taken vs the
+// garden's 969 — the user called the chapter impossible and was right. 180 sits inside the
+// starter cone: still a hovering standoff ship, no longer a safe one. (The owl lesson, chapter-
+// scale: every enemy must be killable by the chapter's own kit.)
+export const MISSILE_STANDOFF = 180
 export const MISSILE_HOVER_SPEED_MUL = 0.9
 export const MISSILE_DEADZONE = 10      // px band around the standoff where it holds still (cf. DIVE_HOVER_DEADZONE)
-export const MISSILE_INTERVAL = 3.2     // s between volleys
+export const MISSILE_INTERVAL = 4.0     // s between volleys (v5.6.15: was 3.2 — see hpMul note)
 export const MISSILE_COUNT = 3          // missiles per volley
 export const MISSILE_GAP = 0.16         // s between missiles within one volley
-export const MISSILE_SPEED = 240        // px/s
+// v5.6.15: 240 -> 200. The comment below has ALWAYS said outrunning is the counterplay, but at
+// 240 vs PLAYER.baseSpeed 220 the missile was strictly faster — the stated counterplay was
+// mathematically impossible (the pull-beam rule again: impossible to IGNORE is fine, impossible
+// to ESCAPE is not). Attribution probe: missiles were 81% of all damage taken in the chapter.
+export const MISSILE_SPEED = 200        // px/s — under PLAYER.baseSpeed, so running works
 export const MISSILE_TURN = 1.6         // rad/s homing (slow — outrunning them is the counterplay)
-export const MISSILE_LIFE = 4.0         // s before a missile fizzles (removed, no blast)
+export const MISSILE_LIFE = 2.6         // s before a missile fizzles (v5.6.15: was 4.0 — a dodged
+                                        // missile is GONE, not circling back for another pass)
 export const MISSILE_R = 8              // px, missile hit radius
 export const MISSILE_DMG = 14
 export const MISSILE_BLAST = 40         // px, explode-event radius on impact (visual only — no splash)

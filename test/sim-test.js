@@ -26,6 +26,7 @@ import {
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG,
+  MISSILE_SPEED, MISSILE_STANDOFF,
   STRAFE_BANK_T, STRAFE_RUN_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
   ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS,
@@ -2905,6 +2906,16 @@ function testV54Flags() {
     assert.strictEqual(victim.hp, 1e6, 'expected an enemy missile to never damage enemies')
     assert.strictEqual(hit.enemyShots.length, 0, 'expected the missile consumed on impact')
     console.log('PASS run Y.f (missileVolley): volley fired, missile hurts the player only')
+
+    // v5.6.15 invariants — the skies was reported "impossible" and both of these were violated:
+    // (1) a missile must be OUTRUNNABLE (its own comment always claimed running was the
+    //     counterplay, but SPEED was 240 vs the player's 220); (2) the helicopter's standoff must
+    //     sit inside the chapter starter's reach, or the common spawn is unkillable and
+    //     accumulates into a missile hell (217 alive at t=180 — the owl bug at chapter scale).
+    assert(MISSILE_SPEED < PLAYER.baseSpeed,
+      `a missile (${MISSILE_SPEED}) must be slower than the player (${PLAYER.baseSpeed}) — outrunning is the stated counterplay`)
+    assert(MISSILE_STANDOFF < WEAPONS.roar.levels[0].range,
+      `the helicopter standoff (${MISSILE_STANDOFF}) must sit inside the skies starter's L1 reach (${WEAPONS.roar.levels[0].range})`)
   }
 
   // (g) artillery: a tank column shells the player's PREDICTED position (velocity × ARTILLERY_LEAD)
