@@ -4011,6 +4011,79 @@ export function createRenderer(app) {
     for (const cp of claws) { cp.live = false; if (cp.root) cp.root.visible = false }
   }
 
+  // Roar wavefronts (one-off {type:'roar'} events) — v5.6.16: the sim emitted this event from day
+  // one and render NEVER had a case for it, so the skies starter was literally invisible ("I don't
+  // see or understand what my weapon does"). A roar is pressure, not a blade: three thin arc BANDS
+  // radiating through the wedge from the player, expanding INTO the hitbox edge (the last band
+  // dies exactly at `range` — the drawn extent is the tested extent, per the claw rule) and fading
+  // as they travel. Warm dark amber on the skies' pale cool concrete (warm-vs-cool + darker value
+  // is what reads there — pale-on-pale is the chapter's documented camouflage trap).
+  // Same fixed-span-bake + tan-exact y-squash as the claw: the band is baked spanning ROAR_SPAN
+  // and squashed so the drawn wedge IS the cast's arc (wideRoar changes it at runtime).
+  const MAX_ROARS = 6
+  const ROAR_SPAN = 1.0        // rad the baked band subtends
+  const ROAR_REF = 100         // baked outer radius; scaled by radius/ROAR_REF at use
+  const ROAR_BANDS = 3
+  const ROAR_COLORS = [0xf0a63f, 0xcf7d24, 0xb8641f] // leading edge bright, trailing bands darker
+  let roarBandTex = null
+  function bakeRoarBand() {
+    const g = new Graphics()
+    const pts = []
+    const N = 26
+    for (let i = 0; i <= N; i++) { const a = -ROAR_SPAN / 2 + (i / N) * ROAR_SPAN; pts.push(Math.cos(a) * ROAR_REF, Math.sin(a) * ROAR_REF) }
+    for (let i = N; i >= 0; i--) { const a = -ROAR_SPAN / 2 + (i / N) * ROAR_SPAN; pts.push(Math.cos(a) * ROAR_REF * 0.86, Math.sin(a) * ROAR_REF * 0.86) }
+    g.poly(pts).fill(0xffffff) // white, tinted per band
+    return bake(g)
+  }
+  const roars = []
+  for (let i = 0; i < MAX_ROARS; i++) roars.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.34, root: null, bands: null })
+  let roarCursor = 0
+  function spawnRoar(x, y, angle, range, arc) {
+    const rp = roars[roarCursor]
+    roarCursor = (roarCursor + 1) % MAX_ROARS
+    if (!rp.root) {
+      if (!roarBandTex) roarBandTex = bakeRoarBand()
+      rp.root = new Container()
+      rp.bands = ROAR_COLORS.map((c) => {
+        const b = new Sprite(roarBandTex.tex)
+        b.anchor.set(roarBandTex.ax, roarBandTex.ay) // arc centre -> sits on the player
+        b.tint = c
+        return b
+      })
+      rp.root.addChild(...rp.bands)
+      whipLayer.addChild(rp.root)
+    }
+    rp.live = true
+    rp.x = x; rp.y = y; rp.angle = angle; rp.range = range; rp.arc = arc || 1
+    rp.t = 0
+    rp.root.visible = true
+  }
+  function updateRoars(dt) {
+    for (const rp of roars) {
+      if (!rp.live) continue
+      if (dt > 0) rp.t += dt
+      if (rp.t >= rp.dur) { rp.live = false; rp.root.visible = false; continue }
+      const k = rp.t / rp.dur
+      rp.root.position.set(rp.x, rp.y)
+      rp.root.rotation = rp.angle
+      // exact wedge fit (the claw lesson: the q ~= arc/SPAN linearisation is wide at the tips)
+      const q = Math.tan(rp.arc / 2) / Math.tan(ROAR_SPAN / 2)
+      for (let i = 0; i < rp.bands.length; i++) {
+        const band = rp.bands[i]
+        // stagger: each band launches a beat later and expands from 30% out to exactly `range`
+        const ki = Math.min(1, Math.max(0, (k - i * 0.12) / 0.72))
+        if (ki <= 0) { band.alpha = 0; continue }
+        const radius = rp.range * (0.3 + 0.7 * ki)
+        const sx = radius / ROAR_REF
+        band.scale.set(sx, sx * q)
+        band.alpha = Math.sin(Math.PI * ki) * (0.8 - i * 0.16)
+      }
+    }
+  }
+  function clearRoars() {
+    for (const rp of roars) { rp.live = false; if (rp.root) rp.root.visible = false }
+  }
+
   // particles: fixed-size freelist of sprites + plain data
   const particles = []
   for (let i = 0; i < MAX_PARTICLES; i++) {
@@ -4428,6 +4501,22 @@ export function createRenderer(app) {
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
           addShake(2, 0.1)
           break
+        case 'roar':
+          // v5.6.16: sonic wavefronts through the wedge + a shove-weight shake (see spawnRoar)
+          spawnRoar(e.x, e.y, e.angle, e.range, e.arc)
+          addShake(2.5, 0.12)
+          break
+        case 'tail':
+          // tail swipe: the whip's fat swoosh IS a heavy tail sweep — reuse it across the wide
+          // arc, with a heavier shake than the lash (this launches things)
+          spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
+          addShake(4, 0.16)
+          break
+        case 'toss':
+          // debris toss: the lobs themselves are visible entities (syncLobs) — the event only
+          // kicks the screen so the throw has weight
+          addShake(1.5, 0.08)
+          break
         case 'clawRake':
           // Claw Rake: three parallel gashes (spawnClaw — NOT the whip's swoosh; see there). A
           // lighter shake than the lash: it's a quick shred, and at this cadence a full-weight one
@@ -4533,6 +4622,7 @@ export function createRenderer(app) {
     clearObstacles()
     clearWhips()
     clearClaws()
+    clearRoars()
     clearCurrents()
     clearParticles()
     clearRings()
@@ -4987,6 +5077,7 @@ export function createRenderer(app) {
 
     updateWhips(dt)
     updateClaws(dt)
+    updateRoars(dt)
     updateParticles(dt)
     updateRings(dt)
     updateDamage(dt)
