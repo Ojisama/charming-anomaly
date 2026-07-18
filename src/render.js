@@ -2054,6 +2054,20 @@ export function createRenderer(app) {
       }
       T.asteroid = bake(g)
     }
+    {
+      // obstacle footprint (v5.6.10): the collision contract, drawn HARD where every decor shadow is
+      // soft. A subtly darkened packed-earth pad plus a crisp rim ring sitting on the collider edge,
+      // so a player learns "this stops me" by eye, not only by bumping it. Baked in greyscale at a
+      // reference radius and multiplied by each biome's `foot` colour (chosen for contrast, dark on
+      // pale floors / pale on dark floors); syncObstacles scales it by o.r/ref so the rim lands
+      // EXACTLY on o.r — what the sim tests is what the eye sees.
+      const g = new Graphics()
+      const REF = 100
+      g.circle(0, 0, REF).fill({ color: 0xffffff, alpha: 0.30 })                       // occlusion pad
+      g.circle(0, 0, REF * 0.62).fill({ color: 0xffffff, alpha: 0.16 })                // deeper toward centre
+      g.circle(0, 0, REF).stroke({ width: REF * 0.14, color: 0xffffff, alpha: 1 })     // hard rim ON the edge
+      T.obFoot = { ...bake(g), ref: REF }
+    }
 
     // ---- v5.4 signature/weapon props ---------------------------------------
     // snap traps (undergrowth signature, run.traps): they damage the PLAYER AND ENEMIES, so armed
@@ -2610,11 +2624,11 @@ export function createRenderer(app) {
     },
     skies: {
       big: BIG_SKIES, mid: MID_SKIES, detail: DETAIL_SKIES,
-      obstacle: { baked: ['rubble', 'rubble'], tint: 0xbfb8a8, glow: 0x5f5a50, glowAlpha: 0.3 },
+      obstacle: { baked: ['rubble', 'rubble'], tint: 0xbfb8a8, foot: 0x38332b },
     },
     beyond: {
       big: BIG_BEYOND, mid: MID_BEYOND, detail: DETAIL_BEYOND,
-      obstacle: { baked: ['asteroid', 'asteroid'], tint: 0xcfc8e0, glow: 0x8f7fd8, glowAlpha: 0.45 },
+      obstacle: { baked: ['asteroid', 'asteroid'], tint: 0xcfc8e0, foot: 0xffffff },
     },
   }
   chapterBiome = BIOMES.body // title-screen default; reset(run) latches the run's chapter
@@ -2968,33 +2982,36 @@ export function createRenderer(app) {
   // Obstacles (run.obstacles): each collider is dressed in its chapter's own furniture, sized to
   // the collider's radius so what you see is what you bump into. The list is generated once at
   // createRun and never mutates, so this rebuilds only when the array identity changes (new run) —
-  // otherwise it's a no-op. Two styles, both a soft glow rim under two stacked pieces:
-  //   clumps (body/pond/garden) — one sheet prop drawn twice at different rotations: reeds/weeds.
+  // otherwise it's a no-op. Every obstacle sits on a HARD footprint ring (T.obFoot) whose rim lands
+  // exactly on the collider edge o.r — the collision contract, drawn hard where decor shadows are
+  // soft — under a denser mass than the floor props. Two mass styles:
+  //   clumps (body/pond/garden) — one sheet prop stacked into a lifted mound: reeds/weeds.
   //   baked  (chapters 4-7)     — two baked props (roots+bone, dumpster/hydrant/cone, rubble,
-  //                               asteroids), the second offset and scaled down so the pair reads
-  //                               as a heap rather than one thing double-printed.
-  // Everything is multiplied by chapterRender.floorTint, so the furniture sits in the biome's light.
+  //                               asteroids), the big one planted on the pad and a smaller second
+  //                               tucked at the rim so the pair reads as a heap, not a double-print.
+  // Mass + ring are multiplied by chapterRender.floorTint, so the furniture sits in the biome's light.
   const obstacleSprites = []
   let obstacleToken = null
   function acquireObstacle() {
     const root = new Container()
-    const glow = new Sprite(Texture.EMPTY)
-    glow.anchor.set(0.5)
+    const ring = new Sprite(Texture.EMPTY) // grounded footprint, UNDER the mass, rim on the collider edge
+    ring.anchor.set(0.5)
     const clumpA = new Sprite(Texture.EMPTY)
     clumpA.anchor.set(0.5)
     const clumpB = new Sprite(Texture.EMPTY)
     clumpB.anchor.set(0.5)
-    root.addChild(glow, clumpA, clumpB)
+    root.addChild(ring, clumpA, clumpB)
     obstacleLayer.addChild(root)
-    return { root, glow, clumpA, clumpB }
+    return { root, ring, clumpA, clumpB }
   }
   function syncObstacles(run) {
     const list = run.obstacles || []
     if (obstacleToken === list) return // static per run — only rebuild on a fresh array
     obstacleToken = list
     while (obstacleSprites.length < list.length) obstacleSprites.push(acquireObstacle())
-    const glowTex = T.fx.circle_05
+    const foot = T.obFoot
     const style = chapterBiome.obstacle
+    const footTint = tintMul(style.foot, chapterRender.floorTint)
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
@@ -3003,33 +3020,37 @@ export function createRenderer(app) {
       ov.root.position.set(o.x, o.y)
       const rot = hash(o.x + o.y * 3.3) * Math.PI * 2
       const tint = tintMul(style.tint, chapterRender.floorTint)
+      // footprint ring: the hard contract. Scaled so its rim lands EXACTLY on the collider edge o.r.
+      ov.ring.texture = foot.tex
+      ov.ring.tint = footTint
+      ov.ring.alpha = 1
+      ov.ring.scale.set(o.r / foot.ref)
       if (style.baked) {
         // baked furniture: pick two pieces off the chapter's list by position hash, plant the big
-        // one and tuck a smaller second beside it. Baked props carry their own origin (upright ones
-        // sit on their base), so the anchor comes from the look, not a fixed 0.5.
+        // one on the pad and tuck a smaller second at the rim. Baked props carry their own origin
+        // (upright ones sit on their base), so the anchor comes from the look, not a fixed 0.5.
         const pick = (salt) => style.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * style.baked.length)]
         const a = T[pick(0)]
         const b = T[pick(11.3)]
-        const scA = (o.r * 2.0) / Math.max(a.tex.width, a.tex.height)
-        const scB = (o.r * 1.2) / Math.max(b.tex.width, b.tex.height)
+        const scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
+        const scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
         ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = tint
         ov.clumpA.scale.set(scA); ov.clumpA.rotation = 0
-        ov.clumpA.position.set(0, o.r * 0.34)
+        ov.clumpA.position.set(0, o.r * 0.28) // base planted just past centre, sitting on the pad
         ov.clumpB.texture = b.tex; ov.clumpB.anchor.set(b.ax, b.ay); ov.clumpB.tint = tint
         ov.clumpB.scale.set(scB); ov.clumpB.rotation = (hash(o.x * 2.9 + o.y) - 0.5) * 0.5
-        ov.clumpB.position.set((hash(o.x + o.y * 5.1) - 0.5) * o.r * 1.2, o.r * 0.5)
+        ov.clumpB.position.set((hash(o.x + o.y * 5.1) - 0.5) * o.r * 0.85, o.r * 0.44) // tucked at the rim
       } else {
+        // foliage mound: two stacked cluster sprites sized to the collider (≈2×radius wide) and
+        // lifted into a crown, denser and darker than the single floor bush. The ring, not the
+        // foliage overhang, marks the true edge.
         const tex = T.props[style.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * style.clumps.length)]]
-        const sc = (o.r * 2.3) / 1024 // source props are 1024px; target on-screen ≈ 2.3×radius
+        const sc = (o.r * 2.0) / 1024 // source props are 1024px; on-screen width ≈ collider diameter
         ov.clumpA.texture = tex; ov.clumpA.anchor.set(0.5); ov.clumpA.tint = tint
-        ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot; ov.clumpA.position.set(0, 0)
+        ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot; ov.clumpA.position.set(0, -o.r * 0.10)
         ov.clumpB.texture = tex; ov.clumpB.anchor.set(0.5); ov.clumpB.tint = tint
-        ov.clumpB.scale.set(sc); ov.clumpB.rotation = rot + 0.6; ov.clumpB.position.set(0, 0)
+        ov.clumpB.scale.set(sc * 0.82); ov.clumpB.rotation = rot + 0.6; ov.clumpB.position.set(0, -o.r * 0.34)
       }
-      ov.glow.texture = glowTex
-      ov.glow.tint = tintMul(style.glow, chapterRender.floorTint)
-      ov.glow.alpha = style.glowAlpha
-      ov.glow.scale.set(fxScale(glowTex, o.r * 2.2))
     }
   }
   function clearObstacles() {
