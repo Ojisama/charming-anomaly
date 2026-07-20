@@ -131,25 +131,26 @@ Same `run.bombs` sim path — the storm *is* the hazard, now legibly.
 and `highway/airport` are drop-in extra types (add a weight + a prop-skin) — deferred,
 not built now.
 
-#### Art pipeline for new district props (open decision)
+#### Art pipeline for new district props — decided: hand-drawn vector
 
 The four district skins need new props (houses, cars, fences, trees, hedges, waves…).
-Two routes:
+**Decision: hand-draw them as baked vector in `render.js`**, the way every existing
+chapter's looks are made (`drawJet`, foliage baked to textures once). Matches the game's
+clean flat-vector aesthetic, no new pipeline, no runtime asset graph (respects the
+`import.meta.glob` eager-URL constraint). Storm/lightning FX (pieces 2–3) are procedural
+regardless — no generated art anywhere in this work.
 
-- **(A) Hand-drawn vector in `render.js`** — the way every existing chapter's looks are
-  made (`drawJet`, foliage baked to textures once). *Matches the game's clean vector
-  aesthetic exactly, no new pipeline, no runtime asset graph* (respects the
-  `import.meta.glob` eager-URL constraint). **Recommended default** on style + laziness.
-- **(B) Generated PNG sprites via ComfyUI** — user has `~/ComfyUI` and a working
-  sprite-gen setup in `~/gamedev/special-funicular/`. Could produce richer props fast.
-  *Risk:* raster/painterly output may clash with the game's flat vector look, and PNGs
-  drop into `src/props/`-style eager globs (fine) but add an art-review/cleanup step.
-
-**To decide at review:** a background recon is mapping how `special-funicular` drives
-ComfyUI (workflow, output format, how sprites reach the game) and whether generated
-output can match this game's style. If it can cheaply, (B) is worth it for the volume of
-props piece 4 needs; otherwise (A). Storm/lightning FX (pieces 2–3) are procedural either
-way — no generated art there.
+**Why not ComfyUI** (the user's `~/ComfyUI` + `~/gamedev/special-funicular/` sprite-gen,
+recon'd 2026-07-20): the *plumbing* is excellent and reusable (config-driven Python +
+ComfyUI HTTP API + auto bg-removal + gallery-pick, `scripts/generate-transparent.py`),
+but the *style engine* is wrong here. `special-funicular` runs bare **FLUX.1-schnell with
+no style LoRA**; output is **painterly/rendered digital-painting** creatures (soft
+gradients, AO, glow, drop-shadows, no outlines) — the opposite of this game's solid-fill
++ dark-outline vector. Forcing flat-vector out of it would need a model/LoRA swap **plus**
+a vectorize/posterize+outline post-step, and matching outline weight + palette across a
+whole prop set is the hard, manual part. Not worth it for props.
+Parked, not dead: if we ever deliberately move this game toward a painterly look, that
+pipeline is ready to reuse — but that's a whole-game art-direction change, out of scope.
 
 ## Determinism & testing
 
