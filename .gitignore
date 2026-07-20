@@ -4,3 +4,6 @@ dist/
 
 # verification screenshots (never commit — they land in the worktree root during browser checks)
 /*.png
+
+# generated review sheet (regenerate with `make contact`)
+src/reskin/**/_contact.png
