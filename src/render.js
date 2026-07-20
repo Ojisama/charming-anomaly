@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -2464,6 +2464,13 @@ export function createRenderer(app) {
   const dustLayer = new Container()
   const vignette = new Sprite(T.vignette)
   vignette.alpha = 0
+  // Full-field lightning flash (skies chapter, v5.7.2, LIGHTNING.flash): a flat white screen-space
+  // rect, NOT the vignette's edge-only radial gradient — a strike/ambient bolt should whiten the
+  // WHOLE view, briefly. Texture.WHITE is Pixi's built-in 1x1 white pixel, no bake needed. Sits
+  // directly below vignette in the stage stack (see addChild below) so a same-frame damage flash
+  // — the safety cue — still visibly wins.
+  const lightningFlash = new Sprite(Texture.WHITE)
+  lightningFlash.alpha = 0
   // v5.0 pond biome layers (empty/hidden for body): ambient current motes live on the stage
   // (screen space, like dust); obstacles + hazard pools read as ground decals under the roster;
   // toxin blooms hang over enemies but under the player; whip flashes sit over the weapons.
@@ -2482,7 +2489,7 @@ export function createRenderer(app) {
   const stormRainLayer = new Container()
 
   world.addChild(floorLayer, cloudShadowLayer, entitiesLayer)
-  app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, vignette)
+  app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -3148,6 +3155,7 @@ export function createRenderer(app) {
       wx * STORM_VIS.cloud.speed, wy * STORM_VIS.cloud.speed, pcx, pcy)
 
     updateRain(dt)
+    updateAmbientLightning(dt, cx, cy)
   }
 
   function clearStorm() {
@@ -4471,6 +4479,9 @@ export function createRenderer(app) {
   let idleT = 0
   let flashT = 0       // player hurt flash
   let vignetteA = 0
+  let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
+  let lightningAmbientT = LIGHTNING.ambient.minInterval // s until the next ambient flash/bolt (skies only)
+  let prevSkiesBombs = new Set() // last frame's run.bombs objects (skies only) — see handleEvents
   let frameDt = 0      // this frame's dt, for pool callbacks that need real elapsed time
   let playerX = 0      // player position, for pool callbacks whose entities are player-anchored (beams)
   let playerY = 0
@@ -4493,6 +4504,10 @@ export function createRenderer(app) {
     if (vignette.width !== w || vignette.height !== h) {
       vignette.width = w
       vignette.height = h
+    }
+    if (lightningFlash.width !== w || lightningFlash.height !== h) {
+      lightningFlash.width = w
+      lightningFlash.height = h
     }
   }
 
@@ -4555,15 +4570,18 @@ export function createRenderer(app) {
 
   // Elemental shock arcs (shockarc/frostarc/conduct): jagged-polyline visuals driven by a
   // one-off render-local pool instead of run-state (these are single-shock proc events,
-  // not a persisting sim list) — spawn once, fade over `dur`, then recycle.
+  // not a persisting sim list) — spawn once, fade over `dur`, then recycle. v5.7.2: also reused
+  // by skies' lightning bolts (strikeLightning/updateAmbientLightning below) — same jagged glow-
+  // then-core stroke IS a lightning bolt, no separate drawer needed. width/peak default to the
+  // original hardcoded 7/1 so shockarc/frostarc/conduct's look is byte-for-byte unchanged.
   const MAX_ARCS = 8
   const arcs = []
   for (let i = 0; i < MAX_ARCS; i++) {
-    arcs.push({ live: false, points: null, life: 0, dur: 0.25, outer: 0x6c5ce7, inner: 0xffffff })
+    arcs.push({ live: false, points: null, life: 0, dur: 0.25, outer: 0x6c5ce7, inner: 0xffffff, width: 7, peak: 1 })
   }
   let arcCursor = 0
 
-  function spawnArc(points, outer, inner = 0xffffff, dur = 0.25) {
+  function spawnArc(points, outer, inner = 0xffffff, dur = 0.25, width = 7, peak = 1) {
     const a = arcs[arcCursor]
     arcCursor = (arcCursor + 1) % MAX_ARCS
     a.live = true
@@ -4572,6 +4590,8 @@ export function createRenderer(app) {
     a.dur = dur
     a.outer = outer
     a.inner = inner
+    a.width = width
+    a.peak = peak
   }
 
   function updateArcs(dt) {
@@ -4621,11 +4641,58 @@ export function createRenderer(app) {
       if (!a.live) continue
       const pts = a.points
       if (!pts || pts.length < 2) continue
-      const alpha = Math.max(0, Math.min(1, a.life / a.dur))
+      const alpha = Math.max(0, Math.min(1, a.life / a.dur)) * a.peak
       const path = jitterPath(pts, ai * 3.7)
-      strokePath(arcG, path, 7, a.outer, alpha * 0.35)
-      strokePath(arcG, path, 2, a.inner, alpha)
+      strokePath(arcG, path, a.width, a.outer, alpha * 0.35)
+      strokePath(arcG, path, Math.max(1, a.width * 2 / 7), a.inner, alpha)
     }
+  }
+
+  // Jagged vertical polyline from off the top of (x,y) cracking straight down onto it — lateral
+  // jitter tapers to exactly 0 at the last point so the bolt always lands ON the strike point.
+  // Feeds spawnArc (its own jitterPath pass adds a layer of finer wobble on top of this). Math.
+  // random is fine here: a one-shot cosmetic shape, not on the deterministic sim path.
+  function lightningBoltPath(x, y, dropPx, segments, jitterPx) {
+    const pts = []
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments
+      const j = (Math.random() * 2 - 1) * jitterPx * (1 - t)
+      pts.push([x + j, y - dropPx * (1 - t)])
+    }
+    return pts
+  }
+
+  // A REAL bombardment/artillery strike landing (skies only) — see handleEvents' 'explode' case.
+  // Bolt via the shock-arc pool (LIGHTNING.strikeBolt look) + the full-field flash at strike
+  // intensity.
+  function strikeLightning(x, y) {
+    const b = LIGHTNING.strikeBolt
+    spawnArc(lightningBoltPath(x, y, b.dropPx, b.segments, b.jitterPx), b.glowColor, b.color, b.dur, b.width, b.alpha)
+    triggerLightningFlash(LIGHTNING.flash.strikeAlpha)
+  }
+
+  function triggerLightningFlash(alpha) {
+    lightningFlashA = Math.max(lightningFlashA, alpha)
+  }
+
+  // Ambient cosmetic lightning (skies only, called from updateStorm): occasional flash + a
+  // distant, thinner, dimmer bolt somewhere in view. Pure atmosphere — no run state read beyond
+  // the camera offset already passed in, no gameplay effect. Timed by lightningAmbientT, a
+  // render-local accumulator (own float, reset in clearWorld) — the same idiom as every other FX
+  // cadence in this file (CURRENT_VIS.rippleEvery, the storm layers' fade envelopes, ...), never
+  // the seeded sim RNG.
+  function updateAmbientLightning(dt, cx, cy) {
+    if (dt <= 0) return
+    lightningAmbientT -= dt
+    if (lightningAmbientT > 0) return
+    const cfg = LIGHTNING.ambient
+    lightningAmbientT = cfg.minInterval + Math.random() * (cfg.maxInterval - cfg.minInterval)
+    // bx/by land the bolt's base somewhere across the view's upper half, in WORLD space (cx,cy is
+    // the camera offset sync() applies to `world`, i.e. world = screen - (cx,cy))
+    const bx = -cx + Math.random() * app.screen.width
+    const by = -cy + Math.random() * app.screen.height * 0.5
+    spawnArc(lightningBoltPath(bx, by, cfg.dropPx, cfg.segments, cfg.jitterPx), cfg.color, cfg.color, cfg.dur, cfg.width, cfg.alpha)
+    triggerLightningFlash(LIGHTNING.flash.ambientAlpha)
   }
 
   function levelupBurst(x, y) {
@@ -4639,6 +4706,23 @@ export function createRenderer(app) {
   }
 
   function handleEvents(run, events) {
+    // v5.7.2: skies re-themes REAL bomb detonations (run.bombs — bombardment/artillery/volatile,
+    // all of it) as lightning instead of the generic 'explode' burst below — see that case. Bomb
+    // objects are created once and mutated in place until removed (stepBombs/stepBombardment in
+    // sim.js: b.fuse -= dt, then run.bombs = run.bombs.filter(...) drops the dead ones), so object
+    // identity is stable frame-to-frame. Diffing this frame's run.bombs against last frame's set
+    // tells us exactly which bombs just went off — zero sim reads beyond the array itself, and no
+    // change to run.bombs' shape or timing.
+    let justStruck = null
+    if (chapterHasStorm) {
+      const curBombs = new Set(run.bombs)
+      justStruck = []
+      for (const b of prevSkiesBombs) if (!curBombs.has(b)) justStruck.push(b)
+      prevSkiesBombs = curBombs
+    } else if (prevSkiesBombs.size) {
+      prevSkiesBombs = new Set() // left skies mid-flight (e.g. a run ended) — drop stale refs
+    }
+
     for (const e of events) {
       switch (e.type) {
         case 'hit':
@@ -4700,10 +4784,22 @@ export function createRenderer(app) {
           spawnClaw(e.x, e.y, e.angle, e.range, e.arc)
           addShake(1.2, 0.07)
           break
-        case 'explode':
-          explosionBurst(e.x, e.y, e.radius)
+        case 'explode': {
+          // A bomb detonation in skies reads as lightning (see justStruck above); every other
+          // explosion source (weapon lobs/novas, mines, geysers, snap traps, other chapters'
+          // bombs...) keeps the original scorch-and-shrapnel burst untouched.
+          const struckIdx = justStruck
+            ? justStruck.findIndex((b) => b.x === e.x && b.y === e.y && b.radius === e.radius)
+            : -1
+          if (struckIdx >= 0) {
+            justStruck.splice(struckIdx, 1)
+            strikeLightning(e.x, e.y)
+          } else {
+            explosionBurst(e.x, e.y, e.radius)
+          }
           addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
           break
+        }
         case 'hole':
           // vortex opening reads fine on its own — no shake
           break
@@ -4813,6 +4909,10 @@ export function createRenderer(app) {
     flashT = 0
     vignetteA = 0
     vignette.alpha = 0
+    lightningFlashA = 0
+    lightningFlash.alpha = 0
+    lightningAmbientT = LIGHTNING.ambient.minInterval + Math.random() * (LIGHTNING.ambient.maxInterval - LIGHTNING.ambient.minInterval)
+    prevSkiesBombs = new Set()
     animT = 0
     hop = 0
     breathe = 0
@@ -4967,11 +5067,30 @@ export function createRenderer(app) {
   // Volatile bomb telegraphs (run.bombs): danger circles under enemies/player, urgency
   // (fill alpha, rim strength, pulse rate) ramping up as fuse -> 0. One shared Graphics
   // cleared/redrawn per frame, same pattern as arcG/redrawArcs above.
+  // v5.7.2: skies re-skins this as an incoming-strike reticle (LIGHTNING.telegraph) — same
+  // fill+rim shape and urgency math, just electric-colored, plus a core ring that COLLAPSES
+  // toward the strike point as the fuse burns down instead of just pulsing in place, and a fast
+  // irregular flicker on the rim so it visibly "charges" rather than breathes. Every other
+  // chapter's bombs (this same array — volatile elites, body/pond/etc.) keep the plain red
+  // circle exactly as before; the detonation bolt+flash itself is event-driven, see
+  // handleEvents' 'explode' case / strikeLightning above.
   function redrawBombs(run) {
     bombG.clear()
+    const skies = chapterHasStorm
     for (const b of run.bombs || []) {
       const urgency = b.duration > 0 ? 1 - b.fuse / b.duration : 1
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 16))
+      if (skies) {
+        const t = LIGHTNING.telegraph
+        const flicker = 0.7 + 0.3 * Math.random() // electric crackle on top of the smooth pulse
+        const fillA = Math.min(t.maxFillA, t.baseFillA + urgency * 0.16 + pulse * 0.05)
+        const rimA = Math.min(1, (t.baseRimA + urgency * 0.35 + pulse * 0.1) * flicker)
+        bombG.circle(b.x, b.y, b.radius).fill({ color: t.color, alpha: fillA })
+        bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color: t.color, alpha: rimA })
+        const core = Math.max(3, b.radius * (1 - urgency)) // collapses to a point as urgency -> 1
+        bombG.circle(b.x, b.y, core).stroke({ width: 2, color: t.coreColor, alpha: 0.4 + pulse * 0.35 })
+        continue
+      }
       const fillA = Math.min(0.32, 0.12 + urgency * 0.14 + pulse * 0.04)
       const rimA = Math.min(1, 0.55 + urgency * 0.35 + pulse * 0.1)
       bombG.circle(b.x, b.y, b.radius).fill({ color: 0xff6b81, alpha: fillA })
@@ -5218,6 +5337,10 @@ export function createRenderer(app) {
     // red vignette flash — keeps fading behind frozen modals/summary (dt=0)
     vignetteA = Math.max(0, vignetteA - (dt > 0 ? dt : 1 / 60) * 2.6)
     vignette.alpha = vignetteA
+
+    // full-field lightning flash (skies) — same "keeps fading at dt=0" treatment as the vignette
+    lightningFlashA = Math.max(0, lightningFlashA - (dt > 0 ? dt : 1 / 60) / LIGHTNING.flash.fadeDur)
+    lightningFlash.alpha = lightningFlashA
 
     syncObstacles(run)
     syncWells(run)
