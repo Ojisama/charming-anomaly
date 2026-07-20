@@ -1343,6 +1343,8 @@ export const CHAPTERS = {
       playerTint: 0x7ad07a, // classic rubber-suit kaiju green
       tail: true,
       tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailSwipe's business end)
+      storm: true,          // v5.6.18: gates the night-thunderstorm overlay (cloud-shadows,
+                             // parallax clouds, rain — STORM_VIS below, render.js updateStorm)
     },
   },
   beyond: {
@@ -1390,6 +1392,50 @@ export const CURRENT_VIS = {
   tint: 0xa8fbef,     // saturated teal-white — reads on the murky pond floor (pale washes out, dark vanishes)
   alpha: 0.5,         // peak alpha at full fade-in
   rippleEvery: 3.2,   // s between "ripple train" accents (3 streaks single-file); 0 disables
+}
+
+// Night-thunderstorm overlay (skies chapter, v5.6.18, render.js updateStorm): three cosmetic,
+// pooled, world-space layers built on the CURRENT_VIS idiom above (pooled sprites, respawn in
+// view, fade envelopes). windAngle/speed drive one shared wind vector so the ground shadows,
+// the overhead clouds and the rain all lean the same way. Keep shadow/cloud alphas conservative
+// — this sits over live gameplay (enemies, telegraphs) and must stay readable.
+export const STORM_VIS = {
+  windAngle: 2.35, // rad — shared gust direction (down-and-left); every layer drifts/falls along it
+  shadow: {         // ground cloud-shadows: big dark blobs UNDER entities, dimming the floor
+    count: 6,
+    sizePx: 900,     // blob diameter, px
+    sizeJitter: 0.35, // ± fraction randomising each blob's size so they don't read as one stamp
+    speed: 34,       // px/s drift along windAngle
+    tint: 0x05070c,
+    alpha: 0.24,     // peak alpha at full fade-in — dims the floor, doesn't blacken it
+    life: 26,        // s alive before fading out and respawning in view
+    lifeJitter: 0.3,
+    fadeIn: 3.5,
+    fadeOut: 4.5,
+    margin: 300,     // px past the viewport before a (huge) blob's center may respawn
+  },
+  cloud: {          // overhead parallax clouds: OVER everything, lag the camera (altitude cue)
+    count: 5,
+    sizePx: 1050,
+    sizeJitter: 0.4,
+    speed: 14,       // px/s of the cloud's OWN drift, on top of the parallaxed camera offset
+    tint: 0x2e3644,
+    alpha: 0.26,     // translucent — sparse enough to still read enemies/telegraphs underneath
+    life: 34,
+    lifeJitter: 0.3,
+    fadeIn: 4,
+    fadeOut: 5,
+    margin: 350,
+    parallaxFactor: 0.3, // fraction of the camera's move this layer follows — <1 reads as distant
+  },
+  rain: {           // foreground rain streaks: plain screen-space wind-wrap, no world tracking
+    count: 140,
+    speed: 950,      // px/s fall speed along windAngle
+    lenPx: 26,
+    widthPx: 2.2,
+    tint: 0xaebdd0,
+    alpha: 0.14,     // subtle — a haze of motion, not a whiteout
+  },
 }
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers

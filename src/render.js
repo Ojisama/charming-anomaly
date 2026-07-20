@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -87,6 +87,9 @@ export function createRenderer(app) {
   // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
   let chapterRender = BODY_RENDER
   let chapterHasCurrents = false
+  // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
+  // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
+  let chapterHasStorm = false
   // Active chapter's prop/obstacle biome (BIOMES, declared with the floor section below). Left null
   // here on purpose: BIOMES is a `const` further down, so reading it at construction time would be a
   // TDZ crash — it's seeded right after BIOMES itself and re-latched per reset(run).
@@ -1895,6 +1898,23 @@ export function createRenderer(app) {
       T.vignette = Texture.from(c)
     }
 
+    // storm blob (skies overlay, v5.6.18): a plain soft white radial gradient, center to fully
+    // transparent at the edge — no Graphics gradient support, same canvas trick as the vignette
+    // above. One bake, tinted+scaled per instance for both the ground cloud-shadows (dark, huge,
+    // slow) and the overhead parallax clouds (lighter, even bigger) — see STORM_VIS/updateStorm.
+    {
+      const c = document.createElement('canvas')
+      c.width = c.height = 512
+      const ctx = c.getContext('2d')
+      const grad = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
+      grad.addColorStop(0, 'rgba(255,255,255,0.9)')
+      grad.addColorStop(0.5, 'rgba(255,255,255,0.45)')
+      grad.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 512, 512)
+      T.stormBlob = Texture.from(c)
+    }
+
     // ---- organic floor: ground blotches + hand-drawn detail bits -----------
     // soft mottling, radial-gradient canvas textures (center color -> transparent)
     {
@@ -2453,9 +2473,16 @@ export function createRenderer(app) {
   const obstacleLayer = new Container()
   const bloomLayer = new Container()
   const whipLayer = new Container()
+  // Storm overlay (skies signature look, v5.6.18 — see updateStorm below). cloudShadowLayer is a
+  // `world` child (floor < shadows < entities, so shadows dim the ground but sit under the roster);
+  // stormCloudLayer/stormRainLayer are stage-level, drawn OVER the whole world (clouds parallax the
+  // camera, rain is plain screen space) — same "declared before the addChild that uses it" rule.
+  const cloudShadowLayer = new Container()
+  const stormCloudLayer = new Container()
+  const stormRainLayer = new Container()
 
-  world.addChild(floorLayer, entitiesLayer)
-  app.stage.addChild(world, currentLayer, idleLayer, dustLayer, vignette)
+  world.addChild(floorLayer, cloudShadowLayer, entitiesLayer)
+  app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -2981,6 +3008,154 @@ export function createRenderer(app) {
     currentLayer.visible = false
     for (const p of currentStreaks) { p.g.visible = false; p.spawned = false; p.boost = 1 }
     rippleTimer = 0
+  }
+
+  // ---------------------------------------------------------------- storm overlay
+  // Night-thunderstorm overlay (skies chapter only, STORM_VIS above): three cosmetic, pooled
+  // layers on the CURRENT_VIS idiom (pooled sprites, respawn-in-view, fade envelopes). Render-
+  // only — reads run.chapter (via chapterHasStorm, latched in reset()) and the camera offset,
+  // writes nothing back to run.
+  //   cloudShadowLayer — big dark blobs, `world` child between floorLayer/entitiesLayer, so they
+  //     dim the ground but sit under obstacles/enemies/player.
+  //   stormCloudLayer  — the same blob texture again, lighter and bigger, stage-level and drawn
+  //     OVER everything; its container is offset by only STORM_VIS.cloud.parallaxFactor of the
+  //     camera move (see updateStorm) so it visibly lags the ground — the altitude/depth cue.
+  //   stormRainLayer   — short streaks, plain screen-space wind-wrap (own function below).
+  // ponytail: one shared wind vector (STORM_VIS.windAngle), not a turbulence field — legible and
+  // cheap; nothing here asked for per-blob wind noise.
+  function makeDriftPool(container, count, tex) {
+    const items = []
+    for (let i = 0; i < count; i++) {
+      const s = new Sprite(tex)
+      s.anchor.set(0.5)
+      s.visible = false
+      container.addChild(s)
+      items.push({ s, x: 0, y: 0, age: 0, life: 0, scaleMul: 1, spawned: false })
+    }
+    return items
+  }
+  const cloudShadows = makeDriftPool(cloudShadowLayer, STORM_VIS.shadow.count, T.stormBlob)
+  const stormClouds = makeDriftPool(stormCloudLayer, STORM_VIS.cloud.count, T.stormBlob)
+
+  // Drop a drift blob at a fresh spot in the current view (viewX/viewY = world coords of the
+  // screen's top-left corner this frame) — same idea as respawnStreak above.
+  function respawnDrift(p, cfg, viewX, viewY, w, h) {
+    p.x = viewX + Math.random() * w
+    p.y = viewY + Math.random() * h
+    p.age = 0
+    p.life = cfg.life * (1 + (Math.random() * 2 - 1) * cfg.lifeJitter)
+    p.scaleMul = 1 + (Math.random() * 2 - 1) * cfg.sizeJitter
+    p.spawned = true
+  }
+
+  // Shared advect/fade loop for cloudShadows + stormClouds. camX/camY is whatever this layer's
+  // sprites must add to their own (wind-drifted) local position to land on screen — used only for
+  // the off-screen/respawn test, since the actual screen placement comes from the *container's*
+  // position (cloudShadowLayer inherits `world`'s; stormCloudLayer gets the parallax offset set in
+  // updateStorm) plus each sprite's own local (p.x, p.y).
+  function updateDriftPool(items, cfg, tex, dt, dx, dy, camX, camY) {
+    const w = app.screen.width
+    const h = app.screen.height
+    const mg = cfg.margin
+    const viewX = -camX, viewY = -camY
+    for (const p of items) {
+      if (p.s.texture !== tex) p.s.texture = tex
+      if (!p.spawned) respawnDrift(p, cfg, viewX, viewY, w, h)
+      p.age += dt
+      p.x += dx * dt
+      p.y += dy * dt
+      const sx = p.x + camX
+      const sy = p.y + camY
+      const off = sx < -mg || sx > w + mg || sy < -mg || sy > h + mg
+      if (p.age >= p.life || off) { respawnDrift(p, cfg, viewX, viewY, w, h); continue }
+      let env = 1
+      if (p.age < cfg.fadeIn) env = p.age / cfg.fadeIn
+      else if (p.age > p.life - cfg.fadeOut) env = Math.max(0, (p.life - p.age) / cfg.fadeOut)
+      p.s.position.set(p.x, p.y)
+      p.s.scale.set((cfg.sizePx / tex.width) * p.scaleMul)
+      p.s.tint = cfg.tint
+      p.s.alpha = cfg.alpha * env
+      p.s.visible = true
+    }
+  }
+
+  const rainDrops = []
+  for (let i = 0; i < STORM_VIS.rain.count; i++) {
+    const s = new Sprite(Texture.EMPTY)
+    s.anchor.set(0.5)
+    s.visible = false
+    stormRainLayer.addChild(s)
+    rainDrops.push({ s, x: hash(i * 3.71 + 0.6), y: hash(i * 5.93 + 1.3) })
+  }
+  let stormTexReady = false
+
+  // Rain: plain SCREEN-space wind-wrap (same trick as updateDustMotes above), not world-space
+  // advection like the two drift-blob layers — rain doesn't sample or need to track any world
+  // position, so the respawn-in-view machinery above would be pure overhead here.
+  function updateRain(dt) {
+    if (!stormTexReady && T.fx && T.fx.trace_05) stormTexReady = true
+    if (!stormTexReady) return
+    const w = app.screen.width
+    const h = app.screen.height
+    const wind = STORM_VIS.windAngle
+    const vx = Math.cos(wind) * STORM_VIS.rain.speed
+    const vy = Math.sin(wind) * STORM_VIS.rain.speed
+    const lx = fxScale(T.fx.trace_05, STORM_VIS.rain.lenPx)
+    const ly = fxScale(T.fx.trace_05, STORM_VIS.rain.widthPx)
+    for (const d of rainDrops) {
+      if (d.s.texture !== T.fx.trace_05) { d.s.texture = T.fx.trace_05; d.s.scale.set(lx, ly) }
+      d.x += (vx * dt) / w
+      d.y += (vy * dt) / h
+      if (d.x > 1.1) d.x -= 1.2
+      if (d.x < -0.1) d.x += 1.2
+      if (d.y > 1.1) d.y -= 1.2
+      if (d.y < -0.1) d.y += 1.2
+      d.s.position.set(d.x * w, d.y * h)
+      d.s.rotation = wind
+      d.s.tint = STORM_VIS.rain.tint
+      d.s.alpha = STORM_VIS.rain.alpha
+      d.s.visible = true
+    }
+  }
+
+  function updateStorm(run, dt, cx, cy) {
+    if (!chapterHasStorm) {
+      cloudShadowLayer.visible = false
+      stormCloudLayer.visible = false
+      stormRainLayer.visible = false
+      return
+    }
+    cloudShadowLayer.visible = true
+    stormCloudLayer.visible = true
+    stormRainLayer.visible = true
+
+    const wind = STORM_VIS.windAngle
+    const wx = Math.cos(wind)
+    const wy = Math.sin(wind)
+
+    // ground shadows: a `world` child, so its container already carries the full camera offset —
+    // camX/camY here is only needed for the drift loop's own off-screen test.
+    updateDriftPool(cloudShadows, STORM_VIS.shadow, T.stormBlob, dt,
+      wx * STORM_VIS.shadow.speed, wy * STORM_VIS.shadow.speed, cx, cy)
+
+    // overhead clouds: stage-level, so THIS container's position carries the (reduced) camera
+    // offset — derived straight from the same cx,cy sync() uses for world.position, scaled by
+    // parallaxFactor so the clouds visibly lag the ground as the camera pans.
+    const pcx = cx * STORM_VIS.cloud.parallaxFactor
+    const pcy = cy * STORM_VIS.cloud.parallaxFactor
+    stormCloudLayer.position.set(pcx, pcy)
+    updateDriftPool(stormClouds, STORM_VIS.cloud, T.stormBlob, dt,
+      wx * STORM_VIS.cloud.speed, wy * STORM_VIS.cloud.speed, pcx, pcy)
+
+    updateRain(dt)
+  }
+
+  function clearStorm() {
+    cloudShadowLayer.visible = false
+    stormCloudLayer.visible = false
+    stormRainLayer.visible = false
+    for (const p of cloudShadows) { p.s.visible = false; p.spawned = false }
+    for (const p of stormClouds) { p.s.visible = false; p.spawned = false }
   }
 
   // ------------------------------------------------------------------- pools
@@ -4625,6 +4800,7 @@ export function createRenderer(app) {
     clearClaws()
     clearRoars()
     clearCurrents()
+    clearStorm()
     clearParticles()
     clearRings()
     clearArcs()
@@ -5084,6 +5260,7 @@ export function createRenderer(app) {
     updateDamage(dt)
     updateDustMotes(dt)
     updateCurrents(run, dt, cx, cy)
+    updateStorm(run, dt, cx, cy)
   }
 
   // Hoisted syncPool callbacks (fresh closures per frame are pointless garbage)
@@ -5285,6 +5462,7 @@ export function createRenderer(app) {
     const cfg = run ? CHAPTERS[run.chapter] : null
     chapterRender = cfg?.render ?? BODY_RENDER
     chapterHasCurrents = cfg?.signature?.type === 'currents'
+    chapterHasStorm = !!chapterRender.storm
     // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body
