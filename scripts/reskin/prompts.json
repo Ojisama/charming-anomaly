@@ -8,6 +8,6 @@
     "wbc": { "prompt": "a cute white blood cell, round fluffy pale-white cell with tiny soft bumps around the rim, big gentle eyes, chubby and slow", "w": 512, "h": 512, "transparent": true, "seed": 1003 },
     "antibody": { "prompt": "a cute Y-shaped antibody protein character, pastel blue, three little rounded arms, tiny happy face, quick and nimble", "w": 512, "h": 512, "transparent": true, "seed": 1004 },
     "amoeba": { "prompt": "a cute translucent green amoeba blob with little rounded pseudopod arms reaching out, big curious eyes, wobbly and squishy", "w": 512, "h": 512, "transparent": true, "seed": 1005 },
-    "bg_body": { "prompt": "the inside of a friendly body, soft pink fleshy cavern walls, gentle warm cozy glow, tiny floating cells in the distance, cute pixel art game background", "w": 1280, "h": 720, "transparent": false, "seed": 1006 }
+    "bg_body": { "prompt": "flat top-down overhead view of soft living flesh tissue, seamless tileable ground texture, gentle pink organic membrane, faint rounded cell patterns, tiny capillaries and pores, even flat lighting", "style": "cute pixel art game floor tile, strict top-down birds-eye view, flat overhead, seamless repeating texture, soft pastel palette, gentle organic detail, uniform across the whole frame", "negative": "perspective, horizon, walls, cavern, tunnel, vanishing point, depth, character, creature, face, eyes, mascot, vignette, dark edges, 3d render, drop shadow, border", "w": 1024, "h": 1024, "transparent": false, "seed": 1006 }
   }
 }

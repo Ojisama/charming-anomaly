@@ -136,7 +136,7 @@ def main():
 
     if args.dry_run:
         name, a = next(iter(assets.items()))
-        text = f"{a['prompt']}, {style}. avoid: {negative}"
+        text = f"{a['prompt']}, {a.get('style', style)}. avoid: {a.get('negative', negative)}"
         print(f"config OK: {len(cfg['assets'])} assets. sample workflow for '{name}':")
         print(json.dumps(build_workflow(text, a["w"], a["h"], a.get("seed", 0)), indent=2))
         return
@@ -144,7 +144,7 @@ def main():
     args.outdir.mkdir(parents=True, exist_ok=True)
     for name, a in assets.items():
         out = args.outdir / f"{name}.png"
-        text = f"{a['prompt']}, {style}. avoid: {negative}"
+        text = f"{a['prompt']}, {a.get('style', style)}. avoid: {a.get('negative', negative)}"
         print(f"[{name}] {a['w']}x{a['h']} seed={a.get('seed', 'random')} -> {out}")
         pid = queue_prompt(build_workflow(text, a["w"], a["h"], a.get("seed", 0)))
         download(wait_for(pid), out)
