@@ -1521,7 +1521,7 @@ const DISTRICT_SEA_BLOCK = 3
 const DISTRICT_SEA_REGION_CHANCE = 0.32 // fraction of blocks that are an "ocean region"
 const DISTRICT_SEA_BOOST = 6            // sea's weight is multiplied by this inside one; everyone else's divided
 
-// Deterministic [0,1) from any number of parts, reusing the FNV hash above (string-keyed — this
+// Deterministic [0,1) from any number of parts, reusing the FNV hashString below (string-keyed — this
 // runs a handful of times per floor cell/obstacle, nowhere near a hot per-frame loop).
 function hash01(...parts) {
   return hashString(parts.join(',')) / 0xffffffff
