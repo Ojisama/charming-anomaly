@@ -378,7 +378,15 @@ export function initUI(hooks) {
     const car = screens.title.querySelector('[data-carousel]')
     if (!car) return
     const t = car.querySelector(`[data-chapter="${browseChapterId}"]`)
-    if (t) car.scrollLeft = Math.max(0, t.offsetLeft - (car.clientWidth - t.clientWidth) / 2)
+    if (!t) return
+    // Centre t by shifting scrollLeft by how far t's centre sits from the carousel's centre.
+    // Measured via getBoundingClientRect (viewport space) NOT offsetLeft: a card's offsetLeft is
+    // relative to the positioned .screen--title ancestor, so on a WIDE screen (where the 460px
+    // carousel is centred with a large left gutter) it's offset from the scroller's own content by
+    // that gutter — which mis-centred the last chapters off-screen. Rects avoid the mismatch.
+    const carMid = car.getBoundingClientRect().left + car.clientWidth / 2
+    const tMid = t.getBoundingClientRect().left + t.clientWidth / 2
+    car.scrollLeft = Math.max(0, car.scrollLeft + (tMid - carMid))
   }
 
   // Attach the scroll-settle selection to a freshly-rendered carousel. Safari lacks 'scrollend', so
@@ -390,11 +398,17 @@ export function initUI(hooks) {
     positionCarousel()
     let timer = null
     const settle = () => {
-      const centre = car.scrollLeft + car.clientWidth / 2
+      // Pick the card whose centre is nearest the carousel's centre, both in viewport space
+      // (getBoundingClientRect). Do NOT use el.offsetLeft here: it's relative to the positioned
+      // .screen--title, not the scroller, so on wide screens it's shifted by the carousel's left
+      // gutter and settle would select a card several to the left of the one actually centred —
+      // making the last chapters unselectable on desktop (the carousel is full-width on phones,
+      // gutter ~0, which is why this only bit wide screens).
+      const carMid = car.getBoundingClientRect().left + car.clientWidth / 2
       let best = null, bestDist = Infinity
       for (const el of car.querySelectorAll('[data-chapter]')) {
-        const c = el.offsetLeft + el.clientWidth / 2
-        const dist = Math.abs(c - centre)
+        const c = el.getBoundingClientRect().left + el.clientWidth / 2
+        const dist = Math.abs(c - carMid)
         if (dist < bestDist) { bestDist = dist; best = el }
       }
       if (!best || best.dataset.chapter === browseChapterId) return
