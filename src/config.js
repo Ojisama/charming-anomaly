@@ -1331,12 +1331,15 @@ export const CHAPTERS = {
     // `rate` = seconds between bombardment volleys; the rest is BOMBARDMENT_* below.
     signature: { type: 'bombardment', rate: 2.6 },
     obstacles: { count: 13, minR: 30, maxR: 60, minDist: 240 }, // building rubble — fewer but chunkier
-    // ---- render-only (v5.4) ---- you are the kaiju and the camera zoomed OUT: pale open sky
-    // between shattered concrete, a bright rubble floor, a green kaiju with a heavy tail. Read as
-    // the brightest, most washed-out biome (daylight at altitude). rosterId: jet/helicopter/tankColumn.
+    // ---- render-only (v5.6.17) ---- you are the kaiju rampaging under a NIGHT THUNDERSTORM: dark
+    // indigo sky between shattered concrete, a wet-asphalt rubble floor, a green kaiju with a heavy
+    // tail. Read as a dark, storm-lit ground (effective floor luminance ~0.07 — darker than city/
+    // pond/garden, just shy of undergrowth) instead of the old washed-out daylight-at-altitude.
+    // rosterId: jet/helicopter/tankColumn — see their re-lit fills at the top of the Skies section
+    // in render.js (the floor flip forced a matching contrast re-pass on all three).
     render: {
-      bgColor: 0x6f9ecf,    // open daylight sky showing between the rubble
-      floorTint: 0xc9d6e4,  // pale shattered-concrete multiply on the floor sprites
+      bgColor: 0x2a3240,    // dark storm indigo-grey sky showing between the rubble
+      floorTint: 0x717c88,  // wet-asphalt cool grey multiply — rain-slicked night wreckage
       playerTint: 0x7ad07a, // classic rubber-suit kaiju green
       tail: true,
       tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailSwipe's business end)

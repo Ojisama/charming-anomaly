@@ -1328,14 +1328,15 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.98, r)
   }
 
-  // --- Skies chapter (pale shattered concrete) ---
-  // The skies floor is the FIRST LIGHT floor since the body: bg 0x6f9ecf under floorTint 0xc9d6e4
-  // → ~0x8eaabc, luminance ~0.38. This inverts the rule the last three chapters ran on — here every
-  // machine must go DARK, and pale military greys would vanish. The dark band is narrow, so the
-  // three are spread across what it has and lean hard on hue + silhouette too:
-  //   jet        = DARKEST (cold gunmetal, 4.9x)
-  //   helicopter = MID     (olive drab, 3.5x)
-  //   tankColumn = LIGHTEST of the three (dark khaki, 2.9x)
+  // --- Skies chapter (night thunderstorm) ---
+  // v5.6.17: the skies floor FLIPPED DARK for the storm redesign: bg 0x2a3240 under floorTint
+  // 0x717c88 → effective floor luminance ~0.07 (was ~0.38 pre-flip). That inverts the rule this
+  // section used to run on — light military greys would now vanish, so every machine goes LIGHT,
+  // spread across the same contrast multiples as before (just mirrored: light-on-dark, not
+  // dark-on-light) so the three stay tellable apart by hue + silhouette, not just value:
+  //   jet        = BRIGHTEST (pale steel-blue gunmetal, 4.8x)
+  //   helicopter = MID       (bright olive drab, 3.5x)
+  //   tankColumn = DIMMEST of the three (pale khaki/tan, still 2.2-4.0x across its parts)
   //
   // jet: top-down, nose right — fuselage is ONE spine tapering from a needle nose to the exhaust,
   // and the delta wings are real polygons with a swept leading edge meeting a straight trailing edge
@@ -1354,16 +1355,16 @@ export function createRenderer(app) {
         -r * 0.32, s * r * 1.34 * sc,
         -r * 0.72, s * r * 1.3 * sc,
         -r * 0.66, s * r * 0.2,
-      ]).fill(f(0x2f3742)).stroke({ width: lw * 0.8, color: line })
+      ]).fill(f(0xb6c4d2)).stroke({ width: lw * 0.8, color: line })
     }
     for (const s of [-1, 1]) { // tailplanes: the same wedge, smaller, further aft
       g.poly([-r * 0.7, s * r * 0.16, -r * 1.14, s * r * 0.66, -r * 1.32, s * r * 0.6, -r * 1.22, s * r * 0.14])
-        .fill(f(0x2f3742)).stroke({ width: lw * 0.7, color: line })
+        .fill(f(0xb6c4d2)).stroke({ width: lw * 0.7, color: line })
     }
     // fuselage: needle nose right, tapering back to a blunt exhaust
     const spine = (t) => [r * 1.5 - t * r * 2.9, 0]
     const body = (t) => r * 0.3 * bulge(0.02 + 0.9 * t, t < 0.35 ? 1.4 : 0.4)
-    g.poly(spineOutline(spine, body, 30)).fill(f(0x2f3742)).stroke({ width: lw, color: line })
+    g.poly(spineOutline(spine, body, 30)).fill(f(0xb6c4d2)).stroke({ width: lw, color: line })
     if (!white) {
       g.ellipse(-r * 0.2, r * 0.12, r * 0.7, r * 0.12).fill({ color: 0x0e1116, alpha: 0.3 })
       g.ellipse(-r * 0.2, -r * 0.1, r * 0.7, r * 0.08).fill({ color: 0x7d8b9c, alpha: 0.22 }) // dorsal sheen
@@ -1399,7 +1400,7 @@ export function createRenderer(app) {
     groundShadow(r * 1.1, r * 1.05)
     // tail fin + tail rotor, drawn first so the boom overlaps their roots
     g.poly([-r * 1.32, -r * 0.1, -r * 1.62, -r * 0.44, -r * 1.72, -r * 0.1, -r * 1.6, r * 0.12])
-      .fill(f(0x44503a)).stroke({ width: lw * 0.7, color: line })
+      .fill(f(0x9cae66)).stroke({ width: lw * 0.7, color: line })
     g.ellipse(-r * 1.62, -r * 0.28, r * 0.1, r * 0.34).fill(white ? 0xffffff : { color: 0xc4d0b4, alpha: 0.35 })
     for (const s of [-1, 1]) { // skids: two straight rails, offset — not a smooth arc
       g.rect(-r * 0.5, s * r * 0.46 - r * 0.04, r * 1.16, r * 0.08).fill(f(0x333c2b))
@@ -1413,7 +1414,7 @@ export function createRenderer(app) {
       const boom = 0.12 * Math.pow(Math.max(0, 1 - t), 0.5)
       return r * bulge(0.04 + 0.9 * t, 0.7) * (cab + boom)
     }
-    g.poly(spineOutline(spine, body, 34)).fill(f(0x44503a)).stroke({ width: lw, color: line })
+    g.poly(spineOutline(spine, body, 34)).fill(f(0x9cae66)).stroke({ width: lw, color: line })
     if (!white) {
       g.ellipse(r * 0.3, r * 0.2, r * 0.5, r * 0.14).fill({ color: 0x232b1b, alpha: 0.3 })
       g.ellipse(r * 0.3, -r * 0.2, r * 0.44, r * 0.1).fill({ color: 0x93a37f, alpha: 0.22 })
@@ -1454,21 +1455,21 @@ export function createRenderer(app) {
     const trk = []
     for (let i = 0; i <= 16; i++) { const a = -Math.PI / 2 + (i / 16) * Math.PI; trk.push(r * 0.86 + Math.cos(a) * r * 0.24, r * 0.44 + Math.sin(a) * r * 0.24) }
     for (let i = 0; i <= 16; i++) { const a = Math.PI / 2 + (i / 16) * Math.PI; trk.push(-r * 0.86 + Math.cos(a) * r * 0.24, r * 0.44 + Math.sin(a) * r * 0.24) }
-    g.poly(trk).fill(f(0x3a3524)).stroke({ width: lw * 0.8, color: line })
+    g.poly(trk).fill(f(0x8a7f5e)).stroke({ width: lw * 0.8, color: line })
     // hull: hard facets — sloped glacis on the right, flat roof, cut-back rear
     g.poly([
       r * 1.02, r * 0.3, r * 0.62, -r * 0.16, // glacis slope
       r * 0.34, -r * 0.28, -r * 0.72, -r * 0.28, // roof
       -r * 0.98, r * 0.04, -r * 0.98, r * 0.34, // rear plate
-    ]).fill(f(0x61573c)).stroke({ width: lw, color: line })
+    ]).fill(f(0xb3a374)).stroke({ width: lw, color: line })
     // turret: a squat faceted mass, offset back from the glacis
     g.poly([
       r * 0.42, -r * 0.3, r * 0.26, -r * 0.66, -r * 0.28, -r * 0.72,
       -r * 0.52, -r * 0.5, -r * 0.5, -r * 0.3,
-    ]).fill(f(0x6d6344)).stroke({ width: lw, color: line })
+    ]).fill(f(0xc2b183)).stroke({ width: lw, color: line })
     // gun: a long taper to a muzzle brake — the reach IS the threat read
-    taperStroke(g, [[r * 0.2, -r * 0.5], [r * 1.5, -r * 0.5]], r * 0.1, r * 0.07, f(0x4e4630), 4)
-    g.rect(r * 1.42, -r * 0.6, r * 0.18, r * 0.2).fill(f(0x4e4630)).stroke({ width: 1.4, color: line })
+    taperStroke(g, [[r * 0.2, -r * 0.5], [r * 1.5, -r * 0.5]], r * 0.1, r * 0.07, f(0x998a5f), 4)
+    g.rect(r * 1.42, -r * 0.6, r * 0.18, r * 0.2).fill(f(0x998a5f)).stroke({ width: 1.4, color: line })
     if (!white) {
       g.poly([r * 1.02, r * 0.3, r * 0.62, -r * 0.16, r * 0.34, -r * 0.28, -r * 0.72, -r * 0.28, -r * 0.98, r * 0.04, -r * 0.98, r * 0.34])
         .fill({ color: 0x000000, alpha: 0 })
@@ -1480,7 +1481,7 @@ export function createRenderer(app) {
       for (let i = 0; i < 5; i++) {
         const x = -r * 0.72 + i * r * 0.36
         g.circle(x, r * 0.44, r * 0.12).fill({ color: 0x2b2718, alpha: 0.55 })
-        g.circle(x, r * 0.44, r * 0.05).fill({ color: 0x6d6344, alpha: 0.5 })
+        g.circle(x, r * 0.44, r * 0.05).fill({ color: 0xc2b183, alpha: 0.5 })
       }
       g.beginPath()
       for (let i = 0; i < 14; i++) {
@@ -1498,7 +1499,7 @@ export function createRenderer(app) {
       // vision block: a dark glass slit, a machine's "eye"
       g.rect(r * 0.28, -r * 0.56, r * 0.14, r * 0.07).fill(0x141208)
       g.rect(r * 0.29, -r * 0.555, r * 0.05, r * 0.02).fill({ color: 0x9fd8ff, alpha: 0.6 })
-      g.circle(-r * 0.36, -r * 0.68, r * 0.05).fill({ color: 0x3a3524, alpha: 0.9 }) // hatch periscope
+      g.circle(-r * 0.36, -r * 0.68, r * 0.05).fill({ color: 0x8a7f5e, alpha: 0.9 }) // hatch periscope
     }
     if (elite) eliteCrown(-r * 0.76, r)
   }
