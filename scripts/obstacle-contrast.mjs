@@ -34,7 +34,7 @@ const CHAP = [
   { id: 'garden',      bg: 0x4e8240, tint: 0xaad066, foot: 0x243617 },
   { id: 'undergrowth', bg: 0x2b2417, tint: 0x8a7a4e, foot: 0xffffff },
   { id: 'city',        bg: 0x2c2f38, tint: 0x9aa0ac, foot: 0x161a20 },
-  { id: 'skies',       bg: 0x6f9ecf, tint: 0xc9d6e4, foot: 0x38332b },
+  { id: 'skies',       bg: 0x2a3240, tint: 0x717c88, foot: 0x38332b },
   { id: 'beyond',      bg: 0x120a26, tint: 0x6a5fa0, foot: 0xffffff },
 ]
 
