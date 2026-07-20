@@ -618,8 +618,9 @@ export function createRun(meta, opts = {}) {
     obstacles: [],
     _obstacleSeed: CHAPTERS[chapter].obstacles ? (Math.random() * 0x7fffffff) | 0 : null,
     _obstacleRev: 0,
-    // render-only (see doc block above): seeds the skies chapter's Voronoi district map. Never
-    // read by sim.js, so it can't drift the seeded test suite.
+    // render-only (see doc block above): seeds the skies chapter's Voronoi district map. This draw
+    // DOES advance the shared Math.random stream (skies-only), but sim.js never READS _districtSeed
+    // and the skies tests re-seed / assert structurally, so the seeded suite stays stable.
     _districtSeed: CHAPTERS[chapter].render?.districts ? (Math.random() * 0x7fffffff) | 0 : null,
     // v5.3 garden behavior (see doc block above): trails fed by dying trailFollow ants (pheromone
     // signature), webs by webZone spiders + the lure's stickyScent mod, strips by sprayStrip elites,
