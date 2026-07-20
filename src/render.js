@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
+import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
 import { currentForce } from './sim.js'
 
@@ -33,6 +33,16 @@ const FX_URLS = {}
 for (const path in FX_MODULES) {
   const name = path.match(/([^/]+)\.png$/)[1]
   FX_URLS[name] = FX_MODULES[path]
+}
+
+// Reskin prototype (chapter 1 'body'): locally-generated cute-pixel sprites in src/reskin/body/.
+// Same eager-url-glob + shared-`ready`-promise trick as props/fx; applied per-run in reset() only
+// when run.chapter === 'body', so every other chapter keeps its procedural look untouched.
+const RESKIN_MODULES = import.meta.glob('./reskin/body/*.png', { eager: true, query: '?url', import: 'default' })
+const RESKIN_URLS = {}
+for (const path in RESKIN_MODULES) {
+  const name = path.match(/([^/]+)\.png$/)[1]
+  RESKIN_URLS[name] = RESKIN_MODULES[path]
 }
 
 const ENEMY_LOOKS = {
@@ -2460,19 +2470,76 @@ export function createRenderer(app) {
   // call them before this settles — they just skip floor drawing until then; main.js
   // additionally awaits `ready` itself before the game loop ever calls sync()/idle().
   let propsReady = false
-  const ALL_URLS = { ...PROP_URLS, ...FX_URLS }
+  // Reskin prototype state: `reskinOn` is latched per-run in reset(); `reskinFloor` is the tiling
+  // flesh ground, created once the sprites load. See RESKIN_URLS at the top of the file.
+  let reskinOn = false
+  let reskinFloor = null
+  const RESKIN_CREATURE_BASE_R = 190 // 512px art (~80% filled) → on-screen ≈ 2·e.radius; tune to taste
+  const RESKIN_PLAYER_SCALE = 0.13   // shrink the 512px player png to roughly the blob's diameter
+  const ALL_URLS = { ...PROP_URLS, ...FX_URLS, ...RESKIN_URLS }
   const ready = Assets.load(Object.values(ALL_URLS)).then((loaded) => {
     T.props = {}
     for (const name in PROP_URLS) T.props[name] = loaded[PROP_URLS[name]]
     T.fx = {}
     for (const name in FX_URLS) T.fx[name] = loaded[FX_URLS[name]]
+    T.reskin = {}
+    for (const name in RESKIN_URLS) T.reskin[name] = loaded[RESKIN_URLS[name]]
     // foam streak (sea district, skies — v5.7.x): literally the same streak texture CURRENT_VIS/
     // STORM_VIS.rain draw with, repackaged as a baked-prop lookup so applyPropKind's baked branch
     // can scatter it on the floor like pebble/puddle — genuine asset reuse, not new art.
     T.foam = { tex: T.fx.trace_05, ax: 0.5, ay: 0.5 }
     buildFxTextures()
+    buildReskinLooks()
     propsReady = true
   })
+
+  // Solid-white silhouette of a texture, for the hit-flash (the roster swaps to look.white on hit;
+  // a colored PNG can't be whitened by tint, which only multiplies). Draw the sprite, then paint
+  // white through its own alpha with source-in. Falls back to the texture itself if the source
+  // image isn't drawable (no flash, but never a crash).
+  function whiteMask(tex) {
+    try {
+      const res = tex.source.resource
+      const w = res.width || tex.source.pixelWidth
+      const h = res.height || tex.source.pixelHeight
+      const c = document.createElement('canvas')
+      c.width = w; c.height = h
+      const ctx = c.getContext('2d')
+      ctx.drawImage(res, 0, 0, w, h)
+      ctx.globalCompositeOperation = 'source-in'
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, w, h)
+      return Texture.from(c)
+    } catch {
+      return tex
+    }
+  }
+
+  // Build the per-rosterId reskin looks (same contract as makeRosterLook) + the tiling floor.
+  // Body spawns redcell/wbc/antibody; each shares one look for its elite (rendered bigger via
+  // e.radius). maxLean copies ROSTER_LOOKS so facing stays right: cells don't turn, antibody does.
+  const RESKIN_LEAN = { redcell: 0, wbc: 0, antibody: 90 }
+  function buildReskinLooks() {
+    T.reskinRoster = {}
+    for (const id of ['redcell', 'wbc', 'antibody']) {
+      const tex = T.reskin[id]
+      if (!tex) continue
+      const look = {
+        tex, white: whiteMask(tex), ax: 0.5, ay: 0.5, frames: null,
+        baseR: RESKIN_CREATURE_BASE_R, maxLean: (RESKIN_LEAN[id] ?? 0) * (Math.PI / 180),
+        shadow: null, crown: null,
+      }
+      T.reskinRoster[id] = look
+      T.reskinRoster[id + '_elite'] = look
+    }
+    if (T.reskin.player) T.reskin.playerWhite = whiteMask(T.reskin.player)
+    if (T.reskin.bg_body) {
+      reskinFloor = new TilingSprite({ texture: T.reskin.bg_body, width: app.screen.width, height: app.screen.height })
+      reskinFloor.tileScale.set(0.5)
+      reskinFloor.visible = false
+      app.stage.addChildAt(reskinFloor, 0) // under `world` → below the blotch mottling and entities
+    }
+  }
 
   function spriteOf(look) {
     const s = new Sprite(look.tex)
@@ -5254,7 +5321,7 @@ export function createRenderer(app) {
       // prefer the per-rosterId themed silhouette; fall back to the archetype look for enemies
       // whose rosterId has no baked creature (daily/title/future chapters)
       const rkey = e.rosterId ? e.rosterId + (e.elite ? '_elite' : '') : null
-      const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
+      const look = (rkey && reskinOn && T.reskinRoster[rkey]) || (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
       // frames on animT, offset per enemy id so a pack doesn't slither in lockstep. Frozen/stunned
       // creatures HOLD their current pose (matching the wisp-wobble rule below) instead of
@@ -5461,6 +5528,13 @@ export function createRenderer(app) {
     const cy = app.screen.height / 2 - run.player.y + shake.oy
     world.position.set(cx, cy)
     updateFloorLayer(cx, cy)
+    // reskin flesh floor: screen-space tile under `world`, texture anchored to world space by
+    // matching the camera offset — so it scrolls with the ground instead of sitting still.
+    if (reskinOn && reskinFloor) {
+      reskinFloor.width = app.screen.width
+      reskinFloor.height = app.screen.height
+      reskinFloor.tilePosition.set(cx, cy)
+    }
 
     // red vignette flash — keeps fading behind frozen modals/summary (dt=0)
     vignetteA = Math.max(0, vignetteA - (dt > 0 ? dt : 1 / 60) * 2.6)
@@ -5720,6 +5794,25 @@ export function createRenderer(app) {
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body
     R.background.color = chapterRender.bgColor
+    // Reskin prototype: chapter 1 ('body') swaps player + creatures + floor to generated sprites.
+    // Fully reversible — a run in any other chapter (or the title, run == null) restores the
+    // procedural rig. Guarded on T.reskin so it no-ops until the sprites have loaded. The creature
+    // swap rides `reskinOn` in syncEnemies; here we handle the player rig and the tiling floor.
+    reskinOn = !!(run && run.chapter === 'body' && T.reskin && T.reskin.player)
+    if (reskinOn) {
+      pBody.texture = T.reskin.player
+      pBody.scale.set(RESKIN_PLAYER_SCALE)
+      pFlash.texture = T.reskin.playerWhite ?? T.playerFlash
+      pFlash.scale.set(RESKIN_PLAYER_SCALE)
+      pupilL.visible = pupilR.visible = false
+    } else {
+      pBody.texture = T.playerBody
+      pBody.scale.set(1)
+      pFlash.texture = T.playerFlash
+      pFlash.scale.set(1)
+      pupilL.visible = pupilR.visible = true
+    }
+    if (reskinFloor) reskinFloor.visible = reskinOn
     clearWorld()
     if (run) {
       entitiesLayer.visible = true
