@@ -1345,6 +1345,11 @@ export const CHAPTERS = {
       tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailSwipe's business end)
       storm: true,          // v5.6.18: gates the night-thunderstorm overlay (cloud-shadows,
                              // parallax clouds, rain — STORM_VIS below, render.js updateStorm)
+      districts: true,      // v5.7.x: gates the per-cell Voronoi district floor/prop system
+                             // (DISTRICTS/districtAt/districtTintAt below, render.js syncObstacles
+                             // + the floor populate* callbacks) — a separate flag from `storm`
+                             // because it's a distinct concern (ground skin vs. sky overlay) that
+                             // only happens to also be skies-only today.
     },
   },
   beyond: {
@@ -1489,6 +1494,113 @@ export const LIGHTNING = {
     alpha: 0.55,       // dimmer than a real strike's peak (1)
   },
 }
+// Procedural Voronoi districts (skies chapter, v5.7.x, render.js): a seeded ground map over
+// world-XY so roaming any direction crosses downtown -> suburbs -> parks -> sea. RENDER-ONLY —
+// districtAt/districtTintAt are pure functions of (x, y, run._districtSeed); sim.js never calls
+// them and obstacles stay generic colliders (see run._districtSeed doc in state.js). floorTint is
+// what actually reaches the floor sprites (render.js multiplies it in like every other chapter's
+// single floorTint); weight sets how much of the map each type gets (districtCellType below).
+export const DISTRICTS = {
+  downtown: { floorTint: 0x717c88, weight: 3 }, // the chapter's original wet-asphalt grey — kept as the anchor district
+  suburbs:  { floorTint: 0x9a8a72, weight: 3 }, // warmer, lighter grey-tan
+  parks:    { floorTint: 0x5f7a5f, weight: 2 }, // muted storm-lit green
+  sea:      { floorTint: 0x53687c, weight: 2 }, // desaturated storm blue
+  // all four land within ~0.08-0.10 effective floor luminance under the skies bg (0x2a3240),
+  // same dark range as the existing downtown tint — this is a night storm, not daylight.
+}
+const DISTRICT_TYPES = Object.keys(DISTRICTS)
+
+export const DISTRICT_GRID = 2000       // px per Voronoi seed cell
+export const DISTRICT_BLEND_PX = 200    // px either side of a border the floor tint lerps across
+
+// Low-frequency block size (in grid cells) sharing one "is this an ocean region" roll, and how
+// hard that roll skews a cell's type toward sea — see districtCellType. Without this, sea would
+// just be `weight`'s ~20% share scattered confetti-thin across every cell; the block bias makes
+// whole neighborhoods of cells roll sea together so the coastline reads as one region.
+const DISTRICT_SEA_BLOCK = 3
+const DISTRICT_SEA_REGION_CHANCE = 0.32 // fraction of blocks that are an "ocean region"
+const DISTRICT_SEA_BOOST = 6            // sea's weight is multiplied by this inside one; everyone else's divided
+
+// Deterministic [0,1) from any number of parts, reusing the FNV hash above (string-keyed — this
+// runs a handful of times per floor cell/obstacle, nowhere near a hot per-frame loop).
+function hash01(...parts) {
+  return hashString(parts.join(',')) / 0xffffffff
+}
+
+// Which DISTRICTS type a grid cell rolls, weighted by DISTRICTS[].weight and biased toward sea
+// inside a "ocean region" block (see DISTRICT_SEA_BLOCK above).
+function districtCellType(ci, cj, seed) {
+  const bi = Math.floor(ci / DISTRICT_SEA_BLOCK)
+  const bj = Math.floor(cj / DISTRICT_SEA_BLOCK)
+  const seaRegion = hash01(bi, bj, seed, 'seaRegion') < DISTRICT_SEA_REGION_CHANCE
+  let total = 0
+  const weights = DISTRICT_TYPES.map((k) => {
+    let w = DISTRICTS[k].weight
+    if (seaRegion) w = k === 'sea' ? w * DISTRICT_SEA_BOOST : w / DISTRICT_SEA_BOOST
+    total += w
+    return w
+  })
+  let roll = hash01(ci, cj, seed, 'type') * total
+  for (let i = 0; i < DISTRICT_TYPES.length; i++) {
+    roll -= weights[i]
+    if (roll < 0) return DISTRICT_TYPES[i]
+  }
+  return DISTRICT_TYPES[DISTRICT_TYPES.length - 1]
+}
+
+// One Voronoi seed point per grid cell, jittered within it (+-40% of a cell) and typed by
+// districtCellType. // ponytail: seed points come from a grid + hash, not real Poisson-disk
+// sampling — upgrade only if district sizes read too uniform in practice.
+function districtCellSeed(ci, cj, seed) {
+  const jx = (hash01(ci, cj, seed, 'jx') - 0.5) * 0.8
+  const jy = (hash01(ci, cj, seed, 'jy') - 0.5) * 0.8
+  return {
+    x: (ci + 0.5 + jx) * DISTRICT_GRID,
+    y: (cj + 0.5 + jy) * DISTRICT_GRID,
+    type: districtCellType(ci, cj, seed),
+  }
+}
+
+// Nearest + 2nd-nearest seed points to (x, y), searching the 3x3 grid cells around it — wide
+// enough since the +-40%-cell jitter above can never put a cell's own seed point outside its
+// immediate neighbors.
+function nearestDistrictSeeds(x, y, seed) {
+  const ci = Math.floor(x / DISTRICT_GRID)
+  const cj = Math.floor(y / DISTRICT_GRID)
+  let first = null, second = null, d1 = Infinity, d2 = Infinity
+  for (let di = -1; di <= 1; di++) {
+    for (let dj = -1; dj <= 1; dj++) {
+      const p = districtCellSeed(ci + di, cj + dj, seed)
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2
+      if (d < d1) { second = first; d2 = d1; first = p; d1 = d }
+      else if (d < d2) { second = p; d2 = d }
+    }
+  }
+  return { first, second, d1: Math.sqrt(d1), d2: Math.sqrt(d2) }
+}
+
+// Which district (x, y) sits in this run (seed = run._districtSeed). Pure + deterministic.
+export function districtAt(x, y, seed) {
+  return nearestDistrictSeeds(x, y, seed).first.type
+}
+
+function lerpColorInt(a, b, t) {
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255
+  return (Math.round(ar + (br - ar) * t) << 16) | (Math.round(ag + (bg - ag) * t) << 8) | Math.round(ab + (bb - ab) * t)
+}
+
+// The floor tint at (x, y): the nearest district's floorTint, lerped toward the 2nd-nearest's
+// within DISTRICT_BLEND_PX of the border between them so the floor doesn't hard-cut at a district
+// line. // ponytail: a 2-nearest lerp, not a true multi-cell blend — revisit if 3-district corners
+// look wrong.
+export function districtTintAt(x, y, seed) {
+  const { first, second, d1, d2 } = nearestDistrictSeeds(x, y, seed)
+  if (first.type === second.type) return DISTRICTS[first.type].floorTint
+  const t = Math.max(0, Math.min(0.5, 0.5 - (d2 - d1) / (2 * DISTRICT_BLEND_PX)))
+  return lerpColorInt(DISTRICTS[first.type].floorTint, DISTRICTS[second.type].floorTint, t)
+}
+
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
 // dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks

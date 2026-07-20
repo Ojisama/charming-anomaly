@@ -396,6 +396,12 @@ function generateWells(sig) {
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
+ * _districtSeed (render-only, not a sim contract, v5.7.x): a random seed (createRun, Math.
+ *   random(), like _obstacleSeed) for the skies chapter's procedural Voronoi district map —
+ *   config.js's districtAt(x, y, seed)/districtTintAt(x, y, seed) pick a ground district
+ *   (downtown/suburbs/parks/sea) and blended floor tint per world position. sim.js never reads
+ *   this field, so it can't perturb the seeded test suite; null for chapters without
+ *   CHAPTERS[chapter].render.districts.
  *
  * v5.3 garden chapter behavior (see CHAPTERS.garden in config.js and sim.js's stepEnemyMovement/
  * stepDiveBomb/dealDamage/stepTrails/stepWebs/stepStrips/stepPlayerMovement):
@@ -612,6 +618,9 @@ export function createRun(meta, opts = {}) {
     obstacles: [],
     _obstacleSeed: CHAPTERS[chapter].obstacles ? (Math.random() * 0x7fffffff) | 0 : null,
     _obstacleRev: 0,
+    // render-only (see doc block above): seeds the skies chapter's Voronoi district map. Never
+    // read by sim.js, so it can't drift the seeded test suite.
+    _districtSeed: CHAPTERS[chapter].render?.districts ? (Math.random() * 0x7fffffff) | 0 : null,
     // v5.3 garden behavior (see doc block above): trails fed by dying trailFollow ants (pheromone
     // signature), webs by webZone spiders + the lure's stickyScent mod, strips by sprayStrip elites,
     // lures by the Pheromone Lure weapon. All empty unless something pushes to them.

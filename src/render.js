@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -90,6 +90,11 @@ export function createRenderer(app) {
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
   // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
   let chapterHasStorm = false
+  // Whether the active chapter's ground is a per-cell Voronoi district map (CHAPTERS[].render.
+  // districts — currently only `skies`, piece 4). districtSeed mirrors run._districtSeed so the
+  // floor populate* callbacks and syncObstacles don't need `run` threaded through every call.
+  let chapterHasDistricts = false
+  let districtSeed = 0
   // Active chapter's prop/obstacle biome (BIOMES, declared with the floor section below). Left null
   // here on purpose: BIOMES is a `const` further down, so reading it at construction time would be a
   // TDZ crash — it's seeded right after BIOMES itself and re-latched per reset(run).
@@ -2091,6 +2096,32 @@ export function createRenderer(app) {
       T.asteroid = bake(g)
     }
     {
+      // house (suburbs district, skies — v5.7.x): the one hand-drawn suburbs prop besides the
+      // fence (the district's "car" reuses T.car below, already drawn for the city's traffic
+      // lanes). Low box + pitched roof, one door, one window. Upright, origin at the base.
+      const g = new Graphics()
+      const wall = 0xc9b08a
+      const roof = 0x7a4a3a
+      const line = 0x3a2a1e
+      g.rect(-20, -26, 40, 26).fill(wall).stroke({ width: 2, color: line })          // wall block
+      g.poly([-24, -26, 0, -44, 24, -26]).fill(roof).stroke({ width: 2, color: line }) // pitched roof
+      g.rect(-5, -14, 10, 14).fill(0x4a3324).stroke({ width: 1.4, color: line })     // door
+      g.rect(9, -20, 8, 8).fill(0x8fc4e0).stroke({ width: 1.2, color: line })        // window
+      g.rect(-24, -26, 48, 3).fill({ color: 0x000000, alpha: 0.18 })                 // eave shadow
+      g.poly([-24, -26, 0, -44, -12, -40]).fill({ color: 0x9a6a52, alpha: 0.35 })    // lit roof face
+      T.house = bake(g)
+    }
+    {
+      // picket fence (suburbs district, skies): three posts + two rails, origin at the base.
+      const g = new Graphics()
+      const wood = 0xc4b190
+      const line = 0x5a4c34
+      for (const x of [-18, 0, 18]) g.rect(x - 2, -20, 4, 20).fill(wood).stroke({ width: 1.4, color: line })
+      g.rect(-20, -16, 40, 4).fill(wood).stroke({ width: 1.2, color: line })
+      g.rect(-20, -7, 40, 4).fill(wood).stroke({ width: 1.2, color: line })
+      T.fence = bake(g)
+    }
+    {
       // obstacle footprint (v5.6.10): the collision contract, drawn HARD where every decor shadow is
       // soft. A subtly darkened packed-earth pad plus a crisp rim ring sitting on the collider edge,
       // so a player learns "this stops me" by eye, not only by bumping it. Baked in greyscale at a
@@ -2435,6 +2466,10 @@ export function createRenderer(app) {
     for (const name in PROP_URLS) T.props[name] = loaded[PROP_URLS[name]]
     T.fx = {}
     for (const name in FX_URLS) T.fx[name] = loaded[FX_URLS[name]]
+    // foam streak (sea district, skies — v5.7.x): literally the same streak texture CURRENT_VIS/
+    // STORM_VIS.rain draw with, repackaged as a baked-prop lookup so applyPropKind's baked branch
+    // can scatter it on the floor like pebble/puddle — genuine asset reuse, not new art.
+    T.foam = { tex: T.fx.trace_05, ax: 0.5, ay: 0.5 }
     buildFxTextures()
     propsReady = true
   })
@@ -2581,17 +2616,26 @@ export function createRenderer(app) {
 
   // ground blotches: effectively always-on (soft translucent mottling everywhere),
   // texture/rotation/scale/jitter vary so neighboring cells never look tiled
+  // Floor tint at a WORLD position: the single chapterRender.floorTint everywhere except skies,
+  // where it's the blended per-district tint (config.js districtTintAt) sampled at that spot —
+  // this is what makes the ground shift smoothly as the player roams across a Voronoi border.
+  function floorTintAt(wx, wy) {
+    return chapterHasDistricts ? districtTintAt(wx, wy, districtSeed) : chapterRender.floorTint
+  }
+
   function populateBlotch(s, i, j, cell) {
     const idx = Math.floor(cellHash(i, j, 1) * T.blotches.length)
     s.texture = T.blotches[idx]
     s.anchor.set(0.5)
-    s.tint = chapterRender.floorTint // white for body; teal multiply recolours the pond ground
     s.alpha = 1
     s.rotation = cellHash(i, j, 2) * Math.PI * 2
     s.scale.set(lerp(0.9, 1.6, cellHash(i, j, 3)))
     const jx = (cellHash(i, j, 4) - 0.5) * cell * 0.6
     const jy = (cellHash(i, j, 5) - 0.5) * cell * 0.6
-    s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
+    const wx = (i + 0.5) * cell + jx
+    const wy = (j + 0.5) * cell + jy
+    s.position.set(wx, wy)
+    s.tint = floorTintAt(wx, wy) // white for body; teal multiply recolours the pond ground
   }
 
   // ---- prop kinds + per-chapter biomes (v5.4) ------------------------------------------------
@@ -2607,18 +2651,19 @@ export function createRenderer(app) {
   const GRASS_TINTS = [0x9ccc80, 0x8bbf76, 0xa5cb8a]
   const CLUSTER_TINTS = [0xa8d19a, 0xc2dfae, 0x9bc98f]
 
-  function applyPropKind(s, kind, i, j) {
+  function applyPropKind(s, kind, i, j, wx, wy) {
+    const floorTint = floorTintAt(wx, wy)
     if (kind.baked) {
       const look = T[kind.name]
       s.texture = look.tex
       s.anchor.set(look.ax, look.ay)
-      s.tint = tintMul(kind.tint ?? 0xffffff, chapterRender.floorTint)
+      s.tint = tintMul(kind.tint ?? 0xffffff, floorTint)
       s.alpha = kind.alpha ?? 1
       s.scale.set(lerp(kind.scale[0], kind.scale[1], cellHash(i, j, 4)))
     } else {
       s.texture = T.props[kind.name]
       s.anchor.set(0.5, kind.upright ? 0.9 : 0.5)
-      s.tint = tintMul(kind.tints ? kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)] : (kind.tint ?? 0xffffff), chapterRender.floorTint)
+      s.tint = tintMul(kind.tints ? kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)] : (kind.tint ?? 0xffffff), floorTint)
       s.alpha = kind.alpha ?? 1
       s.scale.set(lerp(kind.size[0], kind.size[1], cellHash(i, j, 4)) / 1024)
     }
@@ -2645,12 +2690,20 @@ export function createRenderer(app) {
     { name: 'vesicles', baked: true, scale: [0.85, 1.5] },
   ]
 
+  // Prop biome at a WORLD position: chapterBiome everywhere except skies, where each cell's
+  // big/mid/detail set is picked by which district (config.js districtAt) sits under it.
+  function biomeAt(wx, wy) {
+    return chapterHasDistricts ? DISTRICT_BIOMES[districtAt(wx, wy, districtSeed)] : chapterBiome
+  }
+
   function populateBig(s, i, j, cell) {
-    const kinds = chapterBiome.big
-    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j)
     const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
-    s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
+    const wx = (i + 0.5) * cell + jx
+    const wy = (j + 0.5) * cell + jy
+    const kinds = biomeAt(wx, wy).big
+    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
+    s.position.set(wx, wy)
   }
 
   // mid: grass/flowers/mushroom/reed (upright, side-view) + clusters (top-down)
@@ -2693,11 +2746,13 @@ export function createRenderer(app) {
   ]
 
   function populateMid(s, i, j, cell) {
-    const kinds = chapterBiome.mid
-    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j)
     const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
-    s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
+    const wx = (i + 0.5) * cell + jx
+    const wy = (j + 0.5) * cell + jy
+    const kinds = biomeAt(wx, wy).mid
+    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
+    s.position.set(wx, wy)
   }
 
   // detail: scatter/leaf sprites + hand-drawn baked bits (pebble, puddle, bone, ...)
@@ -2740,11 +2795,13 @@ export function createRenderer(app) {
   ]
 
   function populateDetail(s, i, j, cell) {
-    const kinds = chapterBiome.detail
-    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j)
     const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
-    s.position.set((i + 0.5) * cell + jx, (j + 0.5) * cell + jy)
+    const wx = (i + 0.5) * cell + jx
+    const wy = (j + 0.5) * cell + jy
+    const kinds = biomeAt(wx, wy).detail
+    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
+    s.position.set(wx, wy)
   }
 
   // Per-chapter biome: which prop kinds scatter on each floor layer, and how the chapter's
@@ -2791,6 +2848,74 @@ export function createRenderer(app) {
     },
   }
   chapterBiome = BIOMES.body // title-screen default; reset(run) latches the run's chapter
+
+  // ---- district biomes (skies chapter only, v5.7.x piece 4) ----------------------------------
+  // Same {big, mid, detail, obstacle} shape as BIOMES above, keyed by DISTRICTS type (config.js)
+  // instead of chapter id — syncObstacles and the floor populate* callbacks pick one of these BY
+  // WORLD POSITION (districtAt) instead of chapterBiome when chapterHasDistricts. downtown reuses
+  // the chapter's original look unchanged; parks/sea lean on existing foliage/puddle/streak
+  // assets re-tinted for the storm night; suburbs is the one hand-drawn set (house/fence baked
+  // above — its car reuses T.car, already drawn for the city's traffic lanes, so no second car
+  // gets drawn).
+  const PARK_TINTS = [0x3f5a3a, 0x32492e]        // dark hedge/tree-clump green — the daylight
+  const PARK_GRASS_TINTS = [0x4a6640, 0x3d5636]  // BUSH_TINTS/GRASS_TINTS would wash out on a dark floor
+  const BIG_PARKS = [
+    { name: 'bush_a', tints: PARK_TINTS, upright: true, size: [110, 175] }, // tree clumps, bigger than the garden's hedges
+    { name: 'root', baked: true, upright: true, scale: [0.9, 1.4] },       // a gnarled trunk/roots poking up
+  ]
+  const MID_PARKS = [
+    { name: 'bush_b', tints: PARK_TINTS, upright: true, size: [70, 110] }, // hedges
+    { name: 'grass_c', tints: PARK_GRASS_TINTS, upright: true, size: [30, 52] },
+    { name: 'reed', tints: PARK_GRASS_TINTS, upright: true, size: [45, 70] },
+  ]
+  const DETAIL_PARKS = [
+    { name: 'grass_d', tints: PARK_GRASS_TINTS, upright: true, size: [22, 38] },
+    { name: 'leaf', tint: 0x3a4f34, alpha: 0.6, size: [18, 32] },
+    { name: 'pebble', baked: true, scale: [0.6, 1.1] },
+  ]
+  const BIG_SUBURBS = [
+    { name: 'house', baked: true, upright: true, scale: [0.9, 1.4] },
+    { name: 'car', baked: true, scale: [0.55, 0.75] }, // T.car is drawn at the real traffic-lane hitbox size — scaled down for a parked decor car
+  ]
+  const MID_SUBURBS = [
+    { name: 'fence', baked: true, upright: true, scale: [0.7, 1.1] },
+    { name: 'car', baked: true, scale: [0.35, 0.5] },
+  ]
+  const DETAIL_SUBURBS = [
+    { name: 'pebble', baked: true, scale: [0.6, 1.2] },
+    { name: 'scatter_a', tint: 0xd8c9a0, alpha: 0.4, size: [20, 34] },
+  ]
+  const SEA_FOAM_TINTS = [0x9fd0ea, 0xbfe6f7] // pale foam-white/cyan, darkened by the sea floorTint multiply
+  const BIG_SEA = [{ name: 'puddle', baked: true, scale: [3.2, 5.5] }] // the puddle prop's own blue, reused at landmark scale — open water
+  const MID_SEA = [
+    { name: 'foam', baked: true, tint: SEA_FOAM_TINTS[0], alpha: 0.6, scale: [0.16, 0.3] }, // breaking-wave lines (T.foam, above)
+    { name: 'puddle', baked: true, scale: [1.4, 2.4] },
+  ]
+  const DETAIL_SEA = [
+    { name: 'foam', baked: true, tint: SEA_FOAM_TINTS[1], alpha: 0.5, scale: [0.1, 0.2] },
+  ]
+  // // ponytail: sea's "waves" are static per-cell foam scatter (the CURRENT_VIS/rain streak
+  // texture, reused as a floor prop), not a moving wave-advection layer — upgrade to a proper
+  // pooled foam-streak system (CURRENT_VIS idiom) if flat/static water reads badly in playtesting.
+  const DISTRICT_BIOMES = {
+    downtown: BIOMES.skies, // unchanged: the chapter's original tall shattered-building rubble
+    suburbs: {
+      big: BIG_SUBURBS, mid: MID_SUBURBS, detail: DETAIL_SUBURBS,
+      obstacle: { baked: ['house', 'fence'], tint: 0xcfc0a0, foot: 0x2e2418 },
+    },
+    parks: {
+      big: BIG_PARKS, mid: MID_PARKS, detail: DETAIL_PARKS,
+      // a tree-clump/hedge mound on the collider, same OBSTACLE_CLUMPS foliage idiom as the garden
+      obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x3f5a3a, foot: 0x1c2a18 },
+    },
+    sea: {
+      big: BIG_SEA, mid: MID_SEA, detail: DETAIL_SEA,
+      // // ponytail: sea is visual-only — the collider stays (sim still streams it), just skinned
+      // minimally as a low rock with a foam-white footprint ring so open water still reads. No
+      // swim/slow here; that would be a sim change.
+      obstacle: { baked: ['pebble', 'pebble'], tint: 0x8fa0ac, foot: 0xdaf3ff },
+    },
+  }
 
   const FLOOR_LAYERS = [
     { name: 'blotch', cell: 420, chance: 1.00, parent: blotchLayer, populate: populateBlotch },
@@ -3322,8 +3447,7 @@ export function createRenderer(app) {
     obstacleRev = run._obstacleRev || 0
     while (obstacleSprites.length < list.length) obstacleSprites.push(acquireObstacle())
     const foot = T.obFoot
-    const style = chapterBiome.obstacle
-    const footTint = tintMul(style.foot, chapterRender.floorTint)
+    const style = chapterBiome.obstacle // non-skies chapters: one style for every obstacle
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
@@ -3331,17 +3455,21 @@ export function createRenderer(app) {
       ov.root.visible = true
       ov.root.position.set(o.x, o.y)
       const rot = hash(o.x + o.y * 3.3) * Math.PI * 2
-      const tint = tintMul(style.tint, chapterRender.floorTint)
+      // districts (skies only): each obstacle's skin + tint follow WHERE it sits (districtAt at
+      // its own x,y), not one chapter-wide style — see DISTRICT_BIOMES above.
+      const obStyle = chapterHasDistricts ? DISTRICT_BIOMES[districtAt(o.x, o.y, districtSeed)].obstacle : style
+      const floorAt = floorTintAt(o.x, o.y)
+      const tint = tintMul(obStyle.tint, floorAt)
       // footprint ring: the hard contract. Scaled so its rim lands EXACTLY on the collider edge o.r.
       ov.ring.texture = foot.tex
-      ov.ring.tint = footTint
+      ov.ring.tint = tintMul(obStyle.foot, floorAt)
       ov.ring.alpha = 1
       ov.ring.scale.set(o.r / foot.ref)
-      if (style.baked) {
-        // baked furniture: pick two pieces off the chapter's list by position hash, plant the big
+      if (obStyle.baked) {
+        // baked furniture: pick two pieces off the district's list by position hash, plant the big
         // one on the pad and tuck a smaller second at the rim. Baked props carry their own origin
         // (upright ones sit on their base), so the anchor comes from the look, not a fixed 0.5.
-        const pick = (salt) => style.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * style.baked.length)]
+        const pick = (salt) => obStyle.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * obStyle.baked.length)]
         const a = T[pick(0)]
         const b = T[pick(11.3)]
         const scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
@@ -3356,7 +3484,7 @@ export function createRenderer(app) {
         // foliage mound: two stacked cluster sprites sized to the collider (≈2×radius wide) and
         // lifted into a crown, denser and darker than the single floor bush. The ring, not the
         // foliage overhang, marks the true edge.
-        const tex = T.props[style.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * style.clumps.length)]]
+        const tex = T.props[obStyle.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * obStyle.clumps.length)]]
         const sc = (o.r * 2.0) / 1024 // source props are 1024px; on-screen width ≈ collider diameter
         ov.clumpA.texture = tex; ov.clumpA.anchor.set(0.5); ov.clumpA.tint = tint
         ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot; ov.clumpA.position.set(0, -o.r * 0.10)
@@ -5586,6 +5714,8 @@ export function createRenderer(app) {
     chapterRender = cfg?.render ?? BODY_RENDER
     chapterHasCurrents = cfg?.signature?.type === 'currents'
     chapterHasStorm = !!chapterRender.storm
+    chapterHasDistricts = !!chapterRender.districts
+    districtSeed = run?._districtSeed ?? 0
     // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body

@@ -36,6 +36,7 @@ import {
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
+  DISTRICTS, DISTRICT_GRID, districtAt, districtTintAt,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -3892,6 +3893,50 @@ function testV54Weapons() {
   }
 }
 
+// Skies procedural districts (v5.7.x piece 4): districtAt/districtTintAt are pure world-XY
+// helpers with no Pixi/DOM deps (they live in config.js precisely so they're testable here).
+// Checks per the design doc: deterministic per (x, y, seed); varied across a wide sweep (not one
+// constant type, and sea shows up somewhere); and the floor tint is CONTINUOUS crossing a border
+// (no jump bigger than a small epsilon in one small step) rather than hard-cutting.
+function testDistricts() {
+  const seed = 1234567
+
+  // deterministic: same (x, y, seed) -> same district, called twice
+  for (const [x, y] of [[0, 0], [15000, -8000], [-3000, 40000], [999999, 999999]]) {
+    assert.strictEqual(districtAt(x, y, seed), districtAt(x, y, seed), `expected districtAt(${x},${y}) to be deterministic`)
+  }
+  assert.strictEqual(districtTintAt(5000, -5000, seed), districtTintAt(5000, -5000, seed), 'expected districtTintAt to be deterministic')
+
+  // varied: a wide sweep across world-XY should hit more than one district type (not a constant),
+  // every type returned must be a real DISTRICTS key, and sea must show up somewhere (the
+  // low-frequency clustering bias shouldn't make it vanish).
+  const seen = new Set()
+  const SPAN = DISTRICT_GRID * 12
+  const STEP = DISTRICT_GRID * 1.3
+  for (let x = -SPAN; x <= SPAN; x += STEP) {
+    for (let y = -SPAN; y <= SPAN; y += STEP) seen.add(districtAt(x, y, seed))
+  }
+  assert(seen.size > 1, `expected districtAt to return varied types across a wide sweep, got only ${[...seen]}`)
+  for (const t of seen) assert(t in DISTRICTS, `unexpected district type from districtAt: ${t}`)
+  assert(seen.has('sea'), `expected sea to appear somewhere over a wide sweep, got ${[...seen]}`)
+
+  // continuous blend: walk a straight line crossing several district borders in small steps;
+  // districtTintAt must never jump by more than a small epsilon per step (no hard pop at a
+  // Voronoi edge). Decompose the packed int to RGB channels since that's what "jump" means here.
+  const channel = (c, shift) => (c >> shift) & 255
+  let prev = districtTintAt(-SPAN, 777, seed)
+  let maxJump = 0
+  const lineStep = 8 // px — much smaller than DISTRICT_BLEND_PX, so a real border shows as many small steps, not one leap
+  for (let x = -SPAN + lineStep; x <= SPAN; x += lineStep) {
+    const cur = districtTintAt(x, 777, seed)
+    for (const shift of [16, 8, 0]) maxJump = Math.max(maxJump, Math.abs(channel(cur, shift) - channel(prev, shift)))
+    prev = cur
+  }
+  assert(maxJump <= 50, `expected districtTintAt to blend continuously across borders, got a ${maxJump}-level (of 255) jump in one ${lineStep}px step`)
+
+  console.log(`PASS run BB (districts): ${seen.size} distinct types over the sweep (${[...seen].join(',')}), sea present, max per-step tint jump ${maxJump}/255`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -3921,6 +3966,7 @@ try {
   testV54Flags()
   testV54Signatures()
   testV54Weapons()
+  testDistricts()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
