@@ -1437,6 +1437,58 @@ export const STORM_VIS = {
     alpha: 0.14,     // subtle — a haze of motion, not a whiteout
   },
 }
+
+// Lightning (skies chapter, v5.7.2, render.js): re-themes the EXISTING bombardment/artillery
+// telegraph -> explode contract (run.bombs, untouched — see stepBombs/stepBombardment in sim.js)
+// as an electric strike instead of the generic red bomb, plus purely cosmetic ambient lightning.
+// Zero sim effect: every number below only feeds render.js draw calls and render-local timers.
+export const LIGHTNING = {
+  // Full-field white flash (render.js `lightningFlash`, a screen-space Sprite sitting just below
+  // the red damage vignette so a real hit still visibly wins if both land the same frame). One
+  // fade duration for both triggers; the peak alpha is what tells a real strike from ambient weather.
+  flash: {
+    strikeAlpha: 0.55,  // peak alpha when an actual bombardment/artillery shell lands
+    ambientAlpha: 0.2,  // peak alpha for cosmetic ambient lightning — noticeable, not blinding
+    fadeDur: 0.16,       // s from peak back to 0
+  },
+  // Telegraph re-skin (render.js redrawBombs, skies only): same fill-then-stroke circle as the
+  // default red bomb telegraph, just electric-colored, plus a core ring that COLLAPSES toward the
+  // strike point as the fuse burns down (a converging target, not a swelling one).
+  telegraph: {
+    color: 0x8fd8ff,     // electric ice-blue — the danger-zone cue; reads on the dark storm floor
+    coreColor: 0xeaf9ff, // near-white — the collapsing "about to crack" core ring
+    baseFillA: 0.12,
+    maxFillA: 0.32,
+    baseRimA: 0.55,
+  },
+  // Detonation bolt for a REAL strike (render.js handleEvents' 'explode' case): a jagged vertical
+  // polyline cracking down into the strike point, drawn through the elemental-shock-arc pool
+  // (spawnArc/redrawArcs) so it gets that system's glow-then-core double stroke for free.
+  strikeBolt: {
+    dropPx: 560,          // how far above the strike point the bolt's top sits
+    segments: 7,          // anchor points along the drop — the big zigzag's jaggedness
+    jitterPx: 50,         // max lateral wobble per anchor, tapering to 0 at the strike point
+    width: 11,            // glow-stroke width (the core stroke is a fixed fraction of this)
+    color: 0xf4fbff,      // near-white core stroke
+    glowColor: 0x8fd8ff,  // electric-blue glow stroke, matches the telegraph color
+    dur: 0.22,            // s the bolt stays visible before fading
+    alpha: 1,              // peak stroke alpha
+  },
+  // Ambient cosmetic lightning (render.js updateAmbientLightning, called from updateStorm): an
+  // occasional flash + a distant, thinner, dimmer bolt — pure weather, damages/reads nothing,
+  // timed by its own render-local accumulator (never the seeded sim RNG).
+  ambient: {
+    minInterval: 6,   // s between ambient strikes, lower bound
+    maxInterval: 14,  // s between ambient strikes, upper bound
+    dropPx: 700,
+    segments: 6,
+    jitterPx: 70,
+    width: 4,          // thinner than a real strike
+    color: 0xbfe4ff,
+    dur: 0.18,
+    alpha: 0.55,       // dimmer than a real strike's peak (1)
+  },
+}
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
 // dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks
