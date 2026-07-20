@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reskin Gallery</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --checker: repeating-conic-gradient(#20242c 0% 25%, #262b34 0% 50%) 50% / 22px 22px;
+  }
+  body { background: #0a0e14; color: #cdd3dc; font: 14px/1.5 system-ui, 'Segoe UI', sans-serif; padding: 20px; }
+  h1 { color: #7ee3c3; font-size: 20px; }
+  #sub { color: #5a6675; font-size: 12px; margin: 4px 0 14px; }
+  #meta { background: #111a24; border: 1px solid #1b2d45; border-radius: 8px; padding: 10px 12px; font-size: 11px; color: #8fa3b8; margin-bottom: 18px; }
+  #meta b { color: #7ee3c3; }
+  #meta .neg { color: #b8869a; }
+  .grid { display: flex; flex-wrap: wrap; gap: 14px; }
+  .card { background: #111a24; border: 1px solid #1b2d45; border-radius: 10px; padding: 10px; width: 240px; }
+  .card.wide { width: 494px; }
+  .frame { border-radius: 6px; background: var(--checker); display: grid; place-items: center; overflow: hidden; }
+  .card img { display: block; max-width: 100%; height: auto; image-rendering: auto; }
+  .card .label { color: #7ee3c3; font: 600 12px monospace; margin-top: 8px; }
+  .card .prompt { color: #6b7887; font-size: 10px; margin-top: 3px; }
+  .err { color: #d9738a; font-size: 11px; padding: 4px 0; }
+  #controls { margin-bottom: 14px; }
+  #controls button { background: #16202c; color: #9fb4c8; border: 1px solid #26364a; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
+  #controls button:hover { border-color: #3a6a8a; }
+  .zoom-off .frame { background: none; }
+</style>
+</head>
+<body>
+  <h1>Reskin Gallery</h1>
+  <div id="sub">Generated assets — reads <code>scripts/reskin/prompts.json</code> + <code>src/reskin/body/*.png</code> live (vite dev).</div>
+  <div id="controls">
+    <button id="bgToggle">toggle checkerboard</button>
+    <button id="reload">reload</button>
+  </div>
+  <div id="meta"></div>
+  <div class="grid" id="grid"></div>
+<script>
+const OUTDIR = '/src/reskin/body';
+const CONFIG = '/scripts/reskin/prompts.json';
+
+async function load() {
+  const grid = document.getElementById('grid');
+  const meta = document.getElementById('meta');
+  grid.innerHTML = ''; meta.textContent = '';
+  let cfg;
+  try {
+    cfg = await (await fetch(CONFIG + '?t=' + Date.now())).json();
+  } catch (e) {
+    grid.innerHTML = '<div class="err">Could not fetch prompts.json — is the vite dev server running? ' + e + '</div>';
+    return;
+  }
+  meta.innerHTML = '<b>style:</b> ' + cfg.style + '<br><span class="neg"><b>negative:</b> ' + cfg.negative + '</span>';
+  for (const [name, a] of Object.entries(cfg.assets)) {
+    if (name.startsWith('_')) continue;
+    const card = document.createElement('div');
+    card.className = 'card' + (a.transparent ? '' : ' wide');
+    const w = a.transparent ? 220 : 474;
+    card.innerHTML =
+      '<div class="frame" style="min-height:' + Math.round(w * (a.h / a.w)) + 'px">' +
+        '<img loading="lazy" width="' + w + '" src="' + OUTDIR + '/' + name + '.png?t=' + Date.now() + '" ' +
+             'onerror="this.parentNode.innerHTML=\'<div class=err>missing: ' + name + '.png</div>\'">' +
+      '</div>' +
+      '<div class="label">' + name + '  <span style="color:#4a5666">' + a.w + '×' + a.h + '</span></div>' +
+      '<div class="prompt">' + a.prompt + '</div>';
+    grid.appendChild(card);
+  }
+}
+document.getElementById('bgToggle').onclick = () => document.body.classList.toggle('zoom-off');
+document.getElementById('reload').onclick = load;
+load();
+</script>
+</body>
+</html>

@@ -46,6 +46,15 @@ gen-asset: ## Generate one asset: make gen-asset NAME=redcell
 contact: ## Montage $(OUTDIR)/*.png into a single review sheet
 	$(PY) scripts/reskin/contact.py $(OUTDIR)
 
+.PHONY: dev
+dev: ## Start the vite dev server (serves the game + the gallery)
+	npm run dev
+
+.PHONY: gallery
+gallery: ## Open the asset gallery (needs `make dev` running; reads prompts.json live)
+	@echo "Gallery: http://localhost:5173/gallery.html  (port may differ — check the vite log)"
+	@xdg-open http://localhost:5173/gallery.html 2>/dev/null || true
+
 .PHONY: clean-assets
 clean-assets: ## Delete generated sprites in $(OUTDIR)
 	rm -f $(OUTDIR)/*.png
