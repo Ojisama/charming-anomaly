@@ -1888,18 +1888,34 @@ export const STRAFE_RUN_SPEED_MUL = 4.5
 export const MISSILE_STANDOFF = 180
 export const MISSILE_HOVER_SPEED_MUL = 0.9
 export const MISSILE_DEADZONE = 10      // px band around the standoff where it holds still (cf. DIVE_HOVER_DEADZONE)
-export const MISSILE_INTERVAL = 4.0     // s between volleys (v5.6.15: was 3.2 — see hpMul note)
-export const MISSILE_COUNT = 3          // missiles per volley
+export const MISSILE_INTERVAL = 6.0     // s between volleys (v5.6.17: was 4.0 — each heli shoots
+                                        // occasionally; the THREAT is the pack, not any one ship)
+export const MISSILE_COUNT = 2          // missiles per volley (v5.6.17: was 3 — volume, see FIRE_RANGE)
 export const MISSILE_GAP = 0.16         // s between missiles within one volley
 // v5.6.15: 240 -> 200. The comment below has ALWAYS said outrunning is the counterplay, but at
 // 240 vs PLAYER.baseSpeed 220 the missile was strictly faster — the stated counterplay was
 // mathematically impossible (the pull-beam rule again: impossible to IGNORE is fine, impossible
 // to ESCAPE is not). Attribution probe: missiles were 81% of all damage taken in the chapter.
 export const MISSILE_SPEED = 200        // px/s — under PLAYER.baseSpeed, so running works
-export const MISSILE_TURN = 1.6         // rad/s homing (slow — outrunning them is the counterplay)
+// v5.6.17: 1.6 -> 0. Homing was the design smell: every fast attack in this game TELEGRAPHS AND
+// COMMITS (pounce "ignoring the player's moves", lineCharge/strafe "no steering", artillery's
+// telegraphed shell) — the missile was the lone tracking exception, and tracking is why the swarm
+// read as unfair even after the volume cuts. A rocket now flies STRAIGHT at where you were when
+// it fired: sidestep it like everything else. Speed stays under PLAYER.baseSpeed on top (Y.f
+// pins that), so both escapes work — step out of the line, or simply outrun it.
+export const MISSILE_TURN = 0           // rad/s — rockets COMMIT; dodging is the counterplay
 export const MISSILE_LIFE = 2.6         // s before a missile fizzles (v5.6.15: was 4.0 — a dodged
                                         // missile is GONE, not circling back for another pass)
 export const MISSILE_R = 8              // px, missile hit radius
+// v5.6.17: only helicopters ON STATION fire — beyond this range of the player the volley timer
+// still ticks but the volley is held (no shot). The accumulated far pack (50-85 alive by late
+// run) was multiplying volleys from OFF-SCREEN into a wall of shots; "still too many missiles".
+// 620 ≈ just past a phone screen's half-diagonal: everything that shoots you is visible.
+export const MISSILE_FIRE_RANGE = 620
+// v5.6.17: hard ceiling on rockets in flight, game-wide. Helis bunch at the standoff ring, so
+// per-ship cadence alone can't bound the on-screen volume — measured 94 concurrent at late run
+// ("still too many missiles"). A full volley is held (not queued) while the sky is saturated.
+export const MISSILE_MAX_LIVE = 18
 export const MISSILE_DMG = 14
 export const MISSILE_BLAST = 40         // px, explode-event radius on impact (visual only — no splash)
 

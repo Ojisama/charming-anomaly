@@ -90,7 +90,7 @@ import {
   GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
   // v5.4 skies
   STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
-  MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_INTERVAL, MISSILE_COUNT,
+  MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
   MISSILE_GAP, MISSILE_SPEED, MISSILE_TURN, MISSILE_LIFE, MISSILE_R, MISSILE_DMG, MISSILE_BLAST,
   ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
   ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG,
@@ -804,6 +804,9 @@ function stepMissileVolley(run, e, tx, ty, dt, slowMul, spdMul) {
   }
 
   if (e._volleyT === undefined) { e._volleyT = MISSILE_INTERVAL; e._volleyLeft = 0; e._volleyGapT = 0 }
+  // v5.6.17: hold fire unless ON STATION (within MISSILE_FIRE_RANGE). The timer keeps ticking —
+  // a heli that drifts into range mid-cycle fires on its normal cadence, it doesn't alpha-strike.
+  if (d > MISSILE_FIRE_RANGE) { e._volleyT = Math.max(e._volleyT - dt, 0.2); e._volleyLeft = 0; return }
   if (e._volleyLeft > 0) {
     e._volleyGapT -= dt
     if (e._volleyGapT <= 0) {
@@ -818,6 +821,7 @@ function stepMissileVolley(run, e, tx, ty, dt, slowMul, spdMul) {
 }
 
 function fireEnemyMissile(run, e) {
+  if (run.enemyShots.length >= MISSILE_MAX_LIVE) return // sky saturated — hold (see config note)
   const p = run.player
   const angle = Math.atan2(p.y - e.y, p.x - e.x)
   run.enemyShots.push({
