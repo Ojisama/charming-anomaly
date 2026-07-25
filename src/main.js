@@ -178,6 +178,10 @@ const SFX_FOR_EVENT = {
   shatter: 'explode', overload: 'explode', frostarc: 'zap', conduct: 'zap',
   // Revive Token firing reuses the levelup jingle — it's a "good news" beat, same register
   revive: 'levelup',
+  // v5.8 kaiju redesign (skies): a structure destroyed by crushing — own sfx (audio.js), throttled
+  // there like shoot/hit/zap so a rampage flattening dozens of structures a second doesn't machine-
+  // gun the audio graph (design doc §2, "audio machine-gunning").
+  crush: 'crush',
 }
 
 function endRun(victory) {

@@ -249,6 +249,39 @@ body {
   font-size: 0.72rem;
   font-weight: 800;
 }
+/* v5.8 kaiju redesign: rampage meter, under the HP bar for chapters with CHAPTERS[chapter].crush
+   (skies, for now) — hidden by default (ui.js's initUI builds this markup unconditionally, before
+   any chapter is chosen, then toggles rampage-wrap--hidden in updateHUD once the run's chapter is
+   known). Pinned to row 2 / column 1 explicitly rather than relying on it being 4th in markup order
+   (hud-top is only a 3-column grid, so a 4th DOM child would auto-wrap there anyway, but that's
+   fragile to rely on silently) — this keeps it under the HP bar even if hud-right/hud-timer are
+   ever reordered in the markup. */
+.rampage-wrap { grid-column: 1; grid-row: 2; max-width: 190px; }
+.rampage-wrap--hidden { display: none; }
+.rampage-bar {
+  height: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(53, 53, 74, 0.15);
+  overflow: hidden;
+}
+/* charging: crimson, same register as --danger elsewhere — filling the bar is banked destruction,
+   not yet paid out. Flips to gold + a pulsing glow the instant RAMPAGE triggers (run.rampageT > 0),
+   the "clearly distinct ACTIVE state" the design calls for — gold already reads as "reward" via the
+   xp bar and coins badge, so the flip itself carries the meaning. */
+.rampage-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--danger);
+  transition: width 0.15s ease-out, background-color 0.3s;
+}
+.rampage-fill--active { background: var(--gold); }
+.rampage-bar--active { animation: rampage-glow 0.9s ease-in-out infinite; }
+@keyframes rampage-glow {
+  0%, 100% { box-shadow: 0 0 0 rgba(255, 217, 61, 0); }
+  50% { box-shadow: 0 0 10px 3px rgba(255, 217, 61, 0.85); }
+}
 .hud-timer {
   font-size: 1.55rem;
   font-weight: 900;
@@ -604,7 +637,8 @@ body {
   .sacrifice-counter--ready, .sacrifice-stat-row--bounce,
   .sacrifice-modal--enter, .sacrifice-modal--enter .sacrifice-sheet,
   .sacrifice-chip--pop,
-  .amb, .hero-creature, .hero-star--pulse { animation: none; }
+  .amb, .hero-creature, .hero-star--pulse,
+  .rampage-bar--active { animation: none; } /* v5.8: the RAMPAGE glow pulse is still infinite */
   /* the drifting ambient decor only reads as motion — hide it entirely when motion is unwanted */
   .hero-ambient { display: none; }
 }

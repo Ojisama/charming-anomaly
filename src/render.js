@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -2121,6 +2121,49 @@ export function createRenderer(app) {
       g.rect(-20, -7, 40, 4).fill(wood).stroke({ width: 1.2, color: line })
       T.fence = bake(g)
     }
+    // ---- pier kind props (sea district, skies — v5.8 kaiju redesign) ----------------------------
+    // Sea's obstacle skin used to be a plain rock (a low-effort placeholder — see the sea entry's
+    // ponytail note in DISTRICT_BIOMES below); now it's crushable dock furniture, same "flat baked
+    // vector" idiom as every other structure kind. All three are drawn top-down and MASS-CENTRED —
+    // like rubble/rockChunk/asteroid, not base-anchored like house/hydrant — because they read as
+    // things floating/sitting ON open water, not planted upright on ground.
+    {
+      // jetty: a short wooden dock plank on pilings.
+      const g = new Graphics()
+      const wood = 0xa9835a
+      const line = 0x4a3420
+      g.poly([-26, -7, 20, -9, 26, -1, 22, 8, -22, 9, -27, 1]).fill(wood).stroke({ width: 1.8, color: line }) // deck planking
+      g.beginPath() // plank seams
+      for (let x = -16; x <= 12; x += 8) g.moveTo(x, -8).lineTo(x - 1.5, 8.5)
+      g.stroke({ width: 1, color: line, alpha: 0.4 })
+      for (const [x, y] of [[-19, 8], [0, 9], [17, 6]]) g.rect(x - 2, y, 4, 7).fill({ color: 0x2e2216, alpha: 0.65 }) // pilings, dipping below the deck into the water
+      g.poly([-24, -8, 18, -9, 22, -2, -20, -1]).fill({ color: 0xceac7f, alpha: 0.35 }) // lit top face
+      T.jetty = bake(g)
+    }
+    {
+      // boat: a small wooden rowboat, drifted loose.
+      const g = new Graphics()
+      const hull = 0x8a5a3a
+      const line = 0x3f2a18
+      g.poly(spineOutline((t) => [-19 + t * 38, 0], (t) => 9.5 * bulge(0.05 + 0.9 * t, 0.55), 20))
+        .fill(hull).stroke({ width: 1.8, color: line })                                          // hull
+      g.poly(spineOutline((t) => [-12 + t * 24, 0], (t) => 5.2 * bulge(0.08 + 0.84 * t, 0.5), 14))
+        .fill({ color: 0x5f6f52, alpha: 0.85 }).stroke({ width: 1.2, color: line })               // open well
+      g.beginPath().moveTo(0, -5.2).lineTo(0, 5.2).stroke({ width: 1.4, color: line, alpha: 0.6 }) // centre thwart
+      g.ellipse(-2, -3, 8, 2.6).fill({ color: 0xc9a578, alpha: 0.4 })                              // lit gunwale
+      T.boat = bake(g)
+    }
+    {
+      // buoy: a small striped mooring float bobbing on the water.
+      const g = new Graphics()
+      const red = 0xd8452f
+      const line = 0x6e2318
+      g.circle(0, 0, 9).fill(red).stroke({ width: 1.6, color: line })
+      g.poly([-9, -2, 9, -2, 9, 2, -9, 2]).fill({ color: 0xf2ece0, alpha: 0.9 }) // white stripe band
+      g.circle(0, -9, 2.4).fill(red).stroke({ width: 1.2, color: line })        // top nub
+      g.ellipse(-3, -3, 3, 2).fill({ color: 0xffffff, alpha: 0.4 })             // sheen
+      T.buoy = bake(g)
+    }
     {
       // obstacle footprint (v5.6.10): the collision contract, drawn HARD where every decor shadow is
       // soft. A subtly darkened packed-earth pad plus a crisp rim ring sitting on the collider edge,
@@ -2857,6 +2900,13 @@ export function createRenderer(app) {
   // assets re-tinted for the storm night; suburbs is the one hand-drawn set (house/fence baked
   // above — its car reuses T.car, already drawn for the city's traffic lanes, so no second car
   // gets drawn).
+  // v5.8 kaiju redesign: `obstacle` here now supplies ONLY the PALETTE (tint/foot) for a district's
+  // structures — the SHAPE is o.kind (config.js STRUCTURE_KINDS: 'tower'/'house'/'tree'/'pier'),
+  // looked up in STRUCTURE_SKINS right after this table. kind is independent of district (sim.js
+  // derives it from its own hash salt, not from districtAt — design doc §2/§5), so it does NOT
+  // track 1:1 with whichever district an obstacle happens to land in; syncObstacles combines the
+  // two — this table's tint/foot at the obstacle's world position, STRUCTURE_SKINS' silhouette
+  // for its kind.
   const PARK_TINTS = [0x3f5a3a, 0x32492e]        // dark hedge/tree-clump green — the daylight
   const PARK_GRASS_TINTS = [0x4a6640, 0x3d5636]  // BUSH_TINTS/GRASS_TINTS would wash out on a dark floor
   const BIG_PARKS = [
@@ -2901,20 +2951,37 @@ export function createRenderer(app) {
     downtown: BIOMES.skies, // unchanged: the chapter's original tall shattered-building rubble
     suburbs: {
       big: BIG_SUBURBS, mid: MID_SUBURBS, detail: DETAIL_SUBURBS,
-      obstacle: { baked: ['house', 'fence'], tint: 0xcfc0a0, foot: 0x2e2418 },
+      obstacle: { tint: 0xcfc0a0, foot: 0x2e2418 },
     },
     parks: {
       big: BIG_PARKS, mid: MID_PARKS, detail: DETAIL_PARKS,
-      // a tree-clump/hedge mound on the collider, same OBSTACLE_CLUMPS foliage idiom as the garden
-      obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x3f5a3a, foot: 0x1c2a18 },
+      obstacle: { tint: 0x3f5a3a, foot: 0x1c2a18 },
     },
     sea: {
       big: BIG_SEA, mid: MID_SEA, detail: DETAIL_SEA,
-      // // ponytail: sea is visual-only — the collider stays (sim still streams it), just skinned
-      // minimally as a low rock with a foam-white footprint ring so open water still reads. No
-      // swim/slow here; that would be a sim change.
-      obstacle: { baked: ['pebble', 'pebble'], tint: 0x8fa0ac, foot: 0xdaf3ff },
+      // v5.8 kaiju redesign: sea's obstacles used to be a plain rock (visual-only placeholder);
+      // now they're real crushable dock furniture (STRUCTURE_SKINS.pier, T.jetty/T.boat/T.buoy
+      // baked above). Still no swim/slow here — that would be a sim change, out of scope.
+      obstacle: { tint: 0x8fa0ac, foot: 0xdaf3ff },
     },
+  }
+  // Structure silhouette per o.kind (v5.8 kaiju redesign, config.js STRUCTURE_KINDS): the district
+  // table above supplies the PALETTE, this supplies the SHAPE — see its doc comment. Same {baked}/
+  // {clumps} shapes syncObstacles already knew how to draw (BIOMES/DISTRICT_BIOMES' `obstacle`
+  // used to carry both in one object; kind splits them so a suburb can have a park's stray tree and
+  // vice versa, matching the fact that kind and district roll independently).
+  //   tower — today's shattered-rubble pair, unchanged (the design doc calls it "a fine starting
+  //           point"; downtown's original obstacle look already looked like a small ruin).
+  //   house — the suburbs' own hand-drawn house, baked twice: a plain low pitched-roof silhouette
+  //           doesn't need a second distinct prop the way tower's rubble pairing does.
+  //   tree  — the same OBSTACLE_CLUMPS foliage-mound idiom every organic obstacle already uses
+  //           (garden's bushes, the old parks obstacle) — no new art needed for "a park tree/hedge".
+  //   pier  — new baked art (jetty/boat/buoy above), for the sea district's dock furniture.
+  const STRUCTURE_SKINS = {
+    tower: { baked: ['rubble', 'rubble'] },
+    house: { baked: ['house', 'house'] },
+    tree: { clumps: OBSTACLE_CLUMPS },
+    pier: { baked: ['jetty', 'boat', 'buoy'] },
   }
 
   const FLOOR_LAYERS = [
@@ -2964,6 +3031,15 @@ export function createRenderer(app) {
   }
 
   // player rig: shadow stays put, bodyC squashes/hops
+  // v5.8 kaiju redesign (skies only): a soft halo behind the whole rig, lit up while a rampage is
+  // active (run.rampageT > 0 — see syncPlayer) so the widened crush radius (stepCrush's entire
+  // rampage payoff, config.js RAMPAGE_CRUSH_MUL) reads as "I am currently dangerous" at a glance.
+  // Built as Texture.EMPTY, like pTail's tailA/tailB below — this rig is constructed synchronously
+  // right after buildTextures(), before the fx sheet (T.fx, loaded via Assets) is ready; syncPlayer
+  // latches the real circle_05 texture onto it the first time it's actually needed.
+  const pRampageGlow = new Sprite(Texture.EMPTY)
+  pRampageGlow.anchor.set(0.5)
+  pRampageGlow.visible = false
   const pShadow = spriteOf(T.playerShadow)
   pShadow.y = PLAYER.radius * 0.95
   const bodyC = new Container()
@@ -2981,7 +3057,7 @@ export function createRenderer(app) {
   const tailA = new Sprite(Texture.EMPTY)
   const tailB = new Sprite(Texture.EMPTY)
   for (const t of [tailA, tailB]) { t.anchor.set(0.04, 0.5); pTail.addChild(t) }
-  playerC.addChild(pShadow, pTail, bodyC) // tail sits above the shadow, behind the body
+  playerC.addChild(pRampageGlow, pShadow, pTail, bodyC) // glow sits furthest back, tail above the shadow, behind the body
 
   // title-screen ambient blobs
   const idleBlobs = []
@@ -3426,6 +3502,19 @@ export function createRenderer(app) {
   const obstacleSprites = []
   let obstacleToken = null
   let obstacleRev = -1
+  // v5.8 kaiju redesign: resolved {tint, foot} per obstacle, keyed by the stable o._cell (sim.js
+  // streamObstacles' "i,j" grid key — unique per live obstacle, and deterministic for the cell's
+  // whole existence since obstacleCellHash is a pure function of (cell, seed): the same cell always
+  // rerolls the identical x/y/r/kind if it pops back after being crushed and re-streamed, so a
+  // cached entry never goes stale within a run, only unused once the cell drops out of the field).
+  // Exists purely to skip districtAt/districtTintAt (config.js: ~36 hash01 calls EACH, "nowhere
+  // near a hot per-frame loop" by that file's own comment) on a rebuild that doesn't need them.
+  // Crushing bumps run._obstacleRev every frame it's crushing (sim.js stepCrush) and the field is
+  // now ~150 obstacles instead of ~58 (see obstacles.cell/count in config.js), so a full recompute
+  // on every such rebuild would be exactly the hot loop that comment warns against. Cleared on
+  // reset(run) (see clearObstacles) — a new run rerolls both _obstacleSeed and _districtSeed, so a
+  // previous run's cached resolution would be wrong, not just stale.
+  const obstacleSkinCache = new Map()
   function acquireObstacle() {
     const root = new Container()
     const ring = new Sprite(Texture.EMPTY) // grounded footprint, UNDER the mass, rim on the collider edge
@@ -3448,54 +3537,75 @@ export function createRenderer(app) {
     while (obstacleSprites.length < list.length) obstacleSprites.push(acquireObstacle())
     const foot = T.obFoot
     const style = chapterBiome.obstacle // non-skies chapters: one style for every obstacle
+    const liveCells = new Set() // this rebuild's obstacle set, for the cache prune below
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
       const o = list[i]
       ov.root.visible = true
       ov.root.position.set(o.x, o.y)
+      liveCells.add(o._cell)
       const rot = hash(o.x + o.y * 3.3) * Math.PI * 2
-      // districts (skies only): each obstacle's skin + tint follow WHERE it sits (districtAt at
-      // its own x,y), not one chapter-wide style — see DISTRICT_BIOMES above.
-      const obStyle = chapterHasDistricts ? DISTRICT_BIOMES[districtAt(o.x, o.y, districtSeed)].obstacle : style
-      const floorAt = floorTintAt(o.x, o.y)
-      const tint = tintMul(obStyle.tint, floorAt)
+      // districts (skies only): each obstacle's PALETTE follows WHERE it sits (districtAt at its
+      // own x,y), not one chapter-wide style — see DISTRICT_BIOMES above. Cached per o._cell (see
+      // obstacleSkinCache's doc) so a rebuild only pays the district hash chain once per obstacle
+      // for its whole lifetime, not once per rebuild.
+      let skin = obstacleSkinCache.get(o._cell)
+      if (!skin) {
+        const obStyle = chapterHasDistricts ? DISTRICT_BIOMES[districtAt(o.x, o.y, districtSeed)].obstacle : style
+        const floorAt = floorTintAt(o.x, o.y)
+        skin = { tint: tintMul(obStyle.tint, floorAt), foot: tintMul(obStyle.foot, floorAt) }
+        obstacleSkinCache.set(o._cell, skin)
+      }
+      // structure SHAPE (v5.8): o.kind ('tower'/'house'/'tree'/'pier', config.js STRUCTURE_KINDS)
+      // picks the silhouette via STRUCTURE_SKINS, independent of the district palette above — see
+      // that table's doc comment. Non-skies chapters have no kind-driven table entry to find
+      // (chapterHasDistricts is false there), so they fall through to the one chapter-wide `style`
+      // exactly as before this redesign — untouched.
+      const shape = chapterHasDistricts ? (STRUCTURE_SKINS[o.kind] || style) : style
       // footprint ring: the hard contract. Scaled so its rim lands EXACTLY on the collider edge o.r.
       ov.ring.texture = foot.tex
-      ov.ring.tint = tintMul(obStyle.foot, floorAt)
+      ov.ring.tint = skin.foot
       ov.ring.alpha = 1
       ov.ring.scale.set(o.r / foot.ref)
-      if (obStyle.baked) {
-        // baked furniture: pick two pieces off the district's list by position hash, plant the big
+      if (shape.baked) {
+        // baked furniture: pick two pieces off the kind's list by position hash, plant the big
         // one on the pad and tuck a smaller second at the rim. Baked props carry their own origin
         // (upright ones sit on their base), so the anchor comes from the look, not a fixed 0.5.
-        const pick = (salt) => obStyle.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * obStyle.baked.length)]
+        const pick = (salt) => shape.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * shape.baked.length)]
         const a = T[pick(0)]
         const b = T[pick(11.3)]
         const scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
         const scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
-        ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = tint
+        ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = skin.tint
         ov.clumpA.scale.set(scA); ov.clumpA.rotation = 0
         ov.clumpA.position.set(0, o.r * 0.28) // base planted just past centre, sitting on the pad
-        ov.clumpB.texture = b.tex; ov.clumpB.anchor.set(b.ax, b.ay); ov.clumpB.tint = tint
+        ov.clumpB.texture = b.tex; ov.clumpB.anchor.set(b.ax, b.ay); ov.clumpB.tint = skin.tint
         ov.clumpB.scale.set(scB); ov.clumpB.rotation = (hash(o.x * 2.9 + o.y) - 0.5) * 0.5
         ov.clumpB.position.set((hash(o.x + o.y * 5.1) - 0.5) * o.r * 0.85, o.r * 0.44) // tucked at the rim
       } else {
         // foliage mound: two stacked cluster sprites sized to the collider (≈2×radius wide) and
         // lifted into a crown, denser and darker than the single floor bush. The ring, not the
         // foliage overhang, marks the true edge.
-        const tex = T.props[obStyle.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * obStyle.clumps.length)]]
+        const tex = T.props[shape.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * shape.clumps.length)]]
         const sc = (o.r * 2.0) / 1024 // source props are 1024px; on-screen width ≈ collider diameter
-        ov.clumpA.texture = tex; ov.clumpA.anchor.set(0.5); ov.clumpA.tint = tint
+        ov.clumpA.texture = tex; ov.clumpA.anchor.set(0.5); ov.clumpA.tint = skin.tint
         ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot; ov.clumpA.position.set(0, -o.r * 0.10)
-        ov.clumpB.texture = tex; ov.clumpB.anchor.set(0.5); ov.clumpB.tint = tint
+        ov.clumpB.texture = tex; ov.clumpB.anchor.set(0.5); ov.clumpB.tint = skin.tint
         ov.clumpB.scale.set(sc * 0.82); ov.clumpB.rotation = rot + 0.6; ov.clumpB.position.set(0, -o.r * 0.34)
       }
+    }
+    // Evict cells that dropped out of the streamed field (crushed, or walked past
+    // OBSTACLE_DROP_RADIUS) so the cache tracks the live field's size instead of growing for
+    // the whole run — see obstacleSkinCache's doc above.
+    if (obstacleSkinCache.size > liveCells.size) {
+      for (const key of obstacleSkinCache.keys()) if (!liveCells.has(key)) obstacleSkinCache.delete(key)
     }
   }
   function clearObstacles() {
     obstacleToken = null
     obstacleRev = -1
+    obstacleSkinCache.clear()
     for (const ov of obstacleSprites) ov.root.visible = false
   }
 
@@ -4610,6 +4720,13 @@ export function createRenderer(app) {
   let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
   let lightningAmbientT = LIGHTNING.ambient.minInterval // s until the next ambient flash/bolt (skies only)
   let prevSkiesBombs = new Set() // last frame's run.bombs objects (skies only) — see handleEvents
+  // v5.8 kaiju redesign: last frame's run.rampageT, render-local memory only — NEVER written back
+  // to run (render must not mutate it). RAMPAGE's trigger is a LEVEL (rampageT jumps 0 ->
+  // RAMPAGE_DURATION in one frame, sim.js stepRampage), not an event, so it's detected the same way
+  // justStruck above diffs bomb identity: compare this frame's value against last frame's copy —
+  // see handleEvents. Stays 0 forever for any chapter without `crush` (state.js: rampageT never
+  // moves off 0 there), so this is inert everywhere but skies.
+  let prevRampageT = 0
   let frameDt = 0      // this frame's dt, for pool callbacks that need real elapsed time
   let playerX = 0      // player position, for pool callbacks whose entities are player-anchored (beams)
   let playerY = 0
@@ -4680,6 +4797,37 @@ export function createRenderer(app) {
         0.22 + Math.random() * 0.1, (0.06 + Math.random() * 0.03) * k, 0xff8c42, 0, 5)
     }
     spawnRing(x, y, radius, 0.35)
+  }
+
+  // Crush collapse (v5.8 kaiju redesign, skies only — sim.js's stepCrush, {type:'crush',x,y,kind}):
+  // a structure just got destroyed outright, so this sells two beats with the same pool of
+  // particles explosionBurst already uses. Reuses ONLY the two Kenney textures the task called for
+  // (circle_05, scorch_01) — no new fx assets — but toned concrete-grey instead of fire-orange, and
+  // slower/heavier than a detonation: this is a building settling, not something igniting.
+  //   1. dust + a ground-level collapse flash (circle_05 puffs + one scorch_01 pop)
+  //   2. "there were people in there" (design doc §4): a handful of tiny dark dots scatter radially
+  //      and fade. Pure render particles — no run.civilians array, no steering, no collision, reuses
+  //      T.dot (the same soft dot kill-poof/pickup sparkle already use) tinted near-black and drawn
+  //      small. This is cosmetic only; rev.1's civilian-ENTITY layer was cut for good reasons (see
+  //      RAMPAGE_GAIN's neighbourhood in config.js) and none of them apply to particles with no sim
+  //      state to leak.
+  function crushBurst(x, y) {
+    const n = 6 + (Math.random() * 3 | 0) // 6-8 dust puffs
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 20 + Math.random() * 55
+      spawnParticle(T.fx.circle_05, x, y, Math.cos(a) * sp, Math.sin(a) * sp - 10,
+        0.5 + Math.random() * 0.3, 0.22 + Math.random() * 0.16, 0xc9c2b0, 0.5, 1.4)
+    }
+    spawnParticle(T.fx.scorch_01, x, y, 0, 0, 0.3, 0.045, 0xb8b0a0, 0.9, 0) // collapse flash, concrete-grey
+    const people = 3 + (Math.random() * 3 | 0) // 3-5 fleeing figures
+    for (let i = 0; i < people; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 70 + Math.random() * 90
+      spawnParticle(T.dot.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
+        0.45 + Math.random() * 0.25, 0.14 + Math.random() * 0.06, 0x2a2620, -0.05, 2.2)
+    }
+    addShake(1.2, 0.07) // light — crush events can fire several times a second mid-rampage
   }
 
   function beamSparkle(x, y) {
@@ -4851,6 +4999,14 @@ export function createRenderer(app) {
       prevSkiesBombs = new Set() // left skies mid-flight (e.g. a run ended) — drop stale refs
     }
 
+    // v5.8 kaiju redesign: RAMPAGE activating is a level, not an event (sim.js stepRampage jumps
+    // run.rampageT from 0 straight to RAMPAGE_DURATION the frame the meter fills) — catch the 0 ->
+    // active transition here the same way justStruck above catches a bomb detonating, then hand the
+    // sustained glow to syncPlayer (it reads run.rampageT itself every frame; this only needs the
+    // ONE-TIME entry pulse). prevRampageT is render-local memory, never written back to run.
+    if (run.rampageT > 0 && prevRampageT <= 0) addShake(5, 0.3) // the widened crush radius just landed
+    prevRampageT = run.rampageT
+
     for (const e of events) {
       switch (e.type) {
         case 'hit':
@@ -4858,6 +5014,13 @@ export function createRenderer(app) {
           break
         case 'kill':
           killPoof(e.x, e.y, e.etype, e.elite)
+          break
+        case 'crush':
+          // v5.8 kaiju redesign (skies only): a structure just got destroyed outright — see
+          // crushBurst's doc. e.kind (STRUCTURE_KINDS) isn't read here; the collapse reads the
+          // same regardless of which structure kind popped, keeping this cheap under a rampage
+          // sweep that can fire it several times a second.
+          crushBurst(e.x, e.y)
           break
         case 'hurt':
           addShake(6, 0.25)
@@ -5041,13 +5204,14 @@ export function createRenderer(app) {
     lightningFlash.alpha = 0
     lightningAmbientT = LIGHTNING.ambient.minInterval + Math.random() * (LIGHTNING.ambient.maxInterval - LIGHTNING.ambient.minInterval)
     prevSkiesBombs = new Set()
+    prevRampageT = 0
     animT = 0
     hop = 0
     breathe = 0
   }
 
   // -------------------------------------------------------------------- sync
-  function syncPlayer(p, dt) {
+  function syncPlayer(p, dt, rampageT = 0) {
     playerC.position.set(p.x, p.y)
 
     // per-chapter blob tint (white = identity for body) + optional flagellum tail
@@ -5064,6 +5228,25 @@ export function createRenderer(app) {
       tailB.rotation = Math.sin(animT * 9 + 1.2) * 0.25 // secondary flutter on the far segment
     } else {
       pTail.visible = false
+    }
+
+    // v5.8 kaiju redesign: RAMPAGE glow (see pRampageGlow's doc above). Ramped by rampageT /
+    // RAMPAGE_DURATION so it's brightest right after triggering (handleEvents' shake pulse lands
+    // the same frame) and fades out in step with the buff's own countdown — sim.js's stepRampage
+    // drains run.rampage to 0 across that identical window, so the glow and the meter bar (ui.js)
+    // hit zero together. A fast pulse on top keeps it reading as "active" rather than a static tint;
+    // the storm overlay and lightning flash already own full-field white (see LIGHTNING.flash), so
+    // this stays a warm, player-local halo instead of competing for the same visual register.
+    if (rampageT > 0) {
+      if (pRampageGlow.texture !== T.fx.circle_05) pRampageGlow.texture = T.fx.circle_05
+      const frac = Math.min(1, rampageT / RAMPAGE_DURATION)
+      const pulse = 0.75 + 0.25 * Math.sin(animT * 10)
+      pRampageGlow.visible = true
+      pRampageGlow.tint = 0xff6a3d
+      pRampageGlow.alpha = 0.55 * frac * pulse
+      pRampageGlow.scale.set(fxScale(T.fx.circle_05, PLAYER.radius * (2.6 + 0.3 * pulse)))
+    } else {
+      pRampageGlow.visible = false
     }
 
     if (dt > 0) {
@@ -5274,7 +5457,14 @@ export function createRenderer(app) {
         s.texture = tex
         s.anchor.set(frame.ax, frame.ay)
       }
-      const k = e.radius / look.baseR
+      // v5.8 kaiju redesign: chapterRender.enemyDrawScale (skies only, default 1 everywhere else)
+      // shrinks the DRAWN size on top of the ordinary radius ratio — jets/helis/tanks read as
+      // specks under a kaiju without a single hit test moving. This is the only thing `k` feeds
+      // (body scale below + the shadow/crown scale handed to syncEnemyDecor) — e.radius itself,
+      // and every hit test that reads it, is untouched. Do NOT thread this into anything that
+      // isn't a pure draw dimension (see config.js's enemyDrawScale doc for why rev.1's sim-side
+      // `enemyScale` knob was cut).
+      const k = (e.radius / look.baseR) * (chapterRender.enemyDrawScale ?? 1)
       // Aim at the player, as far as this creature's VIEW allows (look.maxLean — see ROSTER_LOOKS).
       // The roster mixes three views, so no single bearing->rotation rule serves all of them: the
       // bugs and airframes are true top-down and rotate freely, the animals are 3/4 with a distinct
@@ -5476,7 +5666,7 @@ export function createRenderer(app) {
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
-    syncPlayer(run.player, dt)
+    syncPlayer(run.player, dt, run.rampageT || 0)
     syncEnemies(run)
     syncBlooms(run.blooms || [])
     syncLures(run.lures || [])

@@ -1,11 +1,15 @@
 // Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin,
-// levelup, hurt, death, victory, click, buy, explode, zap, hole, beam.
+// levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush.
 
 let ctx = null
 let master = null
 let noiseBuf = null
 const lastPlay = {}
-const THROTTLE_MS = { shoot: 40, hit: 40, zap: 40 } // these fire constantly — avoid mush
+// these fire constantly — avoid mush. crush/gem added in v5.8 (kaiju redesign): a rampage crushes
+// dozens of structures a second, and each one drops both a `crush` event AND a gem (structure XP,
+// same run.gems.push path a kill uses — see sim.js's stepCrush/CRUSH_XP) — without a throttle both
+// sounds machine-gun the audio graph in lockstep with the crush rate (design doc §2).
+const THROTTLE_MS = { shoot: 40, hit: 40, zap: 40, crush: 70, gem: 50 }
 
 /** Create/resume the AudioContext. Must be called from a user gesture (Play button). */
 export function initAudio() {
@@ -99,6 +103,14 @@ const SFX = {
     tone(900, { type: 'sine', dur: 0.1, gain: 0.09 })
     tone(1300, { type: 'sine', dur: 0.1, gain: 0.09, at: 0.09 })
     tone(1800, { type: 'sine', dur: 0.12, gain: 0.1, at: 0.18 })
+  },
+  // v5.8 kaiju redesign: a crushed structure — low, short, percussive, distinct from `explode`
+  // (that one's a fireball burst; this is dead weight hitting the ground). Sub-80Hz sine sliding
+  // lower for the mass of falling masonry, plus a brief noise burst for rubble dust. No long tail —
+  // this plays dozens of times a second during a rampage (throttled above, but still).
+  crush() {
+    tone(70, { type: 'sine', dur: 0.09, gain: 0.26, slide: 32 })
+    noise({ dur: 0.07, gain: 0.15 })
   },
 }
 

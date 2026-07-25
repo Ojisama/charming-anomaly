@@ -131,7 +131,16 @@ removing the structure.
 
 ### Performance — the cost this section actually incurs
 
-2.6× the obstacles hits three loops that have no spatial index (there is none
+**Measured after implementation** (the estimates below were written before the
+code existed; these are the real numbers): obstacles only *materialize* within
+`OBSTACLE_STREAM_RADIUS` (1400) and are dropped at `OBSTACLE_DROP_RADIUS`
+(1900), so the wandering steady state sits between the two figures. Today: 31
+in the stream radius, 58 in the drop radius. Shipped: 82 and 152. A real
+30-second wandering skies run settles at **102 live obstacles, against 31
+today — 3.3×**, not the 2.6× estimated here. The `test/sim-test.js` density
+guard asserts this band.
+
+3.3× the obstacles hits three loops that have no spatial index (there is none
 anywhere in sim.js — checked):
 
 - **`stepObstacles`** (sim.js:1171-1197) is `enemies × obstacles`. At `MAX_ALIVE

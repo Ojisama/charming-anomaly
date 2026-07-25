@@ -97,6 +97,8 @@ import {
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_FUSE, BOMBARDMENT_RADIUS, BOMBARDMENT_DMG,
   ROAR_STUN, ROAR_RESONANCE_EVERY, TAIL_COLLIDE_R, TAIL_COLLIDE_FRAC, TAIL_COUNTER_CD,
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
+  // v5.8 kaiju redesign (skies crushing + rampage)
+  STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   // v5.4 beyond
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
@@ -134,6 +136,8 @@ export function stepSim(run, input, dt) {
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any)
+  stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
+  stepRampage(run, dt)    // v5.8 skies kaiju: rampage meter decay/trigger/drain (crush-gated, no-op elsewhere)
   stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
   stepWebs(run, dt)       // v5.3 garden: expire spider web slow-zones (no-op unless any exist)
 
@@ -1120,6 +1124,11 @@ function stepCurrents(run, dt) {
 // are dropped (hysteresis, so pacing the same boundary doesn't churn). run._obstacleRev bumps on
 // any change — render's syncObstacles rebuilds only on that. _obstacleSeed null = streaming off
 // (body, and tests that blank the field).
+// v5.8 kaiju redesign: cfg.cell (CHAPTERS[id].obstacles.cell) overrides the shared OBSTACLE_CELL
+// per chapter — skies alone sets it, shrinking to pack structures denser (see config.js). Every
+// obstacle also gets a `kind` (one of STRUCTURE_KINDS) from a FIFTH salt on this same pure hash —
+// deterministic per cell, consumes nothing from Math.random, and never reads run._districtSeed (a
+// documented render-only field, state.js) so sim stays ignorant of what a "district" even is.
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -1131,7 +1140,7 @@ function streamObstacles(run) {
   const cfg = CHAPTERS[run.chapter].obstacles
   if (!cfg) return
   const p = run.player
-  const cs = OBSTACLE_CELL
+  const cs = cfg.cell ?? OBSTACLE_CELL
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
   if (ci === run._obCellI && cj === run._obCellJ) return // same cell as last scan — field unchanged
   run._obCellI = ci; run._obCellJ = cj
@@ -1160,25 +1169,42 @@ function streamObstacles(run) {
       const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 3) - 0.5) * 2 * slack
       if (Math.hypot(x, y) < cfg.minDist) continue                      // spawn ring stays clear
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
-      run.obstacles.push({ x, y, r, _cell: key })
+      const kindRoll = obstacleCellHash(i, j, seed, 4)
+      const kind = STRUCTURE_KINDS[Math.min(STRUCTURE_KINDS.length - 1, Math.floor(kindRoll * STRUCTURE_KINDS.length))]
+      run.obstacles.push({ x, y, r, _cell: key, kind })
       changed = true
     }
   }
   if (changed) run._obstacleRev = (run._obstacleRev || 0) + 1
 }
 
+// v5.8 kaiju redesign: both loops used to call Math.hypot(dx,dy) unconditionally and compare it to
+// minSep. At skies' new density (2.6x the obstacles, see config.js) the enemy loop alone is
+// enemies x obstacles with no spatial index anywhere in sim.js — at MAX_ALIVE 400 that's ~60k
+// distance checks/frame. Comparing squared distances skips the sqrt on every non-overlapping pair
+// (the overwhelming majority) and only pays for it on the rare branch that actually needs the unit
+// normal to push something out. Ships to phones; not optional (design doc §1).
 function stepObstacles(run) {
   if (!run.obstacles || run.obstacles.length === 0) return
   const p = run.player
-  for (const o of run.obstacles) {
-    const dx = p.x - o.x, dy = p.y - o.y
-    const d = Math.hypot(dx, dy)
-    const minSep = o.r + PLAYER.radius
-    if (d < minSep) {
-      const nx = d > 1e-6 ? dx / d : 1
-      const ny = d > 1e-6 ? dy / d : 0
-      p.x = o.x + nx * minSep
-      p.y = o.y + ny * minSep
+  // v5.8 kaiju redesign: crushable structures (CHAPTERS[chapter].crush) don't push the PLAYER —
+  // they pop on contact instead (stepCrush, below), so treating them as terrain for the player
+  // would fight that: rev.1 of this redesign gave them HP, which turned every structure into a
+  // pocket where the player is shoved out just like an enemy is (see CRUSH_XP's doc in config.js
+  // for why that was cut). The enemy loop is untouched: buildings stay real terrain for everything
+  // that isn't the kaiju.
+  if (!CHAPTERS[run.chapter].crush) {
+    for (const o of run.obstacles) {
+      const dx = p.x - o.x, dy = p.y - o.y
+      const minSep = o.r + PLAYER.radius
+      const distSq = dx * dx + dy * dy
+      if (distSq < minSep * minSep) {
+        const d = Math.sqrt(distSq)
+        const nx = d > 1e-6 ? dx / d : 1
+        const ny = d > 1e-6 ? dy / d : 0
+        p.x = o.x + nx * minSep
+        p.y = o.y + ny * minSep
+      }
     }
   }
   for (const e of run.enemies) {
@@ -1186,9 +1212,10 @@ function stepObstacles(run) {
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes straight through
     for (const o of run.obstacles) {
       const dx = e.x - o.x, dy = e.y - o.y
-      const d = Math.hypot(dx, dy)
       const minSep = o.r + e.radius
-      if (d < minSep) {
+      const distSq = dx * dx + dy * dy
+      if (distSq < minSep * minSep) {
+        const d = Math.sqrt(distSq)
         const nx = d > 1e-6 ? dx / d : 1
         const ny = d > 1e-6 ? dy / d : 0
         e.x = o.x + nx * minSep
@@ -1196,6 +1223,67 @@ function stepObstacles(run) {
       }
     }
   }
+}
+
+// -- Crushing (v5.8 kaiju redesign, skies only) ----------------------------------------
+// Gated on CHAPTERS[chapter].crush (see config.js). Any structure whose circle overlaps the
+// player's crush radius is destroyed OUTRIGHT this frame — no HP, no per-hit damage, no partial-
+// crush state (see CRUSH_XP's doc in config.js for why: a structure with HP would be a shelter
+// pocket, not an obstacle). Crush radius is PLAYER.radius normally, widened by RAMPAGE_CRUSH_MUL
+// while a rampage is active (run.rampageT > 0, see stepRampage below) — that widened radius is the
+// entire rampage payoff.
+// // ponytail: no run._crushed record — walk OBSTACLE_DROP_RADIUS away and back and the cell
+// re-rolls its building. A 5-minute run rarely backtracks that far, so the trail behind you reads
+// correctly in practice; add a cell-mask only if backtracking ever becomes common (it would cost a
+// Set, a streaming guard, and re-deriving positions from obstacleCellHash salts 2/3 to land the
+// decal on-footprint — design doc §2).
+function stepCrush(run) {
+  if (!CHAPTERS[run.chapter].crush) return
+  if (!run.obstacles || run.obstacles.length === 0) return
+  const p = run.player
+  const crushR = PLAYER.radius * (run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
+  let changed = false
+  for (let i = run.obstacles.length - 1; i >= 0; i--) {
+    const o = run.obstacles[i]
+    const dx = p.x - o.x, dy = p.y - o.y
+    const minSep = o.r + crushR
+    if (dx * dx + dy * dy >= minSep * minSep) continue
+    run.obstacles.splice(i, 1)
+    changed = true
+    run.events.push({ type: 'crush', x: o.x, y: o.y, kind: o.kind })
+    run.gems.push({ x: o.x, y: o.y, xp: CRUSH_XP }) // same drop path dealDamage uses for a kill
+    run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
+  }
+  // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural cell
+  // crossing re-triggers streamObstacles — syncObstacles only rebuilds when _obstacleRev changes
+  // (render.js).
+  if (changed) run._obstacleRev = (run._obstacleRev || 0) + 1
+}
+
+// -- Rampage meter (v5.8 kaiju redesign, skies only) ------------------------------------
+// run.rampage (0..1) fills on crush (RAMPAGE_GAIN, see stepCrush above) and otherwise bleeds
+// continuously at RAMPAGE_DECAY/s — the decay is the design: a bank filled at leisure rewards
+// patience, a streak that bleeds unless you keep wrecking rewards momentum (design doc §3).
+// At a full bar, RAMPAGE triggers for RAMPAGE_DURATION s (run.rampageT counts it down) — no other
+// effect is applied here; the crush radius widening lives entirely in stepCrush's read of
+// rampageT, and player.speed/damageMul are deliberately never touched (see RAMPAGE_CRUSH_MUL's
+// doc in config.js for why mutating those would leak on re-trigger or death mid-buff).
+// Trigger check runs BEFORE this frame's decay, not after: stepCrush may have just clamped
+// run.rampage to exactly 1 this same frame, and decaying first would knock it fractionally under 1
+// before the >=1 check ever saw it, silently swallowing the trigger.
+function stepRampage(run, dt) {
+  if (!CHAPTERS[run.chapter].crush) return
+  if (run.rampageT > 0) {
+    // Active: drain the meter to 0 across the buff's OWN duration (not RAMPAGE_DECAY) so the bar
+    // visibly empties exactly as the buff runs out, then reset both fields cleanly — no residual
+    // rampage carries into the next fill.
+    run.rampageT -= dt
+    run.rampage = Math.max(0, run.rampage - dt / RAMPAGE_DURATION)
+    if (run.rampageT <= 0) { run.rampageT = 0; run.rampage = 0 }
+    return
+  }
+  if (run.rampage >= 1) { run.rampageT = RAMPAGE_DURATION; return }
+  run.rampage = Math.max(0, run.rampage - RAMPAGE_DECAY * dt)
 }
 
 // -- Pheromone trails (v5.3 garden signature) -----------------------------------------

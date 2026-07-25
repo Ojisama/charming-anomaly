@@ -607,6 +607,11 @@ export function initUI(hooks) {
   }
 
   // ---- hud (built once; updateHUD mutates in place) ---------------------
+  // v5.8 kaiju redesign: the rampage bar markup below always exists (screens.hud.innerHTML is
+  // built once here, before any chapter is chosen — see updateHUD's crushChapter gate), and its
+  // grid-row:2/grid-column:1 placement (styles.css) is what pins it under the HP bar rather than
+  // markup order — nesting it inside .hp-wrap instead would grow that box and break hp-text's
+  // `inset:0` overlay, which is sized against .hp-wrap, not .hp-bar.
   screens.hud.innerHTML = `
     <div class="hud-top">
       <div class="hp-wrap">
@@ -617,6 +622,9 @@ export function initUI(hooks) {
       <div class="hud-right">
         <span class="hud-coins">🪙 0</span>
         <button class="btn-pause" data-act="pause" aria-label="Pause">⏸</button>
+      </div>
+      <div class="rampage-wrap rampage-wrap--hidden">
+        <div class="rampage-bar"><div class="rampage-fill"></div></div>
       </div>
     </div>
     <div class="xp-row">
@@ -633,8 +641,17 @@ export function initUI(hooks) {
     lv: screens.hud.querySelector('.lv-badge'),
     xpFill: screens.hud.querySelector('.xp-fill'),
     weaponRow: screens.hud.querySelector('.weapon-row'),
+    rampageWrap: screens.hud.querySelector('.rampage-wrap'),
+    rampageBar: screens.hud.querySelector('.rampage-bar'),
+    rampageFill: screens.hud.querySelector('.rampage-fill'),
   }
-  const last = { hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '' }
+  const last = {
+    hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
+    // v5.8 kaiju redesign: undefined (not NaN/false) so the very first updateHUD call always
+    // writes once, same trick as the rest of this cache — see the block below for why crushChapter
+    // is gated separately from rampagePct/rampageActive.
+    crushChapter: undefined, rampagePct: -1, rampageActive: undefined,
+  }
 
   function updateHUD(run) {
     const p = run.player
@@ -645,6 +662,28 @@ export function initUI(hooks) {
       hud.hpFill.style.width = `${ratio * 100}%`
       hud.hpFill.classList.toggle('hp-fill--low', ratio < 0.35)
       hud.hpText.textContent = `${Math.max(0, Math.ceil(p.hp))}/${p.maxHP}`
+    }
+    // v5.8 kaiju redesign: run.rampage/rampageT exist on every run (state.js createRun) but only
+    // MEAN anything for chapters with CHAPTERS[chapter].crush (stepRampage no-ops elsewhere, so
+    // rampage sits pinned at 0) — gate the bar's visibility on the chapter flag, not on rampage > 0,
+    // so it doesn't flicker on for a chapter that merely hasn't crushed anything yet.
+    const crushChapter = CHAPTERS[run.chapter].crush === true
+    if (crushChapter !== last.crushChapter) {
+      last.crushChapter = crushChapter
+      hud.rampageWrap.classList.toggle('rampage-wrap--hidden', !crushChapter)
+    }
+    if (crushChapter) {
+      const rampagePct = Math.round(run.rampage * 100)
+      if (rampagePct !== last.rampagePct) {
+        last.rampagePct = rampagePct
+        hud.rampageFill.style.width = `${rampagePct}%`
+      }
+      const rampageActive = run.rampageT > 0
+      if (rampageActive !== last.rampageActive) {
+        last.rampageActive = rampageActive
+        hud.rampageFill.classList.toggle('rampage-fill--active', rampageActive)
+        hud.rampageBar.classList.toggle('rampage-bar--active', rampageActive)
+      }
     }
     const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
     if (remain !== last.remain) {

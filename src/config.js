@@ -1330,7 +1330,23 @@ export const CHAPTERS = {
     // existing volatile-bomb array: telegraph fuse -> explode, damages player AND enemies).
     // `rate` = seconds between bombardment volleys; the rest is BOMBARDMENT_* below.
     signature: { type: 'bombardment', rate: 2.6 },
-    obstacles: { count: 13, minR: 30, maxR: 60, minDist: 240 }, // building rubble — fewer but chunkier
+    // v5.8 kaiju redesign: cell 420->260, count 13->34, minR/maxR 30/60->10/28, minDist 240->160.
+    // BOTH cell and count had to move together — count is a density reference over
+    // OBSTACLE_FIELD_RADIUS and is invariant under cell size alone (see STRUCTURE_KINDS' comment
+    // above); shrinking just `cell` would have left the live obstacle count unchanged. Smaller,
+    // denser structures are the whole point: the player is now bigger than the city, not smaller
+    // than the debris (see the design doc's Problem section). minDist drops with it — at this
+    // density the old 240px spawn-clear ring reads as a conspicuous bald crater, not a starting
+    // clearing. `cell` is a new per-chapter override (see OBSTACLE_CELL's doc above); every other
+    // chapter still falls back to the shared OBSTACLE_CELL and is untouched by this.
+    obstacles: { count: 34, minR: 10, maxR: 28, minDist: 160, cell: 260 }, // buildings — small, dense, crushable
+    // crush (v5.8 kaiju redesign): gates BOTH halves of the new mechanic in sim.js — stepObstacles
+    // skips the player-push loop for this chapter's obstacles (they're crushable, not terrain, for
+    // the player only; enemies still collide with them normally) and stepCrush destroys any
+    // structure overlapping the player's crush radius outright (see CRUSH_XP/RAMPAGE_* below).
+    // Chapter-level, not per-obstacle-entry: every skies obstacle is a crushable structure, so one
+    // flag on the chapter is the whole contract (no per-entry HP/crushable field to keep in sync).
+    crush: true,
     // ---- render-only (v5.6.17) ---- you are the kaiju rampaging under a NIGHT THUNDERSTORM: dark
     // indigo sky between shattered concrete, a wet-asphalt rubble floor, a green kaiju with a heavy
     // tail. Read as a dark, storm-lit ground (effective floor luminance ~0.07 — darker than city/
@@ -1350,6 +1366,15 @@ export const CHAPTERS = {
                              // + the floor populate* callbacks) — a separate flag from `storm`
                              // because it's a distinct concern (ground skin vs. sky overlay) that
                              // only happens to also be skies-only today.
+      // v5.8 kaiju redesign: render-only draw-scale on enemy sprites (jets/helis/tanks read as
+      // specks under a kaiju) — deliberately NOT a sim radius change. Rev.1 of this redesign tried
+      // an `enemyScale` sim knob and it silently rebalanced the chapter: e.radius is an addend in
+      // ~12 hit tests (all three body tests inside inSector, sim.js — added in v5.6.3 specifically
+      // so sector sweeps test the enemy's BODY, not its centre). Shrinking the sim radius would
+      // have shrunk the roar/tailSwipe hit window along with the sprite. render.js reads this and
+      // scales the sprite only; sim.js never sees it (not in this file's exports, not imported by
+      // sim.js — grep confirms).
+      enemyDrawScale: 0.55,
     },
   },
   beyond: {
@@ -1668,6 +1693,22 @@ export const OBSTACLE_STREAM_RADIUS = 1400     // px, cells within this of the p
 export const OBSTACLE_DROP_RADIUS = 1900       // px, obstacles beyond this are dropped (hysteresis vs pop-in churn)
 export const OBSTACLE_MIN_GAP = 40             // px, min edge-to-edge gap (traps/wells scatterField spacing)
 export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts per entry (traps/wells scatterField)
+// Per-chapter override of the streaming grid cell above (OBSTACLE_CELL) — absent everywhere except
+// skies (v5.8 kaiju redesign): see CHAPTERS.skies.obstacles.cell and sim.js's streamObstacles,
+// `cs = cfg.cell ?? OBSTACLE_CELL`. NOTE `count` is a density reference over OBSTACLE_FIELD_RADIUS
+// and is invariant under cell size by construction (streamObstacles' `prob` formula) — shrinking
+// `cell` alone changes NOTHING; a smaller cell needs a bigger `count` to actually read denser.
+
+// Structure kind (v5.8 kaiju redesign): a purely cosmetic classification stamped on every streamed
+// obstacle entry (run.obstacles[i].kind), derived from obstacleCellHash(i, j, seed, 4) — a FIFTH
+// salt on the same pure hash that already picks the cell's position/radius (sim.js). Sim itself
+// never branches on `kind` (crushing/pushing treat every obstacle the same); render.js maps kind ×
+// district to a sprite (tower/house/tree/pier reading as downtown/suburbs/parks/sea respectively —
+// see docs/superpowers/specs/2026-07-25-skies-kaiju-redesign-design.md §5). Deliberately assigned
+// for every chapter's obstacles, not just skies': the hash is free (no RNG stream, no branch cost
+// worth gating), and it keeps `kind` a property of "what a streamed obstacle IS" rather than a
+// skies-only special case another chapter would have to remember to add later.
+export const STRUCTURE_KINDS = ['tower', 'house', 'tree', 'pier']
 
 // ---- Garden chapter behavior flags (v5.3, see sim.js) --------------------------------------
 // pheromones signature (garden): a dying 'trailFollow' ant drops a fading node into run.trails;
@@ -1958,6 +1999,48 @@ export const BOMBARDMENT_SPREAD = 620   // px, scatter radius around the player 
 export const BOMBARDMENT_FUSE = 1.2     // s of telegraph
 export const BOMBARDMENT_RADIUS = 85    // px, blast radius
 export const BOMBARDMENT_DMG = 18
+
+// ---- Crushing & rampage (v5.8 kaiju redesign, skies-only — gated on CHAPTERS[chapter].crush,
+// see sim.js's stepCrush/stepRampage) ------------------------------------------------------------
+// A structure overlapping the player's crush radius is destroyed OUTRIGHT: no HP, no per-hit
+// damage, no partial-crush state — it either overlaps this frame or it doesn't. Rev.1 of this
+// redesign gave structures HP and that was cut on review: a structure with HP is a pocket where
+// contact enemies get pushed out (stepObstacles' enemy loop) and the player doesn't (the whole
+// point of `crush`) — i.e. free shelter every ~260px (CHAPTERS.skies.obstacles.cell), and "high
+// HP" would just read as "longer invulnerability" while it whittles down. Instant pop removes the
+// exploit by removing the structure (see the design doc §2).
+//
+// CRUSH_XP: xp awarded per crushed structure, via the same run.gems.push({x,y,xp}) path a kill
+// uses (dealDamage, sim.js:1599) — so it rides every existing xp multiplier (passives.xpGain,
+// mods.xpMul, GEM_VALUE=1) for free. MUST stay small: stepLevelUp (sim.js) fires at most one
+// level per FRAME and hands control to a blocking modal, so crushing a dense run of structures in
+// a single rampage would otherwise queue back-to-back level-up screens at exactly the moment the
+// design wants uninterrupted momentum (the "XP flooding" hazard, design doc §2). 1 matches the
+// smallest per-kill xp in the game (ENEMIES.drone/wisp.xp, both 1) — a crush is worth exactly as
+// much as the cheapest kill, never a shortcut past it.
+export const CRUSH_XP = 1
+
+// Rampage meter (run.rampage, 0..1; run.rampageT, s of the buff remaining — see state.js). Fills
+// on crush (RAMPAGE_GAIN per structure), bleeds continuously at RAMPAGE_DECAY/s the rest of the
+// time — the decay IS the design: a bank filled at leisure rewards patience, a streak that bleeds
+// unless you keep wrecking rewards momentum (the kaiju verb, design doc §3). At a FULL bar,
+// RAMPAGE activates for RAMPAGE_DURATION s: the crush radius widens from PLAYER.radius to
+// PLAYER.radius * RAMPAGE_CRUSH_MUL (stepCrush) — you flatten a swath without touching it. That is
+// the ENTIRE buff: no speed/damage multiplier. Rev.1 granted those too and both were cut — p.speed
+// and p.damageMul are never assigned anywhere in sim.js (set once in createRun, read through
+// multipliers at spawnEnemy/stepPlayerMovement/applyDamage), so mutating them in place would leak
+// permanently on re-trigger or on death mid-buff. A radius is one number, re-derived fresh every
+// frame from rampageT, and can't leak.
+// Tuning note (design doc §3, "open tuning risk"): at the new obstacle density a player simply
+// walking forward sweeps roughly 0.7 structures/s with zero routing effort (crushables no longer
+// block movement). GAIN * 0.7 (~0.035/s) is deliberately kept BELOW DECAY (0.05/s) so idle forward
+// motion alone can never fill the bar — only a deliberate detour through a denser block outpaces
+// the bleed. This can't be fully settled on paper; tune these three in play once render/audio land
+// (design doc's Build order §8 step 3).
+export const RAMPAGE_GAIN = 0.05        // meter fraction added per crushed structure
+export const RAMPAGE_DECAY = 0.05       // meter fraction lost per second while NOT in an active rampage
+export const RAMPAGE_DURATION = 5       // s the widened crush radius stays active once triggered
+export const RAMPAGE_CRUSH_MUL = 3      // crush radius multiplier while rampageT > 0 (PLAYER.radius * this)
 
 // ---- Beyond chapter behavior flags (v5.4, see sim.js) ----------------------------------------
 // blink (beyond's glitch blinkers): teleports instead of closing distance. State on e._blinkT

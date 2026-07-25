@@ -388,11 +388,17 @@ function generateWells(sig) {
  *   elite is alive, via sim-internal `_soapAcc` on the enemy). One shared array/step function
  *   for both — see the ACID_ and SOAP_ constants in config.js. Not gated by chapter: empty
  *   unless something pushes to it.
- * obstacles[i]: { x, y, r, _cell } — circular colliders STREAMED around the player by sim.js's
- *               streamObstacles (v5.6.13; deterministic per _obstacleSeed cell hash) from
+ * obstacles[i]: { x, y, r, _cell, kind } — circular colliders STREAMED around the player by
+ *               sim.js's streamObstacles (v5.6.13; deterministic per _obstacleSeed cell hash) from
  *   CHAPTERS[chapter].obstacles (config.js; null/absent, e.g. body, yields []). Push the player
  *   and every enemy out of overlap every frame (stepObstacles in sim.js); projectiles are
- *   unaffected. Rendered from real sprite assets (Task 6), not drawn here.
+ *   unaffected. Rendered from real sprite assets (Task 6), not drawn here. kind (v5.8 kaiju
+ *   redesign): one of STRUCTURE_KINDS (config.js: 'tower'|'house'|'tree'|'pier'), derived from a
+ *   fifth salt on the same pure obstacleCellHash that picks position/radius — deterministic,
+ *   render-facing only (sim never branches on it; crushing/pushing treat every obstacle the same).
+ *   Assigned for every chapter's obstacles, not just skies'. CHAPTERS[chapter].obstacles.cell
+ *   (v5.8, optional): per-chapter override of the shared OBSTACLE_CELL streaming grid size — absent
+ *   everywhere but skies.
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
@@ -402,6 +408,25 @@ function generateWells(sig) {
  *   (downtown/suburbs/parks/sea) and blended floor tint per world position. sim.js never reads
  *   this field, so it can't perturb the seeded test suite; null for chapters without
  *   CHAPTERS[chapter].render.districts.
+ *
+ * v5.8 kaiju redesign — crushing & rampage (skies only, gated on CHAPTERS[chapter].crush; see
+ * CRUSH_XP/RAMPAGE_* in config.js and sim.js's stepCrush/stepRampage):
+ * rampage: 0..1 meter. Fills by RAMPAGE_GAIN per crushed structure, decays by RAMPAGE_DECAY/s
+ *   otherwise. At 1.0 (and rampageT <= 0) triggers RAMPAGE: rampageT is set to RAMPAGE_DURATION and
+ *   the meter itself drains back to 0 across that same window (see stepRampage). Stays 0 forever
+ *   for any chapter without `crush` — stepRampage no-ops for them.
+ * rampageT: seconds of active rampage remaining; 0 = inactive. The ONLY effect of rampageT > 0 is
+ *   that stepCrush's crush radius widens from PLAYER.radius to PLAYER.radius * RAMPAGE_CRUSH_MUL —
+ *   player.speed/damageMul are deliberately never touched (see RAMPAGE_CRUSH_MUL's doc in
+ *   config.js: both are set once in createRun and read through multipliers elsewhere in sim.js, so
+ *   mutating them in place would leak permanently on re-trigger or on death mid-buff).
+ * A structure overlapping the player's crush radius is destroyed OUTRIGHT (no HP, no partial-crush
+ * state): spliced from obstacles[] (bumping _obstacleRev), an xp gem dropped via the same
+ * run.gems.push path a kill uses (CRUSH_XP, small by design — see its doc in config.js for the xp-
+ * flooding hazard this avoids), and one event emitted:
+ *   {type:'crush', x, y, kind}   a structure was destroyed (x,y = its center, kind = the obstacle's
+ *                                STRUCTURE_KINDS tag) — render draws collapse + dust, audio maps it
+ *                                to a crush sfx (throttled like shoot/hit/zap; see design doc §2).
  *
  * v5.3 garden chapter behavior (see CHAPTERS.garden in config.js and sim.js's stepEnemyMovement/
  * stepDiveBomb/dealDamage/stepTrails/stepWebs/stepStrips/stepPlayerMovement):
@@ -618,6 +643,11 @@ export function createRun(meta, opts = {}) {
     obstacles: [],
     _obstacleSeed: CHAPTERS[chapter].obstacles ? (Math.random() * 0x7fffffff) | 0 : null,
     _obstacleRev: 0,
+    // v5.8 kaiju redesign (see doc block above): starts empty/inactive for every chapter, including
+    // skies — stepRampage/stepCrush only ever move these away from 0 when CHAPTERS[chapter].crush
+    // is set, so a non-skies run carries these two fields but nothing ever touches them.
+    rampage: 0,
+    rampageT: 0,
     // render-only (see doc block above): seeds the skies chapter's Voronoi district map. This draw
     // DOES advance the shared Math.random stream (skies-only), but sim.js never READS _districtSeed
     // and the skies tests re-seed / assert structurally, so the seeded suite stays stable.

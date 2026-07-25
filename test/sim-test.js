@@ -37,6 +37,7 @@ import {
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, DISTRICT_GRID, districtAt, districtTintAt,
+  STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -3962,6 +3963,254 @@ function testDistricts() {
   console.log(`PASS run BB (districts): ${seen.size} distinct types over the sweep (${[...seen].join(',')}), sea present, max per-step tint jump ${maxJump}/255`)
 }
 
+// ---- Run CC: v5.8 kaiju redesign (skies crushing, rampage, density) ---------------------
+// Design doc §7 flags that the EXISTING suite is structurally blind to all of this: run W/X/AA's
+// balance bands run `createRun(makeMeta())` (the body chapter, no obstacles), makeStatusEnemy
+// bypasses spawnEnemy, and every skies behavior check in run Y/AA drives `flagRun`, which does
+// `run.obstacles = []; run._obstacleSeed = null` — blanking the exact field stepCrush/stepRampage
+// are gated on. None of those tests can see crushing, rampage, or the new density, because all
+// three only exist for CHAPTERS[chapter].crush, and every existing skies test nulls it out.
+// These scenarios build real `createRun(meta, {chapter:'skies'})` runs and let the field stream
+// for real — NOT flagRun.
+function testSkiesKaiju() {
+  const dt = 1 / 60
+
+  // A quiet, LIVE skies run: real chapter (obstacles stream for real, crush/rampage are gated on),
+  // no weapons/spawns/bombardment noise. The obstacle field itself is left completely alone.
+  function skiesRun() {
+    const run = createRun(makeMeta(), { chapter: 'skies' })
+    run.weapons = []; run.mods.spawnMul = 0; run._bombardAcc = 1e6 // park the signature, not the field
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    return run
+  }
+
+  // (a) crush on contact: a live structure overlapping the player is destroyed OUTRIGHT — spliced
+  // from run.obstacles, _obstacleRev bumped (so render knows to rebuild), a {type:'crush'} event
+  // carrying the structure's kind, xp dropped into run.gems via the same path a kill uses, and the
+  // rampage meter fed (sim.js stepCrush, design doc §2/§3).
+  {
+    Math.random = mulberry32(20260714)
+    const run = skiesRun()
+    stepSim(run, { x: 0, y: 0 }, dt) // streams in the REAL field around the origin (streamObstacles)
+    assert(run.obstacles.length > 0, 'expected a live skies run to stream in real obstacles')
+    const target = run.obstacles[0]
+    assert(STRUCTURE_KINDS.includes(target.kind), `expected a real structure kind, got '${target.kind}'`)
+    const revBefore = run._obstacleRev
+    const xpBefore = run.player.xp
+
+    run.player.x = target.x; run.player.y = target.y // dead-center overlap
+    stepSim(run, { x: 0, y: 0 }, dt)
+
+    assert(!run.obstacles.includes(target), 'expected the overlapped structure spliced from run.obstacles')
+    assert(run._obstacleRev > revBefore, `expected _obstacleRev to bump (was ${revBefore}, now ${run._obstacleRev})`)
+    const crushEv = run.events.find((ev) => ev.type === 'crush' && ev.x === target.x && ev.y === target.y)
+    assert(crushEv, 'expected a crush event at the structure\'s position')
+    assert.strictEqual(crushEv.kind, target.kind, `expected the crush event's kind to match the structure (${target.kind}), got ${crushEv.kind}`)
+    // The dropped gem spawns dead-center on the structure — exactly where we just teleported the
+    // player — so stepPickups (same frame) collects it INSTANTLY (distance 0 is inside
+    // PLAYER.pickupRadius) rather than leaving it sitting in run.gems. Check the effect of the
+    // pickup instead: player.xp went up by the gem's value, and a 'gem' event fired, proving the
+    // xp really did flow through the same run.gems.push -> stepPickups path a kill uses (not some
+    // shortcut that hands the player xp directly).
+    assert(run.player.xp >= xpBefore + CRUSH_XP * GEM_VALUE - 1e-9,
+      `expected the crush's xp (CRUSH_XP=${CRUSH_XP} * GEM_VALUE=${GEM_VALUE}) collected into player.xp, went ${xpBefore}->${run.player.xp}`)
+    assert(run.events.some((ev) => ev.type === 'gem'), 'expected the crush\'s xp to flow through the gem pickup path (a gem event)')
+    assert(run.rampage >= RAMPAGE_GAIN - 0.01, `expected the crush to feed the rampage meter (RAMPAGE_GAIN=${RAMPAGE_GAIN}), got ${run.rampage.toFixed(3)}`)
+    console.log(`PASS run CC.a (crush on contact): kind=${target.kind} _obstacleRev ${revBefore}->${run._obstacleRev}, xp ${xpBefore}->${run.player.xp}, rampage=${run.rampage.toFixed(3)}`)
+  }
+
+  // (b) crushables don't block the PLAYER, but DO block ENEMIES — the design doc calls this "the
+  // load-bearing line": stepObstacles' player-push loop is skipped ENTIRELY for a crush chapter
+  // (chapter-gated, not per-obstacle), while the enemy loop is untouched. Both custom structures
+  // are APPENDED to the real streamed field from (a) (never replaced), placed inside the disc
+  // CHAPTERS.skies.obstacles.minDist keeps every real structure out of (with margin for maxR, so
+  // nothing organic can wander in and contaminate the push-distance check).
+  {
+    Math.random = mulberry32(20260714)
+    const run = skiesRun()
+    stepSim(run, { x: 0, y: 0 }, dt) // real field streams in around the origin, same as (a)
+
+    const wallA = { x: 32, y: 0, r: 15, _cell: 'test-a', kind: 'tower' } // overlaps the PLAYER
+    const wallB = { x: 0, y: 60, r: 15, _cell: 'test-b', kind: 'house' } // overlaps only the ENEMY
+    run.obstacles.push(wallA, wallB)
+
+    const px0 = run.player.x, py0 = run.player.y // (0, 0) — already overlapping wallA by 5px
+    const e = makeStatusEnemy(run, { x: 0, y: wallB.y + (wallB.r + 16 - 5), hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    const ey0 = e.y
+
+    stepSim(run, { x: 0, y: 0 }, dt)
+
+    assert.strictEqual(run.player.x, px0, 'expected the player to pass through a crushable structure unpushed (x)')
+    assert.strictEqual(run.player.y, py0, 'expected the player to pass through a crushable structure unpushed (y)')
+    assert(e.y > ey0, `expected the enemy pushed OUT of its structure, moved ${(e.y - ey0).toFixed(2)}px`)
+    const dist = Math.hypot(e.x - wallB.x, e.y - wallB.y)
+    assert(dist >= wallB.r + 16 - 1e-6, `expected the enemy no longer overlapping after the push, dist=${dist.toFixed(2)}`)
+    console.log(`PASS run CC.b (asymmetric collision): player passed through unpushed, enemy shoved out to dist=${dist.toFixed(1)}`)
+  }
+
+  // (c) rampage lifecycle: fills on crush ((a) already covers that), decays on its own otherwise,
+  // triggers RAMPAGE at 1.0, genuinely widens the crush radius while active, then drains back to
+  // EXACTLY 0 with no residue (sim.js stepRampage, design doc §3).
+  {
+    // (c1) decays continuously with no crushing and no input.
+    {
+      Math.random = mulberry32(20260714)
+      const run = skiesRun()
+      run.rampage = 0.5; run.rampageT = 0
+      const steps = Math.round(1 / dt)
+      for (let i = 0; i < steps; i++) stepSim(run, { x: 0, y: 0 }, dt)
+      const expected = 0.5 - RAMPAGE_DECAY * (steps * dt)
+      assert(Math.abs(run.rampage - expected) < 1e-3, `expected rampage to decay to ~${expected.toFixed(3)} after 1s idle, got ${run.rampage.toFixed(3)}`)
+      assert.strictEqual(run.rampageT, 0, 'expected rampageT to stay inactive while merely decaying')
+    }
+
+    // (c2) reaching 1.0 triggers RAMPAGE on the very next step (the trigger check runs BEFORE
+    // decay — see stepRampage's own comment on why: decaying first could knock a just-clamped 1.0
+    // fractionally under before the >=1 check ever saw it).
+    {
+      Math.random = mulberry32(20260714)
+      const run = skiesRun()
+      run.rampage = 1; run.rampageT = 0
+      stepSim(run, { x: 0, y: 0 }, dt)
+      assert.strictEqual(run.rampageT, RAMPAGE_DURATION, `expected a full meter to trigger RAMPAGE_DURATION (${RAMPAGE_DURATION}s), got rampageT=${run.rampageT}`)
+      assert.strictEqual(run.rampage, 1, 'expected the meter to stay at 1 on the triggering frame itself (no decay yet)')
+    }
+
+    // (c3) the crush radius genuinely widens while rampageT > 0: a structure placed beyond the
+    // NORMAL crush radius (PLAYER.radius) but inside the WIDENED one (PLAYER.radius *
+    // RAMPAGE_CRUSH_MUL) survives outside rampage and is destroyed only once rampage is active.
+    {
+      Math.random = mulberry32(20260714)
+      const run = skiesRun()
+      const normalR = PLAYER.radius
+      const wideR = PLAYER.radius * RAMPAGE_CRUSH_MUL
+      const structR = CHAPTERS.skies.obstacles.minR
+      const dist = (normalR + structR + wideR + structR) / 2 // straddles the midpoint of the two thresholds
+      const wall = { x: dist, y: 0, r: structR, _cell: 'test-c', kind: 'tower' }
+      run.obstacles.push(wall)
+
+      // not rampaging: outside the normal radius, survives.
+      run.rampage = 0; run.rampageT = 0
+      stepSim(run, { x: 0, y: 0 }, dt)
+      assert(run.obstacles.includes(wall), 'expected a structure beyond the normal crush radius to survive OUTSIDE rampage')
+
+      // trigger rampage — this SAME frame's stepCrush still runs at the OLD rampageT=0 (it flips
+      // AFTER stepCrush, inside stepRampage), so the wall survives this frame too.
+      run.rampage = 1
+      stepSim(run, { x: 0, y: 0 }, dt)
+      assert(run.obstacles.includes(wall), 'expected the wall to survive the triggering frame itself (rampageT widens AFTER stepCrush runs that frame)')
+      assert.strictEqual(run.rampageT, RAMPAGE_DURATION, 'expected rampage to be active now')
+
+      // next frame: rampageT > 0 entering stepCrush -> the widened radius reaches the wall.
+      stepSim(run, { x: 0, y: 0 }, dt)
+      assert(!run.obstacles.includes(wall), `expected the widened crush radius (${wideR}) to reach a structure ${dist}px out (normal reach was only ${normalR + structR}px)`)
+      const crushEv = run.events.find((ev) => ev.type === 'crush' && ev.x === wall.x && ev.y === wall.y)
+      assert(crushEv, 'expected a crush event for the wall destroyed by the widened rampage radius')
+    }
+
+    // (c4) drains across RAMPAGE_DURATION and resets to EXACTLY 0 — no residue once the buff ends.
+    {
+      Math.random = mulberry32(20260714)
+      const run = skiesRun()
+      run.rampage = 1; run.rampageT = RAMPAGE_DURATION
+      const half = Math.round((RAMPAGE_DURATION / 2) / dt)
+      for (let i = 0; i < half; i++) stepSim(run, { x: 0, y: 0 }, dt)
+      assert(run.rampageT > 0, 'expected rampage still active at the halfway point')
+      assert(Math.abs(run.rampage - 0.5) < 0.05, `expected the meter roughly half-drained at the halfway point, got ${run.rampage.toFixed(3)}`)
+
+      const rest = Math.round((RAMPAGE_DURATION / 2 + 0.5) / dt) // past the end of the duration
+      for (let i = 0; i < rest; i++) stepSim(run, { x: 0, y: 0 }, dt)
+      assert.strictEqual(run.rampageT, 0, 'expected rampageT to reset to EXACTLY 0 once the duration elapses')
+      assert.strictEqual(run.rampage, 0, 'expected rampage to reset to EXACTLY 0 — no residue')
+
+      // and it stays there — no lingering partial-widen effect after the buff has ended.
+      for (let i = 0; i < Math.round(1 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+      assert.strictEqual(run.rampage, 0, 'expected rampage to remain 0 with no residue after the buff has fully ended')
+      assert.strictEqual(run.rampageT, 0, 'expected rampageT to remain 0 with no residue after the buff has fully ended')
+    }
+
+    console.log(`PASS run CC.c (rampage lifecycle): decays idle, triggers at 1.0, widens ${PLAYER.radius}->${PLAYER.radius * RAMPAGE_CRUSH_MUL} while active, drains to exactly 0`)
+  }
+
+  // (d) structure `kind` is deterministic for a given (cell, seed) — and INDEPENDENT of
+  // run._districtSeed (design doc §2; guards the render-only boundary documented at
+  // state.js:399-403 — sim must never learn what a district is, so a district-only change can't
+  // silently rewrite what gets crushed).
+  {
+    function seededSkiesRun(obstacleSeed, districtSeed) {
+      const run = createRun(makeMeta(), { chapter: 'skies' })
+      run.weapons = []; run.mods.spawnMul = 0; run._bombardAcc = 1e6
+      run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+      run._obstacleSeed = obstacleSeed
+      run._districtSeed = districtSeed
+      return run
+    }
+    Math.random = mulberry32(20260714)
+    const seed = 424242
+
+    const runA = seededSkiesRun(seed, 111)
+    stepSim(runA, { x: 0, y: 0 }, dt)
+    const kindsA = Object.fromEntries(runA.obstacles.map((o) => [o._cell, o.kind]))
+    assert(Object.keys(kindsA).length > 5, 'expected the forced seed to stream in a real set of obstacles')
+
+    // same obstacle seed, a DIFFERENT district seed -> kind per cell must be UNCHANGED.
+    const runB = seededSkiesRun(seed, 999999)
+    stepSim(runB, { x: 0, y: 0 }, dt)
+    const kindsB = Object.fromEntries(runB.obstacles.map((o) => [o._cell, o.kind]))
+    assert.strictEqual(Object.keys(kindsB).length, Object.keys(kindsA).length,
+      'expected the same obstacle seed to stream the exact same set of cells regardless of _districtSeed')
+    for (const cell of Object.keys(kindsA)) {
+      assert.strictEqual(kindsB[cell], kindsA[cell],
+        `expected cell ${cell}'s kind independent of _districtSeed (A=${kindsA[cell]}, B=${kindsB[cell]})`)
+    }
+
+    // repeat visit: walk far enough away to drop the origin's cells, then walk back — the SAME
+    // cell must re-roll the SAME kind (sim.js's ponytail note on stepCrush: "walk away and back,
+    // same building").
+    const runC = seededSkiesRun(seed, 111)
+    stepSim(runC, { x: 0, y: 0 }, dt)
+    const firstVisit = Object.fromEntries(runC.obstacles.map((o) => [o._cell, o.kind]))
+    runC.player.x = OBSTACLE_DROP_RADIUS * 3; runC.player.y = OBSTACLE_DROP_RADIUS * 3
+    stepSim(runC, { x: 0, y: 0 }, dt) // drops the origin's cells — now far beyond OBSTACLE_DROP_RADIUS
+    assert(!runC.obstacles.some((o) => o._cell in firstVisit), 'expected walking far away to drop the origin cells')
+    runC.player.x = 0; runC.player.y = 0
+    stepSim(runC, { x: 0, y: 0 }, dt) // walk back — origin cells re-roll
+    const secondVisit = Object.fromEntries(runC.obstacles.map((o) => [o._cell, o.kind]))
+    for (const cell of Object.keys(firstVisit)) {
+      assert.strictEqual(secondVisit[cell], firstVisit[cell],
+        `expected cell ${cell} to re-roll the SAME kind on a repeat visit (first=${firstVisit[cell]}, second=${secondVisit[cell]})`)
+    }
+
+    console.log(`PASS run CC.d (kind determinism): ${Object.keys(kindsA).length} cells stable across a _districtSeed change and a repeat visit`)
+  }
+
+  // (e) density guard: THIS specific test exists because rev.1 of this redesign silently did
+  // nothing — streamObstacles' per-cell probability is `prob = count*cs^2 /
+  // (pi*OBSTACLE_FIELD_RADIUS^2)` (sim.js:1147/1157), which is INVARIANT under cell size alone.
+  // Shrinking `cell` 420->260 while leaving `count` at the old 13 would have produced the exact
+  // same density wearing a finer grid. Both numbers had to move together (config.js: count
+  // 13->34, cell 420->260) to actually reach the intended ~150-obstacle density. Drive an ACTUAL
+  // wandering skies run (not a frozen spawn-frame snapshot) long enough for the streaming field's
+  // materialize-at-1400/drop-at-1900 hysteresis to settle (empirically stable within a couple
+  // obstacles by 30s), then assert a RANGE — loose enough to not chase exact density-formula
+  // arithmetic, but tight enough that the rev.1 no-op (which settles under 40 obstacles by this
+  // same measurement, verified directly against this file's seed) can't sneak back in. Do not
+  // delete this in the name of simplifying: it is the ONLY test that would have caught rev.1's bug.
+  {
+    Math.random = mulberry32(20260714)
+    const run = skiesRun()
+    let t = 0
+    for (let i = 0; i < Math.round(30 / dt); i++) {
+      t += dt
+      stepSim(run, { x: Math.cos(t), y: Math.sin(t) }, dt)
+    }
+    const n = run.obstacles.length
+    assert(n >= 70 && n <= 170, `expected roughly the intended ~150 live obstacles after wandering, got ${n} (the rev.1 cell/count no-op settles under 40 by this same measurement)`)
+    console.log(`PASS run CC.e (density guard): ${n} live obstacles after 30s of wandering (target ~150; floor guards the rev.1 cell/count no-op)`)
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -3992,6 +4241,7 @@ try {
   testV54Signatures()
   testV54Weapons()
   testDistricts()
+  testSkiesKaiju()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
