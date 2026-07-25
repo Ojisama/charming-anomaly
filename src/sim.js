@@ -101,6 +101,8 @@ import {
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
   // v5.9 top-down region overhaul (skies roads + districts)
   roadAt, districtAt, DISTRICT_STRUCTURE_KINDS,
+  // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
+  STRUCTURE_RADIUS,
   // v5.4 beyond
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
@@ -571,6 +573,12 @@ function stepEnemyMovement(run, dt) {
           radius: e.elite ? ARTILLERY_ELITE_RADIUS : ARTILLERY_RADIUS,
           fuse: ARTILLERY_FUSE, duration: ARTILLERY_FUSE,
           dmg: e.elite ? ARTILLERY_ELITE_DMG : ARTILLERY_DMG,
+          // v5.10.1: explicit discriminator + the firing tank's own position, so render.js can draw
+          // the trajectory ghost from the ACTUAL shooter instead of guessing (it used to scan for
+          // whichever artillery enemy currently held the globally highest e._shellT, with no range
+          // check and no verification that enemy just fired — wrong whenever two tanks fire the same
+          // frame, or an idle tank's timer simply outranks the one that genuinely shot).
+          src: 'gun', ox: e.x, oy: e.y,
         })
       }
     }
@@ -1206,9 +1214,19 @@ function streamObstacles(run) {
       // see it happen.
       if (run._crushed.has(key)) continue
       if (obstacleCellHash(i, j, seed, 0) >= prob) continue
-      const r = cfg.minR + obstacleCellHash(i, j, seed, 1) * (cfg.maxR - cfg.minR)
-      // jitter inside the cell, pulled in by the radius so neighbours can't overlap
-      const slack = Math.max(0, cs / 2 - r - 20)
+      // v5.9.2 ("the fuck is this?" bug report): a chapter with a district map picks its structure's
+      // RADIUS per-kind (STRUCTURE_RADIUS, config.js) instead of one chapter-wide cfg.minR/maxR band
+      // — see that table's doc for why (draw size used to be divorced from the collider entirely).
+      // Same run._districtSeed != null gate the kind-subsetting below already uses.
+      const perKindRadius = run._districtSeed != null
+      let r
+      if (!perKindRadius) r = cfg.minR + obstacleCellHash(i, j, seed, 1) * (cfg.maxR - cfg.minR)
+      // jitter inside the cell, pulled in by the radius so neighbours can't overlap. `kind` (and so
+      // the per-kind radius band) isn't known yet — it's picked from the FINAL (x, y) below, via
+      // districtAt — so a perKindRadius cell jitters against cfg.maxR, the chapter's overall largest
+      // possible structure, as a conservative worst case: every kind's real r <= this, so nothing
+      // can end up more tightly packed than the jitter assumed.
+      const slack = Math.max(0, cs / 2 - (perKindRadius ? cfg.maxR : r) - 20)
       const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 2) - 0.5) * 2 * slack
       const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 3) - 0.5) * 2 * slack
       if (Math.hypot(x, y) < cfg.minDist) continue                      // spawn ring stays clear
@@ -1228,17 +1246,25 @@ function streamObstacles(run) {
       // into open sea).
       if (roadsOn && roadAt(x, y, seed).onRoad) continue
       // v5.9.1 bugfix ("houses in the sea", playtest report): kind used to be picked UNIFORMLY
-      // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any of the 6
-      // silhouettes (including a house or a tower) could land in open water. When this run has a
-      // district map (run._districtSeed != null, skies only), pick from the district-appropriate
-      // subset instead (DISTRICT_STRUCTURE_KINDS, config.js) — same hash salt, deterministic, no
-      // new RNG draw. Every other chapter (_districtSeed always null there) keeps the old uniform
-      // pick across the full list, unchanged.
+      // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any silhouette
+      // (including a house or a tower) could land in open water. When this run has a district map
+      // (run._districtSeed != null, skies only), pick from the district-appropriate subset instead
+      // (DISTRICT_STRUCTURE_KINDS, config.js) — same hash salt, deterministic, no new RNG draw.
+      // Every other chapter (_districtSeed always null there) keeps the old uniform pick across the
+      // full list, unchanged.
       const kindRoll = obstacleCellHash(i, j, seed, 4)
-      const kinds = run._districtSeed != null
+      const kinds = perKindRadius
         ? (DISTRICT_STRUCTURE_KINDS[districtAt(x, y, run._districtSeed)] || STRUCTURE_KINDS)
         : STRUCTURE_KINDS
       const kind = kinds[Math.min(kinds.length - 1, Math.floor(kindRoll * kinds.length))]
+      // v5.9.2: NOW that kind is known, a perKindRadius cell rolls its real radius from
+      // STRUCTURE_RADIUS[kind] (reusing salt 1 — a pure function of (i,j,seed,salt), so calling it
+      // here instead of up front changes nothing about determinism). Falls back to the chapter-wide
+      // band if a kind is ever missing from the table (defensive, not expected in practice).
+      if (perKindRadius) {
+        const band = STRUCTURE_RADIUS[kind] || [cfg.minR, cfg.maxR]
+        r = band[0] + obstacleCellHash(i, j, seed, 1) * (band[1] - band[0])
+      }
       run.obstacles.push({ x, y, r, _cell: key, kind })
       changed = true
     }
@@ -1560,6 +1586,7 @@ function stepBombardment(run, dt) {
       x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
       radius: BOMBARDMENT_RADIUS, fuse: BOMBARDMENT_FUSE, duration: BOMBARDMENT_FUSE,
       dmg: BOMBARDMENT_DMG,
+      src: 'sky',   // v5.10.1: explicit discriminator (render no longer infers this from `duration`)
     })
   }
 }
@@ -1793,7 +1820,10 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     }
     // Volatile (elite affix): a timed bomb goes off where the enemy died (see stepBombs).
     if (enemy.elite && enemy.affixes && enemy.affixes.includes('volatile')) {
-      run.bombs.push({ x: enemy.x, y: enemy.y, radius: VOLATILE_RADIUS, fuse: VOLATILE_FUSE, duration: VOLATILE_FUSE, dmg: VOLATILE_DMG })
+      // v5.10.1: `src: 'volatile'` lets skies tell this corpse-bomb apart from its own gun/sky bombs
+      // (see render.js bombSrc) instead of both falling through the same "else" branch and detonating
+      // as a fake lightning strike. Every other chapter's redrawBombs never reads `src` — inert there.
+      run.bombs.push({ x: enemy.x, y: enemy.y, radius: VOLATILE_RADIUS, fuse: VOLATILE_FUSE, duration: VOLATILE_FUSE, dmg: VOLATILE_DMG, src: 'volatile' })
     }
     // split flag (v5.0, e.g. pond's amoeba): generalized version of the splitter affix above —
     // spawns SPLIT_CHILD_COUNT smaller clones of THIS enemy (not fresh wisps). Guarded by

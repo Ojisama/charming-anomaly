@@ -7,7 +7,17 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP,
+  // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
+  // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
+  SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
+  SKIES_LIGHT, DISTRICT_SURFACE, DISTRICT_EDGE, ROAD_PAINT, ROAD_DECAL, ROAD_JUNCTION,
+  SKIES_SHADOW, SKIES_BAKE_PX, SKIES_STRUCTURE_ART, SKIES_RUIN, SKIES_VEHICLE,
+  // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
+  // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
+  ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
+  ROAD_SPACING, ROAD_MAJOR_WIDTH,
+} from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -2386,29 +2396,11 @@ export function createRenderer(app) {
     // same "bake at a reference measurement, scale to a live target" idiom as T.obFoot's footprint
     // ring above. roadAt (config.js) returns angle 0 for an east-west street (runs along x), PI/2
     // for north-south — matching this bar's own "long axis = +x, rotate by `angle`" convention.
-    // Minor streets get a soft feathered long edge and no marking; major avenues get a hard edge
-    // plus a dashed centre stripe baked right in.
-    {
-      const REF = 100
-      {
-        const g = new Graphics()
-        const asphalt = 0x33383f
-        for (const [h, a] of [[REF, 0.92], [REF * 0.82, 0.55], [REF * 0.62, 0.28]]) {
-          g.rect(-REF / 2, -h / 2, REF, h).fill({ color: asphalt, alpha: a })
-        }
-        T.roadMinor = { ...bake(g, 0), ref: REF }
-      }
-      {
-        const g = new Graphics()
-        g.rect(-REF / 2, -REF / 2, REF, REF).fill(0x2b2f36)
-        const stripe = 0xdccf86
-        for (let i = 0; i < 4; i++) {
-          const x0 = -REF / 2 + (i + 0.15) * (REF / 4)
-          g.rect(x0, -REF * 0.035, (REF / 4) * 0.7, REF * 0.07).fill({ color: stripe, alpha: 0.85 })
-        }
-        T.roadMajor = { ...bake(g, 0), ref: REF }
-      }
-    }
+    // v5.10 art direction (spec §4.2): the two carriageway tiles are now baked by
+    // buildSkiesTextures() below — kerb lines, wet crown sheen, wheel-polish bands, a dashed
+    // centreline at a pitch pre-compensated for the tile's non-uniform stamp scale, double yellow
+    // on avenues — with everything that has a SHAPE (manholes, patches, arrows, crosswalks) split
+    // out onto uniformly-scaled decal/junction sprites. They are declared there and nowhere else.
     {
       // obstacle footprint (v5.6.10): the collision contract, drawn HARD where every decor shadow is
       // soft. A subtly darkened packed-earth pad plus a crisp rim ring sitting on the collider edge,
@@ -2675,6 +2667,1253 @@ export function createRenderer(app) {
   }
   buildTextures()
 
+  // ==============================================================================================
+  // SKIES ART DIRECTION (v5.10) — bakes
+  // docs/superpowers/specs/2026-07-25-skies-art-direction.md
+  // ==============================================================================================
+  // Everything in here is baked ONCE and pooled as sprites; nothing below is ever constructed per
+  // frame. It is also entirely skies-scoped: every texture is read only from a code path gated on
+  // chapterHasStorm / chapterHasDistricts / chapterHasRoads, so no other chapter can see it.
+  //
+  // THE SHADOW LAW (spec §5.1.2). Every structure plan bakes its own cast shadow at ONE constant
+  // offset for the whole region (SKIES_SHADOW). One light direction across an entire region is the
+  // cheapest, strongest "this is a photograph of a place" cue there is. It also SHIFTS the bake's
+  // bounds, and therefore bake()'s returned anchor — which is exactly the v5.9.2 "sprites sitting
+  // off their colliders" bug class. skiesPlan() below draws a symmetric zero-alpha BOUNDS KEEPER
+  // first, so ax/ay come out at exactly 0.5 no matter what the shadow does.
+  const SKB = SKIES_BAKE_PX / 2      // 64 — half the plan canvas; the bounds keeper's half-extent
+  const SKR = 46                     // content half-extent: SKR + shadow offset must stay under SKB
+  const SH_DX = SKIES_SHADOW.dx * SKR
+  const SH_DY = SKIES_SHADOW.dy * SKR
+  const SH_COL = SKIES_SHADOW.color
+  const SH_A = SKIES_SHADOW.alpha
+  // How wide a plan's CONTENT (2 x SKR) is drawn, as a multiple of the collider radius o.r. The
+  // spec's starting point was 1.9 x o.r measured across the whole 128px canvas, which put a house
+  // at ~24px on screen — too small for six shingle courses and a lit dormer pane to survive, i.e.
+  // it threw away the detail this whole pass exists to add. 2.6 puts a house at 29-42px, a barn or
+  // silo at 48-66 and a tower at 63-96, against a 44px player: you still tower over a house, which
+  // is the v5.8 kaiju premise, but a downtown block is genuinely big enough to look at. 3.0 is also
+  // the ceiling: streamObstacles keeps structure centres >= 2*maxR + 40 = 104px apart, so a bigger
+  // multiplier would let the largest towers visibly overlap — the v5.9.2 "wall of blobs" report.
+  const SKIES_PLAN_SCALE = 3.0
+
+  function skiesPlan(draw) {
+    const g = new Graphics()
+    g.rect(-SKB, -SKB, SKB * 2, SKB * 2).fill({ color: 0x000000, alpha: 0 }) // bounds keeper (see above)
+    draw(g)
+    return bake(g, 0)
+  }
+  // A canvas-gradient texture (the T.blotches / stormBlob idiom): the only way to get a real
+  // feathered falloff, which is what an additive light needs to not look like a cardboard cutout.
+  function canvasTex(w, h, draw) {
+    const c = document.createElement('canvas')
+    c.width = w; c.height = h
+    draw(c.getContext('2d'), w, h)
+    return Texture.from(c)
+  }
+
+  function buildSkiesTextures() {
+    // ---- structure plans (spec §5) -----------------------------------------------------------
+    // All six kinds redrawn as TOP-DOWN PLANS. They were side-view, upright, base-anchored bakes
+    // under a top-down camera, which is the whole reason "a house is a box plus a triangle".
+    // Detail counts come from SKIES_STRUCTURE_ART and are not decorative: in kaiju fiction scale is
+    // communicated by the DENSITY OF SMALL DETAIL around the monster, so "some windows" bakes as a
+    // smear and "a 4x6 grid, 11 lit" bakes as a building.
+    const A = SKIES_STRUCTURE_ART
+
+    // window run helper: lays `n` 3x4 panes along a flank strip, `lit` of them warm. The lit/dark
+    // split is a fixed pattern, not a roll, so the two variants differ by DESIGN (that is how
+    // "window flicker" is faked with zero per-frame Graphics — spec §5.2).
+    function panes(g, x0, y0, dx, dy, n, litEvery, art) {
+      for (let k = 0; k < n; k++) {
+        const lx = x0 + dx * k, ly = y0 + dy * k
+        const lit = (k % litEvery) === 0
+        g.rect(lx, ly, 3, 4).fill(lit ? art.windowLit : art.windowDark)
+      }
+    }
+
+    function towerPlan(variantB) {
+      const vb = A.tower.variantB
+      return skiesPlan((g) => {
+        const W = 36, H = 30, ch = A.tower.chamferPx * 0.55
+        // roof deck outline, TWO corners chamfered — a chamfer reads as a designed building; a
+        // rounded blob reads as rubble, which is precisely the bug being fixed.
+        const deck = [
+          -W + ch, -H, W, -H, W, H - ch, W - ch, H, -W, H, -W, -H + ch,
+        ]
+        const shadow = deck.map((v, i) => v + (i % 2 ? SH_DY : SH_DX))
+        g.poly(shadow).fill({ color: SH_COL, alpha: SH_A })
+        // flank walls: the +x and +y sides, carrying the window grid (a top-down building shows a
+        // sliver of its own facade on the two faces the light does not reach)
+        g.poly([W, -H, W + 12, -H + 7, W + 12, H - ch + 7, W, H - ch]).fill(A.tower.flank)
+        g.poly([-W, H, -W + 7, H + 12, W - ch + 7, H + 12, W - ch, H]).fill(A.tower.flank)
+        g.poly(deck).fill(A.tower.deck).stroke({ width: 1.6, color: A.tower.edge })
+        g.poly([-W + ch + 3, -H + 3, W - 3, -H + 3, W - 3, H - ch - 3, -W + 3, H - 3])
+          .stroke({ width: 1.2, color: A.tower.parapet, alpha: 0.75 })   // inner parapet ledge
+        // gravel flecks — 44 of them, fixed-hash, the texture that says "tar-and-gravel roof"
+        for (let k = 0; k < A.tower.gravelFlecks; k++) {
+          const gx = (hash(k * 3.71 + 0.9) - 0.5) * (W - 5) * 2
+          const gy = (hash(k * 5.13 + 2.7) - 0.5) * (H - 5) * 2
+          g.circle(gx, gy, A.tower.gravelPx / 2).fill({ color: A.tower.gravel, alpha: A.tower.gravelAlpha })
+        }
+        // HVAC units: box on a dark plinth, 5 fin hairlines, a fan disc with 4 blade ticks
+        const units = variantB ? [[-20, -16, 22, 14], [4, -18, 16, 11], [-8, 12, 16, 11]]
+                               : [[-20, -16, 22, 14], [6, 10, 16, 11]]
+        for (const [ux, uy, uw, uh] of units) {
+          g.rect(ux - 1.5, uy - 1.5, uw + 3, uh + 3).fill(A.tower.hvacBase)
+          g.rect(ux, uy, uw, uh).fill(A.tower.hvac).stroke({ width: 0.8, color: A.tower.hvacBase })
+          for (let f = 1; f <= A.tower.hvacFins; f++) {
+            const fx = ux + (uw * f) / (A.tower.hvacFins + 1)
+            g.moveTo(fx, uy + 1.5).lineTo(fx, uy + uh - 1.5).stroke({ width: 0.7, color: A.tower.hvacBase, alpha: 0.8 })
+          }
+          g.circle(ux + uw - 5, uy + uh / 2, 4).fill(A.tower.hvacBase)
+          for (let b = 0; b < 4; b++) {
+            const ba = (b / 4) * Math.PI * 2 + 0.4
+            g.moveTo(ux + uw - 5, uy + uh / 2)
+              .lineTo(ux + uw - 5 + Math.cos(ba) * 3.4, uy + uh / 2 + Math.sin(ba) * 3.4)
+              .stroke({ width: 0.7, color: A.tower.hvac })
+          }
+        }
+        // stairwell penthouse, with its OWN cast shadow at the region offset
+        g.rect(10 + 3, -6 + 4, 20, 16).fill({ color: SH_COL, alpha: SH_A * 0.8 })
+        g.rect(10, -6, 20, 16).fill(A.tower.stairwell).stroke({ width: 1, color: A.tower.edge })
+        g.rect(13, 2, 6, 9).fill(A.tower.stairDoor)
+        if (variantB) {
+          // helipad: white circle + an 'H' of three bars. Nothing else on a roof looks like this.
+          g.circle(-12, 8, vb.helipadR).stroke({ width: 2, color: 0xffffff, alpha: vb.helipadAlpha })
+          g.rect(-18, 1, 2.4, 14).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
+          g.rect(-8, 1, 2.4, 14).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
+          g.rect(-18, 7, 12, 2.4).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
+        } else {
+          // water tank on legs, with a rung ladder up its flank
+          for (const lx of [-30, -18]) for (const ly of [4, 14]) g.rect(lx, ly, 2, 4).fill(A.tower.edge)
+          g.circle(-24, 6, 9).fill(A.tower.waterTank).stroke({ width: 1.2, color: A.tower.edge })
+          for (let r = 0; r < A.tower.tankRungs; r++) {
+            g.rect(-27, -1 + r * 2.2, 6, 0.8).fill({ color: A.tower.edge, alpha: 0.75 })
+          }
+        }
+        // antenna mast + 3 guy wires + the DARK aviation-lamp bead (the LIT lamp is a separate
+        // pooled blink sprite — a blinking light is the one thing that cannot bake; see §7.4)
+        const mx = W - 8, my = -H + 6
+        g.moveTo(mx, my).lineTo(mx, my - A.tower.mastPx).stroke({ width: 1.5, color: A.tower.mast })
+        for (let w = 0; w < A.tower.guyWires; w++) {
+          const wa = -Math.PI * 0.85 + (w / (A.tower.guyWires - 1)) * Math.PI * 0.7
+          g.moveTo(mx, my - A.tower.mastPx)
+            .lineTo(mx + Math.cos(wa) * 14, my + Math.sin(wa) * 6 + 8)
+            .stroke({ width: 0.7, color: A.tower.mast, alpha: 0.7 })
+        }
+        g.circle(mx, my - A.tower.mastPx, 1.6).fill(A.tower.lampDark)
+        // window grid on the two flank slivers: 24 panes, of which `windowsLit` are warm gold —
+        // palette law 1's ONLY permitted form for warm gold (a static <= 5px lit rectangle).
+        const litEvery = variantB ? 3 : 2
+        panes(g, W + 2, -H + 9, 0, 7, 8, litEvery, A.tower)
+        panes(g, W + 6.5, -H + 12, 0, 7, 7, litEvery + 1, A.tower)
+        panes(g, -W + 9, H + 3, 8, 0, 6, litEvery, A.tower)
+        panes(g, -W + 13, H + 7.5, 8, 0, 6, litEvery + 1, A.tower)
+        // fire escape on the +y flank: diagonal ticks + landing bars
+        for (let e = 0; e < A.tower.escapeTicks; e++) {
+          const ex = -W + 4 + e * 6
+          g.moveTo(ex, H + 2).lineTo(ex + 5, H + 10).stroke({ width: 1, color: A.tower.fireEscape })
+        }
+        for (let l = 0; l < A.tower.escapeLandings; l++) {
+          g.rect(-W + 2, H + 3 + l * 3.4, 26, 0.9).fill({ color: A.tower.fireEscape, alpha: 0.85 })
+        }
+      })
+    }
+    T.skTowerA = towerPlan(false)
+    T.skTowerB = towerPlan(true)
+
+    function housePlan(variantB) {
+      const h = A.house
+      return skiesPlan((g) => {
+        // THE LOT IS BAKED INTO THE SAME TEXTURE (spec §5.3): a driveway that doesn't touch its
+        // house is worse than no driveway, and suburbs' "lot furniture" as separate scattered floor
+        // props is exactly what produced a yard with a fence in the middle of it.
+        g.rect(-40, -34, 80, 68).fill({ color: h.lot.lawn, alpha: h.lot.lawnAlpha })   // lot pad
+        if (variantB) {
+          g.ellipse(-24, 18, 11, 7).fill(A.house.variantB.pool)                        // kidney pool
+          g.ellipse(-19, 20, 6, 4.5).fill(A.house.variantB.pool)
+          g.ellipse(-24, 18, 11, 7).stroke({ width: 1.5, color: A.house.variantB.coping })
+          g.beginPath().arc(-26, 16, 6, Math.PI * 1.1, Math.PI * 1.7)
+            .stroke({ width: 1.1, color: 0xffffff, alpha: 0.5 })                       // highlight crescent
+          g.rect(-16, 14, 3, 1).fill(A.house.variantB.coping)                          // ladder tick
+        } else {
+          for (let k = 0; k < h.lot.hedgeLobes; k++) {                                 // L of hedge
+            g.circle(-38 + k * 5, -30, 4).fill({ color: 0x4e6640, alpha: 0.9 })
+          }
+          for (let k = 0; k < 4; k++) g.circle(-38, -26 + k * 5, 4).fill({ color: 0x4e6640, alpha: 0.9 })
+        }
+        g.rect(18, -34, 12, 30).fill(h.lot.drive)                                       // driveway to the rim
+        g.rect(-36, 22, 18, 12).fill({ color: 0x7a6a58, alpha: 0.85 })                   // rear deck pad
+        for (let k = 0; k < h.lot.deckPlanks; k++) {
+          g.rect(-36, 22 + k * 1.7, 18, 0.7).fill({ color: 0x000000, alpha: 0.2 })
+        }
+        g.rect(24, 20, 10, 10).fill({ color: 0x7d7266, alpha: 0.95 }).stroke({ width: 1, color: 0x4a4238 })
+        g.moveTo(24, 25).lineTo(34, 25).stroke({ width: 1.2, color: 0x4a4238 })          // shed + its ridge
+        g.rect(8, 26, 4, 6).fill(h.lot.bins[0])
+        g.rect(13, 26, 4, 6).fill(h.lot.bins[1])
+        g.beginPath().arc(30, -12, 4, 0, Math.PI * 1.6).stroke({ width: 1.2, color: 0x3a5a3a, alpha: 0.9 }) // hose loop
+
+        const W = 21, H = 15
+        g.rect(-W + SH_DX * 0.5, -H + SH_DY * 0.5, W * 2, H * 2).fill({ color: SH_COL, alpha: SH_A })
+        // hipped roof: two facing slopes at two tones, meeting a ridge, with hip diagonals
+        g.poly([-W, -H, W, -H, 11, -4, -11, -4]).fill(h.roofLit)
+        g.poly([-W, H, W, H, 11, -4, -11, -4]).fill(h.roofShade)
+        g.poly([-W, -H, -W, H, -11, -4]).fill(h.roofShade)
+        g.poly([W, -H, W, H, 11, -4]).fill(h.roofLit)
+        for (let c = 1; c <= h.shingleCourses; c++) {                                    // shingle courses
+          const t = c / (h.shingleCourses + 1)
+          g.moveTo(-W + t * 10, lerp(-H, -4, t)).lineTo(W - t * 10, lerp(-H, -4, t))
+            .stroke({ width: 0.7, color: 0x000000, alpha: h.shingleAlpha })
+          g.moveTo(-W + t * 10, lerp(H, -4, t)).lineTo(W - t * 10, lerp(H, -4, t))
+            .stroke({ width: 0.7, color: 0x000000, alpha: h.shingleAlpha })
+        }
+        g.moveTo(-11, -4).lineTo(11, -4).stroke({ width: 2, color: h.ridge })            // ridge cap
+        for (const ey of [-H, H]) g.moveTo(-W, ey).lineTo(W, ey).stroke({ width: 1, color: h.gutter, alpha: 0.8 })
+        g.rect(W - 1, H - 5, 1.4, 5).fill(h.gutter)                                       // downpipe tick
+        g.rect(-14 + 2.5, -12 + 3, 9, 9).fill({ color: SH_COL, alpha: SH_A })              // chimney's own shadow
+        g.rect(-14, -12, 9, 9).fill(h.chimney).stroke({ width: 0.8, color: h.ridge })
+        g.rect(-12, -10, 5, 3).fill(0x2a2018)                                              // flue
+        g.rect(2, -11, 8, 7).fill(h.roofShade).stroke({ width: 0.8, color: h.ridge })       // dormer
+        g.rect(4, -9.5, 4, 4).fill(h.dormerPane)
+        g.moveTo(6, -9.5).lineTo(6, -5.5).stroke({ width: 0.5, color: h.ridge })
+        g.rect(-4, 4, 7, 5).fill({ color: h.skylight, alpha: h.skylightAlpha })             // skylight
+        g.rect(W - 2, -4, 24, 18).fill({ color: SH_COL, alpha: SH_A * 0.7 })
+        g.rect(W - 4, -6, 24, 18).fill(h.roofShade).stroke({ width: 1.2, color: h.ridge })  // garage wing
+        for (let p = 1; p <= h.garagePanels; p++) {
+          g.moveTo(W - 4, -6 + (18 * p) / (h.garagePanels + 1)).lineTo(W + 20, -6 + (18 * p) / (h.garagePanels + 1))
+            .stroke({ width: 0.7, color: 0x000000, alpha: 0.22 })
+        }
+        g.circle(W - 6, 12, 1.6).fill(h.porchLamp)                                          // porch lamp
+      })
+    }
+    T.skHouseA = housePlan(false)
+    T.skHouseB = housePlan(true)
+
+    T.skBarn = skiesPlan((g) => {
+      const b = A.barn
+      // attached paddock, drawn first (ground furniture under the building)
+      g.rect(-42, 6, 40, 34).fill({ color: 0x5f6a48, alpha: 0.35 })
+      g.rect(-40, 12, 34, 20).fill({ color: b.muck, alpha: 0.55 })
+      for (let p = 0; p < b.paddockPosts; p++) {
+        g.rect(-42 + p * 5.6, 6, 1.6, 4).fill(0x6b5a44)
+        g.rect(-42 + p * 5.6, 38, 1.6, 4).fill(0x6b5a44)
+      }
+      for (let k = 0; k < b.bales; k++) {                                                    // hay bales
+        g.circle(-34 + k * 11, 34, 4.5).fill(0xc9a94a).stroke({ width: 0.8, color: 0x8a6f2e })
+        g.beginPath().arc(-34 + k * 11, 34, 4.5, 0.6, 3.2).stroke({ width: 0.6, color: 0x8a6f2e, alpha: 0.7 })
+      }
+      g.moveTo(6, 24).quadraticCurveTo(20, 32, 34, 26).stroke({ width: 5, color: b.mudTrack, alpha: 0.6 }) // mud track
+      const W = 26, H = 16
+      g.rect(-W + SH_DX * 0.6, -H + SH_DY * 0.6, W * 2, H * 2).fill({ color: SH_COL, alpha: SH_A })
+      // gambrel roof: two shallow upper slopes + two steep lower ones, ridge down the middle
+      g.rect(-W, -H, W * 2, H).fill(b.roofLit)
+      g.rect(-W, 0, W * 2, H).fill(b.roofShade)
+      g.moveTo(-W, -6).lineTo(W, -6).stroke({ width: 1, color: 0x000000, alpha: 0.3 })        // hip break
+      g.moveTo(-W, 6).lineTo(W, 6).stroke({ width: 1, color: 0x000000, alpha: 0.3 })
+      for (let k = 1; k <= b.battens; k++) {                                                   // batten seams
+        const bx = -W + (W * 2 * k) / (b.battens + 1)
+        g.moveTo(bx, -H).lineTo(bx, H).stroke({ width: 0.7, color: 0x000000, alpha: 0.24 })
+      }
+      g.poly([4, -14, 16, -12, 14, -4, 2, -6]).fill({ color: b.rust, alpha: b.rustAlpha })      // rust patch
+      g.rect(-W, -1.4, W * 2, 2.8).fill(0xd8d0bc)                                               // painted ridge vent
+      g.rect(-4, -4, 8, 8).fill(0xb8b0a0).stroke({ width: 0.9, color: 0x4a3a28 })                // cupola
+      g.moveTo(-4, 0).lineTo(4, 0).stroke({ width: 0.8, color: 0x4a3a28 })
+      g.moveTo(0, -4).lineTo(0, 4).stroke({ width: 0.8, color: 0x4a3a28 })                       // weathervane cross
+      g.rect(W - 9, -8, 9, 16).fill(b.hayDoor)                                                   // X-braced hay door
+      g.moveTo(W - 9, -8).lineTo(W, 8).stroke({ width: 1, color: 0x8a6a4a })
+      g.moveTo(W, -8).lineTo(W - 9, 8).stroke({ width: 1, color: 0x8a6a4a })
+    })
+
+    T.skSilo = skiesPlan((g) => {
+      const s = A.silo
+      const R = 24
+      g.circle(SH_DX * 0.7, SH_DY * 0.7, R).fill({ color: SH_COL, alpha: SH_A })
+      // pale fan of spilled grain at the base — the one soft shape on an otherwise hard object
+      g.poly([R - 4, 6, R + 20, 2, R + 22, 18, R - 2, 14]).fill({ color: s.spill, alpha: s.spillAlpha })
+      g.circle(0, 0, R).fill(s.body).stroke({ width: 1.6, color: 0x53565a })
+      // the cap as radial facet lines converging on an OFF-CENTRE apex. That off-centre apex is the
+      // ENTIRE reason a circle reads as a cone from directly above rather than as a disc.
+      const ax = -R * s.apexOffset, ay = -R * s.apexOffset * 0.7
+      for (let f = 0; f < s.facets; f++) {
+        const fa = (f / s.facets) * Math.PI * 2
+        g.moveTo(ax, ay).lineTo(Math.cos(fa) * R, Math.sin(fa) * R)
+          .stroke({ width: 0.8, color: 0x8f9296, alpha: 0.8 })
+      }
+      g.circle(ax, ay, 2.6).fill(0x8f9296)
+      // the cone's SHADED side: a crescent on the flank away from the light. Radial facet lines
+      // alone read as a manhole cover from above; it is the value break that says "cone".
+      g.beginPath()
+      g.arc(0, 0, R, -0.35, 2.2)
+      g.arc(ax, ay, R * 0.92, 2.2, -0.35, true)
+      g.fill({ color: 0x000000, alpha: 0.22 })
+      for (let r = 1; r <= s.seams; r++) {                                                    // corrugation rings
+        g.circle(ax * (1 - r / (s.seams + 1)), ay * (1 - r / (s.seams + 1)), (R * r) / (s.seams + 1))
+          .stroke({ width: 0.8, color: 0x53565a, alpha: s.seamAlpha })
+      }
+      g.rect(ax + 5, ay - 8, 6, 6).fill(0xa7aaad).stroke({ width: 0.7, color: 0x53565a })       // cap hatch
+      // ladder cage down one flank: two rails and nine rungs
+      g.moveTo(-3, 2).lineTo(-3, R - 1).stroke({ width: 0.9, color: 0x53565a })
+      g.moveTo(3, 2).lineTo(3, R - 1).stroke({ width: 0.9, color: 0x53565a })
+      for (let r = 0; r < s.ladderRungs; r++) {
+        const ry = 3 + (r * (R - 5)) / s.ladderRungs
+        g.moveTo(-3, ry).lineTo(3, ry).stroke({ width: 0.7, color: 0x53565a, alpha: 0.9 })
+      }
+      g.rect(-R - 20, -3, 20, 5).fill(0x9aa0a8).stroke({ width: 0.8, color: 0x53565a })          // auger arm
+      g.rect(-R - 27, -6, 8, 11).fill(0x7d838c).stroke({ width: 0.8, color: 0x53565a })          // hopper box
+    })
+
+    T.skPier = skiesPlan((g) => {
+      const p = A.pier
+      // three deck sections with REAL GAPS between them — a hole in the fill, not a dark line.
+      // That single detail is what sells wood over water (spec §5.6).
+      const segs = [[-40, -12, 24, 26], [-13, -12, 26, 26], [12, -12, 28, 26]]
+      for (const [sx, sy, sw, sh] of segs) {
+        g.rect(sx + SH_DX * 0.5, sy + SH_DY * 0.5, sw, sh).fill({ color: SH_COL, alpha: SH_A * 0.8 })
+      }
+      for (const [sx, sy, sw, sh] of segs) {
+        g.rect(sx, sy, sw, sh).fill(0xa9835a).stroke({ width: 1.2, color: 0x4a3420 })
+        const n = Math.round((p.boards * sw) / 78)
+        for (let k = 1; k <= n; k++) {
+          g.moveTo(sx, sy + (sh * k) / (n + 1)).lineTo(sx + sw, sy + (sh * k) / (n + 1))
+            .stroke({ width: 0.7, color: 0x4a3420, alpha: 0.5 })
+        }
+      }
+      for (let k = 0; k < p.pilings; k++) {                                                    // pilings + halo
+        const px = -36 + k * 15, py = k % 2 ? -9 : 9
+        g.circle(px, py, 4.4).fill({ color: 0x000000, alpha: 0.3 })
+        g.circle(px, py, 3).fill(0x6b4a2c).stroke({ width: 0.8, color: 0x2e2216 })
+      }
+      for (let k = 0; k < p.bollards; k++) {                                                   // bollards + rope
+        const bx = -32 + k * 20
+        g.circle(bx, -15, 2.6).fill(0x3f4348).stroke({ width: 0.7, color: 0x1c1e22 })
+        if (k < 2) {
+          g.circle(bx, -15, 4.4).stroke({ width: 0.8, color: 0xb8a888, alpha: 0.8 })
+          g.circle(bx, -15, 6).stroke({ width: 0.7, color: 0xb8a888, alpha: 0.6 })
+        }
+      }
+      g.rect(2, 14, 8, 1.6).fill(0x3f4348)                                                     // cleat T-glyph
+      g.rect(5, 12, 1.6, 5).fill(0x3f4348)
+      // crane rig at the head: mast, jib, hanging hook line
+      g.rect(34, -10, 3, 16).fill(0x6d7480).stroke({ width: 0.7, color: 0x2b3038 })
+      g.moveTo(35, -10).lineTo(35, -22).stroke({ width: 2, color: 0x6d7480 })
+      g.moveTo(35, -22).lineTo(16, -18).stroke({ width: 1.6, color: 0x6d7480 })
+      g.moveTo(16, -18).lineTo(16, -9).stroke({ width: 0.7, color: 0x9aa1ab })
+      // shack with a corrugated roof of parallel ridge arcs, and one lit lantern
+      g.rect(-38, -10, 18, 16).fill(0x8a8378).stroke({ width: 1, color: 0x3a352e })
+      for (let k = 0; k < p.shackRoofArcs; k++) {
+        g.beginPath().arc(-37 + k * 2, -2, 8, Math.PI * 1.05, Math.PI * 1.95)
+          .stroke({ width: 0.7, color: 0x5a544a, alpha: 0.75 })
+      }
+      g.rect(-24, -6, 3, 3).fill(p.lantern)
+      g.circle(-30, 8, 3).fill({ color: p.tyre, alpha: 0.9 }).stroke({ width: 1, color: 0x15181c }) // tyre fender
+      // moored dinghy with a baked static V-wake, and two wave-crest lines along the base
+      g.poly([-2, 22, 12, 20, 16, 25, 10, 30, -2, 28]).fill(0x8a5a3a).stroke({ width: 0.9, color: 0x3f2a18 })
+      g.moveTo(-2, 22).lineTo(-16, 16).stroke({ width: 0.9, color: 0xdfe9f0, alpha: 0.4 })
+      g.moveTo(-2, 28).lineTo(-16, 33).stroke({ width: 0.9, color: 0xdfe9f0, alpha: 0.4 })
+      for (let k = 0; k < p.waveLines; k++) {
+        g.moveTo(-42, 32 + k * 6).quadraticCurveTo(0, 27 + k * 6, 42, 33 + k * 6)
+          .stroke({ width: 1.4, color: 0xdfe9f0, alpha: 0.3 })
+      }
+    })
+
+    T.skTree = skiesPlan((g) => {
+      const t = A.tree
+      const R = 26
+      // scalloped radial edge, NEVER a smooth circle — a smooth green disc is the single most
+      // "programmer art" shape available and parks was made of them.
+      const edge = []
+      for (let k = 0; k < t.scallops * 4; k++) {
+        const a = (k / (t.scallops * 4)) * Math.PI * 2
+        const rr = R * (0.86 + 0.14 * Math.cos(a * t.scallops)) * (0.94 + hash(k * 3.1) * 0.12)
+        edge.push(Math.cos(a) * rr, Math.sin(a) * rr)
+      }
+      g.poly(edge.map((v, i) => v + (i % 2 ? SH_DY : SH_DX))).fill({ color: SH_COL, alpha: SH_A })
+      for (let s = 0; s < t.branchSpokes; s++) {                                     // spokes seen through the gaps
+        const sa = (s / t.branchSpokes) * Math.PI * 2 + 0.3
+        g.moveTo(0, 0).lineTo(Math.cos(sa) * R * 0.95, Math.sin(sa) * R * 0.95)
+          .stroke({ width: 1.4, color: 0x2e2620, alpha: 0.85 })
+      }
+      g.poly(edge).fill(t.canopyShade)
+      for (let l = 0; l < t.lobes; l++) {                                            // overlapping lit lobes
+        const la = (l / t.lobes) * Math.PI * 2 + 0.7
+        g.circle(Math.cos(la) * R * 0.42 - 3, Math.sin(la) * R * 0.42 - 4, R * 0.42)
+          .fill({ color: t.canopyLit, alpha: 0.82 })
+      }
+      g.circle(0, 0, 3.4).fill(t.trunk)                                              // trunk at the centre of mass
+    })
+
+    T.skOutcrop = skiesPlan((g) => {
+      const o = A.outcrop
+      const facets = [
+        [[-22, -14], [4, -20], [10, -2], [-16, 4]],
+        [[4, -20], [24, -8], [18, 8], [10, -2]],
+        [[-16, 4], [10, -2], [16, 14], [-10, 16]],
+      ]
+      g.poly(facets[2].flat().map((v, i) => v + (i % 2 ? SH_DY : SH_DX)))
+        .fill({ color: SH_COL, alpha: SH_A })                                        // downslope shadow skirt
+      for (let f = 0; f < facets.length; f++) {
+        const lum = o.facetLum[f]
+        const c = mix(0x000000, o.body, lum)
+        g.poly(facets[f].flat()).fill(c).stroke({ width: 1.2, color: 0x4a453e })
+      }
+      for (let k = 0; k < o.lichenDots; k++) {                                       // lichen on the LIT facets only
+        const lx = -20 + hash(k * 4.7 + 1.3) * 26
+        const ly = -18 + hash(k * 6.1 + 2.9) * 20
+        g.circle(lx, ly, 1.1).fill({ color: o.lichen, alpha: 0.7 })
+      }
+      for (let k = 0; k < o.screeChips; k++) {                                       // scree tail, downslope
+        const sx = 14 + k * 6 + hash(k * 3.3) * 5
+        const sy = 12 + k * 5 + hash(k * 5.9) * 5
+        g.poly([sx, sy, sx + 4, sy - 2, sx + 5, sy + 3, sx + 1, sy + 4]).fill({ color: 0x6f675c, alpha: 0.85 })
+      }
+    })
+
+    // ---- ruins (spec §5.9) — permanent geometry left where a structure was --------------------
+    // Kind-specific, at the same cost as a generic scar, and the only thing in the chapter that
+    // RECORDS what you did. Keyed by world position (the obstacle is gone from run.obstacles by
+    // the time this draws) via the render-local crush ledger.
+    function ruinBase(g, R) {
+      g.circle(0, 0, R).fill({ color: SKIES_RUIN.scar, alpha: SKIES_RUIN.scarAlpha })
+      for (let k = 0; k < SKIES_RUIN.rebarTicks; k++) {
+        const a = (k / SKIES_RUIN.rebarTicks) * Math.PI * 2 + 0.4
+        g.moveTo(Math.cos(a) * R * 0.7, Math.sin(a) * R * 0.7)
+          .lineTo(Math.cos(a) * R * 1.05, Math.sin(a) * R * 1.05 - 3)
+          .stroke({ width: 1.1, color: 0x6b6357, alpha: 0.9 })
+      }
+    }
+    T.skRuin = {}
+    T.skRuin.tower = skiesPlan((g) => {
+      ruinBase(g, 32)
+      for (let s = 0; s < SKIES_RUIN.byKind.tower.slabSteps; s++) {         // stepped floor-plate edges
+        g.rect(-26 + s * 5, -20 + s * 6, 44 - s * 10, 5).fill({ color: 0x8d8577, alpha: 0.9 })
+      }
+      for (let c = 0; c < SKIES_RUIN.byKind.tower.rubbleChunks; c++) {
+        const cx = -14 + c * 8 + hash(c * 3.3) * 6, cy = 4 + hash(c * 5.7) * 12
+        g.poly([cx, cy, cx + 7, cy - 3, cx + 9, cy + 4, cx + 2, cy + 6]).fill(0xc9c2b0).stroke({ width: 0.8, color: 0x5a544a })
+      }
+      g.rect(16, -24, 9, 14).fill(0xc9c2b0).stroke({ width: 1, color: 0x5a544a })  // surviving corner column
+      g.circle(0, 0, 30).stroke({ width: 4, color: 0x1a1712, alpha: 0.35 })        // scorch ring
+    })
+    T.skRuin.house = skiesPlan((g) => {
+      ruinBase(g, 20)
+      for (let k = 0; k < SKIES_RUIN.byKind.house.timberX; k++) {
+        const cx = -14 + k * 9, cy = -6 + hash(k * 2.7) * 12
+        g.moveTo(cx - 6, cy - 5).lineTo(cx + 6, cy + 5).stroke({ width: 2, color: 0xa8865c })
+        g.moveTo(cx + 6, cy - 5).lineTo(cx - 6, cy + 5).stroke({ width: 2, color: 0x8a6a44 })
+      }
+      g.rect(8 + 2, -18 + 2.5, 9, 11).fill({ color: SH_COL, alpha: SH_A })
+      g.rect(8, -18, 9, 11).fill(0x8f7a68).stroke({ width: 1, color: 0x5f3c2d })    // THE SURVIVING CHIMNEY
+      g.rect(10, -16, 5, 3).fill(0x2a2018)
+      for (let k = 0; k < SKIES_RUIN.byKind.house.shingles; k++) {
+        const sx = -20 + hash(k * 4.1) * 40, sy = -14 + hash(k * 6.3) * 30
+        g.rect(sx, sy, 4, 2.5).fill({ color: 0x7a4e3b, alpha: 0.85 })
+      }
+      g.rect(-20, 10, 14, 7).fill(0x6f7f8f).stroke({ width: 0.8, color: 0x2b3038 })  // flattened car
+      g.rect(-18, 11.5, 10, 4).fill({ color: 0x1e2733, alpha: 0.8 })
+    })
+    T.skRuin.silo = skiesPlan((g) => {
+      ruinBase(g, 24)
+      g.beginPath().arc(0, 0, 20, Math.PI * 0.7, Math.PI * 1.9)
+        .stroke({ width: 5, color: 0xc7c9cc })                                       // split cylinder wall arc
+      g.poly([-6, 4, 26, 0, 30, 20, -2, 18]).fill({ color: SKIES_RUIN.byKind.silo.grainFan, alpha: 0.5 })
+    })
+    T.skRuin.barn = skiesPlan((g) => {
+      ruinBase(g, 26)
+      g.poly([-24, -14, 0, 6, 24, -14, 24, -6, 0, 14, -24, -6]).fill(0x74302a).stroke({ width: 1.2, color: 0x2e1a14 })
+      const wa = STORM_VIS.windAngle
+      for (let k = 0; k < 9; k++) {                                                  // hay strewn DOWNWIND
+        const d = 10 + k * 4
+        const hx = Math.cos(wa) * d + (hash(k * 3.7) - 0.5) * 10
+        const hy = Math.sin(wa) * d + (hash(k * 5.1) - 0.5) * 10
+        g.rect(hx, hy, 5, 1.6).fill({ color: 0xc9a94a, alpha: 0.75 })
+      }
+    })
+    T.skRuin.pier = skiesPlan((g) => {
+      ruinBase(g, 20)
+      g.ellipse(4, 4, 26, 15).fill({ color: 0x5a4a6a, alpha: 0.32 })                 // iridescent oil slick
+      g.ellipse(0, 2, 17, 10).fill({ color: 0x3a5a6a, alpha: 0.28 })
+      for (let k = 0; k < SKIES_RUIN.byKind.pier.plankRaft; k++) {
+        const px = -20 + hash(k * 3.9) * 38, py = -12 + hash(k * 6.7) * 26
+        const pa = hash(k * 8.1) * Math.PI
+        const dx = Math.cos(pa) * 8, dy = Math.sin(pa) * 8
+        g.moveTo(px - dx, py - dy).lineTo(px + dx, py + dy)
+          .stroke({ width: 2.6, color: 0xa9835a, cap: 'square' })
+      }
+    })
+    T.skRuin.tree = skiesPlan((g) => {
+      ruinBase(g, 14)
+      g.circle(0, 0, 7).fill(0x5a4a38).stroke({ width: 1.2, color: 0x2e2620 })       // stump
+      for (let k = 0; k < 10; k++) {                                                  // splintered crown ring
+        const a = (k / 10) * Math.PI * 2
+        g.moveTo(Math.cos(a) * 5, Math.sin(a) * 5).lineTo(Math.cos(a) * 9, Math.sin(a) * 9)
+          .stroke({ width: 1.2, color: 0xc9b48a })
+      }
+      for (let k = 0; k < SKIES_RUIN.byKind.tree.branches; k++) {
+        const a = hash(k * 4.3) * Math.PI * 2, d = 12 + hash(k * 7.1) * 14
+        g.moveTo(Math.cos(a) * d, Math.sin(a) * d)
+          .lineTo(Math.cos(a) * d + 8, Math.sin(a) * d + 3)
+          .stroke({ width: 1.6, color: 0x46583b })
+      }
+    })
+
+    // ---- vehicles (spec §6) — "you must be able to tell a bus from a sedan" -------------------
+    // Replaces T.car (the CITY chapter's yellow traffic taxi, baked from TRAFFIC_CAR_LEN) for skies
+    // use. Bodies bake WHITE so SKIES_VEHICLE.bodyTints drives the colour per instance and litTint
+    // keeps the floor tint out of it; glass/wheels bake as low-value greys so they multiply DOWN
+    // under any body colour and the hierarchy holds.
+    const V = SKIES_VEHICLE
+    function vehicle(spec, kind) {
+      const g = new Graphics()
+      const L = spec.len / 2, W = spec.w / 2
+      g.roundRect(-L + SH_DX * 0.12, -W + SH_DY * 0.12, spec.len, spec.w, 2.5)
+        .fill({ color: SH_COL, alpha: SH_A })
+      for (const s of [-1, 1]) {                                                    // wheels peeking at the corners
+        const n = spec.wheels / 2
+        for (let k = 0; k < n; k++) {
+          const wx = -L + 3 + (k * (spec.len - 7)) / Math.max(1, n - 1)
+          g.rect(wx - 2, s * W - 1.2, 4, 2.5).fill(V.wheel)
+        }
+      }
+      g.roundRect(-L, -W, spec.len, spec.w, 2.5).fill(0xffffff).stroke({ width: 1, color: 0x6a6f76 })
+      g.rect(-L + 2, -W + 1.4, spec.len - 4, 1.6).fill({ color: 0xffffff, alpha: 0.55 })  // roof highlight streak
+      if (kind === 'bus') {
+        for (let k = 0; k < spec.windowBays; k++) {                                 // 6 window bays per flank
+          const bx = -L + 5 + k * ((spec.len - 10) / spec.windowBays)
+          for (const s of [-1, 1]) {
+            g.rect(bx, s * (W - 3.4) - 1.2, (spec.len - 10) / spec.windowBays - 2, 2.6)
+              .fill({ color: V.glass, alpha: V.glassAlpha })
+          }
+        }
+        g.rect(L - 5, -3, 3.5, 6).fill(0xd8d4c8)                                     // destination board
+        for (let k = 0; k < spec.roofHatches; k++) g.rect(-6 + k * 9, -2, 5, 4).fill(0x7a7f86)
+        g.moveTo(-2, -W).lineTo(-2, W).stroke({ width: 0.9, color: 0x5a5f66 })        // double-door seam
+        g.moveTo(1, -W).lineTo(1, W).stroke({ width: 0.9, color: 0x5a5f66 })
+      } else {
+        g.poly([L - 8, -W + 1.5, L - 3, -W + 3.4, L - 3, W - 3.4, L - 8, W - 1.5])
+          .fill({ color: V.glass, alpha: V.glassAlpha })                              // windshield trapezoid
+        if (kind === 'sedan') {
+          g.poly([-L + 8, -W + 1.5, -L + 3, -W + 3.4, -L + 3, W - 3.4, -L + 8, W - 1.5])
+            .fill({ color: V.glass, alpha: V.glassAlpha })                            // rear screen
+          for (const s of [-1, 1]) g.rect(L - 10, s * (W + 0.4) - 0.7, 2, 1.4).fill(0x6a6f76) // mirror nubs
+          for (const sx of [-3, 4]) g.moveTo(sx, -W).lineTo(sx, W).stroke({ width: 0.7, color: 0x6a6f76, alpha: 0.6 })
+        } else {
+          g.rect(-2, -2.5, 5, 4).fill(0x7a7f86)                                       // roof vent
+          g.moveTo(2, -W).lineTo(2, W).stroke({ width: 0.9, color: 0x6a6f76 })         // sliding-door seam
+        }
+      }
+      for (const s of [-1, 1]) {
+        g.circle(L - 1.4, s * (W - 2.6), 1.1).fill(V.head)
+        g.circle(-L + 1.4, s * (W - 2.6), 1).fill(V.tail)
+      }
+      return bake(g, 1)
+    }
+    T.vehSedan = vehicle(V.sedan, 'sedan')
+    T.vehVan = vehicle(V.van, 'van')
+    T.vehBus = vehicle(V.bus, 'bus')
+
+    // ---- district surfaces (spec §4.5) --------------------------------------------------------
+    function groundTile(draw) { const g = new Graphics(); draw(g); return bake(g) }
+    // parks: MOWN STRIPES. This district had NO T.districtGround entry at all and fell through to
+    // T.blotches — the same four soft radial blobs body/pond/garden use (kill list §8.10). Nothing
+    // else in the world looks like a mown field from above, and it is one bake.
+    T.districtGround.parks = [
+      groundTile((g) => {
+        const st = DISTRICT_SURFACE.parks
+        for (let k = -6; k <= 6; k++) {
+          g.rect(-150, k * st.stripePx, 300, st.stripePx)
+            .fill({ color: 0xffffff, alpha: k % 2 ? st.stripeAlphaA : st.stripeAlphaB })
+        }
+      }),
+      groundTile((g) => {
+        const st = DISTRICT_SURFACE.parks
+        for (let k = -6; k <= 6; k++) {
+          g.rect(-150, k * (st.stripePx + 4), 300, st.stripePx + 4)
+            .fill({ color: 0xffffff, alpha: k % 2 ? st.stripeAlphaB : st.stripeAlphaA })
+        }
+        g.beginPath().arc(0, 0, 96, 0, Math.PI * 2).stroke({ width: 4, color: 0xffffff, alpha: 0.16 }) // a path loop
+      }),
+    ]
+    // farms: a CENTRE-PIVOT IRRIGATION CIRCLE. A perfect circle in a field of straight rows is
+    // unmistakable from overhead and exists nowhere else in nature.
+    T.pivotCircle = groundTile((g) => {
+      const f = DISTRICT_SURFACE.farms
+      const R = f.pivotRadius / 2
+      g.circle(0, 0, R).stroke({ width: 5, color: 0xffffff, alpha: f.pivotAlpha })
+      g.circle(0, 0, R * 0.62).stroke({ width: 3, color: 0xffffff, alpha: f.pivotAlpha * 0.7 })
+      g.moveTo(0, 0).lineTo(R, -R * 0.12).stroke({ width: 3.5, color: 0xffffff, alpha: f.pivotAlpha * 1.4 }) // pivot arm
+      g.circle(0, 0, 6).fill({ color: 0xffffff, alpha: f.pivotAlpha * 2 })
+      g.rect(-R, R - f.headlandPx, R * 2, f.headlandPx).fill({ color: 0xffffff, alpha: 0.08 })       // headland strip
+    })
+    // sea: a CONTAINER YARD. Tiny dense saturated rectangles against dark water is the highest
+    // detail-density-per-line-of-code in the whole redesign, and the only place in the chapter
+    // where hue does the talking (litTint — a tinted container yard is just a grey grid).
+    T.containerYard = (() => {
+      const g = new Graphics()
+      const s = DISTRICT_SURFACE.sea
+      g.rect(-s.yardCols * 9 - 6, -s.yardRows * 6 - 6, s.yardCols * 18 + 12, s.yardRows * 12 + 12)
+        .fill({ color: 0x3a4048, alpha: 0.7 })                                        // the hardstand
+      for (let c = 0; c < s.yardCols; c++) {
+        for (let r = 0; r < s.yardRows; r++) {
+          const bx = -s.yardCols * 9 + c * 18, by = -s.yardRows * 6 + r * 12
+          const hue = s.boxHues[Math.floor(hash(c * 7.7 + r * 3.1) * s.boxHues.length)]
+          g.rect(bx + SH_DX * 0.06, by + SH_DY * 0.06, s.boxW, s.boxH).fill({ color: SH_COL, alpha: SH_A })
+          g.rect(bx, by, s.boxW, s.boxH).fill(hue).stroke({ width: 0.6, color: 0x1a1d22 })
+          for (let k = 1; k < 4; k++) {
+            g.moveTo(bx + (s.boxW * k) / 4, by).lineTo(bx + (s.boxW * k) / 4, by + s.boxH)
+              .stroke({ width: 0.4, color: 0x000000, alpha: 0.28 })                    // corrugation
+          }
+        }
+      }
+      return bake(g)
+    })()
+    T.riprap = (() => {                                                                // breakwater arm
+      const g = new Graphics()
+      for (let k = 0; k < 14; k++) {
+        const bx = -90 + k * 13 + (hash(k * 2.7) - 0.5) * 5
+        const by = Math.sin(k * 0.42) * 12 + (hash(k * 5.1) - 0.5) * 6
+        const r = 7 + hash(k * 3.3) * 4
+        const pts = []
+        for (let s = 0; s < 5; s++) {
+          const a = (s / 5) * Math.PI * 2
+          const rr = r * (0.7 + hash(k * 11 + s * 2.1) * 0.5)
+          pts.push(bx + Math.cos(a) * rr, by + Math.sin(a) * rr)
+        }
+        g.poly(pts).fill(0x7d838c).stroke({ width: 1, color: 0x3a3f47 })
+      }
+      return bake(g)
+    })()
+    // a REAL wave crest: two parallel crest arcs and a foam speckle band. Kill list §8.6 — T.foam
+    // is `T.fx.trace_05`, i.e. the sea's breaking wave IS the POND's current-streak sprite, reused
+    // again by populateEdge for coastlines.
+    T.waveCrest = (() => {
+      const g = new Graphics()
+      const s = DISTRICT_SURFACE.sea
+      for (let a = 0; a < s.crestArcs; a++) {
+        g.moveTo(-60, a * 7).quadraticCurveTo(0, -9 + a * 7, 60, a * 7)
+          .stroke({ width: 2.6 - a * 0.8, color: s.foam, alpha: s.crestAlpha - a * 0.12, cap: 'round' })
+      }
+      for (let k = 0; k < s.foamSpeckle; k++) {
+        const fx = -58 + hash(k * 3.7) * 116
+        const fy = -6 + hash(k * 6.1) * 16
+        g.circle(fx, fy, 0.9 + hash(k * 9.3) * 1.2).fill({ color: s.foam, alpha: 0.3 + hash(k * 2.3) * 0.3 })
+      }
+      return bake(g)
+    })()
+    // downtown: a painted parking lot. Cars park ALIGNED TO THE STALL ANGLE — random rotation is
+    // the loudest possible tell that props were scattered by an algorithm, not placed by a city.
+    T.parkingLot = (() => {
+      const g = new Graphics()
+      const d = DISTRICT_SURFACE.downtown
+      const bayW = 13, bayL = 26
+      g.rect(-d.baysPerRow * bayW / 2 - 8, -bayL - 10, d.baysPerRow * bayW + 16, bayL * 2 + 20)
+        .fill({ color: 0x2b2f36, alpha: 0.8 })
+      for (let r = 0; r < d.bayRows; r++) {
+        for (let b = 0; b <= d.baysPerRow; b++) {
+          const bx = -d.baysPerRow * bayW / 2 + b * bayW
+          const by = r === 0 ? -bayL - 4 : 4
+          g.rect(bx, by, 1.6, bayL).fill({ color: d.paint, alpha: d.paintAlpha })
+        }
+      }
+      for (let k = 0; k < 7; k++) {                                                    // one hatched loading bay
+        g.moveTo(-d.baysPerRow * bayW / 2 - 6, -bayL - 8 + k * 5)
+          .lineTo(-d.baysPerRow * bayW / 2 + 12, -bayL - 16 + k * 5)
+          .stroke({ width: 1.4, color: d.paint, alpha: 0.4 })
+      }
+      return bake(g)
+    })()
+    // hills: dirt track. v5.10.1: was three flat strokes of one colour at up to 250px — "exactly the
+    // simple squares and lines" the user rejected for a landmark-sized bake. Now: a shadowed bed (the
+    // track sits IN the terrain), TWIN tire ruts rather than one flat band, and a scatter of gravel.
+    T.switchback = (() => {
+      const g = new Graphics()
+      const h = DISTRICT_SURFACE.hills
+      const pts = [[-80, 40], [30, 14], [-40, -14], [70, -42]]
+      for (let k = 0; k < pts.length - 1; k++) {
+        g.moveTo(pts[k][0], pts[k][1]).lineTo(pts[k + 1][0], pts[k + 1][1])
+          .stroke({ width: h.trackW + 5, color: 0x000000, alpha: 0.18, cap: 'round', join: 'round' })
+      }
+      for (const side of [-1, 1]) {
+        for (let k = 0; k < pts.length - 1; k++) {
+          const [x0, y0] = pts[k], [x1, y1] = pts[k + 1]
+          const dx = x1 - x0, dy = y1 - y0
+          const len = Math.hypot(dx, dy) || 1
+          const nx = (-dy / len) * side * h.trackW * 0.28, ny = (dx / len) * side * h.trackW * 0.28
+          g.moveTo(x0 + nx, y0 + ny).lineTo(x1 + nx, y1 + ny)
+            .stroke({ width: h.trackW * 0.36, color: h.trackColor, alpha: 0.75, cap: 'round', join: 'round' })
+        }
+      }
+      for (let i = 0; i < 14; i++) {                                              // scattered gravel
+        const seg = Math.floor(hash(i * 3.7) * (pts.length - 1))
+        const t = hash(i * 5.1 + 1)
+        const [x0, y0] = pts[seg], [x1, y1] = pts[seg + 1]
+        const gx = x0 + (x1 - x0) * t + (hash(i * 7.3) - 0.5) * h.trackW * 0.9
+        const gy = y0 + (y1 - y0) * t + (hash(i * 2.9) - 0.5) * h.trackW * 0.9
+        g.circle(gx, gy, 1 + hash(i * 4.1) * 1.4).fill({ color: 0x4a3f30, alpha: 0.5 + hash(i * 6.6) * 0.3 })
+      }
+      return bake(g)
+    })()
+    // district SEAMS (kill list §8.11): populateEdge draws T.fence — a picket fence — at EVERY
+    // land/land border, including between a farm and a moor. A seam is a chance to say what the two
+    // regions are; three seam bakes cost the same as one reused one.
+    T.hedgeSeam = (() => {
+      const g = new Graphics()
+      const h = DISTRICT_EDGE.hedge
+      for (let k = 0; k < h.lobes; k++) {
+        const hx = (k - (h.lobes - 1) / 2) * h.pitchPx * 0.55
+        g.circle(hx, (hash(k * 3.1) - 0.5) * 4, 8 + hash(k * 5.3) * 3).fill(h.color)
+      }
+      g.rect(-h.lobes * h.pitchPx * 0.3, 5, h.lobes * h.pitchPx * 0.6, 3).fill({ color: 0x000000, alpha: 0.25 })
+      return bake(g)
+    })()
+    // v5.10.1: was a filled rect + 16 IDENTICAL 2px ticks — no stone outlines, no cap course. Now a
+    // running-bond course of individually-outlined stone blocks (two staggered rows, joints offset
+    // like a real dry-stone wall) plus a lighter cap-stone line along the top.
+    T.wallSeam = (() => {
+      const g = new Graphics()
+      const w = DISTRICT_EDGE.wall
+      g.rect(-70, -4, 140, 8).fill({ color: w.color, alpha: 0.9 })
+      const blockW = w.pitchPx * 0.62
+      for (const row of [0, 1]) {
+        const y0 = -4 + row * 4
+        const offset = row ? blockW * 0.5 : 0
+        for (let x = -70 - offset; x < 70; x += blockW) {
+          const bx0 = Math.max(-70, x), bx1 = Math.min(70, x + blockW)
+          if (bx1 <= bx0) continue
+          g.rect(bx0, y0, bx1 - bx0, 4).stroke({ width: 0.9, color: 0x000000, alpha: row ? 0.28 : 0.32 })
+        }
+      }
+      g.rect(-70, -4, 140, 1.6).fill({ color: 0xffffff, alpha: 0.12 })   // cap course: a lighter lid line
+      g.rect(-70, 4, 140, 2.5).fill({ color: 0x000000, alpha: 0.3 })     // ground-contact shadow
+      return bake(g)
+    })()
+
+    // ---- threat glyphs (spec §3.2) -----------------------------------------------------------
+    // "Everything STATIC in a telegraph is a BAKED TEXTURE scaled to the live radius; only the
+    // MOVING element is per-frame Graphics." This is not a mitigation, it is the design —
+    // SHELL_MAX_LIVE (6) and MAX_STRAFE_LOCKS (10) telegraphs of graduated ticks drawn live would
+    // not hold on a phone. All of these bake WHITE so one glyph can be tinted per threat.
+    const TREF = 100
+    // ARTILLERY: the only SQUARE telegraph in the game. Four L corner brackets + ranging
+    // graduations on two edges (every 3rd long) — a surveyor's target box, not a circle.
+    T.tgSquare = (() => {
+      const g = new Graphics()
+      const a = SKIES_FX.artillery
+      const arm = TREF * 0.34
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          g.moveTo(sx * TREF, sy * TREF - sy * arm).lineTo(sx * TREF, sy * TREF)
+            .lineTo(sx * TREF - sx * arm, sy * TREF)
+            .stroke({ width: 5, color: 0xffffff, join: 'miter', cap: 'butt' })
+        }
+      }
+      for (let k = 0; k < a.graduations; k++) {                      // ranging ticks on two edges
+        const t = -TREF * 0.55 + (k / (a.graduations - 1)) * TREF * 1.1
+        const long = k % a.gradEveryLong === 0
+        g.rect(t - 1.5, -TREF, 3, long ? 13 : 7).fill({ color: 0xffffff, alpha: 0.9 })
+        g.rect(-TREF, t - 1.5, long ? 13 : 7, 3).fill({ color: 0xffffff, alpha: 0.9 })
+      }
+      return { ...bake(g, 0), ref: TREF }
+    })()
+    // the sweeping hand, in two parts so the dark HATCH BARS and the ochre wedge FILL can be
+    // tinted independently (the only hatched fill in the game, per the threat table)
+    T.tgHandFill = (() => {
+      const g = new Graphics()
+      g.poly([0, 0, TREF, -TREF * 0.17, TREF, TREF * 0.17]).fill(0xffffff)
+      return { ...bake(g, 0), ref: TREF }
+    })()
+    T.tgHandBars = (() => {
+      const g = new Graphics()
+      for (let k = 0; k < 6; k++) {
+        const x0 = TREF * (0.16 + k * 0.14)
+        const hw = x0 * 0.17
+        g.moveTo(x0 - 6, -hw).lineTo(x0 + 6, hw).stroke({ width: 3.2, color: 0xffffff, cap: 'butt' })
+      }
+      return { ...bake(g, 0), ref: TREF }
+    })()
+    // the falling shell's OWN shadow — hard-ish edge (a shadow, not a glow). ARTILLERY ONLY (v5.10.1:
+    // this used to also serve sky's ionisation wash and crush's warm interior spill — three unrelated
+    // threats sharing one texture, tinted differently, which a reviewer correctly called out as "not
+    // actually differentiated" — see T.skyIonWash and T.crushSpill below for their own dedicated bakes.
+    T.shellShadow = { tex: canvasTex(128, 128, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,1)')
+      gr.addColorStop(0.7, 'rgba(255,255,255,0.92)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    }), ax: 0.5, ay: 0.5, ref: 64 }
+    // sky's OWN ionisation wash — a soft, no-hard-edge diffuse haze (reads as ENERGY, not MASS),
+    // unlike T.shellShadow's opaque disc with a hard-ish 0.7 cutoff (reads as a solid falling object).
+    T.skyIonWash = { tex: canvasTex(128, 128, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,0.8)')
+      gr.addColorStop(0.4, 'rgba(255,255,255,0.4)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')     // pure soft falloff, no hard edge anywhere
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    }), ax: 0.5, ay: 0.5, ref: 64 }
+    // SKY: the impact mark is a ring of INWARD-POINTING CHEVRONS closing on the strike point — NOT
+    // corner brackets. v5.10.1 P0 fix: T.skyBrackets used to be T.tgSquare's four L corners
+    // copy-pasted with different arm/width numbers (both shrink inward over the fuse, both sat on the
+    // SAME shellShadow disc) — two of the spec's three separation axes shared, and past
+    // SKIES_TELEGRAPH_LOD_PX the `far` gate strips everything else, leaving "a bracket + a disc" as
+    // literally the same picture in different tints (fails the spec's own greyscale test, §9.5). A
+    // ring of chevrons is a fundamentally different silhouette from a square of L corners even in
+    // greyscale, at any distance, and it echoes the descent vector's own sliding chevrons (§3 sky row)
+    // instead of borrowing artillery's language.
+    T.skyChevrons = (() => {
+      const g = new Graphics()
+      const n = 6
+      const arm = TREF * 0.24
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2
+        const cx = Math.cos(a) * TREF, cy = Math.sin(a) * TREF
+        const ux = -Math.cos(a), uy = -Math.sin(a)          // inward, toward the strike point
+        const px2 = -uy, py2 = ux
+        g.moveTo(cx + px2 * arm * 0.55, cy + py2 * arm * 0.55)
+          .lineTo(cx + ux * arm, cy + uy * arm)
+          .lineTo(cx - px2 * arm * 0.55, cy - py2 * arm * 0.55)
+          .stroke({ width: 7, color: 0xffffff, join: 'round', cap: 'round' })
+      }
+      return { ...bake(g, 0), ref: TREF }
+    })()
+    // Lichtenberg trees — dendritic branches burned into the ground by a strike. Pre-computed
+    // (4 variants so no two scars match), recursive, 3 generations, tapering.
+    T.branchTree = []
+    for (let v = 0; v < SKIES_FX.sky.branchTrees; v++) {
+      const g = new Graphics()
+      const grow = (x, y, ang, len, w, gen, salt) => {
+        const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len
+        g.moveTo(x, y).lineTo(ex, ey).stroke({ width: w, color: 0xffffff, cap: 'round' })
+        if (gen <= 0) return
+        const n = 2 + (hash(salt * 3.1) > 0.6 ? 1 : 0)
+        for (let k = 0; k < n; k++) {
+          const spread = (hash(salt * 5.7 + k * 2.3) - 0.5) * 1.5
+          grow(ex, ey, ang + spread, len * (0.52 + hash(salt * 7.3 + k) * 0.25), w * 0.55, gen - 1, salt * 1.7 + k * 4.1 + 3)
+        }
+      }
+      for (let s = 0; s < 5; s++) {
+        const a = (s / 5) * Math.PI * 2 + v * 0.4
+        grow(0, 0, a, 46 + hash(v * 3.3 + s) * 20, 4.5, 2, v * 11 + s * 2.7 + 1)
+      }
+      T.branchTree.push({ ...bake(g), ref: 200 })
+    }
+    // MISSILE: a rotating lock diamond — four corner ticks on a 45-degree square, anchored on YOU.
+    // The only mark in the game that lives on the player.
+    T.lockDiamond = (() => {
+      const g = new Graphics()
+      const R = SKIES_FX.missile.diamondPx / 2
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI * 2 + Math.PI / 4
+        const cx = Math.cos(a) * R, cy = Math.sin(a) * R
+        const ta = a + Math.PI / 2
+        g.moveTo(cx - Math.cos(ta) * R * 0.42, cy - Math.sin(ta) * R * 0.42)
+          .lineTo(cx, cy).lineTo(cx + Math.cos(ta) * R * 0.42, cy + Math.sin(ta) * R * 0.42)
+          .stroke({ width: 3, color: 0xffffff, join: 'miter' })
+      }
+      return { ...bake(g, 0), ref: R }
+    })()
+    T.missileDart = (() => {                                    // the physical projectile itself
+      const g = new Graphics()
+      g.poly([9, 0, 2, -3, -8, -3, -8, 3, 2, 3]).fill(0xd8d4cc).stroke({ width: 1, color: 0x2a2620 })
+      g.poly([-4, -3, -9, -7, -6, -3]).fill(0x8a8f96)
+      g.poly([-4, 3, -9, 7, -6, 3]).fill(0x8a8f96)
+      g.rect(-2, -1.2, 6, 2.4).fill({ color: 0xff2d6f, alpha: 0.9 })   // signal-magenta band
+      return bake(g)
+    })()
+    T.magentaStar = (() => {                                    // missile impact: a hard star
+      const g = new Graphics()
+      const pts = []
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2
+        const r = k % 2 ? 8 : 26
+        pts.push(Math.cos(a) * r, Math.sin(a) * r)
+      }
+      g.poly(pts).fill(0xffffff)
+      return bake(g)
+    })()
+    T.sootRing = { tex: canvasTex(128, 128, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w / 2, w / 2, w * 0.18, w / 2, w / 2, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,0)')
+      gr.addColorStop(0.45, 'rgba(255,255,255,0.85)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    }), ax: 0.5, ay: 0.5 }
+    // JET: the halogen landing-light pool, additive, aspect 1 : 0.22
+    T.landingPool = canvasTex(512, 112, (ctx, w, h) => {
+      ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(1, h / w)
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,1)')
+      gr.addColorStop(0.5, 'rgba(255,255,255,0.42)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, w / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+    })
+    // CRUSH: angular hard-edged shards with VISIBLE EDGES (slab / roof tile / plank). This is what
+    // replaces crushBurst's soft round Kenney circle_05 puffs — soft round particles are precisely
+    // what makes a collapsing building read as a cartoon dust cloud (kill list §8.4).
+    T.shard = [
+      (() => { const g = new Graphics(); g.poly([-7, -5, 8, -6, 7, 5, -6, 6]).fill(0xffffff).stroke({ width: 1.4, color: 0x7a7a7a }); return bake(g) })(),
+      (() => { const g = new Graphics(); g.poly([-5, -4, 6, -6, 4, 5, -6, 3]).fill(0xffffff).stroke({ width: 1.2, color: 0x707070 }); g.moveTo(-4, 0).lineTo(4, -1).stroke({ width: 0.8, color: 0x8a8a8a }); return bake(g) })(),
+      (() => { const g = new Graphics(); g.poly([-11, -2.5, 11, -3.5, 11, 2.5, -11, 3.5]).fill(0xffffff).stroke({ width: 1.1, color: 0x757575 }); return bake(g) })(),
+    ]
+    T.dustSkirt = canvasTex(256, 128, (ctx, w, h) => {
+      ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(1, h / w)
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,0.55)')
+      gr.addColorStop(0.55, 'rgba(255,255,255,0.26)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, w / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+    })
+    T.clod = (() => {
+      const g = new Graphics()
+      g.poly([-4, -3, 4, -4, 5, 2, -2, 4]).fill(0xffffff).stroke({ width: 1, color: 0x6a6a6a })
+      return bake(g)
+    })()
+    T.smokePuff = canvasTex(64, 64, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,0.85)')
+      gr.addColorStop(0.6, 'rgba(255,255,255,0.32)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    })
+    // v5.10.1: a denser, harder-edged core than T.smokePuff's fully-gauzy falloff — grit is solid
+    // debris, smoke is gas, and they should not read as the same particle at different sizes.
+    T.gritPuff = canvasTex(32, 32, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,1)')
+      gr.addColorStop(0.55, 'rgba(255,255,255,0.9)')
+      gr.addColorStop(0.75, 'rgba(255,255,255,0.3)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    })
+    // JET stitch: the small dark ground-scorch mark the tracer dash leaves. This glyph's "home".
+    T.scorchTick = (() => {
+      const g = new Graphics()
+      g.poly([-3, -1.4, 3, -1.8, 3.4, 1.4, -2.6, 1.8]).fill(0xffffff)
+      return bake(g)
+    })()
+    // v5.10.1: T.scorchTick used to also serve sky's rising sparks and missile's impact sparks —
+    // three unrelated threats sharing one small glyph. Each gets its own shape now: sky's sparks
+    // RISE (a thin vertical streak, not a ground-hugging flag) and missile's are a radiating fleck.
+    T.sparkTick = (() => {                                     // SKY: a thin rising spark streak
+      const g = new Graphics()
+      g.poly([0, 3.2, 0.7, -3.2, 0, -4, -0.7, -3.2]).fill(0xffffff)
+      return bake(g)
+    })()
+    T.impactFleck = (() => {                                   // MISSILE: a small radiating diamond
+      const g = new Graphics()
+      g.poly([0, -3.4, 2.3, 0, 0, 3.4, -2.3, 0]).fill(0xffffff)
+      return bake(g)
+    })()
+    T.artFireball = (() => {                                   // BLACK-CORED fireball: ordnance, not a pop
+      const g = new Graphics()
+      g.circle(0, 0, 30).fill({ color: SKIES_FX.artillery.fireball, alpha: 0.85 })
+      g.circle(0, 0, 20).fill({ color: SKIES_FX.artillery.fireball, alpha: 1 })
+      g.circle(2, 1, 11).fill(SKIES_FX.artillery.fireballCore)
+      return bake(g)
+    })()
+    // v5.10.1 P0 fix: warm interior-spill glow (crush's ONE beat of ambience gold, spec palette law
+    // 1) used to reuse T.shellShadow — a hard-edged FALLING-OBJECT shadow tinted gold. A soft square
+    // glow (matching the palette law's "static <=5px lit rectangle" language) is a genuinely different
+    // read: light bleeding from a window, not a shadow cast by something overhead.
+    T.crushSpill = canvasTex(96, 96, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,0.9)')
+      gr.addColorStop(0.5, 'rgba(255,255,255,0.4)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr
+      ctx.fillRect(w * 0.28, w * 0.28, w * 0.44, w * 0.44)   // a soft SQUARE spill, not a disc
+    })
+    // VOLATILE ELITE BOMB (spec-adjacent P0 fix, config.js SKIES_FX.volatile) — a toothed ring that
+    // GROWS unstable rather than closing inward like gun/sky, so its motion axis differs from both.
+    // Acid-green, never red (palette law: red is alert-only), never violet or ochre.
+    T.voltRing = (() => {
+      const g = new Graphics()
+      const teeth = 10
+      for (let i = 0; i < teeth; i++) {
+        const a = (i / teeth) * Math.PI * 2
+        const x0 = Math.cos(a) * TREF * 0.86, y0 = Math.sin(a) * TREF * 0.86
+        const x1 = Math.cos(a) * TREF * 1.08, y1 = Math.sin(a) * TREF * 1.08
+        g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 6, color: 0xffffff, cap: 'round' })
+      }
+      g.circle(0, 0, TREF * 0.86).stroke({ width: 3, color: 0xffffff, alpha: 0.7 })
+      return { ...bake(g, 0), ref: TREF }
+    })()
+    T.voltSpike = (() => {                                     // detonation: a hard acid spike, not
+      const g = new Graphics()                                  // a fireball and not a bolt
+      g.poly([0, -10, 2.6, -1.5, 0, 0, -2.6, -1.5]).fill(0xffffff)
+      return bake(g)
+    })()
+    T.voltCore = canvasTex(48, 48, (ctx, w) => {                // the small pulsing unstable core —
+      const gr = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2)   // its own dedicated
+      gr.addColorStop(0, 'rgba(255,255,255,1)')                                   // glow, not T.dot
+      gr.addColorStop(0.5, 'rgba(255,255,255,0.5)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    })
+    T.plate = (() => {                                         // rampage dorsal plate
+      const g = new Graphics()
+      g.poly([0, -9, 6, 0, 0, 8, -6, 0]).fill(0xffffff)
+      return bake(g)
+    })()
+    // v5.10.1: the rampage heartbeat ring used to reuse T.novaRing — the SAME plain double-ring
+    // shared with revive and shatter (both also 0.35-0.45s). T.novaRing stays exactly as-is (it is
+    // cross-chapter shared machinery, "the same neutral ring, recolored", used well beyond skies —
+    // touching it would be an unrequested change to every other chapter). Rampage gets its own
+    // notched pulse ring instead, so its "only looping effect" is not a recolor of two other systems.
+    T.rampagePulse = (() => {
+      const g = new Graphics()
+      g.circle(0, 0, 64).stroke({ width: 6, color: 0xffffff, alpha: 0.55 })
+      const teeth = 10
+      for (let i = 0; i < teeth; i++) {
+        const a = (i / teeth) * Math.PI * 2
+        g.moveTo(Math.cos(a) * 58, Math.sin(a) * 58).lineTo(Math.cos(a) * 76, Math.sin(a) * 76)
+          .stroke({ width: 3, color: 0xffffff })
+      }
+      return bake(g)
+    })()
+    // v5.10.1: the rampage screen bloom used to be a bare `T.fx.circle_05` — the same Kenney particle
+    // geyser bubbles, conduct arcs and traffic exhaust all reuse verbatim. A screen bloom's shape IS
+    // correctly a soft radial gradient (that is what a glow is), so the fix here is giving rampage its
+    // OWN hand-authored bake rather than sharing the literal asset three unrelated effects use.
+    T.rampageBloom = canvasTex(256, 256, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,0.9)')
+      gr.addColorStop(0.35, 'rgba(255,255,255,0.55)')
+      gr.addColorStop(0.7, 'rgba(255,255,255,0.18)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    })
+    // v5.10.1: the blinking aviation lamp used to be T.dot — the same soft-dot-plus-halo shared with
+    // kill-poofs and pickup sparkles. A beacon should be a tight hard bead, not a "poof": smaller
+    // core, tighter halo.
+    T.aviationLamp = (() => {
+      const g = new Graphics()
+      g.circle(0, 0, 5).fill({ color: 0xffffff, alpha: 0.3 })
+      g.circle(0, 0, 2).fill(0xffffff)
+      return bake(g)
+    })()
+    // v5.10.1: artillery's muzzle flash and missile's exhaust used to both reuse the generic
+    // T.fx.flare_01 (shared, elsewhere in this file, by frostarc/shockarc/homing/beam — fine for
+    // those, since they are not one of this chapter's own six threats). These two ARE, so they get
+    // their own small bakes: a muzzle flash is a hard angular burst, an exhaust is a soft trailing
+    // comet, and neither is the shared round flare.
+    T.muzzleFlash = (() => {
+      const g = new Graphics()
+      const pts = []
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2
+        const r = k % 2 ? 4 : 11
+        pts.push(Math.cos(a) * r, Math.sin(a) * r)
+      }
+      g.poly(pts).fill(0xffffff)
+      return bake(g)
+    })()
+    T.exhaustPuff = canvasTex(48, 48, (ctx, w) => {
+      const gr = ctx.createRadialGradient(w * 0.6, w / 2, 0, w * 0.6, w / 2, w * 0.5)
+      gr.addColorStop(0, 'rgba(255,255,255,0.9)')
+      gr.addColorStop(0.5, 'rgba(255,255,255,0.4)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
+    })
+
+    // ---- the light layer (spec §7) — the chapter's identity -----------------------------------
+    // "TOKUSATSU NIGHT — the lights are looking for you." Additive, and each sub-container draws
+    // from exactly ONE texture or Pixi v8's batcher breaks on every blend-mode/texture transition.
+    T.lightCone = canvasTex(1024, 512, (ctx, w, h) => {
+      const half = Math.tan((SKIES_LIGHT.cone.arcDeg * Math.PI) / 360) * w
+      const gr = ctx.createLinearGradient(0, 0, w, 0)
+      gr.addColorStop(0, 'rgba(255,255,255,1)')
+      gr.addColorStop(0.22, 'rgba(255,255,255,0.6)')
+      gr.addColorStop(1, 'rgba(255,255,255,0.06)')
+      ctx.fillStyle = gr
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2 - half); ctx.lineTo(w, h / 2 + half)
+      ctx.closePath(); ctx.fill()
+    })
+    T.lampPool = canvasTex(256, 160, (ctx, w, h) => {
+      ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(1, h / w)
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, w / 2)
+      gr.addColorStop(0, 'rgba(255,255,255,1)')
+      gr.addColorStop(0.35, 'rgba(255,255,255,0.55)')
+      gr.addColorStop(0.7, 'rgba(255,255,255,0.18)')
+      gr.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, w / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+    })
+    T.klaxonRing = (() => {
+      const g = new Graphics()
+      g.circle(0, 0, TREF).stroke({ width: SKIES_LIGHT.cone.klaxonW, color: 0xffffff })
+      g.circle(0, 0, TREF - SKIES_LIGHT.cone.klaxonW - 2).stroke({ width: 2, color: 0xffffff, alpha: 0.7 })
+      return { ...bake(g, 0), ref: TREF }
+    })()
+    // The lamp itself: a dark mast collar with a LIT HEAD inside it. The additive pool alone tops
+    // out at palette law 1's alpha ceiling (0.16) and over a blue-grey night floor that reads as a
+    // grey smudge, not a lamp. A <= 5px static warm rectangle is the one other form the law permits
+    // warm gold to take, and it is what turns the smudge into a light source.
+    T.lampMast = (() => {
+      const g = new Graphics()
+      g.circle(0, 0, SKIES_LIGHT.lamp.mastPx).fill(SKIES_LIGHT.lamp.mast)
+      g.circle(0, 0, SKIES_LIGHT.lamp.mastPx * 0.5).fill(SKIES_PALETTE.sodiumLit)
+      return bake(g, 1)
+    })()
+
+    // ---- road markings + decals + junctions (spec §4.2-§4.3) ----------------------------------
+    // The carriageway tile is stamped at a NON-UNIFORM scale (x 0.48, y 0.34 minor / 0.62 major),
+    // so anything baked into it is stretched by a different factor on each axis AND per road class.
+    // Only shapes that survive that go in here, pre-compensated; everything with a shape becomes a
+    // separate, uniformly-scaled decal below.
+    {
+      const RP = ROAD_PAINT
+      const REF = 100
+      function carriageway(major) {
+        const g = new Graphics()
+        const sy = major ? RP.stretchYMajor : RP.stretchYMinor
+        const px = (v) => v / RP.stretchX      // world px -> REF units along the road
+        const py = (v) => v / sy               // world px -> REF units across the road
+        g.rect(-REF / 2, -REF / 2, REF, REF).fill(major ? RP.asphaltMajor : RP.asphaltMinor)
+        // wet crown sheen: a static overhead reflection of the storm sky down the centreline.
+        // ponytail (spec §11): no dynamic sheen sprite — the full-field lightning flash already
+        // whitens it, and a per-road-cell additive sheen would be ~1000 extra sprites at cell 30.
+        g.rect(-REF / 2, -py(6), REF, py(12)).fill({ color: RP.sheen, alpha: RP.sheenAlpha })
+        for (const s of [-1, 1]) {             // wheel-polish bands where tyres actually run
+          const c = s * REF / 2 * RP.polishAt
+          g.rect(-REF / 2, c - py(3.5), REF, py(7)).fill({ color: RP.polish, alpha: RP.polishAlpha })
+        }
+        for (const s of [-1, 1]) {             // kerb line, both long edges
+          g.rect(-REF / 2, s * (REF / 2 - py(RP.kerbW)) - (s < 0 ? 0 : py(RP.kerbW)) + (s < 0 ? 0 : 0), REF, py(RP.kerbW))
+            .fill(RP.kerb)
+        }
+        if (major) {
+          for (const s of [-1, 1]) {           // double yellow
+            g.rect(-REF / 2, s * py(RP.doubleYellowGap / 2) - py(RP.doubleYellowW / 2), REF, py(RP.doubleYellowW))
+              .fill({ color: RP.doubleYellow, alpha: 0.9 })
+          }
+        } else {
+          // ONE dash, centred. The tile is stamped every ROAD_CELL (30) world px and is 1.6 cells
+          // wide, so neighbouring stamps overlap — a baked dash PATTERN would double-print into
+          // mush. One dash per tile centre lands them at an exact 30px pitch along the street.
+          g.rect(-px(7), -py(1.4), px(14), py(2.8)).fill({ color: RP.centreline, alpha: RP.centrelineAlpha })
+        }
+        return { ...bake(g, 0), ref: REF }
+      }
+      T.roadMinor = carriageway(false)
+      T.roadMajor = carriageway(true)
+    }
+    T.rdManhole = (() => {
+      const g = new Graphics()
+      const k = ROAD_DECAL.kinds.manhole
+      g.circle(0, 0, k.r).fill(k.color).stroke({ width: 1.2, color: 0x22262c })
+      for (let t = 0; t < k.rimTicks; t++) {
+        const a = (t / k.rimTicks) * Math.PI * 2
+        g.moveTo(Math.cos(a) * k.r * 0.55, Math.sin(a) * k.r * 0.55)
+          .lineTo(Math.cos(a) * k.r * 0.9, Math.sin(a) * k.r * 0.9)
+          .stroke({ width: 1, color: 0x22262c, alpha: 0.8 })
+      }
+      return bake(g, 1)
+    })()
+    T.rdPatch = (() => {
+      const g = new Graphics()
+      const k = ROAD_DECAL.kinds.patch
+      const pts = []
+      for (let s = 0; s < k.sides; s++) {
+        const a = (s / k.sides) * Math.PI * 2
+        const r = (k.px / 2) * (0.68 + hash(s * 7.3 + 1.9) * 0.55)
+        pts.push(Math.cos(a) * r, Math.sin(a) * r)
+      }
+      g.poly(pts).fill(k.color).stroke({ width: 1.2, color: 0x22262c, alpha: 0.7 })
+      return bake(g, 1)
+    })()
+    // v5.10.1: was two bare rects — no grate bars, no kerb lip. Now each slot gets a stroked kerb
+    // lip and internal grate bars (a storm drain, not a hole).
+    T.rdDrain = (() => {
+      const g = new Graphics()
+      const k = ROAD_DECAL.kinds.drain
+      for (const s of [-1, 1]) {
+        const y0 = s * k.pairGap / 2 - k.slotH / 2
+        g.rect(-k.slotW / 2 - 1, y0 - 1, k.slotW + 2, k.slotH + 2).stroke({ width: 1, color: 0x4a4f57, alpha: 0.6 })
+        g.rect(-k.slotW / 2, y0, k.slotW, k.slotH).fill(k.color)
+        const bars = 4
+        for (let b = 1; b < bars; b++) {
+          const bx = -k.slotW / 2 + (b / bars) * k.slotW
+          g.moveTo(bx, y0 + 0.4).lineTo(bx, y0 + k.slotH - 0.4).stroke({ width: 0.8, color: 0x14171b, alpha: 0.8 })
+        }
+      }
+      return bake(g, 1)
+    })()
+    // v5.10.1: was one rectangle plus one triangle. Now a single tapered-shaft, winged-head polygon
+    // with a thin outline — a real painted turn-arrow silhouette, not two primitives glued together.
+    T.rdArrow = (() => {
+      const g = new Graphics()
+      const k = ROAD_DECAL.kinds.arrow
+      const L = k.lenPx
+      g.poly([
+        -L / 2, -1.6,
+        L * 0.05, -1.6,
+        L * 0.05, -5,
+        L / 2, 0,
+        L * 0.05, 5,
+        L * 0.05, 1.6,
+        -L / 2, 1.6,
+      ]).fill({ color: k.color, alpha: k.alpha }).stroke({ width: 1, color: 0x000000, alpha: 0.15 })
+      return bake(g, 1)
+    })()
+    // JUNCTIONS — enumerated, not stamped, and baked AT TRUE WORLD SIZE so they are never scaled
+    // at all (which is what lets a junction carry circles and a zebra pitch the stretched
+    // carriageway tile cannot).
+    T.junction = {}
+    for (const variant of ROAD_JUNCTION.variants) {
+      const J = ROAD_JUNCTION
+      const vMajor = variant.startsWith('major')
+      const hMajor = variant.endsWith('Major')
+      const vh = (vMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
+      const hh = (hMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
+      const g = new Graphics()
+      const zebraDepth = 22
+      g.rect(-vh, -hh, vh * 2, hh * 2).fill(vMajor || hMajor ? ROAD_PAINT.asphaltMajor : ROAD_PAINT.asphaltMinor)
+      // four approach zebra crosswalks: 7 bars, every 3rd worn
+      for (const [ax, ay] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        const along = ax ? hh : vh          // half-width of the street being crossed
+        const outAt = ax ? vh : hh
+        for (let b = 0; b < J.zebraBars; b++) {
+          const t = -along + 3 + (b * (along * 2 - 6)) / (J.zebraBars - 1)
+          const worn = b % J.zebraWornEvery === 0
+          const alpha = worn ? J.zebraWornAlpha : J.zebraAlpha
+          if (ax) g.rect(ax * outAt + (ax > 0 ? 3 : -3 - zebraDepth), t - 2, zebraDepth, 4).fill({ color: J.zebraColor, alpha })
+          else g.rect(t - 2, ay * outAt + (ay > 0 ? 3 : -3 - zebraDepth), 4, zebraDepth).fill({ color: J.zebraColor, alpha })
+        }
+        // stop bar behind each crossing
+        if (ax) g.rect(ax * (outAt + zebraDepth + 5), -along, J.stopBarW, along * 2).fill({ color: J.zebraColor, alpha: 0.5 })
+        else g.rect(-along, ay * (outAt + zebraDepth + 5), along * 2, J.stopBarW).fill({ color: J.zebraColor, alpha: 0.5 })
+      }
+      if (J.arrowsOnMajor && (vMajor || hMajor)) {   // painted turn arrow on each major approach
+        const k = ROAD_DECAL.kinds.arrow
+        if (hMajor) {
+          g.rect(-vh - 46, -hh * 0.5 - 2, 18, 4).fill({ color: k.color, alpha: k.alpha })
+          g.poly([-vh - 26, -hh * 0.5, -vh - 38, -hh * 0.5 - 6, -vh - 38, -hh * 0.5 + 6]).fill({ color: k.color, alpha: k.alpha })
+        }
+        if (vMajor) {
+          g.rect(vh * 0.5 - 2, hh + 28, 4, 18).fill({ color: k.color, alpha: k.alpha })
+          g.poly([vh * 0.5, hh + 26, vh * 0.5 - 6, hh + 38, vh * 0.5 + 6, hh + 38]).fill({ color: k.color, alpha: k.alpha })
+        }
+      }
+      for (let m = 0; m < J.manholes; m++) {
+        g.circle((m - 0.5) * vh * 0.9, (0.5 - m) * hh * 0.7, 7).fill(ROAD_DECAL.kinds.manhole.color)
+          .stroke({ width: 1.2, color: 0x22262c })
+      }
+      if (variant === J.stalledCar) {
+        // one abandoned sedan slewed across the box — everyone fled. The only survivor of the cut
+        // "emergency vehicles" proposal (a driving vehicle needs a pathfinder over roadAt).
+        const V2 = SKIES_VEHICLE.sedan
+        const ca = 0.7, cs = Math.sin(ca), cc = Math.cos(ca)
+        const quad = (lx, ly) => [lx * cc - ly * cs + 6, lx * cs + ly * cc - 4]
+        const corners = [[-V2.len / 2, -V2.w / 2], [V2.len / 2, -V2.w / 2], [V2.len / 2, V2.w / 2], [-V2.len / 2, V2.w / 2]]
+        g.poly(corners.map(([lx, ly]) => quad(lx, ly)).flat()).fill(0x6f7f8f).stroke({ width: 1.2, color: 0x2b3038 })
+        g.poly([[-4, -V2.w / 2 + 1.5], [6, -V2.w / 2 + 2.5], [6, V2.w / 2 - 2.5], [-4, V2.w / 2 - 1.5]].map(([lx, ly]) => quad(lx, ly)).flat())
+          .fill({ color: SKIES_VEHICLE.glass, alpha: SKIES_VEHICLE.glassAlpha })
+      }
+      T.junction[variant] = bake(g, 2)
+    }
+  }
+  buildSkiesTextures()
+
   // Weapon-visual textures/lookups that composite fx sprites (glow-behind-star, mine
   // core, etc.) — needs T.fx, so it runs once the fx sheet is loaded (see `ready` below),
   // not from buildTextures(). Everything it sets is only ever read from sync(), which
@@ -2809,10 +4048,10 @@ export function createRenderer(app) {
     for (const name in PROP_URLS) T.props[name] = loaded[PROP_URLS[name]]
     T.fx = {}
     for (const name in FX_URLS) T.fx[name] = loaded[FX_URLS[name]]
-    // foam streak (sea district, skies — v5.7.x): literally the same streak texture CURRENT_VIS/
-    // STORM_VIS.rain draw with, repackaged as a baked-prop lookup so applyPropKind's baked branch
-    // can scatter it on the floor like pebble/puddle — genuine asset reuse, not new art.
-    T.foam = { tex: T.fx.trace_05, ax: 0.5, ay: 0.5 }
+    // v5.10 (kill list §8.6): T.foam used to live here — `T.fx.trace_05`, i.e. the sea district's
+    // breaking-wave prop WAS the pond's current-streak sprite, reused a third time by populateEdge
+    // for coastlines. It is gone; skies draws T.waveCrest, a real crest (two parallel arcs and a
+    // foam speckle band), baked in buildSkiesTextures.
     buildFxTextures()
     propsReady = true
   })
@@ -2833,12 +4072,17 @@ export function createRenderer(app) {
   const floorLayer = new Container()
   const blotchLayer = new Container()
   const roadLayer = new Container()   // skies only (v5.9) — sits over the district floor tint, under every prop
+  const roadDecalLayer = new Container() // skies only (v5.10) — manholes/patches/drains/arrows, uniformly scaled
+  const junctionLayer = new Container()  // skies only (v5.10) — enumerated crosswalk composites, true world size
+  const lampMastLayer = new Container()  // skies only (v5.10) — the 3px kerb-lamp masts (their LIGHT is additive, see lightLayer)
+  const ruinLayer = new Container()      // skies only (v5.10) — permanent crush ruins, from the render-local ledger
   const bigLayer = new Container()
   const midLayer = new Container()
   const detailLayer = new Container()
   const clutterLayer = new Container() // skies-urban only (v5.9) — extra furniture, see populateClutter
   const edgeLayer = new Container() // skies districts only (v5.9.1) — border markers, see populateEdge
-  floorLayer.addChild(blotchLayer, roadLayer, bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
+  floorLayer.addChild(blotchLayer, roadLayer, roadDecalLayer, junctionLayer, lampMastLayer, ruinLayer,
+    bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
   const idleLayer = new Container()
@@ -2869,7 +4113,26 @@ export function createRenderer(app) {
   const stormCloudLayer = new Container()
   const stormRainLayer = new Container()
 
-  world.addChild(floorLayer, cloudShadowLayer, entitiesLayer)
+  // ---- the light layer (v5.10, spec §7) — the chapter's identity -------------------------------
+  // "TOKUSATSU NIGHT — the lights are looking for you." Sits between the cloud shadows and the
+  // entities so light cuts THROUGH cloud shadow. blendMode appears nowhere else in this file:
+  // additive is a new concept here and it is a CORRECTNESS requirement, not a perf note. Each
+  // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
+  // blend-mode/texture transition — three sub-containers, three draw calls.
+  const lightLayer = new Container()
+  const lampSub = new Container()    // T.lampPool only
+  const coneSub = new Container()    // T.lightCone only
+  const klaxonSub = new Container()  // T.klaxonRing only
+  for (const sub of [lampSub, coneSub, klaxonSub]) { sub.blendMode = 'add'; lightLayer.addChild(sub) }
+  // v5.10.1: SKIES_LIGHT.cone.rim/rimAlpha were dead config — declared, documented ("the difference
+  // between 'a light' and 'it sees you'"), never read anywhere. A Graphics stroke, not a third Sprite
+  // sub-container: it is per-frame live geometry (on/off with lock state), not a pooled texture batch.
+  const coneRimG = new Graphics()
+  coneRimG.blendMode = 'add'
+  lightLayer.addChild(coneRimG)
+  lightLayer.visible = false
+
+  world.addChild(floorLayer, cloudShadowLayer, lightLayer, entitiesLayer)
   app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
@@ -2896,6 +4159,19 @@ export function createRenderer(app) {
   const laneG = new Graphics()
   const hazardG = new Graphics()
   const teleG = new Graphics()
+  // v5.10 skies: the jet strafe's halogen landing-light pool is the one telegraph element that must
+  // be ADDITIVE (a light on wet asphalt, not a painted band) — its own single-texture container, so
+  // the blend-mode switch costs exactly one batch break. rampG carries the rampage rim-lights and
+  // heartbeat ring; smokeLayer is the second particle pool (spec §1.2).
+  const strafePoolLayer = new Container()
+  strafePoolLayer.blendMode = 'add'
+  const shellLayer = new Container()   // baked artillery glyphs (box / hatched hand / shell shadow)
+  const skyLayer = new Container()     // baked sky-strike glyphs (chevron ring / ionisation wash)
+  const voltLayer = new Container()    // baked volatile-elite-bomb glyph (P0 fix, its own drawer)
+  const scarLayer = new Container()    // Lichtenberg ground scars, fading
+  const lockLayer = new Container()    // the missile lock diamond — the only mark anchored to YOU
+  const rampG = new Graphics()
+  const smokeLayer = new Container()
   const debrisLayer = new Container()
   const shotLayer = new Container()
   const carLayer = new Container()
@@ -2933,11 +4209,11 @@ export function createRenderer(app) {
   entitiesLayer.addChild(
     wellLayer, wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
-    bombG, stripG, laneG, hazardG, teleG, pacerG,
+    scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
-    bloomLayer, lureLayer, shieldG, affixLayer, playerC,
+    bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
-    lobLayer, carLayer, particleLayer, textLayer,
+    lobLayer, carLayer, smokeLayer, particleLayer, textLayer,
   )
 
   // ---------------------------------------------------------- organic floor
@@ -3066,13 +4342,26 @@ export function createRenderer(app) {
 
   // Returns the position the sprite should actually be placed at ({x,y} — normally just the
   // (wx,wy) the caller already computed, EXCEPT cropRow props, which override it via farmRowSnap).
+  // v5.10 (spec §4.5): `litTint: true` BYPASSES the floor tint. Chlorine-blue pool water, shipping
+  // container red, fresh crosswalk paint and a car's body colour all turn to mud when multiplied by
+  // a district floorTint. Saturated accents are the chapter's scarcest resource — the threats own
+  // saturation — so the handful of props allowed to keep theirs must opt in explicitly.
+  // A neutral night tone for litTint props. `litTint` means "keep your own HUE" — it does not mean
+  // "ignore that it is 3am in a thunderstorm". Without this a parked hatchback is the brightest
+  // object in the region, outshining the building it is parked next to.
+  const SKIES_NIGHT_TINT = 0x9aa0a8
+  function propTint(kind, i, j, floorTint) {
+    const base = kind.tints ? kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)] : (kind.tint ?? 0xffffff)
+    return tintMul(base, kind.litTint ? SKIES_NIGHT_TINT : floorTint)
+  }
+
   function applyPropKind(s, kind, i, j, wx, wy) {
     const floorTint = floorTintAt(wx, wy)
     if (kind.baked) {
       const look = T[kind.name]
       s.texture = look.tex
       s.anchor.set(look.ax, look.ay)
-      s.tint = tintMul(kind.tints ? kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)] : (kind.tint ?? 0xffffff), floorTint)
+      s.tint = propTint(kind, i, j, floorTint)
       s.alpha = kind.alpha ?? 1
       if (kind.size) {
         const targetPx = lerp(kind.size[0], kind.size[1], cellHash(i, j, 4))
@@ -3083,7 +4372,7 @@ export function createRenderer(app) {
     } else {
       s.texture = T.props[kind.name]
       s.anchor.set(0.5, kind.upright ? 0.9 : 0.5)
-      s.tint = tintMul(kind.tints ? kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)] : (kind.tint ?? 0xffffff), floorTint)
+      s.tint = propTint(kind, i, j, floorTint)
       s.alpha = kind.alpha ?? 1
       s.scale.set(lerp(kind.size[0], kind.size[1], cellHash(i, j, 4)) / 1024)
     }
@@ -3091,6 +4380,13 @@ export function createRenderer(app) {
       const snap = farmRowSnap(wx, wy)
       s.rotation = snap.angle
       return { x: snap.x, y: snap.y }
+    }
+    // v5.10 (SKIES_VEHICLE.alignToKerb): a parked vehicle, a parking lot's stall stripes and a
+    // tractor all line up with the STREET GRID, never a random spin. Random rotation is the single
+    // loudest tell that a scene was scattered by an algorithm rather than laid out by a city.
+    if (kind.alignRoad) {
+      s.rotation = nearestStreetAngle(wx, wy) + (cellHash(i, j, 3) - 0.5) * 0.06
+      return { x: wx, y: wy }
     }
     // upright things stay upright — only top-down scatter is free to spin
     s.rotation = kind.upright ? (cellHash(i, j, 3) - 0.5) * 0.16 : cellHash(i, j, 3) * Math.PI * 2
@@ -3113,9 +4409,26 @@ export function createRenderer(app) {
   // rubble's own baked size (that used to render 64-116px, bigger than a house — see PROP_SCALE's
   // doc in config.js for the full bug). 'car' added for item-5 density: downtown streets read as
   // abandoned/wrecked, and the texture already exists (T.car, shared with suburbs/traffic).
+  // v5.10 (spec §6, kill list §8.9): the skies car set replaces T.car, the CITY chapter's yellow
+  // traffic taxi baked from TRAFFIC_CAR_LEN. Three silhouettes you can tell apart at a glance, all
+  // `litTint` (their desaturated body hues must not inherit a park's grass green or a farm's khaki)
+  // and all `alignRoad` — parked cars align to the street grid's angle, NEVER a random rotation,
+  // which is the single loudest tell that a scene was scattered by an algorithm.
+  const SKIES_CARS = [
+    // Sized in PROPORTION to their own baked lengths (26 / 32 / 54 px) so the length ratios that
+    // carry the read survive — sedan < van < bus — but pegged UNDER PROP_SCALE.car's band rather
+    // than across it: a crushable tower's silhouette is only ~2.2 x STRUCTURE_RADIUS.tower (46-70
+    // px on screen) in this chapter, because the whole v5.8 premise is a player BIGGER than the
+    // city. A bus at PROP_SCALE.car's full 30px x (54/26) would be tower-sized, which is the
+    // "cars bigger than houses" bug wearing new art.
+    { name: 'vehSedan', baked: true, litTint: true, alignRoad: true, tints: SKIES_VEHICLE.bodyTints, size: [15, 21] },
+    { name: 'vehVan', baked: true, litTint: true, alignRoad: true, tints: SKIES_VEHICLE.bodyTints, size: [18, 26] },
+    { name: 'vehBus', baked: true, litTint: true, alignRoad: true, tints: SKIES_VEHICLE.bodyTints, size: [31, 43] },
+  ]
   const BIG_SKIES = [
     { name: 'rubble', baked: true, upright: true, size: PROP_SCALE.debris },
-    { name: 'car', baked: true, size: PROP_SCALE.car },
+    { name: 'parkingLot', baked: true, alignRoad: true, litTint: true, size: [150, 190] },
+    ...SKIES_CARS,
   ]
   const BIG_BEYOND = [{ name: 'asteroid', baked: true, scale: [1.0, 1.9] }]
   // body: one substantial piece of anatomy per cell — a villi mound (upright, planted) or a
@@ -3172,7 +4485,7 @@ export function createRenderer(app) {
   // skies + beyond: nothing grows. Smaller siblings of the big layer's chunks, scattered.
   const MID_SKIES = [
     { name: 'rubble', baked: true, upright: true, size: PROP_SCALE.debris },
-    { name: 'car', baked: true, size: PROP_SCALE.car },
+    ...SKIES_CARS,
   ]
   const MID_BEYOND = [{ name: 'asteroid', baked: true, scale: [0.35, 0.75] }]
   // body: medium accents — platelet plates, lipid beads, capillary squiggles. Mild alpha so they
@@ -3324,13 +4637,17 @@ export function createRenderer(app) {
   // (PROP_SCALE.car): unlike the old scale-multiplier system, "which layer" no longer implies "how
   // big" — it only changes how OFTEN a cell rolls a car vs. a house/fence (see FLOOR_LAYERS' cell/
   // chance per layer), which is exactly the density knob item 5 asked for.
+  // v5.10: the side-view T.house/T.fence floor props are gone from suburbs. The crushable
+  // structures now ARE detailed top-down houses with their whole lot (driveway, lawn or pool,
+  // hedge L, shed, deck, bins) baked into the same texture, so scattering a second, cruder house
+  // silhouette next to them is what made the district read as a wireframe suburb.
   const BIG_SUBURBS = [
-    { name: 'house', baked: true, upright: true, size: PROP_SCALE.house },
-    { name: 'car', baked: true, size: PROP_SCALE.car },
+    { name: 'hedgeSeam', baked: true, size: PROP_SCALE.hedge },
+    ...SKIES_CARS,
   ]
   const MID_SUBURBS = [
-    { name: 'fence', baked: true, upright: true, size: PROP_SCALE.fence },
-    { name: 'car', baked: true, size: PROP_SCALE.car },
+    { name: 'hedgeSeam', baked: true, size: PROP_SCALE.hedge },
+    ...SKIES_CARS,
   ]
   const DETAIL_SUBURBS = [
     { name: 'pebble', baked: true, size: PROP_SCALE.debris },
@@ -3341,13 +4658,28 @@ export function createRenderer(app) {
   // hedge/tree/house/pier/barn/silo/tower) — there's no absolute band for them to pull from, and no
   // ordering-invariant claim to honour ("reused at landmark scale" is the intended read, not a bug).
   const SEA_FOAM_TINTS = [0x9fd0ea, 0xbfe6f7] // pale foam-white/cyan, darkened by the sea floorTint multiply
-  const BIG_SEA = [{ name: 'puddle', baked: true, scale: [3.2, 5.5] }] // the puddle prop's own blue, reused at landmark scale — open water
+  // v5.10 (spec §4.5, kill list §8.6): T.foam was `T.fx.trace_05` — the sea's breaking wave WAS the
+  // pond's current-streak sprite, reused a third time by populateEdge for coastlines. T.waveCrest
+  // is a real crest (two parallel arcs + a foam speckle band). The container yard is the district's
+  // signature: tiny dense SATURATED rectangles against dark water, `litTint` so the floor tint
+  // can't turn a shipping line's red into grey.
+  // containerYard is listed twice on purpose: SKIES_FLOOR_KEEP thins the `big` layer to 22%, so a
+  // single entry among three put a yard on screen roughly never and the district read as empty
+  // water. litTint everywhere here — foam that inherits the sea's own floorTint is invisible
+  // against the sea, which is exactly how T.foam managed to hide for two versions.
+  const BIG_SEA = [
+    { name: 'puddle', baked: true, scale: [3.2, 5.5] }, // the puddle prop's own blue, reused at landmark scale — open water
+    { name: 'containerYard', baked: true, litTint: true, size: [170, 210] },
+    { name: 'containerYard', baked: true, litTint: true, size: [150, 190] },
+    { name: 'riprap', baked: true, litTint: true, size: [150, 190] },
+  ]
   const MID_SEA = [
-    { name: 'foam', baked: true, tint: SEA_FOAM_TINTS[0], alpha: 0.6, scale: [0.16, 0.3] }, // breaking-wave lines (T.foam, above)
+    { name: 'waveCrest', baked: true, litTint: true, tint: SEA_FOAM_TINTS[0], alpha: 0.75, size: [70, 120] },
+    { name: 'waveCrest', baked: true, litTint: true, tint: SEA_FOAM_TINTS[1], alpha: 0.6, size: [90, 140] },
     { name: 'puddle', baked: true, scale: [1.4, 2.4] },
   ]
   const DETAIL_SEA = [
-    { name: 'foam', baked: true, tint: SEA_FOAM_TINTS[1], alpha: 0.5, scale: [0.1, 0.2] },
+    { name: 'waveCrest', baked: true, litTint: true, tint: SEA_FOAM_TINTS[1], alpha: 0.55, size: [40, 70] },
   ]
   // // ponytail: sea's "waves" are static per-cell foam scatter (the CURRENT_VIS/rain streak
   // texture, reused as a floor prop), not a moving wave-advection layer — upgrade to a proper
@@ -3363,14 +4695,18 @@ export function createRenderer(app) {
   // plus the odd tractor (T.tractor, pegged to PROP_SCALE.car's band — a working vehicle, same
   // tier as a parked car, not worth its own PROP_SCALE class).
   const CROP_TINTS = [0xd9c76a, 0x8a9a4a, 0x6b5a3a] // golden wheat / green leaf-row / tilled-brown row
+  // v5.10: the side-view T.barn/T.silo floor props are gone (the crushable structures carry the
+  // real top-down plans now). What replaces them is the OTHER instantly-recognisable overhead farm
+  // shape — a centre-pivot irrigation circle. A perfect circle in a field of straight rows is
+  // unmistakable, and it exists nowhere else in the region.
   const BIG_FARMS = [
-    { name: 'barn', baked: true, upright: true, size: PROP_SCALE.barn },
-    { name: 'silo', baked: true, upright: true, size: PROP_SCALE.silo },
-    { name: 'tractor', baked: true, size: PROP_SCALE.car },
+    { name: 'pivotCircle', baked: true, size: [340, 460] },
+    { name: 'tractor', baked: true, alignRoad: true, size: PROP_SCALE.car },
   ]
   const MID_FARMS = [
     { name: 'cropTuft', baked: true, cropRow: true, tints: CROP_TINTS, size: PROP_SCALE.crop },
-    { name: 'fence', baked: true, upright: true, size: PROP_SCALE.fence }, // field fence, reusing suburbs' art
+    { name: 'cropTuft', baked: true, cropRow: true, tints: CROP_TINTS, size: PROP_SCALE.crop },
+    { name: 'wallSeam', baked: true, size: PROP_SCALE.fence },             // dry-stone field boundary
     { name: 'hayBale', baked: true, size: [32, 42] },                      // not an enumerated PROP_SCALE class — pegged to the fence/hedge tier by eye
   ]
   const DETAIL_FARMS = [
@@ -3394,9 +4730,12 @@ export function createRenderer(app) {
   // car/house/tower size hierarchy the way a discrete built object does).
   const BIG_HILLS = [
     { name: 'contour', baked: true, scale: [1.3, 2.1] },
+    { name: 'switchback', baked: true, size: [190, 250] }, // v5.10: the one man-made line in open
+                                                           // moorland — a zigzag is the only shape
+                                                           // that says "slope" to a camera with no
+                                                           // horizon (spec §4.5)
     { name: 'voxelRockA', baked: true, upright: true, size: PROP_SCALE.tree },
     { name: 'voxelRockB', baked: true, upright: true, size: PROP_SCALE.tree },
-    { name: 'root', baked: true, upright: true, size: PROP_SCALE.tree },
   ]
   const MID_HILLS = [
     { name: 'contour', baked: true, scale: [0.7, 1.2] },
@@ -3432,9 +4771,11 @@ export function createRenderer(app) {
     },
     hills: {
       big: BIG_HILLS, mid: MID_HILLS, detail: DETAIL_HILLS,
-      // no dedicated structure silhouette for "hillside furniture" — an obstacle that lands here
-      // just wears whatever kind it rolled (tower/house/tree/pier/barn/silo — independent of
-      // district, same as every other district), tinted to this palette.
+      // v5.9.2: hills' structures still roll kind='tree' (config.js DISTRICT_STRUCTURE_KINDS —
+      // growing a real 7th kind needs test/sim-test.js's run DD.d, which pins STRUCTURE_KINDS at
+      // exactly 6, updated by whoever owns test/), but syncObstacles below special-cases exactly
+      // this district to draw STRUCTURE_SKINS.rock instead of 'tree''s usual foliage clump — see
+      // that override's own comment. This palette (a stony taupe) still applies either way.
       obstacle: { tint: 0x8a7a62, foot: 0x2e2a20 },
     },
   }
@@ -3452,14 +4793,35 @@ export function createRenderer(app) {
   //           (garden's bushes, the old parks obstacle) — no new art needed for "a park tree/hedge".
   //   pier  — new baked art (jetty/boat/buoy above), for the sea district's dock furniture.
   //   barn/silo — new baked art (above), for the farms district's crushable buildings.
+  //   rock  — v5.9.2: the faux-voxel boulder trio (T.voxelRockA/B/C, already baked for the hills
+  //           FLOOR layers above), reused as a crushable structure. NOT one of o.kind's own values
+  //           (STRUCTURE_KINDS stays at 6 — see this table's own header) — syncObstacles substitutes
+  //           it in for kind='tree' obstacles specifically in the hills district, so hills reads as
+  //           rocky high ground instead of sharing 'tree''s forest-clump silhouette with parks (the
+  //           "the fuck is this?" bug report: the two districts used to render identically).
+  // v5.10 art direction (spec §5): every entry now points at a TOP-DOWN PLAN baked by
+  // buildSkiesTextures (T.skTower*/skHouse*/skBarn/skSilo/skPier/skTree/skOutcrop), replacing the
+  // side-view, base-anchored bakes that a top-down camera could only ever render as "a box plus a
+  // triangle". `topDown: true` is read by syncObstacles: the plan is MASS-CENTRED at (0,0) rather
+  // than planted at (0, o.r*0.28), it is NOT re-tinted by the district palette (these carry their
+  // own night palette, including palette-law-1 lit windows that a tint multiply would turn to mud),
+  // and clumpB is suppressed — the lot/paddock/yard detail is baked INTO the same texture, because
+  // a driveway that doesn't touch its house is worse than no driveway.
+  // This also closes kill-list items §8.7 (hills' crushable structures were the hills FLOOR-DECOR
+  // boulders at a bigger scale) and §8.8 (downtown's landmark building was literally the generic
+  // rubble prop, which is also downtown's floor debris).
   const STRUCTURE_SKINS = {
-    tower: { baked: ['rubble', 'rubble'] },
-    house: { baked: ['house', 'house'] },
-    tree: { clumps: OBSTACLE_CLUMPS },
-    pier: { baked: ['jetty', 'boat', 'buoy'] },
-    barn: { baked: ['barn', 'barn'] },
-    silo: { baked: ['silo', 'silo'] },
+    tower: { baked: ['skTowerA', 'skTowerB'], topDown: true },
+    house: { baked: ['skHouseA', 'skHouseB'], topDown: true },
+    tree: { baked: ['skTree', 'skTree'], topDown: true },
+    pier: { baked: ['skPier', 'skPier'], topDown: true },
+    barn: { baked: ['skBarn', 'skBarn'], topDown: true },
+    silo: { baked: ['skSilo', 'skSilo'], topDown: true },
+    rock: { baked: ['skOutcrop', 'skOutcrop'], topDown: true }, // hills override only — see comment above and syncObstacles
   }
+  // Which ruin bake a crushed structure leaves behind, by o.kind (SKIES_RUIN, spec §5.9). 'rock'
+  // is the hills override above, and reuses tree's stump-and-splinter ruin.
+  const RUIN_FOR_KIND = { tower: 'tower', house: 'house', barn: 'barn', silo: 'silo', pier: 'pier', tree: 'tree', rock: 'tree' }
 
   // ---- roads (skies only, v5.9 top-down region overhaul) --------------------------------------
   // Draws config.js's roadAt() street grid as a floor decal — a pooled per-cell prop layer (below),
@@ -3476,6 +4838,50 @@ export function createRenderer(app) {
   // roadAt's `angle` is 0 for an east-west street (runs along x) or PI/2 for north-south — the
   // perpendicular unit vector (the direction `dist` is measured along) is (sin(angle), cos(angle)).
   function roadPerp(angle) { return { x: Math.sin(angle), y: Math.cos(angle) } }
+
+  // ---- the road grid ORIGIN (v5.10, spec §4.3) ------------------------------------------------
+  // ROAD_CELL is 30 and ROAD_SPACING is 480, so a junction is ~16 road cells across on each axis:
+  // "stamp a crosswalk when onV && onH" would lay a dozen overlapping zebras on one junction, and
+  // kerb lamps stamped per cell would land ~16 deep. Both want ENUMERATION, which needs the grid's
+  // per-seed offset — and config.js keeps that private. It is recoverable, though: roadAt's onV
+  // depends only on x and onH only on y, so a coarse scan along one axis finds a centreline, and a
+  // sign probe turns roadAt's unsigned `dist` into an exact position. <= 3 x 80 probes, ONCE per
+  // run. Junction centres are then exactly (ox + m*480, oy + n*480) — <= 6 in a 1280x720 view.
+  let roadOrigin = null
+  function latchRoadOrigin() {
+    roadOrigin = null
+    if (!chapterHasRoads) return
+    const J = ROAD_JUNCTION
+    const findAxis = (vertical) => {
+      // three probe lines, because a probe line that happens to sit EXACTLY on a centreline of the
+      // other axis returns that axis for every sample; at most one of these three can do that
+      for (const off of [0.5, 137.5, 293.5]) {
+        let best = null
+        for (let t = 0; t < ROAD_SPACING; t += J.latchStepPx) {
+          const ra = vertical ? roadAt(t, off, roadSeed) : roadAt(off, t, roadSeed)
+          if (!ra.onRoad) continue
+          if (vertical ? ra.angle === 0 : ra.angle !== 0) continue
+          if (!best || ra.dist < best.dist) best = { t, dist: ra.dist }
+        }
+        if (!best) continue
+        const probe = vertical ? roadAt(best.t + 2, off, roadSeed) : roadAt(off, best.t + 2, roadSeed)
+        const sign = (probe.onRoad && probe.dist < best.dist) ? 1 : -1
+        return best.t + sign * best.dist
+      }
+      return null
+    }
+    const ox = findAxis(true)
+    const oy = findAxis(false)
+    if (ox != null && oy != null) roadOrigin = { x: ox, y: oy }
+  }
+  // Which way does the nearest street run at (wx, wy)? roadAt's own convention: 0 for east-west,
+  // PI/2 for north-south. Used to align parked vehicles and painted lots to the grid.
+  function nearestStreetAngle(wx, wy) {
+    if (!roadOrigin) return 0
+    const dv = Math.abs((wx - roadOrigin.x) - Math.round((wx - roadOrigin.x) / ROAD_SPACING) * ROAD_SPACING)
+    const dh = Math.abs((wy - roadOrigin.y) - Math.round((wy - roadOrigin.y) / ROAD_SPACING) * ROAD_SPACING)
+    return dv <= dh ? Math.PI / 2 : 0
+  }
 
   function populateRoad(s, i, j, cell) {
     if (!chapterHasRoads) { s.visible = false; return }
@@ -3508,6 +4914,42 @@ export function createRenderer(app) {
     s.position.set(cx, cy)
   }
 
+  // ---- road decals (v5.10, spec §4.2) ---------------------------------------------------------
+  // "VARIATION ALONG A STREET IS WHAT STOPS A ROAD READING AS A WIREFRAME; one stamped tile
+  // repeated forever is what got us here." Anything with a SHAPE cannot live in the carriageway
+  // tile — that tile is stamped at a non-uniform scale (x 0.48, y 0.34 minor / 0.62 major), so a
+  // baked circle comes out an oval and by a DIFFERENT amount on an avenue than on a side street.
+  // These are separate, uniformly-scaled sprites on their own 160px cell: one decal per cell,
+  // picked by cellHash, self-gating on roadAt + ROAD_VISIBLE_DISTRICTS exactly like populateRoad.
+  function populateRoadDecal(s, i, j, cell) {
+    if (!chapterHasRoads) { s.visible = false; return }
+    const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
+    const ra = roadAt(wx, wy, roadSeed)
+    if (!ra.onRoad) { s.visible = false; return }
+    const perp = roadPerp(ra.angle)
+    const probe = roadAt(wx + perp.x * 4, wy + perp.y * 4, roadSeed)
+    const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
+    const cx = wx + perp.x * ra.dist * sign
+    const cy = wy + perp.y * ra.dist * sign
+    if (!ROAD_VISIBLE_DISTRICTS.has(districtAt(cx, cy, districtSeed))) { s.visible = false; return }
+    const along = { x: Math.cos(ra.angle), y: Math.sin(ra.angle) }
+    const pick = ['manhole', 'patch', 'drain', 'arrow'][Math.floor(cellHash(i, j, 21) * 4)]
+    const slide = (cellHash(i, j, 22) - 0.5) * cell * 0.7
+    let look = T.rdManhole, across = 0, rot = 0, alpha = 1
+    if (pick === 'manhole') { across = (cellHash(i, j, 23) - 0.5) * ra.half * 1.1 }
+    else if (pick === 'patch') { look = T.rdPatch; across = (cellHash(i, j, 23) - 0.5) * ra.half * 1.3; rot = cellHash(i, j, 24) * Math.PI }
+    else if (pick === 'drain') { look = T.rdDrain; across = (cellHash(i, j, 23) > 0.5 ? 1 : -1) * (ra.half - 3); rot = ra.angle }
+    else { look = T.rdArrow; rot = ra.angle; alpha = 1; across = ra.major ? (cellHash(i, j, 23) > 0.5 ? 1 : -1) * ra.half * 0.45 : 0 }
+    s.visible = true
+    s.texture = look.tex
+    s.anchor.set(look.ax, look.ay)
+    s.tint = 0xffffff
+    s.alpha = alpha
+    s.rotation = rot
+    s.scale.set(1)   // baked at TRUE world size — never scaled, which is the whole point
+    s.position.set(cx + along.x * slide + perp.x * across, cy + along.y * slide + perp.y * across)
+  }
+
   // ---- extra urban clutter (skies only, v5.9 top-down region overhaul, item 5) ----------------
   // FLOOR_LAYERS' cell/chance are shared by every chapter, so raising them would raise density
   // everywhere, not just skies' cities — out of bounds for a one-file, one-chapter pass. This adds
@@ -3517,10 +4959,13 @@ export function createRenderer(app) {
   // pure reuse. Cell 150 keeps the per-frame cost in the same ballpark as the existing detail layer
   // (cell 120) rather than the much finer road layer above.
   const CLUTTER_BY_DISTRICT = {
-    downtown: [{ name: 'rubble', baked: true, upright: true, size: PROP_SCALE.debris }],
+    downtown: [
+      { name: 'rubble', baked: true, upright: true, size: PROP_SCALE.debris },
+      ...SKIES_CARS,
+    ],
     suburbs: [
-      { name: 'fence', baked: true, upright: true, size: PROP_SCALE.fence },
-      { name: 'car', baked: true, size: PROP_SCALE.car },
+      { name: 'hedgeSeam', baked: true, size: PROP_SCALE.hedge },
+      ...SKIES_CARS,
     ],
     parks: [{ name: 'bush_b', tints: PARK_TINTS, upright: true, size: [55, 90] }],
   }
@@ -3542,9 +4987,7 @@ export function createRenderer(app) {
   // above) that fires only within roughly one DISTRICT_BLEND_PX of a border and orients a marker
   // ALONG it — a picket fence for a land/land seam (reusing T.fence, already baked for suburbs — a
   // field boundary is exactly what a fence already reads as) or a foam streak for any seam touching
-  // sea (reusing T.foam/SEA_FOAM_TINTS, already the sea district's own breaking-wave prop — a
-  // shoreline IS foam). No new art either way, same "reuse baked art for a different job" idiom as
-  // rubble/rockChunk/pebble elsewhere in this file.
+  // sea. v5.10 replaced BOTH with real seam art — see the seam pick in populateEdge itself.
   // districtAt is the only border-relevant primitive config.js exports (nearestDistrictSeeds' exact
   // border distance is NOT exported, and this file only owns render.js) — so "near a border" is
   // approximated by sampling districtAt at 4 points BORDER_PROBE px out from this cell (a plain
@@ -3568,10 +5011,18 @@ export function createRenderer(app) {
     const nx = (east !== here ? 1 : 0) - (west !== here ? 1 : 0)
     const ny = (south !== here ? 1 : 0) - (north !== here ? 1 : 0)
     if (nx === 0 && ny === 0) { s.visible = false; return } // most cells, most of the time — no border nearby
-    const isCoast = here === 'sea' || east === 'sea' || west === 'sea' || south === 'sea' || north === 'sea'
-    const kind = isCoast
-      ? { name: 'foam', baked: true, tints: SEA_FOAM_TINTS, alpha: 0.6, size: [70, 110] }
-      : { name: 'fence', baked: true, alpha: 0.65, size: PROP_SCALE.fence }
+    // v5.10 (spec §4.5, kill list §8.11): a seam is a chance to SAY WHAT THE TWO REGIONS ARE. This
+    // used to draw T.fence — a suburban picket fence — at every land/land border, including the
+    // one between a farm and a moor. Three seam bakes: a hedge line for suburb/park seams, a
+    // dry-stone tick-row for farm/hill seams, and riprap + a real wave crest for any coastline.
+    const other = [east, west, south, north].find((d) => d !== here) || here
+    const isCoast = here === 'sea' || other === 'sea'
+    const seam = isCoast ? 'shore' : (DISTRICT_EDGE.pairs[[here, other].sort().join('|')] || 'hedge')
+    const kind = seam === 'shore'
+      ? { name: 'waveCrest', baked: true, litTint: true, tints: SEA_FOAM_TINTS, alpha: 0.75, size: [80, 130] }
+      : seam === 'wall'
+        ? { name: 'wallSeam', baked: true, alpha: 0.8, size: PROP_SCALE.fence }
+        : { name: 'hedgeSeam', baked: true, alpha: 0.9, size: PROP_SCALE.hedge }
     const pos = applyPropKind(s, kind, i, j, wx, wy) // handles texture/tint/scale/anchor; rotation overridden next
     s.position.set(pos.x, pos.y)
     s.rotation = Math.atan2(nx, -ny) // perpendicular to the (nx,ny) outward normal — runs ALONG the border
@@ -3581,18 +5032,29 @@ export function createRenderer(app) {
   // populate callbacks no-op (s.visible = false) outside skies/urban — see their own doc comments
   // above for why a self-gating predicate layer was the only way to add chapter-scoped density
   // without touching the shared cell/chance numbers every other chapter also uses.
+  // v5.9.2 ("the fuck is this?" bug report): big/mid/detail carry an extra `skiesKeep` — see
+  // touchFloorCell below and SKIES_FLOOR_KEEP's doc in config.js. blotch/road/clutter/edge have none
+  // (undefined), so touchFloorCell's extra gate never fires for them at all, chapter or no.
   const FLOOR_LAYERS = [
     { name: 'blotch', cell: 420, chance: 1.00, parent: blotchLayer, populate: populateBlotch },
     { name: 'road', cell: ROAD_CELL, chance: 1.00, parent: roadLayer, populate: populateRoad },
-    { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig },
-    { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid },
-    { name: 'detail', cell: 120, chance: 0.40, parent: detailLayer, populate: populateDetail },
+    { name: 'roadDecal', cell: ROAD_DECAL.cell, chance: ROAD_DECAL.chance, parent: roadDecalLayer, populate: populateRoadDecal },
+    { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig, skiesKeep: SKIES_FLOOR_KEEP.big },
+    { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid, skiesKeep: SKIES_FLOOR_KEEP.mid },
+    { name: 'detail', cell: 120, chance: 0.40, parent: detailLayer, populate: populateDetail, skiesKeep: SKIES_FLOOR_KEEP.detail },
     { name: 'clutter', cell: 150, chance: 1.00, parent: clutterLayer, populate: populateClutter },
     { name: 'edge', cell: 170, chance: 1.00, parent: edgeLayer, populate: populateEdge },
   ]
 
   function touchFloorCell(cfg, i, j) {
     if (cellHash(i, j, 999) >= cfg.chance) return
+    // Skies-only extra thinning (config.js SKIES_FLOOR_KEEP): a second, independent chance roll on
+    // top of cfg.chance so big/mid/detail can be cut hard for skies alone, without lowering the
+    // cfg.chance every other chapter's identical layer also reads. `cfg.skiesKeep` is undefined for
+    // every layer that doesn't opt in (blotch/road/clutter/edge) and for every OTHER chapter's cells
+    // this same layer still gets touched for (chapterHasDistricts is skies-only), so neither ever
+    // sees this line do anything.
+    if (chapterHasDistricts && cfg.skiesKeep != null && cellHash(i, j, 998) >= cfg.skiesKeep) return
     const key = i + ',' + j + ',' + cfg.name
     let s = floorCells.get(key)
     if (!s) {
@@ -3967,6 +5429,913 @@ export function createRenderer(app) {
     for (const p of stormClouds) { p.s.visible = false; p.spawned = false }
   }
 
+  // ==============================================================================================
+  // SKIES v5.10 — the crush ledger, the light layer, and the second particle pool
+  // ==============================================================================================
+
+  // ---- the second particle pool (spec §1.2) ----------------------------------------------------
+  // MAX_PARTICLES is ONE global 200-slot ring buffer and particleCursor wraps SILENTLY. Adding
+  // persistent missile smoke, crush dust and artillery clods to it would evict every hit/kill/
+  // pickup particle in the game, with no error and no way to notice but by eye. Same shape, own
+  // cap, own layer, and ONLY those three effects may use it.
+  const smokeParticles = []
+  for (let i = 0; i < SKIES_SMOKE.max; i++) {
+    smokeParticles.push({ s: null, live: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 0, scale: 1, grow: 0, drag: 0, grav: 0, spin: 0, fade: 1, tintB: null })
+  }
+  let smokeCursor = 0
+  function spawnSmoke(tex, x, y, vx, vy, life, scale, tint, grow = 0, drag = 0, grav = 0, spin = 0, fade = 1, tintB = null) {
+    const p = smokeParticles[smokeCursor]
+    smokeCursor = (smokeCursor + 1) % SKIES_SMOKE.max
+    if (!p.s) { p.s = new Sprite(tex); p.s.anchor.set(0.5); smokeLayer.addChild(p.s) }
+    if (p.s.texture !== tex) p.s.texture = tex
+    p.live = true; p.x = x; p.y = y; p.vx = vx; p.vy = vy
+    p.life = life; p.maxLife = life; p.scale = scale; p.grow = grow; p.drag = drag; p.grav = grav
+    p.spin = spin; p.fade = fade; p.tintB = tintB
+    p.s.visible = true; p.s.tint = tint; p.s.rotation = Math.random() * Math.PI * 2
+    p.tintA = tint
+  }
+  function updateSmoke(dt) {
+    if (dt === 0) return
+    for (const p of smokeParticles) {
+      if (!p.live) continue
+      p.life -= dt
+      if (p.life <= 0) { p.live = false; p.s.visible = false; continue }
+      const k = p.drag > 0 ? Math.max(0, 1 - p.drag * dt) : 1
+      p.vx *= k
+      p.vy = p.vy * k + p.grav * dt
+      p.x += p.vx * dt
+      p.y += p.vy * dt
+      p.scale += p.grow * dt
+      p.s.position.set(p.x, p.y)
+      p.s.scale.set(Math.max(0.001, p.scale))
+      p.s.rotation += p.spin * dt
+      const age = 1 - p.life / p.maxLife
+      // a smoke ribbon COOLS as it ages: near-tint -> far-tint, which is what makes a corkscrew
+      // read as one continuous trail rather than a row of identical dots
+      if (p.tintB !== null) p.s.tint = mix(p.tintA, p.tintB, age)
+      p.s.alpha = Math.min(1, (p.life / p.maxLife) * p.fade)
+    }
+  }
+  function clearSmoke() {
+    for (const p of smokeParticles) { p.live = false; if (p.s) p.s.visible = false }
+  }
+
+  // ---- the crush ledger (spec §7.5) ------------------------------------------------------------
+  // ONE render-local structure serving THREE features, which is what makes it worth having:
+  //   1. the permanent kind-specific ruin + foundation scar left at the site (§5.9);
+  //   2. the LAMP BLACKOUT — kerb lamps near an entry render at alpha 0, so ploughing an avenue
+  //      leaves a DEAD BLACK CORRIDOR through a lit grid. That corridor is this chapter's whole
+  //      fantasy expressed as a lighting state, and it costs one distance test;
+  //   3. searchlight anchor invalidation — crush the tower, kill the light.
+  // NEVER written back to `run`: render.js does not mutate sim state, and the obstacle is gone from
+  // run.obstacles by the time any of this draws, so the ledger is keyed by WORLD POSITION.
+  const crushLedger = new Map()
+  function ledgerKey(x, y) {
+    const c = SKIES_LIGHT.ledger.cellPx
+    return Math.round(x / c) + ',' + Math.round(y / c)
+  }
+  function ledgerAdd(x, y, kind, r) {
+    const L = SKIES_LIGHT.ledger
+    crushLedger.set(ledgerKey(x, y), { x, y, kind: RUIN_FOR_KIND[kind] || 'tower', r })
+    if (crushLedger.size <= L.cap) return
+    // over cap: evict the entry farthest from the player (and anything past dropPx outright)
+    let worstKey = null, worstD = -1
+    for (const [k, e] of crushLedger) {
+      const d = (e.x - playerX) ** 2 + (e.y - playerY) ** 2
+      if (d > L.dropPx * L.dropPx) { crushLedger.delete(k); continue }
+      if (d > worstD) { worstD = d; worstKey = k }
+    }
+    if (crushLedger.size > L.cap && worstKey) crushLedger.delete(worstKey)
+  }
+  // The crushed structure's radius, for sizing its ruin. By the time the event reaches us the
+  // obstacle is already out of run.obstacles — but syncObstacles has not rebuilt yet this frame
+  // (sync() drains events first), so the sprite rig still holds last frame's x/y/r.
+  function radiusAtCrush(x, y) {
+    for (const ov of obstacleSprites) {
+      if (!ov.root.visible) continue
+      if (Math.abs(ov.x - x) < 2 && Math.abs(ov.y - y) < 2) return ov.r
+    }
+    return 16
+  }
+  function lampBlackedOut(x, y) {
+    const r2 = SKIES_LIGHT.ledger.blackoutPx * SKIES_LIGHT.ledger.blackoutPx
+    for (const e of crushLedger.values()) {
+      if ((e.x - x) ** 2 + (e.y - y) ** 2 < r2) return true
+    }
+    return false
+  }
+  const ruinSprites = []
+  function updateRuins(cx, cy) {
+    let n = 0
+    if (chapterHasStorm) {
+      const w = app.screen.width, h = app.screen.height
+      for (const e of crushLedger.values()) {
+        const sx = e.x + cx, sy = e.y + cy
+        if (sx < -160 || sx > w + 160 || sy < -160 || sy > h + 160) continue
+        while (ruinSprites.length <= n) {
+          const s = new Sprite(Texture.EMPTY); s.anchor.set(0.5); ruinLayer.addChild(s); ruinSprites.push(s)
+        }
+        const look = T.skRuin[e.kind] || T.skRuin.tower
+        const s = ruinSprites[n++]
+        s.visible = true
+        s.texture = look.tex
+        s.anchor.set(look.ax, look.ay)
+        s.tint = 0xffffff
+        s.alpha = 1
+        s.rotation = 0
+        s.scale.set((e.r * SKIES_PLAN_SCALE) / (SKR * 2))
+        s.position.set(e.x, e.y)
+      }
+    }
+    for (let i = n; i < ruinSprites.length; i++) ruinSprites[i].visible = false
+  }
+
+  // ---- junctions (spec §4.3) — enumerated from the latched grid origin -------------------------
+  const junctionSprites = []
+  for (let i = 0; i < ROAD_JUNCTION.pool; i++) {
+    const s = new Sprite(Texture.EMPTY); s.anchor.set(0.5); s.visible = false
+    junctionLayer.addChild(s); junctionSprites.push(s)
+  }
+  function updateJunctions(cx, cy) {
+    let n = 0
+    if (chapterHasRoads && roadOrigin && T.junction) {
+      const w = app.screen.width, h = app.screen.height
+      const m0 = Math.ceil((-cx - 90 - roadOrigin.x) / ROAD_SPACING)
+      const m1 = Math.floor((-cx + w + 90 - roadOrigin.x) / ROAD_SPACING)
+      const k0 = Math.ceil((-cy - 90 - roadOrigin.y) / ROAD_SPACING)
+      const k1 = Math.floor((-cy + h + 90 - roadOrigin.y) / ROAD_SPACING)
+      for (let m = m0; m <= m1 && n < junctionSprites.length; m++) {
+        for (let k = k0; k <= k1 && n < junctionSprites.length; k++) {
+          const jx = roadOrigin.x + m * ROAD_SPACING
+          const jy = roadOrigin.y + k * ROAD_SPACING
+          if (!ROAD_VISIBLE_DISTRICTS.has(districtAtCached(jx, jy))) continue
+          // probe well clear of the crossing street so roadAt returns the axis we asked about
+          const vMajor = !!roadAt(jx, jy + ROAD_SPACING * 0.35, roadSeed).major
+          const hMajor = !!roadAt(jx + ROAD_SPACING * 0.35, jy, roadSeed).major
+          const look = T.junction[(vMajor ? 'major' : 'minor') + (hMajor ? 'Major' : 'Minor')]
+          const s = junctionSprites[n++]
+          s.visible = true
+          s.texture = look.tex
+          s.anchor.set(look.ax, look.ay)
+          s.tint = 0xffffff
+          s.alpha = 1
+          s.rotation = 0
+          s.scale.set(1)   // baked at TRUE world size
+          s.position.set(jx, jy)
+        }
+      }
+    }
+    for (let i = n; i < junctionSprites.length; i++) junctionSprites[i].visible = false
+  }
+
+  // ---- kerb lamps (spec §4.4) — the strongest "this is a city at night" signal there is --------
+  // Enumerated along each street centreline, NOT added as an 8th FLOOR_LAYERS entry: updateFloorLayer
+  // already runs seven nested i x j sweeps per frame and the road layer alone touches ~1000 cells at
+  // ROAD_CELL = 30. Enumeration is exact, cheaper, and cannot drift off the grid.
+  const lampMasts = []
+  const lampPools = []
+  for (let i = 0; i < SKIES_LIGHT.lamp.pool; i++) {
+    const m = new Sprite(Texture.EMPTY); m.anchor.set(0.5); m.visible = false; lampMastLayer.addChild(m); lampMasts.push(m)
+    const p = new Sprite(Texture.EMPTY); p.anchor.set(0.5); p.visible = false; lampSub.addChild(p); lampPools.push(p)
+  }
+  // districtAt is ~36 hash01 calls (config.js's own comment: "nowhere near a hot per-frame loop"),
+  // and the lamp/junction enumerations below would ask it ~54 times EVERY frame for positions that
+  // never move. Memoised on a coarse world grid, cleared with the run.
+  const districtMemo = new Map()
+  function districtAtCached(x, y) {
+    const k = (Math.round(x / 24) << 12) ^ Math.round(y / 24)
+    let d = districtMemo.get(k)
+    if (d === undefined) {
+      d = districtAt(x, y, districtSeed)
+      if (districtMemo.size > 4096) districtMemo.clear()
+      districtMemo.set(k, d)
+    }
+    return d
+  }
+  function placeLamp(n, x, y, angle) {
+    if (n >= lampMasts.length) return n
+    if (!ROAD_VISIBLE_DISTRICTS.has(districtAtCached(x, y))) return n
+    const L = SKIES_LIGHT.lamp
+    const m = lampMasts[n]
+    m.visible = true
+    m.texture = T.lampMast.tex
+    m.anchor.set(T.lampMast.ax, T.lampMast.ay)
+    m.tint = 0xffffff
+    m.scale.set(1)
+    m.position.set(x, y)
+    const p = lampPools[n]
+    p.visible = true
+    if (p.texture !== T.lampPool) p.texture = T.lampPool
+    p.tint = L.tint
+    // the blackout: a crushed structure takes its street light with it. (Alpha runs at
+    // SKIES_PALETTE.sodiumMaxAlpha rather than lamp.alpha — palette law 1's ceiling, not over it —
+    // because at 0.13 an additive warm pool over a blue-grey night floor is below the noise.)
+    const blacked = lampBlackedOut(x, y)
+    p.alpha = blacked ? 0 : SKIES_PALETTE.sodiumMaxAlpha
+    m.alpha = blacked ? 0.35 : 1     // the head goes out with its pool; the mast stays as a stub
+    p.rotation = angle          // long axis ACROSS the road, like a real luminaire
+    p.scale.set(L.poolH / T.lampPool.width, L.poolW / T.lampPool.height)
+    p.position.set(x, y)
+    return n + 1
+  }
+  function updateLamps(cx, cy) {
+    let n = 0
+    if (chapterHasRoads && roadOrigin && chapterHasStorm) {
+      const L = SKIES_LIGHT.lamp
+      const w = app.screen.width, h = app.screen.height
+      const x0 = -cx - 60, x1 = -cx + w + 60, y0 = -cy - 60, y1 = -cy + h + 60
+      // vertical streets (run along y): lamps step in y, offset in x
+      for (let m = Math.ceil((x0 - roadOrigin.x) / ROAD_SPACING); m <= Math.floor((x1 - roadOrigin.x) / ROAD_SPACING); m++) {
+        const lx = roadOrigin.x + m * ROAD_SPACING
+        const half = roadAt(lx, roadOrigin.y + ROAD_SPACING * 0.35, roadSeed).half || ROAD_MINOR_WIDTH / 2
+        for (let k = Math.ceil(y0 / L.spacingPx); k <= Math.floor(y1 / L.spacingPx) && n < lampMasts.length; k++) {
+          const side = L.alternateSides && (k & 1) ? -1 : 1
+          n = placeLamp(n, lx + side * (half - L.kerbInset), k * L.spacingPx, 0)
+        }
+      }
+      // horizontal streets (run along x): lamps step in x, offset in y
+      for (let m = Math.ceil((y0 - roadOrigin.y) / ROAD_SPACING); m <= Math.floor((y1 - roadOrigin.y) / ROAD_SPACING); m++) {
+        const ly = roadOrigin.y + m * ROAD_SPACING
+        const half = roadAt(roadOrigin.x + ROAD_SPACING * 0.35, ly, roadSeed).half || ROAD_MINOR_WIDTH / 2
+        for (let k = Math.ceil(x0 / L.spacingPx); k <= Math.floor(x1 / L.spacingPx) && n < lampMasts.length; k++) {
+          const side = L.alternateSides && (k & 1) ? -1 : 1
+          n = placeLamp(n, k * L.spacingPx, ly + side * (half - L.kerbInset), Math.PI / 2)
+        }
+      }
+    }
+    for (let i = n; i < lampMasts.length; i++) { lampMasts[i].visible = false; lampPools[i].visible = false }
+  }
+
+  // ---- searchlights (spec §7.2) — THE HOOK -----------------------------------------------------
+  // At most 5 live cones, each anchored to a real, CRUSHABLE structure. Crush the anchor and the
+  // cone dies mid-sweep — the prettiest thing on screen is a target. That is the whole direction in
+  // one mechanic, and it needs ZERO sim change: render already receives {type:'crush'} and can read
+  // run.obstacles. HYSTERESIS IS MANDATORY (hold an anchor until it is crushed or leaves
+  // OBSTACLE_DROP_RADIUS; fade over fadeT, never cut) or the headline system reads as a bug.
+  const coneSprites = []
+  const klaxonSprites = []
+  const searchlights = []   // { cell, x, y, bearing, phase, a, locked, redT, gone }
+  for (let i = 0; i < SKIES_LIGHT.cone.max; i++) {
+    const c = new Sprite(Texture.EMPTY); c.anchor.set(0, 0.5); c.visible = false; coneSub.addChild(c); coneSprites.push(c)
+    for (let r = 0; r < SKIES_LIGHT.cone.klaxonRings; r++) {
+      const k = new Sprite(Texture.EMPTY); k.anchor.set(0.5); k.visible = false; klaxonSub.addChild(k); klaxonSprites.push(k)
+    }
+  }
+  let klaxonT = 0
+  // stable 0..1 rank for an obstacle's "i,j" cell key — the searchlight anchor set is sorted by
+  // this so it is deterministic and does not reshuffle as the field streams
+  function hashString01(s) {
+    let h = 0
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0
+    return (h >>> 0) / 4294967296
+  }
+  function updateSearchlights(run, dt) {
+    const C = SKIES_LIGHT.cone
+    coneRimG.clear()
+    if (!chapterHasStorm) { for (const s of coneSprites) s.visible = false; for (const k of klaxonSprites) k.visible = false; return }
+    const px = run.player.x, py = run.player.y
+    // one pass over the streamed obstacle field: re-resolve held anchors by _cell (they must
+    // survive run._obstacleRev churn) and collect fresh candidates in the same sweep
+    const held = new Map()
+    for (const sl of searchlights) { sl.gone = true; held.set(sl.cell, sl) }
+    const candidates = []
+    for (const o of run.obstacles || []) {
+      if (!C.anchorKinds.includes(o.kind)) continue
+      const d2 = (o.x - px) ** 2 + (o.y - py) ** 2
+      const sl = held.get(o._cell)
+      if (sl) {
+        if (d2 <= C.dropRange * C.dropRange) { sl.gone = false; sl.x = o.x; sl.y = o.y }
+        continue
+      }
+      if (d2 <= C.anchorRange * C.anchorRange) candidates.push(o)
+    }
+    // deterministic pick, so the set does not flicker frame to frame
+    candidates.sort((a, b) => hashString01(a._cell) - hashString01(b._cell))
+    for (let i = searchlights.length - 1; i >= 0; i--) {
+      const sl = searchlights[i]
+      if (!sl.gone) continue
+      sl.a = Math.max(0, sl.a - (dt > 0 ? dt : 0) / C.fadeT)
+      if (sl.a <= 0) searchlights.splice(i, 1)
+    }
+    for (const o of candidates) {
+      if (searchlights.length >= C.max) break
+      searchlights.push({
+        cell: o._cell, x: o.x, y: o.y, gone: false, a: 0, locked: false, redT: 0,
+        bearing: hashString01(o._cell) * Math.PI * 2, phase: hashString01(o._cell) * 10,
+      })
+    }
+    if (dt > 0) klaxonT += dt
+    let ci = 0, ki = 0
+    for (const sl of searchlights) {
+      if (!sl.gone) sl.a = Math.min(1, sl.a + (dt > 0 ? dt : 0) / C.fadeT)
+      if (dt > 0) sl.phase += dt
+      const sweep = sl.bearing + Math.sin(sl.phase * C.sweepSpeed) * C.sweepSpan
+      const dx = px - sl.x, dy = py - sl.y
+      const d = Math.hypot(dx, dy)
+      const toPlayer = Math.atan2(dy, dx)
+      let diff = Math.abs(((toPlayer - sweep + Math.PI * 3) % (Math.PI * 2)) - Math.PI)
+      const inWedge = d < C.lenPx && diff < (C.arcDeg * Math.PI) / 360
+      sl.locked = inWedge && !sl.gone
+      const ang = sl.locked ? toPlayer : sweep     // LOCK: the sweep stops and the cone tracks you
+      sl.ang = ang
+      const s = coneSprites[ci++]
+      if (!s) break
+      s.visible = sl.a > 0.01
+      if (s.texture !== T.lightCone) s.texture = T.lightCone
+      // ALERT RED: during a rampage the flip propagates outward from the player as a WAVE, never a
+      // single frame — the lights losing you is a spreading panic, not a global boolean
+      const red = sl.redT > 0
+      s.tint = red ? SKIES_PALETTE.alert : C.color
+      s.alpha = (sl.locked ? C.lockAlpha : C.alpha) * sl.a * (red ? 1.15 : 1)
+      s.rotation = ang
+      s.scale.set(C.lenPx / T.lightCone.width)
+      s.position.set(sl.x, sl.y)
+      // v5.10.1: SKIES_LIGHT.cone.rim/rimAlpha implemented — a hard rim down both cone edges, ON
+      // LOCK ONLY, per the config's own doc comment ("the difference between 'a light' and 'it sees
+      // you'"). This was declared and never read anywhere.
+      if (sl.locked && sl.a > 0.01) {
+        const halfArc = (C.arcDeg * Math.PI) / 360
+        for (const sgn of [-1, 1]) {
+          const ea = ang + sgn * halfArc
+          coneRimG.moveTo(sl.x, sl.y).lineTo(sl.x + Math.cos(ea) * C.lenPx, sl.y + Math.sin(ea) * C.lenPx)
+            .stroke({ width: 1, color: red ? SKIES_PALETTE.alert : C.rim, alpha: C.rimAlpha * sl.a })
+        }
+      }
+      if (sl.locked && sl.a > 0.4) {
+        // klaxon: two concentric rings pulsing from the ANCHOR (not the player) in alert red
+        for (let r = 0; r < C.klaxonRings; r++) {
+          const k = klaxonSprites[ki++]
+          if (!k) break
+          const t = ((klaxonT + (r * C.klaxonPeriod) / C.klaxonRings) % C.klaxonPeriod) / C.klaxonPeriod
+          k.visible = true
+          if (k.texture !== T.klaxonRing.tex) { k.texture = T.klaxonRing.tex; k.anchor.set(T.klaxonRing.ax, T.klaxonRing.ay) }
+          k.tint = C.klaxon
+          k.alpha = (1 - t) * 0.5 * sl.a
+          k.scale.set((t * 150) / T.klaxonRing.ref)
+          k.position.set(sl.x, sl.y)
+        }
+      }
+    }
+    for (let i = ci; i < coneSprites.length; i++) coneSprites[i].visible = false
+    for (let i = ki; i < klaxonSprites.length; i++) klaxonSprites[i].visible = false
+  }
+  function clearSearchlights() {
+    searchlights.length = 0
+    coneRimG.clear()
+    for (const s of coneSprites) s.visible = false
+    for (const k of klaxonSprites) k.visible = false
+  }
+
+  // ---- blinking aviation lamps (spec §7.4) -----------------------------------------------------
+  // The one element that cannot be baked. Per-tower phase offset hashed from o._cell so a skyline
+  // does not blink in unison, which reads as a shader rather than as a city.
+  function updateAviationLamps() {
+    if (!chapterHasStorm) return
+    const A = SKIES_LIGHT.aviation
+    for (const ov of obstacleSprites) {
+      if (!ov.root.visible || !ov.tower) continue
+      const t = ((animT + ov.phase) % A.period) / A.period
+      ov.lamp.visible = t < A.onFrac
+      ov.lamp.alpha = t < A.onFrac ? 1 - t / A.onFrac * 0.35 : 0
+    }
+  }
+
+  // ==============================================================================================
+  // SKIES v5.10 — THE SIX THREAT SIGNATURES (spec §3)
+  // ==============================================================================================
+  // Six threats separated on THREE AXES AT ONCE — colour family, shape language, motion verb — with
+  // NO TWO SHARING MORE THAN ONE AXIS. That constraint is the whole fix for "everything looks the
+  // same", and it is also the acceptance test: a reviewer who has never played must be able to name
+  // each threat from a still frame, and again from that frame in GREYSCALE.
+  //
+  //   strafe    | halogen + orange  | parallel hairlines + ellipse | travels ALONG a line
+  //   missile   | magenta           | rotating diamond + helix     | flies AT you, trail persists
+  //   artillery | dull olive/ochre  | square box + diagonal hatch  | FALLS; opposed shrink/grow
+  //   sky       | violet            | leaning vector + chevron ring| DESCENDS then cracks; sparks rise
+  //   crush     | grey/material     | squashed skirt + hard shards | SLOW settle; adds geometry
+  //   rampage   | atomic cyan       | rings + dorsal plates        | sustained pulse OUT FROM YOU
+  //
+  // Every INCOMING threat also carries exactly ONE travelling element that arrives on the exact
+  // frame damage lands (the ARRIVAL CLOCK), so the player reads four clocks at four speeds instead
+  // of "the circle got brighter". Each clock's duration IS the sim fuse, by reference.
+
+  // The shadow-stroke rule (spec §2): draw every threat stroke TWICE — near-black underneath at
+  // width + widen, then the colour on top. This is what lets six SATURATED palettes stay legible
+  // over six district floor tints without raising alpha; the alternative is mid-tint mush.
+  function inkStroke(g, path, width, color, alpha) {
+    path(); g.stroke({ width: width + SKIES_INK.widen, color: SKIES_INK.color, alpha: SKIES_INK.alpha * (alpha ?? 1), join: 'round', cap: 'round' })
+    path(); g.stroke({ width, color, alpha, join: 'round', cap: 'round' })
+  }
+  // Telegraph LOD (spec §3.2): beyond this distance a glyph degrades to its impact mark alone. The
+  // far ones carry no information a distant player can act on anyway, and SHELL_MAX_LIVE +
+  // MAX_STRAFE_LOCKS glyphs of graduated ticks drawn live do not hold on a phone.
+  function farFromPlayer(x, y) {
+    const dx = x - playerX, dy = y - playerY
+    return dx * dx + dy * dy > SKIES_TELEGRAPH_LOD_PX * SKIES_TELEGRAPH_LOD_PX
+  }
+  // RAMPAGE JAMMING (spec §3, rampage row): while you are rampaging, every ENEMY telegraph visibly
+  // breaks up — you are not merely stronger, their targeting is failing. On rampage END the dropout
+  // decays to 0 so the picture RE-ACQUIRES; a hard snap back reads as a rendering bug.
+  function jamDrop() { return jamT > 0 && Math.random() < SKIES_JAM.dropout * jamT }
+  function jamAlpha(a) { return jamT > 0 ? a * (SKIES_JAM.alphaMin + SKIES_JAM.alphaJitter * Math.random()) : a }
+
+  // ---- 1. TANK ARTILLERY + 2. SKY BOMBARDMENT + 3. VOLATILE ELITE BOMB (run.bombs) --------------
+  // v5.10.1 P0 fix: sim.js now pushes an explicit `src: 'gun'|'sky'|'volatile'` on every run.bombs
+  // entry (the three push sites, additive fields only — see sim.js). bombSrc used to INFER the
+  // source from `duration` matching one of two known fuses and silently treated anything else
+  // (volatile elites) as "keep the generic drawer" — which routed a dead elite's corpse-bomb through
+  // the FORBIDDEN red telegraph (config.js SKIES_PALETTE.alert is reserved for alert-only) and then,
+  // on detonation, through the `else` branch of the explode handler straight into skyDetonation: a
+  // volatile elite's death was drawn as the sky's own lightning strike, full-field flash included, in
+  // the one chapter whose whole premise is telling the two apart. Reading `b.src` directly instead of
+  // guessing from a timing coincidence fixes both halves at once.
+  function bombSrc(b) {
+    if (!chapterHasStorm) return null
+    return b.src === 'gun' || b.src === 'sky' || b.src === 'volatile' ? b.src : null
+  }
+  // Artillery's trajectory ghost now reads `b.ox`/`b.oy` — the firing tank's own position, set by sim
+  // the instant the shell is pushed (sim.js:570). This used to be a render-side heuristic
+  // (`latchBombOrigin`, scanning every artillery enemy for whichever currently held the globally
+  // highest `e._shellT`) that a reviewer caught attaching the trajectory ghost + muzzle flash to the
+  // wrong, sometimes off-screen, tank whenever an idle tank's timer simply outranked the one that had
+  // actually just fired, or whenever two tanks fired the same frame. A per-bomb field sim already has
+  // is authoritative; render no longer needs to guess. `firedMuzzle` only tracks "have we already
+  // popped this bomb's one-shot muzzle flash", not the origin itself.
+  const firedMuzzle = new WeakSet()
+  function maybeSpawnMuzzleFlash(b) {
+    if (b.src !== 'gun' || firedMuzzle.has(b)) return
+    firedMuzzle.add(b)
+    spawnParticle(T.muzzleFlash.tex, b.ox, b.oy, 0, 0, SKIES_FX.artillery.muzzleT,
+      0.10, SKIES_FX.artillery.muzzle, 0.4, 0)     // muzzle flash: 0.06 s, at the gun that fired
+  }
+
+  const shellRigs = []
+  function acquireShellRig() {
+    const box = new Sprite(T.tgSquare.tex); box.anchor.set(T.tgSquare.ax, T.tgSquare.ay)
+    const fill = new Sprite(T.tgHandFill.tex); fill.anchor.set(T.tgHandFill.ax, T.tgHandFill.ay)
+    const bars = new Sprite(T.tgHandBars.tex); bars.anchor.set(T.tgHandBars.ax, T.tgHandBars.ay)
+    const shadow = new Sprite(T.shellShadow.tex); shadow.anchor.set(0.5)
+    shellLayer.addChild(shadow, fill, bars, box)
+    const rig = { box, fill, bars, shadow }
+    shellRigs.push(rig)
+    return rig
+  }
+  const skyRigs = []
+  function acquireSkyRig() {
+    const wash = new Sprite(T.skyIonWash.tex); wash.anchor.set(0.5)
+    const ring = new Sprite(T.skyChevrons.tex); ring.anchor.set(T.skyChevrons.ax, T.skyChevrons.ay)
+    skyLayer.addChild(wash, ring)
+    const rig = { wash, ring }
+    skyRigs.push(rig)
+    return rig
+  }
+  const voltRigs = []
+  function acquireVoltRig() {
+    const ring = new Sprite(T.voltRing.tex); ring.anchor.set(T.voltRing.ax, T.voltRing.ay)
+    const core = new Sprite(T.voltCore); core.anchor.set(0.5)   // small pulsing unstable core
+    voltLayer.addChild(core, ring)
+    const rig = { ring, core }
+    voltRigs.push(rig)
+    return rig
+  }
+
+  function drawSkiesBombs(run) {
+    const AF = SKIES_FX.artillery
+    const SF = SKIES_FX.sky
+    const VF = SKIES_FX.volatile
+    let si = 0, ki = 0, vi = 0
+    for (const b of run.bombs) {
+      const src = bombSrc(b)
+      if (src === null) continue
+      const k = b.duration > 0 ? 1 - Math.max(0, b.fuse) / b.duration : 1   // 0 -> 1 over the fuse
+      const far = farFromPlayer(b.x, b.y)
+      if (src === 'volatile') {
+        // ==== P0 fix: volatile elites used to fall through to the generic RED bomb circle (the
+        // forbidden telegraph colour) and then detonate as a re-tinted lightning strike. This threat
+        // now has its own colour (acid green — unclaimed by any of the six main threats, the alert
+        // red or the ambience gold), its own shape (a toothed ring), and its own motion: it GROWS and
+        // destabilises rather than closing inward like gun/sky, so the motion axis differs too.
+        const rig = voltRigs[vi++] || acquireVoltRig()
+        const pulseHz = 6 + k * 18   // pulses faster as it nears detonation — "going unstable"
+        const pulse = 0.5 + 0.5 * Math.sin(animT * pulseHz)
+        const jitter = k > 0.6 ? (Math.random() - 0.5) * (k - 0.6) * 30 : 0
+        rig.ring.visible = true
+        rig.ring.tint = VF.ring
+        rig.ring.alpha = jamAlpha(0.4 + 0.45 * k + 0.15 * pulse)
+        rig.ring.scale.set((b.radius * (0.5 + 0.55 * k)) / T.voltRing.ref)   // GROWS, not shrinks
+        rig.ring.rotation = k * Math.PI * 0.6
+        rig.ring.position.set(b.x + jitter, b.y + jitter)
+        rig.core.visible = !far
+        rig.core.tint = VF.core
+        rig.core.alpha = jamAlpha(0.5 + 0.5 * pulse)
+        const coreR = 8 + 16 * k
+        rig.core.scale.set((coreR * 2) / 48)
+        rig.core.position.set(b.x, b.y)
+        continue
+      }
+      if (src === 'gun') {
+        // ==== the only SQUARE telegraph, the only HATCHED fill, the only DESATURATED one, and the
+        // only one that draws a curved line back to a GROUND ORIGIN. That last part is the
+        // mass-read: a screenful of shells visibly RADIATES from scattered tanks, where a screenful
+        // of sky strikes is all-parallel.
+        const rig = shellRigs[si++] || acquireShellRig()
+        const elite = b.radius >= ARTILLERY_ELITE_RADIUS - 1
+        // ARRIVAL CLOCK, part 1: the brackets SHRINK INWARD onto the impact point...
+        const boxR = b.radius * (1.55 - 0.55 * k)
+        rig.box.visible = true
+        rig.box.tint = AF.bracket
+        rig.box.alpha = jamAlpha(0.55 + 0.4 * k)
+        rig.box.scale.set(boxR / T.tgSquare.ref)
+        rig.box.position.set(b.x, b.y)
+        rig.box.rotation = 0
+        // ...part 2: the hatched hand sweeps EXACTLY 360 degrees over the fuse and completes on
+        // impact. Two opposed motions locking on the same frame is the whole read.
+        const hand = k * Math.PI * 2 - Math.PI / 2
+        for (const [sp, tint, alpha] of [[rig.fill, AF.hatchFill, AF.hatchAlpha], [rig.bars, AF.hatchBar, 0.75]]) {
+          sp.visible = !far
+          sp.tint = tint
+          sp.alpha = jamAlpha(alpha)
+          sp.rotation = hand
+          sp.scale.set(b.radius / T.tgHandFill.ref)
+          sp.position.set(b.x, b.y)
+        }
+        // ...part 3: the falling shell's OWN shadow grows from 4px to the full blast radius
+        rig.shadow.visible = true
+        rig.shadow.tint = AF.shellShadow
+        rig.shadow.alpha = AF.shellShadowAlpha * (0.35 + 0.65 * k)
+        const shR = lerp(AF.shadowStartPx, b.radius * 0.9, k * k)
+        rig.shadow.scale.set(shR / T.shellShadow.ref)
+        rig.shadow.position.set(b.x, b.y)
+        if (elite) {   // AA-turret elites: a radar-green tick on the bracket, nothing else changes
+          bombG.circle(b.x, b.y - boxR, 3.2).fill({ color: AF.eliteTick, alpha: 0.9 })
+        }
+        maybeSpawnMuzzleFlash(b)   // one-shot, gated by the firedMuzzle WeakSet
+        // the trajectory ghost, arcing back to the gun that fired it — b.ox/b.oy are the ACTUAL
+        // shooter (sim.js sets them at spawn), not a render-side guess
+        if (!far && !jamDrop() && b.ox != null && b.oy != null) {
+          const mx = (b.ox + b.x) / 2, my = (b.oy + b.y) / 2 - Math.hypot(b.x - b.ox, b.y - b.oy) * 0.28
+          inkStroke(bombG, () => { bombG.moveTo(b.ox, b.oy); bombG.quadraticCurveTo(mx, my, b.x, b.y) },
+            1.6, AF.ghost, jamAlpha(AF.ghostAlpha))
+        }
+      } else {
+        // ==== the only VIOLET thing, the only MASS-PARALLEL telegraph, the only BRANCHING fractal,
+        // and the only telegraph whose particles RISE. Parallelism is the whole composition: a
+        // screenful of vectors all leaning at STORM_VIS.windAngle says THE SKY IS FIRING.
+        const rig = skyRigs[ki++] || acquireSkyRig()
+        rig.ring.visible = true
+        rig.ring.tint = SF.ring
+        rig.ring.alpha = jamAlpha(0.35 + 0.55 * k)
+        rig.ring.scale.set((b.radius * (1.7 - 0.7 * k)) / T.skyChevrons.ref)   // closing inward
+        rig.ring.position.set(b.x, b.y)
+        rig.wash.visible = true
+        rig.wash.tint = SF.ionisation
+        rig.wash.alpha = SF.ionisationAlpha * (0.4 + 0.6 * k)
+        rig.wash.scale.set((b.radius * 0.95) / T.skyIonWash.ref)
+        rig.wash.position.set(b.x, b.y)
+        if (!far) {
+          // the descent vector, LEANED ALONG THE WIND so every simultaneous strike is parallel
+          const wa = STORM_VIS.windAngle
+          const ux = -Math.cos(wa), uy = -Math.sin(wa)
+          const topX = b.x + ux * SF.dropPx, topY = b.y + uy * SF.dropPx
+          if (!jamDrop()) {
+            inkStroke(bombG, () => { bombG.moveTo(topX, topY); bombG.lineTo(b.x, b.y) },
+              1.8, SF.descent, jamAlpha(0.30 + 0.35 * k))
+          }
+          // ARRIVAL CLOCK: a triple chevron slides DOWN the vector, ACCELERATING, and touches
+          // ground exactly at fuse = 0
+          const ease = Math.pow(k, SF.chevronAccel)
+          for (let c = 0; c < SF.chevrons; c++) {
+            if (jamDrop()) continue
+            const d = SF.dropPx * (1 - ease) + c * SF.chevronGapPx
+            if (d > SF.dropPx) continue
+            const cx = b.x + ux * d, cy = b.y + uy * d
+            const px2 = -uy, py2 = ux
+            // arms trail back UP the vector so the chevron's tip points DOWN, at the ground it is
+            // about to hit — an arrow pointing back at the sky says exactly the wrong thing
+            inkStroke(bombG, () => {
+              bombG.moveTo(cx + px2 * 9 + ux * 11, cy + py2 * 9 + uy * 11)
+              bombG.lineTo(cx, cy)
+              bombG.lineTo(cx - px2 * 9 + ux * 11, cy - py2 * 9 + uy * 11)
+            }, 2.4, SF.descent, jamAlpha(0.85 - c * 0.22))
+          }
+        }
+        // crackling spark ticks on the perimeter — they travel UP, always. Nothing else in the
+        // chapter has particles that rise, which is the whole point of the axis.
+        if (!far) {
+          const tick = Math.floor(animT * 14)
+          for (let s = 0; s < SF.sparkTicks; s++) {
+            if ((s % 3) !== (tick % 3)) continue
+            const a = (s / SF.sparkTicks) * Math.PI * 2 + k * 1.5
+            const rr = b.radius * (0.9 + 0.12 * hash(s * 3.1 + tick))
+            const lift = 5 + 11 * hash(s * 7.7 + tick * 1.3)
+            const sx = b.x + Math.cos(a) * rr, sy = b.y + Math.sin(a) * rr
+            bombG.moveTo(sx, sy)
+            bombG.lineTo(sx + (hash(s * 2.3 + tick) - 0.5) * 4, sy - lift)
+            bombG.stroke({ width: 2.2, color: SF.boltCore, alpha: jamAlpha(0.35 + 0.55 * k), cap: 'round' })
+          }
+        }
+      }
+    }
+    for (let i = si; i < shellRigs.length; i++) {
+      const r = shellRigs[i]; r.box.visible = false; r.fill.visible = false; r.bars.visible = false; r.shadow.visible = false
+    }
+    for (let i = ki; i < skyRigs.length; i++) { skyRigs[i].wash.visible = false; skyRigs[i].ring.visible = false }
+    for (let i = vi; i < voltRigs.length; i++) { voltRigs[i].ring.visible = false; voltRigs[i].core.visible = false }
+  }
+  function clearSkiesBombs() {
+    for (const r of shellRigs) { r.box.visible = false; r.fill.visible = false; r.bars.visible = false; r.shadow.visible = false }
+    for (const r of skyRigs) { r.wash.visible = false; r.ring.visible = false }
+    for (const r of voltRigs) { r.ring.visible = false; r.core.visible = false }
+  }
+
+  // Detonations. THREE completely separate drawers (v5.10.1 adds volatile) — a colour swap on one
+  // drawer is exactly the bug.
+  function artilleryDetonation(x, y, radius) {
+    // BLACK-CORED fireball: ordnance, not a cartoon pop
+    spawnParticle(T.artFireball.tex, x, y, 0, 0, 0.26, (radius / 90) * 0.9, 0xffffff, 1.2, 0)
+    // ten ANGULAR clods on real parabolas, landing and leaving splash decals (they use the smoke
+    // pool, so they cannot evict the game's hit/kill particles — spec §1.2)
+    for (let i = 0; i < SKIES_FX.artillery.clodCount; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 130 + Math.random() * 180
+      spawnSmoke(T.clod.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp - 120,
+        0.5 + Math.random() * 0.25, 0.7 + Math.random() * 0.5, SKIES_FX.artillery.clod,
+        0, 0.6, SKIES_FX.crush.shardGravity, (Math.random() - 0.5) * 12)
+    }
+    addShake(3, 0.16)
+  }
+  function skyDetonation(x, y, radius) {
+    const SF = SKIES_FX.sky
+    const b = LIGHTNING.strikeBolt
+    // the bolt itself keeps the shared spawnArc machinery (a jagged glow-then-core polyline
+    // genuinely IS a bolt — shared MACHINERY, not a shared LOOK; it is retinted violet here)
+    spawnArc(lightningBoltPath(x, y, b.dropPx, b.segments, b.jitterPx), SF.boltGlow, SF.boltCore, SF.boltDur, b.width, b.alpha)
+    triggerLightningFlash(LIGHTNING.flash.strikeAlpha)
+    // dendritic Lichtenberg branches BURNED INTO the ground — the only branching fractal in the game
+    const look = T.branchTree[Math.floor(Math.random() * T.branchTree.length)]
+    let s = null
+    for (const c of scarSprites) if (!c.live) { s = c; break }
+    if (!s && scarSprites.length < 12) {
+      const sp = new Sprite(Texture.EMPTY); sp.anchor.set(0.5); scarLayer.addChild(sp)
+      s = { sp, live: false, t: 0 }; scarSprites.push(s)
+    }
+    if (s) {
+      s.live = true; s.t = SF.scarLife
+      s.sp.visible = true
+      s.sp.texture = look.tex
+      s.sp.anchor.set(look.ax, look.ay)
+      s.sp.tint = SF.scar
+      s.sp.rotation = Math.random() * Math.PI * 2
+      s.sp.scale.set((radius * 1.5) / look.ref)
+      s.sp.position.set(x, y)
+    }
+    // sparks that RISE — T.sparkTick, a thin vertical streak (v5.10.1: was T.scorchTick, the same
+    // small glyph missile's impact and the jet's ground scorch also used)
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2
+      spawnParticle(T.sparkTick.tex, x + Math.cos(a) * radius * 0.6, y + Math.sin(a) * radius * 0.6,
+        (Math.random() - 0.5) * 40, -80 - Math.random() * 110, 0.4 + Math.random() * 0.2,
+        0.8, SF.boltCore, -0.6, 1.2, 40)
+    }
+    addShake(3.4, 0.18)
+  }
+  // VOLATILE detonation (P0 fix): a hard acid-green spike burst + a fast-collapsing ring echo of its
+  // own telegraph shape — NOT the artillery fireball (ochre/black) and NOT the sky bolt+scar+flash
+  // (violet/white, full-field flash). No lightning, no fireball: a corpse going unstable, not ordnance
+  // and not weather.
+  function volatileDetonation(x, y, radius) {
+    const VF = SKIES_FX.volatile
+    for (let i = 0; i < VF.spikeCount; i++) {
+      const a = (i / VF.spikeCount) * Math.PI * 2 + Math.random() * 0.3
+      const sp = 160 + Math.random() * 140
+      spawnParticle(T.voltSpike.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
+        0.32 + Math.random() * 0.12, 1.0, VF.ring, -1.0, 0)
+    }
+    spawnParticle(T.voltCore, x, y, 0, 0, 0.22, 1.6, VF.core, 2.4, 0)
+    addShake(2.6, 0.14)
+  }
+  const scarSprites = []
+  function updateScars(dt) {
+    for (const s of scarSprites) {
+      if (!s.live) continue
+      if (dt > 0) s.t -= dt
+      if (s.t <= 0) { s.live = false; s.sp.visible = false; continue }
+      s.sp.alpha = Math.min(1, s.t / SKIES_FX.sky.scarLife) * 0.55
+    }
+  }
+  function clearScars() { for (const s of scarSprites) { s.live = false; s.sp.visible = false } }
+
+  // ---- 3. HELICOPTER MISSILE (spec §3, missile row) --------------------------------------------
+  // The only travelling PHYSICAL projectile, the only SPIRAL in the game, the only mark anchored to
+  // the PLAYER, and the only magenta in any of the seven chapters.
+  const lockDiamond = new Sprite(Texture.EMPTY)
+  lockDiamond.anchor.set(0.5)
+  lockDiamond.visible = false
+  lockLayer.addChild(lockDiamond)
+  function drawMissileLocks(run) {
+    const M = SKIES_FX.missile
+    if (!chapterHasStorm) { lockDiamond.visible = false; return }
+    const p = run.player
+    let locking = false
+    let tightest = 1
+    for (const e of run.enemies) {
+      if (e._dead || !e.flags || !e.flags.includes('missileVolley')) continue
+      const d = Math.hypot(p.x - e.x, p.y - e.y)
+      if (d > MISSILE_FIRE_RANGE) continue
+      const firing = (e._volleyLeft || 0) > 0
+      const left = firing ? 0 : (e._volleyT ?? 99)
+      if (left > M.lockT && !firing) continue
+      locking = true
+      const k = firing ? 1 : 1 - left / M.lockT       // 0 -> 1, reaching 1 on the LAUNCH frame
+      tightest = Math.min(tightest, 1 - k)
+      if (farFromPlayer(e.x, e.y) || jamDrop()) continue
+      // the designation line from the helicopter's nose, with a BEAD crawling it — the arrival
+      // clock: the bead reaches the diamond on the launch frame
+      const ux = (p.x - e.x) / (d || 1), uy = (p.y - e.y) / (d || 1)
+      const dash = 14
+      for (let t = 0; t < d - 20; t += dash * 2) {
+        if (jamDrop()) continue
+        teleG.moveTo(e.x + ux * t, e.y + uy * t)
+        teleG.lineTo(e.x + ux * Math.min(t + dash, d - 20), e.y + uy * Math.min(t + dash, d - 20))
+      }
+      teleG.stroke({ width: 1.4, color: M.designator, alpha: jamAlpha(0.5 + 0.3 * k) })
+      const bd = d * k
+      teleG.circle(e.x + ux * bd, e.y + uy * bd, 3.4).fill({ color: M.reticleCore, alpha: jamAlpha(0.95) })
+    }
+    lockDiamond.visible = locking
+    if (!locking) return
+    if (lockDiamond.texture !== T.lockDiamond.tex) {
+      lockDiamond.texture = T.lockDiamond.tex
+      lockDiamond.anchor.set(T.lockDiamond.ax, T.lockDiamond.ay)
+    }
+    // DISCRETE SNAP STEPS, never a smooth lerp — a mechanical reticle, not an organic pulse, and it
+    // reads at 4 fps of information, which survives being one of eighteen things on screen
+    const steps = M.snapSteps
+    const snapped = Math.round(tightest * steps) / steps
+    const jitterX = jamT > 0 && (jamSnapT % SKIES_JAM.resnapEvery) < 0.05 ? (Math.random() - 0.5) * SKIES_JAM.resnapPx : 0
+    const jitterY = jitterX ? (Math.random() - 0.5) * SKIES_JAM.resnapPx : 0
+    lockDiamond.tint = M.designator
+    lockDiamond.alpha = jamAlpha(0.9)
+    lockDiamond.rotation = animT * 0.9
+    lockDiamond.scale.set(lerp(0.7, 2.1, snapped))
+    lockDiamond.position.set(run.player.x + jitterX, run.player.y + jitterY)
+  }
+  // the corkscrew smoke helix: MISSILE_TURN is 0, so the dart is dead straight and the SMOKE is
+  // what curls. Lateral sine offset that GROWS as the puff ages = a corkscrew seen from above.
+  const missileTrailT = []
+  function updateMissileTrails(run, dt) {
+    if (!chapterHasStorm || dt <= 0) return
+    const M = SKIES_FX.missile
+    const list = run.enemyShots || []
+    // cap emission to the nearest live missiles — the pool budget is derived from exactly this
+    const order = list.map((s, i) => [i, (s.x - playerX) ** 2 + (s.y - playerY) ** 2]).sort((a, b) => a[1] - b[1])
+    for (let n = 0; n < Math.min(SKIES_SMOKE.emitters, order.length); n++) {
+      const i = order[n][0]
+      const sh = list[i]
+      missileTrailT[i] = (missileTrailT[i] ?? 0) + dt
+      if (missileTrailT[i] < SKIES_SMOKE.puffEvery) continue
+      missileTrailT[i] -= SKIES_SMOKE.puffEvery
+      const sp = Math.hypot(sh.vx, sh.vy) || 1
+      const ux = sh.vx / sp, uy = sh.vy / sp
+      const phase = animT * M.helixTurns * 6
+      const side = Math.sin(phase)
+      spawnSmoke(T.smokePuff, sh.x - ux * 8 + -uy * side * M.helixAmpPx, sh.y - uy * 8 + ux * side * M.helixAmpPx,
+        -uy * side * M.helixGrowPx, ux * side * M.helixGrowPx, M.ribbonLife, 0.22, M.smokeNear,
+        0.30, 0.7, 0, 0.6, M.smokeFar)
+      // v5.10.1: was T.fx.flare_01, the same generic flare frostarc/shockarc/homing/beam reuse — one
+      // of this chapter's own six threats gets its own dedicated exhaust bake instead.
+      spawnParticle(T.exhaustPuff, sh.x - ux * 6, sh.y - uy * 6, 0, 0, 0.14, 0.07, M.exhaustHot, -0.15, 0)
+    }
+  }
+  function missileImpact(x, y) {
+    const M = SKIES_FX.missile
+    spawnParticle(T.magentaStar.tex, x, y, 0, 0, 0.22, 1.0, M.impactCore, 1.6, 0)
+    spawnSmoke(T.sootRing.tex, x, y, 0, 0, 0.9, 0.35, M.impactSoot, 0.7, 1.2, 0, 0.85)
+    // T.impactFleck — a small radiating diamond (v5.10.1: was T.scorchTick, shared with sky's rising
+    // sparks and the jet's ground scorch)
+    for (let i = 0; i < 5; i++) {
+      const a = Math.random() * Math.PI * 2
+      spawnParticle(T.impactFleck.tex, x, y, Math.cos(a) * 150, Math.sin(a) * 150,
+        0.22, 0.7, M.designator, 0, 4)
+    }
+    addShake(1.6, 0.1)
+  }
+
+  // ---- 4. CRUSH (spec §3, crush row) -----------------------------------------------------------
+  // The ANTI-TELEGRAPH: no warning iconography at all, because it already happened and YOU did it.
+  // The only DESATURATED event, the only SLOW one, the only one that REMOVES light, and the only
+  // one that adds PERMANENT geometry. Replaces crushBurst's soft round Kenney circle_05/scorch_01
+  // puff — soft round particles are precisely what makes a collapsing building read as a cartoon
+  // dust cloud (kill list §8.4) — and drops the "fleeing figures" dots (spec §11).
+  function skiesCrush(x, y, kind) {
+    const C = SKIES_FX.crush
+    const mat = C.byKind[kind] || C.byKind.tower
+    const n = C.shardMin + Math.floor(Math.random() * (C.shardMax - C.shardMin + 1))
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 90 + Math.random() * 150
+      const tex = T.shard[Math.floor(Math.random() * T.shard.length)]
+      // ANGULAR, hard-edged, with visible edges — and they arc back DOWN under fake gravity and
+      // stop, rather than drifting away like smoke
+      spawnSmoke(tex.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp - 90,
+        C.burstT, 0.7 + Math.random() * 0.5, Math.random() < 0.4 ? mat.dustDark : mat.dust,
+        0, 1.1, C.shardGravity, (Math.random() - 0.5) * 9)
+    }
+    // a LOW SQUASHED dust skirt hugging the ground (ratio 1 : 0.45), expanding then SINKING, and
+    // then drifting downwind — not a mushroom
+    const wa = STORM_VIS.windAngle
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 26 + Math.random() * 38
+      // Sized against the BUILDING, not against the screen: T.dustSkirt is a 256px canvas, so the
+      // scale here has to stay small or a collapsing house throws a 380px cloud that whites out
+      // half the view — which is exactly the soft-round-puff failure this rewrite exists to fix.
+      spawnSmoke(T.dustSkirt, x, y, Math.cos(a) * sp + Math.cos(wa) * 12, Math.sin(a) * sp * C.skirtAspect + Math.sin(wa) * 12,
+        C.dustT, 0.13 + Math.random() * 0.07, i % 2 ? mat.dustDark : mat.dust, 0.09, 0.9, 0, 0, 0.5)
+    }
+    // ONE beat of warm interior spill, then the site goes dark — the only time this chapter's
+    // ambience colour appears anywhere near an event, and it lasts 0.35 s. T.crushSpill (v5.10.1: was
+    // T.shellShadow, artillery's own falling-object shadow tinted gold — a soft SQUARE glow reads as
+    // light bleeding from a window, which is what this beat actually represents)
+    spawnParticle(T.crushSpill, x, y, 0, 0, C.spillT, 0.55, C.spill, -0.5, 0)
+    addShake(1.2, 0.07) // light — crush can fire several times a second mid-rampage
+  }
+
+  // ---- 5. RAMPAGE (spec §3, rampage row) -------------------------------------------------------
+  // A REGIME CHANGE, not an object added to the scene: the only sustained rhythmic effect, the only
+  // one sourced AT THE PLAYER, the only cyan, and the only one that changes the LIGHTING STATE of
+  // the whole region rather than drawing something new.
+  const platePool = []
+  for (let i = 0; i < SKIES_FX.rampage.plates; i++) {
+    const s = new Sprite(Texture.EMPTY); s.anchor.set(0.5); s.visible = false
+    playerC.addChild(s); platePool.push(s)
+  }
+  function updateRampage(run, dt) {
+    const R = SKIES_FX.rampage
+    rampG.clear()
+    const active = chapterHasStorm && (run.rampageT || 0) > 0
+    if (dt > 0) {
+      jamSnapT += dt
+      if (active) jamT = 1
+      else jamT = Math.max(0, jamT - dt / SKIES_JAM.recoverT)
+      if (active) { rampWaveR = rampWaveR < 0 ? 0 : rampWaveR + R.alertWaveSpeed * dt; rampBeatT += dt }
+      else rampWaveR = -1
+    }
+    // the alert-red flip propagates as a WAVE at 900 px/s, never a single frame
+    for (const sl of searchlights) {
+      const d = Math.hypot(sl.x - run.player.x, sl.y - run.player.y)
+      sl.redT = active && rampWaveR >= d ? 1 : 0
+    }
+    if (!active) {
+      for (const s of platePool) s.visible = false
+      rampBeatT = 0
+      return
+    }
+    const p = run.player
+    const ringR = PLAYER.radius * R.ringMul
+    // the HEARTBEAT: a ring rolled out to the TRUE widened crush radius, so the prettiest effect on
+    // screen is also the honest hitbox. 0.6 s loop — the only looping effect in the chapter.
+    // T.rampagePulse (v5.10.1: was T.novaRing — the SAME plain double-ring shared with revive and
+    // shatter, both also 0.35-0.45s; rampage's "only looping effect" deserves a ring of its own, not a
+    // recolor of two unrelated bursts. T.novaRing itself is untouched — it's cross-chapter machinery).
+    if (rampBeatT >= R.beat) { rampBeatT -= R.beat; spawnRing(p.x, p.y, ringR, 0.45, T.rampagePulse, R.plateCool) }
+    const beat = 1 - (rampBeatT / R.beat)
+    rampG.circle(p.x, p.y, ringR).stroke({ width: 2 + 2 * beat, color: R.plateCool, alpha: 0.25 + 0.3 * beat })
+    // a cyan RIM LIGHT on every structure inside the ring — the region lights up around you
+    for (const ov of obstacleSprites) {
+      if (!ov.root.visible) continue
+      const d = Math.hypot(ov.x - p.x, ov.y - p.y)
+      if (d > ringR + 30) continue
+      rampG.circle(ov.x, ov.y, ov.r + 2).stroke({ width: 2, color: R.rimLight, alpha: R.rimAlpha * (1 - d / (ringR + 30)) })
+    }
+    // Seven dorsal plates chain-charging TAIL -> HEAD. Laid on an arc around the BACK half of the
+    // silhouette (facing + 120 deg .. facing + 240 deg) rather than straight across the body: this
+    // kaiju is a round blob seen from directly above, so a straight row of plates lands on its face
+    // and reads as a fringe. An arc outside the rim reads as a ridge along its back.
+    const ang = (p.facingAngle == null ? 0 : p.facingAngle)
+    const chargeT = ((animT % R.chainT) / R.chainT)
+    for (let i = 0; i < platePool.length; i++) {
+      const s = platePool[i]
+      const f = i / (platePool.length - 1)
+      const charge = Math.max(0, 1 - Math.abs(((f + chargeT) % 1) - 0.5) * 3)
+      const pa = ang + Math.PI * (0.66 + f * 0.68)
+      const rr = PLAYER.radius * 1.02
+      s.visible = true
+      if (s.texture !== T.plate.tex) { s.texture = T.plate.tex; s.anchor.set(T.plate.ax, T.plate.ay) }
+      s.tint = mix(R.plateCool, R.plateHot, charge)
+      s.alpha = 0.6 + 0.4 * charge
+      s.scale.set(lerp(0.45, 0.85, 1 - Math.abs(f - 0.5) * 1.4) * (0.9 + 0.3 * charge))
+      s.rotation = pa + Math.PI / 2   // plate tip points radially outward
+      s.position.set(Math.cos(pa) * rr, Math.sin(pa) * rr)
+    }
+  }
+  function clearRampage() {
+    rampG.clear()
+    jamT = 0; rampWaveR = -1; rampBeatT = 0
+    for (const s of platePool) s.visible = false
+    lockDiamond.visible = false
+  }
+
   // ------------------------------------------------------------------- pools
   const enemySprites = new Map() // id -> Sprite
   const enemyFree = []
@@ -4123,9 +6492,16 @@ export function createRenderer(app) {
     clumpA.anchor.set(0.5)
     const clumpB = new Sprite(Texture.EMPTY)
     clumpB.anchor.set(0.5)
-    root.addChild(ring, clumpA, clumpB)
+    // v5.10 (spec §7.4): a fourth pooled sprite — the blinking aviation lamp on a tower mast. It is
+    // the ONE element in the whole redesign that cannot be baked (a blinking light is a per-frame
+    // alpha, by definition), and a skyline that blinks is instantly a skyline. Only ever visible
+    // for kind === 'tower' in skies; updateAviationLamps drives its alpha.
+    const lamp = new Sprite(Texture.EMPTY)
+    lamp.anchor.set(0.5)
+    lamp.visible = false
+    root.addChild(ring, clumpA, clumpB, lamp)
     obstacleLayer.addChild(root)
-    return { root, ring, clumpA, clumpB }
+    return { root, ring, clumpA, clumpB, lamp, tower: false, phase: 0, x: 0, y: 0, r: 0 }
   }
   function syncObstacles(run) {
     const list = run.obstacles || []
@@ -4144,6 +6520,8 @@ export function createRenderer(app) {
       const o = list[i]
       ov.root.visible = true
       ov.root.position.set(o.x, o.y)
+      ov.x = o.x; ov.y = o.y; ov.r = o.r
+      ov.tower = false; ov.lamp.visible = false
       liveCells.add(o._cell)
       const rot = hash(o.x + o.y * 3.3) * Math.PI * 2
       // districts (skies only): each obstacle's PALETTE follows WHERE it sits (districtAt at its
@@ -4152,21 +6530,38 @@ export function createRenderer(app) {
       // for its whole lifetime, not once per rebuild.
       let skin = obstacleSkinCache.get(o._cell)
       if (!skin) {
-        const obStyle = chapterHasDistricts ? DISTRICT_BIOMES[districtAt(o.x, o.y, districtSeed)].obstacle : style
+        const structDistrict = chapterHasDistricts ? districtAt(o.x, o.y, districtSeed) : null
+        const obStyle = chapterHasDistricts ? DISTRICT_BIOMES[structDistrict].obstacle : style
         const floorAt = floorTintAt(o.x, o.y)
-        skin = { tint: tintMul(obStyle.tint, floorAt), foot: tintMul(obStyle.foot, floorAt) }
+        skin = { tint: tintMul(obStyle.tint, floorAt), foot: tintMul(obStyle.foot, floorAt), district: structDistrict }
         obstacleSkinCache.set(o._cell, skin)
       }
-      // structure SHAPE (v5.8): o.kind ('tower'/'house'/'tree'/'pier', config.js STRUCTURE_KINDS)
-      // picks the silhouette via STRUCTURE_SKINS, independent of the district palette above — see
-      // that table's doc comment. Non-skies chapters have no kind-driven table entry to find
-      // (chapterHasDistricts is false there), so they fall through to the one chapter-wide `style`
-      // exactly as before this redesign — untouched.
-      const shape = chapterHasDistricts ? (STRUCTURE_SKINS[o.kind] || style) : style
+      // structure SHAPE (v5.8, kinds grown by v5.9): o.kind (config.js STRUCTURE_KINDS —
+      // tower/house/tree/pier/barn/silo) picks the silhouette via STRUCTURE_SKINS, independent of
+      // the district palette above — see that table's doc comment. Non-skies chapters have no
+      // kind-driven table entry to find (chapterHasDistricts is false there), so they fall through
+      // to the one chapter-wide `style` exactly as before this redesign — untouched.
+      // v5.9.2 override ("the fuck is this?" bug report): parks and hills BOTH roll kind='tree'
+      // (config.js DISTRICT_STRUCTURE_KINDS — a real 7th kind would need test/sim-test.js's run
+      // DD.d, which pins STRUCTURE_KINDS at exactly 6, updated by whoever owns test/), so the two
+      // districts rendered IDENTICALLY: the same foliage-clump silhouette, just re-tinted. Rather
+      // than grow the data model, hills' 'tree' obstacles render with the rock skin instead — reusing
+      // `skin.district` (cached above, so this costs nothing extra) to catch exactly that one
+      // combination. Every other kind/district combination is untouched.
+      const shape = chapterHasDistricts
+        ? (o.kind === 'tree' && skin.district === 'hills' ? STRUCTURE_SKINS.rock : (STRUCTURE_SKINS[o.kind] || style))
+        : style
       // footprint ring: the hard contract. Scaled so its rim lands EXACTLY on the collider edge o.r.
       ov.ring.texture = foot.tex
-      ov.ring.tint = skin.foot
-      ov.ring.alpha = 1
+      // v5.10: under a top-down plan the footprint pad becomes a CONTACT SHADOW in the region's one
+      // ink tone, not the district's high-contrast ring colour. A pale ring under a pier over dark
+      // water read as a coin the jetty was standing on, which is the opposite of "this is a place".
+      ov.ring.tint = (chapterHasDistricts && STRUCTURE_SKINS[o.kind]?.topDown) ? 0x121722 : skin.foot
+      // v5.10: for a skies top-down PLAN the ring drops to a contact shadow. At full alpha it is a
+      // hard dark disc under every building, which from overhead reads as a coin the structure is
+      // standing on — and it is not telling the player anything here anyway, since in this chapter
+      // EVERY structure is crushable. The rim still lands exactly on o.r; only its weight changes.
+      ov.ring.alpha = (chapterHasDistricts && STRUCTURE_SKINS[o.kind]?.topDown) ? 0.45 : 1
       ov.ring.scale.set(o.r / foot.ref)
       if (shape.baked) {
         // baked furniture: pick two pieces off the kind's list by position hash, plant the big
@@ -4175,29 +6570,47 @@ export function createRenderer(app) {
         const pick = (salt) => shape.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * shape.baked.length)]
         const a = T[pick(0)]
         const b = T[pick(11.3)]
-        // v5.9 top-down region overhaul (skies/chapterHasDistricts only): sized from PROP_SCALE
-        // [o.kind] (config.js), an ABSOLUTE px band independent of o.r — o.r (10-28px, CHAPTERS.
-        // skies.obstacles) and `kind` are independent hash rolls (sim.js streamObstacles), so the
-        // OLD formula (o.r * 1.9, one constant shared by every kind) could render a max-radius
-        // house bigger than a min-radius tower — the same size inversion this whole redesign exists
-        // to kill (see PROP_SCALE's doc, config.js), just never fixed on the obstacle side before
-        // now. The footprint ring above stays on o.r — that ring, not the furniture sprite, is the
-        // true crush-trigger contract (stepCrush, sim.js) — so the structure silhouette may now
-        // extend past it; that's an intentional "readable shape, honest hitbox drawn separately"
-        // split, not a bug (the ring already carries the "this is where it pops" cue on its own).
-        // Every OTHER chapter's baked obstacles (undergrowth/city/beyond) fall through to the
-        // untouched o.r formula below — chapterHasDistricts is skies-only, so they're bit-identical
-        // to before this change.
-        let scA, scB
-        if (chapterHasDistricts) {
-          const band = PROP_SCALE[o.kind] || PROP_SCALE.tower
-          const target = lerp(band[0], band[1], hash(o.x * 0.71 + o.y * 1.33 + 4.1))
-          scA = target / Math.max(a.tex.width, a.tex.height)
-          scB = (target * 0.55) / Math.max(b.tex.width, b.tex.height)
-        } else {
-          scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
-          scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
+        // v5.9.2 ("the fuck is this?" bug report): sized from o.r again, for EVERY chapter — no more
+        // chapterHasDistricts branch here. The v5.9 top-down region overhaul had this reading an
+        // ABSOLUTE px band off PROP_SCALE[o.kind] instead, independent of o.r; since o.r and `kind`
+        // were independent hash rolls (sim.js streamObstacles), a max-radius house could render
+        // bigger than a min-radius tower — visible structures overlapping while their colliders sat
+        // far apart, exactly the reported wall of blobs. The real fix is upstream: sim.js now rolls
+        // o.r itself from a per-kind band (config.js STRUCTURE_RADIUS), so drawing proportional to
+        // o.r here is enough to make a tower's silhouette genuinely bigger than a house's — no
+        // second, independent sizing system needed on the render side at all.
+        if (shape.topDown) {
+          // v5.10 (spec §5.1.3): a top-down PLAN is MASS-CENTRED, not base-anchored, and carries
+          // its own lot/yard detail plus its own cast shadow — so clumpB (the "second piece tucked
+          // at the rim" that made a heap out of two side-view props) is suppressed outright.
+          // Sized so the plan's CONTENT half-extent (SKR, the bake's own content radius) lands just
+          // past the collider rim: the T.obFoot ring, not the silhouette, is still the contract.
+          ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay)
+          ov.clumpA.tint = 0xffffff  // plans carry their OWN palette — see STRUCTURE_SKINS' comment
+          ov.clumpA.scale.set((o.r * SKIES_PLAN_SCALE) / (SKR * 2))
+          ov.clumpA.rotation = 0
+          ov.clumpA.position.set(0, 0)
+          ov.clumpB.texture = Texture.EMPTY
+          ov.clumpB.scale.set(1)
+          ov.tower = o.kind === 'tower'
+          ov.phase = hash(o.x * 0.37 + o.y * 1.11) * SKIES_LIGHT.aviation.period
+          if (ov.tower) {
+            // T.aviationLamp (v5.10.1: was T.dot, the same soft dot-plus-halo shared with kill-poofs
+            // and pickup sparkles — a beacon reads better as a tight hard bead than a "poof")
+            ov.lamp.texture = T.aviationLamp.tex
+            ov.lamp.anchor.set(T.aviationLamp.ax, T.aviationLamp.ay)
+            ov.lamp.tint = SKIES_LIGHT.aviation.color
+            ov.lamp.scale.set(SKIES_LIGHT.aviation.px / Math.max(T.aviationLamp.tex.width, T.aviationLamp.tex.height))
+            // the mast head, in plan coords, scaled the same way the plan was
+            const s = (o.r * SKIES_PLAN_SCALE) / (SKR * 2)
+            ov.lamp.position.set((36 - 8) * s, (-30 + 6 - SKIES_STRUCTURE_ART.tower.mastPx) * s)
+          } else {
+            ov.lamp.visible = false
+          }
+          continue
         }
+        const scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
+        const scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
         ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = skin.tint
         ov.clumpA.scale.set(scA); ov.clumpA.rotation = 0
         ov.clumpA.position.set(0, o.r * 0.28) // base planted just past centre, sitting on the pad
@@ -4206,14 +6619,11 @@ export function createRenderer(app) {
         ov.clumpB.position.set((hash(o.x + o.y * 5.1) - 0.5) * o.r * 0.85, o.r * 0.44) // tucked at the rim
       } else {
         // foliage mound: two stacked cluster sprites lifted into a crown, denser and darker than
-        // the single floor bush. The ring, not the foliage overhang, marks the true edge. Sized
-        // from PROP_SCALE.tree in skies (same reasoning as the baked branch above); every other
-        // chapter's clump obstacles (garden/pond's clusters, etc.) keep the untouched o.r*2.0
-        // formula — chapterHasDistricts is skies-only.
+        // the single floor bush. The ring, not the foliage overhang, marks the true edge. Sized from
+        // o.r again, for every chapter (see the baked branch's comment above for the full story of
+        // why the PROP_SCALE.tree-based branch this replaced was the bug, not a deliberate split).
         const tex = T.props[shape.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * shape.clumps.length)]]
-        const sc = chapterHasDistricts
-          ? lerp(PROP_SCALE.tree[0], PROP_SCALE.tree[1], hash(o.x * 0.71 + o.y * 1.33 + 4.1)) / 1024
-          : (o.r * 2.0) / 1024 // source props are 1024px; on-screen width ≈ collider diameter
+        const sc = (o.r * 2.0) / 1024 // source props are 1024px; on-screen width ≈ collider diameter
         ov.clumpA.texture = tex; ov.clumpA.anchor.set(0.5); ov.clumpA.tint = skin.tint
         ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot; ov.clumpA.position.set(0, -o.r * 0.10)
         ov.clumpB.texture = tex; ov.clumpB.anchor.set(0.5); ov.clumpB.tint = skin.tint
@@ -4821,74 +7231,132 @@ export function createRenderer(app) {
     }
   }
 
-  // Jet strafe telegraph (skies' fighter jets, v5.9.1): sim now fires a one-off {type:'strafeLock',
-  // x, y, angle, len} event the instant a jet's heading locks (stepStrafe, sim.js), then the jet
-  // HOLDS that position for STRAFE_TELEGRAPH_T before flying the pass at STRAFE_RUN_SPEED_MUL — see
-  // stepStrafe's own v5.9.1 comment for the playtest report this answers ("planes are not avoidable
-  // when they cross the screen"). Unlike every OTHER roster telegraph above (pounce/aerialStrike/
-  // lineCharge/pullBeam), this one is deliberately NOT read live off the enemy each frame — it's a
-  // fire-once event that sim already did the (spdMul/enrage-aware) length math for, so render just
-  // remembers x/y/angle/len in its own small pool for STRAFE_TELEGRAPH_T seconds rather than
-  // re-deriving `len` from live enemy fields (that math is sim's business, not render's — see
-  // stepStrafe's comment for exactly what it folds in).
-  // Drawn electric-blue (LIGHTNING.telegraph — the SAME re-skin skies' own bomb telegraphs already
-  // wear, redrawBombs below) rather than the generic amber every other chapter's roster telegraph
-  // above uses: a fighter jet's strafing run is a sky/storm hazard, and electric is already this
-  // chapter's established "the storm is attacking you" cue. The shape itself is still lineCharge's
-  // band-and-chevrons lane (this section's own header comment: "run you down in a straight line" is
-  // exactly what a strafing jet does too) — same grammar, this chapter's own colour.
+  // ---- 6. JET STRAFE (spec §3, jet row) --------------------------------------------------------
+  // sim fires a one-off {type:'strafeLock', x, y, angle, len} the instant a jet's heading locks
+  // (stepStrafe), then the jet HOLDS for STRAFE_TELEGRAPH_T before flying the pass at
+  // STRAFE_RUN_SPEED_MUL. render remembers x/y/angle/len in its own small pool rather than
+  // re-deriving `len` from live enemy fields (that math is sim's, spdMul/enrage and all).
+  //
+  // v5.10 — KILL LIST §8.1 AND §8.2, the literal bug in the user's report. This drew in
+  // LIGHTNING.telegraph, i.e. the SAME electric blue as the bomb telegraph ("the dash telegraph for
+  // planes is the same colour as everything"), using lineCharge's filled band-and-chevrons lane,
+  // i.e. the same SHAPE as the city chapter's robot vacuum. Both are gone. The jet is now:
+  //   colour — halogen white + tracer ORANGE, which appears nowhere else in any chapter;
+  //   shape  — two HAIRLINE RAILS at the exact contact half-width and NO FILL AT ALL, plus a long
+  //            narrow additive light ellipse riding between them. Zero brackets, zero chevrons,
+  //            zero circles;
+  //   motion — the only threat whose DAMAGE POINT TRANSLATES ACROSS THE SCREEN.
+  // ARRIVAL CLOCK: the halogen pool races down the lane and arrives at the jet on the frame the run
+  // begins. The damage itself is then a STITCH — paired orange dashes walking the lane at the run
+  // speed, each popping a grit puff and a scorch tick.
   const MAX_STRAFE_LOCKS = 10 // generous headroom: the telegraph is a ~0.5s slice of a ~2.8s bank->
                                // telegraph->run cycle, so only a fraction of alive jets lock at once
   const strafeLocks = []
-  for (let i = 0; i < MAX_STRAFE_LOCKS; i++) strafeLocks.push({ live: false, x: 0, y: 0, angle: 0, len: 0, t: 0 })
+  const strafePools = []
+  for (let i = 0; i < MAX_STRAFE_LOCKS; i++) {
+    strafeLocks.push({ live: false, x: 0, y: 0, angle: 0, len: 0, t: 0, stitch: 0 })
+    const s = new Sprite(Texture.EMPTY); s.anchor.set(0.5); s.visible = false
+    strafePoolLayer.addChild(s); strafePools.push(s)
+  }
   let strafeLockCursor = 0
   function spawnStrafeLock(x, y, angle, len) {
     const sp = strafeLocks[strafeLockCursor]
     strafeLockCursor = (strafeLockCursor + 1) % MAX_STRAFE_LOCKS
-    sp.live = true; sp.x = x; sp.y = y; sp.angle = angle; sp.len = len; sp.t = 0
+    sp.live = true; sp.x = x; sp.y = y; sp.angle = angle; sp.len = len; sp.t = 0; sp.stitch = 0
   }
   // Advances every live lock's own clock AND draws it, straight into teleG — called right after
   // redrawTelegraphs (which already cleared+filled teleG this frame, see sync()), so this only ever
-  // ADDS to it, never re-clears. dt=0 (paused/frozen behind a modal) holds the telegraph exactly
-  // where it was, same freeze contract as every other render-local timer in this file.
+  // ADDS to it, never re-clears. dt=0 (paused/frozen behind a modal) holds it exactly where it was.
   function updateStrafeLocks(dt) {
-    // half-width = the EXACT contact corridor (PLAYER.radius + jet radius, stepContactDamage in
-    // sim.js) — jet is archetype 'fast' = ENEMIES.wisp, so this is the same width that will actually
-    // hit, not a padded "safety" guess.
-    const hw = PLAYER.radius + ENEMIES.wisp.radius
-    const t = LIGHTNING.telegraph
-    for (const sp of strafeLocks) {
-      if (!sp.live) continue
+    // (SKIES_FX.strafe.laneLen is the DERIVED length of a nominal pass; the drawer uses sp.len,
+    // the length sim actually committed to for THIS jet — spdMul and enrage folded in. The config
+    // value stays as the documented reference the lane was designed against.)
+    const F = SKIES_FX.strafe
+    const total = F.telegraphT + F.runT
+    for (let i = 0; i < strafeLocks.length; i++) {
+      const sp = strafeLocks[i]
+      const poolS = strafePools[i]
+      if (!sp.live) { poolS.visible = false; continue }
       if (dt > 0) sp.t += dt
-      if (sp.t >= STRAFE_TELEGRAPH_T) { sp.live = false; continue }
-      const urgency = Math.min(1, sp.t / STRAFE_TELEGRAPH_T)
-      const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
-      const flicker = 0.7 + 0.3 * Math.random() // electric crackle, same as redrawBombs' skies reskin
+      if (sp.t >= total) { sp.live = false; poolS.visible = false; continue }
       const cos = Math.cos(sp.angle), sin = Math.sin(sp.angle)
-      const flat = []
-      for (const [lx, ly] of [[0, -hw], [sp.len, -hw], [sp.len, hw], [0, hw]]) {
-        flat.push(sp.x + lx * cos - ly * sin, sp.y + lx * sin + ly * cos)
-      }
-      const fillA = Math.min(t.maxFillA, t.baseFillA + urgency * 0.16 + pulse * 0.05)
-      const rimA = Math.min(1, (t.baseRimA + urgency * 0.35 + pulse * 0.1) * flicker)
-      teleG.poly(flat).fill({ color: t.color, alpha: fillA })
-      teleG.poly(flat).stroke({ width: 2 + urgency * 2, color: t.color, alpha: rimA })
-      // chevrons pointing downstream — lineCharge's "which way" cue above, re-tinted electric
-      const n = 4
-      for (let k = 0; k < n; k++) {
-        const d = ((k + 0.5) / n) * sp.len
-        const tipX = sp.x + d * cos, tipY = sp.y + d * sin
-        const back = hw * 0.5
-        teleG.beginPath()
+      const nx = -sin * F.halfW, ny = cos * F.halfW
+      const telegraphing = sp.t < F.telegraphT
+      const k = telegraphing ? sp.t / F.telegraphT : (sp.t - F.telegraphT) / F.runT
+      const far = farFromPlayer(sp.x, sp.y)
+      // the two HAIRLINE RAILS, at the true contact corridor (PLAYER.radius + the jet's own radius,
+      // which is what stepContactDamage actually tests) — what you see is exactly what hits you
+      if (!far) {
         for (const s of [-1, 1]) {
-          teleG.moveTo(tipX - cos * back - sin * s * hw * 0.6, tipY - sin * back + cos * s * hw * 0.6)
-          teleG.lineTo(tipX, tipY)
+          if (jamDrop()) continue
+          inkStroke(teleG, () => {
+            teleG.moveTo(sp.x + nx * s, sp.y + ny * s)
+            teleG.lineTo(sp.x + cos * sp.len + nx * s, sp.y + sin * sp.len + ny * s)
+          }, F.railW, F.railColor, jamAlpha(F.railAlpha * (telegraphing ? 0.5 + 0.5 * k : 1)))
         }
-        teleG.stroke({ width: 2.5, color: t.coreColor, alpha: (0.3 + urgency * 0.35) * flicker })
+      }
+      if (telegraphing) {
+        // ARRIVAL CLOCK: the halogen landing-light pool races from the far end of the lane back to
+        // the jet, arriving on the frame the run begins. Additive — a light on wet asphalt.
+        const d = sp.len * (1 - k)
+        poolS.visible = true
+        if (poolS.texture !== T.landingPool) poolS.texture = T.landingPool
+        poolS.tint = F.poolColor
+        poolS.alpha = lerp(F.poolAlphaMin, F.poolAlphaMax, k)
+        poolS.rotation = sp.angle
+        // v5.10.1: this used to hardcode the height as `F.halfW * 2` — unrelated to `F.poolAspect`
+        // (the config value the spec's "long : narrow, 1 : 0.22" jet-row language actually names) and
+        // fatter than the baked texture's own aspect (112/512 = 0.22): the pool rendered at ~1:0.37, a
+        // dead config key contradicted by the number actually drawn. Deriving height from poolAspect
+        // keeps the drawn shape, the baked texture and the documented value all in agreement.
+        const poolLen = F.halfW * 5.4
+        poolS.scale.set(poolLen / T.landingPool.width, (poolLen * F.poolAspect) / T.landingPool.height)
+        poolS.position.set(sp.x + cos * d, sp.y + sin * d)
+        // the jet's own nav lights, port red / starboard green — two 2px dots, the smallest
+        // possible "that is an aircraft" cue and the only red allowed near a telegraph
+        teleG.circle(sp.x + nx * 0.55, sp.y + ny * 0.55, 2).fill({ color: F.navRed, alpha: jamAlpha(0.85) })
+        teleG.circle(sp.x - nx * 0.55, sp.y - ny * 0.55, 2).fill({ color: F.navGreen, alpha: jamAlpha(0.85) })
+      } else {
+        // THE STITCH: paired orange tracer dashes walking the lane at the run speed. This is the
+        // damage, travelling — the one thing no other threat in the chapter does.
+        poolS.visible = false
+        const head = sp.len * k
+        for (let d = head % F.dashPitch; d < head; d += F.dashPitch) {
+          const bx = sp.x + cos * d, by = sp.y + sin * d
+          for (const s of [-1, 1]) {
+            teleG.moveTo(bx + nx * s * 0.6 - cos * F.dashLen * 0.5, by + ny * s * 0.6 - sin * F.dashLen * 0.5)
+            teleG.lineTo(bx + nx * s * 0.6 + cos * F.dashLen * 0.5, by + ny * s * 0.6 + sin * F.dashLen * 0.5)
+          }
+        }
+        teleG.stroke({ width: F.dashW + 2.5, color: SKIES_INK.color, alpha: SKIES_INK.alpha })
+        for (let d = head % F.dashPitch; d < head; d += F.dashPitch) {
+          const bx = sp.x + cos * d, by = sp.y + sin * d
+          for (const s of [-1, 1]) {
+            teleG.moveTo(bx + nx * s * 0.6 - cos * F.dashLen * 0.5, by + ny * s * 0.6 - sin * F.dashLen * 0.5)
+            teleG.lineTo(bx + nx * s * 0.6 + cos * F.dashLen * 0.5, by + ny * s * 0.6 + sin * F.dashLen * 0.5)
+          }
+        }
+        teleG.stroke({ width: F.dashW, color: F.tracer, alpha: 0.95, cap: 'butt' })
+        teleG.circle(sp.x + cos * head, sp.y + sin * head, 3).fill({ color: F.tracerCore, alpha: 0.9 })
+        // each newly-walked dash pops a grit puff and a scorch tick where it struck
+        if (dt > 0) {
+          sp.stitch += (sp.len / F.runT) * dt
+          while (sp.stitch >= F.dashPitch) {
+            sp.stitch -= F.dashPitch
+            const d = sp.len * k
+            const px2 = sp.x + cos * d, py2 = sp.y + sin * d
+            spawnParticle(T.gritPuff, px2, py2, (Math.random() - 0.5) * 60, (Math.random() - 0.5) * 60,
+              0.3, F.gritPx / 32, F.gritColor, 0.4, 3)
+            spawnParticle(T.scorchTick.tex, px2, py2, 0, 0, 0.55, F.scorchPx / 6, 0x1a1712, 0, 0)
+          }
+        }
       }
     }
   }
-  function clearStrafeLocks() { for (const sp of strafeLocks) sp.live = false }
+  function clearStrafeLocks() {
+    for (const sp of strafeLocks) sp.live = false
+    for (const s of strafePools) s.visible = false
+  }
 
   // Debris Toss lobs (run.lobs): the sim only tracks t counting UP to flight — THE ARC IS RENDER'S.
   // Ground position lerps (fromX,fromY) -> (tx,ty); the chunk lifts off it by a parabola peaking at
@@ -5414,6 +7882,15 @@ export function createRenderer(app) {
   let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
   let lightningAmbientT = LIGHTNING.ambient.minInterval // s until the next ambient flash/bolt (skies only)
   let prevSkiesBombs = new Set() // last frame's run.bombs objects (skies only) — see handleEvents
+  let prevSkiesShots = new Set() // ditto for run.enemyShots — tells a missile that IMPACTED from one
+                                 // that merely fizzled, without a sim change (spec §1.1's problem,
+                                 // solved render-side by object-identity diffing)
+  let flashCooldown = 0          // s left in the full-field flash budget (spec §1.3)
+  let jamT = 0                   // rampage telegraph-jamming strength, 1 while rampaging then
+                                 // decaying over SKIES_JAM.recoverT so the picture RE-ACQUIRES
+  let jamSnapT = 0               // lock-diamond re-snap cadence
+  let rampWaveR = -1             // radius of the alert-red flip wave rolling out from the player
+  let rampBeatT = 0              // heartbeat-ring accumulator
   // v5.8 kaiju redesign: last frame's run.rampageT, render-local memory only — NEVER written back
   // to run (render must not mutate it). RAMPAGE's trigger is a LEVEL (rampageT jumps 0 ->
   // RAMPAGE_DURATION in one frame, sim.js stepRampage), not an event, so it's detected the same way
@@ -5493,36 +7970,12 @@ export function createRenderer(app) {
     spawnRing(x, y, radius, 0.35)
   }
 
-  // Crush collapse (v5.8 kaiju redesign, skies only — sim.js's stepCrush, {type:'crush',x,y,kind}):
-  // a structure just got destroyed outright, so this sells two beats with the same pool of
-  // particles explosionBurst already uses. Reuses ONLY the two Kenney textures the task called for
-  // (circle_05, scorch_01) — no new fx assets — but toned concrete-grey instead of fire-orange, and
-  // slower/heavier than a detonation: this is a building settling, not something igniting.
-  //   1. dust + a ground-level collapse flash (circle_05 puffs + one scorch_01 pop)
-  //   2. "there were people in there" (design doc §4): a handful of tiny dark dots scatter radially
-  //      and fade. Pure render particles — no run.civilians array, no steering, no collision, reuses
-  //      T.dot (the same soft dot kill-poof/pickup sparkle already use) tinted near-black and drawn
-  //      small. This is cosmetic only; rev.1's civilian-ENTITY layer was cut for good reasons (see
-  //      RAMPAGE_GAIN's neighbourhood in config.js) and none of them apply to particles with no sim
-  //      state to leak.
-  function crushBurst(x, y) {
-    const n = 6 + (Math.random() * 3 | 0) // 6-8 dust puffs
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2
-      const sp = 20 + Math.random() * 55
-      spawnParticle(T.fx.circle_05, x, y, Math.cos(a) * sp, Math.sin(a) * sp - 10,
-        0.5 + Math.random() * 0.3, 0.22 + Math.random() * 0.16, 0xc9c2b0, 0.5, 1.4)
-    }
-    spawnParticle(T.fx.scorch_01, x, y, 0, 0, 0.3, 0.045, 0xb8b0a0, 0.9, 0) // collapse flash, concrete-grey
-    const people = 3 + (Math.random() * 3 | 0) // 3-5 fleeing figures
-    for (let i = 0; i < people; i++) {
-      const a = Math.random() * Math.PI * 2
-      const sp = 70 + Math.random() * 90
-      spawnParticle(T.dot.tex, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
-        0.45 + Math.random() * 0.25, 0.14 + Math.random() * 0.06, 0x2a2620, -0.05, 2.2)
-    }
-    addShake(1.2, 0.07) // light — crush events can fire several times a second mid-rampage
-  }
+  // Crush collapse (skies only — sim.js's stepCrush, {type:'crush',x,y,kind}). v5.10 replaced this
+  // outright: see skiesCrush above for the shard/dust/ruin treatment and kill list §8.4 for what it
+  // reused (T.fx.circle_05 + T.fx.scorch_01 + T.dot — the same two Kenney textures explosionBurst
+  // uses, just tinted grey, plus the same soft dot as kill-poofs and pickup sparkles). The "fleeing
+  // figures" dots are gone too (spec §11: the lights-going-out beat carries the same implication
+  // better and abstractly).
 
   function beamSparkle(x, y) {
     for (let i = 0; i < 8; i++) {
@@ -5632,17 +8085,20 @@ export function createRenderer(app) {
     return pts
   }
 
-  // A REAL bombardment/artillery strike landing (skies only) — see handleEvents' 'explode' case.
-  // Bolt via the shock-arc pool (LIGHTNING.strikeBolt look) + the full-field flash at strike
-  // intensity.
-  function strikeLightning(x, y) {
-    const b = LIGHTNING.strikeBolt
-    spawnArc(lightningBoltPath(x, y, b.dropPx, b.segments, b.jitterPx), b.glowColor, b.color, b.dur, b.width, b.alpha)
-    triggerLightningFlash(LIGHTNING.flash.strikeAlpha)
-  }
+  // v5.10: the single strikeLightning() drawer that served BOTH the tank shell and the sky strike
+  // is gone — that shared drawer is kill-list §8.3 in its purest form. See artilleryDetonation and
+  // skyDetonation, which share nothing but the screen shake.
 
+  // v5.10 (spec §1.3): the photosensitivity budget is CENTRAL, not per-effect —
+  // LIGHTNING.flash.strikeAlpha is 0.55 and a late-run barrage lands several strikes a second. A
+  // flash inside the cooldown window is ADMITTED at a fraction of its requested alpha rather than
+  // dropped (a strike you cannot see is worse than a dim one). The paired rule lives in syncPlayer:
+  // the rampage screen bloom is forced to 0 on any frame where the flash is up, so the two never
+  // co-render. flashCooldown is drained in sync().
   function triggerLightningFlash(alpha) {
+    if (flashCooldown > 0) { lightningFlashA = Math.max(lightningFlashA, alpha * SKIES_FLASH.suppressedMul); return }
     lightningFlashA = Math.max(lightningFlashA, alpha)
+    flashCooldown = SKIES_FLASH.minGap
   }
 
   // Ambient cosmetic lightning (skies only, called from updateStorm): occasional flash + a
@@ -5684,13 +8140,22 @@ export function createRenderer(app) {
     // tells us exactly which bombs just went off — zero sim reads beyond the array itself, and no
     // change to run.bombs' shape or timing.
     let justStruck = null
+    let justFizzled = null
     if (chapterHasStorm) {
       const curBombs = new Set(run.bombs)
       justStruck = []
       for (const b of prevSkiesBombs) if (!curBombs.has(b)) justStruck.push(b)
       prevSkiesBombs = curBombs
-    } else if (prevSkiesBombs.size) {
+      // same trick for run.enemyShots: a missile that IMPACTED emits an explode event this frame
+      // and is gone from the array, which is how the magenta impact drawer knows it is a missile
+      // and not a weapon nova that happened to land on the same pixel
+      const curShots = new Set(run.enemyShots || [])
+      justFizzled = []
+      for (const sh of prevSkiesShots) if (!curShots.has(sh)) justFizzled.push(sh)
+      prevSkiesShots = curShots
+    } else if (prevSkiesBombs.size || prevSkiesShots.size) {
       prevSkiesBombs = new Set() // left skies mid-flight (e.g. a run ended) — drop stale refs
+      prevSkiesShots = new Set()
     }
 
     // v5.8 kaiju redesign: RAMPAGE activating is a level, not an event (sim.js stepRampage jumps
@@ -5709,13 +8174,15 @@ export function createRenderer(app) {
         case 'kill':
           killPoof(e.x, e.y, e.etype, e.elite)
           break
-        case 'crush':
-          // v5.8 kaiju redesign (skies only): a structure just got destroyed outright — see
-          // crushBurst's doc. e.kind (STRUCTURE_KINDS) isn't read here; the collapse reads the
-          // same regardless of which structure kind popped, keeping this cheap under a rampage
-          // sweep that can fire it several times a second.
-          crushBurst(e.x, e.y)
+        case 'crush': {
+          // v5.10: e.kind IS read now — it is the point. Brick does not fall like grain and neither
+          // falls like a pier into water (SKIES_FX.crush.byKind), and the site keeps a kind-specific
+          // baked RUIN afterwards: the only thing in the chapter that records what you did.
+          const cr = radiusAtCrush(e.x, e.y)
+          skiesCrush(e.x, e.y, e.kind)
+          ledgerAdd(e.x, e.y, e.kind, cr)
           break
+        }
         case 'hurt':
           addShake(6, 0.25)
           vignetteA = 0.6
@@ -5776,18 +8243,33 @@ export function createRenderer(app) {
           spawnStrafeLock(e.x, e.y, e.angle, e.len)
           break
         case 'explode': {
-          // A bomb detonation in skies reads as lightning (see justStruck above); every other
-          // explosion source (weapon lobs/novas, mines, geysers, snap traps, other chapters'
-          // bombs...) keeps the original scorch-and-shrapnel burst untouched.
+          // v5.10.1: THREE separate detonation drawers in skies, not one re-tinted burst. Which one
+          // is decided by object identity, not by guessing from timing: justStruck holds the
+          // run.bombs entries that vanished this frame (with `src` still on them, set explicitly by
+          // sim.js — see bombSrc), and justFizzled holds the run.enemyShots that vanished. Volatile
+          // used to fall through the `else` here straight into skyDetonation (a dead elite reading as
+          // a lightning strike) — now it gets its own branch and its own drawer.
           const struckIdx = justStruck
             ? justStruck.findIndex((b) => b.x === e.x && b.y === e.y && b.radius === e.radius)
             : -1
           if (struckIdx >= 0) {
+            const b = justStruck[struckIdx]
             justStruck.splice(struckIdx, 1)
-            strikeLightning(e.x, e.y)
-          } else {
-            explosionBurst(e.x, e.y, e.radius)
+            const bsrc = bombSrc(b)
+            if (bsrc === 'gun') artilleryDetonation(e.x, e.y, e.radius)
+            else if (bsrc === 'volatile') volatileDetonation(e.x, e.y, e.radius)
+            else skyDetonation(e.x, e.y, e.radius)
+            break                                   // all three drawers set their own shake
           }
+          const fizzIdx = justFizzled
+            ? justFizzled.findIndex((sh) => Math.abs(sh.x - e.x) < 1.5 && Math.abs(sh.y - e.y) < 1.5)
+            : -1
+          if (fizzIdx >= 0) {
+            justFizzled.splice(fizzIdx, 1)
+            missileImpact(e.x, e.y)                  // magenta star + black soot ring, NOT
+            break                                    // explosionBurst's orange spark_04 (§8.5)
+          }
+          explosionBurst(e.x, e.y, e.radius)
           addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
           break
         }
@@ -5889,6 +8371,23 @@ export function createRenderer(app) {
     clearStrafeLocks()
     clearCurrents()
     clearStorm()
+    clearSkiesBombs()
+    clearSearchlights()
+    clearScars()
+    clearRampage()
+    clearSmoke()
+    crushLedger.clear()
+    districtMemo.clear()
+    lightLayer.visible = false
+    lightLayer.alpha = 1
+    for (const s of ruinSprites) s.visible = false
+    for (const s of junctionSprites) s.visible = false
+    for (const s of lampMasts) s.visible = false
+    for (const s of lampPools) s.visible = false
+    prevSkiesShots = new Set()
+    flashCooldown = 0
+    klaxonT = 0
+    jamSnapT = 0
     clearParticles()
     clearRings()
     clearArcs()
@@ -5939,13 +8438,20 @@ export function createRenderer(app) {
     // the storm overlay and lightning flash already own full-field white (see LIGHTNING.flash), so
     // this stays a warm, player-local halo instead of competing for the same visual register.
     if (rampageT > 0) {
-      if (pRampageGlow.texture !== T.fx.circle_05) pRampageGlow.texture = T.fx.circle_05
+      // T.rampageBloom (v5.10.1: was the bare Kenney T.fx.circle_05 — the same particle geyser
+      // bubbles, conduct arcs and traffic exhaust all reuse verbatim; the chapter's largest sustained
+      // effect gets its own hand-authored bake instead of sharing that literal asset).
+      if (pRampageGlow.texture !== T.rampageBloom) pRampageGlow.texture = T.rampageBloom
       const frac = Math.min(1, rampageT / RAMPAGE_DURATION)
       const pulse = 0.75 + 0.25 * Math.sin(animT * 10)
       pRampageGlow.visible = true
-      pRampageGlow.tint = 0xff6a3d
-      pRampageGlow.alpha = 0.55 * frac * pulse
-      pRampageGlow.scale.set(fxScale(T.fx.circle_05, PLAYER.radius * (2.6 + 0.3 * pulse)))
+      // v5.10 palette law 2: ATOMIC CYAN-GREEN IS THE PLAYER AND IS NEVER A THREAT. The old warm
+      // orange sat directly on artillery's fireball; cyan is now yours alone, learned in one run.
+      pRampageGlow.tint = SKIES_FX.rampage.bloom
+      // spec §1.3's paired rule: the full-field flash and the rampage bloom NEVER co-render
+      const suppressed = lightningFlashA > SKIES_FLASH.bloomCutoff
+      pRampageGlow.alpha = suppressed ? 0 : 0.55 * frac * pulse
+      pRampageGlow.scale.set(fxScale(T.rampageBloom, PLAYER.radius * (2.6 + 0.3 * pulse)))
     } else {
       pRampageGlow.visible = false
     }
@@ -6079,35 +8585,28 @@ export function createRenderer(app) {
   // Volatile bomb telegraphs (run.bombs): danger circles under enemies/player, urgency
   // (fill alpha, rim strength, pulse rate) ramping up as fuse -> 0. One shared Graphics
   // cleared/redrawn per frame, same pattern as arcG/redrawArcs above.
-  // v5.7.2: skies re-skins this as an incoming-strike reticle (LIGHTNING.telegraph) — same
-  // fill+rim shape and urgency math, just electric-colored, plus a core ring that COLLAPSES
-  // toward the strike point as the fuse burns down instead of just pulsing in place, and a fast
-  // irregular flicker on the rim so it visibly "charges" rather than breathes. Every other
-  // chapter's bombs (this same array — volatile elites, body/pond/etc.) keep the plain red
-  // circle exactly as before; the detonation bolt+flash itself is event-driven, see
-  // handleEvents' 'explode' case / strikeLightning above.
+  // v5.10 (kill list §8.3): this drew artillery and sky bombardment IDENTICALLY, because run.bombs
+  // carried no discriminator — one drawer, one colour, two completely different threats.
+  // v5.10.1: they now go through three SEPARATE drawers (drawSkiesBombs above), and the source is
+  // an explicit `b.src` stamped by sim at the push site (sim.js:581/1589/1826), NOT inferred from
+  // `duration` as the first pass did. That inference is why volatile-elite corpses used to fall
+  // through to the red circle below AND detonate as the sky's signature bolt — an elite's death was
+  // indistinguishable from a lightning strike, in the one chapter built around telling the sky apart
+  // from the guns. Only bombs with no `src` at all — i.e. every OTHER chapter's — reach the red
+  // circle now; in skies, all three sources are claimed by drawSkiesBombs.
   function redrawBombs(run) {
     bombG.clear()
-    const skies = chapterHasStorm
     for (const b of run.bombs || []) {
+      if (bombSrc(b) !== null) continue
       const urgency = b.duration > 0 ? 1 - b.fuse / b.duration : 1
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 16))
-      if (skies) {
-        const t = LIGHTNING.telegraph
-        const flicker = 0.7 + 0.3 * Math.random() // electric crackle on top of the smooth pulse
-        const fillA = Math.min(t.maxFillA, t.baseFillA + urgency * 0.16 + pulse * 0.05)
-        const rimA = Math.min(1, (t.baseRimA + urgency * 0.35 + pulse * 0.1) * flicker)
-        bombG.circle(b.x, b.y, b.radius).fill({ color: t.color, alpha: fillA })
-        bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color: t.color, alpha: rimA })
-        const core = Math.max(3, b.radius * (1 - urgency)) // collapses to a point as urgency -> 1
-        bombG.circle(b.x, b.y, core).stroke({ width: 2, color: t.coreColor, alpha: 0.4 + pulse * 0.35 })
-        continue
-      }
       const fillA = Math.min(0.32, 0.12 + urgency * 0.14 + pulse * 0.04)
       const rimA = Math.min(1, 0.55 + urgency * 0.35 + pulse * 0.1)
       bombG.circle(b.x, b.y, b.radius).fill({ color: 0xff6b81, alpha: fillA })
       bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color: 0xff6b81, alpha: rimA })
     }
+    if (chapterHasStorm) drawSkiesBombs(run)
+    else clearSkiesBombs()
   }
 
   function syncEnemies(run) {
@@ -6352,6 +8851,12 @@ export function createRenderer(app) {
     const cy = app.screen.height / 2 - run.player.y + shake.oy
     world.position.set(cx, cy)
     updateFloorLayer(cx, cy)
+    // v5.10 skies ground/light enumeration (spec §4.3/§4.4/§7): junctions, kerb lamps and crush
+    // ruins are placed ANALYTICALLY from the latched road grid + the render-local crush ledger,
+    // not by an extra FLOOR_LAYERS sweep — see latchRoadOrigin's comment for why.
+    updateJunctions(cx, cy)
+    updateLamps(cx, cy)
+    updateRuins(cx, cy)
 
     // red vignette flash — keeps fading behind frozen modals/summary (dt=0)
     vignetteA = Math.max(0, vignetteA - (dt > 0 ? dt : 1 / 60) * 2.6)
@@ -6360,6 +8865,12 @@ export function createRenderer(app) {
     // full-field lightning flash (skies) — same "keeps fading at dt=0" treatment as the vignette
     lightningFlashA = Math.max(0, lightningFlashA - (dt > 0 ? dt : 1 / 60) / LIGHTNING.flash.fadeDur)
     lightningFlash.alpha = lightningFlashA
+    if (dt > 0) flashCooldown = Math.max(0, flashCooldown - dt)   // the photosensitivity budget
+    // LIGHTNING REVEAL (spec §7.3): while the flash is up, the whole light layer brightens, so a
+    // bolt momentarily reveals every structure silhouette and every cast shadow in view. One alpha
+    // channel, free drama.
+    lightLayer.visible = chapterHasStorm
+    lightLayer.alpha = 1 + SKIES_LIGHT.reveal.gain * lightningFlashA
 
     syncObstacles(run)
     syncWells(run)
@@ -6377,6 +8888,14 @@ export function createRenderer(app) {
     redrawHazards(run)
     redrawTelegraphs(run)
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
+    if (chapterHasStorm) {
+      drawMissileLocks(run)          // also draws into teleG
+      updateMissileTrails(run, dt)
+      updateSearchlights(run, dt)
+      updateAviationLamps()
+      updateScars(dt)
+    }
+    updateRampage(run, dt)           // clears rampG itself; no-ops (and decays the jamming) elsewhere
     syncCars(run)
     syncLobs(run)
 
@@ -6399,6 +8918,7 @@ export function createRenderer(app) {
     updateClaws(dt)
     updateRoars(dt)
     updateParticles(dt)
+    updateSmoke(dt)   // the second, separately-capped pool (missile ribbon, crush dust, clods)
     updateRings(dt)
     updateDamage(dt)
     updateDustMotes(dt)
@@ -6477,6 +8997,16 @@ export function createRenderer(app) {
     s.position.set(sh.x, sh.y)
     s.tint = 0xffffff
     s.rotation = Math.atan2(sh.vy, sh.vx)
+    // v5.10 skies: a hard finned DART, not the generic soft missile glyph — this is the only
+    // travelling physical projectile in the game and it carries the chapter's signal magenta. Its
+    // corkscrew smoke ribbon is emitted by updateMissileTrails on the separate smoke pool, so the
+    // grey circle_05 puff below (every other chapter's enemy shot) is skipped here.
+    if (chapterHasStorm) {
+      if (s.texture !== T.missileDart.tex) { s.texture = T.missileDart.tex; s.anchor.set(T.missileDart.ax, T.missileDart.ay) }
+      s.scale.set(1.15)
+      return
+    }
+    if (s.texture !== T.missile.tex) { s.texture = T.missile.tex; s.anchor.set(T.missile.ax, T.missile.ay) }
     s.scale.set(1)
     if (shotTimers[i] === undefined) shotTimers[i] = 0
     if (frameDt > 0) {
@@ -6613,6 +9143,9 @@ export function createRenderer(app) {
     // render-relevant, so it lives next to `crush`/`obstacles`, not inside the render-only block.
     chapterHasRoads = !!cfg?.roads
     roadSeed = run?._obstacleSeed ?? 0
+    // v5.10: recover the per-seed road grid origin ONCE per run, before anything that enumerates
+    // off it (junctions, kerb lamps, parked-car alignment) can run — see latchRoadOrigin.
+    latchRoadOrigin()
     // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body
@@ -6626,7 +9159,13 @@ export function createRenderer(app) {
       const cx = app.screen.width / 2 - run.player.x
       const cy = app.screen.height / 2 - run.player.y
       world.position.set(cx, cy)
+      playerX = run.player.x
+      playerY = run.player.y
       updateFloorLayer(cx, cy)
+      updateJunctions(cx, cy)
+      updateLamps(cx, cy)
+      lightLayer.visible = chapterHasStorm
+      lightLayer.alpha = 1
       syncPlayer(run.player, 0)
     } else {
       entitiesLayer.visible = false

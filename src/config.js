@@ -1350,7 +1350,13 @@ export const CHAPTERS = {
     // any higher than the ~38 needed to reach 1.0 buys nothing further — most other chapters'
     // fields are already at or past this same saturation point at their own `count`, e.g. city and
     // undergrowth; skies just used to sit under it.)
-    obstacles: { count: 40, minR: 10, maxR: 28, minDist: 160, cell: 260 }, // buildings — small, dense, crushable
+    // v5.9.2: minR/maxR 10/28 -> 8/32 — no longer the band every structure rolls from (see
+    // STRUCTURE_RADIUS, below the STRUCTURE_KINDS section). Every kind now has its OWN band there;
+    // these two fields are kept only as the overall [min, max] across all of them, for
+    // test/sim-test.js's run CC.c3 (reads .minR directly to size a synthetic structure) and as
+    // streamObstacles' conservative worst-case radius for position-jitter slack before a cell's
+    // kind is known (see that function's comment) — not as a roll range in their own right anymore.
+    obstacles: { count: 40, minR: 8, maxR: 32, minDist: 160, cell: 260 }, // buildings — small, dense, crushable; per-kind sizing in STRUCTURE_RADIUS
     // crush (v5.8 kaiju redesign): gates BOTH halves of the new mechanic in sim.js — stepObstacles
     // skips the player-push loop for this chapter's obstacles (they're crushable, not terrain, for
     // the player only; enemies still collide with them normally) and stepCrush destroys any
@@ -1502,9 +1508,19 @@ export const LIGHTNING = {
   // Telegraph re-skin (render.js redrawBombs, skies only): same fill-then-stroke circle as the
   // default red bomb telegraph, just electric-colored, plus a core ring that COLLAPSES toward the
   // strike point as the fuse burns down (a converging target, not a swelling one).
+  // v5.10 (art direction spec §2 palette law 3 + §8 kill-list item 12): these two colours were
+  // ELECTRIC ICE-BLUE (0x8fd8ff / 0xeaf9ff) and that exact pair is what render.js also reached for
+  // when it drew the JET STRAFE lane (updateStrafeLocks) — "the dash telegraph for planes is the
+  // same colour as everything" in the user's report, literally true and traceable to this object.
+  // Ice blue-white is now reserved for SEARCHLIGHT LIGHT ONLY (SKIES_LIGHT.cone below); the sky's
+  // own strike goes VIOLET, which nothing else in the chapter wears. Values are the spec's
+  // (SKIES_FX.sky mirrors them for the new descent-vector drawer, which is the drawer that should
+  // survive — this object is kept ONLY so the existing circle telegraph's alpha ramp keeps working
+  // until that drawer lands, and must end up referenced by exactly ONE drawer, per the spec's §9
+  // grep audit). Render-only, skies-only: no other chapter reads LIGHTNING at all.
   telegraph: {
-    color: 0x8fd8ff,     // electric ice-blue — the danger-zone cue; reads on the dark storm floor
-    coreColor: 0xeaf9ff, // near-white — the collapsing "about to crack" core ring
+    color: 0xc8b4ff,     // violet descent/impact colour — the sky is firing, and only the sky is violet
+    coreColor: 0xffffff, // the collapsing "about to crack" core ring, now pure white (spec: brackets/core)
     baseFillA: 0.12,
     maxFillA: 0.32,
     baseRimA: 0.55,
@@ -1517,8 +1533,9 @@ export const LIGHTNING = {
     segments: 7,          // anchor points along the drop — the big zigzag's jaggedness
     jitterPx: 50,         // max lateral wobble per anchor, tapering to 0 at the strike point
     width: 11,            // glow-stroke width (the core stroke is a fixed fraction of this)
-    color: 0xf4fbff,      // near-white core stroke
-    glowColor: 0x8fd8ff,  // electric-blue glow stroke, matches the telegraph color
+    color: 0xf4fbff,      // near-white core stroke (unchanged — the spec's bolt core is this exact value)
+    glowColor: 0xb79bff,  // v5.10: was 0x8fd8ff (ice blue). Violet glow, matching the telegraph above
+                          // and SKIES_FX.sky.boltGlow — a bolt and its own warning must share a hue
     dur: 0.22,            // s the bolt stays visible before fading
     alpha: 1,              // peak stroke alpha
   },
@@ -1532,11 +1549,18 @@ export const LIGHTNING = {
     segments: 6,
     jitterPx: 70,
     width: 4,          // thinner than a real strike
-    color: 0xbfe4ff,
+    // v5.10.1: was 0xc8b4ff — the EXACT strikeBolt/telegraph violet. A reviewer verified that made
+    // harmless cosmetic weather indistinguishable from an incoming strike, which is a legibility bug,
+    // not just an art one (the ambient bolt has no telegraph, no ground scar and a dimmer/thinner
+    // flash, but colour is what a player reads first). Ice blue-white stays searchlight-only (law 3)
+    // and violet stays the strike's alone (law-adjacent), so ambient gets a THIRD hue: a desaturated
+    // slate blue-grey — distant cloud-glow, not an armed threat, and not reserved by any other law.
+    color: 0x8a94b8,
     dur: 0.18,
     alpha: 0.55,       // dimmer than a real strike's peak (1)
   },
 }
+
 // Procedural Voronoi districts (skies chapter, v5.7.x, render.js + sim.js; grown from 4 types to 6
 // by the v5.9 top-down region overhaul): a seeded ground map over world-XY so roaming any direction
 // crosses downtown -> suburbs -> parks -> farms -> hills -> sea and back. districtAt/districtTintAt
@@ -1566,8 +1590,29 @@ export const DISTRICTS = {
 }
 const DISTRICT_TYPES = Object.keys(DISTRICTS)
 
-export const DISTRICT_GRID = 2000       // px per Voronoi seed cell
-export const DISTRICT_BLEND_PX = 200    // px either side of a border the floor tint lerps across
+// v5.9.2 ("the fuck is this?" bug report — one of four compounding causes): DISTRICT_GRID was 2000
+// against OBSTACLE_STREAM_RADIUS's 1400 — a region was LARGER than the streamed field around the
+// player, so the field (and the screen) was almost always a single district; downtown/parks/farms/
+// sea/hills all exist in the data and essentially never reached the same view at once. Measured with
+// a standalone replica of districtAt (nearestDistrictSeeds et al.) sampling 400 points across a
+// disc of radius 600 (state.js createRun's `viewRadius: 600` default, half a typical screen
+// diagonal, updated live by main.js) around 30 random far-apart player positions: at GRID=2000 a
+// viewport saw on average 1.87 distinct districts (min 1, max 3) — i.e. usually exactly one. GRID=600
+// raises that to an average of 3.90 (min 1, max 5), squarely in the "2-4 visible at once" target,
+// while OBSTACLE_STREAM_RADIUS (1400, unchanged) now spans multiple district cells instead of
+// sitting inside one. Coherent-belt check (DISTRICT_REGION_BIAS below): a long-scanline measurement
+// of sea/farms' overall world-area share came out ~37-39%/~19-20% at BOTH GRID=2000 and GRID=600 —
+// the region math is grid-size-invariant in aggregate, only each belt's PHYSICAL width shrinks with
+// the grid (sea's average contiguous run: ~2437px at 2000, ~1502px at 600 — ~2.5 grid cells, still a
+// contiguous coastline, not confetti; DISTRICT_REGION_BLOCK below is a cell COUNT, so it needed no
+// change to keep working the same way at the smaller cell size).
+export const DISTRICT_GRID = 600        // px per Voronoi seed cell
+// v5.9.2: 200 -> 90, alongside DISTRICT_GRID above. The original 200 was 10% of the old 2000 grid;
+// keeping that exact ratio here would give 60, but 90 (15%) reads better at the smaller scale
+// without ever blending across more than the two adjacent districts (it stays well under half the
+// ~600px average distance between neighboring seed points, so a blend still only ever involves a
+// cell's nearest and 2nd-nearest seed, same as before).
+export const DISTRICT_BLEND_PX = 90     // px either side of a border the floor tint lerps across
 
 // Low-frequency block size (in grid cells) sharing one "which region is this" roll, and how hard
 // that roll skews a cell's type toward the rolled region's district — see districtCellType.
@@ -1691,6 +1736,101 @@ export function districtTintAt(x, y, seed) {
   return lerpColorInt(DISTRICTS[first.type].floorTint, DISTRICTS[second.type].floorTint, t)
 }
 
+// ---- District SURFACES (v5.10 art direction, spec §4.5) — render-only, skies-only ---------------
+// The district system shipped in v5.7.3 gives each district a floor TINT and nothing else, so six
+// "different" regions are six colours of the same ground. What actually makes an overhead view read
+// as a PLACE is a signature PATTERN per region — the thing you recognise in a satellite photo before
+// you recognise anything else. One bake each (T.districtGround keeps its "bake white-alpha, let
+// floorTint carry the hue" contract, so these are shape/geometry data, not colour data, EXCEPT where
+// a `lit*` colour appears below).
+//
+// `lit*` COLOURS BYPASS THE FLOOR TINT. Chlorine-blue pool water, shipping-container red, fresh
+// crosswalk paint: multiply those by a district floorTint and they turn to mud. render.js is
+// expected to honour a `litTint: true` prop-kind flag (`s.tint = kind.litTint ? kind.tint :
+// tintMul(..., floorTint)`) — see spec §4.5's last paragraph. Saturated accents are also the
+// chapter's scarcest resource: the threats own saturation (SKIES_FX), so the ONLY saturated ground
+// in the region is the container yard and a suburban pool.
+export const DISTRICT_SURFACE = {
+  // parks: today this district has NO T.districtGround entry at all and falls through to T.blotches
+  // — the same four soft radial blobs the body/pond/garden chapters use (kill list §8.10, and one
+  // of the "reusing too much" complaints, literally). MOWN STRIPES are the single most recognisable
+  // overhead pattern that exists (nothing else in the world looks like a mown field from above) and
+  // they are one bake. Angle comes from the field's own hashed row angle — reuse farmRowSnap's
+  // shared-angle machinery so a park's stripes are coherent across cells instead of per-cell noise.
+  parks: {
+    stripePx: 26,             // band width — a real mower deck read, wide enough to survive minification
+    stripeAlphaA: 0.10, stripeAlphaB: 0.20,   // alternating, white; the tint carries the green
+  },
+  // farms: keeps its furrows, gains the OTHER instantly-recognisable overhead farm shape — the
+  // centre-pivot irrigation circle. A perfect circle in a field of straight rows is unmistakable.
+  farms: {
+    pivotRadius: 520, pivotAlpha: 0.18, pivotArm: true,   // on the `big` floor layer
+    headlandPx: 34,           // turn-strip at field edges, where the tractor comes about
+  },
+  // sea: a CONTAINER YARD — tiny dense saturated rectangles against dark water. Highest
+  // detail-density per line of code in the whole redesign, and the only place in the chapter where
+  // hue does the talking. Hues are deliberately UNTINTED (litTint) and deliberately the primary
+  // colours of real shipping lines: a tinted container yard is just a grey grid.
+  sea: {
+    yardCols: 4, yardRows: 9, boxW: 14, boxH: 9,
+    boxHues: [0xc0392b, 0x2e86c1, 0xe0a800, 0x2e8b57, 0x8e44ad, 0xd35400], litTint: true,
+    riprap: true,             // breakwater arm: a chain of angular boulder polys, NOT a smooth curve
+    // Kill list §8.6: T.foam is currently `T.fx.trace_05` — the sea's breaking wave IS the POND's
+    // current-streak sprite, reused again by populateEdge for coastlines. A real wave crest is two
+    // parallel arcs and a speckle band; there is no excuse for it being a borrowed streak.
+    crestArcs: 2, crestAlpha: 0.42, foamSpeckle: 22, foam: 0xdfe9f0, litTint2: true,
+  },
+  // downtown: a painted parking lot. Parked cars ALIGN TO THE STALL ANGLE — random rotation is the
+  // loudest possible tell that props were scattered by an algorithm rather than placed by a city.
+  downtown: {
+    bayRows: 2, baysPerRow: 6, bayPitch: 8,
+    paint: 0xd8d4c8, paintAlpha: 0.55, litTint: true,
+    loadingBayHatch: true,
+  },
+  // hills: keeps T.contour, gains a switchback dirt track — the one man-made line in open moorland,
+  // and a zigzag is the only shape that says "slope" on a camera with no horizon.
+  hills: { trackColor: 0x6b5a44, trackSegments: 3, trackW: 7 },
+  // suburbs: its lot furniture (driveway, lawn, hedge L, shed, deck, bins, pool) is baked INTO the
+  // house structure itself rather than scattered as separate floor props — see SKIES_STRUCTURE_ART
+  // below. A driveway that doesn't touch its house is worse than no driveway.
+  suburbs: null,
+}
+
+// District SEAMS (spec §8, kill list item 11): populateEdge currently draws T.fence — a picket
+// fence — at EVERY land/land district border, including the one between a farm and a moor. A seam
+// is a chance to say what the two regions are; three seam kinds cost three bakes.
+export const DISTRICT_EDGE = {
+  hedge:  { color: 0x4e6640, lobes: 7, pitchPx: 26 },     // suburb/park seams
+  wall:   { color: 0x9a9184, tickPx: 9, pitchPx: 14 },    // farm/hill seams — dry-stone, tick-row
+  shore:  { riprap: true, surf: true },                   // any coastline — riprap + the new crest
+  // Which seam a border gets, keyed by the two districts either side (order-independent; render
+  // sorts the pair). Anything not listed falls back to `hedge` on land and `shore` against sea.
+  pairs: {
+    'parks|suburbs': 'hedge', 'downtown|suburbs': 'hedge', 'downtown|parks': 'hedge',
+    'farms|hills': 'wall', 'farms|parks': 'wall', 'hills|parks': 'wall', 'farms|suburbs': 'wall',
+  },
+}
+
+// ---- The darkening (spec §4.1) — STAGE 4, GATED ON MEASUREMENT, NOT WIRED IN --------------------
+// The light layer (SKIES_LIGHT, below) only reads as light if the ground is dark. But the six tints
+// above are already tuned to a documented 0.06-0.09 effective-luminance band (see DISTRICTS' comment)
+// that keeps the three enemy silhouettes readable (jet 0xb6c4d2, heli 0x9cae66, tank 0xb3a374), and
+// enemy readability is the one thing this chapter cannot lose. So the order is fixed and not
+// negotiable: BUILD THE LIGHT LAYER AT TODAY'S TINTS FIRST, see how much of the effect comes free,
+// and only then consider swapping DISTRICTS[x].floorTint for the value here and STORM_VIS.shadow.alpha
+// (0.24) for STORM_SHADOW_ALPHA_DARK. Re-run `node scripts/obstacle-contrast.mjs` and re-verify enemy
+// contrast BEFORE committing that swap; if the numbers refuse, keep the current tints and let the
+// light carry all the contrast. The chapter survives losing the darkening. It does not survive
+// losing enemy readability. Exported (rather than left in the doc) so the swap is a one-line data
+// change with the audit numbers attached, not a re-derivation.
+export const DISTRICT_FLOOR_TINT_DARK = {
+  downtown: 0x5c6672, suburbs: 0x7d7160, parks: 0x4e6650,
+  sea: 0x445666, farms: 0x677245, hills: 0x736659,
+}
+export const STORM_SHADOW_ALPHA_DARK = 0.16   // pairs with the above (STORM_VIS.shadow.alpha 0.24 today):
+                                              // darker ground needs a lighter cloud shadow or the
+                                              // floor goes to black and the shadows stop reading at all
+
 // Roads (skies only, v5.9 top-down region overhaul): a coarse, deterministic street grid, PURE in
 // (x, y, seed) exactly like districtAt above — same reason (sim AND render both need it: sim to
 // keep streamObstacles from planting a building mid-street, render to draw pavement/markings/edges
@@ -1746,6 +1886,72 @@ export function roadAt(x, y, seed) {
   if (!onV && !onH) return { onRoad: false }
   if (onV && (!onH || vDist <= hDist)) return { onRoad: true, angle: Math.PI / 2, dist: vDist, half: vHalf, major: vMajor }
   return { onRoad: true, angle: 0, dist: hDist, half: hHalf, major: hMajor }
+}
+
+// ---- Road ART (v5.10 art direction, spec §4.2-§4.3) — render-only, skies-only -------------------
+// "A road is a dashed yellow line on grass. It reads as a wireframe, not a place." The fix is not
+// more lines, it is a MARKING FAMILY plus VARIATION ALONG THE STREET, split across three mechanisms
+// for one blunt geometric reason:
+//
+// T.roadMinor/T.roadMajor are stamped by populateRoad with a NON-UNIFORM scale
+// (`scale.set((cell*1.6)/ref, (half*2)/ref)` — x factor 0.48, y factor 0.34 minor / 0.62 major).
+// ANYTHING baked into the carriageway tile is stretched by a different factor on each axis AND by a
+// different factor per road class: circles come out as ovals, zebra bars come out at the wrong pitch,
+// and the pitch is wrong by a DIFFERENT amount on a minor street than on an avenue. So the tile only
+// ever carries shapes that survive that (bands and lines parallel to the axes, pre-compensated), and
+// everything with a shape — manholes, patches, arrows — becomes a separate, UNIFORMLY scaled decal.
+export const ROAD_PAINT = {
+  // Baked INTO the carriageway tile (stretched; pre-compensate the pitch by the factors above).
+  asphaltMinor: 0x33383f, asphaltMajor: 0x2b2f36,   // unchanged from what ships today
+  kerb: 0x4a515b, kerbW: 2,                          // both long edges — the single strongest "this
+                                                     // is a built road, not a painted strip" cue
+  sheen: 0x8fa8c4, sheenAlpha: 0.10,                 // wet crown reflection down the centreline: a
+                                                     // STATIC overhead reflection of the storm sky.
+                                                     // ponytail: no dynamic sheen sprite — the
+                                                     // full-field lightning flash already whitens it,
+                                                     // and a per-road-cell additive sheen would be
+                                                     // ~1000 extra sprites at ROAD_CELL = 30. Revisit
+                                                     // only if the road floor layer is ever coarsened.
+  polish: 0x22262c, polishAlpha: 0.25, polishAt: 0.45,  // two darker wheel-polish bands at ±0.45 of
+                                                        // the half-width — where tyres actually run
+  centreline: 0xd8d4c8, centrelineAlpha: 0.55,       // minor streets: dashed white
+  doubleYellow: 0xdccf86, doubleYellowGap: 4, doubleYellowW: 2,   // avenues: two lines, 4px apart
+  stretchX: 0.48, stretchYMinor: 0.34, stretchYMajor: 0.62,       // the known constant aspect to
+                                                                  // pre-compensate against (above)
+}
+
+// The decal layer: `{ name: 'roadDecal', cell: 160, chance: 1.00, populate: populateRoadDecal }`,
+// self-gating on roadAt + render.js's ROAD_VISIBLE_DISTRICTS exactly like populateRoad. ONE decal
+// per cell, picked by cellHash(i, j, salt) from `kinds`. VARIATION ALONG A STREET IS WHAT STOPS A
+// ROAD READING AS A WIREFRAME; one stamped tile repeated forever is what got us here.
+export const ROAD_DECAL = {
+  cell: 160, chance: 1.00,
+  kinds: {
+    manhole: { color: 0x3a3f47, r: 7, rimTicks: 6 },
+    patch:   { color: 0x3d434b, sides: 5, px: 26 },     // irregular repair polygon, never a rectangle
+    drain:   { color: 0x2a2f36, slotW: 11, slotH: 3, pairGap: 7 },  // kerb slots, at the kerb line
+    arrow:   { color: 0xd8d4c8, alpha: 0.34, lenPx: 30 },           // faded painted turn arrow
+  },
+}
+
+// Junctions (spec §4.3) — ENUMERATED, NOT STAMPED. ROAD_CELL is 30 and ROAD_SPACING is 480, so a
+// junction is ~16 road cells across on each axis: "stamp a crosswalk when onV && onH" lays a dozen
+// overlapping zebras on one junction. Instead render.js recovers the per-seed road grid origin ONCE
+// per run (roadAt's onV depends only on x and onH only on y, so <= `latchProbes` probes along each
+// axis at `latchStepPx` finds it), after which junction centres are exactly (ox + m*ROAD_SPACING,
+// oy + n*ROAD_SPACING) — <= 6 on a 1280x720 view. Each gets ONE composite sprite from a pool of
+// `pool`, drawn from four variants baked AT TRUE WORLD SIZE so they are never scaled at all (which
+// is what lets a junction carry circles and zebra pitch that the stretched carriageway tile cannot).
+export const ROAD_JUNCTION = {
+  latchStepPx: 6, latchProbes: 80, pool: 8,
+  variants: ['minorMinor', 'minorMajor', 'majorMinor', 'majorMajor'],
+  zebraBars: 7, zebraColor: 0xd8d4c8, zebraAlpha: 0.55, zebraWornAlpha: 0.30, zebraWornEvery: 3,
+  stopBarW: 3, manholes: 2, arrowsOnMajor: true,
+  stalledCar: 'majorMajor',   // a sedan slewed across the box on the biggest junctions — everyone
+                              // fled, and one abandoned car says that better than any effect. It is
+                              // also the ONLY survivor of the cut "emergency vehicles" proposal
+                              // (spec §11): a driving vehicle needs a pathfinder over roadAt, which
+                              // is a point query with no graph.
 }
 
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
@@ -1821,11 +2027,11 @@ export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts pe
 // and is invariant under cell size by construction (streamObstacles' `prob` formula) — shrinking
 // `cell` alone changes NOTHING; a smaller cell needs a bigger `count` to actually read denser.
 
-// Structure kind (v5.8 kaiju redesign; grown 4 -> 6 by the v5.9 top-down region overhaul): a
-// purely cosmetic classification stamped on every streamed obstacle entry (run.obstacles[i].kind),
-// derived from obstacleCellHash(i, j, seed, 4) — a FIFTH salt on the same pure hash that already
-// picks the cell's position/radius (sim.js). Sim itself never branches on `kind` (crushing/pushing
-// treat every obstacle the same); render.js just maps kind -> a sprite.
+// Structure kind (v5.8 kaiju redesign; grown 4 -> 6 by the v5.9 top-down region overhaul): a purely
+// cosmetic classification stamped on every streamed obstacle entry (run.obstacles[i].kind), derived
+// from obstacleCellHash(i, j, seed, 4) — a FIFTH salt on the same pure hash that already picks the
+// cell's position/radius (sim.js). Sim itself never branches on `kind` (crushing/pushing treat every
+// obstacle the same); render.js just maps kind -> a sprite.
 // v5.9.1 bugfix ("houses appear in the sea", playtest report): kind used to be picked UNIFORMLY
 // across this entire list regardless of where the cell actually sat, so a downtown tower and a sea
 // pier were equally likely to land in the middle of the ocean. Skies (the only chapter with a
@@ -1841,13 +2047,16 @@ export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts pe
 // assertion, that kind is independent of _districtSeed, is exactly the bug fixed above, so that
 // specific assertion no longer holds for skies as of v5.9.1), and no other chapter reads o.kind at
 // all (only skies sets CHAPTERS[x].crush/render.js's district-skin lookup, both skies-only). Run
-// `npm test` after any STRUCTURE_KINDS edit regardless.
+// `npm test` after any STRUCTURE_KINDS edit regardless — test/sim-test.js's run DD.d pins this
+// array's LENGTH at exactly 6 (a tripwire against silently shrinking the ladder), so a real new
+// kind needs that test updated by whoever owns test/; this file alone can't grow the vocabulary.
 export const STRUCTURE_KINDS = ['tower', 'house', 'tree', 'pier', 'barn', 'silo']
 
 // Structure kind × district (v5.9.1 bugfix, see STRUCTURE_KINDS' comment above): which kinds a
 // structure may roll INSIDE a given DISTRICTS type, so a district actually reads as itself — towers
 // downtown, houses in the suburbs, no land buildings poking out of the sea. parks/hills share
-// 'tree' (both read as open, unbuilt land); farms gets two silhouettes (barn/silo) so a farm belt
+// 'tree' (both read as open, unbuilt land — see render.js's STRUCTURE_SKINS for how hills still gets
+// its OWN silhouette without a new kind); farms gets two silhouettes (barn/silo) so a farm belt
 // doesn't read as monotonous. Consulted by sim.js's streamObstacles ONLY when run._districtSeed is
 // set (skies today, via CHAPTERS[chapter].render.districts — see that field's doc in state.js for
 // why sim reading it is safe). Every DISTRICTS key should have an entry; streamObstacles falls back
@@ -1861,17 +2070,54 @@ export const DISTRICT_STRUCTURE_KINDS = {
   farms:    ['barn', 'silo'],
 }
 
-// PROP_SCALE — the single source of truth for a prop CLASS's absolute on-screen footprint, in px
-// (v5.9 top-down region overhaul). Fixes the reported "cars bigger than houses" bug: render.js's
-// prop tables mixed TWO sizing systems — `scale: [min,max]` (a multiplier on each texture's OWN
-// arbitrary baked size) and `size: [min,max]` (absolute px) — with nothing enforcing that one
-// class's scale range times its baked size couldn't exceed another's. Concretely: T.car is baked
-// from TRAFFIC_CAR_LEN = 150 (below) and drawn at scale [0.55, 0.75] = 82-112px; T.house is
+// Per-kind collider radius (v5.9.2, px) — THE fix for the "the fuck is this?" bug report's headline
+// cause: a tower used to be drawn at PROP_SCALE.tower (134-172px) around a 10-28px collider rolled
+// from one chapter-wide CHAPTERS.skies.obstacles.minR/maxR band shared by every kind, so a
+// max-radius house could out-collide a min-radius tower — visible structures overlapping while
+// their colliders sat far apart, which IS the reported soup of blobs. sim.js's streamObstacles now
+// rolls a structure's `o.r` from THIS table (keyed by the same `kind` DISTRICT_STRUCTURE_KINDS
+// picks), only for the chapter that actually has per-kind structures (run._districtSeed != null,
+// skies today — same gate streamObstacles already uses for kind subsetting); every other chapter's
+// obstacles keep rolling from their own chapter-wide obstacles.minR/maxR, untouched.
+// render.js draws each structure proportional to o.r again (the pre-existing `o.r * 1.9`/`o.r * 2.0`
+// idioms) instead of an absolute PROP_SCALE target — see PROP_SCALE's own doc below for why that
+// table is floor-decor-only now. Bands stay small on purpose: the whole point of the v5.8 kaiju
+// redesign is a player BIGGER than the city, not a city of skyscrapers — tower is still merely "the
+// largest structure in a field of small ones," not large in absolute terms.
+// CHAPTERS.skies.obstacles.minR/maxR are kept as the overall [min, max] across every band below
+// (8 and 32) — test/sim-test.js's run CC.c3 reads .minR directly to size a synthetic structure, and
+// sim.js's streamObstacles uses .maxR as the conservative worst-case radius for position-jitter
+// slack BEFORE a cell's kind (and thus its real band) is known — see that function's comment.
+export const STRUCTURE_RADIUS = {
+  tree:  [8, 13],   // parks/hills — a scattered trunk/boulder accent, not a building
+  house: [11, 16],  // suburbs
+  pier:  [11, 16],  // sea — same tier as house, a dock structure, not a skyscraper
+  barn:  [16, 22],
+  silo:  [16, 22],  // same tier as barn
+  tower: [21, 32],  // downtown — the largest structure in the field, not a real skyscraper
+}
+
+// PROP_SCALE — the single source of truth for a FLOOR-DECOR prop CLASS's absolute on-screen
+// footprint, in px (v5.9 top-down region overhaul). Fixes the reported "cars bigger than houses"
+// bug: render.js's prop tables mixed TWO sizing systems — `scale: [min,max]` (a multiplier on each
+// texture's OWN arbitrary baked size) and `size: [min,max]` (absolute px) — with nothing enforcing
+// that one class's scale range times its baked size couldn't exceed another's. Concretely: T.car is
+// baked from TRAFFIC_CAR_LEN = 150 (below) and drawn at scale [0.55, 0.75] = 82-112px; T.house is
 // hand-drawn at 48px baked and drawn at scale [0.9, 1.4] = 43-67px — a car outsizing a house by up
 // to 2x, because the two scale ranges were tuned independently against two unrelated baked sizes.
 // render.js is expected to look a class up here and fit its baked texture to an ABSOLUTE px target
 // instead — ordering is then enforced by construction (disjoint bands), not by every prop table's
 // author independently getting scale-times-bake-size arithmetic right.
+//
+// v5.9.2: this table is FLOOR DECOR ONLY (FLOOR_LAYERS' big/mid/detail populate callbacks below —
+// bushes, litter, parked cars, crop rows, ...) — it does NOT size the crushable structures a chapter
+// streams into run.obstacles (o.r). It used to (render.js's syncObstacles read PROP_SCALE[o.kind] to
+// pick a structure's draw size, independent of its actual collider radius o.r), and that was exactly
+// the "the fuck is this?" bug report's headline cause: a tower drawn at this table's 134-172px band
+// around a 10-28px collider, so visible structures overlapped while their colliders sat far apart.
+// Structures now size from o.r itself (STRUCTURE_RADIUS above, sim.js's streamObstacles; render.js
+// draws proportional to o.r again) — see STRUCTURE_RADIUS's own doc for the full fix. Don't reuse
+// this table for a structure's silhouette again; that reintroduces the bug.
 //
 // Bands are DISJOINT and ORDERED: max(class) < min(next class) for every row below, so nothing in
 // a later row can ever render smaller than everything in an earlier one, however the two flanking
@@ -1897,6 +2143,153 @@ export const PROP_SCALE = {
   barn:   [92, 128],
   silo:   [92, 128],  // same tier as barn
   tower:  [134, 172], // tower blocks — the tallest read
+}
+
+// Floor-decor density trim (v5.9.2, skies only) — the fourth of four compounding causes behind the
+// "the fuck is this?" bug report: on top of the crushable structure field, render.js's shared
+// FLOOR_LAYERS (big/mid/detail — bushes, hedges, litter, ...) scatter freely over EVERY chapter's
+// ground, at a cell/chance shared by every chapter, so lowering them would thin every chapter's
+// grass/leaf-litter, not just skies' cities. This is a skies-only EXTRA keep-fraction multiplied on
+// top of each layer's existing chance (render.js's touchFloorCell, gated on chapterHasDistricts,
+// same "self-gating predicate, no-op outside its own scope" idiom the road/clutter/border floor
+// layers already use) — every other chapter's identical layers are read with no `skiesKeep` set and
+// are bit-identical to before. `big` is cut hardest: it's the BULKIEST tier (90-175px tree/bush
+// clumps for parks/hills) and the single biggest contributor to the reported green-blob wall; `mid`
+// less so; `detail`'s small leaf/pebble specks are left mostly alone — fine texture, not "blobs".
+// What's left to carry each district's read is its GROUND SURFACE (T.districtGround, render.js's
+// populateBlotch — a per-district signature pattern already drawn at chance 1.0, unaffected by any
+// of this): sparse, deliberate decor on top of a surface that already reads as itself.
+export const SKIES_FLOOR_KEEP = { big: 0.22, mid: 0.45, detail: 0.75 }
+
+// ---- Structure ART (v5.10 art direction, spec §5-§6) — render-only, skies-only ------------------
+// "A house is a box plus a triangle." Correct, and the cause is structural, not stylistic: T.house /
+// T.barn / T.silo are SIDE-VIEW, upright, base-anchored bakes sitting under a TOP-DOWN camera. A
+// side-view house drawn from above can only ever be a box plus a triangle. All six kinds are redrawn
+// as TOP-DOWN PLANS, which is what makes room for the detail this chapter's scale actually needs
+// (in kaiju fiction, scale is communicated by the DENSITY OF SMALL DETAIL around the monster — that
+// is why the counts below are so specific; "some windows" bakes as a smear, "a 4x6 grid, 11 lit"
+// bakes as a building).
+//
+// THE SHADOW LAW. Every structure and every floor prop in this chapter bakes its OWN cast shadow at
+// ONE CONSTANT OFFSET FOR THE WHOLE REGION. One light direction across an entire region is the
+// cheapest, strongest "this is a photograph of a place" cue available, and it costs nothing per
+// frame. It also SHIFTS EVERY PROP'S BOUNDS and therefore every anchor — which is exactly the
+// v5.9.2 "the fuck is this?" bug class (sprites sitting off their colliders). Mandatory in every
+// shadowed bake: a symmetric zero-alpha bounds keeper drawn first,
+// `g.rect(-R, -R, 2*R, 2*R).fill({ color: 0x000000, alpha: 0 })`, so ax/ay stay at 0.5.
+export const SKIES_SHADOW = { dx: 0.22, dy: 0.28, color: 0x000000, alpha: 0.35 }
+// Bake canvas size for a structure plan. syncObstacles draws at `o.r * 1.9 / max(tex.w, tex.h)`, so
+// a tower (STRUCTURE_RADIUS.tower 21-32) lands at 40-61px ON SCREEN. Draw on 128px (-> 256px texture
+// at bake()'s resolution: 2) so a 4px window survives the minification instead of dissolving.
+export const SKIES_BAKE_PX = 128
+
+// Per-kind plan palettes and DETAIL COUNTS. The counts are the spec's and are not decorative
+// suggestions — they are the difference between "a roof" and "a roof with six shingle courses".
+// Structures are MASS-CENTRED, not base-anchored (spec §5.1.3): render.js's STRUCTURE_SKINS entries
+// for these gain `topDown: true`, clumpA sits at (0, 0) instead of (0, o.r * 0.28), and clumpB
+// becomes the LOT detail tucked at the rim. T.obFoot's rim-lands-exactly-on-o.r contract is what the
+// sim actually tests — re-verify it by eye after the switch (spec §9.8).
+export const SKIES_STRUCTURE_ART = {
+  // downtown's landmark building is currently STRUCTURE_SKINS.tower = ['rubble','rubble'] — the
+  // GENERIC RUBBLE PROP, which is also downtown's floor debris (kill list §8.8).
+  tower: {
+    deck: 0x6d7480, edge: 0x2b3038, parapet: 0x878e99,
+    gravel: 0x7d838d, gravelFlecks: 44, gravelAlpha: 0.5, gravelPx: 1.5,
+    hvac: 0x9aa1ab, hvacBase: 0x3a4048, hvacUnits: 2, hvacFins: 5,
+    stairwell: 0x848b96, stairDoor: 0x2a2f36,
+    waterTank: 0xb0a08a, tankRungs: 6,
+    mast: 0x2f343c, mastPx: 22, guyWires: 3, lampDark: 0x5a1a16,   // the LIT aviation lamp is a
+                                                                   // separate pooled blink sprite —
+                                                                   // see SKIES_LIGHT.aviation
+    flank: 0x3c424c, windowCols: 4, windowRows: 6, windowsLit: 11, windowsDark: 13,
+    windowLit: 0xffd08a, windowDark: 0x1a1f28,   // palette law 1: a <=5px static lit rectangle, the
+                                                 // ONLY form warm gold is allowed to take
+    fireEscape: 0x2f343c, escapeTicks: 4, escapeLandings: 3,
+    chamferPx: 10,          // two corners chamfered — a chamfer reads as a designed building; a
+                            // rounded blob reads as rubble, which is precisely the bug being fixed
+    variantB: { helipad: true, helipadR: 16, helipadAlpha: 0.7, hvacUnits: 3, windowsLit: 7 },
+                            // two variants is how "window flicker" is faked with ZERO per-frame Graphics
+  },
+  house: {
+    roofLit: 0x8a5c46, roofShade: 0x7a4e3b, ridge: 0x5f3c2d,
+    shingleCourses: 6, shingleAlpha: 0.15,
+    gutter: 0xb9ae9c, chimney: 0x8f7a68, dormerPane: 0xffd08a, skylight: 0x9fc3d8, skylightAlpha: 0.6,
+    garagePanels: 5,
+    lot: { drive: 0x9a958a, lawn: 0x4e5f42, lawnAlpha: 0.3, hedgeLobes: 7, deckPlanks: 7,
+           bins: [0x2e6f4a, 0x2b4a7a] },        // the lot is baked INTO the same texture as the
+                                                // house — a driveway that doesn't touch its house
+                                                // is worse than no driveway
+    variantB: { pool: 0x2f6f9e, litTint: true, coping: 0xf0efe9 },  // chlorine blue must bypass the
+                                                                    // floor tint or it goes to mud
+    porchLamp: 0xffd08a,
+  },
+  barn: {
+    roofLit: 0x9c3f30, roofShade: 0x74302a, battens: 9, rust: 0x7a4a2c, rustAlpha: 0.5,
+    cupola: true, hayDoor: 0x2e1a14, paddockPosts: 8, muck: 0x5a4a34, bales: 3, mudTrack: 0x6b5a44,
+  },
+  silo: {
+    body: 0xc7c9cc,         // galvanised steel — DELIBERATELY the brightest object in a farm belt at
+                            // night, which is what makes a farm district legible at a glance
+    facets: 16,             // conical cap as radial facet lines converging on an OFF-CENTRE apex —
+                            // the off-centre apex is the ENTIRE reason it reads as a cone, not a disc
+    apexOffset: 0.22,       // fraction of the radius the apex sits off centre
+    seams: 4, seamAlpha: 0.35, ladderRungs: 9, spill: 0xdcc98a, spillAlpha: 0.4,
+  },
+  pier: {
+    boards: 14, gaps: 3,    // 3 ACTUAL GAPS through which the dark water shows — a hole in the fill,
+                            // not a dark line. That single detail is what sells wood over water.
+    pilings: 6, bollards: 4, crane: true,
+    shackRoofArcs: 9, lantern: 0xffb45a, tyre: 0x2a2c30, dinghy: true, waveLines: 2,
+  },
+  tree: {
+    lobes: 6, scallops: 12,          // scalloped radial edge, NEVER a smooth circle
+    canopyLit: 0x7f9a6a, canopyShade: 0x3d4c36, branchSpokes: 7, trunk: 0x3a2e24,
+  },
+  // hills' CRUSHABLE structures are currently STRUCTURE_SKINS.rock = the hills FLOOR-DECOR boulders
+  // at a bigger scale (kill list §8.7). A dedicated bake, at the same cost.
+  outcrop: {
+    facets: 3, facetLum: [1.0, 0.78, 0.58],   // three flat planes at differing luminance
+    body: 0x8c8377, lichen: 0x7f8f6a, lichenDots: 12, screeChips: 5,   // scree fans DOWNSLOPE, in
+                                                                       // the SKIES_SHADOW direction
+  },
+}
+
+// Ruins (spec §5.9) — swapped in PERMANENTLY at a crush site by the render-local crush ledger
+// (SKIES_LIGHT.ledger below), keyed by WORLD POSITION, not obstacle identity: by the time this
+// draws, the obstacle is already gone from run.obstacles. A KIND-SPECIFIC ruin beats a generic scar
+// for the same cost, and it is the only thing in the chapter that records what you did.
+export const SKIES_RUIN = {
+  scar: 0x0e1116, scarAlpha: 0.5, rebarTicks: 6,   // the universal foundation scar under all six
+  byKind: {
+    tower: { slabSteps: 3, rubbleChunks: 5, rebar: 4, cornerColumn: true, scorchRing: true },
+    house: { timberX: 4, chimneyStack: true, shingles: 9, flattenedCar: true },   // a SURVIVING
+                                                                                  // CHIMNEY says
+                                                                                  // "house" instantly
+    silo:  { splitWallArc: true, grainFan: 0xdcc98a },
+    barn:  { collapsedV: true, hayDownwind: true },   // hay strewn along STORM_VIS.windAngle, so the
+                                                      // wreckage agrees with the weather
+    pier:  { plankRaft: 7, oilSlick: true },
+    tree:  { stump: true, splinterRing: true, branches: 5 },
+  },
+}
+
+// Vehicles (spec §6) — "you must be able to tell a bus from a sedan" is literally the brief.
+// CLUTTER_BY_DISTRICT.suburbs currently uses T.car: the CITY chapter's yellow traffic taxi, baked
+// from TRAFFIC_CAR_LEN = 150 (kill list §8.9). Three silhouettes from one bake set instead.
+// Dimensions are in px at PROP_SCALE.car's band; the length ratios (26/32/54) are what carry the
+// read, not the absolute size.
+export const SKIES_VEHICLE = {
+  sedan: { len: 26, w: 12, windows: 2, wheels: 4, mirrors: 2, seams: 2 },
+  van:   { len: 32, w: 13, windows: 1, wheels: 4, roofVent: true, sliderSeam: true },  // no rear screen
+  bus:   { len: 54, w: 14, windowBays: 6, wheels: 6, roofHatches: 2, destBoard: true },
+  glass: 0x1e2733, glassAlpha: 0.85, wheel: 0x15181c, tail: 0xff5545, head: 0xfff6d0,
+  // Deliberately DESATURATED: the saturated hues in this chapter belong to the threats (SKIES_FX)
+  // and to the container yard (DISTRICT_SURFACE.sea). litTint so a parked car doesn't inherit the
+  // grass green of a park or the khaki of a farm.
+  bodyTints: [0x8f97a3, 0x6f7f8f, 0xa8a094, 0x7a5b52, 0x4f6b78, 0x8a8f7a], litTint: true,
+  alignToKerb: true,   // PARKED CARS ALIGN TO THE KERB ANGLE (roadAt returns it) OR TO THE PAINTED
+                       // STALL ANGLE. NEVER random rotation — random rotation is the single loudest
+                       // tell that a scene was scattered by an algorithm.
 }
 
 // ---- Garden chapter behavior flags (v5.3, see sim.js) --------------------------------------
@@ -2268,6 +2661,343 @@ export const RAMPAGE_DECAY = 0.03       // meter fraction lost per second while 
 export const RAMPAGE_GRACE_T = 1.5      // s of no decay after the most recent crush
 export const RAMPAGE_DURATION = 5       // s the widened crush radius stays active once triggered
 export const RAMPAGE_CRUSH_MUL = 3      // crush radius multiplier while rampageT > 0 (PLAYER.radius * this)
+
+// ================================================================================================
+// SKIES ART DIRECTION (v5.10) — docs/superpowers/specs/2026-07-25-skies-art-direction.md
+// ================================================================================================
+// WHY THIS SECTION EXISTS. The playtest verdict on the shipped chapter was "the designs are very
+// ugly", "you are getting lazy with effects, reusing too much, the dash telegraph for planes is the
+// same colour as everything, the storm hit, the tank hit, even other chapters". That was not a
+// judgement call, it was a measurable fact about the data: every skies threat drew from ONE palette
+// object (LIGHTNING.telegraph, above) and two shared Kenney particle textures, so six different
+// things that can kill you were rendered in the same electric blue with the same soft round burst.
+//
+// Everything below is RENDER-ONLY, SKIES-ONLY DATA. Nothing here is imported by sim.js, nothing
+// here changes a hitbox, a timing that damage keys off, or any other chapter (grep: no other
+// chapter reads a SKIES_*/DISTRICT_SURFACE/ROAD_PAINT/SKIES_LIGHT key). Where an FX timing must
+// line up with a real sim timing it REFERENCES the existing sim constant (STRAFE_TELEGRAPH_T,
+// ARTILLERY_FUSE, BOMBARDMENT_FUSE, MISSILE_LIFE, RAMPAGE_DURATION) rather than restating it — the
+// spec's "arrival clock" rule (an FX clock that finishes early or late is a bug) is only enforceable
+// if the clock and the fuse are literally the same number. THAT is why this section sits down here,
+// after the skies sim block, instead of up beside LIGHTNING/STORM_VIS where it thematically belongs:
+// an object literal is evaluated when the module is, so referencing STRAFE_TELEGRAPH_T from above its
+// declaration throws `Cannot access 'STRAFE_TELEGRAPH_T' before initialization` (const TDZ) — i.e. a
+// blank page in prod, verified the hard way while writing this. Anything added here that references a
+// sim constant must stay BELOW that constant's declaration.
+//
+// THE THREE PALETTE LAWS (spec §2) — enforce these in review, they are the whole point:
+//   1. WARM SODIUM GOLD IS AMBIENCE AND IS NEVER A THREAT. Soft fill at alpha <= 0.16 or a static
+//      <= 5px lit rectangle. It never strokes, never moves, never pulses.
+//   2. ATOMIC CYAN-GREEN IS THE PLAYER AND IS NEVER A THREAT. If it is on screen, YOU are the danger.
+//   3. ICE BLUE-WHITE IS SEARCHLIGHT LIGHT ONLY — taken away from the jet lane and the bomb
+//      telegraph, both of which wore it (see LIGHTNING.telegraph's v5.10 note above).
+export const SKIES_PALETTE = {
+  sodium: 0xffb45a,      // law 1: street-lamp light
+  sodiumLit: 0xffd08a,   // law 1: a lit window pane
+  sodiumSpill: 0xffc46a, // law 1: interior spill from a structure as it collapses (ONE beat, then dark)
+  sodiumMaxAlpha: 0.16,  // law 1's hard ceiling for any soft gold fill
+  player: 0x4bffc8,      // law 2: atomic cyan-green — the kaiju and nothing else
+  playerHot: 0xd8fff4,   // law 2: the charged/hot end of the same ramp
+  searchlight: 0xdfefff, // law 3: ice blue-white, military light, exclusively
+  alert: 0xff3b30,       // RED IS RESERVED FOR ALERT (klaxon rings, aviation lamps, the rampage
+                         // searchlight flip) — never a telegraph. A red telegraph is what made the
+                         // old chapter read as "everything is a bomb".
+}
+
+// The shadow-stroke rule (spec §2). Every threat stroke is drawn TWICE: this near-black at
+// `width + widen` under the colour on top. That is what lets six SATURATED threat palettes stay
+// legible over six district floor tints without raising alpha — the alternative is the mid-tint
+// mush the chapter ships today. One helper in render.js (`inkStroke`), used by every telegraph.
+export const SKIES_INK = { color: 0x080c14, widen: 2.5, alpha: 0.5 }
+
+// Beyond this distance from the player a telegraph glyph degrades to its impact mark alone (drop
+// the rails, the graduations, the trajectory ghost, the designation line). SHELL_MAX_LIVE (6) +
+// MAX_STRAFE_LOCKS telegraphs of graduated ticks drawn live do not hold on a phone; the far ones
+// carry no information a distant player can act on anyway.
+export const SKIES_TELEGRAPH_LOD_PX = 700
+
+// Full-field flash budget (spec §1.3) — CENTRAL, not per-effect. Photosensitivity, and legibility:
+// LIGHTNING.flash.strikeAlpha is 0.55 and a late-run barrage lands several strikes a second.
+// render.js keeps `flashCooldown`: a flash inside the window is admitted at `suppressedMul` of its
+// requested alpha instead of being dropped (a strike you can't see is worse than a dim one), and
+// the rampage screen bloom is forced to alpha 0 on any frame where the flash is above `bloomCutoff`
+// — the two never co-render.
+export const SKIES_FLASH = { minGap: 0.9, suppressedMul: 0.4, bloomCutoff: 0.05 }
+
+// The second particle pool (spec §1.2). MAX_PARTICLES is ONE global 200-slot ring buffer in
+// render.js and `particleCursor` wraps silently — adding persistent missile smoke, crush dust and
+// artillery clods to it would evict every hit/kill/pickup particle in the GAME, with no error.
+// Only three effects use this pool. The cap is derived, not guessed: `emitters` nearest live
+// missiles x (puffLife / puffEvery) = 6 x 14 = 84 live puffs worst case, under `max`.
+export const SKIES_SMOKE = { max: 90, emitters: 6, puffEvery: 0.10, puffLife: 1.4 }
+
+// Rampage jamming (spec §3, rampage row): while run.rampageT > 0 every ENEMY telegraph glyph
+// visibly breaks up — you are not just stronger, their targeting is failing. Per-frame, per glyph
+// segment: drop the segment with probability `dropout`, and scale its alpha by
+// `alphaMin + alphaJitter * random()`. Lock diamonds re-snap to a random offset for `resnapFrames`
+// frames every ~`resnapEvery` s. On rampage END the dropout decays to 0 over `recoverT` so the
+// picture RE-ACQUIRES rather than snapping back (a hard snap reads as a rendering bug).
+export const SKIES_JAM = {
+  dropout: 0.22, alphaMin: 0.55, alphaJitter: 0.45,
+  resnapEvery: 0.5, resnapFrames: 2, resnapPx: 14, recoverT: 0.6,
+}
+
+// ---- THE THREAT TABLE (spec §3) ----------------------------------------------------------------
+// Six threats separated on THREE AXES AT ONCE — colour family, shape language, motion verb — with
+// NO TWO SHARING MORE THAN ONE AXIS. That constraint is the entire fix for "everything looks the
+// same"; it is also an acceptance test (spec §9.4/§9.5: a reviewer who has never played must name
+// each threat from a still frame, and again from that frame in GREYSCALE — which is what proves the
+// separation is carried by shape and composition, not by hue).
+//
+//   threat     | colour            | shape                        | motion
+//   -----------|-------------------|------------------------------|--------------------------------
+//   strafe     | halogen + orange  | parallel hairlines + ellipse | travels ALONG a line
+//   missile    | magenta           | rotating diamond + helix     | flies AT you, trail persists
+//   artillery  | dull olive/ochre  | square box + diagonal hatch  | FALLS; opposed shrink/grow
+//   sky        | violet            | leaning vector + chevron ring| DESCENDS, then cracks; sparks rise
+//   crush      | grey/material     | squashed skirt + hard shards | SLOW settle; adds geometry
+//   rampage    | atomic cyan       | rings + dorsal plates        | sustained pulse OUT FROM YOU
+//
+// Every INCOMING threat also carries exactly ONE travelling element that arrives on the exact frame
+// damage lands (the "arrival clock"), so the player reads four clocks at four speeds instead of "the
+// circle got brighter". Each clock's duration below is the SIM fuse itself, by reference.
+export const SKIES_FX = {
+  // JET STRAFE — the only threat whose damage point TRANSLATES across the screen, and the only one
+  // with NO FILLED AREA AT ALL. Orange appears nowhere else in the chapter. Kills the shipped lane's
+  // filled electric-blue band + chevrons outright (it was lineCharge's telegraph in a blue coat).
+  strafe: {
+    // The lane is drawn at the TRUE contact half-width, so what you see is exactly what hits you —
+    // PLAYER.radius + the jet's own radius (jets are the 'wisp' archetype, ARCHETYPE_TYPE above).
+    // render.js's enemyDrawScale (0.55) shrinks the SPRITE only and must NOT be applied here.
+    halfW: PLAYER.radius + ENEMIES.wisp.radius,   // = 34 px
+    // Lane length, derived from the sim so the drawn lane is the flight path and not a guess:
+    // wisp speed 165 x skies jet speedMul 1.1 x STRAFE_RUN_SPEED_MUL 4.5 x STRAFE_RUN_T 1.0 ≈ 817.
+    // (Derived here, not given in the spec — flagged in the handover.)
+    laneLen: 820,
+    railColor: 0xffffff, railAlpha: 0.45, railW: 1.5,  // two HAIRLINE rails, no fill between them
+    poolColor: 0xfff6e2,                               // halogen landing-light pool, ADDITIVE
+    poolAlphaMin: 0.10, poolAlphaMax: 0.26,            // ramps as it travels the lane
+    poolAspect: 0.22,                                  // long : narrow — the T.landingPool bake ratio
+    // ARRIVAL CLOCK: the halogen pool races from the jet's end of the lane to the player's end over
+    // STRAFE_TELEGRAPH_T and arrives on the frame the run begins.
+    telegraphT: STRAFE_TELEGRAPH_T,                    // 0.5 s (sim constant, above)
+    runT: STRAFE_RUN_T,                                // 1.0 s of the run itself
+    // The damage is then a STITCH: paired dashes walking the lane at STRAFE_RUN_SPEED_MUL.
+    tracer: 0xff6a10, tracerCore: 0xfff2c0,            // tracer orange — unique to this threat
+    dashLen: 9, dashW: 3,
+    dashPitch: 30,        // px between dash pairs along the lane (derived: ~3x dashLen reads as a
+                          // stitch rather than a dotted line — not specified in the spec)
+    gritColor: 0x8f8a7c, gritPx: 6, scorchPx: 3,       // each dash pops a grit puff + a scorch tick
+    navRed: 0xff2d2d, navGreen: 0x2dff6a,              // the jet's own nav lights (port/starboard)
+  },
+
+  // HELICOPTER MISSILE — the only travelling PHYSICAL projectile, the only SPIRAL in the game, the
+  // only mark anchored to the PLAYER, and the only magenta in any of the seven chapters.
+  missile: {
+    designator: 0xff2d6f,   // the lock diamond + designation line: signal magenta
+    reticleCore: 0xffd7e6,  // the pale core of the reticle, and the impact star
+    exhaustHot: 0xfff2c0, exhaustCool: 0xffb35c,       // dart exhaust, hot core -> cooler flare
+    smokeNear: 0x6a4a5e, smokeFar: 0x3a2c33,           // ribbon fades along this ramp as a puff ages
+    impactCore: 0xffd7e6, impactSoot: 0x2a2620,        // magenta star over black smoke ring — NOT
+                                                        // explosionBurst's orange spark_04 (kill list §8.5)
+    // ARRIVAL CLOCK: a bead crawls the designation line from the helicopter's nose and reaches the
+    // diamond on the LAUNCH frame; the diamond shrinks in DISCRETE SNAP STEPS, never a smooth lerp
+    // (a mechanical reticle, not an organic pulse — and it reads at 4 fps of information, which
+    // survives being one of eighteen on screen).
+    lockT: 0.6,             // s of lock before each volley (spec §3; the sim's own cadence is MISSILE_INTERVAL)
+    snapSteps: 4,           // discrete shrink steps per second
+    diamondPx: 48,          // REF size of the T.lockDiamond bake
+    life: MISSILE_LIFE,     // 2.6 s — the dart's own flight (sim constant, above)
+    ribbonLife: 1.4,        // s the smoke helix persists AFTER the dart is gone (= SKIES_SMOKE.puffLife)
+    // The dart is DEAD STRAIGHT (MISSILE_TURN = 0, a deliberate v5.6.17 sim decision); the SMOKE is
+    // what curls. Lateral sine offset that GROWS as the puff ages = a corkscrew seen from above.
+    helixAmpPx: 7,          // px of lateral offset at puff birth...
+    helixGrowPx: 16,        // ...growing to this by end of life
+    helixTurns: 2.4,        // sine cycles over the ribbon's length
+  },
+
+  // TANK ARTILLERY (run.bombs, src: 'gun') — the only SQUARE telegraph, the only HATCHED fill in the
+  // game, the only DESATURATED telegraph, and the only one that draws a curved line back to a ground
+  // origin. That last one is the mass-read (spec §9.7): a screenful of shells visibly RADIATES from
+  // scattered tanks, where a screenful of sky strikes is all-parallel.
+  artillery: {
+    bracket: 0xc9b26a,      // dull ordnance ochre — the L corner brackets + ranging graduations
+    hatchBar: 0x0a0d12, hatchFill: 0xc9b26a, hatchAlpha: 0.18,   // the sweeping clock hand
+    shellShadow: 0x0a0c10, shellShadowAlpha: 0.55,               // the falling shell's OWN shadow
+    ghost: 0xc9b26a, ghostAlpha: 0.28,                           // trajectory arc back to (ox, oy)
+    eliteTick: 0x7fffb0,    // radar-green tick on the bracket — AA-turret elites only
+    muzzle: 0xffd98a, muzzleT: 0.06,                             // s, the firing tank's flash
+    fireball: 0xe8641e, fireballCore: 0x16120e,                  // BLACK-cored fireball: ordnance,
+                                                                  // not a cartoon pop
+    clod: 0x6b4a2a, clodCount: 10, clodSplashAlpha: 0.35,        // angular clods on real parabolas
+    // ARRIVAL CLOCK: the hatched hand sweeps exactly 360 degrees over the fuse and completes ON
+    // IMPACT, while the brackets shrink inward AND the shell shadow grows from `shadowStartPx` to
+    // the full blast radius — TWO OPPOSED MOTIONS locking on the same frame.
+    fuse: ARTILLERY_FUSE,   // 1.1 s (sim constant, above) — the clock IS the fuse
+    shadowStartPx: 4,
+    graduations: 7, gradEveryLong: 3,                            // ticks per edge; every 3rd is long
+  },
+
+  // SKY BOMBARDMENT / LIGHTNING (run.bombs, src: 'sky') — the only VIOLET, the only MASS-PARALLEL
+  // telegraph, the only BRANCHING FRACTAL, and the only telegraph whose particles RISE.
+  // Parallelism is the whole composition: a screenful of leaning vectors all at STORM_VIS.windAngle
+  // says THE SKY IS FIRING; rings radiating from scattered points says THE GUNS ARE FIRING.
+  sky: {
+    descent: 0xc8b4ff,      // the descent vector dropped from off-frame
+    ring: 0xffffff,         // v5.10.1: was `bracket` — the impact ring is now inward-pointing
+                            // CHEVRONS (T.skyChevrons), not the artillery's corner brackets. See the
+                            // P0 fix note on T.skyChevrons in render.js for why the shared shape was
+                            // a real bug, not just a naming one: at TELEGRAPH LOD both threats used to
+                            // degrade to "a bracket + a soft disc", which a greyscale reviewer cannot
+                            // tell apart from gun vs sky (spec §9.5's own acceptance test).
+    ionisation: 0x9d8cff, ionisationAlpha: 0.10,                 // the wash inside the ring
+    boltCore: 0xf4fbff, boltGlow: 0xb79bff,                      // matches LIGHTNING.strikeBolt
+    scar: 0xe6dcff, scarLife: 2.5,                               // dendritic Lichtenberg burn-in
+    sparkTicks: 20,         // discrete crackling ticks on the perimeter — they travel UP, always
+    // ARRIVAL CLOCK: a triple chevron slides DOWN the leaning vector, ACCELERATING, and touches
+    // ground exactly at fuse = 0. Impact is instantaneous: zero travel, no heading, nothing to dodge
+    // sideways — which is exactly why its clock has to be vertical and legible.
+    fuse: BOMBARDMENT_FUSE, // 1.2 s (sim constant, above)
+    chevrons: 3, chevronGapPx: 26, chevronAccel: 2.2,            // exponent on the descent easing
+    dropPx: 560,            // where off-frame the vector starts (matches LIGHTNING.strikeBolt.dropPx)
+    boltDur: 0.22,
+    branchTrees: 4,         // pre-computed Lichtenberg bakes to pick from, so no two scars match
+  },
+
+  // VOLATILE ELITE BOMB (run.bombs, src: 'volatile') — v5.10.1 P0 fix. `ELITE_AFFIXES.volatile` is a
+  // chapter-agnostic mechanic (config.js, rolled the same way in every chapter): a timed bomb arms
+  // where the elite died. Before this fix skies had NO drawer for it at all — `bombSrc` (render.js)
+  // only recognised 'gun'/'sky' and fell everything else through to the generic RED circle telegraph
+  // (the exact shape the spec's palette law 3 forbids: "RED IS RESERVED FOR ALERT... a red telegraph
+  // is what made the old chapter read as everything is a bomb"), and its detonation fell through
+  // handleEvents' `else` branch straight into skyDetonation — a dead elite's corpse-bomb was
+  // LITERALLY INDISTINGUISHABLE from the sky's own lightning strike, full-field flash included, in
+  // the one chapter whose entire premise is telling the sky apart from the ground. This threat gets
+  // its own colour family (sickly acid-green — unclaimed by any of the six main threats, the alert
+  // red, the ambience gold or the player/searchlight reservations) and its own shape (a toothed ring
+  // that grows and destabilises, the opposite motion of gun/sky's inward-closing brackets) and its
+  // own detonation (a hard spike burst, not a fireball and not a bolt).
+  volatile: {
+    ring: 0xb6e84a, core: 0xe8ff9a,             // acid-green ring + a paler unstable core
+    fuse: 0.8,   // = VOLATILE_FUSE below (chapter-agnostic, elite-affix-timed — NOT referenced by
+                 // name: VOLATILE_FUSE is declared further down this file, after SKIES_FX, and this
+                 // object literal evaluates at module load, so reading it here throws "Cannot access
+                 // 'VOLATILE_FUSE' before initialization" — the exact blank-page-in-prod class this
+                 // file's own header comment warns about for every other sim constant referenced above)
+    spikeCount: 9,                              // detonation: hard acid-green spikes, not a fireball
+  },
+
+  // CRUSH ({type:'crush', x, y, kind}) — the ANTI-TELEGRAPH: no warning iconography at all, because
+  // it already happened and YOU did it. The only DESATURATED event, the only SLOW one, the only one
+  // that REMOVES light (windows snap dark), and the only one that adds PERMANENT geometry.
+  // Replaces crushBurst's soft round Kenney circle_05/scorch_01 puff (kill list §8.4) — soft round
+  // particles are precisely what makes a collapsing building read as a cartoon dust cloud.
+  crush: {
+    burstT: 0.9, dustT: 2.5,          // s: shard burst, then the dust skirt lingering and sinking
+    skirtAspect: 0.45,                // LOW and squashed, hugging the ground — not a mushroom
+    shardMin: 8, shardMax: 10,        // angular hard-edged slabs/tiles/planks with VISIBLE EDGES
+    shardGravity: 900,                // px/s^2, fake gravity — shards arc back down and STOP
+    scar: 0x0e1116, scarAlpha: 0.5,   // the universal foundation scar under every ruin
+    spill: SKIES_PALETTE.sodiumSpill, spillT: 0.35,   // ONE beat of warm interior spill, then dark
+    // Material-specific by the crush event's `kind` — the point of the whole redesign in one field:
+    // brick does not fall like grain and neither falls like a pier into water.
+    byKind: {
+      tower: { dust: 0xc9c2b0, dustDark: 0x8d8577 },   // concrete
+      house: { dust: 0xa85f45, dustDark: 0x7a4436 },   // brick
+      barn:  { dust: 0xc4a06a, dustDark: 0x8f7449 },   // timber
+      pier:  { dust: 0x9fc3d8, dustDark: 0xc4a06a },   // harbour spray over splintered timber
+      silo:  { dust: 0xdcc98a, dustDark: 0xa8935c },   // spilled grain
+      tree:  { dust: 0x6f8a5c, dustDark: 0x46583b },   // leaf litter
+    },
+  },
+
+  // RAMPAGE (run.rampageT > 0) — a REGIME CHANGE, not an object added to the scene. The only
+  // sustained rhythmic effect, the only one sourced AT THE PLAYER, the only cyan, and the only one
+  // that changes the LIGHTING STATE of the whole region rather than drawing something new.
+  rampage: {
+    plateHot: SKIES_PALETTE.playerHot, plateCool: SKIES_PALETTE.player,   // seven dorsal plates,
+                                                        // chain-charging tail->head
+    plates: 7, chainT: 0.28,                           // s for the charge to run the length of the spine
+    bloom: 0x2fe0b4, bloomAlpha: 0.10,                 // screen bloom (suppressed on any flash frame,
+                                                        // see SKIES_FLASH.bloomCutoff)
+    beat: 0.6,                                         // s per heartbeat ring — the ONLY looping effect
+    ringMul: RAMPAGE_CRUSH_MUL,                        // the ring is rolled out to the TRUE widened
+                                                        // crush radius (PLAYER.radius * this), so the
+                                                        // prettiest effect is also the honest hitbox
+    rimLight: 0x4bffc8, rimAlpha: 0.5,                 // cyan rim on every structure inside the ring
+    alert: 0xff3b30,                                   // searchlights + klaxons flip to ALERT red...
+    alertWaveSpeed: 900,                               // ...as a WAVE at px/s, never a single frame
+    reacquireT: 0.6,                                   // s for the lights to come back after it ends
+    duration: RAMPAGE_DURATION,                        // 5 s (sim constant, above)
+  },
+}
+
+// ---- THE LIGHT LAYER (spec §7) — the chapter's identity -----------------------------------------
+// "TOKUSATSU NIGHT — the lights are looking for you." This is the only part of the redesign whose
+// art direction is also a VERB: the prettiest thing on screen (a searchlight) is anchored to a real,
+// CRUSHABLE structure. Crush the anchor and the cone dies mid-sweep. Palette decision and gameplay
+// decision are the same decision, and it needs ZERO sim change — render.js already receives
+// {type:'crush', x, y, kind} and can read run.obstacles.
+//
+// blendMode appears NOWHERE in render.js today, so additive is a new concept for that file and it is
+// a CORRECTNESS requirement, not a perf note: every child of the light layer sets blendMode 'add',
+// and each sub-container must draw from exactly ONE texture or Pixi v8's batcher breaks on every
+// blend-mode/texture transition. Two sub-containers (lamps, cones) = two draw calls. The layer sits
+// between the cloud shadows and the entities, so light cuts THROUGH cloud shadow.
+export const SKIES_LIGHT = {
+  // Kerb lamps — the strongest "this is a city at night" signal available, and the cheapest.
+  // Placed by ENUMERATION along each street centreline in view (same origin latch as ROAD_JUNCTION),
+  // NOT by an 8th FLOOR_LAYERS entry: updateFloorLayer already runs seven nested i x j sweeps per
+  // frame and the road layer alone touches ~1000 cells at ROAD_CELL = 30. Enumeration is exact,
+  // cheaper, and cannot drift off the grid.
+  lamp: {
+    spacingPx: 120,        // along the centreline
+    kerbInset: 4,          // px in from `half` — the lamp stands ON the kerb
+    alternateSides: true,  // per index, so a street is lit from both sides
+    pool: 64, mast: 0x2f343c, mastPx: 3,
+    poolW: 90, poolH: 150, // the T.lampPool bake: long axis ACROSS the road, like a real luminaire
+    tint: SKIES_PALETTE.sodium, alpha: 0.13,   // palette law 1: soft, warm, well under sodiumMaxAlpha
+  },
+  // Searchlights — at most 5 live cones, each anchored to a real obstacle within `anchorRange` whose
+  // kind is in `anchorKinds`, chosen DETERMINISTICALLY by o._cell (sort by roadHash(cell)) so the set
+  // does not flicker frame to frame.
+  cone: {
+    max: 5, lenPx: 900, arcDeg: 26,
+    color: SKIES_PALETTE.searchlight,           // palette law 3: this colour, and ONLY this, is light
+    alpha: 0.30, lockAlpha: 0.42,
+    sweepSpeed: 0.35, sweepSpan: 1.1,           // rad/s, and ± rad about a per-anchor hashed bearing
+    rim: 0xffffff, rimAlpha: 0.5,               // hard 1px rim down both cone edges ON LOCK ONLY —
+                                                // the difference between "a light" and "it sees you"
+    anchorKinds: ['tower', 'silo', 'pier'], anchorRange: 900,
+    // HYSTERESIS IS MANDATORY, or the headline system reads as a bug: hold an anchor until it is
+    // crushed or leaves OBSTACLE_DROP_RADIUS, fade cones in and out over `fadeT`, NEVER cut. Anchors
+    // must survive run._obstacleRev churn — key the anchor set by o._cell and re-resolve positions on
+    // each rebuild, never by array index or object identity.
+    dropRange: OBSTACLE_DROP_RADIUS, fadeT: 0.8,
+    // Klaxon on lock: two concentric expanding rings from the ANCHOR (not the player) in ALERT red.
+    klaxon: SKIES_PALETTE.alert, klaxonPeriod: 1.2, klaxonRings: 2, klaxonW: 4,
+  },
+  // Blinking aviation lamps — the one element that CANNOT be baked, and worth its own pooled sprite
+  // because a skyline that blinks is instantly a skyline. Towers only; the per-tower phase offset is
+  // hashed from o._cell so a skyline does not blink in unison (which reads as a shader, not a city).
+  aviation: { color: SKIES_PALETTE.alert, px: 2.5, period: 1.4, onFrac: 0.18 },
+  // Lightning reveal: while the full-field flash is up, multiply the whole light layer's alpha by
+  // (1 + gain * lightningFlashA) for the flash's 0.16 s, so a bolt momentarily reveals every
+  // structure silhouette and every cast shadow in view. One alpha channel, free drama.
+  reveal: { gain: 2.2 },
+  // The crush ledger — ONE render-local structure serving THREE features, which is why it is worth
+  // having at all: `const crushLedger = new Map()` keyed `${round(x/8)},${round(y/8)}` -> {x,y,kind,t}.
+  // Over cap, evict the entry farthest from the player; always evict beyond `dropPx`. Cleared in
+  // reset(). NEVER WRITTEN BACK TO `run` — render.js does not mutate sim state, and a ledger is
+  // exactly the kind of "just this once" that would break that rule permanently.
+  //   1. the ruin + scar sprites (SKIES_RUIN), pooled, <= cap;
+  //   2. the LAMP BLACKOUT — any kerb lamp within `blackoutPx` of an entry renders at alpha 0, so
+  //      ploughing an avenue leaves a DEAD BLACK CORRIDOR through a lit grid. That corridor is the
+  //      chapter's whole fantasy expressed as a lighting state, and it costs one distance test;
+  //   3. searchlight anchor invalidation.
+  ledger: { cap: 96, cellPx: 8, dropPx: 2200, blackoutPx: 220 },
+}
+
 
 // ---- Beyond chapter behavior flags (v5.4, see sim.js) ----------------------------------------
 // blink (beyond's glitch blinkers): teleports instead of closing distance. State on e._blinkT
