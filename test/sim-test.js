@@ -27,7 +27,7 @@ import {
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG,
   MISSILE_SPEED, MISSILE_STANDOFF,
-  STRAFE_BANK_T, STRAFE_RUN_T,
+  STRAFE_BANK_T, STRAFE_RUN_T, STRAFE_TELEGRAPH_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
   ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
@@ -36,7 +36,7 @@ import {
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
-  DISTRICTS, DISTRICT_GRID, districtAt, districtTintAt,
+  DISTRICTS, DISTRICT_GRID, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   roadAt,
 } from '../src/config.js'
@@ -2874,15 +2874,34 @@ function testV54Flags() {
     console.log(`PASS run Y.d (spawner): ${spawned.length} × type '${spawned[0].type}' (non-elite) around the van`)
   }
 
-  // (e) strafe: a jet banks out to its standoff, then flies a straight pass — the run window
-  // covers far more ground than the bank, and it ends up PAST the player, not on them.
+  // (e) strafe: a jet banks out to its standoff, holds still for a TELEGRAPH, then flies a straight
+  // pass — the run window covers far more ground than the bank, and it ends up PAST the player.
+  //
+  // v5.9.1: the telegraph is new, and it is the point of this test now. The user reported jets were
+  // "not avoidable when they cross the screen": bank ended and the jet was instantly on you at
+  // STRAFE_RUN_SPEED_MUL (4.5x) with no tell at all. The wind-up is what makes the pass dodgeable,
+  // so assert it exists, that the jet HOLDS POSITION through it (a telegraph that drifts is a lie
+  // about where the pass lands), and that it announces itself so render can draw the line.
   {
     const { run, e } = flagRun('skies', ['strafe'], { at: 500 })
     const bankDist = moved(run, e, STRAFE_BANK_T)
-    assert.strictEqual(e._strafeState, 'run', `expected 'run' after the bank, got '${e._strafeState}'`)
+    assert.strictEqual(e._strafeState, 'telegraph', `expected 'telegraph' after the bank, got '${e._strafeState}'`)
+    assert(run.events.some((ev) => ev.type === 'strafeLock'), 'expected the lock to announce itself for render')
+
+    const telegraphDist = moved(run, e, STRAFE_TELEGRAPH_T)
+    assert(telegraphDist < 1, `expected the jet to hold still through the telegraph, moved ${telegraphDist.toFixed(1)}px`)
+    // one more frame to cross the boundary: the state flips on `_strafeT <= 0`, and stepping
+    // exactly STRAFE_TELEGRAPH_T lands ON zero, where float accumulation decides the winner.
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(e._strafeState, 'run', `expected 'run' after the telegraph, got '${e._strafeState}'`)
+
+    // the wind-up has to buy enough time to actually step out of the lane, or it is decoration.
+    const dodgePx = PLAYER.baseSpeed * STRAFE_TELEGRAPH_T
+    assert(dodgePx > e.radius * 2, `expected the telegraph to buy a real dodge, only ${dodgePx.toFixed(0)}px`)
+
     const runDist = moved(run, e, STRAFE_RUN_T)
     assert(runDist > bankDist * 2, `expected the strafing run to outpace the bank (bank=${bankDist.toFixed(1)}, run=${runDist.toFixed(1)})`)
-    console.log(`PASS run Y.e (strafe): bank=${bankDist.toFixed(1)}px run=${runDist.toFixed(1)}px`)
+    console.log(`PASS run Y.e (strafe): bank=${bankDist.toFixed(1)}px telegraph=hold(${dodgePx.toFixed(0)}px dodge window) run=${runDist.toFixed(1)}px`)
   }
 
   // (f) missileVolley: a helicopter holds its standoff and fires MISSILE_COUNT run.enemyShots per
@@ -4139,10 +4158,16 @@ function testSkiesKaiju() {
     console.log(`PASS run CC.c (rampage lifecycle): decays idle, triggers at 1.0, widens ${PLAYER.radius}->${PLAYER.radius * RAMPAGE_CRUSH_MUL} while active, drains to exactly 0`)
   }
 
-  // (d) structure `kind` is deterministic for a given (cell, seed) — and INDEPENDENT of
-  // run._districtSeed (design doc §2; guards the render-only boundary documented at
-  // state.js:399-403 — sim must never learn what a district is, so a district-only change can't
-  // silently rewrite what gets crushed).
+  // (d) structure `kind` is deterministic for a given (cell, obstacleSeed, districtSeed) — and it
+  // MATCHES the district it stands in.
+  //
+  // v5.9.1: this assertion was inverted. It used to require kind to be INDEPENDENT of
+  // _districtSeed, because v5.8 derived kind from a bare obstacleCellHash salt specifically so sim
+  // would never read the then-render-only _districtSeed. Playtest killed that design: you got
+  // houses standing in open sea and piers in farmland. _districtSeed is now a documented read-only
+  // sim contract (state.js), kind is picked from DISTRICT_STRUCTURE_KINDS[district], and the thing
+  // worth guarding is the opposite of what this test used to say — so it now pins the district
+  // match (no land buildings at sea) and keeps only the repeat-visit stability check.
   {
     function seededSkiesRun(obstacleSeed, districtSeed) {
       const run = createRun(makeMeta(), { chapter: 'skies' })
@@ -4160,16 +4185,27 @@ function testSkiesKaiju() {
     const kindsA = Object.fromEntries(runA.obstacles.map((o) => [o._cell, o.kind]))
     assert(Object.keys(kindsA).length > 5, 'expected the forced seed to stream in a real set of obstacles')
 
-    // same obstacle seed, a DIFFERENT district seed -> kind per cell must be UNCHANGED.
+    // The cell SET is still purely a function of _obstacleSeed — a district change must not move
+    // where buildings stand, only what they are.
     const runB = seededSkiesRun(seed, 999999)
     stepSim(runB, { x: 0, y: 0 }, dt)
     const kindsB = Object.fromEntries(runB.obstacles.map((o) => [o._cell, o.kind]))
     assert.strictEqual(Object.keys(kindsB).length, Object.keys(kindsA).length,
       'expected the same obstacle seed to stream the exact same set of cells regardless of _districtSeed')
-    for (const cell of Object.keys(kindsA)) {
-      assert.strictEqual(kindsB[cell], kindsA[cell],
-        `expected cell ${cell}'s kind independent of _districtSeed (A=${kindsA[cell]}, B=${kindsB[cell]})`)
+
+    // ...and every structure must be legal for the district it stands in. This is the playtest bug
+    // ("there are houses in sea biome") in assertion form: sea may hold piers and nothing else.
+    let checked = 0
+    for (const run of [runA, runB]) {
+      for (const o of run.obstacles) {
+        const d = districtAt(o.x, o.y, run._districtSeed)
+        const allowed = DISTRICT_STRUCTURE_KINDS[d]
+        assert(allowed.includes(o.kind),
+          `expected a '${d}' cell to hold one of [${allowed}], got '${o.kind}' at (${o.x.toFixed(0)},${o.y.toFixed(0)})`)
+        checked++
+      }
     }
+    assert(checked > 10, `expected a real sample of structures to district-check, got ${checked}`)
 
     // repeat visit: walk far enough away to drop the origin's cells, then walk back — the SAME
     // cell must re-roll the SAME kind (sim.js's ponytail note on stepCrush: "walk away and back,
@@ -4188,7 +4224,7 @@ function testSkiesKaiju() {
         `expected cell ${cell} to re-roll the SAME kind on a repeat visit (first=${firstVisit[cell]}, second=${secondVisit[cell]})`)
     }
 
-    console.log(`PASS run CC.d (kind determinism): ${Object.keys(kindsA).length} cells stable across a _districtSeed change and a repeat visit`)
+    console.log(`PASS run CC.d (kind matches district): ${checked} structures all legal for their district, ${Object.keys(kindsA).length} cells stable on a repeat visit`)
   }
 
   // (e) density guard: THIS specific test exists because rev.1 of this redesign silently did
@@ -4223,6 +4259,45 @@ function testSkiesKaiju() {
     const n = run.obstacles.length
     assert(n >= 80 && n <= 170, `expected roughly the intended ~150 live obstacles after wandering, got ${n} (the rev.1 cell/count no-op settles under 40, and a reverted v5.9 count settles at 76, by this same measurement)`)
     console.log(`PASS run CC.e (density guard): ${n} live obstacles after 30s of wandering (~88 expected since roads carve ~17% of the buildable grid; floor guards the rev.1 cell/count no-op)`)
+  }
+
+  // (f) a crushed structure STAYS crushed. v5.9.1, and this one shipped broken because it had no
+  // test: v5.8 deliberately kept no record of what had been flattened, on the reasoning that a
+  // crushed cell couldn't re-roll until the player walked OBSTACLE_DROP_RADIUS (1900px) away. That
+  // reasoning described the DROP path. The RE-ADD path never consults the drop radius — it skips a
+  // cell only while that cell is still in `run.obstacles`, and crushing splices it out. So the next
+  // scan (any cell-boundary crossing: 260px cells at 220px/s ≈ 1.2s) rebuilt the identical
+  // building. The user's report was "crushed assets reappear 1s after being crushed" — exactly the
+  // arithmetic. run._crushed is what makes it stick, so pin it hard.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'skies' })
+    run.weapons = []; run.mods.spawnMul = 0; run._bombardAcc = 1e6
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.player.x = 0; run.player.y = 0
+    stepSim(run, { x: 0, y: 0 }, dt)
+
+    // stand on the nearest structure and flatten it
+    const target = run.obstacles.slice().sort((a, b) => Math.hypot(a.x, a.y) - Math.hypot(b.x, b.y))[0]
+    assert(target, 'expected a streamed structure to crush')
+    const cell = target._cell
+    run.player.x = target.x; run.player.y = target.y
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(!run.obstacles.some((o) => o._cell === cell), `expected cell ${cell} to be crushed`)
+
+    // now pace back and forth across cell boundaries — the exact motion that used to resurrect it.
+    // Well over the ~1.2s the user measured, and it must never come back.
+    let reappeared = 0
+    for (let lap = 0; lap < 6; lap++) {
+      for (const [dx, dy] of [[600, 0], [0, 600], [-600, 0], [0, -600]]) {
+        run.player.x += dx; run.player.y += dy
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.obstacles.some((o) => o._cell === cell)) reappeared++
+      }
+    }
+    assert.strictEqual(reappeared, 0, `expected the crushed cell to stay flat, it came back ${reappeared}x`)
+    assert(run._crushed.has(cell), 'expected the crushed cell to be recorded in run._crushed')
+    console.log(`PASS run CC.f (crush sticks): cell ${cell} stayed flat across 24 cell-crossing re-scans`)
   }
 }
 

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -1947,6 +1947,127 @@ export function createRenderer(app) {
         blotch(238, 215, 197, 0.4),  // blush
       ]
     }
+    // ---- district ground SIGNATURE patterns (skies only, v5.9.1 render fix) -------------------
+    // "the biomes are not clear enough" (playtest report): DISTRICTS' floorTint (config.js) is
+    // deliberately squeezed into a ~0.06-0.09 luminance band (a night storm, not daylight — see
+    // that constant's own comment) so hue alone was never going to carry six districts, but the
+    // OTHER half of the bug is that every district paints the exact same shape as its base ground
+    // texture — T.blotches right above, four soft round radial-gradient blobs, reused everywhere.
+    // Downtown pavement and a park lawn were literally the same mottling, just recoloured. These
+    // five bakes give five of the six districts (parks keeps the original blotch: soft organic
+    // mottling already reads as "wild/unmanicured," and it isn't one of this task's named examples)
+    // their own PATTERN, not just their own tint: asphalt slab seams, a mown-lawn tick hatch,
+    // parallel crop furrows, a rocky stipple, gentle water ripples.
+    // Baked WHITE (alpha alone carries the shape) so floorTint (districtTintAt, below) is STILL the
+    // only thing setting hue — exactly like T.blotches' own tint path (populateBlotch) — these only
+    // add a silhouette on top of it, never a second competing colour. bake()'s default pad crops
+    // tightly to whatever's drawn (unlike T.blotches' fixed 300px canvas), which is fine: populate-
+    // Blotch's scale math is a relative multiplier on the texture's OWN size either way, and its
+    // anchor comes from bake()'s own {ax,ay}, not a hardcoded 0.5 — see that function below.
+    {
+      function groundTile(draw) {
+        const g = new Graphics()
+        draw(g)
+        return bake(g)
+      }
+      // downtown: asphalt slab — a hard rounded-rect block (not a soft round blotch) with 1-2
+      // engraved seam gaps (low-alpha cuts through the fill) reading as pavement joints. Two
+      // variants (seam position/slab size differ) so a paved block doesn't repeat visibly.
+      T.districtGround = {}
+      T.districtGround.downtown = [
+        groundTile((g) => {
+          g.roundRect(-135, -95, 270, 190, 12).fill({ color: 0xffffff, alpha: 0.48 })
+          g.rect(-135, -14, 270, 8).fill({ color: 0x000000, alpha: 0.32 })  // horizontal joint
+          g.rect(-24, -95, 8, 190).fill({ color: 0x000000, alpha: 0.32 })  // vertical joint
+        }),
+        groundTile((g) => {
+          g.roundRect(-115, -125, 230, 250, 10).fill({ color: 0xffffff, alpha: 0.44 })
+          g.rect(-115, 30, 230, 7).fill({ color: 0x000000, alpha: 0.3 })
+          g.rect(45, -125, 7, 250).fill({ color: 0x000000, alpha: 0.3 })
+        }),
+      ]
+      // suburbs: mown lawn — a dense, evenly-fanned hatch of short ticks (grass blades). The
+      // REGULARITY is the "manicured" read (versus parks' loose organic blotch below) — each tile
+      // still lands at a random rotation like every other blotch, so the hatch direction still
+      // varies yard to yard; it's the density/uniformity that reads as "lawn," not a global grain.
+      T.districtGround.suburbs = [
+        groundTile((g) => {
+          for (let row = -5; row <= 5; row++) {
+            for (let col = -5; col <= 5; col++) {
+              const x = col * 22 + (hash(row * 7.1 + col * 3.7) - 0.5) * 11
+              const y = row * 22 + (hash(row * 2.3 + col * 9.9 + 4) - 0.5) * 11
+              if (x * x + y * y * 1.6 > 125 * 125) continue // round off the tile's corners
+              const a = 1.35 + (hash(row * 5.3 + col * 1.7 + 8) - 0.5) * 0.7
+              g.moveTo(x, y).lineTo(x + Math.cos(a) * 8, y + Math.sin(a) * 8)
+                .stroke({ width: 2.4, color: 0xffffff, alpha: 0.4, cap: 'round' })
+            }
+          }
+        }),
+      ]
+      // farms: parallel furrow lines — populateBlotch (below) rotates this to the FIELD's own row
+      // angle (farmRowSnap, shared with the cropTuft prop) instead of a random spin, so every cell
+      // in one field shares the SAME line direction and the belt reads as cultivated rows, not
+      // scattered dashes. Two variants (line spacing/count differ) for a little texture variety.
+      T.districtGround.farms = [
+        groundTile((g) => {
+          for (let k = -4; k <= 4; k++) g.rect(-150, k * 24 - 3, 300, 6).fill({ color: 0xffffff, alpha: 0.4 })
+        }),
+        groundTile((g) => {
+          for (let k = -5; k <= 5; k++) g.rect(-150, k * 20 - 2, 300, 4).fill({ color: 0xffffff, alpha: 0.44 })
+        }),
+      ]
+      // hills: rocky stipple — a scatter of small hard-edged fleck polygons (same fixed-jitter n-gon
+      // idiom as the T.rockChunk/pebble bakes elsewhere), grittier than every other district's soft
+      // blotch. Two variants (fleck count/placement differ).
+      T.districtGround.hills = [
+        groundTile((g) => {
+          for (let n = 0; n < 20; n++) {
+            const a = hash(n * 3.7 + 1.1) * Math.PI * 2
+            const d = hash(n * 5.3 + 2.9) * 115
+            const x = Math.cos(a) * d, y = Math.sin(a) * d * 0.75
+            const r = 4 + hash(n * 7.1 + 0.4) * 7
+            const pts = []
+            for (let k = 0; k < 6; k++) {
+              const pa = (k / 6) * Math.PI * 2
+              const pr = r * (0.7 + hash(n * 11 + k * 2.3) * 0.5)
+              pts.push(x + Math.cos(pa) * pr, y + Math.sin(pa) * pr)
+            }
+            g.poly(pts).fill({ color: 0xffffff, alpha: 0.3 + hash(n * 2.1) * 0.18 })
+          }
+        }),
+        groundTile((g) => {
+          for (let n = 0; n < 15; n++) {
+            const a = hash(n * 4.3 + 9.1) * Math.PI * 2
+            const d = hash(n * 6.1 + 3.7) * 108
+            const x = Math.cos(a) * d, y = Math.sin(a) * d * 0.8
+            const r = 5 + hash(n * 8.3 + 1.2) * 9
+            const pts = []
+            for (let k = 0; k < 6; k++) {
+              const pa = (k / 6) * Math.PI * 2
+              const pr = r * (0.7 + hash(n * 13 + k * 3.1) * 0.5)
+              pts.push(x + Math.cos(pa) * pr, y + Math.sin(pa) * pr)
+            }
+            g.poly(pts).fill({ color: 0xffffff, alpha: 0.28 + hash(n * 3.3) * 0.2 })
+          }
+        }),
+      ]
+      // sea: gentle ripple bands — soft parallel curves, lower alpha than every land pattern above
+      // (water reads calmer/flatter, not busy). Two variants (curve bow/spacing differ).
+      T.districtGround.sea = [
+        groundTile((g) => {
+          for (const yOff of [-70, 0, 70]) {
+            g.moveTo(-150, yOff).quadraticCurveTo(0, yOff - 30, 150, yOff)
+              .stroke({ width: 6, color: 0xffffff, alpha: 0.22, cap: 'round' })
+          }
+        }),
+        groundTile((g) => {
+          for (const yOff of [-50, 20, 90]) {
+            g.moveTo(-150, yOff).quadraticCurveTo(0, yOff + 26, 150, yOff)
+              .stroke({ width: 5, color: 0xffffff, alpha: 0.2, cap: 'round' })
+          }
+        }),
+      ]
+    }
     // pebble: tiny irregular rounded stone (7-gon, fixed jitter baked once)
     {
       const g = new Graphics()
@@ -2483,6 +2604,61 @@ export function createRenderer(app) {
       g.beginPath().moveTo(-7, 2).lineTo(2, -5).stroke({ width: 1.1, color: 0x474d55, alpha: 0.5 })
       T.rockChunk = bake(g)
     }
+    // ---- voxel boulder (hills district, skies — v5.9.1 art experiment) ------------------------
+    // "the 'rocks'?? asset is just ugly" (playtest report). T.rockChunk right above is kept EXACTLY
+    // as-is — it still does its other job (run.lobs, the kaiju's thrown masonry) untouched — this
+    // is a SEPARATE bake, used ONLY by the hills district's BIG_HILLS/MID_HILLS/DETAIL_HILLS tables
+    // below, so reverting this experiment (if it doesn't earn its keep) is a small diff: those three
+    // array entries plus deleting this block, nothing else in the file to touch.
+    // Hand-drawn faux-voxel, not an imported/generated asset (the ask): blocky cube-like forms,
+    // flat colour fills with NO gradients, hard-stroked edges between every face, and ONE light
+    // direction reused byte-for-byte on every cube in every variant — the bare top-face fill is
+    // lightest, a thin RIGHT-edge strip one step darker (a lit side face), a thin BOTTOM-edge strip
+    // darkest (the face in full shadow). Light-from-upper-left matches this file's other upright
+    // buildings (T.silo's lit-left/shaded-right flank, T.house/T.barn's lit-left roof face, all
+    // above) — the closest thing this codebase has to an established sun direction. Top-down, not
+    // isometric: the bevel strips are thin slivers of the SAME top-down rect, not a rotated 3/4 view
+    // — this is the same "mostly the top face, a thin flank strip for volume" convention T.silo/
+    // T.house/T.barn already use, just with hard flat facets instead of soft alpha shading.
+    // Consistency demands every cube stay AXIS-ALIGNED (no per-cube rotation): the shading is
+    // computed in this shape's own local space, so rotating a cube would rotate its shading with it
+    // — exactly the "inconsistent lighting reads as wrong" trap the brief warns about. Irregularity
+    // instead comes from varying each cube's size/offset only, several overlapping per variant. For
+    // the same reason the district tables below mark every voxelRock kind `upright: true` — NOT
+    // because a boulder is base-anchored (it's mass-centred, like every other top-down scatter rock
+    // here), but because `upright` is applyPropKind's only lever for "small rotation jitter, not a
+    // full spin" — seeing this whole field with every boulder's lighting pointing the same way is
+    // the entire point, so full spin (this file's default for top-down scatter) is not an option.
+    {
+      function voxelCube(g, cx, cy, w, h, top, mid, dark, line) {
+        const bevel = Math.min(w, h) * 0.22 // side-face thickness — thin: mostly-overhead, not a side view
+        g.rect(cx - w / 2, cy - h / 2, w, h).fill(top).stroke({ width: 1.6, color: line })
+        g.rect(cx + w / 2 - bevel, cy - h / 2, bevel, h).fill(mid).stroke({ width: 1.2, color: line })  // right face: lit side
+        g.rect(cx - w / 2, cy + h / 2 - bevel, w, bevel).fill(dark).stroke({ width: 1.2, color: line }) // bottom face: shadow side
+      }
+      function bakeVoxel(draw) {
+        const g = new Graphics()
+        draw(g)
+        return bake(g)
+      }
+      const ROCK_TOP = 0x9aa0a8, ROCK_MID = 0x7d838c, ROCK_DARK = 0x565c64, ROCK_LINE = 0x363b41
+      // A: one big single block, with a smaller chip stacked at a corner to break up the rectangle
+      T.voxelRockA = bakeVoxel((g) => {
+        voxelCube(g, 0, 0, 46, 40, ROCK_TOP, ROCK_MID, ROCK_DARK, ROCK_LINE)
+        voxelCube(g, 16, -14, 16, 14, ROCK_TOP, ROCK_MID, ROCK_DARK, ROCK_LINE)
+      })
+      // B: two merged blocks, an L-shaped pair
+      T.voxelRockB = bakeVoxel((g) => {
+        voxelCube(g, -10, 0, 34, 30, ROCK_TOP, ROCK_MID, ROCK_DARK, ROCK_LINE)
+        voxelCube(g, 16, 10, 26, 22, ROCK_TOP, ROCK_MID, ROCK_DARK, ROCK_LINE)
+      })
+      // C: three small blocks, a loose scattered pile
+      T.voxelRockC = bakeVoxel((g) => {
+        voxelCube(g, -14, -6, 22, 20, ROCK_TOP, ROCK_MID, ROCK_DARK, ROCK_LINE)
+        voxelCube(g, 10, -10, 18, 16, ROCK_TOP, ROCK_MID, ROCK_DARK, ROCK_LINE)
+        voxelCube(g, 2, 14, 20, 17, ROCK_TOP, ROCK_MID, ROCK_DARK, ROCK_LINE)
+      })
+    }
 
     // dust mote: tiny soft blurred dot (screen-space ambience, title + gameplay)
     {
@@ -2661,7 +2837,8 @@ export function createRenderer(app) {
   const midLayer = new Container()
   const detailLayer = new Container()
   const clutterLayer = new Container() // skies-urban only (v5.9) — extra furniture, see populateClutter
-  floorLayer.addChild(blotchLayer, roadLayer, bigLayer, midLayer, detailLayer, clutterLayer)
+  const edgeLayer = new Container() // skies districts only (v5.9.1) — border markers, see populateEdge
+  floorLayer.addChild(blotchLayer, roadLayer, bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
   const idleLayer = new Container()
@@ -2792,17 +2969,49 @@ export function createRenderer(app) {
     return chapterHasDistricts ? districtTintAt(wx, wy, districtSeed) : chapterRender.floorTint
   }
 
+  // Per-district on-screen size band for the ground pattern below (v5.9.1) — the "pattern
+  // density" half of the ask: downtown reads tighter/denser (a paved grid), farms/sea read
+  // broader/sparser (a wide field, calm open water). Districts absent here (parks) fall through
+  // to the original chapter-wide [0.9, 1.6] blotch band, unchanged.
+  const DISTRICT_GROUND_SCALE = {
+    downtown: [0.65, 1.0],
+    suburbs:  [0.9, 1.4],
+    farms:    [1.1, 1.7],
+    hills:    [0.8, 1.3],
+    sea:      [1.2, 1.9],
+  }
   function populateBlotch(s, i, j, cell) {
+    const jx = (cellHash(i, j, 4) - 0.5) * cell * 0.6
+    const jy = (cellHash(i, j, 5) - 0.5) * cell * 0.6
+    const wx = (i + 0.5) * cell + jx
+    const wy = (j + 0.5) * cell + jy
+    // v5.9.1: skies picks a per-district SIGNATURE pattern (T.districtGround, buildTextures above)
+    // instead of the generic T.blotches every other chapter (and skies' own parks) still uses below
+    // — see that block's header comment for why. farms is the one district that overrides the
+    // random spin: its furrows share farmRowSnap's per-FIELD angle (same helper the cropTuft prop
+    // uses) so a whole field's tiles read as one set of rows, not scattered dashes.
+    if (chapterHasDistricts) {
+      const dtype = districtAt(wx, wy, districtSeed)
+      const pats = T.districtGround[dtype]
+      if (pats) {
+        const pat = pats[Math.floor(cellHash(i, j, 1) * pats.length)]
+        s.texture = pat.tex
+        s.anchor.set(pat.ax, pat.ay)
+        s.alpha = 1
+        s.rotation = dtype === 'farms' ? farmRowSnap(wx, wy).angle : cellHash(i, j, 2) * Math.PI * 2
+        const [lo, hi] = DISTRICT_GROUND_SCALE[dtype] || [0.9, 1.6]
+        s.scale.set(lerp(lo, hi, cellHash(i, j, 3)))
+        s.position.set(wx, wy)
+        s.tint = floorTintAt(wx, wy)
+        return
+      }
+    }
     const idx = Math.floor(cellHash(i, j, 1) * T.blotches.length)
     s.texture = T.blotches[idx]
     s.anchor.set(0.5)
     s.alpha = 1
     s.rotation = cellHash(i, j, 2) * Math.PI * 2
     s.scale.set(lerp(0.9, 1.6, cellHash(i, j, 3)))
-    const jx = (cellHash(i, j, 4) - 0.5) * cell * 0.6
-    const jy = (cellHash(i, j, 5) - 0.5) * cell * 0.6
-    const wx = (i + 0.5) * cell + jx
-    const wy = (j + 0.5) * cell + jy
     s.position.set(wx, wy)
     s.tint = floorTintAt(wx, wy) // white for body; teal multiply recolours the pond ground
   }
@@ -3171,25 +3380,32 @@ export function createRenderer(app) {
 
   // ---- hills district (skies, v5.9 top-down region overhaul) ---------------------------------
   // Elevation from directly overhead reads as soft contour shading (T.contour above), never a
-  // side-view hill silhouette — see that bake's own doc for why. Boulders/bare rock reuse
-  // T.rockChunk (already baked for the kaiju's thrown masonry, run.lobs — the same "reuse baked art
-  // at a different target size" idiom rubble/pebble already use across this file); scattered trees
-  // reuse T.root at PROP_SCALE.tree, the same class/size as the parks district's trunk accent.
-  // contour/rockChunk stay `scale`-based like sea's puddle above — neither is an enumerated
-  // PROP_SCALE class (a soft translucent contour patch or a boulder cluster doesn't compete in the
+  // side-view hill silhouette — see that bake's own doc for why. Scattered trees reuse T.root at
+  // PROP_SCALE.tree, the same class/size as the parks district's trunk accent.
+  // Boulders (v5.9.1 art experiment): T.voxelRockA/B/C (baked above, right after T.rockChunk) —
+  // three faux-voxel silhouettes, PROP_SCALE-sized like every other discrete object in these
+  // district tables (tree for the big landmark tier, fence for mid, debris for scattered detail —
+  // all three bands already fit, no new PROP_SCALE class needed). `upright: true` here is NOT about
+  // footing (a boulder is mass-centred, not base-anchored) — it's the only lever applyPropKind has
+  // for "small rotation jitter, not a full spin," which these need to keep every cube's baked
+  // shading pointing the same way across the whole field (see the bake's own comment for why a
+  // full-spin rotation would break that). contour stays `scale`-based like sea's puddle above — it
+  // isn't an enumerated PROP_SCALE class (a soft translucent contour patch doesn't compete in the
   // car/house/tower size hierarchy the way a discrete built object does).
   const BIG_HILLS = [
     { name: 'contour', baked: true, scale: [1.3, 2.1] },
-    { name: 'rockChunk', baked: true, scale: [1.6, 2.6] },
+    { name: 'voxelRockA', baked: true, upright: true, size: PROP_SCALE.tree },
+    { name: 'voxelRockB', baked: true, upright: true, size: PROP_SCALE.tree },
     { name: 'root', baked: true, upright: true, size: PROP_SCALE.tree },
   ]
   const MID_HILLS = [
     { name: 'contour', baked: true, scale: [0.7, 1.2] },
-    { name: 'rockChunk', baked: true, scale: [0.8, 1.4] },
+    { name: 'voxelRockB', baked: true, upright: true, size: PROP_SCALE.fence },
+    { name: 'voxelRockC', baked: true, upright: true, size: PROP_SCALE.fence },
     { name: 'grass_c', tints: PARK_GRASS_TINTS, upright: true, size: [28, 46] },
   ]
   const DETAIL_HILLS = [
-    { name: 'rockChunk', baked: true, scale: [0.35, 0.65] },
+    { name: 'voxelRockC', baked: true, upright: true, size: PROP_SCALE.debris },
     { name: 'grass_d', tints: PARK_GRASS_TINTS, upright: true, size: [20, 34] },
   ]
 
@@ -3318,6 +3534,49 @@ export function createRenderer(app) {
     s.position.set(pos.x, pos.y)
   }
 
+  // ---- district borders (skies only, v5.9.1 render fix) ---------------------------------------
+  // "a coastline or a field edge wants to read as an edge" (playtest report) — districtTintAt
+  // (config.js) already lerps the floor colour across DISTRICT_BLEND_PX either side of a border,
+  // but a colour lerp alone reads as a blur, not a boundary. This adds an actual EDGE MARKER: a
+  // self-gated predicate layer (same "populate no-ops outside its own case" trick as road/clutter
+  // above) that fires only within roughly one DISTRICT_BLEND_PX of a border and orients a marker
+  // ALONG it — a picket fence for a land/land seam (reusing T.fence, already baked for suburbs — a
+  // field boundary is exactly what a fence already reads as) or a foam streak for any seam touching
+  // sea (reusing T.foam/SEA_FOAM_TINTS, already the sea district's own breaking-wave prop — a
+  // shoreline IS foam). No new art either way, same "reuse baked art for a different job" idiom as
+  // rubble/rockChunk/pebble elsewhere in this file.
+  // districtAt is the only border-relevant primitive config.js exports (nearestDistrictSeeds' exact
+  // border distance is NOT exported, and this file only owns render.js) — so "near a border" is
+  // approximated by sampling districtAt at 4 points BORDER_PROBE px out from this cell (a plain
+  // Sobel-style edge test): if any of the four differs from the centre, a border is close, and
+  // WHICH ones differ gives a rough outward direction to orient the marker perpendicular to (i.e.
+  // running ALONG the border, the way a fence or a shoreline actually would). BORDER_PROBE reuses
+  // DISTRICT_BLEND_PX so the marker sits right where the tint is already mid-blend, not offset from
+  // it. This is an approximation (a true corner where 3+ districts meet can give a noisy direction),
+  // never exact geometry — acceptable for a decorative accent, not for anything sim-relevant.
+  const BORDER_PROBE = DISTRICT_BLEND_PX
+  function populateEdge(s, i, j, cell) {
+    if (!chapterHasDistricts) { s.visible = false; return }
+    const jx = (cellHash(i, j, 7) - 0.5) * cell * 0.5
+    const jy = (cellHash(i, j, 8) - 0.5) * cell * 0.5
+    const wx = (i + 0.5) * cell + jx, wy = (j + 0.5) * cell + jy
+    const here = districtAt(wx, wy, districtSeed)
+    const east = districtAt(wx + BORDER_PROBE, wy, districtSeed)
+    const west = districtAt(wx - BORDER_PROBE, wy, districtSeed)
+    const south = districtAt(wx, wy + BORDER_PROBE, districtSeed)
+    const north = districtAt(wx, wy - BORDER_PROBE, districtSeed)
+    const nx = (east !== here ? 1 : 0) - (west !== here ? 1 : 0)
+    const ny = (south !== here ? 1 : 0) - (north !== here ? 1 : 0)
+    if (nx === 0 && ny === 0) { s.visible = false; return } // most cells, most of the time — no border nearby
+    const isCoast = here === 'sea' || east === 'sea' || west === 'sea' || south === 'sea' || north === 'sea'
+    const kind = isCoast
+      ? { name: 'foam', baked: true, tints: SEA_FOAM_TINTS, alpha: 0.6, size: [70, 110] }
+      : { name: 'fence', baked: true, alpha: 0.65, size: PROP_SCALE.fence }
+    const pos = applyPropKind(s, kind, i, j, wx, wy) // handles texture/tint/scale/anchor; rotation overridden next
+    s.position.set(pos.x, pos.y)
+    s.rotation = Math.atan2(nx, -ny) // perpendicular to the (nx,ny) outward normal — runs ALONG the border
+  }
+
   // road/clutter run over EVERY chapter's cells (touchFloorCell has no chapter gate) but their
   // populate callbacks no-op (s.visible = false) outside skies/urban — see their own doc comments
   // above for why a self-gating predicate layer was the only way to add chapter-scoped density
@@ -3329,6 +3588,7 @@ export function createRenderer(app) {
     { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid },
     { name: 'detail', cell: 120, chance: 0.40, parent: detailLayer, populate: populateDetail },
     { name: 'clutter', cell: 150, chance: 1.00, parent: clutterLayer, populate: populateClutter },
+    { name: 'edge', cell: 170, chance: 1.00, parent: edgeLayer, populate: populateEdge },
   ]
 
   function touchFloorCell(cfg, i, j) {
@@ -4561,6 +4821,75 @@ export function createRenderer(app) {
     }
   }
 
+  // Jet strafe telegraph (skies' fighter jets, v5.9.1): sim now fires a one-off {type:'strafeLock',
+  // x, y, angle, len} event the instant a jet's heading locks (stepStrafe, sim.js), then the jet
+  // HOLDS that position for STRAFE_TELEGRAPH_T before flying the pass at STRAFE_RUN_SPEED_MUL — see
+  // stepStrafe's own v5.9.1 comment for the playtest report this answers ("planes are not avoidable
+  // when they cross the screen"). Unlike every OTHER roster telegraph above (pounce/aerialStrike/
+  // lineCharge/pullBeam), this one is deliberately NOT read live off the enemy each frame — it's a
+  // fire-once event that sim already did the (spdMul/enrage-aware) length math for, so render just
+  // remembers x/y/angle/len in its own small pool for STRAFE_TELEGRAPH_T seconds rather than
+  // re-deriving `len` from live enemy fields (that math is sim's business, not render's — see
+  // stepStrafe's comment for exactly what it folds in).
+  // Drawn electric-blue (LIGHTNING.telegraph — the SAME re-skin skies' own bomb telegraphs already
+  // wear, redrawBombs below) rather than the generic amber every other chapter's roster telegraph
+  // above uses: a fighter jet's strafing run is a sky/storm hazard, and electric is already this
+  // chapter's established "the storm is attacking you" cue. The shape itself is still lineCharge's
+  // band-and-chevrons lane (this section's own header comment: "run you down in a straight line" is
+  // exactly what a strafing jet does too) — same grammar, this chapter's own colour.
+  const MAX_STRAFE_LOCKS = 10 // generous headroom: the telegraph is a ~0.5s slice of a ~2.8s bank->
+                               // telegraph->run cycle, so only a fraction of alive jets lock at once
+  const strafeLocks = []
+  for (let i = 0; i < MAX_STRAFE_LOCKS; i++) strafeLocks.push({ live: false, x: 0, y: 0, angle: 0, len: 0, t: 0 })
+  let strafeLockCursor = 0
+  function spawnStrafeLock(x, y, angle, len) {
+    const sp = strafeLocks[strafeLockCursor]
+    strafeLockCursor = (strafeLockCursor + 1) % MAX_STRAFE_LOCKS
+    sp.live = true; sp.x = x; sp.y = y; sp.angle = angle; sp.len = len; sp.t = 0
+  }
+  // Advances every live lock's own clock AND draws it, straight into teleG — called right after
+  // redrawTelegraphs (which already cleared+filled teleG this frame, see sync()), so this only ever
+  // ADDS to it, never re-clears. dt=0 (paused/frozen behind a modal) holds the telegraph exactly
+  // where it was, same freeze contract as every other render-local timer in this file.
+  function updateStrafeLocks(dt) {
+    // half-width = the EXACT contact corridor (PLAYER.radius + jet radius, stepContactDamage in
+    // sim.js) — jet is archetype 'fast' = ENEMIES.wisp, so this is the same width that will actually
+    // hit, not a padded "safety" guess.
+    const hw = PLAYER.radius + ENEMIES.wisp.radius
+    const t = LIGHTNING.telegraph
+    for (const sp of strafeLocks) {
+      if (!sp.live) continue
+      if (dt > 0) sp.t += dt
+      if (sp.t >= STRAFE_TELEGRAPH_T) { sp.live = false; continue }
+      const urgency = Math.min(1, sp.t / STRAFE_TELEGRAPH_T)
+      const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
+      const flicker = 0.7 + 0.3 * Math.random() // electric crackle, same as redrawBombs' skies reskin
+      const cos = Math.cos(sp.angle), sin = Math.sin(sp.angle)
+      const flat = []
+      for (const [lx, ly] of [[0, -hw], [sp.len, -hw], [sp.len, hw], [0, hw]]) {
+        flat.push(sp.x + lx * cos - ly * sin, sp.y + lx * sin + ly * cos)
+      }
+      const fillA = Math.min(t.maxFillA, t.baseFillA + urgency * 0.16 + pulse * 0.05)
+      const rimA = Math.min(1, (t.baseRimA + urgency * 0.35 + pulse * 0.1) * flicker)
+      teleG.poly(flat).fill({ color: t.color, alpha: fillA })
+      teleG.poly(flat).stroke({ width: 2 + urgency * 2, color: t.color, alpha: rimA })
+      // chevrons pointing downstream — lineCharge's "which way" cue above, re-tinted electric
+      const n = 4
+      for (let k = 0; k < n; k++) {
+        const d = ((k + 0.5) / n) * sp.len
+        const tipX = sp.x + d * cos, tipY = sp.y + d * sin
+        const back = hw * 0.5
+        teleG.beginPath()
+        for (const s of [-1, 1]) {
+          teleG.moveTo(tipX - cos * back - sin * s * hw * 0.6, tipY - sin * back + cos * s * hw * 0.6)
+          teleG.lineTo(tipX, tipY)
+        }
+        teleG.stroke({ width: 2.5, color: t.coreColor, alpha: (0.3 + urgency * 0.35) * flicker })
+      }
+    }
+  }
+  function clearStrafeLocks() { for (const sp of strafeLocks) sp.live = false }
+
   // Debris Toss lobs (run.lobs): the sim only tracks t counting UP to flight — THE ARC IS RENDER'S.
   // Ground position lerps (fromX,fromY) -> (tx,ty); the chunk lifts off it by a parabola peaking at
   // the halfway point (4k(1-k), scaled to the throw's length), and a shadow stays on the ground
@@ -5440,6 +5769,12 @@ export function createRenderer(app) {
           spawnClaw(e.x, e.y, e.angle, e.range, e.arc)
           addShake(1.2, 0.07)
           break
+        case 'strafeLock':
+          // Jet strafe wind-up (v5.9.1, see updateStrafeLocks above) — a WARNING, not an impact, so
+          // no screen shake here (nothing has hit anything yet; the shake for the actual pass is
+          // just the jet's own contact damage, same as any other enemy).
+          spawnStrafeLock(e.x, e.y, e.angle, e.len)
+          break
         case 'explode': {
           // A bomb detonation in skies reads as lightning (see justStruck above); every other
           // explosion source (weapon lobs/novas, mines, geysers, snap traps, other chapters'
@@ -5551,6 +5886,7 @@ export function createRenderer(app) {
     clearWhips()
     clearClaws()
     clearRoars()
+    clearStrafeLocks()
     clearCurrents()
     clearStorm()
     clearParticles()
@@ -6040,6 +6376,7 @@ export function createRenderer(app) {
     redrawLanes(run)
     redrawHazards(run)
     redrawTelegraphs(run)
+    updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     syncCars(run)
     syncLobs(run)
 

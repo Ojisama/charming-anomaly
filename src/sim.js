@@ -89,7 +89,7 @@ import {
   GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
   GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
   // v5.4 skies
-  STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
+  STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_TELEGRAPH_T, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
   MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
   MISSILE_GAP, MISSILE_SPEED, MISSILE_TURN, MISSILE_LIFE, MISSILE_R, MISSILE_DMG, MISSILE_BLAST,
   ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
@@ -98,9 +98,9 @@ import {
   ROAR_STUN, ROAR_RESONANCE_EVERY, TAIL_COLLIDE_R, TAIL_COLLIDE_FRAC, TAIL_COUNTER_CD,
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
   // v5.8 kaiju redesign (skies crushing + rampage)
-  STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
-  // v5.9 top-down region overhaul (skies roads)
-  roadAt,
+  STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
+  // v5.9 top-down region overhaul (skies roads + districts)
+  roadAt, districtAt, DISTRICT_STRUCTURE_KINDS,
   // v5.4 beyond
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
@@ -493,7 +493,7 @@ function stepEnemyMovement(run, dt) {
     } else if (e.flags && e.flags.includes('lineCharge')) {
       stepLineCharge(e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('strafe')) {
-      stepStrafe(e, tx, ty, dt, slowMul, enrageMul)
+      stepStrafe(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('missileVolley')) {
       stepMissileVolley(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('blink')) {
@@ -768,11 +768,28 @@ function stepLineCharge(e, tx, ty, dt, slowMul, spdMul) {
   e.y += vy * slowMul * dt
 }
 
-// strafe (v5.4 skies' fighter jets): bank -> run, on _strafeState/_strafeT/_strafeDirX/_strafeDirY.
-// It never chases — it drifts out to a standoff point on a random bearing, locks onto you at the
-// END of the bank, then flies a straight pass THROUGH you and well beyond. Damages the player only,
-// via ordinary contact damage while it passes.
-function stepStrafe(e, tx, ty, dt, slowMul, spdMul) {
+// strafe (v5.4 skies' fighter jets): bank -> telegraph -> run, on _strafeState/_strafeT/
+// _strafeDirX/_strafeDirY. It never chases — it drifts out to a standoff point on a random
+// bearing, locks onto you at the END of the bank, holds that lock through a telegraph beat, then
+// flies a straight pass THROUGH you and well beyond. Damages the player only, via ordinary contact
+// damage while it passes.
+// v5.9.1 bugfix ("jets are unavoidable when they cross the screen", playtest report): the
+// 'telegraph' state and its {type:'strafeLock', x, y, angle, len} event are new — before this,
+// 'bank' transitioned straight into the fast 'run' with zero warning, so the first thing the player
+// saw was contact. STRAFE_TELEGRAPH_T (config.js) mirrors DIVE_TELEGRAPH_T (garden's wasp dive, a
+// similarly extreme speed multiplier that already ships with exactly this kind of pause) — 0.5s in
+// which the jet HOLDS its locked position (like lineCharge's 'lock' state, stepLineCharge above),
+// so the line render draws from strafeLock's (x,y,angle) stays true to where the run actually
+// starts. Arithmetic for why 0.5s is enough to dodge: the jet is STRAFE_STANDOFF (420px) from the
+// player's locked position when the telegraph starts; the player moves at PLAYER.baseSpeed
+// (220px/s), so in 0.5s they can clear up to 110px laterally — over 3x the ~34px (PLAYER.radius +
+// jet radius) needed to step clear of the dead-straight line the jet just committed to.
+// STRAFE_RUN_SPEED_MUL and contact damage are deliberately left AS-IS: the bug was avoidability,
+// not raw power (jet contact dmg is a flat 5, ~5% of PLAYER.baseHP, and jets are ~55% of late
+// spawns — WAVE_TABLE, config.js — so any per-hit nerf would be a much bigger difficulty swing than
+// this bug calls for; a telegraphed-and-dodgeable pass at the SAME speed is the smaller, more
+// surgical fix).
+function stepStrafe(run, e, tx, ty, dt, slowMul, spdMul) {
   if (e._strafeState === undefined) { e._strafeState = 'bank'; e._strafeT = STRAFE_BANK_T; e._strafeBearing = Math.random() * Math.PI * 2 }
   e._strafeT -= dt
   if (e._strafeState === 'bank') {
@@ -789,8 +806,17 @@ function stepStrafe(e, tx, ty, dt, slowMul, spdMul) {
       const ax = tx - e.x, ay = ty - e.y
       const ad = Math.hypot(ax, ay) || 1
       e._strafeDirX = ax / ad; e._strafeDirY = ay / ad
-      e._strafeState = 'run'; e._strafeT = STRAFE_RUN_T
+      e._strafeState = 'telegraph'; e._strafeT = STRAFE_TELEGRAPH_T
+      // len: the nominal (unslowed) distance the 'run' phase below will actually travel — same
+      // e.speed*spdMul*STRAFE_RUN_SPEED_MUL this function uses once it gets there — so render's
+      // incoming-line length matches the real pass, not a guessed constant.
+      const len = e.speed * spdMul * STRAFE_RUN_SPEED_MUL * STRAFE_RUN_T
+      run.events.push({ type: 'strafeLock', x: e.x, y: e.y, angle: Math.atan2(ay, ax), len })
     }
+  } else if (e._strafeState === 'telegraph') {
+    // Holds position — keeps the lock (and the strafeLock event's x/y/angle) true to where the run
+    // actually starts, exactly like lineCharge's 'lock' state above.
+    if (e._strafeT <= 0) { e._strafeState = 'run'; e._strafeT = STRAFE_RUN_T }
   } else {
     const spd = e.speed * spdMul * STRAFE_RUN_SPEED_MUL
     e.x += e._strafeDirX * spd * slowMul * dt
@@ -1125,12 +1151,18 @@ function stepCurrents(run, dt) {
 // Cells only re-scan when the player crosses a cell boundary; obstacles past OBSTACLE_DROP_RADIUS
 // are dropped (hysteresis, so pacing the same boundary doesn't churn). run._obstacleRev bumps on
 // any change — render's syncObstacles rebuilds only on that. _obstacleSeed null = streaming off
-// (body, and tests that blank the field).
+// (body, and tests that blank the field). v5.9.1 bugfix: run._crushed (a Set of cell keys, see
+// stepCrush below) permanently excludes an already-crushed cell from ever re-rolling, even across
+// many re-scans within the drop radius — see this function's body for why that guard is needed.
 // v5.8 kaiju redesign: cfg.cell (CHAPTERS[id].obstacles.cell) overrides the shared OBSTACLE_CELL
 // per chapter — skies alone sets it, shrinking to pack structures denser (see config.js). Every
 // obstacle also gets a `kind` (one of STRUCTURE_KINDS) from a FIFTH salt on this same pure hash —
-// deterministic per cell, consumes nothing from Math.random, and never reads run._districtSeed (a
-// documented render-only field, state.js) so sim stays ignorant of what a "district" even is.
+// deterministic per cell, consumes nothing from Math.random. v5.9.1 bugfix: for a chapter with a
+// district map (run._districtSeed != null, skies only) that salt now picks WITHIN the district-
+// appropriate subset (DISTRICT_STRUCTURE_KINDS, config.js) instead of the full list, so a district
+// actually reads as itself (no houses at sea) — see run._districtSeed's doc in state.js for why
+// reading that field here is still safe for the seeded test suite (drawn once at createRun, same as
+// always; reading an EXISTING value costs nothing from the shared Math.random stream at step time).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -1164,6 +1196,15 @@ function streamObstacles(run) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j
       if (live.has(key)) continue
+      // v5.9.1 bugfix ("crushed buildings reappear after ~1s", playtest report): a cell whose
+      // structure was already crushed THIS RUN never re-rolls, even though stepCrush's splice
+      // removes it from `live` above. Before run._crushed existed, ANY cell-boundary crossing (the
+      // early-return at the top of this function, ~1.2s apart at PLAYER.baseSpeed/OBSTACLE_CELL)
+      // re-triggered a scan that saw the crushed cell missing from `live` and re-rolled the
+      // IDENTICAL building right back in from the same pure hash — nothing to do with
+      // OBSTACLE_DROP_RADIUS/distance, which is why walking away and back was never required to
+      // see it happen.
+      if (run._crushed.has(key)) continue
       if (obstacleCellHash(i, j, seed, 0) >= prob) continue
       const r = cfg.minR + obstacleCellHash(i, j, seed, 1) * (cfg.maxR - cfg.minR)
       // jitter inside the cell, pulled in by the radius so neighbours can't overlap
@@ -1178,15 +1219,26 @@ function streamObstacles(run) {
       // comment above). Gated on CHAPTERS[chapter].roads so no other chapter's obstacle field moves.
       // // ponytail: roads key off run._obstacleSeed and districts off run._districtSeed — two
       // independent seeds — so a road strip is NOT aware of which district it's crossing (it clears
-      // structures out of a sea district exactly as readily as downtown). Harmless in practice: a
-      // clear channel through open water just reads as a channel, and nothing DEPENDS on roads and
-      // districts agreeing. Keeping them independent is what keeps sim ignorant of what a district
-      // even is (run._districtSeed is documented render-only, state.js:399-403/:621-623) — the fix,
-      // if this ever needs to change, is promoting _districtSeed to a real sim contract, not
-      // teaching roadAt about districts.
+      // structures out of a sea district exactly as readily as downtown). Still harmless in
+      // practice (a clear channel through open water just reads as a channel) and unrelated to the
+      // v5.9.1 kind fix right below: THAT fix reads _districtSeed to pick which STRUCTURE survives
+      // in a cell, this ponytail is about the STREET GRID's own shape, and nothing depends on the
+      // two agreeing. _districtSeed being promoted to a real sim contract (see below) doesn't change
+      // this call — revisit only if roads ever need to read as district-aware (e.g. no roads carved
+      // into open sea).
       if (roadsOn && roadAt(x, y, seed).onRoad) continue
+      // v5.9.1 bugfix ("houses in the sea", playtest report): kind used to be picked UNIFORMLY
+      // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any of the 6
+      // silhouettes (including a house or a tower) could land in open water. When this run has a
+      // district map (run._districtSeed != null, skies only), pick from the district-appropriate
+      // subset instead (DISTRICT_STRUCTURE_KINDS, config.js) — same hash salt, deterministic, no
+      // new RNG draw. Every other chapter (_districtSeed always null there) keeps the old uniform
+      // pick across the full list, unchanged.
       const kindRoll = obstacleCellHash(i, j, seed, 4)
-      const kind = STRUCTURE_KINDS[Math.min(STRUCTURE_KINDS.length - 1, Math.floor(kindRoll * STRUCTURE_KINDS.length))]
+      const kinds = run._districtSeed != null
+        ? (DISTRICT_STRUCTURE_KINDS[districtAt(x, y, run._districtSeed)] || STRUCTURE_KINDS)
+        : STRUCTURE_KINDS
+      const kind = kinds[Math.min(kinds.length - 1, Math.floor(kindRoll * kinds.length))]
       run.obstacles.push({ x, y, r, _cell: key, kind })
       changed = true
     }
@@ -1248,11 +1300,15 @@ function stepObstacles(run) {
 // pocket, not an obstacle). Crush radius is PLAYER.radius normally, widened by RAMPAGE_CRUSH_MUL
 // while a rampage is active (run.rampageT > 0, see stepRampage below) — that widened radius is the
 // entire rampage payoff.
-// // ponytail: no run._crushed record — walk OBSTACLE_DROP_RADIUS away and back and the cell
-// re-rolls its building. A 5-minute run rarely backtracks that far, so the trail behind you reads
-// correctly in practice; add a cell-mask only if backtracking ever becomes common (it would cost a
-// Set, a streaming guard, and re-deriving positions from obstacleCellHash salts 2/3 to land the
-// decal on-footprint — design doc §2).
+// v5.9.1 bugfix ("crushed buildings reappear after ~1s", playtest report): every crushed cell key
+// is recorded into run._crushed (a Set, state.js) so streamObstacles never re-rolls it, permanently,
+// for the rest of the run. This REPLACES an earlier ponytail note that claimed crushed structures
+// only came back after walking OBSTACLE_DROP_RADIUS away and back — that reasoning described the
+// DROP path (obstacles beyond OBSTACLE_DROP_RADIUS get spliced out too) but the RE-ADD path never
+// actually consulted distance at all: streamObstacles only skipped cells still present in `live`,
+// and this function's own splice below removes the cell from `live`, so the very next cell-boundary
+// scan (~1.2s later at PLAYER.baseSpeed/OBSTACLE_CELL, nowhere near a 1900px walk) re-rolled the
+// identical building right back in. The claim was simply wrong, confirmed by playtest.
 function stepCrush(run) {
   if (!CHAPTERS[run.chapter].crush) return
   if (!run.obstacles || run.obstacles.length === 0) return
@@ -1265,10 +1321,12 @@ function stepCrush(run) {
     const minSep = o.r + crushR
     if (dx * dx + dy * dy >= minSep * minSep) continue
     run.obstacles.splice(i, 1)
+    run._crushed.add(o._cell) // v5.9.1 bugfix: permanent — see this function's header comment
     changed = true
     run.events.push({ type: 'crush', x: o.x, y: o.y, kind: o.kind })
     run.gems.push({ x: o.x, y: o.y, xp: CRUSH_XP }) // same drop path dealDamage uses for a kill
     run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
+    run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
   }
   // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural cell
   // crossing re-triggers streamObstacles — syncObstacles only rebuilds when _obstacleRev changes
@@ -1287,6 +1345,16 @@ function stepCrush(run) {
 // Trigger check runs BEFORE this frame's decay, not after: stepCrush may have just clamped
 // run.rampage to exactly 1 this same frame, and decaying first would knock it fractionally under 1
 // before the >=1 check ever saw it, silently swallowing the trigger.
+// v5.9.1 bugfix ("the meter is unfillable and drains too fast", playtest report): RAMPAGE_GAIN was
+// 0.05 (20 crushes to fill) against RAMPAGE_DECAY 0.05/s — a player had to sustain a crush EVERY
+// SECOND just to break even, which the density this chapter actually streams (see CHAPTERS.skies.
+// obstacles' own arithmetic) never supports. RAMPAGE_GAIN/RAMPAGE_DECAY's doc in config.js derives
+// the new numbers from the field's real geometry (structures are ~one per streamed cell, so a
+// player weaving through a dense block crushes roughly one every ~1.2s, not one a second) and shows
+// the resulting fill time lands in the target 8-15s window. run._rampageGraceT (set by stepCrush on
+// every crush) holds off decay for RAMPAGE_GRACE_T s after the LAST crush, so a couple of seconds
+// spent crossing a gap between clusters (or dodging an enemy) doesn't quietly erase progress the
+// way continuous decay would.
 function stepRampage(run, dt) {
   if (!CHAPTERS[run.chapter].crush) return
   if (run.rampageT > 0) {
@@ -1299,6 +1367,7 @@ function stepRampage(run, dt) {
     return
   }
   if (run.rampage >= 1) { run.rampageT = RAMPAGE_DURATION; return }
+  if (run._rampageGraceT > 0) { run._rampageGraceT = Math.max(0, run._rampageGraceT - dt); return } // grace: no decay yet
   run.rampage = Math.max(0, run.rampage - RAMPAGE_DECAY * dt)
 }
 

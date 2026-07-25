@@ -1537,13 +1537,20 @@ export const LIGHTNING = {
     alpha: 0.55,       // dimmer than a real strike's peak (1)
   },
 }
-// Procedural Voronoi districts (skies chapter, v5.7.x, render.js; grown from 4 types to 6 by the
-// v5.9 top-down region overhaul): a seeded ground map over world-XY so roaming any direction
-// crosses downtown -> suburbs -> parks -> farms -> hills -> sea and back. RENDER-ONLY —
-// districtAt/districtTintAt are pure functions of (x, y, run._districtSeed); sim.js never calls
-// them and obstacles stay generic colliders (see run._districtSeed doc in state.js). floorTint is
-// what actually reaches the floor sprites (render.js multiplies it in like every other chapter's
-// single floorTint); weight sets how much of the map each type gets (districtCellType below).
+// Procedural Voronoi districts (skies chapter, v5.7.x, render.js + sim.js; grown from 4 types to 6
+// by the v5.9 top-down region overhaul): a seeded ground map over world-XY so roaming any direction
+// crosses downtown -> suburbs -> parks -> farms -> hills -> sea and back. districtAt/districtTintAt
+// are pure functions of (x, y, run._districtSeed) — no RNG stream, no run mutation — so either side
+// of the sim/render boundary can call them. floorTint is RENDER-ONLY (what actually reaches the
+// floor sprites — render.js multiplies it in like every other chapter's single floorTint); weight
+// sets how much of the map each type gets (districtCellType below).
+// v5.9.1 bugfix: districtAt is now ALSO called from sim.js's streamObstacles, to pick a structure's
+// `kind` from the district-appropriate subset (DISTRICT_STRUCTURE_KINDS, below STRUCTURE_KINDS)
+// instead of the full list — fixes the reported "houses in the sea" bug. run._districtSeed's own
+// doc (state.js) has the full case for why this is safe for the seeded test suite; short version:
+// it's drawn once at createRun same as always, and sim reading an EXISTING value costs nothing from
+// the shared Math.random stream at step time. districtTintAt (the floor-tint half) stays
+// render-only — sim still never reads a floor color, and still never branches game LOGIC on district.
 export const DISTRICTS = {
   downtown: { floorTint: 0x717c88, weight: 3 }, // the chapter's original wet-asphalt grey — kept as the anchor district
   suburbs:  { floorTint: 0x9a8a72, weight: 2 }, // warmer, lighter grey-tan — v5.9: 3->2, ceding a share to farms/hills
@@ -1818,19 +1825,41 @@ export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts pe
 // purely cosmetic classification stamped on every streamed obstacle entry (run.obstacles[i].kind),
 // derived from obstacleCellHash(i, j, seed, 4) — a FIFTH salt on the same pure hash that already
 // picks the cell's position/radius (sim.js). Sim itself never branches on `kind` (crushing/pushing
-// treat every obstacle the same); render.js maps kind × district to a sprite (tower/house/tree/pier
-// reading as downtown/suburbs/parks/sea respectively, barn/silo as farms — see
-// docs/superpowers/specs/2026-07-25-skies-kaiju-redesign-design.md §5). Deliberately assigned for
-// every chapter's obstacles, not just skies': the hash is free (no RNG stream, no branch cost worth
-// gating), and it keeps `kind` a property of "what a streamed obstacle IS" rather than a skies-only
-// special case another chapter would have to remember to add later.
+// treat every obstacle the same); render.js just maps kind -> a sprite.
+// v5.9.1 bugfix ("houses appear in the sea", playtest report): kind used to be picked UNIFORMLY
+// across this entire list regardless of where the cell actually sat, so a downtown tower and a sea
+// pier were equally likely to land in the middle of the ocean. Skies (the only chapter with a
+// district map — run._districtSeed, see its doc in state.js) now picks from
+// DISTRICT_STRUCTURE_KINDS[district] instead, below — see streamObstacles in sim.js. Every OTHER
+// chapter (_districtSeed always null there) still picks uniformly across this full list, unchanged.
+// `kind` itself is still stamped for every chapter's obstacles, not just skies' (the hash is free,
+// no RNG stream, no branch cost worth gating) — only the SUBSET it's drawn from is district-gated.
 // v5.9: adding barn/silo reshuffles which roll maps to which kind for EVERY existing cell in EVERY
 // chapter (Math.floor(kindRoll * STRUCTURE_KINDS.length) now divides by 6, not 4) — this is fine:
 // `kind` was never asserted against a specific literal value anywhere (grep confirms; the closest
-// is test/sim-test.js's run CC.d, which only checks kind is STABLE per (cell, seed), not WHICH kind
-// it is), and no other chapter reads o.kind at all (only skies sets CHAPTERS[x].crush/render.js's
-// district-skin lookup, both skies-only). Run `npm test` after any STRUCTURE_KINDS edit regardless.
+// is test/sim-test.js's run CC.d, which checks kind is STABLE per (cell, seed) — its OTHER
+// assertion, that kind is independent of _districtSeed, is exactly the bug fixed above, so that
+// specific assertion no longer holds for skies as of v5.9.1), and no other chapter reads o.kind at
+// all (only skies sets CHAPTERS[x].crush/render.js's district-skin lookup, both skies-only). Run
+// `npm test` after any STRUCTURE_KINDS edit regardless.
 export const STRUCTURE_KINDS = ['tower', 'house', 'tree', 'pier', 'barn', 'silo']
+
+// Structure kind × district (v5.9.1 bugfix, see STRUCTURE_KINDS' comment above): which kinds a
+// structure may roll INSIDE a given DISTRICTS type, so a district actually reads as itself — towers
+// downtown, houses in the suburbs, no land buildings poking out of the sea. parks/hills share
+// 'tree' (both read as open, unbuilt land); farms gets two silhouettes (barn/silo) so a farm belt
+// doesn't read as monotonous. Consulted by sim.js's streamObstacles ONLY when run._districtSeed is
+// set (skies today, via CHAPTERS[chapter].render.districts — see that field's doc in state.js for
+// why sim reading it is safe). Every DISTRICTS key should have an entry; streamObstacles falls back
+// to the full STRUCTURE_KINDS list if one is ever missing (defensive, not expected in practice).
+export const DISTRICT_STRUCTURE_KINDS = {
+  downtown: ['tower'],
+  suburbs:  ['house'],
+  parks:    ['tree'],
+  hills:    ['tree'],
+  sea:      ['pier'],          // no land buildings — sea reads as sea, not a bald patch of ocean
+  farms:    ['barn', 'silo'],
+}
 
 // PROP_SCALE — the single source of truth for a prop CLASS's absolute on-screen footprint, in px
 // (v5.9 top-down region overhaul). Fixes the reported "cars bigger than houses" bug: render.js's
@@ -2055,16 +2084,31 @@ export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon']
 
 // ---- Skies chapter behavior flags (v5.4, see sim.js) -----------------------------------------
 // strafe (skies' fighter jets): flies straight passes THROUGH the player rather than chasing.
-// State on e._strafeState ('bank'|'run') / _strafeT / _strafeDirX, _strafeDirY (LOCKED at the
-// start of each 'run').
-//   bank: STRAFE_BANK_T of drifting toward a point STRAFE_STANDOFF px from the player on a random
-//         bearing, at STRAFE_BANK_SPEED_MUL. At its END the heading locks onto the player.
-//   run:  STRAFE_RUN_T of straight flight at STRAFE_RUN_SPEED_MUL, no steering (it flies past and
-//         well beyond you), then back to 'bank'.
+// State on e._strafeState ('bank'|'telegraph'|'run') / _strafeT / _strafeDirX, _strafeDirY (LOCKED
+// at the end of 'bank' and held through 'telegraph').
+//   bank:       STRAFE_BANK_T of drifting toward a point STRAFE_STANDOFF px from the player on a
+//               random bearing, at STRAFE_BANK_SPEED_MUL. At its END the heading locks onto the
+//               player and a {type:'strafeLock'} event fires (state.js's event-contract doc).
+//   telegraph:  STRAFE_TELEGRAPH_T of holding that locked position — the wind-up the player reacts
+//               to (see below).
+//   run:        STRAFE_RUN_T of straight flight at STRAFE_RUN_SPEED_MUL, no steering (it flies past
+//               and well beyond you), then back to 'bank'.
 // Damages: the PLAYER only, via ordinary contact damage. No run.* array.
+// v5.9.1 bugfix ("jets are unavoidable when they cross the screen", playtest report): STRAFE_
+// TELEGRAPH_T and the 'telegraph' state are new — there used to be NO gap between the heading
+// locking and the fast run starting, so a jet crossing the screen was the first thing the player
+// saw AS it hit them. 0.5s mirrors DIVE_TELEGRAPH_T (garden's wasp dive, an even faster relative
+// speed multiplier that already ships with exactly this kind of pause) and is enough to dodge: the
+// jet locks STRAFE_STANDOFF (420px) from the player, who moves at PLAYER.baseSpeed (220px/s) — 0.5s
+// buys up to 110px of lateral clearance, over 3x the ~34px (PLAYER.radius + jet radius) needed to
+// step off the dead-straight line it committed to. STRAFE_RUN_SPEED_MUL and jet contact damage
+// (ENEMIES.wisp.dmg=5, ~5% of PLAYER.baseHP) are deliberately UNCHANGED: the bug was avoidability,
+// not power, and jet is ~55% of late spawns (WAVE_TABLE) — a per-hit or speed nerf here would move
+// overall chapter difficulty far more than this fix calls for.
 export const STRAFE_STANDOFF = 420
 export const STRAFE_BANK_T = 1.3
 export const STRAFE_BANK_SPEED_MUL = 1.6
+export const STRAFE_TELEGRAPH_T = 0.5   // s of held-position wind-up between lock and run (see above)
 export const STRAFE_RUN_T = 1.0
 export const STRAFE_RUN_SPEED_MUL = 4.5
 
@@ -2182,23 +2226,46 @@ export const CRUSH_XP = 1
 
 // Rampage meter (run.rampage, 0..1; run.rampageT, s of the buff remaining — see state.js). Fills
 // on crush (RAMPAGE_GAIN per structure), bleeds continuously at RAMPAGE_DECAY/s the rest of the
-// time — the decay IS the design: a bank filled at leisure rewards patience, a streak that bleeds
-// unless you keep wrecking rewards momentum (the kaiju verb, design doc §3). At a FULL bar,
-// RAMPAGE activates for RAMPAGE_DURATION s: the crush radius widens from PLAYER.radius to
-// PLAYER.radius * RAMPAGE_CRUSH_MUL (stepCrush) — you flatten a swath without touching it. That is
-// the ENTIRE buff: no speed/damage multiplier. Rev.1 granted those too and both were cut — p.speed
-// and p.damageMul are never assigned anywhere in sim.js (set once in createRun, read through
-// multipliers at spawnEnemy/stepPlayerMovement/applyDamage), so mutating them in place would leak
-// permanently on re-trigger or on death mid-buff. A radius is one number, re-derived fresh every
-// frame from rampageT, and can't leak.
-// Tuning note (design doc §3, "open tuning risk"): at the new obstacle density a player simply
-// walking forward sweeps roughly 0.7 structures/s with zero routing effort (crushables no longer
-// block movement). GAIN * 0.7 (~0.035/s) is deliberately kept BELOW DECAY (0.05/s) so idle forward
-// motion alone can never fill the bar — only a deliberate detour through a denser block outpaces
-// the bleed. This can't be fully settled on paper; tune these three in play once render/audio land
-// (design doc's Build order §8 step 3).
-export const RAMPAGE_GAIN = 0.05        // meter fraction added per crushed structure
-export const RAMPAGE_DECAY = 0.05       // meter fraction lost per second while NOT in an active rampage
+// time (after a RAMPAGE_GRACE_T grace window since the last crush, see below) — the decay IS the
+// design: a bank filled at leisure rewards patience, a streak that bleeds unless you keep wrecking
+// rewards momentum (the kaiju verb, design doc §3). At a FULL bar, RAMPAGE activates for
+// RAMPAGE_DURATION s: the crush radius widens from PLAYER.radius to PLAYER.radius *
+// RAMPAGE_CRUSH_MUL (stepCrush) — you flatten a swath without touching it. That is the ENTIRE buff:
+// no speed/damage multiplier. Rev.1 granted those too and both were cut — p.speed and p.damageMul
+// are never assigned anywhere in sim.js (set once in createRun, read through multipliers at
+// spawnEnemy/stepPlayerMovement/applyDamage), so mutating them in place would leak permanently on
+// re-trigger or on death mid-buff. A radius is one number, re-derived fresh every frame from
+// rampageT, and can't leak.
+//
+// v5.9.1 retune ("the meter is unfillable and drains too fast", playtest report — exactly the
+// failure design doc §3's "open tuning risk" flagged and deferred to a play pass). The shipped
+// numbers (GAIN 0.05, DECAY 0.05/s) needed a sustained >1 crush/SECOND just to break even; nothing
+// in the actual field supports that. Derived from the real streaming geometry instead of guessed:
+//
+//   - CHAPTERS.skies.obstacles is {count:40, cell:260, minDist:160} — streamObstacles' `prob`
+//     formula already exceeds 1.0 at this count/cell pair (see CHAPTERS.skies.obstacles' own
+//     comment, above), so structures saturate: effectively ONE per 260px cell, minus the ~17%
+//     roads carve out.
+//   - Committed rate — a player deliberately routing/weaving through a dense block, one structure
+//     roughly every cell crossed: 260px / PLAYER.baseSpeed (220px/s) ≈ 1.18s/structure ≈ 0.85/s.
+//   - Passive rate — walking a straight line with NO routing effort (crushables don't block
+//     movement, so this is the true floor): swept corridor width 2*(PLAYER.radius + avg structure
+//     radius) = 2*(22+19) = 82px, structure density ~0.83/(260*260)px² (saturated fill minus
+//     roads) ⇒ 82 * 220 * 0.83/67600 ≈ 0.22 structures/s.
+//
+//   GAIN=0.15, DECAY=0.03/s: committed net rate = 0.85*0.15 - 0.03 ≈ 0.0975/s ⇒ ~9 crushes over
+//   ~10.3s to fill a bar from empty — inside the target 8-15s "satisfying, committed stretch".
+//   Passive net rate = 0.22*0.15 - 0.03 ≈ +0.003/s ⇒ ~300s (a full RUN_DURATION) to fill from pure
+//   aimless walking — i.e. it effectively never fills without deliberately routing, which is the
+//   point (raising GAIN alone without lowering DECAY would have kept the passive case net-positive
+//   too, at 0.22*0.15=0.033 > the old 0.05 decay's near-miss).
+export const RAMPAGE_GAIN = 0.15        // meter fraction added per crushed structure
+export const RAMPAGE_DECAY = 0.03       // meter fraction lost per second while NOT in an active rampage (and past the grace window)
+// v5.9.1: a couple of seconds between structures (crossing a gap, sidestepping an enemy) at the
+// committed ~0.85/s crush rate above is normal cadence, not abandoning the rampage — hold decay off
+// for this long after the LAST crush so ordinary gaps don't quietly bleed progress (design doc §3's
+// grace-period suggestion). Set by stepCrush on every crush, ticked down by stepRampage.
+export const RAMPAGE_GRACE_T = 1.5      // s of no decay after the most recent crush
 export const RAMPAGE_DURATION = 5       // s the widened crush radius stays active once triggered
 export const RAMPAGE_CRUSH_MUL = 3      // crush radius multiplier while rampageT > 0 (PLAYER.radius * this)
 
