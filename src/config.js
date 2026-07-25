@@ -1339,7 +1339,18 @@ export const CHAPTERS = {
     // density the old 240px spawn-clear ring reads as a conspicuous bald crater, not a starting
     // clearing. `cell` is a new per-chapter override (see OBSTACLE_CELL's doc above); every other
     // chapter still falls back to the shared OBSTACLE_CELL and is untouched by this.
-    obstacles: { count: 34, minR: 10, maxR: 28, minDist: 160, cell: 260 }, // buildings — small, dense, crushable
+    // v5.9 top-down region overhaul: count 34->40. Streets now carve ~17% of the world out of the
+    // buildable area (roadAt/ROAD_* above), so the same count-34 field that gave test/sim-test.js's
+    // run CC.e density guard 102 live obstacles WITHOUT roads only reached 76 WITH them — legal
+    // (its accepted band is 70-170) but thin, and a real step down from the v5.8 density goal this
+    // number exists to serve. 40 pushes streamObstacles' fill probability past 1.0 (see its `prob`
+    // formula) so every non-road cell in range gets a structure — the field is now AS dense as the
+    // street grid allows, not merely dense enough to scrape past a test floor. (This saturates
+    // rather than overflows: `prob` is clamped implicitly by the per-cell hash compare, so count
+    // any higher than the ~38 needed to reach 1.0 buys nothing further — most other chapters'
+    // fields are already at or past this same saturation point at their own `count`, e.g. city and
+    // undergrowth; skies just used to sit under it.)
+    obstacles: { count: 40, minR: 10, maxR: 28, minDist: 160, cell: 260 }, // buildings — small, dense, crushable
     // crush (v5.8 kaiju redesign): gates BOTH halves of the new mechanic in sim.js — stepObstacles
     // skips the player-push loop for this chapter's obstacles (they're crushable, not terrain, for
     // the player only; enemies still collide with them normally) and stepCrush destroys any
@@ -1347,6 +1358,13 @@ export const CHAPTERS = {
     // Chapter-level, not per-obstacle-entry: every skies obstacle is a crushable structure, so one
     // flag on the chapter is the whole contract (no per-entry HP/crushable field to keep in sync).
     crush: true,
+    // roads (v5.9 top-down region overhaul): gates streamObstacles' road-rejection check (sim.js)
+    // so the street grid ONLY affects skies — every other chapter with an `obstacles` config
+    // (city/pond/garden/undergrowth/beyond) streams exactly as before. Chapter-level for the same
+    // reason `crush` is: one flag is the whole contract, no per-obstacle-entry field to keep in
+    // sync. See roadAt above for the grid itself and sim.js's streamObstacles for the ponytail
+    // note on why roads key off _obstacleSeed independently of the district map.
+    roads: true,
     // ---- render-only (v5.6.17) ---- you are the kaiju rampaging under a NIGHT THUNDERSTORM: dark
     // indigo sky between shattered concrete, a wet-asphalt rubble floor, a green kaiju with a heavy
     // tail. Read as a dark, storm-lit ground (effective floor luminance ~0.07 — darker than city/
@@ -1519,32 +1537,72 @@ export const LIGHTNING = {
     alpha: 0.55,       // dimmer than a real strike's peak (1)
   },
 }
-// Procedural Voronoi districts (skies chapter, v5.7.x, render.js): a seeded ground map over
-// world-XY so roaming any direction crosses downtown -> suburbs -> parks -> sea. RENDER-ONLY —
+// Procedural Voronoi districts (skies chapter, v5.7.x, render.js; grown from 4 types to 6 by the
+// v5.9 top-down region overhaul): a seeded ground map over world-XY so roaming any direction
+// crosses downtown -> suburbs -> parks -> farms -> hills -> sea and back. RENDER-ONLY —
 // districtAt/districtTintAt are pure functions of (x, y, run._districtSeed); sim.js never calls
 // them and obstacles stay generic colliders (see run._districtSeed doc in state.js). floorTint is
 // what actually reaches the floor sprites (render.js multiplies it in like every other chapter's
 // single floorTint); weight sets how much of the map each type gets (districtCellType below).
 export const DISTRICTS = {
   downtown: { floorTint: 0x717c88, weight: 3 }, // the chapter's original wet-asphalt grey — kept as the anchor district
-  suburbs:  { floorTint: 0x9a8a72, weight: 3 }, // warmer, lighter grey-tan
+  suburbs:  { floorTint: 0x9a8a72, weight: 2 }, // warmer, lighter grey-tan — v5.9: 3->2, ceding a share to farms/hills
   parks:    { floorTint: 0x5f7a5f, weight: 2 }, // muted storm-lit green
   sea:      { floorTint: 0x53687c, weight: 2 }, // desaturated storm blue
-  // all four land within ~0.08-0.10 effective floor luminance under the skies bg (0x2a3240),
-  // same dark range as the existing downtown tint — this is a night storm, not daylight.
+  farms:    { floorTint: 0x7c8a52, weight: 2 }, // v5.9: khaki-olive crop rows — region-biased, see DISTRICT_REGION_BIAS below
+  hills:    { floorTint: 0x8a7a6a, weight: 1 }, // v5.9: warm heather-taupe moorland — a rarer accent, deliberately NOT region-biased
+  // all six land within ~0.06-0.09 effective floor luminance under the skies bg (0x2a3240) —
+  // verified with scripts/obstacle-contrast.mjs's effFloor model (mean blotch x floorTint,
+  // composited over bgColor at ~0.5 mean blotch coverage): downtown .073, suburbs .088, parks
+  // .067, sea .057, farms .081, hills .075. Same dark range as the original four — this is a
+  // night storm, not daylight.
 }
 const DISTRICT_TYPES = Object.keys(DISTRICTS)
 
 export const DISTRICT_GRID = 2000       // px per Voronoi seed cell
 export const DISTRICT_BLEND_PX = 200    // px either side of a border the floor tint lerps across
 
-// Low-frequency block size (in grid cells) sharing one "is this an ocean region" roll, and how
-// hard that roll skews a cell's type toward sea — see districtCellType. Without this, sea would
-// just be `weight`'s ~20% share scattered confetti-thin across every cell; the block bias makes
-// whole neighborhoods of cells roll sea together so the coastline reads as one region.
-const DISTRICT_SEA_BLOCK = 3
-const DISTRICT_SEA_REGION_CHANCE = 0.32 // fraction of blocks that are an "ocean region"
-const DISTRICT_SEA_BOOST = 6            // sea's weight is multiplied by this inside one; everyone else's divided
+// Low-frequency block size (in grid cells) sharing one "which region is this" roll, and how hard
+// that roll skews a cell's type toward the rolled region's district — see districtCellType.
+// Without this, a region-biased type would just be its flat `weight` share scattered confetti-thin
+// across every cell; the block bias makes whole neighborhoods of cells roll that type together so
+// the region reads as one contiguous area (a coastline, a farm belt) instead of scattered dots.
+// v5.9 top-down region overhaul: generalised from the v5.7.x sea-only mechanism (a single
+// `seaRegion` bool) into DISTRICT_REGION_BIAS below, a per-type {chance, boost} map — rather than
+// copy-pasting a second bespoke `farmRegion` bool next to it. Farms read better as contiguous
+// belts than as confetti (the same reason sea did), so they get an entry too. A block rolls AT
+// MOST ONE active region (mutually exclusive: sea-region OR farm-region OR neither — see
+// districtRegionAt) so two biases never compound on the same block.
+const DISTRICT_REGION_BLOCK = 3
+export const DISTRICT_REGION_BIAS = {
+  // unchanged from v5.7.x (0.32 chance x 6x boost). Coverage math below is recomputed for 6
+  // district types — it was ~42% back when sea was the only biased type sharing the map with 3
+  // flat-weight neighbours.
+  sea:   { chance: 0.32, boost: 6 },
+  // v5.9: a lighter touch than sea (lower chance, lower boost) — enough for farms to read as
+  // belts without farm-dominating the map alongside sea's already-large share. hills deliberately
+  // has NO entry here: it's meant to read as a rare accent, and parks (also unbiased) already
+  // proves a flat-weight district reads fine without contiguous-region help.
+  farms: { chance: 0.14, boost: 4 },
+}
+// Effective world coverage with the CURRENT weights (downtown 3, suburbs 2, parks 2, sea 2,
+// farms 2, hills 1 = 12 total) and the biases above, worked the same way v5.7.x's comment did:
+// sea ~38%, farms ~20%, downtown ~16%, suburbs/parks ~10% each, hills ~5%. Re-derive by hand
+// before changing any weight or bias number — two biased types compound fast: a first draft of
+// this table used farms {chance:0.22, boost:5} and that alone pushed sea+farms to ~63% of the
+// map, crushing downtown to ~14% even though its own weight never moved.
+
+// Which region (if any) block (bi, bj) rolls — a single roll shared by every DISTRICT_REGION_BIAS
+// entry so a block is at most one region (see the comment above). Returns a DISTRICTS key or null.
+function districtRegionAt(bi, bj, seed) {
+  const roll = hash01(bi, bj, seed, 'region')
+  let acc = 0
+  for (const type of Object.keys(DISTRICT_REGION_BIAS)) {
+    acc += DISTRICT_REGION_BIAS[type].chance
+    if (roll < acc) return type
+  }
+  return null
+}
 
 // Deterministic [0,1) from any number of parts, reusing the FNV hashString below (string-keyed — this
 // runs a handful of times per floor cell/obstacle, nowhere near a hot per-frame loop).
@@ -1552,16 +1610,16 @@ function hash01(...parts) {
   return hashString(parts.join(',')) / 0xffffffff
 }
 
-// Which DISTRICTS type a grid cell rolls, weighted by DISTRICTS[].weight and biased toward sea
-// inside a "ocean region" block (see DISTRICT_SEA_BLOCK above).
+// Which DISTRICTS type a grid cell rolls, weighted by DISTRICTS[].weight and biased toward the
+// block's region (if any, see districtRegionAt) via DISTRICT_REGION_BIAS.
 function districtCellType(ci, cj, seed) {
-  const bi = Math.floor(ci / DISTRICT_SEA_BLOCK)
-  const bj = Math.floor(cj / DISTRICT_SEA_BLOCK)
-  const seaRegion = hash01(bi, bj, seed, 'seaRegion') < DISTRICT_SEA_REGION_CHANCE
+  const bi = Math.floor(ci / DISTRICT_REGION_BLOCK)
+  const bj = Math.floor(cj / DISTRICT_REGION_BLOCK)
+  const region = districtRegionAt(bi, bj, seed)
   let total = 0
   const weights = DISTRICT_TYPES.map((k) => {
     let w = DISTRICTS[k].weight
-    if (seaRegion) w = k === 'sea' ? w * DISTRICT_SEA_BOOST : w / DISTRICT_SEA_BOOST
+    if (region) w = k === region ? w * DISTRICT_REGION_BIAS[region].boost : w / DISTRICT_REGION_BIAS[region].boost
     total += w
     return w
   })
@@ -1624,6 +1682,63 @@ export function districtTintAt(x, y, seed) {
   if (first.type === second.type) return DISTRICTS[first.type].floorTint
   const t = Math.max(0, Math.min(0.5, 0.5 - (d2 - d1) / (2 * DISTRICT_BLEND_PX)))
   return lerpColorInt(DISTRICTS[first.type].floorTint, DISTRICTS[second.type].floorTint, t)
+}
+
+// Roads (skies only, v5.9 top-down region overhaul): a coarse, deterministic street grid, PURE in
+// (x, y, seed) exactly like districtAt above — same reason (sim AND render both need it: sim to
+// keep streamObstacles from planting a building mid-street, render to draw pavement/markings/edges
+// — config.js is the only place both are allowed to import from). Unlike districtAt, the seed here
+// is run._obstacleSeed, NOT run._districtSeed — see CHAPTERS.skies.roads' comment for why that
+// choice is load-bearing, not incidental.
+//
+// The grid itself is a plain axis-aligned Manhattan lattice (no rotation, no per-street jitter):
+// every ROAD_SPACING px is a street on both axes, and every ROAD_MAJOR_EVERYth one of those is a
+// wider avenue. A per-seed offset (ox, oy below) keeps different runs' grids from all sitting on
+// literally the same world-space lines without needing anything fancier. Kept deliberately boring
+// — "coarse grid of streets" is the whole ask, and a real road NETWORK (branches, dead ends, curves)
+// is a render/level-design project this data layer has no business inventing.
+export const ROAD_SPACING = 480      // px between adjacent streets, both axes
+export const ROAD_MINOR_WIDTH = 34   // px, ordinary street width
+export const ROAD_MAJOR_EVERY = 3    // every Nth street (either axis) is a wider avenue
+export const ROAD_MAJOR_WIDTH = 62   // px, avenue width
+
+// Cheap 32-bit hash (Math.imul mix, no string allocation or hashString/hash01 call) — roadAt is
+// documented to run per obstacle cell AND per floor cell, which is a much hotter path than
+// hash01's "a handful of times per obstacle" (see hash01's own comment above); the string-join
+// allocation that's fine there would not be fine here.
+function roadHash(a, b, seed) {
+  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + (seed | 0)) | 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+
+// Is (x, y) roadway, and if so: which way does the street run, how far off-centreline is this
+// point, and is it a major avenue? seed = run._obstacleSeed (see this section's header comment).
+// Returns { onRoad: false } off any street, or { onRoad: true, angle, dist, half, major }:
+//   angle — 0 for an east-west street (runs along x), PI/2 for a north-south one (runs along y)
+//   dist  — px from the street's centreline (>= 0), for drawing a fading edge or lane markings
+//   half  — the street's own half-width (dist/half is a handy 0..1 "how far toward the curb")
+//   major — true on a ROAD_MAJOR_EVERYth avenue (render can draw it wider/differently)
+// At an intersection (or a near-miss on both axes at once) the closer centreline wins, since
+// that's the one anything distance-based should key off.
+export function roadAt(x, y, seed) {
+  const ox = (roadHash(1, 0, seed) - 0.5) * ROAD_SPACING
+  const oy = (roadHash(0, 1, seed) - 0.5) * ROAD_SPACING
+  const gx = x - ox, gy = y - oy
+
+  const vi = Math.round(gx / ROAD_SPACING)
+  const hi = Math.round(gy / ROAD_SPACING)
+  const vDist = Math.abs(gx - vi * ROAD_SPACING)
+  const hDist = Math.abs(gy - hi * ROAD_SPACING)
+  const vMajor = ((vi % ROAD_MAJOR_EVERY) + ROAD_MAJOR_EVERY) % ROAD_MAJOR_EVERY === 0
+  const hMajor = ((hi % ROAD_MAJOR_EVERY) + ROAD_MAJOR_EVERY) % ROAD_MAJOR_EVERY === 0
+  const vHalf = (vMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
+  const hHalf = (hMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
+  const onV = vDist <= vHalf
+  const onH = hDist <= hHalf
+  if (!onV && !onH) return { onRoad: false }
+  if (onV && (!onH || vDist <= hDist)) return { onRoad: true, angle: Math.PI / 2, dist: vDist, half: vHalf, major: vMajor }
+  return { onRoad: true, angle: 0, dist: hDist, half: hHalf, major: hMajor }
 }
 
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
@@ -1699,16 +1814,61 @@ export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts pe
 // and is invariant under cell size by construction (streamObstacles' `prob` formula) — shrinking
 // `cell` alone changes NOTHING; a smaller cell needs a bigger `count` to actually read denser.
 
-// Structure kind (v5.8 kaiju redesign): a purely cosmetic classification stamped on every streamed
-// obstacle entry (run.obstacles[i].kind), derived from obstacleCellHash(i, j, seed, 4) — a FIFTH
-// salt on the same pure hash that already picks the cell's position/radius (sim.js). Sim itself
-// never branches on `kind` (crushing/pushing treat every obstacle the same); render.js maps kind ×
-// district to a sprite (tower/house/tree/pier reading as downtown/suburbs/parks/sea respectively —
-// see docs/superpowers/specs/2026-07-25-skies-kaiju-redesign-design.md §5). Deliberately assigned
-// for every chapter's obstacles, not just skies': the hash is free (no RNG stream, no branch cost
-// worth gating), and it keeps `kind` a property of "what a streamed obstacle IS" rather than a
-// skies-only special case another chapter would have to remember to add later.
-export const STRUCTURE_KINDS = ['tower', 'house', 'tree', 'pier']
+// Structure kind (v5.8 kaiju redesign; grown 4 -> 6 by the v5.9 top-down region overhaul): a
+// purely cosmetic classification stamped on every streamed obstacle entry (run.obstacles[i].kind),
+// derived from obstacleCellHash(i, j, seed, 4) — a FIFTH salt on the same pure hash that already
+// picks the cell's position/radius (sim.js). Sim itself never branches on `kind` (crushing/pushing
+// treat every obstacle the same); render.js maps kind × district to a sprite (tower/house/tree/pier
+// reading as downtown/suburbs/parks/sea respectively, barn/silo as farms — see
+// docs/superpowers/specs/2026-07-25-skies-kaiju-redesign-design.md §5). Deliberately assigned for
+// every chapter's obstacles, not just skies': the hash is free (no RNG stream, no branch cost worth
+// gating), and it keeps `kind` a property of "what a streamed obstacle IS" rather than a skies-only
+// special case another chapter would have to remember to add later.
+// v5.9: adding barn/silo reshuffles which roll maps to which kind for EVERY existing cell in EVERY
+// chapter (Math.floor(kindRoll * STRUCTURE_KINDS.length) now divides by 6, not 4) — this is fine:
+// `kind` was never asserted against a specific literal value anywhere (grep confirms; the closest
+// is test/sim-test.js's run CC.d, which only checks kind is STABLE per (cell, seed), not WHICH kind
+// it is), and no other chapter reads o.kind at all (only skies sets CHAPTERS[x].crush/render.js's
+// district-skin lookup, both skies-only). Run `npm test` after any STRUCTURE_KINDS edit regardless.
+export const STRUCTURE_KINDS = ['tower', 'house', 'tree', 'pier', 'barn', 'silo']
+
+// PROP_SCALE — the single source of truth for a prop CLASS's absolute on-screen footprint, in px
+// (v5.9 top-down region overhaul). Fixes the reported "cars bigger than houses" bug: render.js's
+// prop tables mixed TWO sizing systems — `scale: [min,max]` (a multiplier on each texture's OWN
+// arbitrary baked size) and `size: [min,max]` (absolute px) — with nothing enforcing that one
+// class's scale range times its baked size couldn't exceed another's. Concretely: T.car is baked
+// from TRAFFIC_CAR_LEN = 150 (below) and drawn at scale [0.55, 0.75] = 82-112px; T.house is
+// hand-drawn at 48px baked and drawn at scale [0.9, 1.4] = 43-67px — a car outsizing a house by up
+// to 2x, because the two scale ranges were tuned independently against two unrelated baked sizes.
+// render.js is expected to look a class up here and fit its baked texture to an ABSOLUTE px target
+// instead — ordering is then enforced by construction (disjoint bands), not by every prop table's
+// author independently getting scale-times-bake-size arithmetic right.
+//
+// Bands are DISJOINT and ORDERED: max(class) < min(next class) for every row below, so nothing in
+// a later row can ever render smaller than everything in an earlier one, however the two flanking
+// values happen to land inside their own bands. Rows that are genuinely the same size TIER
+// (fence/hedge, house/pier, barn/silo) intentionally share one band — that isn't an overlap, it's
+// one class with two names.
+//
+// These are NOT real-world proportions, and must not be "corrected" toward them: PLAYER.radius is
+// 22 (44px across), so literal realism (a real car is ~4.5m, a real house ~10m) would put half
+// these classes at sub-pixel sizes next to the player. What the redesign needs is legibility and
+// STRICT RELATIVE ordering — a car unmistakably reads smaller than a house — not literal scale.
+// Bare `scale:` multipliers on an arbitrary baked size are the bug this table replaces; don't
+// reintroduce them for any class listed here.
+export const PROP_SCALE = {
+  debris: [8, 18],    // rubble chunks — the smallest read
+  crop:   [8, 18],    // farm crop rows — same tier as debris, different name
+  car:    [20, 30],
+  fence:  [32, 42],
+  hedge:  [32, 42],   // same tier as fence
+  tree:   [46, 60],
+  house:  [64, 82],
+  pier:   [64, 82],   // same tier as house — a dock structure, not a skyscraper
+  barn:   [92, 128],
+  silo:   [92, 128],  // same tier as barn
+  tower:  [134, 172], // tower blocks — the tallest read
+}
 
 // ---- Garden chapter behavior flags (v5.3, see sim.js) --------------------------------------
 // pheromones signature (garden): a dying 'trailFollow' ant drops a fading node into run.trails;

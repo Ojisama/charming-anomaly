@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION } from './config.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
@@ -95,6 +95,12 @@ export function createRenderer(app) {
   // floor populate* callbacks and syncObstacles don't need `run` threaded through every call.
   let chapterHasDistricts = false
   let districtSeed = 0
+  // Whether the active chapter has a street grid to draw (CHAPTERS[].roads — currently only
+  // `skies`, v5.9 top-down region overhaul). roadSeed mirrors run._obstacleSeed, NOT
+  // run._districtSeed — see CHAPTERS.skies.roads' comment in config.js for why the road grid and
+  // the district map are deliberately independent seeds. Same latch pattern as chapterHasDistricts.
+  let chapterHasRoads = false
+  let roadSeed = 0
   // Active chapter's prop/obstacle biome (BIOMES, declared with the floor section below). Left null
   // here on purpose: BIOMES is a `const` further down, so reading it at construction time would be a
   // TDZ crash — it's seeded right after BIOMES itself and re-latched per reset(run).
@@ -2164,6 +2170,124 @@ export function createRenderer(app) {
       g.ellipse(-3, -3, 3, 2).fill({ color: 0xffffff, alpha: 0.4 })             // sheen
       T.buoy = bake(g)
     }
+    // ---- barn/silo kind props (farms district, skies — v5.9 top-down region overhaul) ----------
+    // Same hand-drawn baked-vector idiom as T.house right above: solid fill, dark outline, one lit
+    // face. Upright, base-anchored (STRUCTURE_KINDS' 'barn'/'silo', config.js).
+    {
+      // barn: a low wall block under a gambrel roof, hay-loft door on the gable end.
+      const g = new Graphics()
+      const wall = 0x9c3f30
+      const roof = 0x5a3226
+      const line = 0x2e1a14
+      g.rect(-26, -30, 52, 30).fill(wall).stroke({ width: 2.2, color: line })                       // wall block
+      g.poly([-30, -30, -14, -46, 0, -38, 14, -46, 30, -30]).fill(roof).stroke({ width: 2.2, color: line }) // gambrel roof
+      g.rect(-8, -16, 16, 16).fill(0x2e1a14).stroke({ width: 1.6, color: line })                    // hay-loft door
+      g.rect(-30, -30, 60, 3).fill({ color: 0x000000, alpha: 0.2 })                                 // eave shadow
+      g.poly([-30, -30, -14, -46, -20, -42]).fill({ color: 0xc06a52, alpha: 0.35 })                 // lit roof face
+      T.barn = bake(g)
+    }
+    {
+      // silo: a narrow cylinder under a faceted dome, ring seams down the body.
+      const g = new Graphics()
+      const metal = 0xc7c9cc
+      const line = 0x53565a
+      g.rect(-11, -40, 22, 40).fill(metal).stroke({ width: 2, color: line })                        // body
+      g.poly([-11, -40, 0, -54, 11, -40]).fill(0xa7aaad).stroke({ width: 2, color: line })           // domed cap
+      for (let y = -34; y <= -6; y += 8) {
+        g.beginPath().moveTo(-11, y).lineTo(11, y).stroke({ width: 1, color: line, alpha: 0.35 })    // ring seams
+      }
+      g.rect(-11, -40, 6, 40).fill({ color: 0xffffff, alpha: 0.22 })                                 // lit left flank
+      g.rect(5, -40, 6, 40).fill({ color: 0x000000, alpha: 0.18 })                                   // shaded right flank
+      T.silo = bake(g)
+    }
+    {
+      // tractor (farms): a boxy cab + oversized rear wheels, nose +x — same top-down vehicle
+      // idiom as T.car (below) but boxier, slower-looking, farm green. Reuses PROP_SCALE.car's
+      // band (a working vehicle, same tier as a parked car) rather than getting its own class.
+      const g = new Graphics()
+      const body = 0x5a8f3d
+      const line = 0x2e4a1e
+      g.rect(-6, -9, 20, 18).fill(body).stroke({ width: 2, color: line })                            // body/cab block
+      g.rect(10, -6, 8, 12).fill({ color: 0x2b3a4a, alpha: 0.85 }).stroke({ width: 1.4, color: line }) // cab glass
+      for (const s of [-1, 1]) {
+        g.circle(-8, s * 10, 6).fill(0x232323).stroke({ width: 1.6, color: line })                   // big rear wheels
+        g.circle(12, s * 7, 3.4).fill(0x232323).stroke({ width: 1.2, color: line })                  // small front wheels
+      }
+      g.ellipse(0, -3, 10, 4).fill({ color: 0x86c25a, alpha: 0.3 })                                  // lit flank
+      T.tractor = bake(g)
+    }
+    {
+      // crop tuft (farms): the "crop row" signature prop — a tiny fan of blades drawn ALONG +x so
+      // applyPropKind's cropRow branch (rotation locked to the field's shared row angle, see
+      // farmRowSnap below) lays it flat along the furrow instead of spinning freely like every
+      // other top-down scatter prop. Filled white so kind.tints drives the colour per instance
+      // (golden wheat / green leaf-row / tilled-brown row — CROP_TINTS below).
+      const g = new Graphics()
+      for (const [dy, len] of [[-2.6, 9], [0, 11], [2.6, 8.5]]) {
+        taperStroke(g, [[-len * 0.4, dy], [len * 0.6, dy * 0.4]], 2.4, 0.6, 0xffffff, 3)
+      }
+      g.ellipse(-3, 0, 3, 2).fill({ color: 0xffffff, alpha: 0.55 }) // base clump
+      T.cropTuft = bake(g)
+    }
+    {
+      // hay bale (farms): a round baled bundle, top-down — a filled disc with wrap-line chords.
+      // Spins freely (not upright), like puddle/asteroid.
+      const g = new Graphics()
+      const straw = 0xc9a94a
+      const line = 0x8a6f2e
+      g.circle(0, 0, 11).fill(straw).stroke({ width: 1.6, color: line })
+      for (const a of [-0.6, 0, 0.6]) {
+        g.beginPath().moveTo(Math.cos(a + 1.2) * 11, Math.sin(a + 1.2) * 11)
+        g.lineTo(Math.cos(a - 1.9) * 11, Math.sin(a - 1.9) * 11).stroke({ width: 1, color: line, alpha: 0.5 })
+      }
+      g.ellipse(-3, -3, 4, 3).fill({ color: 0xe8cf8a, alpha: 0.5 })
+      T.hayBale = bake(g)
+    }
+    {
+      // elevation contour (hills district, skies): elevation read from directly overhead as soft
+      // concentric shading bands, NOT a side-view hill silhouette — a bump drawn in profile would
+      // read as floating debris from this camera angle. Same "value over silhouette" trick the
+      // rockChunk/asteroid props already use for their lit/shaded faces, just pushed further: soft
+      // alpha ellipses, lightest at the crest, a darker downslope shadow on one side.
+      const g = new Graphics()
+      const hi = 0xcabb96
+      const lo = 0x6b5a44
+      g.ellipse(0, 0, 90, 62).fill({ color: hi, alpha: 0.16 })
+      g.ellipse(-6, -5, 62, 42).fill({ color: hi, alpha: 0.20 })
+      g.ellipse(-10, -8, 34, 22).fill({ color: hi, alpha: 0.26 })
+      g.ellipse(18, 20, 46, 28).fill({ color: lo, alpha: 0.18 }) // shaded downslope
+      T.contour = bake(g)
+    }
+    // ---- road strips (skies only, v5.9 top-down region overhaul) --------------------------------
+    // A plain asphalt bar baked at a REF=100 unit square, long axis along +x, pad=0 so the bake's
+    // bounds are EXACTLY the REF square (no stroke overhang to pad for) — that's what lets
+    // populateRoad below set scale.set(len/REF, width/REF) and land on an EXACT target length/width,
+    // same "bake at a reference measurement, scale to a live target" idiom as T.obFoot's footprint
+    // ring above. roadAt (config.js) returns angle 0 for an east-west street (runs along x), PI/2
+    // for north-south — matching this bar's own "long axis = +x, rotate by `angle`" convention.
+    // Minor streets get a soft feathered long edge and no marking; major avenues get a hard edge
+    // plus a dashed centre stripe baked right in.
+    {
+      const REF = 100
+      {
+        const g = new Graphics()
+        const asphalt = 0x33383f
+        for (const [h, a] of [[REF, 0.92], [REF * 0.82, 0.55], [REF * 0.62, 0.28]]) {
+          g.rect(-REF / 2, -h / 2, REF, h).fill({ color: asphalt, alpha: a })
+        }
+        T.roadMinor = { ...bake(g, 0), ref: REF }
+      }
+      {
+        const g = new Graphics()
+        g.rect(-REF / 2, -REF / 2, REF, REF).fill(0x2b2f36)
+        const stripe = 0xdccf86
+        for (let i = 0; i < 4; i++) {
+          const x0 = -REF / 2 + (i + 0.15) * (REF / 4)
+          g.rect(x0, -REF * 0.035, (REF / 4) * 0.7, REF * 0.07).fill({ color: stripe, alpha: 0.85 })
+        }
+        T.roadMajor = { ...bake(g, 0), ref: REF }
+      }
+    }
     {
       // obstacle footprint (v5.6.10): the collision contract, drawn HARD where every decor shadow is
       // soft. A subtly darkened packed-earth pad plus a crisp rim ring sitting on the collider edge,
@@ -2532,10 +2656,12 @@ export function createRenderer(app) {
   const world = new Container()
   const floorLayer = new Container()
   const blotchLayer = new Container()
+  const roadLayer = new Container()   // skies only (v5.9) — sits over the district floor tint, under every prop
   const bigLayer = new Container()
   const midLayer = new Container()
   const detailLayer = new Container()
-  floorLayer.addChild(blotchLayer, bigLayer, midLayer, detailLayer)
+  const clutterLayer = new Container() // skies-urban only (v5.9) — extra furniture, see populateClutter
+  floorLayer.addChild(blotchLayer, roadLayer, bigLayer, midLayer, detailLayer, clutterLayer)
 
   const entitiesLayer = new Container()
   const idleLayer = new Container()
@@ -2685,24 +2811,66 @@ export function createRenderer(app) {
   // A "kind" is one scatterable thing. Two flavours, and applyPropKind handles both:
   //   sheet prop — { name } resolves in T.props (1024px source PNGs), so `size` is a TARGET
   //                ON-SCREEN SIZE in px, converted to a scale factor; `tints` pick a baked hue.
-  //   baked prop — { baked: true } resolves in T (pebble/root/hydrant/...), already drawn at its
-  //                natural size, so `scale` is a plain factor range and its colours are its own.
+  //   baked prop — { baked: true } resolves in T (pebble/root/hydrant/...). Two sizing modes:
+  //     `size`  — v5.9 top-down region overhaul: a TARGET ON-SCREEN SIZE in px, exactly like the
+  //               sheet-prop path above, fit to the baked texture's OWN intrinsic bounds instead of
+  //               a fixed 1024. Every skies district table (DISTRICT_BIOMES below) uses this —
+  //               config.js's PROP_SCALE supplies the actual bands. This is the fix for the
+  //               reported "cars bigger than houses" bug: `scale` (below) is a bare multiplier on
+  //               each texture's OWN arbitrary baked size, so nothing stopped one class's
+  //               scale-range times its baked size from exceeding another's (T.car baked from
+  //               TRAFFIC_CAR_LEN=150 at scale [0.55,0.75] used to render at 82-112px — BIGGER than
+  //               T.house, hand-drawn at 48px baked, at scale [0.9,1.4] = 43-67px). PROP_SCALE's
+  //               bands are disjoint and ordered by construction, so `size` can't repeat that bug.
+  //     `scale` — the ORIGINAL plain factor range, unchanged. Still used by every chapter-wide
+  //               BIOMES entry outside DISTRICT_BIOMES (body/pond/garden/undergrowth/city/beyond) —
+  //               none of those are in scope for this pass and must render bit-identical to before.
   // `upright` props keep their footing (small rotation jitter only, anchored at the base for baked
-  // ones); top-down props spin freely. Everything is multiplied by chapterRender.floorTint, so one
-  // prop set reads differently under each chapter's light.
+  // ones); top-down props spin freely. `cropRow` (farms district only) overrides BOTH the rotation
+  // and the position — see farmRowSnap below. Everything is multiplied by chapterRender.floorTint,
+  // so one prop set reads differently under each chapter's light.
   const BUSH_TINTS = [0x86b877, 0x76a869]
   const GRASS_TINTS = [0x9ccc80, 0x8bbf76, 0xa5cb8a]
   const CLUSTER_TINTS = [0xa8d19a, 0xc2dfae, 0x9bc98f]
 
+  // Crop rows (farms district, skies — v5.9 top-down region overhaul): cultivated fields read as
+  // top-down ONLY if the rows are straight and regular, which a per-sprite random jitter/rotation
+  // can never produce — so cropRow props snap onto a per-FIELD lattice instead of scattering freely.
+  // A "field" is its own coarse grid (FARM_FIELD px, deliberately independent of the prop-cell
+  // grids in FLOOR_LAYERS) sharing ONE row angle, hashed from the field's own cell so it's
+  // deterministic and stable (never re-rolls as the player walks the same field twice). Within a
+  // field, (wx,wy) is rotated into row-aligned (u,v) space; only the CROSS-row coordinate v is
+  // quantized to FARM_ROW_SPACING (snapping onto one of a few parallel row lines) — the ALONG-row
+  // coordinate u is left as-is (already jittered by the caller's per-cell placement), so individual
+  // crop clumps still scatter naturally along their row instead of forming a dotted grid.
+  const FARM_FIELD = 360        // px per field — one shared row angle per field
+  const FARM_ROW_SPACING = 26   // px between adjacent crop rows within a field
+  function farmRowSnap(wx, wy) {
+    const fi = Math.floor(wx / FARM_FIELD), fj = Math.floor(wy / FARM_FIELD)
+    const fieldAngle = hash(fi * 12.9898 + fj * 78.233 + districtSeed * 0.0173 + 91.7) * Math.PI
+    const ca = Math.cos(fieldAngle), sa = Math.sin(fieldAngle)
+    const u = wx * ca + wy * sa
+    const v = -wx * sa + wy * ca
+    const vs = Math.round(v / FARM_ROW_SPACING) * FARM_ROW_SPACING
+    return { x: u * ca - vs * sa, y: u * sa + vs * ca, angle: fieldAngle }
+  }
+
+  // Returns the position the sprite should actually be placed at ({x,y} — normally just the
+  // (wx,wy) the caller already computed, EXCEPT cropRow props, which override it via farmRowSnap).
   function applyPropKind(s, kind, i, j, wx, wy) {
     const floorTint = floorTintAt(wx, wy)
     if (kind.baked) {
       const look = T[kind.name]
       s.texture = look.tex
       s.anchor.set(look.ax, look.ay)
-      s.tint = tintMul(kind.tint ?? 0xffffff, floorTint)
+      s.tint = tintMul(kind.tints ? kind.tints[Math.floor(cellHash(i, j, 2) * kind.tints.length)] : (kind.tint ?? 0xffffff), floorTint)
       s.alpha = kind.alpha ?? 1
-      s.scale.set(lerp(kind.scale[0], kind.scale[1], cellHash(i, j, 4)))
+      if (kind.size) {
+        const targetPx = lerp(kind.size[0], kind.size[1], cellHash(i, j, 4))
+        s.scale.set(targetPx / Math.max(look.tex.width, look.tex.height))
+      } else {
+        s.scale.set(lerp(kind.scale[0], kind.scale[1], cellHash(i, j, 4)))
+      }
     } else {
       s.texture = T.props[kind.name]
       s.anchor.set(0.5, kind.upright ? 0.9 : 0.5)
@@ -2710,8 +2878,14 @@ export function createRenderer(app) {
       s.alpha = kind.alpha ?? 1
       s.scale.set(lerp(kind.size[0], kind.size[1], cellHash(i, j, 4)) / 1024)
     }
+    if (kind.cropRow) {
+      const snap = farmRowSnap(wx, wy)
+      s.rotation = snap.angle
+      return { x: snap.x, y: snap.y }
+    }
     // upright things stay upright — only top-down scatter is free to spin
     s.rotation = kind.upright ? (cellHash(i, j, 3) - 0.5) * 0.16 : cellHash(i, j, 3) * Math.PI * 2
+    return { x: wx, y: wy }
   }
 
   // big: one bulky landmark per cell — bushes on the green chapters, hard furniture elsewhere
@@ -2724,7 +2898,16 @@ export function createRenderer(app) {
     { name: 'bush_a', tints: [0x6f7a4a, 0x5d6840], upright: true, size: [80, 130] },
   ]
   const BIG_CITY = [{ name: 'dumpster', baked: true, upright: true, scale: [0.9, 1.5] }]
-  const BIG_SKIES = [{ name: 'rubble', baked: true, upright: true, scale: [1.1, 2.0] }]
+  // downtown (skies district, v5.9 top-down region overhaul): rubble is loose GROUND debris here
+  // (the actual "tower" landmark comes from the crushable obstacle field, STRUCTURE_SKINS.tower
+  // below) — sized from PROP_SCALE.debris, the smallest class, not a bare scale multiplier on
+  // rubble's own baked size (that used to render 64-116px, bigger than a house — see PROP_SCALE's
+  // doc in config.js for the full bug). 'car' added for item-5 density: downtown streets read as
+  // abandoned/wrecked, and the texture already exists (T.car, shared with suburbs/traffic).
+  const BIG_SKIES = [
+    { name: 'rubble', baked: true, upright: true, size: PROP_SCALE.debris },
+    { name: 'car', baked: true, size: PROP_SCALE.car },
+  ]
   const BIG_BEYOND = [{ name: 'asteroid', baked: true, scale: [1.0, 1.9] }]
   // body: one substantial piece of anatomy per cell — a villi mound (upright, planted) or a
   // top-down bunch of transport vesicles. Both baked in warm pink, both low-contrast decor.
@@ -2745,8 +2928,8 @@ export function createRenderer(app) {
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
     const kinds = biomeAt(wx, wy).big
-    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
-    s.position.set(wx, wy)
+    const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
+    s.position.set(pos.x, pos.y)
   }
 
   // mid: grass/flowers/mushroom/reed (upright, side-view) + clusters (top-down)
@@ -2778,7 +2961,10 @@ export function createRenderer(app) {
     { name: 'grass_a', tints: [0x6f8a52], upright: true, size: [22, 38] },
   ]
   // skies + beyond: nothing grows. Smaller siblings of the big layer's chunks, scattered.
-  const MID_SKIES = [{ name: 'rubble', baked: true, upright: true, scale: [0.5, 0.95] }]
+  const MID_SKIES = [
+    { name: 'rubble', baked: true, upright: true, size: PROP_SCALE.debris },
+    { name: 'car', baked: true, size: PROP_SCALE.car },
+  ]
   const MID_BEYOND = [{ name: 'asteroid', baked: true, scale: [0.35, 0.75] }]
   // body: medium accents — platelet plates, lipid beads, capillary squiggles. Mild alpha so they
   // sit under the enemies. All top-down (spin freely).
@@ -2794,8 +2980,8 @@ export function createRenderer(app) {
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
     const kinds = biomeAt(wx, wy).mid
-    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
-    s.position.set(wx, wy)
+    const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
+    s.position.set(pos.x, pos.y)
   }
 
   // detail: scatter/leaf sprites + hand-drawn baked bits (pebble, puddle, bone, ...)
@@ -2822,7 +3008,7 @@ export function createRenderer(app) {
     { name: 'pebble', baked: true, scale: [0.6, 1.1] },
   ]
   const DETAIL_SKIES = [
-    { name: 'pebble', baked: true, scale: [0.7, 1.5] },
+    { name: 'pebble', baked: true, size: PROP_SCALE.debris },
     { name: 'scatter_b', tint: 0xd8d2c4, alpha: 0.4, size: [22, 38] },
   ]
   const DETAIL_BEYOND = [
@@ -2843,8 +3029,8 @@ export function createRenderer(app) {
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
     const kinds = biomeAt(wx, wy).detail
-    applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
-    s.position.set(wx, wy)
+    const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
+    s.position.set(pos.x, pos.y)
   }
 
   // Per-chapter biome: which prop kinds scatter on each floor layer, and how the chapter's
@@ -2911,7 +3097,7 @@ export function createRenderer(app) {
   const PARK_GRASS_TINTS = [0x4a6640, 0x3d5636]  // BUSH_TINTS/GRASS_TINTS would wash out on a dark floor
   const BIG_PARKS = [
     { name: 'bush_a', tints: PARK_TINTS, upright: true, size: [110, 175] }, // tree clumps, bigger than the garden's hedges
-    { name: 'root', baked: true, upright: true, scale: [0.9, 1.4] },       // a gnarled trunk/roots poking up
+    { name: 'root', baked: true, upright: true, size: PROP_SCALE.tree },   // a gnarled trunk/roots poking up
   ]
   const MID_PARKS = [
     { name: 'bush_b', tints: PARK_TINTS, upright: true, size: [70, 110] }, // hedges
@@ -2921,20 +3107,30 @@ export function createRenderer(app) {
   const DETAIL_PARKS = [
     { name: 'grass_d', tints: PARK_GRASS_TINTS, upright: true, size: [22, 38] },
     { name: 'leaf', tint: 0x3a4f34, alpha: 0.6, size: [18, 32] },
-    { name: 'pebble', baked: true, scale: [0.6, 1.1] },
+    { name: 'pebble', baked: true, size: PROP_SCALE.debris },
   ]
+  // v5.9 top-down region overhaul: every baked prop below is sized off PROP_SCALE (config.js) via
+  // applyPropKind's `size` path, not `scale` — see that function's doc comment for the "car bigger
+  // than house" bug this replaces. car appears in BOTH big and mid at the SAME absolute band
+  // (PROP_SCALE.car): unlike the old scale-multiplier system, "which layer" no longer implies "how
+  // big" — it only changes how OFTEN a cell rolls a car vs. a house/fence (see FLOOR_LAYERS' cell/
+  // chance per layer), which is exactly the density knob item 5 asked for.
   const BIG_SUBURBS = [
-    { name: 'house', baked: true, upright: true, scale: [0.9, 1.4] },
-    { name: 'car', baked: true, scale: [0.55, 0.75] }, // T.car is drawn at the real traffic-lane hitbox size — scaled down for a parked decor car
+    { name: 'house', baked: true, upright: true, size: PROP_SCALE.house },
+    { name: 'car', baked: true, size: PROP_SCALE.car },
   ]
   const MID_SUBURBS = [
-    { name: 'fence', baked: true, upright: true, scale: [0.7, 1.1] },
-    { name: 'car', baked: true, scale: [0.35, 0.5] },
+    { name: 'fence', baked: true, upright: true, size: PROP_SCALE.fence },
+    { name: 'car', baked: true, size: PROP_SCALE.car },
   ]
   const DETAIL_SUBURBS = [
-    { name: 'pebble', baked: true, scale: [0.6, 1.2] },
+    { name: 'pebble', baked: true, size: PROP_SCALE.debris },
     { name: 'scatter_a', tint: 0xd8c9a0, alpha: 0.4, size: [20, 34] },
   ]
+  // sea's puddle/foam stay `scale`-based, deliberately: they're a WATER/TERRAIN feature (open water,
+  // breaking-wave lines), not one of PROP_SCALE's enumerated prop classes (crop/debris/car/fence/
+  // hedge/tree/house/pier/barn/silo/tower) — there's no absolute band for them to pull from, and no
+  // ordering-invariant claim to honour ("reused at landmark scale" is the intended read, not a bug).
   const SEA_FOAM_TINTS = [0x9fd0ea, 0xbfe6f7] // pale foam-white/cyan, darkened by the sea floorTint multiply
   const BIG_SEA = [{ name: 'puddle', baked: true, scale: [3.2, 5.5] }] // the puddle prop's own blue, reused at landmark scale — open water
   const MID_SEA = [
@@ -2947,6 +3143,56 @@ export function createRenderer(app) {
   // // ponytail: sea's "waves" are static per-cell foam scatter (the CURRENT_VIS/rain streak
   // texture, reused as a floor prop), not a moving wave-advection layer — upgrade to a proper
   // pooled foam-streak system (CURRENT_VIS idiom) if flat/static water reads badly in playtesting.
+
+  // ---- farms district (skies, v5.9 top-down region overhaul) ---------------------------------
+  // The headline "more crops" ask: cultivated fields read as top-down ONLY as regular parallel
+  // rows, which farmRowSnap (above, near applyPropKind) provides — cropTuft is the one prop in this
+  // file with `cropRow: true`. It appears in BOTH mid and detail (two independent cell grids
+  // sampled at different phases/frequencies) so rows read as continuous furrows, not a sparse
+  // dotted line. big carries the landmark farm furniture — barn/silo (new baked art; STRUCTURE_
+  // SKINS below reuses the SAME textures for the crushable buildings, PROP_SCALE-sized there too)
+  // plus the odd tractor (T.tractor, pegged to PROP_SCALE.car's band — a working vehicle, same
+  // tier as a parked car, not worth its own PROP_SCALE class).
+  const CROP_TINTS = [0xd9c76a, 0x8a9a4a, 0x6b5a3a] // golden wheat / green leaf-row / tilled-brown row
+  const BIG_FARMS = [
+    { name: 'barn', baked: true, upright: true, size: PROP_SCALE.barn },
+    { name: 'silo', baked: true, upright: true, size: PROP_SCALE.silo },
+    { name: 'tractor', baked: true, size: PROP_SCALE.car },
+  ]
+  const MID_FARMS = [
+    { name: 'cropTuft', baked: true, cropRow: true, tints: CROP_TINTS, size: PROP_SCALE.crop },
+    { name: 'fence', baked: true, upright: true, size: PROP_SCALE.fence }, // field fence, reusing suburbs' art
+    { name: 'hayBale', baked: true, size: [32, 42] },                      // not an enumerated PROP_SCALE class — pegged to the fence/hedge tier by eye
+  ]
+  const DETAIL_FARMS = [
+    { name: 'cropTuft', baked: true, cropRow: true, tints: CROP_TINTS, size: PROP_SCALE.crop },
+    { name: 'pebble', baked: true, size: PROP_SCALE.debris },
+  ]
+
+  // ---- hills district (skies, v5.9 top-down region overhaul) ---------------------------------
+  // Elevation from directly overhead reads as soft contour shading (T.contour above), never a
+  // side-view hill silhouette — see that bake's own doc for why. Boulders/bare rock reuse
+  // T.rockChunk (already baked for the kaiju's thrown masonry, run.lobs — the same "reuse baked art
+  // at a different target size" idiom rubble/pebble already use across this file); scattered trees
+  // reuse T.root at PROP_SCALE.tree, the same class/size as the parks district's trunk accent.
+  // contour/rockChunk stay `scale`-based like sea's puddle above — neither is an enumerated
+  // PROP_SCALE class (a soft translucent contour patch or a boulder cluster doesn't compete in the
+  // car/house/tower size hierarchy the way a discrete built object does).
+  const BIG_HILLS = [
+    { name: 'contour', baked: true, scale: [1.3, 2.1] },
+    { name: 'rockChunk', baked: true, scale: [1.6, 2.6] },
+    { name: 'root', baked: true, upright: true, size: PROP_SCALE.tree },
+  ]
+  const MID_HILLS = [
+    { name: 'contour', baked: true, scale: [0.7, 1.2] },
+    { name: 'rockChunk', baked: true, scale: [0.8, 1.4] },
+    { name: 'grass_c', tints: PARK_GRASS_TINTS, upright: true, size: [28, 46] },
+  ]
+  const DETAIL_HILLS = [
+    { name: 'rockChunk', baked: true, scale: [0.35, 0.65] },
+    { name: 'grass_d', tints: PARK_GRASS_TINTS, upright: true, size: [20, 34] },
+  ]
+
   const DISTRICT_BIOMES = {
     downtown: BIOMES.skies, // unchanged: the chapter's original tall shattered-building rubble
     suburbs: {
@@ -2964,12 +3210,24 @@ export function createRenderer(app) {
       // baked above). Still no swim/slow here — that would be a sim change, out of scope.
       obstacle: { tint: 0x8fa0ac, foot: 0xdaf3ff },
     },
+    farms: {
+      big: BIG_FARMS, mid: MID_FARMS, detail: DETAIL_FARMS,
+      obstacle: { tint: 0xb8a860, foot: 0x2e2712 },
+    },
+    hills: {
+      big: BIG_HILLS, mid: MID_HILLS, detail: DETAIL_HILLS,
+      // no dedicated structure silhouette for "hillside furniture" — an obstacle that lands here
+      // just wears whatever kind it rolled (tower/house/tree/pier/barn/silo — independent of
+      // district, same as every other district), tinted to this palette.
+      obstacle: { tint: 0x8a7a62, foot: 0x2e2a20 },
+    },
   }
-  // Structure silhouette per o.kind (v5.8 kaiju redesign, config.js STRUCTURE_KINDS): the district
-  // table above supplies the PALETTE, this supplies the SHAPE — see its doc comment. Same {baked}/
-  // {clumps} shapes syncObstacles already knew how to draw (BIOMES/DISTRICT_BIOMES' `obstacle`
-  // used to carry both in one object; kind splits them so a suburb can have a park's stray tree and
-  // vice versa, matching the fact that kind and district roll independently).
+  // Structure silhouette per o.kind (v5.8 kaiju redesign, config.js STRUCTURE_KINDS; barn/silo added
+  // v5.9): the district table above supplies the PALETTE, this supplies the SHAPE — see its doc
+  // comment. Same {baked}/{clumps} shapes syncObstacles already knew how to draw (BIOMES/
+  // DISTRICT_BIOMES' `obstacle` used to carry both in one object; kind splits them so a suburb can
+  // have a park's stray tree and vice versa, matching the fact that kind and district roll
+  // independently).
   //   tower — today's shattered-rubble pair, unchanged (the design doc calls it "a fine starting
   //           point"; downtown's original obstacle look already looked like a small ruin).
   //   house — the suburbs' own hand-drawn house, baked twice: a plain low pitched-roof silhouette
@@ -2977,18 +3235,100 @@ export function createRenderer(app) {
   //   tree  — the same OBSTACLE_CLUMPS foliage-mound idiom every organic obstacle already uses
   //           (garden's bushes, the old parks obstacle) — no new art needed for "a park tree/hedge".
   //   pier  — new baked art (jetty/boat/buoy above), for the sea district's dock furniture.
+  //   barn/silo — new baked art (above), for the farms district's crushable buildings.
   const STRUCTURE_SKINS = {
     tower: { baked: ['rubble', 'rubble'] },
     house: { baked: ['house', 'house'] },
     tree: { clumps: OBSTACLE_CLUMPS },
     pier: { baked: ['jetty', 'boat', 'buoy'] },
+    barn: { baked: ['barn', 'barn'] },
+    silo: { baked: ['silo', 'silo'] },
   }
 
+  // ---- roads (skies only, v5.9 top-down region overhaul) --------------------------------------
+  // Draws config.js's roadAt() street grid as a floor decal — a pooled per-cell prop layer (below),
+  // NOT per-frame Graphics: FLOOR_LAYERS already runs one pass over every visible cell each frame
+  // (touchFloorCell), so this reuses that exact machinery with a deterministic PREDICATE (roadAt)
+  // standing in for the usual random `chance` roll, same as every other layer's populate callback.
+  //
+  // ROAD_CELL must be <= ROAD_MINOR_WIDTH: consecutive probe points are ROAD_CELL apart, so a
+  // street ROAD_MINOR_WIDTH px wide is GUARANTEED to contain at least one probe (pigeonhole) for
+  // ANY per-seed grid offset — render.js never learns that offset directly (config.js keeps it
+  // private), it only ever calls the exported roadAt. -4 is a safety margin.
+  const ROAD_CELL = ROAD_MINOR_WIDTH - 4
+  const ROAD_VISIBLE_DISTRICTS = new Set(['downtown', 'suburbs', 'parks'])
+  // roadAt's `angle` is 0 for an east-west street (runs along x) or PI/2 for north-south — the
+  // perpendicular unit vector (the direction `dist` is measured along) is (sin(angle), cos(angle)).
+  function roadPerp(angle) { return { x: Math.sin(angle), y: Math.cos(angle) } }
+
+  function populateRoad(s, i, j, cell) {
+    if (!chapterHasRoads) { s.visible = false; return }
+    const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
+    const ra = roadAt(wx, wy, roadSeed)
+    if (!ra.onRoad) { s.visible = false; return }
+    // Resolve the EXACT centreline point: roadAt's `dist` is unsigned, so nudge along the
+    // perpendicular and see whether that grew or shrank it, then step the full `dist` the way that
+    // shrank it. One extra roadAt call, and exact (roadAt's distance math has no error to
+    // accumulate — only the sign was ambiguous), so segments from neighbouring cells land on the
+    // same line and read as one continuous strip instead of a cell-quantized staircase.
+    const perp = roadPerp(ra.angle)
+    const probe = roadAt(wx + perp.x * 4, wy + perp.y * 4, roadSeed)
+    const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
+    const cx = wx + perp.x * ra.dist * sign
+    const cy = wy + perp.y * ra.dist * sign
+    // roadAt and districtAt are independent seeds by design (config.js CHAPTERS.skies.roads'
+    // ponytail note — sim stays ignorant of districts), so a street can wander into sea/hills.
+    // Painting asphalt over open water or wild moorland would read as broken; the structure-
+    // clearing underneath is invisible anyway (nothing depends on the pavement itself being drawn),
+    // so the least-wrong choice is to just not draw it outside the urban districts.
+    if (!ROAD_VISIBLE_DISTRICTS.has(districtAt(cx, cy, districtSeed))) { s.visible = false; return }
+    const look = ra.major ? T.roadMajor : T.roadMinor
+    s.texture = look.tex
+    s.anchor.set(look.ax, look.ay)
+    s.tint = 0xffffff
+    s.alpha = 1
+    s.rotation = ra.angle
+    s.scale.set((cell * 1.6) / look.ref, (ra.half * 2) / look.ref) // *1.6 overlaps neighbours so segments never gap
+    s.position.set(cx, cy)
+  }
+
+  // ---- extra urban clutter (skies only, v5.9 top-down region overhaul, item 5) ----------------
+  // FLOOR_LAYERS' cell/chance are shared by every chapter, so raising them would raise density
+  // everywhere, not just skies' cities — out of bounds for a one-file, one-chapter pass. This adds
+  // a SEPARATE, self-gated layer instead (same "predicate populate, no-op elsewhere" trick roads
+  // use above): extra small furniture for downtown/suburbs/parks only, on its own cell grid so it's
+  // genuinely additional instances, not a reshuffle of the existing mid/detail counts. No new art —
+  // pure reuse. Cell 150 keeps the per-frame cost in the same ballpark as the existing detail layer
+  // (cell 120) rather than the much finer road layer above.
+  const CLUTTER_BY_DISTRICT = {
+    downtown: [{ name: 'rubble', baked: true, upright: true, size: PROP_SCALE.debris }],
+    suburbs: [
+      { name: 'fence', baked: true, upright: true, size: PROP_SCALE.fence },
+      { name: 'car', baked: true, size: PROP_SCALE.car },
+    ],
+    parks: [{ name: 'bush_b', tints: PARK_TINTS, upright: true, size: [55, 90] }],
+  }
+  function populateClutter(s, i, j, cell) {
+    if (!chapterHasDistricts) { s.visible = false; return }
+    const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
+    const kinds = CLUTTER_BY_DISTRICT[districtAt(wx, wy, districtSeed)]
+    if (!kinds) { s.visible = false; return }
+    const kind = kinds[Math.floor(cellHash(i, j, 1) * kinds.length)]
+    const pos = applyPropKind(s, kind, i, j, wx, wy)
+    s.position.set(pos.x, pos.y)
+  }
+
+  // road/clutter run over EVERY chapter's cells (touchFloorCell has no chapter gate) but their
+  // populate callbacks no-op (s.visible = false) outside skies/urban — see their own doc comments
+  // above for why a self-gating predicate layer was the only way to add chapter-scoped density
+  // without touching the shared cell/chance numbers every other chapter also uses.
   const FLOOR_LAYERS = [
     { name: 'blotch', cell: 420, chance: 1.00, parent: blotchLayer, populate: populateBlotch },
+    { name: 'road', cell: ROAD_CELL, chance: 1.00, parent: roadLayer, populate: populateRoad },
     { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig },
     { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid },
     { name: 'detail', cell: 120, chance: 0.40, parent: detailLayer, populate: populateDetail },
+    { name: 'clutter', cell: 150, chance: 1.00, parent: clutterLayer, populate: populateClutter },
   ]
 
   function touchFloorCell(cfg, i, j) {
@@ -3575,8 +3915,29 @@ export function createRenderer(app) {
         const pick = (salt) => shape.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * shape.baked.length)]
         const a = T[pick(0)]
         const b = T[pick(11.3)]
-        const scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
-        const scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
+        // v5.9 top-down region overhaul (skies/chapterHasDistricts only): sized from PROP_SCALE
+        // [o.kind] (config.js), an ABSOLUTE px band independent of o.r — o.r (10-28px, CHAPTERS.
+        // skies.obstacles) and `kind` are independent hash rolls (sim.js streamObstacles), so the
+        // OLD formula (o.r * 1.9, one constant shared by every kind) could render a max-radius
+        // house bigger than a min-radius tower — the same size inversion this whole redesign exists
+        // to kill (see PROP_SCALE's doc, config.js), just never fixed on the obstacle side before
+        // now. The footprint ring above stays on o.r — that ring, not the furniture sprite, is the
+        // true crush-trigger contract (stepCrush, sim.js) — so the structure silhouette may now
+        // extend past it; that's an intentional "readable shape, honest hitbox drawn separately"
+        // split, not a bug (the ring already carries the "this is where it pops" cue on its own).
+        // Every OTHER chapter's baked obstacles (undergrowth/city/beyond) fall through to the
+        // untouched o.r formula below — chapterHasDistricts is skies-only, so they're bit-identical
+        // to before this change.
+        let scA, scB
+        if (chapterHasDistricts) {
+          const band = PROP_SCALE[o.kind] || PROP_SCALE.tower
+          const target = lerp(band[0], band[1], hash(o.x * 0.71 + o.y * 1.33 + 4.1))
+          scA = target / Math.max(a.tex.width, a.tex.height)
+          scB = (target * 0.55) / Math.max(b.tex.width, b.tex.height)
+        } else {
+          scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
+          scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
+        }
         ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = skin.tint
         ov.clumpA.scale.set(scA); ov.clumpA.rotation = 0
         ov.clumpA.position.set(0, o.r * 0.28) // base planted just past centre, sitting on the pad
@@ -3584,11 +3945,15 @@ export function createRenderer(app) {
         ov.clumpB.scale.set(scB); ov.clumpB.rotation = (hash(o.x * 2.9 + o.y) - 0.5) * 0.5
         ov.clumpB.position.set((hash(o.x + o.y * 5.1) - 0.5) * o.r * 0.85, o.r * 0.44) // tucked at the rim
       } else {
-        // foliage mound: two stacked cluster sprites sized to the collider (≈2×radius wide) and
-        // lifted into a crown, denser and darker than the single floor bush. The ring, not the
-        // foliage overhang, marks the true edge.
+        // foliage mound: two stacked cluster sprites lifted into a crown, denser and darker than
+        // the single floor bush. The ring, not the foliage overhang, marks the true edge. Sized
+        // from PROP_SCALE.tree in skies (same reasoning as the baked branch above); every other
+        // chapter's clump obstacles (garden/pond's clusters, etc.) keep the untouched o.r*2.0
+        // formula — chapterHasDistricts is skies-only.
         const tex = T.props[shape.clumps[Math.floor(hash(o.x * 1.7 + o.y * 0.31) * shape.clumps.length)]]
-        const sc = (o.r * 2.0) / 1024 // source props are 1024px; on-screen width ≈ collider diameter
+        const sc = chapterHasDistricts
+          ? lerp(PROP_SCALE.tree[0], PROP_SCALE.tree[1], hash(o.x * 0.71 + o.y * 1.33 + 4.1)) / 1024
+          : (o.r * 2.0) / 1024 // source props are 1024px; on-screen width ≈ collider diameter
         ov.clumpA.texture = tex; ov.clumpA.anchor.set(0.5); ov.clumpA.tint = skin.tint
         ov.clumpA.scale.set(sc); ov.clumpA.rotation = rot; ov.clumpA.position.set(0, -o.r * 0.10)
         ov.clumpB.texture = tex; ov.clumpB.anchor.set(0.5); ov.clumpB.tint = skin.tint
@@ -5906,6 +6271,11 @@ export function createRenderer(app) {
     chapterHasStorm = !!chapterRender.storm
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
+    // roads is a chapter-TOP-LEVEL flag (config.js CHAPTERS.skies.roads), not under `render` like
+    // the others above — it's sim-relevant (streamObstacles keeps buildings off streets) as well as
+    // render-relevant, so it lives next to `crush`/`obstacles`, not inside the render-only block.
+    chapterHasRoads = !!cfg?.roads
+    roadSeed = run?._obstacleSeed ?? 0
     // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body

@@ -99,6 +99,8 @@ import {
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
   // v5.8 kaiju redesign (skies crushing + rampage)
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
+  // v5.9 top-down region overhaul (skies roads)
+  roadAt,
   // v5.4 beyond
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
@@ -1139,6 +1141,7 @@ function streamObstacles(run) {
   if (run._obstacleSeed == null) return
   const cfg = CHAPTERS[run.chapter].obstacles
   if (!cfg) return
+  const roadsOn = !!CHAPTERS[run.chapter].roads // v5.9 top-down region overhaul, skies only — see CHAPTERS.skies.roads' comment
   const p = run.player
   const cs = cfg.cell ?? OBSTACLE_CELL
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
@@ -1169,6 +1172,19 @@ function streamObstacles(run) {
       const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 3) - 0.5) * 2 * slack
       if (Math.hypot(x, y) < cfg.minDist) continue                      // spawn ring stays clear
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      // v5.9 top-down region overhaul: keep structures off the streets. roadAt is a pure hash (see
+      // config.js) — consumes nothing from Math.random, so this can't shift a seeded test the way
+      // an actual draw would (the AA.c/runStarOnly incident, twice — see this function's header
+      // comment above). Gated on CHAPTERS[chapter].roads so no other chapter's obstacle field moves.
+      // // ponytail: roads key off run._obstacleSeed and districts off run._districtSeed — two
+      // independent seeds — so a road strip is NOT aware of which district it's crossing (it clears
+      // structures out of a sea district exactly as readily as downtown). Harmless in practice: a
+      // clear channel through open water just reads as a channel, and nothing DEPENDS on roads and
+      // districts agreeing. Keeping them independent is what keeps sim ignorant of what a district
+      // even is (run._districtSeed is documented render-only, state.js:399-403/:621-623) — the fix,
+      // if this ever needs to change, is promoting _districtSeed to a real sim contract, not
+      // teaching roadAt about districts.
+      if (roadsOn && roadAt(x, y, seed).onRoad) continue
       const kindRoll = obstacleCellHash(i, j, seed, 4)
       const kind = STRUCTURE_KINDS[Math.min(STRUCTURE_KINDS.length - 1, Math.floor(kindRoll * STRUCTURE_KINDS.length))]
       run.obstacles.push({ x, y, r, _cell: key, kind })

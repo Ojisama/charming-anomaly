@@ -14,6 +14,7 @@ npm run build      # vite build -> dist/
 npm run preview    # serve the built dist/
 npm test           # node test/sim-test.js — headless sim self-check, no framework
 node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
+node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
 ```
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Only `sim.js` (+ its `config.js`/`state.js` deps) is testable this way** — it's the only module free of Pixi/DOM.

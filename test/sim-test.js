@@ -38,6 +38,7 @@ import {
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, DISTRICT_GRID, districtAt, districtTintAt,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
+  roadAt,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -3945,6 +3946,11 @@ function testDistricts() {
   assert(seen.size > 1, `expected districtAt to return varied types across a wide sweep, got only ${[...seen]}`)
   for (const t of seen) assert(t in DISTRICTS, `unexpected district type from districtAt: ${t}`)
   assert(seen.has('sea'), `expected sea to appear somewhere over a wide sweep, got ${[...seen]}`)
+  // v5.9 top-down region overhaul grew DISTRICTS from 4 types to 6 (farms, hills) — pin both
+  // reachable over the same sweep, the same way sea already was above, so a future weight/bias
+  // change that starves one of them out doesn't slip past silently.
+  assert(seen.has('farms'), `expected farms to appear somewhere over a wide sweep, got ${[...seen]}`)
+  assert(seen.has('hills'), `expected hills to appear somewhere over a wide sweep, got ${[...seen]}`)
 
   // continuous blend: walk a straight line crossing several district borders in small steps;
   // districtTintAt must never jump by more than a small epsilon per step (no hard pop at a
@@ -4197,6 +4203,15 @@ function testSkiesKaiju() {
   // arithmetic, but tight enough that the rev.1 no-op (which settles under 40 obstacles by this
   // same measurement, verified directly against this file's seed) can't sneak back in. Do not
   // delete this in the name of simplifying: it is the ONLY test that would have caught rev.1's bug.
+  //
+  // v5.9 top-down region overhaul addendum: roads now carve ~17% of the world out of the
+  // buildable area (roadAt/ROAD_* in config.js) — the reason config.js bumped count 34->40 (see
+  // CHAPTERS.skies.obstacles' own comment). Checked by hand against this file's seed: reverting to
+  // the old count=34 with roads still on settles at 76 live obstacles — inside the ORIGINAL 70-170
+  // floor, so that floor could no longer tell "the v5.9 density bump got reverted" apart from
+  // "working as intended". Raising the floor 70->80 sits strictly between 76 (the reverted value)
+  // and 88 (today's, below) — still comfortably clear of the rev.1 no-op (<40) but now also catches
+  // a silent count 40->34 revert.
   {
     Math.random = mulberry32(20260714)
     const run = skiesRun()
@@ -4206,8 +4221,95 @@ function testSkiesKaiju() {
       stepSim(run, { x: Math.cos(t), y: Math.sin(t) }, dt)
     }
     const n = run.obstacles.length
-    assert(n >= 70 && n <= 170, `expected roughly the intended ~150 live obstacles after wandering, got ${n} (the rev.1 cell/count no-op settles under 40 by this same measurement)`)
-    console.log(`PASS run CC.e (density guard): ${n} live obstacles after 30s of wandering (target ~150; floor guards the rev.1 cell/count no-op)`)
+    assert(n >= 80 && n <= 170, `expected roughly the intended ~150 live obstacles after wandering, got ${n} (the rev.1 cell/count no-op settles under 40, and a reverted v5.9 count settles at 76, by this same measurement)`)
+    console.log(`PASS run CC.e (density guard): ${n} live obstacles after 30s of wandering (~88 expected since roads carve ~17% of the buildable grid; floor guards the rev.1 cell/count no-op)`)
+  }
+}
+
+// ---- Run DD: v5.9 top-down region overhaul (roads) -------------------------------------------
+// roadAt (config.js) grew alongside DISTRICTS (run BB above already covers all 6 district types,
+// farms/hills included) and STRUCTURE_KINDS (run CC.d already covers kind determinism/independence
+// from _districtSeed). What's untested so far is the road grid itself: that it's actually
+// deterministic and non-degenerate, and — the load-bearing one — that streamObstacles' own
+// road-rejection (sim.js) and roadAt (config.js) genuinely agree on what counts as roadway,
+// not just that both happen to compile.
+function testRoads() {
+  const dt = 1 / 60
+
+  // (a) roadAt determinism: same (x, y, seed) always gives the same result (a pure function, no
+  // RNG stream, no run state); a DIFFERENT seed must actually move the grid (the per-seed ox/oy
+  // offset config.js's own comment calls out as "keeps different runs' grids from all sitting on
+  // literally the same world-space lines").
+  {
+    const seed = 777
+    for (const [x, y] of [[0, 0], [733, -212], [15000, 8000], [-4001, 6002]]) {
+      assert.deepStrictEqual(roadAt(x, y, seed), roadAt(x, y, seed), `expected roadAt(${x},${y},${seed}) to be deterministic`)
+    }
+    // Sample enough points that "different seed, identical grid" (a broken/no-op per-seed offset)
+    // would be caught, not just get lucky on one probe.
+    let sawDifference = false
+    for (let i = 0; i < 200; i++) {
+      const x = i * 37, y = i * 53
+      if (roadAt(x, y, seed).onRoad !== roadAt(x, y, seed + 1).onRoad) { sawDifference = true; break }
+    }
+    assert(sawDifference, 'expected a different seed to produce a different road layout somewhere over a 200-point sample')
+    console.log('PASS run DD.a (roadAt determinism): same (x,y,seed) repeats every time, a different seed moves the grid')
+  }
+
+  // (b) road geometry is sane: sweep a DIAGONAL line (irrational-ish slope, so it can never ride
+  // parallel to an axis-aligned street the whole way — a sweep along a fixed y or x WOULD
+  // occasionally land exactly on a street's centreline and read as constantly-on-road for that one
+  // probe, a sampling artifact of picking an unlucky line, not a real roadAt bug) and require it to
+  // cross roadway sometimes and open ground sometimes, with many transitions — guards against a
+  // degenerate roadAt that always (or never) returns onRoad true, which run DD.c below could not
+  // distinguish from "roads are working" (an always-false roadAt would trivially pass "no obstacle
+  // is on a road" too).
+  {
+    const seed = 20260714
+    let onCount = 0, total = 0, transitions = 0, prevOn = null
+    for (let t = 0; t < 20000; t += 5) {
+      const r = roadAt(t, t * 0.37 + 53, seed)
+      if (r.onRoad) onCount++
+      total++
+      if (prevOn !== null && prevOn !== r.onRoad) transitions++
+      prevOn = r.onRoad
+    }
+    const frac = onCount / total
+    assert(frac > 0.02 && frac < 0.5, `expected roadway to cover a modest slice of a long diagonal sweep, got ${(frac * 100).toFixed(1)}% (a degenerate roadAt reads as ~0% or ~100%)`)
+    assert(transitions > 20, `expected many road/non-road transitions along a long diagonal sweep, got ${transitions}`)
+    console.log(`PASS run DD.b (road geometry): ${(frac * 100).toFixed(1)}% of a diagonal sweep on-road across ${transitions} transitions (neither constantly on nor off)`)
+  }
+
+  // (c) roads are actually clear: drive a REAL live skies run — createRun with a real chapter and
+  // a live obstacle field, NOT flagRun (flagRun sets run.obstacles = []; run._obstacleSeed = null,
+  // which would make "no obstacle is on a road" vacuously true and prove nothing). Let the field
+  // stream in for real, then assert no live obstacle's CENTRE sits on roadway per roadAt fed the
+  // run's own _obstacleSeed — the same seed streamObstacles used to reject those cells in the first
+  // place (sim.js). This is the one check that would actually catch sim and roadAt drifting apart.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'skies' })
+    run.weapons = []; run.mods.spawnMul = 0; run._bombardAcc = 1e6
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    let t = 0
+    for (let i = 0; i < Math.round(30 / dt); i++) {
+      t += dt
+      stepSim(run, { x: Math.cos(t), y: Math.sin(t) }, dt)
+    }
+    assert(run.obstacles.length > 0, 'expected a live skies run to stream in real obstacles')
+    const onRoad = run.obstacles.filter((o) => roadAt(o.x, o.y, run._obstacleSeed).onRoad)
+    assert.strictEqual(onRoad.length, 0,
+      `expected no live obstacle centred on roadway, found ${onRoad.length}/${run.obstacles.length}: ${JSON.stringify(onRoad.slice(0, 3))}`)
+    console.log(`PASS run DD.c (roads are clear): 0/${run.obstacles.length} live obstacles centred on roadway`)
+  }
+
+  // (d) STRUCTURE_KINDS grew 4 -> 6 in the same v5.9 overhaul (config.js: 'tower'/'house'/'tree'/
+  // 'pier' plus new 'barn'/'silo') — run CC.d above already proves kind is stable per (cell, seed)
+  // and independent of _districtSeed; this just pins the COUNT so a future edit can't silently
+  // shrink the ladder back down without any test noticing.
+  {
+    assert.strictEqual(STRUCTURE_KINDS.length, 6, `expected 6 structure kinds (v5.9 grew this from 4), got ${STRUCTURE_KINDS.length}: ${STRUCTURE_KINDS}`)
+    console.log(`PASS run DD.d (structure kind count): ${STRUCTURE_KINDS.length} kinds (${STRUCTURE_KINDS.join(',')})`)
   }
 }
 
@@ -4242,6 +4344,7 @@ try {
   testV54Weapons()
   testDistricts()
   testSkiesKaiju()
+  testRoads()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
