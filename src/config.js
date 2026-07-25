@@ -1926,6 +1926,16 @@ export const MISSILE_BLAST = 40         // px, explode-event radius on impact (v
 // player velocity × ARTILLERY_LEAD. So it telegraphs for ARTILLERY_FUSE seconds, then explodes,
 // damaging the PLAYER and ENEMIES alike (stepBombs already does exactly this — no new code path).
 // Movement is otherwise a plain slow seek. Elites use the same flag with ARTILLERY_ELITE_* below.
+// v5.7.5: a tank only shells while within ARTILLERY_FIRE_RANGE of the player (out of range its
+// timer holds near-ready, like MISSILE_FIRE_RANGE). Without the gate every tank on the MAP fires,
+// and since tanks are near-unkillable while kiting they accumulate into a full-screen barrage
+// (probe: 77 concurrent telegraphs at 5 min) that reads as "the sky wants ME dead", not weather.
+export const ARTILLERY_FIRE_RANGE = 640
+// Hard cap on live shell/strike telegraphs (artillery + bombardment; volatile death-bombs exempt —
+// that's an elite affix, not shelling). The range gate alone fails late-game: tanks are near-
+// unkillable while kiting, so 150+ accumulate AROUND the player and the barrage rebuilds inside
+// the gate (probe: still 77 concurrent telegraphs). Same backstop shape as MISSILE_MAX_LIVE.
+export const SHELL_MAX_LIVE = 6
 export const ARTILLERY_INTERVAL = 3.0
 export const ARTILLERY_FUSE = 1.1       // s of telegraph (stepBombs grows the warning from fuse/duration)
 export const ARTILLERY_RADIUS = 95      // px, blast radius
@@ -1938,9 +1948,13 @@ export const ARTILLERY_ELITE_DMG = 30        // ...and harder.
 // bombardment signature (skies): continuous area denial, INDEPENDENT of the artillery roster —
 // this is the sky itself shelling you. Every signature.rate seconds, pushes BOMBARDMENT_COUNT
 // run.bombs entries (same array/step as artillery above, so it's the same explode-both-sides
-// contract) at uniformly random points within BOMBARDMENT_SPREAD px of the player.
+// contract) at AREA-uniform random points within BOMBARDMENT_SPREAD px of the player.
+// v5.7.5: spread 280 → 620 and sqrt-radius sampling. The old numbers put every strike in a tight
+// disc centered on the player, density peaking AT the player — targeted fire, not a storm. Wide +
+// area-uniform makes lightning mostly ambient (~3% of strikes threaten), with tanks in
+// ARTILLERY_FIRE_RANGE carrying the aimed pressure.
 export const BOMBARDMENT_COUNT = 2
-export const BOMBARDMENT_SPREAD = 280   // px, scatter radius around the player
+export const BOMBARDMENT_SPREAD = 620   // px, scatter radius around the player (≈ full screen)
 export const BOMBARDMENT_FUSE = 1.2     // s of telegraph
 export const BOMBARDMENT_RADIUS = 85    // px, blast radius
 export const BOMBARDMENT_DMG = 18

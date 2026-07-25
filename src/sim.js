@@ -93,7 +93,7 @@ import {
   MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
   MISSILE_GAP, MISSILE_SPEED, MISSILE_TURN, MISSILE_LIFE, MISSILE_R, MISSILE_DMG, MISSILE_BLAST,
   ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
-  ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG,
+  ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_FUSE, BOMBARDMENT_RADIUS, BOMBARDMENT_DMG,
   ROAR_STUN, ROAR_RESONANCE_EVERY, TAIL_COLLIDE_R, TAIL_COLLIDE_FRAC, TAIL_COUNTER_CD,
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
@@ -552,7 +552,12 @@ function stepEnemyMovement(run, dt) {
     if (e.flags && e.flags.includes('artillery') && !e._dead) {
       const interval = e.elite ? ARTILLERY_ELITE_INTERVAL : ARTILLERY_INTERVAL
       e._shellT = (e._shellT ?? interval) - dt
-      if (e._shellT <= 0) {
+      // out of range: hold the timer near-ready (same shape as missileVolley's on-station gate) —
+      // only tanks close enough to be a visible threat get to shell, however many exist on the map
+      if ((p.x - e.x) ** 2 + (p.y - e.y) ** 2 > ARTILLERY_FIRE_RANGE * ARTILLERY_FIRE_RANGE ||
+          run.bombs.length >= SHELL_MAX_LIVE) {
+        e._shellT = Math.max(e._shellT, 0.3)
+      } else if (e._shellT <= 0) {
         e._shellT += interval
         run.bombs.push({
           x: p.x + (p.vx ?? 0) * ARTILLERY_LEAD,
@@ -1374,8 +1379,10 @@ function stepBombardment(run, dt) {
   run._bombardAcc += sig.rate
   const p = run.player
   for (let i = 0; i < BOMBARDMENT_COUNT; i++) {
+    if (run.bombs.length >= SHELL_MAX_LIVE) break
     const a = Math.random() * Math.PI * 2
-    const d = Math.random() * BOMBARDMENT_SPREAD
+    // sqrt = area-uniform: strike density is FLAT across the disc instead of peaking on the player
+    const d = Math.sqrt(Math.random()) * BOMBARDMENT_SPREAD
     run.bombs.push({
       x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
       radius: BOMBARDMENT_RADIUS, fuse: BOMBARDMENT_FUSE, duration: BOMBARDMENT_FUSE,

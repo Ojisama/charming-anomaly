@@ -29,8 +29,8 @@ import {
   MISSILE_SPEED, MISSILE_STANDOFF,
   STRAFE_BANK_T, STRAFE_RUN_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
-  ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS,
-  BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS,
+  ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
+  BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
@@ -2921,9 +2921,11 @@ function testV54Flags() {
 
   // (g) artillery: a tank column shells the player's PREDICTED position (velocity × ARTILLERY_LEAD)
   // into run.bombs — the shared volatile-bomb array, so the blast damages BOTH sides. Elites shell
-  // wider (ARTILLERY_ELITE_RADIUS).
+  // wider (ARTILLERY_ELITE_RADIUS). v5.7.5: only while within ARTILLERY_FIRE_RANGE, and never past
+  // SHELL_MAX_LIVE live telegraphs — so the tank sits AHEAD of the +x-running player (at: -300 →
+  // x=+300) to stay in range for the full interval.
   {
-    const { run } = flagRun('skies', ['artillery'], { at: 600, speed: 20 })
+    const { run } = flagRun('skies', ['artillery'], { at: -300, speed: 20 })
     run._bombardAcc = 1e6 // park the bombardment signature: this case is about the flag's own shells
     // Break on the FIRING frame: the shell is pushed after stepPlayerMovement, so the player's
     // position/velocity at the end of that frame are exactly the ones it aimed with.
@@ -2941,7 +2943,21 @@ function testV54Flags() {
     el.run._bombardAcc = 1e6 // park the bombardment signature: this is about the elite's own shells
     for (let i = 0; i < Math.round(2.0 / dt); i++) stepSim(el.run, { x: 0, y: 0 }, dt)
     assert(el.run.bombs.some((b) => b.radius === ARTILLERY_ELITE_RADIUS), 'expected an AA elite to shell with the wider elite radius')
-    console.log(`PASS run Y.g (artillery): shell led ${lead.toFixed(1)}px ahead; elites shell wider`)
+
+    // v5.7.5 range gate: a tank parked beyond ARTILLERY_FIRE_RANGE never fires, however long it waits.
+    const far = flagRun('skies', ['artillery'], { at: ARTILLERY_FIRE_RANGE + 200, speed: 0 })
+    far.run._bombardAcc = 1e6
+    for (let i = 0; i < Math.round((ARTILLERY_INTERVAL + 1.0) / dt); i++) stepSim(far.run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(far.run.bombs.length, 0, `expected an out-of-range tank to hold fire, got ${far.run.bombs.length} shells`)
+
+    // v5.7.5 live cap: with SHELL_MAX_LIVE telegraphs already up, neither artillery nor the
+    // bombardment signature adds another (the barrage backstop).
+    const cap = flagRun('skies', ['artillery'], { at: 300, speed: 0 })
+    for (let i = 0; i < SHELL_MAX_LIVE; i++) cap.run.bombs.push({ x: 9000, y: 9000, radius: 1, fuse: 99, duration: 99, dmg: 0 })
+    for (let i = 0; i < Math.round((ARTILLERY_INTERVAL + 1.0) / dt); i++) stepSim(cap.run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(cap.run.bombs.length, SHELL_MAX_LIVE, `expected the shell cap to hold at ${SHELL_MAX_LIVE}, got ${cap.run.bombs.length}`)
+
+    console.log(`PASS run Y.g (artillery): shell led ${lead.toFixed(1)}px ahead; elites shell wider; range gate + ${SHELL_MAX_LIVE}-shell cap hold`)
   }
 
   // (h) blink: a blinker teleports toward the player — never landing closer than BLINK_MIN_DIST,
@@ -3187,7 +3203,6 @@ function testV54Signatures() {
     run.enemies.push(victim)
 
     let sawBombs = 0
-    let hurt = false
     for (let i = 0; i < Math.round(9 / dt); i++) {
       stepSim(run, { x: 0, y: 0 }, dt)
       sawBombs = Math.max(sawBombs, run.bombs.length)
@@ -3195,10 +3210,20 @@ function testV54Signatures() {
         assert.strictEqual(b.radius, BOMBARDMENT_RADIUS, `expected bombardment radius ${BOMBARDMENT_RADIUS}, got ${b.radius}`)
         assert(Math.hypot(b.x - run.player.x, b.y - run.player.y) <= BOMBARDMENT_SPREAD + 1e-6, 'expected bombs scattered within BOMBARDMENT_SPREAD of the player')
       }
-      if (run.events.some((ev) => ev.type === 'hurt')) hurt = true
     }
     assert(sawBombs >= BOMBARDMENT_COUNT, `expected >= ${BOMBARDMENT_COUNT} bombs alive at once, saw ${sawBombs}`)
-    assert(hurt, 'expected the bombardment to damage a player standing in it')
+    // v5.7.5: the scatter is area-uniform across a wide disc now (a storm, not a sniper), so a 9s
+    // run may legitimately never roll a strike onto the origin — plant one dead-center to test the
+    // both-sides damage contract (that part is stepBombs's job, not the scatter's).
+    run.bombs.length = 0
+    run.player.invuln = 0
+    let hurt = false
+    run.bombs.push({ x: 0, y: 0, radius: BOMBARDMENT_RADIUS, fuse: 0.1, duration: BOMBARDMENT_FUSE, dmg: BOMBARDMENT_DMG })
+    for (let i = 0; i < Math.round(0.5 / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.events.some((ev) => ev.type === 'hurt')) hurt = true
+    }
+    assert(hurt, 'expected a strike landing on the player to damage them')
     assert(victim.hp < 1e6, `expected the bombardment to damage enemies too (BOTH sides), hp=${victim.hp}`)
     // Only the skies get shelled by the sky.
     const quiet = createRun(makeMeta(), { chapter: 'city' })
