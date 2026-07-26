@@ -1694,12 +1694,26 @@ export function districtTintAt(x, y, seed) {
   // shore, then water — including rivers, which are the ridged-noise channel terrainAt classifies
   // as sea. The river term has to be applied on the same footing as the coast or a river would
   // render as a hard-edged blue ribbon laid over the ground.
+  // v5.12: THE TINT MUST AGREE WITH THE CLASSIFIER ABOUT WHERE WATER IS. The previous ramps reached
+  // water colour well OUTSIDE terrainAt's own thresholds — the river term started turning blue at
+  // 1.7x the channel width and only saturated at 0.6x, so a wide blue halo was painted over ground
+  // that every other system correctly treats as dry land. Measured: 39.9% of the area read as blue
+  // against a 33.3% water biome, and 32.5% of ALL ROAD AREA sat on blue-looking ground. That is not
+  // a road drawn in the sea; it is the sea drawn under a road, and it is the same class of mistake
+  // as the two-seed split — two systems answering the same question differently.
+  //
+  // Both water ramps now saturate essentially AT the classifier's own boundary and carry no colour
+  // beyond it. The band immediately outside is a BANK, in the beach tint, mirroring what the coast
+  // already does — which is also the thing rivers were missing entirely (they went from deep water
+  // to dry khaki across one razor edge, with no shore at all).
   const shore = SEA_LEVEL + SHORE_BAND
   c = lerpColorInt(c, D.beach.floorTint, ramp(shore + 0.03, shore, elev))
   const lowness = Math.max(0, Math.min(1, (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)))
   const riverEdge = RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness
-  c = lerpColorInt(c, D.sea.floorTint, ramp(riverEdge * 1.7, riverEdge * 0.6, riverAt(x, y, seed)))
-  c = lerpColorInt(c, D.sea.floorTint, ramp(SEA_LEVEL + 0.012, SEA_LEVEL - 0.004, elev))
+  const river = riverAt(x, y, seed)
+  c = lerpColorInt(c, D.beach.floorTint, ramp(riverEdge * 2.4, riverEdge * 1.15, river))   // the bank
+  c = lerpColorInt(c, D.sea.floorTint, ramp(riverEdge * 1.34, riverEdge * 0.92, river))    // the channel
+  c = lerpColorInt(c, D.sea.floorTint, ramp(SEA_LEVEL + 0.009, SEA_LEVEL - 0.005, elev))
   return c
 }
 
@@ -1829,7 +1843,7 @@ export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 // the "only config.js is imported by both sim and render" rule in CLAUDE.md still holds literally.
 export {
   nearestCity, cityAt, blockSnap, parcelAt, PARCEL, pickWorldSeed,
-  terrainAt, elevationAt, urbanAt, riverAt, BIOME_BUILD_DENSITY, CITY_GRID,
+  terrainAt, elevationAt, urbanAt, riverAt, clumpAt, BIOME_BUILD_DENSITY, CITY_GRID,
   STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH,
 } from './terrain.js'
 

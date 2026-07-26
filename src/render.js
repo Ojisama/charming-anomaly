@@ -16,7 +16,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
-  ROAD_MAJOR_WIDTH, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt,
+  ROAD_MAJOR_WIDTH, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
 import { currentForce } from './sim.js'
 
@@ -2133,23 +2133,29 @@ export function createRenderer(app) {
     {
       const TT = 256   // bake reference size; populateTerrain scales this to the cell
       const H = TT / 2
-      function terrainTile(baseAlpha, draw) {
+      // v5.12: a terrain tile carries TEXTURE ONLY — no fill, no colour. Colour is a continuous
+      // field drawn underneath by updateGroundField; see its header for why the two were separated.
+      // The square here is a ZERO-ALPHA BOUNDS KEEPER (the same idiom skiesPlan uses): it fixes
+      // bake()'s tight crop to exactly TTxTT so every biome's tile scales alike, while contributing
+      // nothing visible. `baseAlpha` is gone — a tile that paints no colour cannot quantise one.
+      function terrainTile(draw) {
         const g = new Graphics()
-        // The base square is drawn FIRST and always — it is what makes the tile cover its cell, and
-        // it also fixes bake()'s tight crop to exactly TTxTT so every biome's tile scales alike.
-        // OPAQUE, always. An alpha<1 base looks equivalent but is not: populateTerrain overlaps
-        // neighbouring tiles slightly (to kill sub-pixel gaps), and two semi-transparent squares
-        // compound where they overlap — so every cell boundary came out as a BRIGHTER line and the
-        // floor grew a visible lattice. Opaque tiles overlap invisibly. The per-biome "how much
-        // ground shows through" that baseAlpha used to express is folded into the tint instead
-        // (populateTerrain's groundMix), where overlapping cannot double it up.
-        g.rect(-H, -H, TT, TT).fill({ color: 0xffffff, alpha: 1 })
+        g.rect(-H, -H, TT, TT).fill({ color: 0x000000, alpha: 0 })
         if (draw) draw(g)
         // bake() returns {tex, ax, ay} and NOTHING else — it has no `ref`. Carrying the reference
         // size explicitly is what lets populateTerrain scale a tile to its cell; reading a
-        // non-existent look.ref silently yields NaN, which Pixi renders as an invisible sprite (the
-        // first cut of this layer drew nothing at all for exactly that reason). `+ pad*2` accounts
-        // for bake's transparent border so the OPAQUE square, not the padded texture, spans the cell.
+        // non-existent look.ref silently yields NaN, which Pixi renders as an invisible sprite.
+        return { ...bake(g), ref: TT + 6 }
+      }
+      // Farmland is the ONE exception that keeps an opaque, coloured, hard-edged tile — a surveyed
+      // field really is a flat rectangle of one crop with a sharp boundary, and the patchwork is the
+      // whole point. Applying that logic to a coastline is what produced the staircase; applying it
+      // to a parcel is just correct. populateTerrain uses these only where a cell is SOLIDLY
+      // farmland (all four corners too), so a parcel can never cut a square edge into a shoreline.
+      function parcelTile(draw) {
+        const g = new Graphics()
+        g.rect(-H, -H, TT, TT).fill({ color: 0xffffff, alpha: 1 })
+        if (draw) draw(g)
         return { ...bake(g), ref: TT + 6 }
       }
       // Rows for a cultivated parcel: thin, low-contrast, and CLOSE together. The v5.10 furrows
@@ -2168,31 +2174,40 @@ export function createRenderer(app) {
         g.rect(-H + 1.5, -H + 1.5, TT - 3, TT - 3).stroke({ width: 3, color: 0x000000, alpha: 0.22 })
       }
       T.terrainTile = {}
-      T.terrainTile.farms = [
-        terrainTile(0.5, (g) => { rows(g, false, 15, 0.11); headland(g) }),
-        terrainTile(0.5, (g) => { rows(g, true, 15, 0.11); headland(g) }),
-        terrainTile(0.5, (g) => { rows(g, false, 22, 0.09); headland(g) }),
-        terrainTile(0.5, (g) => { rows(g, true, 22, 0.09); headland(g) }),
+      // Solid-interior farm parcels: opaque, crop-coloured, hard-edged (see parcelTile).
+      T.parcelTile = [
+        parcelTile((g) => { rows(g, false, 15, 0.11); headland(g) }),
+        parcelTile((g) => { rows(g, true, 15, 0.11); headland(g) }),
+        parcelTile((g) => { rows(g, false, 22, 0.09); headland(g) }),
+        parcelTile((g) => { rows(g, true, 22, 0.09); headland(g) }),
         // centre-pivot irrigation: a perfect circle in a field of straight lines is the single most
         // recognisable thing in an overhead photograph of farmland.
-        terrainTile(0.5, (g) => {
+        parcelTile((g) => {
           g.circle(0, 0, H * 0.92).fill({ color: 0xffffff, alpha: 0.13 })
           g.circle(0, 0, H * 0.92).stroke({ width: 2.5, color: 0xffffff, alpha: 0.20 })
           g.rect(-1.5, -H * 0.92, 3, H * 0.92).fill({ color: 0xffffff, alpha: 0.16 })   // the arm
           headland(g)
         }),
       ]
+      // ...and the texture-only version used on a farm cell that touches another biome, so a
+      // parcel's hard edge never lands on a shoreline.
+      T.terrainTile.farms = [
+        terrainTile((g) => rows(g, false, 15, 0.10)),
+        terrainTile((g) => rows(g, true, 15, 0.10)),
+        terrainTile((g) => rows(g, false, 22, 0.08)),
+        terrainTile((g) => rows(g, true, 22, 0.08)),
+      ]
       // Desert: wind-blown dune ripples — long, shallow, near-parallel arcs at very low contrast.
       // An arid surface is defined by how LITTLE is on it, so this is the sparsest tile here.
       T.terrainTile.desert = [
-        terrainTile(0.46, (g) => {
+        terrainTile((g) => {
           for (let k = -4; k <= 4; k++) {
             g.moveTo(-H, k * 30)
             g.bezierCurveTo(-H / 2, k * 30 - 13, H / 2, k * 30 + 13, H, k * 30)
             g.stroke({ width: 2.5, color: 0xffffff, alpha: 0.07 })
           }
         }),
-        terrainTile(0.46, (g) => {
+        terrainTile((g) => {
           for (let n = 0; n < 14; n++) {
             const x = (hash(n * 3.1 + 0.7) - 0.5) * TT
             const y = (hash(n * 5.9 + 2.2) - 0.5) * TT
@@ -2202,7 +2217,7 @@ export function createRenderer(app) {
       ]
       // Beach: wet sand, with the swash lines the tide leaves parallel to the water.
       T.terrainTile.beach = [
-        terrainTile(0.52, (g) => {
+        terrainTile((g) => {
           for (let k = -3; k <= 3; k++) {
             g.moveTo(-H, k * 36 + 6)
             g.bezierCurveTo(-H / 3, k * 36 - 9, H / 3, k * 36 + 15, H, k * 36 + 2)
@@ -2217,14 +2232,14 @@ export function createRenderer(app) {
       // Water: broad, calm, low-contrast ripple banding. Deliberately the flattest tile — water is
       // the one surface that should NOT compete for attention, since the threats fly over it.
       T.terrainTile.sea = [
-        terrainTile(0.44, (g) => {
+        terrainTile((g) => {
           for (let k = -4; k <= 4; k++) {
             g.moveTo(-H, k * 32)
             g.bezierCurveTo(-H / 2, k * 32 + 9, H / 2, k * 32 - 9, H, k * 32)
             g.stroke({ width: 3, color: 0xffffff, alpha: 0.06 })
           }
         }),
-        terrainTile(0.44, (g) => {
+        terrainTile((g) => {
           for (let k = -3; k <= 3; k++) {
             g.moveTo(-H, k * 40 + 12)
             g.bezierCurveTo(-H / 2, k * 40 + 2, H / 2, k * 40 + 22, H, k * 40 + 10)
@@ -2235,7 +2250,7 @@ export function createRenderer(app) {
       // Woodland: overlapping canopy crowns. Irregular, clustered, and the only tile whose detail
       // is meant to read as individual OBJECTS from above — because tree crowns actually do.
       T.terrainTile.parks = [
-        terrainTile(0.48, (g) => {
+        terrainTile((g) => {
           for (let n = 0; n < 22; n++) {
             const x = (hash(n * 3.3 + 1.9) - 0.5) * TT
             const y = (hash(n * 5.1 + 4.4) - 0.5) * TT
@@ -2244,7 +2259,7 @@ export function createRenderer(app) {
             g.circle(x - r * 0.22, y - r * 0.22, r * 0.55).fill({ color: 0xffffff, alpha: 0.09 })
           }
         }),
-        terrainTile(0.48, (g) => {
+        terrainTile((g) => {
           for (let n = 0; n < 17; n++) {
             const x = (hash(n * 4.9 + 3.1) - 0.5) * TT
             const y = (hash(n * 6.7 + 1.2) - 0.5) * TT
@@ -2256,13 +2271,13 @@ export function createRenderer(app) {
       // High ground: contour banding. A contour line is the one mark that says "slope" to a camera
       // with no horizon, which is the whole problem with drawing terrain relief from directly above.
       T.terrainTile.hills = [
-        terrainTile(0.47, (g) => {
+        terrainTile((g) => {
           for (let k = 0; k < 5; k++) {
             g.ellipse(10, -6, H * (0.28 + k * 0.19), H * (0.20 + k * 0.16))
               .stroke({ width: 2.5, color: 0xffffff, alpha: 0.09 })
           }
         }),
-        terrainTile(0.47, (g) => {
+        terrainTile((g) => {
           for (let n = 0; n < 16; n++) {
             const x = (hash(n * 3.7 + 6.1) - 0.5) * TT
             const y = (hash(n * 5.3 + 2.9) - 0.5) * TT
@@ -2287,7 +2302,7 @@ export function createRenderer(app) {
       // because there the repetition IS the subject; everywhere else the detail has to be
       // hash-scattered so no two neighbouring tiles line up.
       T.terrainTile.downtown = [
-        terrainTile(0.5, (g) => {
+        terrainTile((g) => {
           // worn asphalt: irregular patches and old repairs, never a seam that reaches an edge
           for (let n = 0; n < 9; n++) {
             const x = (hash(n * 3.3 + 1.4) - 0.5) * TT * 0.8
@@ -2296,7 +2311,7 @@ export function createRenderer(app) {
             g.rect(x, y, w, h2).fill({ color: 0x000000, alpha: 0.06 + hash(n * 7.7) * 0.06 })
           }
         }),
-        terrainTile(0.5, (g) => {
+        terrainTile((g) => {
           for (let n = 0; n < 30; n++) {
             const x = (hash(n * 4.9 + 3.1) - 0.5) * TT
             const y = (hash(n * 6.3 + 0.6) - 0.5) * TT
@@ -2305,14 +2320,14 @@ export function createRenderer(app) {
         }),
       ]
       T.terrainTile.suburbs = [
-        terrainTile(0.49, (g) => {
+        terrainTile((g) => {
           for (let n = 0; n < 90; n++) {
             const x = (hash(n * 2.7 + 0.9) - 0.5) * TT
             const y = (hash(n * 4.1 + 5.7) - 0.5) * TT
             g.rect(x, y, 1.6, 5).fill({ color: 0xffffff, alpha: 0.11 })
           }
         }),
-        terrainTile(0.49, (g) => {
+        terrainTile((g) => {
           for (let n = 0; n < 70; n++) {
             const x = (hash(n * 3.9 + 2.3) - 0.5) * TT
             const y = (hash(n * 5.7 + 1.1) - 0.5) * TT
@@ -4564,7 +4579,11 @@ export function createRenderer(app) {
   const detailLayer = new Container()
   const clutterLayer = new Container() // skies-urban only (v5.9) — extra furniture, see populateClutter
   const edgeLayer = new Container() // skies districts only (v5.9.1) — border markers, see populateEdge
-  floorLayer.addChild(blotchLayer, roadLayer, roadDecalLayer, junctionLayer, lampMastLayer, ruinLayer,
+  // v5.12: groundLayer sits UNDER everything and carries the terrain's COLOUR as a continuous field
+  // (see updateGroundField). blotchLayer above it now carries only texture. Separating the two is the
+  // fix for the checkerboard — see updateGroundField's header for the full account.
+  const groundLayer = new Container()
+  floorLayer.addChild(groundLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, lampMastLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
@@ -4739,6 +4758,123 @@ export function createRenderer(app) {
     hills:    [0.8, 1.3],
     sea:      [1.2, 1.9],
   }
+  // ---- THE GROUND COLOUR FIELD (v5.12) ----------------------------------------------------------
+  // "You still don't understand how to do procedural layout coherent... layout coherence is just
+  // awful" (playtest report, with wide-area captures).
+  //
+  // v5.11's populateTerrain put ONE OPAQUE SPRITE PER 280px CELL and tinted it from a SINGLE sample
+  // of districtTintAt taken at the cell's centre. districtTintAt is continuous everywhere by
+  // construction — that was the whole point of building it out of the raw elevation/moisture/urban
+  // fields — and then this layer threw all of that away by point-sampling it onto an axis-aligned
+  // lattice. One decision, three separate symptoms in the captures:
+  //
+  //   * the whole map reads as a CHECKERBOARD of flat 280px squares;
+  //   * every biome boundary is an axis-aligned STAIRCASE, so a coastline comes out as a straight
+  //     horizontal line — the single most obvious "this is generated" tell in the whole image;
+  //   * where a field hovers near a threshold (elevation near SEA_LEVEL), neighbouring cells land on
+  //     opposite sides of it and the ground breaks into SALT-AND-PEPPER — isolated blue squares
+  //     stranded in dry land, which is what the report was pointing at.
+  //
+  // The fix is to stop making one layer do two jobs. COLOUR is a continuous field and is drawn here,
+  // as a low-resolution bilinear-filtered texture per chunk: sample districtTintAt on a coarse grid,
+  // upload it as a tiny canvas texture, and let the GPU's linear filtering reconstruct a smooth
+  // gradient across the whole chunk. TEXTURE (crop rows, ripples, canopy) stays on the tile layer
+  // below, but carries no colour at all, so its grid has nothing to quantise and becomes invisible.
+  // This is the standard terrain split — a smooth blend/splat map plus tiled detail — and it is why
+  // real terrain renderers do not have this problem.
+  //
+  // SEAMS. A texture drawn with linear filtering clamps at its outer half-texel, so two adjacent
+  // chunks would disagree along their shared edge and leave a visible line — the same class of
+  // artefact this is meant to remove. Each chunk therefore samples ONE EXTRA TEXEL OF PADDING on
+  // every side and is drawn one texel larger, so texel centres land exactly on the chunk boundary
+  // and a neighbour's edge texel holds the identical value. The interpolation is then continuous
+  // across the join by construction, not by tuning.
+  //
+  // COST. districtTintAt is ~1.7us, so a chunk is GROUND_FIELD_N^2 x that, paid ONCE when the chunk
+  // is created and then cached: at 24x24 over 512px that is ~0.6ms, and crossing a chunk boundary
+  // creates about four. Nothing is recomputed per frame.
+  const GROUND_CHUNK = 512      // world px covered by one chunk
+  const GROUND_FIELD_N = 24     // samples across a chunk (world px per sample = 512/24 ≈ 21)
+  const groundChunks = new Map()   // "i,j" -> Sprite
+  const groundFree = []
+
+  function buildGroundChunk(ci, cj) {
+    const N = GROUND_FIELD_N
+    const ts = GROUND_CHUNK / N            // world px per texel
+    const c = document.createElement('canvas')
+    c.width = c.height = N + 2             // +1 texel of padding each side, see SEAMS above
+    const ctx = c.getContext('2d')
+    const img = ctx.createImageData(N + 2, N + 2)
+    const ox = ci * GROUND_CHUNK, oy = cj * GROUND_CHUNK
+    for (let ty = 0; ty < N + 2; ty++) {
+      for (let tx = 0; tx < N + 2; tx++) {
+        // texel (tx,ty) centre in world space — matches where the sprite below places it
+        const wx = ox + (tx - 0.5) * ts
+        const wy = oy + (ty - 0.5) * ts
+        const t = districtTintAt(wx, wy, districtSeed)
+        const i = (ty * (N + 2) + tx) * 4
+        img.data[i] = (t >> 16) & 255
+        img.data[i + 1] = (t >> 8) & 255
+        img.data[i + 2] = t & 255
+        img.data[i + 3] = 255
+      }
+    }
+    ctx.putImageData(img, 0, 0)
+    const tex = Texture.from(c)
+    tex.source.scaleMode = 'linear'      // the bilinear reconstruction IS the feature
+    return tex
+  }
+
+  function updateGroundField(cx, cy) {
+    if (!chapterHasDistricts) {
+      for (const [, s] of groundChunks) { s.visible = false; groundFree.push(s) }
+      groundChunks.clear()
+      return
+    }
+    const N = GROUND_FIELD_N
+    const ts = GROUND_CHUNK / N
+    const i0 = Math.floor(-cx / GROUND_CHUNK) - 1, i1 = Math.floor((-cx + viewW()) / GROUND_CHUNK) + 1
+    const j0 = Math.floor(-cy / GROUND_CHUNK) - 1, j1 = Math.floor((-cy + viewH()) / GROUND_CHUNK) + 1
+    for (const [, s] of groundChunks) s._seen = false
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const key = i + ',' + j
+        let s = groundChunks.get(key)
+        if (!s) {
+          s = groundFree.pop()
+          if (!s) { s = new Sprite(Texture.EMPTY); s.anchor.set(0); groundLayer.addChild(s) }
+          s.visible = true
+          s.texture = buildGroundChunk(i, j)
+          // drawn one texel larger on every side, anchored one texel back — this is what puts texel
+          // centres on the chunk boundary (see SEAMS)
+          s.position.set(i * GROUND_CHUNK - ts, j * GROUND_CHUNK - ts)
+          s.width = GROUND_CHUNK + 2 * ts
+          s.height = GROUND_CHUNK + 2 * ts
+          groundChunks.set(key, s)
+        }
+        s._seen = true
+      }
+    }
+    for (const [key, s] of groundChunks) {
+      if (s._seen) continue
+      s.visible = false
+      if (s.texture && s.texture !== Texture.EMPTY) s.texture.destroy(true)
+      s.texture = Texture.EMPTY
+      groundFree.push(s)
+      groundChunks.delete(key)
+    }
+  }
+
+  function clearGroundField() {
+    for (const [, s] of groundChunks) {
+      s.visible = false
+      if (s.texture && s.texture !== Texture.EMPTY) s.texture.destroy(true)
+      s.texture = Texture.EMPTY
+      groundFree.push(s)
+    }
+    groundChunks.clear()
+  }
+
   // ---- the terrain layer (v5.11) ---------------------------------------------------------------
   // One full-cell tile per cell, no jitter, no random scale, no random rotation — see T.terrainTile's
   // header for why that is the whole point. This runs INSTEAD of populateBlotch on a chapter with a
@@ -4756,45 +4892,54 @@ export function createRenderer(app) {
     0x9c8f6b,   // stubble
     0x7d6f52,   // ploughed / fallow earth
   ]
-  // How much of each biome's own colour survives over the chapter background — the successor to the
-  // per-tile base alpha (see terrainTile). Water and desert sit lowest because both should read as
-  // large calm areas the threats fly over, not as surfaces competing for attention.
-  const TERRAIN_GROUND_MIX = {
-    downtown: 0.50, suburbs: 0.49, farms: 0.50, parks: 0.48,
-    hills: 0.47, desert: 0.46, beach: 0.52, sea: 0.44,
-  }
   function populateTerrain(s, i, j, cell) {
     if (!chapterHasDistricts || !T.terrainTile) { s.visible = false; return }
     const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
     const biome = districtAt(wx, wy, districtSeed)
+
+    // FARM PARCELS are the one place a hard-edged coloured rectangle is right (see parcelTile). Only
+    // on a cell whose four corners are ALSO farmland, so a parcel edge can never land on a shoreline
+    // and cut a square notch into it — which is exactly the artefact the rest of this rewrite exists
+    // to remove.
+    if (biome === 'farms') {
+      const h = cell / 2
+      const solid = districtAt(wx - h, wy - h, districtSeed) === 'farms'
+        && districtAt(wx + h, wy - h, districtSeed) === 'farms'
+        && districtAt(wx - h, wy + h, districtSeed) === 'farms'
+        && districtAt(wx + h, wy + h, districtSeed) === 'farms'
+      if (solid) {
+        const parcel = parcelAt(wx, wy, districtSeed)
+        const pats = T.parcelTile
+        const idx = parcel.pivot ? pats.length - 1 : (parcel.rows * 2 + (parcel.shade > 0.5 ? 1 : 0)) % (pats.length - 1)
+        const look = pats[Math.min(pats.length - 1, idx)]
+        s.visible = true
+        s.texture = look.tex
+        s.anchor.set(look.ax, look.ay)
+        s.alpha = 1
+        s.rotation = 0
+        s.scale.set((cell * 1.03) / look.ref)
+        s.position.set(wx, wy)
+        // The crop hue is blended over the ground field's own colour at this spot, so a parcel still
+        // belongs to its region's light instead of being an unrelated swatch dropped on top.
+        s.tint = lerpTint(floorTintAt(wx, wy), PARCEL_CROP_TINTS[parcel.crop], 0.55)
+        return
+      }
+    }
+
+    // Every other cell: TEXTURE ONLY. No fill and no tint — the colour under it is a continuous
+    // field (updateGroundField), and the entire point of this layer no longer carrying colour is
+    // that its 280px grid has nothing to quantise, so the grid itself becomes invisible.
     const pats = T.terrainTile[biome]
     if (!pats) { s.visible = false; return }
-    let idx = Math.floor(cellHash(i, j, 1) * pats.length)
-    let tint = floorTintAt(wx, wy)
-    if (biome === 'farms') {
-      // The parcel lattice IS this cell grid (terrain.js PARCEL matches the layer's cell), so one
-      // cell is exactly one field — which is what lets the headland borders line up into a quilt
-      // instead of cutting across fields at random.
-      const parcel = parcelAt(wx, wy, districtSeed)
-      idx = parcel.pivot ? pats.length - 1 : (parcel.rows * 2 + (parcel.shade > 0.5 ? 1 : 0)) % (pats.length - 1)
-      tint = lerpTint(tint, PARCEL_CROP_TINTS[parcel.crop], 0.62)
-    }
-    // Fold the old per-biome base alpha into the colour: mixing the biome tint toward the chapter's
-    // background reproduces EXACTLY what an alpha-0.5 white tile over that background used to
-    // composite to, which keeps the floor inside the documented 0.06-0.09 effective-luminance band
-    // that scripts/obstacle-contrast.mjs measures and that enemy readability depends on.
-    tint = lerpTint(chapterRender.bgColor, tint, TERRAIN_GROUND_MIX[biome] ?? 0.5)
-    const look = pats[Math.min(pats.length - 1, idx)]
+    const look = pats[Math.floor(cellHash(i, j, 1) * pats.length)]
     s.visible = true
     s.texture = look.tex
     s.anchor.set(look.ax, look.ay)
     s.alpha = 1
     s.rotation = 0
-    // 1.03 so neighbouring tiles overlap by a hair — at fractional camera offsets an exact 1.0
-    // leaves single-pixel seams between cells, which on a continuous surface read as a grid.
     s.scale.set((cell * 1.03) / look.ref)
     s.position.set(wx, wy)
-    s.tint = tint
+    s.tint = 0xffffff
   }
 
   // Blend two packed RGB ints. (lerpColorInt lives in config.js and isn't exported; this is the
@@ -4997,8 +5142,11 @@ export function createRenderer(app) {
   }
 
   function populateBig(s, i, j, cell) {
-    const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
-    const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
+    // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
+    // still legible as a grid even once clumping thinned it. 0.94 lets a prop reach almost to its
+    // cell's edge, which is what actually erases the lattice.
+    const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.94
+    const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
     const kinds = biomeAt(wx, wy).big
@@ -5049,8 +5197,11 @@ export function createRenderer(app) {
   ]
 
   function populateMid(s, i, j, cell) {
-    const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
-    const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
+    // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
+    // still legible as a grid even once clumping thinned it. 0.94 lets a prop reach almost to its
+    // cell's edge, which is what actually erases the lattice.
+    const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.94
+    const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
     const kinds = biomeAt(wx, wy).mid
@@ -5098,8 +5249,11 @@ export function createRenderer(app) {
   ]
 
   function populateDetail(s, i, j, cell) {
-    const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.7
-    const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.7
+    // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
+    // still legible as a grid even once clumping thinned it. 0.94 lets a prop reach almost to its
+    // cell's edge, which is what actually erases the lattice.
+    const jx = (cellHash(i, j, 5) - 0.5) * cell * 0.94
+    const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
     const kinds = biomeAt(wx, wy).detail
@@ -5408,7 +5562,35 @@ export function createRenderer(app) {
   const ROAD_CELL = ROAD_MINOR_WIDTH - 4
   // roadAt's `angle` is 0 for an east-west street (runs along x) or PI/2 for north-south — the
   // perpendicular unit vector (the direction `dist` is measured along) is (sin(angle), cos(angle)).
-  function roadPerp(angle) { return { x: Math.sin(angle), y: Math.cos(angle) } }
+  // The unit normal to a road running at heading `angle`. The heading vector is (cos, sin), so the
+  // normal is (-sin, cos).
+  //
+  // v5.12 BUGFIX — this returned (+sin, cos), the MIRROR of the normal. Its dot product with the
+  // heading is 2*sin*cos = sin(2*angle), which is zero only when the angle is a multiple of PI/2 —
+  // so on the v5.10 global axis-aligned lattice the bug was exactly invisible, and it became visible
+  // the moment v5.11 gave every city its own rotation. Every consumer resolves a road's centreline
+  // by stepping `dist` along this vector, so on an oblique street they all stepped off at the wrong
+  // angle: 74% of carriageway tiles landed off the centreline (median 3.8px, p90 8.5px on a 30px
+  // road), which is a serrated kerb and a snaking centre line. This is literally the reported
+  // "you can't even do oblique streets".
+  function roadPerp(angle) { return { x: -Math.sin(angle), y: Math.cos(angle) } }
+
+  // ---- MAP MODE (v5.12, dev/debug) -------------------------------------------------------------
+  // Renders the world zoomed OUT, with the player, enemies, projectiles and weather hidden, so the
+  // procedural layout can be inspected over a wide area as a layout rather than judged through a
+  // gameplay viewport. Screenshotting the game as it plays shows roughly one city block, which is
+  // far too small a window to see whether a coastline is straight, whether blocks agree with their
+  // streets, or whether a road network goes anywhere — every one of those is a property of an area
+  // several thousand px across.
+  //
+  // The whole mechanism is `mapZoom` plus ONE rule: every culling test in this file measures the
+  // viewport in WORLD px (viewW/viewH), never in screen px. At zoom 1 those are identical, so
+  // normal play is bit-identical to before; at zoom 0.2 the same code streams five times as much
+  // world into the same canvas. The camera then applies the zoom once, in sync().
+  let mapZoom = 1
+  let mapMode = false
+  const viewW = () => app.screen.width / mapZoom
+  const viewH = () => app.screen.height / mapZoom
 
   // ---- the city street FRAME (v5.11) ----------------------------------------------------------
   // This replaces latchRoadOrigin, which recovered a single GLOBAL grid offset by probing roadAt
@@ -5421,7 +5603,7 @@ export function createRenderer(app) {
   // Everything that used to key off the latched origin — junctions, kerb lamps, parked-car
   // alignment — now enumerates in the relevant city's frame instead.
   function visibleCities(cx, cy, pad) {
-    const w = app.screen.width, h = app.screen.height
+    const w = viewW(), h = viewH()
     const x0 = -cx - pad, y0 = -cy - pad, x1 = -cx + w + pad, y1 = -cy + h + pad
     const out = []
     // +-1 lattice cell of slack: a city's centre can sit outside the view while its streets reach in.
@@ -5558,7 +5740,15 @@ export function createRenderer(app) {
   }
   function populateClutter(s, i, j, cell) {
     if (!chapterHasDistricts) { s.visible = false; return }
-    const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
+    // v5.12 BUGFIX: this layer had NO JITTER AT ALL — every prop sat exactly on its cell centre, on a
+    // 150px lattice, at chance 1.00. This layer draws the tree canopy, so every wood in the world
+    // came out as a perfect square orchard of identical discs (measured: autocorrelation peaks at
+    // exactly 150 world px on both axes, 98% cell occupancy). The other three scatter layers have
+    // had this offset since v5.4; clutter was simply missed. Salts 12/13 — 1 is the kind pick above
+    // and 4/5 belong to applyPropKind.
+    const jx = (cellHash(i, j, 12) - 0.5) * cell * 0.9
+    const jy = (cellHash(i, j, 13) - 0.5) * cell * 0.9
+    const wx = (i + 0.5) * cell + jx, wy = (j + 0.5) * cell + jy
     const kinds = CLUTTER_BY_DISTRICT[districtAt(wx, wy, districtSeed)]
     if (!kinds) { s.visible = false; return }
     const kind = kinds[Math.floor(cellHash(i, j, 1) * kinds.length)]
@@ -5630,10 +5820,10 @@ export function createRenderer(app) {
     { name: 'terrain', cell: PARCEL, chance: 1.00, parent: blotchLayer, populate: populateTerrain },
     { name: 'road', cell: ROAD_CELL, chance: 1.00, parent: roadLayer, populate: populateRoad },
     { name: 'roadDecal', cell: ROAD_DECAL.cell, chance: ROAD_DECAL.chance, parent: roadDecalLayer, populate: populateRoadDecal },
-    { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig, skiesKeep: SKIES_FLOOR_KEEP.big },
-    { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid, skiesKeep: SKIES_FLOOR_KEEP.mid },
-    { name: 'detail', cell: 120, chance: 0.40, parent: detailLayer, populate: populateDetail, skiesKeep: SKIES_FLOOR_KEEP.detail },
-    { name: 'clutter', cell: 150, chance: 1.00, parent: clutterLayer, populate: populateClutter },
+    { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig, skiesKeep: SKIES_FLOOR_KEEP.big, clump: true },
+    { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid, skiesKeep: SKIES_FLOOR_KEEP.mid, clump: true },
+    { name: 'detail', cell: 120, chance: 0.40, parent: detailLayer, populate: populateDetail, skiesKeep: SKIES_FLOOR_KEEP.detail, clump: true },
+    { name: 'clutter', cell: 150, chance: 1.00, parent: clutterLayer, populate: populateClutter, clump: true },
     { name: 'edge', cell: 170, chance: 1.00, parent: edgeLayer, populate: populateEdge },
   ]
 
@@ -5646,6 +5836,13 @@ export function createRenderer(app) {
     // this same layer still gets touched for (chapterHasDistricts is skies-only), so neither ever
     // sees this line do anything.
     if (chapterHasDistricts && cfg.skiesKeep != null && cellHash(i, j, 998) >= cfg.skiesKeep) return
+    // v5.12 CLUMPING. cfg.chance is a flat per-cell roll, so scatter came out statistically even —
+    // and even spacing is exactly what a LATTICE looks like: the wide-area captures showed woodland
+    // as a regular grid of dots. clumpAt (terrain.js) is a contrast-stretched low-frequency mask;
+    // multiplying occupancy by it gives dense copses with ragged edges and real clearings, which is
+    // what natural cover actually does. Only the scatter layers opt in (cfg.clump) — roads,
+    // junctions and the terrain surface must stay deterministic and complete.
+    if (chapterHasDistricts && cfg.clump && cellHash(i, j, 997) >= clumpAt((i + 0.5) * cfg.cell, (j + 0.5) * cfg.cell, districtSeed)) return
     const key = i + ',' + j + ',' + cfg.name
     let s = floorCells.get(key)
     if (!s) {
@@ -5660,8 +5857,8 @@ export function createRenderer(app) {
   // call with whatever the camera offset is this frame — gameplay, idle drift, reset.
   function updateFloorLayer(cx, cy) {
     if (!propsReady) return
-    const w = app.screen.width
-    const h = app.screen.height
+    const w = viewW()
+    const h = viewH()
     for (const cfg of FLOOR_LAYERS) {
       const margin = cfg.cell
       const i0 = Math.floor((-cx - margin) / cfg.cell)
@@ -6122,7 +6319,7 @@ export function createRenderer(app) {
   function updateRuins(cx, cy) {
     let n = 0
     if (chapterHasStorm) {
-      const w = app.screen.width, h = app.screen.height
+      const w = viewW(), h = viewH()
       for (const e of crushLedger.values()) {
         const sx = e.x + cx, sy = e.y + cy
         if (sx < -160 || sx > w + 160 || sy < -160 || sy > h + 160) continue
@@ -6157,9 +6354,9 @@ export function createRenderer(app) {
       for (const c of cities) {
         if (n >= junctionSprites.length) break
         const b = cityViewBounds(c, x0, y0, x1, y1)
-        for (let ui = Math.ceil(b.uMin / c.block); ui * c.block <= b.uMax && n < junctionSprites.length; ui++) {
-          for (let vi = Math.ceil(b.vMin / c.block); vi * c.block <= b.vMax && n < junctionSprites.length; vi++) {
-            const p = cityToWorld(c, ui * c.block, vi * c.block)
+        for (let ui = Math.ceil(b.uMin / c.blockU); ui * c.blockU <= b.uMax && n < junctionSprites.length; ui++) {
+          for (let vi = Math.ceil(b.vMin / c.blockV); vi * c.blockV <= b.vMax && n < junctionSprites.length; vi++) {
+            const p = cityToWorld(c, ui * c.blockU, vi * c.blockV)
             // A grid node inside the radius can still fall outside the street area — the urban
             // falloff is noise-wobbled, so the outermost nodes have no pavement under them. Asking
             // roadAt is the one check guaranteed to agree with what populateRoad actually drew.
@@ -6257,8 +6454,8 @@ export function createRenderer(app) {
         // Streets running along +v (constant u), then streets running along +u. Both walk the
         // centreline in the CITY's frame and offset to the kerb across it, so the lamp row follows
         // the street's real rotation instead of a world axis.
-        for (let ui = Math.ceil(b.uMin / c.block); ui * c.block <= b.uMax && n < lampMasts.length; ui++) {
-          const u = ui * c.block
+        for (let ui = Math.ceil(b.uMin / c.blockU); ui * c.blockU <= b.uMax && n < lampMasts.length; ui++) {
+          const u = ui * c.blockU
           const major = ((ui % E) + E) % E === 0
           const half = (major ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
           for (let k = Math.ceil(b.vMin / L.spacingPx); k * L.spacingPx <= b.vMax && n < lampMasts.length; k++) {
@@ -6269,8 +6466,8 @@ export function createRenderer(app) {
             n = placeLamp(n, p.x, p.y, c.angle + Math.PI / 2)
           }
         }
-        for (let vi = Math.ceil(b.vMin / c.block); vi * c.block <= b.vMax && n < lampMasts.length; vi++) {
-          const v = vi * c.block
+        for (let vi = Math.ceil(b.vMin / c.blockV); vi * c.blockV <= b.vMax && n < lampMasts.length; vi++) {
+          const v = vi * c.blockV
           const major = ((vi % E) + E) % E === 0
           const half = (major ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
           for (let k = Math.ceil(b.uMin / L.spacingPx); k * L.spacingPx <= b.uMax && n < lampMasts.length; k++) {
@@ -7225,6 +7422,13 @@ export function createRenderer(app) {
           ov.clumpA.scale.set((o.r * SKIES_PLAN_SCALE) / (SKR * 2))
           ov.clumpA.rotation = 0
           ov.clumpA.position.set(0, 0)
+          // v5.12 BUGFIX: `rot` (computed above from o.rot, which sim.js stamps with the owning
+          // city's street angle in blockSnap) was being thrown away here, so EVERY structure in the
+          // chapter drew as a perfect world-axis rectangle — a diamond block full of rectangles that
+          // ignore it. Rotating the ROOT, not clumpA: the tower's aviation lamp is a SIBLING of
+          // clumpA positioned in unrotated plan coordinates, so turning clumpA alone would slide the
+          // beacon off its mast. The footprint ring is a disc, so rotating root is a no-op for it.
+          ov.root.rotation = rot
           ov.clumpB.texture = Texture.EMPTY
           ov.clumpB.scale.set(1)
           ov.tower = o.kind === 'tower'
@@ -7244,6 +7448,7 @@ export function createRenderer(app) {
           }
           continue
         }
+        ov.root.rotation = 0   // pooled sprite may have come from a rotated top-down plan
         const scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
         const scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
         ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = skin.tint
@@ -9036,6 +9241,8 @@ export function createRenderer(app) {
     clearArcs()
     clearDamage()
     clearFloorLayer()
+    // the colour field is keyed to the run's world seed, so it has to go too
+    clearGroundField()
     shake.t = 0
     shake.amp = 0
     shake.ox = 0
@@ -9608,9 +9815,13 @@ export function createRenderer(app) {
       shake.oy = (Math.random() * 2 - 1) * k
       if (shake.t === 0) { shake.amp = 0; shake.ox = 0; shake.oy = 0 }
     }
-    const cx = app.screen.width / 2 - run.player.x + shake.ox
-    const cy = app.screen.height / 2 - run.player.y + shake.oy
-    world.position.set(cx, cy)
+    // cx/cy are the camera offset in WORLD px (screen = (world + c) * mapZoom), which is what every
+    // culling test below assumes. At mapZoom 1 this is exactly the old expression.
+    const cx = viewW() / 2 - run.player.x + shake.ox
+    const cy = viewH() / 2 - run.player.y + shake.oy
+    world.scale.set(mapZoom)
+    world.position.set(cx * mapZoom, cy * mapZoom)
+    updateGroundField(cx, cy)
     updateFloorLayer(cx, cy)
     // v5.10 skies ground/light enumeration (spec §4.3/§4.4/§7): junctions, kerb lamps and crush
     // ruins are placed ANALYTICALLY from the latched road grid + the render-local crush ledger,
@@ -9904,7 +10115,18 @@ export function createRenderer(app) {
     // the others above — it's sim-relevant (streamObstacles keeps buildings off streets) as well as
     // render-relevant, so it lives next to `crush`/`obstacles`, not inside the render-only block.
     chapterHasRoads = !!cfg?.roads
-    roadSeed = run?._obstacleSeed ?? 0
+    // v5.12 BUGFIX — this was `run?._obstacleSeed`, i.e. render drew the street network from a
+    // DIFFERENT Math.random() draw than the one the terrain, cities and buildings come from
+    // (state.js draws the two independently). v5.11 moved sim's own roadAt call to the world seed
+    // and rewrote the comment here to say roads had been unified — but never changed this line, so
+    // the road graph and everything it is supposed to belong to described two different planets.
+    // That is the single largest cause of "layout coherence is just awful": streets ran across
+    // farmland where the urban falloff makes a street geometrically impossible, downtown blocks
+    // carried forty buildings and no road at all, and crosswalks landed mid-block at the angle of a
+    // grid that was not there. Measured over eight wide captures: matched seeds put 0.0% of street
+    // area on farms/parks/desert and leave 0.0% of downtown roadless; the split seeds put up to 20%
+    // and 75%.
+    roadSeed = run?._districtSeed ?? 0
     // v5.10: recover the per-seed road grid origin ONCE per run, before anything that enumerates
     // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
@@ -9916,9 +10138,11 @@ export function createRenderer(app) {
       idleLayer.visible = false
       fitScreen()
       // snap camera onto the player immediately
-      const cx = app.screen.width / 2 - run.player.x
-      const cy = app.screen.height / 2 - run.player.y
-      world.position.set(cx, cy)
+      const cx = viewW() / 2 - run.player.x
+      const cy = viewH() / 2 - run.player.y
+      world.scale.set(mapZoom)
+      world.position.set(cx * mapZoom, cy * mapZoom)
+      updateGroundField(cx, cy)
       playerX = run.player.x
       playerY = run.player.y
       updateFloorLayer(cx, cy)
@@ -9934,5 +10158,31 @@ export function createRenderer(app) {
     }
   }
 
-  return { reset, sync, idle, ready }
+  // Dev/debug entry point for MAP MODE (see mapZoom's comment above). Zoom < 1 pulls the camera
+  // back; `bare` hides everything that is not the procedural world — the player rig, all entities,
+  // projectiles and FX, the storm's cloud shadows and rain, and the additive light layer — leaving
+  // ground, roads, junctions, kerb furniture, props and buildings. Not reachable from gameplay;
+  // main.js only wires it up behind a URL flag.
+  function setMapMode(on, zoom) {
+    mapMode = !!on
+    mapZoom = on ? (zoom || 0.25) : 1
+    // entitiesLayer is NOT hidden wholesale: obstacleLayer lives inside it, and the BUILDINGS are
+    // half of what a layout view exists to show (the first capture hid them and produced a map of
+    // bare roads on flat ground). Hide every child of it EXCEPT the structures, plus the weather and
+    // the additive light — searchlight cones and cloud shadows are big soft shapes that wash over
+    // exactly the boundaries this view is meant to make legible.
+    for (const child of entitiesLayer.children) child.visible = on ? child === obstacleLayer : true
+    entitiesLayer.visible = true
+    cloudShadowLayer.visible = !on
+    lightLayer.visible = !on
+    stormRainLayer.visible = !on
+    stormCloudLayer.visible = !on
+    // A zoomed-out world streams far more cells than the pools were sized for at 1:1, and every
+    // cached floor sprite is positioned for the old viewport — drop them so the next frame
+    // repopulates against the new one.
+    clearFloorLayer()
+    clearGroundField()
+  }
+
+  return { reset, sync, idle, ready, setMapMode }
 }

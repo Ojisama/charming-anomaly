@@ -188,7 +188,8 @@ export function cityAt(ci, cj, seed) {
       x: 0, y: 0,
       r: CITY_R_MAX,
       angle: ihash(0, 0, (seed + 503) | 0) * CITY_ANGLE_SPAN,
-      block: CITY_BLOCK_MIN + ihash(0, 0, (seed + 601) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN),
+      blockU: CITY_BLOCK_MIN + ihash(0, 0, (seed + 601) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN),
+      blockV: CITY_BLOCK_MIN * 0.72 + ihash(0, 0, (seed + 683) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN) * 1.5,
       ci, cj,
     }
     cityCache.set(key, home)
@@ -209,7 +210,13 @@ export function cityAt(ci, cj, seed) {
         x, y,
         r: CITY_R_MIN + rr * (CITY_R_MAX - CITY_R_MIN),
         angle: ihash(ci, cj, (seed + 503) | 0) * CITY_ANGLE_SPAN,
-        block: CITY_BLOCK_MIN + ihash(ci, cj, (seed + 601) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN),
+        // TWO pitches, not one. A single `block` used on both axes makes every city literal graph
+        // paper — an FFT of the road mask came back as exactly two dominant frequencies at the SAME
+        // 360px, 90 degrees apart. Real street grids are anisotropic: long blocks one way, short the
+        // other (Manhattan is 80m x 274m). Two hash salts, and the whole city stops reading as a
+        // sheet of squares.
+        blockU: CITY_BLOCK_MIN + ihash(ci, cj, (seed + 601) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN),
+        blockV: CITY_BLOCK_MIN * 0.72 + ihash(ci, cj, (seed + 683) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN) * 1.5,
         ci, cj,
       }
     }
@@ -376,9 +383,13 @@ export function roadAt(x, y, seed) {
   // continuous grid instead of a slice of an infinite global lattice.
   const near = nearestCity(x, y, seed)
   if (!near) return { onRoad: false }
-  const wobble = cityEdgeWobble(x, y, seed)
-  const urban = 1 - near.dist / (near.city.r * wobble)
-  if (urban < STREET_MIN_URBAN) return { onRoad: false }
+  // The EXTENT gate uses urbanAt (a max over every nearby city), the same function the ground colour
+  // uses; the FRAME still comes from the nearest city, because a block belongs to exactly one grid.
+  // Using the nearest city's own falloff here instead made the street network and the urban tint
+  // disagree wherever two cities overlap — visibly, the grey of the city ended while its streets
+  // carried on into open country. Two different answers to "is this place a city" is precisely the
+  // kind of incoherence this rewrite is chasing out.
+  if (urbanAt(x, y, seed) < STREET_MIN_URBAN) return { onRoad: false }
 
   const c = near.city
   const cos = Math.cos(-c.angle), sin = Math.sin(-c.angle)
@@ -386,10 +397,10 @@ export function roadAt(x, y, seed) {
   const u = dx * cos - dy * sin
   const v = dx * sin + dy * cos
 
-  const ui = Math.round(u / c.block)
-  const vi = Math.round(v / c.block)
-  const uDist = Math.abs(u - ui * c.block)
-  const vDist = Math.abs(v - vi * c.block)
+  const ui = Math.round(u / c.blockU)
+  const vi = Math.round(v / c.blockV)
+  const uDist = Math.abs(u - ui * c.blockU)
+  const vDist = Math.abs(v - vi * c.blockV)
   const uMajor = ((ui % STREET_SPACING_MAJOR_EVERY) + STREET_SPACING_MAJOR_EVERY) % STREET_SPACING_MAJOR_EVERY === 0
   const vMajor = ((vi % STREET_SPACING_MAJOR_EVERY) + STREET_SPACING_MAJOR_EVERY) % STREET_SPACING_MAJOR_EVERY === 0
   const uHalf = (uMajor ? STREET_MAJOR_WIDTH : STREET_MINOR_WIDTH) / 2
@@ -404,7 +415,18 @@ export function roadAt(x, y, seed) {
   // the extra elevation sample is paid on the ~20% of queries that are actually on a street rather
   // than on every query. Rivers are deliberately NOT excluded: a street crossing a river inside a
   // city is a bridge, which is correct, and is why this tests sea level rather than the biome.
-  if (elevationAt(x, y, seed) < SEA_LEVEL) return { onRoad: false }
+  // NO STREETS ON ANY WATER, sea OR river. Letting a city grid march across a river was justified in
+  // v5.11 as "a bridge", but rivers here are 200-1560px wide (median 396) — that is not a bridge,
+  // that is a four-way intersection with crosswalks painted in the middle of a river, which is
+  // exactly what the wide-area captures showed. Highways still cross (they are checked above and
+  // deliberately exempt): a trunk road spanning water on a causeway is real, a residential street
+  // grid ignoring a river is not.
+  const elev = elevationAt(x, y, seed)
+  if (elev < SEA_LEVEL) return { onRoad: false }
+  if (elev < HILL_LEVEL) {
+    const lowness = (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)
+    if (riverAt(x, y, seed) < RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness) return { onRoad: false }
+  }
   // At a junction the nearer centreline wins — that is the one anything distance-based should key
   // off (kerb fade, lane markings).
   if (onU && (!onV || uDist <= vDist)) {
@@ -479,6 +501,27 @@ export function parcelAt(x, y, seed) {
   }
 }
 
+// ---- scatter clumping ------------------------------------------------------------------------------
+// Natural cover is never evenly spaced, and a uniform per-cell occupancy roll — which is what the
+// floor prop layers do — produces exactly even spacing: statistically flat coverage reads as a
+// LATTICE of dots, which is what the wide-area captures showed the woodland to be.
+//
+// This is the density mask that fixes it: a low-frequency field, contrast-stretched so it spends
+// most of its range pinned near 0 or 1 rather than hovering in the middle. Multiplying a cell's
+// occupancy chance by it gives dense copses with ragged edges and real clearings between them,
+// instead of a uniform sprinkle. The wavelength is deliberately a few hundred px — one clump should
+// be a feature you can walk around, not texture.
+const CLUMP_WAVELENGTH = 620
+const SEED_CLUMP = 0x3f17
+
+export function clumpAt(x, y, seed) {
+  const n = fbm(x, y, (seed ^ SEED_CLUMP) | 0, 2, CLUMP_WAVELENGTH)
+  // contrast stretch: fBm clusters around 0.5, so without this the mask would be a gentle wobble
+  // around "half the cells" everywhere and would not read as clumping at all.
+  const t = (n - 0.36) / 0.28
+  return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t)
+}
+
 // ---- structure placement helpers ------------------------------------------------------------------
 // How densely each biome is built, as a multiplier on the chapter's base obstacle probability. This
 // is what turns "structures scattered uniformly across the world" into "a city is dense and the
@@ -487,10 +530,15 @@ export function parcelAt(x, y, seed) {
 export const BIOME_BUILD_DENSITY = {
   downtown: 3.2,
   suburbs: 1.5,
-  farms: 0.34,
-  parks: 0.42,
-  hills: 0.30,
-  desert: 0.12,
+  // v5.12: farms 0.34 -> 0.12, parks 0.42 -> 0.14, hills 0.30 -> 0.12. The countryside was building
+  // at a third of downtown's rate, which is not countryside — measured on the wide captures, the
+  // roadless strips carried 1.96-3.42% built pixel coverage against downtown's 4.84%, i.e. the city
+  // was barely denser than the fields around it and so had no edge at all. A farmstead should be a
+  // LANDMARK, not a texture.
+  farms: 0.12,
+  parks: 0.14,
+  hills: 0.12,
+  desert: 0.05,
   beach: 0.06,
   sea: 0.05,   // piers only, and only near the shore
 }
@@ -510,10 +558,10 @@ export function blockSnap(x, y, seed, setback) {
   let v = dx * sin + dy * cos
   // Distance from each axis' nearest street centreline, signed, so a building can be pushed to
   // whichever side of the block it already sits on rather than always the same side.
-  const ui = Math.round(u / c.block), vi = Math.round(v / c.block)
-  const du = u - ui * c.block, dv = v - vi * c.block
-  if (Math.abs(du) < setback) u = ui * c.block + Math.sign(du || 1) * setback
-  if (Math.abs(dv) < setback) v = vi * c.block + Math.sign(dv || 1) * setback
+  const ui = Math.round(u / c.blockU), vi = Math.round(v / c.blockV)
+  const du = u - ui * c.blockU, dv = v - vi * c.blockV
+  if (Math.abs(du) < setback) u = ui * c.blockU + Math.sign(du || 1) * setback
+  if (Math.abs(dv) < setback) v = vi * c.blockV + Math.sign(dv || 1) * setback
   // Rotate back into world space.
   const bcos = Math.cos(c.angle), bsin = Math.sin(c.angle)
   return {

@@ -29,7 +29,18 @@ document.getElementById('game').appendChild(app.canvas)
 
 const renderer = createRenderer(app)
 await renderer.ready // prop sprites load async
-if (new URLSearchParams(location.search).has('debug')) window.__app = app
+if (new URLSearchParams(location.search).has('debug')) {
+  window.__app = app
+  // MAP MODE (v5.12, dev only): lets a debug session hide the player/entities/weather and stitch a
+  // wide-area view of the procedural world by driving renderer.sync + a direct render() per tile.
+  // A gameplay viewport shows about one city block, which is far too small a window to judge
+  // whether a coastline is straight or whether blocks agree with the streets they front.
+  window.__renderer = renderer
+  // streamObstacles only materialises structures within OBSTACLE_STREAM_RADIUS of the player, so a
+  // map-mode capture has to advance the sim at each tile position to stream that tile's buildings
+  // in before rendering it.
+  window.__stepSim = stepSim
+}
 initInput(document.body)
 
 const ui = initUI({

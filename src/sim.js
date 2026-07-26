@@ -100,7 +100,7 @@ import {
   // v5.8 kaiju redesign (skies crushing + rampage)
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
   // v5.9 top-down region overhaul (skies roads + districts)
-  roadAt, districtAt, DISTRICT_STRUCTURE_KINDS, BIOME_BUILD_DENSITY, blockSnap, STRUCTURE_SETBACK,
+  roadAt, districtAt, terrainAt, DISTRICT_STRUCTURE_KINDS, BIOME_BUILD_DENSITY, blockSnap, STRUCTURE_SETBACK,
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
   STRUCTURE_RADIUS,
   // v5.4 beyond
@@ -1260,8 +1260,18 @@ function streamObstacles(run) {
       // downtown. That is the "no building" half of the playtest report: a city cannot read as dense
       // when nothing else is sparse. BIOME_BUILD_DENSITY (terrain.js) scales the roll per biome, so
       // downtown saturates, farmland thins to about a third, and the desert is nearly bare.
-      const biome = worldSeed != null ? districtAt(x, y, worldSeed) : null
-      const density = biome ? (BIOME_BUILD_DENSITY[biome] ?? 1) : 1
+      // terrainAt returns biome AND urban together, so the continuous falloff below costs no extra
+      // field evaluation over the districtAt call it replaces.
+      const terr = worldSeed != null ? terrainAt(x, y, worldSeed) : null
+      const biome = terr ? terr.biome : null
+      let density = biome ? (BIOME_BUILD_DENSITY[biome] ?? 1) : 1
+      // v5.12: a CONTINUOUS falloff across the built-up area. Keying density off the biome alone
+      // makes it a step function — every suburb cell builds at exactly the same rate right up to the
+      // line where it stops being a suburb, so a town has no edge, it has a border. Real settlement
+      // density decays outward, and that decay IS the edge. Downtown is unaffected in practice (its
+      // multiplier is already past the per-cell ceiling), so this only thins the fringe, which is
+      // where it should be visible.
+      if (terr && terr.urban > 0) density *= 0.42 + 0.58 * terr.urban
       if (obstacleCellHash(i, j, seed, 0) >= prob * density) continue
       // v5.9.1 bugfix ("houses in the sea", playtest report): kind used to be picked UNIFORMLY
       // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any silhouette

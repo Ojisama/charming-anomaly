@@ -16,9 +16,21 @@ npm test           # node test/sim-test.js — headless sim self-check, no frame
 node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
 
-# Terrain: `npm run dev` then open /terrain-preview.html?seed=1&span=14000&cx=0&cy=0 — renders the
-# v5.11 world generator (biome tint + roads) over a wide area, so a coastline, a city's street grid
-# or a farm patchwork can be checked without walking there in-game. Dev-only, not in the bundle.
+# Terrain, two dev views. Neither ships in the bundle.
+#  1. /terrain-preview.html?seed=1&span=14000&cx=0&cy=0  (npm run dev) — the GENERATOR alone: biome
+#     tint + roads straight from terrain.js, fast, good for checking coastlines/cities/parcels.
+#  2. MAP MODE — the REAL renderer, wide-area. Load the game with ?debug (exposes window.__app,
+#     __run, __renderer, __stepSim), then in the console:
+#       __renderer.setMapMode(true, 1); document.getElementById('ui').style.display = 'none'
+#     and stitch tiles by setting run.player.x/y, calling __stepSim (to stream that tile's
+#     buildings — streamObstacles only materialises within 1400px of the player, so tiles must stay
+#     under ~2800px), then __renderer.sync(run,0,[]) + app.renderer.render(app.stage) and
+#     drawImage(app.canvas) into an offscreen canvas. setMapMode hides the player, entities, weather
+#     and light but KEEPS buildings (obstacleLayer lives inside entitiesLayer — hiding that layer
+#     wholesale gives you a map of bare roads).
+#     A gameplay screenshot shows about one city block; every layout property worth judging —
+#     whether a coastline is straight, whether blocks agree with their streets, whether a road
+#     network goes anywhere — only exists at several thousand px. Judge layout in map mode.
 ```
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Only `sim.js` (+ its `config.js`/`state.js` deps) is testable this way** — it's the only module free of Pixi/DOM.
