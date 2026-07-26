@@ -1,5 +1,16 @@
 // All balance numbers live here. Every module treats this as read-only ground truth.
 
+// The world generator (v5.11). config.js stays the single place sim.js and render.js are allowed to
+// import world data from, so the biome/road queries are re-exported from here — but the generator
+// itself lives in src/terrain.js, which is pure (no imports, no Math.random, no DOM) and imports
+// nothing from this file, so the dependency runs one way only and cannot cycle.
+import {
+  biomeAt, elevationAt, moistureAt, urbanAt, riverAt,
+  SEA_LEVEL, SHORE_BAND, HILL_LEVEL, DESERT_MOIST, FOREST_MOIST,
+  DOWNTOWN_URBAN, SUBURB_URBAN, RIVER_CORE, RIVER_MOUTH_GAIN,
+  STREET_MINOR_WIDTH, STREET_MAJOR_WIDTH,
+} from './terrain.js'
+
 export const RUN_DURATION = 300 // seconds; reaching it = victory
 
 // ---- Rarity ------------------------------------------------------------------
@@ -1356,7 +1367,13 @@ export const CHAPTERS = {
     // test/sim-test.js's run CC.c3 (reads .minR directly to size a synthetic structure) and as
     // streamObstacles' conservative worst-case radius for position-jitter slack before a cell's
     // kind is known (see that function's comment) — not as a roll range in their own right anymore.
-    obstacles: { count: 40, minR: 8, maxR: 32, minDist: 160, cell: 260 }, // buildings — small, dense, crushable; per-kind sizing in STRUCTURE_RADIUS
+    // v5.11: cell 260 -> 200. The per-cell probability is count*cell^2/(pi*900^2), which at 260 came
+    // out ABOVE 1 — every cell in the streamed disc always built something, so "density" had no
+    // dynamic range left to express a city with. At 200 the base drops to ~0.63, which
+    // BIOME_BUILD_DENSITY (terrain.js) then scales per biome: downtown still saturates (x3.2) and
+    // now packs ~150 structures into the stream radius instead of ~90, while farmland thins to ~a
+    // third and desert to a twelfth. Denser city AND emptier countryside from the same table.
+    obstacles: { count: 40, minR: 8, maxR: 32, minDist: 160, cell: 200 }, // buildings — small, dense, crushable; per-kind sizing in STRUCTURE_RADIUS
     // crush (v5.8 kaiju redesign): gates BOTH halves of the new mechanic in sim.js — stepObstacles
     // skips the player-push loop for this chapter's obstacles (they're crushable, not terrain, for
     // the player only; enemies still collide with them normally) and stepCrush destroys any
@@ -1593,147 +1610,46 @@ export const LIGHTNING = {
 // the shared Math.random stream at step time. districtTintAt (the floor-tint half) stays
 // render-only — sim still never reads a floor color, and still never branches game LOGIC on district.
 export const DISTRICTS = {
-  downtown: { floorTint: 0x717c88, weight: 3 }, // the chapter's original wet-asphalt grey — kept as the anchor district
-  suburbs:  { floorTint: 0x9a8a72, weight: 2 }, // warmer, lighter grey-tan — v5.9: 3->2, ceding a share to farms/hills
-  parks:    { floorTint: 0x5f7a5f, weight: 2 }, // muted storm-lit green
-  sea:      { floorTint: 0x53687c, weight: 2 }, // desaturated storm blue
-  farms:    { floorTint: 0x7c8a52, weight: 2 }, // v5.9: khaki-olive crop rows — region-biased, see DISTRICT_REGION_BIAS below
-  hills:    { floorTint: 0x8a7a6a, weight: 1 }, // v5.9: warm heather-taupe moorland — a rarer accent, deliberately NOT region-biased
-  // all six land within ~0.06-0.09 effective floor luminance under the skies bg (0x2a3240) —
-  // verified with scripts/obstacle-contrast.mjs's effFloor model (mean blotch x floorTint,
-  // composited over bgColor at ~0.5 mean blotch coverage): downtown .073, suburbs .088, parks
-  // .067, sea .057, farms .081, hills .075. Same dark range as the original four — this is a
-  // night storm, not daylight.
-}
-const DISTRICT_TYPES = Object.keys(DISTRICTS)
-
-// v5.9.2 ("the fuck is this?" bug report — one of four compounding causes): DISTRICT_GRID was 2000
-// against OBSTACLE_STREAM_RADIUS's 1400 — a region was LARGER than the streamed field around the
-// player, so the field (and the screen) was almost always a single district; downtown/parks/farms/
-// sea/hills all exist in the data and essentially never reached the same view at once. Measured with
-// a standalone replica of districtAt (nearestDistrictSeeds et al.) sampling 400 points across a
-// disc of radius 600 (state.js createRun's `viewRadius: 600` default, half a typical screen
-// diagonal, updated live by main.js) around 30 random far-apart player positions: at GRID=2000 a
-// viewport saw on average 1.87 distinct districts (min 1, max 3) — i.e. usually exactly one. GRID=600
-// raises that to an average of 3.90 (min 1, max 5), squarely in the "2-4 visible at once" target,
-// while OBSTACLE_STREAM_RADIUS (1400, unchanged) now spans multiple district cells instead of
-// sitting inside one. Coherent-belt check (DISTRICT_REGION_BIAS below): a long-scanline measurement
-// of sea/farms' overall world-area share came out ~37-39%/~19-20% at BOTH GRID=2000 and GRID=600 —
-// the region math is grid-size-invariant in aggregate, only each belt's PHYSICAL width shrinks with
-// the grid (sea's average contiguous run: ~2437px at 2000, ~1502px at 600 — ~2.5 grid cells, still a
-// contiguous coastline, not confetti; DISTRICT_REGION_BLOCK below is a cell COUNT, so it needed no
-// change to keep working the same way at the smaller cell size).
-export const DISTRICT_GRID = 600        // px per Voronoi seed cell
-// v5.9.2: 200 -> 90, alongside DISTRICT_GRID above. The original 200 was 10% of the old 2000 grid;
-// keeping that exact ratio here would give 60, but 90 (15%) reads better at the smaller scale
-// without ever blending across more than the two adjacent districts (it stays well under half the
-// ~600px average distance between neighboring seed points, so a blend still only ever involves a
-// cell's nearest and 2nd-nearest seed, same as before).
-export const DISTRICT_BLEND_PX = 90     // px either side of a border the floor tint lerps across
-
-// Low-frequency block size (in grid cells) sharing one "which region is this" roll, and how hard
-// that roll skews a cell's type toward the rolled region's district — see districtCellType.
-// Without this, a region-biased type would just be its flat `weight` share scattered confetti-thin
-// across every cell; the block bias makes whole neighborhoods of cells roll that type together so
-// the region reads as one contiguous area (a coastline, a farm belt) instead of scattered dots.
-// v5.9 top-down region overhaul: generalised from the v5.7.x sea-only mechanism (a single
-// `seaRegion` bool) into DISTRICT_REGION_BIAS below, a per-type {chance, boost} map — rather than
-// copy-pasting a second bespoke `farmRegion` bool next to it. Farms read better as contiguous
-// belts than as confetti (the same reason sea did), so they get an entry too. A block rolls AT
-// MOST ONE active region (mutually exclusive: sea-region OR farm-region OR neither — see
-// districtRegionAt) so two biases never compound on the same block.
-const DISTRICT_REGION_BLOCK = 3
-export const DISTRICT_REGION_BIAS = {
-  // unchanged from v5.7.x (0.32 chance x 6x boost). Coverage math below is recomputed for 6
-  // district types — it was ~42% back when sea was the only biased type sharing the map with 3
-  // flat-weight neighbours.
-  sea:   { chance: 0.32, boost: 6 },
-  // v5.9: a lighter touch than sea (lower chance, lower boost) — enough for farms to read as
-  // belts without farm-dominating the map alongside sea's already-large share. hills deliberately
-  // has NO entry here: it's meant to read as a rare accent, and parks (also unbiased) already
-  // proves a flat-weight district reads fine without contiguous-region help.
-  farms: { chance: 0.14, boost: 4 },
-}
-// Effective world coverage with the CURRENT weights (downtown 3, suburbs 2, parks 2, sea 2,
-// farms 2, hills 1 = 12 total) and the biases above, worked the same way v5.7.x's comment did:
-// sea ~38%, farms ~20%, downtown ~16%, suburbs/parks ~10% each, hills ~5%. Re-derive by hand
-// before changing any weight or bias number — two biased types compound fast: a first draft of
-// this table used farms {chance:0.22, boost:5} and that alone pushed sea+farms to ~63% of the
-// map, crushing downtown to ~14% even though its own weight never moved.
-
-// Which region (if any) block (bi, bj) rolls — a single roll shared by every DISTRICT_REGION_BIAS
-// entry so a block is at most one region (see the comment above). Returns a DISTRICTS key or null.
-function districtRegionAt(bi, bj, seed) {
-  const roll = hash01(bi, bj, seed, 'region')
-  let acc = 0
-  for (const type of Object.keys(DISTRICT_REGION_BIAS)) {
-    acc += DISTRICT_REGION_BIAS[type].chance
-    if (roll < acc) return type
-  }
-  return null
+  // v5.11: the biome list the terrain generator classifies into (src/terrain.js BIOMES). `desert`
+  // and `beach` are new — deserts because the playtest report asked for them by name, beaches
+  // because a coastline with no shore reads as a colour boundary rather than as a coast, and the
+  // generator now produces real closed coastlines worth marking.
+  // v5.11 SEPARATED BY HUE, NOT BRIGHTNESS. downtown (0x717c88) and sea (0x53687c) composited to
+  // #4d5764 and #3e4d5e — near-identical slate blues only 0.04 apart in luminance, so on the region
+  // map a city was indistinguishable from a lake and only its street grid gave it away. The fix
+  // cannot be more contrast: the whole palette is pinned inside a documented 0.06-0.09 effective
+  // luminance band (see this table's note below) that enemy readability depends on. So they are
+  // pulled apart in SATURATION instead — downtown goes neutral (R~=G~=B, which is what wet asphalt
+  // under sodium light actually is), water goes properly blue. Same luminance band, unmistakable
+  // difference.
+  downtown: { floorTint: 0x78767c }, // neutral wet asphalt — the anchor district, now hue-free
+  suburbs:  { floorTint: 0x9a8a72 }, // warmer, lighter grey-tan
+  parks:    { floorTint: 0x5f7a5f }, // muted storm-lit green (the wet end of the moisture axis)
+  sea:      { floorTint: 0x3d5f84 }, // storm blue, now the only strongly blue ground in the region
+                                     // — also carries rivers, see terrainAt
+  farms:    { floorTint: 0x7c8a52 }, // khaki-olive cropland
+  hills:    { floorTint: 0x8a7a6a }, // warm heather-taupe moorland, on high ground
+  desert:   { floorTint: 0x9c8560 }, // dry ochre — the arid end of the moisture axis
+  beach:    { floorTint: 0xa39878 }, // pale wet sand, the strip between sea and land
+  // NOTE: `weight` is gone. Weights were how the OLD generator decided a biome — an independent
+  // weighted die roll per cell — and that is exactly the construction v5.11 replaced (see
+  // terrain.js's header). Coverage is now a CONSEQUENCE of the terrain: how much desert exists
+  // depends on how much of the moisture field falls below DESERT_MOIST, not on a number here.
+  // Re-tune coverage in terrain.js's thresholds, and measure it with scripts/terrain-audit.mjs.
 }
 
-// Deterministic [0,1) from any number of parts, reusing the FNV hashString below (string-keyed — this
-// runs a handful of times per floor cell/obstacle, nowhere near a hot per-frame loop).
-function hash01(...parts) {
-  return hashString(parts.join(',')) / 0xffffffff
-}
+// How wide the floor tint blends across a biome boundary. Retained from the Voronoi era because
+// render.js's edge markers (populateEdge) key off it, but it means something slightly different
+// now: districtTintAt below is continuous EVERYWHERE by construction (it lerps on the raw
+// elevation/moisture/urban fields rather than classifying and then blending between two cells), so
+// this is the softness of the visible band, not a patch over a hard cut.
+export const DISTRICT_BLEND_PX = 90
 
-// Which DISTRICTS type a grid cell rolls, weighted by DISTRICTS[].weight and biased toward the
-// block's region (if any, see districtRegionAt) via DISTRICT_REGION_BIAS.
-function districtCellType(ci, cj, seed) {
-  const bi = Math.floor(ci / DISTRICT_REGION_BLOCK)
-  const bj = Math.floor(cj / DISTRICT_REGION_BLOCK)
-  const region = districtRegionAt(bi, bj, seed)
-  let total = 0
-  const weights = DISTRICT_TYPES.map((k) => {
-    let w = DISTRICTS[k].weight
-    if (region) w = k === region ? w * DISTRICT_REGION_BIAS[region].boost : w / DISTRICT_REGION_BIAS[region].boost
-    total += w
-    return w
-  })
-  let roll = hash01(ci, cj, seed, 'type') * total
-  for (let i = 0; i < DISTRICT_TYPES.length; i++) {
-    roll -= weights[i]
-    if (roll < 0) return DISTRICT_TYPES[i]
-  }
-  return DISTRICT_TYPES[DISTRICT_TYPES.length - 1]
-}
-
-// One Voronoi seed point per grid cell, jittered within it (+-40% of a cell) and typed by
-// districtCellType. // ponytail: seed points come from a grid + hash, not real Poisson-disk
-// sampling — upgrade only if district sizes read too uniform in practice.
-function districtCellSeed(ci, cj, seed) {
-  const jx = (hash01(ci, cj, seed, 'jx') - 0.5) * 0.8
-  const jy = (hash01(ci, cj, seed, 'jy') - 0.5) * 0.8
-  return {
-    x: (ci + 0.5 + jx) * DISTRICT_GRID,
-    y: (cj + 0.5 + jy) * DISTRICT_GRID,
-    type: districtCellType(ci, cj, seed),
-  }
-}
-
-// Nearest + 2nd-nearest seed points to (x, y), searching the 3x3 grid cells around it — wide
-// enough since the +-40%-cell jitter above can never put a cell's own seed point outside its
-// immediate neighbors.
-function nearestDistrictSeeds(x, y, seed) {
-  const ci = Math.floor(x / DISTRICT_GRID)
-  const cj = Math.floor(y / DISTRICT_GRID)
-  let first = null, second = null, d1 = Infinity, d2 = Infinity
-  for (let di = -1; di <= 1; di++) {
-    for (let dj = -1; dj <= 1; dj++) {
-      const p = districtCellSeed(ci + di, cj + dj, seed)
-      const d = (p.x - x) ** 2 + (p.y - y) ** 2
-      if (d < d1) { second = first; d2 = d1; first = p; d1 = d }
-      else if (d < d2) { second = p; d2 = d }
-    }
-  }
-  return { first, second, d1: Math.sqrt(d1), d2: Math.sqrt(d2) }
-}
-
-// Which district (x, y) sits in this run (seed = run._districtSeed). Pure + deterministic.
+// Which biome (x, y) sits in this run (seed = run._districtSeed). Pure + deterministic. Thin
+// re-export so every existing caller in sim.js/render.js keeps working unchanged — the generator
+// itself now lives in src/terrain.js.
 export function districtAt(x, y, seed) {
-  return nearestDistrictSeeds(x, y, seed).first.type
+  return biomeAt(x, y, seed)
 }
 
 function lerpColorInt(a, b, t) {
@@ -1742,16 +1658,51 @@ function lerpColorInt(a, b, t) {
   return (Math.round(ar + (br - ar) * t) << 16) | (Math.round(ag + (bg - ag) * t) << 8) | Math.round(ab + (bb - ab) * t)
 }
 
-// The floor tint at (x, y): the nearest district's floorTint, lerped toward the 2nd-nearest's
-// within DISTRICT_BLEND_PX of the border between them so the floor doesn't hard-cut at a district
-// line. // ponytail: a 2-nearest lerp, not a true multi-cell blend — revisit if 3-district corners
-// look wrong.
-export function districtTintAt(x, y, seed) {
-  const { first, second, d1, d2 } = nearestDistrictSeeds(x, y, seed)
-  if (first.type === second.type) return DISTRICTS[first.type].floorTint
-  const t = Math.max(0, Math.min(0.5, 0.5 - (d2 - d1) / (2 * DISTRICT_BLEND_PX)))
-  return lerpColorInt(DISTRICTS[first.type].floorTint, DISTRICTS[second.type].floorTint, t)
+// Smooth 0..1 ramp between two thresholds — the continuous stand-in for a hard `<` test.
+function ramp(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
 }
+
+// The floor tint at (x, y) — CONTINUOUS EVERYWHERE, and deliberately not "classify, then blend
+// between the two nearest cells" the way the Voronoi version had to be. districtAt above is a hard
+// classifier (a structure is a tower or it is not), but the FLOOR has no reason to be: elevation,
+// moisture and urbanisation are continuous fields, so the colour is built by ramping along each of
+// them in the same order the classifier tests them. There is no border to hide, because there is no
+// border — a coastline is where the water ramp reaches 1, and the sand-to-water fade either side of
+// it comes out of the same expression.
+//
+// Order is climate -> hills -> urban -> water, and water is last because it covers everything: a
+// river crossing downtown is water, not a wet street.
+export function districtTintAt(x, y, seed) {
+  const D = DISTRICTS
+  const elev = elevationAt(x, y, seed)
+  const moist = moistureAt(x, y, seed)
+
+  // climate axis: desert -> farms -> parks
+  let c = lerpColorInt(D.desert.floorTint, D.farms.floorTint, ramp(DESERT_MOIST - 0.06, DESERT_MOIST + 0.06, moist))
+  c = lerpColorInt(c, D.parks.floorTint, ramp(FOREST_MOIST - 0.06, FOREST_MOIST + 0.06, moist))
+
+  // high ground
+  c = lerpColorInt(c, D.hills.floorTint, ramp(HILL_LEVEL - 0.03, HILL_LEVEL + 0.03, elev))
+
+  // the city, as two nested rings
+  const urban = urbanAt(x, y, seed)
+  c = lerpColorInt(c, D.suburbs.floorTint, ramp(SUBURB_URBAN - 0.06, SUBURB_URBAN + 0.10, urban))
+  c = lerpColorInt(c, D.downtown.floorTint, ramp(DOWNTOWN_URBAN - 0.10, DOWNTOWN_URBAN + 0.06, urban))
+
+  // shore, then water — including rivers, which are the ridged-noise channel terrainAt classifies
+  // as sea. The river term has to be applied on the same footing as the coast or a river would
+  // render as a hard-edged blue ribbon laid over the ground.
+  const shore = SEA_LEVEL + SHORE_BAND
+  c = lerpColorInt(c, D.beach.floorTint, ramp(shore + 0.03, shore, elev))
+  const lowness = Math.max(0, Math.min(1, (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)))
+  const riverEdge = RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness
+  c = lerpColorInt(c, D.sea.floorTint, ramp(riverEdge * 1.7, riverEdge * 0.6, riverAt(x, y, seed)))
+  c = lerpColorInt(c, D.sea.floorTint, ramp(SEA_LEVEL + 0.012, SEA_LEVEL - 0.004, elev))
+  return c
+}
+
 
 // ---- District SURFACES (v5.10 art direction, spec §4.5) — render-only, skies-only ---------------
 // The district system shipped in v5.7.3 gives each district a floor TINT and nothing else, so six
@@ -1848,62 +1799,40 @@ export const STORM_SHADOW_ALPHA_DARK = 0.16   // pairs with the above (STORM_VIS
                                               // darker ground needs a lighter cloud shadow or the
                                               // floor goes to black and the shadows stop reading at all
 
-// Roads (skies only, v5.9 top-down region overhaul): a coarse, deterministic street grid, PURE in
-// (x, y, seed) exactly like districtAt above — same reason (sim AND render both need it: sim to
-// keep streamObstacles from planting a building mid-street, render to draw pavement/markings/edges
-// — config.js is the only place both are allowed to import from). Unlike districtAt, the seed here
-// is run._obstacleSeed, NOT run._districtSeed — see CHAPTERS.skies.roads' comment for why that
-// choice is load-bearing, not incidental.
+// Roads (skies only) — RE-EXPORTED FROM src/terrain.js, where the generator now lives.
 //
-// The grid itself is a plain axis-aligned Manhattan lattice (no rotation, no per-street jitter):
-// every ROAD_SPACING px is a street on both axes, and every ROAD_MAJOR_EVERYth one of those is a
-// wider avenue. A per-seed offset (ox, oy below) keeps different runs' grids from all sitting on
-// literally the same world-space lines without needing anything fancier. Kept deliberately boring
-// — "coarse grid of streets" is the whole ask, and a real road NETWORK (branches, dead ends, curves)
-// is a render/level-design project this data layer has no business inventing.
-export const ROAD_SPACING = 480      // px between adjacent streets, both axes
-export const ROAD_MINOR_WIDTH = 34   // px, ordinary street width
-export const ROAD_MAJOR_EVERY = 3    // every Nth street (either axis) is a wider avenue
-export const ROAD_MAJOR_WIDTH = 62   // px, avenue width
+// v5.11 replaced what used to sit here: a GLOBAL axis-aligned Manhattan lattice, on its own seed
+// (run._obstacleSeed), deliberately unaware of what it crossed. That design is the direct cause of
+// the "roads are 10 meters long" playtest report. Because the lattice knew nothing about districts,
+// it carved streets through open sea and bare moorland, so render.js could only cope by REFUSING TO
+// DRAW pavement outside a small set of urban districts (ROAD_VISIBLE_DISTRICTS) — and since a
+// district cell was 600px, a street appeared for a few hundred px, vanished, and reappeared. The
+// road was never short; it was a continuous infinite line being shown in 600px slices.
+//
+// Roads are now OWNED BY CITIES and share the world seed with everything else, which removes the
+// problem at the source rather than hiding it: a street exists only inside a city's own radius, laid
+// out in that city's own rotated frame, so one city is one continuous grid that ENDS where the city
+// ends. Nothing has to gate the drawing, so nothing can chop it up. Highways run between
+// neighbouring city centres, which is what puts long roads in the countryside that go somewhere.
+//
+// The returned shape is unchanged apart from an added `kind` ('street' | 'highway'), so every
+// existing caller — sim.js keeping buildings off the carriageway, render.js's centreline resolution
+// and decals — works verbatim.
+export { roadAt } from './terrain.js'
 
-// Cheap 32-bit hash (Math.imul mix, no string allocation or hashString/hash01 call) — roadAt is
-// documented to run per obstacle cell AND per floor cell, which is a much hotter path than
-// hash01's "a handful of times per obstacle" (see hash01's own comment above); the string-join
-// allocation that's fine there would not be fine here.
-function roadHash(a, b, seed) {
-  let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + (seed | 0)) | 0
-  h = Math.imul(h ^ (h >>> 13), 1274126177)
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
-}
+// Widths, re-exported under their historical names so render.js's bakes and ROAD_CELL keep
+// resolving. STREET_* are the terrain module's own names for the same quantities.
+export const ROAD_MINOR_WIDTH = STREET_MINOR_WIDTH
+export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 
-// Is (x, y) roadway, and if so: which way does the street run, how far off-centreline is this
-// point, and is it a major avenue? seed = run._obstacleSeed (see this section's header comment).
-// Returns { onRoad: false } off any street, or { onRoad: true, angle, dist, half, major }:
-//   angle — 0 for an east-west street (runs along x), PI/2 for a north-south one (runs along y)
-//   dist  — px from the street's centreline (>= 0), for drawing a fading edge or lane markings
-//   half  — the street's own half-width (dist/half is a handy 0..1 "how far toward the curb")
-//   major — true on a ROAD_MAJOR_EVERYth avenue (render can draw it wider/differently)
-// At an intersection (or a near-miss on both axes at once) the closer centreline wins, since
-// that's the one anything distance-based should key off.
-export function roadAt(x, y, seed) {
-  const ox = (roadHash(1, 0, seed) - 0.5) * ROAD_SPACING
-  const oy = (roadHash(0, 1, seed) - 0.5) * ROAD_SPACING
-  const gx = x - ox, gy = y - oy
+// The rest of the terrain surface sim.js/render.js/state.js need, re-exported through config.js so
+// the "only config.js is imported by both sim and render" rule in CLAUDE.md still holds literally.
+export {
+  nearestCity, cityAt, blockSnap, parcelAt, PARCEL, pickWorldSeed,
+  terrainAt, elevationAt, urbanAt, riverAt, BIOME_BUILD_DENSITY, CITY_GRID,
+  STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH,
+} from './terrain.js'
 
-  const vi = Math.round(gx / ROAD_SPACING)
-  const hi = Math.round(gy / ROAD_SPACING)
-  const vDist = Math.abs(gx - vi * ROAD_SPACING)
-  const hDist = Math.abs(gy - hi * ROAD_SPACING)
-  const vMajor = ((vi % ROAD_MAJOR_EVERY) + ROAD_MAJOR_EVERY) % ROAD_MAJOR_EVERY === 0
-  const hMajor = ((hi % ROAD_MAJOR_EVERY) + ROAD_MAJOR_EVERY) % ROAD_MAJOR_EVERY === 0
-  const vHalf = (vMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
-  const hHalf = (hMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
-  const onV = vDist <= vHalf
-  const onH = hDist <= hHalf
-  if (!onV && !onH) return { onRoad: false }
-  if (onV && (!onH || vDist <= hDist)) return { onRoad: true, angle: Math.PI / 2, dist: vDist, half: vHalf, major: vMajor }
-  return { onRoad: true, angle: 0, dist: hDist, half: hHalf, major: hMajor }
-}
 
 // ---- Road ART (v5.10 art direction, spec §4.2-§4.3) — render-only, skies-only -------------------
 // "A road is a dashed yellow line on grass. It reads as a wireframe, not a place." The fix is not
@@ -2085,7 +2014,20 @@ export const DISTRICT_STRUCTURE_KINDS = {
   hills:    ['tree'],
   sea:      ['pier'],          // no land buildings — sea reads as sea, not a bald patch of ocean
   farms:    ['barn', 'silo'],
+  // v5.11 biomes. A desert gets the same lone outbuildings farmland does, at a twelfth the density
+  // (BIOME_BUILD_DENSITY, terrain.js) — an arid region reads as arid because it is EMPTY, so the
+  // few things in it should be recognisable rather than novel. A beach gets nothing but the
+  // occasional pier: it is a strip you cross, and anything built on it would block the coastline
+  // read that the beach exists to provide.
+  desert:   ['barn', 'silo'],
+  beach:    ['pier'],
 }
+
+// How far a city building's CENTRE sits from the street centreline, on top of its own radius
+// (sim.js streamObstacles -> blockSnap). Half a minor street is 15px, so this leaves roughly a
+// 25px pavement between kerb and wall — enough for the building to read as fronting the street
+// rather than standing in it, without opening a gap that makes the block look abandoned.
+export const STRUCTURE_SETBACK = 40
 
 // Per-kind collider radius (v5.9.2, px) — THE fix for the "the fuck is this?" bug report's headline
 // cause: a tower used to be drawn at PROP_SCALE.tower (134-172px) around a 10-28px collider rolled
@@ -2332,6 +2274,20 @@ export const SKIES_KAIJU = {
   // scale against different references: the plate glow is sized relative to the BAKED PLATE it's
   // lighting up (small), the screen bloom is sized relative to the WHOLE BODY (big).
   plateGlowScale: 1.6, bloomScale: 3.4,
+  // v5.11 ("kaiju way too big", playtest report). The v5.10 bake was sized against the OLD ~44px
+  // blob it replaced and overshot: the body alone came out ~250px across on a 1900px viewport, next
+  // to towers that draw at ~96px, so the monster covered a seventh of the screen and buildings read
+  // as scenery scattered around it rather than as a city it was standing in. Scale is the whole
+  // point of a kaiju, and scale is RELATIVE — it is communicated by how much recognisable detail
+  // fits beside the creature, so a monster that crowds the detail out of frame reads SMALLER, not
+  // bigger. 0.62 puts the body at ~155px: still unmistakably the largest thing in the world, with
+  // room for a block of buildings alongside it.
+  //
+  // Applied to bodyC (the container holding body, flash, plates and the whole tail chain) rather
+  // than to each sprite, so every part of the rig scales together and the tail can't drift off the
+  // hip. The sim hitbox (PLAYER.radius, 22) is untouched — this is render-only, like the rest of
+  // this block.
+  bodyScale: 0.62,
 }
 
 // Ruins (spec §5.9) — swapped in PERMANENTLY at a crush site by the render-local crush ledger

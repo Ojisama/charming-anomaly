@@ -15,6 +15,10 @@ npm run preview    # serve the built dist/
 npm test           # node test/sim-test.js — headless sim self-check, no framework
 node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
+
+# Terrain: `npm run dev` then open /terrain-preview.html?seed=1&span=14000&cx=0&cy=0 — renders the
+# v5.11 world generator (biome tint + roads) over a wide area, so a coastline, a city's street grid
+# or a farm patchwork can be checked without walking there in-game. Dev-only, not in the bundle.
 ```
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Only `sim.js` (+ its `config.js`/`state.js` deps) is testable this way** — it's the only module free of Pixi/DOM.
@@ -25,7 +29,8 @@ Every module has a hard rule about what it may touch. These rules are what make 
 
 | File | Role | May NOT touch |
 |------|------|---------------|
-| `config.js` (1.9k lines) | All balance numbers + `CHAPTERS`/`WEAPONS`/`WEAPON_MODS`/`ELEMENTS`/`MUTATORS` tables. Treated as **read-only ground truth** by every other module. | — (pure data + pure helper fns) |
+| `terrain.js` | **The world generator** (v5.11). Pure fns of `(x, y, seed)`: elevation/moisture noise fields, rivers, cities (each owning its street grid), biome classification, road queries. Imports nothing; `config.js` re-exports its surface so sim/render keep one import source. | anything — no imports at all |
+| `config.js` (3.2k lines) | All balance numbers + `CHAPTERS`/`WEAPONS`/`WEAPON_MODS`/`ELEMENTS`/`MUTATORS` tables. Treated as **read-only ground truth** by every other module. | — (pure data + pure helper fns) |
 | `state.js` | `run` shape (`createRun`) + persistent save (`loadMeta`/`saveMeta`, `localStorage`) + save migrations. | Pixi, DOM (localStorage only) |
 | `sim.js` (4k lines) | **Pure simulation.** `stepSim(run, input, dt)` advances the world and pushes to `run.events`. | Pixi, DOM, localStorage — nothing but `run` + `config` |
 | `render.js` (5.3k lines) | PixiJS renderer. Reads `run`, **never mutates it**. Bakes entity looks into textures once; per-frame work is sprite pools. | writing to `run` |

@@ -16,7 +16,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
-  ROAD_SPACING, ROAD_MAJOR_WIDTH,
+  ROAD_MAJOR_WIDTH, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt,
 } from './config.js'
 import { currentForce } from './sim.js'
 
@@ -112,9 +112,11 @@ export function createRenderer(app) {
   let chapterHasDistricts = false
   let districtSeed = 0
   // Whether the active chapter has a street grid to draw (CHAPTERS[].roads — currently only
-  // `skies`, v5.9 top-down region overhaul). roadSeed mirrors run._obstacleSeed, NOT
-  // run._districtSeed — see CHAPTERS.skies.roads' comment in config.js for why the road grid and
-  // the district map are deliberately independent seeds. Same latch pattern as chapterHasDistricts.
+  // `skies`). v5.11: roadSeed now mirrors run._districtSeed, the ONE world seed. The old split
+  // (roads on run._obstacleSeed, terrain on run._districtSeed) is exactly what let streets run
+  // through open sea, and forced this file to gate road DRAWING per district cell to hide it —
+  // which is what chopped every street into 600px stubs. Roads are generated from cities now, so
+  // there is nothing to hide and nothing to gate.
   let chapterHasRoads = false
   let roadSeed = 0
   // Active chapter's prop/obstacle biome (BIOMES, declared with the floor section below). Left null
@@ -2099,6 +2101,229 @@ export function createRenderer(app) {
         }),
       ]
     }
+
+    // ---- TERRAIN TILES (v5.11) — the ground is a surface, not a scatter -----------------------
+    // "the backgrounds is still bad... some white lines are crossing everything i dont know what is
+    // it, maybe crops but it's so ugly it doesnt resemble anything" (playtest report).
+    //
+    // The white lines were T.districtGround.farms, above: nine 300px stripes per tile, stamped at a
+    // random 1.1-1.7x scale on a 420px cell and rotated to the field angle. Farmland was being drawn
+    // as INDIVIDUAL CROP STROKES, which is the wrong level of abstraction for a camera this high —
+    // from above you cannot resolve a furrow, you resolve a FIELD. So the strokes never read as
+    // crops; they read as hatching scribbled over the whole map, including over biomes that have no
+    // crops at all, because a 420px blotch cell samples its district at its own centre and lands
+    // wherever it likes.
+    //
+    // The replacement is a different kind of layer. Every tile here is a FULL SQUARE covering its
+    // whole cell edge-to-edge, at a fixed position, with no jitter, no random scale and no random
+    // rotation. That single change is what turns the floor from "things scattered on a void" into a
+    // continuous SURFACE — which is what a satellite view is.
+    //
+    // Farmland is now a PATCHWORK OF PARCELS: one flat field per cell, its own crop colour, its own
+    // row direction, bordered by a headland strip so neighbouring fields visibly abut. That is the
+    // actual overhead signature of agriculture, and it is the reason parcels are axis-aligned — real
+    // surveyed farmland follows section lines, and an axis-aligned lattice also tiles a square cell
+    // grid perfectly, so fields meet with no gaps and no overlap.
+    //
+    // COLOUR STILL COMES FROM THE TINT. Each tile is baked WHITE (alpha carries the shape only), so
+    // districtTintAt — which v5.11 made continuous in the raw elevation/moisture/urban fields —
+    // remains the only thing setting hue. This matters at coastlines: the TEXTURE changes abruptly
+    // at a cell boundary, but the COLOUR does not, so a shoreline reads as a smooth curve instead of
+    // a 280px staircase. Texture popping is nearly invisible; colour popping is not.
+    {
+      const TT = 256   // bake reference size; populateTerrain scales this to the cell
+      const H = TT / 2
+      function terrainTile(baseAlpha, draw) {
+        const g = new Graphics()
+        // The base square is drawn FIRST and always — it is what makes the tile cover its cell, and
+        // it also fixes bake()'s tight crop to exactly TTxTT so every biome's tile scales alike.
+        // OPAQUE, always. An alpha<1 base looks equivalent but is not: populateTerrain overlaps
+        // neighbouring tiles slightly (to kill sub-pixel gaps), and two semi-transparent squares
+        // compound where they overlap — so every cell boundary came out as a BRIGHTER line and the
+        // floor grew a visible lattice. Opaque tiles overlap invisibly. The per-biome "how much
+        // ground shows through" that baseAlpha used to express is folded into the tint instead
+        // (populateTerrain's groundMix), where overlapping cannot double it up.
+        g.rect(-H, -H, TT, TT).fill({ color: 0xffffff, alpha: 1 })
+        if (draw) draw(g)
+        // bake() returns {tex, ax, ay} and NOTHING else — it has no `ref`. Carrying the reference
+        // size explicitly is what lets populateTerrain scale a tile to its cell; reading a
+        // non-existent look.ref silently yields NaN, which Pixi renders as an invisible sprite (the
+        // first cut of this layer drew nothing at all for exactly that reason). `+ pad*2` accounts
+        // for bake's transparent border so the OPAQUE square, not the padded texture, spans the cell.
+        return { ...bake(g), ref: TT + 6 }
+      }
+      // Rows for a cultivated parcel: thin, low-contrast, and CLOSE together. The v5.10 furrows
+      // failed by being wide, bright and far apart, which reads as stripes rather than as texture.
+      function rows(g, vertical, pitch, alpha) {
+        for (let k = -8; k <= 8; k++) {
+          const o = k * pitch - 1
+          if (vertical) g.rect(o, -H, 2, TT).fill({ color: 0xffffff, alpha })
+          else g.rect(-H, o, TT, 2).fill({ color: 0xffffff, alpha })
+        }
+      }
+      // The headland: the turn-strip at a field's edge where the tractor comes about. Drawn as an
+      // inset darker border, it is what makes one parcel legibly a DIFFERENT parcel from its
+      // neighbour — without it a patchwork of similar greens is just noise.
+      function headland(g) {
+        g.rect(-H + 1.5, -H + 1.5, TT - 3, TT - 3).stroke({ width: 3, color: 0x000000, alpha: 0.22 })
+      }
+      T.terrainTile = {}
+      T.terrainTile.farms = [
+        terrainTile(0.5, (g) => { rows(g, false, 15, 0.11); headland(g) }),
+        terrainTile(0.5, (g) => { rows(g, true, 15, 0.11); headland(g) }),
+        terrainTile(0.5, (g) => { rows(g, false, 22, 0.09); headland(g) }),
+        terrainTile(0.5, (g) => { rows(g, true, 22, 0.09); headland(g) }),
+        // centre-pivot irrigation: a perfect circle in a field of straight lines is the single most
+        // recognisable thing in an overhead photograph of farmland.
+        terrainTile(0.5, (g) => {
+          g.circle(0, 0, H * 0.92).fill({ color: 0xffffff, alpha: 0.13 })
+          g.circle(0, 0, H * 0.92).stroke({ width: 2.5, color: 0xffffff, alpha: 0.20 })
+          g.rect(-1.5, -H * 0.92, 3, H * 0.92).fill({ color: 0xffffff, alpha: 0.16 })   // the arm
+          headland(g)
+        }),
+      ]
+      // Desert: wind-blown dune ripples — long, shallow, near-parallel arcs at very low contrast.
+      // An arid surface is defined by how LITTLE is on it, so this is the sparsest tile here.
+      T.terrainTile.desert = [
+        terrainTile(0.46, (g) => {
+          for (let k = -4; k <= 4; k++) {
+            g.moveTo(-H, k * 30)
+            g.bezierCurveTo(-H / 2, k * 30 - 13, H / 2, k * 30 + 13, H, k * 30)
+            g.stroke({ width: 2.5, color: 0xffffff, alpha: 0.07 })
+          }
+        }),
+        terrainTile(0.46, (g) => {
+          for (let n = 0; n < 14; n++) {
+            const x = (hash(n * 3.1 + 0.7) - 0.5) * TT
+            const y = (hash(n * 5.9 + 2.2) - 0.5) * TT
+            g.circle(x, y, 1.4 + hash(n * 2.3) * 1.6).fill({ color: 0xffffff, alpha: 0.10 })
+          }
+        }),
+      ]
+      // Beach: wet sand, with the swash lines the tide leaves parallel to the water.
+      T.terrainTile.beach = [
+        terrainTile(0.52, (g) => {
+          for (let k = -3; k <= 3; k++) {
+            g.moveTo(-H, k * 36 + 6)
+            g.bezierCurveTo(-H / 3, k * 36 - 9, H / 3, k * 36 + 15, H, k * 36 + 2)
+            g.stroke({ width: 2, color: 0xffffff, alpha: 0.13 })
+          }
+          for (let n = 0; n < 26; n++) {
+            g.circle((hash(n * 4.7 + 1.3) - 0.5) * TT, (hash(n * 6.1 + 3.9) - 0.5) * TT, 1)
+              .fill({ color: 0xffffff, alpha: 0.16 })
+          }
+        }),
+      ]
+      // Water: broad, calm, low-contrast ripple banding. Deliberately the flattest tile — water is
+      // the one surface that should NOT compete for attention, since the threats fly over it.
+      T.terrainTile.sea = [
+        terrainTile(0.44, (g) => {
+          for (let k = -4; k <= 4; k++) {
+            g.moveTo(-H, k * 32)
+            g.bezierCurveTo(-H / 2, k * 32 + 9, H / 2, k * 32 - 9, H, k * 32)
+            g.stroke({ width: 3, color: 0xffffff, alpha: 0.06 })
+          }
+        }),
+        terrainTile(0.44, (g) => {
+          for (let k = -3; k <= 3; k++) {
+            g.moveTo(-H, k * 40 + 12)
+            g.bezierCurveTo(-H / 2, k * 40 + 2, H / 2, k * 40 + 22, H, k * 40 + 10)
+            g.stroke({ width: 3, color: 0xffffff, alpha: 0.05 })
+          }
+        }),
+      ]
+      // Woodland: overlapping canopy crowns. Irregular, clustered, and the only tile whose detail
+      // is meant to read as individual OBJECTS from above — because tree crowns actually do.
+      T.terrainTile.parks = [
+        terrainTile(0.48, (g) => {
+          for (let n = 0; n < 22; n++) {
+            const x = (hash(n * 3.3 + 1.9) - 0.5) * TT
+            const y = (hash(n * 5.1 + 4.4) - 0.5) * TT
+            const r = 9 + hash(n * 7.7 + 2.1) * 13
+            g.circle(x, y, r).fill({ color: 0xffffff, alpha: 0.10 })
+            g.circle(x - r * 0.22, y - r * 0.22, r * 0.55).fill({ color: 0xffffff, alpha: 0.09 })
+          }
+        }),
+        terrainTile(0.48, (g) => {
+          for (let n = 0; n < 17; n++) {
+            const x = (hash(n * 4.9 + 3.1) - 0.5) * TT
+            const y = (hash(n * 6.7 + 1.2) - 0.5) * TT
+            const r = 11 + hash(n * 8.9 + 5.3) * 15
+            g.circle(x, y, r).fill({ color: 0xffffff, alpha: 0.11 })
+          }
+        }),
+      ]
+      // High ground: contour banding. A contour line is the one mark that says "slope" to a camera
+      // with no horizon, which is the whole problem with drawing terrain relief from directly above.
+      T.terrainTile.hills = [
+        terrainTile(0.47, (g) => {
+          for (let k = 0; k < 5; k++) {
+            g.ellipse(10, -6, H * (0.28 + k * 0.19), H * (0.20 + k * 0.16))
+              .stroke({ width: 2.5, color: 0xffffff, alpha: 0.09 })
+          }
+        }),
+        terrainTile(0.47, (g) => {
+          for (let n = 0; n < 16; n++) {
+            const x = (hash(n * 3.7 + 6.1) - 0.5) * TT
+            const y = (hash(n * 5.3 + 2.9) - 0.5) * TT
+            const r = 4 + hash(n * 7.1 + 0.4) * 7
+            const pts = []
+            for (let k = 0; k < 6; k++) {
+              const pa = (k / 6) * Math.PI * 2
+              const pr = r * (0.7 + hash(n * 11 + k * 2.3) * 0.5)
+              pts.push(x + Math.cos(pa) * pr, y + Math.sin(pa) * pr)
+            }
+            g.poly(pts).fill({ color: 0xffffff, alpha: 0.13 })
+          }
+        }),
+      ]
+      // Built ground. Downtown is a paved slab with expansion joints; suburbs is lawn plus the lot
+      // lines that divide one garden from the next. Both keep their v5.10 character — those two
+      // patterns were never the problem — but as full tiles rather than floating blobs.
+      // NO STRAIGHT LINES IN A TILE THAT REPEATS. The first cut of these two drew slab seams and lot
+      // lines as full-width rects at fixed offsets — which, stamped on every cell, tiled into a
+      // hard 280px lattice across the whole city. The floor grew its own visible grid, competing
+      // with the actual street grid drawn on top of it. Only the farm parcel is allowed a border,
+      // because there the repetition IS the subject; everywhere else the detail has to be
+      // hash-scattered so no two neighbouring tiles line up.
+      T.terrainTile.downtown = [
+        terrainTile(0.5, (g) => {
+          // worn asphalt: irregular patches and old repairs, never a seam that reaches an edge
+          for (let n = 0; n < 9; n++) {
+            const x = (hash(n * 3.3 + 1.4) - 0.5) * TT * 0.8
+            const y = (hash(n * 5.7 + 2.8) - 0.5) * TT * 0.8
+            const w = 14 + hash(n * 2.1) * 34, h2 = 10 + hash(n * 4.4) * 26
+            g.rect(x, y, w, h2).fill({ color: 0x000000, alpha: 0.06 + hash(n * 7.7) * 0.06 })
+          }
+        }),
+        terrainTile(0.5, (g) => {
+          for (let n = 0; n < 30; n++) {
+            const x = (hash(n * 4.9 + 3.1) - 0.5) * TT
+            const y = (hash(n * 6.3 + 0.6) - 0.5) * TT
+            g.circle(x, y, 2 + hash(n * 3.7) * 5).fill({ color: 0x000000, alpha: 0.07 })
+          }
+        }),
+      ]
+      T.terrainTile.suburbs = [
+        terrainTile(0.49, (g) => {
+          for (let n = 0; n < 90; n++) {
+            const x = (hash(n * 2.7 + 0.9) - 0.5) * TT
+            const y = (hash(n * 4.1 + 5.7) - 0.5) * TT
+            g.rect(x, y, 1.6, 5).fill({ color: 0xffffff, alpha: 0.11 })
+          }
+        }),
+        terrainTile(0.49, (g) => {
+          for (let n = 0; n < 70; n++) {
+            const x = (hash(n * 3.9 + 2.3) - 0.5) * TT
+            const y = (hash(n * 5.7 + 1.1) - 0.5) * TT
+            g.rect(x, y, 1.6, 5).fill({ color: 0xffffff, alpha: 0.10 })
+          }
+          // one hedge stub, hash-placed and well short of any edge, so it cannot line up with a
+          // neighbouring tile's
+          g.rect(-40 + hash(9.1) * 60, -20 + hash(4.4) * 40, 54, 3).fill({ color: 0x000000, alpha: 0.13 })
+        }),
+      ]
+    }
     // pebble: tiny irregular rounded stone (7-gon, fixed jitter baked once)
     {
       const g = new Graphics()
@@ -2759,16 +2984,35 @@ export function createRenderer(app) {
       }
     }
 
-    function towerPlan(variantB) {
+    // v5.11 ("no building etc", playtest report). The v5.10 tower had exactly two variants and BOTH
+    // used the same fixed 36x30 footprint, so a whole downtown block was one silhouette repeated —
+    // at a glance the city read as tiled wallpaper rather than as buildings. Variety in ROOF
+    // FURNITURE alone could not fix that: from directly overhead the thing that distinguishes one
+    // building from the next is its FOOTPRINT, because that is the shape you actually see. So a
+    // variant now carries its own proportions (a narrow slab, a wide low block, a square tower) as
+    // well as its own roof, and there are five of them instead of two.
+    //
+    // Every plan still bakes into the same 128px canvas through skiesPlan's bounds keeper, so a
+    // smaller footprint genuinely reads as a smaller building on screen rather than being rescaled
+    // back up to fill the frame.
+    const TOWER_VARIANTS = [
+      { W: 36, H: 30, roof: 'tank',      litEvery: 2 },   // the v5.10 variant A, unchanged
+      { W: 36, H: 30, roof: 'helipad',   litEvery: 3 },   // the v5.10 variant B, unchanged
+      { W: 22, H: 44, roof: 'cooling',   litEvery: 2 },   // narrow slab, long axis N-S
+      { W: 45, H: 21, roof: 'skylights', litEvery: 4 },   // wide low block — a warehouse or a mall
+      { W: 30, H: 31, roof: 'garden',    litEvery: 3 },   // square, with a planted roof
+    ]
+
+    function towerPlan(v) {
       const vb = A.tower.variantB
       return skiesPlan((g) => {
-        const W = 36, H = 30, ch = A.tower.chamferPx * 0.55
+        const W = v.W, H = v.H, ch = A.tower.chamferPx * 0.55
         // roof deck outline, TWO corners chamfered — a chamfer reads as a designed building; a
         // rounded blob reads as rubble, which is precisely the bug being fixed.
         const deck = [
           -W + ch, -H, W, -H, W, H - ch, W - ch, H, -W, H, -W, -H + ch,
         ]
-        const shadow = deck.map((v, i) => v + (i % 2 ? SH_DY : SH_DX))
+        const shadow = deck.map((val, i) => val + (i % 2 ? SH_DY : SH_DX))
         g.poly(shadow).fill({ color: SH_COL, alpha: SH_A })
         // flank walls: the +x and +y sides, carrying the window grid (a top-down building shows a
         // sliver of its own facade on the two faces the light does not reach)
@@ -2777,16 +3021,19 @@ export function createRenderer(app) {
         g.poly(deck).fill(A.tower.deck).stroke({ width: 1.6, color: A.tower.edge })
         g.poly([-W + ch + 3, -H + 3, W - 3, -H + 3, W - 3, H - ch - 3, -W + 3, H - 3])
           .stroke({ width: 1.2, color: A.tower.parapet, alpha: 0.75 })   // inner parapet ledge
-        // gravel flecks — 44 of them, fixed-hash, the texture that says "tar-and-gravel roof"
-        for (let k = 0; k < A.tower.gravelFlecks; k++) {
+        // gravel flecks — fixed-hash, the texture that says "tar-and-gravel roof". Count scales
+        // with the deck area so a wide block is not sparser than a narrow one.
+        const flecks = Math.round(A.tower.gravelFlecks * (W * H) / (36 * 30))
+        for (let k = 0; k < flecks; k++) {
           const gx = (hash(k * 3.71 + 0.9) - 0.5) * (W - 5) * 2
           const gy = (hash(k * 5.13 + 2.7) - 0.5) * (H - 5) * 2
           g.circle(gx, gy, A.tower.gravelPx / 2).fill({ color: A.tower.gravel, alpha: A.tower.gravelAlpha })
         }
-        // HVAC units: box on a dark plinth, 5 fin hairlines, a fan disc with 4 blade ticks
-        const units = variantB ? [[-20, -16, 22, 14], [4, -18, 16, 11], [-8, 12, 16, 11]]
-                               : [[-20, -16, 22, 14], [6, 10, 16, 11]]
-        for (const [ux, uy, uw, uh] of units) {
+        // HVAC units: box on a dark plinth, 5 fin hairlines, a fan disc with 4 blade ticks. Placed
+        // in deck-relative fractions so they land on the roof whatever its proportions are.
+        const units = [[-0.55, -0.5, 0.6, 0.45], [0.1, 0.35, 0.45, 0.36]]
+        for (const [fx0, fy0, fw, fh] of units) {
+          const ux = fx0 * W, uy = fy0 * H, uw = Math.max(10, fw * W), uh = Math.max(8, fh * H * 0.8)
           g.rect(ux - 1.5, uy - 1.5, uw + 3, uh + 3).fill(A.tower.hvacBase)
           g.rect(ux, uy, uw, uh).fill(A.tower.hvac).stroke({ width: 0.8, color: A.tower.hvacBase })
           for (let f = 1; f <= A.tower.hvacFins; f++) {
@@ -2802,23 +3049,60 @@ export function createRenderer(app) {
           }
         }
         // stairwell penthouse, with its OWN cast shadow at the region offset
-        g.rect(10 + 3, -6 + 4, 20, 16).fill({ color: SH_COL, alpha: SH_A * 0.8 })
-        g.rect(10, -6, 20, 16).fill(A.tower.stairwell).stroke({ width: 1, color: A.tower.edge })
-        g.rect(13, 2, 6, 9).fill(A.tower.stairDoor)
-        if (variantB) {
-          // helipad: white circle + an 'H' of three bars. Nothing else on a roof looks like this.
-          g.circle(-12, 8, vb.helipadR).stroke({ width: 2, color: 0xffffff, alpha: vb.helipadAlpha })
-          g.rect(-18, 1, 2.4, 14).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
-          g.rect(-8, 1, 2.4, 14).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
-          g.rect(-18, 7, 12, 2.4).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
-        } else {
+        const sw = Math.min(20, W * 0.55), sh = Math.min(16, H * 0.5)
+        g.rect(W * 0.28 + 3, -H * 0.2 + 4, sw, sh).fill({ color: SH_COL, alpha: SH_A * 0.8 })
+        g.rect(W * 0.28, -H * 0.2, sw, sh).fill(A.tower.stairwell).stroke({ width: 1, color: A.tower.edge })
+        g.rect(W * 0.28 + 3, -H * 0.2 + sh * 0.5, 6, sh * 0.45).fill(A.tower.stairDoor)
+
+        if (v.roof === 'helipad') {
+          // white circle + an 'H' of three bars. Nothing else on a roof looks like this.
+          g.circle(-W * 0.33, H * 0.27, vb.helipadR).stroke({ width: 2, color: 0xffffff, alpha: vb.helipadAlpha })
+          g.rect(-W * 0.5, H * 0.03, 2.4, 14).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
+          g.rect(-W * 0.22, H * 0.03, 2.4, 14).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
+          g.rect(-W * 0.5, H * 0.23, W * 0.28, 2.4).fill({ color: 0xffffff, alpha: vb.helipadAlpha })
+        } else if (v.roof === 'tank') {
           // water tank on legs, with a rung ladder up its flank
-          for (const lx of [-30, -18]) for (const ly of [4, 14]) g.rect(lx, ly, 2, 4).fill(A.tower.edge)
-          g.circle(-24, 6, 9).fill(A.tower.waterTank).stroke({ width: 1.2, color: A.tower.edge })
+          for (const lx of [-W * 0.83, -W * 0.5]) for (const ly of [H * 0.13, H * 0.47]) g.rect(lx, ly, 2, 4).fill(A.tower.edge)
+          g.circle(-W * 0.66, H * 0.2, 9).fill(A.tower.waterTank).stroke({ width: 1.2, color: A.tower.edge })
           for (let r = 0; r < A.tower.tankRungs; r++) {
-            g.rect(-27, -1 + r * 2.2, 6, 0.8).fill({ color: A.tower.edge, alpha: 0.75 })
+            g.rect(-W * 0.75, -1 + r * 2.2, 6, 0.8).fill({ color: A.tower.edge, alpha: 0.75 })
           }
+        } else if (v.roof === 'cooling') {
+          // three cooling drums in a row down the slab's long axis — the industrial read, and the
+          // only roof here whose furniture is repeated identical units, which is what plant is.
+          for (let k = 0; k < 3; k++) {
+            const cy2 = -H * 0.5 + k * H * 0.42
+            g.circle(-W * 0.25 + 4, cy2 + 4, 7).fill({ color: SH_COL, alpha: SH_A * 0.8 })
+            g.circle(-W * 0.25, cy2, 7).fill(A.tower.hvac).stroke({ width: 1, color: A.tower.edge })
+            for (let f = 0; f < 6; f++) {
+              const fa = (f / 6) * Math.PI * 2
+              g.moveTo(-W * 0.25 + Math.cos(fa) * 3, cy2 + Math.sin(fa) * 3)
+                .lineTo(-W * 0.25 + Math.cos(fa) * 6.4, cy2 + Math.sin(fa) * 6.4)
+                .stroke({ width: 0.8, color: A.tower.hvacBase })
+            }
+          }
+        } else if (v.roof === 'skylights') {
+          // a grid of pale glazed panels, faintly lit from inside — the wide-block signature, and
+          // the one roof that puts light INSIDE the footprint instead of at its edge.
+          for (let r = 0; r < 2; r++) {
+            for (let k = 0; k < 4; k++) {
+              const gx = -W * 0.62 + k * W * 0.35, gy = -H * 0.3 + r * H * 0.5
+              g.rect(gx + 2, gy + 2, 13, 8).fill({ color: SH_COL, alpha: SH_A * 0.7 })
+              g.rect(gx, gy, 13, 8).fill({ color: A.tower.windowLit, alpha: 0.5 }).stroke({ width: 0.9, color: A.tower.edge })
+            }
+          }
+        } else {
+          // planted roof: irregular canopy patches and a pale path threading them. Green on a roof
+          // is rare enough that one of these per block reads instantly as a different building.
+          for (let k = 0; k < 7; k++) {
+            const gx = (hash(k * 4.3 + 1.7) - 0.5) * (W - 8) * 1.7
+            const gy = (hash(k * 6.1 + 3.3) - 0.5) * (H - 8) * 1.7
+            g.circle(gx, gy, 4 + hash(k * 2.9) * 5).fill({ color: 0x4e6b46, alpha: 0.85 })
+          }
+          g.moveTo(-W * 0.7, H * 0.3).bezierCurveTo(-W * 0.2, -H * 0.1, W * 0.2, H * 0.35, W * 0.6, -H * 0.2)
+            .stroke({ width: 3, color: A.tower.parapet, alpha: 0.55 })
         }
+
         // antenna mast + 3 guy wires + the DARK aviation-lamp bead (the LIT lamp is a separate
         // pooled blink sprite — a blinking light is the one thing that cannot bake; see §7.4)
         const mx = W - 8, my = -H + 6
@@ -2830,25 +3114,31 @@ export function createRenderer(app) {
             .stroke({ width: 0.7, color: A.tower.mast, alpha: 0.7 })
         }
         g.circle(mx, my - A.tower.mastPx, 1.6).fill(A.tower.lampDark)
-        // window grid on the two flank slivers: 24 panes, of which `windowsLit` are warm gold —
-        // palette law 1's ONLY permitted form for warm gold (a static <= 5px lit rectangle).
-        const litEvery = variantB ? 3 : 2
-        panes(g, W + 2, -H + 9, 0, 7, 8, litEvery, A.tower)
-        panes(g, W + 6.5, -H + 12, 0, 7, 7, litEvery + 1, A.tower)
-        panes(g, -W + 9, H + 3, 8, 0, 6, litEvery, A.tower)
-        panes(g, -W + 13, H + 7.5, 8, 0, 6, litEvery + 1, A.tower)
+        // window grid on the two flank slivers — palette law 1's ONLY permitted form for warm gold
+        // (a static <= 5px lit rectangle). Run lengths follow the flank they sit on, so a wide block
+        // gets a long row of windows on its south face and a short one on its east.
+        const vRun = Math.max(3, Math.round((H * 2 - 12) / 7))
+        const hRun = Math.max(3, Math.round((W * 2 - 12) / 8))
+        panes(g, W + 2, -H + 9, 0, 7, vRun, v.litEvery, A.tower)
+        panes(g, W + 6.5, -H + 12, 0, 7, vRun - 1, v.litEvery + 1, A.tower)
+        panes(g, -W + 9, H + 3, 8, 0, hRun, v.litEvery, A.tower)
+        panes(g, -W + 13, H + 7.5, 8, 0, hRun - 1, v.litEvery + 1, A.tower)
         // fire escape on the +y flank: diagonal ticks + landing bars
-        for (let e = 0; e < A.tower.escapeTicks; e++) {
+        const escTicks = Math.max(3, Math.round(A.tower.escapeTicks * W / 36))
+        for (let e = 0; e < escTicks; e++) {
           const ex = -W + 4 + e * 6
           g.moveTo(ex, H + 2).lineTo(ex + 5, H + 10).stroke({ width: 1, color: A.tower.fireEscape })
         }
         for (let l = 0; l < A.tower.escapeLandings; l++) {
-          g.rect(-W + 2, H + 3 + l * 3.4, 26, 0.9).fill({ color: A.tower.fireEscape, alpha: 0.85 })
+          g.rect(-W + 2, H + 3 + l * 3.4, Math.min(26, W * 0.72), 0.9).fill({ color: A.tower.fireEscape, alpha: 0.85 })
         }
       })
     }
-    T.skTowerA = towerPlan(false)
-    T.skTowerB = towerPlan(true)
+    T.skTowerA = towerPlan(TOWER_VARIANTS[0])
+    T.skTowerB = towerPlan(TOWER_VARIANTS[1])
+    T.skTowerC = towerPlan(TOWER_VARIANTS[2])
+    T.skTowerD = towerPlan(TOWER_VARIANTS[3])
+    T.skTowerE = towerPlan(TOWER_VARIANTS[4])
 
     function housePlan(variantB) {
       const h = A.house
@@ -4449,7 +4739,76 @@ export function createRenderer(app) {
     hills:    [0.8, 1.3],
     sea:      [1.2, 1.9],
   }
+  // ---- the terrain layer (v5.11) ---------------------------------------------------------------
+  // One full-cell tile per cell, no jitter, no random scale, no random rotation — see T.terrainTile's
+  // header for why that is the whole point. This runs INSTEAD of populateBlotch on a chapter with a
+  // terrain map (skies); every other chapter keeps the scattered-blotch floor unchanged.
+  //
+  // Per-parcel crop colour. Farmland's patchwork only reads if adjacent fields differ in HUE, and
+  // the biome tint alone gives every field the same olive. Each parcel picks a crop from a small
+  // palette and the tile tint is pulled most of the way toward it — "most of", not all, so the
+  // region's one light still governs and a field cannot escape the chapter's luminance band.
+  const PARCEL_CROP_TINTS = [
+    0x8f9a53,   // young cereal, green
+    0xa8a259,   // ripening barley
+    0xb8a765,   // wheat, near harvest
+    0x6f7f46,   // dense root crop, dark
+    0x9c8f6b,   // stubble
+    0x7d6f52,   // ploughed / fallow earth
+  ]
+  // How much of each biome's own colour survives over the chapter background — the successor to the
+  // per-tile base alpha (see terrainTile). Water and desert sit lowest because both should read as
+  // large calm areas the threats fly over, not as surfaces competing for attention.
+  const TERRAIN_GROUND_MIX = {
+    downtown: 0.50, suburbs: 0.49, farms: 0.50, parks: 0.48,
+    hills: 0.47, desert: 0.46, beach: 0.52, sea: 0.44,
+  }
+  function populateTerrain(s, i, j, cell) {
+    if (!chapterHasDistricts || !T.terrainTile) { s.visible = false; return }
+    const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
+    const biome = districtAt(wx, wy, districtSeed)
+    const pats = T.terrainTile[biome]
+    if (!pats) { s.visible = false; return }
+    let idx = Math.floor(cellHash(i, j, 1) * pats.length)
+    let tint = floorTintAt(wx, wy)
+    if (biome === 'farms') {
+      // The parcel lattice IS this cell grid (terrain.js PARCEL matches the layer's cell), so one
+      // cell is exactly one field — which is what lets the headland borders line up into a quilt
+      // instead of cutting across fields at random.
+      const parcel = parcelAt(wx, wy, districtSeed)
+      idx = parcel.pivot ? pats.length - 1 : (parcel.rows * 2 + (parcel.shade > 0.5 ? 1 : 0)) % (pats.length - 1)
+      tint = lerpTint(tint, PARCEL_CROP_TINTS[parcel.crop], 0.62)
+    }
+    // Fold the old per-biome base alpha into the colour: mixing the biome tint toward the chapter's
+    // background reproduces EXACTLY what an alpha-0.5 white tile over that background used to
+    // composite to, which keeps the floor inside the documented 0.06-0.09 effective-luminance band
+    // that scripts/obstacle-contrast.mjs measures and that enemy readability depends on.
+    tint = lerpTint(chapterRender.bgColor, tint, TERRAIN_GROUND_MIX[biome] ?? 0.5)
+    const look = pats[Math.min(pats.length - 1, idx)]
+    s.visible = true
+    s.texture = look.tex
+    s.anchor.set(look.ax, look.ay)
+    s.alpha = 1
+    s.rotation = 0
+    // 1.03 so neighbouring tiles overlap by a hair — at fractional camera offsets an exact 1.0
+    // leaves single-pixel seams between cells, which on a continuous surface read as a grid.
+    s.scale.set((cell * 1.03) / look.ref)
+    s.position.set(wx, wy)
+    s.tint = tint
+  }
+
+  // Blend two packed RGB ints. (lerpColorInt lives in config.js and isn't exported; this is the
+  // same three-channel mix, kept local rather than widening config's surface for one caller.)
+  function lerpTint(a, b, t) {
+    const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255
+    const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255
+    return (Math.round(ar + (br - ar) * t) << 16) | (Math.round(ag + (bg - ag) * t) << 8) | Math.round(ab + (bb - ab) * t)
+  }
+
   function populateBlotch(s, i, j, cell) {
+    // v5.11: a chapter with a terrain map draws populateTerrain's full-cell surface instead. The
+    // scattered-blotch floor below is what every other chapter still uses.
+    if (chapterHasDistricts) { s.visible = false; return }
     const jx = (cellHash(i, j, 4) - 0.5) * cell * 0.6
     const jy = (cellHash(i, j, 5) - 0.5) * cell * 0.6
     const wx = (i + 0.5) * cell + jx
@@ -4900,13 +5259,16 @@ export function createRenderer(app) {
     { name: 'tractor', baked: true, alignRoad: true, size: PROP_SCALE.car },
   ]
   const MID_FARMS = [
-    { name: 'cropTuft', baked: true, cropRow: true, tints: CROP_TINTS, size: PROP_SCALE.crop },
-    { name: 'cropTuft', baked: true, cropRow: true, tints: CROP_TINTS, size: PROP_SCALE.crop },
+    // v5.11: the two cropTuft entries that stood here are GONE, along with the one in DETAIL_FARMS.
+    // They scattered individual crop strokes across the field on top of the furrows baked into
+    // T.districtGround.farms — two independent hatchings over the same ground, which together are
+    // what the playtest report saw as "white lines crossing everything". Rows are now part of the
+    // parcel tile itself (T.terrainTile.farms), drawn once, at the field's own scale, and bounded by
+    // the field's headland. A field does not need props sprinkled on it to look cultivated.
     { name: 'wallSeam', baked: true, size: PROP_SCALE.fence },             // dry-stone field boundary
     { name: 'hayBale', baked: true, size: [32, 42] },                      // not an enumerated PROP_SCALE class — pegged to the fence/hedge tier by eye
   ]
   const DETAIL_FARMS = [
-    { name: 'cropTuft', baked: true, cropRow: true, tints: CROP_TINTS, size: PROP_SCALE.crop },
     { name: 'pebble', baked: true, size: PROP_SCALE.debris },
   ]
 
@@ -4974,6 +5336,20 @@ export function createRenderer(app) {
       // that override's own comment. This palette (a stony taupe) still applies either way.
       obstacle: { tint: 0x8a7a62, foot: 0x2e2a20 },
     },
+    // v5.11 biomes. Neither gets a bespoke prop set: what defines both is EMPTINESS, and the
+    // parcel/dune/swash texture is already in the terrain tile. Desert borrows the hills scatter
+    // (boulders and debris are exactly right for a stony arid plain) at a twelfth the build density
+    // (BIOME_BUILD_DENSITY, terrain.js); beach borrows sea's shoreline furniture, which is what a
+    // beach has on it. Reusing these tables is the correct call rather than a shortcut — inventing
+    // two more prop sets would add clutter to the two biomes whose whole job is to be bare.
+    desert: {
+      big: BIG_HILLS, mid: MID_HILLS, detail: DETAIL_HILLS,
+      obstacle: { tint: 0xb09872, foot: 0x35291a },
+    },
+    beach: {
+      big: BIG_SEA, mid: MID_SEA, detail: DETAIL_SEA,
+      obstacle: { tint: 0xb0a482, foot: 0x33301f },
+    },
   }
   // Structure silhouette per o.kind (v5.8 kaiju redesign, config.js STRUCTURE_KINDS; barn/silo added
   // v5.9): the district table above supplies the PALETTE, this supplies the SHAPE — see its doc
@@ -5007,7 +5383,7 @@ export function createRenderer(app) {
   // boulders at a bigger scale) and §8.8 (downtown's landmark building was literally the generic
   // rubble prop, which is also downtown's floor debris).
   const STRUCTURE_SKINS = {
-    tower: { baked: ['skTowerA', 'skTowerB'], topDown: true },
+    tower: { baked: ['skTowerA', 'skTowerB', 'skTowerC', 'skTowerD', 'skTowerE'], topDown: true },
     house: { baked: ['skHouseA', 'skHouseB'], topDown: true },
     tree: { baked: ['skTree', 'skTree'], topDown: true },
     pier: { baked: ['skPier', 'skPier'], topDown: true },
@@ -5030,53 +5406,69 @@ export function createRenderer(app) {
   // ANY per-seed grid offset — render.js never learns that offset directly (config.js keeps it
   // private), it only ever calls the exported roadAt. -4 is a safety margin.
   const ROAD_CELL = ROAD_MINOR_WIDTH - 4
-  const ROAD_VISIBLE_DISTRICTS = new Set(['downtown', 'suburbs', 'parks'])
   // roadAt's `angle` is 0 for an east-west street (runs along x) or PI/2 for north-south — the
   // perpendicular unit vector (the direction `dist` is measured along) is (sin(angle), cos(angle)).
   function roadPerp(angle) { return { x: Math.sin(angle), y: Math.cos(angle) } }
 
-  // ---- the road grid ORIGIN (v5.10, spec §4.3) ------------------------------------------------
-  // ROAD_CELL is 30 and ROAD_SPACING is 480, so a junction is ~16 road cells across on each axis:
-  // "stamp a crosswalk when onV && onH" would lay a dozen overlapping zebras on one junction, and
-  // kerb lamps stamped per cell would land ~16 deep. Both want ENUMERATION, which needs the grid's
-  // per-seed offset — and config.js keeps that private. It is recoverable, though: roadAt's onV
-  // depends only on x and onH only on y, so a coarse scan along one axis finds a centreline, and a
-  // sign probe turns roadAt's unsigned `dist` into an exact position. <= 3 x 80 probes, ONCE per
-  // run. Junction centres are then exactly (ox + m*480, oy + n*480) — <= 6 in a 1280x720 view.
-  let roadOrigin = null
-  function latchRoadOrigin() {
-    roadOrigin = null
-    if (!chapterHasRoads) return
-    const J = ROAD_JUNCTION
-    const findAxis = (vertical) => {
-      // three probe lines, because a probe line that happens to sit EXACTLY on a centreline of the
-      // other axis returns that axis for every sample; at most one of these three can do that
-      for (const off of [0.5, 137.5, 293.5]) {
-        let best = null
-        for (let t = 0; t < ROAD_SPACING; t += J.latchStepPx) {
-          const ra = vertical ? roadAt(t, off, roadSeed) : roadAt(off, t, roadSeed)
-          if (!ra.onRoad) continue
-          if (vertical ? ra.angle === 0 : ra.angle !== 0) continue
-          if (!best || ra.dist < best.dist) best = { t, dist: ra.dist }
-        }
-        if (!best) continue
-        const probe = vertical ? roadAt(best.t + 2, off, roadSeed) : roadAt(off, best.t + 2, roadSeed)
-        const sign = (probe.onRoad && probe.dist < best.dist) ? 1 : -1
-        return best.t + sign * best.dist
+  // ---- the city street FRAME (v5.11) ----------------------------------------------------------
+  // This replaces latchRoadOrigin, which recovered a single GLOBAL grid offset by probing roadAt
+  // along each axis. That worked only because the old grid was one infinite axis-aligned lattice
+  // shared by the whole world. Streets now belong to individual cities, each with its OWN origin,
+  // rotation and block size — so there is nothing global left to latch, and nothing needs latching:
+  // the city objects carry all three numbers directly (terrain.js cityAt), which is both exact and
+  // cheaper than the probe ever was.
+  //
+  // Everything that used to key off the latched origin — junctions, kerb lamps, parked-car
+  // alignment — now enumerates in the relevant city's frame instead.
+  function visibleCities(cx, cy, pad) {
+    const w = app.screen.width, h = app.screen.height
+    const x0 = -cx - pad, y0 = -cy - pad, x1 = -cx + w + pad, y1 = -cy + h + pad
+    const out = []
+    // +-1 lattice cell of slack: a city's centre can sit outside the view while its streets reach in.
+    const i0 = Math.floor(x0 / CITY_GRID) - 1, i1 = Math.floor(x1 / CITY_GRID) + 1
+    const j0 = Math.floor(y0 / CITY_GRID) - 1, j1 = Math.floor(y1 / CITY_GRID) + 1
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const c = cityAt(i, j, districtSeed)
+        if (c) out.push(c)
       }
-      return null
     }
-    const ox = findAxis(true)
-    const oy = findAxis(false)
-    if (ox != null && oy != null) roadOrigin = { x: ox, y: oy }
+    return { cities: out, x0, y0, x1, y1 }
   }
-  // Which way does the nearest street run at (wx, wy)? roadAt's own convention: 0 for east-west,
-  // PI/2 for north-south. Used to align parked vehicles and painted lots to the grid.
+
+  // The view rectangle expressed in one city's rotated frame, clamped to that city's own radius so
+  // a caller never enumerates grid nodes out in the countryside where the city has no streets.
+  function cityViewBounds(c, x0, y0, x1, y1) {
+    const cos = Math.cos(-c.angle), sin = Math.sin(-c.angle)
+    let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity
+    for (const [px, py] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+      const dx = px - c.x, dy = py - c.y
+      const u = dx * cos - dy * sin
+      const v = dx * sin + dy * cos
+      if (u < uMin) uMin = u; if (u > uMax) uMax = u
+      if (v < vMin) vMin = v; if (v > vMax) vMax = v
+    }
+    return {
+      uMin: Math.max(uMin, -c.r), uMax: Math.min(uMax, c.r),
+      vMin: Math.max(vMin, -c.r), vMax: Math.min(vMax, c.r),
+    }
+  }
+
+  // (u, v) in a city's frame back to world space.
+  function cityToWorld(c, u, v) {
+    const cos = Math.cos(c.angle), sin = Math.sin(c.angle)
+    return { x: c.x + u * cos - v * sin, y: c.y + u * sin + v * cos }
+  }
+
+  // Which way does the nearest street run at (wx, wy)? Used to align parked vehicles and painted
+  // lots to the grid. Answers in the nearest city's frame; 0 outside any city, where there is no
+  // grid to align to and the caller's own jitter is the whole answer.
   function nearestStreetAngle(wx, wy) {
-    if (!roadOrigin) return 0
-    const dv = Math.abs((wx - roadOrigin.x) - Math.round((wx - roadOrigin.x) / ROAD_SPACING) * ROAD_SPACING)
-    const dh = Math.abs((wy - roadOrigin.y) - Math.round((wy - roadOrigin.y) / ROAD_SPACING) * ROAD_SPACING)
-    return dv <= dh ? Math.PI / 2 : 0
+    if (!chapterHasRoads) return 0
+    const ra = roadAt(wx, wy, roadSeed)
+    if (ra.onRoad) return ra.angle
+    const near = nearestCity(wx, wy, roadSeed)
+    return near ? near.city.angle : 0
   }
 
   function populateRoad(s, i, j, cell) {
@@ -5094,12 +5486,12 @@ export function createRenderer(app) {
     const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
     const cx = wx + perp.x * ra.dist * sign
     const cy = wy + perp.y * ra.dist * sign
-    // roadAt and districtAt are independent seeds by design (config.js CHAPTERS.skies.roads'
-    // ponytail note — sim stays ignorant of districts), so a street can wander into sea/hills.
-    // Painting asphalt over open water or wild moorland would read as broken; the structure-
-    // clearing underneath is invisible anyway (nothing depends on the pavement itself being drawn),
-    // so the least-wrong choice is to just not draw it outside the urban districts.
-    if (!ROAD_VISIBLE_DISTRICTS.has(districtAt(cx, cy, districtSeed))) { s.visible = false; return }
+    // v5.11: NO DISTRICT GATE. This is the line that produced "roads are 10 meters long" — a
+    // street was a continuous infinite line being drawn only where it crossed an urban district
+    // cell, so it appeared for a few hundred px and vanished. Every road roadAt now returns already
+    // belongs somewhere (a city's own grid, or a highway between two cities), so drawing all of it
+    // is correct: a highway crossing farmland SHOULD be drawn, and one crossing water reads as the
+    // causeway it is.
     const look = ra.major ? T.roadMajor : T.roadMinor
     s.texture = look.tex
     s.anchor.set(look.ax, look.ay)
@@ -5116,7 +5508,7 @@ export function createRenderer(app) {
   // tile — that tile is stamped at a non-uniform scale (x 0.48, y 0.34 minor / 0.62 major), so a
   // baked circle comes out an oval and by a DIFFERENT amount on an avenue than on a side street.
   // These are separate, uniformly-scaled sprites on their own 160px cell: one decal per cell,
-  // picked by cellHash, self-gating on roadAt + ROAD_VISIBLE_DISTRICTS exactly like populateRoad.
+  // picked by cellHash, self-gating on roadAt exactly like populateRoad.
   function populateRoadDecal(s, i, j, cell) {
     if (!chapterHasRoads) { s.visible = false; return }
     const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
@@ -5127,7 +5519,6 @@ export function createRenderer(app) {
     const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
     const cx = wx + perp.x * ra.dist * sign
     const cy = wy + perp.y * ra.dist * sign
-    if (!ROAD_VISIBLE_DISTRICTS.has(districtAt(cx, cy, districtSeed))) { s.visible = false; return }
     const along = { x: Math.cos(ra.angle), y: Math.sin(ra.angle) }
     const pick = ['manhole', 'patch', 'drain', 'arrow'][Math.floor(cellHash(i, j, 21) * 4)]
     const slide = (cellHash(i, j, 22) - 0.5) * cell * 0.7
@@ -5233,6 +5624,10 @@ export function createRenderer(app) {
   // (undefined), so touchFloorCell's extra gate never fires for them at all, chapter or no.
   const FLOOR_LAYERS = [
     { name: 'blotch', cell: 420, chance: 1.00, parent: blotchLayer, populate: populateBlotch },
+    // v5.11 terrain surface (skies only — populateTerrain self-gates on chapterHasDistricts). Its
+    // cell is PARCEL so one cell is exactly one farm field; at ~280px a 1900x1000 view is about 50
+    // sprites, cheaper than the 420px blotch layer it stands in for.
+    { name: 'terrain', cell: PARCEL, chance: 1.00, parent: blotchLayer, populate: populateTerrain },
     { name: 'road', cell: ROAD_CELL, chance: 1.00, parent: roadLayer, populate: populateRoad },
     { name: 'roadDecal', cell: ROAD_DECAL.cell, chance: ROAD_DECAL.chance, parent: roadDecalLayer, populate: populateRoadDecal },
     { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig, skiesKeep: SKIES_FLOOR_KEEP.big },
@@ -5757,30 +6152,34 @@ export function createRenderer(app) {
   }
   function updateJunctions(cx, cy) {
     let n = 0
-    if (chapterHasRoads && roadOrigin && T.junction) {
-      const w = app.screen.width, h = app.screen.height
-      const m0 = Math.ceil((-cx - 90 - roadOrigin.x) / ROAD_SPACING)
-      const m1 = Math.floor((-cx + w + 90 - roadOrigin.x) / ROAD_SPACING)
-      const k0 = Math.ceil((-cy - 90 - roadOrigin.y) / ROAD_SPACING)
-      const k1 = Math.floor((-cy + h + 90 - roadOrigin.y) / ROAD_SPACING)
-      for (let m = m0; m <= m1 && n < junctionSprites.length; m++) {
-        for (let k = k0; k <= k1 && n < junctionSprites.length; k++) {
-          const jx = roadOrigin.x + m * ROAD_SPACING
-          const jy = roadOrigin.y + k * ROAD_SPACING
-          if (!ROAD_VISIBLE_DISTRICTS.has(districtAtCached(jx, jy))) continue
-          // probe well clear of the crossing street so roadAt returns the axis we asked about
-          const vMajor = !!roadAt(jx, jy + ROAD_SPACING * 0.35, roadSeed).major
-          const hMajor = !!roadAt(jx + ROAD_SPACING * 0.35, jy, roadSeed).major
-          const look = T.junction[(vMajor ? 'major' : 'minor') + (hMajor ? 'Major' : 'Minor')]
-          const s = junctionSprites[n++]
-          s.visible = true
-          s.texture = look.tex
-          s.anchor.set(look.ax, look.ay)
-          s.tint = 0xffffff
-          s.alpha = 1
-          s.rotation = 0
-          s.scale.set(1)   // baked at TRUE world size
-          s.position.set(jx, jy)
+    if (chapterHasRoads && T.junction) {
+      const { cities, x0, y0, x1, y1 } = visibleCities(cx, cy, 90)
+      for (const c of cities) {
+        if (n >= junctionSprites.length) break
+        const b = cityViewBounds(c, x0, y0, x1, y1)
+        for (let ui = Math.ceil(b.uMin / c.block); ui * c.block <= b.uMax && n < junctionSprites.length; ui++) {
+          for (let vi = Math.ceil(b.vMin / c.block); vi * c.block <= b.vMax && n < junctionSprites.length; vi++) {
+            const p = cityToWorld(c, ui * c.block, vi * c.block)
+            // A grid node inside the radius can still fall outside the street area — the urban
+            // falloff is noise-wobbled, so the outermost nodes have no pavement under them. Asking
+            // roadAt is the one check guaranteed to agree with what populateRoad actually drew.
+            if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
+            // Class comes straight from the grid index, the same test roadAt itself uses — no probe.
+            const E = STREET_SPACING_MAJOR_EVERY
+            const uMajor = ((ui % E) + E) % E === 0
+            const vMajor = ((vi % E) + E) % E === 0
+            const look = T.junction[(uMajor ? 'major' : 'minor') + (vMajor ? 'Major' : 'Minor')]
+            const s = junctionSprites[n++]
+            s.visible = true
+            s.texture = look.tex
+            s.anchor.set(look.ax, look.ay)
+            s.tint = 0xffffff
+            s.alpha = 1
+            // Baked axis-aligned, so it has to turn with the city it belongs to.
+            s.rotation = c.angle
+            s.scale.set(1)   // baked at TRUE world size
+            s.position.set(p.x, p.y)
+          }
         }
       }
     }
@@ -5813,7 +6212,6 @@ export function createRenderer(app) {
   }
   function placeLamp(n, x, y, angle) {
     if (n >= lampMasts.length) return n
-    if (!ROAD_VISIBLE_DISTRICTS.has(districtAtCached(x, y))) return n
     const L = SKIES_LIGHT.lamp
     const m = lampMasts[n]
     m.visible = true
@@ -5839,26 +6237,49 @@ export function createRenderer(app) {
   }
   function updateLamps(cx, cy) {
     let n = 0
-    if (chapterHasRoads && roadOrigin && chapterHasStorm) {
+    // Probe budget. Every candidate lamp position asks roadAt whether there is actually pavement
+    // under it, and roadAt is ~2.5us (it consults the city lattice and a noise field, not a modulo
+    // like the v5.10 global grid did). Measured over a 40x27 grid of camera positions the
+    // enumeration averages 115 probes a frame (0.29ms) but peaks at 571 (1.46ms) where several
+    // cities' grids overlap the view — and most of that peak is wasted, since only
+    // SKIES_LIGHT.lamp.pool (64) lamps can be placed however many positions are tested. Capping the
+    // probes bounds the worst frame without touching the common one; the cap is well above the
+    // ~180 probes it takes to fill the pool in a dense city.
+    let probes = 0
+    const PROBE_BUDGET = 260
+    if (chapterHasRoads && chapterHasStorm) {
       const L = SKIES_LIGHT.lamp
-      const w = app.screen.width, h = app.screen.height
-      const x0 = -cx - 60, x1 = -cx + w + 60, y0 = -cy - 60, y1 = -cy + h + 60
-      // vertical streets (run along y): lamps step in y, offset in x
-      for (let m = Math.ceil((x0 - roadOrigin.x) / ROAD_SPACING); m <= Math.floor((x1 - roadOrigin.x) / ROAD_SPACING); m++) {
-        const lx = roadOrigin.x + m * ROAD_SPACING
-        const half = roadAt(lx, roadOrigin.y + ROAD_SPACING * 0.35, roadSeed).half || ROAD_MINOR_WIDTH / 2
-        for (let k = Math.ceil(y0 / L.spacingPx); k <= Math.floor(y1 / L.spacingPx) && n < lampMasts.length; k++) {
-          const side = L.alternateSides && (k & 1) ? -1 : 1
-          n = placeLamp(n, lx + side * (half - L.kerbInset), k * L.spacingPx, 0)
+      const { cities, x0, y0, x1, y1 } = visibleCities(cx, cy, 60)
+      for (const c of cities) {
+        if (n >= lampMasts.length) break
+        const b = cityViewBounds(c, x0, y0, x1, y1)
+        const E = STREET_SPACING_MAJOR_EVERY
+        // Streets running along +v (constant u), then streets running along +u. Both walk the
+        // centreline in the CITY's frame and offset to the kerb across it, so the lamp row follows
+        // the street's real rotation instead of a world axis.
+        for (let ui = Math.ceil(b.uMin / c.block); ui * c.block <= b.uMax && n < lampMasts.length; ui++) {
+          const u = ui * c.block
+          const major = ((ui % E) + E) % E === 0
+          const half = (major ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
+          for (let k = Math.ceil(b.vMin / L.spacingPx); k * L.spacingPx <= b.vMax && n < lampMasts.length; k++) {
+            const side = L.alternateSides && (k & 1) ? -1 : 1
+            if (++probes > PROBE_BUDGET) break
+            const p = cityToWorld(c, u + side * (half - L.kerbInset), k * L.spacingPx)
+            if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
+            n = placeLamp(n, p.x, p.y, c.angle + Math.PI / 2)
+          }
         }
-      }
-      // horizontal streets (run along x): lamps step in x, offset in y
-      for (let m = Math.ceil((y0 - roadOrigin.y) / ROAD_SPACING); m <= Math.floor((y1 - roadOrigin.y) / ROAD_SPACING); m++) {
-        const ly = roadOrigin.y + m * ROAD_SPACING
-        const half = roadAt(roadOrigin.x + ROAD_SPACING * 0.35, ly, roadSeed).half || ROAD_MINOR_WIDTH / 2
-        for (let k = Math.ceil(x0 / L.spacingPx); k <= Math.floor(x1 / L.spacingPx) && n < lampMasts.length; k++) {
-          const side = L.alternateSides && (k & 1) ? -1 : 1
-          n = placeLamp(n, k * L.spacingPx, ly + side * (half - L.kerbInset), Math.PI / 2)
+        for (let vi = Math.ceil(b.vMin / c.block); vi * c.block <= b.vMax && n < lampMasts.length; vi++) {
+          const v = vi * c.block
+          const major = ((vi % E) + E) % E === 0
+          const half = (major ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
+          for (let k = Math.ceil(b.uMin / L.spacingPx); k * L.spacingPx <= b.uMax && n < lampMasts.length; k++) {
+            const side = L.alternateSides && (k & 1) ? -1 : 1
+            if (++probes > PROBE_BUDGET) break
+            const p = cityToWorld(c, k * L.spacingPx, v + side * (half - L.kerbInset))
+            if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
+            n = placeLamp(n, p.x, p.y, c.angle)
+          }
         }
       }
     }
@@ -6732,7 +7153,12 @@ export function createRenderer(app) {
       ov.x = o.x; ov.y = o.y; ov.r = o.r
       ov.tower = false; ov.lamp.visible = false
       liveCells.add(o._cell)
-      const rot = hash(o.x + o.y * 3.3) * Math.PI * 2
+      // v5.11: a building INSIDE A CITY is squared to its block. sim's streamObstacles stamps
+      // o.rot from the city's own street angle when it snaps the structure off the carriageway
+      // (blockSnap, terrain.js); everything in open country keeps the free hashed spin, which is
+      // right — a barn in a field answers to nothing, but a row of towers at independent random
+      // angles is the loudest possible tell that nobody planned the street they stand on.
+      const rot = o.rot ? o.rot + (hash(o.x + o.y * 3.3) - 0.5) * 0.08 : hash(o.x + o.y * 3.3) * Math.PI * 2
       // districts (skies only): each obstacle's PALETTE follows WHERE it sits (districtAt at its
       // own x,y), not one chapter-wide style — see DISTRICT_BIOMES above. Cached per o._cell (see
       // obstacleSkinCache's doc) so a rebuild only pays the district hash chain once per obstacle
@@ -8646,7 +9072,8 @@ export function createRenderer(app) {
       // size (SKIES_KAIJU.shadowRx), instead of the generic blob's small straight-down disc (the
       // `else` branch below, unchanged). +20 nudges it toward the tail/hip so it settles under the
       // creature's mass rather than dead-centre.
-      pShadow.position.set(SKIES_SHADOW.dx * SKIES_KAIJU.shadowRx, SKIES_SHADOW.dy * SKIES_KAIJU.shadowRx + 20)
+      const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
+      pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
     } else {
       if (pBody.texture !== T.playerBody.tex) {
         pBody.texture = T.playerBody.tex; pBody.anchor.set(T.playerBody.ax, T.playerBody.ay)
@@ -8778,7 +9205,11 @@ export function createRenderer(app) {
       // same rotation applied to where the tail ROOTS). No p.facing flip: rotation alone now
       // supplies the facing, and the silhouette is symmetric enough (deliberately) that a flip on
       // top would only double-transform, not add anything a rotation doesn't already give it.
-      bodyC.scale.set(sx, sy)
+      // v5.11: x SKIES_KAIJU.bodyScale — the one knob that resizes the whole creature (see that
+      // field's comment in config.js). It lives on the CONTAINER so body, flash, dorsal plates and
+      // the three-segment tail chain all scale together; scaling the sprites individually would
+      // leave the tail rooted at an unscaled hip offset.
+      bodyC.scale.set(sx * SKIES_KAIJU.bodyScale, sy * SKIES_KAIJU.bodyScale)
       bodyC.rotation = (p.facingAngle == null ? 0 : p.facingAngle) + Math.PI / 2
     } else {
       bodyC.scale.set(p.facing * sx, sy)
@@ -8786,7 +9217,10 @@ export function createRenderer(app) {
                            // this session was skies (chapterHasKaiju's rig rotates bodyC above)
     }
     bodyC.y = by
-    pShadow.scale.set(1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0))
+    // The shadow is a sibling of bodyC, not a child, so it needs the same bodyScale applied by hand
+    // — otherwise shrinking the kaiju would leave it standing on its old, much larger shadow.
+    const shadowSquash = 1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0)
+    pShadow.scale.set(chapterHasKaiju ? shadowSquash * SKIES_KAIJU.bodyScale : shadowSquash)
 
     // pupil tracking (local +x flips with the body toward facing)
     if (chapterHasKaiju) {
@@ -9472,8 +9906,6 @@ export function createRenderer(app) {
     chapterHasRoads = !!cfg?.roads
     roadSeed = run?._obstacleSeed ?? 0
     // v5.10: recover the per-seed road grid origin ONCE per run, before anything that enumerates
-    // off it (junctions, kerb lamps, parked-car alignment) can run — see latchRoadOrigin.
-    latchRoadOrigin()
     // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body

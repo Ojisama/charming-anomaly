@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Dev-only visual check for the v5.11 world generator. Not part of the game bundle; served by
+     `npm run dev` at /terrain-preview.html. Draws districtTintAt + roadAt over a wide area so a
+     coastline, a farm patchwork or a desert can be eyeballed without walking there in-game. -->
+<html><head><meta charset="utf-8"><title>terrain preview</title>
+<style>body{margin:0;background:#12161e;color:#ccd;font:12px system-ui} canvas{display:block;width:1560px;height:870px;image-rendering:pixelated} .row{padding:6px 10px}</style>
+</head><body>
+<div class="row" id="hud">rendering…</div>
+<canvas id="c"></canvas>
+<script type="module">
+import { roadAt, terrainAt, pickWorldSeed, parcelAt } from './src/terrain.js'
+import { districtTintAt } from './src/config.js'   // the tint is assembled in config, not terrain
+const PARAMS = new URLSearchParams(location.search)
+const seed = pickWorldSeed(parseInt(PARAMS.get('seed') || '12345', 10))
+const span = parseInt(PARAMS.get('span') || '9000', 10)   // world px across
+const W = 520, Hh = 290   // sampled coarse and upscaled by CSS — a full-res sample is ~1.2M
+                          // terrain+road queries and takes minutes; this is seconds and shows the
+                          // same shapes, since every feature here is hundreds of world px across
+const step = span / W
+const cx = parseInt(PARAMS.get('cx') || '0', 10)
+const cy = parseInt(PARAMS.get('cy') || '0', 10)
+const c = document.getElementById('c'); c.width = W; c.height = Hh
+const ctx = c.getContext('2d')
+const img = ctx.createImageData(W, Hh)
+// same crop palette populateTerrain uses, so the farm patchwork here matches the game
+const CROPS = [0x8f9a53, 0xa8a259, 0xb8a765, 0x6f7f46, 0x9c8f6b, 0x7d6f52]
+const BG = 0x2a3240
+function mix(a, b, t) {
+  const ar=(a>>16)&255, ag=(a>>8)&255, ab=a&255, br=(b>>16)&255, bg=(b>>8)&255, bb=b&255
+  return [ar+(br-ar)*t, ag+(bg-ag)*t, ab+(bb-ab)*t]
+}
+const counts = {}
+for (let py = 0; py < Hh; py++) {
+  for (let px = 0; px < W; px++) {
+    const x = cx + (px - W/2) * step
+    const y = cy + (py - Hh/2) * step
+    const t = terrainAt(x, y, seed)
+    counts[t.biome] = (counts[t.biome]||0)+1
+    let tint = districtTintAt(x, y, seed)
+    if (t.biome === 'farms') {
+      const p = parcelAt(x, y, seed)
+      const cr = CROPS[p.crop]
+      const m = mix(tint, cr, 0.62); tint = (Math.round(m[0])<<16)|(Math.round(m[1])<<8)|Math.round(m[2])
+    }
+    let [r, g, b] = mix(BG, tint, 0.5)
+    if (roadAt(x, y, seed).onRoad) { r = 46; g = 50; b = 58 }
+    const i = (py * W + px) * 4
+    img.data[i] = r; img.data[i+1] = g; img.data[i+2] = b; img.data[i+3] = 255
+  }
+}
+ctx.putImageData(img, 0, 0)
+const tot = W*Hh
+document.getElementById('hud').textContent =
+  `seed ${seed} · ${span}px across · centre (${cx},${cy}) · ` +
+  Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k} ${(v/tot*100).toFixed(1)}%`).join('  ')
+</script></body></html>

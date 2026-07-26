@@ -36,9 +36,9 @@ import {
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
-  DISTRICTS, DISTRICT_GRID, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
+  DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
-  roadAt,
+  roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -3957,8 +3957,11 @@ function testDistricts() {
   // every type returned must be a real DISTRICTS key, and sea must show up somewhere (the
   // low-frequency clustering bias shouldn't make it vanish).
   const seen = new Set()
-  const SPAN = DISTRICT_GRID * 12
-  const STEP = DISTRICT_GRID * 1.3
+  // v5.11: the sweep is sized against CITY_GRID (the terrain generator's coarsest feature lattice)
+  // rather than the retired Voronoi DISTRICT_GRID. The step is deliberately NOT a divisor of any
+  // generator wavelength, so the sample can't accidentally ride one phase of the noise.
+  const SPAN = CITY_GRID * 7
+  const STEP = CITY_GRID * 0.31
   for (let x = -SPAN; x <= SPAN; x += STEP) {
     for (let y = -SPAN; y <= SPAN; y += STEP) seen.add(districtAt(x, y, seed))
   }
@@ -3970,6 +3973,11 @@ function testDistricts() {
   // change that starves one of them out doesn't slip past silently.
   assert(seen.has('farms'), `expected farms to appear somewhere over a wide sweep, got ${[...seen]}`)
   assert(seen.has('hills'), `expected hills to appear somewhere over a wide sweep, got ${[...seen]}`)
+  // v5.11 added two biomes (desert, beach) and the report asked for deserts by name. Pin them the
+  // same way, so a threshold change in terrain.js that quietly starves one out fails here.
+  assert(seen.has('desert'), `expected desert to appear somewhere over a wide sweep, got ${[...seen]}`)
+  assert(seen.has('beach'), `expected beach to appear somewhere over a wide sweep, got ${[...seen]}`)
+  assert(seen.has('downtown'), `expected downtown to appear somewhere over a wide sweep, got ${[...seen]}`)
 
   // continuous blend: walk a straight line crossing several district borders in small steps;
   // districtTintAt must never jump by more than a small epsilon per step (no hard pop at a
@@ -4185,13 +4193,41 @@ function testSkiesKaiju() {
     const kindsA = Object.fromEntries(runA.obstacles.map((o) => [o._cell, o.kind]))
     assert(Object.keys(kindsA).length > 5, 'expected the forced seed to stream in a real set of obstacles')
 
-    // The cell SET is still purely a function of _obstacleSeed — a district change must not move
-    // where buildings stand, only what they are.
+    // v5.11 DELIBERATELY RETIRED the invariant that used to be asserted here ("the same obstacle
+    // seed streams the exact same set of cells regardless of _districtSeed"). It was true because
+    // the per-cell build probability was a flat constant everywhere, which is precisely the property
+    // that made a city impossible to see: a pier every 200px across open ocean at the same spacing
+    // as towers downtown. Density is now a function of the biome (BIOME_BUILD_DENSITY, terrain.js),
+    // so the cell set MUST move with the world seed.
+    //
+    // What replaces it is the property that actually matters, and the one the "no building" half of
+    // the playtest report was about: A CITY IS DENSER THAN OPEN COUNTRY. Measured directly on the
+    // generator over equal-area samples rather than on a live run, so it can't be confounded by
+    // where the streaming disc happens to sit.
     const runB = seededSkiesRun(seed, 999999)
     stepSim(runB, { x: 0, y: 0 }, dt)
-    const kindsB = Object.fromEntries(runB.obstacles.map((o) => [o._cell, o.kind]))
-    assert.strictEqual(Object.keys(kindsB).length, Object.keys(kindsA).length,
-      'expected the same obstacle seed to stream the exact same set of cells regardless of _districtSeed')
+    assert(runB.obstacles.length > 5, 'expected the second world seed to stream in a real set of obstacles too')
+
+    {
+      const wseed = pickWorldSeed(31337)
+      const tally = {}
+      for (let i = 0; i < 24000; i++) {
+        const x = (i * 173) % 26000 - 13000
+        const y = (i * 1097) % 26000 - 13000
+        const b = districtAt(x, y, wseed)
+        tally[b] = (tally[b] || 0) + 1
+      }
+      // Sanity: the sample has to actually contain both kinds of place before comparing them.
+      assert((tally.downtown || 0) > 50 && (tally.sea || 0) > 50,
+        `expected the sample to cover both downtown and sea, got ${JSON.stringify(tally)}`)
+      const dDown = BIOME_BUILD_DENSITY.downtown, dSea = BIOME_BUILD_DENSITY.sea
+      assert(dDown > dSea * 10,
+        `expected downtown to build far denser than open sea, got ${dDown} vs ${dSea}`)
+      assert(BIOME_BUILD_DENSITY.downtown > BIOME_BUILD_DENSITY.suburbs
+        && BIOME_BUILD_DENSITY.suburbs > BIOME_BUILD_DENSITY.farms
+        && BIOME_BUILD_DENSITY.farms > BIOME_BUILD_DENSITY.desert,
+        'expected build density to fall monotonically downtown > suburbs > farms > desert')
+    }
 
     // ...and every structure must be legal for the district it stands in. This is the playtest bug
     // ("there are houses in sea biome") in assertion form: sea may hold piers and nothing else.
@@ -4372,7 +4408,9 @@ function testRoads() {
       stepSim(run, { x: Math.cos(t), y: Math.sin(t) }, dt)
     }
     assert(run.obstacles.length > 0, 'expected a live skies run to stream in real obstacles')
-    const onRoad = run.obstacles.filter((o) => roadAt(o.x, o.y, run._obstacleSeed).onRoad)
+    // v5.11: roads are queried on run._districtSeed (the WORLD seed) — the old separate
+    // run._obstacleSeed road lattice is gone, along with the reason streets used to cross open sea.
+    const onRoad = run.obstacles.filter((o) => roadAt(o.x, o.y, run._districtSeed).onRoad)
     assert.strictEqual(onRoad.length, 0,
       `expected no live obstacle centred on roadway, found ${onRoad.length}/${run.obstacles.length}: ${JSON.stringify(onRoad.slice(0, 3))}`)
     console.log(`PASS run DD.c (roads are clear): 0/${run.obstacles.length} live obstacles centred on roadway`)
@@ -4385,6 +4423,91 @@ function testRoads() {
   {
     assert.strictEqual(STRUCTURE_KINDS.length, 6, `expected 6 structure kinds (v5.9 grew this from 4), got ${STRUCTURE_KINDS.length}: ${STRUCTURE_KINDS}`)
     console.log(`PASS run DD.d (structure kind count): ${STRUCTURE_KINDS.length} kinds (${STRUCTURE_KINDS.join(',')})`)
+  }
+
+  // (e) STREETS ARE CONTINUOUS — the direct regression test for the v5.11 playtest report, "roads
+  // are 10 meters long". Nothing in the suite could catch that: DD.b only counts how OFTEN a
+  // diagonal sweep is on roadway, and a road chopped into 600px stubs scores exactly the same
+  // coverage as an unbroken one. The bug was never about coverage, it was about CONTINUITY.
+  //
+  // So walk ALONG a street instead of across it: find a point on a city street, take the heading
+  // roadAt reports there, and follow it. A real street stays under your feet for its whole length.
+  // The old build failed this instantly — render only drew pavement inside the urban districts of a
+  // 600px Voronoi cell, so following any street walked off the paving within a few hundred px.
+  {
+    const seed = pickWorldSeed(4242)
+    // Start from the home city's centre (terrain.js guarantees a city at the origin) and search
+    // outward for a street to stand on.
+    let start = null
+    for (let probe = 0; probe < 4000 && !start; probe++) {
+      const px = (probe % 63) * 17 - 500, py = Math.floor(probe / 63) * 17 - 500
+      const r = roadAt(px, py, seed)
+      if (r.onRoad && r.kind === 'street') start = { x: px, y: py, angle: r.angle }
+    }
+    assert(start, 'expected to find a city street near the origin to walk along')
+
+    // Follow the street's own heading. Re-centre onto the centreline each step (roadAt reports the
+    // perpendicular distance) so accumulated float drift can't walk us into the kerb and read as a
+    // discontinuity that isn't one.
+    const STEP = 12
+    let x = start.x, y = start.y, walked = 0, offRoad = 0
+    for (let i = 0; i < 60; i++) {
+      const r = roadAt(x, y, seed)
+      if (!r.onRoad) { offRoad++; break }
+      // recentre: nudge perpendicular, keep whichever direction reduced `dist`
+      const px = Math.sin(r.angle), py = Math.cos(r.angle)
+      const probe = roadAt(x + px * 3, y + py * 3, seed)
+      const sign = (probe.onRoad && probe.dist < r.dist) ? 1 : -1
+      x += px * r.dist * sign; y += py * r.dist * sign
+      x += Math.cos(r.angle) * STEP; y += Math.sin(r.angle) * STEP
+      walked += STEP
+    }
+    assert.strictEqual(offRoad, 0, `expected a city street to stay continuous under a walk along its own heading; left the roadway after ${walked}px`)
+    assert(walked >= 700, `expected to walk at least 700px along one street, managed ${walked}px`)
+    console.log(`PASS run DD.e (streets are continuous): walked ${walked}px along one street without leaving the roadway`)
+  }
+
+  // (f) ROADS BELONG TO CITIES. The v5.10 grid was global and infinite, so roadway existed in the
+  // middle of the ocean and halfway up a mountain — which is what forced render to gate drawing per
+  // district and produced the stubs DD.e now guards. Assert the structural property that replaced
+  // it: every street is inside a city's own radius. (Highways are exempt by construction — their
+  // whole job is to run between cities — so they're excluded, not ignored: DD.e already proves the
+  // street case, and a highway with no city at either end cannot be generated.)
+  {
+    const seed = pickWorldSeed(90210)
+    let streets = 0, orphans = 0
+    for (let i = 0; i < 6000; i++) {
+      const x = (i * 137) % 20000 - 10000
+      const y = (i * 991) % 20000 - 10000
+      const r = roadAt(x, y, seed)
+      if (!r.onRoad || r.kind !== 'street') continue
+      streets++
+      // The right property is "this place is urban", not "this point is within the city's nominal
+      // radius": cityEdgeWobble (terrain.js) deliberately makes the urban boundary ragged, pushing
+      // it out past r in places and pulling it in elsewhere, which is what stops cities rendering as
+      // perfect circles. Testing the raw radius would therefore fail on exactly the feature it is
+      // meant to protect (it did — 10/261 "orphans" that were all inside their own city's wobbled
+      // edge). urbanAt is the same question roadAt itself asks before laying a street.
+      if (urbanAt(x, y, seed) <= 0) orphans++
+    }
+    assert(streets > 20, `expected the sample to land on a decent number of city streets, got ${streets}`)
+    assert.strictEqual(orphans, 0, `expected every city street to lie inside its own city's radius, found ${orphans}/${streets} orphaned in open country`)
+    console.log(`PASS run DD.f (roads belong to cities): ${streets} sampled streets, 0 outside a city`)
+  }
+
+  // (g) THE RUN OPENS IN A CITY. terrain.js puts the home city at the world origin unconditionally,
+  // and state.js walks the world seed forward until the origin is buildable land. Both halves have
+  // to hold or the chapter's opening image — a kaiju standing downtown — silently becomes "a kaiju
+  // in an empty field", which is exactly the kind of regression that only shows up in a screenshot.
+  {
+    for (const raw of [1, 2, 3, 99, 12345, 777777]) {
+      const seed = pickWorldSeed(raw)
+      const t = terrainAt(0, 0, seed)
+      assert(t.biome === 'downtown', `expected the world origin to be downtown for raw seed ${raw}, got ${t.biome}`)
+      const e = elevationAt(0, 0, seed)
+      assert(e > 0.40 && e < 0.71, `expected the origin to be buildable land for raw seed ${raw}, elevation ${e.toFixed(3)}`)
+    }
+    console.log('PASS run DD.g (spawn is downtown): 6 raw seeds all resolve to a buildable origin inside the home city')
   }
 }
 

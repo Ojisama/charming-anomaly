@@ -5,6 +5,7 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
   SNAP_TRAP_R, SNAP_TRAP_MIN_DIST,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
+  pickWorldSeed,
 } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -405,12 +406,24 @@ function generateWells(sig) {
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
- * _districtSeed (v5.7.x; PROMOTED v5.9.1 from render-only to a real, READ-ONLY sim contract): a
- *   random seed (createRun, Math.random(), like _obstacleSeed) for the skies chapter's procedural
- *   Voronoi district map — config.js's districtAt(x, y, seed)/districtTintAt(x, y, seed) pick a
- *   ground district (downtown/suburbs/parks/sea/farms/hills) and blended floor tint per world
- *   position. Null for chapters without CHAPTERS[chapter].render.districts (every chapter but
- *   skies). v5.9.1 bugfix ("houses in the sea", playtest report): sim.js's streamObstacles now
+ * _districtSeed (v5.7.x; PROMOTED v5.9.1 to a READ-ONLY sim contract; became THE WORLD SEED in
+ *   v5.11): the single seed the entire skies world derives from — elevation, moisture, rivers,
+ *   cities, roads, biomes and structure placement (src/terrain.js, re-exported through config.js).
+ *   Null for chapters without CHAPTERS[chapter].render.districts (every chapter but skies).
+ *
+ *   v5.11 replaced the Voronoi district map this used to seed. That map was an independent weighted
+ *   die roll per 600px cell, which cannot produce geography — and roads ran on a SEPARATE seed
+ *   (_obstacleSeed) as a global infinite lattice, which is why streets used to cross open water and
+ *   why render had to gate road drawing per district cell, chopping every street into 600px stubs
+ *   ("roads are 10 meters long", playtest report). Everything now shares THIS seed, which is what
+ *   lets each layer see the one below it: cities are placed by consulting elevation, streets are
+ *   placed by consulting cities. Read terrain.js's header before changing any of it.
+ *
+ *   createRun passes the raw Math.random() draw through terrain.js's pickWorldSeed, which walks
+ *   forward until the world origin is buildable land — the run spawns at (0,0) and terrain.js puts
+ *   the home city there unconditionally, so without it a run could open with downtown underwater.
+ *   pickWorldSeed is pure, so this still costs exactly ONE draw from the shared Math.random stream,
+ *   in the same order as before, and no seeded test can shift. v5.9.1 bugfix ("houses in the sea", playtest report): sim.js's streamObstacles now
  *   READS this field (via districtAt) to pick a new structure's `kind` from the district-
  *   appropriate subset (DISTRICT_STRUCTURE_KINDS, config.js) instead of the full STRUCTURE_KINDS
  *   list — kind used to be a hash roll fully independent of the district, so a suburb house could
@@ -419,8 +432,10 @@ function generateWells(sig) {
  *   reading an EXISTING field costs nothing from that stream and can't shift any later seeded draw
  *   (the AA.c/runStarOnly incident this project keeps citing is about NEW draws mid-step, not about
  *   reading old ones). sim.js still never computes the district map itself, never reads
- *   DISTRICTS/DISTRICT_REGION_BIAS or any floor-tint value, and still never branches game LOGIC on
- *   which district it got — only the cosmetic `kind` tag differs.
+ *   DISTRICTS or any floor-tint value, and still never branches game LOGIC on which biome it got.
+ *   v5.11 widened what sim reads it FOR — a structure's build DENSITY (BIOME_BUILD_DENSITY) and, in
+ *   a city, its position and rotation (blockSnap, so buildings line the streets) — but all of that
+ *   is still placement and cosmetics: no rule, damage number or spawn depends on the biome.
  *
  * v5.8 kaiju redesign — crushing & rampage (skies only, gated on CHAPTERS[chapter].crush; see
  * CRUSH_XP/RAMPAGE_* in config.js and sim.js's stepCrush/stepRampage):
@@ -698,7 +713,13 @@ export function createRun(meta, opts = {}) {
     // explanation on _districtSeed in the doc block above. sim.js's streamObstacles reads this
     // (skies only) to pick a district-appropriate structure `kind`; still drawn exactly once here,
     // so this doesn't change what the shared Math.random stream consumes or in what order.
-    _districtSeed: CHAPTERS[chapter].render?.districts ? (Math.random() * 0x7fffffff) | 0 : null,
+    // v5.11: the WORLD seed — biomes, rivers, cities, roads and structure placement now all derive
+    // from this one value (src/terrain.js). pickWorldSeed walks it forward until the world origin is
+    // buildable land, because the run spawns at (0,0) and terrain.js unconditionally puts the home
+    // city there; without the check a run could open with downtown underwater. It consumes no extra
+    // Math.random draw (it is a pure function of the one drawn here), so the shared random stream
+    // and every seeded test that depends on its ORDER are untouched.
+    _districtSeed: CHAPTERS[chapter].render?.districts ? pickWorldSeed((Math.random() * 0x7fffffff) | 0) : null,
     // v5.3 garden behavior (see doc block above): trails fed by dying trailFollow ants (pheromone
     // signature), webs by webZone spiders + the lure's stickyScent mod, strips by sprayStrip elites,
     // lures by the Pheromone Lure weapon. All empty unless something pushes to them.

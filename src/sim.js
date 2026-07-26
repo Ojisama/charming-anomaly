@@ -100,7 +100,7 @@ import {
   // v5.8 kaiju redesign (skies crushing + rampage)
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
   // v5.9 top-down region overhaul (skies roads + districts)
-  roadAt, districtAt, DISTRICT_STRUCTURE_KINDS,
+  roadAt, districtAt, DISTRICT_STRUCTURE_KINDS, BIOME_BUILD_DENSITY, blockSnap, STRUCTURE_SETBACK,
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
   STRUCTURE_RADIUS,
   // v5.4 beyond
@@ -1199,6 +1199,10 @@ function streamObstacles(run) {
   // count over the old origin field's area -> per-cell probability (density preserved)
   const prob = cfg.count * cs * cs / (Math.PI * OBSTACLE_FIELD_RADIUS * OBSTACLE_FIELD_RADIUS)
   const seed = run._obstacleSeed
+  // The WORLD seed (v5.11): biomes, rivers, cities and roads all derive from this one value, so
+  // structure placement can finally agree with the ground it is standing on. null for every chapter
+  // without a terrain map, where all the branches below fall back to the old uniform behaviour.
+  const worldSeed = run._districtSeed
   const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
@@ -1213,7 +1217,6 @@ function streamObstacles(run) {
       // OBSTACLE_DROP_RADIUS/distance, which is why walking away and back was never required to
       // see it happen.
       if (run._crushed.has(key)) continue
-      if (obstacleCellHash(i, j, seed, 0) >= prob) continue
       // v5.9.2 ("the fuck is this?" bug report): a chapter with a district map picks its structure's
       // RADIUS per-kind (STRUCTURE_RADIUS, config.js) instead of one chapter-wide cfg.minR/maxR band
       // — see that table's doc for why (draw size used to be divorced from the collider entirely).
@@ -1227,8 +1230,8 @@ function streamObstacles(run) {
       // possible structure, as a conservative worst case: every kind's real r <= this, so nothing
       // can end up more tightly packed than the jitter assumed.
       const slack = Math.max(0, cs / 2 - (perKindRadius ? cfg.maxR : r) - 20)
-      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 2) - 0.5) * 2 * slack
-      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 3) - 0.5) * 2 * slack
+      let x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 2) - 0.5) * 2 * slack
+      let y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 3) - 0.5) * 2 * slack
       if (Math.hypot(x, y) < cfg.minDist) continue                      // spawn ring stays clear
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
       // v5.9 top-down region overhaul: keep structures off the streets. roadAt is a pure hash (see
@@ -1244,7 +1247,22 @@ function streamObstacles(run) {
       // two agreeing. _districtSeed being promoted to a real sim contract (see below) doesn't change
       // this call — revisit only if roads ever need to read as district-aware (e.g. no roads carved
       // into open sea).
-      if (roadsOn && roadAt(x, y, seed).onRoad) continue
+      // v5.11: roads are queried on the WORLD seed (run._districtSeed), not run._obstacleSeed. The
+      // old two-seed split is gone along with the global lattice — see config.js's roadAt re-export
+      // for the full account, and note that this retires the standing ponytail here about a street
+      // grid being unaware of the district it crosses. It is aware now, because a street only exists
+      // where a city put it, and cities are placed by consulting the terrain.
+      if (roadsOn && roadAt(x, y, worldSeed).onRoad) continue
+
+      // v5.11 DENSITY IS A PROPERTY OF THE PLACE. The base probability here works out to 1.06 at the
+      // skies numbers, i.e. >= 1, so before this every single cell in the streamed disc built a
+      // structure — a pier every 260px across open ocean at exactly the same spacing as towers
+      // downtown. That is the "no building" half of the playtest report: a city cannot read as dense
+      // when nothing else is sparse. BIOME_BUILD_DENSITY (terrain.js) scales the roll per biome, so
+      // downtown saturates, farmland thins to about a third, and the desert is nearly bare.
+      const biome = worldSeed != null ? districtAt(x, y, worldSeed) : null
+      const density = biome ? (BIOME_BUILD_DENSITY[biome] ?? 1) : 1
+      if (obstacleCellHash(i, j, seed, 0) >= prob * density) continue
       // v5.9.1 bugfix ("houses in the sea", playtest report): kind used to be picked UNIFORMLY
       // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any silhouette
       // (including a house or a tower) could land in open water. When this run has a district map
@@ -1252,9 +1270,47 @@ function streamObstacles(run) {
       // (DISTRICT_STRUCTURE_KINDS, config.js) — same hash salt, deterministic, no new RNG draw.
       // Every other chapter (_districtSeed always null there) keeps the old uniform pick across the
       // full list, unchanged.
+      // v5.11 BUILDINGS LINE THE STREETS, and the SNAP HAPPENS BEFORE THE KIND IS CHOSEN. In a
+      // city a building's position is not where a hash dropped it: it is set back from the kerb and
+      // squared to the block. Scattering them freely inside a street grid is what made downtown read
+      // as "props sprinkled near some roads" rather than as a built place — the grid said one thing
+      // and the buildings said another. blockSnap (terrain.js) pushes the point out of the
+      // carriageway to the nearest block interior and returns the city's own grid angle to face it
+      // onto the street. Countryside keeps its free scatter, which is correct: a barn in a field
+      // answers to nothing.
+      //
+      // ORDER IS LOAD-BEARING. The first cut picked `kind` at the PRE-snap position and then moved
+      // the structure, which let a house chosen in the suburbs be carried across the downtown line
+      // and stand there as a house (caught by run CC.d: "expected a 'downtown' cell to hold one of
+      // [tower], got 'house'"). A structure has to be the kind appropriate to where it ENDS UP, so
+      // the kind and its radius are resolved below, from the FINAL position. The setback therefore
+      // cannot use the real radius yet and uses cfg.maxR — the chapter's largest possible structure
+      // — as a conservative stand-in, exactly as the cell jitter above already does.
+      let rot = 0
+      if (worldSeed != null && (biome === 'downtown' || biome === 'suburbs')) {
+        const snapped = blockSnap(x, y, worldSeed, cfg.maxR + STRUCTURE_SETBACK)
+        if (snapped) {
+          // The snap clears the CITY GRID, which is the only geometry it knows about — a highway
+          // running through the same city is a separate segment, and pushing a building off a side
+          // street can push it onto one. (Caught by run DD.c: one tower in 147 landed on a highway.)
+          // Re-checking after the move is both the cheapest and the most honest fix: it is the same
+          // predicate the pre-snap gate already used, so "no structure stands on roadway" holds for
+          // every road class without blockSnap having to learn about highways at all.
+          if (roadsOn && roadAt(snapped.x, snapped.y, worldSeed).onRoad) continue
+          x = snapped.x; y = snapped.y; rot = snapped.angle
+        }
+      }
+      // v5.9.1 bugfix ("houses in the sea", playtest report): kind used to be picked UNIFORMLY
+      // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any silhouette
+      // (including a house or a tower) could land in open water. When this run has a district map
+      // (run._districtSeed != null, skies only), pick from the district-appropriate subset instead
+      // (DISTRICT_STRUCTURE_KINDS, config.js) — same hash salt, deterministic, no new RNG draw.
+      // Every other chapter (_districtSeed always null there) keeps the old uniform pick across the
+      // full list, unchanged.
+      const placedBiome = worldSeed != null ? districtAt(x, y, worldSeed) : null
       const kindRoll = obstacleCellHash(i, j, seed, 4)
       const kinds = perKindRadius
-        ? (DISTRICT_STRUCTURE_KINDS[districtAt(x, y, run._districtSeed)] || STRUCTURE_KINDS)
+        ? (DISTRICT_STRUCTURE_KINDS[placedBiome] || STRUCTURE_KINDS)
         : STRUCTURE_KINDS
       const kind = kinds[Math.min(kinds.length - 1, Math.floor(kindRoll * kinds.length))]
       // v5.9.2: NOW that kind is known, a perKindRadius cell rolls its real radius from
@@ -1265,7 +1321,7 @@ function streamObstacles(run) {
         const band = STRUCTURE_RADIUS[kind] || [cfg.minR, cfg.maxR]
         r = band[0] + obstacleCellHash(i, j, seed, 1) * (band[1] - band[0])
       }
-      run.obstacles.push({ x, y, r, _cell: key, kind })
+      run.obstacles.push({ x, y, r, _cell: key, kind, rot })
       changed = true
     }
   }
