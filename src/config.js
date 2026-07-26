@@ -340,11 +340,16 @@ export const WEAPONS = {
     levels: [
       // v5.6.15: castRange raised — this is the skies' designated ANTI-AIR pick, so it must
       // comfortably outrange anything that hovers (missile standoff, strafe bank arcs), not tie it.
-      { dmg: 30, rate: 2.6, castRange: 340, flight: 0.60, r: 85,  count: 1 },
-      { dmg: 37, rate: 2.4, castRange: 360, flight: 0.60, r: 92,  count: 1 },
-      { dmg: 45, rate: 2.2, castRange: 380, flight: 0.55, r: 100, count: 2 },
-      { dmg: 55, rate: 2.0, castRange: 400, flight: 0.55, r: 110, count: 2 },
-      { dmg: 70, rate: 1.8, castRange: 420, flight: 0.50, r: 122, count: 3 },
+      // v5.15: flight times cut ~40% (0.60/0.60/0.55/0.55/0.50 -> below) — the throw was floaty.
+      // Note this is a small real BUFF as well as a feel change, not just cosmetics: the burst
+      // point (tx, ty) is fixed at launch and stepLobs tests it at landing, so a shorter flight is
+      // less time for the target to drift out of the blast. castRange is unchanged, so the rock
+      // covers the same ground faster rather than reaching further.
+      { dmg: 30, rate: 2.6, castRange: 340, flight: 0.36, r: 85,  count: 1 },
+      { dmg: 37, rate: 2.4, castRange: 360, flight: 0.36, r: 92,  count: 1 },
+      { dmg: 45, rate: 2.2, castRange: 380, flight: 0.33, r: 100, count: 2 },
+      { dmg: 55, rate: 2.0, castRange: 400, flight: 0.33, r: 110, count: 2 },
+      { dmg: 70, rate: 1.8, castRange: 420, flight: 0.30, r: 122, count: 3 },
     ],
   },
   // Beyond chapter natives (v5.4). Black-Hole Vortex = the hole re-theme (see WEAPONS.hole).
@@ -3021,27 +3026,9 @@ export const SKIES_FX = {
     duration: RAMPAGE_DURATION,                        // 5 s (sim constant, above)
   },
 
-  // DEBRIS TOSS IMPACT ZONE (v5.14, run.lobs — render.js syncLobs). The lob is the one PLAYER attack
-  // with real travel time and a committed landing point, so where it lands is information worth
-  // drawing. The hard rule is that it must not speak the enemy telegraph language: violet chevrons
-  // are the sky's, ochre brackets are the guns', orange lanes are the jets', magenta locks are the
-  // helicopters'. Every one of those means SOMETHING IS ABOUT TO HIT YOU, and a player-owned mark
-  // wearing that vocabulary is a lie about who is in danger. Two things keep it separate:
-  //   - HUE: SKIES_PALETTE.player, the atomic cyan-green reserved by palette law 2 for the kaiju
-  //     and nothing else. It is already the "this is yours" colour; this is the first mark on the
-  //     ground to use it.
-  //   - MOTION: the ring OPENS OUTWARD as the rock falls. Every enemy telegraph in the chapter
-  //     closes inward (gun brackets shrink, sky chevrons close, the strafe pool races in) — the one
-  //     that grows is the one you threw. Opposite motion reads faster than any colour does.
-  // Radius is the lob's OWN blast radius read live off the entity, so the ring is the true hitbox,
-  // and gravity wells that bend the landing point (bendLob) move the mark with it for free.
-  debris: {
-    color: SKIES_PALETTE.player,
-    ringW: 2,
-    ringAlpha: 0.6,
-    fillAlpha: 0.12,
-    growFrom: 0.3,   // ring radius as a fraction of the true blast radius at the moment of release
-  },
+  // v5.15: the debris-toss impact ring shipped in v5.14 is REMOVED, not retuned — the throw reads
+  // better with nothing on the ground at all, and the chapter is in the middle of a declutter pass.
+  // The lob's own arc and shadow already say where it is going; a ring was one more thing to look at.
 }
 
 // ---- THE LIGHT LAYER (spec §7) — the chapter's identity -----------------------------------------

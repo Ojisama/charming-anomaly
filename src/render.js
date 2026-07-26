@@ -4672,11 +4672,6 @@ export function createRenderer(app) {
   // cleared/redrawn each sync() like arcG below — must sit under enemyLayer/playerC
   // so danger circles read as floor decals, not overlays on top of the entities
   const bombG = new Graphics()
-  // v5.14: the PLAYER's own debris-toss impact zone (syncLobs). Its own Graphics, sitting just
-  // above scarLayer and below bombG, for both a z-order and a semantic reason: it is a ground decal
-  // like the danger circles, but it is NOT one of them — the enemy telegraph drawers all share
-  // bombG/teleG, and this mark deliberately does not belong to that family. See SKIES_FX.debris.
-  const lobG = new Graphics()
   const pacerG = new Graphics()
   // v5.6.5: the crowd's shadows and the elites' crowns were lifted OUT of the creature textures so
   // they stop inheriting the body's rotation — see groundShadow/eliteCrown up in the art section.
@@ -4701,7 +4696,7 @@ export function createRenderer(app) {
   entitiesLayer.addChild(
     wellLayer, wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
-    scarLayer, lobG, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
+    scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
@@ -8222,20 +8217,12 @@ export function createRenderer(app) {
   let lobCount = 0
   function syncLobs(run) {
     const list = run.lobs || []
-    lobG.clear()
-    const DB = SKIES_FX.debris
     while (lobPool.length < list.length) lobPool.push(acquireLob())
     for (let i = 0; i < list.length; i++) {
       const lb = list[i]
       const lv = lobPool[i]
       lv.root.visible = true
       const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
-      // IMPACT ZONE — read (tx, ty, r) live so a gravity well that bends the landing point (bendLob)
-      // drags the mark with it, and so the ring is the actual damage radius stepLobs tests against.
-      // It OPENS as the rock falls; every enemy telegraph in this chapter closes. See SKIES_FX.debris.
-      const mr = lb.r * lerp(DB.growFrom, 1, k)
-      lobG.circle(lb.tx, lb.ty, mr).fill({ color: DB.color, alpha: DB.fillAlpha * k })
-      lobG.circle(lb.tx, lb.ty, mr).stroke({ width: DB.ringW, color: DB.color, alpha: DB.ringAlpha * (0.35 + 0.65 * k) })
       const gx = lerp(lb.fromX, lb.tx, k)
       const gy = lerp(lb.fromY, lb.ty, k)
       const throwLen = Math.hypot(lb.tx - lb.fromX, lb.ty - lb.fromY)
@@ -9190,7 +9177,6 @@ export function createRenderer(app) {
     shieldG.clear()
     pacerG.clear()
     bombG.clear()
-    lobG.clear()
     stripG.clear()
     laneG.clear()
     hazardG.clear()
