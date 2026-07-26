@@ -1333,7 +1333,12 @@ export const CHAPTERS = {
       // armor. At 1.2 the roar cone cleared ~0.7 helis/s against ~1.6/s spawning, so they
       // accumulated into a missile hell (217 alive at t=180) regardless of standoff.
       { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley'] },
-      { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.8, speedMul: 0.55, flags: ['artillery'] },
+      // v5.13: hpMul 1.8 -> 1.25 ("tanks are a bit too tanky"). The tank column is still the
+      // chapter's armour — every other skies spawn sits at or below 0.8 — but at 1.8 it outlived
+      // the roar cone long enough that columns stacked up and their artillery telegraphs became a
+      // permanent fixture of the screen. Cutting HP is also a CLUTTER fix: fewer live tanks is
+      // fewer square telegraphs, which is the same lever as the LOD cut below.
+      { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.25, speedMul: 0.55, flags: ['artillery'] },
     ],
     eliteFlags: ['artillery'],            // AA-turret elites shell you too, just harder (see ARTILLERY_*)
     // Signature: bombardment (area denial) — telegraphed artillery circles rain on the player's
@@ -1490,7 +1495,7 @@ export const CURRENT_VIS = {
 export const STORM_VIS = {
   windAngle: 2.35, // rad — shared gust direction (down-and-left); every layer drifts/falls along it
   shadow: {         // ground cloud-shadows: big dark blobs UNDER entities, dimming the floor
-    count: 6,
+    count: 4,        // v5.13: 6 -> 4 (declutter)
     sizePx: 900,     // blob diameter, px
     sizeJitter: 0.35, // ± fraction randomising each blob's size so they don't read as one stamp
     speed: 34,       // px/s drift along windAngle
@@ -1503,12 +1508,15 @@ export const STORM_VIS = {
     margin: 300,     // px past the viewport before a (huge) blob's center may respawn
   },
   cloud: {          // overhead parallax clouds: OVER everything, lag the camera (altitude cue)
-    count: 5,
+    // v5.13: this is the only storm layer that draws ON TOP of the gameplay, so it is the only one
+    // that can actually hide a threat. count 5 -> 3 and alpha 0.26 -> 0.15: still an altitude cue,
+    // no longer a veil over the thing you are trying to read.
+    count: 3,
     sizePx: 1050,
     sizeJitter: 0.4,
     speed: 14,       // px/s of the cloud's OWN drift, on top of the parallaxed camera offset
     tint: 0x2e3644,
-    alpha: 0.26,     // translucent — sparse enough to still read enemies/telegraphs underneath
+    alpha: 0.15,     // translucent — sparse enough to still read enemies/telegraphs underneath
     life: 34,
     lifeJitter: 0.3,
     fadeIn: 4,
@@ -1517,7 +1525,9 @@ export const STORM_VIS = {
     parallaxFactor: 0.3, // fraction of the camera's move this layer follows — <1 reads as distant
   },
   rain: {           // foreground rain streaks: plain screen-space wind-wrap, no world tracking
-    count: 140,
+    count: 50,       // v5.13: 140 -> 50. 140 moving streaks over the whole viewport is the single
+                     // largest count of animated objects in the chapter, and none of them means
+                     // anything. 50 still reads as rain.
     speed: 950,      // px/s fall speed along windAngle
     lenPx: 26,
     widthPx: 2.2,
@@ -1536,7 +1546,6 @@ export const LIGHTNING = {
   // fade duration for both triggers; the peak alpha is what tells a real strike from ambient weather.
   flash: {
     strikeAlpha: 0.55,  // peak alpha when an actual bombardment/artillery shell lands
-    ambientAlpha: 0.2,  // peak alpha for cosmetic ambient lightning — noticeable, not blinding
     fadeDur: 0.16,       // s from peak back to 0
   },
   // Telegraph re-skin (render.js redrawBombs, skies only): same fill-then-stroke circle as the
@@ -1573,26 +1582,9 @@ export const LIGHTNING = {
     dur: 0.22,            // s the bolt stays visible before fading
     alpha: 1,              // peak stroke alpha
   },
-  // Ambient cosmetic lightning (render.js updateAmbientLightning, called from updateStorm): an
-  // occasional flash + a distant, thinner, dimmer bolt — pure weather, damages/reads nothing,
-  // timed by its own render-local accumulator (never the seeded sim RNG).
-  ambient: {
-    minInterval: 6,   // s between ambient strikes, lower bound
-    maxInterval: 14,  // s between ambient strikes, upper bound
-    dropPx: 700,
-    segments: 6,
-    jitterPx: 70,
-    width: 4,          // thinner than a real strike
-    // v5.10.1: was 0xc8b4ff — the EXACT strikeBolt/telegraph violet. A reviewer verified that made
-    // harmless cosmetic weather indistinguishable from an incoming strike, which is a legibility bug,
-    // not just an art one (the ambient bolt has no telegraph, no ground scar and a dimmer/thinner
-    // flash, but colour is what a player reads first). Ice blue-white stays searchlight-only (law 3)
-    // and violet stays the strike's alone (law-adjacent), so ambient gets a THIRD hue: a desaturated
-    // slate blue-grey — distant cloud-glow, not an armed threat, and not reserved by any other law.
-    color: 0x8a94b8,
-    dur: 0.18,
-    alpha: 0.55,       // dimmer than a real strike's peak (1)
-  },
+  // v5.13: the `ambient` block is DELETED along with render.js's updateAmbientLightning. It flashed
+  // the whole field every 6-14s for an event that could not be acted on, and v5.10.1 had already
+  // spent a third reserved hue on making it ignorable. `flash.ambientAlpha` above goes with it.
 }
 
 // Procedural Voronoi districts (skies chapter, v5.7.x, render.js + sim.js; grown from 4 types to 6
@@ -1740,7 +1732,10 @@ export const DISTRICT_SURFACE = {
   // they are one bake. Angle comes from the field's own hashed row angle — reuse farmRowSnap's
   // shared-angle machinery so a park's stripes are coherent across cells instead of per-cell noise.
   parks: {
-    stripePx: 26,             // band width — a real mower deck read, wide enough to survive minification
+    // v5.13: 26 -> 32. Read by render.js's T.terrainTile.parks, whose bake reference is 256px, and
+    // 256/32 = 8 — an EVEN number of bands, so the light/dark alternation meets itself across a
+    // cell boundary. At 26 (9.85 bands) every cell edge was a visible phase break.
+    stripePx: 32,             // band width — a real mower deck read, wide enough to survive minification
     stripeAlphaA: 0.10, stripeAlphaB: 0.20,   // alternating, white; the tint carries the green
   },
   // farms: keeps its furrows, gains the OTHER instantly-recognisable overhead farm shape — the
@@ -2576,9 +2571,15 @@ export const STRAFE_RUN_SPEED_MUL = 4.5
 export const MISSILE_STANDOFF = 180
 export const MISSILE_HOVER_SPEED_MUL = 0.9
 export const MISSILE_DEADZONE = 10      // px band around the standoff where it holds still (cf. DIVE_HOVER_DEADZONE)
-export const MISSILE_INTERVAL = 6.0     // s between volleys (v5.6.17: was 4.0 — each heli shoots
-                                        // occasionally; the THREAT is the pack, not any one ship)
-export const MISSILE_COUNT = 2          // missiles per volley (v5.6.17: was 3 — volume, see FIRE_RANGE)
+export const MISSILE_INTERVAL = 7.5     // s between volleys (v5.6.17: was 4.0 — each heli shoots
+                                        // occasionally; the THREAT is the pack, not any one ship.
+                                        // v5.13: 6.0 -> 7.5, "helis should launch less missiles")
+// v5.13: 2 -> 1. Each missile carries a LOCK TELEGRAPH — a magenta designation line drawn from the
+// firing helicopter all the way to a diamond on the player (SKIES_FX.missile) — so missile volume
+// is telegraph volume, one-for-one, and helicopters are the chapter's most numerous spawn. One
+// rocket per pass keeps the pack pressure (the threat was always the pack, per the note above)
+// while halving the magenta on screen.
+export const MISSILE_COUNT = 1          // missiles per volley (v5.6.17: was 3 — volume, see FIRE_RANGE)
 export const MISSILE_GAP = 0.16         // s between missiles within one volley
 // v5.6.15: 240 -> 200. The comment below has ALWAYS said outrunning is the counterplay, but at
 // 240 vs PLAYER.baseSpeed 220 the missile was strictly faster — the stated counterplay was
@@ -2764,7 +2765,15 @@ export const SKIES_INK = { color: 0x080c14, widen: 2.5, alpha: 0.5 }
 // the rails, the graduations, the trajectory ghost, the designation line). SHELL_MAX_LIVE (6) +
 // MAX_STRAFE_LOCKS telegraphs of graduated ticks drawn live do not hold on a phone; the far ones
 // carry no information a distant player can act on anyway.
-export const SKIES_TELEGRAPH_LOD_PX = 700
+// v5.13: 700 -> 420 ("too much telegraph"). 700 was chosen as a PERFORMANCE budget and it never
+// fired as a LEGIBILITY one: BOMBARDMENT_SPREAD is 620, so essentially every sky strike landed
+// inside the gate and drew its full descent vector, chevrons, ionisation wash and spark ticks —
+// the LOD system existed and was, in practice, never reached. 420 is just outside the player's
+// own threat envelope (the widest thing that can reach you from a standing start is a strafe run
+// at STRAFE_STANDOFF 420), so everything still drawn in full is something you can act on, and
+// the rest degrades to its impact mark. This is the single highest-leverage declutter in the
+// chapter because EVERY telegraph drawer reads it.
+export const SKIES_TELEGRAPH_LOD_PX = 420
 
 // Full-field flash budget (spec §1.3) — CENTRAL, not per-effect. Photosensitivity, and legibility:
 // LIGHTNING.flash.strikeAlpha is 0.55 and a late-run barrage lands several strikes a second.
@@ -2779,7 +2788,11 @@ export const SKIES_FLASH = { minGap: 0.9, suppressedMul: 0.4, bloomCutoff: 0.05 
 // artillery clods to it would evict every hit/kill/pickup particle in the GAME, with no error.
 // Only three effects use this pool. The cap is derived, not guessed: `emitters` nearest live
 // missiles x (puffLife / puffEvery) = 6 x 14 = 84 live puffs worst case, under `max`.
-export const SKIES_SMOKE = { max: 90, emitters: 6, puffEvery: 0.10, puffLife: 1.4 }
+// v5.13 declutter: max 90 -> 50, emitters 6 -> 4, puffEvery 0.10 -> 0.15, puffLife 1.4 -> 1.0.
+// Six simultaneous ribbons emitting every 0.10s for 1.4s each is up to 84 live puffs — a solid
+// mauve mass sitting on top of the fight, which is where a lot of "too much" was coming from. The
+// helix still reads (it is the only spiral in the game); it is now a trail rather than a cloud.
+export const SKIES_SMOKE = { max: 50, emitters: 4, puffEvery: 0.15, puffLife: 1.0 }
 
 // Rampage jamming (spec §3, rampage row): while run.rampageT > 0 every ENEMY telegraph glyph
 // visibly breaks up — you are not just stronger, their targeting is failing. Per-frame, per glyph
@@ -2837,6 +2850,10 @@ export const SKIES_FX = {
     dashLen: 9, dashW: 3,
     dashPitch: 30,        // px between dash pairs along the lane (derived: ~3x dashLen reads as a
                           // stitch rather than a dotted line — not specified in the spec)
+    stitchTailPx: 190,    // v5.13: how far BEHIND the travelling head the dashes are drawn. The
+                          // stitch used to be drawn from the lane's origin every frame, so a
+                          // finished run was a static 820px orange streak. ~6 dash pairs of tail
+                          // keeps it reading as motion.
     gritColor: 0x8f8a7c, gritPx: 6, scorchPx: 3,       // each dash pops a grit puff + a scorch tick
     navRed: 0xff2d2d, navGreen: 0x2dff6a,              // the jet's own nav lights (port/starboard)
   },
@@ -2858,7 +2875,7 @@ export const SKIES_FX = {
     snapSteps: 4,           // discrete shrink steps per second
     diamondPx: 48,          // REF size of the T.lockDiamond bake
     life: MISSILE_LIFE,     // 2.6 s — the dart's own flight (sim constant, above)
-    ribbonLife: 1.4,        // s the smoke helix persists AFTER the dart is gone (= SKIES_SMOKE.puffLife)
+    ribbonLife: 1.0,        // s the smoke helix persists AFTER the dart is gone (= SKIES_SMOKE.puffLife)
     // The dart is DEAD STRAIGHT (MISSILE_TURN = 0, a deliberate v5.6.17 sim decision); the SMOKE is
     // what curls. Lateral sine offset that GROWS as the puff ages = a corkscrew seen from above.
     helixAmpPx: 7,          // px of lateral offset at puff birth...
@@ -2894,7 +2911,15 @@ export const SKIES_FX = {
   // says THE SKY IS FIRING; rings radiating from scattered points says THE GUNS ARE FIRING.
   sky: {
     descent: 0xc8b4ff,      // the descent vector dropped from off-frame
-    ring: 0xffffff,         // v5.10.1: was `bracket` — the impact ring is now inward-pointing
+    // v5.13: 0xffffff -> the sky's own violet. The chevron ring is the ONE part of this telegraph
+    // that survives the LOD gate (it is the impact mark), so it is drawn at full strength for every
+    // strike on screen — and BOMBARDMENT_SPREAD scatters those over ~a full screen, where by the
+    // signature's own design note only ~3% actually threaten the player. A ring of pure-white
+    // chevrons ~145px across is the loudest mark the renderer can make, spent almost entirely on
+    // strikes that are ambient. Violet still reads instantly, still belongs to the sky alone, and
+    // the SHAPE (inward chevrons vs the gun's corner brackets) is what the v5.10.1 fix below
+    // actually relies on to tell the two apart — that distinction is untouched.
+    ring: 0xc8b4ff,         // v5.10.1: was `bracket` — the impact ring is now inward-pointing
                             // CHEVRONS (T.skyChevrons), not the artillery's corner brackets. See the
                             // P0 fix note on T.skyChevrons in render.js for why the shared shape was
                             // a real bug, not just a naming one: at TELEGRAPH LOD both threats used to

@@ -2249,22 +2249,23 @@ export function createRenderer(app) {
       ]
       // Woodland: overlapping canopy crowns. Irregular, clustered, and the only tile whose detail
       // is meant to read as individual OBJECTS from above — because tree crowns actually do.
+      // Parks: MOWN STRIPES. v5.13 — this tile used to be 22 soft white discs per 256px cell, and
+      // in a park-sized region that is ~260 overlapping pale circles on screen at once: the "bokeh"
+      // haze the user reported as visual clutter, and (kill list §8.10) the exact soft-radial-blob
+      // idiom the art direction spec set out to remove. The stripe bake that was written to replace
+      // it has existed since v5.10 as T.districtGround.parks — but populateBlotch, its only caller,
+      // returns early for any chapter with a terrain map, so skies has never once drawn it. Moving
+      // it here, into the tile populateTerrain actually reads, is the whole fix.
+      // ONE variant, no random rotation (populateTerrain pins rotation 0): a mown field has a single
+      // grain, and v5.12's lesson was that per-cell randomness is what reads as lattice noise.
+      // Pitch divides TT evenly (256 / 32 = 8, an even count) so the A/B alternation meets itself
+      // across a cell boundary instead of seaming.
       T.terrainTile.parks = [
         terrainTile((g) => {
-          for (let n = 0; n < 22; n++) {
-            const x = (hash(n * 3.3 + 1.9) - 0.5) * TT
-            const y = (hash(n * 5.1 + 4.4) - 0.5) * TT
-            const r = 9 + hash(n * 7.7 + 2.1) * 13
-            g.circle(x, y, r).fill({ color: 0xffffff, alpha: 0.10 })
-            g.circle(x - r * 0.22, y - r * 0.22, r * 0.55).fill({ color: 0xffffff, alpha: 0.09 })
-          }
-        }),
-        terrainTile((g) => {
-          for (let n = 0; n < 17; n++) {
-            const x = (hash(n * 4.9 + 3.1) - 0.5) * TT
-            const y = (hash(n * 6.7 + 1.2) - 0.5) * TT
-            const r = 11 + hash(n * 8.9 + 5.3) * 15
-            g.circle(x, y, r).fill({ color: 0xffffff, alpha: 0.11 })
+          const st = DISTRICT_SURFACE.parks
+          for (let k = -4; k <= 3; k++) {
+            g.rect(-H, k * st.stripePx, TT, st.stripePx)
+              .fill({ color: 0xffffff, alpha: (k & 1) ? st.stripeAlphaA : st.stripeAlphaB })
           }
         }),
       ]
@@ -3712,26 +3713,10 @@ export function createRenderer(app) {
 
     // ---- district surfaces (spec §4.5) --------------------------------------------------------
     function groundTile(draw) { const g = new Graphics(); draw(g); return bake(g) }
-    // parks: MOWN STRIPES. This district had NO T.districtGround entry at all and fell through to
-    // T.blotches — the same four soft radial blobs body/pond/garden use (kill list §8.10). Nothing
-    // else in the world looks like a mown field from above, and it is one bake.
-    T.districtGround.parks = [
-      groundTile((g) => {
-        const st = DISTRICT_SURFACE.parks
-        for (let k = -6; k <= 6; k++) {
-          g.rect(-150, k * st.stripePx, 300, st.stripePx)
-            .fill({ color: 0xffffff, alpha: k % 2 ? st.stripeAlphaA : st.stripeAlphaB })
-        }
-      }),
-      groundTile((g) => {
-        const st = DISTRICT_SURFACE.parks
-        for (let k = -6; k <= 6; k++) {
-          g.rect(-150, k * (st.stripePx + 4), 300, st.stripePx + 4)
-            .fill({ color: 0xffffff, alpha: k % 2 ? st.stripeAlphaB : st.stripeAlphaA })
-        }
-        g.beginPath().arc(0, 0, 96, 0, Math.PI * 2).stroke({ width: 4, color: 0xffffff, alpha: 0.16 }) // a path loop
-      }),
-    ]
+    // v5.13: T.districtGround.parks (the mown-stripe bake) is deleted from here — it was written in
+    // v5.10 for populateBlotch, which returns early for every chapter that has a terrain map, so it
+    // was never drawn once. The stripes now live in T.terrainTile.parks, which populateTerrain
+    // actually reads.
     // farms: a CENTRE-PIVOT IRRIGATION CIRCLE. A perfect circle in a field of straight rows is
     // unmistakable from overhead and exists nowhere else in nature.
     T.pivotCircle = groundTile((g) => {
@@ -6209,7 +6194,6 @@ export function createRenderer(app) {
       wx * STORM_VIS.cloud.speed, wy * STORM_VIS.cloud.speed, pcx, pcy)
 
     updateRain(dt)
-    updateAmbientLightning(dt, cx, cy)
   }
 
   function clearStorm() {
@@ -6801,7 +6785,9 @@ export function createRenderer(app) {
         const rig = skyRigs[ki++] || acquireSkyRig()
         rig.ring.visible = true
         rig.ring.tint = SF.ring
-        rig.ring.alpha = jamAlpha(0.35 + 0.55 * k)
+        rig.ring.alpha = jamAlpha(0.22 + 0.48 * k)   // v5.13: dimmer early, so a strike EARNS its
+                                                      // attention as the fuse burns down instead of
+                                                      // announcing itself at full strength on frame 1
         rig.ring.scale.set((b.radius * (1.7 - 0.7 * k)) / T.skyChevrons.ref)   // closing inward
         rig.ring.position.set(b.x, b.y)
         rig.wash.visible = true
@@ -8089,8 +8075,14 @@ export function createRenderer(app) {
   // ARRIVAL CLOCK: the halogen pool races down the lane and arrives at the jet on the frame the run
   // begins. The damage itself is then a STITCH — paired orange dashes walking the lane at the run
   // speed, each popping a grit puff and a scorch tick.
-  const MAX_STRAFE_LOCKS = 10 // generous headroom: the telegraph is a ~0.5s slice of a ~2.8s bank->
-                               // telegraph->run cycle, so only a fraction of alive jets lock at once
+  // v5.13: 10 -> 4. This was sized as PERFORMANCE headroom and turned out to be the chapter's worst
+  // source of visual clutter. Every live lock draws two 820px hairline rails THROUGH the player's
+  // area (a jet locks from STRAFE_STANDOFF and flies at you), so ten locks is twenty full-screen
+  // lines meeting at one point — the starburst in the report. It is a BUDGET now, not headroom:
+  // spawnStrafeLock's cursor wraps, so the four most recent locks are the four drawn, which are the
+  // four about to matter. A jet whose lane is not drawn still flies and still hurts — but you can
+  // see the jet, and four readable lanes beat ten unreadable ones.
+  const MAX_STRAFE_LOCKS = 4
   const strafeLocks = []
   const strafePools = []
   for (let i = 0; i < MAX_STRAFE_LOCKS; i++) {
@@ -8159,27 +8151,37 @@ export function createRenderer(app) {
       } else {
         // THE STITCH: paired orange tracer dashes walking the lane at the run speed. This is the
         // damage, travelling — the one thing no other threat in the chapter does.
+        // v5.13, two declutter fixes:
+        //  1. It was ungated by `far`, unlike the rails above — so a jet strafing off at the edge of
+        //     the world still laid a full-length orange dashed line across the view.
+        //  2. It drew EVERY dash from the lane's origin to the head, so by the end of a 1.0s run it
+        //     was an 820px streak that had stopped travelling and just sat there. Drawing only the
+        //     dashes within `stitchTailPx` behind the head is what the design note above actually
+        //     describes — damage in motion, with a tail, not a completed stripe.
         poolS.visible = false
-        const head = sp.len * k
-        for (let d = head % F.dashPitch; d < head; d += F.dashPitch) {
-          const bx = sp.x + cos * d, by = sp.y + sin * d
-          for (const s of [-1, 1]) {
-            teleG.moveTo(bx + nx * s * 0.6 - cos * F.dashLen * 0.5, by + ny * s * 0.6 - sin * F.dashLen * 0.5)
-            teleG.lineTo(bx + nx * s * 0.6 + cos * F.dashLen * 0.5, by + ny * s * 0.6 + sin * F.dashLen * 0.5)
+        if (!far) {
+          const head = sp.len * k
+          const tail = Math.max(head % F.dashPitch, head - F.stitchTailPx)
+          for (let d = tail; d < head; d += F.dashPitch) {
+            const bx = sp.x + cos * d, by = sp.y + sin * d
+            for (const s of [-1, 1]) {
+              teleG.moveTo(bx + nx * s * 0.6 - cos * F.dashLen * 0.5, by + ny * s * 0.6 - sin * F.dashLen * 0.5)
+              teleG.lineTo(bx + nx * s * 0.6 + cos * F.dashLen * 0.5, by + ny * s * 0.6 + sin * F.dashLen * 0.5)
+            }
           }
-        }
-        teleG.stroke({ width: F.dashW + 2.5, color: SKIES_INK.color, alpha: SKIES_INK.alpha })
-        for (let d = head % F.dashPitch; d < head; d += F.dashPitch) {
-          const bx = sp.x + cos * d, by = sp.y + sin * d
-          for (const s of [-1, 1]) {
-            teleG.moveTo(bx + nx * s * 0.6 - cos * F.dashLen * 0.5, by + ny * s * 0.6 - sin * F.dashLen * 0.5)
-            teleG.lineTo(bx + nx * s * 0.6 + cos * F.dashLen * 0.5, by + ny * s * 0.6 + sin * F.dashLen * 0.5)
+          teleG.stroke({ width: F.dashW + 2.5, color: SKIES_INK.color, alpha: SKIES_INK.alpha })
+          for (let d = tail; d < head; d += F.dashPitch) {
+            const bx = sp.x + cos * d, by = sp.y + sin * d
+            for (const s of [-1, 1]) {
+              teleG.moveTo(bx + nx * s * 0.6 - cos * F.dashLen * 0.5, by + ny * s * 0.6 - sin * F.dashLen * 0.5)
+              teleG.lineTo(bx + nx * s * 0.6 + cos * F.dashLen * 0.5, by + ny * s * 0.6 + sin * F.dashLen * 0.5)
+            }
           }
+          teleG.stroke({ width: F.dashW, color: F.tracer, alpha: 0.95, cap: 'butt' })
+          teleG.circle(sp.x + cos * head, sp.y + sin * head, 3).fill({ color: F.tracerCore, alpha: 0.9 })
         }
-        teleG.stroke({ width: F.dashW, color: F.tracer, alpha: 0.95, cap: 'butt' })
-        teleG.circle(sp.x + cos * head, sp.y + sin * head, 3).fill({ color: F.tracerCore, alpha: 0.9 })
         // each newly-walked dash pops a grit puff and a scorch tick where it struck
-        if (dt > 0) {
+        if (dt > 0 && !far) {
           sp.stitch += (sp.len / F.runT) * dt
           while (sp.stitch >= F.dashPitch) {
             sp.stitch -= F.dashPitch
@@ -8727,7 +8729,6 @@ export function createRenderer(app) {
   let kaijuSwipeT = 0
   let vignetteA = 0
   let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
-  let lightningAmbientT = LIGHTNING.ambient.minInterval // s until the next ambient flash/bolt (skies only)
   let prevSkiesBombs = new Set() // last frame's run.bombs objects (skies only) — see handleEvents
   let prevSkiesShots = new Set() // ditto for run.enemyShots — tells a missile that IMPACTED from one
                                  // that merely fizzled, without a sim change (spec §1.1's problem,
@@ -8841,7 +8842,7 @@ export function createRenderer(app) {
   // Elemental shock arcs (shockarc/frostarc/conduct): jagged-polyline visuals driven by a
   // one-off render-local pool instead of run-state (these are single-shock proc events,
   // not a persisting sim list) — spawn once, fade over `dur`, then recycle. v5.7.2: also reused
-  // by skies' lightning bolts (strikeLightning/updateAmbientLightning below) — same jagged glow-
+  // by skies' lightning bolts (strikeLightning below) — same jagged glow-
   // then-core stroke IS a lightning bolt, no separate drawer needed. width/peak default to the
   // original hardcoded 7/1 so shockarc/frostarc/conduct's look is byte-for-byte unchanged.
   const MAX_ARCS = 8
@@ -8948,25 +8949,12 @@ export function createRenderer(app) {
     flashCooldown = SKIES_FLASH.minGap
   }
 
-  // Ambient cosmetic lightning (skies only, called from updateStorm): occasional flash + a
-  // distant, thinner, dimmer bolt somewhere in view. Pure atmosphere — no run state read beyond
-  // the camera offset already passed in, no gameplay effect. Timed by lightningAmbientT, a
-  // render-local accumulator (own float, reset in clearWorld) — the same idiom as every other FX
-  // cadence in this file (CURRENT_VIS.rippleEvery, the storm layers' fade envelopes, ...), never
-  // the seeded sim RNG.
-  function updateAmbientLightning(dt, cx, cy) {
-    if (dt <= 0) return
-    lightningAmbientT -= dt
-    if (lightningAmbientT > 0) return
-    const cfg = LIGHTNING.ambient
-    lightningAmbientT = cfg.minInterval + Math.random() * (cfg.maxInterval - cfg.minInterval)
-    // bx/by land the bolt's base somewhere across the view's upper half, in WORLD space (cx,cy is
-    // the camera offset sync() applies to `world`, i.e. world = screen - (cx,cy))
-    const bx = -cx + Math.random() * app.screen.width
-    const by = -cy + Math.random() * app.screen.height * 0.5
-    spawnArc(lightningBoltPath(bx, by, cfg.dropPx, cfg.segments, cfg.jitterPx), cfg.color, cfg.color, cfg.dur, cfg.width, cfg.alpha)
-    triggerLightningFlash(LIGHTNING.flash.ambientAlpha)
-  }
+  // v5.13: updateAmbientLightning is DELETED ("too much animation"). It fired a full-field white
+  // flash plus a bolt every 6-14s that meant nothing, damaged nothing and could not be acted on —
+  // and v5.10.1 had already had to give it a THIRD hue purely so players would stop reading it as
+  // an incoming strike. An effect that has to be redesigned to be ignorable is an effect that
+  // should not be drawn. The real strike bolt (strikeLightning, still live) keeps every bit of
+  // this idiom; the sky is not quieter when something is actually falling on you.
 
   function levelupBurst(x, y) {
     for (let i = 0; i < 14; i++) {
@@ -9252,7 +9240,6 @@ export function createRenderer(app) {
     vignette.alpha = 0
     lightningFlashA = 0
     lightningFlash.alpha = 0
-    lightningAmbientT = LIGHTNING.ambient.minInterval + Math.random() * (LIGHTNING.ambient.maxInterval - LIGHTNING.ambient.minInterval)
     prevSkiesBombs = new Set()
     prevRampageT = 0
     animT = 0
