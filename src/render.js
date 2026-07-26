@@ -12,7 +12,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
   SKIES_LIGHT, DISTRICT_SURFACE, DISTRICT_EDGE, ROAD_PAINT, ROAD_DECAL, ROAD_JUNCTION,
-  SKIES_SHADOW, SKIES_BAKE_PX, SKIES_STRUCTURE_ART, SKIES_RUIN, SKIES_VEHICLE,
+  SKIES_SHADOW, SKIES_BAKE_PX, SKIES_STRUCTURE_ART, SKIES_RUIN, SKIES_VEHICLE, SKIES_KAIJU,
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
@@ -100,6 +100,12 @@ export function createRenderer(app) {
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
   // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
   let chapterHasStorm = false
+  // v5.11 kaiju redesign: whether the active chapter draws the dedicated kaiju body/tail rig
+  // (CHAPTERS[].render.kaiju — currently only `skies`) instead of the generic cross-chapter blob.
+  // Same latch pattern as chapterHasStorm; read by syncPlayer/updateRampage. Every other chapter
+  // (including pond/undergrowth, which also set `tail: true`) never sees this flag flip true, so
+  // their rig is byte-identical to before this pass.
+  let chapterHasKaiju = false
   // Whether the active chapter's ground is a per-cell Voronoi district map (CHAPTERS[].render.
   // districts — currently only `skies`, piece 4). districtSeed mirrors run._districtSeed so the
   // floor populate* callbacks and syncObstacles don't need `run` threaded through every call.
@@ -2063,17 +2069,32 @@ export function createRenderer(app) {
       ]
       // sea: gentle ripple bands — soft parallel curves, lower alpha than every land pattern above
       // (water reads calmer/flatter, not busy). Two variants (curve bow/spacing differ).
+      // v5.11: open water was reading as a flat dead-navy plane between the sparse foam/container
+      // props (kill list-adjacent complaint: "large areas of flat dead navy"). More ripple bands
+      // (5, was 3) plus a scatter of tiny moonlit glint flecks — still one bake, still white-alpha
+      // so floorTintAt still carries all the hue, just enough incident texture that the water reads
+      // as a surface instead of empty canvas.
       T.districtGround.sea = [
         groundTile((g) => {
-          for (const yOff of [-70, 0, 70]) {
-            g.moveTo(-150, yOff).quadraticCurveTo(0, yOff - 30, 150, yOff)
-              .stroke({ width: 6, color: 0xffffff, alpha: 0.22, cap: 'round' })
+          for (const yOff of [-110, -55, 0, 55, 110]) {
+            g.moveTo(-150, yOff).quadraticCurveTo(0, yOff - 24, 150, yOff)
+              .stroke({ width: 5, color: 0xffffff, alpha: 0.2, cap: 'round' })
+          }
+          for (let k = 0; k < 14; k++) {
+            const gx = (hash(k * 4.1 + 0.7) - 0.5) * 280
+            const gy = (hash(k * 6.7 + 1.9) - 0.5) * 190
+            g.circle(gx, gy, 1.3).fill({ color: 0xffffff, alpha: 0.22 + hash(k * 2.3) * 0.18 })
           }
         }),
         groundTile((g) => {
-          for (const yOff of [-50, 20, 90]) {
-            g.moveTo(-150, yOff).quadraticCurveTo(0, yOff + 26, 150, yOff)
-              .stroke({ width: 5, color: 0xffffff, alpha: 0.2, cap: 'round' })
+          for (const yOff of [-95, -40, 20, 75, 120]) {
+            g.moveTo(-150, yOff).quadraticCurveTo(0, yOff + 22, 150, yOff)
+              .stroke({ width: 4.5, color: 0xffffff, alpha: 0.18, cap: 'round' })
+          }
+          for (let k = 0; k < 12; k++) {
+            const gx = (hash(k * 5.3 + 2.4) - 0.5) * 280
+            const gy = (hash(k * 3.9 + 4.1) - 0.5) * 190
+            g.circle(gx, gy, 1.2).fill({ color: 0xffffff, alpha: 0.2 + hash(k * 1.7) * 0.18 })
           }
         }),
       ]
@@ -2352,8 +2373,14 @@ export function createRenderer(app) {
       // applyPropKind's cropRow branch (rotation locked to the field's shared row angle, see
       // farmRowSnap below) lays it flat along the furrow instead of spinning freely like every
       // other top-down scatter prop. Filled white so kind.tints drives the colour per instance
-      // (golden wheat / green leaf-row / tilled-brown row — CROP_TINTS below).
+      // (golden wheat / green leaf-row / tilled-brown row — CROP_TINTS below, darkened v5.11 —
+      // see that array's own comment).
+      // v5.11: a low-alpha soil patch drawn FIRST, visible only in the gaps BETWEEN the opaque
+      // blades — that two-tone (bright blade / dark soil peeking through) is the actual "furrow"
+      // texture a single flat-alpha silhouette never had, at zero extra draw calls per instance
+      // (still one bake). Bring-the-value-down half of the fix is CROP_TINTS itself.
       const g = new Graphics()
+      g.ellipse(0, 1, 7, 3.4).fill({ color: 0x000000, alpha: 0.22 })
       for (const [dy, len] of [[-2.6, 9], [0, 11], [2.6, 8.5]]) {
         taperStroke(g, [[-len * 0.4, dy], [len * 0.6, dy * 0.4]], 2.4, 0.6, 0xffffff, 3)
       }
@@ -3068,6 +3095,172 @@ export function createRenderer(app) {
         g.poly([sx, sy, sx + 4, sy - 2, sx + 5, sy + 3, sx + 1, sy + 4]).fill({ color: 0x6f675c, alpha: 0.85 })
       }
     })
+
+    // ---- v5.11 kaiju redesign — the PLAYER's own body/tail (spec: "the one thing on screen the
+    // player looks at constantly" was still the generic cross-chapter blob, ~44px on screen next to
+    // a tower drawing up to 96px). Gated on CHAPTERS.skies.render.kaiju (chapterHasKaiju below);
+    // every other chapter's rig — including pond/undergrowth, which also set `tail: true` — never
+    // reads any of this and stays byte-identical.
+    //
+    // Same "identical geometry between the coloured and white bakes" contract drawEnemy/roster use:
+    // `white` forces every fill to 0xffffff so the two textures share bounds (and therefore bake()'s
+    // anchor), letting T.kaijuFlash swap onto pFlash for the hurt-flash pop without the silhouette
+    // shifting under it. Unlike a structure plan there is no live per-instance radius to scale
+    // against (PLAYER.radius never changes) so these bake AT THEIR FINAL ON-SCREEN SIZE directly —
+    // no runtime scale factor, the same way T.playerBody itself already works.
+    //
+    // Limb polys are drawn FIRST with their socket end tucked well inside the torso's silhouette, so
+    // the torso poly drawn on top of them hides the join and only the distal limb protrudes — the
+    // same "flank sliver under the main deck" trick towerPlan uses above (this file, ~line 2748).
+    const K = SKIES_KAIJU
+    // Right-side torso profile, HEAD to TAIL-ROOT (top to bottom); mirrorShape closes it into a
+    // symmetric polygon by appending the reversed, x-negated list — see its own comment.
+    function mirrorShape(rightPts) {
+      const left = rightPts.slice().reverse().map(([x, y]) => [-x, y])
+      return rightPts.concat(left).flat()
+    }
+    function drawKaijuBody(g, white) {
+      const bodyLit = white ? 0xffffff : K.bodyLit
+      const bodyMid = white ? 0xffffff : K.bodyMid
+      const bodyShade = white ? 0xffffff : K.bodyShade
+      const plateBase = white ? 0xffffff : K.plateBase
+      const plateEdge = white ? 0xffffff : K.plateEdge
+      const scute = white ? 0xffffff : K.scute
+      const band = white ? 0xffffff : K.band
+      const jawDark = white ? 0xffffff : K.jawDark
+      const teeth = white ? 0xffffff : K.teeth
+      const claw = white ? 0xffffff : K.claw
+      const horn = white ? 0xffffff : K.horn
+      const eyeWhite = white ? 0xffffff : K.eyeWhite
+
+      // forelimbs + hindlimbs: socket point first (hidden under the torso), a couple of knuckle
+      // points, then the visible paw/foot with three claw ticks fanning off it. Filled a shade
+      // LIGHTER than the plain body (mix toward bodyLit) — at the small size a limb actually
+      // reads at, the plain bodyMid fill plus a dark stroke plus three dark claw ticks read as a
+      // near-black stub, not "a green limb with dark claws"; the lighter fill keeps the green
+      // identity legible even where the claw ticks cover a good fraction of the small shape.
+      const limbFill = white ? 0xffffff : mix(bodyMid, bodyLit, 0.55)
+      function limb(pts, clawAt, side) {
+        const p = pts.map(([x, y]) => [x * side, y])
+        g.poly(p.flat()).fill(limbFill).stroke({ width: 2, color: bodyShade, alpha: 0.75 })
+        const cx = clawAt[0] * side, cy = clawAt[1]
+        const base = Math.atan2(cy, cx)
+        for (let c = -1; c <= 1; c++) {
+          const a = base + c * 0.55
+          g.moveTo(cx, cy).lineTo(cx + Math.cos(a) * 10, cy + Math.sin(a) * 10)
+            .stroke({ width: 2.2, color: claw, cap: 'round' })
+        }
+      }
+      for (const side of [-1, 1]) {
+        limb([[46, -8], [84, 0], [116, 20], [98, 30], [70, 10]], [116, 20], side)     // forelimb
+        limb([[44, 76], [80, 92], [88, 122], [66, 128], [42, 102]], [88, 122], side)  // hindlimb
+      }
+
+      // torso: broad shoulders tapering to the hips, MASS-CENTRED (0,0 sits mid-back, not the base)
+      const torsoR = [
+        [20, -58], [30, -44], [52, -24], [76, -2], [70, 24], [60, 52], [56, 80], [40, 104], [16, 122],
+      ]
+      g.poly(mirrorShape(torsoR)).fill(bodyMid).stroke({ width: 2.4, color: bodyShade })
+      // volume: a lit top-plane biased upper-left (this chapter's ONE light direction — see
+      // SKIES_SHADOW), a shaded flank biased lower-right. Same two-pass "volume" convention every
+      // other creature in this file already uses (radialOutline's own doc comment), just biased by
+      // the region's light law instead of a generic top/underside split.
+      g.ellipse(-22, -8, 58, 70).fill({ color: bodyLit, alpha: 0.30 })
+      g.ellipse(26, 38, 54, 62).fill({ color: bodyShade, alpha: 0.26 })
+
+      // spine banding — surface detail, not silhouette
+      for (let i = 0; i < K.bandCount; i++) {
+        const by = lerp(-4, 80, i / (K.bandCount - 1))
+        const hw = by < 10 ? 48 : by < 40 ? 34 : by < 65 ? 22 : 12
+        g.moveTo(-hw, by).quadraticCurveTo(0, by + 6, hw, by).stroke({ width: 3, color: band, alpha: 0.28 })
+      }
+      // flank scutes: small overlapping bumps along both outer edges, each a 2-tone bump (a darker
+      // base + a small lit fleck) so the flank reads as plated, not smooth
+      for (let i = 0; i < K.scuteRows; i++) {
+        const sy = lerp(-28, 94, i / (K.scuteRows - 1))
+        for (const side of [-1, 1]) {
+          const sx = (54 - Math.abs(sy) * 0.06) * side * 0.94
+          g.ellipse(sx, sy, 9, 6).fill({ color: scute, alpha: 0.55 })
+          g.ellipse(sx - side * 1.6, sy - 1.6, 4, 2.4).fill({ color: bodyLit, alpha: 0.28 })
+        }
+      }
+
+      // DORSAL PLATES — BAKED ANATOMY FIRST. SKIES_FX.rampage's chain-charge glow (render.js
+      // updateRampage) lands on these SAME (0, plateY) points SECOND, rather than an arc that used
+      // to rotate with facingAngle regardless of this (non-rotating) body — see that function.
+      const plateN = SKIES_FX.rampage.plates
+      for (let i = 0; i < plateN; i++) {
+        const f = i / (plateN - 1)
+        const py = lerp(-44, 92, f)
+        const bump = Math.max(0, 1 - Math.abs(f - 0.42) * 1.5)
+        const h = lerp(8, 19, bump)
+        g.poly([0, py - h, h * 0.6, py, 0, py + h * 0.8, -h * 0.6, py])
+          .fill(plateBase).stroke({ width: 1.2, color: plateEdge, alpha: 0.7 })
+      }
+
+      // head: skull tapering to a point between two small brow horns, a jaw with jagged teeth, and
+      // two white-sclera eyes (pupils are the existing pooled T.pupil sprites — see syncPlayer)
+      const headW = 42
+      g.poly([-headW, -60, headW, -60, headW * 0.85, -108, 0, -134, -headW * 0.85, -108])
+        .fill(bodyMid).stroke({ width: 2.2, color: bodyShade })
+      g.ellipse(-13, -100, 25, 29).fill({ color: bodyLit, alpha: 0.28 })   // skull top-plane
+      for (const side of [-1, 1]) {
+        g.poly([26 * side, -112, 14 * side, -140, 6 * side, -114]).fill(horn)   // brow horn
+      }
+      g.poly([-34, -60, 34, -60, 28, -44, 0, -36, -28, -44])
+        .fill(jawDark).stroke({ width: 1.6, color: 0x0d1410 })                  // jaw
+      for (let t = 0; t < K.jawTeeth; t++) {
+        const tx = lerp(-26, 26, t / (K.jawTeeth - 1))
+        g.poly([tx - 3, -50, tx + 3, -50, tx, -42]).fill(teeth)
+      }
+      for (const side of [-1, 1]) {
+        g.circle(22 * side, -96, 13).fill(eyeWhite).stroke({ width: 1.4, color: bodyShade })
+      }
+      // pale chest hint just under the jaw — the one belly-toned accent on an otherwise back/flank
+      // palette (cheap, and it keeps the head from reading as glued straight onto a solid green wall)
+      g.ellipse(0, -30, 15, 19).fill({ color: eyeWhite, alpha: 0.16 })
+    }
+    T.kaijuBody = (() => { const g = new Graphics(); drawKaijuBody(g, false); return bake(g) })()
+    T.kaijuFlash = (() => { const g = new Graphics(); drawKaijuBody(g, true); return bake(g) })()
+
+    // ground shadow: the kaiju's own bigger disc (T.playerShadow, the generic blob's, is far too
+    // small once the silhouette above is this big) — see syncPlayer for the SKIES_SHADOW-direction
+    // offset this is placed at, instead of the generic blob's straight-down one.
+    T.kaijuShadow = (() => {
+      const g = new Graphics()
+      g.ellipse(0, 0, K.shadowRx, K.shadowRy).fill({ color: 0x000000, alpha: 0.32 })
+      return bake(g)
+    })()
+
+    // the articulated tail: ONE tapering, banded segment (reused for all three chain links at
+    // decreasing scale — same "one texture, several instances" idiom tailA/tailB already used with
+    // the plain T.fx.trace_05 streak) instead of the generic translucent flagellum every other
+    // `tail: true` chapter still shows. Small dorsal-spike nubs continue the body's plate ridge onto
+    // the tail so the two don't read as two unrelated systems.
+    const TAIL_SEG_REF = 140
+    // "a heavier, darker kaiju tail" (CHAPTERS.skies.render.tailTint's old doc, when the tail was
+    // still the generic flagellum): baked a shade darker than the body itself, not tinted darker at
+    // runtime — this bake carries its own final palette, same as the body (see drawKaijuBody above).
+    const TAIL_FILL = mix(K.bodyMid, K.bodyShade, 0.4)
+    T.kaijuTailSeg = (() => {
+      const g = new Graphics()
+      const L = TAIL_SEG_REF, W = 32
+      g.poly([0, -W / 2, L * 0.5, -W * 0.32, L, 0, L * 0.5, W * 0.32, 0, W / 2])
+        .fill(TAIL_FILL).stroke({ width: 2, color: K.bodyShade })
+      g.poly([0, -W * 0.28, L * 0.55, -W * 0.16, L * 0.88, -2, L * 0.2, -W * 0.1])
+        .fill({ color: K.bodyLit, alpha: 0.3 })   // top-plane highlight, biased along the same taper
+      for (let k = 1; k <= 4; k++) {               // banding rings, tapering with the tail itself
+        const x = (L * k) / 5
+        const w = (W / 2) * (1 - x / L) * 0.92
+        g.moveTo(x, -w).lineTo(x, w).stroke({ width: 2, color: K.band, alpha: 0.35 })
+      }
+      for (let k = 0; k < 3; k++) {                 // small dorsal-spike nubs continuing the ridge
+        const x = 12 + (L * 0.68 * k) / 2
+        const h = 8 * (1 - x / L)
+        g.poly([x - 4, -W * 0.2, x + 4, -W * 0.2, x, -W * 0.2 - h]).fill(K.plateBase)
+      }
+      return { ...bake(g), ref: L }
+    })()
 
     // ---- ruins (spec §5.9) — permanent geometry left where a structure was --------------------
     // Kind-specific, at the same cost as a generic scar, and the only thing in the chapter that
@@ -4694,7 +4887,10 @@ export function createRenderer(app) {
   // SKINS below reuses the SAME textures for the crushable buildings, PROP_SCALE-sized there too)
   // plus the odd tractor (T.tractor, pegged to PROP_SCALE.car's band — a working vehicle, same
   // tier as a parked car, not worth its own PROP_SCALE class).
-  const CROP_TINTS = [0xd9c76a, 0x8a9a4a, 0x6b5a3a] // golden wheat / green leaf-row / tilled-brown row
+  // v5.11: darkened from [0xd9c76a, 0x8a9a4a, 0x6b5a3a] — bare, they were the brightest, flattest
+  // thing on screen, out-shouting the (much darker, night-lit) buildings and searchlights. Same
+  // hues, brought down in value; T.cropTuft's own bake (above) adds the actual furrow texture.
+  const CROP_TINTS = [0x988b4a, 0x687438, 0x5b4d31] // golden wheat / green leaf-row / tilled-brown row
   // v5.10: the side-view T.barn/T.silo floor props are gone (the crushable structures carry the
   // real top-down plans now). What replaces them is the OTHER instantly-recognisable overhead farm
   // shape — a centre-pivot irrigation circle. A perfect circle in a field of straight rows is
@@ -5111,14 +5307,17 @@ export function createRenderer(app) {
   const pFlash = spriteOf(T.playerFlash)
   pFlash.alpha = 0
   bodyC.addChild(pBody, pupilL, pupilR, pFlash)
-  // flagellum tail (pond skin only): two stacked streak glyphs behind the blob, trailing the
-  // player's facingAngle with a wiggle. Textures are fx sprites so they're assigned once the fx
+  // flagellum tail (pond/undergrowth skins): two stacked streak glyphs behind the blob, trailing
+  // the player's facingAngle with a wiggle. Textures are fx sprites so they're assigned once the fx
   // sheet loads (buildFxTextures); this rig starts hidden and is revealed by chapterRender.tail.
+  // v5.11: tailC is the kaiju rig's third chain link ONLY (see syncPlayer) — pond/undergrowth never
+  // show it (it starts and stays invisible, texture never assigned, for any non-kaiju chapter).
   const pTail = new Container()
   pTail.visible = false
   const tailA = new Sprite(Texture.EMPTY)
   const tailB = new Sprite(Texture.EMPTY)
-  for (const t of [tailA, tailB]) { t.anchor.set(0.04, 0.5); pTail.addChild(t) }
+  const tailC = new Sprite(Texture.EMPTY)
+  for (const t of [tailA, tailB, tailC]) { t.anchor.set(0.04, 0.5); pTail.addChild(t) }
   playerC.addChild(pRampageGlow, pShadow, pTail, bodyC) // glow sits furthest back, tail above the shadow, behind the body
 
   // title-screen ambient blobs
@@ -6268,7 +6467,11 @@ export function createRenderer(app) {
   const platePool = []
   for (let i = 0; i < SKIES_FX.rampage.plates; i++) {
     const s = new Sprite(Texture.EMPTY); s.anchor.set(0.5); s.visible = false
-    playerC.addChild(s); platePool.push(s)
+    // v5.11: children of bodyC, not playerC — bodyC now ROTATES to face the kaiju's facingAngle
+    // (see syncPlayer), so a plate positioned in bodyC's own local "head-up" space (matching
+    // drawKaijuBody's coordinate system exactly) automatically lands on the right spine point
+    // no matter which way the kaiju is currently facing, with no extra transform math needed here.
+    bodyC.addChild(s); platePool.push(s)
   }
   function updateRampage(run, dt) {
     const R = SKIES_FX.rampage
@@ -6308,30 +6511,36 @@ export function createRenderer(app) {
       if (d > ringR + 30) continue
       rampG.circle(ov.x, ov.y, ov.r + 2).stroke({ width: 2, color: R.rimLight, alpha: R.rimAlpha * (1 - d / (ringR + 30)) })
     }
-    // Seven dorsal plates chain-charging TAIL -> HEAD. Laid on an arc around the BACK half of the
-    // silhouette (facing + 120 deg .. facing + 240 deg) rather than straight across the body: this
-    // kaiju is a round blob seen from directly above, so a straight row of plates lands on its face
-    // and reads as a fringe. An arc outside the rim reads as a ridge along its back.
-    const ang = (p.facingAngle == null ? 0 : p.facingAngle)
+    // Seven dorsal plates chain-charging TAIL -> HEAD, landing on the EXACT SAME fixed spine points
+    // drawKaijuBody bakes as anatomy (py = lerp(-44, 92, f), the same bump curve — see that
+    // function's own comment). v5.11 fix: this used to be an arc that rotated with facingAngle
+    // while the (non-rotating) body underneath it didn't, so "the plates light up" and "the plates
+    // exist" were two unrelated systems that only ever agreed by coincidence (the old body had no
+    // baked plates to compare against at all). Now children of bodyC (see platePool's own comment),
+    // positioned in the SAME local "head-up" space drawKaijuBody draws in — bodyC's own rotation
+    // (syncPlayer, facing the kaiju's facingAngle) carries these along automatically, including its
+    // hop-bounce squash, with no extra transform needed here.
+    const K = SKIES_KAIJU
     const chargeT = ((animT % R.chainT) / R.chainT)
     for (let i = 0; i < platePool.length; i++) {
       const s = platePool[i]
       const f = i / (platePool.length - 1)
       const charge = Math.max(0, 1 - Math.abs(((f + chargeT) % 1) - 0.5) * 3)
-      const pa = ang + Math.PI * (0.66 + f * 0.68)
-      const rr = PLAYER.radius * 1.02
+      const py = lerp(-44, 92, f)
+      const bump = Math.max(0, 1 - Math.abs(f - 0.42) * 1.5)
       s.visible = true
       if (s.texture !== T.plate.tex) { s.texture = T.plate.tex; s.anchor.set(T.plate.ax, T.plate.ay) }
       s.tint = mix(R.plateCool, R.plateHot, charge)
       s.alpha = 0.6 + 0.4 * charge
-      s.scale.set(lerp(0.45, 0.85, 1 - Math.abs(f - 0.5) * 1.4) * (0.9 + 0.3 * charge))
-      s.rotation = pa + Math.PI / 2   // plate tip points radially outward
-      s.position.set(Math.cos(pa) * rr, Math.sin(pa) * rr)
+      s.scale.set(lerp(0.9, 1.7, bump) * (0.9 + 0.3 * charge) * K.plateGlowScale)
+      s.rotation = 0   // plates sit upright on the centreline, not tangential to an arc anymore
+      s.position.set(0, py)
     }
   }
   function clearRampage() {
     rampG.clear()
     jamT = 0; rampWaveR = -1; rampBeatT = 0
+    kaijuSwipeT = 0
     for (const s of platePool) s.visible = false
     lockDiamond.visible = false
   }
@@ -7878,6 +8087,13 @@ export function createRenderer(app) {
   let breathe = 0
   let idleT = 0
   let flashT = 0       // player hurt flash
+  // v5.11 kaiju redesign: 0->1 pulse set by the `tail` sim event (WEAPONS.tailSwipe/stepTailWeapon),
+  // decaying over SKIES_KAIJU.swipeDecay seconds — see syncPlayer's kaiju tail branch. The event
+  // already drives spawnWhip's arc-swoosh at the hit site (handleEvents); this makes the anatomical
+  // tail itself visibly crack at the same moment, instead of only an effect appearing where it
+  // lands. Harmless outside skies: tailSwipe isn't in any other chapter's weapon pool, so the `tail`
+  // event never fires there and this timer just sits at 0, unread (chapterHasKaiju gates its use).
+  let kaijuSwipeT = 0
   let vignetteA = 0
   let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
   let lightningAmbientT = LIGHTNING.ambient.minInterval // s until the next ambient flash/bolt (skies only)
@@ -8223,6 +8439,7 @@ export function createRenderer(app) {
           // arc, with a heavier shake than the lash (this launches things)
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
           addShake(4, 0.16)
+          kaijuSwipeT = SKIES_KAIJU.swipeKick   // the anatomical tail itself cracks (syncPlayer)
           break
         case 'toss':
           // debris toss: the lobs themselves are visible entities (syncLobs) — the event only
@@ -8414,18 +8631,94 @@ export function createRenderer(app) {
   function syncPlayer(p, dt, rampageT = 0) {
     playerC.position.set(p.x, p.y)
 
-    // per-chapter blob tint (white = identity for body) + optional flagellum tail
-    pBody.tint = chapterRender.playerTint
+    // v5.11 kaiju redesign: swap the whole body/flash/shadow onto the dedicated kaiju bake for
+    // skies (chapterHasKaiju) and back onto the generic cross-chapter blob for every other chapter —
+    // same texture-swap-if-changed idiom pRampageGlow uses below. The anchor travels WITH the
+    // texture (bake()'s own {ax,ay}) since the kaiju's silhouette isn't centred the way the round
+    // blob is; guard on pBody alone (all three always swap together) to keep this a single check.
+    if (chapterHasKaiju) {
+      if (pBody.texture !== T.kaijuBody.tex) {
+        pBody.texture = T.kaijuBody.tex; pBody.anchor.set(T.kaijuBody.ax, T.kaijuBody.ay)
+        pFlash.texture = T.kaijuFlash.tex; pFlash.anchor.set(T.kaijuFlash.ax, T.kaijuFlash.ay)
+        pShadow.texture = T.kaijuShadow.tex; pShadow.anchor.set(T.kaijuShadow.ax, T.kaijuShadow.ay)
+      }
+      // the region's ONE light direction (SKIES_SHADOW), scaled off the shadow's own reference
+      // size (SKIES_KAIJU.shadowRx), instead of the generic blob's small straight-down disc (the
+      // `else` branch below, unchanged). +20 nudges it toward the tail/hip so it settles under the
+      // creature's mass rather than dead-centre.
+      pShadow.position.set(SKIES_SHADOW.dx * SKIES_KAIJU.shadowRx, SKIES_SHADOW.dy * SKIES_KAIJU.shadowRx + 20)
+    } else {
+      if (pBody.texture !== T.playerBody.tex) {
+        pBody.texture = T.playerBody.tex; pBody.anchor.set(T.playerBody.ax, T.playerBody.ay)
+        pFlash.texture = T.playerFlash.tex; pFlash.anchor.set(T.playerFlash.ax, T.playerFlash.ay)
+        pShadow.texture = T.playerShadow.tex; pShadow.anchor.set(T.playerShadow.ax, T.playerShadow.ay)
+      }
+      pShadow.position.set(0, PLAYER.radius * 0.95)
+    }
+
+    // per-chapter blob tint (white = identity for body) + optional tail. The kaiju bake carries its
+    // OWN final palette (SKIES_KAIJU) rather than a tint-multiplied base — same "plans carry their
+    // own palette, tint bypassed" rule the top-down structure bakes use (STRUCTURE_SKINS' topDown
+    // entries set clumpA.tint = 0xffffff, above) — otherwise a uniform multiply by playerTint
+    // (0x7ad07a) would push the pale cyan sclera toward the same green as the body fill, right when
+    // eye contrast matters most.
+    pBody.tint = chapterHasKaiju ? 0xffffff : chapterRender.playerTint
     if (chapterRender.tail) {
       pTail.visible = true
-      const ang = (p.facingAngle == null ? Math.PI * 0.5 : p.facingAngle) + Math.PI // trail behind
-      pTail.rotation = ang + Math.sin(animT * 9) * 0.35 // wiggle
-      const sc = fxScale(T.fx.trace_05, PLAYER.radius * 1.6)
-      const tint = chapterRender.tailTint ?? 0x66e0d0
-      tailA.tint = tailB.tint = tint
-      tailA.scale.set(sc, sc * 0.5)
-      tailB.scale.set(sc * 0.9, sc * 0.42)
-      tailB.rotation = Math.sin(animT * 9 + 1.2) * 0.25 // secondary flutter on the far segment
+      if (chapterHasKaiju) {
+        // the articulated kaiju tail (T.kaijuTailSeg): three CHAINED segments, each rooted at the
+        // previous one's tip (not all fanned from one point the way the generic flagellum's tailA/
+        // tailB share pTail's own origin below) — see T.kaijuTailSeg's own comment.
+        const K = SKIES_KAIJU
+        if (dt > 0) kaijuSwipeT = Math.max(0, kaijuSwipeT - dt / K.swipeDecay)
+        const kick = kaijuSwipeT
+        // `ang` (facing + PI, the REAR direction) uses the SAME 0-fallback as bodyC's own rotation
+        // above, so the tail's root and the body's actual rear always agree — the root offset
+        // rotates with it too (K.tail.rootY away from centre, in the rear direction), instead of a
+        // fixed straight-down offset that only matched the body's rear when facing was also "down".
+        const ang = (p.facingAngle == null ? 0 : p.facingAngle) + Math.PI // trail behind
+        pTail.position.set(Math.cos(ang) * K.tail.rootY, Math.sin(ang) * K.tail.rootY)
+        // TAIL SWIPE WHIP: a faster, wider base sway right when the `tail` event fires (kick decays
+        // to 0 over K.swipeDecay), so the weapon's own limb visibly cracks, not just spawnWhip's arc.
+        pTail.rotation = ang + Math.sin(animT * (9 + kick * 9)) * (0.32 + kick * 0.85)
+        if (tailA.texture !== T.kaijuTailSeg.tex) {
+          for (const t of [tailA, tailB, tailC]) { t.texture = T.kaijuTailSeg.tex; t.anchor.set(0, 0.5) }
+        }
+        tailA.visible = tailB.visible = tailC.visible = true
+        // T.kaijuTailSeg carries its own final palette (a shade darker than the body — see its own
+        // comment), so — like pBody above — the sprite tint is bypassed rather than multiplying
+        // chapterRender.tailTint on top of an already-final colour.
+        tailA.tint = tailB.tint = tailC.tint = 0xffffff
+        const ref = T.kaijuTailSeg.ref
+        tailA.scale.set(K.tail.lenA / ref)
+        tailA.rotation = 0
+        tailA.position.set(0, 0)
+        const rotB = Math.sin(animT * 9 + 1.1) * (0.22 + kick * 0.5)
+        tailB.scale.set(K.tail.lenB / ref)
+        tailB.rotation = rotB
+        tailB.position.set(K.tail.lenA, 0)
+        const rotC = rotB + Math.sin(animT * 9 + 2.3) * (0.30 + kick * 0.7)
+        tailC.scale.set(K.tail.lenC / ref)
+        tailC.rotation = rotC
+        tailC.position.set(K.tail.lenA + Math.cos(rotB) * K.tail.lenB, Math.sin(rotB) * K.tail.lenB)
+      } else {
+        // flagellum tail (pond/undergrowth, unchanged): two stacked streak glyphs behind the blob.
+        // Restores T.fx.trace_05 explicitly (harmless no-op unless a PRIOR run this session was
+        // skies — see the kaiju branch above swapping tailA/B/C onto T.kaijuTailSeg instead).
+        pTail.position.set(0, 0)
+        const ang = (p.facingAngle == null ? Math.PI * 0.5 : p.facingAngle) + Math.PI // trail behind
+        pTail.rotation = ang + Math.sin(animT * 9) * 0.35 // wiggle
+        const sc = fxScale(T.fx.trace_05, PLAYER.radius * 1.6)
+        if (tailA.texture !== T.fx.trace_05) { tailA.anchor.set(0.04, 0.5); tailB.anchor.set(0.04, 0.5) }
+        tailA.texture = T.fx.trace_05
+        tailB.texture = T.fx.trace_05
+        const tint = chapterRender.tailTint ?? 0x66e0d0
+        tailA.tint = tailB.tint = tint
+        tailA.scale.set(sc, sc * 0.5)
+        tailB.scale.set(sc * 0.9, sc * 0.42)
+        tailB.rotation = Math.sin(animT * 9 + 1.2) * 0.25 // secondary flutter on the far segment
+        tailC.visible = false // v5.11: the kaiju rig's third chain link only — never shown here
+      }
     } else {
       pTail.visible = false
     }
@@ -8451,7 +8744,11 @@ export function createRenderer(app) {
       // spec §1.3's paired rule: the full-field flash and the rampage bloom NEVER co-render
       const suppressed = lightningFlashA > SKIES_FLASH.bloomCutoff
       pRampageGlow.alpha = suppressed ? 0 : 0.55 * frac * pulse
-      pRampageGlow.scale.set(fxScale(T.rampageBloom, PLAYER.radius * (2.6 + 0.3 * pulse)))
+      // v5.11: scaled up again for the kaiju's own bigger silhouette — sized off PLAYER.radius like
+      // before, this used to be a halo well outside the OLD ~44px body; against the new one it would
+      // read as swallowed inside it instead of surrounding it.
+      const glowMul = chapterHasKaiju ? SKIES_KAIJU.bloomScale : 1
+      pRampageGlow.scale.set(fxScale(T.rampageBloom, PLAYER.radius * (2.6 + 0.3 * pulse) * glowMul))
     } else {
       pRampageGlow.visible = false
     }
@@ -8472,16 +8769,46 @@ export function createRenderer(app) {
       sy = 1 + 0.035 * w
       by = 0
     }
-    bodyC.scale.set(p.facing * sx, sy)
+    if (chapterHasKaiju) {
+      // v5.11: the kaiju body ROTATES to face p.facingAngle instead of just flipping L/R — a
+      // directional silhouette (head, jaw, limbs, a tail rooted at the rear) needs an actual
+      // facing, unlike the round symmetric blob every other chapter's flip-only rig was built for.
+      // drawKaijuBody draws the head pointing local "up" (-y); + PI/2 is the fixed offset that
+      // turns "up" into "facingAngle" once rotated (see this block's own tail comment below for the
+      // same rotation applied to where the tail ROOTS). No p.facing flip: rotation alone now
+      // supplies the facing, and the silhouette is symmetric enough (deliberately) that a flip on
+      // top would only double-transform, not add anything a rotation doesn't already give it.
+      bodyC.scale.set(sx, sy)
+      bodyC.rotation = (p.facingAngle == null ? 0 : p.facingAngle) + Math.PI / 2
+    } else {
+      bodyC.scale.set(p.facing * sx, sy)
+      bodyC.rotation = 0   // restores the flip-only rig's implicit "never rotates" if a PRIOR run
+                           // this session was skies (chapterHasKaiju's rig rotates bodyC above)
+    }
     bodyC.y = by
     pShadow.scale.set(1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0))
 
     // pupil tracking (local +x flips with the body toward facing)
-    const pr = PLAYER.radius
-    const lookX = p.moving ? pr * 0.07 : Math.sin(animT * 0.9) * pr * 0.045
-    const lookY = pr * 0.02 + Math.sin(animT * 1.3) * pr * 0.015
-    pupilL.position.set(-pr * 0.36 + lookX, -pr * 0.16 + lookY)
-    pupilR.position.set(pr * 0.36 + lookX, -pr * 0.16 + lookY)
+    if (chapterHasKaiju) {
+      // bigger head, further-set eyes (drawKaijuBody's sclera circles, radius 13 at ±22,-96) — same
+      // tracking motion, just rescaled off the kaiju's own eye geometry instead of PLAYER.radius.
+      const eyeR = 13, eyeOffX = 22, eyeOffY = -96
+      const pupilScale = (eyeR * 0.5) / (PLAYER.radius * 0.115)
+      pupilL.scale.set(pupilScale)
+      pupilR.scale.set(pupilScale)
+      const lookX = p.moving ? eyeR * 0.5 : Math.sin(animT * 0.9) * eyeR * 0.32
+      const lookY = eyeR * 0.15 + Math.sin(animT * 1.3) * eyeR * 0.1
+      pupilL.position.set(-eyeOffX + lookX, eyeOffY + lookY)
+      pupilR.position.set(eyeOffX + lookX, eyeOffY + lookY)
+    } else {
+      pupilL.scale.set(1)
+      pupilR.scale.set(1)
+      const pr = PLAYER.radius
+      const lookX = p.moving ? pr * 0.07 : Math.sin(animT * 0.9) * pr * 0.045
+      const lookY = pr * 0.02 + Math.sin(animT * 1.3) * pr * 0.015
+      pupilL.position.set(-pr * 0.36 + lookX, -pr * 0.16 + lookY)
+      pupilR.position.set(pr * 0.36 + lookX, -pr * 0.16 + lookY)
+    }
 
     // hurt flash: white pop then red fade
     if (flashT > 0) {
@@ -9136,6 +9463,7 @@ export function createRenderer(app) {
     chapterRender = cfg?.render ?? BODY_RENDER
     chapterHasCurrents = cfg?.signature?.type === 'currents'
     chapterHasStorm = !!chapterRender.storm
+    chapterHasKaiju = !!chapterRender.kaiju
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
     // roads is a chapter-TOP-LEVEL flag (config.js CHAPTERS.skies.roads), not under `render` like

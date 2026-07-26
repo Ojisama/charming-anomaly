@@ -1380,9 +1380,26 @@ export const CHAPTERS = {
     render: {
       bgColor: 0x2a3240,    // dark storm indigo-grey sky showing between the rubble
       floorTint: 0x717c88,  // wet-asphalt cool grey multiply — rain-slicked night wreckage
+      // playerTint/tailTint: read only when `kaiju` (below) is false — render.js's syncPlayer
+      // bypasses BOTH for the dedicated kaiju bake (SKIES_KAIJU carries its own final palette
+      // directly, the same "plans carry their own palette" rule the top-down structures use).
+      // Kept here, rather than deleted, as the schema every other chapter's render block follows
+      // and as the fallback if `kaiju` were ever turned off.
       playerTint: 0x7ad07a, // classic rubber-suit kaiju green
       tail: true,
       tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailSwipe's business end)
+      // v5.11 kaiju redesign: the player was STILL the generic cross-chapter blob — identical
+      // silhouette to body/pond/garden/undergrowth/city/beyond, just retinted, at ~44px on screen
+      // (2 x PLAYER.radius) next to a tower that now draws up to 96px (SKIES_STRUCTURE_ART.tower).
+      // `kaiju: true` gates a SKIES-ONLY body/tail rig in render.js (chapterHasKaiju, mirroring the
+      // chapterHasStorm/chapterHasDistricts latch pattern) — a real top-down silhouette (shoulders,
+      // jawed head, fore/hind limbs, a baked dorsal-plate spine) at a size that actually dwarfs a
+      // tower, plus a proper segmented tail replacing the generic flagellum (T.fx.trace_05) that
+      // pond/undergrowth's `tail: true` still uses UNCHANGED — see render.js's syncPlayer for the
+      // branch. See SKIES_KAIJU below (art direction §5-adjacent, same "counts + palette in
+      // config.js, geometry hardcoded in render.js" split as SKIES_STRUCTURE_ART) for the palette
+      // and detail counts. PLAYER.radius (22) stays the sim hitbox — nothing here is read by sim.js.
+      kaiju: true,
       storm: true,          // v5.6.18: gates the night-thunderstorm overlay (cloud-shadows,
                              // parallax clouds, rain — STORM_VIS below, render.js updateStorm)
       districts: true,      // v5.7.x: gates the per-cell Voronoi district floor/prop system
@@ -2252,6 +2269,69 @@ export const SKIES_STRUCTURE_ART = {
     body: 0x8c8377, lichen: 0x7f8f6a, lichenDots: 12, screeChips: 5,   // scree fans DOWNSLOPE, in
                                                                        // the SKIES_SHADOW direction
   },
+}
+
+// ---- KAIJU ART (v5.11) — render-only, skies-only ------------------------------------------------
+// The player was the one thing in the chapter that DIDN'T get the top-down redraw: the same generic
+// blob every other chapter tints, at ~44px on screen (2 x PLAYER.radius) next to a tower that now
+// draws up to 96px (SKIES_STRUCTURE_ART.tower, above). CHAPTERS.skies.render.kaiju gates a dedicated
+// body/tail rig in render.js — same "palette + detail counts live here, the actual polygon
+// coordinates are hardcoded in render.js" split SKIES_STRUCTURE_ART already uses (its geometry is
+// specific enough — a jaw, a dorsal ridge, four limbs — that a data-driven layout would just be a
+// second, harder-to-read copy of the drawing code). PLAYER.radius (22) is untouched: it's the sim
+// hitbox, and this whole pass is render-only, exactly like the structure redraw was.
+export const SKIES_KAIJU = {
+  // rubber-suit green family — the kaiju's FINAL colours, not a base meant to be tint-multiplied.
+  // render.js's syncPlayer bypasses CHAPTERS.skies.render.playerTint (0x7ad07a) for this bake
+  // entirely, the same "plans carry their own palette" rule the top-down structure bakes use
+  // (STRUCTURE_SKINS' topDown entries force clumpA.tint = 0xffffff) — a uniform multiply would push
+  // the pale cyan sclera below toward the same green as the body fill, right when eye contrast
+  // matters most.
+  bodyLit: 0x74b862,    // top-plane, biased toward the SKIES_SHADOW light direction
+  bodyMid: 0x548a44,    // main fill
+  bodyShade: 0x3c6633,  // flank shade, biased away from the light
+  plateBase: 0x2f5a42, plateEdge: 0x8fd9a8,   // dorsal plates: BAKED anatomy first (this section);
+                                               // the existing rampage charge (SKIES_FX.rampage,
+                                               // render.js updateRampage) lights these SAME points
+                                               // up second, rather than drawing an unrelated glow
+                                               // ring that used to rotate with facingAngle regardless
+                                               // of the (non-rotating) body underneath it.
+  scute: 0x466f3a, band: 0x2c4a26,   // flank scutes + spine banding — surface detail, not silhouette
+  jawDark: 0x22321c, teeth: 0xe8e2c8, claw: 0x241c16, horn: 0x203024,
+  // v5.10 palette law 2 ("atomic cyan-green IS the player"): SKIES_PALETTE.playerHot reused
+  // directly for the sclera, so the ONE non-green hue on the body is the exact hex the rest of
+  // the chapter already reads as "you", not a new, third player colour to learn.
+  eyeWhite: 0xd8fff4,   // pupils are the existing T.pupil sprite, just repositioned/rescaled
+  // detail counts (not decorative — see SKIES_STRUCTURE_ART's own note on why these are specific
+  // numbers and not "some"): dorsal plates chain-charge tail->head (SKIES_FX.rampage.plates already
+  // fixes this at 7 — kept in sync here rather than restated), jaw teeth, flank scutes per side,
+  // spine bands, small brow horns.
+  jawTeeth: 7, scuteRows: 5, bandCount: 4,
+  // ground shadow: the kaiju gets its OWN bigger shadow (T.kaijuShadow, render.js), offset by the
+  // region's one light direction (SKIES_SHADOW) scaled to the kaiju's own size, instead of the
+  // generic blob's small straight-down disc (pShadow's default, unchanged for every other chapter).
+  shadowRx: 100, shadowRy: 48,
+  // the articulated tail (replaces T.fx.trace_05, the generic streak pond/undergrowth's `tail: true`
+  // still uses unchanged, for skies only): three CHAINED tapering segments (each rooted at the
+  // previous one's tip, not all three fanned from one point the way tailA/tailB share pTail's
+  // origin today) with an increasing whip-lag per segment.
+  tail: {
+    lenA: 128, lenB: 104, lenC: 82,
+    rootY: 58,   // pTail's LOCAL root offset (render.js) — a fixed point near the body's rear,
+                 // instead of dead centre, so the swing reads as rooted at the hip, not the belly
+  },
+  // TAIL SWIPE WHIP: the `tail` sim event (sim.js stepTailWeapon/WEAPONS.tailSwipe) already drives
+  // spawnWhip's arc-swoosh at the hit site (render.js handleEvents); this ADDS a snap on the
+  // anatomical tail itself, decaying over swipeDecay seconds, so the weapon's own limb visibly
+  // moves instead of only an effect appearing where it lands.
+  swipeKick: 1.0, swipeDecay: 0.55,
+  // the rampage dorsal-plate glow (SKIES_FX.rampage) and the rampage screen bloom (pRampageGlow)
+  // both used to be sized only off PLAYER.radius (the sim hitbox, unchanged) — fine for the OLD
+  // ~44px body, but it would now read as a small diamond/halo swallowed inside the new, much
+  // bigger silhouette instead of surrounding it. Two separate multipliers because the two effects
+  // scale against different references: the plate glow is sized relative to the BAKED PLATE it's
+  // lighting up (small), the screen bloom is sized relative to the WHOLE BODY (big).
+  plateGlowScale: 1.6, bloomScale: 3.4,
 }
 
 // Ruins (spec §5.9) — swapped in PERMANENTLY at a crush site by the render-local crush ledger
