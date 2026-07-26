@@ -198,7 +198,11 @@ function generateWells(sig) {
  *               appended (so an elite can carry both its roster's own flags and its chapter's
  *               elite-only ones). Always present (possibly []), safe to check unconditionally.
  *               Known flags (sim.js): 'latch' (stepContactDamage: contact slows the player via
- *               player.slowT/LATCH_SLOW_MUL then the enemy dies), 'split' (dealDamage's death
+ *               player.slowT/LATCH_SLOW_MUL then the enemy dies), 'crushable' (v5.14, skies'
+ *               aircraft — stepContactDamage: the enemy dies outright on touching the player and
+ *               deals NO contact damage and spends no invuln window; like 'latch' it sits before
+ *               the p.invuln gate and continues the scan, so a whole flight dies in one frame.
+ *               Its threat is its telegraphed attack, not its airframe), 'split' (dealDamage's death
  *               branch: non-`_splitChild` deaths spawn SPLIT_CHILD_COUNT children at
  *               SPLIT_HP_FRAC hp / SPLIT_RADIUS_FRAC radius, flagged `_splitChild: true` so they
  *               never re-split), 'dashBurst' (stepDashBurst: an idle -> dash state machine on

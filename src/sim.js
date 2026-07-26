@@ -99,6 +99,7 @@ import {
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
   // v5.8 kaiju redesign (skies crushing + rampage)
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
+  RAMPAGE_SPEED_MUL, RAMPAGE_DMG_MUL, RAMPAGE_FIRE_RATE_MUL,
   // v5.9 top-down region overhaul (skies roads + districts)
   roadAt, districtAt, terrainAt, DISTRICT_STRUCTURE_KINDS, BIOME_BUILD_DENSITY, blockSnap, STRUCTURE_SETBACK,
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
@@ -213,7 +214,8 @@ function stepPlayerMovement(run, input, dt) {
     }
   }
   const slowMul = Math.min(latchMul, webMul)
-  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul
+  const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
+  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
   p.x += ix * speed * dt
   p.y += iy * speed * dt
   // The player's own input velocity, snapshotted for the skies' artillery flag to lead its shells
@@ -977,6 +979,12 @@ function stepFlashlightCones(run, dt) {
 // invuln window. @returns true if the player died (phase now 'dead').
 function hurtPlayer(run, rawDmg, dot = false) {
   const p = run.player
+  // v5.14: RAMPAGE = INVULNERABLE. Every player-damage path in this file funnels through here
+  // (contact, pools, spray strips, snap traps, traffic lanes, enemy shots, pull beams, bombs), so
+  // this one guard is the whole feature — and it covers `dot` too, which deliberately bypasses the
+  // normal invuln window. Derived from run.rampageT, never assigned onto the player: see
+  // RAMPAGE_CRUSH_MUL's doc block in config.js for why that distinction is load-bearing.
+  if (run.rampageT > 0) return false
   const dmg = dot
     ? Math.max(1, Math.round(rawDmg))
     : Math.max(1, Math.round((rawDmg - run.passives.armor) * run.mods.contactDmgTakenMul))
@@ -1067,6 +1075,15 @@ function stepContactDamage(run) {
     // antibody still latches on and dies even while the player is briefly invulnerable).
     if (e.flags && e.flags.includes('latch')) {
       p.slowT = LATCH_SLOW_T
+      dealDamage(run, e, e.hp, false)
+      continue
+    }
+
+    // crushable flag (v5.14, skies' aircraft): the airframe is not a weapon. Flying into the kaiju
+    // destroys the aircraft outright and costs the player NOTHING — no damage, no invuln window
+    // spent. Like 'latch' above this sits before the p.invuln gate and `continue`s rather than
+    // returning, so a whole flight dies in the frame it is plowed through instead of one per frame.
+    if (e.flags && e.flags.includes('crushable')) {
       dealDamage(run, e, e.hp, false)
       continue
     }
@@ -1916,6 +1933,7 @@ function applyDamage(run, enemy, baseDmg) {
   if (damageImmune(enemy)) return 0 // v5.4 untouchable window: no crit roll, no elements either
   const p = run.player
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul
+    * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
   let crit = false
   if (Math.random() < p.critChance + run.passives.critChance) {
     dmg *= (p.critDamage + run.passives.critDamage)
@@ -2226,6 +2244,7 @@ function stepWeapons(run, dt) {
   run.orbs = []
   run.debris = [] // rewritten every frame by the Trash Tornado, exactly like run.orbs
   const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate)
+    * (run.rampageT > 0 ? RAMPAGE_FIRE_RATE_MUL : 1)   // v5.14, read-time only (see config)
 
   for (const w of run.weapons) {
     const stats = effectiveWeaponStats(run, w)

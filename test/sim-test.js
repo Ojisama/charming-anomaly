@@ -38,6 +38,7 @@ import {
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
+  RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
@@ -4164,6 +4165,87 @@ function testSkiesKaiju() {
     }
 
     console.log(`PASS run CC.c (rampage lifecycle): decays idle, triggers at 1.0, widens ${PLAYER.radius}->${PLAYER.radius * RAMPAGE_CRUSH_MUL} while active, drains to exactly 0`)
+  }
+
+  // (c5) v5.14 rampage PAYLOAD: invulnerable + faster + harder-hitting while rampageT > 0, and
+  // — the assertion that actually matters — NOTHING LEAKS once it ends. Rev.1 of the v5.8 redesign
+  // cut these buffs precisely because it granted them by ASSIGNING to p.speed/p.damageMul, which
+  // are set once in createRun and never written again, so a re-trigger or a death mid-buff left the
+  // multiplier stuck on forever. They are read-time multipliers now; this pins that they stay so.
+  {
+    Math.random = mulberry32(20260714)
+    const run = skiesRun()
+    const p = run.player
+    const baseSpeed = p.speed, baseDmg = p.damageMul, baseFire = p.fireRateMul
+    p.hp = 100; p.maxHP = 100
+
+    // INVULNERABLE: a direct hit from a full-strength contact enemy costs nothing while rampaging.
+    run.rampage = 1; run.rampageT = RAMPAGE_DURATION
+    const hitter = makeStatusEnemy(run, { x: 0, y: 0, hp: 50, speed: 0 })
+    hitter.dmg = 40; hitter.flags = []
+    run.enemies.push(hitter)
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(p.hp, 100, `expected rampage to be INVULNERABLE, took ${100 - p.hp} damage`)
+
+    // MOVES FASTER: same input, further travelled, by RAMPAGE_SPEED_MUL.
+    run.enemies.length = 0
+    const x0 = p.x
+    stepSim(run, { x: 1, y: 0 }, dt)
+    const rampStep = p.x - x0
+    run.rampageT = 0; run.rampage = 0
+    const x1 = p.x
+    stepSim(run, { x: 1, y: 0 }, dt)
+    const normStep = p.x - x1
+    assert(Math.abs(rampStep / normStep - RAMPAGE_SPEED_MUL) < 0.02,
+      `expected rampage movement to be ${RAMPAGE_SPEED_MUL}x, got ${(rampStep / normStep).toFixed(3)}x`)
+
+    // NO RESIDUE: the buff ended above, so every source value must be untouched. This is the whole
+    // point of deriving instead of assigning — if any of these three drifted, the buff leaked.
+    assert.strictEqual(p.speed, baseSpeed, 'rampage LEAKED into player.speed')
+    assert.strictEqual(p.damageMul, baseDmg, 'rampage LEAKED into player.damageMul')
+    assert.strictEqual(p.fireRateMul, baseFire, 'rampage LEAKED into player.fireRateMul')
+
+    // ...and it must still leak nothing after a SECOND rampage runs its full course (the re-trigger
+    // case that made rev.1's in-place version compound).
+    run.rampage = 1; run.rampageT = RAMPAGE_DURATION
+    for (let i = 0; i < Math.round((RAMPAGE_DURATION + 1) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(p.speed, baseSpeed, 'rampage LEAKED into player.speed on re-trigger')
+    assert.strictEqual(p.damageMul, baseDmg, 'rampage LEAKED into player.damageMul on re-trigger')
+    assert.strictEqual(p.fireRateMul, baseFire, 'rampage LEAKED into player.fireRateMul on re-trigger')
+
+    console.log(`PASS run CC.c5 (rampage payload): invulnerable, ${(rampStep / normStep).toFixed(2)}x move speed, and zero leak into player.speed/damageMul/fireRateMul across two rampages`)
+  }
+
+  // (c6) v5.14 'crushable' (skies' aircraft): flying into the kaiju kills the aircraft and costs
+  // the player NOTHING — no damage and no invuln window spent. A whole flight dies in one frame,
+  // which is what the `continue`-instead-of-`return` in stepContactDamage's branch buys.
+  {
+    Math.random = mulberry32(20260714)
+    const run = skiesRun()
+    const p = run.player
+    p.hp = 100; p.maxHP = 100; p.invuln = 0
+    for (let i = 0; i < 3; i++) {
+      const jet = makeStatusEnemy(run, { x: 4 * i - 4, y: 0, hp: 30, speed: 0 })
+      jet.dmg = 25; jet.flags = ['strafe', 'crushable']
+      run.enemies.push(jet)
+    }
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(p.hp, 100, `expected ramming aircraft to cost the kaiju nothing, took ${100 - p.hp}`)
+    assert.strictEqual(p.invuln, 0, 'expected no invuln window to be spent on a crushable contact')
+    const alive = run.enemies.filter((e) => !e._dead && (e.flags || []).includes('crushable'))
+    assert.strictEqual(alive.length, 0, `expected all 3 rammed aircraft dead in ONE frame, ${alive.length} survived`)
+
+    // ...and a NON-crushable enemy on the same contact path still hurts normally, so the branch
+    // above is scoped to the flag and has not quietly disarmed contact damage for everything else.
+    const run2 = skiesRun()
+    run2.player.hp = 100; run2.player.maxHP = 100; run2.player.invuln = 0
+    const tank = makeStatusEnemy(run2, { x: 0, y: 0, hp: 30, speed: 0 })
+    tank.dmg = 25; tank.flags = ['artillery']
+    run2.enemies.push(tank)
+    stepSim(run2, { x: 0, y: 0 }, dt)
+    assert(run2.player.hp < 100, 'expected a NON-crushable enemy to still deal contact damage')
+
+    console.log('PASS run CC.c6 (crushable aircraft): 3 rammed aircraft died in one frame for 0 damage; a tank on the same path still hurt')
   }
 
   // (d) structure `kind` is deterministic for a given (cell, obstacleSeed, districtSeed) — and it

@@ -1328,11 +1328,16 @@ export const CHAPTERS = {
     name: 'The Skies', tagline: 'they brought the air force', icon: '🌩️',
     weapons: ['roar', 'tailSwipe', 'debrisToss'], starter: 'roar',
     roster: [
-      { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe'] },
+      // 'crushable' (v5.14): flying into a kaiju kills the aircraft and does NOT scratch the kaiju.
+      // A jet does not bounce off a monster the size of a city block, and it certainly does not
+      // hurt one by hitting it — the aircraft's threat is its STRAFE RUN (a telegraphed, dodgeable
+      // attack), not its airframe. Aircraft only: the tank column below is ground armour and
+      // survives being brushed, so walking into one still costs you.
+      { id: 'jet',        archetype: 'fast',   name: 'Fighter Jet', hpMul: 0.8, speedMul: 1.1,  flags: ['strafe', 'crushable'] },
       // v5.6.15: hpMul 1.2 -> 0.75 — aircraft are FRAGILE; the tank column is this chapter's
       // armor. At 1.2 the roar cone cleared ~0.7 helis/s against ~1.6/s spawning, so they
       // accumulated into a missile hell (217 alive at t=180) regardless of standoff.
-      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley'] },
+      { id: 'helicopter', archetype: 'normal', name: 'Helicopter',  hpMul: 0.75, speedMul: 0.9,  flags: ['missileVolley', 'crushable'] },
       // v5.13: hpMul 1.8 -> 1.25 ("tanks are a bit too tanky"). The tank column is still the
       // chapter's armour — every other skies spawn sits at or below 0.8 — but at 1.8 it outlived
       // the roar cone long enough that columns stacked up and their artillery telegraphs became a
@@ -2674,12 +2679,16 @@ export const CRUSH_XP = 1
 // design: a bank filled at leisure rewards patience, a streak that bleeds unless you keep wrecking
 // rewards momentum (the kaiju verb, design doc §3). At a FULL bar, RAMPAGE activates for
 // RAMPAGE_DURATION s: the crush radius widens from PLAYER.radius to PLAYER.radius *
-// RAMPAGE_CRUSH_MUL (stepCrush) — you flatten a swath without touching it. That is the ENTIRE buff:
-// no speed/damage multiplier. Rev.1 granted those too and both were cut — p.speed and p.damageMul
-// are never assigned anywhere in sim.js (set once in createRun, read through multipliers at
-// spawnEnemy/stepPlayerMovement/applyDamage), so mutating them in place would leak permanently on
-// re-trigger or on death mid-buff. A radius is one number, re-derived fresh every frame from
-// rampageT, and can't leak.
+// RAMPAGE_CRUSH_MUL (stepCrush) — you flatten a swath without touching it.
+//
+// v5.14: a full bar now ALSO grants invulnerability, RAMPAGE_SPEED_MUL, RAMPAGE_DMG_MUL and
+// RAMPAGE_FIRE_RATE_MUL. Rev.1 of the v5.8 redesign granted speed/damage too and they were cut,
+// but read the reason carefully — it was never "the buff is too strong", it was a LIFETIME bug:
+// p.speed/p.damageMul/p.fireRateMul are assigned once in createRun and only ever read through
+// multipliers (stepPlayerMovement / applyDamage / stepWeapons), so writing to them in place leaks
+// permanently on a re-trigger or on death mid-buff. Every buff here is therefore DERIVED at its
+// read site from run.rampageT, exactly like the crush radius above — one multiplier, re-evaluated
+// fresh every frame, structurally incapable of leaking. Nothing is assigned to the player.
 //
 // v5.9.1 retune ("the meter is unfillable and drains too fast", playtest report — exactly the
 // failure design doc §3's "open tuning risk" flagged and deferred to a play pass). The shipped
@@ -2712,6 +2721,12 @@ export const RAMPAGE_DECAY = 0.03       // meter fraction lost per second while 
 export const RAMPAGE_GRACE_T = 1.5      // s of no decay after the most recent crush
 export const RAMPAGE_DURATION = 5       // s the widened crush radius stays active once triggered
 export const RAMPAGE_CRUSH_MUL = 3      // crush radius multiplier while rampageT > 0 (PLAYER.radius * this)
+// v5.14 rampage payload. All three are read-time multipliers (see the doc block above for why they
+// are never assigned onto the player). Invulnerability is the fourth buff and needs no constant —
+// it is one guard at the top of hurtPlayer, which every player-damage path in sim.js funnels into.
+export const RAMPAGE_SPEED_MUL = 1.5     // +50% movement speed while rampageT > 0
+export const RAMPAGE_DMG_MUL = 2         // +100% weapon damage
+export const RAMPAGE_FIRE_RATE_MUL = 1.5 // +50% fire rate
 
 // ================================================================================================
 // SKIES ART DIRECTION (v5.10) — docs/superpowers/specs/2026-07-25-skies-art-direction.md
@@ -3004,6 +3019,28 @@ export const SKIES_FX = {
     alertWaveSpeed: 900,                               // ...as a WAVE at px/s, never a single frame
     reacquireT: 0.6,                                   // s for the lights to come back after it ends
     duration: RAMPAGE_DURATION,                        // 5 s (sim constant, above)
+  },
+
+  // DEBRIS TOSS IMPACT ZONE (v5.14, run.lobs — render.js syncLobs). The lob is the one PLAYER attack
+  // with real travel time and a committed landing point, so where it lands is information worth
+  // drawing. The hard rule is that it must not speak the enemy telegraph language: violet chevrons
+  // are the sky's, ochre brackets are the guns', orange lanes are the jets', magenta locks are the
+  // helicopters'. Every one of those means SOMETHING IS ABOUT TO HIT YOU, and a player-owned mark
+  // wearing that vocabulary is a lie about who is in danger. Two things keep it separate:
+  //   - HUE: SKIES_PALETTE.player, the atomic cyan-green reserved by palette law 2 for the kaiju
+  //     and nothing else. It is already the "this is yours" colour; this is the first mark on the
+  //     ground to use it.
+  //   - MOTION: the ring OPENS OUTWARD as the rock falls. Every enemy telegraph in the chapter
+  //     closes inward (gun brackets shrink, sky chevrons close, the strafe pool races in) — the one
+  //     that grows is the one you threw. Opposite motion reads faster than any colour does.
+  // Radius is the lob's OWN blast radius read live off the entity, so the ring is the true hitbox,
+  // and gravity wells that bend the landing point (bendLob) move the mark with it for free.
+  debris: {
+    color: SKIES_PALETTE.player,
+    ringW: 2,
+    ringAlpha: 0.6,
+    fillAlpha: 0.12,
+    growFrom: 0.3,   // ring radius as a fraction of the true blast radius at the moment of release
   },
 }
 
