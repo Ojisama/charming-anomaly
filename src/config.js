@@ -2610,7 +2610,19 @@ export const MISSILE_R = 8              // px, missile hit radius
 // still ticks but the volley is held (no shot). The accumulated far pack (50-85 alive by late
 // run) was multiplying volleys from OFF-SCREEN into a wall of shots; "still too many missiles".
 // 620 ≈ just past a phone screen's half-diagonal: everything that shoots you is visible.
-export const MISSILE_FIRE_RANGE = 620
+// v5.16: 620 -> 460. A dart travels MISSILE_SPEED * MISSILE_LIFE = 200 * 2.6 = 520px and never
+// turns (MISSILE_TURN is 0), so at 620 a helicopter on the range boundary was firing rockets that
+// COULD NOT REACH the player even if they stood perfectly still — the "it doesn't seem to do
+// damage" half of the same bug report. Every one of those doomed darts still cost a designation
+// line, a lock reticle, a smoke ribbon and a pool slot. 460 leaves ~60px of margin for a player
+// running directly away, so a missile fired is a missile that can land: fewer rockets on screen AND
+// a higher fraction of them meaning something.
+export const MISSILE_FIRE_RANGE = 460
+// Out-of-range reacquire floor (sim.js stepMissileVolley). MUST stay above SKIES_FX.missile.lockT
+// (0.6) — that is render's pre-launch telegraph window, and a heli entering range with less than
+// lockT on its clock appears mid-warning and fires almost immediately. See the bugfix note at the
+// call site.
+export const MISSILE_REACQUIRE_T = 0.8
 // v5.6.17: hard ceiling on rockets in flight, game-wide. Helis bunch at the standoff ring, so
 // per-ship cadence alone can't bound the on-screen volume — measured 94 concurrent at late run
 // ("still too many missiles"). A full volley is held (not queued) while the sky is saturated.
@@ -3020,9 +3032,9 @@ export const SKIES_FX = {
                                                         // crush radius (PLAYER.radius * this), so the
                                                         // prettiest effect is also the honest hitbox
     rimLight: 0x4bffc8, rimAlpha: 0.5,                 // cyan rim on every structure inside the ring
-    alert: 0xff3b30,                                   // searchlights + klaxons flip to ALERT red...
-    alertWaveSpeed: 900,                               // ...as a WAVE at px/s, never a single frame
-    reacquireT: 0.6,                                   // s for the lights to come back after it ends
+    // v5.16: `alert` / `alertWaveSpeed` / `reacquireT` are gone with the light layer — all three
+    // described searchlights and klaxons flipping to alert red as a wave, and there are no
+    // searchlights left to flip. render.js's rampWaveR (their only consumer) went with them.
     duration: RAMPAGE_DURATION,                        // 5 s (sim constant, above)
   },
 
@@ -3043,47 +3055,16 @@ export const SKIES_FX = {
 // and each sub-container must draw from exactly ONE texture or Pixi v8's batcher breaks on every
 // blend-mode/texture transition. Two sub-containers (lamps, cones) = two draw calls. The layer sits
 // between the cloud shadows and the entities, so light cuts THROUGH cloud shadow.
+// v5.16: THE LIGHT LAYER IS GONE. This export used to carry the searchlight cones, the kerb lamps,
+// the klaxon rings, the blinking aviation beacons and the lightning `reveal` gain — spec §7, the
+// chapter's stated identity ("TOKUSATSU NIGHT — the lights are looking for you"). It was also, by
+// volume, the largest source of moving pale shapes on the floor, and it was cut as clutter along
+// with the rest of the v5.13-v5.16 declutter pass. render.js's cones/lamps/beacons and their four
+// bakes went with it. The one thing genuinely lost is a gameplay hook: a cone was anchored to a
+// CRUSHABLE structure, so flattening the anchor killed the cone mid-sweep. Nothing else read it.
+// What survives is the crush LEDGER, which never had anything to do with lighting — it is what
+// leaves a permanent ruin and foundation scar where a structure was flattened.
 export const SKIES_LIGHT = {
-  // Kerb lamps — the strongest "this is a city at night" signal available, and the cheapest.
-  // Placed by ENUMERATION along each street centreline in view (same origin latch as ROAD_JUNCTION),
-  // NOT by an 8th FLOOR_LAYERS entry: updateFloorLayer already runs seven nested i x j sweeps per
-  // frame and the road layer alone touches ~1000 cells at ROAD_CELL = 30. Enumeration is exact,
-  // cheaper, and cannot drift off the grid.
-  lamp: {
-    spacingPx: 120,        // along the centreline
-    kerbInset: 4,          // px in from `half` — the lamp stands ON the kerb
-    alternateSides: true,  // per index, so a street is lit from both sides
-    pool: 64, mast: 0x2f343c, mastPx: 3,
-    poolW: 90, poolH: 150, // the T.lampPool bake: long axis ACROSS the road, like a real luminaire
-    tint: SKIES_PALETTE.sodium, alpha: 0.13,   // palette law 1: soft, warm, well under sodiumMaxAlpha
-  },
-  // Searchlights — at most 5 live cones, each anchored to a real obstacle within `anchorRange` whose
-  // kind is in `anchorKinds`, chosen DETERMINISTICALLY by o._cell (sort by roadHash(cell)) so the set
-  // does not flicker frame to frame.
-  cone: {
-    max: 5, lenPx: 900, arcDeg: 26,
-    color: SKIES_PALETTE.searchlight,           // palette law 3: this colour, and ONLY this, is light
-    alpha: 0.30, lockAlpha: 0.42,
-    sweepSpeed: 0.35, sweepSpan: 1.1,           // rad/s, and ± rad about a per-anchor hashed bearing
-    rim: 0xffffff, rimAlpha: 0.5,               // hard 1px rim down both cone edges ON LOCK ONLY —
-                                                // the difference between "a light" and "it sees you"
-    anchorKinds: ['tower', 'silo', 'pier'], anchorRange: 900,
-    // HYSTERESIS IS MANDATORY, or the headline system reads as a bug: hold an anchor until it is
-    // crushed or leaves OBSTACLE_DROP_RADIUS, fade cones in and out over `fadeT`, NEVER cut. Anchors
-    // must survive run._obstacleRev churn — key the anchor set by o._cell and re-resolve positions on
-    // each rebuild, never by array index or object identity.
-    dropRange: OBSTACLE_DROP_RADIUS, fadeT: 0.8,
-    // Klaxon on lock: two concentric expanding rings from the ANCHOR (not the player) in ALERT red.
-    klaxon: SKIES_PALETTE.alert, klaxonPeriod: 1.2, klaxonRings: 2, klaxonW: 4,
-  },
-  // Blinking aviation lamps — the one element that CANNOT be baked, and worth its own pooled sprite
-  // because a skyline that blinks is instantly a skyline. Towers only; the per-tower phase offset is
-  // hashed from o._cell so a skyline does not blink in unison (which reads as a shader, not a city).
-  aviation: { color: SKIES_PALETTE.alert, px: 2.5, period: 1.4, onFrac: 0.18 },
-  // Lightning reveal: while the full-field flash is up, multiply the whole light layer's alpha by
-  // (1 + gain * lightningFlashA) for the flash's 0.16 s, so a bolt momentarily reveals every
-  // structure silhouette and every cast shadow in view. One alpha channel, free drama.
-  reveal: { gain: 2.2 },
   // The crush ledger — ONE render-local structure serving THREE features, which is why it is worth
   // having at all: `const crushLedger = new Map()` keyed `${round(x/8)},${round(y/8)}` -> {x,y,kind,t}.
   // Over cap, evict the entry farthest from the player; always evict beyond `dropPx`. Cleared in
@@ -3094,7 +3075,8 @@ export const SKIES_LIGHT = {
   //      ploughing an avenue leaves a DEAD BLACK CORRIDOR through a lit grid. That corridor is the
   //      chapter's whole fantasy expressed as a lighting state, and it costs one distance test;
   //   3. searchlight anchor invalidation.
-  ledger: { cap: 96, cellPx: 8, dropPx: 2200, blackoutPx: 220 },
+  // v5.16: only (1) is left — (2) and (3) died with the light layer, so `blackoutPx` is unread.
+  ledger: { cap: 96, cellPx: 8, dropPx: 2200 },
 }
 
 

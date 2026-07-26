@@ -90,7 +90,7 @@ import {
   GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
   // v5.4 skies
   STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_TELEGRAPH_T, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
-  MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
+  MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_REACQUIRE_T, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
   MISSILE_GAP, MISSILE_SPEED, MISSILE_TURN, MISSILE_LIFE, MISSILE_R, MISSILE_DMG, MISSILE_BLAST,
   ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
   ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
@@ -853,7 +853,15 @@ function stepMissileVolley(run, e, tx, ty, dt, slowMul, spdMul) {
   if (e._volleyT === undefined) { e._volleyT = MISSILE_INTERVAL; e._volleyLeft = 0; e._volleyGapT = 0 }
   // v5.6.17: hold fire unless ON STATION (within MISSILE_FIRE_RANGE). The timer keeps ticking —
   // a heli that drifts into range mid-cycle fires on its normal cadence, it doesn't alpha-strike.
-  if (d > MISSILE_FIRE_RANGE) { e._volleyT = Math.max(e._volleyT - dt, 0.2); e._volleyLeft = 0; return }
+  // v5.16 BUGFIX: that floor was 0.2s, which broke the promise in the line above in the one way the
+  // player can actually see. render.js draws the missile LOCK (designation line + crawling bead +
+  // the reticle on you) for the last SKIES_FX.missile.lockT = 0.6s before a volley — so a heli
+  // loitering out of range with its timer pinned at 0.2 crossed the boundary ALREADY INSIDE its own
+  // telegraph window: the line snapped on two-thirds complete and the rocket left 0.2s later. That
+  // is the reported "they fire the very first second they target", and with a whole loitering pack
+  // it is a wall of designation lines flicking on at the range edge. The floor must sit ABOVE lockT
+  // so entering range always buys the full, honest warning.
+  if (d > MISSILE_FIRE_RANGE) { e._volleyT = Math.max(e._volleyT - dt, MISSILE_REACQUIRE_T); e._volleyLeft = 0; return }
   if (e._volleyLeft > 0) {
     e._volleyGapT -= dt
     if (e._volleyGapT <= 0) {

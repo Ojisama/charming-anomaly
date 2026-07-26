@@ -4166,15 +4166,6 @@ export function createRenderer(app) {
       gr.addColorStop(1, 'rgba(255,255,255,0)')
       ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
     })
-    // v5.10.1: the blinking aviation lamp used to be T.dot — the same soft-dot-plus-halo shared with
-    // kill-poofs and pickup sparkles. A beacon should be a tight hard bead, not a "poof": smaller
-    // core, tighter halo.
-    T.aviationLamp = (() => {
-      const g = new Graphics()
-      g.circle(0, 0, 5).fill({ color: 0xffffff, alpha: 0.3 })
-      g.circle(0, 0, 2).fill(0xffffff)
-      return bake(g)
-    })()
     // v5.10.1: artillery's muzzle flash and missile's exhaust used to both reuse the generic
     // T.fx.flare_01 (shared, elsewhere in this file, by frostarc/shockarc/homing/beam — fine for
     // those, since they are not one of this chapter's own six threats). These two ARE, so they get
@@ -4199,44 +4190,13 @@ export function createRenderer(app) {
       ctx.fillStyle = gr; ctx.fillRect(0, 0, w, w)
     })
 
-    // ---- the light layer (spec §7) — the chapter's identity -----------------------------------
-    // "TOKUSATSU NIGHT — the lights are looking for you." Additive, and each sub-container draws
-    // from exactly ONE texture or Pixi v8's batcher breaks on every blend-mode/texture transition.
-    T.lightCone = canvasTex(1024, 512, (ctx, w, h) => {
-      const half = Math.tan((SKIES_LIGHT.cone.arcDeg * Math.PI) / 360) * w
-      const gr = ctx.createLinearGradient(0, 0, w, 0)
-      gr.addColorStop(0, 'rgba(255,255,255,1)')
-      gr.addColorStop(0.22, 'rgba(255,255,255,0.6)')
-      gr.addColorStop(1, 'rgba(255,255,255,0.06)')
-      ctx.fillStyle = gr
-      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2 - half); ctx.lineTo(w, h / 2 + half)
-      ctx.closePath(); ctx.fill()
-    })
-    T.lampPool = canvasTex(256, 160, (ctx, w, h) => {
-      ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(1, h / w)
-      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, w / 2)
-      gr.addColorStop(0, 'rgba(255,255,255,1)')
-      gr.addColorStop(0.35, 'rgba(255,255,255,0.55)')
-      gr.addColorStop(0.7, 'rgba(255,255,255,0.18)')
-      gr.addColorStop(1, 'rgba(255,255,255,0)')
-      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, w / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore()
-    })
-    T.klaxonRing = (() => {
-      const g = new Graphics()
-      g.circle(0, 0, TREF).stroke({ width: SKIES_LIGHT.cone.klaxonW, color: 0xffffff })
-      g.circle(0, 0, TREF - SKIES_LIGHT.cone.klaxonW - 2).stroke({ width: 2, color: 0xffffff, alpha: 0.7 })
-      return { ...bake(g, 0), ref: TREF }
-    })()
-    // The lamp itself: a dark mast collar with a LIT HEAD inside it. The additive pool alone tops
-    // out at palette law 1's alpha ceiling (0.16) and over a blue-grey night floor that reads as a
-    // grey smudge, not a lamp. A <= 5px static warm rectangle is the one other form the law permits
-    // warm gold to take, and it is what turns the smudge into a light source.
-    T.lampMast = (() => {
-      const g = new Graphics()
-      g.circle(0, 0, SKIES_LIGHT.lamp.mastPx).fill(SKIES_LIGHT.lamp.mast)
-      g.circle(0, 0, SKIES_LIGHT.lamp.mastPx * 0.5).fill(SKIES_PALETTE.sodiumLit)
-      return bake(g, 1)
-    })()
+    // v5.16: the LIGHT LAYER is gone — searchlight cones, kerb lamps, klaxon rings and the
+    // blinking aviation beacons, plus their four bakes (T.lightCone/T.lampPool/T.klaxonRing/
+    // T.lampMast) and every pool and update that drove them. It was the chapter's stated identity
+    // ("the lights are looking for you") and it was also, by volume, the largest source of moving
+    // pale shapes on the floor. Removed on the same call as the rest of the declutter pass.
+    // NOTE: this retires the one gameplay hook it carried — a cone was anchored to a CRUSHABLE
+    // structure, so flattening the anchor killed the cone mid-sweep. Nothing else read that link.
 
     // ---- road markings + decals + junctions (spec §4.2-§4.3) ----------------------------------
     // The carriageway tile is stamped at a NON-UNIFORM scale (x 0.48, y 0.34 minor / 0.62 major),
@@ -4557,7 +4517,6 @@ export function createRenderer(app) {
   const roadLayer = new Container()   // skies only (v5.9) — sits over the district floor tint, under every prop
   const roadDecalLayer = new Container() // skies only (v5.10) — manholes/patches/drains/arrows, uniformly scaled
   const junctionLayer = new Container()  // skies only (v5.10) — enumerated crosswalk composites, true world size
-  const lampMastLayer = new Container()  // skies only (v5.10) — the 3px kerb-lamp masts (their LIGHT is additive, see lightLayer)
   const ruinLayer = new Container()      // skies only (v5.10) — permanent crush ruins, from the render-local ledger
   const bigLayer = new Container()
   const midLayer = new Container()
@@ -4568,7 +4527,7 @@ export function createRenderer(app) {
   // (see updateGroundField). blotchLayer above it now carries only texture. Separating the two is the
   // fix for the checkerboard — see updateGroundField's header for the full account.
   const groundLayer = new Container()
-  floorLayer.addChild(groundLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, lampMastLayer, ruinLayer,
+  floorLayer.addChild(groundLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
@@ -4606,20 +4565,7 @@ export function createRenderer(app) {
   // additive is a new concept here and it is a CORRECTNESS requirement, not a perf note. Each
   // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
   // blend-mode/texture transition — three sub-containers, three draw calls.
-  const lightLayer = new Container()
-  const lampSub = new Container()    // T.lampPool only
-  const coneSub = new Container()    // T.lightCone only
-  const klaxonSub = new Container()  // T.klaxonRing only
-  for (const sub of [lampSub, coneSub, klaxonSub]) { sub.blendMode = 'add'; lightLayer.addChild(sub) }
-  // v5.10.1: SKIES_LIGHT.cone.rim/rimAlpha were dead config — declared, documented ("the difference
-  // between 'a light' and 'it sees you'"), never read anywhere. A Graphics stroke, not a third Sprite
-  // sub-container: it is per-frame live geometry (on/off with lock state), not a pooled texture batch.
-  const coneRimG = new Graphics()
-  coneRimG.blendMode = 'add'
-  lightLayer.addChild(coneRimG)
-  lightLayer.visible = false
-
-  world.addChild(floorLayer, cloudShadowLayer, lightLayer, entitiesLayer)
+  world.addChild(floorLayer, cloudShadowLayer, entitiesLayer)
   app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
@@ -6292,13 +6238,6 @@ export function createRenderer(app) {
     }
     return 16
   }
-  function lampBlackedOut(x, y) {
-    const r2 = SKIES_LIGHT.ledger.blackoutPx * SKIES_LIGHT.ledger.blackoutPx
-    for (const e of crushLedger.values()) {
-      if ((e.x - x) ** 2 + (e.y - y) ** 2 < r2) return true
-    }
-    return false
-  }
   const ruinSprites = []
   function updateRuins(cx, cy) {
     let n = 0
@@ -6367,239 +6306,6 @@ export function createRenderer(app) {
     for (let i = n; i < junctionSprites.length; i++) junctionSprites[i].visible = false
   }
 
-  // ---- kerb lamps (spec §4.4) — the strongest "this is a city at night" signal there is --------
-  // Enumerated along each street centreline, NOT added as an 8th FLOOR_LAYERS entry: updateFloorLayer
-  // already runs seven nested i x j sweeps per frame and the road layer alone touches ~1000 cells at
-  // ROAD_CELL = 30. Enumeration is exact, cheaper, and cannot drift off the grid.
-  const lampMasts = []
-  const lampPools = []
-  for (let i = 0; i < SKIES_LIGHT.lamp.pool; i++) {
-    const m = new Sprite(Texture.EMPTY); m.anchor.set(0.5); m.visible = false; lampMastLayer.addChild(m); lampMasts.push(m)
-    const p = new Sprite(Texture.EMPTY); p.anchor.set(0.5); p.visible = false; lampSub.addChild(p); lampPools.push(p)
-  }
-  // districtAt is ~36 hash01 calls (config.js's own comment: "nowhere near a hot per-frame loop"),
-  // and the lamp/junction enumerations below would ask it ~54 times EVERY frame for positions that
-  // never move. Memoised on a coarse world grid, cleared with the run.
-  const districtMemo = new Map()
-  function districtAtCached(x, y) {
-    const k = (Math.round(x / 24) << 12) ^ Math.round(y / 24)
-    let d = districtMemo.get(k)
-    if (d === undefined) {
-      d = districtAt(x, y, districtSeed)
-      if (districtMemo.size > 4096) districtMemo.clear()
-      districtMemo.set(k, d)
-    }
-    return d
-  }
-  function placeLamp(n, x, y, angle) {
-    if (n >= lampMasts.length) return n
-    const L = SKIES_LIGHT.lamp
-    const m = lampMasts[n]
-    m.visible = true
-    m.texture = T.lampMast.tex
-    m.anchor.set(T.lampMast.ax, T.lampMast.ay)
-    m.tint = 0xffffff
-    m.scale.set(1)
-    m.position.set(x, y)
-    const p = lampPools[n]
-    p.visible = true
-    if (p.texture !== T.lampPool) p.texture = T.lampPool
-    p.tint = L.tint
-    // the blackout: a crushed structure takes its street light with it. (Alpha runs at
-    // SKIES_PALETTE.sodiumMaxAlpha rather than lamp.alpha — palette law 1's ceiling, not over it —
-    // because at 0.13 an additive warm pool over a blue-grey night floor is below the noise.)
-    const blacked = lampBlackedOut(x, y)
-    p.alpha = blacked ? 0 : SKIES_PALETTE.sodiumMaxAlpha
-    m.alpha = blacked ? 0.35 : 1     // the head goes out with its pool; the mast stays as a stub
-    p.rotation = angle          // long axis ACROSS the road, like a real luminaire
-    p.scale.set(L.poolH / T.lampPool.width, L.poolW / T.lampPool.height)
-    p.position.set(x, y)
-    return n + 1
-  }
-  function updateLamps(cx, cy) {
-    let n = 0
-    // Probe budget. Every candidate lamp position asks roadAt whether there is actually pavement
-    // under it, and roadAt is ~2.5us (it consults the city lattice and a noise field, not a modulo
-    // like the v5.10 global grid did). Measured over a 40x27 grid of camera positions the
-    // enumeration averages 115 probes a frame (0.29ms) but peaks at 571 (1.46ms) where several
-    // cities' grids overlap the view — and most of that peak is wasted, since only
-    // SKIES_LIGHT.lamp.pool (64) lamps can be placed however many positions are tested. Capping the
-    // probes bounds the worst frame without touching the common one; the cap is well above the
-    // ~180 probes it takes to fill the pool in a dense city.
-    let probes = 0
-    const PROBE_BUDGET = 260
-    if (chapterHasRoads && chapterHasStorm) {
-      const L = SKIES_LIGHT.lamp
-      const { cities, x0, y0, x1, y1 } = visibleCities(cx, cy, 60)
-      for (const c of cities) {
-        if (n >= lampMasts.length) break
-        const b = cityViewBounds(c, x0, y0, x1, y1)
-        const E = STREET_SPACING_MAJOR_EVERY
-        // Streets running along +v (constant u), then streets running along +u. Both walk the
-        // centreline in the CITY's frame and offset to the kerb across it, so the lamp row follows
-        // the street's real rotation instead of a world axis.
-        for (let ui = Math.ceil(b.uMin / c.blockU); ui * c.blockU <= b.uMax && n < lampMasts.length; ui++) {
-          const u = ui * c.blockU
-          const major = ((ui % E) + E) % E === 0
-          const half = (major ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
-          for (let k = Math.ceil(b.vMin / L.spacingPx); k * L.spacingPx <= b.vMax && n < lampMasts.length; k++) {
-            const side = L.alternateSides && (k & 1) ? -1 : 1
-            if (++probes > PROBE_BUDGET) break
-            const p = cityToWorld(c, u + side * (half - L.kerbInset), k * L.spacingPx)
-            if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
-            n = placeLamp(n, p.x, p.y, c.angle + Math.PI / 2)
-          }
-        }
-        for (let vi = Math.ceil(b.vMin / c.blockV); vi * c.blockV <= b.vMax && n < lampMasts.length; vi++) {
-          const v = vi * c.blockV
-          const major = ((vi % E) + E) % E === 0
-          const half = (major ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
-          for (let k = Math.ceil(b.uMin / L.spacingPx); k * L.spacingPx <= b.uMax && n < lampMasts.length; k++) {
-            const side = L.alternateSides && (k & 1) ? -1 : 1
-            if (++probes > PROBE_BUDGET) break
-            const p = cityToWorld(c, k * L.spacingPx, v + side * (half - L.kerbInset))
-            if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
-            n = placeLamp(n, p.x, p.y, c.angle)
-          }
-        }
-      }
-    }
-    for (let i = n; i < lampMasts.length; i++) { lampMasts[i].visible = false; lampPools[i].visible = false }
-  }
-
-  // ---- searchlights (spec §7.2) — THE HOOK -----------------------------------------------------
-  // At most 5 live cones, each anchored to a real, CRUSHABLE structure. Crush the anchor and the
-  // cone dies mid-sweep — the prettiest thing on screen is a target. That is the whole direction in
-  // one mechanic, and it needs ZERO sim change: render already receives {type:'crush'} and can read
-  // run.obstacles. HYSTERESIS IS MANDATORY (hold an anchor until it is crushed or leaves
-  // OBSTACLE_DROP_RADIUS; fade over fadeT, never cut) or the headline system reads as a bug.
-  const coneSprites = []
-  const klaxonSprites = []
-  const searchlights = []   // { cell, x, y, bearing, phase, a, locked, redT, gone }
-  for (let i = 0; i < SKIES_LIGHT.cone.max; i++) {
-    const c = new Sprite(Texture.EMPTY); c.anchor.set(0, 0.5); c.visible = false; coneSub.addChild(c); coneSprites.push(c)
-    for (let r = 0; r < SKIES_LIGHT.cone.klaxonRings; r++) {
-      const k = new Sprite(Texture.EMPTY); k.anchor.set(0.5); k.visible = false; klaxonSub.addChild(k); klaxonSprites.push(k)
-    }
-  }
-  let klaxonT = 0
-  // stable 0..1 rank for an obstacle's "i,j" cell key — the searchlight anchor set is sorted by
-  // this so it is deterministic and does not reshuffle as the field streams
-  function hashString01(s) {
-    let h = 0
-    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0
-    return (h >>> 0) / 4294967296
-  }
-  function updateSearchlights(run, dt) {
-    const C = SKIES_LIGHT.cone
-    coneRimG.clear()
-    if (!chapterHasStorm) { for (const s of coneSprites) s.visible = false; for (const k of klaxonSprites) k.visible = false; return }
-    const px = run.player.x, py = run.player.y
-    // one pass over the streamed obstacle field: re-resolve held anchors by _cell (they must
-    // survive run._obstacleRev churn) and collect fresh candidates in the same sweep
-    const held = new Map()
-    for (const sl of searchlights) { sl.gone = true; held.set(sl.cell, sl) }
-    const candidates = []
-    for (const o of run.obstacles || []) {
-      if (!C.anchorKinds.includes(o.kind)) continue
-      const d2 = (o.x - px) ** 2 + (o.y - py) ** 2
-      const sl = held.get(o._cell)
-      if (sl) {
-        if (d2 <= C.dropRange * C.dropRange) { sl.gone = false; sl.x = o.x; sl.y = o.y }
-        continue
-      }
-      if (d2 <= C.anchorRange * C.anchorRange) candidates.push(o)
-    }
-    // deterministic pick, so the set does not flicker frame to frame
-    candidates.sort((a, b) => hashString01(a._cell) - hashString01(b._cell))
-    for (let i = searchlights.length - 1; i >= 0; i--) {
-      const sl = searchlights[i]
-      if (!sl.gone) continue
-      sl.a = Math.max(0, sl.a - (dt > 0 ? dt : 0) / C.fadeT)
-      if (sl.a <= 0) searchlights.splice(i, 1)
-    }
-    for (const o of candidates) {
-      if (searchlights.length >= C.max) break
-      searchlights.push({
-        cell: o._cell, x: o.x, y: o.y, gone: false, a: 0, locked: false, redT: 0,
-        bearing: hashString01(o._cell) * Math.PI * 2, phase: hashString01(o._cell) * 10,
-      })
-    }
-    if (dt > 0) klaxonT += dt
-    let ci = 0, ki = 0
-    for (const sl of searchlights) {
-      if (!sl.gone) sl.a = Math.min(1, sl.a + (dt > 0 ? dt : 0) / C.fadeT)
-      if (dt > 0) sl.phase += dt
-      const sweep = sl.bearing + Math.sin(sl.phase * C.sweepSpeed) * C.sweepSpan
-      const dx = px - sl.x, dy = py - sl.y
-      const d = Math.hypot(dx, dy)
-      const toPlayer = Math.atan2(dy, dx)
-      let diff = Math.abs(((toPlayer - sweep + Math.PI * 3) % (Math.PI * 2)) - Math.PI)
-      const inWedge = d < C.lenPx && diff < (C.arcDeg * Math.PI) / 360
-      sl.locked = inWedge && !sl.gone
-      const ang = sl.locked ? toPlayer : sweep     // LOCK: the sweep stops and the cone tracks you
-      sl.ang = ang
-      const s = coneSprites[ci++]
-      if (!s) break
-      s.visible = sl.a > 0.01
-      if (s.texture !== T.lightCone) s.texture = T.lightCone
-      // ALERT RED: during a rampage the flip propagates outward from the player as a WAVE, never a
-      // single frame — the lights losing you is a spreading panic, not a global boolean
-      const red = sl.redT > 0
-      s.tint = red ? SKIES_PALETTE.alert : C.color
-      s.alpha = (sl.locked ? C.lockAlpha : C.alpha) * sl.a * (red ? 1.15 : 1)
-      s.rotation = ang
-      s.scale.set(C.lenPx / T.lightCone.width)
-      s.position.set(sl.x, sl.y)
-      // v5.10.1: SKIES_LIGHT.cone.rim/rimAlpha implemented — a hard rim down both cone edges, ON
-      // LOCK ONLY, per the config's own doc comment ("the difference between 'a light' and 'it sees
-      // you'"). This was declared and never read anywhere.
-      if (sl.locked && sl.a > 0.01) {
-        const halfArc = (C.arcDeg * Math.PI) / 360
-        for (const sgn of [-1, 1]) {
-          const ea = ang + sgn * halfArc
-          coneRimG.moveTo(sl.x, sl.y).lineTo(sl.x + Math.cos(ea) * C.lenPx, sl.y + Math.sin(ea) * C.lenPx)
-            .stroke({ width: 1, color: red ? SKIES_PALETTE.alert : C.rim, alpha: C.rimAlpha * sl.a })
-        }
-      }
-      if (sl.locked && sl.a > 0.4) {
-        // klaxon: two concentric rings pulsing from the ANCHOR (not the player) in alert red
-        for (let r = 0; r < C.klaxonRings; r++) {
-          const k = klaxonSprites[ki++]
-          if (!k) break
-          const t = ((klaxonT + (r * C.klaxonPeriod) / C.klaxonRings) % C.klaxonPeriod) / C.klaxonPeriod
-          k.visible = true
-          if (k.texture !== T.klaxonRing.tex) { k.texture = T.klaxonRing.tex; k.anchor.set(T.klaxonRing.ax, T.klaxonRing.ay) }
-          k.tint = C.klaxon
-          k.alpha = (1 - t) * 0.5 * sl.a
-          k.scale.set((t * 150) / T.klaxonRing.ref)
-          k.position.set(sl.x, sl.y)
-        }
-      }
-    }
-    for (let i = ci; i < coneSprites.length; i++) coneSprites[i].visible = false
-    for (let i = ki; i < klaxonSprites.length; i++) klaxonSprites[i].visible = false
-  }
-  function clearSearchlights() {
-    searchlights.length = 0
-    coneRimG.clear()
-    for (const s of coneSprites) s.visible = false
-    for (const k of klaxonSprites) k.visible = false
-  }
-
-  // ---- blinking aviation lamps (spec §7.4) -----------------------------------------------------
-  // The one element that cannot be baked. Per-tower phase offset hashed from o._cell so a skyline
-  // does not blink in unison, which reads as a shader rather than as a city.
-  function updateAviationLamps() {
-    if (!chapterHasStorm) return
-    const A = SKIES_LIGHT.aviation
-    for (const ov of obstacleSprites) {
-      if (!ov.root.visible || !ov.tower) continue
-      const t = ((animT + ov.phase) % A.period) / A.period
-      ov.lamp.visible = t < A.onFrac
-      ov.lamp.alpha = t < A.onFrac ? 1 - t / A.onFrac * 0.35 : 0
-    }
-  }
 
   // ==============================================================================================
   // SKIES v5.10 — THE SIX THREAT SIGNATURES (spec §3)
@@ -6634,6 +6340,7 @@ export function createRenderer(app) {
     const dx = x - playerX, dy = y - playerY
     return dx * dx + dy * dy > SKIES_TELEGRAPH_LOD_PX * SKIES_TELEGRAPH_LOD_PX
   }
+
   // RAMPAGE JAMMING (spec §3, rampage row): while you are rampaging, every ENEMY telegraph visibly
   // breaks up — you are not merely stronger, their targeting is failing. On rampage END the dropout
   // decays to 0 so the picture RE-ACQUIRES; a hard snap back reads as a rendering bug.
@@ -7085,14 +6792,11 @@ export function createRenderer(app) {
       jamSnapT += dt
       if (active) jamT = 1
       else jamT = Math.max(0, jamT - dt / SKIES_JAM.recoverT)
-      if (active) { rampWaveR = rampWaveR < 0 ? 0 : rampWaveR + R.alertWaveSpeed * dt; rampBeatT += dt }
-      else rampWaveR = -1
+      if (active) rampBeatT += dt
     }
-    // the alert-red flip propagates as a WAVE at 900 px/s, never a single frame
-    for (const sl of searchlights) {
-      const d = Math.hypot(sl.x - run.player.x, sl.y - run.player.y)
-      sl.redT = active && rampWaveR >= d ? 1 : 0
-    }
+    // v5.16: the alert-red WAVE that flipped every searchlight to klaxon red went with the light
+    // layer, and so did rampWaveR — the wave had exactly one consumer and it was those cones. The
+    // rim-light sweep below is a separate thing: it keys off the crush radius, not the wave.
     if (!active) {
       for (const s of platePool) s.visible = false
       rampBeatT = 0
@@ -7143,7 +6847,7 @@ export function createRenderer(app) {
   }
   function clearRampage() {
     rampG.clear()
-    jamT = 0; rampWaveR = -1; rampBeatT = 0
+    jamT = 0; rampBeatT = 0
     kaijuSwipeT = 0
     for (const s of platePool) s.visible = false
     lockDiamond.visible = false
@@ -7305,16 +7009,9 @@ export function createRenderer(app) {
     clumpA.anchor.set(0.5)
     const clumpB = new Sprite(Texture.EMPTY)
     clumpB.anchor.set(0.5)
-    // v5.10 (spec §7.4): a fourth pooled sprite — the blinking aviation lamp on a tower mast. It is
-    // the ONE element in the whole redesign that cannot be baked (a blinking light is a per-frame
-    // alpha, by definition), and a skyline that blinks is instantly a skyline. Only ever visible
-    // for kind === 'tower' in skies; updateAviationLamps drives its alpha.
-    const lamp = new Sprite(Texture.EMPTY)
-    lamp.anchor.set(0.5)
-    lamp.visible = false
-    root.addChild(ring, clumpA, clumpB, lamp)
+    root.addChild(ring, clumpA, clumpB)
     obstacleLayer.addChild(root)
-    return { root, ring, clumpA, clumpB, lamp, tower: false, phase: 0, x: 0, y: 0, r: 0 }
+    return { root, ring, clumpA, clumpB, x: 0, y: 0, r: 0 }
   }
   function syncObstacles(run) {
     const list = run.obstacles || []
@@ -7334,7 +7031,6 @@ export function createRenderer(app) {
       ov.root.visible = true
       ov.root.position.set(o.x, o.y)
       ov.x = o.x; ov.y = o.y; ov.r = o.r
-      ov.tower = false; ov.lamp.visible = false
       liveCells.add(o._cell)
       // v5.11: a building INSIDE A CITY is squared to its block. sim's streamObstacles stamps
       // o.rot from the city's own street angle when it snaps the structure off the carriageway
@@ -7417,21 +7113,6 @@ export function createRenderer(app) {
           ov.root.rotation = rot
           ov.clumpB.texture = Texture.EMPTY
           ov.clumpB.scale.set(1)
-          ov.tower = o.kind === 'tower'
-          ov.phase = hash(o.x * 0.37 + o.y * 1.11) * SKIES_LIGHT.aviation.period
-          if (ov.tower) {
-            // T.aviationLamp (v5.10.1: was T.dot, the same soft dot-plus-halo shared with kill-poofs
-            // and pickup sparkles — a beacon reads better as a tight hard bead than a "poof")
-            ov.lamp.texture = T.aviationLamp.tex
-            ov.lamp.anchor.set(T.aviationLamp.ax, T.aviationLamp.ay)
-            ov.lamp.tint = SKIES_LIGHT.aviation.color
-            ov.lamp.scale.set(SKIES_LIGHT.aviation.px / Math.max(T.aviationLamp.tex.width, T.aviationLamp.tex.height))
-            // the mast head, in plan coords, scaled the same way the plan was
-            const s = (o.r * SKIES_PLAN_SCALE) / (SKR * 2)
-            ov.lamp.position.set((36 - 8) * s, (-30 + 6 - SKIES_STRUCTURE_ART.tower.mastPx) * s)
-          } else {
-            ov.lamp.visible = false
-          }
           continue
         }
         ov.root.rotation = 0   // pooled sprite may have come from a rotated top-down plan
@@ -8737,7 +8418,6 @@ export function createRenderer(app) {
   let jamT = 0                   // rampage telegraph-jamming strength, 1 while rampaging then
                                  // decaying over SKIES_JAM.recoverT so the picture RE-ACQUIRES
   let jamSnapT = 0               // lock-diamond re-snap cadence
-  let rampWaveR = -1             // radius of the alert-red flip wave rolling out from the player
   let rampBeatT = 0              // heartbeat-ring accumulator
   // v5.8 kaiju redesign: last frame's run.rampageT, render-local memory only — NEVER written back
   // to run (render must not mutate it). RAMPAGE's trigger is a LEVEL (rampageT jumps 0 ->
@@ -9208,21 +8888,14 @@ export function createRenderer(app) {
     clearCurrents()
     clearStorm()
     clearSkiesBombs()
-    clearSearchlights()
     clearScars()
     clearRampage()
     clearSmoke()
     crushLedger.clear()
-    districtMemo.clear()
-    lightLayer.visible = false
-    lightLayer.alpha = 1
     for (const s of ruinSprites) s.visible = false
     for (const s of junctionSprites) s.visible = false
-    for (const s of lampMasts) s.visible = false
-    for (const s of lampPools) s.visible = false
     prevSkiesShots = new Set()
     flashCooldown = 0
-    klaxonT = 0
     jamSnapT = 0
     clearParticles()
     clearRings()
@@ -9810,11 +9483,10 @@ export function createRenderer(app) {
     world.position.set(cx * mapZoom, cy * mapZoom)
     updateGroundField(cx, cy)
     updateFloorLayer(cx, cy)
-    // v5.10 skies ground/light enumeration (spec §4.3/§4.4/§7): junctions, kerb lamps and crush
-    // ruins are placed ANALYTICALLY from the latched road grid + the render-local crush ledger,
-    // not by an extra FLOOR_LAYERS sweep — see latchRoadOrigin's comment for why.
+    // v5.10 skies ground enumeration (spec §4.3): junctions and crush ruins are placed
+    // ANALYTICALLY from the road grid + the render-local crush ledger, not by an extra
+    // FLOOR_LAYERS sweep. (v5.16: updateLamps went with the light layer.)
     updateJunctions(cx, cy)
-    updateLamps(cx, cy)
     updateRuins(cx, cy)
 
     // red vignette flash — keeps fading behind frozen modals/summary (dt=0)
@@ -9825,11 +9497,8 @@ export function createRenderer(app) {
     lightningFlashA = Math.max(0, lightningFlashA - (dt > 0 ? dt : 1 / 60) / LIGHTNING.flash.fadeDur)
     lightningFlash.alpha = lightningFlashA
     if (dt > 0) flashCooldown = Math.max(0, flashCooldown - dt)   // the photosensitivity budget
-    // LIGHTNING REVEAL (spec §7.3): while the flash is up, the whole light layer brightens, so a
-    // bolt momentarily reveals every structure silhouette and every cast shadow in view. One alpha
-    // channel, free drama.
-    lightLayer.visible = chapterHasStorm
-    lightLayer.alpha = 1 + SKIES_LIGHT.reveal.gain * lightningFlashA
+    // v5.16: the LIGHTNING REVEAL (spec §7.3) went with the light layer — it was one alpha channel
+    // on that container, and there is no longer a container to brighten.
 
     syncObstacles(run)
     syncWells(run)
@@ -9850,8 +9519,6 @@ export function createRenderer(app) {
     if (chapterHasStorm) {
       drawMissileLocks(run)          // also draws into teleG
       updateMissileTrails(run, dt)
-      updateSearchlights(run, dt)
-      updateAviationLamps()
       updateScars(dt)
     }
     updateRampage(run, dt)           // clears rampG itself; no-ops (and decays the jamming) elsewhere
@@ -10134,9 +9801,6 @@ export function createRenderer(app) {
       playerY = run.player.y
       updateFloorLayer(cx, cy)
       updateJunctions(cx, cy)
-      updateLamps(cx, cy)
-      lightLayer.visible = chapterHasStorm
-      lightLayer.alpha = 1
       syncPlayer(run.player, 0)
     } else {
       entitiesLayer.visible = false
@@ -10156,12 +9820,11 @@ export function createRenderer(app) {
     // entitiesLayer is NOT hidden wholesale: obstacleLayer lives inside it, and the BUILDINGS are
     // half of what a layout view exists to show (the first capture hid them and produced a map of
     // bare roads on flat ground). Hide every child of it EXCEPT the structures, plus the weather and
-    // the additive light — searchlight cones and cloud shadows are big soft shapes that wash over
-    // exactly the boundaries this view is meant to make legible.
+    // cloud shadows are big soft shapes that wash over exactly the boundaries this view is meant
+    // to make legible. (v5.16: the additive light layer they were listed beside is gone.)
     for (const child of entitiesLayer.children) child.visible = on ? child === obstacleLayer : true
     entitiesLayer.visible = true
     cloudShadowLayer.visible = !on
-    lightLayer.visible = !on
     stormRainLayer.visible = !on
     stormCloudLayer.visible = !on
     // A zoomed-out world streams far more cells than the pools were sized for at 1:1, and every
