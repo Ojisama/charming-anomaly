@@ -1455,17 +1455,47 @@ export const CHAPTERS = {
     // Black-Hole Vortex comes home here (id kept as 'hole', see WEAPONS.hole); realityShard +
     // tesseractBeam are new v5.4 natives. Starter = the reality shard.
     weapons: ['realityShard', 'hole', 'tesseractBeam'], starter: 'realityShard',
+    // v5.18: the roster is now a MERGE of the two genres this chapter fuses (see `lane` below).
+    //   - invader (normal): marches in rank, ignores you, never seeks. The Space Invaders half.
+    //     Formation waves (stepFormations) spawn these and nothing else.
+    //   - swarmDrone (fast): seeks you exactly as before. The Vampire Survivors half — the ordinary
+    //     swarm still converges on you between ranks, which is the whole point of the merge.
+    //   - hulk (tank): a heavy marcher. Slow, tanky, and it does NOT break rank, so a wave with one
+    //     in it has a wall you must route around rather than out-damage.
+    // `formationOnly` entries are NEVER picked by ordinary spawning — only stepFormations may spawn
+    // them, by id. Rev.1 put `march` on the plain 'normal' archetype and the chapter came out with
+    // no swarm at all for its first several minutes: early waves are ~100% 'drone' type, drone maps
+    // to 'normal', and 'normal' was the marcher — so every enemy alive was a rank invader and the
+    // Vampire Survivors half of the merge simply never appeared. The two halves need separate
+    // entries: seekers spawn on the ring as in every other chapter, marchers arrive only in rank.
     roster: [
-      { id: 'blinker',    archetype: 'tank',   name: 'Glitch Blinker', hpMul: 1.4,  speedMul: 0.7, flags: ['blink'] },
-      { id: 'flicker',    archetype: 'normal', name: 'Phase Flicker',  hpMul: 0.9,  speedMul: 1,   flags: ['phase'] },
-      { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',    hpMul: 0.75, speedMul: 1.25, flags: [] },
+      { id: 'drifter',    archetype: 'normal', name: 'Drifter',       hpMul: 0.9,  speedMul: 1,    flags: [] },
+      { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',   hpMul: 0.75, speedMul: 1.25, flags: [] },
+      { id: 'warden',     archetype: 'tank',   name: 'Warden',        hpMul: 1.25, speedMul: 0.7,  flags: [] },
+      { id: 'invader',    archetype: 'normal', name: 'Invader',       hpMul: 0.6,  speedMul: 1,    flags: ['march'], formationOnly: true },  // rank fodder: dies fast, arrives six at a time
+      { id: 'hulk',       archetype: 'tank',   name: 'Siege Hulk',    hpMul: 1.4,  speedMul: 0.55, flags: ['march'], formationOnly: true },
     ],
     eliteFlags: ['pullBeam'],             // UFO elites open an abduction beam that drags the player in
     // Signature: gravity wells (run.wells) — persistent field entities that BEND every projectile
     // in flight, the player's (run.bullets/homingShots/lobs) and the enemies' (run.enemyShots)
     // alike. They never damage anything; they only curve. `wells` = how many are alive at once.
     signature: { type: 'gravity', wells: 4 },
-    obstacles: { count: 11, minR: 28, maxR: 55, minDist: 240 }, // asteroid chunks
+    // v5.18: planets, not pebbles. A handful of enormous bodies scrolling past instead of 11 small
+    // rocks — the chapter is a STAR SYSTEM, so its terrain is planet-sized. Count stays low and the
+    // cell stays wide: you should meet one every few seconds, never a crowd of them.
+    obstacles: { count: 4, cell: 700, minR: 120, maxR: 260, minDist: 600 }, // planets
+    // v5.18 lane: The Beyond is the one chapter that is NOT a free-roaming survivors arena. It is a
+    // Space Invaders / vertical-shmup lane: the view auto-scrolls, you are pinned to a band near the
+    // bottom of it, and you can only STRAFE left and right while ranks of invaders come down at you.
+    //
+    // HOW THE AUTO-SCROLL IS BUILT, because it is much less machinery than it sounds: the camera
+    // already follows the player in every chapter, so "the world scrolls past while the player holds
+    // station on screen" is exactly what you get by making the PLAYER advance forward at a constant
+    // rate and taking only the x axis from the joystick. The renderer, the camera, the terrain
+    // streaming and the obstacle field all keep working untouched — no scrolling layer, no second
+    // camera mode, no new streaming. `lane` gates that movement rule (stepPlayerMovement), the
+    // formation waves (stepFormations) and the leak penalty (stepLeaks).
+    lane: true,
     // ---- render-only (v5.4) ---- deep space: near-black violet void between the asteroid crust,
     // a cold violet floor, a luminous cosmic blob (no tail — you're a shape, not an animal any
     // more). eliteIridescent gives UFO elites the same statusless shimmer the pond's soap bubbles
@@ -1936,6 +1966,86 @@ export const ARCHETYPE_TYPE = { normal: 'drone', tank: 'tank', fast: 'wisp' }
 // by luck) and wisp (WRONG) — which made every 'fast' roster entry unreachable by natural
 // spawning until v5.5.
 export const TYPE_ARCHETYPE = Object.fromEntries(Object.entries(ARCHETYPE_TYPE).map(([a, t]) => [t, a]))
+
+// ---- The Beyond: the lane (v5.18, Space Invaders x survivors) --------------------------------
+// See CHAPTERS.beyond.lane for how the auto-scroll is implemented (the player advances, the camera
+// already follows). Everything below is gated on that flag and inert in every other chapter.
+//
+// The player's FORWARD speed is deliberately its own constant rather than p.speed: the scroll rate
+// has to stay predictable and legible, so move-speed upgrades buy you a faster STRAFE (which is the
+// skill) and never a faster scroll (which would just mean meeting more invaders per second).
+// THE SCROLL MUST BE SLOWER THAN THE SWARM. This was 190 in rev.1 and it silently killed the
+// chapter's entire progression loop: every enemy in the game is slower than that (ENEMIES.drone 90,
+// wisp 165, tank 55), so a player advancing at 190px/s simply outran the seeking half of the roster
+// forever. They never caught up, never got killed, never dropped a gem — measured XP after 50s was
+// 1. The Vampire Survivors half of this merge only exists if the swarm can reach you, so the scroll
+// has to sit UNDER the slowest chaser that matters, with room to spare.
+// It also reads better: a slow forward drift against a quick strafe is the Space Invaders feel,
+// where all your agility is sideways.
+export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane, always
+export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base speed — it is all you have
+
+// THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had
+// an unbounded lane with ranks 900px wide centred on the player: on a phone (viewRadius ~465) most
+// of every rank was off-screen, so ~65% of all damage taken came from invaders the player never saw,
+// and measured survival was 15-18 seconds. Space Invaders has walls for exactly this reason — the
+// formation spans the play area, the play area is what you can see, and every threat is therefore
+// legible. The lane is centred on world x = 0 and the player is clamped to it.
+// laneHalfWidth() shrinks the lane on a narrow viewport so a rank is ALWAYS fully visible: the
+// guarantee "you can see everything that can hurt you" outranks a fixed world width.
+export const LANE_HALF_W = 430           // px, half the lane's width at full size
+export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of the viewport radius
+export const laneHalfWidth = (viewRadius) => Math.min(LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
+
+// march: the Space Invaders half of the roster. The enemy IGNORES the player entirely and advances
+// DOWN the lane in rank at its own speed, swaying side to side on a shared phase so a wave reads as
+// one marching block rather than a scatter of individuals. It never seeks, never re-aims, and never
+// breaks formation — dodging a rank is always possible and always your fault if you don't.
+export const MARCH_SPEED_MUL = 0.55      // fraction of the enemy's own speed, moving down the lane
+export const MARCH_SWAY_PX = 46          // px of side-to-side shuffle amplitude
+export const MARCH_SWAY_RATE = 1.1       // rad/s of that shuffle
+
+// Formation waves (stepFormations): a rank of `march` enemies spawned ahead of the player, across
+// the lane, on a cadence. Rows arrive as blocks so the screen reads as ordered ranks rather than a
+// stream. Wave size grows with run time via the ordinary spawn-rate curve, not a separate ramp.
+// A rank spans the LANE, not a fixed pixel width, so it always fits the screen and its columns
+// always sit at the same world x. That second property is what makes strafing a decision: the rank
+// is a fixed set of lanes to thread, not a wall that follows you. Rev.1 centred every rank on the
+// player's own x, which meant strafing changed nothing about what arrived.
+// 3.4s in rev.1 delivered 6 invaders every 3.4s (1.8/s) against a starter weapon that clears roughly
+// 1/s — so the line was mathematically unholdable from second zero and 74 of 102 invaders leaked in
+// the first minute. 5s is the cadence a starting loadout can actually contest.
+// The lane runs TWO spawners at once — ordinary ring spawning (redirected to arrive from ahead)
+// plus these ranks — and it funnels both into a corridor ~860px wide instead of a full ring around
+// the player. At the shared rate that is roughly triple the density per unit of frontage, i.e. a
+// wall you cannot thread. The ordinary stream yields to make room for the formation, which is the
+// half that gives this chapter its identity.
+export const LANE_SPAWN_MUL = 0.4        // ordinary (non-rank) spawning rate in the lane
+
+// Contact hurts LESS in the lane, and this is a fairness rule rather than a difficulty knob.
+// Measured over 60s of play: 83% of all damage taken (236 of 283) was head-on CONTACT, against 7
+// from leaks and 40 from DoT. That ratio is a property of the movement mode, not of the tuning — in
+// every other chapter you dodge a body on two axes, whereas here you are driven forward at a fixed
+// rate into enemies coming the other way and may only move sideways. Charging the free-roam contact
+// price for a collision the player has one axis to avoid is the same unfairness the skies pass fixed
+// by making aircraft crushable; this is the lane's version of that answer.
+export const LANE_CONTACT_MUL = 0.4      // enemy contact damage multiplier in the lane
+export const FORMATION_INTERVAL = 5.0    // s between ranks
+export const FORMATION_COLS = 6          // invaders across a rank, spread over the full lane width
+export const FORMATION_AHEAD_PX = 900    // px ahead of the player a rank materialises
+export const FORMATION_ROW_PX = 120      // px between rows when a wave brings more than one
+
+// The line. An invader that gets PAST you has, in this chapter's terms, got through — it costs you
+// health and leaves. This is what makes strafing to intercept matter instead of simply outrunning
+// everything, and it is the one place the lane departs from a normal survivors chapter, where an
+// enemy behind you is merely an enemy behind you.
+// LANE_LEAK_DMG was 4 in rev.1 and that was lethal by construction, for a reason that had nothing
+// to do with the number: stepLeaks called hurtPlayer once per leaked enemy with no invulnerability
+// gate (hurtPlayer SETS p.invuln but does not CHECK it — the check lives in stepContactDamage), so
+// a rank arriving together removed 7x4 = 28 HP in a SINGLE FRAME out of 100. The gate is the real
+// fix; 2 is what the number should have been anyway now that a whole rank is visible and dodgeable.
+export const LANE_LEAK_BEHIND_PX = 260   // px behind the player at which a marcher counts as through
+export const LANE_LEAK_DMG = 1           // HP lost per invader that gets through (invuln-gated, see stepLeaks)
 
 // latch (e.g. body's antibody): on contact the enemy applies a move-speed debuff to the
 // player then dies (spends itself) instead of dealing normal contact damage — see

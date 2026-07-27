@@ -1635,6 +1635,77 @@ export function createRenderer(app) {
   // swarmDrone: small, sharp, many-eyed — a dart-shaped chitin wedge (hard poly, nose right) with
   // spines raking backward off it and a cluster of seven lenses on the leading face. Everything
   // about it is a point: at 24px it should read as an arrowhead coming at you.
+  // invader (v5.18, The Beyond's lane): the Space Invaders half. Seen almost exclusively IN RANK —
+  // six abreast, marching down the lane — so it is authored for the block, not the close-up. That
+  // means one hard, symmetrical silhouette with a wide flat shoulder line: six of these side by side
+  // read as a WALL with gaps in it, which is the only thing the player actually needs to see. A
+  // rounded or busy shape would blur into the neighbouring columns at rank spacing.
+  // Nose at +x like every other look here (ROSTER_LOOKS lean rotates it to travel).
+  function drawInvader(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x2a1a52)
+    const lw = Math.max(1.8, r * 0.12)
+    groundShadow(r * 0.9, r * 0.8)
+    // two down-swept mandibles, drawn first so their roots hide under the hull
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 0.1, s * r * 0.55], [r * 0.85, s * r * 0.95], [r * 1.1, s * r * 0.6]],
+        r * 0.17, 0.55, f(0x7f6adf), 3)
+    }
+    // hull: a flat-shouldered hexagon — the wide ±y edge is what makes a rank read as a line
+    g.poly([
+      r * 1.0, 0, r * 0.45, -r * 0.85, -r * 0.55, -r * 0.85,
+      -r * 0.95, 0, -r * 0.55, r * 0.85, r * 0.45, r * 0.85,
+    ]).fill(f(0xa78bfa)).stroke({ width: lw, color: line })
+    if (!white) {
+      // lit from the star side (-y): a pale crown and a shadowed belly, same one-light rule the
+      // planets use, so every object in the chapter agrees about where the sun is
+      g.poly([r * 1.0, 0, r * 0.45, -r * 0.85, -r * 0.55, -r * 0.85, -r * 0.95, 0])
+        .fill({ color: 0xe4dcff, alpha: 0.26 })
+      g.poly([r * 1.0, 0, r * 0.45, r * 0.85, -r * 0.55, r * 0.85, -r * 0.95, 0])
+        .fill({ color: 0x3d2a7a, alpha: 0.3 })
+      // a single wide eye band — one bright horizontal slot, legible at rank distance
+      g.roundRect(r * 0.05, -r * 0.3, r * 0.6, r * 0.6, r * 0.16).fill(f(0x1a1030))
+      g.roundRect(r * 0.16, -r * 0.19, r * 0.34, r * 0.38, r * 0.1).fill(0x6ff0ff)
+      g.circle(r * 0.3, -r * 0.06, r * 0.09).fill({ color: 0xffffff, alpha: 0.85 })
+    }
+  }
+
+  // hulk (v5.18): the rank's anchor. Same silhouette language as the invader so they read as one
+  // army, but slab-sided and plated — it is the column you route AROUND rather than through.
+  function drawHulk(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x241546)
+    const lw = Math.max(2, r * 0.14)
+    groundShadow(r * 1.05, r * 0.95)
+    // shoulder plates, outboard, squared off
+    for (const s of [-1, 1]) {
+      g.poly([r * 0.15, s * r * 0.7, r * 0.8, s * r * 0.85, r * 0.7, s * r * 1.15, -r * 0.1, s * r * 1.0])
+        .fill(f(0x6b5ab8)).stroke({ width: lw * 0.8, color: line })
+    }
+    // slab hull — blunter and squarer than the invader's, no taper to the nose
+    g.poly([
+      r * 0.95, -r * 0.5, r * 0.95, r * 0.5, r * 0.2, r * 0.95,
+      -r * 0.9, r * 0.8, -r * 0.9, -r * 0.8, r * 0.2, -r * 0.95,
+    ]).fill(f(0x8b79d6)).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly([r * 0.95, -r * 0.5, r * 0.2, -r * 0.95, -r * 0.9, -r * 0.8, -r * 0.9, 0, r * 0.95, 0])
+        .fill({ color: 0xe4dcff, alpha: 0.2 })
+      g.poly([r * 0.95, r * 0.5, r * 0.2, r * 0.95, -r * 0.9, r * 0.8, -r * 0.9, 0, r * 0.95, 0])
+        .fill({ color: 0x2f1f63, alpha: 0.34 })
+      // armour seams
+      g.beginPath()
+      for (const s of [-1, 1]) g.moveTo(r * 0.7, s * r * 0.3).lineTo(-r * 0.7, s * r * 0.5)
+      g.stroke({ width: 1.2, color: 0x2a1a52, alpha: 0.5 })
+      // two narrow slit eyes — meaner than the invader's single band
+      for (const s of [-1, 1]) {
+        g.roundRect(r * 0.3, s * r * 0.34 - r * 0.11, r * 0.42, r * 0.22, r * 0.08).fill(f(0x140b26))
+        g.roundRect(r * 0.36, s * r * 0.34 - r * 0.06, r * 0.28, r * 0.12, r * 0.05).fill(0xff8a5c)
+      }
+    }
+  }
+
   function drawSwarmDrone(g, elite, white) {
     const r = 12
     const f = (c) => white ? 0xffffff : c
@@ -1699,8 +1770,18 @@ export function createRenderer(app) {
     jet: { archetype: 'fast', draw: drawJet, lean: 90 },               // top-down: delta wings, tailplanes, intakes, roundels all ±y
     helicopter: { archetype: 'normal', draw: drawHelicopter, lean: 90 }, // top-down: skids ±y, rotor disc centred on the hub
     tankColumn: { archetype: 'tank', draw: drawTankColumn, lean: 20 }, // 3/4: roof/turret at -y, track band and road wheels at +y
-    blinker: { archetype: 'tank', draw: drawBlinker, lean: 90 },       // void crystal, no gravity-up; its ghost echoes ride the ±x travel axis
-    flicker: { archetype: 'normal', draw: drawFlicker, lean: 90 },     // void phantom, no gravity-up; the solid half IS the leading (+x) half
+    // v5.18 The Beyond. The chapter's roster ids changed (blinker/flicker -> the five below) and a
+    // missing key here is SILENT — syncEnemies falls through to the generic archetype blob, so the
+    // enemies simply render as Chapter 1's kawaii cells with no error anywhere. Every id in
+    // CHAPTERS.beyond.roster must have an entry.
+    // The two SEEKERS reuse the void art already authored for this chapter rather than adding more:
+    // the crystal and the phantom were drawn for beyond and were orphaned by the roster change, so
+    // they come back as the swarm half of the merge instead of being deleted and re-drawn.
+    warden: { archetype: 'tank', draw: drawBlinker, lean: 90 },        // void crystal, no gravity-up
+    drifter: { archetype: 'normal', draw: drawFlicker, lean: 90 },     // void phantom, no gravity-up
+    // The two MARCHERS are new, and authored to be read in rank rather than close up.
+    invader: { archetype: 'normal', draw: drawInvader, lean: 90 },     // flat-shouldered hex; a rank of six reads as one wall
+    hulk: { archetype: 'tank', draw: drawHulk, lean: 90 },             // slab + shoulder plates; the column you route around
     swarmDrone: { archetype: 'fast', draw: drawSwarmDrone, lean: 90 }, // top-down dart: nose +x, spines raked back, 7 lenses in ±y ranks
   }
   const DEG = Math.PI / 180
@@ -2493,6 +2574,54 @@ export function createRenderer(app) {
         g.circle(cx - cr * 0.2, cy - cr * 0.2, cr * 0.6).fill({ color: 0x8b83a4, alpha: 0.5 })
       }
       T.asteroid = bake(g)
+    }
+    // planet (v5.18, The Beyond): the chapter's largest object by far and the thing that sells
+    // "star system". It gets its OWN bake rather than reusing T.asteroid, which is authored at a
+    // ~51-unit content radius: at the new collider sizes (up to r 260) that rock was being magnified
+    // ~9.7x into a blurred smear of torn paper, and a second copy of it was stamped at the rim.
+    // Baked ONCE at a high reference radius and scaled DOWN per planet, so it stays crisp.
+    // Lit from -y, the direction of the distant star, and every other object in the chapter agrees
+    // with that (see drawInvader's crown/belly). A sphere is a disc plus a terminator, and the
+    // terminator is the only thing that makes it read as a ball rather than a coin.
+    {
+      const R = 256
+      T.planet = canvasTex(R * 2, R * 2, (ctx, w) => {
+        const c = w / 2
+        // body: an off-centre radial gradient IS the sphere — bright toward the star, falling to a
+        // deep terminator on the far limb.
+        const g1 = ctx.createRadialGradient(c - R * 0.3, c - R * 0.42, R * 0.1, c, c, R)
+        g1.addColorStop(0, '#cfc4ff')
+        g1.addColorStop(0.45, '#8f7fd0')
+        g1.addColorStop(0.82, '#4a3c86')
+        g1.addColorStop(1, '#241a47')
+        ctx.beginPath(); ctx.arc(c, c, R * 0.985, 0, Math.PI * 2); ctx.fillStyle = g1; ctx.fill()
+        // surface banding: a few wide latitude belts, clipped to the disc. Ellipses (not straight
+        // bands) so the banding itself curves with the body.
+        ctx.save()
+        ctx.beginPath(); ctx.arc(c, c, R * 0.985, 0, Math.PI * 2); ctx.clip()
+        for (const [oy, ry, a, col] of [[-0.34, 0.16, 0.16, '#e6dcff'], [0.02, 0.2, 0.13, '#3b2f70'],
+          [0.38, 0.13, 0.12, '#2c2258'], [-0.62, 0.09, 0.1, '#ffffff']]) {
+          ctx.beginPath()
+          ctx.ellipse(c, c + R * oy, R * 0.99, R * ry, 0, 0, Math.PI * 2)
+          ctx.fillStyle = col; ctx.globalAlpha = a; ctx.fill()
+        }
+        ctx.globalAlpha = 1
+        // terminator: a soft dark crescent hugging the far limb, the single strongest sphere cue
+        const g2 = ctx.createRadialGradient(c - R * 0.5, c - R * 0.6, R * 0.2, c, c, R * 1.02)
+        g2.addColorStop(0, 'rgba(0,0,0,0)')
+        g2.addColorStop(0.6, 'rgba(10,6,26,0)')
+        g2.addColorStop(1, 'rgba(10,6,26,0.72)')
+        ctx.beginPath(); ctx.arc(c, c, R * 0.985, 0, Math.PI * 2); ctx.fillStyle = g2; ctx.fill()
+        ctx.restore()
+        // rim light on the star side — a thin bright arc that lifts the body off the void
+        ctx.beginPath()
+        ctx.arc(c, c, R * 0.955, Math.PI * 1.08, Math.PI * 1.92)
+        ctx.strokeStyle = 'rgba(226,216,255,0.75)'; ctx.lineWidth = R * 0.05; ctx.stroke()
+        // atmosphere: one faint halo just outside the limb. ONE, deliberately — this chapter has
+        // spent five releases deleting glow.
+        ctx.beginPath(); ctx.arc(c, c, R * 0.995, 0, Math.PI * 2)
+        ctx.strokeStyle = 'rgba(150,130,255,0.22)'; ctx.lineWidth = R * 0.06; ctx.stroke()
+      })
     }
     {
       // house (suburbs district, skies — v5.7.x): the one hand-drawn suburbs prop besides the
@@ -5232,7 +5361,13 @@ export function createRenderer(app) {
     },
     beyond: {
       big: BIG_BEYOND, mid: MID_BEYOND, detail: DETAIL_BEYOND,
-      obstacle: { baked: ['asteroid', 'asteroid'], tint: 0xcfc8e0, foot: 0xffffff },
+      // v5.18: `planet` swaps in the dedicated sphere bake AND hides the footprint ring (see the
+      // T.planet branch in syncObstacles). That ring is documented as the COLLISION CONTRACT —
+      // "this stops me, learned by eye" — and in the lane it stops nothing: stepObstacles skips this
+      // chapter entirely now, so a 36px-wide contract ring around a body you fly straight past would
+      // be the art telling a lie the sim doesn't back. `foot` stays a real colour because the skin
+      // cache tint-multiplies it unconditionally; the ring is hidden by alpha, not by a null.
+      obstacle: { baked: ['asteroid', 'asteroid'], planet: true, tint: 0xcfc8e0, foot: 0x8f86b8 },
     },
   }
   chapterBiome = BIOMES.body // title-screen default; reset(run) latches the run's chapter
@@ -7047,7 +7182,7 @@ export function createRenderer(app) {
         const structDistrict = chapterHasDistricts ? districtAt(o.x, o.y, districtSeed) : null
         const obStyle = chapterHasDistricts ? DISTRICT_BIOMES[structDistrict].obstacle : style
         const floorAt = floorTintAt(o.x, o.y)
-        skin = { tint: tintMul(obStyle.tint, floorAt), foot: tintMul(obStyle.foot, floorAt), district: structDistrict }
+        skin = { tint: tintMul(obStyle.tint, floorAt), foot: tintMul(obStyle.foot, floorAt), district: structDistrict, planet: obStyle.planet === true }
         obstacleSkinCache.set(o._cell, skin)
       }
       // structure SHAPE (v5.8, kinds grown by v5.9): o.kind (config.js STRUCTURE_KINDS —
@@ -7116,6 +7251,24 @@ export function createRenderer(app) {
           continue
         }
         ov.root.rotation = 0   // pooled sprite may have come from a rotated top-down plan
+        // v5.18 PLANET (beyond): one centred body, scaled 1:1 to its collider, and NO clumpB. The
+        // generic path below is written for base-planted SIDE-VIEW props — it plants the art at
+        // o.r * 0.28 (so a tree sits on its pad) and stamps a second smaller copy at the rim (so a
+        // rock reads as a heap). Applied to a 260px planet that produced a body offset ~93px below
+        // its own centre with a second planet growing out of its edge. A sphere is neither planted
+        // nor heaped: it is centred, and it is one object.
+        if (skin.planet) {
+          ov.clumpA.texture = T.planet
+          ov.clumpA.anchor.set(0.5)
+          ov.clumpA.tint = 0xffffff      // the bake carries its own palette, like the top-down plans
+          ov.clumpA.scale.set((o.r * 2) / T.planet.width)
+          ov.clumpA.rotation = 0
+          ov.clumpA.position.set(0, 0)
+          ov.clumpB.texture = Texture.EMPTY
+          ov.clumpB.scale.set(1)
+          ov.ring.alpha = 0   // no collision contract to draw — see BIOMES.beyond.obstacle
+          continue
+        }
         const scA = (o.r * 1.9) / Math.max(a.tex.width, a.tex.height)
         const scB = (o.r * 1.15) / Math.max(b.tex.width, b.tex.height)
         ov.clumpA.texture = a.tex; ov.clumpA.anchor.set(a.ax, a.ay); ov.clumpA.tint = skin.tint
