@@ -133,12 +133,21 @@ export const WEAPONS = {
     name: 'Black-Hole Vortex',
     desc: 'Opens a vortex that swallows the swarm.',
     icon: '🕳️', rarity: 'legendary',
+    // v5.18.2 RADIUS FIX (playtest: "black hole is glitched", phone screenshot). These were
+    // 510/585/675/735/795 — LARGER THAN THE PLAYER'S ENTIRE VIEW. run.viewRadius on a phone is
+    // ~465px, so the vortex could never be seen as a circle at any level: its rim crossed the
+    // viewport as a near-straight line, and the tint inside vs outside the disc read as a hard
+    // horizontal band across the screen. It looked like a rendering artifact because, from inside,
+    // an 800px circle on a 390px-wide screen IS a rectangle.
+    // Now capped under a phone's view radius so the whole vortex is always on screen and reads as
+    // what it is. Damage, tick, interval, duration and pull are all untouched — this is a
+    // legibility fix, not a nerf, and the pull radii (260-420) were already inside the new sizes.
     levels: [
-      { dmg: 4, tick: 0.25, interval: 6.5, radius: 510, duration: 1.8, pull: 260 },
-      { dmg: 5, tick: 0.25, interval: 6.0, radius: 585, duration: 2.0, pull: 300 },
-      { dmg: 6, tick: 0.22, interval: 5.5, radius: 675, duration: 2.2, pull: 340 },
-      { dmg: 8, tick: 0.22, interval: 5.0, radius: 735, duration: 2.4, pull: 380 },
-      { dmg: 9, tick: 0.20, interval: 4.5, radius: 795, duration: 2.6, pull: 420 },
+      { dmg: 4, tick: 0.25, interval: 6.5, radius: 300, duration: 1.8, pull: 260 },
+      { dmg: 5, tick: 0.25, interval: 6.0, radius: 340, duration: 2.0, pull: 300 },
+      { dmg: 6, tick: 0.22, interval: 5.5, radius: 380, duration: 2.2, pull: 340 },
+      { dmg: 8, tick: 0.22, interval: 5.0, radius: 420, duration: 2.4, pull: 380 },
+      { dmg: 9, tick: 0.20, interval: 4.5, radius: 460, duration: 2.6, pull: 420 },
     ],
   },
   rainbow: {
