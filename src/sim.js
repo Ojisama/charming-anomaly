@@ -109,7 +109,7 @@ import {
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE,
-  FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_PX, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL,
+  FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
   SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
@@ -335,7 +335,7 @@ function stepFormations(run, dt) {
     for (let col = 0; col < FORMATION_COLS; col++) {
       if (run.enemies.length >= MAX_ALIVE) return
       const x = -hw + pitch * (col + 0.5) + offset
-      const y = p.y - FORMATION_AHEAD_PX - row * FORMATION_ROW_PX
+      const y = p.y - Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL) - row * FORMATION_ROW_PX
       // rosterId: a rank is rank-and-file invaders, never whatever the archetype pool happens to
       // roll. Elites arrive on their own timer through the ordinary spawn path, where they get the
       // chapter's eliteFlags and read as the exception they are.
