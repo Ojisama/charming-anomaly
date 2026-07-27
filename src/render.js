@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -106,6 +106,7 @@ export function createRenderer(app) {
   // (including pond/undergrowth, which also set `tail: true`) never sees this flag flip true, so
   // their rig is byte-identical to before this pass.
   let chapterHasKaiju = false
+  let chapterHasLane = false   // v5.18 beyond: bottom-anchored camera (CHAPTERS[].lane)
   // Whether the active chapter's ground is a per-cell Voronoi district map (CHAPTERS[].render.
   // districts — currently only `skies`, piece 4). districtSeed mirrors run._districtSeed so the
   // floor populate* callbacks and syncObstacles don't need `run` threaded through every call.
@@ -9631,7 +9632,13 @@ export function createRenderer(app) {
     // cx/cy are the camera offset in WORLD px (screen = (world + c) * mapZoom), which is what every
     // culling test below assumes. At mapZoom 1 this is exactly the old expression.
     const cx = viewW() / 2 - run.player.x + shake.ox
-    const cy = viewH() / 2 - run.player.y + shake.oy
+    // v5.18 THE LANE SITS THE PLAYER AT THE BOTTOM (beyond). Every other chapter centres the camera,
+    // which is right when threats come from all sides. Here they come from ONE side, so a centred
+    // camera spends the bottom half of the screen on space you have already flown through and gives
+    // you only half a screen of warning about the thing you are actually fighting. Space Invaders
+    // puts you at the bottom and fills everything above you with descending aliens — that framing IS
+    // the genre, not decoration. LANE_CAMERA_FRAC of the viewport is therefore ahead of you.
+    const cy = (chapterHasLane ? viewH() * LANE_CAMERA_FRAC : viewH() / 2) - run.player.y + shake.oy
     world.scale.set(mapZoom)
     world.position.set(cx * mapZoom, cy * mapZoom)
     updateGroundField(cx, cy)
@@ -9916,6 +9923,7 @@ export function createRenderer(app) {
     chapterHasCurrents = cfg?.signature?.type === 'currents'
     chapterHasStorm = !!chapterRender.storm
     chapterHasKaiju = !!chapterRender.kaiju
+    chapterHasLane = CHAPTERS[run.chapter]?.lane === true
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
     // roads is a chapter-TOP-LEVEL flag (config.js CHAPTERS.skies.roads), not under `render` like

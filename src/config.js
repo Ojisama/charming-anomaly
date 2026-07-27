@@ -2001,7 +2001,11 @@ export const laneHalfWidth = (viewRadius) => Math.min(LANE_HALF_W, viewRadius * 
 // DOWN the lane in rank at its own speed, swaying side to side on a shared phase so a wave reads as
 // one marching block rather than a scatter of individuals. It never seeks, never re-aims, and never
 // breaks formation — dodging a rank is always possible and always your fault if you don't.
-export const MARCH_SPEED_MUL = 0.55      // fraction of the enemy's own speed, moving down the lane
+// Slow. The whole menace of a Space Invaders rank is that you can SEE it coming and still have to
+// solve it — a fast descent is just a wall arriving. 0.35 of drone speed is ~31px/s of descent,
+// which against the player's own 70px/s advance closes at ~100px/s: about eight seconds from the
+// moment a rank crosses the top edge to the moment it reaches you.
+export const MARCH_SPEED_MUL = 0.35      // fraction of the enemy's own speed, moving down the lane
 export const MARCH_SWAY_PX = 46          // px of side-to-side shuffle amplitude
 export const MARCH_SWAY_RATE = 1.1       // rad/s of that shuffle
 
@@ -2030,9 +2034,22 @@ export const LANE_SPAWN_MUL = 0.4        // ordinary (non-rank) spawning rate in
 // price for a collision the player has one axis to avoid is the same unfairness the skies pass fixed
 // by making aircraft crushable; this is the lane's version of that answer.
 export const LANE_CONTACT_MUL = 0.4      // enemy contact damage multiplier in the lane
+
+// Where the player sits on screen, as a fraction of viewport height. 0.5 is centred (every other
+// chapter). 0.8 puts them near the bottom with four fifths of the screen ahead of them, which is
+// the Space Invaders frame: you at the bottom, everything descending toward you, and enough warning
+// to actually choose a gap. A centred camera spends half the screen on space already flown through.
+export const LANE_CAMERA_FRAC = 0.8
 export const FORMATION_INTERVAL = 5.0    // s between ranks
 export const FORMATION_COLS = 6          // invaders across a rank, spread over the full lane width
-export const FORMATION_AHEAD_PX = 900    // px ahead of the player a rank materialises
+// Ranks enter from just beyond the TOP EDGE, derived from the viewport rather than fixed, so on
+// every device a rank appears at the edge of sight and descends the full screen. A fixed number
+// pops ranks into existence mid-screen on a tall display and wastes the warning on a short one.
+// The player sits at LANE_CAMERA_FRAC of the viewport height, so the distance from them to the top
+// edge is that fraction of the view; viewRadius is the half-diagonal, hence the 1.5 fudge plus a
+// margin. Verified by eye: ranks fade in above the top edge, never inside it.
+export const FORMATION_AHEAD_MUL = 1.5   // x run.viewRadius, the distance ahead a rank materialises
+export const FORMATION_AHEAD_MIN = 700   // px floor, so a tiny viewport still gets real warning
 export const FORMATION_ROW_PX = 120      // px between rows when a wave brings more than one
 
 // The line. An invader that gets PAST you has, in this chapter's terms, got through — it costs you
