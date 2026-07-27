@@ -119,6 +119,32 @@ body {
   top: calc(14px + env(safe-area-inset-top));
   right: calc(14px + env(safe-area-inset-right));
 }
+/* v5.17 build stamp — the version + short SHA of the bundle actually running, stamped from git at
+   build time (see vite.config.js). It exists to settle "am I looking at the new build or a cached
+   old one?", which a service worker had made a real question. Deliberately tiny, low-contrast and
+   selectable: it is a diagnostic to be read out, never a UI element competing for attention. */
+.build-stamp {
+  position: absolute;
+  /* TOP-left, mirroring the coins badge — the bottom-left corner is under the nav tab bar, where
+     this rendered at the right coordinates and was completely invisible. */
+  left: calc(14px + env(safe-area-inset-left));
+  top: calc(18px + env(safe-area-inset-top));
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  opacity: 0.32;
+  user-select: text;
+  -webkit-user-select: text;
+  pointer-events: auto;
+}
+/* In the pause modal it sits under the buttons, centred, rather than pinned to the viewport. */
+.modal .build-stamp {
+  position: static;
+  display: block;
+  margin-top: 10px;
+  text-align: center;
+}
 /* v5.1: compact logo — the hero card is the centerpiece now, so the wordmark shrinks and sits on
    one line worth of vertical space rather than dominating. */
 .title-logo {

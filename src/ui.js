@@ -5,6 +5,14 @@ import { playSfx } from './audio.js'
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 
+// v5.17 build stamp: "vX.Y.Z · <short sha>", substituted by vite.config.js's `define` from the git
+// HEAD at BUILD time — so it identifies the bundle you are actually running, not what the source
+// tree says it should be. Shown on the title screen and in the pause modal (see buildStampHtml).
+// The typeof guard survives substitution (`typeof "v5.17 · abc1234"` is just "string") and keeps
+// the module importable outside a Vite build, e.g. from a plain node script.
+const BUILD_STAMP = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'dev'
+const buildStampHtml = () => `<div class="build-stamp" title="build actually running">${BUILD_STAMP}</div>`
+
 // v5.0: difficulty pips/hints/gating read the SELECTED chapter's ladder (meta.chapters[id],
 // see state.js's meta.chapters doc block) rather than the pre-v5.0 top-level
 // meta.difficulty/meta.maxDifficulty (removed at migration).
@@ -435,6 +443,7 @@ export function initUI(hooks) {
       <div class="title-below">${titleBelowHtml()}</div>
       ${navHtml('battle')}
       ${boosterSheetHtml()}
+      ${buildStampHtml()}
     `
     wireCarousel()
   }
@@ -889,6 +898,7 @@ export function initUI(hooks) {
         ${mutatorBlock}
         <button class="btn btn--big" data-act="resume">▶&nbsp; Resume</button>
         <button class="btn btn--soft" data-act="quit">Quit to menu</button>
+        ${buildStampHtml()}
       </div>
     `
   }
