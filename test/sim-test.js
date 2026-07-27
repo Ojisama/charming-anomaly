@@ -37,6 +37,7 @@ import {
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
+  LANE_SCROLL_SPEED,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
@@ -2985,20 +2986,25 @@ function testV54Flags() {
   // (h) blink: a blinker teleports toward the player — never landing closer than BLINK_MIN_DIST,
   // and never inside an obstacle (it gives up rather than cheating through one).
   {
-    const { run, e } = flagRun('beyond', ['blink'], { at: 600, speed: 40 })
+    // v5.18: these three use a FREE-ROAM chapter, not 'beyond'. Beyond is now a lane (its player
+    // auto-advances up-screen at LANE_SCROLL_SPEED), which moves the blink's target ~418px during
+    // the 2.2s interval and slides the walled case's blocking obstacles off the blink path. `blink`
+    // is chapter-agnostic vocabulary, so testing it in a chapter whose movement mode interferes was
+    // testing two things at once.
+    const { run, e } = flagRun('city', ['blink'], { at: 600, speed: 40 })
     const x0 = e.x
     for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
     const jumped = e.x - x0
     assert(jumped > BLINK_DIST * 0.9, `expected a ~${BLINK_DIST}px blink toward the player, got ${jumped.toFixed(1)}px`)
 
     // Clamp: from just outside BLINK_MIN_DIST it may only close the remaining gap, never overshoot.
-    const near = flagRun('beyond', ['blink'], { at: BLINK_MIN_DIST + 60, speed: 0 })
+    const near = flagRun('city', ['blink'], { at: BLINK_MIN_DIST + 60, speed: 0 })
     for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(near.run, { x: 0, y: 0 }, dt)
     const dist = Math.hypot(near.e.x - near.run.player.x, near.e.y - near.run.player.y)
     assert(dist >= BLINK_MIN_DIST - 1e-6, `expected a blink never to land closer than ${BLINK_MIN_DIST}, got ${dist.toFixed(1)}`)
 
     // Obstacle: block both the full-distance and the half-distance landing spots -> no blink at all.
-    const walled = flagRun('beyond', ['blink'], { at: 600, speed: 0 })
+    const walled = flagRun('city', ['blink'], { at: 600, speed: 0 })
     walled.run.obstacles = [
       { x: -600 + BLINK_DIST, y: 0, r: 60 },
       { x: -600 + BLINK_DIST / 2, y: 0, r: 60 },
@@ -3042,7 +3048,10 @@ function testV54Flags() {
   // (j) pullBeam: a UFO's beam drags the player in and ticks dot damage — but at PULL_BEAM_FORCE
   // (< PLAYER.baseSpeed), so walking away still nets outward movement. That's the whole design.
   {
-    const { run, e } = flagRun('beyond', ['pullBeam'], { at: -200, speed: 0, elite: true }) // UFO at +200
+    // v5.18: 'city', not 'beyond' — same reason as the blink cases above. Beyond is a lane now,
+    // so its player advances up-screen every frame and cannot "stand still" for a drag test. The
+    // lane's own y-axis rule for this beam (it drags sideways only there) is asserted in run CF.
+    const { run, e } = flagRun('city', ['pullBeam'], { at: -200, speed: 0, elite: true }) // UFO at +200
     run.wells = []
     e.x = 200; e.y = 0
     let dragged = false
@@ -3308,8 +3317,14 @@ function testV54Signatures() {
     for (let i = 0; i < Math.round(0.5 / dt); i++) stepSim(bodies, { x: 0, y: 0 }, dt)
     assert.strictEqual(still.x, 0, `expected a well to never move an enemy body, x=${still.x}`)
     assert.strictEqual(still.y, 60, `expected a well to never move an enemy body, y=${still.y}`)
-    assert.strictEqual(bodies.player.x, px0, 'expected a well to never move the player')
-    assert.strictEqual(bodies.player.y, py0, 'expected a well to never move the player')
+    // v5.18: beyond is a lane, so the player ADVANCES up it every frame by design. What a well must
+    // never do is move them off their strafe line — so pin x exactly, and pin y to exactly the
+    // lane's own scroll (which doubles as the lane invariant: nothing may change the scroll rate).
+    assert.strictEqual(bodies.player.x, px0, 'expected a well to never move the player sideways')
+    const laneDrift = py0 - bodies.player.y
+    const expectDrift = LANE_SCROLL_SPEED * Math.round(0.5 / dt) * dt
+    assert(Math.abs(laneDrift - expectDrift) < 1e-6,
+      `expected the player to advance at exactly LANE_SCROLL_SPEED and nothing else, drifted ${laneDrift.toFixed(2)} vs ${expectDrift.toFixed(2)}`)
     assert(!bodies.events.some((ev) => ev.type === 'hurt' || ev.type === 'hit'), 'expected wells to damage nothing')
     console.log(`PASS run Z.d (gravity): ${seeded.wells.length} wells seeded, bullet bent to vy=${b.vy.toFixed(0)} with speed error ${maxSpeedErr.toExponential(1)}, bodies untouched`)
   }
