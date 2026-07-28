@@ -3425,6 +3425,47 @@ function testLaneSkills() {
     console.log(`PASS run ZR.c (asteroid hurts the player): hp ${hp0}->${run.player.hp}`)
   }
 
+  // (e) v5.22: the Tesseract Beam fans FORWARD in a lane. It used to rake a full circle from an
+  // angle picked by nearestEnemy, so in a scrolled level most of its duty cycle pointed at empty
+  // space behind the player — and the cast could lock onto a straggler that had already gone past.
+  {
+    const run = laneRun()
+    run.weapons = [{ id: 'tesseractBeam', level: 1 }]
+    // A decoy BEHIND the player: under the old aimAngle path this is what the beam aimed at.
+    run.enemies.push(makeStatusEnemy(run, { x: 0, y: 400, speed: 0 }))
+    let fired = null
+    for (let i = 0; i < Math.round(9 / dt) && !fired; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.beams.length > 0) fired = run.beams[0]
+    }
+    assert(fired, 'expected the tesseract beam to fire within 9s (L1 rate is 6.5s)')
+    assert(fired.fan > 0, 'expected fan mode in a lane chapter')
+    // Every arm, across the whole sweep, must have a forward (negative-y) component.
+    let worst = -Infinity
+    for (let i = 0; i < Math.round(fired.duration / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const b = run.beams[0]
+      if (!b) break
+      const arms = []
+      for (let k = 0; k < b.arms; k++) arms.push(b.angle - b.fan / 2 + (k / (b.arms - 1)) * b.fan)
+      for (const a of arms) worst = Math.max(worst, Math.sin(a)) // +sin = pointing DOWN = behind
+    }
+    assert(worst < 0, `expected every tesseract arm to point forward; worst sin(angle)=${worst.toFixed(3)}`)
+    console.log(`PASS run ZR.e (tesseract fans forward): no arm ever pointed behind (worst sin=${worst.toFixed(2)})`)
+  }
+
+  // (f) v5.22: a vortex has to FIT on a phone. The binding constraint is half the screen WIDTH
+  // (~215 CSS px), not run.viewRadius (~535, which is half the diagonal) — reading the diagonal is
+  // what let 300-460px radii look defensible while rendering as a flat wash with a blob in it.
+  {
+    const PHONE_HALF_WIDTH = 215
+    for (let lv = 0; lv < WEAPONS.hole.levels.length; lv++) {
+      const r = WEAPONS.hole.levels[lv].radius
+      assert(r <= PHONE_HALF_WIDTH, `hole L${lv + 1} radius ${r} exceeds a phone's half-width ${PHONE_HALF_WIDTH} — it cannot render as a circle`)
+    }
+    console.log(`PASS run ZR.f (vortex fits a phone): radii ${WEAPONS.hole.levels.map((l) => l.radius).join('/')} all <= ${PHONE_HALF_WIDTH}`)
+  }
+
   // (d) Neither system exists outside a lane chapter — both gate on CHAPTERS[chapter].lane.
   {
     const run = createRun(makeMeta(), { chapter: 'city' })

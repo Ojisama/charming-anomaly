@@ -116,6 +116,7 @@ import {
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
   SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
   TESSERACT_ARMS, TESSERACT_COLLAPSE_MUL, TESSERACT_COLLAPSE_PULL,
+  TESSERACT_FAN_ARC, TESSERACT_FAN_SWEEP, TESSERACT_FAN_RATE,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -3392,6 +3393,14 @@ function beamArmAngles(b) {
   if (!b.folded) return [b.angle]
   const arms = b.arms ?? TESSERACT_ARMS
   const out = []
+  // v5.22 fan mode (lane): spread the arms across a forward ARC rather than a full circle, so every
+  // arm covers ground the player is actually driving into. b.angle is the fan's CENTRE here, not the
+  // first arm's heading — see fireTesseract.
+  if (b.fan) {
+    if (arms === 1) return [b.angle]
+    for (let i = 0; i < arms; i++) out.push(b.angle - b.fan / 2 + (i / (arms - 1)) * b.fan)
+    return out
+  }
   for (let i = 0; i < arms; i++) out.push(b.angle + (i / arms) * Math.PI * 2)
   return out
 }
@@ -3423,7 +3432,14 @@ function stepBeams(run, dt) {
       if (b.folded && (b.collapseBonus ?? 0) > 0) collapseFold(run, b)
       continue
     }
-    b.angle += b.rotSpeed * dt
+    // Fan mode sweeps like a wiper across a fixed forward heading instead of rotating freely — a
+    // full rotation is exactly the behaviour that made this weapon useless in a scrolled level.
+    if (b.fan) {
+      b._sweepT = (b._sweepT ?? 0) + dt
+      b.angle = b.baseAngle + Math.sin(b._sweepT * TESSERACT_FAN_RATE) * TESSERACT_FAN_SWEEP
+    } else {
+      b.angle += b.rotSpeed * dt
+    }
 
     b.acc += dt
     while (b.acc >= b.tick) {
@@ -4262,8 +4278,14 @@ function stepTesseractWeapon(run, w, stats, fireRateMul, dt) {
 
 function fireTesseract(run, stats) {
   const mods = run.weaponMods.tesseractBeam
+  // In a lane the forward direction is the ONLY direction that matters, and it is fixed — so the
+  // fan is anchored to straight-ahead rather than to aimAngle's nearest-enemy pick, which could
+  // (and did) lock onto a straggler already behind the player.
+  const lane = CHAPTERS[run.chapter].lane === true
+  const baseAngle = lane ? -Math.PI / 2 : aimAngle(run)
   run.beams.push({
-    angle: aimAngle(run), life: stats.duration, duration: stats.duration, dmg: stats.dmg,
+    angle: baseAngle, baseAngle, fan: lane ? TESSERACT_FAN_ARC : 0,
+    life: stats.duration, duration: stats.duration, dmg: stats.dmg,
     tick: stats.tick, width: stats.width, length: stats.length,
     rotSpeed: stats.rotSpeed, acc: 0,
     folded: true,

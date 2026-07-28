@@ -143,11 +143,19 @@ export const WEAPONS = {
     // what it is. Damage, tick, interval, duration and pull are all untouched — this is a
     // legibility fix, not a nerf, and the pull radii (260-420) were already inside the new sizes.
     levels: [
-      { dmg: 4, tick: 0.25, interval: 6.5, radius: 300, duration: 1.8, pull: 260 },
-      { dmg: 5, tick: 0.25, interval: 6.0, radius: 340, duration: 2.0, pull: 300 },
-      { dmg: 6, tick: 0.22, interval: 5.5, radius: 380, duration: 2.2, pull: 340 },
-      { dmg: 8, tick: 0.22, interval: 5.0, radius: 420, duration: 2.4, pull: 380 },
-      { dmg: 9, tick: 0.20, interval: 4.5, radius: 460, duration: 2.6, pull: 420 },
+      // v5.22 RADII, second pass. v5.18.2 cut these from 510-795 to 300-460 and that was still
+      // wrong: a phone viewport is ~430 CSS px WIDE, so even a 300-radius vortex is a 600px disc
+      // that cannot fit on screen at any level. What the player saw was never a circle — the rim
+      // crossed the viewport as a near-straight line and the tinted interior read as a flat wash
+      // with a black blob in it. The binding constraint is HALF THE SCREEN WIDTH (~215), not the
+      // view radius (~535, which is half the DIAGONAL and let the old numbers look defensible).
+      // Damage is raised to pay for the lost area: L1 goes 300->170 radius, i.e. 0.32x the area, so
+      // dmg roughly doubles and the tick quickens. It is a smaller, harder-hitting vortex now.
+      { dmg: 8, tick: 0.20, interval: 6.5, radius: 170, duration: 1.8, pull: 170 },
+      { dmg: 10, tick: 0.20, interval: 6.0, radius: 190, duration: 2.0, pull: 190 },
+      { dmg: 12, tick: 0.18, interval: 5.5, radius: 196, duration: 2.2, pull: 196 },
+      { dmg: 15, tick: 0.18, interval: 5.0, radius: 205, duration: 2.4, pull: 205 },
+      { dmg: 18, tick: 0.16, interval: 4.5, radius: 215, duration: 2.6, pull: 215 },
     ],
   },
   rainbow: {
@@ -981,6 +989,21 @@ export const SHARD_RECURSE_LIFE_FRAC = 0.6
 // geometry rainbow.prismatic uses, but baked into ONE beam entity rather than several, so
 // collapse can resolve the whole fold at once.
 export const TESSERACT_ARMS = 2            // arms on a plain (unmodded) fold
+// v5.22 FAN MODE (lane chapters only — gated on CHAPTERS[chapter].lane).
+// The fold rakes a full 360 degrees, which is right when you can walk in any direction and wrong
+// when you cannot. In the lane the player advances up a corridor and every threat is AHEAD, so a
+// rotating rake spends most of its duty cycle pointed at empty space behind — and because the cast
+// angle came from `nearestEnemy`, it would happily lock onto something that had already gone past.
+// In fan mode the arms spread across a forward ARC instead of a circle and sweep back and forth
+// across it, so no arm ever points backwards and the cast angle stops depending on target choice.
+// THE CONSTRAINT: TESSERACT_FAN_ARC / 2 + TESSERACT_FAN_SWEEP must stay under PI/2, or the outer
+// arm swings past the horizontal at the ends of the wiper stroke and points behind the player
+// again — which is the entire bug this mode exists to fix. 0.31pi + 0.16pi = 0.47pi, with margin.
+// A test pins this (run ZR.e): it walks a whole cast and asserts no arm ever has a rearward
+// component, and it caught exactly this when the arc was first set to 0.78pi.
+export const TESSERACT_FAN_ARC = Math.PI * 0.62   // ~112deg of forward cover the arms spread across
+export const TESSERACT_FAN_SWEEP = Math.PI * 0.16 // +/- this much of wiper motion on top
+export const TESSERACT_FAN_RATE = 2.2             // rad/s of that sweep
 // collapse (behavioral): when a folded beam expires, everything currently inside ANY of its arms
 // is yanked toward the player at TESSERACT_COLLAPSE_PULL px/s and takes TESSERACT_COLLAPSE_MUL ×
 // (1 + bonus) × the beam's per-tick damage, plus an {type:'explode'} at the player.
