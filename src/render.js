@@ -7436,6 +7436,21 @@ export function createRenderer(app) {
     return { root, beamBody, streakA, streakB, tip, muzzle }
   }
 
+  function expandBeamArms(beams) {
+    const out = []
+    for (const b of beams) {
+      const arms = b.folded ? (b.arms ?? 2) : 1
+      if (arms <= 1) { out.push(b); continue }
+      for (let k = 0; k < arms; k++) {
+        const angle = b.fan
+          ? b.angle - b.fan / 2 + (k / (arms - 1)) * b.fan
+          : b.angle + (k / arms) * Math.PI * 2
+        out.push({ ...b, angle })   // a COPY: render never writes to run
+      }
+    }
+    return out
+  }
+
   function syncBeams(list) {
     const n = list.length
     while (beamPool.length < n) beamPool.push(acquireBeam())
@@ -10091,7 +10106,13 @@ export function createRenderer(app) {
     syncPool(debrisPool, debrisLayer, run.debris || [], 'debris', T.trashChunk, placeDebris)
     syncPool(shotPool, shotLayer, run.enemyShots || [], 'shot', T.missile, placeShot)
     syncHoles(run.holes)
-    syncBeams(run.beams)
+    // v5.22: expand a FOLDED beam into one drawn arm per damaging arm. syncBeams draws a single
+    // sprite per run.beams entry, so the fold's opposite arm has never been drawn at all — it dealt
+    // damage down a line with nothing on screen. Fan mode made that visible rather than causing it:
+    // b.angle is the fan's CENTRE there, so the one sprite pointed where no arm actually was.
+    // The angle math mirrors sim.js's beamArmAngles. render can't import sim, and the beam entity
+    // carries everything needed to derive it — but the two must stay in step, so change them together.
+    syncBeams(expandBeamArms(run.beams))
     updateArcs(dt)
     redrawArcs()
 
