@@ -134,7 +134,13 @@ void main() {
   float z = sqrt(max(0.0, 1.0 - r2));
   vec3 n = vec3(p, z);              // unit normal, +z toward the camera
   vec3 m = mat3(uRot0, uRot1, uRot2) * n;
-  vec2 uv = vec2(atan(m.x, m.z) * 0.15915494 + 0.5, 0.5 - asin(clamp(m.y, -1.0, 1.0)) * 0.31830989);
+  // Longitude maps to u = lon/PI, which runs -1..1 over a full turn while the map holds only ONE
+  // 180-degree copy of the art. The sampler's mirror-repeat folds that range back on itself, so the
+  // far hemisphere is a reflection of the near one and both joins line up by construction. Doing it
+  // in the sampler rather than baking two mirrored copies costs nothing and halves the texture.
+  // It also fixes the aspect for free: 2 units of art now cover 180 degrees on BOTH axes, so a
+  // drawn circle is a circle on the sphere instead of an ellipse twice as wide as it is tall.
+  vec2 uv = vec2(atan(m.x, m.z) * 0.31830989, 0.5 - asin(clamp(m.y, -1.0, 1.0)) * 0.31830989);
   vec3 col = texture2D(uMap, uv).rgb * uTint;
   float day = smoothstep(-0.25, 0.85, dot(n, uLight));
   col *= mix(0.12, 1.16, day);
@@ -2762,41 +2768,42 @@ export function createRenderer(app) {
       // ice world's caps land on the actual poles, and PLANET_ARCHETYPES did not change at all.
       // ponytail: 1024x512 per archetype (~2MB) is 2x the old disc bake. Halve it if the beyond
       // chapter ever shows memory pressure on a phone — the visible hemisphere is only half the map.
-      const MAP_W = 1024, MAP_H = 512
+      // ONE square of art covering 180 degrees of longitude; the sampler mirrors it round the back
+      // (see the uv line in PLANET_FRAG). 512 is the size the art was authored at, so this is 1:1 —
+      // and at gameplay a planet is ~470px across showing exactly this one copy, which puts it
+      // right at one texel per pixel. Baking the mirror instead would double every map for nothing.
+      const MAP_S = 512
       const planetMapTex = (a, emissive) => {
-        const t = canvasTex(MAP_W, MAP_H, (ctx, w, h) => {
-          // Flat albedo, NOT the old centre-bright radial: that gradient was a hand-painted sphere
-          // shade, and the shader computes the real one per pixel now — baking it in would darken
-          // every limb twice. The emissive map starts transparent: it is ADDED, never lit.
-          if (!emissive) { ctx.fillStyle = a.body[1][1]; ctx.fillRect(0, 0, w, h) }
+        const t = canvasTex(MAP_S, MAP_S, (ctx, w, h) => {
+          if (!emissive) {
+            // Flat albedo, NOT the old centre-bright radial: that gradient was a hand-painted sphere
+            // shade, and the shader computes the real one per pixel now — baking it in would darken
+            // every limb twice. The emissive map starts transparent: it is ADDED, never lit.
+            ctx.fillStyle = a.base; ctx.fillRect(0, 0, w, h)
+            // Latitude shading is not directional shading. The spin axis IS the map's pole axis, so
+            // a pole-to-equator gradient is invariant under the planet's own rotation — it adds
+            // depth to a flat fill without smuggling back a fixed light direction.
+            if (a.polar) {
+              const rgb = hexRGB(a.polar)
+              for (const top of [true, false]) {
+                const g = ctx.createLinearGradient(0, top ? 0 : h, 0, top ? h * 0.32 : h * 0.68)
+                g.addColorStop(0, `rgba(${rgb},0.5)`); g.addColorStop(1, `rgba(${rgb},0)`)
+                ctx.fillStyle = g; ctx.fillRect(0, top ? 0 : h * 0.68, w, h * 0.32)
+              }
+            }
+          }
           const draw = emissive ? a.emissive : a.surface
           if (!draw) return
-          // TWO copies, the second MIRRORED, each filling half the longitude range.
-          //
-          // Two things forced this. Aspect: the art is a square, but stretching it across the whole
-          // map gave x 180 degrees per unit against y's 90, so every circle came out twice as wide
-          // as it was tall — craters as ellipses, cyclones as ovals. Scaling both axes by h/2 makes
-          // a drawn circle a real circle on the sphere, and the art then only covers 180 degrees,
-          // so it takes two copies to go all the way round.
-          //
-          // Seam: longitude wraps, so a shape running off one edge has to continue on the other or
-          // it stops dead in mid-surface — the cut-off edge. Mirroring is what makes that free.
-          // Copy one ends on art x=+1 exactly where the mirrored copy two begins on art x=+1, and
-          // copy one's art x=-1 meets copy two's art x=-1 at the wrap. Both joins match by
-          // construction. A plain repeat would join +1 to -1 and step at every one of them.
-          // Mirrored also beats identical: the far side is a reflection, not the same face again.
-          const half = h / 2
-          for (const [cx, flip] of [[-1, 1], [1, -1]]) {
-            ctx.save()
-            ctx.beginPath(); ctx.rect(w / 2 + (cx - 1) * half, 0, h, h); ctx.clip()
-            ctx.translate(w / 2 + cx * half, h / 2); ctx.scale(flip * half, half)
-            draw(ctx, 0, 1)
-            ctx.restore()
-          }
+          ctx.save()
+          ctx.translate(w / 2, h / 2); ctx.scale(w / 2, h / 2)
+          draw(ctx, 0, 1)
+          ctx.restore()
         })
-        // Longitude wraps, latitude does not: repeat on U kills the seam where -180 meets +180,
-        // clamp on V stops the north pole bleeding into the south one.
-        t.source.style.addressModeU = 'repeat'
+        // MIRROR-repeat, not plain repeat: the far hemisphere is this art reflected, so both the
+        // mid join and the wrap join match by construction. Plain repeat would butt art x=+1
+        // against x=-1 and step at every seam — the cut-off edge this whole scheme exists to kill.
+        // V clamps: latitude does not wrap, and the north pole must not bleed into the south.
+        t.source.style.addressModeU = 'mirror-repeat'
         t.source.style.addressModeV = 'clamp-to-edge'
         return t
       }
@@ -2851,7 +2858,7 @@ export function createRenderer(app) {
       }
       const PLANET_ARCHETYPES = [
         { // A. gas giant — eight irregular belts + one storm oval. Readable from any fragment.
-          body: [[0, '#ffe6bd'], [0.45, '#e0a55f'], [0.82, '#8a5330'], [1, '#3a2317']],
+          base: '#e0a55f', polar: '#8a5330',
           halo: '255,190,120', haloA: 0.2,
           surface(ctx, c, br) {
             // Deliberately irregular widths — the old four near-symmetric belts read as a test pattern.
@@ -2867,7 +2874,7 @@ export function createRenderer(app) {
           },
         },
         { // B. cratered moon — the ONLY body with no halo. Airlessness is the fastest discriminator.
-          body: [[0, '#e8e4dc'], [0.45, '#a8a29a'], [0.82, '#585349'], [1, '#241f1c']],
+          base: '#a8a29a', polar: '#585349',
           halo: null,
           surface(ctx, c, br) {
             // Fixed table, not hashed: this bakes ONCE, so there is nothing to vary, and a literal
@@ -2888,7 +2895,7 @@ export function createRenderer(app) {
           },
         },
         { // C. ice world — brightest thing in a chapter whose background is 0x120a26.
-          body: [[0, '#ffffff'], [0.45, '#cfe6ff'], [0.82, '#5f86bd'], [1, '#1d2f55']],
+          base: '#cfe6ff', polar: '#5f86bd',
           halo: '150,220,255', haloA: 0.26,
           surface(ctx, c, br) {
             // Caps ride BOTH poles, so a fragment of either limb still names the planet.
@@ -2907,7 +2914,7 @@ export function createRenderer(app) {
           },
         },
         { // D. molten — the only planet whose detail SURVIVES the terminator. That inversion is the read.
-          body: [[0, '#8a4326'], [0.45, '#4a1f16'], [0.82, '#241009'], [1, '#0e0605']],
+          base: '#4a1f16', polar: '#241009',
           halo: '255,110,40', haloA: 0.22,
           surface(ctx, c, br) {
             for (const [x, y, r] of [[-0.3, -0.25, 0.42], [0.32, 0.1, 0.46], [-0.05, 0.48, 0.34]]) {
@@ -2934,7 +2941,7 @@ export function createRenderer(app) {
           },
         },
         { // E. ocean world — the only CURVED WHITE marks in the set, plus a specular sun glint.
-          body: [[0, '#bff0ff'], [0.45, '#2f8fd8'], [0.82, '#124a86'], [1, '#07203f']],
+          base: '#2f8fd8', polar: '#124a86',
           halo: '120,200,255', haloA: 0.28,
           surface(ctx, c, br) {
             for (const pts of [[[-0.55, -0.35], [-0.15, -0.5], [0.12, -0.28], [-0.1, -0.02], [-0.45, 0.02]],
@@ -2955,7 +2962,7 @@ export function createRenderer(app) {
           },
         },
         { // F. night side — every other planet is alive TOWARD the star. This one is alive away from it.
-          body: [[0, '#8fa8a0'], [0.45, '#3d5a55'], [0.82, '#17282c'], [1, '#070f14']],
+          base: '#3d5a55', polar: '#17282c',
           halo: '255,190,110', haloA: 0.16,
           surface(ctx, c, br) {
             for (const pts of [[[-0.6, -0.3], [-0.1, -0.46], [0.3, -0.2], [0.1, 0.12], [-0.5, 0.06]],
@@ -2999,13 +3006,26 @@ export function createRenderer(app) {
           // near-edge-on ellipse tilted by RING_TILT, which puts that normal a touch off screen-up.
           // Left random, the belts would run visibly across the rings instead of parallel to them.
           pole: [-0.196, 0.966, 0.055],
-          body: [[0, '#f0e0bd'], [0.45, '#c9a86a'], [0.82, '#7a5a34'], [1, '#2e2014']],
+          base: '#c9a86a', polar: '#7a5a34',
           halo: '255,220,160', haloA: 0.16,
           surface(ctx, c, br) {
             for (const [oy, ry, al, col] of [[-0.5, 0.12, 0.14, '#ffeccb'], [-0.16, 0.15, 0.12, '#8a6740'],
               [0.2, 0.13, 0.14, '#ffe0ae'], [0.56, 0.11, 0.12, '#6d5030']]) {
               band(ctx, oy, ry, col, al)
             }
+            // v5.23.3 — WHY THIS EXISTS: bands are uniform across every longitude, so a surface made
+            // of nothing but bands is rotationally symmetric about the pole. This planet spins about
+            // exactly that axis, so every rotation mapped each point onto another point of identical
+            // colour and the render was mathematically invariant — it turned perfectly and looked
+            // frozen. Any archetype whose surface is pure banding needs marks like these or it will
+            // read as broken in exactly the same way.
+            for (const [x, y, rx, ry, rot, col, al] of [[-0.44, -0.3, 0.22, 0.1, 0.12, '#fff6e2', 0.5],
+              [0.36, 0.16, 0.28, 0.11, -0.09, '#6b4c2c', 0.42], [0.02, 0.55, 0.17, 0.075, 0.05, '#ffeccb', 0.4],
+              [-0.2, 0.02, 0.13, 0.06, 0.2, '#8a6740', 0.35]]) {
+              ctx.beginPath(); ctx.ellipse(c + br * x, c + br * y, br * rx, br * ry, rot, 0, Math.PI * 2)
+              ctx.globalAlpha = al; ctx.fillStyle = col; ctx.fill()
+            }
+            ctx.globalAlpha = 1
           },
           behind(ctx, c, R) { ringAnnulus(ctx, c, R, 'far') },
           front(ctx, c, R, br) {
@@ -3017,7 +3037,7 @@ export function createRenderer(app) {
           },
         },
         { // H. rust desert — the driest thing here: no water, no ice, one dust-hazed sky.
-          body: [[0, '#f0c396'], [0.5, '#b8703f'], [0.84, '#6d3c22'], [1, '#33190f']],
+          base: '#b8703f', polar: '#6d3c22',
           halo: '255,170,110', haloA: 0.14,
           surface(ctx, c, br) {
             for (const [x, y, rx, ry, rot, al] of [[-0.3, -0.3, 0.5, 0.3, 0.4, 0.22],
@@ -3039,7 +3059,7 @@ export function createRenderer(app) {
           },
         },
         { // I. toxic — the sickly one. Sulphur yellows nothing else in the set uses.
-          body: [[0, '#e8ff9e'], [0.45, '#93b83c'], [0.82, '#43601f'], [1, '#1a2810']],
+          base: '#93b83c', polar: '#43601f',
           halo: '180,255,90', haloA: 0.3,
           surface(ctx, c, br) {
             ctx.lineCap = 'round'
@@ -3056,7 +3076,7 @@ export function createRenderer(app) {
           },
         },
         { // J. storm — deep blue with white cyclones. The only body whose features are SPIRALS.
-          body: [[0, '#cfe0ff'], [0.45, '#3f5db8'], [0.82, '#1b2a63'], [1, '#0a1030']],
+          base: '#3f5db8', polar: '#1b2a63',
           halo: '150,180,255', haloA: 0.24,
           surface(ctx, c, br) {
             ctx.lineCap = 'round'
@@ -3069,6 +3089,126 @@ export function createRenderer(app) {
                 ctx.lineWidth = br * (0.05 - k * 0.008); ctx.stroke()
               }
               glowBlob(ctx, c + br * cx, c + br * cy, br * rr * 0.3, 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0)')
+            }
+          },
+        },
+        // ---- v5.23.3: five more worlds. All authored MAP-NATIVE from the start — belts go through
+        // band(), nothing uses a full-width ellipse (it would taper to a point at the seam), nothing
+        // bakes a light direction (the shader owns that), and no surface is pure banding (that is
+        // invariant under its own rotation — see the ringed world). ------------------------------
+        { // K. jungle — the only LIVING green. Toxic (I) is a sulphur yellow-green; this is deep
+          // emerald under canopy, and at gameplay size the two never read as the same world.
+          base: '#2f7a48', polar: '#14361f',
+          halo: '150,255,180', haloA: 0.2,
+          surface(ctx, c, br) {
+            for (const pts of [[[-0.62, -0.4], [-0.12, -0.55], [0.2, -0.25], [-0.05, 0.05], [-0.5, 0]],
+              [[0.2, 0.1], [0.68, 0], [0.8, 0.34], [0.42, 0.58], [0.14, 0.4]],
+              [[-0.72, 0.34], [-0.32, 0.3], [-0.18, 0.68], [-0.66, 0.78]]]) {
+              landmass(ctx, c, br, pts, 'rgba(22,74,38,0.75)', 'rgba(126,200,110,0.4)')
+            }
+            ctx.lineCap = 'round'
+            // Rivers are the one BRIGHT mark, so the canopy reads as wet rather than merely dark.
+            for (const path of [[[-0.5, -0.5], [-0.3, -0.15], [-0.4, 0.2], [-0.15, 0.55]],
+              [[0.5, -0.2], [0.34, 0.1], [0.5, 0.4]], [[-0.05, -0.7], [0.1, -0.35], [-0.02, -0.05]]]) {
+              ctx.beginPath()
+              path.forEach(([x, y], k) => (k ? ctx.lineTo(c + br * x, c + br * y) : ctx.moveTo(c + br * x, c + br * y)))
+              ctx.strokeStyle = 'rgba(120,200,220,0.55)'; ctx.lineWidth = br * 0.022; ctx.stroke()
+            }
+            for (const [x, y, r] of [[0, -0.15, 0.12], [-0.55, 0.55, 0.1]]) {
+              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(190,255,170,0.35)', 'rgba(150,255,150,0)')
+            }
+          },
+        },
+        { // L. machine — the only BUILT world here. Everything else is geology or weather, so
+          // straight edges and running lights are the whole read at a glance.
+          base: '#59626e', polar: '#2b3138',
+          halo: '150,200,255', haloA: 0.1,
+          surface(ctx, c, br) {
+            for (const [oy, ry, al, col] of [[-0.62, 0.08, 0.35, '#7d8794'], [-0.2, 0.1, 0.3, '#3f4750'],
+              [0.24, 0.09, 0.32, '#79838f'], [0.66, 0.08, 0.28, '#3a424b']]) band(ctx, oy, ry, col, al)
+            // Panels, not continents: axis-aligned rectangles are the cheapest "manufactured" there is.
+            ctx.globalAlpha = 0.4
+            for (const [x, y, pw, ph, col] of [[-0.55, -0.35, 0.32, 0.16, '#8b95a2'], [0.1, -0.5, 0.26, 0.12, '#39414a'],
+              [0.4, 0.05, 0.36, 0.2, '#8b95a2'], [-0.3, 0.3, 0.28, 0.14, '#39414a'],
+              [-0.7, 0.55, 0.22, 0.1, '#8b95a2'], [0.05, 0.52, 0.3, 0.13, '#6f7883']]) {
+              ctx.fillStyle = col; ctx.fillRect(c + br * x, c + br * y, br * pw, br * ph)
+            }
+            ctx.globalAlpha = 1
+            // Full-width seams: constant latitude, so they meet themselves across the mirror.
+            ctx.strokeStyle = 'rgba(24,28,33,0.55)'; ctx.lineWidth = br * 0.012
+            for (const y of [-0.45, -0.05, 0.42]) {
+              ctx.beginPath(); ctx.moveTo(c - br, c + br * y); ctx.lineTo(c + br, c + br * y); ctx.stroke()
+            }
+          },
+          emissive(ctx, c, br) {
+            ctx.fillStyle = 'rgba(120,240,255,0.95)'
+            for (const [x, y, n] of [[-0.55, -0.28, 7], [0.42, 0.12, 8], [-0.3, 0.37, 6], [0.08, 0.58, 5]]) {
+              for (let k = 0; k < n; k++) ctx.fillRect(c + br * (x + k * 0.045), c + br * y, br * 0.016, br * 0.016)
+            }
+            for (const [x, y, r] of [[0.5, -0.4, 0.14], [-0.15, 0.05, 0.12]]) {
+              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(120,240,255,0.5)', 'rgba(80,200,255,0)')
+            }
+          },
+        },
+        { // M. crystal — the ANGULAR one. Every other body in the set is made of curves, so a
+          // surface of straight facets is the fastest thing to tell apart at gameplay size.
+          base: '#6d55a8', polar: '#2b1f4d',
+          halo: '205,165,255', haloA: 0.3,
+          surface(ctx, c, br) {
+            for (const [pts, col, al] of [
+              [[[-0.7, -0.45], [-0.25, -0.62], [-0.05, -0.2], [-0.45, -0.05]], '#a98ce0', 0.55],
+              [[[0.05, -0.55], [0.5, -0.4], [0.42, 0.02], [0.02, -0.1]], '#4a3578', 0.5],
+              [[[-0.6, 0.1], [-0.15, 0.05], [-0.05, 0.5], [-0.5, 0.62]], '#b79ded', 0.4],
+              [[[0.15, 0.15], [0.62, 0.22], [0.5, 0.66], [0.1, 0.55]], '#54407f', 0.5],
+              [[[-0.2, -0.9], [0.15, -0.8], [0.05, -0.5], [-0.25, -0.55]], '#c6b1f5', 0.45]]) {
+              ctx.beginPath()
+              pts.forEach(([x, y], k) => (k ? ctx.lineTo(c + br * x, c + br * y) : ctx.moveTo(c + br * x, c + br * y)))
+              ctx.closePath()
+              ctx.globalAlpha = al; ctx.fillStyle = col; ctx.fill()
+              ctx.globalAlpha = 0.5; ctx.strokeStyle = '#e2d4ff'; ctx.lineWidth = br * 0.008; ctx.stroke()
+            }
+            ctx.globalAlpha = 1
+          },
+        },
+        { // N. veiled — the SMOOTH one. Against a set of busy surfaces a near-featureless haze is
+          // the most distinctive thing left, and it carries the thickest atmosphere here to sell it.
+          base: '#d8bd88', polar: '#a5843d',
+          halo: '255,232,175', haloA: 0.36,
+          surface(ctx, c, br) {
+            ctx.lineCap = 'round'
+            // Broad, soft and low-contrast — but deliberately NOT banded. Pure banding is invariant
+            // under this planet's own rotation and would look frozen however fast it actually turns.
+            for (const [x, y, r, a0, a1, col, lw] of [[-0.3, -0.35, 0.62, 0.3, 2.7, 'rgba(255,244,205,0.3)', 0.2],
+              [0.35, 0.05, 0.55, 2.6, 5.4, 'rgba(168,132,61,0.28)', 0.22],
+              [-0.15, 0.6, 0.5, 3.3, 6, 'rgba(255,240,195,0.24)', 0.18],
+              [0.2, -0.7, 0.42, 0.5, 3.1, 'rgba(180,146,74,0.22)', 0.16]]) {
+              ctx.beginPath(); ctx.arc(c + br * x, c + br * y, br * r, a0, a1)
+              ctx.strokeStyle = col; ctx.lineWidth = br * lw; ctx.stroke()
+            }
+            for (const [x, y, r] of [[-0.4, 0.2, 0.28], [0.45, -0.35, 0.22]]) {
+              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(255,250,220,0.3)', 'rgba(255,240,190,0)')
+            }
+          },
+        },
+        { // O. iron — rust (H) is a bright dusty desert; this is dark oxidised metal, near-black in
+          // its lowlands, where the pale mineral veins are the only thing that catches the star.
+          base: '#7d3529', polar: '#2f110d',
+          halo: '255,120,80', haloA: 0.14,
+          surface(ctx, c, br) {
+            for (const [x, y, rx, ry, rot] of [[-0.35, -0.28, 0.44, 0.34, 0.3], [0.38, 0.14, 0.4, 0.3, -0.25],
+              [-0.1, 0.55, 0.38, 0.26, 0.15], [0.3, -0.6, 0.28, 0.2, 0.4]]) {
+              ctx.beginPath(); ctx.ellipse(c + br * x, c + br * y, br * rx, br * ry, rot, 0, Math.PI * 2)
+              ctx.globalAlpha = 0.5; ctx.fillStyle = '#341510'; ctx.fill()
+            }
+            ctx.globalAlpha = 1
+            ctx.lineCap = 'round'
+            for (const path of [[[-1, -0.1], [-0.35, -0.25], [0.05, 0], [0.55, -0.15], [1, -0.1]],
+              [[-0.4, -0.75], [-0.2, -0.35], [-0.35, 0.1], [-0.15, 0.6]],
+              [[0.45, -0.5], [0.6, -0.1], [0.42, 0.3], [0.62, 0.7]]]) {
+              ctx.beginPath()
+              path.forEach(([x, y], k) => (k ? ctx.lineTo(c + br * x, c + br * y) : ctx.moveTo(c + br * x, c + br * y)))
+              ctx.strokeStyle = 'rgba(226,178,150,0.5)'; ctx.lineWidth = br * 0.03; ctx.stroke()
+              ctx.strokeStyle = 'rgba(255,232,214,0.5)'; ctx.lineWidth = br * 0.01; ctx.stroke()
             }
           },
         },
