@@ -77,7 +77,7 @@ const BODY_RENDER = { bgColor: 0xf4efe6, floorTint: 0xffffff, playerTint: 0xffff
 // re-rolling with Math.random() every redraw.
 // v5.21: planet surface spin, rad/s. Read in syncObstacles (outside buildTextures' block scope),
 // so it lives here rather than beside the other PLANET_* bake constants.
-const PLANET_SPIN_MAX = 0.035
+const PLANET_SPIN_MAX = 0.18
 
 function hash(n) {
   const s = Math.sin(n) * 43758.5453
@@ -7488,6 +7488,13 @@ export function createRenderer(app) {
     obstacleLayer.addChild(root)
     return { root, ring, clumpA, clumpB, x: 0, y: 0, r: 0 }
   }
+  // v5.21/v5.22: planets whose surface turns. Held outside syncObstacles because that function is
+  // rebuild-gated and this has to run every frame.
+  const planetSpinners = []
+  function tickPlanetSpin() {
+    for (const ps of planetSpinners) ps.s.rotation = ps.base + animT * ps.rate
+  }
+
   function syncObstacles(run) {
     const list = run.obstacles || []
     // v5.6.13: the list STREAMS as the player roams (sim.js streamObstacles mutates it in place
@@ -7499,6 +7506,7 @@ export function createRenderer(app) {
     const foot = T.obFoot
     const style = chapterBiome.obstacle // non-skies chapters: one style for every obstacle
     const liveCells = new Set() // this rebuild's obstacle set, for the cache prune below
+    planetSpinners.length = 0   // rebuilt below; stale sprite refs would spin a released pool slot
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
@@ -7628,7 +7636,12 @@ export function createRenderer(app) {
           // oriented alike, plus a very slow drift so the world reads as alive rather than a
           // backdrop. Safe only because every directional light cue lives in the unrotated shell
           // below — spinning a fully-lit sphere would drag its terminator around with it.
-          ov.clumpA.rotation = skin.planetRot + (T.planetSpin[skin.planetVariant] ? animT * skin.planetSpinRate : 0)
+          ov.clumpA.rotation = skin.planetRot
+          // Registered for the per-frame spin pass below. It CANNOT be advanced here: syncObstacles
+          // early-returns unless the obstacle list streams (see its guard), so anything written in
+          // this loop is written once when the planet materialises and then never again — which is
+          // exactly why the first cut of this did not rotate in real time.
+          if (T.planetSpin[skin.planetVariant]) planetSpinners.push({ s: ov.clumpA, base: skin.planetRot, rate: skin.planetSpinRate })
           ov.clumpA.position.set(0, 0)
           ov.clumpB.texture = shell
           ov.clumpB.anchor.set(0.5)
@@ -10055,6 +10068,7 @@ export function createRenderer(app) {
     // on that container, and there is no longer a container to brighten.
 
     syncObstacles(run)
+    tickPlanetSpin()   // must follow syncObstacles: a rebuild repopulates the spinner list
     syncWells(run)
     syncPools(run.pools || [])
     syncTrails(run.trails || [])
