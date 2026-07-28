@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js'
+import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -78,6 +78,95 @@ const BODY_RENDER = { bgColor: 0xf4efe6, floorTint: 0xffffff, playerTint: 0xffff
 // v5.21: planet surface spin, rad/s. Read in syncObstacles (outside buildTextures' block scope),
 // so it lives here rather than beside the other PLANET_* bake constants.
 const PLANET_SPIN_MAX = 0.18
+
+// v5.23 — planets are real spheres now. Direction TO the star, in the shader's y-UP space, shared by
+// every planet so the chapter agrees about where the light is. Up and to the left, matching the
+// baked directional cues on every other prop in the beyond set.
+// z is deliberately the SMALLEST component: a star sitting behind the camera lights the whole
+// visible hemisphere evenly and the sphere flattens into a disc. Pushing the light sideways is what
+// puts a terminator across the body, which is the strongest 3D cue there is.
+const PLANET_LIGHT = (() => {
+  const v = [-0.52, 0.58, 0.42], m = Math.hypot(...v)
+  return new Float32Array(v.map((n) => n / m))
+})()
+
+// Quad in [-1,1]. The SPHERE is entirely in the fragment shader — the geometry is just the square
+// that bounds it, so every planet shares one geometry and costs one draw call.
+const PLANET_VERT = `
+in vec2 aPosition;
+in vec2 aUV;
+out vec2 vUV;
+uniform mat3 uProjectionMatrix;
+uniform mat3 uWorldTransformMatrix;
+uniform mat3 uTransformMatrix;
+void main() {
+  mat3 mvp = uProjectionMatrix * uWorldTransformMatrix * uTransformMatrix;
+  gl_Position = vec4((mvp * vec3(aPosition, 1.0)).xy, 0.0, 1.0);
+  vUV = aUV;
+}`
+
+// Reconstruct the sphere normal from the quad, rotate it into texture space by a full 3x3, then
+// read the equirectangular map at that lat/long. Because the rotation is a real matrix and not a
+// 2D `sprite.rotation`, the axis can point anywhere — which is the entire point of this shader.
+// Lighting is per-pixel N.L, so the terminator is computed rather than painted, and it stays put
+// while the surface turns underneath it.
+const PLANET_FRAG = `
+precision highp float;
+in vec2 vUV;
+uniform sampler2D uMap;
+uniform sampler2D uEmit;
+uniform vec3 uRot0;
+uniform vec3 uRot1;
+uniform vec3 uRot2;
+uniform vec3 uLight;
+uniform vec3 uAtmo;
+uniform vec3 uTint;
+void main() {
+  vec2 p = vUV * 2.0 - 1.0;
+  p.y = -p.y;                       // canvas is y-down, the sphere is y-up
+  float r2 = dot(p, p);
+  if (r2 > 1.0) discard;            // outside the disc there is no planet
+  float z = sqrt(max(0.0, 1.0 - r2));
+  vec3 n = vec3(p, z);              // unit normal, +z toward the camera
+  vec3 m = mat3(uRot0, uRot1, uRot2) * n;
+  vec2 uv = vec2(atan(m.x, m.z) * 0.15915494 + 0.5, 0.5 - asin(clamp(m.y, -1.0, 1.0)) * 0.31830989);
+  vec3 col = texture2D(uMap, uv).rgb * uTint;
+  float day = smoothstep(-0.25, 0.85, dot(n, uLight));
+  col *= mix(0.12, 1.16, day);
+  // Emissive burns THROUGH the night side and is washed out by day — city lights and lava behave
+  // the way the archetypes that own them were designed around.
+  col += texture2D(uEmit, uv).rgb * (1.0 - day * 0.88);
+  // Rim: atmosphere is thickest where the line of sight grazes the limb, and it is lit by the same
+  // star, so it fades out on the night side instead of ringing the whole silhouette.
+  col += uAtmo * pow(1.0 - z, 3.0) * (0.25 + 0.75 * day);
+  // Antialias the limb by fading over a fixed slice of r2 rather than a derivative: Pixi compiles
+  // this program as WebGL1, where fwidth needs GL_OES_standard_derivatives and fails to link
+  // without it. 0.988 is r=0.994, so the fade is ~1.5px on a 230px-radius planet.
+  float a = 1.0 - smoothstep(0.988, 1.0, r2);
+  gl_FragColor = vec4(col * a, a);
+}`
+
+let planetGeom = null
+function makePlanetMesh() {
+  planetGeom ||= new MeshGeometry({
+    positions: new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]),
+    uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+    indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+  })
+  const uniforms = new UniformGroup({
+    uRot0: { value: new Float32Array([1, 0, 0]), type: 'vec3<f32>' },
+    uRot1: { value: new Float32Array([0, 1, 0]), type: 'vec3<f32>' },
+    uRot2: { value: new Float32Array([0, 0, 1]), type: 'vec3<f32>' },
+    uLight: { value: PLANET_LIGHT, type: 'vec3<f32>' },
+    uAtmo: { value: new Float32Array([0, 0, 0]), type: 'vec3<f32>' },
+    uTint: { value: new Float32Array([1, 1, 1]), type: 'vec3<f32>' },
+  })
+  const shader = Shader.from({
+    gl: { vertex: PLANET_VERT, fragment: PLANET_FRAG },
+    resources: { uniforms, uMap: Texture.WHITE.source, uEmit: Texture.WHITE.source },
+  })
+  return new Mesh({ geometry: planetGeom, shader })
+}
 
 function hash(n) {
   const s = Math.sin(n) * 43758.5453
@@ -2662,25 +2751,42 @@ export function createRenderer(app) {
       // CONCENTRIC body gradient, the surface features, the halo) and every directional cue moves
       // into one shared shell drawn unrotated on top, in the pooled sprite (clumpB) the planet branch
       // was already leaving empty. Surface spins underneath; the light never moves.
-      const planetTex = (a) => canvasTex(PLANET_R * 2, PLANET_R * 2, (ctx, w) => {
+      // v5.23 — THE RE-PROJECTION. This used to bake a flat DISC; the sphere shader wants a lat/long
+      // MAP. Every archetype's surface()/emissive() already draws into a [-1,1] square, so the whole
+      // conversion is one transform: that square becomes the full 360x180 map. Belts stay belts, the
+      // ice world's caps land on the actual poles, and PLANET_ARCHETYPES did not change at all.
+      // ponytail: 1024x512 per archetype (~2MB) is 2x the old disc bake. Halve it if the beyond
+      // chapter ever shows memory pressure on a phone — the visible hemisphere is only half the map.
+      const MAP_W = 1024, MAP_H = 512
+      const planetMapTex = (a, emissive) => {
+        const t = canvasTex(MAP_W, MAP_H, (ctx, w, h) => {
+          // Flat albedo, NOT the old centre-bright radial: that gradient was a hand-painted sphere
+          // shade, and the shader computes the real one per pixel now — baking it in would darken
+          // every limb twice. The emissive map starts transparent: it is ADDED, never lit.
+          if (!emissive) { ctx.fillStyle = a.body[1][1]; ctx.fillRect(0, 0, w, h) }
+          ctx.save()
+          ctx.translate(w / 2, h / 2); ctx.scale(w / 2, h / 2)
+          const draw = emissive ? a.emissive : a.surface
+          if (draw) draw(ctx, 0, 1)
+          ctx.restore()
+        })
+        // Longitude wraps, latitude does not: repeat on U kills the seam where -180 meets +180,
+        // clamp on V stops the north pole bleeding into the south one.
+        t.source.style.addressModeU = 'repeat'
+        t.source.style.addressModeV = 'clamp-to-edge'
+        return t
+      }
+
+      // Everything that is NOT on the sphere: the atmosphere glow, which extends past the limb, and
+      // the ringed world's annulus, which has to straddle it. Both are rotation-invariant, so they
+      // stay ordinary sprites — `behind` under the mesh, `front` over it.
+      // The halo is a radial FADE, not a stroke: a constant-width constant-alpha ring reads as a
+      // hard outline, which against this chapter's near-black background is the most artificial
+      // thing on screen. 1.10 is the ceiling, not a taste call — PLANET_BODY is 0.90, so the halo
+      // reaches 0.99 of the canvas half-extent; past 1.11 it comes back shaved at the four cardinals.
+      const planetOverlayTex = (a, front) => canvasTex(PLANET_R * 2, PLANET_R * 2, (ctx, w) => {
         const R = PLANET_R, c = w / 2, br = R * (a.bodyR ?? PLANET_BODY)
-        const disc = () => { ctx.beginPath(); ctx.arc(c, c, br, 0, Math.PI * 2) }
-        if (a.behind) a.behind(ctx, c, R, br)
-        // Concentric, NOT off-centre: an off-centre highlight is a directional cue and would swing
-        // around as the planet turns. Centre-bright to edge-dark survives any rotation.
-        const g1 = ctx.createRadialGradient(c, c, br * 0.05, c, c, br)
-        for (const [t, col] of a.body) g1.addColorStop(t, col)
-        disc(); ctx.fillStyle = g1; ctx.fill()
-        ctx.save(); disc(); ctx.clip()
-        if (a.surface) a.surface(ctx, c, br)
-        if (a.emissive) a.emissive(ctx, c, br)
-        ctx.restore()
-        // Atmosphere stays here rather than in the shell because it is per-archetype coloured AND
-        // concentric, so it is rotation-invariant anyway. A radial FADE, not a stroke: a
-        // constant-width constant-alpha ring reads as a hard outline drawn around the planet, which
-        // against this chapter's near-black background is the most artificial thing on screen.
-        // 1.10 is the ceiling, not a taste call: PLANET_BODY is 0.90, so the halo reaches 0.99 of the
-        // canvas half-extent. Past 1.11 it overflows and comes back shaved flat at the four cardinals.
+        if (!front) { a.behind(ctx, c, R, br); return }
         if (a.halo) {
           const hg = ctx.createRadialGradient(c, c, br * 0.94, c, c, br * 1.1)
           hg.addColorStop(0, `rgba(${a.halo},0)`)
@@ -2691,37 +2797,10 @@ export function createRenderer(app) {
         if (a.front) a.front(ctx, c, R, br)
       })
 
-      // The shared lighting shell: every directional cue, drawn once, never rotated. Sized to
-      // PLANET_BODY so it lands on the same limb every archetype's body does (the ringed one opts
-      // out via shellR, since its body is smaller than its texture).
-      const planetShellTex = (bodyR) => canvasTex(PLANET_R * 2, PLANET_R * 2, (ctx, w) => {
-        const R = PLANET_R, c = w / 2, br = R * bodyR
-        const disc = () => { ctx.beginPath(); ctx.arc(c, c, br, 0, Math.PI * 2) }
-        ctx.save(); disc(); ctx.clip()
-        // Day side: a soft warm lift toward the star. This is what washes out the night-side world's
-        // city lights and the molten world's cracks once they rotate around into daylight — without
-        // it, a planet's emissive detail would glow just as hard at noon as at midnight.
-        const lg = ctx.createRadialGradient(c - br * 0.34, c - br * 0.44, br * 0.05, c - br * 0.34, c - br * 0.44, br * 1.25)
-        lg.addColorStop(0, 'rgba(255,248,232,0.34)')
-        lg.addColorStop(0.42, 'rgba(255,244,226,0.08)')
-        lg.addColorStop(1, 'rgba(255,240,220,0)')
-        disc(); ctx.fillStyle = lg; ctx.fill()
-        // Terminator: the dark crescent hugging the far limb, the single strongest sphere cue.
-        const g2 = ctx.createRadialGradient(c - br * 0.5, c - br * 0.6, br * 0.2, c, c, br * 1.02)
-        g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(0.6, 'rgba(10,6,26,0)')
-        g2.addColorStop(1, 'rgba(10,6,26,0.78)')
-        disc(); ctx.fillStyle = g2; ctx.fill()
-        ctx.restore()
-        // Rim light, fading to nothing at BOTH ends — a flat-alpha arc stops dead where its angle
-        // range ends, and at gameplay scale that reads as a pale band stuck on the planet.
-        const rg = ctx.createLinearGradient(c - br, c - br, c + br, c + br * 0.2)
-        rg.addColorStop(0, 'rgba(255,255,255,0)')
-        rg.addColorStop(0.5, 'rgba(240,236,255,0.7)')
-        rg.addColorStop(1, 'rgba(255,255,255,0)')
-        ctx.beginPath(); ctx.arc(c, c, br * 0.97, Math.PI * 1.08, Math.PI * 1.92)
-        ctx.lineCap = 'round'
-        ctx.strokeStyle = rg; ctx.lineWidth = br * 0.04; ctx.stroke()
-      })
+      // The lighting shell is GONE (v5.23). Day-side lift, terminator and rim light were three
+      // painted gradients faking a sphere under a fixed sun, and they are now three lines of the
+      // fragment shader computed from the real normal. That is also what unlocked all-axis rotation:
+      // the old surface could only spin because none of its lighting lived in the same texture.
 
       const PLANET_ARCHETYPES = [
         { // A. gas giant — eight irregular belts + one storm oval. Readable from any fragment.
@@ -2868,7 +2947,7 @@ export function createRenderer(app) {
         },
         { // G. ringed — the only broken silhouette, and the ring enters the screen BEFORE the planet,
           // which on a phone is the most valuable property in the set. Body shrinks to make room.
-          bodyR: 0.58, spin: false,
+          bodyR: 0.58,
           body: [[0, '#f0e0bd'], [0.45, '#c9a86a'], [0.82, '#7a5a34'], [1, '#2e2014']],
           halo: '255,220,160', haloA: 0.16,
           surface(ctx, c, br) {
@@ -2945,17 +3024,25 @@ export function createRenderer(app) {
           },
         },
       ]
-      // Parallel arrays indexed by variant: the surface, the (deduped) shell that lights it, and
-      // whether it may turn. Shells are cached by body radius because only the ringed archetype has
-      // a different one — two bakes, not ten.
-      const shellCache = new Map()
-      const shellFor = (bodyR) => {
-        if (!shellCache.has(bodyR)) shellCache.set(bodyR, planetShellTex(bodyR))
-        return shellCache.get(bodyR)
-      }
-      T.planetShells = PLANET_ARCHETYPES.map((a) => shellFor(a.bodyR ?? PLANET_BODY))
-      T.planetSpin = PLANET_ARCHETYPES.map((a) => a.spin !== false)
-      T.planets = PLANET_ARCHETYPES.map(planetTex)
+      // Parallel arrays indexed by variant: the lat/long albedo, its emissive twin, the two
+      // off-sphere overlays, the body radius the mesh scales to, and the rim colour.
+      // `spin` is gone — every archetype turns now, the ringed one included: a ring does not follow
+      // its planet's rotation, so the annulus simply stays a still sprite while the body turns
+      // inside it, which is what a real ringed world does.
+      T.planetMaps = PLANET_ARCHETYPES.map((a) => planetMapTex(a, false))
+      T.planetEmitNone = canvasTex(1, 1, () => {})   // fully transparent: adds nothing
+      T.planetEmits = PLANET_ARCHETYPES.map((a) => (a.emissive ? planetMapTex(a, true) : T.planetEmitNone))
+      T.planetBehind = PLANET_ARCHETYPES.map((a) => (a.behind ? planetOverlayTex(a, false) : null))
+      T.planetFront = PLANET_ARCHETYPES.map((a) => (a.halo || a.front ? planetOverlayTex(a, true) : null))
+      T.planetBodyR = PLANET_ARCHETYPES.map((a) => a.bodyR ?? PLANET_BODY)
+      // Rim colour comes straight off the archetype's own atmosphere, so the limb glow and the halo
+      // sprite around it are the same hue. The moon has no atmosphere and gets a black rim — which
+      // is correct, not a gap: an airless body has no limb glow, and that is its whole read.
+      T.planetAtmo = PLANET_ARCHETYPES.map((a) => {
+        if (!a.halo) return new Float32Array([0, 0, 0])
+        const k = a.haloA * 2.2   // haloA is tuned for a 2D alpha fade; the rim is an ADD, so it needs lifting
+        return new Float32Array(a.halo.split(',').map((n) => (Number(n) / 255) * k))
+      })
       T.planetTints = PLANET_TINTS
     }
     {
@@ -7501,13 +7588,25 @@ export function createRenderer(app) {
     clumpB.anchor.set(0.5)
     root.addChild(ring, clumpA, clumpB)
     obstacleLayer.addChild(root)
-    return { root, ring, clumpA, clumpB, x: 0, y: 0, r: 0 }
+    return { root, ring, clumpA, clumpB, mesh: null, x: 0, y: 0, r: 0 }
   }
-  // v5.21/v5.22: planets whose surface turns. Held outside syncObstacles because that function is
+  // v5.21/v5.22/v5.23: planets that turn. Held outside syncObstacles because that function is
   // rebuild-gated and this has to run every frame.
   const planetSpinners = []
   function tickPlanetSpin() {
-    for (const ps of planetSpinners) ps.s.rotation = ps.base + animT * ps.rate
+    for (const ps of planetSpinners) {
+      // Rodrigues: rotation of `angle` about the planet's own unit axis, written straight into the
+      // shader's three column vectors. This is the whole reason the redesign happened — a 2D
+      // sprite.rotation is a rotation about +z and nothing else, so an arbitrary axis is simply not
+      // expressible until the sphere is real.
+      const [x, y, z] = ps.axis
+      const th = ps.phase + animT * ps.rate
+      const c = Math.cos(th), s = Math.sin(th), t = 1 - c
+      ps.u.uRot0.set([t * x * x + c, t * x * y + s * z, t * x * z - s * y])
+      ps.u.uRot1.set([t * x * y - s * z, t * y * y + c, t * y * z + s * x])
+      ps.u.uRot2.set([t * x * z + s * y, t * y * z - s * x, t * z * z + c])
+      ps.g.update()   // Float32Arrays were mutated in place; without this the GPU keeps last frame's matrix
+    }
   }
 
   function syncObstacles(run) {
@@ -7527,6 +7626,7 @@ export function createRenderer(app) {
       if (i >= list.length) { ov.root.visible = false; continue }
       const o = list[i]
       ov.root.visible = true
+      if (ov.mesh) ov.mesh.visible = false   // pool slots are reused across chapters; only the planet branch re-enables it
       ov.root.position.set(o.x, o.y)
       ov.x = o.x; ov.y = o.y; ov.r = o.r
       liveCells.add(o._cell)
@@ -7553,12 +7653,21 @@ export function createRenderer(app) {
           // and asserts exactly that), so a planet keeps its identity when it re-enters view.
           // NOT hashed off o.kind: STRUCTURE_KINDS is pinned at 6 entries by run DD.d, so a future
           // kind edit would silently reshuffle the planet mix, and pier -> ice world means nothing.
-          skin.planetVariant = Math.floor(hash(o.x * 1.7 + o.y * 0.31 + 23.7) * T.planets.length)
+          skin.planetVariant = Math.floor(hash(o.x * 1.7 + o.y * 0.31 + 23.7) * T.planetMaps.length)
           skin.planetTint = T.planetTints[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + 41.1) * T.planetTints.length)]
           skin.planetRot = hash(o.x * 1.7 + o.y * 0.31 + 57.3) * Math.PI * 2
-          // Signed, and slow: PLANET_SPIN_MAX is ~1 revolution every 3 minutes at the fastest, which
-          // is motion you notice only if you stop and look — the intent is life, not a spinning top.
+          // Signed, and slow: PLANET_SPIN_MAX is ~1 revolution every 35s at the fastest, which is
+          // motion you notice only if you stop and look — the intent is life, not a spinning top.
           skin.planetSpinRate = (hash(o.x * 1.7 + o.y * 0.31 + 71.9) - 0.5) * 2 * PLANET_SPIN_MAX
+          // v5.23: THE AXIS. A random unit vector, so no two worlds tumble alike — this is the thing
+          // a 2D `sprite.rotation` could never express, because that only ever spins about +z.
+          // z is squashed to +-0.6: an axis pointing straight at the camera turns the sphere into a
+          // flat pinwheel, which is exactly the look the shader exists to get away from.
+          const ax = hash(o.x * 1.7 + o.y * 0.31 + 88.3) * 2 - 1
+          const ay = hash(o.x * 1.7 + o.y * 0.31 + 95.1) * 2 - 1
+          const az = (hash(o.x * 1.7 + o.y * 0.31 + 103.7) - 0.5) * 1.2
+          const am = Math.hypot(ax, ay, az) || 1
+          skin.planetAxis = [ax / am, ay / am, az / am]
         }
         obstacleSkinCache.set(o._cell, skin)
       }
@@ -7635,35 +7744,43 @@ export function createRenderer(app) {
         // its own centre with a second planet growing out of its edge. A sphere is neither planted
         // nor heaped: it is centred, and it is one object.
         if (skin.planet) {
-          // v5.20: one of seven archetypes, picked per obstacle (see the skin cache above). Still
-          // centred and still 1:1 with the collider — every archetype keeps its detail INSIDE the
-          // square, including the ringed one, whose body shrinks to 0.58R to make room. That only
-          // works because o.r is cosmetic in this chapter (stepObstacles early-returns on `lane`, no
-          // `crush`, no `blink` in the roster). A chapter that reuses `planet: true` with real
-          // colliders would need this branch reworked, not just a new archetype.
-          const ptex = T.planets[skin.planetVariant]
-          const shell = T.planetShells[skin.planetVariant]
-          ov.clumpA.texture = ptex
+          // v5.23: THREE layers, in draw order — clumpA is whatever sits BEHIND the sphere (only the
+          // ringed world's far annulus), the Mesh is the sphere itself, clumpB is the atmosphere
+          // halo plus anything crossing in FRONT. The mesh is inserted at index 2 so it lands
+          // between them; created lazily, so pool slots that never hold a planet never pay for a
+          // shader. o.r stays cosmetic in this chapter (stepObstacles early-returns on `lane`, no
+          // `crush`, no `blink` in the roster) — a chapter reusing `planet: true` with real colliders
+          // would need this branch reworked, not just a new archetype.
+          if (!ov.mesh) { ov.mesh = makePlanetMesh(); ov.root.addChildAt(ov.mesh, 2) }
+          const v = skin.planetVariant
+          const behind = T.planetBehind[v], front = T.planetFront[v]
+          const res = ov.mesh.shader.resources
+          res.uMap = T.planetMaps[v].source
+          res.uEmit = T.planetEmits[v].source
+          const u = res.uniforms.uniforms
+          u.uAtmo.set(T.planetAtmo[v])
+          u.uTint.set([(skin.planetTint >> 16 & 255) / 255, (skin.planetTint >> 8 & 255) / 255, (skin.planetTint & 255) / 255])
+          ov.mesh.visible = true
+          // The quad spans [-1,1], so scaling it by the body radius makes the sphere exactly as wide
+          // as the old disc bake was — the ringed world still shrinks to 0.58 to leave room.
+          ov.mesh.scale.set(o.r * T.planetBodyR[v])
+          // Registered for the per-frame pass below. The matrix CANNOT be advanced here:
+          // syncObstacles early-returns unless the obstacle list streams (see its guard), so anything
+          // written in this loop is written once when the planet materialises and then never again —
+          // which is exactly why the first cut of the v5.21 spin did not rotate in real time.
+          planetSpinners.push({ u, g: res.uniforms, axis: skin.planetAxis, phase: skin.planetRot, rate: skin.planetSpinRate })
+          ov.clumpA.texture = behind || Texture.EMPTY
           ov.clumpA.anchor.set(0.5)
-          ov.clumpA.tint = skin.planetTint  // hue nudge only; the bake carries the real palette
-          ov.clumpA.scale.set((o.r * 2) / ptex.width)
-          // v5.21: the surface TURNS. Random fixed phase per planet so no two of an archetype are
-          // oriented alike, plus a very slow drift so the world reads as alive rather than a
-          // backdrop. Safe only because every directional light cue lives in the unrotated shell
-          // below — spinning a fully-lit sphere would drag its terminator around with it.
-          ov.clumpA.rotation = skin.planetRot
-          // Registered for the per-frame spin pass below. It CANNOT be advanced here: syncObstacles
-          // early-returns unless the obstacle list streams (see its guard), so anything written in
-          // this loop is written once when the planet materialises and then never again — which is
-          // exactly why the first cut of this did not rotate in real time.
-          if (T.planetSpin[skin.planetVariant]) planetSpinners.push({ s: ov.clumpA, base: skin.planetRot, rate: skin.planetSpinRate })
+          ov.clumpA.tint = 0xffffff
+          ov.clumpA.rotation = 0
           ov.clumpA.position.set(0, 0)
-          ov.clumpB.texture = shell
+          ov.clumpA.scale.set(behind ? (o.r * 2) / behind.width : 1)
+          ov.clumpB.texture = front || Texture.EMPTY
           ov.clumpB.anchor.set(0.5)
           ov.clumpB.tint = 0xffffff
           ov.clumpB.rotation = 0          // the sun does not orbit the planet
           ov.clumpB.position.set(0, 0)
-          ov.clumpB.scale.set((o.r * 2) / shell.width)
+          ov.clumpB.scale.set(front ? (o.r * 2) / front.width : 1)
           ov.ring.alpha = 0   // no collision contract to draw — see BIOMES.beyond.obstacle
           continue
         }
