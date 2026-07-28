@@ -9923,7 +9923,10 @@ export function createRenderer(app) {
     chapterHasCurrents = cfg?.signature?.type === 'currents'
     chapterHasStorm = !!chapterRender.storm
     chapterHasKaiju = !!chapterRender.kaiju
-    chapterHasLane = CHAPTERS[run.chapter]?.lane === true
+    // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
+    // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
+    // the player on the Paused screen. Every other line in this block already guards for that.
+    chapterHasLane = cfg?.lane === true
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
     // roads is a chapter-TOP-LEVEL flag (config.js CHAPTERS.skies.roads), not under `render` like
