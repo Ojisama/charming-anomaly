@@ -990,8 +990,8 @@ export const TESSERACT_COLLAPSE_PULL = 400
 // ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
 // Offered always (not gated behind a weapon), rolls a rarity like passives: applied
 // potency = base * RARITIES[rarity].mult, added per pick. run.elements[id] accumulates
-// potency; run.elementPicks[id] counts picks (max MAX_ELEMENT_PICKS). desc doubles as
-// the level-up card description, so it includes a short combo hint.
+// potency; run.elementPicks[id] counts picks (max MAX_ELEMENT_PICKS). desc is the tail of the
+// level-up card description (a short combo hint) — makeElementCard prefixes the rolled potency.
 export const ELEMENTS = {
   fire: {
     name: 'Fire Infusion', icon: '🔥', base: 1,
