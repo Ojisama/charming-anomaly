@@ -37,7 +37,7 @@ import {
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED,
+  LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
@@ -3354,6 +3354,63 @@ function testV54Signatures() {
   console.log('PASS run Z (v5.4 signatures): predators traps, traffic lanes, bombardment, gravity wells')
 }
 
+// ---- Run ZM: v5.19 march homing ------------------------------------------------------------
+// A marcher used to advance straight down the lane and slide harmlessly past a player who never
+// moved. It now converges on the player's column too — but SLOWLY, which is the whole contract:
+// fast enough that ignoring a rank costs you, slow enough that committing to a gap still beats it.
+// Both halves are asserted here, because only the pair is the design (either alone is a bug).
+function testLaneMarch() {
+  const dt = 1 / 60
+
+  function marchRun(offsetX) {
+    const run = createRun(makeMeta(), { chapter: 'beyond' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run._formationT = 1e6 // park the rank spawner: this case is about one marcher
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    // Placed well ahead up-lane so it never reaches contact range during the window.
+    const e = makeStatusEnemy(run, { x: offsetX, y: -1200, speed: 90 })
+    e.flags = ['march']
+    run.enemies.push(e)
+    return { run, e }
+  }
+
+  // Both cases step for EXACTLY one sway period. The shuffle is a cosine with amplitude
+  // MARCH_SWAY_PX (~46px of excursion) against a homing rate of only ~17px/s, so over an arbitrary
+  // window the sway swamps the signal — a 4s window happens to cancel the homing almost exactly.
+  // Over one whole period the cosine integrates to zero and what's left IS the homing.
+  const period = (Math.PI * 2) / MARCH_SWAY_RATE
+
+  // (a) It closes the horizontal gap on an idle player, and still descends while doing it.
+  {
+    const { run, e } = marchRun(400)
+    const gap0 = Math.abs(e.x - run.player.x)
+    const y0 = e.y
+    for (let i = 0; i < Math.round(period / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const gap1 = Math.abs(e.x - run.player.x)
+    assert(gap1 < gap0 - 60, `expected a marcher to converge on an idle player, gap ${gap0.toFixed(0)}->${gap1.toFixed(0)}px`)
+    assert(e.y > y0 + 50, `expected a marcher to keep descending while homing, y ${y0.toFixed(0)}->${e.y.toFixed(0)}`)
+
+    // ...and slowly. The closure rate must stay far under the player's own strafe, or "commit to a
+    // gap" stops working and the rank is just a wall that follows you (rev.1's failure).
+    const closeRate = (gap0 - gap1) / period
+    const strafe = PLAYER.baseSpeed * LANE_STRAFE_MUL
+    assert(closeRate < strafe * 0.25, `expected homing well under a strafe: ${closeRate.toFixed(0)}px/s vs strafe ${strafe.toFixed(0)}px/s`)
+    console.log(`PASS run ZM.a (march homes): gap ${gap0.toFixed(0)}->${gap1.toFixed(0)}px at ${closeRate.toFixed(0)}px/s (strafe ${strafe.toFixed(0)}px/s), descended ${(e.y - y0).toFixed(0)}px`)
+  }
+
+  // (b) The fairness contract: a player who strafes AWAY outruns the convergence outright. Same
+  // marcher, same window — only the input differs, and the gap must grow instead of shrink.
+  {
+    const { run, e } = marchRun(-200) // enemy to the player's left, so strafe right to flee
+    const gap0 = Math.abs(e.x - run.player.x)
+    for (let i = 0; i < Math.round(period / dt); i++) stepSim(run, { x: 1, y: 0 }, dt)
+    const gap1 = Math.abs(e.x - run.player.x)
+    assert(gap1 > gap0 + 100, `expected strafing away to beat the homing, gap ${gap0.toFixed(0)}->${gap1.toFixed(0)}px`)
+    console.log(`PASS run ZM.b (strafe beats homing): gap ${gap0.toFixed(0)}->${gap1.toFixed(0)}px while fleeing`)
+  }
+}
+
 // ---- Run AA: v5.4 weapons + per-chapter balance bands (run W/X style) ---------------------
 function testV54Weapons() {
   const dt = 1 / 60
@@ -4658,6 +4715,7 @@ try {
   testGarden()
   testV54Flags()
   testV54Signatures()
+  testLaneMarch()
   testV54Weapons()
   testDistricts()
   testSkiesKaiju()

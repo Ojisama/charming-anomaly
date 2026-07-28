@@ -108,7 +108,7 @@ import {
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
-  MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE,
+  MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
@@ -619,7 +619,7 @@ function stepEnemyMovement(run, dt) {
     } else if (e.flags && e.flags.includes('missileVolley')) {
       stepMissileVolley(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('march')) {
-      stepMarch(e, dt, slowMul, enrageMul)
+      stepMarch(e, tx, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('blink')) {
       stepBlink(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.elite && e.flags && e.flags.includes('pullBeam') && e._beamState === 'beam') {
@@ -1007,18 +1007,25 @@ function fireEnemyMissile(run, e) {
   })
 }
 
-// march (v5.18, The Beyond's lane): the Space Invaders half. It does not seek, does not re-aim and
-// does not know where you are — it advances DOWN the lane at a fixed fraction of its own speed,
-// shuffling side to side. The sway phase is seeded from the enemy's spawn x (not its id and not
-// Math.random), so every invader in a rank spawned across the same row shares a phase relationship
-// and the block reads as ONE marching formation rather than a crowd of individuals wobbling.
-// Because it never tracks you, a rank is always dodgeable — which is the contract that makes it
-// fair to punish you (LANE_LEAK_DMG) for the ones you let through.
-function stepMarch(e, dt, slowMul, spdMul) {
+// march (v5.18, The Beyond's lane): the Space Invaders half. It advances DOWN the lane at a fixed
+// fraction of its own speed, shuffling side to side. The sway phase is seeded from the enemy's spawn
+// x (not its id and not Math.random), so every invader in a rank spawned across the same row shares
+// a phase relationship and the block reads as ONE marching formation rather than a crowd of
+// individuals wobbling.
+// v5.19: it now also CONVERGES on the player horizontally, but at MARCH_HOME_MUL of its march speed
+// — roughly a seventh of the player's strafe. That keeps the original contract intact: a rank is
+// still always dodgeable by anyone who commits to a gap (which is what makes LANE_LEAK_DMG a fair
+// punishment), it just no longer slides harmlessly past a player who stands still. The homing is
+// deliberately x-only; steering the descent too would make ranks converge into a column and destroy
+// the formation read.
+function stepMarch(e, tx, dt, slowMul, spdMul) {
   if (e._marchPhase === undefined) e._marchPhase = e.x * 0.01
   e._marchPhase += MARCH_SWAY_RATE * dt
   const spd = e.speed * spdMul * MARCH_SPEED_MUL
   e.y += spd * slowMul * dt
+  const hx = tx - e.x
+  // Deadband: without it a rank sitting on the player's column jitters across it every frame.
+  if (Math.abs(hx) > 1) e.x += Math.sign(hx) * spd * MARCH_HOME_MUL * slowMul * dt
   e.x += Math.cos(e._marchPhase) * MARCH_SWAY_PX * MARCH_SWAY_RATE * slowMul * dt
 }
 

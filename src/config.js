@@ -2017,6 +2017,12 @@ export const laneHalfWidth = (viewRadius) => Math.min(LANE_HALF_W, viewRadius * 
 export const MARCH_SPEED_MUL = 0.35      // fraction of the enemy's own speed, moving down the lane
 export const MARCH_SWAY_PX = 46          // px of side-to-side shuffle amplitude
 export const MARCH_SWAY_RATE = 1.1       // rad/s of that shuffle
+// Ranks also converge on the player sideways, at this fraction of their march speed (~17px/s for a
+// drone). Deliberately far below the player's own strafe: ignore a rank and it drifts onto you,
+// commit to a gap and you still beat it there. Do NOT raise this toward 1 — full homing re-centres
+// every rank on the player, which is rev.1's mistake documented under LANE_SPAWN_MUL: the gaps stop
+// meaning anything and strafing stops being a decision.
+export const MARCH_HOME_MUL = 0.55
 
 // Formation waves (stepFormations): a rank of `march` enemies spawned ahead of the player, across
 // the lane, on a cadence. Rows arrive as blocks so the screen reads as ordered ranks rather than a
@@ -2033,7 +2039,12 @@ export const MARCH_SWAY_RATE = 1.1       // rad/s of that shuffle
 // the player. At the shared rate that is roughly triple the density per unit of frontage, i.e. a
 // wall you cannot thread. The ordinary stream yields to make room for the formation, which is the
 // half that gives this chapter its identity.
-export const LANE_SPAWN_MUL = 0.4        // ordinary (non-rank) spawning rate in the lane
+// v5.19: 0.4 played too thin — the lane read as empty between ranks. Measured as raw spawn pressure
+// (weapons stripped so nothing dies, 10 seeds, first 60s), this knob and FORMATION_INTERVAL together
+// move it: 0.4/5.0 = 95 enemies/min, 0.5/4.6 = 114, 0.55/4.4 = 118, 0.6/4.2 = 128. 0.55/4.4 is +24%
+// over the old pair. 0.6 was measurably past the point where a weak build stops keeping up and the
+// alive count runs away to MAX_ALIVE, which is the unthreadable wall the paragraph above describes.
+export const LANE_SPAWN_MUL = 0.55       // ordinary (non-rank) spawning rate in the lane
 
 // Contact hurts LESS in the lane, and this is a fairness rule rather than a difficulty knob.
 // Measured over 60s of play: 83% of all damage taken (236 of 283) was head-on CONTACT, against 7
@@ -2049,7 +2060,9 @@ export const LANE_CONTACT_MUL = 0.4      // enemy contact damage multiplier in t
 // the Space Invaders frame: you at the bottom, everything descending toward you, and enough warning
 // to actually choose a gap. A centred camera spends half the screen on space already flown through.
 export const LANE_CAMERA_FRAC = 0.8
-export const FORMATION_INTERVAL = 5.0    // s between ranks
+export const FORMATION_INTERVAL = 4.4    // s between ranks (5.0 left visible dead air between waves)
+// ponytail: density is two knobs (this + LANE_SPAWN_MUL) tuned as a pair against one measured
+// number. If a third source of lane pressure ever lands, measure the trio, don't add a third knob.
 export const FORMATION_COLS = 6          // invaders across a rank, spread over the full lane width
 // Ranks enter from just beyond the TOP EDGE, derived from the viewport rather than fixed, so on
 // every device a rank appears at the edge of sight and descends the full screen. A fixed number
