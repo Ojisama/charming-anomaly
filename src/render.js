@@ -2769,11 +2769,30 @@ export function createRenderer(app) {
           // shade, and the shader computes the real one per pixel now — baking it in would darken
           // every limb twice. The emissive map starts transparent: it is ADDED, never lit.
           if (!emissive) { ctx.fillStyle = a.body[1][1]; ctx.fillRect(0, 0, w, h) }
-          ctx.save()
-          ctx.translate(w / 2, h / 2); ctx.scale(w / 2, h / 2)
           const draw = emissive ? a.emissive : a.surface
-          if (draw) draw(ctx, 0, 1)
-          ctx.restore()
+          if (!draw) return
+          // TWO copies, the second MIRRORED, each filling half the longitude range.
+          //
+          // Two things forced this. Aspect: the art is a square, but stretching it across the whole
+          // map gave x 180 degrees per unit against y's 90, so every circle came out twice as wide
+          // as it was tall — craters as ellipses, cyclones as ovals. Scaling both axes by h/2 makes
+          // a drawn circle a real circle on the sphere, and the art then only covers 180 degrees,
+          // so it takes two copies to go all the way round.
+          //
+          // Seam: longitude wraps, so a shape running off one edge has to continue on the other or
+          // it stops dead in mid-surface — the cut-off edge. Mirroring is what makes that free.
+          // Copy one ends on art x=+1 exactly where the mirrored copy two begins on art x=+1, and
+          // copy one's art x=-1 meets copy two's art x=-1 at the wrap. Both joins match by
+          // construction. A plain repeat would join +1 to -1 and step at every one of them.
+          // Mirrored also beats identical: the far side is a reflection, not the same face again.
+          const half = h / 2
+          for (const [cx, flip] of [[-1, 1], [1, -1]]) {
+            ctx.save()
+            ctx.beginPath(); ctx.rect(w / 2 + (cx - 1) * half, 0, h, h); ctx.clip()
+            ctx.translate(w / 2 + cx * half, h / 2); ctx.scale(flip * half, half)
+            draw(ctx, 0, 1)
+            ctx.restore()
+          }
         })
         // Longitude wraps, latitude does not: repeat on U kills the seam where -180 meets +180,
         // clamp on V stops the north pole bleeding into the south one.
@@ -2807,6 +2826,29 @@ export function createRenderer(app) {
       // fragment shader computed from the real normal. That is also what unlocked all-axis rotation:
       // the old surface could only spin because none of its lighting lived in the same texture.
 
+      // A latitude belt in lat/long space is a full-width BAND. Drawn as the ellipse it used to be,
+      // it tapers to a point at both map edges, and on the sphere that reads as the belt pinching
+      // shut along one meridian — one of the two things that made the surface look cut up. Soft top
+      // and bottom edges keep it weather rather than a painted stripe. Stops carry the band's OWN
+      // rgb at zero alpha: fading to transparent BLACK would put a dark fringe on every edge.
+      const hexRGB = (h) => `${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)}`
+      const band = (ctx, oy, ry, col, al) => {
+        const rgb = hexRGB(col)
+        const g = ctx.createLinearGradient(0, oy - ry, 0, oy + ry)
+        g.addColorStop(0, `rgba(${rgb},0)`)
+        g.addColorStop(0.5, `rgba(${rgb},${al})`)
+        g.addColorStop(1, `rgba(${rgb},0)`)
+        ctx.fillStyle = g; ctx.fillRect(-1, oy - ry, 2, ry * 2)
+      }
+      // A polar cap covers EVERY longitude, so it is the map's top or bottom row, full width — not
+      // an ellipse parked near the edge of a square.
+      const cap = (ctx, top, depth, rgb, al) => {
+        const y0 = top ? -1 : 1, y1 = top ? -1 + depth : 1 - depth
+        const g = ctx.createLinearGradient(0, y0, 0, y1)
+        g.addColorStop(0, `rgba(${rgb},${al})`)
+        g.addColorStop(1, `rgba(${rgb},0)`)
+        ctx.fillStyle = g; ctx.fillRect(-1, Math.min(y0, y1), 2, depth)
+      }
       const PLANET_ARCHETYPES = [
         { // A. gas giant — eight irregular belts + one storm oval. Readable from any fragment.
           body: [[0, '#ffe6bd'], [0.45, '#e0a55f'], [0.82, '#8a5330'], [1, '#3a2317']],
@@ -2816,10 +2858,8 @@ export function createRenderer(app) {
             for (const [oy, ry, al, col] of [[-0.72, 0.07, 0.22, '#fff2d8'], [-0.5, 0.11, 0.18, '#7d4a2a'],
               [-0.28, 0.09, 0.2, '#ffdaa6'], [-0.08, 0.14, 0.16, '#6b3d22'], [0.14, 0.08, 0.22, '#ffe4b8'],
               [0.34, 0.12, 0.18, '#5e3520'], [0.56, 0.07, 0.16, '#ffd39a'], [0.74, 0.1, 0.2, '#4a2a19']]) {
-              ctx.beginPath(); ctx.ellipse(c, c + br * oy, br, br * ry, 0, 0, Math.PI * 2)
-              ctx.fillStyle = col; ctx.globalAlpha = al; ctx.fill()
+              band(ctx, oy, ry, col, al)
             }
-            ctx.globalAlpha = 1
             ctx.beginPath(); ctx.ellipse(c + br * 0.26, c + br * 0.2, br * 0.24, br * 0.13, -0.12, 0, Math.PI * 2)
             ctx.fillStyle = '#b9432a'; ctx.fill()
             ctx.beginPath(); ctx.ellipse(c + br * 0.26, c + br * 0.2, br * 0.13, br * 0.065, -0.12, 0, Math.PI * 2)
@@ -2851,14 +2891,14 @@ export function createRenderer(app) {
           body: [[0, '#ffffff'], [0.45, '#cfe6ff'], [0.82, '#5f86bd'], [1, '#1d2f55']],
           halo: '150,220,255', haloA: 0.26,
           surface(ctx, c, br) {
-            // Caps ride BOTH limbs, so a top-of-screen fragment still names the planet.
-            ctx.beginPath(); ctx.ellipse(c, c - br * 0.78, br * 0.78, br * 0.3, 0, 0, Math.PI * 2)
-            ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fill()
-            ctx.beginPath(); ctx.ellipse(c, c + br * 0.86, br * 0.62, br * 0.24, 0, 0, Math.PI * 2)
-            ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fill()
+            // Caps ride BOTH poles, so a fragment of either limb still names the planet.
+            cap(ctx, true, 0.34, '255,255,255', 0.8)
+            cap(ctx, false, 0.28, '255,255,255', 0.55)
             ctx.lineCap = 'round'
-            for (const [x0, y0, qx, qy, x1, y1] of [[-1, -0.3, -0.1, -0.52, 1, -0.1], [-1, 0.1, 0.05, 0.34, 1, 0.02],
-              [-0.62, -1, -0.3, 0.05, -0.05, 1], [0.3, -1, 0.52, 0.1, 0.24, 1], [-1, 0.46, 0.1, 0.62, 1, 0.4]]) {
+            // The three cracks that cross the seam START and END at the same latitude, so the tiled
+            // copies chain into one continuous line around the planet instead of stepping at it.
+            for (const [x0, y0, qx, qy, x1, y1] of [[-1, -0.3, -0.1, -0.52, 1, -0.3], [-1, 0.1, 0.05, 0.34, 1, 0.1],
+              [-0.62, -1, -0.3, 0.05, -0.05, 1], [0.3, -1, 0.52, 0.1, 0.24, 1], [-1, 0.46, 0.1, 0.62, 1, 0.46]]) {
               ctx.beginPath(); ctx.moveTo(c + br * x0, c + br * y0)
               ctx.quadraticCurveTo(c + br * qx, c + br * qy, c + br * x1, c + br * y1)
               ctx.strokeStyle = 'rgba(46,74,122,0.42)'; ctx.lineWidth = br * 0.028; ctx.stroke()
@@ -2877,8 +2917,10 @@ export function createRenderer(app) {
           },
           emissive(ctx, c, br) {
             ctx.lineCap = 'round'; ctx.lineJoin = 'round'
-            for (const path of [[[-0.95, -0.12], [-0.5, -0.28], [-0.12, -0.05], [0.3, -0.22], [0.9, -0.06]],
-              [[-0.7, 0.5], [-0.28, 0.3], [0.1, 0.42], [0.55, 0.28], [0.92, 0.44]],
+            // The two cracks that circle the body run edge to edge at a MATCHED latitude, so the
+            // tiled copies meet at the seam and read as one unbroken rift rather than stopping dead.
+            for (const path of [[[-1, -0.12], [-0.5, -0.28], [-0.12, -0.05], [0.3, -0.22], [1, -0.12]],
+              [[-1, 0.46], [-0.28, 0.3], [0.1, 0.42], [0.55, 0.28], [1, 0.46]],
               [[-0.2, -0.9], [-0.05, -0.5], [-0.22, -0.1], [0, 0.35], [-0.1, 0.92]],
               [[0.45, -0.85], [0.6, -0.4], [0.42, 0], [0.66, 0.5]]]) {
               ctx.beginPath()
@@ -2906,8 +2948,10 @@ export function createRenderer(app) {
               ctx.beginPath(); ctx.arc(c + br * x, c + br * y, br * r, a0, a1)
               ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = br * 0.07; ctx.stroke()
             }
-            // Specular glint at the light focus — only a LIQUID surface does this.
-            glowBlob(ctx, c - br * 0.3, c - br * 0.42, br * 0.26, 'rgba(255,255,255,0.65)', 'rgba(255,255,255,0)')
+            // v5.23.2: the specular glint is GONE. It was painted at the light's focus, which was
+            // fine on a still disc — but it lives on the surface, so on a turning planet it slid
+            // around the body like a headlight. A highlight that moves with the terrain is worse
+            // than no highlight; the shader's own N.L already brightens the sub-stellar point.
           },
         },
         { // F. night side — every other planet is alive TOWARD the star. This one is alive away from it.
@@ -2921,15 +2965,12 @@ export function createRenderer(app) {
             }
           },
           emissive(ctx, c, br) {
-            // Gate every light on its distance from the light FOCUS rather than clipping a second
-            // hemisphere — that way the lit half and the terminator can never disagree about where
-            // the sun is, which a separate clip path would eventually drift out of sync with.
-            const fx = c - br * 0.42, fy = c - br * 0.55
-            const dot = (x, y) => {
-              const px = c + br * x, py = c + br * y
-              if (Math.hypot(px - fx, py - fy) < br * 1.05) return    // still in daylight
-              ctx.fillRect(px, py, br * 0.014, br * 0.014)            // >= 11 device px magnified
-            }
+            // v5.23.2: no daylight gate any more. It used to skip lights near a baked sun position,
+            // which was right for a still disc — but the surface TURNS now, so a gate baked into it
+            // would carry a fixed patch of "no cities" around the planet with the terrain. The
+            // shader suppresses this whole map by N.L instead, so the lights fade as they rotate
+            // into daylight and come back as they leave it, which is what the gate was faking.
+            const dot = (x, y) => ctx.fillRect(c + br * x, c + br * y, br * 0.014, br * 0.014)
             for (const [x, y, r] of [[0.34, 0.3, 0.16], [0.58, -0.05, 0.12], [0.16, 0.62, 0.13],
               [0.62, 0.46, 0.09], [-0.05, 0.8, 0.1]]) {
               glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(255,196,110,0.45)', 'rgba(255,160,60,0)')
@@ -2963,10 +3004,8 @@ export function createRenderer(app) {
           surface(ctx, c, br) {
             for (const [oy, ry, al, col] of [[-0.5, 0.12, 0.14, '#ffeccb'], [-0.16, 0.15, 0.12, '#8a6740'],
               [0.2, 0.13, 0.14, '#ffe0ae'], [0.56, 0.11, 0.12, '#6d5030']]) {
-              ctx.beginPath(); ctx.ellipse(c, c + br * oy, br, br * ry, 0, 0, Math.PI * 2)
-              ctx.fillStyle = col; ctx.globalAlpha = al; ctx.fill()
+              band(ctx, oy, ry, col, al)
             }
-            ctx.globalAlpha = 1
           },
           behind(ctx, c, R) { ringAnnulus(ctx, c, R, 'far') },
           front(ctx, c, R, br) {
@@ -2989,7 +3028,7 @@ export function createRenderer(app) {
             ctx.globalAlpha = 1
             ctx.lineCap = 'round'
             // Canyons: the one hard-edged mark on an otherwise hazy body, so it still reads as rock.
-            for (const path of [[[-0.9, 0.1], [-0.4, 0.02], [0.1, 0.22], [0.7, 0.12]],
+            for (const path of [[[-1, 0.1], [-0.4, 0.02], [0.1, 0.22], [1, 0.1]],
               [[-0.5, -0.6], [-0.2, -0.3], [-0.3, 0.1]],
               [[0.2, -0.8], [0.42, -0.4], [0.3, 0.04], [0.5, 0.5]]]) {
               ctx.beginPath()
