@@ -536,6 +536,28 @@ function testElements() {
     assert(sawShockArc, 'expected a lightning-only run to emit at least one shockarc event')
     console.log('PASS run G.e (lightning-only run emits shockarc event)')
   }
+
+  // (f) An element card's desc reports the potency its rarity actually bought. This used to be
+  // the static ELEMENTS.desc, so every tier read identically and the rarity badge looked
+  // decorative — it never was. Roll a pile of card sets and check every element card agrees
+  // with its own bonus, and that the tiers genuinely produce different text.
+  {
+    const descs = new Set()
+    let checked = 0
+    for (let i = 0; i < 400; i++) {
+      const run = createRun(makeMeta())
+      for (const c of buildLevelUpChoices(run)) {
+        if (c.kind !== 'element') continue
+        checked++
+        const shown = `+${Math.round(c.bonus * 10) / 10} potency`
+        assert(c.desc.startsWith(shown), `element card desc ${JSON.stringify(c.desc)} should lead with ${shown} (bonus ${c.bonus})`)
+        descs.add(c.desc)
+      }
+    }
+    assert(checked > 0, 'expected at least one element card across 400 level-up rolls')
+    assert(descs.size > 4, `expected element descs to vary by rarity, got ${descs.size} distinct across ${checked} cards`)
+    console.log(`PASS run G.f (element card desc shows its rolled potency — ${checked} cards, ${descs.size} distinct)`)
+  }
 }
 
 // Black holes pull coins toward their center (not gems): spawn a coin at the vortex rim,

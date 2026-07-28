@@ -4351,13 +4351,16 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
 }
 
 // An element card adopts whatever rarity was rolled for its slot, same as passives.
-// desc already carries a combo hint (see ELEMENTS in config.js).
+// ELEMENTS.desc carries only the combo hint, so the potency the rarity actually bought gets
+// prefixed here — same shape as makePassiveCard/makeWeaponModCard, which both build desc from
+// bonus. Rounding is display-only: the applied bonus stays exact so the badge can't shift balance.
 function makeElementCard(run, id, rarity) {
   const cfg = ELEMENTS[id]
   const mult = RARITIES[rarity].mult
   const bonus = cfg.base * mult
   const picks = run.elementPicks[id] ?? 0
-  return { kind: 'element', id, title: cfg.name, desc: cfg.desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
+  const desc = `+${Math.round(bonus * 10) / 10} potency — ${cfg.desc}`
+  return { kind: 'element', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
 }
 
 // Roll one card: roll a rarity on the fixed RARITY_WEIGHTS table (no level scaling — see
