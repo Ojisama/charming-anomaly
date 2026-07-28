@@ -2086,6 +2086,41 @@ export const FORMATION_ROW_PX = 120      // px between rows when a wave brings m
 export const LANE_LEAK_BEHIND_PX = 260   // px behind the player at which a marcher counts as through
 export const LANE_LEAK_DMG = 1           // HP lost per invader that gets through (invuln-gated, see stepLeaks)
 
+// ---- Repulsion (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) -------------------------
+// The lane's ANSWER to its own constraint. Strafe-only movement means a rank that converges on your
+// column while another sits beside it is a situation with no positional answer — you cannot back
+// off, because the chapter drives you forward at a fixed rate. Repulsion is that answer: an active,
+// cooldown-gated shove that buys space you cannot walk to.
+// It pushes and STUNS rather than damaging, deliberately. Damage would make it a second weapon
+// competing with the build; space is the thing the lane actually denies you, so space is what it
+// gives back. stunT is the existing status (sim.js stepEnemyMovement checks it above every behavior
+// flag, and knockback still carries a stunned body), so a shoved rank keeps sliding after the stun.
+// It does NOT move asteroids. Rocks are terrain you avoid; enemies are what you shove INTO them.
+// Keeping the two apart is what makes the pair a combo instead of one button that solves everything.
+export const REPULSE_CD = 6.0            // s between uses — long enough that it answers ONE bad rank
+export const REPULSE_RADIUS = 340        // px, generous: it must clear a full FORMATION_COLS rank
+export const REPULSE_FORCE = 880         // px/s of knockback at the centre, falling off linearly
+export const REPULSE_STUN = 0.55         // s of stun on top, so the shove reads as a stagger
+
+// ---- Asteroids (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) ------------------------
+// Drifting rock that hurts EVERYONE. It is the lane's only neutral party: it damages the player on
+// contact (so it is a thing to avoid) and grinds enemies that overlap it (so it is a thing to aim
+// them at, with REPULSE above). Not destructible by weapons — a rock you can shoot is just an enemy
+// with extra steps, and the point is that some of the screen is not solvable by damage.
+// Damage to enemies ticks on ROCK_TICK rather than per-frame: the same cadence the DoTs use, so a
+// rock grinding a rank emits a readable string of hits instead of 60 fractional ones a second.
+export const ROCK_INTERVAL = 3.4         // s between rocks
+export const ROCK_MAX_LIVE = 5
+export const ROCK_MIN_R = 34
+export const ROCK_MAX_R = 70
+export const ROCK_SPEED = 155            // px/s down the lane — faster than a rank, so it overtakes
+export const ROCK_DRIFT_X = 46           // px/s of sideways drift, so they never fall in clean columns
+export const ROCK_SPIN = 1.3             // rad/s of tumble (render only)
+export const ROCK_SPREAD_MUL = 1.15      // spawns slightly WIDER than the lane, so some pass you by
+export const ROCK_DMG = 10               // HP to the player on contact (invuln-gated)
+export const ROCK_TICK = 0.15            // s between grind ticks on overlapping enemies
+export const ROCK_TICK_DMG = 16
+
 // latch (e.g. body's antibody): on contact the enemy applies a move-speed debuff to the
 // player then dies (spends itself) instead of dealing normal contact damage — see
 // stepContactDamage in sim.js.

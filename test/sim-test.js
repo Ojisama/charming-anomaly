@@ -37,7 +37,7 @@ import {
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE,
+  LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
@@ -3354,6 +3354,90 @@ function testV54Signatures() {
   console.log('PASS run Z (v5.4 signatures): predators traps, traffic lanes, bombardment, gravity wells')
 }
 
+// ---- Run ZR: v5.21 repulsion + asteroids ----------------------------------------------------
+// The lane's two answers to "strafe-only means sometimes you can't do anything". Repulsion buys
+// space you cannot walk to; asteroids are a hazard that hurts BOTH sides, so the pair is a combo
+// (shove a rank into a rock) rather than two unrelated buttons.
+function testLaneSkills() {
+  const dt = 1 / 60
+
+  function laneRun() {
+    const run = createRun(makeMeta(), { chapter: 'beyond' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run._formationT = 1e6; run._rockAcc = 1e6   // park both spawners; these cases place things by hand
+    run.rocks = []
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    return run
+  }
+
+  // (a) Repulsion shoves nearby enemies away and stuns them, costs no HP, and respects its cooldown.
+  {
+    const run = laneRun()
+    const near = makeStatusEnemy(run, { x: 120, y: 0, speed: 0 })
+    const far = makeStatusEnemy(run, { x: REPULSE_RADIUS + 200, y: 0, speed: 0 })
+    run.enemies.push(near, far)
+    const nearHp = near.hp, farX0 = far.x
+
+    stepSim(run, { x: 0, y: 0, skill: true }, dt)
+    assert(run.events.some((e) => e.type === 'repulse'), 'expected a repulse event')
+    assert(near.stunT > 0, `expected the near enemy stunned, got ${near.stunT}`)
+    assert.strictEqual(near.hp, nearHp, 'expected repulsion to deal NO damage — it buys space, not kills')
+    assert(Math.abs(run.repulseCd - REPULSE_CD) < 1e-6, `expected the cooldown armed, got ${run.repulseCd}`)
+
+    for (let i = 0; i < Math.round(0.5 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(near.x > 120 + 40, `expected the near enemy shoved outward, x 120->${near.x.toFixed(0)}`)
+    assert(Math.abs(far.x - farX0) < 1e-6, `expected an enemy beyond REPULSE_RADIUS untouched, moved to ${far.x.toFixed(1)}`)
+
+    // On cooldown: pressing again does nothing at all.
+    const cdBefore = run.repulseCd
+    const evs0 = run.events.length
+    stepSim(run, { x: 0, y: 0, skill: true }, dt)
+    assert(run.repulseCd < cdBefore, 'expected the cooldown to keep ticking down, not re-arm')
+    assert(!run.events.slice(evs0).some((e) => e.type === 'repulse'), 'expected no second repulse while on cooldown')
+    console.log(`PASS run ZR.a (repulsion): shoved to x=${near.x.toFixed(0)}, stunned, 0 dmg, cd ${REPULSE_CD}s respected`)
+  }
+
+  // (b) An asteroid grinds enemies that overlap it — this is what makes shoving things into one worth
+  // doing — and it hurts the player on contact.
+  {
+    const run = laneRun()
+    const victim = makeStatusEnemy(run, { x: 0, y: -600, hp: 1e6, speed: 0 })
+    run.enemies.push(victim)
+    run.rocks.push({ x: 0, y: -600, r: 60, vx: 0, rot: 0, spin: 0, _acc: 0 })
+    const hp0 = victim.hp
+    for (let i = 0; i < Math.round(0.5 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(victim.hp < hp0, `expected the rock to grind an overlapping enemy, hp ${hp0}->${victim.hp}`)
+    console.log(`PASS run ZR.b (asteroid grinds enemies): ${(hp0 - victim.hp).toFixed(0)} dmg over 0.5s`)
+  }
+
+  // (c) ...and the same rock damages the PLAYER. Sat directly on them, with invuln cleared so the
+  // gate cannot mask it — the point is that a rock is neutral, not that it is enemy-only.
+  {
+    const run = laneRun()
+    run.player.hp = 500; run.player.maxHP = 500
+    run.player.invuln = 0
+    run.rocks.push({ x: run.player.x, y: run.player.y, r: 70, vx: 0, rot: 0, spin: 0, _acc: 0 })
+    const hp0 = run.player.hp
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.player.hp < hp0, `expected a rock overlapping the player to hurt, hp ${hp0}->${run.player.hp}`)
+    assert(run.events.some((e) => e.type === 'rockhit'), 'expected a rockhit event')
+    console.log(`PASS run ZR.c (asteroid hurts the player): hp ${hp0}->${run.player.hp}`)
+  }
+
+  // (d) Neither system exists outside a lane chapter — both gate on CHAPTERS[chapter].lane.
+  {
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []; run.mods.spawnMul = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    for (let i = 0; i < Math.round(8 / dt); i++) stepSim(run, { x: 0, y: 0, skill: true }, dt)
+    assert.strictEqual(run.rocks.length, 0, `expected no asteroids outside a lane chapter, got ${run.rocks.length}`)
+    assert.strictEqual(run.repulseCd, 0, `expected repulsion inert outside a lane chapter, cd=${run.repulseCd}`)
+    assert(!run.events.some((e) => e.type === 'repulse'), 'expected no repulse outside a lane chapter')
+    console.log('PASS run ZR.d (both gate on `lane`): city sees no rocks and no repulse over 8s')
+  }
+}
+
 // ---- Run ZM: v5.19 march homing ------------------------------------------------------------
 // A marcher used to advance straight down the lane and slide harmlessly past a player who never
 // moved. It now converges on the player's column too — but SLOWLY, which is the whole contract:
@@ -4716,6 +4800,7 @@ try {
   testV54Flags()
   testV54Signatures()
   testLaneMarch()
+  testLaneSkills()
   testV54Weapons()
   testDistricts()
   testSkiesKaiju()

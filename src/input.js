@@ -6,6 +6,7 @@ const DEADZONE = 0.15
 
 const vec = { x: 0, y: 0 }
 const keys = new Set()
+let skillPending = false
 let joyId = null
 let baseX = 0
 let baseY = 0
@@ -80,15 +81,29 @@ export function initInput(rootEl) {
       window.dispatchEvent(new CustomEvent('game-pause'))
       return
     }
+    // Space is the desktop binding for the active skill. e.repeat is already filtered above, so
+    // holding it fires exactly once — sim.js's stepRepulse wants a press, never a held button.
+    if (e.code === 'Space') { pressSkill(); return }
     keys.add(e.code)
   })
   window.addEventListener('keyup', (e) => keys.delete(e.code))
   window.addEventListener('blur', () => keys.clear())
 }
 
-/** @returns {{x:number, y:number}} normalized move vector, {0,0} when idle */
+/**
+ * Queue one activation of the active skill. Edge-triggered and LATCHED rather than polled: the
+ * press can arrive from a DOM button (ui.js) between frames, and it must survive until the next
+ * getInput() rather than being missed because it landed mid-tick.
+ */
+export function pressSkill() {
+  skillPending = true
+}
+
+/** @returns {{x:number, y:number, skill:boolean}} move vector + one-shot skill press */
 export function getInput() {
-  if (joyId !== null) return { x: vec.x, y: vec.y }
+  const skill = skillPending
+  skillPending = false
+  if (joyId !== null) return { x: vec.x, y: vec.y, skill }
   let x = 0
   let y = 0
   if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1
@@ -96,5 +111,5 @@ export function getInput() {
   if (keys.has('KeyW') || keys.has('ArrowUp')) y -= 1
   if (keys.has('KeyS') || keys.has('ArrowDown')) y += 1
   if (x !== 0 && y !== 0) { x *= Math.SQRT1_2; y *= Math.SQRT1_2 }
-  return { x, y }
+  return { x, y, skill }
 }

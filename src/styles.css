@@ -1214,3 +1214,47 @@ body {
 .confirm-sheet-body { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
 .confirm-sheet-actions { display: flex; gap: 10px; }
 .confirm-sheet-actions .btn { flex: 1; width: auto; min-width: 0; }
+
+/* ---- Repulsion skill button (v5.21, lane chapters only) ---------------------------------------
+   Bottom-RIGHT, mirroring the floating joystick's usual thumb: the lane is strafe-only, so the left
+   thumb lives on the stick and the right one has nothing to do until now. .screen--hud is
+   pointer-events:none (it is a full-screen div that would otherwise eat every tap), so this needs
+   its own `auto` back — same as .btn-pause. */
+.skill-btn {
+  position: absolute;
+  right: 22px;
+  bottom: 34px;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 3px solid rgba(226, 216, 255, 0.35);
+  background: radial-gradient(circle at 38% 32%, #5b4a9e, #2b2158 70%, #1a1338);
+  color: #e6dcff;
+  font-size: 30px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  opacity: 0.45;
+  transition: opacity 0.15s, transform 0.1s, border-color 0.15s;
+}
+.skill-btn--hidden { display: none; }
+/* Ready is the loud state: full opacity and a lit rim. On cooldown it is deliberately dim and
+   un-pressable-looking, so readiness is legible from peripheral vision mid-run. */
+.skill-btn--ready {
+  opacity: 1;
+  border-color: rgba(190, 170, 255, 0.95);
+  box-shadow: 0 0 16px rgba(150, 120, 255, 0.55);
+}
+.skill-btn--ready:active { transform: scale(0.92); }
+.skill-btn-glyph { pointer-events: none; }
+.skill-btn-cd {
+  position: absolute;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+/* The glyph hides while a countdown number is showing — two symbols in one 78px circle is mush. */
+.skill-btn:not(.skill-btn--ready) .skill-btn-glyph { opacity: 0; }

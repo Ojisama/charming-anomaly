@@ -98,7 +98,7 @@ function formatShopBonus(id, levels) {
 /**
  * Contract used by main.js:
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
- *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(),
+ *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(), onSkill(),
  *                       onSacrifice(picks)->bool, onReset() })
  *     - onChapter(id): title screen's chapter carousel (v5.2 — see carouselHtml/wireCarousel).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
@@ -641,6 +641,10 @@ export function initUI(hooks) {
       <div class="xp-bar"><div class="xp-fill"></div></div>
     </div>
     <div class="weapon-row"></div>
+    <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Repulse">
+      <span class="skill-btn-glyph">☉</span>
+      <span class="skill-btn-cd"></span>
+    </button>
   `
   const hud = {
     hpFill: screens.hud.querySelector('.hp-fill'),
@@ -653,6 +657,8 @@ export function initUI(hooks) {
     rampageWrap: screens.hud.querySelector('.rampage-wrap'),
     rampageBar: screens.hud.querySelector('.rampage-bar'),
     rampageFill: screens.hud.querySelector('.rampage-fill'),
+    skillBtn: screens.hud.querySelector('.skill-btn'),
+    skillCd: screens.hud.querySelector('.skill-btn-cd'),
   }
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
@@ -660,6 +666,7 @@ export function initUI(hooks) {
     // writes once, same trick as the rest of this cache — see the block below for why crushChapter
     // is gated separately from rampagePct/rampageActive.
     crushChapter: undefined, rampagePct: -1, rampageActive: undefined,
+    laneChapter: undefined, repulseCd: -1,
   }
 
   function updateHUD(run) {
@@ -692,6 +699,24 @@ export function initUI(hooks) {
         last.rampageActive = rampageActive
         hud.rampageFill.classList.toggle('rampage-fill--active', rampageActive)
         hud.rampageBar.classList.toggle('rampage-bar--active', rampageActive)
+      }
+    }
+    // v5.21: the Repulsion button, shown only for `lane` chapters. Gated on the chapter flag rather
+    // than on repulseCd for the same reason the rampage bar above is — a cooldown that merely
+    // happens to be 0 is not a signal that the chapter HAS the skill.
+    const laneChapter = CHAPTERS[run.chapter].lane === true
+    if (laneChapter !== last.laneChapter) {
+      last.laneChapter = laneChapter
+      hud.skillBtn.classList.toggle('skill-btn--hidden', !laneChapter)
+    }
+    if (laneChapter) {
+      // Whole seconds only: this is a cache key as well as the label, so ticking it 60x a second
+      // would defeat the whole point of the `last` comparison guarding every other write here.
+      const cd = Math.ceil(run.repulseCd)
+      if (cd !== last.repulseCd) {
+        last.repulseCd = cd
+        hud.skillBtn.classList.toggle('skill-btn--ready', cd <= 0)
+        hud.skillCd.textContent = cd > 0 ? String(cd) : ''
       }
     }
     const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
@@ -1034,6 +1059,7 @@ export function initUI(hooks) {
       case 'pause':
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
       case 'quit': playSfx('click'); hooks.onQuit(); break
+      case 'skill': hooks.onSkill(); break
       case 'reroll': hooks.onReroll(); break
       case 'sacrifice-start':
         sacrificeOpen = true
