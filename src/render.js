@@ -77,7 +77,12 @@ const BODY_RENDER = { bgColor: 0xf4efe6, floorTint: 0xffffff, playerTint: 0xffff
 // re-rolling with Math.random() every redraw.
 // v5.21: planet surface spin, rad/s. Read in syncObstacles (outside buildTextures' block scope),
 // so it lives here rather than beside the other PLANET_* bake constants.
-const PLANET_SPIN_MAX = 0.18
+// rad/s, signed, with a FLOOR. A plain (hash - 0.5) * MAX range puts half the planets within a
+// whisker of zero, and a world turning at 0.02 rad/s takes four minutes to come round — indis-
+// tinguishable from frozen. The floor is what guarantees every planet visibly turns; the ceiling
+// keeps the slowest at ~60s per revolution and the fastest at ~24s.
+const PLANET_SPIN_MIN = 0.10
+const PLANET_SPIN_MAX = 0.26
 
 // v5.23 — planets are real spheres now. Direction TO the star, in the shader's y-UP space, shared by
 // every planet so the chapter agrees about where the light is. Up and to the left, matching the
@@ -2948,6 +2953,11 @@ export function createRenderer(app) {
         { // G. ringed — the only broken silhouette, and the ring enters the screen BEFORE the planet,
           // which on a phone is the most valuable property in the set. Body shrinks to make room.
           bodyR: 0.58,
+          // The ONE archetype that does not get a random axis: a ring lies in its planet's
+          // equatorial plane, so the pole has to be the normal of THIS ring. ringAnnulus draws a
+          // near-edge-on ellipse tilted by RING_TILT, which puts that normal a touch off screen-up.
+          // Left random, the belts would run visibly across the rings instead of parallel to them.
+          pole: [-0.196, 0.966, 0.055],
           body: [[0, '#f0e0bd'], [0.45, '#c9a86a'], [0.82, '#7a5a34'], [1, '#2e2014']],
           halo: '255,220,160', haloA: 0.16,
           surface(ctx, c, br) {
@@ -3035,6 +3045,7 @@ export function createRenderer(app) {
       T.planetBehind = PLANET_ARCHETYPES.map((a) => (a.behind ? planetOverlayTex(a, false) : null))
       T.planetFront = PLANET_ARCHETYPES.map((a) => (a.halo || a.front ? planetOverlayTex(a, true) : null))
       T.planetBodyR = PLANET_ARCHETYPES.map((a) => a.bodyR ?? PLANET_BODY)
+      T.planetPole = PLANET_ARCHETYPES.map((a) => a.pole || null)   // null = hash a random tilt per planet
       // Rim colour comes straight off the archetype's own atmosphere, so the limb glow and the halo
       // sprite around it are the same hue. The moon has no atmosphere and gets a black rim — which
       // is correct, not a gap: an airless body has no limb glow, and that is its whole read.
@@ -7595,16 +7606,18 @@ export function createRenderer(app) {
   const planetSpinners = []
   function tickPlanetSpin() {
     for (const ps of planetSpinners) {
-      // Rodrigues: rotation of `angle` about the planet's own unit axis, written straight into the
-      // shader's three column vectors. This is the whole reason the redesign happened — a 2D
-      // sprite.rotation is a rotation about +z and nothing else, so an arbitrary axis is simply not
-      // expressible until the sphere is real.
-      const [x, y, z] = ps.axis
+      // Spin about the texture's own y (pole) axis, then map into view space through the planet's
+      // fixed tilt: M = Ry(-angle) * transpose(tilt), written straight into the shader's three
+      // COLUMN vectors. This is the whole reason the redesign happened — a 2D sprite.rotation is a
+      // rotation about +z and nothing else, so a tilted spin axis is not expressible until the
+      // sphere is real. Because the tilt is constant, the poles hold still and only the surface
+      // between them moves, which is what makes it read as a planet instead of a warping ball.
       const th = ps.phase + animT * ps.rate
-      const c = Math.cos(th), s = Math.sin(th), t = 1 - c
-      ps.u.uRot0.set([t * x * x + c, t * x * y + s * z, t * x * z - s * y])
-      ps.u.uRot1.set([t * x * y - s * z, t * y * y + c, t * y * z + s * x])
-      ps.u.uRot2.set([t * x * z + s * y, t * y * z - s * x, t * z * z + c])
+      const c = Math.cos(th), s = Math.sin(th)
+      const [ux, uy, uz] = ps.bu, [vx, vy, vz] = ps.bv, [wx, wy, wz] = ps.bw
+      ps.uni.uRot0.set([c * ux - s * wx, vx, s * ux + c * wx])
+      ps.uni.uRot1.set([c * uy - s * wy, vy, s * uy + c * wy])
+      ps.uni.uRot2.set([c * uz - s * wz, vz, s * uz + c * wz])
       ps.g.update()   // Float32Arrays were mutated in place; without this the GPU keeps last frame's matrix
     }
   }
@@ -7658,16 +7671,32 @@ export function createRenderer(app) {
           skin.planetRot = hash(o.x * 1.7 + o.y * 0.31 + 57.3) * Math.PI * 2
           // Signed, and slow: PLANET_SPIN_MAX is ~1 revolution every 35s at the fastest, which is
           // motion you notice only if you stop and look — the intent is life, not a spinning top.
-          skin.planetSpinRate = (hash(o.x * 1.7 + o.y * 0.31 + 71.9) - 0.5) * 2 * PLANET_SPIN_MAX
-          // v5.23: THE AXIS. A random unit vector, so no two worlds tumble alike — this is the thing
-          // a 2D `sprite.rotation` could never express, because that only ever spins about +z.
-          // z is squashed to +-0.6: an axis pointing straight at the camera turns the sphere into a
-          // flat pinwheel, which is exactly the look the shader exists to get away from.
-          const ax = hash(o.x * 1.7 + o.y * 0.31 + 88.3) * 2 - 1
-          const ay = hash(o.x * 1.7 + o.y * 0.31 + 95.1) * 2 - 1
-          const az = (hash(o.x * 1.7 + o.y * 0.31 + 103.7) - 0.5) * 1.2
-          const am = Math.hypot(ax, ay, az) || 1
-          skin.planetAxis = [ax / am, ay / am, az / am]
+          skin.planetSpinRate = (PLANET_SPIN_MIN + hash(o.x * 1.7 + o.y * 0.31 + 71.9) * (PLANET_SPIN_MAX - PLANET_SPIN_MIN))
+            * (hash(o.x * 1.7 + o.y * 0.31 + 112.3) < 0.5 ? -1 : 1)
+          // v5.23.1: THE AXIS, and it is a TILT, not a tumble. A planet turns about the axis through
+          // its own poles — which is also the axis its lat/long map converges on. Spinning the
+          // sampled direction about any OTHER axis drags that convergence across the visible face,
+          // and a pole singularity crossing the disc reads as the surface smearing rather than
+          // rotating. So what varies per world is where the pole POINTS, fixed for its lifetime.
+          // z is held small so the pole sits near the limb, where the map's convergence is squeezed
+          // into a few pixels rather than pinching the middle of the planet.
+          const pz = (hash(o.x * 1.7 + o.y * 0.31 + 88.3) - 0.5) * 0.6
+          const pa = hash(o.x * 1.7 + o.y * 0.31 + 95.1) * Math.PI * 2
+          const ps = Math.sqrt(Math.max(0, 1 - pz * pz))
+          // An archetype may pin its own pole (the ringed world must — see its `pole`).
+          const pole = T.planetPole[skin.planetVariant] || [Math.cos(pa) * ps, Math.sin(pa) * ps, pz]
+          // Orthonormal basis with the pole as its y axis: (u, pole, w) IS the texture->view
+          // rotation, so its transpose is what the shader wants. Built once here because only the
+          // spin angle changes per frame — the tilt never does.
+          const ref = Math.abs(pole[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+          const cx = ref[1] * pole[2] - ref[2] * pole[1]
+          const cy = ref[2] * pole[0] - ref[0] * pole[2]
+          const cz = ref[0] * pole[1] - ref[1] * pole[0]
+          const cm = Math.hypot(cx, cy, cz) || 1
+          const U = [cx / cm, cy / cm, cz / cm]
+          skin.planetU = U
+          skin.planetV = pole
+          skin.planetW = [U[1] * pole[2] - U[2] * pole[1], U[2] * pole[0] - U[0] * pole[2], U[0] * pole[1] - U[1] * pole[0]]
         }
         obstacleSkinCache.set(o._cell, skin)
       }
@@ -7768,7 +7797,7 @@ export function createRenderer(app) {
           // syncObstacles early-returns unless the obstacle list streams (see its guard), so anything
           // written in this loop is written once when the planet materialises and then never again —
           // which is exactly why the first cut of the v5.21 spin did not rotate in real time.
-          planetSpinners.push({ u, g: res.uniforms, axis: skin.planetAxis, phase: skin.planetRot, rate: skin.planetSpinRate })
+          planetSpinners.push({ uni: u, g: res.uniforms, bu: skin.planetU, bv: skin.planetV, bw: skin.planetW, phase: skin.planetRot, rate: skin.planetSpinRate })
           ov.clumpA.texture = behind || Texture.EMPTY
           ov.clumpA.anchor.set(0.5)
           ov.clumpA.tint = 0xffffff
