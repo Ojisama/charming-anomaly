@@ -5,7 +5,7 @@ import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey,
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
-import { initInput, getInput } from './input.js'
+import { initInput, getInput, pressSkill } from './input.js'
 import { initAudio, playSfx } from './audio.js'
 
 // No top-level await: suspending module evaluation deadlocks Pixi's dynamically
@@ -159,6 +159,7 @@ const ui = initUI({
     playSfx('buy')
     return true
   },
+  onSkill() { pressSkill() },   // v5.21 lane: HUD button -> input.js latch -> stepSim's input.skill
   onQuit() {  // from pause or summary back to title
     run = null
     renderer.reset(null)
@@ -193,6 +194,9 @@ const SFX_FOR_EVENT = {
   // there like shoot/hit/zap so a rampage flattening dozens of structures a second doesn't machine-
   // gun the audio graph (design doc §2, "audio machine-gunning").
   crush: 'crush',
+  // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
+  // is an ordinary hurt — it is damage, not a special occasion.
+  repulse: 'hole', rockhit: 'hurt',
 }
 
 function endRun(victory) {

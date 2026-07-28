@@ -695,6 +695,12 @@ export function createRun(meta, opts = {}) {
     gems: [],
     coins: [],
     bombs: [],
+    // v5.21 lane chapters (beyond): drifting asteroids that damage the player AND grind enemies,
+    // and the cooldown on the active Repulsion shove. Both are no-ops outside a `lane` chapter —
+    // sim.js stepRocks/stepRepulse gate on CHAPTERS[chapter].lane. rocks entries are
+    // { x, y, r, vx, rot, spin, _acc }; rot/spin are render-only tumble.
+    rocks: [],
+    repulseCd: 0,
     // v5.0 chapter behavior (see doc block above): pools fed by acidPool/soapTrail elite flags;
     // obstacles stream in around the player (sim.js streamObstacles, keyed on _obstacleSeed) —
     // starts empty, populated on the first step. null seed (no chapter config, or tests) = none.

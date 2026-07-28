@@ -110,6 +110,8 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN,
+  ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
   SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
@@ -137,6 +139,7 @@ export function stepSim(run, input, dt) {
 
   stepPlayerMovement(run, input, dt)
   stepRegen(run, dt)
+  stepRepulse(run, input, dt) // v5.21 lane: the active shove (ticks its cooldown even when unused)
   stepSpawning(run, dt)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   stepEnemyMovement(run, dt)
@@ -150,6 +153,7 @@ export function stepSim(run, input, dt) {
   stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
   stepWebs(run, dt)       // v5.3 garden: expire spider web slow-zones (no-op unless any exist)
 
+  if (stepRocks(run, dt)) return // v5.21 lane: drifting asteroids (phase may be 'dead')
   if (stepLeaks(run)) return // v5.18 beyond lane: invaders that got past you (phase may be 'dead')
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
@@ -352,6 +356,90 @@ function stepFormations(run, dt) {
 // Only `march` enemies leak. The seeking swarm chases you and is therefore never "behind" in any
 // meaningful sense; killing it is its own reward and letting it live is its own punishment.
 // @returns true if the player died this frame (phase set to 'dead').
+// Repulsion (v5.21, lane chapters). An active, cooldown-gated shove — the lane's answer to its own
+// strafe-only constraint, where a rank converging on your column is otherwise a situation with no
+// positional out. Pushes and stuns; deals NO damage (see REPULSE_CD's block in config.js for why).
+// The cooldown ticks unconditionally so it recovers while you are busy, and `input.skill` is an
+// edge-triggered one-shot from input.js — sim never sees a held button, only a press.
+function stepRepulse(run, input, dt) {
+  if (!CHAPTERS[run.chapter].lane) return
+  run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
+  if (!input.skill || run.repulseCd > 0) return
+  run.repulseCd = REPULSE_CD
+  const p = run.player
+  run.events.push({ type: 'repulse', x: p.x, y: p.y, r: REPULSE_RADIUS })
+  const radSq = REPULSE_RADIUS * REPULSE_RADIUS
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const dsq = dx * dx + dy * dy
+    if (dsq > radSq) continue
+    const d = Math.sqrt(dsq)
+    // Dead centre has no direction to push along; shove it up-lane rather than picking a random one,
+    // so an enemy sitting exactly on the player still goes the way everything else does.
+    const ux = d > 1e-6 ? dx / d : 0
+    const uy = d > 1e-6 ? dy / d : -1
+    const falloff = 1 - d / REPULSE_RADIUS
+    e.kb.x += ux * REPULSE_FORCE * falloff
+    e.kb.y += uy * REPULSE_FORCE * falloff
+    e.stunT = Math.max(e.stunT || 0, REPULSE_STUN)
+  }
+}
+
+// Asteroids (v5.21, lane chapters). Neutral drifting hazard: hurts the player on contact AND grinds
+// any enemy overlapping it. Not destructible — see ROCK_INTERVAL's block in config.js.
+// Returns true if the player died, matching stepLeaks/stepContactDamage's contract.
+function stepRocks(run, dt) {
+  if (!CHAPTERS[run.chapter].lane) return false
+  const p = run.player
+  run._rockAcc = (run._rockAcc ?? ROCK_INTERVAL) - dt
+  if (run._rockAcc <= 0) {
+    run._rockAcc += ROCK_INTERVAL
+    if (run.rocks.length < ROCK_MAX_LIVE) {
+      const hw = laneHalfWidth(run.viewRadius) * ROCK_SPREAD_MUL
+      run.rocks.push({
+        x: -hw + Math.random() * hw * 2,
+        y: p.y - Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL),
+        r: ROCK_MIN_R + Math.random() * (ROCK_MAX_R - ROCK_MIN_R),
+        vx: (Math.random() - 0.5) * 2 * ROCK_DRIFT_X,
+        rot: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 2 * ROCK_SPIN,
+        _acc: 0,
+      })
+    }
+  }
+  let died = false
+  for (const rk of run.rocks) {
+    rk.x += rk.vx * dt
+    rk.y += ROCK_SPEED * dt
+    rk.rot += rk.spin * dt
+    rk._acc += dt
+    // Grind on the DoT cadence, not per frame: 60 fractional hits a second is unreadable and floods
+    // the event stream. One tick per ROCK_TICK reads as a rock chewing through a rank.
+    let ticks = 0
+    while (rk._acc >= ROCK_TICK) { rk._acc -= ROCK_TICK; ticks++ }
+    if (ticks > 0) {
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        const dx = e.x - rk.x, dy = e.y - rk.y
+        const rad = rk.r + e.radius
+        if (dx * dx + dy * dy > rad * rad) continue
+        dealDamage(run, e, ROCK_TICK_DMG * ticks, false)
+      }
+    }
+    if (died) continue
+    const pdx = p.x - rk.x, pdy = p.y - rk.y
+    const prad = rk.r + PLAYER.radius
+    if (pdx * pdx + pdy * pdy <= prad * prad && p.invuln <= 0) {
+      run.events.push({ type: 'rockhit', x: rk.x, y: rk.y })
+      if (hurtPlayer(run, ROCK_DMG)) died = true
+    }
+  }
+  // Drop rocks once they are well behind — same threshold a leaked marcher uses.
+  run.rocks = run.rocks.filter((rk) => rk.y < p.y + LANE_LEAK_BEHIND_PX + rk.r)
+  return died
+}
+
 function stepLeaks(run) {
   if (!CHAPTERS[run.chapter].lane) return false
   const p = run.player

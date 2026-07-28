@@ -75,6 +75,10 @@ const BODY_RENDER = { bgColor: 0xf4efe6, floorTint: 0xffffff, playerTint: 0xffff
 // Deterministic pseudo-random in [0,1) from a numeric seed. Used for arc jitter so the
 // jagged shape is stable frame-to-frame (no flicker, stays frozen when dt=0) instead of
 // re-rolling with Math.random() every redraw.
+// v5.21: planet surface spin, rad/s. Read in syncObstacles (outside buildTextures' block scope),
+// so it lives here rather than beside the other PLANET_* bake constants.
+const PLANET_SPIN_MAX = 0.035
+
 function hash(n) {
   const s = Math.sin(n) * 43758.5453
   return s - Math.floor(s)
@@ -2605,6 +2609,7 @@ export function createRenderer(app) {
       // Near-white on purpose. Two gas giants side by side should read as two gas giants, not as a
       // gas giant and a bruise — the archetype's real palette is baked, this only nudges hue.
       const PLANET_TINTS = [0xffffff, 0xffe4cc, 0xd8e2ff, 0xffd8e8, 0xd8fff0]
+      // rad/s. Deliberately tiny — see skin.planetSpinRate where it is used.
 
       const RING_TILT = -0.2
       const RING_BANDS = [[0.98, 0.86, 'rgba(228,214,186,0.55)'], [0.84, 0.74, 'rgba(255,244,220,0.75)'],
@@ -2649,37 +2654,33 @@ export function createRenderer(app) {
 
       // The shared scaffold, in the same order the single planet used: body gradient, clipped
       // surface, terminator, optional emissive ON TOP of the terminator, rim arc, halo.
+      // v5.21 SPLIT: surface and lighting are now TWO textures, because planets rotate.
+      //
+      // Rotating a fully-lit sphere drags its terminator and rim light around with it, so a spinning
+      // planet reads as a planet whose SUN is orbiting it — and this chapter's whole prop set agrees
+      // on one light direction. So the archetype bake keeps only rotation-INVARIANT content (a
+      // CONCENTRIC body gradient, the surface features, the halo) and every directional cue moves
+      // into one shared shell drawn unrotated on top, in the pooled sprite (clumpB) the planet branch
+      // was already leaving empty. Surface spins underneath; the light never moves.
       const planetTex = (a) => canvasTex(PLANET_R * 2, PLANET_R * 2, (ctx, w) => {
         const R = PLANET_R, c = w / 2, br = R * (a.bodyR ?? PLANET_BODY)
         const disc = () => { ctx.beginPath(); ctx.arc(c, c, br, 0, Math.PI * 2) }
         if (a.behind) a.behind(ctx, c, R, br)
-        const g1 = ctx.createRadialGradient(c - br * 0.3, c - br * 0.42, br * 0.1, c, c, br)
+        // Concentric, NOT off-centre: an off-centre highlight is a directional cue and would swing
+        // around as the planet turns. Centre-bright to edge-dark survives any rotation.
+        const g1 = ctx.createRadialGradient(c, c, br * 0.05, c, c, br)
         for (const [t, col] of a.body) g1.addColorStop(t, col)
         disc(); ctx.fillStyle = g1; ctx.fill()
         ctx.save(); disc(); ctx.clip()
         if (a.surface) a.surface(ctx, c, br)
-        const g2 = ctx.createRadialGradient(c - br * 0.5, c - br * 0.6, br * 0.2, c, c, br * 1.02)
-        g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(0.6, 'rgba(10,6,26,0)')
-        g2.addColorStop(1, `rgba(10,6,26,${a.night ?? 0.72})`)
-        disc(); ctx.fillStyle = g2; ctx.fill()
-        if (a.emissive) a.emissive(ctx, c, br)  // lava/city lights: alive on the NIGHT side
+        if (a.emissive) a.emissive(ctx, c, br)
         ctx.restore()
-        // Rim light. Stroked with a gradient that fades to nothing at BOTH ends — a flat-alpha arc
-        // stops dead where its angle range ends, and at gameplay scale that reads as a pale band
-        // stuck on the planet rather than as light catching a limb.
-        const rg = ctx.createLinearGradient(c - br, c - br, c + br, c + br * 0.2)
-        rg.addColorStop(0, 'rgba(255,255,255,0)')
-        rg.addColorStop(0.5, a.rim)
-        rg.addColorStop(1, 'rgba(255,255,255,0)')
-        ctx.beginPath(); ctx.arc(c, c, br * 0.97, Math.PI * 1.08, Math.PI * 1.92)
-        ctx.lineCap = 'round'
-        ctx.strokeStyle = rg; ctx.lineWidth = br * 0.04; ctx.stroke()
-        // Atmosphere. A radial FADE, not a stroke: a constant-width constant-alpha ring reads as a
-        // hard outline drawn around the planet, which against this chapter's near-black background
-        // is the single most artificial thing on screen. Fading outward is what makes it read as air.
+        // Atmosphere stays here rather than in the shell because it is per-archetype coloured AND
+        // concentric, so it is rotation-invariant anyway. A radial FADE, not a stroke: a
+        // constant-width constant-alpha ring reads as a hard outline drawn around the planet, which
+        // against this chapter's near-black background is the most artificial thing on screen.
         // 1.10 is the ceiling, not a taste call: PLANET_BODY is 0.90, so the halo reaches 0.99 of the
-        // canvas half-extent. Anything past 1.11 overflows and comes back shaved flat at the four
-        // cardinals — the exact artifact PLANET_BODY was lowered to fix.
+        // canvas half-extent. Past 1.11 it overflows and comes back shaved flat at the four cardinals.
         if (a.halo) {
           const hg = ctx.createRadialGradient(c, c, br * 0.94, c, c, br * 1.1)
           hg.addColorStop(0, `rgba(${a.halo},0)`)
@@ -2690,10 +2691,42 @@ export function createRenderer(app) {
         if (a.front) a.front(ctx, c, R, br)
       })
 
+      // The shared lighting shell: every directional cue, drawn once, never rotated. Sized to
+      // PLANET_BODY so it lands on the same limb every archetype's body does (the ringed one opts
+      // out via shellR, since its body is smaller than its texture).
+      const planetShellTex = (bodyR) => canvasTex(PLANET_R * 2, PLANET_R * 2, (ctx, w) => {
+        const R = PLANET_R, c = w / 2, br = R * bodyR
+        const disc = () => { ctx.beginPath(); ctx.arc(c, c, br, 0, Math.PI * 2) }
+        ctx.save(); disc(); ctx.clip()
+        // Day side: a soft warm lift toward the star. This is what washes out the night-side world's
+        // city lights and the molten world's cracks once they rotate around into daylight — without
+        // it, a planet's emissive detail would glow just as hard at noon as at midnight.
+        const lg = ctx.createRadialGradient(c - br * 0.34, c - br * 0.44, br * 0.05, c - br * 0.34, c - br * 0.44, br * 1.25)
+        lg.addColorStop(0, 'rgba(255,248,232,0.34)')
+        lg.addColorStop(0.42, 'rgba(255,244,226,0.08)')
+        lg.addColorStop(1, 'rgba(255,240,220,0)')
+        disc(); ctx.fillStyle = lg; ctx.fill()
+        // Terminator: the dark crescent hugging the far limb, the single strongest sphere cue.
+        const g2 = ctx.createRadialGradient(c - br * 0.5, c - br * 0.6, br * 0.2, c, c, br * 1.02)
+        g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(0.6, 'rgba(10,6,26,0)')
+        g2.addColorStop(1, 'rgba(10,6,26,0.78)')
+        disc(); ctx.fillStyle = g2; ctx.fill()
+        ctx.restore()
+        // Rim light, fading to nothing at BOTH ends — a flat-alpha arc stops dead where its angle
+        // range ends, and at gameplay scale that reads as a pale band stuck on the planet.
+        const rg = ctx.createLinearGradient(c - br, c - br, c + br, c + br * 0.2)
+        rg.addColorStop(0, 'rgba(255,255,255,0)')
+        rg.addColorStop(0.5, 'rgba(240,236,255,0.7)')
+        rg.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.beginPath(); ctx.arc(c, c, br * 0.97, Math.PI * 1.08, Math.PI * 1.92)
+        ctx.lineCap = 'round'
+        ctx.strokeStyle = rg; ctx.lineWidth = br * 0.04; ctx.stroke()
+      })
+
       const PLANET_ARCHETYPES = [
         { // A. gas giant — eight irregular belts + one storm oval. Readable from any fragment.
           body: [[0, '#ffe6bd'], [0.45, '#e0a55f'], [0.82, '#8a5330'], [1, '#3a2317']],
-          rim: 'rgba(255,236,206,0.75)', halo: '255,190,120', haloA: 0.2,
+          halo: '255,190,120', haloA: 0.2,
           surface(ctx, c, br) {
             // Deliberately irregular widths — the old four near-symmetric belts read as a test pattern.
             for (const [oy, ry, al, col] of [[-0.72, 0.07, 0.22, '#fff2d8'], [-0.5, 0.11, 0.18, '#7d4a2a'],
@@ -2711,7 +2744,7 @@ export function createRenderer(app) {
         },
         { // B. cratered moon — the ONLY body with no halo. Airlessness is the fastest discriminator.
           body: [[0, '#e8e4dc'], [0.45, '#a8a29a'], [0.82, '#585349'], [1, '#241f1c']],
-          rim: 'rgba(240,236,226,0.6)', halo: null, night: 0.8,
+          halo: null,
           surface(ctx, c, br) {
             // Fixed table, not hashed: this bakes ONCE, so there is nothing to vary, and a literal
             // list is legible where a seeded loop is not (same reasoning as T.asteroid's craters).
@@ -2732,7 +2765,7 @@ export function createRenderer(app) {
         },
         { // C. ice world — brightest thing in a chapter whose background is 0x120a26.
           body: [[0, '#ffffff'], [0.45, '#cfe6ff'], [0.82, '#5f86bd'], [1, '#1d2f55']],
-          rim: 'rgba(255,255,255,0.85)', halo: '150,220,255', haloA: 0.26,
+          halo: '150,220,255', haloA: 0.26,
           surface(ctx, c, br) {
             // Caps ride BOTH limbs, so a top-of-screen fragment still names the planet.
             ctx.beginPath(); ctx.ellipse(c, c - br * 0.78, br * 0.78, br * 0.3, 0, 0, Math.PI * 2)
@@ -2751,7 +2784,7 @@ export function createRenderer(app) {
         },
         { // D. molten — the only planet whose detail SURVIVES the terminator. That inversion is the read.
           body: [[0, '#8a4326'], [0.45, '#4a1f16'], [0.82, '#241009'], [1, '#0e0605']],
-          rim: 'rgba(255,170,110,0.7)', halo: '255,110,40', haloA: 0.22, night: 0.5,
+          halo: '255,110,40', haloA: 0.22,
           surface(ctx, c, br) {
             for (const [x, y, r] of [[-0.3, -0.25, 0.42], [0.32, 0.1, 0.46], [-0.05, 0.48, 0.34]]) {
               ctx.beginPath(); ctx.ellipse(c + br * x, c + br * y, br * r, br * r * 0.8, 0.4, 0, Math.PI * 2)
@@ -2776,7 +2809,7 @@ export function createRenderer(app) {
         },
         { // E. ocean world — the only CURVED WHITE marks in the set, plus a specular sun glint.
           body: [[0, '#bff0ff'], [0.45, '#2f8fd8'], [0.82, '#124a86'], [1, '#07203f']],
-          rim: 'rgba(230,248,255,0.8)', halo: '120,200,255', haloA: 0.28,
+          halo: '120,200,255', haloA: 0.28,
           surface(ctx, c, br) {
             for (const pts of [[[-0.55, -0.35], [-0.15, -0.5], [0.12, -0.28], [-0.1, -0.02], [-0.45, 0.02]],
               [[0.15, 0.08], [0.6, 0], [0.72, 0.3], [0.4, 0.52], [0.1, 0.36]],
@@ -2795,7 +2828,7 @@ export function createRenderer(app) {
         },
         { // F. night side — every other planet is alive TOWARD the star. This one is alive away from it.
           body: [[0, '#8fa8a0'], [0.45, '#3d5a55'], [0.82, '#17282c'], [1, '#070f14']],
-          rim: 'rgba(200,232,226,0.6)', halo: '255,190,110', haloA: 0.16, night: 0.86,
+          halo: '255,190,110', haloA: 0.16,
           surface(ctx, c, br) {
             for (const pts of [[[-0.6, -0.3], [-0.1, -0.46], [0.3, -0.2], [0.1, 0.12], [-0.5, 0.06]],
               [[0.2, 0.2], [0.66, 0.12], [0.78, 0.44], [0.34, 0.62]],
@@ -2835,9 +2868,9 @@ export function createRenderer(app) {
         },
         { // G. ringed — the only broken silhouette, and the ring enters the screen BEFORE the planet,
           // which on a phone is the most valuable property in the set. Body shrinks to make room.
-          bodyR: 0.58,
+          bodyR: 0.58, spin: false,
           body: [[0, '#f0e0bd'], [0.45, '#c9a86a'], [0.82, '#7a5a34'], [1, '#2e2014']],
-          rim: 'rgba(255,244,216,0.7)', halo: '255,220,160', haloA: 0.16,
+          halo: '255,220,160', haloA: 0.16,
           surface(ctx, c, br) {
             for (const [oy, ry, al, col] of [[-0.5, 0.12, 0.14, '#ffeccb'], [-0.16, 0.15, 0.12, '#8a6740'],
               [0.2, 0.13, 0.14, '#ffe0ae'], [0.56, 0.11, 0.12, '#6d5030']]) {
@@ -2855,7 +2888,73 @@ export function createRenderer(app) {
             ctx.restore()
           },
         },
+        { // H. rust desert — the driest thing here: no water, no ice, one dust-hazed sky.
+          body: [[0, '#f0c396'], [0.5, '#b8703f'], [0.84, '#6d3c22'], [1, '#33190f']],
+          halo: '255,170,110', haloA: 0.14,
+          surface(ctx, c, br) {
+            for (const [x, y, rx, ry, rot, al] of [[-0.3, -0.3, 0.5, 0.3, 0.4, 0.22],
+              [0.34, 0.1, 0.42, 0.26, -0.3, 0.18], [-0.1, 0.52, 0.46, 0.22, 0.2, 0.2]]) {
+              ctx.beginPath(); ctx.ellipse(c + br * x, c + br * y, br * rx, br * ry, rot, 0, Math.PI * 2)
+              ctx.fillStyle = '#8c4d29'; ctx.globalAlpha = al; ctx.fill()
+            }
+            ctx.globalAlpha = 1
+            ctx.lineCap = 'round'
+            // Canyons: the one hard-edged mark on an otherwise hazy body, so it still reads as rock.
+            for (const path of [[[-0.9, 0.1], [-0.4, 0.02], [0.1, 0.22], [0.7, 0.12]],
+              [[-0.5, -0.6], [-0.2, -0.3], [-0.3, 0.1]],
+              [[0.2, -0.8], [0.42, -0.4], [0.3, 0.04], [0.5, 0.5]]]) {
+              ctx.beginPath()
+              path.forEach(([x, y], k) => (k ? ctx.lineTo(c + br * x, c + br * y) : ctx.moveTo(c + br * x, c + br * y)))
+              ctx.strokeStyle = 'rgba(74,35,18,0.55)'; ctx.lineWidth = br * 0.035; ctx.stroke()
+              ctx.strokeStyle = 'rgba(255,206,160,0.3)'; ctx.lineWidth = br * 0.012; ctx.stroke()
+            }
+          },
+        },
+        { // I. toxic — the sickly one. Sulphur yellows nothing else in the set uses.
+          body: [[0, '#e8ff9e'], [0.45, '#93b83c'], [0.82, '#43601f'], [1, '#1a2810']],
+          halo: '180,255,90', haloA: 0.3,
+          surface(ctx, c, br) {
+            ctx.lineCap = 'round'
+            // Churning cloud bands, drawn as thick open arcs so the whole surface looks like it moves.
+            for (const [x, y, r, a0, a1, col, lw] of [[-0.2, -0.3, 0.5, 0.2, 3.6, 'rgba(226,255,150,0.45)', 0.12],
+              [0.3, 0.2, 0.44, 2.4, 5.6, 'rgba(120,160,50,0.5)', 0.14], [-0.1, 0.55, 0.4, 3.4, 6.1, 'rgba(226,255,150,0.35)', 0.1],
+              [0.1, -0.68, 0.36, 0.6, 3.0, 'rgba(140,190,60,0.45)', 0.11]]) {
+              ctx.beginPath(); ctx.arc(c + br * x, c + br * y, br * r, a0, a1)
+              ctx.strokeStyle = col; ctx.lineWidth = br * lw; ctx.stroke()
+            }
+            for (const [x, y, r] of [[0.24, -0.22, 0.16], [-0.42, 0.28, 0.12]]) {
+              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(238,255,170,0.6)', 'rgba(200,255,120,0)')
+            }
+          },
+        },
+        { // J. storm — deep blue with white cyclones. The only body whose features are SPIRALS.
+          body: [[0, '#cfe0ff'], [0.45, '#3f5db8'], [0.82, '#1b2a63'], [1, '#0a1030']],
+          halo: '150,180,255', haloA: 0.24,
+          surface(ctx, c, br) {
+            ctx.lineCap = 'round'
+            for (const [cx, cy, rr] of [[-0.28, -0.24, 0.34], [0.34, 0.22, 0.28], [0.06, 0.66, 0.2], [0.5, -0.44, 0.18]]) {
+              // Each cyclone is three tightening arcs — a spiral without a spiral primitive.
+              for (let k = 0; k < 3; k++) {
+                ctx.beginPath()
+                ctx.arc(c + br * cx, c + br * cy, br * rr * (1 - k * 0.28), k * 1.9, k * 1.9 + 4.1)
+                ctx.strokeStyle = `rgba(238,246,255,${0.28 + k * 0.16})`
+                ctx.lineWidth = br * (0.05 - k * 0.008); ctx.stroke()
+              }
+              glowBlob(ctx, c + br * cx, c + br * cy, br * rr * 0.3, 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0)')
+            }
+          },
+        },
       ]
+      // Parallel arrays indexed by variant: the surface, the (deduped) shell that lights it, and
+      // whether it may turn. Shells are cached by body radius because only the ringed archetype has
+      // a different one — two bakes, not ten.
+      const shellCache = new Map()
+      const shellFor = (bodyR) => {
+        if (!shellCache.has(bodyR)) shellCache.set(bodyR, planetShellTex(bodyR))
+        return shellCache.get(bodyR)
+      }
+      T.planetShells = PLANET_ARCHETYPES.map((a) => shellFor(a.bodyR ?? PLANET_BODY))
+      T.planetSpin = PLANET_ARCHETYPES.map((a) => a.spin !== false)
       T.planets = PLANET_ARCHETYPES.map(planetTex)
       T.planetTints = PLANET_TINTS
     }
@@ -4997,6 +5096,7 @@ export function createRenderer(app) {
   const affixLayer = new Container() // per-elite affix icon badges (Text), see syncAffixBadges
   const playerC = new Container()
   const bulletLayer = new Container()
+  const rockLayer = new Container()   // v5.21 lane: drifting asteroids (run.rocks)
   const boomerangLayer = new Container()
   const orbLayer = new Container()
   const homingLayer = new Container()
@@ -5008,6 +5108,7 @@ export function createRenderer(app) {
     wellLayer, wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
+    rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
@@ -7431,6 +7532,10 @@ export function createRenderer(app) {
           // kind edit would silently reshuffle the planet mix, and pier -> ice world means nothing.
           skin.planetVariant = Math.floor(hash(o.x * 1.7 + o.y * 0.31 + 23.7) * T.planets.length)
           skin.planetTint = T.planetTints[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + 41.1) * T.planetTints.length)]
+          skin.planetRot = hash(o.x * 1.7 + o.y * 0.31 + 57.3) * Math.PI * 2
+          // Signed, and slow: PLANET_SPIN_MAX is ~1 revolution every 3 minutes at the fastest, which
+          // is motion you notice only if you stop and look — the intent is life, not a spinning top.
+          skin.planetSpinRate = (hash(o.x * 1.7 + o.y * 0.31 + 71.9) - 0.5) * 2 * PLANET_SPIN_MAX
         }
         obstacleSkinCache.set(o._cell, skin)
       }
@@ -7514,14 +7619,23 @@ export function createRenderer(app) {
           // `crush`, no `blink` in the roster). A chapter that reuses `planet: true` with real
           // colliders would need this branch reworked, not just a new archetype.
           const ptex = T.planets[skin.planetVariant]
+          const shell = T.planetShells[skin.planetVariant]
           ov.clumpA.texture = ptex
           ov.clumpA.anchor.set(0.5)
           ov.clumpA.tint = skin.planetTint  // hue nudge only; the bake carries the real palette
           ov.clumpA.scale.set((o.r * 2) / ptex.width)
-          ov.clumpA.rotation = 0
+          // v5.21: the surface TURNS. Random fixed phase per planet so no two of an archetype are
+          // oriented alike, plus a very slow drift so the world reads as alive rather than a
+          // backdrop. Safe only because every directional light cue lives in the unrotated shell
+          // below — spinning a fully-lit sphere would drag its terminator around with it.
+          ov.clumpA.rotation = skin.planetRot + (T.planetSpin[skin.planetVariant] ? animT * skin.planetSpinRate : 0)
           ov.clumpA.position.set(0, 0)
-          ov.clumpB.texture = Texture.EMPTY
-          ov.clumpB.scale.set(1)
+          ov.clumpB.texture = shell
+          ov.clumpB.anchor.set(0.5)
+          ov.clumpB.tint = 0xffffff
+          ov.clumpB.rotation = 0          // the sun does not orbit the planet
+          ov.clumpB.position.set(0, 0)
+          ov.clumpB.scale.set((o.r * 2) / shell.width)
           ov.ring.alpha = 0   // no collision contract to draw — see BIOMES.beyond.obstacle
           continue
         }
@@ -7818,6 +7932,21 @@ export function createRenderer(app) {
   // as its cd runs down toward SNAP_TRAP_REARM, so "this one is about to be live again" is legible
   // without a number; an armed trap breathes so it reads as hot even when you're not looking at it.
   const trapPool = []
+  // v5.21 lane: an asteroid. Reuses T.asteroid — the same rock already scattered as this chapter's
+  // baked obstacle furniture, which is the point: the hazard IS the local debris, not a new species.
+  // Tumble comes from rk.rot (sim-owned, so it survives a pause and matches across a re-render).
+  const rockPool = []
+  function placeRock(s, rk) {
+    if (s.texture !== T.asteroid.tex) { s.texture = T.asteroid.tex; s.anchor.set(T.asteroid.ax, T.asteroid.ay) }
+    s.position.set(rk.x, rk.y)
+    s.rotation = rk.rot
+    s.scale.set((rk.r * 2) / Math.max(T.asteroid.tex.width, T.asteroid.tex.height))
+    // Warm stone, deliberately OFF the chapter's lilac. The ambient debris drifting past is
+    // 0xcfc8e0-ish, and a hazard that shares a palette with scenery is a hazard nobody dodges.
+    s.tint = 0xc9a887
+    s.alpha = 1
+  }
+
   function placeTrap(s, tr) {
     const look = tr.armed ? T.trapArmed : T.trapSprung
     if (s.texture !== look.tex) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
@@ -9115,6 +9244,16 @@ export function createRenderer(app) {
         case 'levelup':
           levelupBurst(run.player.x, run.player.y)
           break
+        // v5.21 lane: the Repulsion shove. Two concentric rings expanding to the REAL sim radius
+        // (e.r, pushed by stepRepulse) rather than a fixed size — the player has to be able to learn
+        // where the edge is, and a burst that lies about its reach makes the cooldown feel arbitrary.
+        case 'repulse':
+          spawnRing(e.x, e.y, e.r, 0.42, T.novaWarm, 0xbca8ff)
+          spawnRing(e.x, e.y, e.r * 0.62, 0.28, T.novaWarm, 0xe8dcff)
+          break
+        case 'rockhit':
+          spawnRing(e.x, e.y, 70, 0.26, T.novaWarm, 0xc9bda4)
+          break
         case 'revive':
           // Revive Token fired (see CONSUMABLES in config.js): a heart-warm double ring +
           // levelup-style burst sells the second chance; the sim already shoved enemies back.
@@ -9921,6 +10060,7 @@ export function createRenderer(app) {
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
+    syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
     syncPlayer(run.player, dt, run.rampageT || 0)
     syncEnemies(run)
     syncBlooms(run.blooms || [])
