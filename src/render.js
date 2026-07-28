@@ -2585,44 +2585,279 @@ export function createRenderer(app) {
     // with that (see drawInvader's crown/belly). A sphere is a disc plus a terminator, and the
     // terminator is the only thing that makes it read as a ball rather than a coin.
     {
-      const R = 256
-      T.planet = canvasTex(R * 2, R * 2, (ctx, w) => {
-        const c = w / 2
-        // body: an off-centre radial gradient IS the sphere — bright toward the star, falling to a
-        // deep terminator on the far limb.
-        const g1 = ctx.createRadialGradient(c - R * 0.3, c - R * 0.42, R * 0.1, c, c, R)
-        g1.addColorStop(0, '#cfc4ff')
-        g1.addColorStop(0.45, '#8f7fd0')
-        g1.addColorStop(0.82, '#4a3c86')
-        g1.addColorStop(1, '#241a47')
-        ctx.beginPath(); ctx.arc(c, c, R * 0.985, 0, Math.PI * 2); ctx.fillStyle = g1; ctx.fill()
-        // surface banding: a few wide latitude belts, clipped to the disc. Ellipses (not straight
-        // bands) so the banding itself curves with the body.
-        ctx.save()
-        ctx.beginPath(); ctx.arc(c, c, R * 0.985, 0, Math.PI * 2); ctx.clip()
-        for (const [oy, ry, a, col] of [[-0.34, 0.16, 0.16, '#e6dcff'], [0.02, 0.2, 0.13, '#3b2f70'],
-          [0.38, 0.13, 0.12, '#2c2258'], [-0.62, 0.09, 0.1, '#ffffff']]) {
+      // PLANETS (beyond) — v5.20. Seven baked archetypes instead of one repeated sphere.
+      //
+      // Why seven complete bakes rather than one texture re-tinted per instance: Pixi's tint is a
+      // MULTIPLY, so it can only cool/warm/darken. It cannot turn a banded violet gas giant into a
+      // grey cratered moon. Rotation is no help either — this chapter has an explicit one-light
+      // direction (see the kaiju/prop bakes: everything agrees where the sun is), and spinning a lit
+      // sphere moves its terminator. Tint survives as a SECONDARY axis only: 7 bakes x 5 hues.
+      //
+      // Sizing reality, which is what drives the art: world.scale is 1, so an o.r=260 planet is a
+      // 520px sprite on a ~430px-wide phone. You usually see a LIMB AND A SLICE, never a whole disc.
+      // So every archetype's identifying mark repeats across the whole surface — no single centred
+      // motif — and the limb/halo colour matters most, because it enters the screen first.
+      const PLANET_R = 256
+      // Body disc as a fraction of PLANET_R. Was 0.985, which put the halo stroke (centred 0.995R,
+      // width 0.06R) out to 1.025R on a canvas whose half-extent IS 1.0R — so the halo was shaved
+      // flat at the four cardinal points. 0.90 gives every archetype room for its halo AND its rings.
+      const PLANET_BODY = 0.90
+      // Near-white on purpose. Two gas giants side by side should read as two gas giants, not as a
+      // gas giant and a bruise — the archetype's real palette is baked, this only nudges hue.
+      const PLANET_TINTS = [0xffffff, 0xffe4cc, 0xd8e2ff, 0xffd8e8, 0xd8fff0]
+
+      const RING_TILT = -0.2
+      const RING_BANDS = [[0.98, 0.86, 'rgba(228,214,186,0.55)'], [0.84, 0.74, 'rgba(255,244,220,0.75)'],
+        [0.72, 0.63, 'rgba(190,172,142,0.45)']]
+      // A ring is drawn TWICE — once under the body (far half) and once over it (near half, clipped
+      // to its own lower half-plane, hence rotate-then-clip). That sandwich is the only thing that
+      // makes a ring pass BEHIND a planet. It is also why the ringed archetype's body is 0.58R: the
+      // ring has to fit the same centred square every other planet uses, or syncObstacles' "texture
+      // width == collider diameter" contract stops holding for exactly one entry.
+      function ringAnnulus(ctx, c, R, half) {
+        ctx.save(); ctx.translate(c, c); ctx.rotate(RING_TILT)
+        if (half === 'near') { ctx.beginPath(); ctx.rect(-R * 1.5, 0, R * 3, R * 1.5); ctx.clip() }
+        for (const [ro, ri, col] of RING_BANDS) {
           ctx.beginPath()
-          ctx.ellipse(c, c + R * oy, R * 0.99, R * ry, 0, 0, Math.PI * 2)
-          ctx.fillStyle = col; ctx.globalAlpha = a; ctx.fill()
+          ctx.ellipse(0, 0, R * ro, R * ro * 0.3, 0, 0, Math.PI * 2)
+          ctx.ellipse(0, 0, R * ri, R * ri * 0.3, 0, 0, Math.PI * 2, true) // anticlockwise -> hole
+          ctx.fillStyle = col; ctx.fill()
         }
-        ctx.globalAlpha = 1
-        // terminator: a soft dark crescent hugging the far limb, the single strongest sphere cue
-        const g2 = ctx.createRadialGradient(c - R * 0.5, c - R * 0.6, R * 0.2, c, c, R * 1.02)
-        g2.addColorStop(0, 'rgba(0,0,0,0)')
-        g2.addColorStop(0.6, 'rgba(10,6,26,0)')
-        g2.addColorStop(1, 'rgba(10,6,26,0.72)')
-        ctx.beginPath(); ctx.arc(c, c, R * 0.985, 0, Math.PI * 2); ctx.fillStyle = g2; ctx.fill()
         ctx.restore()
-        // rim light on the star side — a thin bright arc that lifts the body off the void
+      }
+      // Soft-edged pool, used for lava lakes and city conurbations alike.
+      function glowBlob(ctx, x, y, r, inner, outer) {
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+        g.addColorStop(0, inner); g.addColorStop(1, outer)
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill()
+      }
+      // Closed blob from normalised points — continents, for the ocean and night-side worlds.
+      // Curved, not straight: at gameplay scale a planet is ~500px, and straight-edged polygons read
+      // as green paper cutouts glued to the sphere. Each source point becomes a quadratic control
+      // point and the curve passes through edge midpoints, so a 4-point list gives a rounded blob.
+      function landmass(ctx, c, br, pts, fill, stroke) {
+        const px = (i) => c + br * pts[(i + pts.length) % pts.length][0]
+        const py = (i) => c + br * pts[(i + pts.length) % pts.length][1]
         ctx.beginPath()
-        ctx.arc(c, c, R * 0.955, Math.PI * 1.08, Math.PI * 1.92)
-        ctx.strokeStyle = 'rgba(226,216,255,0.75)'; ctx.lineWidth = R * 0.05; ctx.stroke()
-        // atmosphere: one faint halo just outside the limb. ONE, deliberately — this chapter has
-        // spent five releases deleting glow.
-        ctx.beginPath(); ctx.arc(c, c, R * 0.995, 0, Math.PI * 2)
-        ctx.strokeStyle = 'rgba(150,130,255,0.22)'; ctx.lineWidth = R * 0.06; ctx.stroke()
+        ctx.moveTo((px(-1) + px(0)) / 2, (py(-1) + py(0)) / 2)
+        for (let i = 0; i < pts.length; i++) {
+          ctx.quadraticCurveTo(px(i), py(i), (px(i) + px(i + 1)) / 2, (py(i) + py(i + 1)) / 2)
+        }
+        ctx.closePath(); ctx.fillStyle = fill; ctx.fill()
+        if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = br * 0.016; ctx.stroke() }
+      }
+
+      // The shared scaffold, in the same order the single planet used: body gradient, clipped
+      // surface, terminator, optional emissive ON TOP of the terminator, rim arc, halo.
+      const planetTex = (a) => canvasTex(PLANET_R * 2, PLANET_R * 2, (ctx, w) => {
+        const R = PLANET_R, c = w / 2, br = R * (a.bodyR ?? PLANET_BODY)
+        const disc = () => { ctx.beginPath(); ctx.arc(c, c, br, 0, Math.PI * 2) }
+        if (a.behind) a.behind(ctx, c, R, br)
+        const g1 = ctx.createRadialGradient(c - br * 0.3, c - br * 0.42, br * 0.1, c, c, br)
+        for (const [t, col] of a.body) g1.addColorStop(t, col)
+        disc(); ctx.fillStyle = g1; ctx.fill()
+        ctx.save(); disc(); ctx.clip()
+        if (a.surface) a.surface(ctx, c, br)
+        const g2 = ctx.createRadialGradient(c - br * 0.5, c - br * 0.6, br * 0.2, c, c, br * 1.02)
+        g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(0.6, 'rgba(10,6,26,0)')
+        g2.addColorStop(1, `rgba(10,6,26,${a.night ?? 0.72})`)
+        disc(); ctx.fillStyle = g2; ctx.fill()
+        if (a.emissive) a.emissive(ctx, c, br)  // lava/city lights: alive on the NIGHT side
+        ctx.restore()
+        // Rim light. Stroked with a gradient that fades to nothing at BOTH ends — a flat-alpha arc
+        // stops dead where its angle range ends, and at gameplay scale that reads as a pale band
+        // stuck on the planet rather than as light catching a limb.
+        const rg = ctx.createLinearGradient(c - br, c - br, c + br, c + br * 0.2)
+        rg.addColorStop(0, 'rgba(255,255,255,0)')
+        rg.addColorStop(0.5, a.rim)
+        rg.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.beginPath(); ctx.arc(c, c, br * 0.97, Math.PI * 1.08, Math.PI * 1.92)
+        ctx.lineCap = 'round'
+        ctx.strokeStyle = rg; ctx.lineWidth = br * 0.04; ctx.stroke()
+        // Atmosphere. A radial FADE, not a stroke: a constant-width constant-alpha ring reads as a
+        // hard outline drawn around the planet, which against this chapter's near-black background
+        // is the single most artificial thing on screen. Fading outward is what makes it read as air.
+        // 1.10 is the ceiling, not a taste call: PLANET_BODY is 0.90, so the halo reaches 0.99 of the
+        // canvas half-extent. Anything past 1.11 overflows and comes back shaved flat at the four
+        // cardinals — the exact artifact PLANET_BODY was lowered to fix.
+        if (a.halo) {
+          const hg = ctx.createRadialGradient(c, c, br * 0.94, c, c, br * 1.1)
+          hg.addColorStop(0, `rgba(${a.halo},0)`)
+          hg.addColorStop(0.35, `rgba(${a.halo},${a.haloA})`)
+          hg.addColorStop(1, `rgba(${a.halo},0)`)
+          ctx.beginPath(); ctx.arc(c, c, br * 1.1, 0, Math.PI * 2); ctx.fillStyle = hg; ctx.fill()
+        }
+        if (a.front) a.front(ctx, c, R, br)
       })
+
+      const PLANET_ARCHETYPES = [
+        { // A. gas giant — eight irregular belts + one storm oval. Readable from any fragment.
+          body: [[0, '#ffe6bd'], [0.45, '#e0a55f'], [0.82, '#8a5330'], [1, '#3a2317']],
+          rim: 'rgba(255,236,206,0.75)', halo: '255,190,120', haloA: 0.2,
+          surface(ctx, c, br) {
+            // Deliberately irregular widths — the old four near-symmetric belts read as a test pattern.
+            for (const [oy, ry, al, col] of [[-0.72, 0.07, 0.22, '#fff2d8'], [-0.5, 0.11, 0.18, '#7d4a2a'],
+              [-0.28, 0.09, 0.2, '#ffdaa6'], [-0.08, 0.14, 0.16, '#6b3d22'], [0.14, 0.08, 0.22, '#ffe4b8'],
+              [0.34, 0.12, 0.18, '#5e3520'], [0.56, 0.07, 0.16, '#ffd39a'], [0.74, 0.1, 0.2, '#4a2a19']]) {
+              ctx.beginPath(); ctx.ellipse(c, c + br * oy, br, br * ry, 0, 0, Math.PI * 2)
+              ctx.fillStyle = col; ctx.globalAlpha = al; ctx.fill()
+            }
+            ctx.globalAlpha = 1
+            ctx.beginPath(); ctx.ellipse(c + br * 0.26, c + br * 0.2, br * 0.24, br * 0.13, -0.12, 0, Math.PI * 2)
+            ctx.fillStyle = '#b9432a'; ctx.fill()
+            ctx.beginPath(); ctx.ellipse(c + br * 0.26, c + br * 0.2, br * 0.13, br * 0.065, -0.12, 0, Math.PI * 2)
+            ctx.fillStyle = 'rgba(255,190,140,0.55)'; ctx.fill()
+          },
+        },
+        { // B. cratered moon — the ONLY body with no halo. Airlessness is the fastest discriminator.
+          body: [[0, '#e8e4dc'], [0.45, '#a8a29a'], [0.82, '#585349'], [1, '#241f1c']],
+          rim: 'rgba(240,236,226,0.6)', halo: null, night: 0.8,
+          surface(ctx, c, br) {
+            // Fixed table, not hashed: this bakes ONCE, so there is nothing to vary, and a literal
+            // list is legible where a seeded loop is not (same reasoning as T.asteroid's craters).
+            for (const [cx, cy, cr] of [[-0.42, -0.2, 0.17], [0.18, -0.44, 0.11], [0.4, 0.12, 0.2],
+              [-0.14, 0.34, 0.13], [0.06, -0.06, 0.08], [-0.55, 0.3, 0.09], [0.55, -0.22, 0.07],
+              [-0.28, -0.55, 0.06], [0.24, 0.52, 0.1], [-0.66, -0.02, 0.06], [0.68, 0.36, 0.05]]) {
+              const x = c + br * cx, y = c + br * cy, r = br * cr
+              ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2)
+              ctx.fillStyle = 'rgba(52,46,40,0.32)'; ctx.fill()
+              ctx.beginPath(); ctx.arc(x, y, r * 0.94, Math.PI * 0.95, Math.PI * 1.95)
+              ctx.strokeStyle = 'rgba(255,250,240,0.45)'; ctx.lineWidth = r * 0.22; ctx.stroke()
+              ctx.beginPath(); ctx.arc(x, y, r * 0.94, Math.PI * 0.05, Math.PI * 0.9)
+              ctx.strokeStyle = 'rgba(30,26,22,0.35)'; ctx.lineWidth = r * 0.18; ctx.stroke()
+            }
+            ctx.beginPath(); ctx.ellipse(c - br * 0.12, c + br * 0.08, br * 0.46, br * 0.38, 0.5, 0, Math.PI * 2)
+            ctx.fillStyle = 'rgba(60,54,48,0.3)'; ctx.fill()
+          },
+        },
+        { // C. ice world — brightest thing in a chapter whose background is 0x120a26.
+          body: [[0, '#ffffff'], [0.45, '#cfe6ff'], [0.82, '#5f86bd'], [1, '#1d2f55']],
+          rim: 'rgba(255,255,255,0.85)', halo: '150,220,255', haloA: 0.26,
+          surface(ctx, c, br) {
+            // Caps ride BOTH limbs, so a top-of-screen fragment still names the planet.
+            ctx.beginPath(); ctx.ellipse(c, c - br * 0.78, br * 0.78, br * 0.3, 0, 0, Math.PI * 2)
+            ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fill()
+            ctx.beginPath(); ctx.ellipse(c, c + br * 0.86, br * 0.62, br * 0.24, 0, 0, Math.PI * 2)
+            ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fill()
+            ctx.lineCap = 'round'
+            for (const [x0, y0, qx, qy, x1, y1] of [[-1, -0.3, -0.1, -0.52, 1, -0.1], [-1, 0.1, 0.05, 0.34, 1, 0.02],
+              [-0.62, -1, -0.3, 0.05, -0.05, 1], [0.3, -1, 0.52, 0.1, 0.24, 1], [-1, 0.46, 0.1, 0.62, 1, 0.4]]) {
+              ctx.beginPath(); ctx.moveTo(c + br * x0, c + br * y0)
+              ctx.quadraticCurveTo(c + br * qx, c + br * qy, c + br * x1, c + br * y1)
+              ctx.strokeStyle = 'rgba(46,74,122,0.42)'; ctx.lineWidth = br * 0.028; ctx.stroke()
+              ctx.strokeStyle = 'rgba(236,248,255,0.5)'; ctx.lineWidth = br * 0.01; ctx.stroke()
+            }
+          },
+        },
+        { // D. molten — the only planet whose detail SURVIVES the terminator. That inversion is the read.
+          body: [[0, '#8a4326'], [0.45, '#4a1f16'], [0.82, '#241009'], [1, '#0e0605']],
+          rim: 'rgba(255,170,110,0.7)', halo: '255,110,40', haloA: 0.22, night: 0.5,
+          surface(ctx, c, br) {
+            for (const [x, y, r] of [[-0.3, -0.25, 0.42], [0.32, 0.1, 0.46], [-0.05, 0.48, 0.34]]) {
+              ctx.beginPath(); ctx.ellipse(c + br * x, c + br * y, br * r, br * r * 0.8, 0.4, 0, Math.PI * 2)
+              ctx.fillStyle = 'rgba(12,7,6,0.45)'; ctx.fill()  // basalt plates give the crust scale
+            }
+          },
+          emissive(ctx, c, br) {
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+            for (const path of [[[-0.95, -0.12], [-0.5, -0.28], [-0.12, -0.05], [0.3, -0.22], [0.9, -0.06]],
+              [[-0.7, 0.5], [-0.28, 0.3], [0.1, 0.42], [0.55, 0.28], [0.92, 0.44]],
+              [[-0.2, -0.9], [-0.05, -0.5], [-0.22, -0.1], [0, 0.35], [-0.1, 0.92]],
+              [[0.45, -0.85], [0.6, -0.4], [0.42, 0], [0.66, 0.5]]]) {
+              ctx.beginPath()
+              path.forEach(([x, y], k) => (k ? ctx.lineTo(c + br * x, c + br * y) : ctx.moveTo(c + br * x, c + br * y)))
+              ctx.strokeStyle = 'rgba(255,96,20,0.85)'; ctx.lineWidth = br * 0.038; ctx.stroke()
+              ctx.strokeStyle = 'rgba(255,222,150,0.9)'; ctx.lineWidth = br * 0.012; ctx.stroke()
+            }
+            for (const [x, y, r] of [[-0.12, -0.06, 0.28], [0.52, 0.3, 0.22], [-0.5, 0.44, 0.18]]) {
+              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(255,220,140,0.95)', 'rgba(255,80,20,0)')
+            }
+          },
+        },
+        { // E. ocean world — the only CURVED WHITE marks in the set, plus a specular sun glint.
+          body: [[0, '#bff0ff'], [0.45, '#2f8fd8'], [0.82, '#124a86'], [1, '#07203f']],
+          rim: 'rgba(230,248,255,0.8)', halo: '120,200,255', haloA: 0.28,
+          surface(ctx, c, br) {
+            for (const pts of [[[-0.55, -0.35], [-0.15, -0.5], [0.12, -0.28], [-0.1, -0.02], [-0.45, 0.02]],
+              [[0.15, 0.08], [0.6, 0], [0.72, 0.3], [0.4, 0.52], [0.1, 0.36]],
+              [[-0.7, 0.3], [-0.35, 0.28], [-0.2, 0.6], [-0.6, 0.72]]]) {
+              landmass(ctx, c, br, pts, 'rgba(74,124,72,0.9)', 'rgba(180,220,150,0.35)')
+            }
+            ctx.lineCap = 'round'
+            for (const [x, y, r, a0, a1] of [[-0.3, -0.1, 0.3, 0.4, 3.4], [-0.36, -0.1, 0.16, 1.2, 4.4],
+              [0.36, 0.34, 0.26, 2.2, 5.2], [0.3, 0.3, 0.13, 3, 6], [0.1, -0.62, 0.34, 0.2, 2.6]]) {
+              ctx.beginPath(); ctx.arc(c + br * x, c + br * y, br * r, a0, a1)
+              ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = br * 0.07; ctx.stroke()
+            }
+            // Specular glint at the light focus — only a LIQUID surface does this.
+            glowBlob(ctx, c - br * 0.3, c - br * 0.42, br * 0.26, 'rgba(255,255,255,0.65)', 'rgba(255,255,255,0)')
+          },
+        },
+        { // F. night side — every other planet is alive TOWARD the star. This one is alive away from it.
+          body: [[0, '#8fa8a0'], [0.45, '#3d5a55'], [0.82, '#17282c'], [1, '#070f14']],
+          rim: 'rgba(200,232,226,0.6)', halo: '255,190,110', haloA: 0.16, night: 0.86,
+          surface(ctx, c, br) {
+            for (const pts of [[[-0.6, -0.3], [-0.1, -0.46], [0.3, -0.2], [0.1, 0.12], [-0.5, 0.06]],
+              [[0.2, 0.2], [0.66, 0.12], [0.78, 0.44], [0.34, 0.62]],
+              [[-0.72, 0.36], [-0.3, 0.34], [-0.16, 0.72], [-0.66, 0.8]]]) {
+              landmass(ctx, c, br, pts, 'rgba(18,32,34,0.55)', null)
+            }
+          },
+          emissive(ctx, c, br) {
+            // Gate every light on its distance from the light FOCUS rather than clipping a second
+            // hemisphere — that way the lit half and the terminator can never disagree about where
+            // the sun is, which a separate clip path would eventually drift out of sync with.
+            const fx = c - br * 0.42, fy = c - br * 0.55
+            const dot = (x, y) => {
+              const px = c + br * x, py = c + br * y
+              if (Math.hypot(px - fx, py - fy) < br * 1.05) return    // still in daylight
+              ctx.fillRect(px, py, br * 0.014, br * 0.014)            // >= 11 device px magnified
+            }
+            for (const [x, y, r] of [[0.34, 0.3, 0.16], [0.58, -0.05, 0.12], [0.16, 0.62, 0.13],
+              [0.62, 0.46, 0.09], [-0.05, 0.8, 0.1]]) {
+              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(255,196,110,0.45)', 'rgba(255,160,60,0)')
+            }
+            ctx.fillStyle = 'rgba(255,214,150,0.95)'
+            // Cities crowd coastlines, so walk fixed polylines and scatter perpendicular to them.
+            for (const line of [[[0.05, 0.1], [0.3, 0.24], [0.55, 0.2], [0.72, 0.4]],
+              [[0.4, -0.4], [0.56, -0.12], [0.5, 0.14], [0.62, 0.44]],
+              [[-0.1, 0.5], [0.16, 0.62], [0.44, 0.66], [0.66, 0.56]],
+              [[0.2, -0.66], [0.44, -0.5], [0.62, -0.2]]]) {
+              for (let s = 0; s < line.length - 1; s++) {
+                const [ax, ay] = line[s], [bx, by] = line[s + 1]
+                for (let k = 0; k < 8; k++) {
+                  const t = k / 8, jx = (k % 3 - 1) * 0.035, jy = (k % 2 ? 1 : -1) * 0.028
+                  dot(ax + (bx - ax) * t + jx, ay + (by - ay) * t + jy)
+                }
+              }
+            }
+          },
+        },
+        { // G. ringed — the only broken silhouette, and the ring enters the screen BEFORE the planet,
+          // which on a phone is the most valuable property in the set. Body shrinks to make room.
+          bodyR: 0.58,
+          body: [[0, '#f0e0bd'], [0.45, '#c9a86a'], [0.82, '#7a5a34'], [1, '#2e2014']],
+          rim: 'rgba(255,244,216,0.7)', halo: '255,220,160', haloA: 0.16,
+          surface(ctx, c, br) {
+            for (const [oy, ry, al, col] of [[-0.5, 0.12, 0.14, '#ffeccb'], [-0.16, 0.15, 0.12, '#8a6740'],
+              [0.2, 0.13, 0.14, '#ffe0ae'], [0.56, 0.11, 0.12, '#6d5030']]) {
+              ctx.beginPath(); ctx.ellipse(c, c + br * oy, br, br * ry, 0, 0, Math.PI * 2)
+              ctx.fillStyle = col; ctx.globalAlpha = al; ctx.fill()
+            }
+            ctx.globalAlpha = 1
+          },
+          behind(ctx, c, R) { ringAnnulus(ctx, c, R, 'far') },
+          front(ctx, c, R, br) {
+            ringAnnulus(ctx, c, R, 'near')
+            ctx.save(); ctx.beginPath(); ctx.arc(c, c, br, 0, Math.PI * 2); ctx.clip()
+            ctx.beginPath(); ctx.ellipse(c, c + br * 0.1, R * 0.98, R * 0.055, RING_TILT, 0, Math.PI * 2)
+            ctx.fillStyle = 'rgba(6,4,14,0.45)'; ctx.fill()   // the ring's own shadow on the body
+            ctx.restore()
+          },
+        },
+      ]
+      T.planets = PLANET_ARCHETYPES.map(planetTex)
+      T.planetTints = PLANET_TINTS
     }
     {
       // house (suburbs district, skies — v5.7.x): the one hand-drawn suburbs prop besides the
@@ -5362,8 +5597,11 @@ export function createRenderer(app) {
     },
     beyond: {
       big: BIG_BEYOND, mid: MID_BEYOND, detail: DETAIL_BEYOND,
-      // v5.18: `planet` swaps in the dedicated sphere bake AND hides the footprint ring (see the
-      // T.planet branch in syncObstacles). That ring is documented as the COLLISION CONTRACT —
+      // v5.18: `planet` swaps in a dedicated sphere bake AND hides the footprint ring (see the
+      // planet branch in syncObstacles). v5.20: that bake became SEVEN archetypes — gas giant, moon,
+      // ice, molten, ocean, night side, ringed — chosen per obstacle by position hash in the skin
+      // cache, so `planet: true` now means "pick from PLANET_ARCHETYPES", not one fixed texture.
+      // That ring is documented as the COLLISION CONTRACT —
       // "this stops me, learned by eye" — and in the lane it stops nothing: stepObstacles skips this
       // chapter entirely now, so a 36px-wide contract ring around a body you fly straight past would
       // be the art telling a lie the sim doesn't back. `foot` stays a real colour because the skin
@@ -7184,6 +7422,16 @@ export function createRenderer(app) {
         const obStyle = chapterHasDistricts ? DISTRICT_BIOMES[structDistrict].obstacle : style
         const floorAt = floorTintAt(o.x, o.y)
         skin = { tint: tintMul(obStyle.tint, floorAt), foot: tintMul(obStyle.foot, floorAt), district: structDistrict, planet: obStyle.planet === true }
+        if (skin.planet) {
+          // Which of the seven archetypes, and which hue nudge. Hashed off o.x/o.y — the same idiom
+          // the baked-furniture `pick` below uses — because sim's streamObstacles guarantees x/y/r
+          // regenerate identically for a cell (test/sim-test.js run V.g walks 20000px away and back
+          // and asserts exactly that), so a planet keeps its identity when it re-enters view.
+          // NOT hashed off o.kind: STRUCTURE_KINDS is pinned at 6 entries by run DD.d, so a future
+          // kind edit would silently reshuffle the planet mix, and pier -> ice world means nothing.
+          skin.planetVariant = Math.floor(hash(o.x * 1.7 + o.y * 0.31 + 23.7) * T.planets.length)
+          skin.planetTint = T.planetTints[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + 41.1) * T.planetTints.length)]
+        }
         obstacleSkinCache.set(o._cell, skin)
       }
       // structure SHAPE (v5.8, kinds grown by v5.9): o.kind (config.js STRUCTURE_KINDS —
@@ -7259,10 +7507,17 @@ export function createRenderer(app) {
         // its own centre with a second planet growing out of its edge. A sphere is neither planted
         // nor heaped: it is centred, and it is one object.
         if (skin.planet) {
-          ov.clumpA.texture = T.planet
+          // v5.20: one of seven archetypes, picked per obstacle (see the skin cache above). Still
+          // centred and still 1:1 with the collider — every archetype keeps its detail INSIDE the
+          // square, including the ringed one, whose body shrinks to 0.58R to make room. That only
+          // works because o.r is cosmetic in this chapter (stepObstacles early-returns on `lane`, no
+          // `crush`, no `blink` in the roster). A chapter that reuses `planet: true` with real
+          // colliders would need this branch reworked, not just a new archetype.
+          const ptex = T.planets[skin.planetVariant]
+          ov.clumpA.texture = ptex
           ov.clumpA.anchor.set(0.5)
-          ov.clumpA.tint = 0xffffff      // the bake carries its own palette, like the top-down plans
-          ov.clumpA.scale.set((o.r * 2) / T.planet.width)
+          ov.clumpA.tint = skin.planetTint  // hue nudge only; the bake carries the real palette
+          ov.clumpA.scale.set((o.r * 2) / ptex.width)
           ov.clumpA.rotation = 0
           ov.clumpA.position.set(0, 0)
           ov.clumpB.texture = Texture.EMPTY
