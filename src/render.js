@@ -5419,7 +5419,6 @@ export function createRenderer(app) {
   //   teleG            = the roster's own attack telegraphs (see redrawTelegraphs), likewise
   //   debrisLayer      = the tornado's orbiting junk (player weapon, sits with the orbs)
   //   shotLayer/carLayer/lobLayer = airborne things, over the crowd
-  const wellLayer = new Container()
   const wellG = new Graphics()
   const trapLayer = new Container()
   const laneG = new Graphics()
@@ -5474,7 +5473,7 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    wellLayer, wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
+    wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -7716,7 +7715,7 @@ export function createRenderer(app) {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
-    trap: 0, debris: 0, shot: 0, well: 0,
+    trap: 0, debris: 0, shot: 0,
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -8534,19 +8533,25 @@ export function createRenderer(app) {
   // Deliberately NOT the black hole's look (that's the player's weapon and it kills): no dark core,
   // no vortex. Instead a cold open ring with inward-drifting contour rings and CURVED streamlines
   // that show which way a shot gets bent — the animation flows inward, so the pull direction reads.
-  const wellPool = []
+  // v5.23.7: the glow is CIRCLES, not a stretched texture. It used to be T.holeDisc — a 512px
+  // canvas radial gradient — blown up to the well's ~380px diameter and laid on the darkest
+  // background in the game. One reporter sees a hard-edged rectangle stuck to the well, measured at
+  // exactly that sprite's width with hard top and bottom edges: a sprite's own QUAD, showing where
+  // only a soft disc should be. Same device, and the same class of fault, as the ring that drew
+  // nothing through a canvas clip() in v5.23.5. So the well stops going through a canvas texture at
+  // all — the glow is now nested fills in wellG, the Graphics that was already drawing every other
+  // part of this thing. A quad that isn't there cannot show its edges, and the pooled sprite, its
+  // syncPool call and the well's prevCount slot all go with it.
+  const WELL_GLOW = [[1.0, 0.03], [0.86, 0.035], [0.72, 0.04], [0.58, 0.045],
+    [0.44, 0.05], [0.3, 0.055], [0.18, 0.06]]
   function syncWells(run) {
     const list = run.wells || []
-    syncPool(wellPool, wellLayer, list, 'well', { tex: T.holeDisc, ax: 0.5, ay: 0.5 }, (s, w) => {
-      s.position.set(w.x, w.y)
-      s.tint = 0x6f7fd8
-      s.alpha = 0.3
-      s.scale.set((w.r * 2) / 512)
-    })
     wellG.clear()
     for (let i = 0; i < list.length; i++) {
       const w = list[i]
       const r = w.r || 190
+      // The glow, outermost first so the alphas stack toward the middle the way the gradient's did.
+      for (const [f, a] of WELL_GLOW) wellG.circle(w.x, w.y, r * f).fill({ color: 0x4a3a86, alpha: a })
       wellG.circle(w.x, w.y, r).stroke({ width: 2, color: 0x9fb0ff, alpha: 0.3 }) // influence edge
       // contour rings drifting inward: three rings sharing one phase, respawning at the rim
       for (let k = 0; k < 3; k++) {
@@ -9893,7 +9898,7 @@ export function createRenderer(app) {
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
-      boomerangPool, minePool, homingPool, trapPool, debrisPool, shotPool, wellPool,
+      boomerangPool, minePool, homingPool, trapPool, debrisPool, shotPool,
     ]) {
       for (const s of pool) s.visible = false
     }
