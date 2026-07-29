@@ -2087,15 +2087,21 @@ export function createRenderer(app) {
       const len = WEAPONS.rainbow.levels[WEAPONS.rainbow.levels.length - 1].length
       const w = WEAPONS.rainbow.levels[WEAPONS.rainbow.levels.length - 1].width
       const R = w / 2
-      const g = new Graphics()
-      // bloom sleeves, widest first (each with round caps overhanging the emitter end a little)
-      g.roundRect(-R, -R, len + R * 2, w, R).fill({ color: 0xc41220, alpha: 0.22 })
-      g.roundRect(-R * 0.75, -R * 0.8, len + R * 1.5, w * 0.8, R * 0.8).fill({ color: 0xdc1f2b, alpha: 0.4 })
-      // the blade
-      g.roundRect(-R * 0.5, -R * 0.58, len + R, w * 0.58, R * 0.58).fill({ color: 0xff3b45, alpha: 0.95 })
-      // white-hot core
-      g.roundRect(-R * 0.3, -R * 0.27, len + R * 0.6, w * 0.27, R * 0.27).fill({ color: 0xfff2ef, alpha: 0.98 })
-      T.beam = bake(g)
+      const blade = (bloom, sheath, core, hot) => {
+        const g = new Graphics()
+        // bloom sleeves, widest first (each with round caps overhanging the emitter end a little)
+        g.roundRect(-R, -R, len + R * 2, w, R).fill({ color: bloom, alpha: 0.22 })
+        g.roundRect(-R * 0.75, -R * 0.8, len + R * 1.5, w * 0.8, R * 0.8).fill({ color: sheath, alpha: 0.4 })
+        g.roundRect(-R * 0.5, -R * 0.58, len + R, w * 0.58, R * 0.58).fill({ color: core, alpha: 0.95 })
+        g.roundRect(-R * 0.3, -R * 0.27, len + R * 0.6, w * 0.27, R * 0.27).fill({ color: hot, alpha: 0.98 })
+        return bake(g)
+      }
+      T.beam = blade(0xc41220, 0xdc1f2b, 0xff3b45, 0xfff2ef)
+      // The Beyond's Tesseract Beam is a run.beams entry too, so it was drawing itself with the
+      // saber above — a crimson bar sweeping a chapter whose whole palette is violet and cyan, and
+      // the only saturated red in it. Same blade, folded into the chapter's own colour. Tinting
+      // wasn't an option: a blue tint on a red bake multiplies to mud.
+      T.beamFold = blade(0x2d2a8c, 0x4b46d6, 0x8f7dff, 0xf0ecff)
       T.beamRefLen = len
       T.beamRefWidth = w
     }
@@ -2712,22 +2718,50 @@ export function createRenderer(app) {
       // rad/s. Deliberately tiny — see skin.planetSpinRate where it is used.
 
       const RING_TILT = -0.2
+      // The ellipse's minor/major. Also the cosine of how far the ring plane is tipped away from
+      // edge-on, which is what ringPole below needs.
+      const RING_SQUASH = 0.3
       const RING_BANDS = [[0.98, 0.86, 'rgba(228,214,186,0.55)'], [0.84, 0.74, 'rgba(255,244,220,0.75)'],
         [0.72, 0.63, 'rgba(190,172,142,0.45)']]
+      const ICE_RINGS = [[0.99, 0.91, 'rgba(198,232,255,0.5)'], [0.89, 0.81, 'rgba(255,255,255,0.72)'],
+        [0.79, 0.71, 'rgba(140,190,238,0.4)']]
+      const SHARD_RINGS = [[0.97, 0.92, 'rgba(196,158,255,0.42)'], [0.9, 0.85, 'rgba(240,226,255,0.6)'],
+        [0.83, 0.79, 'rgba(150,112,214,0.35)']]
       // A ring is drawn TWICE — once under the body (far half) and once over it (near half, clipped
       // to its own lower half-plane, hence rotate-then-clip). That sandwich is the only thing that
-      // makes a ring pass BEHIND a planet. It is also why the ringed archetype's body is 0.58R: the
+      // makes a ring pass BEHIND a planet. It is also why a ringed archetype's body shrinks: the
       // ring has to fit the same centred square every other planet uses, or syncObstacles' "texture
-      // width == collider diameter" contract stops holding for exactly one entry.
-      function ringAnnulus(ctx, c, R, half) {
-        ctx.save(); ctx.translate(c, c); ctx.rotate(RING_TILT)
+      // width == collider diameter" contract stops holding for exactly those entries.
+      function ringAnnulus(ctx, c, R, half, tilt = RING_TILT, bands = RING_BANDS) {
+        ctx.save(); ctx.translate(c, c); ctx.rotate(tilt)
         if (half === 'near') { ctx.beginPath(); ctx.rect(-R * 1.5, 0, R * 3, R * 1.5); ctx.clip() }
-        for (const [ro, ri, col] of RING_BANDS) {
+        for (const [ro, ri, col] of bands) {
           ctx.beginPath()
-          ctx.ellipse(0, 0, R * ro, R * ro * 0.3, 0, 0, Math.PI * 2)
-          ctx.ellipse(0, 0, R * ri, R * ri * 0.3, 0, 0, Math.PI * 2, true) // anticlockwise -> hole
+          ctx.ellipse(0, 0, R * ro, R * ro * RING_SQUASH, 0, 0, Math.PI * 2)
+          ctx.ellipse(0, 0, R * ri, R * ri * RING_SQUASH, 0, 0, Math.PI * 2, true) // anticlockwise -> hole
           ctx.fillStyle = col; ctx.fill()
         }
+        ctx.restore()
+      }
+      // A ring lies in its planet's EQUATORIAL plane, so a ringed world's spin axis is that plane's
+      // normal — pinned, never random, or the belts would run visibly across the rings. Derived, not
+      // eyeballed: tip a ring by asin(RING_SQUASH) out of edge-on and its normal comes out at
+      // (0, cos, sin) in the shader's y-UP space; the canvas tilt then rotates it in-screen, and a
+      // canvas rotation is CLOCKWISE in y-up terms, which is where the sin's sign comes from.
+      const ringPole = (tilt) => {
+        const s = Math.sqrt(1 - RING_SQUASH * RING_SQUASH)
+        return [Math.sin(tilt) * s, Math.cos(tilt) * s, RING_SQUASH]
+      }
+      // A moon: the only SECOND BODY in the set, and the fastest way to say "this is a system, not a
+      // ball". Two tones, lit from up-left to agree with PLANET_LIGHT — the shader can't help here,
+      // this rides the flat overlay. It always straddles the limb (the overlay canvas is only 1.0R
+      // wide, so nothing fits entirely outside a 0.9R body); half behind the planet is the read.
+      function moon(ctx, x, y, r, dark, lit) {
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2)
+        ctx.fillStyle = dark; ctx.fill()
+        ctx.save(); ctx.clip()
+        ctx.beginPath(); ctx.arc(x - r * 0.26, y - r * 0.28, r * 0.93, 0, Math.PI * 2)
+        ctx.fillStyle = lit; ctx.fill()
         ctx.restore()
       }
       // Soft-edged pool, used for lava lakes and city conurbations alike.
@@ -2857,14 +2891,17 @@ export function createRenderer(app) {
         ctx.fillStyle = g; ctx.fillRect(-1, Math.min(y0, y1), 2, depth)
       }
       const PLANET_ARCHETYPES = [
-        { // A. gas giant — eight irregular belts + one storm oval. Readable from any fragment.
+        { // A. gas giant — eight irregular belts + one storm oval + a moon rising off its shoulder.
           base: '#e0a55f', polar: '#8a5330',
           halo: '255,190,120', haloA: 0.2,
+          front(ctx, c, R) { moon(ctx, c + R * 0.6, c - R * 0.6, R * 0.12, '#4a3a2c', '#cbb79a') },
           surface(ctx, c, br) {
             // Deliberately irregular widths — the old four near-symmetric belts read as a test pattern.
-            for (const [oy, ry, al, col] of [[-0.72, 0.07, 0.22, '#fff2d8'], [-0.5, 0.11, 0.18, '#7d4a2a'],
-              [-0.28, 0.09, 0.2, '#ffdaa6'], [-0.08, 0.14, 0.16, '#6b3d22'], [0.14, 0.08, 0.22, '#ffe4b8'],
-              [0.34, 0.12, 0.18, '#5e3520'], [0.56, 0.07, 0.16, '#ffd39a'], [0.74, 0.1, 0.2, '#4a2a19']]) {
+            // v5.23.4: alphas roughly doubled. At 0.16-0.22 over a flat albedo the belts washed out
+            // to nothing on a phone and the planet read as a plain orange ball ("basketballs").
+            for (const [oy, ry, al, col] of [[-0.72, 0.07, 0.42, '#fff2d8'], [-0.5, 0.11, 0.36, '#7d4a2a'],
+              [-0.28, 0.09, 0.4, '#ffdaa6'], [-0.08, 0.14, 0.32, '#6b3d22'], [0.14, 0.08, 0.44, '#ffe4b8'],
+              [0.34, 0.12, 0.36, '#5e3520'], [0.56, 0.07, 0.32, '#ffd39a'], [0.74, 0.1, 0.4, '#4a2a19']]) {
               band(ctx, oy, ry, col, al)
             }
             ctx.beginPath(); ctx.ellipse(c + br * 0.26, c + br * 0.2, br * 0.24, br * 0.13, -0.12, 0, Math.PI * 2)
@@ -2884,19 +2921,23 @@ export function createRenderer(app) {
               [-0.28, -0.55, 0.06], [0.24, 0.52, 0.1], [-0.66, -0.02, 0.06], [0.68, 0.36, 0.05]]) {
               const x = c + br * cx, y = c + br * cy, r = br * cr
               ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2)
-              ctx.fillStyle = 'rgba(52,46,40,0.32)'; ctx.fill()
+              ctx.fillStyle = 'rgba(52,46,40,0.5)'; ctx.fill()
               ctx.beginPath(); ctx.arc(x, y, r * 0.94, Math.PI * 0.95, Math.PI * 1.95)
-              ctx.strokeStyle = 'rgba(255,250,240,0.45)'; ctx.lineWidth = r * 0.22; ctx.stroke()
+              ctx.strokeStyle = 'rgba(255,250,240,0.62)'; ctx.lineWidth = r * 0.22; ctx.stroke()
               ctx.beginPath(); ctx.arc(x, y, r * 0.94, Math.PI * 0.05, Math.PI * 0.9)
-              ctx.strokeStyle = 'rgba(30,26,22,0.35)'; ctx.lineWidth = r * 0.18; ctx.stroke()
+              ctx.strokeStyle = 'rgba(30,26,22,0.52)'; ctx.lineWidth = r * 0.18; ctx.stroke()
             }
             ctx.beginPath(); ctx.ellipse(c - br * 0.12, c + br * 0.08, br * 0.46, br * 0.38, 0.5, 0, Math.PI * 2)
-            ctx.fillStyle = 'rgba(60,54,48,0.3)'; ctx.fill()
+            ctx.fillStyle = 'rgba(60,54,48,0.45)'; ctx.fill()
           },
         },
-        { // C. ice world — brightest thing in a chapter whose background is 0x120a26.
+        { // C. ice world — brightest thing in a chapter whose background is 0x120a26, and RINGED, at
+          // a steeper tilt than the gas giant's so the two never read as the same silhouette.
+          bodyR: 0.6, pole: ringPole(0.44),
           base: '#cfe6ff', polar: '#5f86bd',
           halo: '150,220,255', haloA: 0.26,
+          behind(ctx, c, R) { ringAnnulus(ctx, c, R, 'far', 0.44, ICE_RINGS) },
+          front(ctx, c, R) { ringAnnulus(ctx, c, R, 'near', 0.44, ICE_RINGS) },
           surface(ctx, c, br) {
             // Caps ride BOTH poles, so a fragment of either limb still names the planet.
             cap(ctx, true, 0.34, '255,255,255', 0.8)
@@ -2940,14 +2981,23 @@ export function createRenderer(app) {
             }
           },
         },
-        { // E. ocean world — the only CURVED WHITE marks in the set, plus a specular sun glint.
+        { // E. ocean world — the only CURVED WHITE marks in the set. THREE surface colours (sea, green
+          // continent, ochre interior) plus ice caps: this is the "continents" world of the set.
           base: '#2f8fd8', polar: '#124a86',
           halo: '120,200,255', haloA: 0.28,
+          front(ctx, c, R) { moon(ctx, c - R * 0.62, c + R * 0.62, R * 0.1, '#3d4450', '#b9c3d0') },
           surface(ctx, c, br) {
+            cap(ctx, true, 0.16, '255,255,255', 0.85)
+            cap(ctx, false, 0.13, '255,255,255', 0.7)
             for (const pts of [[[-0.55, -0.35], [-0.15, -0.5], [0.12, -0.28], [-0.1, -0.02], [-0.45, 0.02]],
               [[0.15, 0.08], [0.6, 0], [0.72, 0.3], [0.4, 0.52], [0.1, 0.36]],
               [[-0.7, 0.3], [-0.35, 0.28], [-0.2, 0.6], [-0.6, 0.72]]]) {
-              landmass(ctx, c, br, pts, 'rgba(74,124,72,0.9)', 'rgba(180,220,150,0.35)')
+              landmass(ctx, c, br, pts, 'rgba(74,124,72,0.95)', 'rgba(180,220,150,0.4)')
+            }
+            // Dry interiors — a continent of one flat green is a paper cutout; two tones make it land.
+            for (const pts of [[[-0.42, -0.3], [-0.2, -0.36], [-0.12, -0.18], [-0.34, -0.1]],
+              [[0.3, 0.14], [0.56, 0.1], [0.58, 0.34], [0.28, 0.38]]]) {
+              landmass(ctx, c, br, pts, 'rgba(186,158,96,0.75)', null)
             }
             ctx.lineCap = 'round'
             for (const [x, y, r, a0, a1] of [[-0.3, -0.1, 0.3, 0.4, 3.4], [-0.36, -0.1, 0.16, 1.2, 4.4],
@@ -2968,7 +3018,7 @@ export function createRenderer(app) {
             for (const pts of [[[-0.6, -0.3], [-0.1, -0.46], [0.3, -0.2], [0.1, 0.12], [-0.5, 0.06]],
               [[0.2, 0.2], [0.66, 0.12], [0.78, 0.44], [0.34, 0.62]],
               [[-0.72, 0.36], [-0.3, 0.34], [-0.16, 0.72], [-0.66, 0.8]]]) {
-              landmass(ctx, c, br, pts, 'rgba(18,32,34,0.55)', null)
+              landmass(ctx, c, br, pts, 'rgba(14,26,28,0.8)', 'rgba(96,132,124,0.35)')
             }
           },
           emissive(ctx, c, br) {
@@ -3001,16 +3051,12 @@ export function createRenderer(app) {
         { // G. ringed — the only broken silhouette, and the ring enters the screen BEFORE the planet,
           // which on a phone is the most valuable property in the set. Body shrinks to make room.
           bodyR: 0.58,
-          // The ONE archetype that does not get a random axis: a ring lies in its planet's
-          // equatorial plane, so the pole has to be the normal of THIS ring. ringAnnulus draws a
-          // near-edge-on ellipse tilted by RING_TILT, which puts that normal a touch off screen-up.
-          // Left random, the belts would run visibly across the rings instead of parallel to them.
-          pole: [-0.196, 0.966, 0.055],
+          pole: ringPole(RING_TILT),
           base: '#c9a86a', polar: '#7a5a34',
           halo: '255,220,160', haloA: 0.16,
           surface(ctx, c, br) {
-            for (const [oy, ry, al, col] of [[-0.5, 0.12, 0.14, '#ffeccb'], [-0.16, 0.15, 0.12, '#8a6740'],
-              [0.2, 0.13, 0.14, '#ffe0ae'], [0.56, 0.11, 0.12, '#6d5030']]) {
+            for (const [oy, ry, al, col] of [[-0.5, 0.12, 0.34, '#ffeccb'], [-0.16, 0.15, 0.3, '#8a6740'],
+              [0.2, 0.13, 0.34, '#ffe0ae'], [0.56, 0.11, 0.3, '#6d5030']]) {
               band(ctx, oy, ry, col, al)
             }
             // v5.23.3 — WHY THIS EXISTS: bands are uniform across every longitude, so a surface made
@@ -3028,20 +3074,25 @@ export function createRenderer(app) {
             ctx.globalAlpha = 1
           },
           behind(ctx, c, R) { ringAnnulus(ctx, c, R, 'far') },
-          front(ctx, c, R, br) {
-            ringAnnulus(ctx, c, R, 'near')
-            ctx.save(); ctx.beginPath(); ctx.arc(c, c, br, 0, Math.PI * 2); ctx.clip()
-            ctx.beginPath(); ctx.ellipse(c, c + br * 0.1, R * 0.98, R * 0.055, RING_TILT, 0, Math.PI * 2)
-            ctx.fillStyle = 'rgba(6,4,14,0.45)'; ctx.fill()   // the ring's own shadow on the body
-            ctx.restore()
-          },
+          // The near half and nothing else. There used to be a "ring shadow" here — one flat ellipse
+          // of rgba(6,4,14,0.45) clipped to the body — and it was the black stripe painted across
+          // the planet in every capture: 45% black, limb to limb, at its OWN angle rather than the
+          // ring's, drawn ON TOP of the pale near-ring bands that were supposed to be the read. The
+          // near half crossing the disc is already the depth cue; the shadow only hid it.
+          front(ctx, c, R) { ringAnnulus(ctx, c, R, 'near') },
         },
-        { // H. rust desert — the driest thing here: no water, no ice, one dust-hazed sky.
+        { // H. rust desert — the driest thing here: one dust-hazed sky, one dirty cap, two moons.
           base: '#b8703f', polar: '#6d3c22',
           halo: '255,170,110', haloA: 0.14,
+          // Two, and both small: a pair of captured rocks says "desert world" harder than one big moon.
+          front(ctx, c, R) {
+            moon(ctx, c + R * 0.68, c + R * 0.5, R * 0.08, '#42302a', '#c2a494')
+            moon(ctx, c - R * 0.55, c - R * 0.64, R * 0.055, '#3a2a24', '#ab8f80')
+          },
           surface(ctx, c, br) {
-            for (const [x, y, rx, ry, rot, al] of [[-0.3, -0.3, 0.5, 0.3, 0.4, 0.22],
-              [0.34, 0.1, 0.42, 0.26, -0.3, 0.18], [-0.1, 0.52, 0.46, 0.22, 0.2, 0.2]]) {
+            cap(ctx, true, 0.12, '236,244,255', 0.55)   // one thin dirty cap: not an ice world, but not airless either
+            for (const [x, y, rx, ry, rot, al] of [[-0.3, -0.3, 0.5, 0.3, 0.4, 0.45],
+              [0.34, 0.1, 0.42, 0.26, -0.3, 0.38], [-0.1, 0.52, 0.46, 0.22, 0.2, 0.42]]) {
               ctx.beginPath(); ctx.ellipse(c + br * x, c + br * y, br * rx, br * ry, rot, 0, Math.PI * 2)
               ctx.fillStyle = '#8c4d29'; ctx.globalAlpha = al; ctx.fill()
             }
@@ -3062,16 +3113,21 @@ export function createRenderer(app) {
           base: '#93b83c', polar: '#43601f',
           halo: '180,255,90', haloA: 0.3,
           surface(ctx, c, br) {
+            // Sulphur haze belts UNDER the arcs: at gameplay size a planet is ~470px of smooth shaded
+            // sphere, and four thin arcs on a flat albedo washed out into a plain green ball. The
+            // belts give it structure everywhere, the arcs give it weather on top.
+            for (const [oy, ry, al, col] of [[-0.55, 0.16, 0.34, '#d9f27a'], [-0.05, 0.2, 0.3, '#4d6b1c'],
+              [0.42, 0.15, 0.32, '#e4ff9a'], [0.8, 0.12, 0.28, '#3d5616']]) band(ctx, oy, ry, col, al)
             ctx.lineCap = 'round'
             // Churning cloud bands, drawn as thick open arcs so the whole surface looks like it moves.
-            for (const [x, y, r, a0, a1, col, lw] of [[-0.2, -0.3, 0.5, 0.2, 3.6, 'rgba(226,255,150,0.45)', 0.12],
-              [0.3, 0.2, 0.44, 2.4, 5.6, 'rgba(120,160,50,0.5)', 0.14], [-0.1, 0.55, 0.4, 3.4, 6.1, 'rgba(226,255,150,0.35)', 0.1],
-              [0.1, -0.68, 0.36, 0.6, 3.0, 'rgba(140,190,60,0.45)', 0.11]]) {
+            for (const [x, y, r, a0, a1, col, lw] of [[-0.2, -0.3, 0.5, 0.2, 3.6, 'rgba(238,255,170,0.75)', 0.14],
+              [0.3, 0.2, 0.44, 2.4, 5.6, 'rgba(96,132,36,0.8)', 0.16], [-0.1, 0.55, 0.4, 3.4, 6.1, 'rgba(238,255,170,0.6)', 0.12],
+              [0.1, -0.68, 0.36, 0.6, 3.0, 'rgba(112,158,40,0.75)', 0.13]]) {
               ctx.beginPath(); ctx.arc(c + br * x, c + br * y, br * r, a0, a1)
               ctx.strokeStyle = col; ctx.lineWidth = br * lw; ctx.stroke()
             }
             for (const [x, y, r] of [[0.24, -0.22, 0.16], [-0.42, 0.28, 0.12]]) {
-              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(238,255,170,0.6)', 'rgba(200,255,120,0)')
+              glowBlob(ctx, c + br * x, c + br * y, br * r, 'rgba(246,255,200,0.8)', 'rgba(200,255,120,0)')
             }
           },
         },
@@ -3085,8 +3141,8 @@ export function createRenderer(app) {
               for (let k = 0; k < 3; k++) {
                 ctx.beginPath()
                 ctx.arc(c + br * cx, c + br * cy, br * rr * (1 - k * 0.28), k * 1.9, k * 1.9 + 4.1)
-                ctx.strokeStyle = `rgba(238,246,255,${0.28 + k * 0.16})`
-                ctx.lineWidth = br * (0.05 - k * 0.008); ctx.stroke()
+                ctx.strokeStyle = `rgba(238,246,255,${0.45 + k * 0.2})`
+                ctx.lineWidth = br * (0.062 - k * 0.008); ctx.stroke()
               }
               glowBlob(ctx, c + br * cx, c + br * cy, br * rr * 0.3, 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0)')
             }
@@ -3100,11 +3156,17 @@ export function createRenderer(app) {
           // emerald under canopy, and at gameplay size the two never read as the same world.
           base: '#2f7a48', polar: '#14361f',
           halo: '150,255,180', haloA: 0.2,
+          front(ctx, c, R) { moon(ctx, c - R * 0.64, c - R * 0.52, R * 0.12, '#2d3a2c', '#a8bc9c') },
           surface(ctx, c, br) {
             for (const pts of [[[-0.62, -0.4], [-0.12, -0.55], [0.2, -0.25], [-0.05, 0.05], [-0.5, 0]],
               [[0.2, 0.1], [0.68, 0], [0.8, 0.34], [0.42, 0.58], [0.14, 0.4]],
               [[-0.72, 0.34], [-0.32, 0.3], [-0.18, 0.68], [-0.66, 0.78]]]) {
               landmass(ctx, c, br, pts, 'rgba(22,74,38,0.75)', 'rgba(126,200,110,0.4)')
+            }
+            // A savannah belt so the canopy is not the only green — two greens plus tan, not one.
+            for (const pts of [[[-0.5, 0.46], [-0.02, 0.4], [0.16, 0.62], [-0.3, 0.74]],
+              [[0.34, -0.5], [0.7, -0.44], [0.72, -0.2], [0.36, -0.24]]]) {
+              landmass(ctx, c, br, pts, 'rgba(160,166,84,0.6)', null)
             }
             ctx.lineCap = 'round'
             // Rivers are the one BRIGHT mark, so the canopy reads as wet rather than merely dark.
@@ -3151,9 +3213,13 @@ export function createRenderer(app) {
           },
         },
         { // M. crystal — the ANGULAR one. Every other body in the set is made of curves, so a
-          // surface of straight facets is the fastest thing to tell apart at gameplay size.
+          // surface of straight facets is the fastest thing to tell apart at gameplay size. Its
+          // rings are a shard belt: narrower, tipped the OTHER way from the other two ringed worlds.
+          bodyR: 0.62, pole: ringPole(-0.62),
           base: '#6d55a8', polar: '#2b1f4d',
           halo: '205,165,255', haloA: 0.3,
+          behind(ctx, c, R) { ringAnnulus(ctx, c, R, 'far', -0.62, SHARD_RINGS) },
+          front(ctx, c, R) { ringAnnulus(ctx, c, R, 'near', -0.62, SHARD_RINGS) },
           surface(ctx, c, br) {
             for (const [pts, col, al] of [
               [[[-0.7, -0.45], [-0.25, -0.62], [-0.05, -0.2], [-0.45, -0.05]], '#a98ce0', 0.55],
@@ -3194,11 +3260,12 @@ export function createRenderer(app) {
           // its lowlands, where the pale mineral veins are the only thing that catches the star.
           base: '#7d3529', polar: '#2f110d',
           halo: '255,120,80', haloA: 0.14,
+          front(ctx, c, R) { moon(ctx, c + R * 0.56, c + R * 0.62, R * 0.13, '#2a1a18', '#9c8078') },
           surface(ctx, c, br) {
             for (const [x, y, rx, ry, rot] of [[-0.35, -0.28, 0.44, 0.34, 0.3], [0.38, 0.14, 0.4, 0.3, -0.25],
               [-0.1, 0.55, 0.38, 0.26, 0.15], [0.3, -0.6, 0.28, 0.2, 0.4]]) {
               ctx.beginPath(); ctx.ellipse(c + br * x, c + br * y, br * rx, br * ry, rot, 0, Math.PI * 2)
-              ctx.globalAlpha = 0.5; ctx.fillStyle = '#341510'; ctx.fill()
+              ctx.globalAlpha = 0.68; ctx.fillStyle = '#2a100c'; ctx.fill()
             }
             ctx.globalAlpha = 1
             ctx.lineCap = 'round'
@@ -3207,8 +3274,8 @@ export function createRenderer(app) {
               [[0.45, -0.5], [0.6, -0.1], [0.42, 0.3], [0.62, 0.7]]]) {
               ctx.beginPath()
               path.forEach(([x, y], k) => (k ? ctx.lineTo(c + br * x, c + br * y) : ctx.moveTo(c + br * x, c + br * y)))
-              ctx.strokeStyle = 'rgba(226,178,150,0.5)'; ctx.lineWidth = br * 0.03; ctx.stroke()
-              ctx.strokeStyle = 'rgba(255,232,214,0.5)'; ctx.lineWidth = br * 0.01; ctx.stroke()
+              ctx.strokeStyle = 'rgba(232,186,158,0.7)'; ctx.lineWidth = br * 0.034; ctx.stroke()
+              ctx.strokeStyle = 'rgba(255,240,226,0.75)'; ctx.lineWidth = br * 0.011; ctx.stroke()
             }
           },
         },
@@ -7710,7 +7777,7 @@ export function createRenderer(app) {
 
     root.addChild(beamBody, tip, muzzle)
     beamLayer.addChild(root)
-    return { root, beamBody, streakA, streakB, tip, muzzle }
+    return { root, beamBody, bar, streakA, streakB, tip, muzzle }
   }
 
   function expandBeamArms(beams) {
@@ -10615,6 +10682,14 @@ export function createRenderer(app) {
   function placeBeam(bv, b) {
     bv.root.position.set(playerX, playerY)
     bv.root.rotation = b.angle
+
+    // `folded` is the Tesseract Beam and nothing else (config.js WEAPONS.tesseractBeam), so it is
+    // the whole weapon test — a pool slot serves either weapon, hence swapping here and not in
+    // acquireBeam. Both bakes share geometry, so the anchor spriteOf set still holds.
+    const fold = b.folded === true
+    bv.bar.texture = (fold ? T.beamFold : T.beam).tex   // bake() returns {tex, ax, ay}, not a Texture
+    bv.tip.tint = bv.muzzle.tint = fold ? 0xa08cff : 0xff5a52
+    bv.streakA.tint = bv.streakB.tint = fold ? 0xdcd6ff : 0xffd9d4
 
     const spawnElapsed = b.duration - b.life
     const spawnIn = spawnElapsed < 0.12 ? Math.max(0, spawnElapsed / 0.12) : 1 // width squashes in
