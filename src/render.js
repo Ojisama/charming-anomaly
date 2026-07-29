@@ -2732,13 +2732,20 @@ export function createRenderer(app) {
       // makes a ring pass BEHIND a planet. It is also why a ringed archetype's body shrinks: the
       // ring has to fit the same centred square every other planet uses, or syncObstacles' "texture
       // width == collider diameter" contract stops holding for exactly those entries.
+      // v5.23.5 — the near half is now an EXPLICIT half-annulus path, not a full annulus behind a
+      // rect clip(). On one reporter's Android the near half rendered as nothing at all while the
+      // far half was perfect, on a build verified to contain this code — and a clip() was the only
+      // canvas op the near path used that the far path did not. Same geometry, one less construct.
+      // Canvas angles run clockwise on screen (y is down), so 0..PI IS the lower/near half; the
+      // implicit line ellipse() draws to each new sub-arc's start gives the two flat end caps.
       function ringAnnulus(ctx, c, R, half, tilt = RING_TILT, bands = RING_BANDS) {
+        const near = half === 'near'
         ctx.save(); ctx.translate(c, c); ctx.rotate(tilt)
-        if (half === 'near') { ctx.beginPath(); ctx.rect(-R * 1.5, 0, R * 3, R * 1.5); ctx.clip() }
         for (const [ro, ri, col] of bands) {
           ctx.beginPath()
-          ctx.ellipse(0, 0, R * ro, R * ro * RING_SQUASH, 0, 0, Math.PI * 2)
-          ctx.ellipse(0, 0, R * ri, R * ri * RING_SQUASH, 0, 0, Math.PI * 2, true) // anticlockwise -> hole
+          ctx.ellipse(0, 0, R * ro, R * ro * RING_SQUASH, 0, 0, near ? Math.PI : Math.PI * 2)
+          ctx.ellipse(0, 0, R * ri, R * ri * RING_SQUASH, 0, near ? Math.PI : Math.PI * 2, 0, true)
+          ctx.closePath()
           ctx.fillStyle = col; ctx.fill()
         }
         ctx.restore()
@@ -2756,13 +2763,14 @@ export function createRenderer(app) {
       // ball". Two tones, lit from up-left to agree with PLANET_LIGHT — the shader can't help here,
       // this rides the flat overlay. It always straddles the limb (the overlay canvas is only 1.0R
       // wide, so nothing fits entirely outside a 0.9R body); half behind the planet is the read.
+      // The lit disc is INSET rather than clipped (0.27r off-centre + 0.72r radius = 0.99r, so it can
+      // never reach the limb). Same reason as ringAnnulus above: this renderer now uses no canvas
+      // clip() at all, because one device disagreed with the only two that existed.
       function moon(ctx, x, y, r, dark, lit) {
         ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fillStyle = dark; ctx.fill()
-        ctx.save(); ctx.clip()
-        ctx.beginPath(); ctx.arc(x - r * 0.26, y - r * 0.28, r * 0.93, 0, Math.PI * 2)
+        ctx.beginPath(); ctx.arc(x - r * 0.18, y - r * 0.2, r * 0.72, 0, Math.PI * 2)
         ctx.fillStyle = lit; ctx.fill()
-        ctx.restore()
       }
       // Soft-edged pool, used for lava lakes and city conurbations alike.
       function glowBlob(ctx, x, y, r, inner, outer) {
