@@ -83,6 +83,17 @@ const BODY_RENDER = { bgColor: 0xf4efe6, floorTint: 0xffffff, playerTint: 0xffff
 // keeps the slowest at ~60s per revolution and the fastest at ~24s.
 const PLANET_SPIN_MIN = 0.10
 const PLANET_SPIN_MAX = 0.26
+// v5.23.6: moons ORBIT. They used to be painted into the same overlay canvas as the halo, which
+// pinned them to one spot on the sprite forever — a moon that never moves is a freckle. Now each is
+// its own sprite swung round the body, and because a real moon spends half its period BEHIND its
+// planet, the sprite is re-parented above or below the sphere mesh each frame (tickPlanetSpin).
+// Faster than the surface spin on purpose: the two motions have to be separable by eye or the moon
+// reads as a bump on the planet rather than a body of its own.
+const MOON_ORBIT_MIN = 0.28
+const MOON_ORBIT_MAX = 0.46
+// The orbit plane is seen near edge-on, not from directly above — a circle would read as a hoop
+// drawn on the screen. This is its foreshortening.
+const MOON_ORBIT_SQUASH = 0.42
 
 // v5.23 — planets are real spheres now. Direction TO the star, in the shader's y-UP space, shared by
 // every planet so the chapter agrees about where the light is. Up and to the left, matching the
@@ -2902,7 +2913,7 @@ export function createRenderer(app) {
         { // A. gas giant — eight irregular belts + one storm oval + a moon rising off its shoulder.
           base: '#e0a55f', polar: '#8a5330',
           halo: '255,190,120', haloA: 0.2,
-          front(ctx, c, R) { moon(ctx, c + R * 0.6, c - R * 0.6, R * 0.12, '#4a3a2c', '#cbb79a') },
+          moons: [[0.12, 1.22, '#4a3a2c', '#cbb79a']],
           surface(ctx, c, br) {
             // Deliberately irregular widths — the old four near-symmetric belts read as a test pattern.
             // v5.23.4: alphas roughly doubled. At 0.16-0.22 over a flat albedo the belts washed out
@@ -2993,7 +3004,7 @@ export function createRenderer(app) {
           // continent, ochre interior) plus ice caps: this is the "continents" world of the set.
           base: '#2f8fd8', polar: '#124a86',
           halo: '120,200,255', haloA: 0.28,
-          front(ctx, c, R) { moon(ctx, c - R * 0.62, c + R * 0.62, R * 0.1, '#3d4450', '#b9c3d0') },
+          moons: [[0.1, 1.28, '#3d4450', '#b9c3d0']],
           surface(ctx, c, br) {
             cap(ctx, true, 0.16, '255,255,255', 0.85)
             cap(ctx, false, 0.13, '255,255,255', 0.7)
@@ -3093,10 +3104,7 @@ export function createRenderer(app) {
           base: '#b8703f', polar: '#6d3c22',
           halo: '255,170,110', haloA: 0.14,
           // Two, and both small: a pair of captured rocks says "desert world" harder than one big moon.
-          front(ctx, c, R) {
-            moon(ctx, c + R * 0.68, c + R * 0.5, R * 0.08, '#42302a', '#c2a494')
-            moon(ctx, c - R * 0.55, c - R * 0.64, R * 0.055, '#3a2a24', '#ab8f80')
-          },
+          moons: [[0.08, 1.16, '#42302a', '#c2a494'], [0.055, 1.36, '#3a2a24', '#ab8f80']],
           surface(ctx, c, br) {
             cap(ctx, true, 0.12, '236,244,255', 0.55)   // one thin dirty cap: not an ice world, but not airless either
             for (const [x, y, rx, ry, rot, al] of [[-0.3, -0.3, 0.5, 0.3, 0.4, 0.45],
@@ -3164,7 +3172,7 @@ export function createRenderer(app) {
           // emerald under canopy, and at gameplay size the two never read as the same world.
           base: '#2f7a48', polar: '#14361f',
           halo: '150,255,180', haloA: 0.2,
-          front(ctx, c, R) { moon(ctx, c - R * 0.64, c - R * 0.52, R * 0.12, '#2d3a2c', '#a8bc9c') },
+          moons: [[0.12, 1.2, '#2d3a2c', '#a8bc9c']],
           surface(ctx, c, br) {
             for (const pts of [[[-0.62, -0.4], [-0.12, -0.55], [0.2, -0.25], [-0.05, 0.05], [-0.5, 0]],
               [[0.2, 0.1], [0.68, 0], [0.8, 0.34], [0.42, 0.58], [0.14, 0.4]],
@@ -3268,7 +3276,7 @@ export function createRenderer(app) {
           // its lowlands, where the pale mineral veins are the only thing that catches the star.
           base: '#7d3529', polar: '#2f110d',
           halo: '255,120,80', haloA: 0.14,
-          front(ctx, c, R) { moon(ctx, c + R * 0.56, c + R * 0.62, R * 0.13, '#2a1a18', '#9c8078') },
+          moons: [[0.13, 1.25, '#2a1a18', '#9c8078']],
           surface(ctx, c, br) {
             for (const [x, y, rx, ry, rot] of [[-0.35, -0.28, 0.44, 0.34, 0.3], [0.38, 0.14, 0.4, 0.3, -0.25],
               [-0.1, 0.55, 0.38, 0.26, 0.15], [0.3, -0.6, 0.28, 0.2, 0.4]]) {
@@ -3300,6 +3308,15 @@ export function createRenderer(app) {
       T.planetFront = PLANET_ARCHETYPES.map((a) => (a.halo || a.front ? planetOverlayTex(a, true) : null))
       T.planetBodyR = PLANET_ARCHETYPES.map((a) => a.bodyR ?? PLANET_BODY)
       T.planetPole = PLANET_ARCHETYPES.map((a) => a.pole || null)   // null = hash a random tilt per planet
+      // Moons, one texture each: [radius, orbit radius] both as a fraction of R, so the runtime
+      // scales them off o.r exactly like the overlays. 128px is well past the ~34px a 0.13R moon
+      // occupies on a 260px world — a moon crossing the limb is the one place the eye lingers.
+      // Every orbit radius is >1.1, i.e. OUTSIDE the body (PLANET_BODY is 0.90) and outside its
+      // halo. Under that, the foreshortened orbit never clears the limb and the moon only ever
+      // reads as a spot painted on the face or as nothing at all — which is what it was before.
+      T.planetMoons = PLANET_ARCHETYPES.map((a) => (a.moons || []).map(([mr, dist, dark, lit]) => ({
+        tex: canvasTex(128, 128, (ctx, w) => moon(ctx, w / 2, w / 2, w / 2, dark, lit)), mr, dist,
+      })))
       // Rim colour comes straight off the archetype's own atmosphere, so the limb glow and the halo
       // sprite around it are the same hue. The moon has no atmosphere and gets a black rim — which
       // is correct, not a gap: an airless body has no limb glow, and that is its whole read.
@@ -7858,7 +7875,17 @@ export function createRenderer(app) {
   // v5.21/v5.22/v5.23: planets that turn. Held outside syncObstacles because that function is
   // rebuild-gated and this has to run every frame.
   const planetSpinners = []
+  const planetMoons = []
   function tickPlanetSpin() {
+    for (const pm of planetMoons) {
+      const a = pm.phase + animT * pm.rate
+      // Seen near edge-on: full swing across, foreshortened up and down. sin < 0 is the far half of
+      // the orbit, so the sprite drops BELOW the sphere mesh in its parent — index 1 is under the
+      // mesh and under clumpA too, which is what puts a moon behind the ringed world's far annulus
+      // as well as behind the body. Everything else is a plain move.
+      pm.s.position.set(Math.cos(a) * pm.dist, Math.sin(a) * pm.dist * MOON_ORBIT_SQUASH)
+      pm.root.setChildIndex(pm.s, Math.sin(a) < 0 ? 1 : pm.root.children.length - 1)
+    }
     for (const ps of planetSpinners) {
       // Spin about the texture's own y (pole) axis, then map into view space through the planet's
       // fixed tilt: M = Ry(-angle) * transpose(tilt), written straight into the shader's three
@@ -7888,12 +7915,14 @@ export function createRenderer(app) {
     const style = chapterBiome.obstacle // non-skies chapters: one style for every obstacle
     const liveCells = new Set() // this rebuild's obstacle set, for the cache prune below
     planetSpinners.length = 0   // rebuilt below; stale sprite refs would spin a released pool slot
+    planetMoons.length = 0
     for (let i = 0; i < obstacleSprites.length; i++) {
       const ov = obstacleSprites[i]
       if (i >= list.length) { ov.root.visible = false; continue }
       const o = list[i]
       ov.root.visible = true
       if (ov.mesh) ov.mesh.visible = false   // pool slots are reused across chapters; only the planet branch re-enables it
+      if (ov.moons) for (const m of ov.moons) m.visible = false   // same rule — a moon must not outlive its planet
       ov.root.position.set(o.x, o.y)
       ov.x = o.x; ov.y = o.y; ov.r = o.r
       liveCells.add(o._cell)
@@ -8064,6 +8093,29 @@ export function createRenderer(app) {
           ov.clumpB.rotation = 0          // the sun does not orbit the planet
           ov.clumpB.position.set(0, 0)
           ov.clumpB.scale.set(front ? (o.r * 2) / front.width : 1)
+          // Moons: one sprite each, hashed off the same x/y as everything else about this world so
+          // it keeps its phase when it streams back into view. Registered for tickPlanetSpin, which
+          // is where the orbit actually happens — this block runs only on a rebuild.
+          const moons = T.planetMoons[v]
+          if (moons.length && !ov.moons) ov.moons = []
+          for (let k = 0; k < moons.length; k++) {
+            if (!ov.moons[k]) {
+              const s = new Sprite(Texture.EMPTY)
+              s.anchor.set(0.5)
+              ov.root.addChild(s)
+              ov.moons[k] = s
+            }
+            const s = ov.moons[k]
+            s.visible = true
+            s.texture = moons[k].tex
+            s.scale.set((o.r * moons[k].mr * 2) / moons[k].tex.width)
+            const h = o.x * 1.7 + o.y * 0.31 + 131.7 + k * 7.3
+            planetMoons.push({
+              s, root: ov.root, dist: o.r * moons[k].dist, phase: hash(h) * Math.PI * 2,
+              rate: (MOON_ORBIT_MIN + hash(h + 9.4) * (MOON_ORBIT_MAX - MOON_ORBIT_MIN))
+                * (hash(h + 17.2) < 0.5 ? -1 : 1),
+            })
+          }
           ov.ring.alpha = 0   // no collision contract to draw — see BIOMES.beyond.obstacle
           continue
         }
