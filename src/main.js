@@ -73,7 +73,7 @@ const ui = initUI({
     // state.js.
     if (mode === 'daily') {
       const chapter = dailyChapter(todayKey())
-      run = createRun(meta, { chapter, mutators: dailyMutators(todayKey()) })
+      run = createRun(meta, { chapter, mutators: dailyMutators(todayKey(), chapter) })
     } else {
       const chMeta = ensureChapterMeta(meta, meta.chapter)
       run = createRun(meta, {
@@ -83,7 +83,7 @@ const ui = initUI({
         // scripted, repeatable fight.
         mutators: meta.chapter === 'blank'
           ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
-          : randomMutators(chMeta.difficulty - 1),
+          : randomMutators(chMeta.difficulty - 1, meta.chapter),
         difficulty: chMeta.difficulty,
         consumables: ids,
       })

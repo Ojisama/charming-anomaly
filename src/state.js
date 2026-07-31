@@ -137,9 +137,9 @@ function scatterField(count, r, minDist, minGap) {
 
 // Snap traps (v5.4 undergrowth 'predators' signature, see run.traps below): seeded once here from
 // CHAPTERS[chapter].signature.traps. Any chapter whose signature isn't 'predators' yields [].
-function generateTraps(sig) {
+function generateTraps(sig, countMul = 1) {
   if (!sig || sig.type !== 'predators' || !sig.traps) return []
-  return scatterField(sig.traps, SNAP_TRAP_R, SNAP_TRAP_MIN_DIST, OBSTACLE_MIN_GAP)
+  return scatterField(Math.round(sig.traps * countMul), SNAP_TRAP_R, SNAP_TRAP_MIN_DIST, OBSTACLE_MIN_GAP)
     .map(({ x, y }) => ({ x, y, r: SNAP_TRAP_R, armed: true, cd: 0 }))
 }
 
@@ -773,7 +773,7 @@ export function createRun(meta, opts = {}) {
     // during the run — lanes by the city's traffic signature, enemyShots by missileVolley
     // helicopters, debris by the Trash Tornado (rewritten every frame, like orbs), geysers by the
     // Sewer Geyser (and the Reality Shard's rifts), lobs by the Debris Toss.
-    traps: generateTraps(CHAPTERS[chapter].signature),
+    traps: generateTraps(CHAPTERS[chapter].signature, mods.trapCountMul), // trap-season anomaly seeds more
     wells: generateWells(CHAPTERS[chapter].signature),
     lanes: [],
     enemyShots: [],

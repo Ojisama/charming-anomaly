@@ -1677,7 +1677,8 @@ export function currentForce(run, x, y) {
              Math.sin(y * sig.scale * 1.3 - t * sig.drift * 0.7 + seed * 1.7)
   const fy = Math.cos(y * sig.scale + t * sig.drift * 0.9 + seed * 2.3) +
              Math.cos(x * sig.scale * 1.6 - t * sig.drift * 1.2 + seed * 0.6)
-  return { fx: fx * sig.strength * 0.5, fy: fy * sig.strength * 0.5 }
+  const k = sig.strength * 0.5 * run.mods.currentForceMul // riptide anomaly turns the field up
+  return { fx: fx * k, fy: fy * k }
 }
 
 function stepCurrents(run, dt) {
@@ -2136,9 +2137,10 @@ function stepLanes(run, dt) {
   if (!sig || sig.type !== 'traffic') return false
   const p = run.player
 
-  run._laneAcc = (run._laneAcc ?? TRAFFIC_INTERVAL) - dt
+  const laneEvery = TRAFFIC_INTERVAL * run.mods.trafficIntervalMul // rush-hour anomaly shortens it
+  run._laneAcc = (run._laneAcc ?? laneEvery) - dt
   if (run._laneAcc <= 0) {
-    run._laneAcc += TRAFFIC_INTERVAL
+    run._laneAcc += laneEvery
     if (run.lanes.length < sig.lanes) {
       const angle = Math.random() * Math.PI * 2
       const off = (Math.random() * 2 - 1) * TRAFFIC_OFFSET
@@ -2202,9 +2204,10 @@ function stepLanes(run, dt) {
 function stepBombardment(run, dt) {
   const sig = CHAPTERS[run.chapter].signature
   if (!sig || sig.type !== 'bombardment') return
-  run._bombardAcc = (run._bombardAcc ?? sig.rate) - dt
+  const bombardEvery = sig.rate * run.mods.bombardIntervalMul // carpet-barrage anomaly shortens it
+  run._bombardAcc = (run._bombardAcc ?? bombardEvery) - dt
   if (run._bombardAcc > 0) return
-  run._bombardAcc += sig.rate
+  run._bombardAcc += bombardEvery
   const p = run.player
   for (let i = 0; i < BOMBARDMENT_COUNT; i++) {
     if (run.bombs.length >= SHELL_MAX_LIVE) break
@@ -2246,7 +2249,7 @@ function wellForce(run, x, y) {
     const dx = w.x - x, dy = w.y - y
     const d = Math.hypot(dx, dy)
     if (d <= 1e-6 || d > w.r) continue
-    const a = w.g * (1 - d / w.r) // full strength at the center, linearly to 0 at the rim
+    const a = w.g * (1 - d / w.r) * run.mods.wellForceMul // linear to 0 at the rim; supermassive anomaly turns it up
     ax += (dx / d) * a
     ay += (dy / d) * a
   }
@@ -2473,7 +2476,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     // ants follow & accelerate on (see run.trails / stepEnemyMovement). Gated on the chapter's
     // 'pheromones' signature so an ant roster in a non-pheromone chapter simply wouldn't lay trails.
     if (enemy.flags && enemy.flags.includes('trailFollow') && CHAPTERS[run.chapter].signature?.type === 'pheromones') {
-      run.trails.push({ x: enemy.x, y: enemy.y, t: PHEROMONE_LIFE })
+      run.trails.push({ x: enemy.x, y: enemy.y, t: PHEROMONE_LIFE * run.mods.pheromoneLifeMul })
     }
     // immuneMemory mutator (v5.24 blank difficulty 3, assigned by the chapter's ladder — never
     // rolled): a slain WAVE enemy leaves brief erasing residue where it died, so clearing a wave

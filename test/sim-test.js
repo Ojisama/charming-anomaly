@@ -5052,6 +5052,31 @@ function testTheBlankBoss() {
   console.log('PASS run FF (The Blank boss mechanics): victory-under-fire, trail bombs, yank, memory residue')
 }
 
+// ---- Run GG: chapter-scoped anomalies (v5.25) -------------------------------------------------
+// The roll pool respects `chapters` (an anomaly tied to a signature only rolls where that
+// signature runs) and `exclude` (sticky's magnet upside is a lie in the beyond's infinite-magnet
+// lane), and the new signature knobs actually land in run.mods / the seeded world.
+function testChapterAnomalies() {
+  // Over-asking returns the whole (shuffled) pool — an order-independent membership probe.
+  const all = (ch) => randomMutators(99, ch)
+  assert(!all('beyond').includes('sticky'), 'sticky must not roll in the beyond')
+  assert(all('beyond').includes('supermassive'), 'supermassive must roll in the beyond')
+  assert(!all('pond').includes('supermassive'), 'supermassive must not roll outside the beyond')
+  assert(all('pond').includes('riptide') && all('pond').includes('sticky'), 'pond rolls riptide and sticky')
+  assert(!all(undefined).includes('riptide'), 'a chapterless roll excludes every scoped anomaly')
+  for (const ch of CHAPTER_ORDER) assert(!all(ch).includes('accelResponse'), 'hidden entries never roll anywhere')
+  const daily = dailyMutators('2026-07-31', 'beyond')
+  assert(!daily.includes('sticky') && !daily.includes('riptide'), 'the daily pool is chapter-scoped too')
+
+  const r1 = createRun(makeMeta(), { chapter: 'beyond', mutators: ['supermassive'] })
+  assert.strictEqual(r1.mods.wellForceMul, 1.8, 'supermassive lands in run.mods.wellForceMul')
+  assert.strictEqual(createRun(makeMeta(), { chapter: 'pond' }).mods.currentForceMul, 1, 'knobs default neutral')
+  const base = createRun(makeMeta(), { chapter: 'undergrowth' }).traps.length
+  const more = createRun(makeMeta(), { chapter: 'undergrowth', mutators: ['trapseason'] }).traps.length
+  assert(more > base, `expected trap season to seed more traps (${base} -> ${more})`)
+  console.log(`PASS run GG (chapter anomalies): scoped pools, scoped daily, wellForceMul 1.8, traps ${base}->${more}`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5088,6 +5113,7 @@ try {
   testRoads()
   testTheBlank()
   testTheBlankBoss()
+  testChapterAnomalies()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

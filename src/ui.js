@@ -942,8 +942,8 @@ export function initUI(hooks) {
   }
 
   function renderDaily() {
-    const ids = dailyMutators(todayKey())
     const chId = dailyChapter(todayKey())
+    const ids = dailyMutators(todayKey(), chId) // chapter-scoped pool — must match main.js's roll
     const chapter = CHAPTERS[chId]
     const isPreview = !meta.chapters?.[chId]?.unlocked
     screens.daily.innerHTML = `

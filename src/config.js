@@ -1057,8 +1057,20 @@ export const difficultyHpMul = (d) => 1 + DIFFICULTY_HP_PER_LEVEL * (Math.max(1,
 export const DIFFICULTY_COIN_PER_LEVEL = 0.25
 export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.max(1, d) - 1)
 // count distinct random mutator ids (Fisher-Yates over the full pool)
-export const randomMutators = (count) => {
-  const pool = Object.keys(MUTATORS).filter((id) => !MUTATORS[id].hidden)
+// The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and
+// `exclude` (denylist) scope an anomaly to where its mechanic actually exists. With no
+// chapterId, every scoped entry is out — a caller that doesn't say where it is gets only the
+// universally-valid pool.
+const mutatorPool = (chapterId) => Object.keys(MUTATORS).filter((id) => {
+  const m = MUTATORS[id]
+  if (m.hidden) return false
+  if (m.chapters && !m.chapters.includes(chapterId)) return false
+  if (m.exclude && m.exclude.includes(chapterId)) return false
+  return true
+})
+
+export const randomMutators = (count, chapterId) => {
+  const pool = mutatorPool(chapterId)
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
     const t = pool[i]
@@ -3493,7 +3505,9 @@ export const MUTATORS = {
   eliterush:{ name: 'Elite Convention',  icon: '👑', desc: 'Elites arrive twice as often, drop way more.', effects: { eliteEveryMul: 0.55, coinMul: 1.5 } },
   unstable: { name: 'Unstable Physics',  icon: '🌀', desc: 'Elemental infusions everywhere, weapons hit softer.', effects: { elementWeightMul: 3, playerDmgMul: 0.85 } },
   glass:    { name: 'Glass Goo',         icon: '💔', desc: 'You hit much harder but take much more.',      effects: { contactDmgTakenMul: 1.75, playerDmgMul: 1.35 } },
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  // exclude: the lane's magnet is already infinite (stepPickups), so this one's upside would be
+  // a lie there — it'd roll as pure downside without saying so.
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but
@@ -3502,6 +3516,17 @@ export const MUTATORS = {
   // behavior (faster telegraphs, death residue) is read directly off run.mutators by sim.js.
   accelResponse: { name: 'Accelerated Response', icon: '⚡', desc: 'its telegraphs are 25% faster',      hidden: true, effects: {} },
   immuneMemory:  { name: 'Immune Memory',        icon: '🧠', desc: 'slain cells leave erasing residue',  hidden: true, effects: {} },
+  // v5.25: chapter anomalies — each turns ITS chapter's signature mechanic up, paired with a
+  // small reward like every generic entry above. `chapters` scopes the roll to where the
+  // mechanic exists: a modifier that references a system the chapter doesn't run is noise, not
+  // challenge (`exclude` on sticky above is the same rule from the other side). The body has no
+  // signature, so it keeps the generic pool alone.
+  riptide:      { name: 'Riptide',        icon: '🌊', desc: 'The currents shove twice as hard. Richer coins.',            chapters: ['pond'],        effects: { currentForceMul: 2, coinMul: 1.25 } },
+  overscent:    { name: 'Overscent',      icon: '🌼', desc: 'Pheromone trails linger twice as long. Bonus XP.',           chapters: ['garden'],      effects: { pheromoneLifeMul: 2, xpMul: 1.15 } },
+  trapseason:   { name: 'Trap Season',    icon: '🪤', desc: 'Half again more snap traps. Richer coins.',                  chapters: ['undergrowth'], effects: { trapCountMul: 1.5, coinMul: 1.3 } },
+  rushhour:     { name: 'Rush Hour',      icon: '🚦', desc: 'Traffic barely lets up. Richer coins.',                      chapters: ['city'],        effects: { trafficIntervalMul: 0.6, coinMul: 1.25 } },
+  barrage:      { name: 'Carpet Barrage', icon: '🎯', desc: 'The bombardment barely pauses. Bonus XP.',                   chapters: ['skies'],       effects: { bombardIntervalMul: 0.6, xpMul: 1.2 } },
+  supermassive: { name: 'Supermassive',   icon: '🕳️', desc: 'The wells pull far harder — nothing flies straight. Richer coins.', chapters: ['beyond'], effects: { wellForceMul: 1.8, coinMul: 1.25 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -3509,6 +3534,13 @@ const MUTATOR_MOD_KEYS = [
   'spawnMul', 'enemyHpMul', 'enemySpeedMul', 'enemyDmgMul', 'enemyRadiusMul',
   'contactDmgTakenMul', 'playerDmgMul', 'playerSpeedMul', 'coinMul', 'xpMul',
   'eliteEveryMul', 'elementWeightMul', 'magnetMul',
+  // v5.25 chapter-anomaly knobs (each consumed at its signature's one site):
+  'currentForceMul',    // currentForce (pond drift field strength)
+  'pheromoneLifeMul',   // dealDamage's trailFollow drop (garden trail lifetime)
+  'trapCountMul',       // generateTraps (state.js — undergrowth snap-trap count)
+  'trafficIntervalMul', // stepLanes cadence (city; <1 = more often, like eliteEveryMul)
+  'bombardIntervalMul', // stepBombardment cadence (skies; <1 = more often)
+  'wellForceMul',       // wellForce (beyond gravity bend on every projectile)
 ]
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown
@@ -3564,9 +3596,9 @@ function mulberry32(seed) {
 
 // Deterministic: the same dateKey always returns the same DAILY_MUTATOR_COUNT distinct
 // mutator ids (order is part of the result, but callers should treat it as a set).
-export function dailyMutators(dateKey) {
+export function dailyMutators(dateKey, chapterId) {
   const rand = mulberry32(hashString(dateKey))
-  const pool = Object.keys(MUTATORS).filter((id) => !MUTATORS[id].hidden)
+  const pool = mutatorPool(chapterId)
   const picked = []
   for (let i = 0; i < DAILY_MUTATOR_COUNT && pool.length > 0; i++) {
     const idx = Math.floor(rand() * pool.length)
