@@ -128,6 +128,7 @@ import {
   BLANK_READ3_T, BLANK_LEAD, BLANK_BAND_LEN, BLANK_BAND_W, BLANK_BAND_FUSE, BLANK_BAND_T, BLANK_BAND_DPS,
   BLANK_DESPERATE_FRAC, BLANK_DESPERATE_MUL, BLANK_WAKE_DT, BLANK_WAKE_LEN, BLANK_WAKE_W, BLANK_WAKE_T,
   BLANK_WAKE_DPS, BLANK_MEMORY_T, BLANK_RECRUIT_T, BLANK_RECRUIT_N, BLANK_ACCEL_MUL,
+  BLANK_BOSS_SPEED_P3, BLANK_PHASE_LEVELS, BLANK_FAN_N, BLANK_FAN_SPREAD, BLANK_FAN_SPEED,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -461,7 +462,7 @@ function stepBossScript(run, dt) {
     const e = spawnBlankEnemy(run, block.boss, true)
     e.hp = e.maxHP = BLANK_BOSS_HP[phase - 1] * run.mods.enemyHpMul
     e.radius = BLANK_BOSS_R
-    e.speed = BLANK_BOSS_SPEED
+    e.speed = phase === 3 ? BLANK_BOSS_SPEED_P3 : BLANK_BOSS_SPEED // P3 has no standoff flag — it chases
     e.dmg = BLANK_BOSS_DMG // contact DOES hurt — standoff keeps it rare, not impossible
     e.xp = BLANK_BOSS_XP
     e.affixes = ['anchored'] // knockback/pull immune — checked by every kb site
@@ -490,6 +491,11 @@ function stepBossScript(run, dt) {
       // 'victory' with 'dead' — turning the run's climactic kill into a recorded defeat.
       return true
     } else {
+      // A phase kill pays in power, not gems: bank exactly BLANK_PHASE_LEVELS level-ups' worth of
+      // xp (current bar to full, then each next level's cost) — stepLevelUp chains the screens one
+      // per playing frame, same as any banked-xp overflow.
+      p.xp += p.xpNext
+      for (let i = 1; i < BLANK_PHASE_LEVELS; i++) p.xp += xpForLevel(p.level + i)
       s.stage++
       s.waveIdx = 0
       s.waveT = 0
@@ -554,29 +560,51 @@ function stepBossScript(run, dt) {
       })
     }
   } else {
-    // P3 — takes your future: pre-fire an erasure band at the extrapolated position (p.vx/vy are
-    // stepPlayerMovement's input-only snapshot), perpendicular to the heading so it walls off the
-    // straight-ahead escape. Feinting — breaking your own pattern — is the counterplay.
+    // P3 — takes your future, and comes to collect it: the antibody itself chases (no standoff
+    // flag, BLANK_BOSS_SPEED_P3) while pre-firing an erasure CROSS at the extrapolated position
+    // (p.vx/vy are stepPlayerMovement's input-only snapshot) — one band across the heading, one
+    // along it, so both the straight-ahead escape and the sideline are cut. Feinting — breaking
+    // your own pattern — is still the counterplay; now it must be done at a run.
+    const desperate = boss.hp < boss.maxHP * BLANK_DESPERATE_FRAC
     run._read3T -= dt
     if (run._read3T <= 0) {
-      const desperate = boss.hp < boss.maxHP * BLANK_DESPERATE_FRAC
       run._read3T += BLANK_READ3_T * accel * (desperate ? BLANK_DESPERATE_MUL : 1)
       const speed = Math.hypot(p.vx, p.vy)
       const a = speed > 1 ? Math.atan2(p.vy, p.vx) + Math.PI / 2 : Math.random() * Math.PI * 2
-      run.strips.push({
-        x: p.x + p.vx * BLANK_LEAD, y: p.y + p.vy * BLANK_LEAD, angle: a,
-        len: BLANK_BAND_LEN, w: BLANK_BAND_W, fuse: BLANK_BAND_FUSE * accel, t: BLANK_BAND_T,
-        dps: BLANK_BAND_DPS, look: 'erase',
-      })
+      const cx = p.x + p.vx * BLANK_LEAD, cy = p.y + p.vy * BLANK_LEAD
+      for (const da of [0, Math.PI / 2]) {
+        run.strips.push({
+          x: cx, y: cy, angle: a + da,
+          len: BLANK_BAND_LEN, w: BLANK_BAND_W, fuse: BLANK_BAND_FUSE * accel, t: BLANK_BAND_T,
+          dps: BLANK_BAND_DPS, look: 'erase',
+        })
+      }
+    }
+    // Straight aimed fans on the P2 shot timer — no homing (turnRate 0): from a boss already on
+    // your heels the threat is the spread, and sidestepping it steers you toward the cross.
+    run._shotT -= dt
+    if (run._shotT <= 0) {
+      run._shotT += BLANK_SHOT_T * accel * (desperate ? BLANK_DESPERATE_MUL : 1)
+      const base = Math.atan2(p.y - boss.y, p.x - boss.x)
+      for (let i = 0; i < BLANK_FAN_N; i++) {
+        const a = base + (i - (BLANK_FAN_N - 1) / 2) * BLANK_FAN_SPREAD
+        run.enemyShots.push({
+          x: boss.x, y: boss.y,
+          vx: Math.cos(a) * BLANK_FAN_SPEED, vy: Math.sin(a) * BLANK_FAN_SPEED,
+          r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: 0,
+        })
+      }
     }
   }
 
   // Drip recruits: the current phase's wave minion, so the field is never bare during the duel.
+  // P3's pulse is fast and mixed (see BLANK_RECRUIT_T/N) — an endless xp faucet for the build
+  // that can't burn 3800 hp down fast, so the duel stalls into farming, never into a wall.
   run._recruitT -= dt
   if (run._recruitT <= 0) {
     run._recruitT += BLANK_RECRUIT_T[phase - 1]
-    const rid = ['probe', 'binder', 'eraser'][phase - 1]
-    for (let i = 0; i < BLANK_RECRUIT_N[phase - 1]; i++) spawnBlankEnemy(run, rid)
+    const rids = [['probe'], ['binder'], ['probe', 'eraser', 'binder']][phase - 1]
+    for (let i = 0; i < BLANK_RECRUIT_N[phase - 1]; i++) spawnBlankEnemy(run, rids[i % rids.length])
   }
   return playerDied
 }

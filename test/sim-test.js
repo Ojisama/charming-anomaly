@@ -43,6 +43,7 @@ import {
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
+  BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -5077,6 +5078,85 @@ function testChapterAnomalies() {
   console.log(`PASS run GG (chapter anomalies): scoped pools, scoped daily, wellForceMul 1.8, traps ${base}->${more}`)
 }
 
+// ---- Run HH: The Blank pacing pass (v5.26.0) --------------------------------------------------
+// Locks in the pacing rework: a non-final phase kill banks BLANK_PHASE_LEVELS level-ups, P3's
+// antibody chases at its own speed (no standoff flag), fires band CROSSES (two strips ~90° apart
+// at the extrapolated point) plus straight BLANK_FAN_N-shot fans, and its recruit pulse keeps an
+// endless mixed xp faucet flowing.
+function testTheBlankPacing() {
+  const dt = 1 / 60
+
+  // (a) Phase-kill levels: killing antibody1 banks at least BLANK_PHASE_LEVELS level-ups.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody1
+    const before = run.player.level
+    const boss = run.enemies[run.enemies.length - 1]
+    boss.x = run.player.x; boss.y = run.player.y; boss.hp = boss.maxHP = 1
+    advance(run, 3, dt, { x: 0, y: 0 }) // kill + auto-resolve the chained levelups
+    assert(run.player.level >= before + BLANK_PHASE_LEVELS,
+      `expected a phase kill to bank >= ${BLANK_PHASE_LEVELS} levels (${before} -> ${run.player.level})`)
+    console.log(`PASS run HH.a (phase-kill levels): antibody1 kill leveled ${before} -> ${run.player.level}`)
+  }
+
+  // (b) P3 chases: antibody3 spawns at BLANK_BOSS_SPEED_P3 with no standoff flag, and actually
+  // closes distance on a stationary player. (c) Its reads land as CROSSES — two full-length
+  // erase bands ~90° apart (wake residue is short, so filter by BLANK_BAND_LEN) — and (d) its
+  // fans as BLANK_FAN_N straight shots per volley.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [] // keep the boss alive through the whole observation window
+    Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody3
+    const boss = run.enemies.find((e) => e.id === run.script.bossId)
+    assert.strictEqual(boss.speed, BLANK_BOSS_SPEED_P3, `expected antibody3 at BLANK_BOSS_SPEED_P3, got ${boss.speed}`)
+    assert(!boss.flags.includes('standoff'), 'expected antibody3 without the standoff flag — it chases')
+    // Stationary player, boss parked 800px out: the chase closes 170 px/s (never to contact inside
+    // the window), and the fan is sampled IN FLIGHT — a shot that reaches the player pops out of
+    // run.enemyShots, so an end-of-window length check would race the projectile.
+    boss.x = run.player.x + 800; boss.y = run.player.y
+    const dBefore = Math.hypot(boss.x - run.player.x, boss.y - run.player.y)
+    let fanSeen = 0, allStraight = true
+    const steps = Math.round((BLANK_READ3_T + 1) / dt)
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      fanSeen = Math.max(fanSeen, run.enemyShots.length)
+      if (run.enemyShots.some((s) => s.turnRate !== 0)) allStraight = false
+    }
+    const bands = run.strips.filter((s) => s.look === 'erase' && s.len === BLANK_BAND_LEN)
+    assert(bands.length >= 2, `expected a cross (>= 2 full-length bands) within ${(BLANK_READ3_T + 1).toFixed(1)}s, got ${bands.length}`)
+    const perp = Math.abs(Math.atan2(Math.sin(bands[0].angle - bands[1].angle), Math.cos(bands[0].angle - bands[1].angle)))
+    assert(Math.abs(perp - Math.PI / 2) < 0.01, `expected the cross's bands ~90° apart, got ${(perp * 180 / Math.PI).toFixed(1)}°`)
+    assert(fanSeen >= BLANK_FAN_N, `expected a ${BLANK_FAN_N}-shot fan in flight, saw at most ${fanSeen}`)
+    assert(allStraight, 'expected P3 fan shots to fly straight (turnRate 0)')
+    const dAfter = Math.hypot(boss.x - run.player.x, boss.y - run.player.y)
+    assert(dAfter < dBefore - 100, `expected the P3 boss to close on the player (${dBefore.toFixed(0)} -> ${dAfter.toFixed(0)}px)`)
+    console.log(`PASS run HH.b-d (P3): chases at ${BLANK_BOSS_SPEED_P3} (${dBefore.toFixed(0)} -> ${dAfter.toFixed(0)}px), cross ${(perp * 180 / Math.PI).toFixed(0)}° apart, ${fanSeen}-shot straight fan`)
+  }
+
+  // (e) P3 recruit faucet: idling in the duel keeps spawning mixed fodder — after 10s there are
+  // multiple recruits alive and more than one rosterId among them.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    advance(run, 10, dt, { x: 0, y: 0 })
+    const recruits = run.enemies.filter((e) => !e._dead && e.id !== run.script.bossId)
+    const rids = new Set(recruits.map((e) => e.rosterId))
+    assert(recruits.length >= 10, `expected an endless P3 faucet (>= 10 recruits after 10s), got ${recruits.length}`)
+    assert(rids.size >= 2, `expected a mixed P3 recruit pulse, got only ${[...rids].join(',')}`)
+    console.log(`PASS run HH.e (P3 faucet): ${recruits.length} recruits after 10s idle, mix of ${[...rids].join('/')}`)
+  }
+
+  console.log('PASS run HH (The Blank pacing): phase-kill levels, P3 chase, band crosses, straight fans, endless faucet')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5114,6 +5194,7 @@ try {
   testTheBlank()
   testTheBlankBoss()
   testChapterAnomalies()
+  testTheBlankPacing()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

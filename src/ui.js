@@ -663,12 +663,15 @@ export function initUI(hooks) {
       <div class="rampage-wrap rampage-wrap--hidden">
         <div class="rampage-bar"><div class="rampage-fill"></div></div>
       </div>
-      <!-- v5.24: The Blank's boss HP bar. Same grid cell as rampage-wrap above (never both visible
-           at once — blank isn't a crush chapter) and reuses its .rampage-bar/.rampage-fill classes
-           for chrome (border/radius/background); ui.js doesn't own styles.css so positioning/size/
-           color overrides live inline instead of a new stylesheet rule. -->
-      <div class="boss-bar-wrap" data-boss-bar style="display:none; grid-column:1; grid-row:2; max-width:190px;">
-        <div class="rampage-bar" style="height:8px;"><div class="rampage-fill" style="background:var(--gold);"></div></div>
+      <!-- v5.24: The Blank's boss HP bar; v5.26.0 it spans the full hud-top row (grid-column
+           1/-1) and IS the phase readout — the timer slot goes blank while a boss is up. Reuses
+           .rampage-bar/.rampage-fill classes for chrome (border/radius/background); ui.js doesn't
+           own styles.css so positioning/size/color overrides live inline. -->
+      <!-- Violet fill, NOT var(--gold): gold is the xp bar one row down (and rampage's active
+           state) — a gold boss bar reads as a second xp/rampage strip. #8a5fe0 is the antibody's
+           own FX accent (render.js), so the bar reads as "the boss's" at a glance. -->
+      <div class="boss-bar-wrap" data-boss-bar style="display:none; grid-column:1 / -1; grid-row:2;">
+        <div class="rampage-bar" style="height:14px;"><div class="rampage-fill" style="background:#8a5fe0;"></div></div>
       </div>
     </div>
     <div class="xp-row">
@@ -762,14 +765,15 @@ export function initUI(hooks) {
     }
     // v5.24: scripted chapters (The Blank) have no survival countdown — stepSpawning/the victory
     // timer are both off (see sim.js), so the HUD timer slot instead reads run.script's stage
-    // machine: "WAVE n" (1-3, position within the current 3-wave block) on even stages, "PHASE k/3"
-    // (odd stages index the 3 boss phases) while the boss is up. scriptedChapter is cached like
-    // crushChapter/laneChapter above — a per-chapter constant, not something that flips mid-run.
+    // machine: "WAVE n" (1-3, position within the current 3-wave block) on even stages; on odd
+    // (boss) stages the slot goes BLANK — the full-width boss HP bar below is the whole readout
+    // (v5.26.0, no more "PHASE k/3" text). scriptedChapter is cached like crushChapter/laneChapter
+    // above — a per-chapter constant, not something that flips mid-run.
     const scriptedChapter = CHAPTERS[run.chapter].scripted === true
     if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
     if (scriptedChapter) {
       const script = run.script
-      const label = script.stage % 2 === 0 ? `WAVE ${script.waveIdx + 1}` : `PHASE ${(script.stage + 1) / 2}/3`
+      const label = script.stage % 2 === 0 ? `WAVE ${script.waveIdx + 1}` : ''
       if (label !== last.remain) {
         last.remain = label
         hud.timer.textContent = label

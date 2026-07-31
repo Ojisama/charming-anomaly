@@ -1574,11 +1574,11 @@ CHAPTERS.blank = {
   roster: [
     { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.15, flags: ['pastSeek'] },
     { id: 'binder',    archetype: 'normal', name: 'Binder',       hpMul: 0.9, speedMul: 1.05, flags: ['latch'] },
-    { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 0.6,  flags: ['wake'] },
+    { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 1.2,  flags: ['wake'] },
     { id: 'bindnode',  archetype: 'normal', name: 'Binding Node', hpMul: 1,   speedMul: 0,    flags: [], formationOnly: true },
     { id: 'antibody1', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
     { id: 'antibody2', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
-    { id: 'antibody3', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
+    { id: 'antibody3', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: [], formationOnly: true }, // no standoff — P3 chases (BLANK_BOSS_SPEED_P3)
   ],
   eliteFlags: [],
   signature: null,
@@ -3408,28 +3408,30 @@ export const chapterMaxDifficulty = (id) => CHAPTERS[id]?.maxDifficultyCap ?? MA
 // on kill (no timer victory in this chapter) and stage++ starts the next wave block. Killing the
 // last boss phase IS the win.
 export const BLANK_SCRIPT = [
-  { waves: [ { n: 10, ids: ['probe'] }, { n: 14, ids: ['probe'] }, { n: 16, ids: ['probe','binder'] } ] },
+  { waves: [ { n: 16, ids: ['probe'] }, { n: 22, ids: ['probe'] }, { n: 26, ids: ['probe','binder'] } ] },
   { boss: 'antibody1' },
-  { waves: [ { n: 12, ids: ['binder','probe'] }, { n: 16, ids: ['binder','probe'] }, { n: 18, ids: ['binder','eraser'] } ] },
+  { waves: [ { n: 18, ids: ['binder','probe'] }, { n: 24, ids: ['binder','probe'] }, { n: 28, ids: ['binder','eraser'] } ] },
   { boss: 'antibody2' },
-  { waves: [ { n: 14, ids: ['eraser','binder'] }, { n: 18, ids: ['eraser','probe','binder'] }, { n: 22, ids: ['eraser','probe','binder'] } ] },
+  { waves: [ { n: 20, ids: ['eraser','binder'] }, { n: 26, ids: ['eraser','probe','binder'] }, { n: 32, ids: ['eraser','probe','binder'] } ] },
   { boss: 'antibody3' },
 ]
 export const BLANK_WAVE_TIMEOUT = 20      // s, next wave arrives even if this one isn't cleared
 export const BLANK_BOSS_HP = [2200, 3000, 3800] // per phase, × run.mods.enemyHpMul, set post-spawn (no hpScale)
 export const BLANK_BOSS_R = 80            // world px, set post-spawn; render bakes at this size
-export const BLANK_BOSS_SPEED = 45        // px/s toward the band
-export const BLANK_BOSS_DMG = 15          // contact damage — it never chases, but touching it is on you
+export const BLANK_BOSS_SPEED = 70        // px/s toward the band (P1/P2)
+export const BLANK_BOSS_SPEED_P3 = 170    // px/s — P3 drops the standoff and RUNS YOU DOWN (player ~220)
+export const BLANK_BOSS_DMG = 15          // contact damage — the band keeps it rare in P1/P2; P3 makes it a chase
 export const BLANK_BOSS_XP = 60           // gem worth on each phase kill
+export const BLANK_PHASE_LEVELS = 3       // level-ups banked on each NON-final phase kill (paid as xp, chained by stepLevelUp)
 export const BLANK_STANDOFF_MIN = 240     // px, standoff flag: back off inside this
 export const BLANK_STANDOFF_MAX = 340     // px, close in outside this
 export const BLANK_STANDOFF_DRIFT_MUL = 0.5 // in-band sideways drift, fraction of speed — a drift, not a strafe
 // Catch-up gear: at band range the antibody ambles (BLANK_BOSS_SPEED), but a player who disengages
-// outruns 45 px/s forever (they move at ~220) and the fight stalls with the boss a screen behind.
-// Past CATCHUP_D it pursues at ×CATCHUP_MUL (180 px/s — still slower than the player, so fleeing
+// outruns 70 px/s forever (they move at ~220) and the fight stalls with the boss a screen behind.
+// Past CATCHUP_D it pursues at ×CATCHUP_MUL (196 px/s — still slower than the player, so fleeing
 // works; it just can't park the boss in another postcode).
-export const BLANK_STANDOFF_CATCHUP_D = 700  // px, beyond this the boss stops ambling and pursues
-export const BLANK_STANDOFF_CATCHUP_MUL = 4  // × speed while catching up
+export const BLANK_STANDOFF_CATCHUP_D = 700    // px, beyond this the boss stops ambling and pursues
+export const BLANK_STANDOFF_CATCHUP_MUL = 2.8  // × speed while catching up
 // P1 reads your past: run.trail is a ring buffer of recent player positions (sampled every
 // BLANK_TRAIL_DT, capped BLANK_TRAIL_MAX ~9s of history). Every BLANK_READ1_T the boss detonates
 // the most recent BLANK_READ1_K trail points as bombs (run.bombs, src:'trail'), oldest point
@@ -3461,8 +3463,9 @@ export const BLANK_SHOT_R = 8             // px hit radius
 export const BLANK_SHOT_LIFE = 3          // s before a shot fizzles
 export const BLANK_SHOT_TURN = 0.4        // rad/s homing clamp — outrunnable, but you're slowed
 // P3 takes your future: pre-fired erasure bands (run.strips, look:'erase') centred on the
-// player's extrapolated position (pos + vel × BLANK_LEAD), perpendicular to their heading.
-export const BLANK_READ3_T = 3.4          // s between P3 pre-fired bands
+// player's extrapolated position (pos + vel × BLANK_LEAD) — a CROSS (one band across the heading,
+// one along it), plus straight aimed shot fans from a boss that is itself chasing (SPEED_P3).
+export const BLANK_READ3_T = 2.6          // s between P3 pre-fired crosses
 export const BLANK_LEAD = 0.55            // s of velocity extrapolation
 export const BLANK_BAND_LEN = 320
 export const BLANK_BAND_W = 64
@@ -3471,6 +3474,9 @@ export const BLANK_BAND_T = 2.4           // s active
 export const BLANK_BAND_DPS = 26
 export const BLANK_DESPERATE_FRAC = 0.25  // P3 hp fraction under which timers ×= BLANK_DESPERATE_MUL
 export const BLANK_DESPERATE_MUL = 0.62
+export const BLANK_FAN_N = 3              // shots per P3 fan (odd — center shot dead-on)
+export const BLANK_FAN_SPREAD = 0.35      // rad between fan shots
+export const BLANK_FAN_SPEED = 310        // px/s, straight (turnRate 0) — dodge the spread, not the shot
 // eraser wake (roster flag) + immuneMemory mutator both drop residue strips (run.strips,
 // look:'erase') — wake trails a live eraser, immuneMemory marks where a wave enemy died.
 export const BLANK_WAKE_DT = 0.5          // s between eraser residue drops
@@ -3479,8 +3485,8 @@ export const BLANK_WAKE_W = 30
 export const BLANK_WAKE_T = 1.6
 export const BLANK_WAKE_DPS = 14
 export const BLANK_MEMORY_T = 2.0         // s an immuneMemory residue lives (len/w = BLANK_WAKE_*)
-export const BLANK_RECRUIT_T = [6, 7, 8]  // s between recruit spawns in phase 1/2/3
-export const BLANK_RECRUIT_N = [3, 2, 2]  // recruits per pulse (probe/binder/eraser respectively)
+export const BLANK_RECRUIT_T = [6, 7, 3]  // s between recruit spawns in phase 1/2/3 — P3 pulses fast:
+export const BLANK_RECRUIT_N = [3, 2, 5]  // endless fodder so a low-damage build can still farm xp mid-duel
 export const BLANK_ACCEL_MUL = 0.75       // accelResponse: applied to READ1_T/READ3_T/NODE_T/SHOT_T/fuses/WAVE_TIMEOUT
 
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
