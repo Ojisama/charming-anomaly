@@ -1058,7 +1058,7 @@ export const DIFFICULTY_COIN_PER_LEVEL = 0.25
 export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.max(1, d) - 1)
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 export const randomMutators = (count) => {
-  const pool = Object.keys(MUTATORS)
+  const pool = Object.keys(MUTATORS).filter((id) => !MUTATORS[id].hidden)
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
     const t = pool[i]
@@ -1540,6 +1540,41 @@ export const CHAPTERS = {
       eliteIridescent: [0xbfffe8, 0xd9c0ff, 0xffe8bf], // pale hues UFO elites cycle through
     },
   },
+}
+// v5.24: The Blank — hidden 8th chapter, deliberately OUTSIDE CHAPTER_ORDER (never in the daily
+// rotation, never in the difficulty-3 chapter-unlock chain — see nextChapter/dailyChapter above).
+// Unlocked by winning a classic run of The Beyond at difficulty 5 (main.js endRun). Not a
+// survival run: `scripted: true` tells sim.js to run stepBossScript as the ONLY spawner (ordinary
+// spawning, elites, formations, obstacles and the 300s victory timer are all gated off) and tells
+// ui.js to swap the HUD timer for a wave/phase readout. `maxDifficultyCap: 3` overrides
+// MAX_DIFFICULTY for this one chapter — see chapterMaxDifficulty below. weapons is the union of
+// every other chapter's pool (the final exam); roster mixes ordinary wave fodder (probe/binder/
+// eraser) with `formationOnly` entries only stepBossScript ever spawns by id: the binding node
+// (P2 tether) and the three antibody phases (the boss itself, one run.enemies entry per phase).
+CHAPTERS.blank = {
+  name: 'The Blank', tagline: 'deletion in progress', icon: '⬜',
+  scripted: true,          // gates victory timer + ordinary spawning (sim.js), HUD readout (ui.js)
+  maxDifficultyCap: 3,     // per-chapter ladder ceiling (see chapterMaxDifficulty helper)
+  weapons: ['star','orbit','wave','homing','flagella','mines','bloom','boomerang','stinger','lure',
+            'clawRake','quillBurst','chitterShriek','rainbow','trashTornado','sewerGeyser',
+            'roar','tailSwipe','debrisToss','realityShard','hole','tesseractBeam'], // union of all 7 pools
+  starter: 'realityShard',
+  roster: [
+    { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.15, flags: ['pastSeek'] },
+    { id: 'binder',    archetype: 'normal', name: 'Binder',       hpMul: 0.9, speedMul: 1.05, flags: ['latch'] },
+    { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 0.6,  flags: ['wake'] },
+    { id: 'bindnode',  archetype: 'normal', name: 'Binding Node', hpMul: 1,   speedMul: 0,    flags: [], formationOnly: true },
+    { id: 'antibody1', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
+    { id: 'antibody2', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
+    { id: 'antibody3', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
+  ],
+  eliteFlags: [],
+  signature: null,
+  obstacles: null,
+  modsByDifficulty: { 1: [], 2: ['accelResponse'], 3: ['accelResponse', 'immuneMemory'] },
+  render: { bgColor: 0xf2efe8, floorTint: 0xffffff, playerTint: 0x8a55d6, tail: false,
+            voidFloor: true,   // RENDER gates all decorative floor layers off
+            ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
 }
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
@@ -3347,6 +3382,95 @@ export const GRAVITY_WELL_R = 190       // px, influence radius
 export const GRAVITY_MIN_DIST = 260     // px, min distance from the run's origin
 export const GRAVITY_MIN_GAP = 120      // px, min gap between two wells' edges
 
+// Per-chapter difficulty ladder ceiling. Every chapter but the blank rides the shared
+// MAX_DIFFICULTY (5); CHAPTERS[id].maxDifficultyCap overrides it when set (blank caps at 3 — see
+// CHAPTERS.blank above). Used by state.js's ensureChapterMeta (clamp on load) and main.js's
+// endRun/onDifficulty (clamp on unlock), and by ui.js for the chapter card's pip/star count.
+export const chapterMaxDifficulty = (id) => CHAPTERS[id]?.maxDifficultyCap ?? MAX_DIFFICULTY
+
+// ---- The Blank (v5.24, hidden final boss chapter, see sim.js's stepBossScript) ----------------
+// Script table read by stepBossScript: even indices are wave blocks (3 discrete ring-spawned
+// waves each, advancing on clear-or-timeout), odd indices are boss phases (one run.enemies entry
+// per phase — antibody1/2/3 — so every weapon/element/mod hits it with zero new plumbing). A wave
+// block ends and stage++ once its last wave's block is cleared/timed out; a boss phase ends ONLY
+// on kill (no timer victory in this chapter) and stage++ starts the next wave block. Killing the
+// last boss phase IS the win.
+export const BLANK_SCRIPT = [
+  { waves: [ { n: 10, ids: ['probe'] }, { n: 14, ids: ['probe'] }, { n: 16, ids: ['probe','binder'] } ] },
+  { boss: 'antibody1' },
+  { waves: [ { n: 12, ids: ['binder','probe'] }, { n: 16, ids: ['binder','probe'] }, { n: 18, ids: ['binder','eraser'] } ] },
+  { boss: 'antibody2' },
+  { waves: [ { n: 14, ids: ['eraser','binder'] }, { n: 18, ids: ['eraser','probe','binder'] }, { n: 22, ids: ['eraser','probe','binder'] } ] },
+  { boss: 'antibody3' },
+]
+export const BLANK_WAVE_TIMEOUT = 20      // s, next wave arrives even if this one isn't cleared
+export const BLANK_BOSS_HP = [2200, 3000, 3800] // per phase, × run.mods.enemyHpMul, set post-spawn (no hpScale)
+export const BLANK_BOSS_R = 80            // world px, set post-spawn; render bakes at this size
+export const BLANK_BOSS_SPEED = 45        // px/s toward the band
+export const BLANK_BOSS_DMG = 15          // contact damage — it never chases, but touching it is on you
+export const BLANK_BOSS_XP = 60           // gem worth on each phase kill
+export const BLANK_STANDOFF_MIN = 240     // px, standoff flag: back off inside this
+export const BLANK_STANDOFF_MAX = 340     // px, close in outside this
+export const BLANK_STANDOFF_DRIFT_MUL = 0.5 // in-band sideways drift, fraction of speed — a drift, not a strafe
+// Catch-up gear: at band range the antibody ambles (BLANK_BOSS_SPEED), but a player who disengages
+// outruns 45 px/s forever (they move at ~220) and the fight stalls with the boss a screen behind.
+// Past CATCHUP_D it pursues at ×CATCHUP_MUL (180 px/s — still slower than the player, so fleeing
+// works; it just can't park the boss in another postcode).
+export const BLANK_STANDOFF_CATCHUP_D = 700  // px, beyond this the boss stops ambling and pursues
+export const BLANK_STANDOFF_CATCHUP_MUL = 4  // × speed while catching up
+// P1 reads your past: run.trail is a ring buffer of recent player positions (sampled every
+// BLANK_TRAIL_DT, capped BLANK_TRAIL_MAX ~9s of history). Every BLANK_READ1_T the boss detonates
+// the most recent BLANK_READ1_K trail points as bombs (run.bombs, src:'trail'), oldest point
+// telegraphing first (staggered fuse) so the blasts chase you along your own path in sequence.
+export const BLANK_TRAIL_DT = 0.35        // s between trail samples
+export const BLANK_TRAIL_MAX = 26         // samples kept (~9s of history)
+export const BLANK_READ1_T = 5.0          // s between P1 trail reads
+export const BLANK_READ1_K = 8            // trail points detonated per read (most recent K)
+export const BLANK_READ1_FUSE = 0.9       // s telegraph on the oldest point
+export const BLANK_READ1_STAGGER = 0.14   // s extra fuse per point (oldest detonates first)
+export const BLANK_READ1_R = 46           // px blast radius
+export const BLANK_READ1_DMG = 12
+export const BLANK_PASTSEEK_LAG = 4       // trail samples behind the player probes aim at (~1.4s)
+// P2 holds your present: up to BLANK_NODE_MAX 'bindnode' enemies (formationOnly, spawned by
+// stepBossScript) tether the player and MIN-stack a slow by count alive; a node that survives
+// BLANK_YANK_T instead yanks the player toward the boss and dies.
+export const BLANK_NODE_MAX = 3
+export const BLANK_NODE_T = 3.5           // s between node spawns while below max
+export const BLANK_NODE_HP = 45           // set post-spawn
+export const BLANK_NODE_RING = 170        // px from player where a node appears
+export const BLANK_NODE_SLOW = [1, 0.78, 0.62, 0.5] // player speed mul by alive-node count (MIN-stacked)
+export const BLANK_YANK_T = 5             // s a node survives before the yank fires
+export const BLANK_YANK_DIST = 150        // px instant drag toward the boss
+export const BLANK_YANK_DMG = 10
+export const BLANK_SHOT_T = 2.4           // s between P2 aimed shots (run.enemyShots)
+export const BLANK_SHOT_SPEED = 240
+export const BLANK_SHOT_DMG = 10
+export const BLANK_SHOT_R = 8             // px hit radius
+export const BLANK_SHOT_LIFE = 3          // s before a shot fizzles
+export const BLANK_SHOT_TURN = 0.4        // rad/s homing clamp — outrunnable, but you're slowed
+// P3 takes your future: pre-fired erasure bands (run.strips, look:'erase') centred on the
+// player's extrapolated position (pos + vel × BLANK_LEAD), perpendicular to their heading.
+export const BLANK_READ3_T = 3.4          // s between P3 pre-fired bands
+export const BLANK_LEAD = 0.55            // s of velocity extrapolation
+export const BLANK_BAND_LEN = 320
+export const BLANK_BAND_W = 64
+export const BLANK_BAND_FUSE = 0.75       // s telegraph
+export const BLANK_BAND_T = 2.4           // s active
+export const BLANK_BAND_DPS = 26
+export const BLANK_DESPERATE_FRAC = 0.25  // P3 hp fraction under which timers ×= BLANK_DESPERATE_MUL
+export const BLANK_DESPERATE_MUL = 0.62
+// eraser wake (roster flag) + immuneMemory mutator both drop residue strips (run.strips,
+// look:'erase') — wake trails a live eraser, immuneMemory marks where a wave enemy died.
+export const BLANK_WAKE_DT = 0.5          // s between eraser residue drops
+export const BLANK_WAKE_LEN = 40
+export const BLANK_WAKE_W = 30
+export const BLANK_WAKE_T = 1.6
+export const BLANK_WAKE_DPS = 14
+export const BLANK_MEMORY_T = 2.0         // s an immuneMemory residue lives (len/w = BLANK_WAKE_*)
+export const BLANK_RECRUIT_T = [6, 7, 8]  // s between recruit spawns in phase 1/2/3
+export const BLANK_RECRUIT_N = [3, 2, 2]  // recruits per pulse (probe/binder/eraser respectively)
+export const BLANK_ACCEL_MUL = 0.75       // accelResponse: applied to READ1_T/READ3_T/NODE_T/SHOT_T/fuses/WAVE_TIMEOUT
+
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
 export const CONSUMABLES = {
   revive:    { name: 'Revive Token', icon: '💖', desc: 'Come back once at 50% HP', cost: 150 },
@@ -3371,6 +3495,13 @@ export const MUTATORS = {
   glass:    { name: 'Glass Goo',         icon: '💔', desc: 'You hit much harder but take much more.',      effects: { contactDmgTakenMul: 1.75, playerDmgMul: 1.35 } },
   sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
+  // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
+  // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but
+  // `hidden: true` pulls them out of randomMutators/dailyMutators' pools (below) since they're
+  // assigned by the chapter's fixed ladder, never rolled. Their `effects` are a no-op: the actual
+  // behavior (faster telegraphs, death residue) is read directly off run.mutators by sim.js.
+  accelResponse: { name: 'Accelerated Response', icon: '⚡', desc: 'its telegraphs are 25% faster',      hidden: true, effects: {} },
+  immuneMemory:  { name: 'Immune Memory',        icon: '🧠', desc: 'slain cells leave erasing residue',  hidden: true, effects: {} },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -3435,7 +3566,7 @@ function mulberry32(seed) {
 // mutator ids (order is part of the result, but callers should treat it as a set).
 export function dailyMutators(dateKey) {
   const rand = mulberry32(hashString(dateKey))
-  const pool = Object.keys(MUTATORS)
+  const pool = Object.keys(MUTATORS).filter((id) => !MUTATORS[id].hidden)
   const picked = []
   for (let i = 0; i < DAILY_MUTATOR_COUNT && pool.length > 0; i++) {
     const idx = Math.floor(rand() * pool.length)

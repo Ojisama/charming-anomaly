@@ -41,6 +41,8 @@ import {
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
+  BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
+  BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -4812,6 +4814,244 @@ function testRoads() {
   }
 }
 
+// ---- Run EE: v5.24 The Blank (scripted boss chapter) -------------------------------------------
+// The chapter has no ordinary spawner at all — stepBossScript (sim.js) is the ONLY thing that
+// ever pushes to run.enemies, driven by BLANK_SCRIPT (config.js). Since dealDamage isn't exported,
+// every "kill this enemy now" step below reuses the file's own idiom: drag the target onto the
+// player, drop its hp to 1, and let an equipped weapon (real sim code) finish it — same as
+// makeStatusEnemy's hp:1 elsewhere, just through spawnEnemy's normal path instead of a hand-built
+// enemy. Death is detected the same way sim.js's own doc block says it must be: absence from
+// run.enemies (or its _dead flag) on a later frame, never a returned id.
+function testTheBlank() {
+  const dt = 1 / 60
+
+  // (a) Wave 1 + no ordinary spawning: every enemy alive, at spawn and after 30s of idling, must
+  // be wave-tagged (stepSpawning early-returns entirely for a scripted chapter) and non-elite
+  // (forceNormal, not just an empty eliteFlags list — see the contract's recon notes).
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6 // survive whatever reaches it during the idle window below
+    // No weapons: a real (unstripped) starter weapon can clear wave 1 well inside 30s and carry the
+    // script all the way into the boss stage, whose antibody is deliberately NOT _wave-tagged (see
+    // (c)/(d) below) — that would break this scenario's invariant for reasons unrelated to what it's
+    // actually checking (stepSpawning gates off, at every point, for the whole idle window).
+    run.weapons = []
+    stepSim(run, { x: 0, y: 0 }, dt) // one frame: stepBossScript spawns wave 1 synchronously
+    const wave0 = BLANK_SCRIPT[0].waves[0]
+    assert.strictEqual(run.enemies.length, wave0.n, `expected wave 1 to spawn ${wave0.n} enemies, got ${run.enemies.length}`)
+    assert(run.enemies.every((e) => wave0.ids.includes(e.rosterId)), "expected every wave-1 enemy's rosterId in the wave block's ids")
+    assert(run.enemies.every((e) => e._wave), 'expected every wave-1 enemy tagged _wave')
+    assert(run.enemies.every((e) => !e.elite), 'expected zero elites in a scripted chapter')
+
+    advance(run, 30, dt, { x: 0, y: 0 })
+    assert(run.enemies.every((e) => e._wave), 'expected every enemy alive after 30s idle to still be wave-tagged — no ordinary spawner ever ran')
+    assert(run.enemies.every((e) => !e.elite), 'expected zero elites after 30s idle')
+    console.log(`PASS run EE.a (wave 1 + no ordinary spawning): ${wave0.n} spawned, ${run.enemies.length} alive after 30s idle, all wave-tagged`)
+  }
+
+  // (b) Clear-advance: hard-kill every wave-1 enemy -> wave 2 arrives immediately (rosterIds from
+  // the block's second wave). Timeout-advance, isolated in its own run with no weapons at all (so
+  // nothing can die and only a timeout can move the script): idling past BLANK_WAVE_TIMEOUT
+  // advances anyway, with wave-1's leftovers still alive alongside wave 2.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    stepSim(run, { x: 0, y: 0 }, dt) // wave 1 spawns
+    assert.strictEqual(run.script.waveIdx, 0)
+    for (const e of run.enemies) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 }
+    advance(run, 3, dt, { x: 0, y: 0 })
+    assert.strictEqual(run.script.waveIdx, 1, `expected wave-clear to advance waveIdx to 1, got ${run.script.waveIdx}`)
+    const wave1 = BLANK_SCRIPT[0].waves[1]
+    const alive = run.enemies.filter((e) => !e._dead)
+    assert(alive.length > 0 && alive.every((e) => wave1.ids.includes(e.rosterId)), "expected wave 2 to have arrived with rosterIds from the block's second wave")
+    console.log(`PASS run EE.b1 (clear-advance): wave 1 hard-killed -> waveIdx=1, ${alive.length} wave-2 enemies alive`)
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [] // isolate the timeout path — nothing can die, so only a timeout can advance
+    stepSim(run, { x: 0, y: 0 }, dt) // wave 1 spawns
+    const wave0n = run.enemies.length
+    advance(run, BLANK_WAVE_TIMEOUT + 1, dt, { x: 0, y: 0 })
+    assert.strictEqual(run.script.waveIdx, 1, `expected timeout to advance waveIdx to 1 even with leftovers alive, got ${run.script.waveIdx}`)
+    const stillAlive = run.enemies.filter((e) => !e._dead)
+    assert(stillAlive.length > wave0n, `expected wave-1's ${wave0n} leftovers to still linger alongside wave 2, got ${stillAlive.length} alive total`)
+    console.log(`PASS run EE.b2 (timeout-advance): waveIdx=1 after idling past ${BLANK_WAVE_TIMEOUT}s, ${wave0n} leftovers still alive (${stillAlive.length} total)`)
+  }
+
+  // (c) Boss stage: hard-kill through all 3 waves of the first block -> an antibody1 exists at
+  // BLANK_BOSS_R, knockback-immune, with run.bossBar mirroring it; the phase ends ONLY on kill —
+  // stripped of weapons, it survives idling well past BLANK_WAVE_TIMEOUT (a wave-stage-only
+  // mechanic that must not leak into a boss phase).
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    stepSim(run, { x: 0, y: 0 }, dt) // wave 1 spawns
+    for (let w = 0; w < 3; w++) {
+      for (const e of run.enemies) {
+        if (e._wave && !e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 }
+      }
+      advance(run, 3, dt, { x: 0, y: 0 })
+    }
+    assert.strictEqual(run.script.stage, 1, `expected the script to reach the boss stage after 3 waves cleared, got stage=${run.script.stage}`)
+    const boss = run.enemies.find((e) => e.rosterId === 'antibody1')
+    assert(boss, 'expected an antibody1 to have spawned entering the boss stage')
+    assert.strictEqual(boss.radius, BLANK_BOSS_R, `expected the boss's radius pinned to BLANK_BOSS_R, got ${boss.radius}`)
+    assert(boss.affixes.includes('anchored'), 'expected the boss to carry the anchored (knockback-immune) affix')
+    assert(run.bossBar && run.bossBar.stage === 1 && run.bossBar.hp === Math.max(0, boss.hp) && run.bossBar.max === boss.maxHP,
+      `expected run.bossBar to mirror the boss, got ${JSON.stringify(run.bossBar)}`)
+
+    run.weapons = [] // isolate the timer check below from the combat that just cleared the waves
+    advance(run, BLANK_WAVE_TIMEOUT * 3, dt, { x: 0, y: 0 })
+    assert(run.enemies.some((e) => e.id === boss.id && !e._dead), 'expected the boss to survive idling well past BLANK_WAVE_TIMEOUT — only a kill ends a boss phase')
+    assert.strictEqual(run.phase, 'playing')
+    console.log(`PASS run EE.c (boss stage): antibody1 spawned (r=${boss.radius}, anchored), bossBar mirrors it, survives ${(BLANK_WAVE_TIMEOUT * 3).toFixed(0)}s idle`)
+  }
+
+  // (d) Victory: kill antibody1/2/3 through the script (hard-set hp, jumping run.script straight
+  // to each boss stage the way (c) reaches stage 1 organically) -> phase flips to 'victory'.
+  // Separately: a scripted run idling to t=305s (>= RUN_DURATION) with no weapons at all (so the
+  // only way it could reach 'victory' is a timer bug, never a real kill) must NOT auto-victory —
+  // the whole RUN_DURATION check is skipped for a scripted chapter (see stepSim's gate).
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    for (const stage of [1, 3, 5]) {
+      Object.assign(run.script, { stage, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+      stepSim(run, { x: 0, y: 0 }, dt) // spawns this phase's antibody
+      const boss = run.enemies[run.enemies.length - 1]
+      boss.x = run.player.x; boss.y = run.player.y; boss.hp = boss.maxHP = 1
+      advance(run, 2, dt, { x: 0, y: 0 })
+      assert(!run.enemies.some((e) => e.id === boss.id && !e._dead), `expected stage ${stage}'s antibody dead within 2s`)
+    }
+    assert.strictEqual(run.phase, 'victory', `expected phase 'victory' after antibody3 dies, got '${run.phase}'`)
+    console.log('PASS run EE.d1 (victory): antibody1/2/3 killed through the script -> phase victory')
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e9
+    run.weapons = [] // nothing can die — the only way this run reaches 'victory' is a timer bug
+    advance(run, 305, dt, { x: 0, y: 0 })
+    assert.notStrictEqual(run.phase, 'victory', `expected no timer victory in a scripted chapter, got phase='${run.phase}' at t=${run.time.toFixed(1)}s`)
+    console.log(`PASS run EE.d2 (no timer victory): phase='${run.phase}' at t=${run.time.toFixed(1)}s (>= RUN_DURATION)`)
+  }
+
+  // (e) Meta: a fresh save starts blank locked at maxDifficulty 1; ensureChapterMeta clamps any
+  // stray maxDifficulty into the chapter's own 3-rung ladder (chapterMaxDifficulty('blank') === 3,
+  // not the game-wide MAX_DIFFICULTY of 5).
+  {
+    const meta = makeMeta()
+    const entry = ensureChapterMeta(meta, 'blank')
+    assert.strictEqual(entry.unlocked, false, `expected blank to start locked, got unlocked=${entry.unlocked}`)
+    assert.strictEqual(entry.maxDifficulty, 1, `expected a fresh blank entry's maxDifficulty to start at 1, got ${entry.maxDifficulty}`)
+
+    meta.chapters.blank.maxDifficulty = 99
+    const clamped = ensureChapterMeta(meta, 'blank')
+    assert.strictEqual(chapterMaxDifficulty('blank'), 3, `expected chapterMaxDifficulty('blank') === 3, got ${chapterMaxDifficulty('blank')}`)
+    assert.strictEqual(clamped.maxDifficulty, 3, `expected blank's maxDifficulty to clamp to 3, got ${clamped.maxDifficulty}`)
+    console.log('PASS run EE.e (meta): blank starts locked at maxDifficulty 1, clamps to its own 3-rung cap')
+  }
+
+  console.log('PASS run EE (The Blank): script spawner, clear/timeout advance, boss-phase-ends-only-on-kill, victory, no timer victory, difficulty-3 cap')
+}
+
+// ---- Run FF: The Blank's boss mechanics (v5.24 review regressions) ----------------------------
+// Locks in the adversarial-review fixes: the victory frame is FINAL even under lethal pressure
+// (the review's blocker — hurtPlayer overwriting 'victory' with 'dead' on the detection frame),
+// the P1 trail read actually produces src:'trail' bombs, the P2 yank fires/drains/drags, and
+// immuneMemory drops erase residue at a wave enemy's corpse.
+function testTheBlankBoss() {
+  const dt = 1 / 60
+
+  // (a) Victory under fire: kill antibody3 while the player stands at 1 HP inside a live erasure
+  // strip. The frame that detects the boss's death must end the run as 'victory' — before the
+  // fix, the strip's next damage tick the same frame flipped it to 'dead'.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody3
+    const boss = run.enemies[run.enemies.length - 1]
+    boss.x = run.player.x + 60; boss.y = run.player.y; boss.hp = boss.maxHP = 1
+    advance(run, 2, dt, { x: 0, y: 0 })
+    assert(!run.enemies.some((e) => e.id === boss.id && !e._dead), 'expected antibody3 dead within 2s')
+    // The kill landed but 'victory' may be a frame away (death is detected by id-absence). Pin the
+    // lethal situation NOW — a live strip covering the player, 1 HP, no invuln — and step on.
+    run.player.hp = 1
+    run.player.invuln = 0
+    run.strips.push({ x: run.player.x, y: run.player.y, angle: 0, len: 400, w: 400, fuse: 0, t: 5, dps: 1000, look: 'erase' })
+    for (let i = 0; i < 10 && run.phase === 'playing'; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.phase, 'victory', `expected the boss kill to end the run as 'victory' even under lethal strip damage, got '${run.phase}'`)
+    console.log('PASS run FF.a (victory under fire): final kill wins even with a lethal strip on the player')
+  }
+
+  // (b) P1 trail read: idle in phase 1 past BLANK_READ1_T — the boss detonates the player's trail
+  // as src:'trail' bombs (the telegraph->blast machinery), not some other array.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [] // keep the boss (and the read loop) alive — nothing dies, nothing advances
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    let sawTrailBomb = false
+    const steps = Math.round((BLANK_READ1_T + 1) / dt)
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) {
+      stepSim(run, { x: 1, y: 0 }, dt) // keep moving so the trail has distinct points
+      if (run.bombs.some((b) => b.src === 'trail')) sawTrailBomb = true
+    }
+    assert(sawTrailBomb, `expected src:'trail' bombs within ${(BLANK_READ1_T + 1).toFixed(1)}s of phase 1`)
+    console.log('PASS run FF.b (P1 trail read): trail detonations arrive as src:\'trail\' bombs')
+  }
+
+  // (c) P2 yank: age a binding node past BLANK_YANK_T — the player is dragged toward the boss,
+  // takes BLANK_YANK_DMG, every node is spent, and a 'yank' event fires.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [] // nodes must survive to age
+    Object.assign(run.script, { stage: 3, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody2
+    // Wait for the first node, then age it artificially instead of idling BLANK_YANK_T real seconds.
+    let node = null
+    for (let i = 0; i < Math.round((BLANK_NODE_T + 1) / dt) && !node; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      node = run.enemies.find((e) => e.rosterId === 'bindnode' && !e._dead) ?? null
+    }
+    assert(node, 'expected a bindnode within BLANK_NODE_T + 1s of phase 2')
+    const hpBefore = run.player.hp
+    const px = run.player.x, py = run.player.y
+    const boss = run.enemies.find((e) => e.id === run.script.bossId)
+    const dBefore = Math.hypot(boss.x - px, boss.y - py)
+    node._bindT = BLANK_YANK_T + 1
+    run.events.length = 0
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.events.some((e) => e.type === 'yank'), 'expected a yank event')
+    assert(run.player.hp <= hpBefore - BLANK_YANK_DMG + 1e-9, `expected the yank to cost ${BLANK_YANK_DMG} hp`)
+    const dAfter = Math.hypot(boss.x - run.player.x, boss.y - run.player.y)
+    assert(dAfter < dBefore - 1, `expected the player dragged toward the boss (${dBefore.toFixed(0)} -> ${dAfter.toFixed(0)}px)`)
+    assert(!run.enemies.some((e) => e.rosterId === 'bindnode' && !e._dead), 'expected every node spent by the yank')
+    console.log(`PASS run FF.c (P2 yank): dragged ${(dBefore - dAfter).toFixed(0)}px bossward, ${BLANK_YANK_DMG} hp, nodes spent`)
+  }
+
+  // (d) immuneMemory: with the difficulty-3 modifier active, a wave enemy's death drops erase
+  // residue (a look:'erase' strip) at the corpse.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 3, mutators: ['accelResponse', 'immuneMemory'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    stepSim(run, { x: 0, y: 0 }, dt) // wave 1 spawns
+    for (const e of run.enemies) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 }
+    advance(run, 2, dt, { x: 0, y: 0 })
+    assert(run.strips.some((s) => s.look === 'erase'), "expected immuneMemory to leave look:'erase' residue at wave corpses")
+    console.log('PASS run FF.d (immuneMemory): wave deaths leave erase residue')
+  }
+
+  console.log('PASS run FF (The Blank boss mechanics): victory-under-fire, trail bombs, yank, memory residue')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -4846,6 +5086,8 @@ try {
   testDistricts()
   testSkiesKaiju()
   testRoads()
+  testTheBlank()
+  testTheBlankBoss()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

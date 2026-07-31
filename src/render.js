@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -222,6 +222,10 @@ export function createRenderer(app) {
   // their rig is byte-identical to before this pass.
   let chapterHasKaiju = false
   let chapterHasLane = false   // v5.18 beyond: bottom-anchored camera (CHAPTERS[].lane)
+  // v5.24 the blank: the white void draws NO decorative floor (CHAPTERS[].render.voidFloor) —
+  // every scatter layer's populate callback early-outs on this, so bgColor alone is the ground.
+  // Same latch pattern as chapterHasLane.
+  let chapterIsVoid = false
   // Whether the active chapter's ground is a per-cell Voronoi district map (CHAPTERS[].render.
   // districts — currently only `skies`, piece 4). districtSeed mirrors run._districtSeed so the
   // floor populate* callbacks and syncObstacles don't need `run` threaded through every call.
@@ -354,7 +358,9 @@ export function createRenderer(app) {
   // tail, wasp stinger) go left. syncEnemies aims the sprite at the player off that +x nose, so it
   // is the contract — a creature drawn facing any other way will aim wrong. How FAR each one is
   // allowed to turn is its own business: see the `lean` column in ROSTER_LOOKS below.
-  const ROSTER_BASE_R = { normal: ENEMIES.drone.radius, fast: ENEMIES.wisp.radius, tank: ENEMIES.tank.radius }
+  // 'boss' (v5.24 the blank): sim sets the Antibody's radius to BLANK_BOSS_R post-spawn, and its
+  // looks are drawn at that same local r — so syncEnemies' radius/baseR ratio lands at exactly 1.
+  const ROSTER_BASE_R = { normal: ENEMIES.drone.radius, fast: ENEMIES.wisp.radius, tank: ENEMIES.tank.radius, boss: BLANK_BOSS_R }
 
   // The ground shadow and the elite crown are NOT baked into the body (v5.6.5). They used to be, and
   // then the body started rotating: a creature facing north wore its shadow swung out to the side and
@@ -1856,6 +1862,184 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.66, r)
   }
 
+  // ---- The Blank (v5.24, hidden final chapter) — authored for WHITE -----------------------------
+  // Every roster above sells its silhouette against a DARK floor with a saturated fill; the void's
+  // floor IS near-white, so these four invert the recipe: warm-white bodies a hair off the
+  // background, carried entirely by their gray-lavender EDGE, interior detail in the chapter ink.
+  // Values shadow CHAPTERS.blank.render (bg 0xf2efe8 / ink 0x4a4458) — bakes run once at boot,
+  // before any chapter latch, so they are literals here like every other draw fn's palette.
+  const VOID_BODY = 0xfbfaf6
+  const VOID_EDGE = 0x8880a8
+  const VOID_INK = 0x4a4458
+
+  // probe: the trail-sniffer (pastSeek — it hunts where you WERE). A slim dart aimed +x with one
+  // wide reading lens; its tail carries echo ticks trailing -x, fading like the trail it follows.
+  function drawProbe(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const lw = Math.max(2.2, r * 0.18)
+    groundShadow(r * 0.85, r * 0.75)
+    // echo ticks behind — solid on the twin (they set the -x bounds; wasp-wing rule)
+    for (let i = 0; i < 3; i++) {
+      const h = r * (0.6 - i * 0.14)
+      g.roundRect(-r * (0.92 + i * 0.45), -h / 2, r * 0.24, h, r * 0.1)
+        .fill(white ? 0xffffff : { color: VOID_EDGE, alpha: 0.5 - i * 0.13 })
+    }
+    // body: hard tapered dart, nose +x
+    g.poly([r * 1.05, 0, r * 0.3, -r * 0.55, -r * 0.55, -r * 0.4, -r * 0.72, 0, -r * 0.55, r * 0.4, r * 0.3, r * 0.55])
+      .fill(f(VOID_BODY)).stroke({ width: lw, color: f(VOID_EDGE) })
+    if (!white) {
+      g.poly([r * 1.05, 0, r * 0.3, r * 0.55, -r * 0.55, r * 0.4, -r * 0.72, 0]).fill({ color: VOID_EDGE, alpha: 0.16 })
+      darkEye(g, r * 0.42, 0, r * 0.24, r * 0.2, VOID_INK, true) // the one wide reading lens
+    }
+    if (elite) eliteCrown(-r * 0.62, r)
+  }
+
+  // binder: the latcher (P2's preview). A rounded pale cell with two open grappler hooks reaching
+  // +x — the gap between them is aimed at you. Hooks in a ±y pair, so it rotates freely (lean 90).
+  function drawBinder(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const lw = Math.max(2.4, r * 0.15)
+    groundShadow(r * 0.95, r * 0.9)
+    // grappler hooks first — their roots hide under the membrane
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 0.3, s * r * 0.55], [r * 0.95, s * r * 0.6], [r * 1.25, s * r * 0.2]],
+        r * 0.17, r * 0.08, f(VOID_EDGE), 4)
+    }
+    // membrane body: soft 3-lobe wobble, never a clean circle
+    g.poly(radialOutline((a) => r * (0.86 + 0.05 * Math.cos(a * 3 + 0.8))))
+      .fill(f(VOID_BODY)).stroke({ width: lw, color: f(VOID_EDGE) })
+    if (!white) {
+      g.ellipse(0, r * 0.32, r * 0.52, r * 0.26).fill({ color: VOID_EDGE, alpha: 0.14 })
+      g.circle(-r * 0.08, -r * 0.05, r * 0.3).fill({ color: VOID_EDGE, alpha: 0.4 }) // binding core
+      g.circle(-r * 0.08, -r * 0.05, r * 0.13).fill({ color: VOID_INK, alpha: 0.6 })
+    }
+    if (elite) eliteCrown(-r * 0.92, r)
+  }
+
+  // eraser: the slow wake-layer (P3's preview). A blunt slab pushed flat-face-first (+x) like a
+  // squeegee — the leading edge is the darkest line on it, the rear feathers into pale streaks.
+  function drawEraser(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const lw = Math.max(3, r * 0.12)
+    groundShadow(r * 1.0, r * 0.9)
+    // feathered wake streaks behind — solid on the twin (they set the -x bounds)
+    for (const [y, len] of [[-0.5, 0.5], [0, 0.72], [0.5, 0.5]]) {
+      g.roundRect(-r * (0.85 + len), r * y - r * 0.09, r * len, r * 0.18, r * 0.09)
+        .fill(white ? 0xffffff : { color: VOID_EDGE, alpha: 0.4 })
+    }
+    // slab: flat leading face at +x, rounded rear corners
+    g.roundRect(-r * 0.85, -r * 0.8, r * 1.7, r * 1.6, r * 0.28)
+      .fill(f(VOID_BODY)).stroke({ width: lw, color: f(VOID_EDGE) })
+    // the hard leading edge — the part that erases
+    g.roundRect(r * 0.55, -r * 0.78, r * 0.3, r * 1.56, r * 0.12).fill(f(VOID_EDGE))
+    if (!white) {
+      g.roundRect(r * 0.63, -r * 0.64, r * 0.12, r * 1.28, r * 0.06).fill({ color: VOID_INK, alpha: 0.5 })
+      g.ellipse(-r * 0.1, r * 0.45, r * 0.6, r * 0.26).fill({ color: VOID_EDGE, alpha: 0.16 })
+      g.beginPath() // seam lines across the slab — a machined block, not a creature with a face
+      for (const y of [-0.35, 0, 0.35]) g.moveTo(-r * 0.6, r * y).lineTo(r * 0.45, r * y)
+      g.stroke({ width: 1.4, color: VOID_EDGE, alpha: 0.45 })
+    }
+    if (elite) eliteCrown(-r * 0.85, r)
+  }
+
+  // bindnode: the P2 anchor. Stationary (speedMul 0) — no heading, no face: a pale knot in an open
+  // collar with three filament stubs radiating. The live filament to the player is bindG's job
+  // (syncBinds); the yank countdown (e._bindT) is told there, not here.
+  function drawBindnode(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    groundShadow(r * 0.8, r * 0.7)
+    for (let i = 0; i < 3; i++) { // filament stubs
+      const a = -Math.PI / 2 + (i / 3) * Math.PI * 2
+      taperStroke(g, [[Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.5], [Math.cos(a) * r * 1.15, Math.sin(a) * r * 1.15]],
+        r * 0.13, r * 0.05, f(VOID_EDGE), 3)
+    }
+    g.circle(0, 0, r * 0.8).fill(f(VOID_BODY)).stroke({ width: Math.max(2.4, r * 0.16), color: f(VOID_EDGE) })
+    if (!white) {
+      g.circle(0, 0, r * 0.52).stroke({ width: 1.6, color: VOID_EDGE, alpha: 0.6 })
+      g.circle(0, 0, r * 0.28).fill({ color: 0x8a5fe0, alpha: 0.55 }) // violet core: the thing holding YOU
+      g.circle(0, 0, r * 0.12).fill({ color: VOID_INK, alpha: 0.7 })
+    }
+    if (elite) eliteCrown(-r * 0.8, r)
+  }
+
+  // The Antibody (archetype 'boss', baked at local r = BLANK_BOSS_R): reality's immune response —
+  // chapter 1's immunoglobulin Y grown to arena scale, three near-equal lobes in true 3-fold
+  // symmetry about the hinge so the slow look.spin rotation (syncEnemies) turns it about its own
+  // centre. One draw fn, three script stages of escalating menace bound by the ROSTER_LOOKS
+  // wrappers: stage 2 grows spurs off every lobe, stage 3 sharpens the tips into blades and the
+  // core goes dark ink — the same silhouette reassembling angrier, never a different monster.
+  function drawTheAntibody(g, elite, white, stage) {
+    const r = BLANK_BOSS_R
+    const f = (c) => white ? 0xffffff : c
+    groundShadow(r * 0.85, r * 0.55)
+    // stem down + two arms up, exactly 2pi/3 apart; hair of length asymmetry keeps it organic
+    // without moving the mass off the hinge (rotation must not wobble)
+    const limbs = [
+      [Math.PI * 0.5, r * 1.0], [Math.PI * 0.5 + Math.PI * 2 / 3, r * 0.98], [Math.PI * 0.5 + Math.PI * 4 / 3, r * 0.99],
+    ]
+    const lw = Math.max(4, r * 0.05) + stage * 1.5
+    // hinge mass under the union — fills the notches out into a grabbing claw, not a thin letter
+    g.circle(0, 0, r * 0.42).fill(f(VOID_BODY)).stroke({ width: lw, color: f(VOID_EDGE) })
+    const pts = []
+    for (const [th, len] of limbs) {
+      const ux = Math.cos(th), uy = Math.sin(th)
+      const nx = -uy, ny = ux
+      const wH = r * 0.34, wT = r * (stage >= 3 ? 0.16 : 0.24) // stage 3 tapers toward a blade
+      const bx = -ux * r * 0.05, by = -uy * r * 0.05
+      const ex = ux * len, ey = uy * len
+      pts.push(bx - nx * wH, by - ny * wH)
+      if (stage >= 3) {
+        // bladed tip: a hard point past the cap instead of the rounded lobe
+        pts.push(ex - nx * wT, ey - ny * wT, ex + ux * r * 0.2, ey + uy * r * 0.2, ex + nx * wT, ey + ny * wT)
+      } else {
+        for (let i = 0; i <= 6; i++) { // rounded lobe cap
+          const a = th - Math.PI * 0.5 + (i / 6) * Math.PI
+          pts.push(ex + Math.cos(a) * wT, ey + Math.sin(a) * wT)
+        }
+      }
+      pts.push(bx + nx * wH, by + ny * wH)
+    }
+    g.poly(pts).fill(f(VOID_BODY)).stroke({ width: lw, color: f(VOID_EDGE) })
+    if (stage >= 2) {
+      // spurs off both edges of every lobe — solid on the twin (they extend the bounds)
+      for (const [th, len] of limbs) {
+        const ux = Math.cos(th), uy = Math.sin(th)
+        const nx = -uy, ny = ux
+        for (const s of [-1, 1]) {
+          const sx = ux * len * 0.58 + nx * s * r * 0.31
+          const sy = uy * len * 0.58 + ny * s * r * 0.31
+          g.poly([sx - ux * r * 0.09, sy - uy * r * 0.09,
+            sx + nx * s * r * 0.17 + ux * r * 0.04, sy + ny * s * r * 0.17 + uy * r * 0.04,
+            sx + ux * r * 0.11, sy + uy * r * 0.11]).fill(f(VOID_EDGE))
+        }
+      }
+    }
+    if (!white) {
+      for (const [th, len] of limbs) { // a crease from the core into each lobe — reads as a joint
+        g.beginPath().moveTo(Math.cos(th) * r * 0.24, Math.sin(th) * r * 0.24)
+          .lineTo(Math.cos(th) * len * 0.8, Math.sin(th) * len * 0.8)
+          .stroke({ width: 2.2, color: VOID_EDGE, alpha: 0.5, cap: 'round' })
+      }
+      // the core darkens as the stages escalate — the one dial that says "angrier" up close
+      g.circle(0, 0, r * 0.3).stroke({ width: 2.5, color: VOID_EDGE, alpha: 0.7 })
+      g.circle(0, 0, r * 0.2).fill({ color: stage >= 3 ? VOID_INK : VOID_EDGE, alpha: 0.3 + stage * 0.16 })
+      g.circle(0, 0, r * 0.09).fill({ color: VOID_INK, alpha: 0.45 + stage * 0.15 })
+      if (stage >= 3) {
+        g.beginPath() // desperation cracks radiating off the core
+        for (let i = 0; i < 6; i++) {
+          const a = i * (Math.PI / 3) + 0.4
+          g.moveTo(Math.cos(a) * r * 0.22, Math.sin(a) * r * 0.22)
+            .lineTo(Math.cos(a + 0.18) * r * 0.52, Math.sin(a + 0.18) * r * 0.52)
+        }
+        g.stroke({ width: 2, color: VOID_INK, alpha: 0.55 })
+      }
+    }
+  }
+
   // `lean` = MAX LEAN IN DEGREES, 0..90: how far off horizontal this creature may aim its +x nose
   // at the player (syncEnemies mirrors it left/right on top of that, so lean+flip spans the circle).
   // The number falls straight out of the VIEW the art is drawn in, so judge it from the geometry:
@@ -1899,6 +2083,19 @@ export function createRenderer(app) {
     invader: { archetype: 'normal', draw: drawInvader, lean: 90 },     // flat-shouldered hex; a rank of six reads as one wall
     hulk: { archetype: 'tank', draw: drawHulk, lean: 90 },             // slab + shoulder plates; the column you route around
     swarmDrone: { archetype: 'fast', draw: drawSwarmDrone, lean: 90 }, // top-down dart: nose +x, spines raked back, 7 lenses in ±y ranks
+    // v5.24 The Blank (hidden final chapter) — see the VOID_BODY draw-fn section's own header.
+    // The three antibodies are the SAME boss reassembling per script stage (the wrappers bind the
+    // stage). `spin` is a slow constant self-rotation in rad/s (syncEnemies) — radially symmetric
+    // forms with lean 0 have no facing to fake, and it quickens as the phases escalate. `noElite`
+    // skips the elite twin bake (buildTextures): the script only ever spawns forceNormal, and a
+    // boss bake is a ~430px texture pair nothing could reach.
+    probe: { archetype: 'fast', draw: drawProbe, lean: 90 },          // top-down dart: nose +x, echo ticks -x, ±y mirrored
+    binder: { archetype: 'normal', draw: drawBinder, lean: 90 },      // top-down: grappler hooks in a ±y pair
+    eraser: { archetype: 'tank', draw: drawEraser, lean: 90 },        // top-down slab: leading edge +x, wake streaks -x
+    bindnode: { archetype: 'normal', draw: drawBindnode, lean: 0 },   // stationary anchor — no heading at all
+    antibody1: { archetype: 'boss', draw: (g, e, w) => drawTheAntibody(g, e, w, 1), lean: 0, spin: 0.25, noElite: true },
+    antibody2: { archetype: 'boss', draw: (g, e, w) => drawTheAntibody(g, e, w, 2), lean: 0, spin: 0.38, noElite: true },
+    antibody3: { archetype: 'boss', draw: (g, e, w) => drawTheAntibody(g, e, w, 3), lean: 0, spin: 0.55, noElite: true },
   }
   const DEG = Math.PI / 180
   function makeRosterLook(id, elite) {
@@ -1925,6 +2122,7 @@ export function createRenderer(app) {
       tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
       frames: n > 1 ? frames : null,
       baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG,
+      spin: entry.spin || 0,
       shadow: shadowSpec, crown: crownSpec,
     }
   }
@@ -1987,7 +2185,9 @@ export function createRenderer(app) {
     T.roster = {}
     for (const id of Object.keys(ROSTER_LOOKS)) {
       T.roster[id] = makeRosterLook(id, false)
-      T.roster[id + '_elite'] = makeRosterLook(id, true)
+      // noElite (the blank's bosses): alias the elite key instead of baking a second giant twin
+      // pair — the blank's script spawns everything forceNormal, so it's unreachable anyway
+      T.roster[id + '_elite'] = ROSTER_LOOKS[id].noElite ? T.roster[id] : makeRosterLook(id, true)
     }
 
     // player body (eye whites, blush, smile baked; pupils are live sprites)
@@ -5420,6 +5620,9 @@ export function createRenderer(app) {
   //   debrisLayer      = the tornado's orbiting junk (player weapon, sits with the orbs)
   //   shotLayer/carLayer/lobLayer = airborne things, over the crowd
   const wellG = new Graphics()
+  // v5.24 the blank: binding-node filaments (syncBinds) — wellG's exact idiom, one Graphics
+  // cleared+redrawn per frame, driven purely by 'bindnode' entries in run.enemies (none elsewhere)
+  const bindG = new Graphics()
   const trapLayer = new Container()
   const laneG = new Graphics()
   const hazardG = new Graphics()
@@ -5473,7 +5676,7 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    wellG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
+    wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -5716,6 +5919,9 @@ export function createRenderer(app) {
   }
 
   function populateBlotch(s, i, j, cell) {
+    // v5.24 the blank: the void draws NO floor decoration at all — every scatter layer's populate
+    // early-outs on chapterIsVoid (this one and the five below); bgColor alone is the ground.
+    if (chapterIsVoid) { s.visible = false; return }
     // v5.11: a chapter with a terrain map draws populateTerrain's full-cell surface instead. The
     // scattered-blotch floor below is what every other chapter still uses.
     if (chapterHasDistricts) { s.visible = false; return }
@@ -5907,6 +6113,7 @@ export function createRenderer(app) {
   }
 
   function populateBig(s, i, j, cell) {
+    if (chapterIsVoid) { s.visible = false; return } // the blank: flat void, no props
     // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
     // still legible as a grid even once clumping thinned it. 0.94 lets a prop reach almost to its
     // cell's edge, which is what actually erases the lattice.
@@ -5962,6 +6169,7 @@ export function createRenderer(app) {
   ]
 
   function populateMid(s, i, j, cell) {
+    if (chapterIsVoid) { s.visible = false; return } // the blank: flat void, no props
     // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
     // still legible as a grid even once clumping thinned it. 0.94 lets a prop reach almost to its
     // cell's edge, which is what actually erases the lattice.
@@ -6014,6 +6222,7 @@ export function createRenderer(app) {
   ]
 
   function populateDetail(s, i, j, cell) {
+    if (chapterIsVoid) { s.visible = false; return } // the blank: flat void, no props
     // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
     // still legible as a grid even once clumping thinned it. 0.94 lets a prop reach almost to its
     // cell's edge, which is what actually erases the lattice.
@@ -6513,7 +6722,7 @@ export function createRenderer(app) {
     parks: [{ name: 'bush_b', tints: PARK_TINTS, upright: true, size: [55, 90] }],
   }
   function populateClutter(s, i, j, cell) {
-    if (!chapterHasDistricts) { s.visible = false; return }
+    if (chapterIsVoid || !chapterHasDistricts) { s.visible = false; return }
     // v5.12 BUGFIX: this layer had NO JITTER AT ALL — every prop sat exactly on its cell centre, on a
     // 150px lattice, at chance 1.00. This layer draws the tree canopy, so every wood in the world
     // came out as a perfect square orchard of identical discs (measured: autocorrelation peaks at
@@ -6550,7 +6759,7 @@ export function createRenderer(app) {
   // never exact geometry — acceptable for a decorative accent, not for anything sim-relevant.
   const BORDER_PROBE = DISTRICT_BLEND_PX
   function populateEdge(s, i, j, cell) {
-    if (!chapterHasDistricts) { s.visible = false; return }
+    if (chapterIsVoid || !chapterHasDistricts) { s.visible = false; return }
     const jx = (cellHash(i, j, 7) - 0.5) * cell * 0.5
     const jy = (cellHash(i, j, 8) - 0.5) * cell * 0.5
     const wx = (i + 0.5) * cell + jx, wy = (j + 0.5) * cell + jy
@@ -8386,6 +8595,23 @@ export function createRenderer(app) {
       for (const [lx, ly] of [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]]) {
         flat.push(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos)
       }
+      // v5.24 the blank (look:'erase' — erasure bands, eraser wakes, immuneMemory residue): a strip
+      // of world going BLANK, not a chemical spray — pale cool fill instead of amber/acid. Fuses
+      // here vary per source (0.15-0.75s, vs the garden's one SPRAY_FUSE), so the warning is a flat
+      // pulse rather than a fuse-normalised urgency ramp; active strips fade out over their last
+      // half second (t counts down) instead of over SPRAY_ACTIVE.
+      if (s.look === 'erase') {
+        if (s.fuse > 0) {
+          const pulse = 0.5 + 0.5 * Math.sin(animT * 9)
+          stripG.poly(flat).fill({ color: 0xdde4ee, alpha: 0.16 + pulse * 0.1 })
+          stripG.poly(flat).stroke({ width: 3, color: 0x9aa6c4, alpha: 0.55 + pulse * 0.3 })
+        } else {
+          const fade = Math.min(1, s.t / 0.5)
+          stripG.poly(flat).fill({ color: 0xdde4ee, alpha: 0.9 * fade })
+          stripG.poly(flat).stroke({ width: 2.5, color: 0x9aa6c4, alpha: 0.85 * fade })
+        }
+        continue
+      }
       if (s.fuse > 0) {
         const urgency = SPRAY_FUSE > 0 ? 1 - s.fuse / SPRAY_FUSE : 1
         const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
@@ -8576,6 +8802,30 @@ export function createRenderer(app) {
       }
       const core = 0.5 + 0.5 * Math.sin(animT * 2 + i)
       wellG.circle(w.x, w.y, r * 0.07 + core * 2).fill({ color: 0xdfe4ff, alpha: 0.5 })
+    }
+  }
+
+  // Binding-node filaments (v5.24 the blank, P2): a line from every alive 'bindnode' enemy to the
+  // player, thickening and saturating toward the player's violet as the node ages (e._bindT,
+  // sim-owned, 0 -> BLANK_YANK_T) — the line getting heavier IS the yank countdown. Filtered off
+  // run.enemies directly; no chapter gate needed, the rosterId exists nowhere else. A gentle
+  // sag in the middle keeps it reading as a strand under tension, not a laser.
+  function syncBinds(run) {
+    bindG.clear()
+    const p = run.player
+    for (const e of run.enemies) {
+      if (e.rosterId !== 'bindnode') continue
+      const k = Math.min(1, (e._bindT || 0) / BLANK_YANK_T)
+      const color = mix(0x8880a8, 0x8a5fe0, k)
+      // sag: a quadratic bowed perpendicular to the strand, straightening as the yank nears
+      const mx = (e.x + p.x) / 2, my = (e.y + p.y) / 2
+      const dx = p.x - e.x, dy = p.y - e.y
+      const len = Math.hypot(dx, dy) || 1
+      const bow = len * 0.06 * (1 - k) * Math.sin(animT * 2.2 + e.id)
+      bindG.moveTo(e.x, e.y)
+      bindG.quadraticCurveTo(mx - (dy / len) * bow, my + (dx / len) * bow, p.x, p.y)
+      bindG.stroke({ width: 1.5 + k * 4, color, alpha: 0.35 + k * 0.5, cap: 'round' })
+      bindG.circle(e.x, e.y, 4 + k * 3).fill({ color, alpha: 0.5 + k * 0.4 }) // root bead on the node
     }
   }
 
@@ -9392,8 +9642,12 @@ export function createRenderer(app) {
     d.x = x + (Math.random() * 10 - 5)
     d.y = y - 10
     d.t.text = String(Math.round(dmg))
-    // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen
-    d.t.tint = crit ? 0xff8c42 : dot ? 0xd8cbbd : 0xffffff
+    // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen.
+    // v5.24: chapterRender.ink (the blank) replaces the white base fill — white numbers vanish on
+    // the white void — and pulls the muted DoT grey toward itself for the same reason. The crit
+    // orange and the stroke survive on white as-is.
+    const ink = chapterRender.ink ?? 0xffffff
+    d.t.tint = crit ? 0xff8c42 : dot ? (ink === 0xffffff ? 0xd8cbbd : mix(ink, 0xffffff, 0.45)) : ink
     d.t.visible = true
     d._base = crit ? 1.25 : dot ? 0.6 : 0.85
   }
@@ -9518,7 +9772,8 @@ export function createRenderer(app) {
       spawnParticle(T.fx.spark_04, x, y, Math.cos(a) * sp, Math.sin(a) * sp,
         0.22 + Math.random() * 0.1, (0.06 + Math.random() * 0.03) * k, 0xff8c42, 0, 5)
     }
-    spawnRing(x, y, radius, 0.35)
+    // The blast-extent ring: default white vanishes on the blank's void, so it goes violet there.
+    spawnRing(x, y, radius, 0.35, T.novaWarm, chapterIsVoid ? 0x8a5fe0 : 0xffffff)
   }
 
   // Crush collapse (skies only — sim.js's stepCrush, {type:'crush',x,y,kind}). v5.10 replaced this
@@ -9874,6 +10129,45 @@ export function createRenderer(app) {
             spawnParticle(T.fx.flare_01, lx, ly, 0, 0, 0.18, 0.08, 0xffe94d, -0.1, 0)
           }
           break
+        // ---- v5.24 the blank (boss script). Every ring below carries an EXPLICIT tint:
+        // spawnRing's default is white, which is invisible on the white void.
+        case 'bossSpawn': {
+          // implosion — the void condensing into a body: sparks converge INTO the arrival point,
+          // then rings snap outward. Same treatment for stage 1's arrival and 2/3's reforms.
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2 + Math.random() * 0.3
+            const d = 140 + Math.random() * 60
+            spawnParticle(T.fx.star_08, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d,
+              -Math.cos(a) * d * 2.4, -Math.sin(a) * d * 2.4, 0.4, 0.09, i % 2 ? 0x8a5fe0 : 0x8880a8, -0.1, 0)
+          }
+          spawnRing(e.x, e.y, 230, 0.5, T.novaRing, 0x8a5fe0)
+          spawnRing(e.x, e.y, 140, 0.36, T.novaRing, 0x8880a8)
+          addShake(6, 0.35)
+          break
+        }
+        case 'bossDead': {
+          // the final kill only — the deletion deletes itself: a full-field white-out (the void
+          // taking everything back, reusing the stage-level flash sprite) over a violet/ink burst
+          lightningFlashA = 1
+          for (let i = 0; i < 16; i++) {
+            const a = (i / 16) * Math.PI * 2
+            const sp = 170 + Math.random() * 160
+            spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.6 + Math.random() * 0.3, 0.12, i % 2 ? 0x8a5fe0 : 0x4a4458, -0.1, 2)
+          }
+          spawnRing(e.x, e.y, 420, 0.7, T.novaRing, 0x8a5fe0)
+          spawnRing(e.x, e.y, 260, 0.5, T.novaRing, 0x4a4458)
+          addShake(9, 0.5)
+          break
+        }
+        case 'yank': {
+          // the P2 drag landing: a violet ring where you ended up — sim already fired 'hurt' for
+          // the vignette, this marks the SPOT so the sudden displacement reads as the yank
+          spawnRing(e.x, e.y, 150, 0.35, T.novaRing, 0x8a5fe0)
+          spawnRing(e.x, e.y, 80, 0.25, T.novaRing, 0x4a4458)
+          addShake(5, 0.25)
+          break
+        }
       }
     }
   }
@@ -9895,6 +10189,7 @@ export function createRenderer(app) {
     hazardG.clear()
     teleG.clear()
     wellG.clear()
+    bindG.clear()
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
@@ -10169,7 +10464,9 @@ export function createRenderer(app) {
   // as Sprite children, so they don't inherit the enemy's tint/rotation/flip.
   const AFFIX_BADGE_SPACING = 15
   function syncAffixBadges(s, e) {
-    const affixes = e.affixes
+    // Elites only: affixes on a non-elite are internal plumbing (the blank's Antibody carries
+    // 'anchored' purely for knockback immunity), not a badge to advertise.
+    const affixes = e.elite ? e.affixes : null
     const n = affixes ? affixes.length : 0
     if (!s._affixTexts) s._affixTexts = []
     while (s._affixTexts.length < n) {
@@ -10263,8 +10560,12 @@ export function createRenderer(app) {
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 16))
       const fillA = Math.min(0.32, 0.12 + urgency * 0.14 + pulse * 0.04)
       const rimA = Math.min(1, 0.55 + urgency * 0.35 + pulse * 0.1)
-      bombG.circle(b.x, b.y, b.radius).fill({ color: 0xff6b81, alpha: fillA })
-      bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color: 0xff6b81, alpha: rimA })
+      // v5.24 the blank (src:'trail' — the Antibody detonating your own recorded path): same
+      // urgency ramp, but violet. The warm red above was tuned against dark floors and washes out
+      // on the white void; the violet is the player's own hue — it IS your trail coming back.
+      const color = b.src === 'trail' ? 0x8a5fe0 : 0xff6b81
+      bombG.circle(b.x, b.y, b.radius).fill({ color, alpha: fillA })
+      bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color, alpha: rimA })
     }
     if (chapterHasStorm) drawSkiesBombs(run)
     else clearSkiesBombs()
@@ -10362,12 +10663,22 @@ export function createRenderer(app) {
 
       // frozen and stun both halt walk/idle animation (here: the wisp's rotation wobble)
       const wobble = (e.type === 'wisp' && frozen <= 0 && stun <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
-      s.rotation = face + wobble + pull * animT * 5
+      // look.spin (the blank's Antibody): slow constant self-rotation for radially-symmetric,
+      // lean-0 forms. Accumulated per sprite off animT's delta rather than read as animT*spin,
+      // so frozen/stun HOLD the pose (the wisp-wobble rule) and it resumes without snapping.
+      if (look.spin) {
+        if (s._spinT === undefined) { s._spinT = animT; s._spinA = 0 }
+        if (frozen <= 0 && stun <= 0) s._spinA += (animT - s._spinT) * look.spin
+        s._spinT = animT
+      }
+      s.rotation = face + wobble + pull * animT * 5 + (look.spin ? s._spinA : 0)
       s.position.set(e.x, e.y)
 
       // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
-      // hit-flash white silhouette overrides all of these so the hit pop still reads white.
-      if (e.hitFlash > 0) s.tint = 0xffffff
+      // hit-flash white silhouette overrides all of these so the hit pop still reads white —
+      // except on the void, where white-on-white is invisible: the all-white twin takes any tint
+      // verbatim, so ink turns the same bake into a dark silhouette pop (the chapter's inversion).
+      if (e.hitFlash > 0) s.tint = chapterIsVoid ? (chapterRender.ink ?? 0xffffff) : 0xffffff
       else if (frozen > 0) s.tint = 0x9fd8ff
       else if (chill > 0) s.tint = 0xc4e4ff
       else if (venom > 0) s.tint = 0xa8e6a0
@@ -10542,6 +10853,7 @@ export function createRenderer(app) {
     syncObstacles(run)
     tickPlanetSpin()   // must follow syncObstacles: a rebuild repopulates the spinner list
     syncWells(run)
+    syncBinds(run)
     syncPools(run.pools || [])
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
@@ -10822,6 +11134,7 @@ export function createRenderer(app) {
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
     // the player on the Paused screen. Every other line in this block already guards for that.
     chapterHasLane = cfg?.lane === true
+    chapterIsVoid = !!chapterRender.voidFloor
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
     // roads is a chapter-TOP-LEVEL flag (config.js CHAPTERS.skies.roads), not under `render` like

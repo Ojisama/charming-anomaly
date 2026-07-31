@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
@@ -35,6 +35,11 @@ function titleChapterList(meta) {
   const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
   if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
   const base = ids.length ? ids : [CHAPTER_ORDER[0]]
+  // v5.24: The Blank lives OUTSIDE CHAPTER_ORDER (see config.js) so nextChapter can never surface
+  // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
+  // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
+  if (meta.chapters?.blank?.unlocked) base.push('blank')
+  else if (meta.chapters?.beyond?.maxDifficulty === MAX_DIFFICULTY) base.push('blank')
   return base
 }
 
@@ -136,12 +141,15 @@ function formatShopBonus(id, levels) {
  *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
  *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
- *       unlockedDifficulty?, unlockedChapter? }   unlockedDifficulty is the newly-unlocked level
+ *       unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter? }   unlockedDifficulty is the newly-unlocked level
  *       number when this win just raised the run's chapter's maxDifficulty (see endRun in
  *       main.js), else null — rendered as a mint .summary-unlock badge. unlockedChapter (v5.0)
  *       is the newly-unlocked NEXT chapter's name when this win (classic, difficulty 3+) just
- *       unlocked it, else null — rendered as a second, violet .summary-unlock--chapter badge;
- *       both can and do appear together. renderSummary itself resolves which chapter was just
+ *       unlocked it, else null — rendered as a second, violet .summary-unlock--chapter badge.
+ *       unlockedHiddenChapter (v5.24) is CHAPTERS.blank.name the one time a classic Beyond win at
+ *       difficulty 5 just unlocked The Blank, else null/absent — rendered as a third,
+ *       .summary-unlock--hidden badge. All three can and do appear together. renderSummary itself
+ *       resolves which chapter was just
  *       played (meta.chapter for classic, dailyChapter(todayKey()) for daily — the data object
  *       doesn't carry it) purely to show its icon/name in the header, unrelated to these unlocks.
  *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
@@ -222,15 +230,21 @@ export function initUI(hooks) {
   // = maxDifficulty - 1 (clamped ≥ 0) → that many gold stars. A 5th (all-MAX) gold star would mean
   // "won level 5", which the save does NOT track today; so at maxDifficulty === MAX_DIFFICULTY we
   // still fill 4 and render the 5th as a hollow, gently PULSING star (a "one to go" tease) rather
-  // than inventing a win-flag.
+  // than inventing a win-flag. Row length is per-chapter (chapterMaxDifficulty) — blank's ladder
+  // caps at 3, so its card shows 3 stars, not 5.
+  // v5.24: Beyond is the one exception — meta.chapters.blank.unlocked IS the save's first "won
+  // level 5" fact (see endRun's third unlock block), so once it's true Beyond's 5th star can finally
+  // render as a genuine win (gold, no pulse) instead of the "one to go" tease.
   function heroCardHtml(id) {
     if (!meta.chapters?.[id]?.unlocked) {
-      const prevName = CHAPTERS[furthestUnlockedChapterId(meta)].name
+      const tagline = id === 'blank'
+        ? 'win The Beyond at level 5'
+        : `win ${CHAPTERS[furthestUnlockedChapterId(meta)].name} at difficulty 3+`
       return `
         <div class="hero-card hero-card--locked" data-chapter="${id}" data-hero>
           <span class="hero-icon">🔒</span>
           <span class="hero-name">???</span>
-          <span class="hero-tagline">win ${prevName} at difficulty 3+</span>
+          <span class="hero-tagline">${tagline}</span>
         </div>`
     }
     const chapter = CHAPTERS[id]
@@ -240,10 +254,12 @@ export function initUI(hooks) {
     const bg = light
       ? `linear-gradient(160deg, ${shade(base, 0.4)}, ${base} 58%, ${shade(base, -0.1)})`
       : `linear-gradient(160deg, ${shade(base, 0.22)}, ${base} 55%, ${shade(base, -0.32)})`
+    const cap = chapterMaxDifficulty(id)
     const filled = Math.max(0, chMeta.maxDifficulty - 1)
-    const stars = Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
-      const on = i < filled
-      const pulse = !on && i === MAX_DIFFICULTY - 1 && chMeta.maxDifficulty === MAX_DIFFICULTY
+    const beyondWon = id === 'beyond' && meta.chapters?.blank?.unlocked
+    const stars = Array.from({ length: cap }, (_, i) => {
+      const on = i < filled || (beyondWon && i === cap - 1)
+      const pulse = !on && i === cap - 1 && chMeta.maxDifficulty === cap
       return `<span class="hero-star${on ? ' hero-star--on' : ''}${pulse ? ' hero-star--pulse' : ''}">${on ? '★' : '☆'}</span>`
     }).join('')
     const best = chMeta.best?.time ? `<span class="hero-best">best ${fmtTime(chMeta.best.time)}</span>` : ''
@@ -346,13 +362,25 @@ export function initUI(hooks) {
   // Everything BELOW the carousel: the difficulty row + hint + booster slots (unlocked chapters
   // only) and the Play button. Split out so scroll-driven selection can rebuild JUST this part
   // (via updateTitleBelow) without touching the carousel node and resetting its scroll position.
+  // v5.24: blank's ladder has no random anomalies — instead each level names its cumulative
+  // CHAPTERS.blank.modsByDifficulty entries (MUTATORS[id].name), same +HP/+coins tail as everyone
+  // else. Level 1 is always 'the base game' below, same as any chapter, since modsByDifficulty[1]
+  // is empty.
+  function diffHintLead(id, level) {
+    if (id === 'blank') {
+      return (CHAPTERS.blank.modsByDifficulty[level] ?? []).map((mid) => MUTATORS[mid]?.name ?? mid).join(' + ')
+    }
+    return `+${level - 1} random anomal${level === 2 ? 'y' : 'ies'}`
+  }
+
   function titleBelowHtml() {
     const heroUnlocked = !!meta.chapters?.[browseChapterId]?.unlocked
     const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
+    const cap = chapterMaxDifficulty(browseChapterId)
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">Difficulty</span>
-        ${Array.from({ length: MAX_DIFFICULTY }, (_, i) => {
+        ${Array.from({ length: cap }, (_, i) => {
           const d = i + 1
           if (d > chMeta.maxDifficulty) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
           return `<button class="diff-pip${d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
@@ -360,8 +388,8 @@ export function initUI(hooks) {
       </div>
       <p class="diff-hint">${chMeta.difficulty === 1
         ? 'the base game'
-        : `+${chMeta.difficulty - 1} random anomal${chMeta.difficulty === 2 ? 'y' : 'ies'} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
-      ${chMeta.maxDifficulty < MAX_DIFFICULTY ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
+        : `${diffHintLead(browseChapterId, chMeta.difficulty)} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
+      ${chMeta.maxDifficulty < cap ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
       ${boosterSlotsHtml()}` : ''
     return `
       ${playBlock}
@@ -635,6 +663,13 @@ export function initUI(hooks) {
       <div class="rampage-wrap rampage-wrap--hidden">
         <div class="rampage-bar"><div class="rampage-fill"></div></div>
       </div>
+      <!-- v5.24: The Blank's boss HP bar. Same grid cell as rampage-wrap above (never both visible
+           at once — blank isn't a crush chapter) and reuses its .rampage-bar/.rampage-fill classes
+           for chrome (border/radius/background); ui.js doesn't own styles.css so positioning/size/
+           color overrides live inline instead of a new stylesheet rule. -->
+      <div class="boss-bar-wrap" data-boss-bar style="display:none; grid-column:1; grid-row:2; max-width:190px;">
+        <div class="rampage-bar" style="height:8px;"><div class="rampage-fill" style="background:var(--gold);"></div></div>
+      </div>
     </div>
     <div class="xp-row">
       <span class="lv-badge">Lv 1</span>
@@ -659,6 +694,8 @@ export function initUI(hooks) {
     rampageFill: screens.hud.querySelector('.rampage-fill'),
     skillBtn: screens.hud.querySelector('.skill-btn'),
     skillCd: screens.hud.querySelector('.skill-btn-cd'),
+    bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
+    bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
   }
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
@@ -667,6 +704,10 @@ export function initUI(hooks) {
     // is gated separately from rampagePct/rampageActive.
     crushChapter: undefined, rampagePct: -1, rampageActive: undefined,
     laneChapter: undefined, repulseCd: -1,
+    // v5.24: The Blank — scriptedChapter mirrors the crush/lane cache-gate pattern above (a
+    // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
+    // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
+    scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
   }
 
   function updateHUD(run) {
@@ -719,10 +760,41 @@ export function initUI(hooks) {
         hud.skillCd.textContent = cd > 0 ? String(cd) : ''
       }
     }
-    const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
-    if (remain !== last.remain) {
-      last.remain = remain
-      hud.timer.textContent = fmtTime(remain)
+    // v5.24: scripted chapters (The Blank) have no survival countdown — stepSpawning/the victory
+    // timer are both off (see sim.js), so the HUD timer slot instead reads run.script's stage
+    // machine: "WAVE n" (1-3, position within the current 3-wave block) on even stages, "PHASE k/3"
+    // (odd stages index the 3 boss phases) while the boss is up. scriptedChapter is cached like
+    // crushChapter/laneChapter above — a per-chapter constant, not something that flips mid-run.
+    const scriptedChapter = CHAPTERS[run.chapter].scripted === true
+    if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
+    if (scriptedChapter) {
+      const script = run.script
+      const label = script.stage % 2 === 0 ? `WAVE ${script.waveIdx + 1}` : `PHASE ${(script.stage + 1) / 2}/3`
+      if (label !== last.remain) {
+        last.remain = label
+        hud.timer.textContent = label
+      }
+    } else {
+      const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
+      if (remain !== last.remain) {
+        last.remain = remain
+        hud.timer.textContent = fmtTime(remain)
+      }
+    }
+    // Boss HP bar: gated on scriptedChapter too (not just run.bossBar) so leaving the chapter mid-
+    // session — Play again into a different chapter reuses this same hud object — hides it again
+    // rather than leaving the last boss's bar stuck on screen.
+    const bossBarShown = scriptedChapter && !!run.bossBar
+    if (bossBarShown !== last.bossBarShown) {
+      last.bossBarShown = bossBarShown
+      hud.bossBarWrap.style.display = bossBarShown ? '' : 'none'
+    }
+    if (bossBarShown) {
+      const pct = Math.round(Math.max(0, Math.min(1, run.bossBar.hp / run.bossBar.max)) * 100)
+      if (pct !== last.bossBarPct) {
+        last.bossBarPct = pct
+        hud.bossBarFill.style.width = `${pct}%`
+      }
     }
     if (run.coinsEarned !== last.coins) {
       last.coins = run.coinsEarned
@@ -954,6 +1026,7 @@ export function initUI(hooks) {
         ${mutatorBlock}
         ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 Difficulty ${d.unlockedDifficulty} unlocked!</div>` : ''}
         ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🌊 Chapter unlocked: ${d.unlockedChapter}!</div>` : ''}
+        ${d.unlockedHiddenChapter ? `<div class="summary-unlock summary-unlock--hidden">⬜ THE BLANK REVEALED — something noticed you</div>` : ''}
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} finish bonus</span>` : ''}
         </div>

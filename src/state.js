@@ -2,6 +2,7 @@
 import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
   difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
+  chapterMaxDifficulty,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
   SNAP_TRAP_R, SNAP_TRAP_MIN_DIST,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
@@ -27,7 +28,8 @@ const SAVE_KEY = 'charming-anomaly-save-v1'
 
 // ensureChapterMeta (v5.0): fetches meta.chapters[id], creating it if missing (unlocked only
 // for the 'body' chapter — every later chapter starts locked), and always clamps
-// maxDifficulty into [1, MAX_DIFFICULTY] and difficulty into [1, maxDifficulty], filling in a
+// maxDifficulty into [1, chapterMaxDifficulty(id)] (MAX_DIFFICULTY for every chapter but the
+// blank, which caps at 3 — config.js) and difficulty into [1, maxDifficulty], filling in a
 // missing best.{time,kills}. Called for every CHAPTER_ORDER id on every loadMeta so a save
 // that predates a newly-shipped chapter (or has a corrupted/garbage entry) always resolves to
 // a well-formed one. Returns the (mutated, in-place) entry.
@@ -35,7 +37,7 @@ export function ensureChapterMeta(meta, id) {
   meta.chapters ??= {}
   const entry = meta.chapters[id] ?? { unlocked: id === 'body', maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } }
   entry.unlocked ??= id === 'body'
-  entry.maxDifficulty = Math.max(1, Math.min(MAX_DIFFICULTY, entry.maxDifficulty ?? 1))
+  entry.maxDifficulty = Math.max(1, Math.min(chapterMaxDifficulty(id), entry.maxDifficulty ?? 1))
   entry.difficulty = Math.max(1, Math.min(entry.maxDifficulty, entry.difficulty ?? 1))
   entry.best ??= { time: 0, kills: 0 }
   entry.best.time ??= 0
@@ -616,6 +618,29 @@ function generateWells(sig) {
  *   (unlocking a slot mid-meta-shop never retroactively changes an in-progress run). Permanently
  *   unlocked in the meta shop by sacrificing SHOP levels (see sacrificeCost in config.js and
  *   hooks.onSacrifice in main.js) — applies to every mode, including Daily.
+ *
+ * v5.24 — The Blank (hidden scripted boss chapter, gated on CHAPTERS[chapter].scripted; see
+ * BLANK_* in config.js and sim.js's stepBossScript, the chapter's ONLY spawner):
+ * script: null for every ordinary chapter; for a scripted one, { stage, waveIdx, waveT, spawned,
+ *   bossId }, the whole state machine driving BLANK_SCRIPT (config.js). stage indexes the script
+ *   (even = wave block, odd = boss phase); waveIdx/waveT track progress through a wave block's 3
+ *   ring-spawned waves (advance on clear OR BLANK_WAVE_TIMEOUT, whichever first); spawned marks
+ *   whether the current stage's enemies/boss have gone out yet; bossId is the current phase's
+ *   run.enemies id (or null), used to detect its death by absence next frame — same pattern the
+ *   design already uses for every kill (kill events carry no id).
+ * trail: [] for every chapter; a scripted one's stepBossScript samples {x,y} onto it every
+ *   BLANK_TRAIL_DT, capped at BLANK_TRAIL_MAX entries (shift on overflow) — the ring buffer P1
+ *   reads to detonate the player's recent path and pastSeek probes chase.
+ * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
+ *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
+ *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
+ * The chapter reuses two existing generic entities rather than adding new run arrays: run.bombs
+ *   (telegraph->blast) carries `src:'trail'` for P1's path detonations, and run.strips
+ *   (telegraph->active rotated rect, PLAYER-only damage) carries a render-only `look:'erase'` for
+ *   P3's erasure bands, the eraser flag's wake, and the immuneMemory mutator's death residue.
+ * New events: {type:'bossSpawn', x, y, stage} (stage 1 = first arrival, 2/3 = a phase reforming),
+ *   {type:'bossDead', x, y} (the final phase's kill only — this IS the win, run.phase='victory'
+ *   follows), {type:'yank', x, y} (a P2 binding-node timeout dragging the player toward the boss).
  */
 export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
@@ -719,6 +744,12 @@ export function createRun(meta, opts = {}) {
     rampage: 0,
     rampageT: 0,
     _rampageGraceT: 0,  // v5.9.1 bugfix (see doc block above): s left before RAMPAGE_DECAY resumes
+    // v5.24 The Blank (see doc block above): rampage pattern again — these three fields exist on
+    // every run but stepBossScript (sim.js) is the only thing that ever writes them, and it early-
+    // returns unless CHAPTERS[chapter].scripted, so a non-blank run carries them inert forever.
+    script: CHAPTERS[chapter].scripted ? { stage: 0, waveIdx: 0, waveT: 0, spawned: false, bossId: null } : null,
+    trail: [],
+    bossBar: null,
     // v5.9.1 bugfix: PROMOTED from render-only to a real, READ-ONLY sim contract — see the full
     // explanation on _districtSeed in the doc block above. sim.js's streamObstacles reads this
     // (skies only) to pick a district-appropriate structure `kind`; still drawn exactly once here,

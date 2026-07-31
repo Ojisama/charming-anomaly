@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost, CHAPTERS, nextChapter, dailyChapter } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -78,7 +78,12 @@ const ui = initUI({
       const chMeta = ensureChapterMeta(meta, meta.chapter)
       run = createRun(meta, {
         chapter: meta.chapter,
-        mutators: randomMutators(chMeta.difficulty - 1),
+        // The Blank's difficulty ladder is a fixed, named set of modifiers per level (see
+        // CHAPTERS.blank.modsByDifficulty) rather than random picks — its whole point is a
+        // scripted, repeatable fight.
+        mutators: meta.chapter === 'blank'
+          ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
+          : randomMutators(chMeta.difficulty - 1),
         difficulty: chMeta.difficulty,
         consumables: ids,
       })
@@ -113,7 +118,7 @@ const ui = initUI({
     // Belt-and-braces with the UI: never let a locked level (above the SELECTED chapter's
     // maxDifficulty) stick, even if a stray click somehow got through disabled/no-op pips.
     const chMeta = ensureChapterMeta(meta, meta.chapter)
-    chMeta.difficulty = Math.max(1, Math.min(chMeta.maxDifficulty, Math.min(MAX_DIFFICULTY, d)))
+    chMeta.difficulty = Math.max(1, Math.min(chMeta.maxDifficulty, Math.min(chapterMaxDifficulty(meta.chapter), d)))
     saveMeta(meta)
     playSfx('click')
   },
@@ -197,6 +202,9 @@ const SFX_FOR_EVENT = {
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',
+  // v5.24 The Blank: the boss's scripted arrival/final kill and the P2 node yank each get their
+  // own beat (audio.js) — the fight only has three of these total, no throttling needed.
+  bossSpawn: 'bossRise', bossDead: 'bossFall', yank: 'zap',
 }
 
 function endRun(victory) {
@@ -217,9 +225,10 @@ function endRun(victory) {
   // current ceiling unlocks the next level FOR THAT CHAPTER. Only fires on the level actually
   // at the ceiling (winning a lower, already-unlocked level doesn't re-unlock anything), and
   // only while there's a level left to unlock.
+  const runChapterMaxDifficulty = chapterMaxDifficulty(run.chapter)
   const unlockedDifficulty = victory && runMode === 'classic' &&
-    (run.difficulty ?? 1) >= chMeta.maxDifficulty && chMeta.maxDifficulty < MAX_DIFFICULTY
-  if (unlockedDifficulty) chMeta.maxDifficulty = Math.min(MAX_DIFFICULTY, (run.difficulty ?? 1) + 1)
+    (run.difficulty ?? 1) >= chMeta.maxDifficulty && chMeta.maxDifficulty < runChapterMaxDifficulty
+  if (unlockedDifficulty) chMeta.maxDifficulty = Math.min(runChapterMaxDifficulty, (run.difficulty ?? 1) + 1)
 
   // Chapter unlock (v5.0): winning a classic run at difficulty 3+ unlocks the NEXT chapter (see
   // nextChapter in config.js), if there is one and it isn't already unlocked. Guarded on "not
@@ -237,12 +246,25 @@ function endRun(victory) {
     }
   }
 
+  // Hidden chapter unlock (v5.24): winning The Beyond at its top difficulty (5) reveals The
+  // Blank — no entry in CHAPTER_ORDER, no per-difficulty ladder tie-in, just this one gate.
+  // Guarded on "not already unlocked" so replaying the win doesn't keep announcing it.
+  let unlockedHiddenChapter = null
+  if (victory && runMode === 'classic' && run.chapter === 'beyond' && (run.difficulty ?? 1) >= 5) {
+    const blankMeta = ensureChapterMeta(meta, 'blank')
+    if (!blankMeta.unlocked) {
+      blankMeta.unlocked = true
+      unlockedHiddenChapter = CHAPTERS.blank.name
+    }
+  }
+
   saveMeta(meta)
   ui.showScreen('summary', {
     victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
     mutators: run.mutators, mode: runMode,
     unlockedDifficulty: unlockedDifficulty ? chMeta.maxDifficulty : null,
     unlockedChapter,
+    unlockedHiddenChapter,
   })
 }
 

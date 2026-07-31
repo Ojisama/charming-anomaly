@@ -1,5 +1,6 @@
 // Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin,
-// levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush.
+// levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush,
+// bossRise, bossFall.
 
 let ctx = null
 let master = null
@@ -111,6 +112,23 @@ const SFX = {
   crush() {
     tone(70, { type: 'sine', dur: 0.09, gain: 0.26, slide: 32 })
     noise({ dur: 0.07, gain: 0.15 })
+  },
+  // v5.24 The Blank: the boss's scripted arrival, once per phase — death() inverted (rising
+  // instead of falling) and layered a third voice deeper, so it reads as something assembling
+  // itself rather than something dying.
+  bossRise() {
+    tone(90, { type: 'triangle', dur: 0.8, gain: 0.2, slide: 460 })
+    tone(60, { dur: 0.8, gain: 0.12, slide: 320, at: 0.06 })
+    tone(45, { type: 'sine', dur: 0.9, gain: 0.1, slide: 180, at: 0.12 })
+  },
+  // v5.24 The Blank: the final kill of the fight — plays once total, so it can afford to be big.
+  // Same descending shape as death() but three voices instead of two, longer, and a closing noise
+  // burst for weight (death() has none — this one earns it, it's the whole run's payoff).
+  bossFall() {
+    tone(500, { type: 'triangle', dur: 1.3, gain: 0.22, slide: 60 })
+    tone(340, { dur: 1.3, gain: 0.16, slide: 40, at: 0.08 })
+    tone(220, { type: 'sine', dur: 1.5, gain: 0.14, slide: 25, at: 0.16 })
+    noise({ dur: 0.6, gain: 0.14, at: 0.2 })
   },
 }
 
