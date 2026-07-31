@@ -4692,7 +4692,11 @@ function weaponCandidates(run) {
 }
 
 function eligiblePassiveIds(run) {
-  return Object.keys(PASSIVES).filter((id) => (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL)
+  // The lane's magnet is already Infinity (see stepPickups) — offering 'Sticky Aura' there is a
+  // dead pick that burns a level-up slot doing nothing.
+  const lane = CHAPTERS[run.chapter].lane
+  return Object.keys(PASSIVES).filter((id) =>
+    (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL && !(lane && id === 'magnet'))
 }
 
 // Fisher-Yates shuffle in place (used for per-weapon mod candidate fairness below).
