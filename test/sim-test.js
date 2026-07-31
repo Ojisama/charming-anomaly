@@ -5078,7 +5078,7 @@ function testChapterAnomalies() {
   console.log(`PASS run GG (chapter anomalies): scoped pools, scoped daily, wellForceMul 1.8, traps ${base}->${more}`)
 }
 
-// ---- Run HH: The Blank pacing pass (v5.26.0) --------------------------------------------------
+// ---- Run HH: The Blank pacing pass (v6.0.0) --------------------------------------------------
 // Locks in the pacing rework: a non-final phase kill banks BLANK_PHASE_LEVELS level-ups, P3's
 // antibody chases at its own speed (no standoff flag), fires band CROSSES (two strips ~90° apart
 // at the extrapolated point) plus straight BLANK_FAN_N-shot fans, and its recruit pulse keeps an

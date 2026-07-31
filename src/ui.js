@@ -663,7 +663,7 @@ export function initUI(hooks) {
       <div class="rampage-wrap rampage-wrap--hidden">
         <div class="rampage-bar"><div class="rampage-fill"></div></div>
       </div>
-      <!-- v5.24: The Blank's boss HP bar; v5.26.0 it spans the full hud-top row (grid-column
+      <!-- v5.24: The Blank's boss HP bar; v6.0.0 it spans the full hud-top row (grid-column
            1/-1) and IS the phase readout — the timer slot goes blank while a boss is up. Reuses
            .rampage-bar/.rampage-fill classes for chrome (border/radius/background); ui.js doesn't
            own styles.css so positioning/size/color overrides live inline. -->
@@ -767,7 +767,7 @@ export function initUI(hooks) {
     // timer are both off (see sim.js), so the HUD timer slot instead reads run.script's stage
     // machine: "WAVE n" (1-3, position within the current 3-wave block) on even stages; on odd
     // (boss) stages the slot goes BLANK — the full-width boss HP bar below is the whole readout
-    // (v5.26.0, no more "PHASE k/3" text). scriptedChapter is cached like crushChapter/laneChapter
+    // (v6.0.0, no more "PHASE k/3" text). scriptedChapter is cached like crushChapter/laneChapter
     // above — a per-chapter constant, not something that flips mid-run.
     const scriptedChapter = CHAPTERS[run.chapter].scripted === true
     if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
