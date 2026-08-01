@@ -191,7 +191,7 @@ body {
   width: 100%;
   max-width: 540px;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0,…): a card's min-content width must never widen the track past the viewport */
   /* v6.0.2 THE phone bug: this grid is a flex item of .screen--shop, so short viewports shrink
      it; grid then squeezes `auto` rows down to the items' MIN size (the card's min-height) and
      the card content — the price line last — spills invisibly under the next row. max-content
@@ -216,39 +216,43 @@ body {
 .card:active { transform: translateY(2px) scale(0.98); box-shadow: 0 1px 0 rgba(53, 53, 74, 0.25); }
 /* v6.0.2 phone fix: the button is a plain block and .shop-card-in does the column layout —
    iOS Safari doesn't reliably grow a flex <button> around wrapped content, which pushed the
-   cost line under the next card. The footer row keeps pips + price on one always-visible line. */
+   cost line under the next card. The footer row keeps pips + price on one always-visible line.
+   v6.0.3: cards are COMPACT (three short lines, tight padding) so the full 2×4 grid plus the
+   sacrifice panel fit a phone screen with no scrolling — the descs are one-liners ("+5%
+   damage"), they never needed roomy cards. */
 .shop-card {
   display: block;
   min-height: 48px;
-  padding: 12px;
+  padding: 9px 11px;
 }
 .shop-card-in {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
 }
 .shop-card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 2px;
-}
-/* one column on phones — two 170px columns squeeze the desc into 3-line wraps and the price
-   out of sight; full-width rows keep every card short and the price always on screen */
-@media (max-width: 460px) {
-  .shop-grid { grid-template-columns: 1fr; }
+  line-height: 1.15; /* the 🪙 glyph's intrinsic line box is ~32px tall otherwise — half the card */
 }
 .card--disabled { opacity: 0.55; box-shadow: none; }
 .card--bounce { animation: bounce 0.35s ease-out; }
-.shop-card-name { font-weight: 800; font-size: 1rem; }
-.shop-card-desc { font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
+.shop-card-name { font-weight: 800; font-size: 0.92rem; }
+/* smaller pips inside shop cards only: 10 full-size pips + the price don't share 143px of a
+   phone-width column (the sacrifice modal keeps the 8px ones) */
+.shop-card .pips { gap: 2px; }
+.shop-card .pip { width: 6px; height: 6px; }
+.shop-card-desc { font-size: 0.74rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pips { display: flex; gap: 3px; }
 .pip { width: 8px; height: 8px; border-radius: 50%; background: #e0d6c4; }
 .pip--on { background: var(--mint-dark); }
 /* sacrifice modal: a pip about to be given up (still owned, but offered) */
 .pip--lost { background: var(--danger); }
-.shop-card-cost { font-weight: 800; font-size: 0.95rem; color: #9a7b00; }
+/* fixed-height flex box: the 🪙 emoji's font metrics otherwise inflate the inline line box to
+   ~31px no matter the line-height, doubling every card's height */
+.shop-card-cost { font-weight: 800; font-size: 0.85rem; color: #9a7b00; display: flex; align-items: center; height: 1.2em; white-space: nowrap; }
 
 @keyframes bounce {
   0% { transform: scale(1); }
