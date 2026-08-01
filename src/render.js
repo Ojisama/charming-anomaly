@@ -10103,6 +10103,14 @@ export function createRenderer(app) {
           explosionBurst(e.x, e.y, e.radius || 90)
           addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
           break
+        case 'shriek': // v6.2: the scream is no longer a recolored slime wave — staggered violet panic rings
+          for (let i = 0; i < 3; i++) spawnRing(e.x, e.y, e.radius * (0.5 + i * 0.28), 0.3 + i * 0.09, T.nova, 0xb06cf0)
+          addShake(2, 0.12)
+          break
+        case 'blink': // v6.2: realityShard's teleport — afterimage ring at the origin, rift streak to the exit
+          spawnRing(e.x, e.y, 26, 0.22, T.nova, 0xb9a8f0)
+          spawnArc([[e.x, e.y], [e.tx, e.ty]], 0xb9a8f0, 0xffffff, 0.18, 5, 0.7)
+          break
         case 'frostarc':
           if (e.points && e.points.length > 1) {
             spawnArc(e.points, 0x59b7ff, 0xffffff, 0.25)
@@ -10912,6 +10920,8 @@ export function createRenderer(app) {
   }
 
   // Hoisted syncPool callbacks (fresh closures per frame are pointless garbage)
+  // v6.2 per-weapon bullet tints — see placeBullet below.
+  const WEAPON_BULLET_TINT = { shard: 0xb9a8f0, quill: 0xf2ead8, trash: 0xc27b4a, debris: 0x9aa0a6 }
   function placeBullet(s, b, i) {
     s.position.set(b.x, b.y)
     // Stinger needles (v5.3 garden) share run.bullets with star shots but render as thin amber
@@ -10924,13 +10934,16 @@ export function createRenderer(app) {
       return
     }
     if (s.texture !== T.bullet.tex) { s.texture = T.bullet.tex; s.anchor.set(T.bullet.ax, T.bullet.ay) }
-    s.tint = 0xffffff // star tint is baked; keep white so a slot recycled from a needle resets
+    // v6.2: four weapons used to fall through to the plain gold star — each now carries its own
+    // tint (shard rift-violet, quill bone, trash rust, debris dust). Everything else stays white
+    // (the star tint is baked; white also resets a slot recycled from a needle).
+    s.tint = WEAPON_BULLET_TINT[b.weapon] ?? 0xffffff
     s.rotation = animT * 2.2 + i * 0.9 // slow spin
     s.scale.set(1 + 0.1 * Math.sin(animT * 7 + i * 2.4)) // slight scale pulse
   }
   function placeNova(s, n) {
     s.position.set(n.x, n.y)
-    s.tint = 0x59b7ff
+    s.tint = n.fear ? 0xb06cf0 : 0x59b7ff // v6.2: a panic nova reads violet; a slime wave stays sky-blue
     s.scale.set(Math.max(n.r, 1) / T.novaTexR)
     s.alpha = 0.9 * Math.max(0, 1 - n.r / n.maxR) + 0.1
   }

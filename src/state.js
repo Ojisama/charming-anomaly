@@ -643,6 +643,8 @@ function generateWells(sig) {
  * New events: {type:'bossSpawn', x, y, stage} (stage 1 = first arrival, 2/3 = a phase reforming),
  *   {type:'bossDead', x, y} (the final phase's kill only — this IS the win, run.phase='victory'
  *   follows), {type:'yank', x, y} (a P2 binding-node timeout dragging the player toward the boss).
+ * v6.2 events: {type:'shriek', x, y, radius} (chitterShriek cast — was a generic 'shoot'; violet
+ *   panic rings), {type:'blink', x, y, tx, ty} (a realityShard bullet skipped from (x,y) to (tx,ty)).
  */
 export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')

@@ -5235,7 +5235,23 @@ function testRemaster() {
     assert.strictEqual(run.mods.acidPotencyMul, 1.6, 'toxicShock lands in run.mods.acidPotencyMul')
     console.log('PASS run JJ.b (toxic shock): body-scoped, acidPotencyMul 1.6')
   }
-  console.log('PASS run JJ (Remaster): melee parity, toxic shock')
+  // (c) New events: chitterShriek emits 'shriek' (not a generic shoot); shard blinks emit 'blink'.
+  {
+    const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'chitterShriek', level: 1 }]
+    run.enemies.push(makeStatusEnemy(run, { x: 80, y: 0, hp: 1e6, speed: 0 }))
+    const seen = advance(run, 4, dt, { x: 0, y: 0 })
+    assert(seen.has('shriek'), "expected a 'shriek' event within 4s")
+    const run2 = createRun(makeMeta(), { chapter: 'beyond', difficulty: 1 })
+    run2.player.hp = run2.player.maxHP = 1e6
+    run2.weapons = [{ id: 'realityShard', level: 1 }]
+    run2.enemies.push(makeStatusEnemy(run2, { x: 400, y: 0, hp: 1e6, speed: 0 }))
+    const seen2 = advance(run2, 4, dt, { x: 0, y: 0 })
+    assert(seen2.has('blink'), "expected a 'blink' event within 4s")
+    console.log('PASS run JJ.c (new events): shriek + blink emitted')
+  }
+  console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events')
 }
 
 try {

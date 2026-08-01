@@ -4230,7 +4230,7 @@ function stepShriekWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
     spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, stats.fear)
-    run.events.push({ type: 'shoot', weapon: 'chitterShriek' })
+    run.events.push({ type: 'shriek', x: p.x, y: p.y, radius: stats.radius }) // v6.2: own event — was a generic 'shoot' the render couldn't distinguish
     run._shriekEchoes = run._shriekEchoes ?? []
     for (let i = 1; i <= echoCount; i++) {
       run._shriekEchoes.push({
@@ -4602,6 +4602,7 @@ function stepShardBlink(run, b, dt) {
   const fromX = b.x, fromY = b.y
   b.x += (b.vx / speed) * b._blinkDist
   b.y += (b.vy / speed) * b._blinkDist
+  run.events.push({ type: 'blink', x: fromX, y: fromY, tx: b.x, ty: b.y }) // v6.2: the skip is finally visible
   // riftScar: the departure point scars over and detonates. Rifts reuse run.geysers (the same
   // "telegraph then erupt, enemies only" contract) flagged _chained so sewerGeyser's chainGeyser —
   // a different weapon's mod — can never fire off them.

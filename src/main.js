@@ -248,6 +248,9 @@ const SFX_FOR_EVENT = {
   // v5.24 The Blank: the boss's scripted arrival/final kill and the P2 node yank each get their
   // own beat (audio.js) — the fight only has three of these total, no throttling needed.
   bossSpawn: 'bossRise', bossDead: 'bossFall', yank: 'zap',
+  // v6.2: the shriek used to arrive as a generic 'shoot' — same voice, its own event. Blinks are
+  // deliberately silent (a per-bullet ~0.5s cadence would machine-gun any voice we gave it).
+  shriek: 'shoot',
 }
 
 function endRun(victory) {
