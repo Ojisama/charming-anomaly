@@ -3512,6 +3512,9 @@ export const REVIVE_SHOVE_KB = 500     // knockback velocity applied to enemies 
 export const REROLL_BASE_COST = 10     // coins, first reroll of a run
 export const REROLL_COST_MUL = 1.5     // cost multiplier per reroll already used this run
 export const rerollCost = (used) => Math.ceil(REROLL_BASE_COST * Math.pow(REROLL_COST_MUL, used))
+// v6.0.4: reroll the classic pre-run anomaly roll from the briefing screen (flat cost, repeatable
+// while affordable). Not offered for The Blank (fixed ladder) or the daily (shared seed).
+export const ANOMALY_REROLL_COST = 100
 
 // ---- Mutators (pre-run modifiers; see run.mods in state.js) ----
 export const MUTATORS = {

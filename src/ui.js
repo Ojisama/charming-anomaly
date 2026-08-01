@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { playSfx } from './audio.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
@@ -121,7 +121,10 @@ function formatShopBonus(id, levels) {
  *     - onBriefStart(): fired by the classic pre-run briefing's Start button (v6.0.2 — see
  *       renderBrief). main.js stages the rolled anomalies + booster picks in onPlay and only
  *       creates the run here; the 'brief' screen (ui.showScreen('brief', { chapterId,
- *       difficulty, mutators })) is skipped entirely when the roll is empty (difficulty 1).
+ *       difficulty, mutators, reroll })) is skipped entirely when the roll is empty (difficulty 1).
+ *     - onBriefReroll(): fired by the briefing's reroll button (v6.0.4, shown when data.reroll —
+ *       classic non-blank only). main.js spends ANOMALY_REROLL_COST, rerolls the staged set and
+ *       re-shows the brief; the button renders disabled when meta.coins can't cover it.
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the booster bottom-sheet's session-local selection, an array
  *       of CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
@@ -1014,6 +1017,10 @@ export function initUI(hooks) {
         </div>
         <p class="daily-note">${note}</p>
         ${ids.map(mutatorCardHtml).join('')}
+        ${d.reroll ? `
+        <button class="btn btn--soft btn--small" data-act="brief-reroll" ${meta.coins >= ANOMALY_REROLL_COST ? '' : 'disabled'}>
+          🎲 Reroll — ${ANOMALY_REROLL_COST} 🪙 <span class="brief-coins">(you have ${meta.coins})</span>
+        </button>` : ''}
         <button class="btn btn--big" data-act="brief-start">▶&nbsp; Start</button>
       </div>
       ${navHtml('battle')}
@@ -1170,6 +1177,7 @@ export function initUI(hooks) {
       case 'daily': switchTab('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
       case 'brief-start': hooks.onBriefStart?.(); break
+      case 'brief-reroll': hooks.onBriefReroll?.(); break
       case 'diff': {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already

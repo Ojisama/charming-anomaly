@@ -740,6 +740,7 @@ body {
 .fx-chip--good { background: #d9f4e3; color: #1e7d4f; }
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
+.brief-coins { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
 
 /* ---- chapter carousel + diorama hero cards (v5.2 title centerpiece) ---- */
 /* Native CSS scroll-snap strip: one diorama card per chapter, prev/next PEEKING at both edges

@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -102,7 +102,7 @@ const ui = initUI({
       : randomMutators(chMeta.difficulty - 1, meta.chapter)
     if (mutators.length > 0) {
       pendingPlay = { chapter: meta.chapter, difficulty: chMeta.difficulty, mutators, consumableIds }
-      ui.showScreen('brief', { chapterId: meta.chapter, difficulty: chMeta.difficulty, mutators })
+      ui.showScreen('brief', { chapterId: meta.chapter, difficulty: chMeta.difficulty, mutators, reroll: meta.chapter !== 'blank' })
       return
     }
     startClassic(meta.chapter, chMeta.difficulty, mutators, consumableIds)
@@ -112,6 +112,18 @@ const ui = initUI({
     const p = pendingPlay
     pendingPlay = null
     startClassic(p.chapter, p.difficulty, p.mutators, p.consumableIds)
+  },
+  // v6.0.4: reroll the staged anomaly set for ANOMALY_REROLL_COST, repeatable while affordable.
+  // Blank never gets here (its brief passes reroll: false and the guard below is belt-and-braces —
+  // its ladder is fixed by design).
+  onBriefReroll() {
+    if (!pendingPlay || pendingPlay.chapter === 'blank') return
+    if (meta.coins < ANOMALY_REROLL_COST) return
+    meta.coins -= ANOMALY_REROLL_COST
+    saveMeta(meta)
+    playSfx('buy')
+    pendingPlay.mutators = randomMutators(pendingPlay.difficulty - 1, pendingPlay.chapter)
+    ui.showScreen('brief', { chapterId: pendingPlay.chapter, difficulty: pendingPlay.difficulty, mutators: pendingPlay.mutators, reroll: true })
   },
   onBuy(id) {
     const level = meta.shop[id]
