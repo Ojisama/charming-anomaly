@@ -401,6 +401,8 @@ const CONFIG = {
   'eruptions fling and stun what they catch': 'les éruptions projettent et étourdissent ce qu\'elles atteignent',
   'Chain Burst': 'Explosion en Chaîne',
   'follow-up geyser(s) per eruption': 'geyser(s) supplémentaire(s) par éruption',
+  'Traffic Main': 'Conduite Principale',
+  'eruptions inside a live lane hit far harder — and geysers seek the street': 'les éruptions dans une voie active frappent bien plus fort — et les geysers cherchent la rue',
   'Bellow': 'Beuglement',
   'roar damage': 'dégâts du rugissement',
   'Wide Roar': 'Rugissement Large',

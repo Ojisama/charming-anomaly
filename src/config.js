@@ -678,8 +678,8 @@ export const WEAPON_MODS = {
     suction:     { name: 'Suction',       desc: 'inward pull on nearby foes',           icon: '🌬️', base: 0.50, kind: 'pct' },
   },
   // pressure/wideGeyser/moreGeysers fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
-  // rapidGeyser (cast rate) is read at the cast site. launch/chainGeyser are behavioral (see
-  // stepGeysers in sim.js).
+  // rapidGeyser (cast rate) is read at the cast site. launch/chainGeyser/trafficMain are
+  // behavioral (see stepGeysers/stepGeyserWeapon in sim.js).
   sewerGeyser: {
     pressure:    { name: 'High Pressure', desc: 'eruption damage', icon: '💥', base: 0.30, kind: 'pct' },
     wideGeyser:  { name: 'Wide Geyser',   desc: 'eruption radius', icon: '📡', base: 0.30, kind: 'pct' },
@@ -687,6 +687,9 @@ export const WEAPON_MODS = {
     moreGeysers: { name: 'Broken Mains',  desc: 'geysers per cast', icon: '⛲', base: 1,   kind: 'flat' },
     launch:      { name: 'Launch',        desc: 'eruptions fling and stun what they catch', icon: '🚀', base: 1, kind: 'flat' },
     chainGeyser: { name: 'Chain Burst',   desc: 'follow-up geyser(s) per eruption',         icon: '🎆', kind: 'tier' },
+    // v6.3: without the placement bias this mod's uptime is ~15-25% and uninfluencable — a trap
+    // pick. The bias (stepGeyserWeapon's cast: prefer a lane-covered enemy) is the point.
+    trafficMain: { name: 'Traffic Main',  desc: 'eruptions inside a live lane hit far harder — and geysers seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
   },
   // ---- Skies natives (v5.4) ----
   // bellow/wideRoar/farRoar fold into roar's levels[] via WEAPON_STAT_MODS; rapidRoar (attack

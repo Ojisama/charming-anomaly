@@ -4453,21 +4453,65 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   }
 }
 
+// Is (x,y) inside ANY live lane's band — warn (telegraph) OR sweep, the band is "live" the moment
+// it's telegraphed? Same rotated-rect along/perp idiom as stepLanes' own `inCar` (and inBeamArm):
+// the lane's REST-FRAME band (lane.x/y/angle/len/w), not the moving car hitbox. Read-only, used by
+// trafficMain (below) — a no-op outside the traffic signature since run.lanes is then always empty.
+function pointInLane(run, x, y) {
+  for (const lane of run.lanes) {
+    const cos = Math.cos(lane.angle), sin = Math.sin(lane.angle)
+    const dx = x - lane.x, dy = y - lane.y
+    const along = dx * cos + dy * sin
+    const perp = -dx * sin + dy * cos
+    if (Math.abs(along) <= lane.len / 2 && Math.abs(perp) <= lane.w / 2) return true
+  }
+  return false
+}
+
 // -- Sewer Geyser (v5.4 city utility) ------------------------------------------------------
 // Plants telegraphed eruption zones (run.geysers) on/near random enemies within castRange; each
 // waits out its harmless fuse, then erupts ONCE against ENEMIES only. The utility native — slowest
 // clear in the pool on purpose. rapidGeyser divides the interval; launch flings and stuns what an
-// eruption catches; chainGeyser scatters weaker follow-ups off each eruption.
+// eruption catches; chainGeyser scatters weaker follow-ups off each eruption; trafficMain (v6.3)
+// biases placement onto lane-covered foes (below) and hits harder there (stepGeysers).
 function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.sewerGeyser?.rapidGeyser ?? 0
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
     for (let i = 0; i < stats.count; i++) {
-      const spot = pickBloomSpot(run, stats.castRange) // random enemy in range, else a random offset
+      const spot = pickGeyserSpot(run, stats.castRange)
       run.geysers.push({ x: spot.x, y: spot.y, r: stats.r, fuse: stats.fuse, dur: stats.fuse, dmg: stats.dmg })
     }
     run.events.push({ type: 'geyser', x: p.x, y: p.y })
   })
+}
+
+// trafficMain's placement bias: when held, prefer a foe already standing in a live lane — filter
+// candidates to those BOTH in castRange and in a lane, and pick among them FIRST; only fall back to
+// the ordinary (unbiased) pickBloomSpot pick when none qualify (mod absent, or no lane-covered foe
+// right now). RNG shape: the biased branch draws exactly ONE random, same as pickBloomSpot's own
+// enemy-hit branch; the fallback calls pickBloomSpot verbatim, so "mod held, no lane" draws exactly
+// what "mod absent" draws. This runs inside fireOnTimer's cast callback — event-timed, not
+// per-frame-stable like createRun's boot sequence — so an occasional extra draw here never shifts a
+// frame-stable stream; no seeded test asserts RNG-stream state across a geyser cast (checked against
+// every AA.e sewerGeyser assertion: they check geyser existence/damage/timing, never exact position
+// or a cross-run stream comparison).
+function pickGeyserSpot(run, castRange) {
+  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+  if (tm > 0) {
+    const p = run.player
+    const rangeSq = castRange * castRange
+    const inLane = run.enemies.filter((e) => {
+      if (e._dead) return false
+      const dx = e.x - p.x, dy = e.y - p.y
+      return dx * dx + dy * dy <= rangeSq && pointInLane(run, e.x, e.y)
+    })
+    if (inLane.length > 0) {
+      const e = inLane[Math.floor(Math.random() * inLane.length)]
+      return { x: e.x, y: e.y }
+    }
+  }
+  return pickBloomSpot(run, castRange) // random enemy in range, else a random offset
 }
 
 // Shared by the Sewer Geyser and the Reality Shard's riftScar (same telegraph -> erupt -> gone
@@ -4482,12 +4526,18 @@ function stepGeysers(run, dt) {
     g.fuse -= dt
     if (g.fuse > 0) continue // telegraph — harmless
     g._done = true
+    // trafficMain (v6.3): an eruption centered inside a live lane hits (1+tm)x harder. Resolved
+    // once per geyser (not per enemy hit) at its own (g.x, g.y) — panicRout's "multiply at the
+    // damage site" pattern, applied to the baseDmg fed into applyDamage. Chained follow-ups
+    // (pushed below) erupt on a later tick at their OWN spot, so they reroll pointInLane there.
+    const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+    const dmg = tm > 0 && pointInLane(run, g.x, g.y) ? g.dmg * (1 + tm) : g.dmg
     const rSq = g.r * g.r
     for (const e of run.enemies) {
       if (e._dead) continue
       const dx = e.x - g.x, dy = e.y - g.y
       if (dx * dx + dy * dy > rSq) continue
-      applyDamage(run, e, g.dmg)
+      applyDamage(run, e, dmg)
       // launch: the jet throws them clear and leaves them stunned (see e.stunT in state.js).
       if (launchBonus > 0 && !e._dead) {
         const d = Math.hypot(dx, dy)

@@ -5700,6 +5700,119 @@ function testCoverDestructible() {
   }
 }
 
+// ---- Run KK.f: v6.3 trafficMain — the lane-aware geyser mod ------------------------------------
+// sewerGeyser's trafficMain mod: an eruption centered inside a LIVE lane band (warn telegraph OR
+// sweep — pointInLane doesn't care which) deals (1+tm)x damage, resolved once per geyser at its own
+// (g.x, g.y) — panicRout's "multiply at the damage site" idiom, not a stat fold (WEAPON_STAT_MODS
+// never gains a trafficMain entry). The placement bias (pickGeyserSpot, read by stepGeyserWeapon's
+// cast) prefers a lane-covered enemy over the plain unbiased pick when the mod is held.
+function testTrafficMainGeyser() {
+  const dt = 1 / 60
+
+  // A quiet city run: no auto-spawns, no auto-rolled lanes (the roller is parked so the ONLY lane
+  // ever live is the one hand-placed per case below), deterministic hit damage (zero crit chance —
+  // the AA-series weapon tests' convention).
+  function geyserRun() {
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run._laneAcc = 1e6
+    run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9; run.player.invuln = 0
+    run.player.critChance = 0 // keep hit damage deterministic (no crit roll)
+    return run
+  }
+
+  // A static warn-phase band centered on the origin, along the world x-axis — never transitions to
+  // 'sweep' within the short windows below, so it never touches the (parked, harmless-anyway) car
+  // logic; pointInLane treats warn and sweep identically, so this exercises the same band a sweep
+  // lane would.
+  function warnLane() {
+    return {
+      x: 0, y: 0, angle: 0, len: TRAFFIC_LEN, w: TRAFFIC_W,
+      phase: 'warn', t: TRAFFIC_WARN, carT: 0, dmg: TRAFFIC_DMG, hitIds: new Set(),
+    }
+  }
+
+  function stepQuiet(run, seconds) {
+    for (let i = 0; i < Math.round(seconds / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+  }
+
+  // (1) Conditional damage: a hand-placed geyser centered on a planted enemy INSIDE the band erupts
+  // for base*1.4; the identical geyser (same dmg) centered on an enemy well outside any band erupts
+  // for plain base damage, even with the mod held.
+  {
+    Math.random = mulberry32(20260714)
+    const run = geyserRun()
+    run.weaponMods.sewerGeyser.trafficMain = 0.40
+    run.lanes = [warnLane()]
+    const inLane = makeStatusEnemy(run, { x: 50, y: 0, hp: 1e6, speed: 0 }) // |along|=50<=550, |perp|=0<=65: inside the band
+    inLane.flags = []
+    run.enemies.push(inLane)
+    run.geysers.push({ x: 50, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 40 })
+    const hp0 = inLane.hp
+    stepQuiet(run, 0.1) // clears the fuse
+    const dealt = hp0 - inLane.hp
+    const expected = Math.round(40 * 1.4)
+    assert.strictEqual(dealt, expected, `expected an in-lane eruption to deal base*1.4=${expected}, got ${dealt}`)
+
+    const run2 = geyserRun()
+    run2.weaponMods.sewerGeyser.trafficMain = 0.40
+    run2.lanes = [warnLane()]
+    const outOfLane = makeStatusEnemy(run2, { x: 5000, y: 5000, hp: 1e6, speed: 0 }) // nowhere near the band
+    outOfLane.flags = []
+    run2.enemies.push(outOfLane)
+    run2.geysers.push({ x: 5000, y: 5000, r: 100, fuse: 0.05, dur: 0.05, dmg: 40 })
+    const hp0b = outOfLane.hp
+    stepQuiet(run2, 0.1)
+    const dealtB = hp0b - outOfLane.hp
+    assert.strictEqual(dealtB, 40, `expected an out-of-lane eruption to deal plain base damage (40), got ${dealtB}`)
+    console.log(`PASS run KK.f.1 (trafficMain damage): in-lane dealt ${dealt} (base*1.4=${expected}), out-of-lane dealt ${dealtB} (base)`)
+  }
+
+  // (2) Placement bias: two enemies in castRange, only one inside a live band. With the mod held,
+  // repeated casts land on the in-lane enemy only; with the mod absent, both get chosen over enough
+  // casts (the ordinary unbiased pickBloomSpot pick).
+  {
+    function runCasts(withMod) {
+      Math.random = mulberry32(20260714)
+      const run = geyserRun()
+      run.weapons = [{ id: 'sewerGeyser', level: MAX_WEAPON_LEVEL }]
+      if (withMod) run.weaponMods.sewerGeyser.trafficMain = 0.40
+      const laneSpot = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })   // in castRange AND in the band
+      const clearSpot = makeStatusEnemy(run, { x: 100, y: 200, hp: 1e6, speed: 0 }) // in castRange, outside the band (perp=200 > w/2=65)
+      laneSpot.flags = []; clearSpot.flags = []
+      run.enemies.push(laneSpot, clearSpot)
+      const spots = []
+      for (let i = 0; i < Math.round(11 / dt); i++) {
+        run.lanes = [warnLane()] // re-planted every frame: the band never expires mid-test
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        const before = run.geysers.length
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.geysers.length > before || run.geysers.some((g) => !g._seenKKf)) {
+          for (const g of run.geysers) {
+            if (!g._seenKKf) { g._seenKKf = true; spots.push({ x: g.x, y: g.y }) }
+          }
+        }
+      }
+      return spots
+    }
+
+    const biased = runCasts(true)
+    assert(biased.length >= 3, `expected several geysers planted over the test window, got ${biased.length}`)
+    assert(biased.every((s) => s.x === 100 && s.y === 0), `expected every geyser to land on the in-lane enemy with trafficMain held, got ${JSON.stringify(biased)}`)
+
+    const unbiased = runCasts(false)
+    assert(unbiased.length >= 3, `expected several geysers planted over the test window, got ${unbiased.length}`)
+    const hitLane = unbiased.some((s) => s.x === 100 && s.y === 0)
+    const hitClear = unbiased.some((s) => s.x === 100 && s.y === 200)
+    assert(hitLane && hitClear, `expected the unbiased pick to land on BOTH enemies across ${unbiased.length} casts, got ${JSON.stringify(unbiased)}`)
+
+    console.log(`PASS run KK.f.2 (trafficMain placement bias): ${biased.length}/${biased.length} in-lane with the mod; unbiased spread across both over ${unbiased.length} casts`)
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5743,6 +5856,7 @@ try {
   testCityTerrainWiring()
   testTrafficLaneSnap()
   testCoverDestructible()
+  testTrafficMainGeyser()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
