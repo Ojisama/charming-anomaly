@@ -52,7 +52,7 @@ run-forever cheese — chasers shed behind a moving player recycle onto the spaw
 
 ---
 
-## v6.1 — Remaster (polish + full reword)
+## v6.1 — Remaster (polish + full reword) — ✅ SHIPPED as v6.2.0 (2026-08-01)
 
 ### Tier-0 render/copy fixes (bugs, not features)
 
