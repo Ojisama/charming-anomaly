@@ -1272,7 +1272,7 @@ export const CHAPTERS = {
     },
   },
   pond: {
-    name: 'The Pond', tagline: 'sink or swim', icon: '💧', // v6.0.2: was three-glyph '🦠→💧' — overflowed every single-emoji slot
+    name: 'The Pond', tagline: 'nothing floats forever', icon: '💧', // v6.0.2: was three-glyph '🦠→💧' — overflowed every single-emoji slot
     weapons: ['flagella', 'mines', 'bloom'], starter: 'flagella',
     roster: [
       { id: 'amoeba',     archetype: 'normal', name: 'Amoeba',     hpMul: 1,   speedMul: 0.9, flags: ['split'] },
@@ -1297,7 +1297,7 @@ export const CHAPTERS = {
     },
   },
   garden: {
-    name: 'The Garden', tagline: 'the lawn is a jungle', icon: '🐜',
+    name: 'The Garden', tagline: 'your scent gives you away', icon: '🐜',
     // Leaf Blade is the boomerang re-theme (id kept as 'boomerang', see WEAPONS.boomerang);
     // stinger + lure are new v5.3 natives. Starter = the leaf blade (boomerang).
     weapons: ['boomerang', 'stinger', 'lure'], starter: 'boomerang',
@@ -1325,7 +1325,7 @@ export const CHAPTERS = {
     },
   },
   undergrowth: {
-    name: 'The Undergrowth', tagline: 'everything here eats you', icon: '🐾',
+    name: 'The Undergrowth', tagline: 'the traps were already set', icon: '🐾',
     weapons: ['clawRake', 'quillBurst', 'chitterShriek'], starter: 'clawRake',
     roster: [
       { id: 'cat', archetype: 'tank',   name: 'Cat', hpMul: 1.6,  speedMul: 0.8, flags: ['pounce'] },
@@ -1358,7 +1358,7 @@ export const CHAPTERS = {
     },
   },
   city: {
-    name: 'The City', tagline: 'mind the traffic', icon: '🏙️',
+    name: 'The City', tagline: 'you\'ve been reported', icon: '🏙️',
     // Neon Beam is the rainbow re-theme (id kept as 'rainbow', see WEAPONS.rainbow); trashTornado
     // + sewerGeyser are new v5.4 natives. Starter = the neon beam (rainbow).
     weapons: ['rainbow', 'trashTornado', 'sewerGeyser'], starter: 'rainbow',
@@ -3409,6 +3409,29 @@ export const GRAVITY_MIN_GAP = 120      // px, min gap between two wells' edges
 // CHAPTERS.blank above). Used by state.js's ensureChapterMeta (clamp on load) and main.js's
 // endRun/onDifficulty (clamp on unlock), and by ui.js for the chapter card's pip/star count.
 export const chapterMaxDifficulty = (id) => CHAPTERS[id]?.maxDifficultyCap ?? MAX_DIFFICULTY
+
+// ---- v6.2 Remaster: per-chapter fiction strings (ui.js reads these through t()) ----------------
+// Endings: the one global "You escaped!/Squished" pair undercut every chapter's fantasy (a kaiju
+// doesn't "escape"; dying to The Antibody isn't a "squish"). Unlock lines carry the revamp's
+// subtle watcher thread — ONE quiet phrase per chapter, nowhere else (spec decision 2).
+export const CHAPTER_ENDINGS = {
+  body:        { victory: 'You slipped past the immune system! 🎉', death: 'Neutralized… 🩸' },
+  pond:        { victory: 'You reached open water! 🎉',             death: 'Filtered out… 💧' },
+  garden:      { victory: 'You outgrew the garden! 🎉',             death: 'Swatted… 🍃' },
+  undergrowth: { victory: 'You out-hunted the hunters! 🎉',         death: 'Caught… 🦴' },
+  city:        { victory: 'You slipped the dragnet! 🎉',            death: 'Pest control wins… 🚚' },
+  skies:       { victory: 'They couldn\'t bring you down! 🎉',      death: 'Grounded… 💥' },
+  beyond:      { victory: 'You crossed the edge of the map! 🎉',    death: 'Erased from the record… ✨' },
+  blank:       { victory: 'THE ANTIBODY FAILED. 🎉',                death: 'DELETED. ⬜' },
+}
+export const CHAPTER_UNLOCK_LINES = {
+  pond:        'The Pond — word of you travels downstream',
+  garden:      'The Garden — something marked your trail',
+  undergrowth: 'The Undergrowth — the hunters were told to expect you',
+  city:        'The City — a report has been filed',
+  skies:       'The Skies — this time they\'re not hiding it',
+  beyond:      'The Beyond — you were never the only anomaly',
+}
 
 // ---- The Blank (v5.24, hidden final boss chapter, see sim.js's stepBossScript) ----------------
 // Script table read by stepBossScript: even indices are wave blocks (3 discrete ring-spawned

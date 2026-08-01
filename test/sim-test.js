@@ -44,7 +44,7 @@ import {
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
-  SPAWN_RING,
+  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -5251,7 +5251,16 @@ function testRemaster() {
     assert(seen2.has('blink'), "expected a 'blink' event within 4s")
     console.log('PASS run JJ.c (new events): shriek + blink emitted')
   }
-  console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events')
+  // (d) Reword tables: every chapter (incl. blank) has both ending lines; unlock lines cover
+  // every non-first CHAPTER_ORDER chapter.
+  {
+    for (const id of [...CHAPTER_ORDER, 'blank']) {
+      assert(CHAPTER_ENDINGS[id]?.victory && CHAPTER_ENDINGS[id]?.death, `CHAPTER_ENDINGS missing ${id}`)
+    }
+    for (const id of CHAPTER_ORDER.slice(1)) assert(CHAPTER_UNLOCK_LINES[id], `CHAPTER_UNLOCK_LINES missing ${id}`)
+    console.log('PASS run JJ.d (reword tables): endings + unlock lines complete')
+  }
+  console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events, reword tables')
 }
 
 try {

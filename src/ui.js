@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 
@@ -246,7 +246,7 @@ export function initUI(hooks) {
   function heroCardHtml(id) {
     if (!meta.chapters?.[id]?.unlocked) {
       const tagline = id === 'blank'
-        ? t('win The Beyond at level 5')
+        ? t('win The Beyond at level 5 — something has been counting')
         : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
       return `
         <div class="hero-card hero-card--locked" data-chapter="${id}" data-hero>
@@ -1096,7 +1096,9 @@ export function initUI(hooks) {
       </div>` : ''
     screens.summary.innerHTML = `
       <div class="modal">
-        <h2 class="modal-title">${d.victory ? t('You escaped! 🎉') : t('Squished… 💦')}</h2>
+        <h2 class="modal-title">${d.victory
+          ? t(CHAPTER_ENDINGS[chapterId]?.victory ?? 'You escaped! 🎉')
+          : t(CHAPTER_ENDINGS[chapterId]?.death ?? 'Squished… 💦')}</h2>
         <p class="summary-chapter">${chapter.icon} ${t(chapter.name)}</p>
         <div class="stats">
           <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}</b></div>
@@ -1105,8 +1107,10 @@ export function initUI(hooks) {
         </div>
         ${mutatorBlock}
         ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 ${tt('Difficulty {d} unlocked!', { d: d.unlockedDifficulty })}</div>` : ''}
-        ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🌊 ${tt('Chapter unlocked: {name}!', { name: t(d.unlockedChapter) })}</div>` : ''}
-        ${d.unlockedHiddenChapter ? `<div class="summary-unlock summary-unlock--hidden">⬜ ${t('THE BLANK REVEALED — something noticed you')}</div>` : ''}
+        ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🔓 ${CHAPTER_UNLOCK_LINES[d.unlockedChapterId]
+          ? t(CHAPTER_UNLOCK_LINES[d.unlockedChapterId])
+          : tt('Chapter unlocked: {name}!', { name: t(d.unlockedChapter) })}</div>` : ''}
+        ${d.unlockedHiddenChapter ? `<div class="summary-unlock summary-unlock--hidden">⬜ ${t('THE BLANK — the antibody that let you go wants you back')}</div>` : ''}
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} ${t('finish bonus')}</span>` : ''}
         </div>

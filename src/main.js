@@ -281,6 +281,7 @@ function endRun(victory) {
   // already unlocked" purely so the summary badge only fires once (replaying at 3+ afterward
   // shouldn't keep announcing it).
   let unlockedChapter = null
+  let unlockedChapterId = null
   if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     if (next) {
@@ -288,6 +289,7 @@ function endRun(victory) {
       if (!nextMeta.unlocked) {
         nextMeta.unlocked = true
         unlockedChapter = CHAPTERS[next].name
+        unlockedChapterId = next
       }
     }
   }
@@ -310,6 +312,7 @@ function endRun(victory) {
     mutators: run.mutators, mode: runMode,
     unlockedDifficulty: unlockedDifficulty ? chMeta.maxDifficulty : null,
     unlockedChapter,
+    unlockedChapterId,
     unlockedHiddenChapter,
   })
 }
