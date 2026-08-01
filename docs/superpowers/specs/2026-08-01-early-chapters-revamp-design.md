@@ -1,7 +1,15 @@
 # Early Chapters Revamp — Master Design (v6.1–v6.5)
 
-**Date:** 2026-08-01
+**Date:** 2026-08-01 (reconciled 2026-08-01 after v6.0.2–v6.1.0 shipped)
 **Status:** Approved direction (brainstormed with owner); per-release implementation plans to follow.
+**Reconciliation:** since this spec was drafted, four interim releases landed and shift it:
+v6.0.2 shipped the pond icon fix (was in Remaster's Tier-0) and the anomaly briefing screen,
+v6.0.4 added the anomaly reroll, and v6.1.0 shipped i18n (🌐 toggle + French dictionary keyed by
+the ENGLISH source strings). Two consequences: (1) release numbers below shift by one — the
+"Remaster" slice ships as v6.2, city as v6.3, pond as v6.4, undergrowth as v6.5, body/garden as
+v6.6; (2) every reword in the Remaster now has an i18n side: renaming an English string orphans
+its French dictionary key, so each renamed/added string must move/add its fr.js entry (with a
+fresh French translation carrying the same fiction) in the same commit.
 **Motivation:** A six-dimension audit (weapons, augments, level design, enemies, UI/assets, lore)
 found that body/pond/garden/undergrowth/city shipped in v5.0–5.4 and were never revisited, while
 skies/beyond/blank each got dedicated authoring passes. The gap is not content volume (mod counts
@@ -54,7 +62,7 @@ run-forever cheese — chasers shed behind a moving player recycle onto the spaw
   `placeBullet` — all currently fall through to the gold star texture.
 - **Wave cast FX**: staggered multi-ring drawer (modeled on `spawnRoar`) instead of one flat
   expanding circle.
-- Pond icon `'🦠→💧'` → `'💧'` (single glyph; it currently overflows every icon slot).
+- ~~Pond icon~~ (shipped early, v6.0.2).
 - Chapter-unlock badge stops hardcoding 🌊 (see unlock lines below).
 
 ### Melee parity (retune)
@@ -189,6 +197,10 @@ scatter on a bare field.
 
 - Module boundaries hold: balance numbers in config.js; sim.js pure (events out); render.js
   reads run, never mutates; render-only knobs in each chapter's `render` block.
+- i18n (v6.1.0) discipline: English config strings are the French dictionary's KEYS. Any string
+  rename moves its fr.js entry to the new key; any new player-visible string adds one. The
+  Remaster's reworded copy gets fresh French translations in the same pass — the fiction must
+  land in both languages.
 - Display renames never change ids (save compatibility, sim untouched).
 - Every new mechanic lands with a sim-test scenario appended at the END of test/sim-test.js
   (seeded-random ordering). Each release runs the headless weaving-runner balance probe
