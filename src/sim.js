@@ -3872,6 +3872,7 @@ function fireFlagella(run, stats) {
     }
     const dealt = applyDamage(run, e, stats.dmg)
     if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)
+    if (stats.knockback) shoveFromPlayer(run, e, stats.knockback) // v6.2 melee parity — roar's idiom
   }
   run.events.push({ type: 'whip', x: p.x, y: p.y, angle, range: stats.range, arc })
 }
@@ -4126,12 +4127,13 @@ function stepClawRake(run, w, stats, fireRateMul, dt) {
       range: stats.range,
       arc: stats.arc,
       dmg: stats.dmg,
+      knockback: stats.knockback,
       chain: doubleOn && run._clawRakes % CLAW_DOUBLE_EVERY === 0,
     })
   })
 }
 
-// One slash. o = { range, arc, dmg, chain } — already mod-resolved, so a doubleSlash follow-up can
+// One slash. o = { range, arc, dmg, knockback, chain } — already mod-resolved, so a doubleSlash follow-up can
 // reuse it verbatim at reduced damage. Re-aimed on every slash (including the follow-up): the
 // swarm moves between them.
 function slashClaws(run, o) {
@@ -4144,6 +4146,7 @@ function slashClaws(run, o) {
     const dealt = applyDamage(run, e, o.dmg)
     // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
     if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
+    if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom
   }
   run.events.push({ type: 'clawRake', x: p.x, y: p.y, angle, range: o.range, arc: o.arc })
   // doubleSlash: queue a second, weaker slash after a beat. The follow-up never chains further.

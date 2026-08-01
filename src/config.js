@@ -191,11 +191,11 @@ export const WEAPONS = {
     desc: 'Lashes a melee arc toward the nearest enemy.',
     icon: '🧫', rarity: 'normal',
     levels: [
-      { dmg: 14, rate: 0.90, range: 130, arc: 1.40 },
-      { dmg: 17, rate: 0.82, range: 140, arc: 1.50 },
-      { dmg: 21, rate: 0.74, range: 150, arc: 1.60 },
-      { dmg: 26, rate: 0.66, range: 160, arc: 1.70 },
-      { dmg: 32, rate: 0.58, range: 175, arc: 1.85 },
+      { dmg: 14, rate: 0.90, range: 130, arc: 1.40, knockback: 45 },
+      { dmg: 17, rate: 0.82, range: 140, arc: 1.50, knockback: 50 },
+      { dmg: 21, rate: 0.74, range: 150, arc: 1.60, knockback: 56 },
+      { dmg: 26, rate: 0.66, range: 160, arc: 1.70, knockback: 62 },
+      { dmg: 32, rate: 0.58, range: 175, arc: 1.85, knockback: 70 },
     ],
   },
   bloom: {
@@ -251,11 +251,11 @@ export const WEAPONS = {
     // 130-175); the rake is HALF the arc at ~1.6x the cadence and shorter reach — a narrow, rapid
     // shred you must point at one foe, against a lazy crowd-clearing lash.
     levels: [
-      { dmg: 11, rate: 0.42, range: 100, arc: 0.70 },
-      { dmg: 13, rate: 0.39, range: 106, arc: 0.75 },
-      { dmg: 16, rate: 0.35, range: 112, arc: 0.82 },
-      { dmg: 20, rate: 0.31, range: 120, arc: 0.88 },
-      { dmg: 25, rate: 0.27, range: 130, arc: 0.95 },
+      { dmg: 11, rate: 0.42, range: 100, arc: 0.70, knockback: 32 },
+      { dmg: 13, rate: 0.39, range: 106, arc: 0.75, knockback: 36 },
+      { dmg: 16, rate: 0.35, range: 112, arc: 0.82, knockback: 40 },
+      { dmg: 20, rate: 0.31, range: 120, arc: 0.88, knockback: 45 },
+      { dmg: 25, rate: 0.27, range: 130, arc: 0.95, knockback: 50 },
     ],
   },
   quillBurst: {

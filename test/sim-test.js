@@ -2323,13 +2323,17 @@ function testPondWeapons() {
       run.player.hp = 1e9; run.player.maxHP = 1e9
       if (cyclone) run.weaponMods.flagella.cyclone = 1
       // Anchor (nearest, never dies) pins the aim forward; behind is in range but outside the arc.
-      run.enemies.push(makeStatusEnemy(run, { x: 60, y: 0, hp: 1e9, speed: 0 }))
+      const anchor = makeStatusEnemy(run, { x: 60, y: 0, hp: 1e9, speed: 0 })
+      run.enemies.push(anchor)
       const behind = makeStatusEnemy(run, { x: -100, y: 0, hp: 1e6, speed: 0 })
       run.enemies.push(behind)
       // Enough time for well past FLAGELLA_CYCLONE_EVERY swings (rate ~0.58s at max level).
       for (let i = 0; i < Math.round((FLAGELLA_CYCLONE_EVERY + 2) * 0.9 / dt); i++) {
         if (run.phase === 'levelup') { declineLevelUp(run); continue }
         stepSim(run, { x: 0, y: 0 }, dt)
+        // v6.2 melee knockback shoves the anchor; re-pin it so the aim stays locked +x (the
+        // scenario tests ARC selection, not target drift).
+        anchor.x = 60; anchor.y = 0; anchor.kb.x = 0; anchor.kb.y = 0
       }
       return run.enemies.find((e) => e.id === behind.id).hp
     }
@@ -5208,6 +5212,24 @@ function testAntiKite() {
   console.log('PASS run II (anti-kite): stragglers recycle ahead, stationary/lane/scripted exempt')
 }
 
+// ---- Run JJ: v6.2 Remaster (melee parity, toxic shock, new events, reword tables) -------------
+function testRemaster() {
+  const dt = 1 / 60
+  // (a) Melee parity: a flagella sweep shoves — the enemy gains outward push it never had before.
+  {
+    const run = createRun(makeMeta(), { chapter: 'pond', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = [{ id: 'flagella', level: 1 }]
+    const e = makeStatusEnemy(run, { x: 60, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    advance(run, 2, dt, { x: 0, y: 0 })
+    assert(Math.abs(e.kb.x) + Math.abs(e.kb.y) > 0 || Math.hypot(e.x, e.y) > 70,
+      'expected the flagella sweep to shove the enemy (knockback parity with roar)')
+    console.log('PASS run JJ.a (melee parity): flagella hit shoves')
+  }
+  console.log('PASS run JJ (Remaster): melee parity')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5247,6 +5269,7 @@ try {
   testChapterAnomalies()
   testTheBlankPacing()
   testAntiKite()
+  testRemaster()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
