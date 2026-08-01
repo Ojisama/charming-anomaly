@@ -3177,7 +3177,7 @@ function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
       ? -stats.knockback * (1 + UNDERTOW_KB_PER_STACK * undertowStacks)
       : stats.knockback
     spawnNova(run, p.x, p.y, radius, dmg, knockback)
-    run.events.push({ type: 'shoot', weapon: 'wave' })
+    run.events.push({ type: 'shoot', weapon: 'wave', x: run.player.x, y: run.player.y, maxR: stats.radius }) // v6.2: render draws the ripple train at the cast point
     // Echo Wave: queue N delayed re-casts at the same spot, each WAVE_ECHO_DELAY later than the
     // previous, at WAVE_ECHO_DMG_FRAC damage (full radius/knockback, already tsunami/undertow-adjusted).
     for (let i = 1; i <= echoCount; i++) {

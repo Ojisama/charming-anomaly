@@ -10009,8 +10009,19 @@ export function createRenderer(app) {
           pickupSparkle(e.x, e.y, true)
           break
         case 'shoot':
-          if (e.weapon === 'wave') addShake(2.5, 0.12)
+          if (e.weapon === 'wave') {
+            addShake(2.5, 0.12)
+            // v6.2: a ripple TRAIN — the live nova entity draws the main ring; two trailing
+            // rings at 60%/85% turn one flat circle into a wave that visibly travels.
+            if (e.maxR) {
+              spawnRing(e.x, e.y, e.maxR * 0.6, 0.25, T.nova, 0x59b7ff)
+              spawnRing(e.x, e.y, e.maxR * 0.85, 0.35, T.nova, 0x59b7ff)
+            }
+          }
           break
+        case 'bloom':  spawnRing(e.x, e.y, 40, 0.35, T.nova, 0x2fb6a3); break // v6.2: cast was invisible
+        case 'lure':   spawnRing(e.x, e.y, 34, 0.30, T.nova, 0x67b26f); break // v6.2: cast was invisible
+        case 'geyser': spawnRing(e.x, e.y, 44, 0.40, T.nova, 0x5c8a4e); break // v6.2: cast was invisible
         case 'whip':
           // flagella lash: arc sweep flash + a soft shake (melee weight)
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
