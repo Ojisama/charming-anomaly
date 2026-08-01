@@ -417,7 +417,9 @@ function generateWells(sig) {
  * _districtSeed (v5.7.x; PROMOTED v5.9.1 to a READ-ONLY sim contract; became THE WORLD SEED in
  *   v5.11): the single seed the entire skies world derives from — elevation, moisture, rivers,
  *   cities, roads, biomes and structure placement (src/terrain.js, re-exported through config.js).
- *   Null for chapters without CHAPTERS[chapter].render.districts (every chapter but skies).
+ *   Null for chapters without CHAPTERS[chapter].render.districts AND without CHAPTERS[chapter].
+ *   roads (every chapter but skies and, since v6.3, city — see the v6.3 paragraph below for city's
+ *   derivation, which differs from skies').
  *
  *   v5.11 replaced the Voronoi district map this used to seed. That map was an independent weighted
  *   die roll per 600px cell, which cannot produce geography — and roads ran on a SEPARATE seed
@@ -444,6 +446,15 @@ function generateWells(sig) {
  *   v5.11 widened what sim reads it FOR — a structure's build DENSITY (BIOME_BUILD_DENSITY) and, in
  *   a city, its position and rotation (blockSnap, so buildings line the streets) — but all of that
  *   is still placement and cosmetics: no rule, damage number or spawn depends on the biome.
+ *
+ *   v6.3 (roads-only chapters, i.e. CHAPTERS.city): DERIVED from _obstacleSeed instead of drawing
+ *   its own Math.random() — `pickWorldSeed((obstacleSeed ^ 0x9e3779b9) | 0)`. A skies-style fresh
+ *   draw here would desync every seeded test between reseed checkpoints (the AA.c/runStarOnly
+ *   scar, third time). _obstacleSeed is already drawn earlier in createRun for any chapter with
+ *   `obstacles`, so this costs nothing further from the shared stream. City keeps its dumpster/
+ *   hydrant/cone obstacle look (streamObstacles' perKindRadius stays keyed on render.districts,
+ *   not on _districtSeed != null) while gaining road exclusion, blockSnap curb alignment and
+ *   biome build-density from the same world this seed now describes.
  *
  * v5.8 kaiju redesign — crushing & rampage (skies only, gated on CHAPTERS[chapter].crush; see
  * CRUSH_XP/RAMPAGE_* in config.js and sim.js's stepCrush/stepRampage):
@@ -665,6 +676,11 @@ export function createRun(meta, opts = {}) {
   // run. Caller (main.js) is responsible for sourcing opts.difficulty/opts.mutators from that
   // same chapter's meta.chapters[id] ladder/daily mutators — createRun itself doesn't read meta.chapters.
   const chapter = opts.chapter ?? 'body'
+  // v6.3: hoisted out of the object literal below so _districtSeed can derive city's world seed
+  // from the SAME draw _obstacleSeed uses, rather than spending a second Math.random() call — no
+  // draw happens between here and where _obstacleSeed used to sit, so the order this consumes the
+  // shared stream in is unchanged (see _districtSeed's doc block above).
+  const obstacleSeed = CHAPTERS[chapter].obstacles ? (Math.random() * 0x7fffffff) | 0 : null
   return {
     phase: 'playing',
     time: 0,
@@ -735,7 +751,7 @@ export function createRun(meta, opts = {}) {
     // starts empty, populated on the first step. null seed (no chapter config, or tests) = none.
     pools: [],
     obstacles: [],
-    _obstacleSeed: CHAPTERS[chapter].obstacles ? (Math.random() * 0x7fffffff) | 0 : null,
+    _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which
     // streamed cells have already been crushed, so streamObstacles never re-rolls one back in.
@@ -764,7 +780,14 @@ export function createRun(meta, opts = {}) {
     // city there; without the check a run could open with downtown underwater. It consumes no extra
     // Math.random draw (it is a pure function of the one drawn here), so the shared random stream
     // and every seeded test that depends on its ORDER are untouched.
-    _districtSeed: CHAPTERS[chapter].render?.districts ? pickWorldSeed((Math.random() * 0x7fffffff) | 0) : null,
+    // v6.3: districts-chapters (skies) keep their own Math.random draw above (unchanged stream).
+    // roads-only chapters (city) DERIVE it from obstacleSeed instead — a fresh draw here would
+    // shift every seeded test's RNG stream (the AA.c/runStarOnly scar, third time).
+    _districtSeed: CHAPTERS[chapter].render?.districts
+      ? pickWorldSeed((Math.random() * 0x7fffffff) | 0)
+      : CHAPTERS[chapter].roads
+        ? pickWorldSeed((obstacleSeed ^ 0x9e3779b9) | 0)
+        : null,
     // v5.3 garden behavior (see doc block above): trails fed by dying trailFollow ants (pheromone
     // signature), webs by webZone spiders + the lure's stickyScent mod, strips by sprayStrip elites,
     // lures by the Pheromone Lure weapon. All empty unless something pushes to them.

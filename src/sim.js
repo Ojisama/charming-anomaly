@@ -1797,7 +1797,7 @@ function streamObstacles(run) {
   if (run._obstacleSeed == null) return
   const cfg = CHAPTERS[run.chapter].obstacles
   if (!cfg) return
-  const roadsOn = !!CHAPTERS[run.chapter].roads // v5.9 top-down region overhaul, skies only — see CHAPTERS.skies.roads' comment
+  const roadsOn = !!CHAPTERS[run.chapter].roads // v5.9 skies, v6.3 city — see CHAPTERS.skies.roads' comment
   const p = run.player
   const cs = cfg.cell ?? OBSTACLE_CELL
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
@@ -1836,8 +1836,12 @@ function streamObstacles(run) {
       // v5.9.2 ("the fuck is this?" bug report): a chapter with a district map picks its structure's
       // RADIUS per-kind (STRUCTURE_RADIUS, config.js) instead of one chapter-wide cfg.minR/maxR band
       // — see that table's doc for why (draw size used to be divorced from the collider entirely).
-      // Same run._districtSeed != null gate the kind-subsetting below already uses.
-      const perKindRadius = run._districtSeed != null
+      // Same render.districts gate the kind-subsetting below already uses.
+      // v6.3: re-keyed off render.districts explicitly (was run._districtSeed != null) now that
+      // roads-only chapters (city) also carry a non-null _districtSeed — city keeps its chapter-
+      // wide radius band and its full STRUCTURE_KINDS/dumpster-hydrant-cone pool, never routed to
+      // DISTRICT_STRUCTURE_KINDS.
+      const perKindRadius = !!CHAPTERS[run.chapter].render?.districts
       let r
       if (!perKindRadius) r = cfg.minR + obstacleCellHash(i, j, seed, 1) * (cfg.maxR - cfg.minR)
       // jitter inside the cell, pulled in by the radius so neighbours can't overlap. `kind` (and so
@@ -1881,6 +1885,12 @@ function streamObstacles(run) {
       const terr = worldSeed != null ? terrainAt(x, y, worldSeed) : null
       const biome = terr ? terr.biome : null
       let density = biome ? (BIOME_BUILD_DENSITY[biome] ?? 1) : 1
+      // v6.3: cfg.densityFloor (city only) clamps the effective density from BOTH below — before
+      // AND after the urban falloff — so the sprawl never visibly runs out anywhere in the field.
+      // A per-chapter floor rather than a global one: this table can show a real biome (skies'
+      // desert IS meant to go nearly bare), city's floor just can't.
+      const floor = cfg.densityFloor ?? 0
+      density = Math.max(floor, density)
       // v5.12: a CONTINUOUS falloff across the built-up area. Keying density off the biome alone
       // makes it a step function — every suburb cell builds at exactly the same rate right up to the
       // line where it stops being a suburb, so a town has no edge, it has a border. Real settlement
@@ -1888,6 +1898,7 @@ function streamObstacles(run) {
       // multiplier is already past the per-cell ceiling), so this only thins the fringe, which is
       // where it should be visible.
       if (terr && terr.urban > 0) density *= 0.42 + 0.58 * terr.urban
+      density = Math.max(floor, density)
       if (obstacleCellHash(i, j, seed, 0) >= prob * density) continue
       // v5.9.1 bugfix ("houses in the sea", playtest report): kind used to be picked UNIFORMLY
       // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any silhouette
@@ -1924,15 +1935,20 @@ function streamObstacles(run) {
           // every road class without blockSnap having to learn about highways at all.
           if (roadsOn && roadAt(snapped.x, snapped.y, worldSeed).onRoad) continue
           x = snapped.x; y = snapped.y; rot = snapped.angle
+          // v6.3: re-check the spawn-ring clearance too — blockSnap can shove a structure back into
+          // the spawn clearing — city spawns downtown, so this is the common case (also fixes a
+          // latent skies bug: the pre-snap minDist check above was already stale once blockSnap moved
+          // the point).
+          if (Math.hypot(x, y) < cfg.minDist) continue
         }
       }
       // v5.9.1 bugfix ("houses in the sea", playtest report): kind used to be picked UNIFORMLY
       // across the full STRUCTURE_KINDS list regardless of where the cell sat, so any silhouette
-      // (including a house or a tower) could land in open water. When this run has a district map
-      // (run._districtSeed != null, skies only), pick from the district-appropriate subset instead
+      // (including a house or a tower) could land in open water. A chapter with a district map
+      // (perKindRadius, skies only — v6.3: NOT run._districtSeed != null, city has one of those too
+      // now but keeps the uniform pick) picks from the district-appropriate subset instead
       // (DISTRICT_STRUCTURE_KINDS, config.js) — same hash salt, deterministic, no new RNG draw.
-      // Every other chapter (_districtSeed always null there) keeps the old uniform pick across the
-      // full list, unchanged.
+      // Every other chapter keeps the old uniform pick across the full list, unchanged.
       const placedBiome = worldSeed != null ? districtAt(x, y, worldSeed) : null
       const kindRoll = obstacleCellHash(i, j, seed, 4)
       const kinds = perKindRadius

@@ -5263,6 +5263,74 @@ function testRemaster() {
   console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events, reword tables')
 }
 
+// ---- Run KK: v6.3 city terrain wiring (world seed, road exclusion, curb snapping, density floor)
+// CHAPTERS.city gains roads:true and shares the WORLD seed (run._districtSeed) with skies — but
+// city's is DERIVED from run._obstacleSeed (state.js) rather than a fresh Math.random() draw, so
+// no seeded test's RNG stream can shift (the AA.c/runStarOnly scar, third time). KK.a proves that
+// derivation: non-null, deterministic, and free (zero extra draws). KK.b proves streamObstacles
+// actually exercises the new gates for a live city run: road exclusion and the post-snap minDist
+// re-check (blockSnap can shove a structure back into the spawn clearing).
+function testCityTerrainWiring() {
+  // (a) world seed: non-null for city, deterministic given the same _obstacleSeed path, skies
+  // unaffected, and CHAPTERS.city.roads costs exactly zero Math.random() draws in createRun.
+  {
+    Math.random = mulberry32(20260714)
+    const run1 = createRun(makeMeta(), { chapter: 'city' })
+    assert(run1._districtSeed != null, 'expected a city run to get a non-null _districtSeed (v6.3: roads-only chapters derive one from _obstacleSeed)')
+
+    Math.random = mulberry32(20260714)
+    const run2 = createRun(makeMeta(), { chapter: 'city' })
+    assert.strictEqual(run2._districtSeed, run1._districtSeed, 'expected _districtSeed to be deterministic given the same _obstacleSeed path (same Math.random stream in)')
+
+    Math.random = mulberry32(20260714)
+    const skiesRun = createRun(makeMeta(), { chapter: 'skies' })
+    assert(skiesRun._districtSeed != null, 'expected skies to keep its own non-null _districtSeed (districts path untouched by v6.3)')
+
+    // RNG-neutrality: reseed identically, create a city run with roads on vs off, and compare the
+    // NEXT Math.random() draw after createRun returns — if roads consumed a draw internally, the
+    // two streams would have diverged and this next value would differ.
+    Math.random = mulberry32(20260714)
+    createRun(makeMeta(), { chapter: 'city' })
+    const nextWithRoads = Math.random()
+
+    Math.random = mulberry32(20260714)
+    const savedRoads = CHAPTERS.city.roads
+    CHAPTERS.city.roads = false
+    createRun(makeMeta(), { chapter: 'city' })
+    CHAPTERS.city.roads = savedRoads
+    const nextWithoutRoads = Math.random()
+
+    assert.strictEqual(nextWithRoads, nextWithoutRoads, 'expected CHAPTERS.city.roads to cost zero Math.random() draws in createRun (RNG-neutrality invariant)')
+    console.log('PASS run KK.a (city world seed): non-null + deterministic for city, skies unaffected, roads costs zero draws')
+  }
+
+  // (b) a live city run: obstacles actually stream in, none centred on roadway, none inside the
+  // spawn-ring minDist (including post-blockSnap — the case the pre-snap check alone would miss).
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []; run.mods.spawnMul = 0
+    run.player.hp = run.player.maxHP = 1e9
+    const dt = 1 / 60
+    let t = 0
+    for (let i = 0; i < Math.round(10 / dt); i++) { t += dt; stepSim(run, { x: Math.cos(t), y: Math.sin(t) }, dt) }
+    // Teleport well clear of OBSTACLE_CELL (420px) so the next step forces a fresh cell scan —
+    // streamObstacles early-returns while the player stays inside the same streaming cell.
+    run.player.x += 1200; run.player.y += 1200
+    for (let i = 0; i < Math.round(5 / dt); i++) { t += dt; stepSim(run, { x: 0, y: 0 }, dt) }
+    assert(run.obstacles.length > 0, 'expected a live city run to stream in real obstacles')
+
+    const cfg = CHAPTERS.city.obstacles
+    const onRoad = run.obstacles.filter((o) => roadAt(o.x, o.y, run._districtSeed).onRoad)
+    assert.strictEqual(onRoad.length, 0,
+      `expected no city obstacle centred on roadway, found ${onRoad.length}/${run.obstacles.length}: ${JSON.stringify(onRoad.slice(0, 3))}`)
+    const tooClose = run.obstacles.filter((o) => Math.hypot(o.x, o.y) < cfg.minDist - 1e-6)
+    assert.strictEqual(tooClose.length, 0,
+      `expected every city obstacle to respect minDist=${cfg.minDist} from spawn (post-snap re-check included), found ${tooClose.length} inside it`)
+    console.log(`PASS run KK.b (city road exclusion + post-snap minDist): ${run.obstacles.length} live obstacles, 0 on roadway, 0 inside minDist=${cfg.minDist}`)
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5303,6 +5371,7 @@ try {
   testTheBlankPacing()
   testAntiKite()
   testRemaster()
+  testCityTerrainWiring()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

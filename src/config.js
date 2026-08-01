@@ -1372,7 +1372,17 @@ export const CHAPTERS = {
     // it end to end, deadly to the player AND to enemies. All tuning is in TRAFFIC_* below; the
     // per-chapter knob is how many lanes may be live at once.
     signature: { type: 'traffic', lanes: 2 },
-    obstacles: { count: 16, minR: 22, maxR: 42, minDist: 220 }, // hydrants / dumpsters / cones
+    // roads (v6.3): city gets the same street grid skies uses (CHAPTERS.skies.roads' comment
+    // covers the mechanism) — streamObstacles keeps city's chapter-wide radius band and dumpster/
+    // hydrant/cone kind pool (perKindRadius stays keyed on render.districts, skies only) while
+    // gaining road exclusion, blockSnap curb alignment and biome build-density.
+    roads: true,
+    obstacles: {
+      count: 16, minR: 22, maxR: 42, minDist: 220,
+      // clamp biome build-density >= 1: city's floor can't show biomes, so the sprawl must never
+      // visibly run out (streets fading is the edge cue)
+      densityFloor: 1,
+    }, // hydrants / dumpsters / cones
     // ---- render-only (v5.4) ---- night street: wet asphalt showing between concrete slabs, cold
     // grey floor, a neon-lit slime monster (no tail). Enemy silhouettes baked per rosterId
     // (vacuum/ratDrone/pigeon). render.js also draws run.lanes (hazard-striped band -> headlights).
