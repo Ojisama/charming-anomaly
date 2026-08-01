@@ -48,8 +48,8 @@ export const PLAYER = {
 // levels[i] applies at weapon level i+1 (cumulative object replaces stats).
 export const WEAPONS = {
   star: {
-    name: 'Star Shooter',
-    desc: 'Fires stars at the nearest drone.',
+    name: 'Spike Protein' /* v6.2 re-theme, id frozen */,
+    desc: 'Flings barbed antigens at the nearest cell.',
     icon: '⭐', rarity: 'normal',
     levels: [
       { dmg: 12, interval: 0.55, count: 1, speed: 480, pierce: 1 },
@@ -60,8 +60,8 @@ export const WEAPONS = {
     ],
   },
   orbit: {
-    name: 'Orbit Sparks',
-    desc: 'Sparks circle around you, zapping what they touch.',
+    name: 'Phage Ring' /* v6.2 re-theme, id frozen */,
+    desc: 'Tamed phages circle you, shredding whatever they touch.',
     icon: '💫', rarity: 'normal',
     levels: [
       { dmg: 10, orbs: 2, radius: 80, rotSpeed: 3.0, tick: 0.5 },
@@ -72,8 +72,8 @@ export const WEAPONS = {
     ],
   },
   wave: {
-    name: 'Slime Wave',
-    desc: 'A bouncy shockwave pushes everything back.',
+    name: 'Cytokine Burst' /* v6.2 re-theme, id frozen */,
+    desc: 'A pressure wave of alarm signals shoves the swarm back.',
     icon: '🌊', rarity: 'rare',
     levels: [
       { dmg: 18, interval: 2.4, radius: 150, knockback: 140 },
@@ -115,8 +115,8 @@ export const WEAPONS = {
     ],
   },
   homing: {
-    name: 'Homing Wisps',
-    desc: 'Curious sparks that chase whatever moves.',
+    name: 'Seeker Cell' /* v6.2 re-theme, id frozen */,
+    desc: 'A defected white cell that hunts your hunters.',
     icon: '🔮', rarity: 'epic',
     levels: [
       { dmg: 14, interval: 1.00, count: 1, speed: 320, turnRate: 5.0, life: 2.5 },
@@ -519,27 +519,27 @@ export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
     // no-brainer even after the v4.4 offer caps (user call: star keeps 5 mods, no explosions).
-    pierce:    { name: 'Piercing Stars',  desc: 'star pierce',                    icon: '🎯', base: 1,    kind: 'flat' },
-    multishot: { name: 'Multi Stars',     desc: 'stars per volley',              icon: '💫', kind: 'tier' },
-    split:     { name: 'Split Stars',     desc: "shard(s) on a star's first hit", icon: '🔱', base: 1,    kind: 'flat' },
-    chain:     { name: 'Chain Stars',     desc: 'chain jump(s) on spent stars',  icon: '🔗', kind: 'tier' },
-    ricochet:  { name: 'Ricochet Stars',  desc: 'bounce(s) on spent stars',      icon: '🪀', base: 1,    kind: 'flat' },
+    pierce:    { name: 'Membrane Piercer',  desc: 'antigen pierce',                    icon: '🎯', base: 1,    kind: 'flat' },
+    multishot: { name: 'Split Strain',     desc: 'antigens per volley',              icon: '💫', kind: 'tier' },
+    split:     { name: 'Mitosis',     desc: "shard(s) on an antigen's first hit", icon: '🔱', base: 1,    kind: 'flat' },
+    chain:     { name: 'Signal Cascade',     desc: 'chain jump(s) on spent antigens',  icon: '🔗', kind: 'tier' },
+    ricochet:  { name: 'Reflex Rebound',  desc: 'bounce(s) on spent antigens',      icon: '🪀', base: 1,    kind: 'flat' },
   },
   orbit: {
-    extraOrb:  { name: 'Extra Sparks', desc: 'orbs on your ring',                  icon: '✨', base: 1,    kind: 'flat' },
-    bigOrbs:   { name: 'Big Sparks',   desc: 'orb hit radius',                     icon: '🔵', base: 0.20, kind: 'pct' },
+    extraOrb:  { name: 'Extra Phages', desc: 'phages on your ring',                  icon: '✨', base: 1,    kind: 'flat' },
+    bigOrbs:   { name: 'Engorged Phages',   desc: 'phage hit radius',                     icon: '🔵', base: 0.20, kind: 'pct' },
     wideRing:  { name: 'Wide Orbit',   desc: 'ring radius',                        icon: '🪐', base: 0.20, kind: 'pct' },
-    overdrive: { name: 'Overdrive',    desc: 'orbit rotation speed',               icon: '🌀', base: 0.20, kind: 'pct' },
-    twinRing:  { name: 'Twin Ring',    desc: 'counter-rotating inner ring of orbs', icon: '💠', kind: 'tier' },
-    supernova: { name: 'Supernova Sparks', desc: 'orb-kill splash damage',         icon: '🌟', base: 0.50, kind: 'pct' },
+    overdrive: { name: 'Fever Spin',    desc: 'orbit rotation speed',               icon: '🌀', base: 0.20, kind: 'pct' },
+    twinRing:  { name: 'Double Membrane',    desc: 'counter-rotating inner ring of phages', icon: '💠', kind: 'tier' },
+    supernova: { name: 'Lysis Burst', desc: 'phage-kill splash damage',         icon: '🌟', base: 0.50, kind: 'pct' },
   },
   wave: {
-    bigWave:   { name: 'Big Wave',  desc: 'nova radius',           icon: '🌊', base: 0.20, kind: 'pct' },
-    shove:     { name: 'Big Shove', desc: 'nova knockback',        icon: '👊', base: 0.20, kind: 'pct' },
-    amplitude: { name: 'Amplitude', desc: 'wave damage',           icon: '📢', base: 0.20, kind: 'pct' },
-    echo:      { name: 'Echo Wave', desc: 'echo wave(s) per cast', icon: '🔁', kind: 'tier' },
-    undertow:  { name: 'Undertow',  desc: 'knockback stack(s) (pulls in instead of pushing out)', icon: '↩️', base: 1, kind: 'flat' },
-    tsunami:   { name: 'Tsunami',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
+    bigWave:   { name: 'Systemic Surge',  desc: 'nova radius',           icon: '🌊', base: 0.20, kind: 'pct' },
+    shove:     { name: 'Fever Shove', desc: 'nova knockback',        icon: '👊', base: 0.20, kind: 'pct' },
+    amplitude: { name: 'Inflammation', desc: 'wave damage',           icon: '📢', base: 0.20, kind: 'pct' },
+    echo:      { name: 'Immune Echo', desc: 'echo wave(s) per cast', icon: '🔁', kind: 'tier' },
+    undertow:  { name: 'Chemotaxis',  desc: 'knockback stack(s) (pulls in instead of pushing out)', icon: '↩️', base: 1, kind: 'flat' },
+    tsunami:   { name: 'Cytokine Storm',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
   },
   // v5.3: the id stays 'boomerang' (Leaf Blade re-theme is copy-only, see WEAPONS.boomerang);
   // only the desc copy was retouched from 'boomerang' to 'leaf blade' where it named the weapon.
@@ -560,12 +560,12 @@ export const WEAPON_MODS = {
     chainReaction: { name: 'Chain Reaction', desc: 'nearby armed mine(s) detonated by a blast', icon: '⛓️', kind: 'tier' },
   },
   homing: {
-    extraWisp: { name: 'Extra Wisps',   desc: 'wisps per volley', icon: '🔮', base: 1,    kind: 'flat' },
-    longLife:  { name: 'Long Life',     desc: 'wisp lifetime',    icon: '⏳', base: 0.20, kind: 'pct' },
-    agile:     { name: 'Agile Wisps',   desc: 'wisp turn rate',   icon: '🦋', base: 0.20, kind: 'pct' },
-    phantom:   { name: 'Phantom Wisps', desc: 'pierce per wisp',  icon: '👻', base: 1,    kind: 'flat' },
-    wispNova:  { name: 'Popping Wisps', desc: 'wisp death-pop splash damage',  icon: '💥', base: 0.60, kind: 'pct' },
-    swarm:     { name: 'Swarm',         desc: 'mini wisp(s) spawned on a wisp kill', icon: '🐝', kind: 'tier' },
+    extraWisp: { name: 'Clone Culture',   desc: 'seekers per volley', icon: '🔮', base: 1,    kind: 'flat' },
+    longLife:  { name: 'Telomere Boost',     desc: 'seeker lifetime',    icon: '⏳', base: 0.20, kind: 'pct' },
+    agile:     { name: 'Flagellar Motor',   desc: 'seeker turn rate',   icon: '🦋', base: 0.20, kind: 'pct' },
+    phantom:   { name: 'Phase Membrane', desc: 'pierce per seeker',  icon: '👻', base: 1,    kind: 'flat' },
+    wispNova:  { name: 'Apoptosis Pop', desc: 'seeker death-pop splash damage',  icon: '💥', base: 0.60, kind: 'pct' },
+    swarm:     { name: 'Rapid Division',         desc: 'mini seeker(s) spawned on a seeker kill', icon: '🐝', kind: 'tier' },
   },
   hole: {
     biggerHole:  { name: 'Bigger Hole',    desc: 'vortex radius',             icon: '🕳️', base: 0.20, kind: 'pct' },
