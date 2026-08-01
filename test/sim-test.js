@@ -25,7 +25,7 @@ import {
   SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM, SNAP_TRAP_MIN_DIST,
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
-  TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
+  TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R,
   MISSILE_SPEED, MISSILE_STANDOFF,
   STRAFE_BANK_T, STRAFE_RUN_T, STRAFE_TELEGRAPH_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
@@ -5584,6 +5584,122 @@ function testTrafficLaneSnap() {
   }
 }
 
+// ---- Run KK.e: v6.3 cover — telegraphed, destructible, player-only ---------------------------
+// stepLanes' sweep branch now consults findCover (sim.js) before hurting the player: a big enough
+// obstacle (o.r >= COVER_MIN_R) standing on the car-center -> player segment is destroyed instead,
+// once per lane pass (lane._coverUsed). Same {type:'crush'}/run._crushed contract stepCrush uses
+// (skies), reused rather than duplicated. All obstacles here are placed with enough clearance from
+// the player (>= o.r + PLAYER.radius) so stepObstacles' ordinary terrain push-out (which runs
+// BEFORE stepLanes every frame, and treats city obstacles as solid — CHAPTERS.city has no `crush`
+// flag) never relocates the player out from under the hand-placed geometry.
+function testCoverDestructible() {
+  const dt = 1 / 60
+
+  // A fresh city run with obstacles blanked (both fields, per the file's convention) and the lane
+  // roller parked, so the only lane ever alive is the one hand-placed below.
+  function coverRun() {
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run._laneAcc = 1e6
+    run.player.hp = run.player.maxHP = 1e9; run.player.invuln = 0
+    return run
+  }
+
+  // A sweep-phase lane on the world x-axis (angle 0 — the car travels +x, "approaching the player
+  // along +x") tuned so that after exactly ONE dt of travel the car's center lands at world x = cx.
+  // lane.carT is recomputed from lane.t every step (stepLanes), so seeding `t` (not `carT`) is what
+  // actually controls where the car ends up on the NEXT step.
+  function sweepLaneAt(cx) {
+    const carT = 0.5 + cx / TRAFFIC_LEN
+    return {
+      x: 0, y: 0, angle: 0, len: TRAFFIC_LEN, w: TRAFFIC_W,
+      phase: 'sweep', t: TRAFFIC_SWEEP * (1 - carT) + dt, carT: 0,
+      dmg: TRAFFIC_DMG, hitIds: new Set(),
+    }
+  }
+
+  // (1) + (2): a big enough obstacle between the car and the player takes the hit instead — then,
+  // continuing the SAME lane pass, a second (otherwise-valid) shield does NOT save the player again.
+  {
+    Math.random = mulberry32(20260714)
+    const run = coverRun()
+    const cx = 200            // car center this step
+    const D = 74              // car -> player distance (<= TRAFFIC_CAR_LEN/2=75, so still "in the car")
+    run.player.x = cx + D; run.player.y = 0
+    const lane = sweepLaneAt(cx)
+    run.lanes = [lane]
+    // t=0.15 along the car->player segment, well inside the required (0.05, 0.95) window, AND far
+    // enough from the player (D*(1-0.15) ≈ 62.9px) to clear r(30)+PLAYER.radius(22)=52 — no terrain
+    // push-out before stepLanes ever sees it.
+    run.obstacles.push({ x: cx + 0.15 * D, y: 0, r: 30, _cell: 'c1', kind: 'tower' })
+
+    let crushEvents = 0
+    stepSim(run, { x: 0, y: 0 }, dt)
+    crushEvents += run.events.filter((e) => e.type === 'crush').length
+    run.events = [] // drain, mirroring main.js
+
+    assert.strictEqual(run.player.hp, 1e9, 'expected cover to fully absorb the hit — player hp unchanged')
+    assert.strictEqual(run.obstacles.length, 0, 'expected the shielding obstacle to be destroyed')
+    assert(run._crushed.has('c1'), 'expected the shielding cell recorded into run._crushed')
+    assert.strictEqual(lane._coverUsed, true, 'expected lane._coverUsed set after the save')
+
+    // Continuing the SAME pass: the car has advanced by speed*dt: plant a SECOND obstacle that
+    // would ALSO validly shield (same t/clearance reasoning as above, against the new car position)
+    // to prove the one-save-per-pass rule, not merely "there happened to be no cover left".
+    const speed = TRAFFIC_LEN / TRAFFIC_SWEEP // px/s the car travels along the lane
+    const cx2 = cx + speed * dt
+    const D2 = run.player.x - cx2 // still <= 75: the same lane pass keeps crossing the player
+    run.obstacles.push({ x: cx2 + 0.06 * D2, y: 0, r: COVER_MIN_R, _cell: 'c2', kind: 'house' })
+    const hpBefore = run.player.hp
+
+    stepSim(run, { x: 0, y: 0 }, dt)
+    crushEvents += run.events.filter((e) => e.type === 'crush').length
+    run.events = []
+
+    assert(run.player.hp < hpBefore,
+      `expected continued overlap to damage the player once cover is spent (${hpBefore} -> ${run.player.hp})`)
+    assert.strictEqual(run.obstacles.length, 1, 'expected the second obstacle to survive — cover is one save per pass')
+    assert.strictEqual(crushEvents, 1, `expected exactly one crush event across the whole lane pass, got ${crushEvents}`)
+    console.log(`PASS run KK.e.1/.2 (cover: shield absorbs the hit, one save per pass): player hp unchanged then ${hpBefore} -> ${run.player.hp}, ${crushEvents} crush event`)
+  }
+
+  // (3) COVER_MIN_R: an obstacle just under the threshold never shields — cones don't stop cars.
+  {
+    Math.random = mulberry32(20260714)
+    const run = coverRun()
+    const cx = 200, D = 74
+    run.player.x = cx + D; run.player.y = 0
+    run.lanes = [sweepLaneAt(cx)]
+    assert(COVER_MIN_R - 2 < COVER_MIN_R, 'test setup: r must be under COVER_MIN_R')
+    run.obstacles.push({ x: cx + 0.15 * D, y: 0, r: COVER_MIN_R - 2, _cell: 'c3', kind: 'tower' })
+
+    const hp0 = run.player.hp
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.player.hp < hp0, `expected a sub-COVER_MIN_R obstacle to NOT shield, player hp ${hp0} -> ${run.player.hp}`)
+    assert.strictEqual(run.obstacles.length, 1, 'expected the undersized obstacle to survive untouched')
+    console.log('PASS run KK.e.3 (COVER_MIN_R gate): an obstacle under the size threshold never shields')
+  }
+
+  // (4) An obstacle PAST the player on the car->player segment (t > 0.95, "behind" the player from
+  // the car's point of view) never shields either — cover has to stand genuinely BETWEEN the two.
+  {
+    Math.random = mulberry32(20260714)
+    const run = coverRun()
+    const cx = 200, D = 74
+    run.player.x = cx + D; run.player.y = 0
+    run.lanes = [sweepLaneAt(cx)]
+    // t=2: twice as far from the car as the player is, i.e. well past them — also far enough from
+    // the player itself (D=74px clearance) to avoid the terrain push-out.
+    run.obstacles.push({ x: cx + 2 * D, y: 0, r: COVER_MIN_R + 4, _cell: 'c4', kind: 'tower' })
+
+    const hp0 = run.player.hp
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.player.hp < hp0, `expected an obstacle behind the player to NOT shield, player hp ${hp0} -> ${run.player.hp}`)
+    assert.strictEqual(run.obstacles.length, 1, 'expected the obstacle behind the player to survive untouched')
+    console.log('PASS run KK.e.4 (behind the player): an obstacle past the player on the segment never shields')
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5626,6 +5742,7 @@ try {
   testRemaster()
   testCityTerrainWiring()
   testTrafficLaneSnap()
+  testCoverDestructible()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

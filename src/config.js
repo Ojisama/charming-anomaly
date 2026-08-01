@@ -2854,6 +2854,14 @@ export const TRAFFIC_KB = 420         // knockback applied along the lane to str
 // v6.3: rat and patrolDrone join — street rats scurry, patrol drones circle at head height, both
 // as roadkill-able as the pigeon they joined.
 export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon', 'rat', 'patrolDrone']
+// v6.3 Task 4 (cover): an obstacle must be at least this big to stop a car — cones don't block
+// traffic. Checked in sim.js's findCover (stepLanes' sweep branch): the FIRST obstacle >= this
+// radius standing on the car-center -> player segment takes the hit instead of the player, and is
+// destroyed outright (same {type:'crush'} event/run._crushed path stepCrush uses). Telegraphed in
+// render.js's redrawLanes during 'warn' with a soft ring, and city's baked-prop pick (syncObstacles)
+// forces anything this big to bake as the dumpster — the one prop actually shaped like something
+// that stops a car.
+export const COVER_MIN_R = 26
 
 // ---- Skies chapter behavior flags (v5.4, see sim.js) -----------------------------------------
 // strafe (skies' fighter jets): flies straight passes THROUGH the player rather than chasing.

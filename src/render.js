@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -8224,7 +8224,12 @@ export function createRenderer(app) {
         // one on the pad and tuck a smaller second at the rim. Baked props carry their own origin
         // (upright ones sit on their base), so the anchor comes from the look, not a fixed 0.5.
         const pick = (salt) => shape.baked[Math.floor(hash(o.x * 1.7 + o.y * 0.31 + salt) * shape.baked.length)]
-        const a = T[pick(0)]
+        // v6.3 Task 4: in the city, a cover-sized obstacle (o.r >= COVER_MIN_R) always bakes as the
+        // dumpster — the one prop in BIOMES.city.obstacle.baked actually shaped like something that
+        // stops a car. Hydrant/cone stay on the ordinary hash pick; they're under COVER_MIN_R so
+        // findCover (sim.js) would never let them shield anyway. Smaller obstacles, and every other
+        // chapter's baked sets, are untouched.
+        const a = T[run.chapter === 'city' && o.r >= COVER_MIN_R ? 'dumpster' : pick(0)]
         const b = T[pick(11.3)]
         // v5.9.2 ("the fuck is this?" bug report): sized from o.r again, for EVERY chapter — no more
         // chapterHasDistricts branch here. The v5.9 top-down region overhaul had this reading an
@@ -8710,6 +8715,20 @@ export function createRenderer(app) {
           laneG.lineTo(tip[0], tip[1])
         }
         laneG.stroke({ width: 3, color: 0xffe37a, alpha: (warn ? 0.3 + urgency * 0.3 : 0.16) * (0.7 + 0.3 * pulse) })
+      }
+      // v6.3 Task 4: "this can shield you" — during the telegraph only, ring every obstacle big
+      // enough to stop the car (o.r >= COVER_MIN_R, see its doc in config.js) whose center falls
+      // inside this band. Same along/perp test as the quad above, padded by the obstacle's own
+      // radius so a shield merely clipping the band's edge still lights up.
+      if (warn) {
+        for (const o of run.obstacles || []) {
+          if (o.r < COVER_MIN_R) continue
+          const odx = o.x - ln.x, ody = o.y - ln.y
+          const along = odx * cos + ody * sin
+          const perp = -odx * sin + ody * cos
+          if (Math.abs(along) > hx + o.r || Math.abs(perp) > hy + o.r) continue
+          laneG.circle(o.x, o.y, o.r + 5).stroke({ width: 2.5, color: 0xffe37a, alpha: 0.5 + 0.2 * pulse })
+        }
       }
     }
   }

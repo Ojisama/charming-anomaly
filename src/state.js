@@ -481,9 +481,15 @@ function generateWells(sig) {
  *   {type:'crush', x, y, kind}   a structure was destroyed (x,y = its center, kind = the obstacle's
  *                                STRUCTURE_KINDS tag) — render draws collapse + dust, audio maps it
  *                                to a crush sfx (throttled like shoot/hit/zap; see design doc §2).
+ *                                v6.3 Task 4: also emitted by city traffic when a car destroys the
+ *                                obstacle shielding the player (cover) — see sim.js's findCover and
+ *                                stepLanes' sweep branch. Same event shape, same _crushed bookkeeping
+ *                                below, reused rather than duplicated; NOT gated on CHAPTERS[..].crush
+ *                                (that flag is skies' whole-structure kaiju crush, a separate thing).
  * _crushed (v5.9.1 bugfix, sim-internal, not a render contract): a Set of obstacle `_cell` keys
  *   ('i,j', matching run.obstacles[i]._cell) that have been crushed at least once THIS RUN — added
- *   by stepCrush alongside the splice, consulted by streamObstacles (skip any cell in this set,
+ *   by stepCrush alongside the splice (v6.3: also by stepLanes' cover branch, sim.js's findCover —
+ *   same contract), consulted by streamObstacles (skip any cell in this set,
  *   alongside the existing "still live" skip) so a flattened block stays flattened. Fixes "crushed
  *   buildings reappear after ~1 second" (playtest report): streamObstacles used to rebuild its
  *   `live` set from run.obstacles on every scan and only skip cells STILL present there — a crush's

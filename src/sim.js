@@ -84,7 +84,7 @@ import {
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
-  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH,
+  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH, COVER_MIN_R,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
   TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
   GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
@@ -2231,12 +2231,45 @@ function springTrap(run, tr) {
   run.events.push({ type: 'explode', x: tr.x, y: tr.y, radius: tr.r })
 }
 
+// -- Cover (v6.3 Task 4: telegraphed, destructible, player-only) -----------------------
+// The anti-camping valve for the traffic signature's always-crosses-you contract (see TRAFFIC_SNAP_R's
+// doc, config.js, for why the lane itself never leaves the player): an obstacle big enough (o.r >=
+// COVER_MIN_R — cones don't stop cars) standing between the car and the player takes the hit
+// instead, and is destroyed OUTRIGHT for it — the reward is exactly as physical as skies' crush (the
+// same {type:'crush'} event/run._crushed permanent-removal path, see stepCrush's doc above; this is
+// its second entry point, reused rather than duplicated because the contract — splice, record the
+// cell, tell render/audio — is identical).
+// Capsule-vs-circle on the car-center(cx,cy) -> player(px,py) segment: `t` clamped STRICTLY inside
+// (0.05, 0.95) so an obstacle sitting right under the car, or at/behind the player, never shields —
+// cover has to be a genuine screen standing IN BETWEEN, not a technicality. Degenerate segment
+// (len2 < 1, car on top of the player) returns null — there is no "between" left to consult.
+// Returns the FIRST qualifying obstacle found (run.obstacles is unordered; any legitimate shield is
+// as good as any other — there is no "closest" requirement in the design).
+function findCover(run, cx, cy, px, py) {
+  const dx = px - cx, dy = py - cy
+  const len2 = dx * dx + dy * dy
+  if (len2 < 1) return null
+  for (const o of run.obstacles) {
+    if (o.r < COVER_MIN_R) continue
+    const t = ((o.x - cx) * dx + (o.y - cy) * dy) / len2
+    if (t <= 0.05 || t >= 0.95) continue
+    const cxp = cx + dx * t, cyp = cy + dy * t
+    const ddx = o.x - cxp, ddy = o.y - cyp
+    if (ddx * ddx + ddy * ddy < o.r * o.r) return o
+  }
+  return null
+}
+
 // -- Traffic signature mechanic (v5.4, e.g. city) --------------------------------------
 // Lanes (run.lanes, see state.js): while fewer than signature.lanes are alive, a new one is rolled
 // every TRAFFIC_INTERVAL seconds — a band at a random angle, offset perpendicular from the player by
 // up to ±TRAFFIC_OFFSET so it always CROSSES them but can never be dropped unavoidably on top of
 // them. 'warn' telegraphs it harmlessly, then 'sweep' runs a vehicle down it that flattens BOTH
 // sides. A no-op unless the chapter's signature is 'traffic'.
+// v6.3 Task 4: the sweep branch's player hit first consults findCover (above) — a big enough
+// obstacle between the car and the player is destroyed instead of the player being hurt, once per
+// lane pass (lane._coverUsed, transient — never set on Z.b's hand-built lane literals, which is
+// fine: missing reads as false and those lanes never carry obstacles worth shielding anyway).
 // @returns true if the player died this frame (phase set to 'dead').
 function stepLanes(run, dt) {
   const sig = CHAPTERS[run.chapter].signature
@@ -2314,8 +2347,20 @@ function stepLanes(run, dt) {
     }
 
     if (!playerDied && p.invuln <= 0 && inCar(p.x, p.y, 0)) {
-      // invuln makes "once per pass" implicit for the player, the way contact damage does.
-      if (hurtPlayer(run, lane.dmg)) playerDied = true
+      // v6.3 Task 4: cover first — see findCover's doc above. lane._coverUsed caps it at one save
+      // per lane pass, same spirit as hitIds capping enemy hits below.
+      const shield = lane._coverUsed ? null : findCover(run, cx, cy, p.x, p.y)
+      if (shield) {
+        lane._coverUsed = true // one save per pass — and the car totals the shield
+        const idx = run.obstacles.indexOf(shield)
+        if (idx >= 0) run.obstacles.splice(idx, 1)
+        run._crushed.add(shield._cell) // permanent — streamObstacles must never re-roll this cell
+        run.events.push({ type: 'crush', x: shield.x, y: shield.y, kind: shield.kind })
+        // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural
+        // cell crossing re-triggers streamObstacles — see stepCrush's identical line above.
+        run._obstacleRev = (run._obstacleRev || 0) + 1
+      } else if (hurtPlayer(run, lane.dmg)) playerDied = true
+      // invuln makes "once per pass" implicit either way, the way contact damage does.
     }
     for (const e of run.enemies) {
       if (e._dead || lane.hitIds.has(e.id)) continue
