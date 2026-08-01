@@ -2,7 +2,7 @@
 import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { playSfx } from './audio.js'
 
-const SCREEN_NAMES = ['title', 'shop', 'daily', 'hud', 'levelup', 'pause', 'summary']
+const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 
 // v5.17 build stamp: "vX.Y.Z · <short sha>", substituted by vite.config.js's `define` from the git
@@ -118,6 +118,10 @@ function formatShopBonus(id, levels) {
  *       chapter's maxDifficulty render locked (🔒, disabled) and never fire this at all — level
  *       d+1 only unlocks by winning a classic run at level d in that same chapter (see endRun in
  *       main.js). Chapter selection itself is the onChapter hook right above.
+ *     - onBriefStart(): fired by the classic pre-run briefing's Start button (v6.0.2 — see
+ *       renderBrief). main.js stages the rolled anomalies + booster picks in onPlay and only
+ *       creates the run here; the 'brief' screen (ui.showScreen('brief', { chapterId,
+ *       difficulty, mutators })) is skipped entirely when the roll is empty (difficulty 1).
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the booster bottom-sheet's session-local selection, an array
  *       of CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
@@ -620,10 +624,17 @@ export function initUI(hooks) {
         (_, i) => `<i class="pip${i < level ? ' pip--on' : ''}"></i>`).join('')
       return `
         <button class="card shop-card${afford ? '' : ' card--disabled'}${id === bounceId ? ' card--bounce' : ''}" data-buy="${id}">
-          <span class="shop-card-name">${item.name}</span>
-          <span class="shop-card-desc">${item.desc}</span>
-          <span class="pips">${pips}</span>
-          <span class="shop-card-cost">${maxed ? 'MAX' : `🪙 ${buyCost}`}</span>
+          <!-- v6.0.2: layout lives on an inner span, NOT the button — iOS Safari doesn't grow a
+               flex <button> around wrapped content, which let the cost overflow under the next
+               card. The button is a plain block; the span does the column. -->
+          <span class="shop-card-in">
+            <span class="shop-card-name">${item.name}</span>
+            <span class="shop-card-desc">${item.desc}</span>
+            <span class="shop-card-foot">
+              <span class="pips">${pips}</span>
+              <span class="shop-card-cost">${maxed ? 'MAX' : `🪙 ${buyCost}`}</span>
+            </span>
+          </span>
         </button>`
     }).join('')
     // Full re-render resets scroll positions — carry the sacrifice list's scroll across so
@@ -945,6 +956,21 @@ export function initUI(hooks) {
     }).join('')
   }
 
+  // One anomaly explainer card (icon + name + desc + effect chips) — shared by the daily
+  // briefing and the classic pre-run briefing (v6.0.2).
+  function mutatorCardHtml(id) {
+    const m = MUTATORS[id]
+    return `
+      <div class="daily-mutator">
+        <span class="daily-mutator-icon">${m?.icon ?? '❔'}</span>
+        <span class="daily-mutator-body">
+          <span class="daily-mutator-name">${m?.name ?? id}</span>
+          <span class="daily-mutator-desc">${m?.desc ?? ''}</span>
+          <span class="daily-mutator-fx">${m ? effectChips(m.effects ?? {}) : ''}</span>
+        </span>
+      </div>`
+  }
+
   function renderDaily() {
     const chId = dailyChapter(todayKey())
     const ids = dailyMutators(todayKey(), chId) // chapter-scoped pool — must match main.js's roll
@@ -959,22 +985,38 @@ export function initUI(hooks) {
           <span class="daily-chapter-name">${chapter.name}</span>
           ${isPreview ? '<span class="daily-chapter-preview">preview</span>' : ''}
         </div>
-        ${ids.map((id) => {
-          const m = MUTATORS[id]
-          return `
-          <div class="daily-mutator">
-            <span class="daily-mutator-icon">${m?.icon ?? '❔'}</span>
-            <span class="daily-mutator-body">
-              <span class="daily-mutator-name">${m?.name ?? id}</span>
-              <span class="daily-mutator-desc">${m?.desc ?? ''}</span>
-              <span class="daily-mutator-fx">${m ? effectChips(m.effects) : ''}</span>
-            </span>
-          </div>`
-        }).join('')}
+        ${ids.map(mutatorCardHtml).join('')}
         <p class="daily-note">Everyone gets the same anomaly today — new one at midnight.</p>
         <button class="btn btn--big" data-act="daily-start">▶&nbsp; Start Daily Run</button>
       </div>
       ${navHtml('daily')}
+    `
+  }
+
+  // ---- classic pre-run briefing (v6.0.2) -----------------------------------
+  // Shown between the title's Play and actual gameplay whenever the classic roll produced
+  // anomalies (difficulty 2+, or The Blank's fixed ladder) — a new player otherwise meets
+  // "Riptide" as an unexplained icon chip in the HUD. The run does NOT exist yet: main.js
+  // stages the rolled ids and only creates/starts the run from this screen's Start button
+  // (backing out via the bottom nav costs nothing — boosters aren't spent either).
+  function renderBrief(d) {
+    const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
+    const ids = d.mutators ?? []
+    const note = d.chapterId === 'blank'
+      ? 'The Blank\'s ladder is fixed — each difficulty adds its named modifier.'
+      : 'Anomalies bend the rules of this run — every difficulty level past the first adds one more.'
+    screens.brief.innerHTML = `
+      <div class="modal daily-brief">
+        <h2 class="modal-title">🌀 Anomalies</h2>
+        <div class="daily-chapter">
+          <span class="daily-chapter-icon">${chapter.icon}</span>
+          <span class="daily-chapter-name">${chapter.name} — difficulty ${d.difficulty ?? 1}</span>
+        </div>
+        <p class="daily-note">${note}</p>
+        ${ids.map(mutatorCardHtml).join('')}
+        <button class="btn btn--big" data-act="brief-start">▶&nbsp; Start</button>
+      </div>
+      ${navHtml('battle')}
     `
   }
 
@@ -1045,6 +1087,7 @@ export function initUI(hooks) {
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
     else if (name === 'daily') renderDaily()
+    else if (name === 'brief') renderBrief(data ?? {})
     else if (name === 'levelup') renderLevelup(data ?? {})
     else if (name === 'pause') renderPause(data ?? {})
     else if (name === 'summary') renderSummary(data ?? {})
@@ -1126,6 +1169,7 @@ export function initUI(hooks) {
       case 'shop': switchTab('shop'); break
       case 'daily': switchTab('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
+      case 'brief-start': hooks.onBriefStart?.(); break
       case 'diff': {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already

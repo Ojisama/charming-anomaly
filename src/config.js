@@ -1272,7 +1272,7 @@ export const CHAPTERS = {
     },
   },
   pond: {
-    name: 'The Pond', tagline: 'sink or swim', icon: '🦠→💧',
+    name: 'The Pond', tagline: 'sink or swim', icon: '💧', // v6.0.2: was three-glyph '🦠→💧' — overflowed every single-emoji slot
     weapons: ['flagella', 'mines', 'bloom'], starter: 'flagella',
     roster: [
       { id: 'amoeba',     archetype: 'normal', name: 'Amoeba',     hpMul: 1,   speedMul: 0.9, flags: ['split'] },

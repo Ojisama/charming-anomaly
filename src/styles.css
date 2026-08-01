@@ -192,6 +192,11 @@ body {
   max-width: 540px;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
+  /* v6.0.2 THE phone bug: this grid is a flex item of .screen--shop, so short viewports shrink
+     it; grid then squeezes `auto` rows down to the items' MIN size (the card's min-height) and
+     the card content — the price line last — spills invisibly under the next row. max-content
+     rows never squeeze; the grid scrolls instead (overflow-y below). */
+  grid-auto-rows: max-content;
   gap: 12px;
   overflow-y: auto;
   touch-action: pan-y;
@@ -209,12 +214,30 @@ body {
   transition: transform 0.1s, box-shadow 0.1s;
 }
 .card:active { transform: translateY(2px) scale(0.98); box-shadow: 0 1px 0 rgba(53, 53, 74, 0.25); }
+/* v6.0.2 phone fix: the button is a plain block and .shop-card-in does the column layout —
+   iOS Safari doesn't reliably grow a flex <button> around wrapped content, which pushed the
+   cost line under the next card. The footer row keeps pips + price on one always-visible line. */
 .shop-card {
+  display: block;
+  min-height: 48px;
+  padding: 12px;
+}
+.shop-card-in {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  min-height: 48px;
-  padding: 12px;
+}
+.shop-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+/* one column on phones — two 170px columns squeeze the desc into 3-line wraps and the price
+   out of sight; full-width rows keep every card short and the price always on screen */
+@media (max-width: 460px) {
+  .shop-grid { grid-template-columns: 1fr; }
 }
 .card--disabled { opacity: 0.55; box-shadow: none; }
 .card--bounce { animation: bounce 0.35s ease-out; }
@@ -669,9 +692,10 @@ body {
   .hero-ambient { display: none; }
 }
 
-/* daily-anomaly briefing screen (shown between title and a daily run) */
+/* daily-anomaly briefing screen (shown between title and a daily run); .screen--brief is the
+   classic twin (v6.0.2, shown between Play and gameplay whenever anomalies rolled) */
 /* v5.2: back affordance is now the persistent bottom nav — reserve room for it under the modal. */
-.screen--daily { padding-bottom: calc(84px + env(safe-area-inset-bottom)); overflow-y: auto; }
+.screen--daily, .screen--brief { padding-bottom: calc(84px + env(safe-area-inset-bottom)); overflow-y: auto; }
 .daily-brief { max-width: 420px; }
 .daily-date { font-weight: 700; font-size: 0.8rem; color: var(--ink-soft); margin-top: -6px; }
 /* today's chapter, shown above the mutator cards (v5.0) */

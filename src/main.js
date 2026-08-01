@@ -16,6 +16,37 @@ async function boot() {
 const meta = loadMeta()
 let run = null
 let runMode = 'classic'
+// v6.0.2: a classic run staged behind the anomaly briefing screen — set by onPlay when the
+// roll produced anomalies, consumed by onBriefStart. Overwritten by the next Play if the
+// player backs out via the nav (nothing was created or spent, so abandoning it is free).
+let pendingPlay = null
+
+// Spend boosters (cheapest-first affordability, ui already gates but belt-and-braces), create
+// the classic run with the EXACT mutators the briefing showed, and start it.
+function startClassic(chapter, difficulty, mutators, consumableIds) {
+  const ids = []
+  if (consumableIds && consumableIds.length) {
+    const sorted = [...consumableIds].sort((a, b) => (CONSUMABLES[a]?.cost ?? 0) - (CONSUMABLES[b]?.cost ?? 0))
+    let remaining = meta.coins
+    for (const id of sorted) {
+      const cost = CONSUMABLES[id]?.cost ?? 0
+      if (cost <= remaining) { ids.push(id); remaining -= cost }
+    }
+    if (ids.length > 0) {
+      meta.coins -= ids.reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
+      saveMeta(meta)
+      playSfx('buy')
+    }
+  }
+  run = createRun(meta, { chapter, mutators, difficulty, consumables: ids })
+  beginRun()
+}
+
+function beginRun() {
+  if (new URLSearchParams(location.search).has('debug')) window.__run = run
+  renderer.reset(run)
+  ui.showScreen('hud')
+}
 
 const app = new Application()
 await app.init({
@@ -48,49 +79,39 @@ const ui = initUI({
   onPlay(mode, consumableIds = []) {
     initAudio()
     runMode = mode
-    // Boosters never apply to daily runs (ui.js already passes [] there, but classic is the
-    // only mode that gets to spend meta.coins on them — belt-and-braces here too).
-    let ids = []
-    if (mode === 'classic' && consumableIds && consumableIds.length) {
-      // Affordability: keep cheapest-first until meta.coins runs out, silently drop the rest.
-      const sorted = [...consumableIds].sort((a, b) => (CONSUMABLES[a]?.cost ?? 0) - (CONSUMABLES[b]?.cost ?? 0))
-      let remaining = meta.coins
-      for (const id of sorted) {
-        const cost = CONSUMABLES[id]?.cost ?? 0
-        if (cost <= remaining) { ids.push(id); remaining -= cost }
-      }
-      if (ids.length > 0) {
-        const totalCost = ids.reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
-        meta.coins -= totalCost
-        saveMeta(meta)
-        playSfx('buy')
-      }
-    }
     // Daily = fixed shared seed, date-seeded chapter (see dailyChapter in config.js), base
     // difficulty — allowed on a chapter this player hasn't unlocked yet (spec: preview day).
-    // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
-    // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
-    // state.js.
+    // Its anomaly is already explained by the daily briefing screen the player just came from.
     if (mode === 'daily') {
       const chapter = dailyChapter(todayKey())
       run = createRun(meta, { chapter, mutators: dailyMutators(todayKey(), chapter) })
-    } else {
-      const chMeta = ensureChapterMeta(meta, meta.chapter)
-      run = createRun(meta, {
-        chapter: meta.chapter,
-        // The Blank's difficulty ladder is a fixed, named set of modifiers per level (see
-        // CHAPTERS.blank.modsByDifficulty) rather than random picks — its whole point is a
-        // scripted, repeatable fight.
-        mutators: meta.chapter === 'blank'
-          ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
-          : randomMutators(chMeta.difficulty - 1, meta.chapter),
-        difficulty: chMeta.difficulty,
-        consumables: ids,
-      })
+      beginRun()
+      return
     }
-    if (new URLSearchParams(location.search).has('debug')) window.__run = run
-    renderer.reset(run)
-    ui.showScreen('hud')
+    // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
+    // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
+    // state.js. v6.0.2: when the roll produced anomalies, the run does NOT start yet — the
+    // briefing screen explains them first, and only its Start button (onBriefStart) creates the
+    // run, with the exact ids shown. Nothing is spent yet, so backing out via the nav is free.
+    const chMeta = ensureChapterMeta(meta, meta.chapter)
+    // The Blank's difficulty ladder is a fixed, named set of modifiers per level (see
+    // CHAPTERS.blank.modsByDifficulty) rather than random picks — its whole point is a
+    // scripted, repeatable fight.
+    const mutators = meta.chapter === 'blank'
+      ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
+      : randomMutators(chMeta.difficulty - 1, meta.chapter)
+    if (mutators.length > 0) {
+      pendingPlay = { chapter: meta.chapter, difficulty: chMeta.difficulty, mutators, consumableIds }
+      ui.showScreen('brief', { chapterId: meta.chapter, difficulty: chMeta.difficulty, mutators })
+      return
+    }
+    startClassic(meta.chapter, chMeta.difficulty, mutators, consumableIds)
+  },
+  onBriefStart() {
+    if (!pendingPlay) return
+    const p = pendingPlay
+    pendingPlay = null
+    startClassic(p.chapter, p.difficulty, p.mutators, p.consumableIds)
   },
   onBuy(id) {
     const level = meta.shop[id]
