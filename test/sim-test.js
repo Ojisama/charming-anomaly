@@ -44,6 +44,7 @@ import {
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
+  SPAWN_RING,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -5157,6 +5158,56 @@ function testTheBlankPacing() {
   console.log('PASS run HH (The Blank pacing): phase-kill levels, P3 chase, band crosses, straight fans, endless faucet')
 }
 
+// ---- Run II: anti-kite straggler recycling (v6.0.1) -------------------------------------------
+// Nothing in the game outruns the player, so a committed runner used to shed the whole horde and
+// win the survival clock untouched (measured: a weaving diagonal runner beat body/pond/garden at
+// 92-95% hp, level 1). stepStragglers recycles any chaser left beyond KITE_DROP_MUL × spawn
+// distance behind a MOVING player onto the spawn ring ahead of the heading. Locked here: the
+// recycle itself, the stationary exemption, and the lane/scripted chapter exemptions.
+function testAntiKite() {
+  const dt = 1 / 60
+  const place = (run, dist) => {
+    const e = makeStatusEnemy(run, { x: run.player.x - dist, y: run.player.y, hp: 50, speed: 0 })
+    run.enemies.push(e)
+    return e
+  }
+
+  // (a) Moving player: a straggler 3000px behind lands on the spawn ring, ahead of the heading.
+  {
+    const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    const e = place(run, 3000)
+    stepSim(run, { x: 1, y: 0 }, dt)
+    const d = Math.hypot(e.x - run.player.x, e.y - run.player.y)
+    const spawnD = run.viewRadius + SPAWN_RING
+    assert(Math.abs(d - spawnD) < spawnD * 0.05, `expected the straggler recycled to ~${spawnD.toFixed(0)}px, got ${d.toFixed(0)}`)
+    assert(e.x > run.player.x, `expected the recycled straggler AHEAD of a +x runner, got dx=${(e.x - run.player.x).toFixed(0)}`)
+    console.log(`PASS run II.a (recycle): straggler 3000px behind -> ${d.toFixed(0)}px ahead of the heading`)
+  }
+
+  // (b) Stationary player: the same straggler is never touched.
+  {
+    const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    const e = place(run, 3000)
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(Math.abs(e.x - (run.player.x - 3000)) < 1, 'expected no recycling around a stationary player')
+    console.log('PASS run II.b (stationary exemption): distant enemy untouched')
+  }
+
+  // (c) Lane and scripted chapters are exempt (they own their spawn geometry).
+  for (const chapter of ['beyond', 'blank']) {
+    const run = createRun(makeMeta(), { chapter, difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    const e = place(run, 3000)
+    stepSim(run, { x: 1, y: 0 }, dt)
+    assert(e.x < run.player.x - 2000, `expected the ${chapter} straggler still far behind, got dx=${(e.x - run.player.x).toFixed(0)}`)
+    console.log(`PASS run II.c (${chapter} exemption): straggler stays where it was left`)
+  }
+
+  console.log('PASS run II (anti-kite): stragglers recycle ahead, stationary/lane/scripted exempt')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5195,6 +5246,7 @@ try {
   testTheBlankBoss()
   testChapterAnomalies()
   testTheBlankPacing()
+  testAntiKite()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

@@ -1197,6 +1197,16 @@ export const eliteEveryAt = (t) => {
   return ELITE_EVERY_START + (ELITE_EVERY_END - ELITE_EVERY_START) * frac
 }
 export const SPAWN_RING = 60    // px beyond the larger half-screen diagonal
+// ---- Anti-kite straggler recycling (v6.0.1) ----
+// A committed runner outruns every chaser in the game forever (player 220 px/s vs a creeped wisp's
+// ~190-237), sheds the whole horde behind and wins the survival clock without ever playing.
+// Enemies left beyond KITE_DROP_MUL × the spawn distance behind a MOVING player are recycled onto
+// the spawn ring inside KITE_AHEAD_ARC of the player's heading — running doesn't shed the horde,
+// it relocates it in front of you (the Vampire Survivors contract). A standing fight (player speed
+// under KITE_MIN_SPEED) never recycles anyone, so normal play is untouched.
+export const KITE_DROP_MUL = 1.35     // × (viewRadius + SPAWN_RING); beyond this a chaser is a straggler
+export const KITE_MIN_SPEED = 100     // px/s of player motion below which nothing recycles
+export const KITE_AHEAD_ARC = Math.PI // rad centered on the heading where recycled enemies land
 // Enemy speed creep: enemies spawned later fly faster (already-spawned ones are untouched —
 // applied once at spawn time, not continuously).
 export const SPEED_CREEP_START = 120     // s, creep begins after this

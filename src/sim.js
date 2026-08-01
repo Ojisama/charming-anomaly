@@ -33,6 +33,7 @@ import {
   RARITIES, RARITY_ORDER, RARITY_WEIGHTS,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
+  KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
   STAR_LIFE, STAR_R, STAR_FAN, ORB_R, NOVA_LIFE,
@@ -156,6 +157,7 @@ export function stepSim(run, input, dt) {
   stepRegen(run, dt)
   stepRepulse(run, input, dt) // v5.21 lane: the active shove (ticks its cooldown even when unused)
   stepSpawning(run, dt)
+  stepStragglers(run)     // v6.0.1 anti-kite: chasers shed behind a runner recycle onto the ring ahead
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   stepEnemyMovement(run, dt)
@@ -849,6 +851,35 @@ function spawnEnemy(run, opts = {}) {
     xp: base.xp,
     ...freshEnemyFields(),
   })
+}
+
+// Anti-kite straggler recycling (v6.0.1, KITE_* in config.js). Nothing in the game outruns the
+// player (220 px/s vs a creeped wisp's ~190-237), so a runner who commits to one direction sheds
+// every chaser forever and the survival clock wins itself — measured headless: a weaving diagonal
+// runner beat body/pond/garden at 92-95% hp without a single level-up. The fix is the genre's own:
+// an enemy left beyond KITE_DROP_MUL × spawn distance behind a MOVING player teleports back onto
+// the spawn ring, inside KITE_AHEAD_ARC of the heading. Off-screen both before and after, so it's
+// invisible; a standing fight (below KITE_MIN_SPEED) never recycles anyone. Lane chapters already
+// spawn everything ahead by construction and handle leavers via stepLeaks; the blank is a scripted
+// boss duel whose antibody carries catch-up gear — both exempt. Anchored entities never move.
+function stepStragglers(run) {
+  const ch = CHAPTERS[run.chapter]
+  if (ch.lane || ch.scripted) return
+  const p = run.player
+  if (Math.hypot(p.vx, p.vy) < KITE_MIN_SPEED) return
+  const heading = Math.atan2(p.vy, p.vx)
+  const spawnD = run.viewRadius + SPAWN_RING
+  const dropSq = spawnD * KITE_DROP_MUL * (spawnD * KITE_DROP_MUL)
+  for (const e of run.enemies) {
+    if (e._dead || (e.affixes && e.affixes.includes('anchored'))) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    if (dx * dx + dy * dy < dropSq) continue
+    const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
+    e.x = p.x + Math.cos(a) * spawnD
+    e.y = p.y + Math.sin(a) * spawnD
+    e.kb.x = 0
+    e.kb.y = 0
+  }
 }
 
 // split flag (v5.0, see CHAPTERS roster in config.js): spawns SPLIT_CHILD_COUNT smaller clones
