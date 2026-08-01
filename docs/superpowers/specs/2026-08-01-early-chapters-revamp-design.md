@@ -130,7 +130,7 @@ same `// COPY ONLY` pattern as mines→Toxin Cysts):
 
 ---
 
-## v6.3 — The City gets a city (revised 2026-08-01 after a three-critic adversarial review)
+## v6.3 — The City gets a city (revised 2026-08-01 after a three-critic adversarial review) — ✅ SHIPPED as v6.3.0 (2026-08-01)
 
 The audit's headline: the terrain generator (biomes, streets, blocks) is fully built and
 chapter-agnostic, but gated on `render.districts` — skies-only. "The City" is uniform random
