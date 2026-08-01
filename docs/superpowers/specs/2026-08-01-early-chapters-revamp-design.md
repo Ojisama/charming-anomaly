@@ -130,31 +130,100 @@ same `// COPY ONLY` pattern as mines→Toxin Cysts):
 
 ---
 
-## v6.2 — The City gets a city
+## v6.3 — The City gets a city (revised 2026-08-01 after a three-critic adversarial review)
 
 The audit's headline: the terrain generator (biomes, streets, blocks) is fully built and
 chapter-agnostic, but gated on `render.districts` — skies-only. "The City" is uniform random
-scatter on a bare field.
+scatter on a bare field. The first draft of this slice was challenged by three adversarial
+agents (fun / gameplay / bugs); the design below is the post-review synthesis. Where a
+decision reverses the draft, the finding that forced it is noted.
 
-- **Terrain wiring**: `_districtSeed` (state.js) is set when `render?.districts || roads` —
-  the world seed decouples from skies' district *visual* system. `streamObstacles`' per-kind
-  branch keys on `render.districts === true` explicitly (not `_districtSeed != null`), so city
-  keeps its existing 3-variant look but gains `roadAt` exclusion + `blockSnap` alignment.
-  `CHAPTERS.city` gains `roads: true`. Zero new art.
-- **Street-aligned traffic**: `stepLanes` snaps each sweep's angle to the nearest road's angle
-  (`roadAt`) — a car drives down an actual street.
-- **Cover**: a traffic sweep checks a segment-vs-circle test against `run.obstacles` between
-  car and player; an obstacle in the line blocks the hit. Constants in config.js.
-- **Roster**: ratDrone gains `aerialStrike` (the owl machine parked since v5.6.8 "for a chapter
-  that hands out a ranged weapon" — city's starter is a beam; small silhouette pass on the
-  existing drawRatDrone); pigeon gains `blink` (orphaned flag; skittish flutter-hop).
-- **Augment**: `WEAPON_MODS.sewerGeyser.trafficMain` — eruption inside a live lane +40% damage.
-- **Ambient system built this release**: generalize the `CURRENT_VIS`/`updateCurrents` idiom
-  (pooled world-space sprites, fade envelope, respawn-in-view) into one `updateAmbient` driven
-  by `chapterRender.ambient` config. City's parameterization: rain glints on asphalt.
-  Later releases only add config entries.
+**Fantasy:** a real rainy night city. Furniture lines the curbs (blockSnap pulls obstacles TO
+street frontage — the draft's "cluttered block interiors" claim was backwards); streets carry
+traffic; dumpsters are destructible cover; pest control has been dispatched — for you.
 
-## v6.3 — Pond identity
+- **Terrain wiring**: `CHAPTERS.city` gains `roads: true`. `_districtSeed` (state.js) is set
+  for roads-chapters too, but **derived from the already-drawn `_obstacleSeed`** (e.g.
+  `pickWorldSeed(_obstacleSeed ^ 0x9e3779b9)`), NOT a fresh `Math.random()` draw — a new draw
+  in `createRun` desyncs every seeded test between reseed checkpoints (bugs finding 1; the
+  AA.c/runStarOnly scar, third time). Skies' existing districts path is untouched.
+  `streamObstacles`' per-kind branch re-keys on `render.districts === true` explicitly, so city
+  keeps its dumpster/hydrant/cone look + chapter-wide radius band while gaining road exclusion,
+  `blockSnap` curb alignment, and biome build-density — with a per-chapter
+  `obstacles.densityFloor: 1` clamp so the sprawl never visibly "runs out of city" on a floor
+  that can't show biomes (bugs finding 3: outskirts keep today's scatter; fading streets are
+  the honest edge cue; highways still cross the outskirts). Post-snap, `minDist` (spawn-ring
+  clearance) is RE-CHECKED — blockSnap can shove an obstacle back into the spawn clearing, and
+  city's spawn is guaranteed downtown (bugs finding 7; also fixes the latent skies bug).
+  Zero new art.
+- **Street-aligned traffic — lanes ALWAYS cross the player** (gameplay findings 1/2: a full
+  road-snap creates a permanent traffic-free courtyard in every block interior — 20-50% of
+  block area — deleting the signature and the rushhour mutator for a camper). `stepLanes`
+  keeps its "band crosses the player, ±TRAFFIC_OFFSET" contract in every case. Angle snaps to
+  the local street grid (nearest-road angle; random ± direction). When the player is within
+  ~a band-width of a real road centerline, the lane snaps fully ONTO that road (centerline
+  resolution needs the perpendicular sign-probe trick — `roadAt().dist` is unsigned, bugs
+  finding 6; replicate render.js's populateRoad idiom sim-side with one extra `roadAt` call).
+  Mid-block, the car jumps the curb and comes for you — which IS the chapter's fantasy.
+  Same number of `Math.random()` draws per roll as today. Outside the street grid entirely:
+  today's random-angle lane.
+- **Cover — telegraphed, destructible, player-only** (fun findings 2/3/7; gameplay finding 2):
+  during a sweep, an obstacle with `r >= COVER_MIN_R` (cones don't stop cars) intersecting the
+  car→player segment (capsule-vs-circle via the file's along/perp idiom, `t` clamped strictly
+  inside the segment) blocks the player hit — and the car DESTROYS the obstacle: splice +
+  `_crushed.add` + `{type:'crush'}` event (render case + SFX exist from skies) + heavy shake.
+  One block per lane pass (`lane._coverUsed`) — without it the event machine-guns every
+  overlap frame (bugs finding 5). Blocking cover is legible BEFORE it matters: during `warn`,
+  qualifying obstacles intersecting the band get a subtle glow (render-only). City's big-prop
+  pick prefers the dumpster bake for cover-sized obstacles. Enemies get no cover (cars keep
+  squashing the swarm). Destructibility is simultaneously the wow moment, the anti-camping
+  valve (a shield is consumed when used), and coherent physics.
+- **Roster** (gameplay findings 3/4/5; fun findings 4/5): roster entries gain two generic
+  config knobs — `weight` (relative spawn share within an archetype, default 1) and `minT`
+  (earliest run-time the entry may spawn) — read in `spawnEnemy`'s pool pick (same single
+  RNG draw).
+  - `vacuum` (tank, lineCharge) and `ratDrone` (normal, plain seek — the ground blob)
+    unchanged.
+  - NEW `patrolDrone` (normal, `['aerialStrike']`, same drawRatDrone art + ROSTER_LOOKS
+    entry, hpMul ~0.85, `weight: 0.3`, `minT: 60`): the parked owl machine finds its
+    ranged-chapter home — but NOT as half the bulk archetype from t=0 (fun finding 4), and
+    NOT with the melee-era immunity: `AERIAL_UNTOUCHABLE` is DELETED; `damageImmune` drops
+    its aerial branch (circling drones are killable), `contactHarmless` keeps `climb` (and
+    gains nothing new) unconditionally — the punish-window asymmetry survives the flag's
+    removal (bugs finding 2). `AERIAL_RADIUS` 240→200 so orbiters sit inside the beam's
+    L1 reach with margin (gameplay finding 3: 240 = exactly blade length, a ~15° hit window).
+    NEW `AERIAL_STRIKE_MAX_LIVE` (~6): enemies past the cap hold in `circle` until a slot
+    frees — the MISSILE_MAX_LIVE/SHELL_MAX_LIVE lesson, applied before shipping instead of
+    after (gameplay finding 4). Tests Y.b/Y.b2 rewritten to the new contract.
+  - NEW `rat` (fast, plain seek, reuses the existing undergrowth look): carries the fast
+    pressure lane. Cars roadkill non-elite rats (`TRAFFIC_SQUASH` += rat, patrolDrone).
+  - `pigeon` gains `blink` as the fast lane's SPICE, not its entirety (gameplay finding 5:
+    blink-as-sole-fast made the lane 24% slower at closing). Beyond no longer uses blink, so
+    BLINK_* retune freely for the city: faster cadence, longer hop, lands ~70px out (just
+    outside contact, one reaction beat), quicker crawl. A startle-hop reads on a bird.
+- **Augment**: `WEAPON_MODS.sewerGeyser.trafficMain` — +40% eruption damage inside a live
+  lane band (warn or sweep), AND with the mod held `pickBloomSpot` prefers enemies inside a
+  live lane ("the mains run under the streets"). Without the placement bias the mod's uptime
+  is ~15-25% and uninfluencable — a trap pick (gameplay finding 6).
+- **The dispatch beat** (fun finding 6: the tagline was a check no mechanic cashed): every
+  city elite spawn emits `{type:'dispatch'}` — siren SFX, brief red strobe on the elite, HUD
+  line "📋 REPORTED — pest control dispatched" (EN+FR). Copy + FX on an existing cadence;
+  zero balance change; the fiction finally lands in-run.
+- **Rain**: `render.rain: true` on city. `updateRain` is currently NESTED inside
+  `updateStorm`'s early-return (bugs finding 8) — pull it out behind a
+  `chapterHasRain = !!(render.storm || render.rain)` latch so city gets rain without clouds.
+  City already has baked puddles.
+- **Deferred** (over this slice's pressure budget): the full heat/searchlight system; a
+  crossing-incentive objective (fun finding 8 — accepted as partial: curb cover + street
+  traffic + dispatch carry street relevance for now).
+- **Ship gates**: headless kiting probe per enemy (clear-rate + damage attribution — the R1
+  rule: starter kills it while kiting, attack escapable at baseSpeed 220); map-mode street
+  verification; new Run KK tests (seed wiring, road exclusion + post-snap minDist, lane
+  snapping both branches, cover block/destroy/one-shot, weight/minT pool math, trafficMain
+  condition + placement bias, blink retune contract); browser pass; all new strings in fr.js
+  same-commit.
+
+## v6.4 — Pond identity
 
 - **Own flora**: `BIOME_POND` in render.js's BIOMES table (currently `pond: BIOME_GARDEN`,
   byte-identical) — reeds/mushrooms/clusters from already-loaded PNGs, murky weighting,
@@ -169,7 +238,7 @@ scatter on a bare field.
   (steerable zones, the game's first signature-load-bearing build option); baseline
   `MINE_STUN` (~0.3s) on mine detonation and `BLOOM_SLOW` inside clouds (retune license).
 
-## v6.4 — The hunt (undergrowth)
+## v6.5 — The hunt (undergrowth)
 
 - **Streamed traps**: trap placement folds into `streamObstacles`' deterministic cell hash
   (new salt), gated on `signature.type === 'predators'`, with per-trap `armed`/`cd` state
@@ -184,7 +253,7 @@ scatter on a bare field.
   armed trap.
 - **Ambient**: falling leaves.
 
-## v6.5 — First cell (+ garden polish + beyond touch-up)
+## v6.6 — First cell (+ garden polish + beyond touch-up)
 
 - **Body**: WBC gains `pounce` (phagocyte lunge — the tutorial's first telegraph read);
   sparse obstacles `{count:~8, organelle/cell-debris palette}` reusing the generic clump
