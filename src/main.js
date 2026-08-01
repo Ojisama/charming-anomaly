@@ -7,6 +7,7 @@ import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
 import { initAudio, playSfx } from './audio.js'
+import { setLang } from './i18n.js'
 
 // No top-level await: suspending module evaluation deadlocks Pixi's dynamically
 // imported environment code in the production bundle (TDZ/hang on a blank page).
@@ -14,6 +15,7 @@ boot()
 
 async function boot() {
 const meta = loadMeta()
+setLang(meta.lang) // i18n before any screen renders — ui.js translates at render time
 let run = null
 let runMode = 'classic'
 // v6.0.2: a classic run staged behind the anomaly briefing screen — set by onPlay when the
@@ -124,6 +126,14 @@ const ui = initUI({
     playSfx('buy')
     pendingPlay.mutators = randomMutators(pendingPlay.difficulty - 1, pendingPlay.chapter)
     ui.showScreen('brief', { chapterId: pendingPlay.chapter, difficulty: pendingPlay.difficulty, mutators: pendingPlay.mutators, reroll: true })
+  },
+  // v6.1 i18n: the title screen's 🌐 toggle. Persist, switch the live dictionary, and let ui.js
+  // re-render the title itself (same pattern as onDifficulty/onChapter).
+  onLang(l) {
+    meta.lang = l
+    saveMeta(meta)
+    setLang(l)
+    playSfx('click')
   },
   onBuy(id) {
     const level = meta.shop[id]

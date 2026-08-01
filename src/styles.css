@@ -119,6 +119,21 @@ body {
   top: calc(14px + env(safe-area-inset-top));
   right: calc(14px + env(safe-area-inset-right));
 }
+/* v6.1 i18n: the language toggle, mirroring the coins badge on the opposite corner */
+.lang-toggle {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  left: calc(14px + env(safe-area-inset-left));
+  padding: 8px 14px;
+  border: 3px solid var(--cream-edge);
+  border-radius: 999px;
+  background: var(--cream-soft);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
 /* v5.17 build stamp — the version + short SHA of the bundle actually running, stamped from git at
    build time (see vite.config.js). It exists to settle "am I looking at the new build or a cached
    old one?", which a service worker had made a real question. Deliberately tiny, low-contrast and

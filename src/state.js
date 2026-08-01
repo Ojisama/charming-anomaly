@@ -74,6 +74,7 @@ export function loadMeta() {
       }
       m.choiceSlots ??= 2
       m.choiceSlots = Math.max(2, Math.min(4, m.choiceSlots))
+      m.lang ??= 'en' // v6.1 i18n: display language, read once at boot (main.js -> i18n.setLang)
       return m
     }
   } catch { /* corrupted save -> fresh */ }
@@ -85,6 +86,7 @@ export function loadMeta() {
     choiceSlots: 2,
     chapter: 'body',
     chapters: {},
+    lang: 'en', // v6.1 i18n (see the loadMeta migration above)
   }
   for (const id of CHAPTER_ORDER) ensureChapterMeta(fresh, id)
   return fresh

@@ -1,6 +1,7 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
 import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { playSfx } from './audio.js'
+import { t, tt, getLang, LANGS } from './i18n.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
@@ -245,8 +246,8 @@ export function initUI(hooks) {
   function heroCardHtml(id) {
     if (!meta.chapters?.[id]?.unlocked) {
       const tagline = id === 'blank'
-        ? 'win The Beyond at level 5'
-        : `win ${CHAPTERS[furthestUnlockedChapterId(meta)].name} at difficulty 3+`
+        ? t('win The Beyond at level 5')
+        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
       return `
         <div class="hero-card hero-card--locked" data-chapter="${id}" data-hero>
           <span class="hero-icon">🔒</span>
@@ -269,7 +270,7 @@ export function initUI(hooks) {
       const pulse = !on && i === cap - 1 && chMeta.maxDifficulty === cap
       return `<span class="hero-star${on ? ' hero-star--on' : ''}${pulse ? ' hero-star--pulse' : ''}">${on ? '★' : '☆'}</span>`
     }).join('')
-    const best = chMeta.best?.time ? `<span class="hero-best">best ${fmtTime(chMeta.best.time)}</span>` : ''
+    const best = chMeta.best?.time ? `<span class="hero-best">${t('best')} ${fmtTime(chMeta.best.time)}</span>` : ''
     return `
       <div class="hero-card${light ? ' hero-card--light' : ''}" data-chapter="${id}" data-hero style="background:${bg}; color:${light ? 'var(--ink)' : '#f5f9f7'}">
         <div class="hero-ambient" aria-hidden="true">${ambientHtml(id)}</div>
@@ -277,8 +278,8 @@ export function initUI(hooks) {
           <span class="hero-glow"></span>
           <span class="hero-icon">${chapter.icon}</span>
         </div>
-        <span class="hero-name">${chapter.name}</span>
-        <span class="hero-tagline">${chapter.tagline}</span>
+        <span class="hero-name">${t(chapter.name)}</span>
+        <span class="hero-tagline">${t(chapter.tagline)}</span>
         <div class="hero-stars" aria-label="progress">${stars}</div>
         ${best}
       </div>`
@@ -329,8 +330,8 @@ export function initUI(hooks) {
         <button class="booster-item${selected ? ' booster-item--on' : ''}" data-consumable="${id}" ${afford ? '' : 'disabled'}>
           <span class="booster-item-icon">${item.icon}</span>
           <span class="booster-item-body">
-            <span class="booster-item-name">${item.name}</span>
-            <span class="booster-item-desc">${item.desc}</span>
+            <span class="booster-item-name">${t(item.name)}</span>
+            <span class="booster-item-desc">${t(item.desc)}</span>
           </span>
           <span class="booster-item-cost">${item.cost}🪙</span>
           <span class="booster-item-check">${selected ? '✓' : ''}</span>
@@ -340,9 +341,9 @@ export function initUI(hooks) {
       <div class="modal-backdrop sheet-backdrop" data-act="boosters-close">
         <div class="bottom-sheet">
           <div class="sheet-handle"></div>
-          <h3 class="sheet-title">Boosters <span class="sheet-note">this run only</span></h3>
+          <h3 class="sheet-title">${t('Boosters')} <span class="sheet-note">${t('this run only')}</span></h3>
           <div class="sheet-list">${rows}</div>
-          <button class="btn btn--soft btn--small sheet-done" data-act="boosters-close">Done</button>
+          <button class="btn btn--soft btn--small sheet-done" data-act="boosters-close">${t('Done')}</button>
         </div>
       </div>`
   }
@@ -360,9 +361,9 @@ export function initUI(hooks) {
     }
     return `
       <nav class="menu-nav">
-        ${tab('shop', '🛒', 'Shop')}
-        ${tab('battle', '⚔️', 'Battle')}
-        ${tab('daily', '🌀', 'Daily', `<sup class="nav-tab-badge">${dailyIcon}</sup>`)}
+        ${tab('shop', '🛒', t('Shop'))}
+        ${tab('battle', '⚔️', t('Battle'))}
+        ${tab('daily', '🌀', t('Daily'), `<sup class="nav-tab-badge">${dailyIcon}</sup>`)}
       </nav>`
   }
 
@@ -377,7 +378,7 @@ export function initUI(hooks) {
     if (id === 'blank') {
       return (CHAPTERS.blank.modsByDifficulty[level] ?? []).map((mid) => MUTATORS[mid]?.name ?? mid).join(' + ')
     }
-    return `+${level - 1} random anomal${level === 2 ? 'y' : 'ies'}`
+    return level === 2 ? t('+1 random anomaly') : tt('+{n} random anomalies', { n: level - 1 })
   }
 
   function titleBelowHtml() {
@@ -386,7 +387,7 @@ export function initUI(hooks) {
     const cap = chapterMaxDifficulty(browseChapterId)
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
-        <span class="diff-label">Difficulty</span>
+        <span class="diff-label">${t('Difficulty')}</span>
         ${Array.from({ length: cap }, (_, i) => {
           const d = i + 1
           if (d > chMeta.maxDifficulty) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
@@ -394,13 +395,13 @@ export function initUI(hooks) {
         }).join('')}
       </div>
       <p class="diff-hint">${chMeta.difficulty === 1
-        ? 'the base game'
-        : `${diffHintLead(browseChapterId, chMeta.difficulty)} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% enemy HP · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% coins</b>`}</p>
-      ${chMeta.maxDifficulty < cap ? `<p class="diff-hint diff-hint--locked">win level ${chMeta.maxDifficulty} to unlock ${chMeta.maxDifficulty + 1}</p>` : ''}
+        ? t('the base game')
+        : `${diffHintLead(browseChapterId, chMeta.difficulty)} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% ${t('enemy HP')} · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% ${t('coins')}</b>`}</p>
+      ${chMeta.maxDifficulty < cap ? `<p class="diff-hint diff-hint--locked">${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</p>` : ''}
       ${boosterSlotsHtml()}` : ''
     return `
       ${playBlock}
-      <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; Play</button>`
+      <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>`
   }
 
   // Surgical update after a scroll settles / a difficulty pip is tapped: rebuild only the
@@ -472,6 +473,7 @@ export function initUI(hooks) {
   function renderTitle() {
     if (!meta.chapters?.[browseChapterId]) browseChapterId = meta.chapter
     screens.title.innerHTML = `
+      <button class="lang-toggle" data-act="lang" aria-label="language">🌐 ${getLang().toUpperCase()}</button>
       <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
       ${carouselHtml()}
@@ -514,18 +516,18 @@ export function initUI(hooks) {
       return `
         <div class="sacrifice-panel">
           <span class="sacrifice-title">🩸 Sacrifice</span>
-          <p class="sacrifice-desc">All 4 card slots unlocked.</p>
+          <p class="sacrifice-desc">${t('All 4 card slots unlocked.')}</p>
         </div>`
     }
-    const nth = slots === 2 ? '3rd' : '4th'
+    const nth = slots === 2 ? t('3rd') : t('4th')
     const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
     const afford = owned >= cost
     return `
       <div class="sacrifice-panel">
         <span class="sacrifice-title">🩸 Sacrifice</span>
-        <p class="sacrifice-desc">Unlock the ${nth} level-up card — sacrifice ${cost} upgrade levels (no coin refund).</p>
-        <button class="btn btn--soft btn--small" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>Sacrifice ${cost} levels</button>
-        ${afford ? '' : `<p class="sacrifice-hint">Not enough upgrade levels owned (${owned}/${cost}).</p>`}
+        <p class="sacrifice-desc">${tt('Unlock the {nth} level-up card — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost })}</p>
+        <button class="btn btn--soft btn--small" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>${tt('Sacrifice {cost} levels', { cost })}</button>
+        ${afford ? '' : `<p class="sacrifice-hint">${tt('Not enough upgrade levels owned ({owned}/{cost}).', { owned, cost })}</p>`}
       </div>`
   }
 
@@ -550,10 +552,10 @@ export function initUI(hooks) {
     // one gets --pop so it scale-pops on appear/increment (recreated each render → restart-safe).
     const chips = Object.entries(sacrificePicks).filter(([, n]) => n > 0).map(([id, n]) => `
       <button class="sacrifice-chip${id === sacrificeBounceId ? ' sacrifice-chip--pop' : ''}" data-act="sacrifice-unoffer" data-id="${id}">
-        <span class="sacrifice-chip-name">${SHOP[id].name}</span>
+        <span class="sacrifice-chip-name">${t(SHOP[id].name)}</span>
         <span class="sacrifice-chip-count">×${n}</span>
       </button>`).join('')
-    const altarInner = chips || '<span class="sacrifice-altar-empty">tap a stat below to offer its levels</span>'
+    const altarInner = chips || `<span class="sacrifice-altar-empty">${t('tap a stat below to offer its levels')}</span>`
 
     const rows = Object.entries(SHOP).filter(([id]) => (meta.shop[id] ?? 0) > 0).map(([id, item]) => {
       const level = meta.shop[id]
@@ -571,12 +573,12 @@ export function initUI(hooks) {
       return `
         <button class="sacrifice-stat-row${id === sacrificeBounceId ? ' sacrifice-stat-row--bounce' : ''}" data-act="sacrifice-offer" data-id="${id}" ${canOffer ? '' : 'disabled'}>
           <div class="sacrifice-stat-info">
-            <span class="sacrifice-stat-name">${item.name}</span>
-            <span class="sacrifice-stat-effect">${item.desc} / level</span>
+            <span class="sacrifice-stat-name">${t(item.name)}</span>
+            <span class="sacrifice-stat-effect">${t(item.desc)} ${t('/ level')}</span>
             ${preview}
             <span class="pips">${pips}</span>
           </div>
-          <span class="sacrifice-offer-affordance">🩸<span class="sacrifice-offer-label">Offer</span></span>
+          <span class="sacrifice-offer-affordance">🩸<span class="sacrifice-offer-label">${t('Offer')}</span></span>
         </button>`
     }).join('')
 
@@ -584,20 +586,20 @@ export function initUI(hooks) {
       <div class="modal-backdrop sacrifice-modal${enter ? ' sacrifice-modal--enter' : ''}" data-act="sacrifice-cancel">
         <div class="sacrifice-sheet">
           <div class="sacrifice-altar${ready ? ' sacrifice-altar--ready' : ''}">
-            <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 Offered ${offered}/${cost}</span>
+            <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 ${tt('Offered {offered}/{cost}', { offered, cost })}</span>
             <div class="sacrifice-altar-chips">${altarInner}</div>
           </div>
           <div class="sacrifice-sheet-body">${rows}</div>
           <footer class="sacrifice-sheet-foot">
-            <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">Cancel</button>
-            <button class="btn btn--danger btn--small" data-act="sacrifice-confirm" ${ready ? '' : 'disabled'}>Confirm sacrifice</button>
+            <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">${t('Cancel')}</button>
+            <button class="btn btn--danger btn--small" data-act="sacrifice-confirm" ${ready ? '' : 'disabled'}>${t('Confirm sacrifice')}</button>
           </footer>
         </div>
       </div>`
   }
 
   function resetSectionHtml() {
-    return `<button class="reset-link" data-act="reset-start">🗑 Reset all progress</button>`
+    return `<button class="reset-link" data-act="reset-start">🗑 ${t('Reset all progress')}</button>`
   }
 
   function resetModalHtml() {
@@ -605,11 +607,11 @@ export function initUI(hooks) {
     return `
       <div class="modal-backdrop reset-modal" data-act="reset-cancel">
         <div class="confirm-sheet">
-          <h2 class="confirm-sheet-title">Erase everything?</h2>
-          <p class="confirm-sheet-body">Coins, upgrades, card slots and best scores will be permanently erased.</p>
+          <h2 class="confirm-sheet-title">${t('Erase everything?')}</h2>
+          <p class="confirm-sheet-body">${t('Coins, upgrades, card slots and best scores will be permanently erased.')}</p>
           <div class="confirm-sheet-actions">
-            <button class="btn btn--soft btn--small" data-act="reset-cancel">Cancel</button>
-            <button class="btn btn--danger btn--small" data-act="reset-confirm">Erase everything</button>
+            <button class="btn btn--soft btn--small" data-act="reset-cancel">${t('Cancel')}</button>
+            <button class="btn btn--danger btn--small" data-act="reset-confirm">${t('Erase everything')}</button>
           </div>
         </div>
       </div>`
@@ -631,8 +633,8 @@ export function initUI(hooks) {
                flex <button> around wrapped content, which let the cost overflow under the next
                card. The button is a plain block; the span does the column. -->
           <span class="shop-card-in">
-            <span class="shop-card-name">${item.name}</span>
-            <span class="shop-card-desc">${item.desc}</span>
+            <span class="shop-card-name">${t(item.name)}</span>
+            <span class="shop-card-desc">${t(item.desc)}</span>
             <span class="shop-card-foot">
               <span class="pips">${pips}</span>
               <span class="shop-card-cost">${maxed ? 'MAX' : `🪙 ${buyCost}`}</span>
@@ -689,7 +691,7 @@ export function initUI(hooks) {
       </div>
     </div>
     <div class="xp-row">
-      <span class="lv-badge">Lv 1</span>
+      <span class="lv-badge">${t('Lv')} 1</span>
       <div class="xp-bar"><div class="xp-fill"></div></div>
     </div>
     <div class="weapon-row"></div>
@@ -787,7 +789,7 @@ export function initUI(hooks) {
     if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
     if (scriptedChapter) {
       const script = run.script
-      const label = script.stage % 2 === 0 ? `WAVE ${script.waveIdx + 1}` : ''
+      const label = script.stage % 2 === 0 ? `${t('WAVE')} ${script.waveIdx + 1}` : ''
       if (label !== last.remain) {
         last.remain = label
         hud.timer.textContent = label
@@ -820,7 +822,7 @@ export function initUI(hooks) {
     }
     if (p.level !== last.level) {
       last.level = p.level
-      hud.lv.textContent = `Lv ${p.level}`
+      hud.lv.textContent = `${t('Lv')} ${p.level}`
     }
     const xpPct = Math.max(0, Math.min(100, Math.round((p.xp / p.xpNext) * 100)))
     if (xpPct !== last.xpPct) {
@@ -857,6 +859,23 @@ export function initUI(hooks) {
   let lvCards = []
   let lvFocus = 0
 
+  // Level-up card descs/tags arrive COMPOSED from sim.js ('+6% damage', '+1 potency — …',
+  // 'Lv 2', 'Star Shooter upgrade') — translate the parts, never the composite: the numeric
+  // prefix stays, the tail is a plain dictionary string (config desc), word order via tt.
+  function tCardDesc(s) {
+    const m = /^(\+[\d.]+%? )(.*)$/.exec(s)
+    if (!m) return t(s)
+    const potency = /^potency — (.*)$/.exec(m[2])
+    if (potency) return `${m[1]}${t('potency')} — ${t(potency[1])}`
+    return m[1] + t(m[2])
+  }
+  function tCardTag(s) {
+    if (/^Lv \d+$/.test(s)) return s.replace('Lv', t('Lv'))
+    const up = /^(.*) upgrade$/.exec(s)
+    if (up) return tt('{name} upgrade', { name: t(up[1]) })
+    return t(s)
+  }
+
   function renderLevelup(data = {}) {
     const { choices = [], rerollCost: rerollN = 0, coins = 0 } = data
     const cards = choices.map((c, i) => {
@@ -864,24 +883,24 @@ export function initUI(hooks) {
       const rarityName = RARITIES[rarity]?.name ?? RARITIES.normal.name
       return `
       <button class="card lv-card" data-choose="${i}" data-rarity="${rarity}" style="animation-delay:${i * 90}ms">
-        <i class="rarity-chip">${rarityName}</i>
+        <i class="rarity-chip">${t(rarityName)}</i>
         <span class="lv-card-icon">${c.icon ?? CHOICE_ICONS[c.kind] ?? '✨'}</span>
         <span class="lv-card-body">
-          <span class="lv-card-title">${c.title}
-            ${c.tag ? `<i class="tag ${c.tag === 'New!' ? 'tag--new' : 'tag--lv'}">${c.tag}</i>` : ''}
+          <span class="lv-card-title">${t(c.title)}
+            ${c.tag ? `<i class="tag ${c.tag === 'New!' ? 'tag--new' : 'tag--lv'}">${tCardTag(c.tag)}</i>` : ''}
           </span>
-          <span class="lv-card-desc">${c.desc}</span>
+          <span class="lv-card-desc">${tCardDesc(c.desc)}</span>
         </span>
       </button>`
     }).join('')
     const rerollDisabled = coins < rerollN
     screens.levelup.innerHTML = `
       <div class="modal">
-        <h2 class="modal-title">LEVEL UP!</h2>
+        <h2 class="modal-title">${t('LEVEL UP!')}</h2>
         <div class="lv-cards">${cards}</div>
-        <p class="lv-hint">1-${choices.length} · arrows · enter · R reroll</p>
+        <p class="lv-hint">${tt('1-{n} · arrows · enter · R reroll', { n: choices.length })}</p>
         <div class="lv-footer">
-          <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 Reroll (${rerollN}🪙)</button>
+          <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 ${tt('Reroll ({n}🪙)', { n: rerollN })}</button>
           <span class="lv-coins">🪙 ${coins}</span>
         </div>
       </div>
@@ -948,6 +967,13 @@ export function initUI(hooks) {
     eliteEveryMul: ['time between elites', true],
     elementWeightMul: ['infusion card chance', true],
     magnetMul: ['pickup magnet', true],
+    // v5.25 chapter-anomaly knobs (missing until v6.1 — the chips showed the raw key)
+    currentForceMul: ['current push', false],
+    pheromoneLifeMul: ['pheromone life', false],
+    trapCountMul: ['trap count', false],
+    trafficIntervalMul: ['time between cars', true],
+    bombardIntervalMul: ['time between shells', true],
+    wellForceMul: ['gravity well force', false],
   }
 
   function effectChips(effects) {
@@ -955,7 +981,7 @@ export function initUI(hooks) {
       const [label, goodUp] = EFFECT_LABELS[key] ?? [key, true]
       const pct = Math.round((v - 1) * 100)
       const good = (pct > 0) === goodUp
-      return `<span class="fx-chip ${good ? 'fx-chip--good' : 'fx-chip--bad'}">${pct > 0 ? '+' : ''}${pct}% ${label}</span>`
+      return `<span class="fx-chip ${good ? 'fx-chip--good' : 'fx-chip--bad'}">${pct > 0 ? '+' : ''}${pct}% ${t(label)}</span>`
     }).join('')
   }
 
@@ -967,8 +993,8 @@ export function initUI(hooks) {
       <div class="daily-mutator">
         <span class="daily-mutator-icon">${m?.icon ?? '❔'}</span>
         <span class="daily-mutator-body">
-          <span class="daily-mutator-name">${m?.name ?? id}</span>
-          <span class="daily-mutator-desc">${m?.desc ?? ''}</span>
+          <span class="daily-mutator-name">${t(m?.name ?? id)}</span>
+          <span class="daily-mutator-desc">${t(m?.desc ?? '')}</span>
           <span class="daily-mutator-fx">${m ? effectChips(m.effects ?? {}) : ''}</span>
         </span>
       </div>`
@@ -981,16 +1007,16 @@ export function initUI(hooks) {
     const isPreview = !meta.chapters?.[chId]?.unlocked
     screens.daily.innerHTML = `
       <div class="modal daily-brief">
-        <h2 class="modal-title">🌀 Daily Anomaly</h2>
+        <h2 class="modal-title">🌀 ${t('Daily Anomaly')}</h2>
         <p class="daily-date">${todayKey()}</p>
         <div class="daily-chapter">
           <span class="daily-chapter-icon">${chapter.icon}</span>
-          <span class="daily-chapter-name">${chapter.name}</span>
-          ${isPreview ? '<span class="daily-chapter-preview">preview</span>' : ''}
+          <span class="daily-chapter-name">${t(chapter.name)}</span>
+          ${isPreview ? `<span class="daily-chapter-preview">${t('preview')}</span>` : ''}
         </div>
         ${ids.map(mutatorCardHtml).join('')}
-        <p class="daily-note">Everyone gets the same anomaly today — new one at midnight.</p>
-        <button class="btn btn--big" data-act="daily-start">▶&nbsp; Start Daily Run</button>
+        <p class="daily-note">${t('Everyone gets the same anomaly today — new one at midnight.')}</p>
+        <button class="btn btn--big" data-act="daily-start">▶&nbsp; ${t('Start Daily Run')}</button>
       </div>
       ${navHtml('daily')}
     `
@@ -1006,22 +1032,22 @@ export function initUI(hooks) {
     const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
     const ids = d.mutators ?? []
     const note = d.chapterId === 'blank'
-      ? 'The Blank\'s ladder is fixed — each difficulty adds its named modifier.'
-      : 'Anomalies bend the rules of this run — every difficulty level past the first adds one more.'
+      ? t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')
+      : t('Anomalies bend the rules of this run — every difficulty level past the first adds one more.')
     screens.brief.innerHTML = `
       <div class="modal daily-brief">
-        <h2 class="modal-title">🌀 Anomalies</h2>
+        <h2 class="modal-title">🌀 ${t('Anomalies')}</h2>
         <div class="daily-chapter">
           <span class="daily-chapter-icon">${chapter.icon}</span>
-          <span class="daily-chapter-name">${chapter.name} — difficulty ${d.difficulty ?? 1}</span>
+          <span class="daily-chapter-name">${t(chapter.name)} — ${t('difficulty')} ${d.difficulty ?? 1}</span>
         </div>
         <p class="daily-note">${note}</p>
         ${ids.map(mutatorCardHtml).join('')}
         ${d.reroll ? `
         <button class="btn btn--soft btn--small" data-act="brief-reroll" ${meta.coins >= ANOMALY_REROLL_COST ? '' : 'disabled'}>
-          🎲 Reroll — ${ANOMALY_REROLL_COST} 🪙 <span class="brief-coins">(you have ${meta.coins})</span>
+          🎲 ${t('Reroll')} — ${ANOMALY_REROLL_COST} 🪙 <span class="brief-coins">(${tt('you have {coins}', { coins: meta.coins })})</span>
         </button>` : ''}
-        <button class="btn btn--big" data-act="brief-start">▶&nbsp; Start</button>
+        <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
       </div>
       ${navHtml('battle')}
     `
@@ -1032,22 +1058,22 @@ export function initUI(hooks) {
     const mutatorIds = d.mutators || []
     const mutatorBlock = mutatorIds.length ? `
       <div class="pause-mutators">
-        <div class="pause-mutators-head">${d.mode === 'daily' ? '🌀 Daily Anomaly' : '🌀 Anomalies'}</div>
+        <div class="pause-mutators-head">🌀 ${d.mode === 'daily' ? t('Daily Anomaly') : t('Anomalies')}</div>
         ${mutatorIds.map((id) => `
           <div class="pause-mutator-line">
             <span class="pause-mutator-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
             <span class="pause-mutator-body">
-              <span class="pause-mutator-name">${MUTATORS[id]?.name ?? id}</span>
-              <span class="pause-mutator-desc">${MUTATORS[id]?.desc ?? ''}</span>
+              <span class="pause-mutator-name">${t(MUTATORS[id]?.name ?? id)}</span>
+              <span class="pause-mutator-desc">${t(MUTATORS[id]?.desc ?? '')}</span>
             </span>
           </div>`).join('')}
       </div>` : ''
     screens.pause.innerHTML = `
       <div class="modal">
-        <h2 class="modal-title">Paused</h2>
+        <h2 class="modal-title">${t('Paused')}</h2>
         ${mutatorBlock}
-        <button class="btn btn--big" data-act="resume">▶&nbsp; Resume</button>
-        <button class="btn btn--soft" data-act="quit">Quit to menu</button>
+        <button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>
+        <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
         ${buildStampHtml()}
       </div>
     `
@@ -1064,27 +1090,27 @@ export function initUI(hooks) {
     const chapter = CHAPTERS[chapterId] ?? CHAPTERS[CHAPTER_ORDER[0]]
     const mutatorBlock = mutatorIds.length ? `
       <div class="summary-mutators">
-        <div class="summary-mutators-head">${d.mode === 'daily' ? '🌀 Daily Anomaly' : '🌀 Anomalies'}</div>
-        ${mutatorIds.map((id) => `<div class="summary-mutator-line">${MUTATORS[id]?.icon ?? '❔'} ${MUTATORS[id]?.name ?? id}</div>`).join('')}
+        <div class="summary-mutators-head">🌀 ${d.mode === 'daily' ? t('Daily Anomaly') : t('Anomalies')}</div>
+        ${mutatorIds.map((id) => `<div class="summary-mutator-line">${MUTATORS[id]?.icon ?? '❔'} ${t(MUTATORS[id]?.name ?? id)}</div>`).join('')}
       </div>` : ''
     screens.summary.innerHTML = `
       <div class="modal">
-        <h2 class="modal-title">${d.victory ? 'You escaped! 🎉' : 'Squished… 💦'}</h2>
-        <p class="summary-chapter">${chapter.icon} ${chapter.name}</p>
+        <h2 class="modal-title">${d.victory ? t('You escaped! 🎉') : t('Squished… 💦')}</h2>
+        <p class="summary-chapter">${chapter.icon} ${t(chapter.name)}</p>
         <div class="stats">
-          <div class="stat-row"><span>Time</span><b>${fmtTime(d.time)}</b></div>
-          <div class="stat-row"><span>Kills</span><b>${d.kills}</b></div>
-          <div class="stat-row"><span>Level reached</span><b>${d.level}</b></div>
+          <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}</b></div>
+          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}</b></div>
+          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}</b></div>
         </div>
         ${mutatorBlock}
-        ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 Difficulty ${d.unlockedDifficulty} unlocked!</div>` : ''}
-        ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🌊 Chapter unlocked: ${d.unlockedChapter}!</div>` : ''}
-        ${d.unlockedHiddenChapter ? `<div class="summary-unlock summary-unlock--hidden">⬜ THE BLANK REVEALED — something noticed you</div>` : ''}
+        ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 ${tt('Difficulty {d} unlocked!', { d: d.unlockedDifficulty })}</div>` : ''}
+        ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🌊 ${tt('Chapter unlocked: {name}!', { name: t(d.unlockedChapter) })}</div>` : ''}
+        ${d.unlockedHiddenChapter ? `<div class="summary-unlock summary-unlock--hidden">⬜ ${t('THE BLANK REVEALED — something noticed you')}</div>` : ''}
         <div class="earned">🪙 +${d.earned}
-          ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} finish bonus</span>` : ''}
+          ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} ${t('finish bonus')}</span>` : ''}
         </div>
-        <button class="btn btn--big" data-act="play" data-mode="${d.mode ?? 'classic'}">▶&nbsp; Play again</button>
-        <button class="btn btn--soft" data-act="quit">Menu</button>
+        <button class="btn btn--big" data-act="play" data-mode="${d.mode ?? 'classic'}">▶&nbsp; ${t('Play again')}</button>
+        <button class="btn btn--soft" data-act="quit">${t('Menu')}</button>
       </div>
     `
   }
@@ -1176,6 +1202,14 @@ export function initUI(hooks) {
       case 'shop': switchTab('shop'); break
       case 'daily': switchTab('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
+      case 'lang': {
+        // v6.1 i18n: cycle to the next language, persist via main.js, re-render this screen live
+        const ids = LANGS.map(([id]) => id)
+        const next = ids[(ids.indexOf(getLang()) + 1) % ids.length]
+        hooks.onLang?.(next)
+        renderTitle()
+        break
+      }
       case 'brief-start': hooks.onBriefStart?.(); break
       case 'brief-reroll': hooks.onBriefReroll?.(); break
       case 'diff': {
