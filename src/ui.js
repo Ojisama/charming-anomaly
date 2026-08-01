@@ -974,6 +974,7 @@ export function initUI(hooks) {
     trafficIntervalMul: ['time between cars', true],
     bombardIntervalMul: ['time between shells', true],
     wellForceMul: ['gravity well force', false],
+    acidPotencyMul: ['acid pool burn', false],
   }
 
   function effectChips(effects) {

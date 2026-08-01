@@ -125,10 +125,13 @@ const UI = {
   'time between cars': 'délai entre voitures',
   'time between shells': 'délai entre obus',
   'gravity well force': 'force des puits de gravité',
+  'acid pool burn': 'brûlure des flaques d\'acide',
 }
 
 // config.js content strings — filled by the translation pass (see fr-config section below).
 const CONFIG = {
+  'Toxic Shock': 'Choc Toxique',
+  'Elite acid pools burn far hotter. Richer coins.': 'Les flaques d\'acide des élites brûlent bien plus fort. Pièces plus riches.',
   'Star Shooter': 'Lance-Étoiles',
   'Fires stars at the nearest drone.': 'Tire des étoiles sur le drone le plus proche.',
   'Orbit Sparks': 'Étincelles Orbitales',

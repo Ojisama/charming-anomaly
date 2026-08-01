@@ -5227,7 +5227,15 @@ function testRemaster() {
       'expected the flagella sweep to shove the enemy (knockback parity with roar)')
     console.log('PASS run JJ.a (melee parity): flagella hit shoves')
   }
-  console.log('PASS run JJ (Remaster): melee parity')
+  // (b) Toxic Shock: rolls only in body, lands in run.mods, scales the acid pool's dps.
+  {
+    assert(randomMutators(99, 'body').includes('toxicShock'), 'toxicShock must roll in body')
+    assert(!randomMutators(99, 'pond').includes('toxicShock'), 'toxicShock must not roll outside body')
+    const run = createRun(makeMeta(), { chapter: 'body', mutators: ['toxicShock'] })
+    assert.strictEqual(run.mods.acidPotencyMul, 1.6, 'toxicShock lands in run.mods.acidPotencyMul')
+    console.log('PASS run JJ.b (toxic shock): body-scoped, acidPotencyMul 1.6')
+  }
+  console.log('PASS run JJ (Remaster): melee parity, toxic shock')
 }
 
 try {

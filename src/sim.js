@@ -2529,7 +2529,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     // acidPool elite flag (v5.0, e.g. body's pill elites): leaves a damaging pool where the
     // elite died (see run.pools in state.js / stepPools above).
     if (enemy.elite && enemy.flags && enemy.flags.includes('acidPool')) {
-      run.pools.push({ x: enemy.x, y: enemy.y, r: ACID_R, t: ACID_DUR, dps: ACID_DPS })
+      run.pools.push({ x: enemy.x, y: enemy.y, r: ACID_R, t: ACID_DUR, dps: ACID_DPS * run.mods.acidPotencyMul }) // v6.2 toxicShock
     }
     // trailFollow flag (v5.3 garden's ants): a dying ant drops a fading pheromone node that other
     // ants follow & accelerate on (see run.trails / stepEnemyMovement). Gated on the chapter's
