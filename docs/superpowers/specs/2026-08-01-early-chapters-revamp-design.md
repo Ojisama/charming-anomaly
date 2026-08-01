@@ -30,6 +30,12 @@ some signatures are provably vestigial, and a pile of shipped content is silentl
 4. **Retune freely** — feel changes are in scope where the audit shows omission (melee starters
    hitting flat, dead trap fields). Difficulty ladders must stay winnable; the sim suite and a
    headless balance probe guard that.
+5. **Build freely** (owner, 2026-08-01) — "reuse, don't build" is NOT a rule of this program.
+   Reusing existing machinery is a tool where it fits; new systems are in scope wherever they
+   make the game more fun, playable or coherent. The deferred "L-effort" items (e.g. small-scale
+   destructible obstacles for early chapters) are back on the table for their slices, and each
+   per-chapter slice should ask "what would make this chapter genuinely fun" before "what can
+   we reuse".
 
 Related, already shipped from the same audit: **v6.0.1 anti-kite straggler recycling** (the
 run-forever cheese — chasers shed behind a moving player recycle onto the spawn ring ahead).
