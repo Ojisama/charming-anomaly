@@ -85,6 +85,8 @@ const UI = {
   // HUD
   'WAVE': 'VAGUE',
   'Lv': 'Niv',
+  // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
+  '📋 REPORTED — pest control dispatched': '📋 SIGNALÉ — la dératisation est en route',
 
   // level-up card composition parts (see tCardDesc/tCardTag in ui.js)
   'potency': 'puissance',

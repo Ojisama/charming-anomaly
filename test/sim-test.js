@@ -5813,6 +5813,76 @@ function testTrafficMainGeyser() {
   }
 }
 
+// ---- Run KK.g: v6.3 rain + the dispatch beat ---------------------------------------------------
+// Two independent contracts (plan Task 6): (1) a REAL elite born through the ordinary spawn timer
+// (spawnEnemy, sim.js — never a hand-placed `elite:true` test fixture) in a chapter carrying
+// CHAPTERS[chapter].dispatch (city) pushes exactly one {type:'dispatch'} event; the identical spawn
+// path in a chapter WITHOUT the flag (garden) pushes none. (2) stepLanes' cover-emit crush event
+// carries kind:'dumpster' unconditionally — never the shielding obstacle's own o.kind — reusing
+// KK.e's lane fixture pattern inline.
+function testDispatchAndCoverKind() {
+  const dt = 1 / 60
+
+  // Force exactly ONE spawn through the REAL spawnEnemy path by priming _spawnAcc directly and
+  // zeroing spawnMul, so stepSpawning's `while (_spawnAcc >= 1)` body runs exactly once (1 -> 0,
+  // then stops) instead of depending on spawnRate(0)'s actual value. _nextEliteAt = 0 <= run.time
+  // (0 on a fresh run) makes that one spawn a genuine elite (isElite, sim.js).
+  function spawnOneElite(chapter) {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null
+    run.player.hp = run.player.maxHP = 1e9
+    run._laneAcc = 1e6 // park city's traffic roller — irrelevant noise for this test
+    run._spawnAcc = 1
+    run.mods.spawnMul = 0
+    run._nextEliteAt = 0
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const spawned = run.enemies.find((e) => e.elite)
+    assert(spawned, `expected the forced spawn to be elite (chapter=${chapter})`)
+    return run
+  }
+
+  {
+    const run = spawnOneElite('city')
+    const dispatches = run.events.filter((e) => e.type === 'dispatch')
+    assert.strictEqual(dispatches.length, 1, `expected exactly one dispatch event for a city elite spawn, got ${dispatches.length}`)
+    console.log('PASS run KK.g.1 (dispatch beat): a city elite spawn pushes exactly one dispatch event')
+  }
+
+  {
+    const run = spawnOneElite('garden')
+    const dispatches = run.events.filter((e) => e.type === 'dispatch')
+    assert.strictEqual(dispatches.length, 0, `expected zero dispatch events for a garden elite spawn (CHAPTERS.garden has no dispatch flag), got ${dispatches.length}`)
+    console.log('PASS run KK.g.2 (dispatch beat, negative): a garden elite spawn pushes none')
+  }
+
+  // (3) cover-crush kind override — KK.e's lane fixture, reused inline. The obstacle is tagged
+  // kind:'tower' on purpose: proves the event's kind is FORCED to 'dumpster' at the emit site, not
+  // read from the obstacle itself (which stays an ordinary STRUCTURE_KINDS pick elsewhere).
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run._laneAcc = 1e6
+    run.player.hp = run.player.maxHP = 1e9; run.player.invuln = 0
+    const cx = 200, D = 74
+    run.player.x = cx + D; run.player.y = 0
+    const carT = 0.5 + cx / TRAFFIC_LEN
+    run.lanes = [{
+      x: 0, y: 0, angle: 0, len: TRAFFIC_LEN, w: TRAFFIC_W,
+      phase: 'sweep', t: TRAFFIC_SWEEP * (1 - carT) + dt, carT: 0,
+      dmg: TRAFFIC_DMG, hitIds: new Set(),
+    }]
+    run.obstacles.push({ x: cx + 0.15 * D, y: 0, r: 30, _cell: 'ckk', kind: 'tower' })
+
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const crushEvents = run.events.filter((e) => e.type === 'crush')
+    assert.strictEqual(crushEvents.length, 1, `expected exactly one crush event, got ${crushEvents.length}`)
+    assert.strictEqual(crushEvents[0].kind, 'dumpster', `expected the cover-kill crush event's kind forced to 'dumpster', got '${crushEvents[0].kind}'`)
+    console.log("PASS run KK.g.3 (cover-crush flavor): the shield's crush event carries kind 'dumpster' regardless of its own o.kind")
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5857,6 +5927,7 @@ try {
   testTrafficLaneSnap()
   testCoverDestructible()
   testTrafficMainGeyser()
+  testDispatchAndCoverKind()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

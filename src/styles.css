@@ -382,6 +382,30 @@ body {
   transition: transform 0.1s;
 }
 .btn-pause:active { transform: translateY(2px) scale(0.95); }
+/* v6.3 dispatch beat: transient "pest control dispatched" banner (city elite spawn only). Absolute
+   within .screen--hud (already position:absolute — see .screen), so it overlays without disturbing
+   hud-top/xp-row's grid/flex flow; centered under the HP/timer row, fading in/out rather than
+   popping (a modal's worth of copy this is not). pointer-events:none — same reason the joystick's
+   .hud parent is none, this must never eat a touch. */
+.dispatch-notice {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: var(--danger);
+  border: 2px solid var(--danger-edge);
+  color: var(--cream);
+  font-weight: 800;
+  font-size: 0.85rem;
+  text-align: center;
+  max-width: 90vw;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease-out;
+}
+.dispatch-notice--show { opacity: 1; }
 .xp-row { width: 100%; display: flex; align-items: center; gap: 8px; }
 .lv-badge {
   padding: 3px 10px;

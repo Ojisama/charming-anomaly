@@ -1385,6 +1385,10 @@ export const CHAPTERS = {
     // it end to end, deadly to the player AND to enemies. All tuning is in TRAFFIC_* below; the
     // per-chapter knob is how many lanes may be live at once.
     signature: { type: 'traffic', lanes: 2 },
+    // dispatch (v6.3): the tagline ("you've been reported") finally cashes as a mechanic — every
+    // city ELITE spawn (never a spawner's forceNormal minions) fires a {type:'dispatch'} event.
+    // Top-level, not render-only: sim.js reads it at the elite-spawn site.
+    dispatch: true,
     // roads (v6.3): city gets the same street grid skies uses (CHAPTERS.skies.roads' comment
     // covers the mechanism) — streamObstacles keeps city's chapter-wide radius band and dumpster/
     // hydrant/cone kind pool (perKindRadius stays keyed on render.districts, skies only) while
@@ -1404,6 +1408,14 @@ export const CHAPTERS = {
       floorTint: 0x9aa0ac,  // cold concrete grey multiply on the floor sprites
       playerTint: 0x9ef0c8, // neon-sign green — an urban monster lit by the storefronts
       tail: false,
+      // v6.3: rain on the asphalt, no storm — chapterHasRain (render.js) is `storm || rain`, so
+      // city gets the screen-space rain layer without the skies-only cloud shadows/parallax clouds.
+      rain: true,
+      // v6.3: cover-crush leaves a permanent wreck decal too — chapterHasRuins (render.js) is
+      // `storm || ruins`. The crush event's kind is forced to 'dumpster' (sim.js stepLanes' cover
+      // emit); RUIN_FOR_KIND has no 'dumpster' entry so it falls back to the 'tower' ruin bake
+      // (angular rubble chunks — the closest neutral match to a smashed steel bin; no new art).
+      ruins: true,
     },
   },
   skies: {
@@ -3351,6 +3363,10 @@ export const SKIES_FX = {
       pier:  { dust: 0x9fc3d8, dustDark: 0xc4a06a },   // harbour spray over splintered timber
       silo:  { dust: 0xdcc98a, dustDark: 0xa8935c },   // spilled grain
       tree:  { dust: 0x6f8a5c, dustDark: 0x46583b },   // leaf litter
+      // v6.3: city cover-kills (stepLanes' cover emit, sim.js) force kind: 'dumpster' so a bin
+      // doesn't explode into pier "harbour timber" dust. Pale steel shards, rust-dark accent —
+      // matches the baked prop's own tint/foot family (T.dumpster: 0xd8d4cc/0x161a20).
+      dumpster: { dust: 0xd8d4cc, dustDark: 0xc27b4a },  // steel bin: pale metal, rusted dark accent
     },
   },
 

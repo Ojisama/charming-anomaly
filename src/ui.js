@@ -5,6 +5,9 @@ import { t, tt, getLang, LANGS } from './i18n.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
+// v6.3 dispatch beat: how long the "pest control dispatched" HUD banner stays up, in run.time
+// seconds — a UI display duration, not sim balance, so it lives here rather than config.js.
+const DISPATCH_NOTICE_T = 2.5
 
 // v5.17 build stamp: "vX.Y.Z · <short sha>", substituted by vite.config.js's `define` from the git
 // HEAD at BUILD time — so it identifies the bundle you are actually running, not what the source
@@ -160,7 +163,9 @@ function formatShopBonus(id, levels) {
  *       resolves which chapter was just
  *       played (meta.chapter for classic, dailyChapter(todayKey()) for daily — the data object
  *       doesn't carry it) purely to show its icon/name in the header, unrelated to these unlocks.
- *   ui.updateHUD(run)   called every frame while playing — renders run.mutators as HUD chips
+ *   ui.updateHUD(run, events)   called every frame while playing — renders run.mutators as HUD
+ *     chips. events (v6.3) is this frame's drained run.events array, scanned only for 'dispatch'
+ *     (see DISPATCH_NOTICE_T) to (re)start the "pest control dispatched" HUD banner.
  */
 export function initUI(hooks) {
   const root = document.getElementById('ui')
@@ -690,6 +695,7 @@ export function initUI(hooks) {
         <div class="rampage-bar" style="height:14px;"><div class="rampage-fill" style="background:#8a5fe0;"></div></div>
       </div>
     </div>
+    <div class="dispatch-notice"></div>
     <div class="xp-row">
       <span class="lv-badge">${t('Lv')} 1</span>
       <div class="xp-bar"><div class="xp-fill"></div></div>
@@ -715,6 +721,7 @@ export function initUI(hooks) {
     skillCd: screens.hud.querySelector('.skill-btn-cd'),
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
+    dispatchNotice: screens.hud.querySelector('.dispatch-notice'),
   }
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
@@ -727,9 +734,13 @@ export function initUI(hooks) {
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
     scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
+    // v6.3 dispatch beat: dispatchUntil is a run.time DEADLINE (0 = nothing pending), not a DOM
+    // timer — updateHUD already redraws every frame while playing, so comparing against run.time
+    // needs no separate countdown/interval and survives pause (run.time simply stops advancing).
+    dispatchUntil: 0, dispatchShown: undefined,
   }
 
-  function updateHUD(run) {
+  function updateHUD(run, events) {
     const p = run.player
     if (p.hp !== last.hp || p.maxHP !== last.maxHP) {
       last.hp = p.hp
@@ -852,6 +863,20 @@ export function initUI(hooks) {
           <span class="weapon-chip-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
         </span>`).join('')
       hud.weaponRow.innerHTML = weaponChips + elementChips + mutatorChips
+    }
+    // v6.3 dispatch beat: a 'dispatch' event this frame (re)starts the banner's ~2.5s window —
+    // main.js drains run.events and passes them through here alongside render/audio, the same
+    // frame-loop cadence every other event consumer already uses (see main.js's ticker).
+    if (events) {
+      for (const e of events) {
+        if (e.type === 'dispatch') { last.dispatchUntil = run.time + DISPATCH_NOTICE_T; break }
+      }
+    }
+    const dispatchShown = run.time < last.dispatchUntil
+    if (dispatchShown !== last.dispatchShown) {
+      last.dispatchShown = dispatchShown
+      if (dispatchShown) hud.dispatchNotice.textContent = t('📋 REPORTED — pest control dispatched')
+      hud.dispatchNotice.classList.toggle('dispatch-notice--show', dispatchShown)
     }
   }
 

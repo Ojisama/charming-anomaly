@@ -486,6 +486,12 @@ function generateWells(sig) {
  *                                stepLanes' sweep branch. Same event shape, same _crushed bookkeeping
  *                                below, reused rather than duplicated; NOT gated on CHAPTERS[..].crush
  *                                (that flag is skies' whole-structure kaiju crush, a separate thing).
+ *                                v6.3 Task 4b: that cover-emit's `kind` is forced to 'dumpster',
+ *                                NOT the shielding obstacle's own o.kind (still one of the uniform
+ *                                STRUCTURE_KINDS) — a shield always bakes as the dumpster prop
+ *                                (city's big-prop pick, render.js syncObstacles), so the crush FX
+ *                                and the permanent ruin decal (chapterHasRuins) should match what
+ *                                was actually standing there, not a random structure silhouette.
  * _crushed (v5.9.1 bugfix, sim-internal, not a render contract): a Set of obstacle `_cell` keys
  *   ('i,j', matching run.obstacles[i]._cell) that have been crushed at least once THIS RUN — added
  *   by stepCrush alongside the splice (v6.3: also by stepLanes' cover branch, sim.js's findCover —
@@ -564,6 +570,12 @@ function generateWells(sig) {
  *   player (normal armor/contactDmgTakenMul path, gated by invuln) and every enemy it touches
  *   (dealDamage, once each — hitIds) for `dmg`, plus TRAFFIC_KB knockback along `angle`. Removed
  *   when t hits 0 in 'sweep'. See stepLanes in sim.js.
+ * v6.3 dispatch beat: {type:'dispatch', x, y} — fired once, at spawnEnemy's own push, the instant a
+ *   REAL elite is born (isElite true; never a spawner's forceNormal minions) in a chapter with
+ *   CHAPTERS[chapter].dispatch (currently city only) — x,y = the elite's spawn position. No `run`
+ *   field, no sim-side follow-up: render draws a brief red strobe there, audio plays a siren, and
+ *   ui.js shows a ~2.5s HUD banner ("pest control dispatched") — the tagline finally landing
+ *   in-run. See spawnEnemy in sim.js.
  * enemyShots[i]: { x, y, vx, vy, r, dmg, life, turnRate } — the ONLY enemy-owned projectile array,
  *   fed by 'missileVolley' helicopters. Homes toward the player at turnRate rad/s, expires at
  *   life <= 0 (removed, no blast), and on overlapping the player (r + PLAYER.radius) damages the

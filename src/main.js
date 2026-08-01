@@ -251,6 +251,9 @@ const SFX_FOR_EVENT = {
   // v6.2: the shriek used to arrive as a generic 'shoot' — same voice, its own event. Blinks are
   // deliberately silent (a per-bullet ~0.5s cadence would machine-gun any voice we gave it).
   shriek: 'shoot',
+  // v6.3 dispatch beat (city elite spawn): a two-tone alarm wail — own synth (audio.js), no
+  // throttle entry needed (elite cadence is seconds apart, nothing like shoot/hit's per-frame rate).
+  dispatch: 'siren',
 }
 
 function endRun(victory) {
@@ -332,7 +335,7 @@ app.ticker.add((ticker) => {
       const s = SFX_FOR_EVENT[e.type]
       if (s) playSfx(s)
     }
-    ui.updateHUD(run)
+    ui.updateHUD(run, events)
     if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
     else if (run.phase === 'dead') endRun(false)
     else if (run.phase === 'victory') endRun(true)

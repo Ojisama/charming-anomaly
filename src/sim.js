@@ -863,6 +863,11 @@ function spawnEnemy(run, opts = {}) {
     xp: base.xp,
     ...freshEnemyFields(),
   })
+  // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
+  // a spawner's minions, which always pass forceNormal and so never reach isElite — fires the
+  // "pest control has been reported" fiction beat. render.js draws the strobe, main.js plays the
+  // siren, ui.js shows the HUD line.
+  if (isElite && CHAPTERS[run.chapter].dispatch) run.events.push({ type: 'dispatch', x, y })
 }
 
 // Anti-kite straggler recycling (v6.0.1, KITE_* in config.js). Nothing in the game outruns the
@@ -2355,7 +2360,11 @@ function stepLanes(run, dt) {
         const idx = run.obstacles.indexOf(shield)
         if (idx >= 0) run.obstacles.splice(idx, 1)
         run._crushed.add(shield._cell) // permanent — streamObstacles must never re-roll this cell
-        run.events.push({ type: 'crush', x: shield.x, y: shield.y, kind: shield.kind })
+        // v6.3 Task 4b: the event's kind is forced to 'dumpster', NOT shield.kind — o.kind is one of
+        // the uniform STRUCTURE_KINDS (tower/house/tree/pier/barn/silo), so an unmodified emit could
+        // have a shielding bin explode into "pier" harbour-timber dust. shield.kind ITSELF is left
+        // untouched (streamObstacles/syncObstacles still own its shape/baked-prop pick).
+        run.events.push({ type: 'crush', x: shield.x, y: shield.y, kind: 'dumpster' })
         // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural
         // cell crossing re-triggers streamObstacles — see stepCrush's identical line above.
         run._obstacleRev = (run._obstacleRev || 0) + 1

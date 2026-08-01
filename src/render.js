@@ -215,6 +215,13 @@ export function createRenderer(app) {
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
   // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
   let chapterHasStorm = false
+  // v6.3: whether the active chapter draws SCREEN-space rain (CHAPTERS[].render.storm OR .rain —
+  // currently skies [storm implies rain] and city [rain alone, no clouds]). updateRain reads this
+  // directly rather than chapterHasStorm, so city gets wet asphalt without skies' cloud shadows.
+  let chapterHasRain = false
+  // v6.3: whether crush leaves a permanent ruin decal (CHAPTERS[].render.storm OR .ruins —
+  // currently skies and city). Same `storm || X` idiom as chapterHasRain; read by updateRuins.
+  let chapterHasRuins = false
   // v5.11 kaiju redesign: whether the active chapter draws the dedicated kaiju body/tail rig
   // (CHAPTERS[].render.kaiju — currently only `skies`) instead of the generic cross-chapter blob.
   // Same latch pattern as chapterHasStorm; read by syncPlayer/updateRampage. Every other chapter
@@ -5551,7 +5558,7 @@ export function createRenderer(app) {
   const roadLayer = new Container()   // skies only (v5.9) — sits over the district floor tint, under every prop
   const roadDecalLayer = new Container() // skies only (v5.10) — manholes/patches/drains/arrows, uniformly scaled
   const junctionLayer = new Container()  // skies only (v5.10) — enumerated crosswalk composites, true world size
-  const ruinLayer = new Container()      // skies only (v5.10) — permanent crush ruins, from the render-local ledger
+  const ruinLayer = new Container()      // skies + city (v5.10, v6.3) — permanent crush ruins, from the render-local ledger, gated by chapterHasRuins
   const bigLayer = new Container()
   const midLayer = new Container()
   const detailLayer = new Container()
@@ -6530,7 +6537,11 @@ export function createRenderer(app) {
     rock: { baked: ['skOutcrop', 'skOutcrop'], topDown: true }, // hills override only — see comment above and syncObstacles
   }
   // Which ruin bake a crushed structure leaves behind, by o.kind (SKIES_RUIN, spec §5.9). 'rock'
-  // is the hills override above, and reuses tree's stump-and-splinter ruin.
+  // is the hills override above, and reuses tree's stump-and-splinter ruin. v6.3: city's cover-crush
+  // forces kind 'dumpster' (sim.js stepLanes) — no dedicated ruin bake exists for it, so it is
+  // absent here on purpose and falls through to the `|| 'tower'` default at both call sites
+  // (ledgerAdd below, updateRuins' T.skRuin lookup) — angular concrete rubble is the closest
+  // neutral stand-in for a smashed steel bin, and it costs zero new art.
   const RUIN_FOR_KIND = { tower: 'tower', house: 'house', barn: 'barn', silo: 'silo', pier: 'pier', tree: 'tree', rock: 'tree' }
 
   // ---- roads (skies only, v5.9 top-down region overhaul) --------------------------------------
@@ -7056,16 +7067,20 @@ export function createRenderer(app) {
   }
 
   // ---------------------------------------------------------------- storm overlay
-  // Night-thunderstorm overlay (skies chapter only, STORM_VIS above): three cosmetic, pooled
-  // layers on the CURRENT_VIS idiom (pooled sprites, respawn-in-view, fade envelopes). Render-
-  // only — reads run.chapter (via chapterHasStorm, latched in reset()) and the camera offset,
-  // writes nothing back to run.
+  // Night-thunderstorm overlay: three cosmetic, pooled layers on the CURRENT_VIS idiom (pooled
+  // sprites, respawn-in-view, fade envelopes). Render-only — reads run.chapter (via chapterHasStorm/
+  // chapterHasRain, latched in reset()) and the camera offset, writes nothing back to run.
   //   cloudShadowLayer — big dark blobs, `world` child between floorLayer/entitiesLayer, so they
-  //     dim the ground but sit under obstacles/enemies/player.
+  //     dim the ground but sit under obstacles/enemies/player. STORM ONLY (chapterHasStorm).
   //   stormCloudLayer  — the same blob texture again, lighter and bigger, stage-level and drawn
   //     OVER everything; its container is offset by only STORM_VIS.cloud.parallaxFactor of the
   //     camera move (see updateStorm) so it visibly lags the ground — the altitude/depth cue.
-  //   stormRainLayer   — short streaks, plain screen-space wind-wrap (own function below).
+  //     STORM ONLY (chapterHasStorm).
+  //   stormRainLayer   — short streaks, plain screen-space wind-wrap (own function below). v6.3:
+  //     gated on chapterHasRain (= storm || render.rain), NOT chapterHasStorm — city gets wet
+  //     asphalt without either cloud layer. updateRain used to be called only from inside
+  //     updateStorm's early-return, so a chapter with `rain: true` but no `storm` could never reach
+  //     it; it is now its own top-level call from sync(), right next to updateStorm.
   // ponytail: one shared wind vector (STORM_VIS.windAngle), not a turbulence field — legible and
   // cheap; nothing here asked for per-blob wind noise.
   function makeDriftPool(container, count, tex) {
@@ -7137,7 +7152,12 @@ export function createRenderer(app) {
   // Rain: plain SCREEN-space wind-wrap (same trick as updateDustMotes above), not world-space
   // advection like the two drift-blob layers — rain doesn't sample or need to track any world
   // position, so the respawn-in-view machinery above would be pure overhead here.
+  // v6.3: gated on chapterHasRain, independent of updateStorm/chapterHasStorm — see this section's
+  // doc comment above. clearStorm/setMapMode also hide stormRainLayer directly; this is the
+  // per-frame gate for ordinary play.
   function updateRain(dt) {
+    if (!chapterHasRain) { stormRainLayer.visible = false; return }
+    stormRainLayer.visible = true
     if (!stormTexReady && T.fx && T.fx.trace_05) stormTexReady = true
     if (!stormTexReady) return
     const w = app.screen.width
@@ -7163,16 +7183,18 @@ export function createRenderer(app) {
     }
   }
 
+  // v6.3: rain now lives OUTSIDE this function (own top-level updateRain(dt) call from sync(), see
+  // this section's doc comment) — updateStorm keeps ONLY the two cloud layers, which stay
+  // chapterHasStorm-gated (skies only). Calling updateRain from here too would just be a second,
+  // redundant call on storm chapters — sync() calls it unconditionally right after this.
   function updateStorm(run, dt, cx, cy) {
     if (!chapterHasStorm) {
       cloudShadowLayer.visible = false
       stormCloudLayer.visible = false
-      stormRainLayer.visible = false
       return
     }
     cloudShadowLayer.visible = true
     stormCloudLayer.visible = true
-    stormRainLayer.visible = true
 
     const wind = STORM_VIS.windAngle
     const wx = Math.cos(wind)
@@ -7191,14 +7213,15 @@ export function createRenderer(app) {
     stormCloudLayer.position.set(pcx, pcy)
     updateDriftPool(stormClouds, STORM_VIS.cloud, T.stormBlob, dt,
       wx * STORM_VIS.cloud.speed, wy * STORM_VIS.cloud.speed, pcx, pcy)
-
-    updateRain(dt)
   }
 
   function clearStorm() {
     cloudShadowLayer.visible = false
     stormCloudLayer.visible = false
-    stormRainLayer.visible = false
+    stormRainLayer.visible = false // v6.3: still hidden here even though it's no longer this
+                                    // function's own latch — a chapter switch must not leave rain
+                                    // streaks on screen for a frame before the next updateRain(dt)
+                                    // corrects it.
     for (const p of cloudShadows) { p.s.visible = false; p.spawned = false }
     for (const p of stormClouds) { p.s.visible = false; p.spawned = false }
   }
@@ -7294,7 +7317,7 @@ export function createRenderer(app) {
   const ruinSprites = []
   function updateRuins(cx, cy) {
     let n = 0
-    if (chapterHasStorm) {
+    if (chapterHasRuins) {
       const w = viewW(), h = viewH()
       for (const e of crushLedger.values()) {
         const sx = e.x + cx, sy = e.y + cy
@@ -9996,6 +10019,13 @@ export function createRenderer(app) {
           ledgerAdd(e.x, e.y, e.kind, cr)
           break
         }
+        // v6.3 dispatch beat (sim.js: CHAPTERS[].dispatch chapters, elite spawn only): "you've been
+        // reported" finally lands in-run. Brief red strobe at the elite's spawn point — two rings,
+        // staggered, well under 0.5s total — plus main.js's siren and ui.js's HUD line.
+        case 'dispatch':
+          spawnRing(e.x, e.y, 60, 0.22, T.novaRing, 0xff5a4a)
+          spawnRing(e.x, e.y, 34, 0.18, T.novaRing, 0xff5a4a)
+          break
         case 'hurt':
           addShake(6, 0.25)
           vignetteA = 0.6
@@ -10948,6 +10978,7 @@ export function createRenderer(app) {
     updateDustMotes(dt)
     updateCurrents(run, dt, cx, cy)
     updateStorm(run, dt, cx, cy)
+    updateRain(dt) // v6.3: own top-level call — chapterHasRain no longer implies chapterHasStorm
   }
 
   // Hoisted syncPool callbacks (fresh closures per frame are pointless garbage)
@@ -11173,6 +11204,10 @@ export function createRenderer(app) {
     chapterRender = cfg?.render ?? BODY_RENDER
     chapterHasCurrents = cfg?.signature?.type === 'currents'
     chapterHasStorm = !!chapterRender.storm
+    // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);
+    // city opts into rain/ruins individually without the clouds `storm` alone would also switch on.
+    chapterHasRain = !!(chapterRender.storm || chapterRender.rain)
+    chapterHasRuins = !!(chapterRender.storm || chapterRender.ruins)
     chapterHasKaiju = !!chapterRender.kaiju
     // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking

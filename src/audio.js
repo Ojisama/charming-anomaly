@@ -1,6 +1,6 @@
 // Procedural WebAudio SFX, no assets. Names: shoot, hit, kill, gem, coin,
 // levelup, hurt, death, victory, click, buy, explode, zap, hole, beam, crush,
-// bossRise, bossFall.
+// bossRise, bossFall, siren.
 
 let ctx = null
 let master = null
@@ -129,6 +129,13 @@ const SFX = {
     tone(340, { dur: 1.3, gain: 0.16, slide: 40, at: 0.08 })
     tone(220, { type: 'sine', dur: 1.5, gain: 0.14, slide: 25, at: 0.16 })
     noise({ dur: 0.6, gain: 0.14, at: 0.2 })
+  },
+  // v6.3 dispatch beat (city elite spawn): a two-tone police-siren wail — two sawtooth notes each
+  // sliding into the other's pitch, back to back, so it reads as "woo-woo" rather than a single
+  // blip. Sawtooth (not used anywhere else) keeps it distinct from zap's square blips.
+  siren() {
+    tone(760, { type: 'sawtooth', dur: 0.16, gain: 0.16, slide: 1000 })
+    tone(1000, { type: 'sawtooth', dur: 0.16, gain: 0.14, slide: 760, at: 0.16 })
   },
 }
 
