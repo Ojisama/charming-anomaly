@@ -25,7 +25,7 @@ import {
   SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM, SNAP_TRAP_MIN_DIST,
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
-  TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG,
+  TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
   MISSILE_SPEED, MISSILE_STANDOFF,
   STRAFE_BANK_T, STRAFE_RUN_T, STRAFE_TELEGRAPH_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
@@ -5448,6 +5448,142 @@ function testCityTerrainWiring() {
   }
 }
 
+// (d) minimal signed difference between two angles modulo `mod`, folded into [0, mod/2] — used to
+// compare a lane's angle against a road's heading (mod pi: either direction of travel is valid) or
+// a city's grid (mod pi/2: any of the 4 axes is valid).
+function angleModDiff(a, b, mod) {
+  let d = a - b
+  d -= mod * Math.round(d / mod)
+  return Math.abs(d)
+}
+
+// ---- Run KK.d: v6.3 street-snapped traffic lanes ------------------------------------------
+// stepLanes' roll now reads the real street grid (see TRAFFIC_SNAP_R's doc block, config.js) but
+// must still draw EXACTLY the same two Math.random() calls, and the band must ALWAYS contain the
+// player regardless of which tier fired. Run Z.b (hand-built lanes, never rolled) is untouched by
+// this — if it starts failing, the lane entry SHAPE drifted, which it must not.
+function testTrafficLaneSnap() {
+  const dt = 1 / 60
+
+  function laneRun() {
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.hp = run.player.maxHP = 1e9; run.player.invuln = 0
+    return run
+  }
+
+  // Containment check shared by (a) and (b): the player must sit inside the band the lane just
+  // rolled, in the lane's own along/perp frame (mirrors stepLanes' own `inCar` construction).
+  function assertPlayerInBand(run, lane, label) {
+    const cos = Math.cos(lane.angle), sin = Math.sin(lane.angle)
+    const dx = run.player.x - lane.x, dy = run.player.y - lane.y
+    const along = dx * cos + dy * sin
+    const perp = -dx * sin + dy * cos
+    assert(Math.abs(perp) <= TRAFFIC_W / 2 + TRAFFIC_OFFSET + 1e-6,
+      `${label}: expected the player within the band's width, perp=${perp.toFixed(2)}`)
+    assert(Math.abs(along) <= TRAFFIC_LEN / 2 + 1e-6,
+      `${label}: expected the player within the band's length, along=${along.toFixed(2)}`)
+  }
+
+  // (1) Tier 1 — on-road snap: scan for a real on-road point, teleport the player onto it, force
+  // a roll, and assert the lane landed back on that same road (angle mod pi — either direction of
+  // travel is a valid roll) and (3) still crosses the player.
+  {
+    Math.random = mulberry32(20260714)
+    const run = laneRun()
+    const seed = run._districtSeed
+    let spot = null
+    for (let i = -50; i <= 50 && !spot; i++) {
+      for (let j = -50; j <= 50; j++) {
+        const x = i * 40, y = j * 40
+        const ra = roadAt(x, y, seed)
+        if (!ra.onRoad) continue
+        // Reject a candidate right at a city's own urban-falloff edge: the centerline correction
+        // (below, and in sim.js) nudges the point by up to `half` px along the perpendicular, and
+        // roadAt gates city streets on urbanAt >= STREET_MIN_URBAN — a spot that's on-road but only
+        // barely inside that gate can have its corrected centerline point fall just outside it.
+        // That is a real (if rare) property of the terrain at a city's edge, not a bug in the
+        // snap math, so the fix is picking a candidate the correction round-trips cleanly, exactly
+        // like the sim code below will.
+        const probePx = -Math.sin(ra.angle), probePy = Math.cos(ra.angle)
+        const probe = roadAt(x + probePx * 8, y + probePy * 8, seed)
+        const sgn = probe.onRoad && probe.dist < ra.dist ? 1 : -1
+        const cx = x + probePx * sgn * ra.dist, cy = y + probePy * sgn * ra.dist
+        if (!roadAt(cx, cy, seed).onRoad) continue
+        spot = { x, y, ra }; break
+      }
+    }
+    assert(spot, 'expected to find at least one on-road point (whose centerline correction also lands on-road) scanning a 40px grid over +/-2000px')
+
+    run.player.x = spot.x; run.player.y = spot.y
+    run._laneAcc = 0.001
+    run.lanes = []
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.lanes.length, 1, `expected exactly one lane rolled, got ${run.lanes.length}`)
+    const lane = run.lanes[0]
+
+    const laneRoad = roadAt(lane.x, lane.y, seed)
+    assert.strictEqual(laneRoad.onRoad, true, `expected the snapped lane to land back on the road, roadAt=${JSON.stringify(laneRoad)}`)
+    const angleErr = angleModDiff(lane.angle, spot.ra.angle, Math.PI)
+    assert(angleErr < 1e-6, `expected the lane's angle to match the road's heading mod pi, err=${angleErr}`)
+
+    assertPlayerInBand(run, lane, 'tier 1 (on-road snap)')
+    console.log(`PASS run KK.d.1/.3 (traffic tier 1: on-road snap + still crosses player): lane at (${lane.x.toFixed(0)},${lane.y.toFixed(0)}) on road, angle err=${angleErr.toExponential(2)}`)
+  }
+
+  // (2) Tier 2 — mid-block: an off-road point inside the city. angle snaps to the city's grid
+  // (mod pi/2) but position keeps the ordinary player-crossing offset — the band must still
+  // contain the player exactly like tier 1 (and tier 3) does.
+  {
+    Math.random = mulberry32(20260714)
+    const run = laneRun()
+    const seed = run._districtSeed
+    let spot = null
+    for (let i = -50; i <= 50 && !spot; i++) {
+      for (let j = -50; j <= 50; j++) {
+        const x = i * 40, y = j * 40
+        if (roadAt(x, y, seed).onRoad) continue
+        const near = nearestCity(x, y, seed)
+        if (near) { spot = { x, y, city: near.city }; break }
+      }
+    }
+    assert(spot, 'expected to find an off-road, in-city point scanning a 40px grid over +/-2000px')
+
+    run.player.x = spot.x; run.player.y = spot.y
+    run._laneAcc = 0.001
+    run.lanes = []
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.lanes.length, 1, `expected exactly one lane rolled, got ${run.lanes.length}`)
+    const lane = run.lanes[0]
+
+    assertPlayerInBand(run, lane, 'tier 2 (mid-block curb-jump)')
+    const angleErr = angleModDiff(lane.angle, spot.city.angle, Math.PI / 2)
+    assert(angleErr < 1e-6, `expected the lane's angle to align with the city grid mod pi/2, err=${angleErr}`)
+    console.log(`PASS run KK.d.2 (traffic tier 2: mid-block curb-jump still crosses player): angle err=${angleErr.toExponential(2)}`)
+  }
+
+  // (4) RNG discipline: exactly 2 Math.random() draws for one forced roll, whichever tier fires.
+  // The proxy is restored in `finally` even if an assertion below throws, so a failure here can't
+  // leave every later test in the file drawing from a wrapped Math.random.
+  {
+    Math.random = mulberry32(20260714)
+    const run = laneRun()
+    run._laneAcc = 0.001
+    run.lanes = []
+    const orig = Math.random
+    let calls = 0
+    Math.random = () => { calls++; return orig() }
+    try {
+      stepSim(run, { x: 0, y: 0 }, dt)
+    } finally {
+      Math.random = orig
+    }
+    assert.strictEqual(run.lanes.length, 1, `expected exactly one lane rolled, got ${run.lanes.length}`)
+    assert.strictEqual(calls, 2, `expected exactly 2 Math.random() draws for one lane roll, got ${calls}`)
+    console.log('PASS run KK.d.4 (traffic RNG discipline): exactly 2 Math.random() draws per lane roll')
+  }
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5489,6 +5625,7 @@ try {
   testAntiKite()
   testRemaster()
   testCityTerrainWiring()
+  testTrafficLaneSnap()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

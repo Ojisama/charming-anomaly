@@ -2792,9 +2792,33 @@ export const SPAWNER_SCATTER = 70        // px, spawn scatter around the van
 
 // traffic signature (city): run.lanes. Up to signature.lanes are alive at once; whenever fewer
 // exist, sim rolls a new one every TRAFFIC_INTERVAL seconds. A lane is a band of length
-// TRAFFIC_LEN and width TRAFFIC_W at a random angle, positioned so it CROSSES the player's current
-// position (center offset perpendicular by up to ±TRAFFIC_OFFSET px, so it's dodgeable and can
-// never be "spawned on top of you" unavoidably).
+// TRAFFIC_LEN and width TRAFFIC_W, positioned so it ALWAYS CROSSES the player's current position.
+//
+// v6.3: the roll's ANGLE (and, near a road, its exact perpendicular POSITION) now follows the real
+// street grid instead of coming out uniformly random — three tiers, checked in order, in stepLanes:
+//   Tier 1 (player on/near a road — roadAt(...).onRoad && dist <= TRAFFIC_SNAP_R): the lane snaps
+//     FULLY onto that road's centerline. angle = the road's own heading (either direction of
+//     travel); position = the player's OWN position corrected only along the perpendicular (the
+//     along-axis coordinate is left exactly at the player's, so the band's length is centered on
+//     them, not merely overlapping them).
+//   Tier 2 (player inside a city, off-road): angle snaps to one of the city's own 4 grid axes, but
+//     POSITION keeps the ordinary player-crossing offset below — the van jumps the curb and comes
+//     straight for you, same as Tier 3. Destructible cover (v6.3 Task 4) is what makes this
+//     survivable, not evasion.
+//   Tier 3 (no world seed, or no city nearby): today's fully-random angle/offset, byte-for-byte.
+// Every tier draws the SAME two Math.random() calls (dirRoll, offRoll) in the SAME order — only
+// their INTERPRETATION differs by tier — so a seeded test's RNG stream never depends on which one
+// fires, and CHAPTERS[..].signature.type === 'traffic' remains the only gate on stepLanes rolling
+// at all (non-city chapters, and city with no seed/city nearby, are unaffected).
+//
+// WHY POSITION NEVER LEAVES THE PLAYER, even on a full road snap (adversarial finding — see the
+// v6.3 city plan, Task 3): if Tier 1 instead centered the band on the NEAREST road segment — i.e.
+// let position drift toward the street rather than correcting around the player — a player who
+// simply stood in a courtyard, plaza, or mid-block dead zone could dodge every lane forever by
+// never standing on the carriageway. That turns the chapter's signature threat into an opt-in
+// switch and deletes it for anyone who reads the terrain and camps off-road. So Tier 1 only ever
+// adjusts the perpendicular offset (and picks a travel direction) — the along-axis center is
+// pinned to the player on every roll, on-road or not, exactly like Tiers 2 and 3.
 // run.lanes entries: { x, y, angle, len, w, phase, t, carT, dmg }
 //   x, y     = the lane band's CENTER; angle = its direction; len/w = its extent
 //   phase    = 'warn' | 'sweep'
@@ -2815,6 +2839,11 @@ export const TRAFFIC_SWEEP = 1.1      // s for the vehicle to traverse the full 
 export const TRAFFIC_LEN = 1100       // px, lane length (comfortably longer than a screen)
 export const TRAFFIC_W = 130          // px, lane band width
 export const TRAFFIC_OFFSET = 90      // px, max perpendicular offset of the band from the player
+                                       // (tiers 2/3 only — tier 1 uses the road's own dist instead)
+export const TRAFFIC_SNAP_R = 150     // px: player within this of a road centerline -> the lane
+                                       // snaps fully onto that road. Kept < TRAFFIC_W/2 + TRAFFIC_OFFSET
+                                       // (155px) on purpose: tier 1's perpendicular correction can
+                                       // never itself push the player outside the band it just built.
 export const TRAFFIC_CAR_LEN = 150    // px, the vehicle's hitbox length (along `angle`)
 export const TRAFFIC_CAR_W = 110      // px, the vehicle's hitbox width (across `angle`)
 export const TRAFFIC_DMG = 34         // damage to the player AND to each enemy the vehicle hits

@@ -83,7 +83,7 @@ import {
   LINE_CHARGE_RANGE, LINE_CHARGE_TRACK_SPEED_MUL, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
-  TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET,
+  TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
   TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
   TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
@@ -102,7 +102,7 @@ import {
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
   RAMPAGE_SPEED_MUL, RAMPAGE_DMG_MUL, RAMPAGE_FIRE_RATE_MUL,
   // v5.9 top-down region overhaul (skies roads + districts)
-  roadAt, districtAt, terrainAt, DISTRICT_STRUCTURE_KINDS, BIOME_BUILD_DENSITY, blockSnap, STRUCTURE_SETBACK,
+  roadAt, nearestCity, districtAt, terrainAt, DISTRICT_STRUCTURE_KINDS, BIOME_BUILD_DENSITY, blockSnap, STRUCTURE_SETBACK,
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
   STRUCTURE_RADIUS,
   // v5.4 beyond
@@ -2248,11 +2248,44 @@ function stepLanes(run, dt) {
   if (run._laneAcc <= 0) {
     run._laneAcc += laneEvery
     if (run.lanes.length < sig.lanes) {
-      const angle = Math.random() * Math.PI * 2
-      const off = (Math.random() * 2 - 1) * TRAFFIC_OFFSET
+      // v6.3: SAME two draws on every roll, regardless of which tier below fires — only their
+      // INTERPRETATION changes with the terrain. See TRAFFIC_SNAP_R's doc block (config.js) for
+      // the full three-tier contract and why position never leaves the player.
+      const dirRoll = Math.random()
+      const offRoll = Math.random()
+      const seed = run._districtSeed
+      const ra = seed != null ? roadAt(p.x, p.y, seed) : { onRoad: false }
+      let x, y, angle
+      if (ra.onRoad && ra.dist <= TRAFFIC_SNAP_R) {
+        // Tier 1: on/near a road — snap the lane fully onto its centerline. roadAt's `dist` is
+        // UNSIGNED, so resolve which side of the player the centerline is on with one extra probe
+        // — the same sign-probe trick render.js's populateRoad uses (~6645-6654).
+        const px = -Math.sin(ra.angle), py = Math.cos(ra.angle)
+        const probe = roadAt(p.x + px * 8, p.y + py * 8, seed)
+        const sgn = probe.onRoad && probe.dist < ra.dist ? 1 : -1
+        // Perpendicular correction only — the along-axis coordinate stays exactly the player's, so
+        // the band's length is centered on them (not merely overlapping): the always-crosses-the-
+        // player invariant survives even a full snap onto the road.
+        x = p.x + px * sgn * ra.dist
+        y = p.y + py * sgn * ra.dist
+        angle = ra.angle + (dirRoll < 0.5 ? 0 : Math.PI)
+      } else {
+        const near = seed != null ? nearestCity(p.x, p.y, seed) : null
+        if (near) {
+          // Tier 2: off-road but inside a city — angle snaps to the grid; the van jumps the curb
+          // and still comes straight for the player via the ordinary crossing offset below.
+          const base = dirRoll < 0.25 ? 0 : dirRoll < 0.5 ? Math.PI : dirRoll < 0.75 ? Math.PI / 2 : -Math.PI / 2
+          angle = near.city.angle + base
+        } else {
+          // Tier 3: no world seed, or no city nearby — today's fully-random angle, unchanged.
+          angle = dirRoll * Math.PI * 2
+        }
+        const off = (offRoll * 2 - 1) * TRAFFIC_OFFSET
+        x = p.x - Math.sin(angle) * off
+        y = p.y + Math.cos(angle) * off // perpendicular offset
+      }
       run.lanes.push({
-        x: p.x - Math.sin(angle) * off, y: p.y + Math.cos(angle) * off, // perpendicular offset
-        angle, len: TRAFFIC_LEN, w: TRAFFIC_W,
+        x, y, angle, len: TRAFFIC_LEN, w: TRAFFIC_W,
         phase: 'warn', t: TRAFFIC_WARN, carT: 0,
         dmg: TRAFFIC_DMG, // snapshotted so a mid-run retune can't desync a live lane
         hitIds: new Set(),
