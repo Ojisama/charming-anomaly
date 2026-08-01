@@ -20,7 +20,7 @@ import {
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS, STINGER_HIVE_EVERY,
   POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LAND_T,
-  AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
+  AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T, AERIAL_STRIKE_MAX_LIVE,
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL,
   SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM, SNAP_TRAP_MIN_DIST,
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
@@ -31,7 +31,7 @@ import {
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
   ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
-  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST,
+  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
@@ -2797,11 +2797,20 @@ function testV54Flags() {
     console.log(`PASS run Y.a (pounce): aim=${aimDist.toFixed(2)}px leap=${leapDist.toFixed(1)}px, land deals no contact damage`)
   }
 
-  // (b) aerialStrike: an owl is UNTOUCHABLE while circling overhead (AERIAL_UNTOUCHABLE) — no
-  // damage in or out — and only becomes fightable once it marks and drops.
+  // (b) aerialStrike: v6.3 DELETES AERIAL_UNTOUCHABLE — the flag's new home (city's patrol drone)
+  // is a ranged chapter, so a circling enemy is an ordinary, killable target now (damageImmune
+  // drops its aerial branch entirely). The state-machine timing itself is untouched: it circles
+  // for AERIAL_CIRCLE_T, then marks, then strikes — assert that shape still holds.
+  //
+  // Uses 'wave' (a centered, EXPANDING ring nova) rather than 'star' (a ballistic bolt aimed at
+  // the target's position AT FIRE TIME, never re-aimed): against a fast circular orbiter that is a
+  // CONSTANT, deterministic miss (a fixed lag angle every shot), not a flake. wave's ring is
+  // centered on the player and grows every cast, so it sweeps through AERIAL_RADIUS regardless of
+  // the drone's angle on the circle.
   {
     const run = createRun(makeMeta(), { chapter: 'undergrowth' })
-    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    run.weapons = [{ id: 'wave', level: MAX_WEAPON_LEVEL }]
+    run.weaponTimers.wave = 0 // force the first cast on frame 1 instead of waiting a full interval
     run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0; run.traps = []
     run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
     const owl = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
@@ -2813,27 +2822,26 @@ function testV54Flags() {
       stepSim(run, { x: 0, y: 0 }, dt)
     }
     assert.strictEqual(owl._airState, 'circle', `expected the owl still circling, got '${owl._airState}'`)
-    assert.strictEqual(owl.hp, 1e6, `expected a circling owl to take NO damage, hp=${owl.hp}`)
-    const hp0 = run.player.hp
-    owl.x = run.player.x; owl.y = run.player.y // overhead, right on the player: still harmless
-    run.player.invuln = 0
-    stepSim(run, { x: 0, y: 0 }, dt)
-    assert.strictEqual(run.player.hp, hp0, 'expected a circling owl to deal NO contact damage')
+    assert(owl.hp < 1e6, `expected a circling drone to TAKE damage now that AERIAL_UNTOUCHABLE is gone, hp=${owl.hp}`)
 
-    // ...through mark and into the strike, where it IS fightable.
+    // ...through mark and into the strike, where it's still fightable (it never regains immunity).
     for (let i = 0; i < Math.round((AERIAL_MARK_T + AERIAL_STRIKE_T + 0.4) / dt); i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       stepSim(run, { x: 0, y: 0 }, dt)
     }
-    assert(owl.hp < 1e6, `expected a marking/striking owl to be hittable, hp=${owl.hp}`)
-    console.log(`PASS run Y.b (aerialStrike): untouchable while circling, hittable once it drops (hp=${owl.hp.toFixed(0)})`)
+    assert(owl.hp < 1e6, `expected a marking/striking drone to still be hittable, hp=${owl.hp}`)
+    console.log(`PASS run Y.b (aerialStrike): circling drones are killable now (hp=${owl.hp.toFixed(0)})`)
   }
 
-  // (b2) 'climb' is the owl's PUNISH window: hittable, but still harmless. It used to be immune,
-  // which meant the bird dove onto you, connected, and peeled off invincible — the only window it
-  // could be killed in was the 0.45s strike ('mark' is touchable but happens out at AERIAL_RADIUS
-  // 240px, past every short-range weapon), so owls piled up unkillable. Measured over a 180s
-  // standing run: 56/57/51/56/63 owls alive at the end before, 13/15/11/15/10 after.
+  // (b2) 'climb' is the owl's PUNISH window: hittable, but still harmless — the ONE special
+  // contact rule left standing after v6.3 deletes AERIAL_UNTOUCHABLE (Y.b above: 'circle'/'mark'/
+  // 'strike' are now ordinary, ungated both ways). contactHarmless keeps this clause
+  // UNCONDITIONALLY (the `AERIAL_UNTOUCHABLE &&` guard is gone, but the clause itself survives):
+  // it's peeling away and its strike already had its hit, so a second free hit on the way out
+  // would just punish the player for standing their ground — the same shape as pounce's 'land'
+  // and lineCharge's 'stall'. Pre-v6.3 this used to be the ONLY window an owl could be killed in
+  // at all (circling was fully immune too); measured over a 180s standing run back then: 56/57/
+  // 51/56/63 owls alive at the end before this fix, 13/15/11/15/10 after.
   {
     const run = createRun(makeMeta(), { chapter: 'undergrowth' })
     run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
@@ -5328,6 +5336,115 @@ function testCityTerrainWiring() {
     assert.strictEqual(tooClose.length, 0,
       `expected every city obstacle to respect minDist=${cfg.minDist} from spawn (post-snap re-check included), found ${tooClose.length} inside it`)
     console.log(`PASS run KK.b (city road exclusion + post-snap minDist): ${run.obstacles.length} live obstacles, 0 on roadway, 0 inside minDist=${cfg.minDist}`)
+  }
+
+  // (c) v6.3 roster rework: weight/minT gate spawnEnemy's pool pick (still the same single
+  // Math.random() draw), AERIAL_STRIKE_MAX_LIVE caps concurrent aerial enemies out of 'circle',
+  // and the retuned BLINK_* constants (now the city pigeon's, not the beyond's — see config.js)
+  // still respect their own contract.
+  {
+    Math.random = mulberry32(20260714)
+    const dt = 1 / 60
+
+    // c1: patrolDrone (minT:60, weight:0.3) is ABSENT from the 'normal' archetype pool before
+    // t=60, and settles near its weighted share (0.3/(1+0.3) ≈ 0.23) once eligible. Drives the
+    // REAL spawn path — spawnEnemy itself isn't exported, so run._spawnAcc is forced high and
+    // consumed in one stepSim call (run.mods.spawnMul=0 keeps the forced value exact; MAX_ALIVE
+    // caps it, so `_spawnAcc` is kept comfortably under that) with run.time pinned beforehand, so
+    // every spawn in the batch sees the same wave-table/minT window.
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+    run._laneAcc = 1e6 // park traffic: this block is about the roster pool, not the signature
+
+    run.time = 0
+    run._spawnAcc = 300
+    stepSim(run, { x: 0, y: 0 }, 1e-6)
+    const early = run.enemies.filter((e) => e.rosterId === 'ratDrone' || e.rosterId === 'patrolDrone')
+    assert(early.length > 0, 'expected at least one normal-archetype spawn before t=60 to make the next assert meaningful')
+    const earlyPatrol = early.filter((e) => e.rosterId === 'patrolDrone').length
+    assert.strictEqual(earlyPatrol, 0, `expected ZERO patrolDrone spawns before minT=60, got ${earlyPatrol}/${early.length}`)
+
+    run.enemies = []
+    run.time = 120
+    run._spawnAcc = 400
+    stepSim(run, { x: 0, y: 0 }, 1e-6)
+    const late = run.enemies.filter((e) => e.rosterId === 'ratDrone' || e.rosterId === 'patrolDrone')
+    const latePatrol = late.filter((e) => e.rosterId === 'patrolDrone').length
+    const patrolShare = latePatrol / late.length
+    assert(late.length >= 150, `expected a sample of ~200+ normal-archetype picks at t=120, got ${late.length}`)
+    assert(patrolShare >= 0.15 && patrolShare <= 0.32,
+      `expected patrolDrone's share of the normal pool in [0.15, 0.32] (weight 0.3/1.3≈0.23) at t=120, got ${patrolShare.toFixed(3)} (${latePatrol}/${late.length})`)
+
+    // c2: AERIAL_STRIKE_MAX_LIVE — plant more circling aerial enemies than the cap, all with
+    // _airT about to expire (every one of them wants to transition this very frame), step once,
+    // and assert at most the cap actually left 'circle'.
+    const cap = createRun(makeMeta(), { chapter: 'city' })
+    cap.weapons = []; cap.obstacles = []; cap._obstacleSeed = null; cap.mods.spawnMul = 0
+    cap.player.x = 0; cap.player.y = 0; cap.player.hp = cap.player.maxHP = 1e9
+    cap._laneAcc = 1e6
+    const n = AERIAL_STRIKE_MAX_LIVE + 3
+    const drones = []
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2
+      const d = makeStatusEnemy(cap, { x: Math.cos(a) * 200, y: Math.sin(a) * 200, hp: 1e6, speed: 100 })
+      d.flags = ['aerialStrike']
+      d._airState = 'circle'
+      d._airAngle = a
+      d._airT = 0.001 // about to expire
+      cap.enemies.push(d)
+      drones.push(d)
+    }
+    stepSim(cap, { x: 0, y: 0 }, 1 / 60)
+    const outOfCircle = drones.filter((d) => d._airState !== 'circle').length
+    assert(outOfCircle > 0, 'expected the cap to actually let some drones through, not hold everyone')
+    assert(outOfCircle <= AERIAL_STRIKE_MAX_LIVE,
+      `expected at most AERIAL_STRIKE_MAX_LIVE=${AERIAL_STRIKE_MAX_LIVE} aerial enemies out of 'circle' in one frame, got ${outOfCircle}/${n}`)
+
+    // c3: blink retune (v6.3 — these constants are the city pigeon's now, not the beyond's).
+    // First, the retuned crawl in isolation: a throwaway enemy with real speed, stepped one frame
+    // (well short of BLINK_INTERVAL, so no blink fires in it) — pins that it advances at
+    // BLINK_CRAWL_SPEED_MUL of its own speed.
+    const cr = createRun(makeMeta(), { chapter: 'city' })
+    cr.weapons = []; cr.obstacles = []; cr._obstacleSeed = null; cr.mods.spawnMul = 0
+    cr.player.x = 0; cr.player.y = 0; cr.player.hp = cr.player.maxHP = 1e9
+    cr._laneAcc = 1e6
+    const crawler = makeStatusEnemy(cr, { x: -600, y: 0, hp: 1e6, speed: 90 })
+    crawler.flags = ['blink']
+    cr.enemies.push(crawler)
+    const crx0 = crawler.x
+    stepSim(cr, { x: 0, y: 0 }, dt)
+    const crawledPx = crawler.x - crx0
+    const expectedCrawlPx = crawler.speed * BLINK_CRAWL_SPEED_MUL * dt
+    assert(Math.abs(crawledPx - expectedCrawlPx) < 0.5,
+      `expected the between-blink crawl at BLINK_CRAWL_SPEED_MUL=${BLINK_CRAWL_SPEED_MUL} of its speed, got ${crawledPx.toFixed(3)}px vs expected ${expectedCrawlPx.toFixed(3)}px`)
+
+    // Then the blink JUMP contract itself, isolated from the (unclamped) crawl by pinning
+    // speed:0 — same isolation trick Y.h's own 'near' case uses. Never LANDS closer than
+    // BLINK_MIN_DIST (the crawl has no such floor — this is about the teleport specifically), and
+    // closes real ground purely via blinking — at least 200px over 3 intervals — against a
+    // stationary player at 600px.
+    const bl = createRun(makeMeta(), { chapter: 'city' })
+    bl.weapons = []; bl.obstacles = []; bl._obstacleSeed = null; bl.mods.spawnMul = 0
+    bl.player.x = 0; bl.player.y = 0; bl.player.hp = bl.player.maxHP = 1e9
+    bl._laneAcc = 1e6
+    const pigeon = makeStatusEnemy(bl, { x: -600, y: 0, hp: 1e6, speed: 0 })
+    pigeon.flags = ['blink']
+    bl.enemies.push(pigeon)
+    const dist0 = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
+
+    let minDistSeen = dist0
+    for (let i = 0; i < Math.round((BLINK_INTERVAL * 3 + 0.1) / dt); i++) {
+      stepSim(bl, { x: 0, y: 0 }, dt)
+      const d = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
+      if (d < minDistSeen) minDistSeen = d
+    }
+    const distEnd = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
+    assert(minDistSeen >= BLINK_MIN_DIST - 1e-6, `expected a blink never to land closer than BLINK_MIN_DIST=${BLINK_MIN_DIST}, got ${minDistSeen.toFixed(1)}`)
+    const closed = dist0 - distEnd
+    assert(closed >= 200, `expected 3 blinks to close at least 200px, closed ${closed.toFixed(1)}px (${dist0.toFixed(0)} -> ${distEnd.toFixed(0)})`)
+
+    console.log(`PASS run KK.c (roster v6.3): weight/minT (0 patrolDrone pre-t60 n=${early.length}, share ${patrolShare.toFixed(3)} at t=120 n=${late.length}), strike cap (${outOfCircle}/${n} out of 'circle', cap=${AERIAL_STRIKE_MAX_LIVE}), blink retune (min ${minDistSeen.toFixed(0)}px, closed ${closed.toFixed(0)}px/3 intervals)`)
   }
 }
 

@@ -2066,6 +2066,7 @@ export function createRenderer(app) {
     rat: { archetype: 'normal', draw: drawRat, lean: 30 },             // 3/4: both ears at -y, every leg at +y
     vacuum: { archetype: 'tank', draw: drawVacuum, lean: 0, phases: 2 }, // vertical cylinder, never rotates; 2 phases strobe the police light bar
     ratDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 },   // top-down quadrotor: 4 arms + rotors in ±y pairs
+    patrolDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 }, // v6.3: same quadrotor art, aerialStrike's ranged-chapter home
     pigeon: { archetype: 'fast', draw: drawPigeon, lean: 30 },         // profile: feet at +y, head raised at -y
     jet: { archetype: 'fast', draw: drawJet, lean: 90 },               // top-down: delta wings, tailplanes, intakes, roundels all ±y
     helicopter: { archetype: 'normal', draw: drawHelicopter, lean: 90 }, // top-down: skids ±y, rotor disc centred on the hub

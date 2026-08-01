@@ -1251,7 +1251,11 @@ export const CHAPTERS = {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
     weapons: ['star', 'orbit', 'wave', 'homing'], starter: 'star',
     // roster: archetype = existing spawn type ('normal'|'tank'|'fast'), muls vs current stats,
-    // flags = behavior flags implemented in sim.js (Task 3)
+    // flags = behavior flags implemented in sim.js (Task 3). v6.3: two optional generic knobs,
+    // read by spawnEnemy's pool pick (config.js roster comment lives here, once, for every
+    // chapter) — weight (relative spawn share within the archetype pool, default 1) and minT
+    // (seconds; the entry is ineligible before then, falling back to the unfiltered pool if the
+    // time filter would empty it, so an archetype never goes silent early).
     roster: [
       { id: 'redcell',  archetype: 'normal', name: 'Red Blood Cell',    hpMul: 1, speedMul: 1,   flags: [] },
       { id: 'wbc',      archetype: 'tank',   name: 'White Blood Cell',  hpMul: 1, speedMul: 1,   flags: [] },
@@ -1365,7 +1369,13 @@ export const CHAPTERS = {
     roster: [
       { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge'] },
       { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
-      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.2,  flags: [] },
+      // Patrol Drone (v6.3): the owl machine (aerialStrike) finally in a ranged chapter. weight/
+      // minT keep it a minority that phases in — half the bulk archetype from t=0 rewrote the
+      // opening minute.
+      { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: ['aerialStrike'], weight: 0.3, minT: 60 },
+      // Street Rat (v6.3): the fast PRESSURE lane (plain committed chaser). Pigeon is the lane's spice.
+      { id: 'rat',      archetype: 'fast',   name: 'Street Rat',     hpMul: 0.8,  speedMul: 1.15, flags: [] },
+      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.2,  flags: ['blink'] },
     ],
     eliteFlags: ['spawner'],              // exterminator-van elites periodically disgorge minions
     // Signature: traffic lanes (run.lanes) — a marked band is telegraphed, then a vehicle sweeps
@@ -2696,16 +2706,26 @@ export const POUNCE_LAND_T = 0.70        // s frozen after a leap (the free-hits
 //           AERIAL_STRIKE_SPEED_MUL of its own speed; it does NOT re-aim
 //   climb:  AERIAL_CLIMB_T drifting back out to AERIAL_RADIUS, then 'circle'
 // Damages: the PLAYER only, via ordinary contact damage — same as pounce, no attack of its own.
-// While circling/climbing the owl is AERIAL_UNTOUCHABLE-gated: if true it takes no damage and
-// deals none (it's overhead); it's only fightable during 'mark'/'strike'.
-export const AERIAL_RADIUS = 240          // px, the circling standoff
+// v6.3: AERIAL_UNTOUCHABLE is GONE — the flag finally has a ranged-chapter home (city's patrol
+// drone) and the melee-era blanket immunity doesn't belong there. damageImmune has no aerial
+// branch at all now (circling/marking/striking drones are killable); contactHarmless keeps ONLY
+// its 'climb' clause (a punish window: hittable, but it can't hurt you on the way out — see both
+// fns in sim.js). 'circle' and 'mark' are ordinary — ordinary damage in, ordinary contact damage
+// out, like a ground enemy that happens to fly.
+export const AERIAL_RADIUS = 200          // px, the circling standoff — inside the city beam's L1
+                                           // blade (240) with margin: at 240 the orbit sat exactly
+                                           // on the tip, a ~15° hit window
 export const AERIAL_ORBIT_SPEED = 1.1     // rad/s around the player while circling
 export const AERIAL_CIRCLE_T = 2.0        // s of plain circling before a mark
 export const AERIAL_MARK_T = 0.8          // s of telegraph (the shadow lands here)
 export const AERIAL_STRIKE_T = 0.45       // s, the dive itself
 export const AERIAL_STRIKE_SPEED_MUL = 5.0
 export const AERIAL_CLIMB_T = 1.2         // s, recover/climb back to the circle
-export const AERIAL_UNTOUCHABLE = true    // owls can't be hit (or hit you) while 'circle'/'climb'
+// v6.3: concurrent aerial enemies allowed out of 'circle' (mark/strike/climb) at once — past the
+// cap, a drone ready to mark HOLDS in 'circle' instead (see stepAerialStrike in sim.js). The
+// MISSILE_MAX_LIVE/SHELL_MAX_LIVE lesson (a hard concurrency backstop), applied before shipping
+// this time instead of after a live-run complaint.
+export const AERIAL_STRIKE_MAX_LIVE = 6
 
 // flashlightCone (undergrowth's exterminator elites): sweeps a cone of light that ENRAGES other
 // enemies. State on e._coneAngle (current sweep heading, rad) — it sweeps back and forth across
@@ -2802,7 +2822,9 @@ export const TRAFFIC_KB = 420         // knockback applied along the lane to str
 // v5.6.14 (user): a car ONE-SHOTS the light roster — a pigeon or a cardboard drone does not
 // survive being run over; only elites (and the vacuum, which is street furniture itself) take
 // TRAFFIC_DMG like everyone else. rosterIds, checked non-elite-only in stepTraffic.
-export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon']
+// v6.3: rat and patrolDrone join — street rats scurry, patrol drones circle at head height, both
+// as roadkill-able as the pigeon they joined.
+export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon', 'rat', 'patrolDrone']
 
 // ---- Skies chapter behavior flags (v5.4, see sim.js) -----------------------------------------
 // strafe (skies' fighter jets): flies straight passes THROUGH the player rather than chasing.
@@ -3354,19 +3376,23 @@ export const SKIES_LIGHT = {
 }
 
 
-// ---- Beyond chapter behavior flags (v5.4, see sim.js) ----------------------------------------
-// blink (beyond's glitch blinkers): teleports instead of closing distance. State on e._blinkT
-// (s until the next blink). Moves at BLINK_CRAWL_SPEED_MUL of its own speed between blinks (it
-// barely walks — the blink IS its movement). Every BLINK_INTERVAL s, if further than
-// BLINK_MIN_DIST from the player, it jumps BLINK_DIST px straight toward them (clamped so it never
-// lands closer than BLINK_MIN_DIST, and never inside an obstacle — retry along the same heading at
-// BLINK_DIST/2, else skip this blink) and emits {type:'explode', x, y, radius: BLINK_FX_R} at BOTH
-// the departure and arrival points so the pop reads.
+// ---- Blink behavior flag (v5.4; RETUNED v6.3 for the city pigeon, see below) ------------------
+// blink: teleports instead of closing distance. State on e._blinkT (s until the next blink).
+// Moves at BLINK_CRAWL_SPEED_MUL of its own speed between blinks (it barely walks — the blink IS
+// its movement). Every BLINK_INTERVAL s, if further than BLINK_MIN_DIST from the player, it jumps
+// BLINK_DIST px straight toward them (clamped so it never lands closer than BLINK_MIN_DIST, and
+// never inside an obstacle — retry along the same heading at BLINK_DIST/2, else skip this blink)
+// and emits {type:'explode', x, y, radius: BLINK_FX_R} at BOTH the departure and arrival points so
+// the pop reads.
 // Damages: the PLAYER only, via ordinary contact damage. No run.* array.
-export const BLINK_INTERVAL = 2.2
-export const BLINK_DIST = 220
-export const BLINK_MIN_DIST = 120       // px, it never blinks to closer than this (no free contact hit)
-export const BLINK_CRAWL_SPEED_MUL = 0.25
+// v6.3: the beyond roster no longer uses this flag (no roster entry carries it) — these constants
+// are retuned freely for their new and only owner, city's pigeon, as the fast lane's SPICE (not
+// its entirety): faster cadence, longer hop, lands one reaction beat outside contact, quicker
+// crawl. A startle-hop reads on a bird.
+export const BLINK_INTERVAL = 1.6
+export const BLINK_DIST = 240
+export const BLINK_MIN_DIST = 70        // px, it never blinks to closer than this — lands one reaction beat outside contact
+export const BLINK_CRAWL_SPEED_MUL = 0.55
 export const BLINK_FX_R = 30            // px, explode-event radius at the departure/arrival points (visual only)
 
 // phase (beyond's phase flickers): a windowed-vulnerability enemy. State on e._phaseSolid (bool) /

@@ -72,7 +72,7 @@ import {
   // v5.4 undergrowth
   POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, POUNCE_LAND_T,
   AERIAL_RADIUS, AERIAL_ORBIT_SPEED, AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
-  AERIAL_STRIKE_SPEED_MUL, AERIAL_CLIMB_T, AERIAL_UNTOUCHABLE,
+  AERIAL_STRIKE_SPEED_MUL, AERIAL_CLIMB_T, AERIAL_STRIKE_MAX_LIVE,
   FLASHLIGHT_RANGE, FLASHLIGHT_ARC, FLASHLIGHT_SWEEP, FLASHLIGHT_SWEEP_SPEED,
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL, FLASHLIGHT_DMG_MUL,
   SNAP_TRAP_DMG, SNAP_TRAP_REARM,
@@ -799,7 +799,19 @@ function spawnEnemy(run, opts = {}) {
   const chapterRoster = CHAPTERS[run.chapter].roster
   const forced = opts.rosterId ? chapterRoster.find((r) => r.id === opts.rosterId) : null
   const rosterPool = chapterRoster.filter((r) => r.archetype === archetype && !r.formationOnly)
-  const roster = forced ?? (rosterPool.length > 0 ? rosterPool[Math.floor(Math.random() * rosterPool.length)] : null)
+  // v6.3: weight (relative share, default 1) + minT (earliest spawn time, default 0) gate the SAME
+  // single draw below — an entry not yet eligible by minT is filtered out of the pool first, but
+  // if that filter would empty the pool (every candidate still minT-gated) it falls back to the
+  // unfiltered pool rather than going silent. Weighted pick with all weights=1 selects the exact
+  // same index as the old plain `Math.floor(Math.random() * n)` for the same draw (see git history
+  // for the proof) — so every pre-v6.3 roster is bit-identical under this rewrite.
+  const eligiblePool = rosterPool.filter((r) => (r.minT ?? 0) <= run.time)
+  const pool = eligiblePool.length > 0 ? eligiblePool : rosterPool
+  let roster = forced
+  if (!roster && pool.length > 0) {
+    let t = Math.random() * pool.reduce((s, r) => s + (r.weight ?? 1), 0)
+    roster = pool.find((r) => (t -= r.weight ?? 1) <= 0) ?? pool[pool.length - 1]
+  }
 
   let x, y
   if (opts.x !== undefined && opts.y !== undefined) {
@@ -930,6 +942,15 @@ function stepEnemyMovement(run, dt) {
   }
   const pacerRadSq = PACER_RADIUS * PACER_RADIUS
 
+  // v6.3 AERIAL_STRIKE_MAX_LIVE: one O(n) pre-pass counts aerial enemies already past 'circle'
+  // (mark/strike/climb) — then threaded into stepAerialStrike below and incremented THERE on each
+  // new circle->mark transition, so the cap self-enforces even when several drones are ready to
+  // transition in the very same frame, with no O(n^2) rescanning per enemy.
+  let airLiveCount = 0
+  for (const e of run.enemies) {
+    if (!e._dead && e._airState && e._airState !== 'circle') airLiveCount++
+  }
+
   // v5.3 garden: does this chapter's signature drive pheromone trails? (gates trailFollow logic)
   const sig = CHAPTERS[run.chapter].signature
   const pheromones = sig != null && sig.type === 'pheromones'
@@ -1017,7 +1038,7 @@ function stepEnemyMovement(run, dt) {
     } else if (e.flags && e.flags.includes('pounce')) {
       stepPounce(e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('aerialStrike')) {
-      stepAerialStrike(e, tx, ty, dt, slowMul, enrageMul)
+      airLiveCount = stepAerialStrike(e, tx, ty, dt, slowMul, enrageMul, airLiveCount)
     } else if (e.flags && e.flags.includes('lineCharge')) {
       stepLineCharge(e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('strafe')) {
@@ -1219,12 +1240,18 @@ function stepPounce(e, tx, ty, dt, slowMul, spdMul) {
   e.y += vy * slowMul * dt
 }
 
-// aerialStrike (v5.4 undergrowth's owls): circle -> mark -> strike -> climb, on _airState/_airT/
-// _airAngle/_airTargX/_airTargY. While circling/marking its position is SET on a circle around the
-// target (it isn't seeking); the marked point locks at the start of 'mark' (the shadow render draws)
-// and 'strike' flies to THAT point without re-aiming. Under AERIAL_UNTOUCHABLE it can neither be
-// hit nor hit you while 'circle'/'climb' (see damageImmune/contactHarmless) — it's overhead.
-function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul) {
+// aerialStrike (v5.4, city's patrol drone since v6.3): circle -> mark -> strike -> climb, on
+// _airState/_airT/_airAngle/_airTargX/_airTargY. While circling/marking its position is SET on a
+// circle around the target (it isn't seeking); the marked point locks at the start of 'mark' (the
+// shadow render draws) and 'strike' flies to THAT point without re-aiming. v6.3: AERIAL_UNTOUCHABLE
+// is gone — it's hittable and can deal contact damage in every state except 'climb' (a punish
+// window: hittable, harmless — see damageImmune/contactHarmless).
+// `airLiveCount` (v6.3): threaded in from stepEnemyMovement's pre-pass (count of enemies already
+// past 'circle' this frame) and returned back out, incremented on a transition — see
+// AERIAL_STRIKE_MAX_LIVE's doc in config.js. Past the cap, a drone ready to mark HOLDS in 'circle'
+// (its _airT is left at/below 0 rather than reset, so it rechecks — and can transition — the very
+// next frame a slot frees, instead of waiting out a full fresh AERIAL_CIRCLE_T).
+function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul, airLiveCount) {
   if (e._airState === undefined) {
     e._airState = 'circle'
     e._airT = AERIAL_CIRCLE_T
@@ -1236,8 +1263,12 @@ function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul) {
     e.x = tx + Math.cos(e._airAngle) * AERIAL_RADIUS
     e.y = ty + Math.sin(e._airAngle) * AERIAL_RADIUS
     if (e._airT <= 0) {
-      if (e._airState === 'circle') { e._airState = 'mark'; e._airT = AERIAL_MARK_T; e._airTargX = tx; e._airTargY = ty }
-      else { e._airState = 'strike'; e._airT = AERIAL_STRIKE_T }
+      if (e._airState === 'circle') {
+        if (airLiveCount < AERIAL_STRIKE_MAX_LIVE) {
+          e._airState = 'mark'; e._airT = AERIAL_MARK_T; e._airTargX = tx; e._airTargY = ty
+          airLiveCount++
+        } // else: hold in 'circle' — cap is full, recheck next frame
+      } else { e._airState = 'strike'; e._airT = AERIAL_STRIKE_T }
     }
   } else if (e._airState === 'strike') {
     const dx = e._airTargX - e.x, dy = e._airTargY - e.y
@@ -1257,6 +1288,7 @@ function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul) {
     e.y += (dy / d) * step
     if (e._airT <= 0) { e._airState = 'circle'; e._airT = AERIAL_CIRCLE_T; e._airAngle = Math.atan2(e.y - ty, e.x - tx) }
   }
+  return airLiveCount
 }
 
 // lineCharge (v5.4 city's robot vacuums): track -> lock -> charge -> stall, on _chargeState/
@@ -1625,19 +1657,15 @@ function hurtPlayer(run, rawDmg, dot = false) {
   return false
 }
 
-// v5.4: is this enemy untouchable right now? An owl overhead (AERIAL_UNTOUCHABLE, 'circle'/'climb')
-// and a ghosted phase flicker take NO damage at all — dealDamage/applyDamage return before any
-// number, status, crit or death is rolled, so a DoT already on them keeps counting down but lands
-// nothing while the window is up. Guarded on the state fields, so an enemy that never ran either
-// machine is never immune.
+// v5.4: is this enemy untouchable right now? A ghosted phase flicker takes NO damage at all —
+// dealDamage/applyDamage return before any number, status, crit or death is rolled, so a DoT
+// already on them keeps counting down but lands nothing while the window is up. Guarded on the
+// state field, so an enemy that never runs the machine is never immune.
+// v6.3: the aerialStrike branch that used to sit here (AERIAL_UNTOUCHABLE, 'circle') is DELETED —
+// the flag's new home (city's patrol drone) is a ranged chapter, and circling/marking/striking
+// drones are ordinary, killable targets there. Only 'climb' keeps any special contact rule, and
+// that lives in contactHarmless below (a punish window, not a damage immunity).
 function damageImmune(e) {
-  // Only while genuinely overhead at the standoff — 'circle'. NOT 'climb': a climbing owl is at
-  // ground level, right where it just landed on you, and that is exactly when the player swings at
-  // it. Gating the recovery too meant the bird dove, hit you, and peeled off invincible; the only
-  // window it could actually be killed in was the 0.45s strike (it is touchable during 'mark', but
-  // 'mark' happens out at AERIAL_RADIUS 240px, past every short-range weapon). So owls piled up
-  // unkillable — reported as "they're unkillable" and "just too far away".
-  if (AERIAL_UNTOUCHABLE && e._airState === 'circle') return true
   if (e._phaseSolid === false) return true
   return false
 }
@@ -1648,11 +1676,14 @@ function damageImmune(e) {
 // enemy isn't attacking anyone.
 function contactHarmless(e) {
   if (damageImmune(e)) return true
-  // ...but a climbing owl still can't HURT you. It's peeling away and its strike already had its
-  // hit; charging the exit for a second one would just punish the player for standing their ground.
-  // Deliberately asymmetric with damageImmune above: 'climb' is a PUNISH window — you can hit it,
-  // it can't hit you — the same shape as pounce's 'land' and lineCharge's 'stall' on the next line.
-  if (AERIAL_UNTOUCHABLE && e._airState === 'climb') return true
+  // A climbing aerialStrike enemy still can't HURT you. It's peeling away and its strike already
+  // had its hit; charging the exit for a second one would just punish the player for standing
+  // their ground. v6.3: the AERIAL_UNTOUCHABLE guard that used to gate this is gone — this clause
+  // is now UNCONDITIONAL — but the asymmetry it creates survives the flag's removal: 'climb' is a
+  // PUNISH window — you can hit it, it can't hit you — the same shape as pounce's 'land' and
+  // lineCharge's 'stall' on the next line. 'circle'/'mark'/'strike' are ordinary: hittable AND able
+  // to hit you, like any other enemy.
+  if (e._airState === 'climb') return true
   if ((e.stunT || 0) > 0 || (e.fearT || 0) > 0) return true
   if (e._pounceState === 'land' || e._chargeState === 'stall') return true
   return false
