@@ -46,7 +46,7 @@ import {
   HOLE_CORE_DMG_MUL, HOLE_PULL_DECAY,
   ORBIT_TWIN_RING_RADIUS_FRAC, WAVE_ECHO_DELAY, WAVE_ECHO_DMG_FRAC,
   MINE_CLUSTER_DMG_FRAC, MINE_CLUSTER_RADIUS_FRAC, MINE_CLUSTER_ARM,
-  MINE_CLUSTER_SCATTER_MIN, MINE_CLUSTER_SCATTER_MAX, HOLE_SINGULARITY_FRAC,
+  MINE_CLUSTER_SCATTER_MIN, MINE_CLUSTER_SCATTER_MAX, MINE_STUN, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, UNDERTOW_KB_PER_STACK, TSUNAMI_EVERY, SEEKER_TURN_RATE,
   MINE_CRAWL_SPEED, WISP_NOVA_RADIUS, SWARM_DMG_FRAC, SWARM_LIFE, CRUNCH_DMG_MUL,
   STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
@@ -64,7 +64,7 @@ import {
   DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
   FLAGELLA_CYCLONE_EVERY, BARBED_DMG_MUL, BARBED_DURATION,
-  BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC,
+  BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC, BLOOM_SLOW, BLOOM_SLOW_T, TIDE_DMG_BONUS,
   STINGER_R, STINGER_HIVE_EVERY, LURE_STICKY_R, LURE_STICKY_DUR,
   PHEROMONE_LIFE, PHEROMONE_FOLLOW_RADIUS, PHEROMONE_SPEED_MUL,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T, DIVE_RECOVER_T,
@@ -171,6 +171,7 @@ export function stepSim(run, input, dt) {
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
+  streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any)
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
@@ -868,6 +869,7 @@ function freshEnemyFields() {
     // Status effects (v5.4, see the enemies[] contract in state.js): fear inverts the seek, stun
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
     fearT: 0, stunT: 0, enrageT: 0,
+    bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
   }
 }
@@ -1079,7 +1081,12 @@ function stepEnemyMovement(run, dt) {
     }
     const dx = tx - e.x, dy = ty - e.y
     const d = Math.hypot(dx, dy)
-    const slowMul = e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) // chill/freeze slow the seek movement only
+    // chill/freeze/bloom slow the seek movement only. // ponytail: movement state machines that
+    // bypass slowMul entirely (dashBurst's dash, diveBomb's dive, pounce's leap, etc.) keep full
+    // speed while bloomSlowT is up — the same ceiling chill/freeze already have here; not worth a
+    // second guard in every one of those machines for a debuff this soft.
+    const bloomMul = (e.bloomSlowT || 0) > 0 ? (1 - BLOOM_SLOW) : 1
+    const slowMul = e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) * bloomMul
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -1173,10 +1180,13 @@ function stepEnemyMovement(run, dt) {
     if (e.fearT > 0) e.fearT = Math.max(0, e.fearT - dt)
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
+    if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
 
     // soapTrail elite flag (v5.0, e.g. pond's soap-bubble elites): drops a damaging pool node
     // into the shared run.pools array every SOAP_INTERVAL while alive (see stepPools below).
-    if (e.elite && e.flags && e.flags.includes('soapTrail') && !e._dead) {
+    // v6.4: `e._phaseSolid !== false` — the phase contract is "eats nothing, deals nothing"; an
+    // untouchable ghosted elite must not keep laying damaging pools either.
+    if (e.elite && e.flags && e.flags.includes('soapTrail') && !e._dead && e._phaseSolid !== false) {
       e._soapAcc = (e._soapAcc ?? 0) + dt
       if (e._soapAcc >= SOAP_INTERVAL) {
         e._soapAcc -= SOAP_INTERVAL
@@ -1872,7 +1882,31 @@ export function currentForce(run, x, y) {
   const fy = Math.cos(y * sig.scale + t * sig.drift * 0.9 + seed * 2.3) +
              Math.cos(x * sig.scale * 1.6 - t * sig.drift * 1.2 + seed * 0.6)
   const k = sig.strength * 0.5 * run.mods.currentForceMul // riptide anomaly turns the field up
-  return { fx: fx * k, fy: fy * k }
+  let ffx = fx * k, ffy = fy * k
+
+  // v6.4 pond identity: eddies (run.eddies, streamed by streamEddies below) add a local inward
+  // pull + tangential swirl on top of the ambient drift above. Squared-distance cull first — this
+  // runs per player+enemy+tideCarried-cloud, per frame.
+  if (sig.eddies) {
+    for (const ed of run.eddies) {
+      const dx = ed.x - x, dy = ed.y - y
+      const dSq = dx * dx + dy * dy
+      if (dSq >= ed.r * ed.r) continue
+      const d = Math.sqrt(dSq)
+      if (d < 1e-3) continue // at the exact core: no direction to push, skip rather than divide by ~0
+      const q = 1 - d / ed.r
+      const ux = dx / d, uy = dy / d       // inward unit vector, toward the eddy's center
+      const tx = -uy * ed.dir, ty = ux * ed.dir // tangential unit vector, swirl sign per ed.dir
+      // pull: deliberately NOT multiplied by run.mods.currentForceMul — the escape invariant
+      // `pull + 2√2·k·2 < PLAYER.baseSpeed` must hold even under Riptide; riptide doubles the
+      // ambient shove and the swirl spectacle, never the trap vector.
+      const pull = sig.eddies.pull * q
+      const swirl = sig.eddies.swirl * Math.sin(Math.PI * d / ed.r) * run.mods.currentForceMul
+      ffx += ux * pull + tx * swirl
+      ffy += uy * pull + ty * swirl
+    }
+  }
+  return { fx: ffx, fy: ffy }
 }
 
 function stepCurrents(run, dt) {
@@ -2103,6 +2137,54 @@ function streamObstacles(run) {
     }
   }
   if (changed) run._obstacleRev = (run._obstacleRev || 0) + 1
+}
+
+// -- Eddies (v6.4 pond identity: streamed vortices) -----------------------------------
+// Exact copy of streamObstacles' streaming idiom above — own cell size (sig.eddies.cell), own
+// _eddyCellI/_eddyCellJ cell cursor (so it re-scans independently of streamObstacles' own
+// _obCellI/_obCellJ), same run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS —
+// but its own function rather than folded into streamObstacles, which already carries a
+// chapter's `obstacles` config plus the STRUCTURE_KINDS/road/district machinery an eddy has no
+// use for. Own hash salts (11 occupancy, 12 x jitter, 13 y jitter, 14 swirl direction) so an
+// eddy's roll never collides with an obstacle's roll at the same cell. ZERO Math.random() at
+// step time — same hard rule as streamObstacles (the AA.c/runStarOnly scar).
+// Gated on the chapter's signature actually declaring an eddies block (currently pond only) —
+// every other chapter, and any chapter before its first obstacle-seeded step, no-ops.
+function streamEddies(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'currents' || !sig.eddies) return
+  if (run._obstacleSeed == null) return
+  const cfg = sig.eddies
+  const p = run.player
+  const cs = cfg.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._eddyCellI && cj === run._eddyCellJ) return // same cell as last scan — field unchanged
+  run._eddyCellI = ci; run._eddyCellJ = cj
+
+  for (let k = run.eddies.length - 1; k >= 0; k--) {
+    const ed = run.eddies[k]
+    if (Math.hypot(ed.x - p.x, ed.y - p.y) > OBSTACLE_DROP_RADIUS) run.eddies.splice(k, 1)
+  }
+  const live = new Set()
+  for (const ed of run.eddies) live.add(ed._cell)
+
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      // chance is a DIRECT per-cell occupancy probability (see config.js's doc on signature.eddies).
+      if (obstacleCellHash(i, j, seed, 11) >= cfg.chance) continue
+      const slack = Math.max(0, cs / 2 - cfg.r - 20) // same jitter-slack formula obstacles uses
+      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 12) - 0.5) * 2 * slack
+      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 13) - 0.5) * 2 * slack
+      if (Math.hypot(x, y) < cfg.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      const dir = obstacleCellHash(i, j, seed, 14) < 0.5 ? -1 : 1 // swirl sign
+      run.eddies.push({ x, y, r: cfg.r, dir, _cell: key })
+    }
+  }
 }
 
 // v5.8 kaiju redesign: both loops used to call Math.hypot(dx,dy) unconditionally and compare it to
@@ -3615,11 +3697,17 @@ function stepMagneticMines(run, dt, bonus) {
 
 // A single mine's detonation: AoE damage + explode event + (non-bomblet) Cluster Bombs.
 // Shared by the natural trigger path and Chain Reaction cascades below.
+// v6.4 pond identity: every enemy caught in the blast is also stunned (MINE_STUN), same
+// damageImmune guard applyDamage already uses internally — a ghosted phase flicker takes no
+// damage AND gets no stun, exactly like it eats nothing else.
 function detonateMine(run, m) {
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - m.x, dy = e.y - m.y
-    if (dx * dx + dy * dy <= m.radius * m.radius) applyDamage(run, e, m.dmg)
+    if (dx * dx + dy * dy <= m.radius * m.radius) {
+      applyDamage(run, e, m.dmg)
+      if (!damageImmune(e)) e.stunT = Math.max(e.stunT || 0, MINE_STUN)
+    }
   }
   run.events.push({ type: 'explode', x: m.x, y: m.y, radius: m.radius })
   m._dead = true
@@ -4172,14 +4260,43 @@ function applyDotDamage(run, enemy, baseDmg) {
 // killed by a (non-mini) cloud's own tick emits a mini-cloud (SPOREBURST_FRAC maxR, flagged
 // `_mini` so it never chains). New minis are collected and appended after the pass so they don't
 // perturb the in-progress iteration.
+// v6.4 pond identity, both read live off run.weaponMods.bloom (no per-cloud baking, so a mini
+// reacts to whatever's currently held exactly like its parent):
+//   bloom slow: every frame (not gated on the BLOOM_TICK timer below — the debuff is continuous,
+//     only the damage is metered), any non-immune enemy inside the cloud gets e.bloomSlowT
+//     refreshed to BLOOM_SLOW_T (stepEnemyMovement folds it into slowMul; decays like fearT/
+//     stunT/enrageT). damageImmune-guarded: a ghosted phase flicker ignores this like it ignores
+//     everything else.
+//   tideCarried: with picks held, the cloud drifts by currentForce(x,y) × dt × picks every frame
+//     — the SAME field that pushes the player/enemies/eddies — and each tick's damage is
+//     multiplied by (1 + TIDE_DMG_BONUS × picks). The sporeburst inheritance below stays on the
+//     BASE dmgPerTick (not the tide-boosted tick damage), so a mini isn't silently born hotter
+//     than its parent was at plant time — it picks up the live tide bonus itself once it starts
+//     ticking, same as any other cloud.
 function stepBlooms(run, dt) {
   if (run.blooms.length === 0) return
   const sporeOn = (run.weaponMods.bloom?.sporeburst ?? 0) > 0
+  const tide = run.weaponMods.bloom?.tideCarried ?? 0
   const minis = []
   for (const bl of run.blooms) {
     bl.t += dt
     const growT = bl.dur * BLOOM_GROW_FRAC
     bl.r = bl.t >= growT ? bl.maxR : bl.maxR * (bl.t / Math.max(1e-6, growT))
+
+    if (tide > 0) {
+      const f = currentForce(run, bl.x, bl.y)
+      bl.x += f.fx * dt * tide
+      bl.y += f.fy * dt * tide
+    }
+
+    const slowRSq = bl.r * bl.r
+    for (const e of run.enemies) {
+      if (e._dead || damageImmune(e)) continue
+      const sdx = e.x - bl.x, sdy = e.y - bl.y
+      if (sdx * sdx + sdy * sdy <= slowRSq) e.bloomSlowT = BLOOM_SLOW_T
+    }
+
+    const tickDmg = tide > 0 ? bl.dmgPerTick * (1 + TIDE_DMG_BONUS * tide) : bl.dmgPerTick
     bl._tickAcc = (bl._tickAcc ?? 0) + dt
     while (bl._tickAcc >= BLOOM_TICK) {
       bl._tickAcc -= BLOOM_TICK
@@ -4188,7 +4305,7 @@ function stepBlooms(run, dt) {
         if (e._dead) continue
         const dx = e.x - bl.x, dy = e.y - bl.y
         if (dx * dx + dy * dy > rSq) continue
-        applyDotDamage(run, e, bl.dmgPerTick)
+        applyDotDamage(run, e, tickDmg)
         if (sporeOn && !bl._mini && e._dead) {
           minis.push({ x: e.x, y: e.y, maxR: bl.maxR * SPOREBURST_FRAC, dur: bl.dur, dmgPerTick: bl.dmgPerTick })
         }

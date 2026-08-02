@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -212,6 +212,9 @@ export function createRenderer(app) {
   // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
   let chapterRender = BODY_RENDER
   let chapterHasCurrents = false
+  // v6.4 pond signature: whether the active chapter's currents also stream eddies (run.eddies —
+  // CHAPTERS[id].signature.eddies). Same latch pattern as chapterHasCurrents; read by updateEddies.
+  let chapterHasEddies = false
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
   // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
   let chapterHasStorm = false
@@ -2786,6 +2789,42 @@ export function createRenderer(app) {
     // multiplied by the chapter floorTint at populate time so it sits in the biome's light.
     // UPRIGHT props are drawn with their ORIGIN AT THE BASE (y=0 is the ground line) — bake() hands
     // back the matching anchor, so they plant on the floor instead of floating.
+    {
+      // lilypad (pond, v6.4 — BIOME_POND below): a flat top-down pad. Irregular lobed rim
+      // (radialOutline-style cosine perturbation, the same trick T.asteroid uses below) plus the
+      // classic wedge notch cut to the centre, radial veins fanned across the rim the notch didn't
+      // cut, a darker rim edge and a subtle off-centre sheen. NEVER a smooth disc — render.js:4397's
+      // own rule: a plain green circle is the single most "programmer art" shape on offer. Flat and
+      // top-down (no `upright` — spins freely, same as puddle/asteroid). Murky green family, tuned
+      // into BIOME_POND's decor luminance band — see that block's own comment for the measured
+      // numbers this was authored against.
+      const g = new Graphics()
+      const R = 32
+      const body = 0x4e9473
+      const rim = 0x357a5c
+      const hi = 0xd1f4e0
+      const notchA = 0.4      // the notch points off to one side, never straight +x
+      const notchHalf = 0.32  // rad, notch half-width — a real wedge, not a nick
+      const shape = (a) => {
+        let rr = R * (0.88 + 0.09 * Math.cos(a * 2 + 0.6) + 0.06 * Math.cos(a * 3 - 1.4)) // 2-3 uneven lobes
+        let d = a - notchA
+        while (d > Math.PI) d -= Math.PI * 2
+        while (d < -Math.PI) d += Math.PI * 2
+        if (Math.abs(d) < notchHalf) rr *= 0.12 + 0.88 * (Math.abs(d) / notchHalf) // wedge cut toward the centre
+        return rr
+      }
+      g.poly(radialOutline(shape, 56)).fill(body).stroke({ width: 2, color: rim })
+      g.beginPath() // radial veins, fanned across the rim the notch did NOT cut — none cross the gap
+      const veins = 6
+      for (let v = 0; v <= veins; v++) {
+        const va = notchA + notchHalf + (v / veins) * (Math.PI * 2 - notchHalf * 2)
+        const vr = shape(va)
+        g.moveTo(Math.cos(va) * R * 0.1, Math.sin(va) * R * 0.1).lineTo(Math.cos(va) * vr * 0.94, Math.sin(va) * vr * 0.94)
+      }
+      g.stroke({ width: 1.1, color: rim, alpha: 0.5 })
+      g.ellipse(-R * 0.24, -R * 0.2, R * 0.32, R * 0.22).fill({ color: hi, alpha: 0.35 }) // subtle off-centre sheen
+      T.lilypad = bake(g)
+    }
     {
       // root arch (undergrowth): knuckled roots breaking the loam. Real joints at each knuckle and a
       // taper to every tip — the same rule the creatures follow, so it never reads as bent tubing.
@@ -5655,6 +5694,12 @@ export function createRenderer(app) {
   const gemLayer = new Container()
   const coinLayer = new Container()
   const holeLayer = new Container()
+  // v6.4 pond signature: eddy vortex decals (updateEddies below). Deliberately a CHILD of
+  // entitiesLayer, not stage-level like currentLayer (which intentionally floats OVER the whole
+  // world, screen-space, per its own comment) — the eddy ring marks a real force boundary, so it
+  // must read as floor-level, UNDER the crowd, the same "under entities" contract obstacleLayer/
+  // poolLayer/holeLayer already keep. Positioned right after holeLayer: same pooled-vortex idiom.
+  const eddyLayer = new Container()
   const novaLayer = new Container()
   const mineLayer = new Container()
   // elite affix ground fx (bomb telegraphs + pacer auras): per-frame vector layers,
@@ -5685,7 +5730,7 @@ export function createRenderer(app) {
   const textLayer = new Container()
   entitiesLayer.addChild(
     wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
-    gemLayer, coinLayer, holeLayer, novaLayer, mineLayer,
+    gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
@@ -6074,6 +6119,25 @@ export function createRenderer(app) {
     { name: 'bush_a', tints: BUSH_TINTS, upright: true, size: [90, 145] },
     { name: 'bush_b', tints: BUSH_TINTS, upright: true, size: [90, 145] },
   ]
+  // Pond's own palette (v6.4 — BIOME_POND below). The old roster just aliased `pond: BIOME_GARDEN`
+  // (a sunlit-lawn look — pink/white flowers — dropped onto a murky teal floor). Every pond-only
+  // tint below is authored against the pond's EFFECTIVE floor (bg 0x2e6258 under floorTint
+  // 0x66c2a9, composited over the mean blotch — obstacle-contrast.mjs's own model — luminance
+  // ~0.186) into the same ~1.1-1.6x WCAG decor band BIOME_BODY's props use (see that block's
+  // comment, ~line 3730): the darker family members (reed/bush/algae/weed/leaf) land ~1.25-1.45x
+  // BELOW the floor, the paler ones (mushroom/scatter dust/lilypad sheen) land ~1.25-1.30x ABOVE
+  // it — well short of every creature's own contrast (tadpole 3.74x, amoeba 3.54x, tardigrade
+  // 2.79x vs this same floor), so decor never competes with the roster for the eye.
+  const REED_MURK_TINTS = [0x669369, 0x5c8760]        // big: bush-scale reed; mid: normal-scale reed
+  const BUSH_DEEPWATER_TINTS = [0x47928a, 0x3f8078]   // deep-water bush_a
+  const MUSHROOM_BOG_TINTS = [0xc5c9b2]                // pale bog mushroom — no pink here
+  const ALGAE_TINTS = [0x6b944f, 0x739b55, 0x628d4d]   // cluster_a/b/c
+  const WEED_TINTS = [0x6c9456, 0x648d52]              // grass_c/d
+  const BIG_POND = [
+    { name: 'reed', tints: REED_MURK_TINTS, upright: true, size: [110, 175] }, // bush-scale, murk tint
+    { name: 'bush_a', tints: BUSH_DEEPWATER_TINTS, upright: true, size: [90, 145] },
+    { name: 'lilypad', baked: true, scale: [1.4, 2.2] },
+  ]
   const BIG_UNDERGROWTH = [
     { name: 'root', baked: true, upright: true, scale: [0.85, 1.5] },
     { name: 'bush_a', tints: [0x6f7a4a, 0x5d6840], upright: true, size: [80, 130] },
@@ -6148,6 +6212,20 @@ export function createRenderer(app) {
     { name: 'cluster_b', tints: CLUSTER_TINTS, upright: false, size: [50, 78] },
     { name: 'cluster_c', tints: CLUSTER_TINTS, upright: false, size: [50, 78] },
   ]
+  // pond: reed x2 (murk) + weeds where garden had lawn grass, algae clusters where garden had lawn
+  // clusters, bog mushroom, small lilypad — NO flower_a/flower_b (a murky pond grows no sunlit
+  // lawn flowers). Tints from the palette declared above BIG_POND.
+  const MID_POND = [
+    { name: 'reed', tints: REED_MURK_TINTS, upright: true, size: [45, 70] },
+    { name: 'reed', tints: REED_MURK_TINTS, upright: true, size: [45, 70] },
+    { name: 'mushroom', tints: MUSHROOM_BOG_TINTS, upright: true, size: [26, 42] },
+    { name: 'grass_c', tints: WEED_TINTS, upright: true, size: [28, 48] },
+    { name: 'grass_d', tints: WEED_TINTS, upright: true, size: [28, 48] },
+    { name: 'cluster_a', tints: ALGAE_TINTS, upright: false, size: [50, 78] },
+    { name: 'cluster_b', tints: ALGAE_TINTS, upright: false, size: [50, 78] },
+    { name: 'cluster_c', tints: ALGAE_TINTS, upright: false, size: [50, 78] },
+    { name: 'lilypad', baked: true, scale: [0.5, 0.75] },
+  ]
   // undergrowth: shade botany only — no sunlit flowers down here, and the mushrooms go pallid
   const MID_UNDERGROWTH = [
     { name: 'grass_c', tints: [0x7f8a52, 0x6d7746], upright: true, size: [30, 52] },
@@ -6197,6 +6275,12 @@ export function createRenderer(app) {
     { name: 'leaf', tint: 0xe8b28a, alpha: 0.7, size: [18, 32] },
     { name: 'pebble', baked: true, scale: [0.7, 1.4] },
     { name: 'puddle', baked: true, scale: [0.7, 1.4] },
+  ]
+  // pond: pebble + pale algae dust + dark drift-leaf. No puddle — the whole floor already IS water.
+  const DETAIL_POND = [
+    { name: 'pebble', baked: true, scale: [0.7, 1.4] },
+    { name: 'scatter_a', tint: 0xcfd9b6, alpha: 0.55, size: [24, 42] },
+    { name: 'leaf', tint: 0x728b59, alpha: 0.7, size: [18, 32] },
   ]
   // undergrowth: deep leaf litter — the floor IS dead leaves, so scatter/leaf dominate
   const DETAIL_UNDERGROWTH = [
@@ -6264,9 +6348,19 @@ export function createRenderer(app) {
     big: BIG_BODY, mid: MID_BODY, detail: DETAIL_BODY,
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x8fbf6f, glow: 0xbfe8dd, glowAlpha: 0.5 },
   }
+  // The Pond gets its OWN murk-water props (v6.4 — was `pond: BIOME_GARDEN`, a bare object-reference
+  // alias to the sunlit-lawn look; see BIG_POND's comment above for the full contrast methodology
+  // and the measured band). `foot` stays 0x243617 (obstacle-contrast.mjs already clears it — that
+  // script reads config.js's floorTint, not this mass tint, so nothing it checks moved); the mass
+  // `tint` shifts murkier than the garden's 0x5f8f4a, toward the same dark algae-green family as
+  // ALGAE_TINTS/WEED_TINTS above, so an obstacle mound reads as SUBMERGED growth, not a lawn hedge.
+  const BIOME_POND = {
+    big: BIG_POND, mid: MID_POND, detail: DETAIL_POND,
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x3a5a34, foot: 0x243617 },
+  }
   const BIOMES = {
     body: BIOME_BODY,
-    pond: BIOME_GARDEN,
+    pond: BIOME_POND,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -7046,11 +7140,36 @@ export function createRenderer(app) {
       rippleTimer += dt
       if (rippleTimer >= CURRENT_VIS.rippleEvery) {
         rippleTimer = 0
-        const ox = -cx + Math.random() * w
-        const oy = -cy + Math.random() * h
-        const f = currentForce(run, ox, oy)
-        const sp = Math.hypot(f.fx, f.fy) || 1
-        const dx = f.fx / sp, dy = f.fy / sp
+        let ox, oy, dx, dy
+        // v6.4: bias the train onto an in-view eddy's ring when one exists — a moving arrow tracing
+        // the true force boundary reads far better than a random streamline. Random-picks WHICH
+        // eddy (and where on its ring) via the same Math.random() calls this block already used —
+        // render-side Math.random() is fine, only SIM streaming is RNG-forbidden.
+        const visibleEddies = chapterHasEddies
+          ? run.eddies.filter((ed) => {
+              const sx = ed.x + cx, sy = ed.y + cy
+              return sx > -ed.r && sx < w + ed.r && sy > -ed.r && sy < h + ed.r
+            })
+          : []
+        if (visibleEddies.length > 0) {
+          const ed = visibleEddies[Math.floor(Math.random() * visibleEddies.length)]
+          const ang = Math.random() * Math.PI * 2
+          ox = ed.x + Math.cos(ang) * ed.r
+          oy = ed.y + Math.sin(ang) * ed.r
+          // tangent at this ring point, signed by the eddy's own swirl — mirrors currentForce's own
+          // tangential term (sim.js): tx = -uy*dir, ty = ux*dir, where (ux,uy) is the INWARD unit
+          // vector (ring point -> centre), i.e. the negative of this point's outward offset.
+          const ux = -Math.cos(ang), uy = -Math.sin(ang)
+          dx = -uy * ed.dir
+          dy = ux * ed.dir
+        } else {
+          ox = -cx + Math.random() * w
+          oy = -cy + Math.random() * h
+          const f = currentForce(run, ox, oy)
+          const sp = Math.hypot(f.fx, f.fy) || 1
+          dx = f.fx / sp
+          dy = f.fy / sp
+        }
         for (let k = 0; k < 3; k++) {
           const p = currentStreaks[(Math.floor(Math.random() * currentStreaks.length) + k) % currentStreaks.length]
           respawnStreak(p, cx, cy, w, h, ox + dx * k * CURRENT_VIS.lenPx * 0.9, oy + dy * k * CURRENT_VIS.lenPx * 0.9)
@@ -7064,6 +7183,62 @@ export function createRenderer(app) {
     currentLayer.visible = false
     for (const p of currentStreaks) { p.g.visible = false; p.spawned = false; p.boost = 1 }
     rippleTimer = 0
+  }
+
+  // Eddy vortex decals (pond signature, v6.4, run.eddies): the gravity hole's proven treatment
+  // (~line 8010 below — two counter-rotating twirl layers at high alpha) plus a stroked rim ring at
+  // exactly the eddy's r, the true force boundary (currentForce's eddies term, sim.js). Pooled —
+  // grown on demand, hidden past run.eddies.length, EDDY_VIS.config.js owns every tuning number.
+  // Unlike currentStreaks, positioned in WORLD space directly: eddyLayer is a child of entitiesLayer
+  // (see its own declaration above for why), so no manual camera-offset math is needed here.
+  const eddyPool = []
+  function acquireEddy() {
+    const root = new Container()
+    const vortexA = new Sprite(T.fx.twirl_01)
+    vortexA.anchor.set(0.5)
+    vortexA.tint = EDDY_VIS.tintA
+    const vortexB = new Sprite(T.fx.twirl_02)
+    vortexB.anchor.set(0.5)
+    vortexB.tint = EDDY_VIS.tintB
+    const ring = new Graphics()
+    root.addChild(vortexA, vortexB, ring)
+    eddyLayer.addChild(root)
+    return { root, vortexA, vortexB, ring, _r: 0 }
+  }
+  function placeEddy(ev, ed, i) {
+    ev.root.position.set(ed.x, ed.y)
+    const twirlPx = ed.r * EDDY_VIS.twirlFrac
+    ev.vortexA.scale.set(fxScale(T.fx.twirl_01, twirlPx))
+    ev.vortexB.scale.set(fxScale(T.fx.twirl_02, twirlPx * 0.85))
+    // Dominant layer (A) spins WITH the eddy's true dir at the full rate; the counter layer (B)
+    // spins the OPPOSITE way, slower and dimmer (counterRateMul/counterAlphaMul < 1) — same "one
+    // layer sets the read, the other just textures it" trick the hole uses below, but here it's
+    // signed by ed.dir so the net swirl a player reads always matches the force's real rotation.
+    ev.vortexA.rotation = animT * EDDY_VIS.spinRate * ed.dir + i * 0.6
+    ev.vortexB.rotation = -animT * EDDY_VIS.spinRate * EDDY_VIS.counterRateMul * ed.dir + i * 0.9
+    const pulse = 1 + EDDY_VIS.pulseAmp * Math.sin(animT * EDDY_VIS.pulseRate + i * 1.3)
+    ev.vortexA.alpha = EDDY_VIS.alpha * pulse
+    ev.vortexB.alpha = EDDY_VIS.alpha * EDDY_VIS.counterAlphaMul * pulse
+    if (ev._r !== ed.r) { // rim ring, redrawn only when the radius changes — same cache the hole uses
+      ev._r = ed.r
+      ev.ring.clear()
+      ev.ring.circle(0, 0, ed.r).stroke({ width: EDDY_VIS.ringWidth, color: EDDY_VIS.ringTint, alpha: EDDY_VIS.ringAlpha })
+    }
+  }
+  function updateEddies(run, dt) {
+    if (!chapterHasEddies) { eddyLayer.visible = false; return }
+    eddyLayer.visible = true
+    const list = run.eddies
+    while (eddyPool.length < list.length) eddyPool.push(acquireEddy())
+    for (let i = 0; i < eddyPool.length; i++) {
+      const ev = eddyPool[i]
+      ev.root.visible = i < list.length
+      if (i < list.length) placeEddy(ev, list[i], i)
+    }
+  }
+  function clearEddies() {
+    eddyLayer.visible = false
+    for (const ev of eddyPool) ev.root.visible = false
   }
 
   // ---------------------------------------------------------------- storm overlay
@@ -8432,9 +8607,15 @@ export function createRenderer(app) {
     bloomLayer.addChild(root)
     return { root, puffs: [a, b, c] }
   }
-  function syncBlooms(list) {
+  function syncBlooms(run) {
+    const list = run.blooms || []
     const n = list.length
     while (bloomPool.length < n) bloomPool.push(acquireBloom())
+    // v6.4 Tide-Carried (WEAPON_MODS.bloom.tideCarried): with picks held, stepBlooms drifts each
+    // cloud along currentForce — invisibly, unless something ELSE marks it. When a cloud's centre
+    // sits inside an eddy's ring, its puffs shift toward cyan: "my cloud is riding the current" is
+    // now an observable event, not just a silent position nudge. Cheap: <=8 clouds x <=10 eddies.
+    const tideCarried = (run.weaponMods?.bloom?.tideCarried ?? 0) > 0
     for (let i = 0; i < n; i++) {
       const bv = bloomPool[i]
       const bl = list[i]
@@ -8445,13 +8626,20 @@ export function createRenderer(app) {
       const outA = Math.min(1, (dur - bl.t) / (dur * 0.25))
       const alpha = Math.max(0, Math.min(inA, outA))
       const sc = fxScale(T.fx.circle_05, Math.max(bl.r, 1) * 2)
+      let inEddy = false
+      if (tideCarried) {
+        for (const ed of run.eddies) {
+          const dx = ed.x - bl.x, dy = ed.y - bl.y
+          if (dx * dx + dy * dy < ed.r * ed.r) { inEddy = true; break }
+        }
+      }
       for (let k = 0; k < 3; k++) {
         const s = bv.puffs[k]
         const off = k === 0 ? 0 : bl.r * 0.4
         const ang = animT * 0.6 + k * 2.1
         s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
         s.scale.set(sc * (k === 0 ? 1 : 0.72) * (1 + 0.05 * Math.sin(animT * 3 + k)))
-        s.tint = k % 2 ? 0x6fe04a : 0x3fae2f
+        s.tint = inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
         s.alpha = alpha * (k === 0 ? 0.5 : 0.4)
       }
     }
@@ -10294,6 +10482,7 @@ export function createRenderer(app) {
     clearRoars()
     clearStrafeLocks()
     clearCurrents()
+    clearEddies()
     clearStorm()
     clearSkiesBombs()
     clearScars()
@@ -10673,6 +10862,9 @@ export function createRenderer(app) {
         s._venomT = 0
         s._stunT = 0
         s._enrageT = 0
+        // v6.4 phase (tardigrade cryptobiosis flicker): last-seen solid/ghost state, so the flip
+        // particle below fires on a real transition and not on a recycled slot's first frame.
+        s._lastPhaseSolid = undefined
         enemySprites.set(e.id, s)
       }
       s._seen = true
@@ -10743,6 +10935,16 @@ export function createRenderer(app) {
 
       // frozen and stun both halt walk/idle animation (here: the wisp's rotation wobble)
       const wobble = (e.type === 'wisp' && frozen <= 0 && stun <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
+      // v6.4 pond identity: currents visibly rock the swarm — a small rotation wobble scaled by the
+      // LOCAL field strength (currentForce, the same field the sim itself pushes everyone with), so
+      // an enemy sitting in an eddy's core rocks harder than one out at the ambient drift's calm
+      // spots. Same frozen/stun hold the wisp wobble above already respects — subtle by design, the
+      // water rocks the swarm, it doesn't shake it.
+      let currentWobble = 0
+      if (chapterHasCurrents && frozen <= 0 && stun <= 0) {
+        const cf = currentForce(run, e.x, e.y)
+        currentWobble = Math.min(1, Math.hypot(cf.fx, cf.fy) / 60) * 0.10 * Math.sin(animT * 4 + e.id)
+      }
       // look.spin (the blank's Antibody): slow constant self-rotation for radially-symmetric,
       // lean-0 forms. Accumulated per sprite off animT's delta rather than read as animT*spin,
       // so frozen/stun HOLD the pose (the wisp-wobble rule) and it resumes without snapping.
@@ -10751,7 +10953,7 @@ export function createRenderer(app) {
         if (frozen <= 0 && stun <= 0) s._spinA += (animT - s._spinT) * look.spin
         s._spinT = animT
       }
-      s.rotation = face + wobble + pull * animT * 5 + (look.spin ? s._spinA : 0)
+      s.rotation = face + wobble + currentWobble + pull * animT * 5 + (look.spin ? s._spinA : 0)
       s.position.set(e.x, e.y)
 
       // dominant tint, one status wins (frozen > chill > venom > ignite > none). The
@@ -10769,6 +10971,12 @@ export function createRenderer(app) {
       else if (enrage > 0) s.tint = 0xff8a5c
       else if (stun > 0) s.tint = 0xb9b0a2
       else if (fear > 0) s.tint = 0xcfc2ff
+      // v6.4 phase (tardigrade cryptobiosis flicker, _phaseSolid === false = ghosted): ranked BELOW
+      // stun/fear — a ghost is untouchable, not an emergency — but ABOVE the elite shimmer, so a
+      // ghosted elite still reads ghosted first. The alpha drop alone (0.35, below) reads as a
+      // damage-desync bug on the most-farmed pond enemy, so ghosting gets its own tint: a pale
+      // spectral blue-cyan, hue-clear of every elemental tint above it (frozen's 0x9fd8ff included).
+      else if (e._phaseSolid === false) s.tint = 0x9fd4e8
       else if (e.elite && chapterRender.eliteIridescent) {
         // pond soap-bubble elites shimmer through pale iridescent hues. Bodies are now baked
         // saturated, and tint multiplies, so mix the hue 50% toward white first — otherwise the
@@ -10837,6 +11045,21 @@ export function createRenderer(app) {
       // assigned, never left dangling — a recycled slot must not inherit a ghost's alpha.
       s.alpha = e._phaseSolid === false ? 0.35 : 1
 
+      // v6.4 phase flip particle: a couple of soft spectral motes puff outward on any solid<->ghost
+      // transition (same spawnParticle idiom the stun stars above use), so the state CHANGE is an
+      // event the player sees, not just a silent tint/alpha swap. Guarded on s._lastPhaseSolid !==
+      // undefined (set fresh whenever a sprite is (re)acquired, above) so a recycled slot getting
+      // its first phase enemy doesn't read as "just flipped".
+      const isSolid = e._phaseSolid !== false
+      if (frameDt > 0 && s._lastPhaseSolid !== undefined && s._lastPhaseSolid !== isSolid) {
+        for (let m = 0; m < 2; m++) {
+          const a = Math.random() * Math.PI * 2
+          spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * e.radius * 0.4, e.y + Math.sin(a) * e.radius * 0.4,
+            Math.cos(a) * 14, Math.sin(a) * 14, 0.4, 0.09, 0x9fd4e8, 0.12, 0)
+        }
+      }
+      s._lastPhaseSolid = isSolid
+
       // shadow under it, crown over it — placed after s.alpha since they inherit it
       syncEnemyDecor(s, e, look, k * shrink, e.hitFlash > 0)
 
@@ -10869,6 +11092,7 @@ export function createRenderer(app) {
         s._venomT = 0
         s._stunT = 0
         s._enrageT = 0
+        s._lastPhaseSolid = undefined
         hideAffixBadges(s)
         hideEnemyDecor(s)
         enemyFree.push(s)
@@ -10941,7 +11165,7 @@ export function createRenderer(app) {
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
     syncPlayer(run.player, dt, run.rampageT || 0)
     syncEnemies(run)
-    syncBlooms(run.blooms || [])
+    syncBlooms(run)
     syncLures(run.lures || [])
     redrawBombs(run)
     redrawStrips(run)
@@ -10988,6 +11212,7 @@ export function createRenderer(app) {
     updateDamage(dt)
     updateDustMotes(dt)
     updateCurrents(run, dt, cx, cy)
+    updateEddies(run, dt)
     updateStorm(run, dt, cx, cy)
     updateRain(dt) // v6.3: own top-level call — chapterHasRain no longer implies chapterHasStorm
   }
@@ -11214,6 +11439,7 @@ export function createRenderer(app) {
     const cfg = run ? CHAPTERS[run.chapter] : null
     chapterRender = cfg?.render ?? BODY_RENDER
     chapterHasCurrents = cfg?.signature?.type === 'currents'
+    chapterHasEddies = !!(cfg?.signature?.type === 'currents' && cfg?.signature?.eddies)
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);
     // city opts into rain/ruins individually without the clouds `storm` alone would also switch on.

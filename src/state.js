@@ -236,7 +236,7 @@ function generateWells(sig) {
  *               in sim.js), ticked like ignite with no combo/element interaction.
  *
  *               Status effects (v5.4, chapter-agnostic like the elemental ones — every reader
- *               guards them with `|| 0` since saves and other chapters never set them). All three
+ *               guards them with `|| 0` since saves and other chapters never set them). All four
  *               tick down every frame in stepEnemyMovement:
  *               fearT (s of flee remaining): while > 0 the enemy INVERTS its seek (runs from the
  *                 player) at FEAR_SPEED_MUL of its own speed, overriding any behavior-flag state
@@ -244,11 +244,19 @@ function generateWells(sig) {
  *                 `fear` field (the Chitter Shriek — see stepNovas/stepShriekWeapon in sim.js).
  *                 chitterShriek's panicRout mod amplifies ALL damage a fearT > 0 enemy takes.
  *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
- *                 damage (knockback still carries it). Applied by the Sewer Geyser's launch mod
- *                 and the Roar's stagger mod (see GEYSER_STUN/ROAR_STUN in config.js).
+ *                 damage (knockback still carries it). Applied by the Sewer Geyser's launch mod,
+ *                 the Roar's stagger mod (see GEYSER_STUN/ROAR_STUN in config.js), and (v6.4) a
+ *                 detonating mine (MINE_STUN, sim.js's detonateMine) against every non-ghosted
+ *                 enemy in its blast radius.
  *               enrageT (s of enrage remaining): while > 0 the enemy's seek speed is ×
  *                 FLASHLIGHT_SPEED_MUL and its contact damage × FLASHLIGHT_DMG_MUL. Applied by the
  *                 undergrowth's flashlightCone elites (see stepFlashlightCones in sim.js).
+ *               bloomSlowT (v6.4, s of bloom-slow remaining): while > 0, stepEnemyMovement's
+ *                 slowMul is multiplied by (1 - BLOOM_SLOW) — a plain speed debuff, stacking with
+ *                 chill/freeze rather than replacing the seek like fearT/stunT do. Refreshed to
+ *                 BLOOM_SLOW_T every frame stepBlooms finds the enemy inside a cloud's radius
+ *                 (guarded by damageImmune — a ghosted phase flicker ignores the cloud like it
+ *                 ignores everything else); decays like the other three once outside.
  *               Sim-internal only (not a render contract, do not rely on these): _chillStack,
  *               _freezeImmuneT, _shockCd, _comboCd, _bleedAcc, _debrisCd (Trash Tornado's
  *               per-enemy chunk cooldown, the run.debris analogue of orbCd). }
@@ -316,6 +324,14 @@ function generateWells(sig) {
  *               non-mini cloud's own tick kills an enemy — minis never spawn further minis.
  *               twinBloom (see WEAPON_MODS.bloom) plants extra clouds per cast. Render re-reads
  *               r/maxR/t every frame (alpha/size ramp), no per-frame event.
+ *               tideCarried (v6.4, see WEAPON_MODS.bloom): with picks currently held, stepBlooms
+ *               drifts EVERY live cloud's x/y by currentForce(x,y) × dt × picks every frame — same
+ *               field the pond's ambient current/eddies push the player and enemies with — and
+ *               multiplies its tick damage by (1 + TIDE_DMG_BONUS × picks). Read live off
+ *               run.weaponMods.bloom, not baked in at plant time, so a sporeburst mini (which
+ *               inherits only the parent's plain dmgPerTick, nothing tide-specific) drifts and
+ *               ticks hot too whenever tide picks are currently held — it's an ordinary bloom in
+ *               every other respect.
  * beams[i]:     { angle, life, duration, dmg, tick, width, length, focusBonus? }  origin = player.
  *               Prismatic Split (v4.1, see WEAPON_MODS.rainbow) spawns extra beam entries of
  *               this same shape, angle offset evenly around the circle, all rotating together.
@@ -411,6 +427,13 @@ function generateWells(sig) {
  *   — see _districtSeed's doc below and sim.js's streamObstacles. CHAPTERS[chapter].obstacles.cell
  *   (v5.8, optional): per-chapter override of the shared OBSTACLE_CELL streaming grid size — absent
  *   everywhere but skies.
+ * eddies[i]: { x, y, r, dir, _cell } — v6.4 pond identity: streamed vortices, same _obstacleSeed
+ *   streaming idiom as obstacles[] above (sim.js's streamEddies), gated on CHAPTERS[chapter].
+ *   signature.eddies (currently pond only; [] everywhere else). dir is the swirl's sign (±1),
+ *   picked from its own cell hash salt. Zero RNG at step time, like obstacles. Read every frame by
+ *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
+ *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
+ *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
@@ -785,6 +808,11 @@ export function createRun(meta, opts = {}) {
     // starts empty, populated on the first step. null seed (no chapter config, or tests) = none.
     pools: [],
     obstacles: [],
+    // v6.4 pond identity: streamed vortices (sim.js streamEddies), same _obstacleSeed idiom as
+    // obstacles above. Unconditional — currentForce loops run.eddies every pond frame — so every
+    // chapter carries the field, but only a 'currents' signature with a sig.eddies block ever
+    // populates it.
+    eddies: [],
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which

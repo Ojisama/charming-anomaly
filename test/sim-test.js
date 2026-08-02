@@ -54,6 +54,8 @@ import {
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
   ENEMIES, dmgScale, difficultyDmgMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
+  // v6.4 pond identity (Run NN)
+  BLOOM_SLOW, TIDE_DMG_BONUS, MINE_STUN, SOAP_INTERVAL,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -5086,14 +5088,16 @@ function testTheBlankBoss() {
 // ---- Run GG: chapter-scoped anomalies (v5.25) -------------------------------------------------
 // The roll pool respects `chapters` (an anomaly tied to a signature only rolls where that
 // signature runs) and `exclude` (sticky's magnet upside is a lie in the beyond's infinite-magnet
-// lane), and the new signature knobs actually land in run.mods / the seeded world.
+// lane; v6.4 adds pond — a flat player-slow stacked on the currents/eddy chapter breaks the
+// escape-margin math), and the new signature knobs actually land in run.mods / the seeded world.
 function testChapterAnomalies() {
   // Over-asking returns the whole (shuffled) pool — an order-independent membership probe.
   const all = (ch) => randomMutators(99, ch)
   assert(!all('beyond').includes('sticky'), 'sticky must not roll in the beyond')
   assert(all('beyond').includes('supermassive'), 'supermassive must roll in the beyond')
   assert(!all('pond').includes('supermassive'), 'supermassive must not roll outside the beyond')
-  assert(all('pond').includes('riptide') && all('pond').includes('sticky'), 'pond rolls riptide and sticky')
+  assert(all('pond').includes('riptide'), 'pond rolls riptide')
+  assert(!all('pond').includes('sticky'), 'v6.4: sticky must not roll in the pond either (MUTATORS.sticky.exclude)')
   assert(!all(undefined).includes('riptide'), 'a chapterless roll excludes every scoped anomaly')
   for (const ch of CHAPTER_ORDER) assert(!all(ch).includes('accelResponse'), 'hidden entries never roll anywhere')
   const daily = dailyMutators('2026-07-31', 'beyond')
@@ -6403,6 +6407,315 @@ function testAntiTurtle() {
   console.log('PASS run MM (anti-turtle pass): time+difficulty dmg scaling, armor/regen rarity-capped at fixed values, the turtle dies, blank re-pin skips the time curve, single-hit cap')
 }
 
+// ---- Run NN: v6.4 "Pond identity" — eddies, tardigrade phase, bloom slow, mine stun, tideCarried
+// -------------------------------------------------------------------------------------------
+function testPondIdentity() {
+  const dt = 1 / 60
+
+  // (a) eddy streaming determinism: same seed -> identical run.eddies; zero Math.random() consumed
+  // by a streaming step; minDist (spawn-ring clearance) and drop radius both honored. Same idiom
+  // as run V.g's obstacle streaming test.
+  {
+    Math.random = mulberry32(20260714)
+    const runA = createRun(makeMeta(), { chapter: 'pond' })
+    stepSim(runA, { x: 0, y: 0 }, dt)
+
+    Math.random = mulberry32(20260714)
+    const runB = createRun(makeMeta(), { chapter: 'pond' })
+    stepSim(runB, { x: 0, y: 0 }, dt)
+
+    assert(runA.eddies.length > 0, 'expected at least one eddy to stream in near the spawn')
+    const key = (ed) => `${ed.x.toFixed(3)},${ed.y.toFixed(3)},${ed.r},${ed.dir},${ed._cell}`
+    assert.strictEqual(runB.eddies.map(key).sort().join('|'), runA.eddies.map(key).sort().join('|'),
+      'expected two identically-seeded pond runs to stream identical eddies')
+
+    const minDist = CHAPTERS.pond.signature.eddies.minDist
+    for (const ed of runA.eddies) {
+      assert(Math.hypot(ed.x, ed.y) >= minDist - 1e-6,
+        `expected every eddy outside the ${minDist}px spawn-ring clearance, got one at ${Math.hypot(ed.x, ed.y).toFixed(0)}px`)
+    }
+
+    // Zero Math.random() consumed: a fully quiet pond run (no weapons/spawns/enemies — nothing
+    // else in stepSim has anything left to roll) crossing a fresh eddy/obstacle cell boundary.
+    Math.random = mulberry32(20260714)
+    const quiet = createRun(makeMeta(), { chapter: 'pond' })
+    quiet.weapons = []; quiet.enemies = []; quiet.mods.spawnMul = 0
+    quiet.player.hp = quiet.player.maxHP = 1e9
+    stepSim(quiet, { x: 0, y: 0 }, dt) // prime the first scan
+    quiet.player.x += 2000; quiet.player.y += 2000 // cross both the eddy (1000px) and obstacle (420px) grids
+    const real = Math.random
+    let calls = 0
+    Math.random = (...a) => { calls++; return real(...a) }
+    stepSim(quiet, { x: 0, y: 0 }, dt)
+    Math.random = real
+    assert.strictEqual(calls, 0, `expected a streaming step in a fully quiet pond run to consume zero Math.random() draws, got ${calls}`)
+
+    // Drop radius: eddies near the old spot are gone once the player walks far away.
+    const farKey = (ed) => `${ed.x.toFixed(2)},${ed.y.toFixed(2)}`
+    const nearOld = new Set(runA.eddies.filter((ed) => Math.hypot(ed.x, ed.y) <= OBSTACLE_STREAM_RADIUS).map(farKey))
+    runA.player.x = 30000; runA.player.y = 30000
+    stepSim(runA, { x: 0, y: 0 }, dt)
+    assert(!runA.eddies.some((ed) => nearOld.has(farKey(ed))), 'expected the old spawn-area eddies to be dropped after walking far away')
+    assert(runA.eddies.every((ed) => Math.hypot(ed.x - 30000, ed.y - 30000) <= OBSTACLE_DROP_RADIUS + 1e-6),
+      'expected every remaining eddy within OBSTACLE_DROP_RADIUS of the player')
+
+    console.log(`PASS run NN.a (eddy streaming): ${runA.eddies.length} near spawn, deterministic, zero-RNG, minDist + drop radius honored`)
+  }
+
+  // (b) force contract: a hand-placed eddy's inward pull and tangential swirl match the formula at
+  // d=r/2, isolated from the ambient drift by subtracting a same-position sample with eddies
+  // emptied; pull is unaffected by currentForceMul, swirl doubles with it (the escape invariant).
+  {
+    const run = createRun(makeMeta(), { chapter: 'pond' })
+    run.player.x = 50000; run.player.y = 50000 // far away — its own position doesn't matter here
+    const ed = { x: 500, y: 0, r: 170, dir: 1, _cell: 'nn-b' }
+    run.eddies = [ed]
+    const sx = ed.x - ed.r / 2, sy = 0 // d = r/2 = 85
+
+    function residual() {
+      const withEddy = currentForce(run, sx, sy)
+      const saved = run.eddies
+      run.eddies = []
+      const ambient = currentForce(run, sx, sy)
+      run.eddies = saved
+      return { x: withEddy.fx - ambient.fx, y: withEddy.fy - ambient.fy }
+    }
+
+    const r1 = residual()
+    const pull = CHAPTERS.pond.signature.eddies.pull * 0.5           // 1 - d/r = 0.5 at d=r/2
+    const swirl = CHAPTERS.pond.signature.eddies.swirl * Math.sin(Math.PI * 0.5) // sin(pi/2) = 1
+    assert(Math.abs(r1.x - pull) < 0.01, `expected inward residual ${pull}, got ${r1.x}`)
+    assert(Math.abs(r1.y - swirl) < 0.01, `expected tangential residual ${swirl} (dir=1), got ${r1.y}`)
+
+    run.mods.currentForceMul = 2
+    const r2 = residual()
+    assert(Math.abs(r2.x - pull) < 0.01, `expected pull unchanged under currentForceMul=2 (the escape invariant), got ${r2.x}`)
+    assert(Math.abs(r2.y - swirl * 2) < 0.01, `expected swirl doubled under currentForceMul=2, got ${r2.y}`)
+
+    console.log(`PASS run NN.b (force contract): pull=${r1.x.toFixed(2)} swirl=${r1.y.toFixed(2)}, mul=2 -> pull=${r2.x.toFixed(2)} swirl=${r2.y.toFixed(2)}`)
+  }
+
+  // (c) escape invariant + sticky exclusion: config-level assertions, no run needed.
+  {
+    const eddies = CHAPTERS.pond.signature.eddies
+    const margin = eddies.pull + 2 * Math.sqrt(2) * (CHAPTERS.pond.signature.strength * 0.5 * 2)
+    assert(margin < PLAYER.baseSpeed, `expected the escape invariant to hold under Riptide: pull+2√2·(strength·0.5·2)=${margin.toFixed(1)} < PLAYER.baseSpeed=${PLAYER.baseSpeed}`)
+    assert(MUTATORS.sticky.exclude.includes('pond'), 'expected MUTATORS.sticky.exclude to include pond (v6.4)')
+    console.log(`PASS run NN.c (invariants): escape margin ${margin.toFixed(1)} < ${PLAYER.baseSpeed}, sticky excludes pond`)
+  }
+
+  // (d) phase contract: the tardigrade's cryptobiosis flicker, exercised in the pond. Every
+  // sub-scenario neutralizes the pond's own ambient drift (mods.currentForceMul = 0, no obstacle
+  // seed) so it isolates the phase mechanic rather than fighting the currents.
+  {
+    // (d1) natural ghosting: a freshly-flagged enemy starts solid with a randomised _phaseT and
+    // must flip to ghosted within PHASE_SOLID_T (bounded loop, generous margin).
+    const timing = createRun(makeMeta(), { chapter: 'pond' })
+    timing.weapons = []; timing.obstacles = []; timing._obstacleSeed = null; timing.mods.spawnMul = 0
+    timing.mods.currentForceMul = 0
+    timing.player.x = 0; timing.player.y = 0; timing.player.hp = timing.player.maxHP = 1e9
+    const te = makeStatusEnemy(timing, { x: 100, y: 0, hp: 1e6, speed: 0 })
+    te.flags = ['phase']
+    timing.enemies.push(te)
+    let ghostedAt = -1
+    for (let i = 0; i < Math.round(3 / dt) && ghostedAt < 0; i++) {
+      stepSim(timing, { x: 0, y: 0 }, dt)
+      if (te._phaseSolid === false) ghostedAt = timing.time
+    }
+    assert(ghostedAt >= 0 && ghostedAt <= PHASE_SOLID_T + 0.1,
+      `expected a fresh phase flicker to ghost within PHASE_SOLID_T=${PHASE_SOLID_T}s, got ${ghostedAt}`)
+
+    // (d2) damage-immune while ghosted, hittable once solid again — same idiom as run Y.i.
+    const dmgRun = createRun(makeMeta(), { chapter: 'pond' })
+    dmgRun.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    dmgRun.obstacles = []; dmgRun._obstacleSeed = null; dmgRun.mods.spawnMul = 0; dmgRun.mods.currentForceMul = 0
+    dmgRun.player.x = 0; dmgRun.player.y = 0; dmgRun.player.hp = dmgRun.player.maxHP = 1e9
+    const de = makeStatusEnemy(dmgRun, { x: 120, y: 0, hp: 1e6, speed: 0 })
+    de.flags = ['phase']
+    dmgRun.enemies.push(de)
+    de._phaseSolid = false; de._phaseT = 999 // pinned ghosted, well past this window's length
+    const ghostHp0 = de.hp
+    for (let i = 0; i < Math.round(0.8 / dt); i++) {
+      if (dmgRun.phase === 'levelup') { declineLevelUp(dmgRun); continue }
+      stepSim(dmgRun, { x: 0, y: 0 }, dt)
+    }
+    assert.strictEqual(de.hp, ghostHp0, `expected a ghosted flicker to take no damage from a live weapon, hp ${ghostHp0} -> ${de.hp}`)
+
+    de._phaseSolid = true; de._phaseT = 999
+    for (let i = 0; i < Math.round(0.8 / dt); i++) {
+      if (dmgRun.phase === 'levelup') { declineLevelUp(dmgRun); continue }
+      stepSim(dmgRun, { x: 0, y: 0 }, dt)
+    }
+    assert(de.hp < ghostHp0, `expected damage to land once solid again, hp=${de.hp}`)
+
+    // (d3) contact-harmless while ghosted: parked directly on the player.
+    const contact = createRun(makeMeta(), { chapter: 'pond' })
+    contact.weapons = []; contact.obstacles = []; contact._obstacleSeed = null; contact.mods.spawnMul = 0
+    contact.mods.currentForceMul = 0
+    contact.player.x = 0; contact.player.y = 0; contact.player.hp = contact.player.maxHP = 1e9
+    const ce = makeStatusEnemy(contact, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    ce.flags = ['phase']
+    contact.enemies.push(ce)
+    ce._phaseSolid = false; ce._phaseT = 999
+    contact.player.invuln = 0
+    const pHp0 = contact.player.hp
+    for (let i = 0; i < Math.round(0.5 / dt); i++) stepSim(contact, { x: 0, y: 0 }, dt)
+    assert.strictEqual(contact.player.hp, pHp0, 'expected a ghosted flicker parked on the player to deal no contact damage')
+
+    // (d4) obstacle pass-through while ghosted: dead-center overlap never gets pushed out.
+    const obs = createRun(makeMeta(), { chapter: 'pond' })
+    obs.weapons = []; obs.mods.spawnMul = 0; obs.mods.currentForceMul = 0
+    obs.player.x = 5000; obs.player.y = 0; obs.player.hp = obs.player.maxHP = 1e9
+    const wall = { x: 0, y: 0, r: 50, _cell: 'nn-d-wall' }
+    obs.obstacles = [wall]; obs._obstacleSeed = null
+    const oe = makeStatusEnemy(obs, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    oe.flags = ['phase']
+    obs.enemies.push(oe)
+    oe._phaseSolid = false; oe._phaseT = 999
+    for (let i = 0; i < Math.round(0.3 / dt); i++) stepSim(obs, { x: 0, y: 0 }, dt)
+    const obsDist = Math.hypot(oe.x - wall.x, oe.y - wall.y)
+    assert(obsDist < wall.r, `expected a ghosted flicker to keep overlapping the obstacle instead of being pushed out (dist=${obsDist.toFixed(1)}, r=${wall.r})`)
+
+    // (d5) soapTrail + ghost: an elite carrying both flags drops zero pool nodes while ghosted,
+    // then resumes at SOAP_INTERVAL cadence once solid again.
+    const soap = createRun(makeMeta(), { chapter: 'pond' })
+    soap.weapons = []; soap.obstacles = []; soap._obstacleSeed = null; soap.mods.spawnMul = 0
+    soap.mods.currentForceMul = 0
+    soap.player.x = 5000; soap.player.y = 0; soap.player.hp = soap.player.maxHP = 1e9
+    const se = makeStatusEnemy(soap, { x: 0, y: 0, hp: 1e6, speed: 0, elite: true })
+    se.flags = ['phase', 'soapTrail']
+    soap.enemies.push(se)
+    se._phaseSolid = false; se._phaseT = 999
+    for (let i = 0; i < Math.round((SOAP_INTERVAL * 3) / dt); i++) stepSim(soap, { x: 0, y: 0 }, dt)
+    assert.strictEqual(soap.pools.length, 0, `expected a ghosted phase+soapTrail elite to drop zero pool nodes, got ${soap.pools.length}`)
+
+    se._phaseSolid = true; se._phaseT = 999
+    for (let i = 0; i < Math.round((SOAP_INTERVAL + 0.1) / dt); i++) stepSim(soap, { x: 0, y: 0 }, dt)
+    assert(soap.pools.length >= 1, `expected a solid phase+soapTrail elite to drop >= 1 pool node, got ${soap.pools.length}`)
+
+    console.log(`PASS run NN.d (phase contract): ghosted naturally at t=${ghostedAt.toFixed(2)}s; damage-immune/hittable, contact-harmless, obstacle pass-through, soapTrail gated by phase`)
+  }
+
+  // (e) mine stun: a detonation stuns every solid enemy in radius (MINE_STUN) and skips a
+  // ghosted phase enemy entirely (no stun, no damage) — same damageImmune guard as everywhere else.
+  {
+    const run = createRun(makeMeta(), { chapter: 'pond' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.mods.currentForceMul = 0
+    run.player.x = 5000; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+
+    const solid = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    const ghost = makeStatusEnemy(run, { x: 10, y: 0, hp: 1e6, speed: 0 })
+    ghost.flags = ['phase']
+    ghost._phaseSolid = false; ghost._phaseT = 999
+    run.enemies.push(solid, ghost)
+    run.mines.push({ x: 0, y: 0, arm: 0, dmg: 40, radius: 100 })
+
+    const solidHp0 = solid.hp, ghostHp0 = ghost.hp
+    stepSim(run, { x: 0, y: 0 }, dt)
+
+    assert.strictEqual(solid.stunT, MINE_STUN, `expected the solid enemy stunned for MINE_STUN=${MINE_STUN}, got ${solid.stunT}`)
+    assert(solid.hp < solidHp0, `expected the solid enemy to take mine damage, hp ${solidHp0} -> ${solid.hp}`)
+    assert.strictEqual(ghost.stunT || 0, 0, `expected the ghosted enemy to take no stun, got ${ghost.stunT}`)
+    assert.strictEqual(ghost.hp, ghostHp0, `expected the ghosted enemy to take no mine damage, hp ${ghostHp0} -> ${ghost.hp}`)
+    console.log(`PASS run NN.e (mine stun): solid stunT=${solid.stunT} took ${solidHp0 - solid.hp}dmg; ghosted stunT=${ghost.stunT || 0} took 0`)
+  }
+
+  // (f) bloom slow: two identical seekers at mirrored positions/distances, one starting inside a
+  // (damageless) cloud, one outside — over 1s the inside one covers roughly (1-BLOOM_SLOW) the
+  // ground. currentForceMul=0 removes the pond's own ambient drift so it isolates the bloom slow.
+  {
+    const run = createRun(makeMeta(), { chapter: 'pond' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.mods.currentForceMul = 0
+    run.player.x = 0; run.player.y = -1000
+    run.player.hp = run.player.maxHP = 1e9
+
+    // Cloud centered exactly on the "inside" seeker's start, already past its grow window (t=40
+    // of a dur=100 cloud, growT=35 — see BLOOM_GROW_FRAC) so it's sitting at maxR=300 from frame
+    // one instead of still expanding from ~0. Over 1s at full speed the seeker can't travel far
+    // enough to exit it, so it stays inside for the whole window.
+    run.blooms.push({ x: 500, y: 0, r: 300, maxR: 300, t: 40, dur: 100, dmgPerTick: 0 })
+    const inside = makeStatusEnemy(run, { x: 500, y: 0, hp: 1e9, speed: 100 })
+    const outside = makeStatusEnemy(run, { x: -500, y: 0, hp: 1e9, speed: 100 }) // mirrored, same distance to target
+    run.enemies.push(inside, outside)
+    const i0 = { x: inside.x, y: inside.y }, o0 = { x: outside.x, y: outside.y }
+
+    for (let i = 0; i < Math.round(1 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+
+    const insideDist = Math.hypot(inside.x - i0.x, inside.y - i0.y)
+    const outsideDist = Math.hypot(outside.x - o0.x, outside.y - o0.y)
+    const ratio = insideDist / outsideDist
+    const expected = 1 - BLOOM_SLOW
+    assert(Math.abs(ratio - expected) < 0.15,
+      `expected the inside seeker to cover ~${expected.toFixed(2)}x the ground, got ratio=${ratio.toFixed(3)} (inside=${insideDist.toFixed(1)}px outside=${outsideDist.toFixed(1)}px)`)
+    assert(inside.bloomSlowT > 0, 'expected the inside seeker to carry a live bloomSlowT')
+    assert.strictEqual(outside.bloomSlowT || 0, 0, 'expected the outside seeker to carry no bloomSlowT')
+    console.log(`PASS run NN.f (bloom slow): inside=${insideDist.toFixed(1)}px outside=${outsideDist.toFixed(1)}px ratio=${ratio.toFixed(3)} (expected ~${expected.toFixed(2)})`)
+  }
+
+  // (g) tideCarried: with picks held, a cloud drifts along currentForce and ticks harder; without
+  // the mod it stays put. Reseeded per run (two-run comparisons must reseed — file rule).
+  {
+    Math.random = mulberry32(20260714)
+    const tideRun = createRun(makeMeta(), { chapter: 'pond' })
+    tideRun.weapons = []; tideRun.obstacles = []; tideRun._obstacleSeed = null; tideRun.mods.spawnMul = 0
+    tideRun.player.x = 5000; tideRun.player.y = 0; tideRun.player.hp = tideRun.player.maxHP = 1e9
+    // 5 stacked picks (a legitimate value — tideCarried is a flat, unbounded-picks mod): the
+    // ambient field's magnitude at any one point/time varies with the sine sum's phase (it can be
+    // near-zero there without being zero everywhere — run V.f2 already established the field is
+    // nonzero SOMEWHERE, not everywhere), so a single pick's drift isn't a robust >10px bet at an
+    // arbitrary sample point/time. 5 picks make the check robust without touching the mechanism.
+    tideRun.weaponMods.bloom.tideCarried = 5
+    tideRun.blooms.push({ x: 0, y: 0, r: 90, maxR: 90, t: 40, dur: 100, dmgPerTick: 6 })
+    const f0 = currentForce(tideRun, 0, 0)
+    for (let i = 0; i < Math.round(1 / dt); i++) stepSim(tideRun, { x: 0, y: 0 }, dt)
+    const bl = tideRun.blooms[0]
+    const moved = Math.hypot(bl.x, bl.y)
+    assert(moved > 10, `expected a tide-carried cloud to drift more than 10px over 1s, moved ${moved.toFixed(1)}px`)
+    // Rough direction check: over a step this small the field barely changes (run V.f2 already
+    // established currentForce's continuity), so the net drift should point roughly along the
+    // field sampled at the start.
+    const dot = bl.x * f0.fx + bl.y * f0.fy
+    assert(dot > 0, `expected the cloud's drift to point roughly along currentForce's direction at its start, dot=${dot.toFixed(1)}`)
+
+    Math.random = mulberry32(20260714)
+    const plainRun = createRun(makeMeta(), { chapter: 'pond' })
+    plainRun.weapons = []; plainRun.obstacles = []; plainRun._obstacleSeed = null; plainRun.mods.spawnMul = 0
+    plainRun.player.x = 5000; plainRun.player.y = 0; plainRun.player.hp = plainRun.player.maxHP = 1e9
+    plainRun.blooms.push({ x: 0, y: 0, r: 90, maxR: 90, t: 40, dur: 100, dmgPerTick: 6 })
+    for (let i = 0; i < Math.round(1 / dt); i++) stepSim(plainRun, { x: 0, y: 0 }, dt)
+    assert.strictEqual(plainRun.blooms[0].x, 0, 'expected an unmodded cloud to stay put (x)')
+    assert.strictEqual(plainRun.blooms[0].y, 0, 'expected an unmodded cloud to stay put (y)')
+
+    // Tick damage bonus: pin currentForceMul=0 here so the cloud (and comparison) is about
+    // damage, not motion — an enemy parked in it takes ~(1+TIDE_DMG_BONUS)x the plain tick damage.
+    function tickedDamage(tide) {
+      Math.random = mulberry32(20260714)
+      const run = createRun(makeMeta(), { chapter: 'pond' })
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+      run.mods.currentForceMul = 0
+      run.player.x = 5000; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      if (tide > 0) run.weaponMods.bloom.tideCarried = tide
+      const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+      run.enemies.push(e)
+      run.blooms.push({ x: 0, y: 0, r: 90, maxR: 90, t: 40, dur: 100, dmgPerTick: 6 })
+      for (let i = 0; i < Math.round(2 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt) // several BLOOM_TICKs
+      return e.maxHP - e.hp
+    }
+    const plainDmg = tickedDamage(0)
+    const tideDmg = tickedDamage(1)
+    const expectedMul = 1 + TIDE_DMG_BONUS
+    assert(plainDmg > 0, 'expected the unmodded cloud to have dealt some damage')
+    assert(Math.abs(tideDmg / plainDmg - expectedMul) < 0.05,
+      `expected tide-carried tick damage ~${expectedMul}x the unmodded amount, got ${(tideDmg / plainDmg).toFixed(3)}x (plain=${plainDmg} tide=${tideDmg})`)
+
+    console.log(`PASS run NN.g (tideCarried): drift=${moved.toFixed(1)}px (dot=${dot.toFixed(1)}), tick dmg ratio=${(tideDmg / plainDmg).toFixed(3)} (expected ${expectedMul})`)
+  }
+
+  console.log('PASS run NN (v6.4 Pond identity): eddy streaming + force contract + escape invariant, tardigrade phase contract, mine stun, bloom slow, tideCarried')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -6450,6 +6763,7 @@ try {
   testDispatchAndCoverKind()
   testTheBlankDifficulty()
   testAntiTurtle()
+  testPondIdentity()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

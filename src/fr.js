@@ -320,6 +320,8 @@ const CONFIG = {
   'extra cloud(s) per cast': 'nuage(s) bonus par lancer',
   'Sporeburst': 'Explosion de Spores',
   'mini-cloud when a foe dies inside': 'mini-nuage à la mort d\'un ennemi à l\'intérieur',
+  'Tide-Carried': 'Porté par le Courant',
+  'clouds ride the current, ticking harder': 'les nuages suivent le courant, dégâts continus accrus',
   'Sharper Tips': 'Pointes Affûtées',
   'needle damage': 'dégâts des aiguilles',
   'Wider Volley': 'Volée Élargie',

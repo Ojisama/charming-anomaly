@@ -195,11 +195,14 @@ export const WEAPONS = {
     desc: 'Lashes a melee arc toward the nearest enemy.',
     icon: '🧫', rarity: 'normal',
     levels: [
-      { dmg: 14, rate: 0.90, range: 130, arc: 1.40, knockback: 45 },
-      { dmg: 17, rate: 0.82, range: 140, arc: 1.50, knockback: 50 },
-      { dmg: 21, rate: 0.74, range: 150, arc: 1.60, knockback: 56 },
-      { dmg: 26, rate: 0.66, range: 160, arc: 1.70, knockback: 62 },
-      { dmg: 32, rate: 0.58, range: 175, arc: 1.85, knockback: 70 },
+      // v6.4: knockback 45/50/56/62/70 -> 62/68/76/85/95 (L1-L5) — panel probe measured 63% higher
+      // damage intake kiting pond vs garden at d3, entirely hit-frequency (melee proximity); this
+      // discharges the v6.3.4 deferred melee check.
+      { dmg: 14, rate: 0.90, range: 130, arc: 1.40, knockback: 62 },
+      { dmg: 17, rate: 0.82, range: 140, arc: 1.50, knockback: 68 },
+      { dmg: 21, rate: 0.74, range: 150, arc: 1.60, knockback: 76 },
+      { dmg: 26, rate: 0.66, range: 160, arc: 1.70, knockback: 85 },
+      { dmg: 32, rate: 0.58, range: 175, arc: 1.85, knockback: 95 },
     ],
   },
   bloom: {
@@ -607,6 +610,8 @@ export const WEAPON_MODS = {
   // rate) is read at the plant site (divides the plant interval, same reason as flagella.frenzy).
   // twinBloom/sporeburst are behavioral (read at their trigger sites — see stepBloomWeapon/
   // stepBlooms in sim.js). twinBloom is a flat entity-count mod (+1 cloud/pick, like extraOrb).
+  // v6.4: tideCarried is also behavioral (per-pick cloud drift along currentForce + a tick damage
+  // bonus, both read in stepBlooms) — deliberately NOT routed through WEAPON_STAT_MODS.
   bloom: {
     bigBloom:   { name: 'Big Bloom',       desc: 'cloud radius',      icon: '🌸', base: 0.35, kind: 'pct' },
     lasting:    { name: 'Lingering Spores', desc: 'cloud duration',    icon: '⏳', base: 0.40, kind: 'pct' },
@@ -614,6 +619,7 @@ export const WEAPON_MODS = {
     quickCast:  { name: 'Quick Cast',      desc: 'cast rate',         icon: '⏩', base: 0.25, kind: 'pct' },
     twinBloom:  { name: 'Twin Bloom',      desc: 'extra cloud(s) per cast',        icon: '🌺', base: 1, kind: 'flat' },
     sporeburst: { name: 'Sporeburst',      desc: 'mini-cloud when a foe dies inside', icon: '💥', base: 1, kind: 'flat' },
+    tideCarried:{ name: 'Tide-Carried',    desc: 'clouds ride the current, ticking harder', icon: '🌊', base: 1, kind: 'flat' },
   },
   // Garden natives (v5.3 task, see stepStingerWeapon/stepLureWeapon in sim.js). sharper/volley fold
   // into stinger's levels[] via WEAPON_STAT_MODS; longNeedles (range AND speed) and rapid (attack
@@ -788,6 +794,11 @@ export const MINE_CLUSTER_ARM = 0.15        // s, bomblet arm time before it can
 export const MINE_CLUSTER_SCATTER_MIN = 60  // px, min scatter distance from the popped mine
 export const MINE_CLUSTER_SCATTER_MAX = 120 // px, max scatter distance from the popped mine
 
+// v6.4 pond identity: every enemy caught in a mine's blast is briefly stunned, on top of whatever
+// the Cluster Bombs/Magnetic Mines mods above do — unconditional (not mod-gated), read by
+// detonateMine (sim.js).
+export const MINE_STUN = 0.3 // s, stunT applied to every non-ghosted enemy in a mine's blast radius
+
 // Singularity (black hole): extra vortex radius/coreRadius/pull, as a fraction of the main cast's.
 export const HOLE_SINGULARITY_FRAC = 0.55
 
@@ -862,6 +873,15 @@ export const BLOOM_TICK = 0.5
 // sporeburst (behavioral): a foe killed by a (non-mini) cloud's own tick emits a mini-cloud at
 // SPOREBURST_FRAC of the parent's maxR (same dur/dmgPerTick), flagged `_mini` so it never chains.
 export const SPOREBURST_FRAC = 0.35
+
+// v6.4 pond identity: augments read by stepBlooms (sim.js). BLOOM_SLOW removes a speed fraction
+// from any enemy standing inside a cloud (folded into stepEnemyMovement's slowMul); BLOOM_SLOW_T
+// is the refresh window set every frame an enemy is inside, then decays like fearT/stunT/enrageT
+// once it leaves. TIDE_DMG_BONUS is tideCarried's (WEAPON_MODS.bloom) per-pick tick damage bonus,
+// on top of the drift along currentForce it also grants.
+export const BLOOM_SLOW = 0.35     // speed fraction removed while standing in a cloud
+export const BLOOM_SLOW_T = 0.15   // s, bloomSlowT refresh window
+export const TIDE_DMG_BONUS = 0.35 // tideCarried: tick damage bonus per pick
 
 // ---- Garden weapons (v5.3: Stinger + Pheromone Lure; Leaf Blade = boomerang re-theme) --------
 // Stinger (garden native, needle-cone — see WEAPONS.stinger + stepStingerWeapon in sim.js): each
@@ -1300,10 +1320,18 @@ export const CHAPTERS = {
     roster: [
       { id: 'amoeba',     archetype: 'normal', name: 'Amoeba',     hpMul: 1,   speedMul: 0.9, flags: ['split'] },
       { id: 'tadpole',    archetype: 'fast',   name: 'Tadpole',    hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
-      { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: [] },
+      { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: ['phase'] }, // v6.4: cryptobiosis flicker (see PHASE_* below)
     ],
     eliteFlags: ['soapTrail'],
-    signature: { type: 'currents', strength: 55, scale: 0.0011, drift: 0.13 },
+    // v6.4 pond identity: eddies are streamed vortices (run.eddies, sim.js streamEddies) that fold
+    // an inward pull + tangential swirl into currentForce on top of the ambient drift above —
+    // signature owns these numbers exactly like strength/scale/drift. chance is a DIRECT per-cell
+    // probability, not an obstacle-style count (the count formula saturates at this cell size).
+    // minDist is the same spawn-ring clearance obstacles use, measured from the run origin.
+    signature: {
+      type: 'currents', strength: 55, scale: 0.0011, drift: 0.13,
+      eddies: { cell: 1000, chance: 0.5, r: 170, pull: 30, swirl: 120, minDist: 480 },
+    },
     obstacles: { count: 14, minR: 26, maxR: 44, minDist: 220 }, // minDist from spawn point
     // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
     // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
@@ -1666,6 +1694,34 @@ export const CURRENT_VIS = {
   tint: 0xa8fbef,     // saturated teal-white — reads on the murky pond floor (pale washes out, dark vanishes)
   alpha: 0.5,         // peak alpha at full fade-in
   rippleEvery: 3.2,   // s between "ripple train" accents (3 streaks single-file); 0 disables
+}
+
+// Eddy vortex visualization (v6.4 pond identity, render.js): per-eddy (run.eddies) pooled decal —
+// the gravity hole's proven twirl treatment (two counter-rotating T.fx.twirl_02/twirl_01 layers at
+// high alpha) plus a stroked rim ring at exactly the eddy's r, since the ring is the honest force
+// boundary (same contract as an obstacle footprint's rim — the collision/force edge a player can
+// learn by eye). tintA/tintB and ringTint are RAW final colours, not multiplied by chapterRender.
+// floorTint — eddies are a chapter-agnostic FX pool exactly like CURRENT_VIS/the hole, not floor
+// decor. Colour picked to sit apart from BOTH neighbours by hue, not just value: CURRENT_VIS.tint
+// (0xa8fbef) is green-cyan (G channel highest), the gravity hole's vortex tints (0x2f1a66/0x5a2fb0)
+// are red-violet (R > G, B highest), this is blue-indigo (G > R, B highest) — measured against the
+// pond's effective floor (bg 0x2e6258 under floorTint 0x66c2a9, luminance ~0.186): tintA at peak
+// alpha lands ~2.02x, tintB (dimmer, subordinate) ~1.21x, the ring ~2.02x — the ring clears the
+// obstacle-footprint script's own >=2x rim target so the force boundary reads with the same
+// confidence a collision rim does.
+export const EDDY_VIS = {
+  tintA: 0x2a3a8f,       // dominant twirl layer — deep indigo, spins WITH the eddy's true dir
+  tintB: 0x4d5ecf,       // counter twirl layer — lighter indigo-blue, spins opposite, dimmer+slower
+  alpha: 0.85,           // peak alpha for the dominant layer (the hole's "high alpha" precedent)
+  counterAlphaMul: 0.9,  // tintB's alpha as a fraction of tintA's — subordinate, so dir still reads
+  spinRate: 1.7,         // rad/s the dominant layer turns at (x ed.dir)
+  counterRateMul: 0.6,   // tintB's rate as a fraction of spinRate, opposite sign — slower, subordinate
+  twirlFrac: 1.05,       // twirl art's on-screen diameter target, as a fraction of the eddy's r
+  ringTint: 0xc9d4ff,    // pale indigo-white rim, ON the eddy's true r — the force boundary contract
+  ringAlpha: 0.6,
+  ringWidth: 3,
+  pulseAmp: 0.08,        // subtle alpha breathing so a stationary eddy doesn't look static
+  pulseRate: 3.0,        // rad/s
 }
 
 // Night-thunderstorm overlay (skies chapter, v5.6.18, render.js updateStorm): three cosmetic,
@@ -3478,6 +3534,12 @@ export const BLINK_FX_R = 30            // px, explode-event radius at the depar
 // Status effects already on it (ignite/venom/chill) keep ticking DOWN but deal no damage while
 // ghosted. render.js reads _phaseSolid for the alpha.
 // Damages: the PLAYER only (while solid), via ordinary contact damage. No run.* array.
+// v6.4 pond identity: the tardigrade (CHAPTERS.pond.roster) adopts this same flag — constants stay
+// global/shared, not re-tuned per chapter. Measured impact (panel-validated): ghost is
+// PHASE_GHOST_T=1.0s of every (PHASE_SOLID_T+PHASE_GHOST_T)=2.6s cycle, i.e. 38.5% damage-immune
+// uptime ⇒ roughly ×1.6-1.65 tank TTK once a ring can no longer land every hit. Change these
+// constants with that multiplier in view — it moves with the solid:ghost RATIO, not with either
+// number alone.
 export const PHASE_SOLID_T = 1.6
 export const PHASE_GHOST_T = 1.0
 export const PHASE_GHOST_SPEED_MUL = 1.4  // it hurries while it can't be punished
@@ -3696,8 +3758,10 @@ export const MUTATORS = {
   unstable: { name: 'Unstable Physics',  icon: '🌀', desc: 'Elemental infusions everywhere, weapons hit softer.', effects: { elementWeightMul: 3, playerDmgMul: 0.85 } },
   glass:    { name: 'Glass Goo',         icon: '💔', desc: 'You hit much harder but take much more.',      effects: { contactDmgTakenMul: 1.75, playerDmgMul: 1.35 } },
   // exclude: the lane's magnet is already infinite (stepPickups), so this one's upside would be
-  // a lie there — it'd roll as pure downside without saying so.
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
+  // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
+  // "Pond identity" plan).
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but
