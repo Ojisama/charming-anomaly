@@ -3,7 +3,7 @@ import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
   chapterMaxDifficulty,
-  EARLY_CALM_CHAPTERS, EARLY_CALM_SPAWN_MUL, EARLY_CALM_XP_MUL,
+  EARLY_CALM,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
   SNAP_TRAP_R, SNAP_TRAP_MIN_DIST,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
@@ -720,19 +720,20 @@ export function createRun(meta, opts = {}) {
   // Pre-run modifiers (see MUTATORS + difficulty consts in config.js and the doc block above):
   // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP AND enemy-damage tax on
   // top of mutators (v6.3.4 anti-turtle: HP-only difficulty made runs longer, not more dangerous).
-  // v6.4.1: explicit difficulty 1 of the onboarding chapters (EARLY_CALM_CHAPTERS) also thins the
-  // swarm and fattens xp per kill — see early-calm gate below.
+  // v6.4.1/v6.4.3: explicit difficulty 1 of the onboarding chapters (EARLY_CALM in config.js) also
+  // thins the swarm and fattens xp per kill, per chapter — see early-calm gate below.
   const difficulty = opts.difficulty ?? 1
   const mods = mergeMutatorMods(opts.mutators ?? [])
   mods.enemyHpMul *= difficultyHpMul(difficulty)
   mods.enemyDmgMul *= difficultyDmgMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
-  // v6.4.1 early-calm (see EARLY_CALM_* in config.js): explicit-difficulty-1 runs of the first
-  // three chapters thin the swarm and fatten each kill's xp. opts.difficulty (not the defaulted
-  // local) on purpose — daily runs and tests omit it and must keep baseline density.
-  if (opts.difficulty === 1 && EARLY_CALM_CHAPTERS.includes(opts.chapter ?? 'body')) {
-    mods.spawnMul *= EARLY_CALM_SPAWN_MUL
-    mods.xpMul *= EARLY_CALM_XP_MUL
+  // v6.4.1/v6.4.3 early-calm (see EARLY_CALM in config.js): explicit-difficulty-1 runs of the
+  // onboarding chapters thin the swarm and fatten each kill's xp, per chapter. opts.difficulty
+  // (not the defaulted local) on purpose — daily runs and tests omit it and must keep baseline.
+  const calm = opts.difficulty === 1 ? EARLY_CALM[opts.chapter ?? 'body'] : null
+  if (calm) {
+    mods.spawnMul *= calm.spawnMul
+    mods.xpMul *= calm.xpMul
   }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []
@@ -887,6 +888,10 @@ export function createRun(meta, opts = {}) {
     viewRadius: 600,       // half screen diagonal, updated by main each frame; spawn enemies at viewRadius + SPAWN_RING from player
     _nextId: 1,
     _spawnAcc: 0,
+    // _openingSpawned (v6.4.3, sim-internal, not a render contract): NOT initialized here —
+    // stepSpawning (sim.js) lazily sets it true on a run's first ordinary-spawn step, after
+    // banking SPAWN_OPENING_CREDIT (config.js) into _spawnAcc once. undefined reads falsy, so
+    // omitting it here is equivalent to false and keeps createRun untouched otherwise.
     _nextEliteAt: 40,
     // Sim-internal only (see doc block above): random phase offset for stepCurrents' field.
     _driftSeed: Math.random() * Math.PI * 2,

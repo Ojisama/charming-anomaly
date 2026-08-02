@@ -1090,13 +1090,15 @@ export const difficultyDmgMul = (d) => 1 + DIFFICULTY_DMG_PER_LEVEL * (Math.max(
 // run.mods.coinMul, and applied to the end-of-run kill bonus in main.js).
 export const DIFFICULTY_COIN_PER_LEVEL = 0.25
 export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.max(1, d) - 1)
-// v6.4.1 (owner directive): difficulty 1 of the onboarding chapters spawns thinner but pays more
-// xp per kill — 40% fewer enemies, xp ×~1/0.6 so the leveling pace holds. Applied in createRun
+// v6.4.1/v6.4.3 (owner directives): difficulty 1 of the onboarding chapters spawns thinner but
+// pays more xp per kill, per chapter — body (level 1-1) is the gentlest. Applied in createRun
 // (state.js) ONLY when the caller passes difficulty 1 EXPLICITLY (main.js's classic ladder always
 // does): daily runs and tests omit opts.difficulty, so they keep baseline density on purpose.
-export const EARLY_CALM_CHAPTERS = ['body', 'pond', 'garden']
-export const EARLY_CALM_SPAWN_MUL = 0.6
-export const EARLY_CALM_XP_MUL = 1.67
+export const EARLY_CALM = {
+  body:   { spawnMul: 0.40, xpMul: 2.22 }, // v6.4.3: 0.6·0.67 / 1.67·1.33 — another -33% / +33%
+  pond:   { spawnMul: 0.6,  xpMul: 1.67 },
+  garden: { spawnMul: 0.6,  xpMul: 1.67 },
+}
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 // The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and
 // `exclude` (denylist) scope an anomaly to where its mechanic actually exists. With no
@@ -1208,6 +1210,11 @@ export const WAVE_TABLE = [
 // doesn't shift), then an added quadratic term after that so the rate keeps accelerating all
 // the way to RUN_DURATION instead of flattening out. rate(300) ≈ 19.9/s (~2.9x the old ~6.9/s).
 export const SPAWN_RATE_BASE = 0.6
+// v6.4.3 (owner directive: "the first enemies take too long to appear"): stepSpawning banks this
+// many spawns into the accumulator once, on a run's first step, so the opening ring walks in
+// immediately instead of trickling in after 1/(spawnRate(0)·spawnMul) seconds (~4s at body-calm).
+// Skipped when mods.spawnMul is 0 — tests/probes that silence spawning stay perfectly quiet.
+export const SPAWN_OPENING_CREDIT = 3
 export const SPAWN_RATE_LINEAR = 0.021
 export const SPAWN_LATE_START = 120     // s, when the late-game acceleration kicks in
 export const SPAWN_LATE_QUAD = 0.0004   // extra t^2 coefficient beyond SPAWN_LATE_START

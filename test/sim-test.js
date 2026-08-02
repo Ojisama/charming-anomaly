@@ -56,10 +56,12 @@ import {
   ENEMIES, dmgScale, difficultyDmgMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, MINE_STUN, SOAP_INTERVAL,
-  // v6.4.1 early-calm (Run OO)
-  EARLY_CALM_CHAPTERS, EARLY_CALM_SPAWN_MUL, EARLY_CALM_XP_MUL,
+  // v6.4.1/v6.4.3 early-calm (Run OO)
+  EARLY_CALM,
   // v6.4.2 coin cap (Run PP)
   COIN_CAP_PER_RUN,
+  // v6.4.3 opening spawn credit (Run QQ)
+  SPAWN_OPENING_CREDIT,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -126,6 +128,10 @@ function advance(run, seconds, dt, input) {
 
 function testMovementAndCombat() {
   const run = createRun(makeMeta())
+  // v6.4.3: pin hp (the testVictory idiom below) — this test is about the core loop (spawns,
+  // kills, xp, events), not survival margins; the seeded stream shifted when runs gained an
+  // opening spawn credit and the player started dying just short of the level-up.
+  run.player.maxHP = run.player.hp = 1e9
   const startLevel = run.player.level
   const eventsSeen = advance(run, 120, 1 / 60, { x: 1, y: 0 })
 
@@ -1290,6 +1296,10 @@ function testCrazyMods() {
   // to it — isolating the steering effect from incidental position-drift geometry.
   function testSeeker() {
     const run = createRun(makeMeta())
+    // v6.4.3: this is an isolation test — its premise ("no enemies yet" while the boomerang
+    // fires) breaks once runs bank an opening spawn credit, so silence organic spawning like
+    // every other isolation scenario does (also skips the credit, which gates on spawnMul > 0).
+    run.mods.spawnMul = 0
     run.weapons = [{ id: 'boomerang', level: 1 }]
     run.weaponMods.boomerang.seeker = 1
     run.player.x = 0; run.player.y = 0; run.player.facing = 1
@@ -6720,24 +6730,27 @@ function testPondIdentity() {
   console.log('PASS run NN (v6.4 Pond identity): eddy streaming + force contract + escape invariant, tardigrade phase contract, mine stun, bloom slow, tideCarried')
 }
 
-// v6.4.1 (owner directive, Run OO): explicit difficulty-1 runs of the three onboarding chapters
-// (EARLY_CALM_CHAPTERS: body/pond/garden) spawn 40% fewer enemies and pay proportionally more xp
-// per kill — gated on opts.difficulty === 1 EXPLICITLY, not the defaulted local, since daily runs
-// and (almost) every test call createRun without a difficulty and must keep baseline density.
+// v6.4.1/v6.4.3 (owner directives, Run OO): explicit difficulty-1 runs of the three onboarding
+// chapters (EARLY_CALM: body/pond/garden) spawn fewer enemies and pay proportionally more xp
+// per kill, per chapter (body is the gentlest) — gated on opts.difficulty === 1 EXPLICITLY, not
+// the defaulted local, since daily runs and (almost) every test call createRun without a
+// difficulty and must keep baseline density.
 function testEarlyCalm() {
   const EPS = 1e-9
+  const EARLY_CALM_CHAPTERS = Object.keys(EARLY_CALM)
 
-  // (a) explicit difficulty 1 on each onboarding chapter: spawnMul/xpMul hit the early-calm values.
+  // (a) explicit difficulty 1 on each onboarding chapter: spawnMul/xpMul hit that chapter's
+  // early-calm values.
   {
     Math.random = mulberry32(20260714)
     for (const chapter of EARLY_CALM_CHAPTERS) {
       const run = createRun(makeMeta(), { chapter, difficulty: 1 })
-      assert.strictEqual(run.mods.spawnMul, EARLY_CALM_SPAWN_MUL,
-        `expected ${chapter} d1 mods.spawnMul === ${EARLY_CALM_SPAWN_MUL}, got ${run.mods.spawnMul}`)
-      assert.strictEqual(run.mods.xpMul, EARLY_CALM_XP_MUL,
-        `expected ${chapter} d1 mods.xpMul === ${EARLY_CALM_XP_MUL}, got ${run.mods.xpMul}`)
+      assert.strictEqual(run.mods.spawnMul, EARLY_CALM[chapter].spawnMul,
+        `expected ${chapter} d1 mods.spawnMul === ${EARLY_CALM[chapter].spawnMul}, got ${run.mods.spawnMul}`)
+      assert.strictEqual(run.mods.xpMul, EARLY_CALM[chapter].xpMul,
+        `expected ${chapter} d1 mods.xpMul === ${EARLY_CALM[chapter].xpMul}, got ${run.mods.xpMul}`)
     }
-    console.log('PASS run OO.a (early-calm applies): body/pond/garden at explicit d1 get spawnMul/xpMul from EARLY_CALM_*')
+    console.log('PASS run OO.a (early-calm applies): body/pond/garden at explicit d1 get spawnMul/xpMul from EARLY_CALM[chapter]')
   }
 
   // (b) same chapters at difficulty 2: difficulty tax multipliers don't touch spawn/xp — only
@@ -6752,13 +6765,13 @@ function testEarlyCalm() {
     console.log('PASS run OO.b (difficulty 2 unaffected): body/pond/garden at d2 keep baseline spawnMul/xpMul=1')
   }
 
-  // (c) a chapter outside EARLY_CALM_CHAPTERS at explicit difficulty 1 stays baseline.
+  // (c) a chapter outside EARLY_CALM at explicit difficulty 1 stays baseline.
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 1 })
     assert.strictEqual(run.mods.spawnMul, 1, `expected undergrowth d1 mods.spawnMul === 1, got ${run.mods.spawnMul}`)
     assert.strictEqual(run.mods.xpMul, 1, `expected undergrowth d1 mods.xpMul === 1, got ${run.mods.xpMul}`)
-    console.log('PASS run OO.c (chapter not in EARLY_CALM_CHAPTERS): undergrowth at d1 keeps baseline spawnMul/xpMul=1')
+    console.log('PASS run OO.c (chapter not in EARLY_CALM): undergrowth at d1 keeps baseline spawnMul/xpMul=1')
   }
 
   // (d) difficulty omitted entirely (the daily/test shape) — the local `difficulty` defaults to 1
@@ -6776,8 +6789,8 @@ function testEarlyCalm() {
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1, mutators: ['overtime'] })
-    const expectedSpawn = 1.4 * EARLY_CALM_SPAWN_MUL
-    const expectedXp = 1.3 * EARLY_CALM_XP_MUL
+    const expectedSpawn = 1.4 * EARLY_CALM.body.spawnMul
+    const expectedXp = 1.3 * EARLY_CALM.body.xpMul
     assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
       `expected body d1+overtime mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
     assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
@@ -6785,7 +6798,7 @@ function testEarlyCalm() {
     console.log(`PASS run OO.e (mutator composition): body d1+overtime spawnMul=${run.mods.spawnMul.toFixed(4)} (expected ${expectedSpawn.toFixed(4)}), xpMul=${run.mods.xpMul.toFixed(4)} (expected ${expectedXp.toFixed(4)})`)
   }
 
-  console.log('PASS run OO (v6.4.1 early-calm): explicit-d1 onboarding chapters thin spawns and fatten xp, gated correctly on opts.difficulty and chapter membership, composes with mutators')
+  console.log('PASS run OO (v6.4.1/v6.4.3 early-calm): explicit-d1 onboarding chapters thin spawns and fatten xp per chapter, gated correctly on opts.difficulty and chapter membership, composes with mutators')
 }
 
 // v6.4.2 (owner directive): run.coinsEarned never exceeds COIN_CAP_PER_RUN, and re-earning after
@@ -6825,6 +6838,47 @@ function testCoinCap() {
   }
 
   console.log('PASS run PP (v6.4.2 coin cap): run.coinsEarned clamps to COIN_CAP_PER_RUN on pickup and re-earns back up to it (never past) after a mid-run spend')
+}
+
+// v6.4.3 (owner directive, Run QQ): stepSpawning banks SPAWN_OPENING_CREDIT into _spawnAcc once,
+// on a run's first ordinary-spawn step, so a run opens with enemies already walking in instead of
+// trickling in after ~1.7-4.2s of dead air.
+function testOpeningCredit() {
+  Math.random = mulberry32(20260714)
+  const dt = 1 / 60
+
+  // (a) fresh body run (no difficulty — baseline mods): one stepSim frame banks exactly
+  // SPAWN_OPENING_CREDIT enemies (spawnRate(0)*dt is far below 1, so it doesn't add a 4th within
+  // the same frame), and the one-time flag is now set.
+  {
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.enemies.length, SPAWN_OPENING_CREDIT,
+      `expected ${SPAWN_OPENING_CREDIT} enemies after the first frame (opening credit), got ${run.enemies.length}`)
+    assert.strictEqual(run._openingSpawned, true, 'expected run._openingSpawned === true after the first ordinary-spawn step')
+    console.log(`PASS run QQ.a (opening credit banks enemies): enemies=${run.enemies.length} (expected ${SPAWN_OPENING_CREDIT}), _openingSpawned=${run._openingSpawned}`)
+  }
+
+  // (b) a silenced run (mods.spawnMul = 0, the tests/probes shape) stays perfectly quiet — the
+  // credit is skipped, not banked-then-ignored.
+  {
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    run.mods.spawnMul = 0
+    for (let i = 0; i < 10; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.enemies.length, 0, `expected 0 enemies with mods.spawnMul=0, got ${run.enemies.length}`)
+    console.log('PASS run QQ.b (silenced run stays quiet): mods.spawnMul=0 skips the opening credit, enemies.length=0')
+  }
+
+  // (c) a scripted chapter (The Blank) never reaches stepSpawning's credit line — its early return
+  // fires first, so _openingSpawned stays falsy even after a step.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(!run._openingSpawned, `expected run._openingSpawned to stay falsy for a scripted chapter, got ${run._openingSpawned}`)
+    console.log('PASS run QQ.c (scripted chapter skips the credit): The Blank never sets _openingSpawned')
+  }
+
+  console.log('PASS run QQ (v6.4.3 opening credit): the first ordinary-spawn step banks SPAWN_OPENING_CREDIT once, skips it when silenced, and never runs for scripted chapters')
 }
 
 try {
@@ -6877,6 +6931,7 @@ try {
   testPondIdentity()
   testEarlyCalm()
   testCoinCap()
+  testOpeningCredit()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

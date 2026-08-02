@@ -139,6 +139,8 @@ import {
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
   // v6.4.2 (owner directive): per-run coin cap
   COIN_CAP_PER_RUN,
+  // v6.4.3 (owner directive): opening spawn credit
+  SPAWN_OPENING_CREDIT,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -330,6 +332,12 @@ function stepSpawning(run, dt) {
   // one gate also kills the elite cadence: spawnEnemy's elite roll only ever runs from here, and
   // every script spawn passes forceNormal (eliteFlags: [] alone would NOT prevent elites).
   if (CHAPTERS[run.chapter].scripted) return
+  // v6.4.3 opening credit (see SPAWN_OPENING_CREDIT in config.js): bank the first few spawns so
+  // the run opens with enemies walking in, not dead air. One-time; spawnMul 0 = stay quiet.
+  if (!run._openingSpawned) {
+    run._openingSpawned = true
+    if (run.mods.spawnMul > 0) run._spawnAcc += SPAWN_OPENING_CREDIT
+  }
   // v5.18: in the lane the ranks (stepFormations) are a second, concurrent spawner aimed down the
   // same narrow corridor — the ordinary stream yields so the two together read as pressure rather
   // than a wall. See LANE_SPAWN_MUL.
