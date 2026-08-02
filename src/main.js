@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, COIN_CAP_PER_RUN } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -258,7 +258,8 @@ const SFX_FOR_EVENT = {
 
 function endRun(victory) {
   const bonus = Math.round(runBonusCoins(run.kills) * difficultyCoinMul(run.difficulty ?? 1))
-  const earned = run.coinsEarned + bonus
+  // v6.4.2 (owner directive): the kill bonus can still push a near-capped run over COIN_CAP_PER_RUN — clamp the final banked total too.
+  const earned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + bonus)
   meta.coins += earned
   meta.runs += 1
   // meta.best: all-time aggregate across every chapter (see state.js doc block), kept

@@ -58,6 +58,8 @@ import {
   BLOOM_SLOW, TIDE_DMG_BONUS, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1 early-calm (Run OO)
   EARLY_CALM_CHAPTERS, EARLY_CALM_SPAWN_MUL, EARLY_CALM_XP_MUL,
+  // v6.4.2 coin cap (Run PP)
+  COIN_CAP_PER_RUN,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -6786,6 +6788,45 @@ function testEarlyCalm() {
   console.log('PASS run OO (v6.4.1 early-calm): explicit-d1 onboarding chapters thin spawns and fatten xp, gated correctly on opts.difficulty and chapter membership, composes with mutators')
 }
 
+// v6.4.2 (owner directive): run.coinsEarned never exceeds COIN_CAP_PER_RUN, and re-earning after
+// a mid-run spend (reroll) climbs back up to but never past the same cap.
+function testCoinCap() {
+  Math.random = mulberry32(20260714)
+  const dt = 1 / 60
+
+  // (a) a pickup that would carry coinsEarned well past the cap clamps to exactly the cap.
+  {
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    run.weapons = []            // nothing to fire, nothing to kill, no extra coin drops
+    run.mods.spawnMul = 0       // no organic enemy spawns to interfere
+    run.player.x = 0; run.player.y = 0
+    run.coinsEarned = 990
+    run.coins.push({ x: 0, y: 0, value: 500 }) // far more than the 9 coins of headroom left
+    for (let i = 0; i < 5; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.coinsEarned, COIN_CAP_PER_RUN,
+      `expected run.coinsEarned clamped to COIN_CAP_PER_RUN (${COIN_CAP_PER_RUN}), got ${run.coinsEarned}`)
+    console.log(`PASS run PP.a (coin cap clamps on pickup): coinsEarned=${run.coinsEarned}`)
+  }
+
+  // (b) re-earn after a mid-run spend (reroll shape: main.js's onReroll subtracts the reroll cost
+  // directly from run.coinsEarned) climbs back up to, but never past, the same cap.
+  {
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    run.weapons = []
+    run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.coinsEarned = COIN_CAP_PER_RUN
+    run.coinsEarned -= 50 // simulate a reroll spend, like onReroll in main.js
+    run.coins.push({ x: 0, y: 0, value: 500 }) // far more than the 50 coins of headroom left
+    for (let i = 0; i < 5; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.coinsEarned, COIN_CAP_PER_RUN,
+      `expected run.coinsEarned to re-earn back up to COIN_CAP_PER_RUN (${COIN_CAP_PER_RUN}) exactly, got ${run.coinsEarned}`)
+    console.log(`PASS run PP.b (coin cap re-earn after spend): coinsEarned=${run.coinsEarned}`)
+  }
+
+  console.log('PASS run PP (v6.4.2 coin cap): run.coinsEarned clamps to COIN_CAP_PER_RUN on pickup and re-earns back up to it (never past) after a mid-run spend')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -6835,6 +6876,7 @@ try {
   testAntiTurtle()
   testPondIdentity()
   testEarlyCalm()
+  testCoinCap()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

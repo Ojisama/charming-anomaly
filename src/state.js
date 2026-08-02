@@ -669,6 +669,8 @@ function generateWells(sig) {
  * _rerolls: count of level-up rerolls used so far this run (main.js increments this and
  *   recomputes the next reroll's price via rerollCost(run._rerolls) — see config.js).
  *   Rerolls are paid from run.coinsEarned (this run's coins), never the meta bank (v5.1).
+ *   coinsEarned is clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) on every pickup — see
+ *   coinsEarned's own field doc below.
  *   buildLevelUpChoices itself is reroll-agnostic; rerolling is just calling it again.
  * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
  *   snapshotted from meta.choiceSlots at createRun (2..4) and constant for the run's duration
@@ -880,7 +882,7 @@ export function createRun(meta, opts = {}) {
     geysers: [],
     lobs: [],
     kills: 0,
-    coinsEarned: 0,
+    coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect
     levelUpChoices: null,
     viewRadius: 600,       // half screen diagonal, updated by main each frame; spawn enemies at viewRadius + SPAWN_RING from player
     _nextId: 1,

@@ -137,6 +137,8 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K, BLANK_XREACT_STRIDE,
   BLANK_READ1_K_MATURE, BLANK_NODE_MAX_MATURE, BLANK_FAN_N_MATURE,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
+  // v6.4.2 (owner directive): per-run coin cap
+  COIN_CAP_PER_RUN,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -5117,7 +5119,9 @@ function stepPickups(run, dt) {
     run.events.push({ type: 'gem', x: g.x, y: g.y })
   })
   run.coins = collect(run.coins, (c) => {
-    run.coinsEarned += Math.round(c.value * p.coinGainMul * run.mods.coinMul)
+    // v6.4.2: clamp at COIN_CAP_PER_RUN (config.js) — pickups past the cap still sparkle
+    // (the event still fires below), they just stop paying out.
+    run.coinsEarned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + Math.round(c.value * p.coinGainMul * run.mods.coinMul))
     run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value })
   })
 }

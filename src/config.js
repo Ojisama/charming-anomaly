@@ -1286,6 +1286,11 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // End-of-run coin bonus
 export const runBonusCoins = (kills) => Math.floor(kills / 10)
 
+// v6.4.2 (owner directive): a single run banks at most this many coins. Clamped at BOTH ends:
+// the standing run.coinsEarned counter (stepPickups, sim.js — rerolls spend it down and it can
+// re-earn back up to the cap) and the final banked total including the kill bonus (endRun, main.js).
+export const COIN_CAP_PER_RUN = 999
+
 // ---- Chapters (v5.0: macro progression above difficulty) ---------------------------
 // Pure data — sim stays theme-agnostic and reads roster archetypes/behavior flags, weapon
 // pools, and signature/obstacle config from the run's chapter snapshot (see state.js
