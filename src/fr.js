@@ -11,6 +11,7 @@ const UI = {
   'Daily': 'Défi',
   'Play': 'Jouer',
   'Play again': 'Rejouer',
+  'Next level': 'Niveau suivant',
   'Menu': 'Menu',
   'Difficulty': 'Difficulté',
   'difficulty': 'difficulté',

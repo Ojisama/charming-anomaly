@@ -310,10 +310,20 @@ function endRun(victory) {
     }
   }
 
+  // v6.4.4: a classic win below the chapter's cap advances the saved difficulty selection, so
+  // the summary's main button becomes "Next level" and — via the same onPlay flow as the title
+  // Play button, which reads chMeta.difficulty — actually starts it (briefing included at d2+).
+  // Wins at the cap, deaths and dailies keep "Play again".
+  let nextDifficulty = null
+  if (victory && runMode === 'classic') {
+    const nextD = Math.min(chMeta.maxDifficulty, (run.difficulty ?? 1) + 1)
+    if (nextD > (run.difficulty ?? 1)) { chMeta.difficulty = nextD; nextDifficulty = nextD }
+  }
+
   saveMeta(meta)
   ui.showScreen('summary', {
     victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
-    mutators: run.mutators, mode: runMode,
+    mutators: run.mutators, mode: runMode, nextDifficulty,
     unlockedDifficulty: unlockedDifficulty ? chMeta.maxDifficulty : null,
     unlockedChapter,
     unlockedChapterId,

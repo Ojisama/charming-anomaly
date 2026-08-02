@@ -152,7 +152,11 @@ function formatShopBonus(id, levels) {
  *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
  *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
- *       unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter? }   unlockedDifficulty is the newly-unlocked level
+ *       nextDifficulty?, unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter? }
+ *       nextDifficulty (v6.4.4) is the difficulty a classic win just advanced the chapter's saved
+ *       selection to (endRun bumps chMeta.difficulty when below the cap), else null — it flips the
+ *       main button's label from "Play again" to "Next level"; the button's onPlay flow is
+ *       unchanged either way (it reads chMeta.difficulty). unlockedDifficulty is the newly-unlocked level
  *       number when this win just raised the run's chapter's maxDifficulty (see endRun in
  *       main.js), else null — rendered as a mint .summary-unlock badge. unlockedChapter (v5.0)
  *       is the newly-unlocked NEXT chapter's name when this win (classic, difficulty 3+) just
@@ -1139,7 +1143,7 @@ export function initUI(hooks) {
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} ${t('finish bonus')}</span>` : ''}
         </div>
-        <button class="btn btn--big" data-act="play" data-mode="${d.mode ?? 'classic'}">▶&nbsp; ${t('Play again')}</button>
+        <button class="btn btn--big" data-act="play" data-mode="${d.mode ?? 'classic'}">▶&nbsp; ${d.nextDifficulty ? t('Next level') : t('Play again')}</button>
         <button class="btn btn--soft" data-act="quit">${t('Menu')}</button>
       </div>
     `
