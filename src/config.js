@@ -1628,7 +1628,8 @@ CHAPTERS.blank = {
   eliteFlags: [],
   signature: null,
   obstacles: null,
-  modsByDifficulty: { 1: [], 2: ['accelResponse'], 3: ['accelResponse', 'immuneMemory'] },
+  modsByDifficulty: { 1: [], 2: ['accelResponse', 'crossReactive'],
+                      3: ['accelResponse', 'crossReactive', 'immuneMemory', 'affinityMature'] },
   render: { bgColor: 0xf2efe8, floorTint: 0xffffff, playerTint: 0x8a55d6, tail: false,
             voidFloor: true,   // RENDER gates all decorative floor layers off
             ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
@@ -3533,17 +3534,22 @@ export const CHAPTER_UNLOCK_LINES = {
 // on kill (no timer victory in this chapter) and stage++ starts the next wave block. Killing the
 // last boss phase IS the win.
 export const BLANK_SCRIPT = [
-  { waves: [ { n: 16, ids: ['probe'] }, { n: 22, ids: ['probe'] }, { n: 26, ids: ['probe','binder'] } ] },
+  { waves: [ { n: 32, ids: ['probe'] }, { n: 44, ids: ['probe'] }, { n: 52, ids: ['probe','binder'] } ] },
   { boss: 'antibody1' },
-  { waves: [ { n: 18, ids: ['binder','probe'] }, { n: 24, ids: ['binder','probe'] }, { n: 28, ids: ['binder','eraser'] } ] },
+  { waves: [ { n: 36, ids: ['binder','probe'] }, { n: 48, ids: ['binder','probe'] }, { n: 56, ids: ['binder','eraser'] } ] },
   { boss: 'antibody2' },
-  { waves: [ { n: 20, ids: ['eraser','binder'] }, { n: 26, ids: ['eraser','probe','binder'] }, { n: 32, ids: ['eraser','probe','binder'] } ] },
+  { waves: [ { n: 40, ids: ['eraser','binder'] }, { n: 52, ids: ['eraser','probe','binder'] }, { n: 64, ids: ['eraser','probe','binder'] } ] },
   { boss: 'antibody3' },
 ]
 export const BLANK_WAVE_TIMEOUT = 20      // s, next wave arrives even if this one isn't cleared
-export const BLANK_BOSS_HP = [2200, 3000, 3800] // per phase, × run.mods.enemyHpMul, set post-spawn (no hpScale)
+export const BLANK_BOSS_HP = [8800, 12000, 15200] // v6.3.1: ×4 — phases must be EARNED (owner directive)
 export const BLANK_BOSS_R = 80            // world px, set post-spawn; render bakes at this size
-export const BLANK_BOSS_SPEED = 70        // px/s toward the band (P1/P2)
+export const BLANK_BOSS_SPEED = 70        // px/s toward the band (P2)
+export const BLANK_BOSS_SPEED_P1 = 120    // v6.3.1: P1 closes and circles ~70% faster — menace, not a rule change
+export const BLANK_MAX_ALIVE = 500        // v6.3.1 [panel/bugs]: doubled waves' zero-clear worst case (424) would
+                                          // starve nodes/recruits at the global MAX_ALIVE (400); blank gets headroom
+export const BLANK_CATCHUP_MAX = 200      // px/s ceiling on catch-up pursuit [panel/fun+gameplay]: 120×2.8=336 would
+                                          // outrun even a maxed moveSpeed build (308) — fleeing must keep working
 export const BLANK_BOSS_SPEED_P3 = 170    // px/s — P3 drops the standoff and RUNS YOU DOWN (player ~220)
 export const BLANK_BOSS_DMG = 15          // contact damage — the band keeps it rare in P1/P2; P3 makes it a chase
 export const BLANK_BOSS_XP = 60           // gem worth on each phase kill
@@ -3551,10 +3557,11 @@ export const BLANK_PHASE_LEVELS = 3       // level-ups banked on each NON-final 
 export const BLANK_STANDOFF_MIN = 240     // px, standoff flag: back off inside this
 export const BLANK_STANDOFF_MAX = 340     // px, close in outside this
 export const BLANK_STANDOFF_DRIFT_MUL = 0.5 // in-band sideways drift, fraction of speed — a drift, not a strafe
-// Catch-up gear: at band range the antibody ambles (BLANK_BOSS_SPEED), but a player who disengages
-// outruns 70 px/s forever (they move at ~220) and the fight stalls with the boss a screen behind.
-// Past CATCHUP_D it pursues at ×CATCHUP_MUL (196 px/s — still slower than the player, so fleeing
-// works; it just can't park the boss in another postcode).
+// Catch-up gear: at band range the antibody ambles (BLANK_BOSS_SPEED in P2, BLANK_BOSS_SPEED_P1 in
+// P1), but a player who disengages outruns that forever (they move at ~220) and the fight stalls
+// with the boss a screen behind. Past CATCHUP_D it pursues at min(speed × CATCHUP_MUL,
+// BLANK_CATCHUP_MAX) — P1's 120×2.8=336 would outrun every build, so the cap keeps both phases
+// under the player's ~220; fleeing always works, it just can't park the boss in another postcode.
 export const BLANK_STANDOFF_CATCHUP_D = 700    // px, beyond this the boss stops ambling and pursues
 export const BLANK_STANDOFF_CATCHUP_MUL = 2.8  // × speed while catching up
 // P1 reads your past: run.trail is a ring buffer of recent player positions (sampled every
@@ -3578,7 +3585,8 @@ export const BLANK_NODE_T = 3.5           // s between node spawns while below m
 export const BLANK_NODE_HP = 45           // set post-spawn
 export const BLANK_NODE_RING = 170        // px from player where a node appears
 export const BLANK_NODE_SLOW = [1, 0.78, 0.62, 0.5] // player speed mul by alive-node count (MIN-stacked)
-export const BLANK_YANK_T = 5             // s a node survives before the yank fires
+export const BLANK_YANK_T = 8             // v6.3.1 [panel/gameplay]: at 5s the yank spent all nodes before
+                                          // a 3rd could spawn — the 3-node slow tier was unreachable dead content
 export const BLANK_YANK_DIST = 150        // px instant drag toward the boss
 export const BLANK_YANK_DMG = 10
 export const BLANK_SHOT_T = 2.4           // s between P2 aimed shots (run.enemyShots)
@@ -3595,13 +3603,35 @@ export const BLANK_LEAD = 0.55            // s of velocity extrapolation
 export const BLANK_BAND_LEN = 320
 export const BLANK_BAND_W = 64
 export const BLANK_BAND_FUSE = 0.75       // s telegraph
-export const BLANK_BAND_T = 2.4           // s active
+export const BLANK_BAND_T = 2.0           // v6.3.1 [panel/gameplay]: active duration must stay under the
+                                          // desperate cross cadence 2.6×0.75×0.8≈1.56s closely enough that
+                                          // double-stars are a beat, not a state (was 2.4)
 export const BLANK_BAND_DPS = 26
-export const BLANK_DESPERATE_FRAC = 0.25  // P3 hp fraction under which timers ×= BLANK_DESPERATE_MUL
+export const BLANK_DESPERATE_FRAC = 0.25  // any phase below this hp fraction accelerates its read/shot/node
+                                          // timers ×BLANK_DESPERATE_MUL (P3's cross uses BLANK_READ3_DESPERATE_MUL)
 export const BLANK_DESPERATE_MUL = 0.62
 export const BLANK_FAN_N = 3              // shots per P3 fan (odd — center shot dead-on)
 export const BLANK_FAN_SPREAD = 0.35      // rad between fan shots
 export const BLANK_FAN_SPEED = 310        // px/s, straight (turnRate 0) — dodge the spread, not the shot
+// v6.3.1 difficulty-ladder patterns. crossReactive (d2+): each phase borrows a neighboring
+// phase's read — P1 fires P2's homing shot, P2 detonates a spread trail read (P1's), P3 detonates
+// a short trail echo. Borrowed reads sample every XREACT_STRIDE-th trail point [panel/fun: a
+// stationary player — P2's own correct play — must get a spread field, not a stacked blast].
+export const BLANK_XREACT_READ1_MUL = 1.5 // P2's borrowed-read cadence, × BLANK_READ1_T
+export const BLANK_XREACT_READ3_K = 4     // trail points in P3's borrowed echo
+export const BLANK_XREACT_STRIDE = 3      // borrowed reads take every 3rd trail sample (~1.05s apart)
+// affinityMature (d3): each phase's OWN read runs deeper.
+export const BLANK_READ1_K_MATURE = 16    // full-read points at d3 (not the whole 26-buffer:
+                                          // [panel/gameplay] K=26's stagger tail outlives the read cadence AND
+                                          // mines an entire standoff-orbit lap; 16 doubles the base 8 cleanly)
+export const BLANK_NODE_MAX_MATURE = 4    // P2 node cap at d3 (slow table unchanged — floor stays 0.5:
+                                          // [panel/fun] a 0.42 tier made 240 px/s homing shots literally unoutrunnable)
+export const BLANK_FAN_N_MATURE = 5       // P3 fan shots at d3
+export const BLANK_BAND_ANGLES = [0, Math.PI / 2]                                    // P3 cross
+export const BLANK_BAND_ANGLES_MATURE = [0, Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4] // d3: 8-arm star
+export const BLANK_READ3_DESPERATE_MUL = 0.8 // [panel/gameplay] the cross keeps a MILDER desperation than the
+                                             // fans' BLANK_DESPERATE_MUL (0.62): at 0.62 two 8-arm stars were
+                                             // permanently live at once — undodgeable geometry, not difficulty
 // eraser wake (roster flag) + immuneMemory mutator both drop residue strips (run.strips,
 // look:'erase') — wake trails a live eraser, immuneMemory marks where a wave enemy died.
 export const BLANK_WAKE_DT = 0.5          // s between eraser residue drops
@@ -3650,6 +3680,8 @@ export const MUTATORS = {
   // behavior (faster telegraphs, death residue) is read directly off run.mutators by sim.js.
   accelResponse: { name: 'Accelerated Response', icon: '⚡', desc: 'its telegraphs are 25% faster',      hidden: true, effects: {} },
   immuneMemory:  { name: 'Immune Memory',        icon: '🧠', desc: 'slain cells leave erasing residue',  hidden: true, effects: {} },
+  crossReactive: { name: 'Cross-Reactivity',    icon: '🔀', desc: 'each phase borrows a neighboring read', hidden: true, effects: {} },
+  affinityMature:{ name: 'Affinity Maturation', icon: '🧬', desc: 'its own reads run deeper',              hidden: true, effects: {} },
   // v5.25: chapter anomalies — each turns ITS chapter's signature mechanic up, paired with a
   // small reward like every generic entry above. `chapters` scopes the roll to where the
   // mechanic exists: a modifier that references a system the chapter doesn't run is noise, not

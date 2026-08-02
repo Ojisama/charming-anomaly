@@ -8629,15 +8629,20 @@ export function createRenderer(app) {
       // here vary per source (0.15-0.75s, vs the garden's one SPRAY_FUSE), so the warning is a flat
       // pulse rather than a fuse-normalised urgency ramp; active strips fade out over their last
       // half second (t counts down) instead of over SPRAY_ACTIVE.
+      // v6.3.1: strips tagged variant:'residue' (immuneMemory death residue, eraser wakes) draw at
+      // ~0.55× alpha, fuse and live alike — at d3 they can be onscreen alongside the boss's OWN
+      // (untagged, full-strength) bands/star, and three identical erase hazard families stacked
+      // would blur into one illegible mess [panel/fun].
       if (s.look === 'erase') {
+        const dim = s.variant === 'residue' ? 0.55 : 1
         if (s.fuse > 0) {
           const pulse = 0.5 + 0.5 * Math.sin(animT * 9)
-          stripG.poly(flat).fill({ color: 0xdde4ee, alpha: 0.16 + pulse * 0.1 })
-          stripG.poly(flat).stroke({ width: 3, color: 0x9aa6c4, alpha: 0.55 + pulse * 0.3 })
+          stripG.poly(flat).fill({ color: 0xdde4ee, alpha: (0.16 + pulse * 0.1) * dim })
+          stripG.poly(flat).stroke({ width: 3, color: 0x9aa6c4, alpha: (0.55 + pulse * 0.3) * dim })
         } else {
           const fade = Math.min(1, s.t / 0.5)
-          stripG.poly(flat).fill({ color: 0xdde4ee, alpha: 0.9 * fade })
-          stripG.poly(flat).stroke({ width: 2.5, color: 0x9aa6c4, alpha: 0.85 * fade })
+          stripG.poly(flat).fill({ color: 0xdde4ee, alpha: 0.9 * fade * dim })
+          stripG.poly(flat).stroke({ width: 2.5, color: 0x9aa6c4, alpha: 0.85 * fade * dim })
         }
         continue
       }

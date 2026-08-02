@@ -651,24 +651,36 @@ function generateWells(sig) {
  *   hooks.onSacrifice in main.js) — applies to every mode, including Daily.
  *
  * v5.24 — The Blank (hidden scripted boss chapter, gated on CHAPTERS[chapter].scripted; see
- * BLANK_* in config.js and sim.js's stepBossScript, the chapter's ONLY spawner):
+ * BLANK_* in config.js and sim.js's stepBossScript, the chapter's ONLY spawner). v6.3.1 doubled
+ * its waves, quadrupled boss HP (BLANK_BOSS_HP), gave P1 its own faster speed
+ * (BLANK_BOSS_SPEED_P1), made desperation fight-wide (not P3-only), and added two difficulty-ladder
+ * mutators built entirely from this existing machinery: crossReactive (d2+, each phase also runs a
+ * SECOND, borrowed read from a neighboring phase — no longer "one read per phase") and
+ * affinityMature (d3, each phase's own read runs deeper: more trail points, more bind nodes, more
+ * fan shots, an 8-arm star instead of a cross).
  * script: null for every ordinary chapter; for a scripted one, { stage, waveIdx, waveT, spawned,
  *   bossId }, the whole state machine driving BLANK_SCRIPT (config.js). stage indexes the script
  *   (even = wave block, odd = boss phase); waveIdx/waveT track progress through a wave block's 3
  *   ring-spawned waves (advance on clear OR BLANK_WAVE_TIMEOUT, whichever first); spawned marks
  *   whether the current stage's enemies/boss have gone out yet; bossId is the current phase's
  *   run.enemies id (or null), used to detect its death by absence next frame — same pattern the
- *   design already uses for every kill (kill events carry no id).
+ *   design already uses for every kill (kill events carry no id). A non-final phase kill also
+ *   force-kills any binding nodes still alive so their slow can't bleed into the next block.
  * trail: [] for every chapter; a scripted one's stepBossScript samples {x,y} onto it every
- *   BLANK_TRAIL_DT, capped at BLANK_TRAIL_MAX entries (shift on overflow) — the ring buffer P1
- *   reads to detonate the player's recent path and pastSeek probes chase.
+ *   BLANK_TRAIL_DT, capped at BLANK_TRAIL_MAX entries (shift on overflow) — the ring buffer P1's
+ *   (and, at d2+, P2/P3's borrowed) reads detonate and pastSeek probes chase.
  * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
  *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
  *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
  * The chapter reuses two existing generic entities rather than adding new run arrays: run.bombs
- *   (telegraph->blast) carries `src:'trail'` for P1's path detonations, and run.strips
- *   (telegraph->active rotated rect, PLAYER-only damage) carries a render-only `look:'erase'` for
- *   P3's erasure bands, the eraser flag's wake, and the immuneMemory mutator's death residue.
+ *   (telegraph->blast) carries `src:'trail'` for every trail detonation (P1's own read, and at
+ *   d2+ P2's borrowed spread read / P3's borrowed echo — all through sim.js's shared
+ *   detonateTrail helper), and run.strips (telegraph->active rotated rect, PLAYER-only damage)
+ *   carries a render-only `look:'erase'` for P3's erasure bands/star, the eraser flag's wake, and
+ *   the immuneMemory mutator's death residue — the latter two also carry `variant:'residue'`
+ *   (render.js dims them) so they read as distinct from the boss's own untagged bands. immuneMemory
+ *   (d3) residue is no longer wave-only: any scripted-chapter corpse leaves it, including P3's
+ *   recruit faucet.
  * New events: {type:'bossSpawn', x, y, stage} (stage 1 = first arrival, 2/3 = a phase reforming),
  *   {type:'bossDead', x, y} (the final phase's kill only — this IS the win, run.phase='victory'
  *   follows), {type:'yank', x, y} (a P2 binding-node timeout dragging the player toward the boss).

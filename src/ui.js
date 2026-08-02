@@ -381,7 +381,7 @@ export function initUI(hooks) {
   // is empty.
   function diffHintLead(id, level) {
     if (id === 'blank') {
-      return (CHAPTERS.blank.modsByDifficulty[level] ?? []).map((mid) => MUTATORS[mid]?.name ?? mid).join(' + ')
+      return (CHAPTERS.blank.modsByDifficulty[level] ?? []).map((mid) => t(MUTATORS[mid]?.name ?? mid)).join(' + ')
     }
     return level === 2 ? t('+1 random anomaly') : tt('+{n} random anomalies', { n: level - 1 })
   }

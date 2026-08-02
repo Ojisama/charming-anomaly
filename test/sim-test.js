@@ -45,6 +45,12 @@ import {
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
+  // v6.3.1 difficulty pass (Run LL)
+  BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
+  BLANK_SHOT_T, BLANK_SHOT_TURN, BLANK_ACCEL_MUL, BLANK_DESPERATE_MUL,
+  BLANK_TRAIL_DT, BLANK_TRAIL_MAX, BLANK_READ1_K, BLANK_READ1_K_MATURE,
+  BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
+  BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -5883,6 +5889,345 @@ function testDispatchAndCoverKind() {
   }
 }
 
+// ---- Run LL: v6.3.1 blank difficulty pass (doubled waves, ×4 boss HP, faster P1, fight-wide
+// desperation, crossReactive d2+, affinityMature d3) ----------------------------------------------
+// Locks in the owner-directed difficulty pass: waves twice as big, the boss four times as tough
+// with desperation felt in every phase (not just P3), a faster P1 whose catch-up gear is capped so
+// fleeing never stops working, and two new hidden ladder mutators built entirely from existing
+// bombs/enemyShots/strips machinery.
+function testTheBlankDifficulty() {
+  const dt = 1 / 60
+
+  // (a) P1 borrowed shot (crossReactive, d2+): idling in phase 1 with the mutator active fires
+  // P2's exact homing shot on its own timer. Control at d1 (no mutators): none.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 2, mutators: ['accelResponse', 'crossReactive'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody1
+    const steps = Math.round((BLANK_SHOT_T * BLANK_ACCEL_MUL + 0.5) / dt)
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.enemyShots.length > 0, 'expected P1 to fire a borrowed homing shot with crossReactive active at d2')
+    assert(run.enemyShots.every((s) => s.turnRate === BLANK_SHOT_TURN), `expected the borrowed shot's turnRate === BLANK_SHOT_TURN, got ${run.enemyShots.map((s) => s.turnRate)}`)
+    console.log(`PASS run LL.a.1 (P1 borrowed shot): ${run.enemyShots.length} enemyShots, turnRate=${BLANK_SHOT_TURN}`)
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const steps = Math.round((BLANK_SHOT_T * BLANK_ACCEL_MUL + 0.5) / dt)
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.enemyShots.length, 0, `expected zero P1 shots without crossReactive at d1, got ${run.enemyShots.length}`)
+    console.log('PASS run LL.a.2 (control, d1): no P1 borrowed shot without crossReactive')
+  }
+
+  // (b) P2 borrowed read (crossReactive, d2+): moving in a slow circle, P2 detonates a SPREAD
+  // trail read (P1's read, sampled every BLANK_XREACT_STRIDE-th point) on its own cadence. Control
+  // at d1: no trail bombs during P2. Then: a bindnode that survives to the boss's death is
+  // force-killed the same frame (phase-advance node cleanup) — no live node lingers into the next
+  // block.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 2, mutators: ['accelResponse', 'crossReactive'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 3, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody2
+    const steps = Math.round((BLANK_READ1_T * BLANK_XREACT_READ1_MUL * BLANK_ACCEL_MUL + 2) / dt)
+    // Sample DURING the loop, not after: a trail bomb's own fuse+stagger is short (~1-2s) next to
+    // the read cadence (~5.6s here), so by loop's end the whole batch has already self-detonated
+    // and been filtered out of run.bombs — checking only the final state would always see zero.
+    let sawTrailBomb = false
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) {
+      const a = i * dt * 0.5
+      stepSim(run, { x: Math.cos(a), y: Math.sin(a) }, dt)
+      if (run.bombs.some((b) => b.src === 'trail')) sawTrailBomb = true
+    }
+    assert(sawTrailBomb, "expected P2's borrowed trail read to push src:'trail' bombs with crossReactive at d2")
+    console.log('PASS run LL.b.1 (P2 borrowed read): src:\'trail\' bombs seen during the window')
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 3, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const steps = Math.round((BLANK_READ1_T * BLANK_XREACT_READ1_MUL + 2) / dt)
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) {
+      const a = i * dt * 0.5
+      stepSim(run, { x: Math.cos(a), y: Math.sin(a) }, dt)
+    }
+    assert.strictEqual(run.bombs.filter((b) => b.src === 'trail').length, 0, 'expected zero P2 trail bombs without crossReactive at d1')
+    console.log('PASS run LL.b.2 (control, d1): no P2 borrowed read without crossReactive')
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 2, mutators: ['accelResponse', 'crossReactive'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 3, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody2
+    let node = null
+    for (let i = 0; i < Math.round((BLANK_NODE_T + 1) / dt) && !node; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      node = run.enemies.find((e) => e.rosterId === 'bindnode' && !e._dead) ?? null
+    }
+    assert(node, 'expected a bindnode to spawn during P2 idle')
+    const boss = run.enemies.find((e) => e.id === run.script.bossId)
+    boss.x = run.player.x; boss.y = run.player.y; boss.hp = boss.maxHP = 1
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    advance(run, 2, dt, { x: 0, y: 0 }) // kill the boss + auto-resolve any chained levelups
+    assert(!run.enemies.some((e) => e.id === boss.id && !e._dead), 'expected the P2 boss dead within 2s')
+    assert(!run.enemies.some((e) => e.rosterId === 'bindnode' && !e._dead), 'expected no live bindnode surviving the P2 boss\'s death (phase-advance node cleanup)')
+    console.log("PASS run LL.b.3 (node cleanup on phase death): a surviving bindnode is force-killed with the boss")
+  }
+
+  // (c) P3 star + fan + echo (affinityMature at d3, crossReactive at d2+): at d3 the cross becomes
+  // an 8-arm star (BLANK_BAND_ANGLES_MATURE), the fan grows to BLANK_FAN_N_MATURE shots, and a
+  // borrowed short trail echo (<= BLANK_XREACT_READ3_K bombs) appears. At d2 (crossReactive only,
+  // no affinityMature) the cross stays a plain cross and the fan stays BLANK_FAN_N.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 3, mutators: ['accelResponse', 'crossReactive', 'immuneMemory', 'affinityMature'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody3
+    let stripsAtRead = 0, fanSeen = 0, echoSeen = 0
+    const steps = Math.round((BLANK_READ1_T * BLANK_ACCEL_MUL + 1) / dt)
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) {
+      const before = run.strips.length
+      const beforeShots = run.enemyShots.length
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const added = run.strips.length - before
+      if (added > 0 && stripsAtRead === 0) stripsAtRead = added
+      // Per-FRAME shot delta, not live count: volleys outlive the fan cadence, so a live count
+      // accumulates across volleys and can't tell a 5-shot fan from two overlapping 3-shot ones.
+      fanSeen = Math.max(fanSeen, run.enemyShots.length - beforeShots)
+      echoSeen = Math.max(echoSeen, run.bombs.filter((b) => b.src === 'trail').length)
+    }
+    assert.strictEqual(stripsAtRead, BLANK_BAND_ANGLES_MATURE.length, `expected an ${BLANK_BAND_ANGLES_MATURE.length}-arm star at d3, got ${stripsAtRead} strips in the first read`)
+    assert.strictEqual(fanSeen, BLANK_FAN_N_MATURE, `expected a ${BLANK_FAN_N_MATURE}-shot fan volley at d3, biggest volley was ${fanSeen}`)
+    assert(echoSeen > 0 && echoSeen <= BLANK_XREACT_READ3_K, `expected 1..${BLANK_XREACT_READ3_K} borrowed trail-echo bombs at d3, saw ${echoSeen}`)
+    console.log(`PASS run LL.c.1 (P3 star+fan+echo, d3): ${stripsAtRead} strips/read, ${fanSeen}-shot fan, ${echoSeen} echo bombs`)
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 2, mutators: ['accelResponse', 'crossReactive'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    let stripsAtRead = 0, fanSeen = 0
+    const steps = Math.round((BLANK_READ1_T * BLANK_ACCEL_MUL + 1) / dt)
+    for (let i = 0; i < steps && run.phase === 'playing'; i++) {
+      const before = run.strips.length
+      const beforeShots = run.enemyShots.length
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const added = run.strips.length - before
+      if (added > 0 && stripsAtRead === 0) stripsAtRead = added
+      fanSeen = Math.max(fanSeen, run.enemyShots.length - beforeShots)
+    }
+    assert.strictEqual(stripsAtRead, BLANK_BAND_ANGLES.length, `expected a plain ${BLANK_BAND_ANGLES.length}-band cross at d2 (no affinityMature), got ${stripsAtRead}`)
+    assert.strictEqual(fanSeen, BLANK_FAN_N, `expected the base ${BLANK_FAN_N}-shot fan volley at d2, biggest volley was ${fanSeen}`)
+    console.log(`PASS run LL.c.2 (control, d2): ${stripsAtRead} strips/read (plain cross), ${fanSeen}-shot fan (no mature growth)`)
+  }
+
+  // (d) Mature P1 read depth: at d3 a full trail (walked past BLANK_TRAIL_MAX samples) yields
+  // BLANK_READ1_K_MATURE bombs per read instead of the base BLANK_READ1_K.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 3, mutators: ['accelResponse', 'crossReactive', 'immuneMemory', 'affinityMature'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody1
+    const fillSteps = Math.round((BLANK_TRAIL_MAX * BLANK_TRAIL_DT + 1) / dt)
+    for (let i = 0; i < fillSteps; i++) stepSim(run, { x: 1, y: 0 }, dt)
+    let bombsAtRead = 0
+    const readSteps = Math.round((BLANK_READ1_T * BLANK_ACCEL_MUL + 1) / dt)
+    for (let i = 0; i < readSteps && bombsAtRead === 0; i++) {
+      const before = run.bombs.filter((b) => b.src === 'trail').length
+      stepSim(run, { x: 1, y: 0 }, dt)
+      const added = run.bombs.filter((b) => b.src === 'trail').length - before
+      if (added > 0) bombsAtRead = added
+    }
+    assert.strictEqual(bombsAtRead, BLANK_READ1_K_MATURE, `expected ${BLANK_READ1_K_MATURE} bombs in one P1 read at d3, got ${bombsAtRead}`)
+    console.log(`PASS run LL.d.1 (mature P1 read K): ${bombsAtRead} bombs in one full-trail read at d3`)
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const fillSteps = Math.round((BLANK_TRAIL_MAX * BLANK_TRAIL_DT + 1) / dt)
+    for (let i = 0; i < fillSteps; i++) stepSim(run, { x: 1, y: 0 }, dt)
+    let bombsAtRead = 0
+    const readSteps = Math.round((BLANK_READ1_T + 1) / dt)
+    for (let i = 0; i < readSteps && bombsAtRead === 0; i++) {
+      const before = run.bombs.filter((b) => b.src === 'trail').length
+      stepSim(run, { x: 1, y: 0 }, dt)
+      const added = run.bombs.filter((b) => b.src === 'trail').length - before
+      if (added > 0) bombsAtRead = added
+    }
+    assert.strictEqual(bombsAtRead, BLANK_READ1_K, `expected the base ${BLANK_READ1_K} bombs in one P1 read at d1, got ${bombsAtRead}`)
+    console.log(`PASS run LL.d.2 (control, d1): ${bombsAtRead} bombs in one full-trail read (base K)`)
+  }
+
+  // (e) Speed/HP pins + catch-up cap: P1 spawns at BLANK_BOSS_SPEED_P1 with BLANK_BOSS_HP[0] maxHP
+  // (d1, enemyHpMul 1); P2 spawns at the base BLANK_BOSS_SPEED. A P1 boss teleported far away and
+  // left to pursue closes distance faster than its base speed (the catch-up gear engaging) but
+  // never faster than BLANK_CATCHUP_MAX (fleeing must always work).
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const boss = run.enemies.find((e) => e.id === run.script.bossId)
+    assert.strictEqual(boss.speed, BLANK_BOSS_SPEED_P1, `expected antibody1 speed pinned to BLANK_BOSS_SPEED_P1, got ${boss.speed}`)
+    assert.strictEqual(boss.maxHP, BLANK_BOSS_HP[0], `expected antibody1 maxHP pinned to BLANK_BOSS_HP[0] (d1, enemyHpMul 1), got ${boss.maxHP}`)
+    console.log(`PASS run LL.e.1 (P1 speed+HP pins): speed=${boss.speed}, maxHP=${boss.maxHP}`)
+
+    boss.x = run.player.x + 2000; boss.y = run.player.y
+    const before = { x: boss.x, y: boss.y }
+    for (let i = 0; i < Math.round(1 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const boss2 = run.enemies.find((e) => e.id === run.script.bossId)
+    const moved = Math.hypot(boss2.x - before.x, boss2.y - before.y)
+    assert(moved <= BLANK_CATCHUP_MAX * 1 + 5, `expected the capped pursuit to move <= ${BLANK_CATCHUP_MAX}px + slack in 1s, moved ${moved.toFixed(1)}px`)
+    assert(moved > BLANK_BOSS_SPEED_P1 * 1, `expected the catch-up gear to engage (faster than base ${BLANK_BOSS_SPEED_P1}px/s), moved ${moved.toFixed(1)}px`)
+    console.log(`PASS run LL.e.2 (catch-up cap): boss moved ${moved.toFixed(1)}px in 1s (base ${BLANK_BOSS_SPEED_P1}, cap ${BLANK_CATCHUP_MAX})`)
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 3, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const boss = run.enemies.find((e) => e.id === run.script.bossId)
+    assert.strictEqual(boss.speed, BLANK_BOSS_SPEED, `expected antibody2 speed pinned to the base BLANK_BOSS_SPEED, got ${boss.speed}`)
+    console.log(`PASS run LL.e.3 (P2 speed pin): speed=${boss.speed}`)
+  }
+
+  // (f) Fight-wide desperation: a phase below BLANK_DESPERATE_FRAC hp accelerates its read cadence
+  // to BLANK_READ1_T × BLANK_DESPERATE_MUL (was P3-only before v6.3.1). The FIRST read still fires
+  // at the un-scaled arm value (armed once at boss spawn, before hp is forced down); the interval
+  // AFTER that first read is the one that reflects the desperate re-arm, so that's the gap measured.
+  {
+    function measureSecondGap(hpFrac) {
+      const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+      run.player.hp = run.player.maxHP = 1e6
+      run.weapons = []
+      Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+      stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody1
+      const boss = run.enemies.find((e) => e.id === run.script.bossId)
+      boss.hp = boss.maxHP * hpFrac
+      // Detect each read by the 0 -> >0 EDGE of the trail-bomb count, not a running peak: a read's
+      // own bombs self-detonate (~1-2s, well under the ~5s/~3.1s cadence) and get filtered out of
+      // run.bombs well before the next read fires, so a later read pushing the SAME count (e.g. 8
+      // again) would never look like an "increase" over the first read's already-recorded peak.
+      let lastCount = 0, gaps = [], sinceLast = 0
+      const steps = Math.round((BLANK_READ1_T * 3 + 2) / dt)
+      for (let i = 0; i < steps; i++) {
+        stepSim(run, { x: 0, y: 0 }, dt)
+        sinceLast += dt
+        const count = run.bombs.filter((b) => b.src === 'trail').length
+        if (count > 0 && lastCount === 0) {
+          gaps.push(sinceLast)
+          sinceLast = 0
+        }
+        lastCount = count
+      }
+      return gaps
+    }
+    const desperateGaps = measureSecondGap(0.1)
+    const fullGaps = measureSecondGap(1.0)
+    assert(desperateGaps.length >= 2, `expected >= 2 reads to measure a desperate-cadence gap, got ${desperateGaps.length}`)
+    assert(fullGaps.length >= 2, `expected >= 2 reads to measure a full-hp gap, got ${fullGaps.length}`)
+    const tol = dt * 2
+    const expectDesperate = BLANK_READ1_T * BLANK_DESPERATE_MUL
+    const expectFull = BLANK_READ1_T
+    assert(Math.abs(desperateGaps[1] - expectDesperate) < tol, `expected the desperate-phase read gap ~= ${expectDesperate.toFixed(3)}s (±${tol.toFixed(3)}), got ${desperateGaps[1].toFixed(3)}s`)
+    assert(Math.abs(fullGaps[1] - expectFull) < tol, `expected the full-hp read gap ~= ${expectFull.toFixed(3)}s (±${tol.toFixed(3)}), got ${fullGaps[1].toFixed(3)}s`)
+    console.log(`PASS run LL.f (fight-wide desperation): P1's read gap ${fullGaps[1].toFixed(2)}s at full hp -> ${desperateGaps[1].toFixed(2)}s at 10% hp`)
+  }
+
+  // (g) Residue widening + variant tag: immuneMemory (d3) now drops erase residue at ANY
+  // scripted-chapter corpse, not just _wave ones — including P1's recruit faucet — tagged
+  // variant:'residue'. Control at d1 (no immuneMemory): none. The boss's own P3 bands carry no
+  // variant tag at all (they must read as visually distinct from the dimmed residue).
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 3, mutators: ['accelResponse', 'crossReactive', 'immuneMemory', 'affinityMature'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody1
+    let recruit = null
+    for (let i = 0; i < Math.round(8 / dt) && !recruit; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      recruit = run.enemies.find((e) => !e._dead && !e._wave && e.id !== run.script.bossId) ?? null
+    }
+    assert(recruit, 'expected the P1 recruit drip to spawn a non-_wave enemy within 8s')
+    recruit.x = run.player.x; recruit.y = run.player.y; recruit.hp = recruit.maxHP = 1
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    advance(run, 1, dt, { x: 0, y: 0 })
+    const residue = run.strips.find((s) => s.look === 'erase' && s.variant === 'residue')
+    assert(residue, "expected immuneMemory to drop a variant:'residue' strip at a non-wave recruit's corpse")
+    console.log("PASS run LL.g.1 (residue widening): a non-wave recruit's death leaves variant:'residue' erase residue")
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt)
+    let recruit = null
+    for (let i = 0; i < Math.round(8 / dt) && !recruit; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      recruit = run.enemies.find((e) => !e._dead && !e._wave && e.id !== run.script.bossId) ?? null
+    }
+    assert(recruit, 'expected the P1 recruit drip to spawn a non-_wave enemy within 8s (control)')
+    recruit.x = run.player.x; recruit.y = run.player.y; recruit.hp = recruit.maxHP = 1
+    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    advance(run, 1, dt, { x: 0, y: 0 })
+    assert(!run.strips.some((s) => s.variant === 'residue'), 'expected no residue-tagged strips without immuneMemory at d1')
+    console.log('PASS run LL.g.2 (control, d1): no residue strips without immuneMemory')
+  }
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 3, mutators: ['accelResponse', 'crossReactive', 'immuneMemory', 'affinityMature'] })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody3
+    advance(run, BLANK_READ3_T * BLANK_ACCEL_MUL + 1, dt, { x: 0, y: 0 })
+    const bands = run.strips.filter((s) => s.look === 'erase' && s.len === BLANK_BAND_LEN)
+    assert(bands.length > 0, 'expected P3 star/cross bands to appear within the window')
+    assert(bands.every((s) => s.variant === undefined), "expected the boss's own P3 bands to carry NO variant tag")
+    console.log(`PASS run LL.g.3 (boss bands untagged): ${bands.length} P3 bands, none tagged variant`)
+  }
+
+  // (h) Doubled waves + the blank's own cap: BLANK_SCRIPT's wave-1 size is confirmed doubled, and
+  // padding the field to BLANK_MAX_ALIVE - 1 leaves exactly one slot free for the next wave spawn —
+  // spawnBlankEnemy nulls out past that without stepSim throwing.
+  {
+    const wave0 = BLANK_SCRIPT[0].waves[0]
+    assert.strictEqual(wave0.n, 32, `expected wave 1's size doubled to 32, got ${wave0.n}`)
+
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    for (let i = 0; i < BLANK_MAX_ALIVE - 1; i++) {
+      run.enemies.push(makeStatusEnemy(run, { x: 5000 + i, y: 5000, hp: 1e6, speed: 0 }))
+    }
+    assert.strictEqual(run.enemies.length, BLANK_MAX_ALIVE - 1)
+    stepSim(run, { x: 0, y: 0 }, dt) // wave 1 spawn attempt: 32 requested, only 1 slot free
+    assert.strictEqual(run.enemies.length, BLANK_MAX_ALIVE, `expected exactly one more enemy admitted at the blank cap, got ${run.enemies.length}`)
+    assert(run.script.spawned, 'expected the wave to be marked spawned even though most of its spawns were capped out')
+    console.log(`PASS run LL.h (doubled waves + blank cap): wave0.n=${wave0.n}, padded to ${BLANK_MAX_ALIVE - 1} -> capped cleanly at ${run.enemies.length}`)
+  }
+
+  console.log('PASS run LL (blank difficulty pass): P1 borrowed shot, P2 borrowed read + node cleanup, P3 star/fan/echo, mature read depth, speed/HP pins + catch-up cap, fight-wide desperation, residue widening, doubled waves + blank cap')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -5928,6 +6273,7 @@ try {
   testCoverDestructible()
   testTrafficMainGeyser()
   testDispatchAndCoverKind()
+  testTheBlankDifficulty()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

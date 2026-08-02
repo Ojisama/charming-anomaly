@@ -130,6 +130,11 @@ import {
   BLANK_DESPERATE_FRAC, BLANK_DESPERATE_MUL, BLANK_WAKE_DT, BLANK_WAKE_LEN, BLANK_WAKE_W, BLANK_WAKE_T,
   BLANK_WAKE_DPS, BLANK_MEMORY_T, BLANK_RECRUIT_T, BLANK_RECRUIT_N, BLANK_ACCEL_MUL,
   BLANK_BOSS_SPEED_P3, BLANK_PHASE_LEVELS, BLANK_FAN_N, BLANK_FAN_SPREAD, BLANK_FAN_SPEED,
+  // v6.3.1 difficulty pass: 4x HP/faster P1/doubled waves + crossReactive (d2+)/affinityMature (d3)
+  BLANK_BOSS_SPEED_P1, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
+  BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K, BLANK_XREACT_STRIDE,
+  BLANK_READ1_K_MATURE, BLANK_NODE_MAX_MATURE, BLANK_FAN_N_MATURE,
+  BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -371,34 +376,54 @@ function stepFormations(run, dt) {
   }
 }
 
-// -- The boss script (v5.24, The Blank) ---------------------------------------------------------
+// -- The boss script (v5.24, The Blank; v6.3.1 difficulty pass) ---------------------------------
 // The scripted chapter's ONLY spawner and its whole win condition. run.script ({ stage, waveIdx,
 // waveT, spawned, bossId } — see state.js) walks BLANK_SCRIPT (config.js): even stages are wave
 // blocks, odd stages are boss phases (stage 1/3/5 = phase 1/2/3, one run.enemies entry each so
-// every weapon hits it with zero new plumbing).
-//   Wave block: 3 discrete ring-burst waves, each tagged e._wave. The next wave arrives on clear
-//     OR after BLANK_WAVE_TIMEOUT — leftovers linger and stack pressure (they still count against
-//     the NEXT wave's clear, which is the point). After the block's last wave: stage++.
-//   Boss phase: one antibody spawned through the normal path, then overridden post-spawn (hp/
-//     radius/speed/xp pinned by BLANK_BOSS_*, affixes ['anchored'] = knockback/pull immune). It
-//     ends ONLY on the boss's death — detected by id-absence from run.enemies on a later frame,
-//     same as every kill (kill events carry no id; corpses are filtered at stepWeapons' tail).
-//     Death of the LAST phase IS the victory; no timer victory exists here (see stepSim's gate).
-// The boss learns you — past, present, future, one read per phase:
-//   P1 reads your PAST: run.trail (sampled every BLANK_TRAIL_DT below) is periodically detonated —
-//     the most recent BLANK_READ1_K points become run.bombs (src:'trail'), fuses staggered so the
-//     oldest blows first and the blast chases you along your own path.
-//   P2 holds your PRESENT: killable 'bindnode' enemies extruded near the player; while alive they
-//     MIN-stack a slow (run._bindSlow, read by stepPlayerMovement next frame — one frame of lag
-//     nobody can see) and a node that survives BLANK_YANK_T drags the player toward the boss,
-//     spending ALL nodes. Plus slow aimed shots through the existing run.enemyShots machinery.
+// every weapon hits it with zero new plumbing). BLANK_MAX_ALIVE (not the global MAX_ALIVE) caps
+// every spawn here except the boss itself (spawnBlankEnemy) — the doubled waves below need the
+// headroom.
+//   Wave block: 3 discrete ring-burst waves (doubled in v6.3.1), each tagged e._wave. The next
+//     wave arrives on clear OR after BLANK_WAVE_TIMEOUT — leftovers linger and stack pressure
+//     (they still count against the NEXT wave's clear, which is the point). After the block's
+//     last wave: stage++.
+//   Boss phase: one antibody spawned through the normal path, then overridden post-spawn (hp ×4
+//     over v5.24 via BLANK_BOSS_HP/speed/xp pinned by BLANK_BOSS_*, affixes ['anchored'] =
+//     knockback/pull immune; P1 alone runs at BLANK_BOSS_SPEED_P1, ~70% faster than P2). It ends
+//     ONLY on the boss's death — detected by id-absence from run.enemies on a later frame, same as
+//     every kill (kill events carry no id; corpses are filtered at stepWeapons' tail). A
+//     non-final phase kill also force-kills any surviving binding nodes (dealDamage) so their slow
+//     can't bleed into the next block or P3's chase. Death of the LAST phase IS the victory; no
+//     timer victory exists here (see stepSim's gate).
+// The boss learns you — past, present, future, each phase's OWN read, plus (d2+, crossReactive)
+// one read borrowed from a neighboring phase, plus (d3, affinityMature) its own read running
+// deeper:
+//   P1 reads your PAST: run.trail (sampled every BLANK_TRAIL_DT below) is periodically detonated
+//     via detonateTrail — the most recent BLANK_READ1_K points (BLANK_READ1_K_MATURE at d3) become
+//     run.bombs (src:'trail'), fuses staggered so the oldest blows first and the blast chases you
+//     along your own path. At d2+ it also fires P2's homing shot on its own timer.
+//   P2 holds your PRESENT: killable 'bindnode' enemies extruded near the player (cap
+//     BLANK_NODE_MAX, BLANK_NODE_MAX_MATURE at d3); while alive they MIN-stack a slow
+//     (run._bindSlow, read by stepPlayerMovement next frame — one frame of lag nobody can see) and
+//     a node that survives BLANK_YANK_T (8s, was 5 — 5s spent all nodes before a 3rd could spawn)
+//     drags the player toward the boss, spending ALL nodes. Plus slow aimed shots through the
+//     existing run.enemyShots machinery. At d2+ it also borrows P1's trail read, but detonated as
+//     a SPREAD field (every BLANK_XREACT_STRIDE-th sample) so a stationary player doesn't eat a
+//     stacked blast.
 //   P3 takes your FUTURE: erasure bands (run.strips, look:'erase') pre-fired at the player's
-//     extrapolated position (p.vx/vy × BLANK_LEAD), perpendicular to their heading; reads
-//     accelerate below BLANK_DESPERATE_FRAC hp (desperation).
+//     extrapolated position (p.vx/vy × BLANK_LEAD) — a CROSS (BLANK_BAND_ANGLES), an 8-arm STAR
+//     (BLANK_BAND_ANGLES_MATURE) at d3. At d2+ it also borrows a short trail echo
+//     (BLANK_XREACT_READ3_K points).
+// Desperation is FIGHT-WIDE (v6.3.1, was P3-only): any phase below BLANK_DESPERATE_FRAC hp
+// accelerates its read/shot/node timers ×BLANK_DESPERATE_MUL; P3's cross alone uses the milder
+// BLANK_READ3_DESPERATE_MUL (the shared mul made two 8-arm stars overlap permanently).
 // Each phase also drip-recruits its wave minion (BLANK_RECRUIT_*) so AoE builds and the XP economy
 // never starve during the duel. All spawns pass forceNormal — no elites exist in this chapter.
 // The accelResponse mutator (difficulty 2+, assigned not rolled) shortens every read timer,
 // telegraph fuse and the wave timeout by BLANK_ACCEL_MUL.
+// immuneMemory (d3) residue is no longer wave-only: every scripted-chapter corpse leaves erase
+// residue (dealDamage's on-death block below), tagged variant:'residue' so render.js can dim it
+// against the boss's own (untagged) bands/wakes — the eraser's wake residue is tagged the same way.
 // @returns true if the run ENDED this frame — the P2 yank can kill (phase 'dead'), and the final
 // boss's death wins (phase 'victory'); either way the rest of stepSim must not run.
 function stepBossScript(run, dt) {
@@ -406,6 +431,8 @@ function stepBossScript(run, dt) {
   const p = run.player
   const s = run.script
   const accel = run.mutators.includes('accelResponse') ? BLANK_ACCEL_MUL : 1
+  const xreact = run.mutators.includes('crossReactive')
+  const mature = run.mutators.includes('affinityMature')
 
   // The trail: the ring buffer of recent player positions that P1 detonates and pastSeek probes
   // hunt. Sampled unconditionally so a boss read always has history to work with.
@@ -434,7 +461,7 @@ function stepBossScript(run, dt) {
       const wave = block.waves[s.waveIdx]
       for (let i = 0; i < wave.n; i++) {
         const e = spawnBlankEnemy(run, wave.ids[i % wave.ids.length])
-        if (!e) break // MAX_ALIVE — leftovers already saturate the field
+        if (!e) break // BLANK_MAX_ALIVE — leftovers already saturate the field
         e._wave = true
       }
       s.spawned = true
@@ -464,7 +491,8 @@ function stepBossScript(run, dt) {
     const e = spawnBlankEnemy(run, block.boss, true)
     e.hp = e.maxHP = BLANK_BOSS_HP[phase - 1] * run.mods.enemyHpMul
     e.radius = BLANK_BOSS_R
-    e.speed = phase === 3 ? BLANK_BOSS_SPEED_P3 : BLANK_BOSS_SPEED // P3 has no standoff flag — it chases
+    // v6.3.1: P1 gets its own (faster) speed — closes and circles the standoff band ~70% quicker.
+    e.speed = phase === 3 ? BLANK_BOSS_SPEED_P3 : phase === 1 ? BLANK_BOSS_SPEED_P1 : BLANK_BOSS_SPEED
     e.dmg = BLANK_BOSS_DMG // contact DOES hurt — standoff keeps it rare, not impossible
     e.xp = BLANK_BOSS_XP
     e.affixes = ['anchored'] // knockback/pull immune — checked by every kb site
@@ -476,6 +504,10 @@ function stepBossScript(run, dt) {
     run._shotT = BLANK_SHOT_T * accel
     run._read3T = BLANK_READ3_T * accel
     run._recruitT = BLANK_RECRUIT_T[phase - 1]
+    // xreact (d2+): P2's borrowed trail read runs on ITS OWN timer (not _read1T — that stays P1's
+    // cadence when P1 reforms) at BLANK_XREACT_READ1_MUL × BLANK_READ1_T; P3's borrowed echo reuses
+    // the base BLANK_READ1_T. Armed here regardless of xreact so a later-enabled mutator never reads stale 0.
+    run._xreadT = phase === 2 ? BLANK_READ1_T * BLANK_XREACT_READ1_MUL * accel : BLANK_READ1_T * accel
     run.events.push({ type: 'bossSpawn', x: e.x, y: e.y, stage: phase })
     return false
   }
@@ -498,6 +530,9 @@ function stepBossScript(run, dt) {
       // per playing frame, same as any banked-xp overflow.
       p.xp += p.xpNext
       for (let i = 1; i < BLANK_PHASE_LEVELS; i++) p.xp += xpForLevel(p.level + i)
+      // v6.3.1 [panel/bugs]: a dead boss's nodes die with it — otherwise a surviving binding node's
+      // slow (or a live yank timer) bleeds into the next block, or worse, into P3's 170 px/s chase.
+      for (const n of nodes) dealDamage(run, n, n.hp, false)
       s.stage++
       s.waveIdx = 0
       s.waveT = 0
@@ -510,27 +545,45 @@ function stepBossScript(run, dt) {
   run._bossX = boss.x // last-known position, for the bossDead event a frame after the corpse
   run._bossY = boss.y // is filtered (the kill event carries no id — see the doc block above)
   run.bossBar = { hp: Math.max(0, boss.hp), max: boss.maxHP, stage: phase }
+  // v6.3.1: desperation is fight-wide now, not P3-only — a 4x-hp boss with a flat cadence would be
+  // a pure damage sponge, so any phase below BLANK_DESPERATE_FRAC accelerates its read/shot/node
+  // timers ×BLANK_DESPERATE_MUL. P3's cross keeps a MILDER BLANK_READ3_DESPERATE_MUL instead (see
+  // that constant's config comment — the shared mul made two 8-arm stars overlap permanently).
+  const desperate = boss.hp < boss.maxHP * BLANK_DESPERATE_FRAC
+  const dmul = desperate ? BLANK_DESPERATE_MUL : 1
   let playerDied = false
 
   if (phase === 1) {
     // P1 — reads your past: detonate the recent trail as staggered bombs, oldest first, so the
     // blast front chases the player along their own path. A turner escapes; a straight-liner dies.
+    // affinityMature (d3) reads BLANK_READ1_K_MATURE points deep instead of the base K.
     run._read1T -= dt
     if (run._read1T <= 0) {
-      run._read1T += BLANK_READ1_T * accel
-      const pts = run.trail.slice(-BLANK_READ1_K) // chronological: index 0 = oldest of the K
-      for (let i = 0; i < pts.length; i++) {
-        const fuse = BLANK_READ1_FUSE * accel + i * BLANK_READ1_STAGGER
-        run.bombs.push({ x: pts[i].x, y: pts[i].y, radius: BLANK_READ1_R, fuse, duration: fuse, dmg: BLANK_READ1_DMG, src: 'trail' })
+      run._read1T += BLANK_READ1_T * accel * dmul
+      detonateTrail(run, mature ? BLANK_READ1_K_MATURE : BLANK_READ1_K, 1, accel)
+    }
+    // crossReactive (d2+): P1 borrows P2's homing shot on its own timer (_shotT — P1 never uses it
+    // otherwise) so a later phase-2 reform still arms at the correct cadence.
+    if (xreact) {
+      run._shotT -= dt
+      if (run._shotT <= 0) {
+        run._shotT += BLANK_SHOT_T * accel * dmul
+        const a = Math.atan2(p.y - boss.y, p.x - boss.x)
+        run.enemyShots.push({
+          x: boss.x, y: boss.y, vx: Math.cos(a) * BLANK_SHOT_SPEED, vy: Math.sin(a) * BLANK_SHOT_SPEED,
+          r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: BLANK_SHOT_TURN,
+        })
       }
     }
   } else if (phase === 2) {
     // P2 — holds your present: extrude killable binding nodes near the player. Target-switching
     // discipline is the counterplay — a node that survives BLANK_YANK_T fires the yank.
+    // affinityMature (d3) raises the node cap to BLANK_NODE_MAX_MATURE (slow table floor unchanged
+    // — mutator-gated so d1/d2 never silently get a 4th node).
     run._nodeT -= dt
     if (run._nodeT <= 0) {
-      run._nodeT += BLANK_NODE_T * accel
-      if (nodes.length < BLANK_NODE_MAX) {
+      run._nodeT += BLANK_NODE_T * accel * dmul
+      if (nodes.length < (mature ? BLANK_NODE_MAX_MATURE : BLANK_NODE_MAX)) {
         const a = Math.random() * Math.PI * 2
         const e = spawnBlankEnemy(run, 'bindnode', false, { x: p.x + Math.cos(a) * BLANK_NODE_RING, y: p.y + Math.sin(a) * BLANK_NODE_RING })
         if (e) { e.hp = e.maxHP = BLANK_NODE_HP; e._bindT = 0 }
@@ -553,7 +606,7 @@ function stepBossScript(run, dt) {
     // Slow aimed shots (the existing enemy-projectile machinery — outrunnable, but you're slowed).
     run._shotT -= dt
     if (run._shotT <= 0) {
-      run._shotT += BLANK_SHOT_T * accel
+      run._shotT += BLANK_SHOT_T * accel * dmul
       const a = Math.atan2(p.y - boss.y, p.x - boss.x)
       run.enemyShots.push({
         x: boss.x, y: boss.y,
@@ -561,20 +614,29 @@ function stepBossScript(run, dt) {
         r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: BLANK_SHOT_TURN,
       })
     }
+    // crossReactive (d2+): P2 borrows P1's trail read, but as a SPREAD field (every
+    // BLANK_XREACT_STRIDE-th sample) so a stationary player — P2's own correct play — gets a
+    // spread field, not a stacked blast.
+    if (xreact) {
+      run._xreadT -= dt
+      if (run._xreadT <= 0) {
+        run._xreadT += BLANK_READ1_T * BLANK_XREACT_READ1_MUL * accel
+        detonateTrail(run, BLANK_READ1_K, BLANK_XREACT_STRIDE, accel)
+      }
+    }
   } else {
     // P3 — takes your future, and comes to collect it: the antibody itself chases (no standoff
-    // flag, BLANK_BOSS_SPEED_P3) while pre-firing an erasure CROSS at the extrapolated position
-    // (p.vx/vy are stepPlayerMovement's input-only snapshot) — one band across the heading, one
-    // along it, so both the straight-ahead escape and the sideline are cut. Feinting — breaking
-    // your own pattern — is still the counterplay; now it must be done at a run.
-    const desperate = boss.hp < boss.maxHP * BLANK_DESPERATE_FRAC
+    // flag, BLANK_BOSS_SPEED_P3) while pre-firing an erasure CROSS (an 8-arm STAR at d3, via
+    // BLANK_BAND_ANGLES_MATURE) at the extrapolated position (p.vx/vy are stepPlayerMovement's
+    // input-only snapshot), so both the straight-ahead escape and the sideline are cut. Feinting —
+    // breaking your own pattern — is still the counterplay; now it must be done at a run.
     run._read3T -= dt
     if (run._read3T <= 0) {
-      run._read3T += BLANK_READ3_T * accel * (desperate ? BLANK_DESPERATE_MUL : 1)
+      run._read3T += BLANK_READ3_T * accel * (desperate ? BLANK_READ3_DESPERATE_MUL : 1)
       const speed = Math.hypot(p.vx, p.vy)
       const a = speed > 1 ? Math.atan2(p.vy, p.vx) + Math.PI / 2 : Math.random() * Math.PI * 2
       const cx = p.x + p.vx * BLANK_LEAD, cy = p.y + p.vy * BLANK_LEAD
-      for (const da of [0, Math.PI / 2]) {
+      for (const da of (mature ? BLANK_BAND_ANGLES_MATURE : BLANK_BAND_ANGLES)) {
         run.strips.push({
           x: cx, y: cy, angle: a + da,
           len: BLANK_BAND_LEN, w: BLANK_BAND_W, fuse: BLANK_BAND_FUSE * accel, t: BLANK_BAND_T,
@@ -582,19 +644,30 @@ function stepBossScript(run, dt) {
         })
       }
     }
-    // Straight aimed fans on the P2 shot timer — no homing (turnRate 0): from a boss already on
-    // your heels the threat is the spread, and sidestepping it steers you toward the cross.
+    // Straight aimed fans on the P2 shot timer — no homing (turnRate 0), BLANK_FAN_N_MATURE shots
+    // at d3: from a boss already on your heels the threat is the spread, and sidestepping it
+    // steers you toward the cross.
     run._shotT -= dt
     if (run._shotT <= 0) {
-      run._shotT += BLANK_SHOT_T * accel * (desperate ? BLANK_DESPERATE_MUL : 1)
+      run._shotT += BLANK_SHOT_T * accel * dmul
       const base = Math.atan2(p.y - boss.y, p.x - boss.x)
-      for (let i = 0; i < BLANK_FAN_N; i++) {
-        const a = base + (i - (BLANK_FAN_N - 1) / 2) * BLANK_FAN_SPREAD
+      const fanN = mature ? BLANK_FAN_N_MATURE : BLANK_FAN_N
+      for (let i = 0; i < fanN; i++) {
+        const a = base + (i - (fanN - 1) / 2) * BLANK_FAN_SPREAD
         run.enemyShots.push({
           x: boss.x, y: boss.y,
           vx: Math.cos(a) * BLANK_FAN_SPEED, vy: Math.sin(a) * BLANK_FAN_SPEED,
           r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: 0,
         })
+      }
+    }
+    // crossReactive (d2+): P3 borrows a short trail echo (BLANK_XREACT_READ3_K points) rather
+    // than the fuller P1 read — a reminder, not a second read.
+    if (xreact) {
+      run._xreadT -= dt
+      if (run._xreadT <= 0) {
+        run._xreadT += BLANK_READ1_T * accel
+        detonateTrail(run, BLANK_XREACT_READ3_K, BLANK_XREACT_STRIDE, accel)
       }
     }
   }
@@ -611,13 +684,29 @@ function stepBossScript(run, dt) {
   return playerDied
 }
 
+// v6.3.1: detonate k points of the player's trail as staggered telegraph bombs (oldest first,
+// same shape as P1's own read). Borrowed (cross-reactive) reads pass stride > 1: every stride-th
+// sample, so a stationary player yields a spread field, not a stacked blast. Stagger scales with
+// accel like the base fuse does.
+function detonateTrail(run, k, stride, accel) {
+  const src = stride > 1 ? run.trail.filter((_, i) => i % stride === 0) : run.trail
+  const pts = src.slice(-k)
+  for (let i = 0; i < pts.length; i++) {
+    const fuse = BLANK_READ1_FUSE * accel + i * BLANK_READ1_STAGGER * accel
+    run.bombs.push({ x: pts[i].x, y: pts[i].y, radius: BLANK_READ1_R, fuse, duration: fuse, dmg: BLANK_READ1_DMG, src: 'trail' })
+  }
+}
+
 // Spawn one blank-roster enemy by id through the normal spawnEnemy path — never elite, base stats
 // from its roster archetype, default ring placement unless opts gives (x,y) — and return it (spawnEnemy
 // exposes the spawn only as the run.enemies tail, same as the spawner elite flag reads it). Returns
-// null at MAX_ALIVE, EXCEPT for the boss (essential = true): a script whose boss never arrives
-// soft-locks the chapter, so the antibody ignores the cap the way nothing else does.
+// null at BLANK_MAX_ALIVE (v6.3.1: the blank's own, higher cap — not the global MAX_ALIVE), EXCEPT
+// for the boss (essential = true): a script whose boss never arrives soft-locks the chapter, so the
+// antibody ignores the cap the way nothing else does.
 function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
-  if (!essential && run.enemies.length >= MAX_ALIVE) return null
+  // v6.3.1: the blank gets its own (higher) cap, not the global MAX_ALIVE — doubled waves' worst-case
+  // zero-clear leftover count would otherwise starve nodes/recruits at the shared ceiling.
+  if (!essential && run.enemies.length >= BLANK_MAX_ALIVE) return null
   const roster = CHAPTERS[run.chapter].roster.find((r) => r.id === rosterId)
   spawnEnemy(run, { type: ARCHETYPE_TYPE[roster.archetype], forceNormal: true, rosterId, ...opts })
   const e = run.enemies[run.enemies.length - 1]
@@ -1109,7 +1198,7 @@ function stepEnemyMovement(run, dt) {
         run.strips.push({
           x: e.x, y: e.y, angle: Math.atan2(ty - e.y, tx - e.x),
           len: BLANK_WAKE_LEN, w: BLANK_WAKE_W, fuse: 0.15, t: BLANK_WAKE_T, dps: BLANK_WAKE_DPS,
-          look: 'erase',
+          look: 'erase', variant: 'residue', // v6.3.1: dimmed by render.js so it stays legible against boss bands
         })
       }
     }
@@ -1499,9 +1588,11 @@ function stepStandoff(e, tx, ty, dt, slowMul, spdMul) {
   const d = Math.hypot(dx, dy) || 1
   const spd = e.speed * spdMul * slowMul
   if (d > BLANK_STANDOFF_MAX) {
-    const chase = d > BLANK_STANDOFF_CATCHUP_D ? BLANK_STANDOFF_CATCHUP_MUL : 1 // see config: a kited boss pursues
-    e.x += (dx / d) * spd * chase * dt
-    e.y += (dy / d) * spd * chase * dt
+    // Past CATCHUP_D the boss pursues, but never faster than BLANK_CATCHUP_MAX: fleeing always
+    // works (config's contract) — P1's 120 base would otherwise outrun every build at ×2.8.
+    const spd2 = d > BLANK_STANDOFF_CATCHUP_D ? Math.min(spd * BLANK_STANDOFF_CATCHUP_MUL, BLANK_CATCHUP_MAX) : spd
+    e.x += (dx / d) * spd2 * dt
+    e.y += (dy / d) * spd2 * dt
   } else if (d < BLANK_STANDOFF_MIN) {
     e.x -= (dx / d) * spd * dt
     e.y -= (dy / d) * spd * dt
@@ -2672,13 +2763,17 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
       run.trails.push({ x: enemy.x, y: enemy.y, t: PHEROMONE_LIFE * run.mods.pheromoneLifeMul })
     }
     // immuneMemory mutator (v5.24 blank difficulty 3, assigned by the chapter's ladder — never
-    // rolled): a slain WAVE enemy leaves brief erasing residue where it died, so clearing a wave
-    // point-blank has a cost. Same acidPool shape, but through run.strips with the erase look.
-    if (enemy._wave && run.mutators.includes('immuneMemory')) {
+    // rolled): a slain cell of the scripted chapter leaves brief erasing residue where it died, so
+    // clearing enemies point-blank has a cost. v6.3.1 [panel]: widened from wave-only to every
+    // scripted-chapter corpse — at d3 the P3 recruit faucet now seeds residue too ("slain cells
+    // leave erasing residue" finally means all of them). Same acidPool shape, but through
+    // run.strips with the erase look; tagged variant:'residue' (like the eraser's wake) so
+    // render.js can dim both against the boss's OWN bands, which stay untagged/full-strength.
+    if ((enemy._wave || CHAPTERS[run.chapter].scripted) && run.mutators.includes('immuneMemory')) {
       run.strips.push({
         x: enemy.x, y: enemy.y, angle: Math.random() * Math.PI,
         len: BLANK_WAKE_LEN, w: BLANK_WAKE_W, fuse: 0.3, t: BLANK_MEMORY_T, dps: BLANK_WAKE_DPS,
-        look: 'erase',
+        look: 'erase', variant: 'residue',
       })
     }
   }
