@@ -52,6 +52,8 @@ import {
   BLANK_TRAIL_DT, BLANK_TRAIL_MAX, BLANK_READ1_K, BLANK_READ1_K_MATURE,
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
+  // v6.3.4 anti-turtle pass (Run MM)
+  ENEMIES, dmgScale, difficultyDmgMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -218,9 +220,17 @@ function testRaritySanity() {
 
       if (c.kind === 'passive') {
         const cfg = PASSIVES[c.id]
-        const mult = RARITIES[c.rarity].mult
-        let expected = cfg.base * mult
-        if (cfg.kind === 'flat') expected = Math.round(expected * 10) / 10
+        let expected
+        if (cfg.values) {
+          // v6.3.4: armor/regen roll ONLY the rarities listed in their values table, at fixed
+          // per-rarity amounts — no base*mult math, and never epic/mythic.
+          assert(c.rarity in cfg.values, `[${c.id}] values-passive rolled disallowed rarity ${c.rarity}`)
+          expected = cfg.values[c.rarity]
+        } else {
+          const mult = RARITIES[c.rarity].mult
+          expected = cfg.base * mult
+          if (cfg.kind === 'flat') expected = Math.round(expected * 10) / 10
+        }
         assert.strictEqual(c.bonus, expected, `[${c.id}] bonus ${c.bonus} != expected ${expected} for rarity ${c.rarity}`)
         passiveBonusChecked = true
       }
@@ -6248,6 +6258,151 @@ function testTheBlankDifficulty() {
   console.log('PASS run LL (blank difficulty pass): P1 borrowed shot, P2 borrowed read + node cleanup, P3 star/fan/echo, mature read depth, speed/HP pins + catch-up cap, fight-wide desperation, residue widening, horde waves at a third xp + blank cap')
 }
 
+// ---- Run MM: v6.3.4 anti-turtle pass (enemy dmg scales with time+difficulty, armor/regen
+// capped to fixed per-rarity values normal/rare/legendary only, single-hit cap) ------------------
+// "Full armor + waiting it out" cheesed every timer chapter: flat armor floored hits to 1, the
+// global invuln window capped intake at ~1.33 hits/s, regen outhealed that, and enemy damage
+// never scaled with time (only HP did). Fixed by (A) enemy contact damage scaling with
+// dmgScale(run.time) and the difficulty ladder (difficultyDmgMul), and (B) armor/regen rolling
+// only normal/rare/legendary at fixed flat amounts (never epic/mythic) — plus a HURT_CAP_FRAC
+// guard so no single non-dot hit can one-shot regardless of how the multipliers compose.
+function testAntiTurtle() {
+  const dt = 1 / 60
+
+  // (a) dmg carries dmgScale(run.time) at spawn (checked against a non-elite d1 spawn, so
+  // ELITE.dmgMul/enemyDmgMul stay at their neutral values and isolate the time curve), and the
+  // difficulty ladder folds difficultyDmgMul into mods.enemyDmgMul exactly, once, at createRun.
+  {
+    const run = createRun(makeMeta(), { difficulty: 1 })
+    run.weapons = [] // isolate: no kills/xp/levelup, just the spawn-time dmg property
+    run.player.hp = run.player.maxHP = 1e9
+    run.player.x = 0; run.player.y = 0
+
+    let e0 = null
+    for (let i = 0; i < Math.round(10 / dt) && !e0; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      e0 = run.enemies.find((e) => !e.elite)
+    }
+    assert(e0, 'expected a natural spawn near t≈0')
+    const ratio0 = e0.dmg / ENEMIES[e0.type].dmg
+    assert(Math.abs(ratio0 - 1) < 0.02, `expected dmg/ENEMIES[type].dmg ≈1 near t≈0 (dmgScale(0)=1), got ${ratio0.toFixed(3)} at t=${run.time.toFixed(2)}`)
+
+    // Jump run.time forward (to 299, not 300: stepSim flips phase to 'victory' and stops
+    // spawning the instant run.time >= RUN_DURATION, so 300 exactly is a dead end) and reset the
+    // elite-cadence pointer along with it: a stale _nextEliteAt=40 left behind by the jump would
+    // read run.time(299) >= _nextEliteAt(40) as true for every spawn until the pointer's own
+    // +eliteEveryAt steps walk it back past 299 — an avalanche that's an artifact of jumping
+    // run.time in a test, not anything a real (continuously-advancing) run would ever hit.
+    run.time = 299
+    run._nextEliteAt = run.time + eliteEveryAt(run.time)
+    const before = run.enemies.length
+    let e1 = null
+    for (let i = 0; i < Math.round(0.5 / dt) && !e1 && run.phase === 'playing'; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      e1 = run.enemies.slice(before).find((e) => !e.elite)
+    }
+    assert(e1, `expected a natural spawn after jumping run.time to 299 (phase=${run.phase})`)
+    const ratio1 = e1.dmg / ENEMIES[e1.type].dmg
+    assert(Math.abs(ratio1 - 2) < 0.02, `expected dmg/ENEMIES[type].dmg ≈2 at t≈300 (dmgScale(300)=2), got ${ratio1.toFixed(3)} at t=${run.time.toFixed(2)}`)
+    console.log(`PASS run MM.a.1 (time scaling): ratio@t≈0=${ratio0.toFixed(3)} ratio@t≈300=${ratio1.toFixed(3)}`)
+  }
+  {
+    const run = createRun(makeMeta(), { difficulty: 5 })
+    assert.strictEqual(run.mods.enemyDmgMul, difficultyDmgMul(5), `expected mods.enemyDmgMul === difficultyDmgMul(5), got ${run.mods.enemyDmgMul}`)
+    assert.strictEqual(run.mods.enemyDmgMul, 1.6, `expected difficultyDmgMul(5) === 1.6 (1 + ${DIFFICULTY_DMG_PER_LEVEL}*4), got ${run.mods.enemyDmgMul}`)
+    console.log(`PASS run MM.a.2 (difficulty scaling): d5 mods.enemyDmgMul=${run.mods.enemyDmgMul}`)
+  }
+
+  // (b) defensive rarity property: sample ~200 level-up pools (run E's style — fresh run each
+  // time so pools aren't depleted) and check every armor/regen card seen never exceeds legendary
+  // and matches its values table exactly (no base*mult math for these two ids anymore).
+  {
+    const seen = []
+    for (let i = 0; i < 200; i++) {
+      const run = createRun(makeMeta())
+      for (const c of buildLevelUpChoices(run)) {
+        if (c.kind === 'passive' && (c.id === 'armor' || c.id === 'regen')) seen.push(c)
+      }
+    }
+    assert(seen.length > 0, 'expected at least one armor/regen card across 200 level-up pools')
+    for (const c of seen) {
+      assert(['normal', 'rare', 'legendary'].includes(c.rarity), `[${c.id}] expected rarity in {normal,rare,legendary}, got ${c.rarity}`)
+      assert.strictEqual(c.bonus, PASSIVES[c.id].values[c.rarity], `[${c.id}] bonus ${c.bonus} != values[${c.rarity}] ${PASSIVES[c.id].values[c.rarity]}`)
+    }
+    console.log(`PASS run MM.b (defensive rarity capped): ${seen.length} armor/regen cards seen across 200 pools, all normal/rare/legendary and exact`)
+  }
+
+  // (c) the turtle dies: a heavily-armored/regenerating stationary build that would have been a
+  // near-stalemate under the old flat formula (armor floors most hits to 1, regen ~keeps pace)
+  // measurably loses ground once dmgScale ramps contact damage up late-run. run.time is jumped
+  // instead of simulated from 0 (300s of real-time stepping per sub-test would make the suite
+  // slow), so — same as (a) — the elite-cadence pointer is reset with it.
+  {
+    const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+    run.weapons = []
+    run.passives.armor = 7
+    run.passives.regen = 3.2
+    run.player.maxHP = run.player.hp = 400
+    run.player.x = 0; run.player.y = 0
+    run.time = 250
+    run._nextEliteAt = run.time + eliteEveryAt(run.time)
+
+    const samples = []
+    const steps = Math.round(40 / dt)
+    for (let i = 0; i < steps; i++) {
+      if (run.phase === 'levelup') { applyChoice(run, pickNonElementIndex(run)); run.phase = 'playing'; continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (i % Math.round(3 / dt) === 0) samples.push({ t: run.time, hp: run.player.hp })
+    }
+    const died = run.phase === 'dead'
+    assert(samples.length >= 3, `expected the turtle build to survive long enough to sample a trend, got ${samples.length} samples (died=${died} at t=${run.time.toFixed(1)})`)
+    const first = samples[0], last = samples[samples.length - 1]
+    assert(died || last.hp < first.hp,
+      `expected net HP to be falling late-run (turtle dies): hp@t=${first.t.toFixed(1)} was ${first.hp.toFixed(1)}, hp@t=${last.t.toFixed(1)} is ${last.hp.toFixed(1)} (died=${died})`)
+    console.log(`PASS run MM.c (the turtle dies): hp@t=${first.t.toFixed(1)}=${first.hp.toFixed(1)} -> hp@t=${last.t.toFixed(1)}=${last.hp.toFixed(1)}${died ? ' (died)' : ''} — regen no longer outheals contact`)
+  }
+
+  // (d) blank re-pin: spawnBlankEnemy's scripted-fight bodies skip dmgScale (and the difficulty
+  // tax stays applied via enemyDmgMul) exactly like they already skip hpScale/speedCreep — a
+  // wave body's dmg must equal its archetype's flat ENEMIES[].dmg at d1 (mods.enemyDmgMul=1),
+  // with no time-curve inflation no matter how long the fight runs past 300s.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    run.time = 200
+    Object.assign(run.script, { stage: 0, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns wave 1 (all probes)
+    const wave = run.enemies.find((e) => e._wave)
+    assert(wave, 'expected a wave enemy to spawn')
+    const roster = CHAPTERS.blank.roster.find((r) => r.id === wave.rosterId)
+    const archBase = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
+    assert.strictEqual(wave.dmg, archBase.dmg, `expected blank wave dmg to skip dmgScale exactly (d1, mods.enemyDmgMul=1), got ${wave.dmg} vs archetype base ${archBase.dmg}`)
+    console.log(`PASS run MM.d (blank re-pin: dmg): wave dmg=${wave.dmg} === archetype base=${archBase.dmg} at run.time=${run.time}`)
+  }
+
+  // (e) hit cap: a hand-placed enemy touching the player with an absurd dmg (10000) still costs
+  // at most HURT_CAP_FRAC of maxHP — the guard that keeps glass/difficulty/late-run/enrage
+  // multipliers from composing into a one-shot.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = run.player.maxHP = 100
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 })
+    e.dmg = 10000
+    run.enemies.push(e)
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const lost = 100 - run.player.hp
+    const cap = 100 * HURT_CAP_FRAC
+    assert(lost <= cap + 0.5, `expected a single hit to cost at most HURT_CAP_FRAC*maxHP (${cap}), lost ${lost.toFixed(2)}`)
+    console.log(`PASS run MM.e (hit cap): 10000 raw dmg -> lost ${lost.toFixed(2)} hp (cap ${cap})`)
+  }
+
+  console.log('PASS run MM (anti-turtle pass): time+difficulty dmg scaling, armor/regen rarity-capped at fixed values, the turtle dies, blank re-pin skips the time curve, single-hit cap')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -6294,6 +6449,7 @@ try {
   testTrafficMainGeyser()
   testDispatchAndCoverKind()
   testTheBlankDifficulty()
+  testAntiTurtle()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

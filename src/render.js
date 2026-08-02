@@ -10031,11 +10031,17 @@ export function createRenderer(app) {
           spawnRing(e.x, e.y, 60, 0.22, T.novaRing, 0xff5a4a)
           spawnRing(e.x, e.y, 34, 0.18, T.novaRing, 0xff5a4a)
           break
-        case 'hurt':
-          addShake(6, 0.25)
-          vignetteA = 0.6
-          flashT = 0.28
+        case 'hurt': {
+          // v6.3.4: damage now scales (dmgScale/difficulty), so a floored 1-dmg tick and a 60-dmg
+          // late elite hit must not read as the same event — scale the fixed magnitudes below by
+          // how big the hit was relative to maxHP (a hit >= 20% of maxHP keeps full feedback).
+          const frac = Math.min(1, (e.dmg / Math.max(1, run.player.maxHP)) * 5)
+          const hurtMul = 0.4 + 0.6 * frac
+          addShake(6 * hurtMul, 0.25)
+          vignetteA = 0.6 * hurtMul
+          flashT = 0.28 * hurtMul
           break
+        }
         case 'levelup':
           levelupBurst(run.player.x, run.player.y)
           break

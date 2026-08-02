@@ -1,7 +1,7 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
 import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
-  difficultyHpMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
+  difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
   chapterMaxDifficulty,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
   SNAP_TRAP_R, SNAP_TRAP_MIN_DIST,
@@ -619,7 +619,9 @@ function generateWells(sig) {
  *
  * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
  *   rarity: key of RARITIES (weapons: inherent; passives/mods/elements: rolled). icon: from config.
- *   bonus: passives/mods/elements only — the pre-multiplied amount applyChoice will add.
+ *   bonus: passives/mods/elements only — the pre-multiplied amount applyChoice will add. v6.3.4:
+ *   a passive with a PASSIVES[id].values table (armor/regen) uses fixed per-rarity amounts instead
+ *   of base*mult, and only ever rolls normal/rare/legendary — it never appears at epic/mythic.
  *   kind 'mod': weapon mod upgrades (see WEAPON_MODS in config.js), offered only while the
  *   owning weapon (choice.weapon, a weapon id) is owned. run.weaponMods[weapon][id] accumulates
  *   applied bonus; run.weaponModPicks[weapon][id] counts picks (max MAX_WEAPON_MOD_PICKS),
@@ -690,10 +692,12 @@ function generateWells(sig) {
 export function createRun(meta, opts = {}) {
   const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
   // Pre-run modifiers (see MUTATORS + difficulty consts in config.js and the doc block above):
-  // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP tax on top of mutators.
+  // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP AND enemy-damage tax on
+  // top of mutators (v6.3.4 anti-turtle: HP-only difficulty made runs longer, not more dangerous).
   const difficulty = opts.difficulty ?? 1
   const mods = mergeMutatorMods(opts.mutators ?? [])
   mods.enemyHpMul *= difficultyHpMul(difficulty)
+  mods.enemyDmgMul *= difficultyDmgMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []

@@ -43,6 +43,10 @@ export const PLAYER = {
   baseCritDamage: 1.5,
   invulnTime: 0.75,      // s of invulnerability after being hit
 }
+// v6.3.4 anti-turtle guard: no single non-dot hit exceeds this fraction of maxHP — protects
+// against multiplicative compositions (glass ×1.75 × difficulty ×1.6 × late-run ×2 × enrage ×1.5)
+// crossing the one-shot line.
+export const HURT_CAP_FRAC = 0.5
 
 // ---- Weapons ----------------------------------------------------------------
 // levels[i] applies at weapon level i+1 (cumulative object replaces stats).
@@ -422,7 +426,9 @@ export const HOLE_CORE_DMG_MUL = 3     // tick damage multiplier for enemies ins
 export const HOLE_PULL_DECAY = 3       // /s, decay rate of e.holePull once an enemy is no longer inside a hole
 
 // ---- In-run passives ------------------------------------------------------------
-// Each pick ROLLS a rarity: applied bonus = base * RARITIES[rarity].mult.
+// Each pick ROLLS a rarity: applied bonus = base * RARITIES[rarity].mult. A passive carrying a
+// `values` table instead rolls ONLY the listed rarities, at the listed flat amounts (v6.3.4:
+// defense can't jackpot to mythic — armor/regen's turtle ceiling is capped, not just taxed).
 // run.passives[id] accumulates the applied bonus; run.passivePicks[id] counts picks (max 5).
 // kind 'pct' renders as +N%, 'flat' as +N <unit>.
 export const PASSIVES = {
@@ -433,8 +439,8 @@ export const PASSIVES = {
   damage:     { name: 'Angry Goo',    desc: 'damage',       base: 0.06, kind: 'pct' },
   critChance: { name: 'Sharp Eye',    desc: 'crit chance',  base: 0.03, kind: 'pct' },
   critDamage: { name: 'Bully',        desc: 'crit damage',  base: 0.20, kind: 'pct' },
-  armor:      { name: 'Thick Jelly',  desc: 'armor (flat damage block)', base: 1, kind: 'flat' },
-  regen:      { name: 'Self-Goo',     desc: 'HP regen per second', base: 0.5, kind: 'flat' },
+  armor:      { name: 'Thick Jelly',  desc: 'armor (flat damage block)', base: 1, kind: 'flat', values: { normal: 1, rare: 2, legendary: 4 } },
+  regen:      { name: 'Self-Goo',     desc: 'HP regen per second', base: 0.5, kind: 'flat', values: { normal: 0.5, rare: 0.8, legendary: 1.5 } },
   xpGain:     { name: 'Big Brain',    desc: 'XP gain',      base: 0.08, kind: 'pct' },
 }
 export const MAX_PASSIVE_LEVEL = 5
@@ -1044,9 +1050,10 @@ export const MAX_ELEMENT_PICKS = 5
 export const ELEMENT_CARD_WEIGHT = 0.25
 
 // ---- Difficulty (classic runs; picked on the title screen, saved in meta) -----------
-// Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND
-// stacks +DIFFICULTY_HP_PER_LEVEL enemy HP (multiplied into run.mods.enemyHpMul on top of
-// whatever the mutators themselves do). The Daily Anomaly ignores this (fixed shared seed).
+// Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND stacks
+// +DIFFICULTY_HP_PER_LEVEL enemy HP and +DIFFICULTY_DMG_PER_LEVEL enemy damage (multiplied into
+// run.mods.enemyHpMul/enemyDmgMul on top of whatever the mutators themselves do). The Daily
+// Anomaly ignores this (fixed shared seed).
 export const MAX_DIFFICULTY = 5
 // Winning a classic run at this difficulty (or higher) unlocks the next chapter — used by
 // endRun (main.js) at victory time AND by loadMeta (state.js) retroactively, since a chapter
@@ -1055,6 +1062,10 @@ export const MAX_DIFFICULTY = 5
 export const CHAPTER_UNLOCK_DIFFICULTY = 3
 export const DIFFICULTY_HP_PER_LEVEL = 0.25
 export const difficultyHpMul = (d) => 1 + DIFFICULTY_HP_PER_LEVEL * (Math.max(1, d) - 1)
+// HP-only difficulty made runs longer, not more dangerous — the damage tax is what makes flat
+// armor decay on the ladder (v6.3.4 anti-turtle).
+export const DIFFICULTY_DMG_PER_LEVEL = 0.15
+export const difficultyDmgMul = (d) => 1 + DIFFICULTY_DMG_PER_LEVEL * (Math.max(1, d) - 1)
 // The payout matching the tax: +25% coins per level above 1 (multiplied into
 // run.mods.coinMul, and applied to the end-of-run kill bonus in main.js).
 export const DIFFICULTY_COIN_PER_LEVEL = 0.25
@@ -1189,6 +1200,11 @@ export const hpScale = (t) => {
   if (t <= HP_SCALE_LATE_START) return base
   return base * (1 + HP_SCALE_LATE_RATE * (t - HP_SCALE_LATE_START))
 }
+// enemy contact damage scales with time too (v6.3.4 anti-turtle): linear ×2 at RUN_DURATION,
+// deliberately milder than hpScale's late-quad — spawn rate already accelerates after 120s and a
+// third accelerating curve would stack into a late wall. This is the anti-turtle fix itself: a
+// stationary armor stack that floors every hit to 1 early is chipped through by t=300.
+export const dmgScale = (t) => 1 + t / RUN_DURATION
 export const MAX_ALIVE = 400
 // Elite cadence shrinks over the run: ELITE_EVERY_START seconds between elites at t=0,
 // linearly down to ELITE_EVERY_END by RUN_DURATION (so multiple elites can be alive at once

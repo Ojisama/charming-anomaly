@@ -5,7 +5,9 @@
 // Mutators (v4.0, see MUTATORS/mergeMutatorMods in config.js): run.mods is applied at exactly
 // these points, nowhere else —
 //   spawnMul            stepSpawning (spawn rate)
-//   enemyHpMul/enemySpeedMul/enemyDmgMul/enemyRadiusMul   spawnEnemy (per-enemy stats)
+//   enemyHpMul/enemySpeedMul/enemyDmgMul/enemyRadiusMul   spawnEnemy (per-enemy stats — dmg also
+//                        carries dmgScale(run.time) at spawn; the difficulty damage tax folds
+//                        into enemyDmgMul once, at createRun — see difficultyDmgMul in config.js)
 //   eliteEveryMul        spawnEnemy (elite cadence step)
 //   contactDmgTakenMul   hurtPlayer (contact damage + volatile bomb blasts)
 //   playerDmgMul         applyDamage (player-side outgoing damage only, not raw DoT/combo ticks)
@@ -32,7 +34,7 @@ import {
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
   RARITIES, RARITY_ORDER, RARITY_WEIGHTS,
   ENEMIES, ELITE, WAVE_TABLE,
-  spawnRate, hpScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
+  spawnRate, hpScale, dmgScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
@@ -56,7 +58,7 @@ import {
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
-  REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB,
+  REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB, HURT_CAP_FRAC,
   ARCHETYPE_TYPE, TYPE_ARCHETYPE, LATCH_SLOW_T, LATCH_SLOW_MUL,
   SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
@@ -711,12 +713,15 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   const roster = CHAPTERS[run.chapter].roster.find((r) => r.id === rosterId)
   spawnEnemy(run, { type: ARCHETYPE_TYPE[roster.archetype], forceNormal: true, rosterId, ...opts })
   const e = run.enemies[run.enemies.length - 1]
-  // Re-pin hp/speed WITHOUT hpScale/speedCreep: those curves ramp toughness against the 300s
-  // survival clock, but a scripted fight has no clock — its difficulty is the ladder's job, and a
-  // slow clear must not quietly toughen wave 7 against the player who most needs it not to.
+  // Re-pin hp/speed/dmg WITHOUT hpScale/dmgScale/speedCreep: those curves ramp toughness against
+  // the 300s survival clock, but a scripted fight has no clock — its difficulty is the ladder's
+  // job, and a slow clear must not quietly toughen wave 7 (or up-damage it) against the player
+  // who most needs it not to. Blank fights routinely run past 300s, so leaving dmgScale live
+  // would silently inflate late waves; the ladder-driven enemyDmgMul stays.
   const base = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
   e.hp = e.maxHP = base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul
   e.speed = base.speed * (roster.speedMul ?? 1) * run.mods.enemySpeedMul
+  e.dmg = base.dmg * run.mods.enemyDmgMul
   return e
 }
 
@@ -929,7 +934,7 @@ function spawnEnemy(run, opts = {}) {
 
   let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
   const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
-  const dmg = base.dmg * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
+  const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
   const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul
 
   const affixes = isElite ? rollAffixes(run) : []
@@ -1712,7 +1717,9 @@ function hurtPlayer(run, rawDmg, dot = false) {
   if (run.rampageT > 0) return false
   const dmg = dot
     ? Math.max(1, Math.round(rawDmg))
-    : Math.max(1, Math.round((rawDmg - run.passives.armor) * run.mods.contactDmgTakenMul))
+    // v6.3.4 anti-turtle: HURT_CAP_FRAC caps a single non-dot hit so multiplicative sources
+    // (glass, difficulty, late-run dmgScale, enrage) can't compose past a one-shot.
+    : Math.min(Math.round(p.maxHP * HURT_CAP_FRAC), Math.max(1, Math.round((rawDmg - run.passives.armor) * run.mods.contactDmgTakenMul)))
   p.hp -= dmg
   if (!dot) p.invuln = PLAYER.invulnTime
   run.events.push({ type: 'hurt', dmg, dot })
@@ -5095,12 +5102,21 @@ function eligibleElementIds(run) {
     .filter(() => Math.random() < weight)
 }
 
-// A passive card adopts whatever rarity was rolled for its slot.
+// A passive card adopts whatever rarity was rolled for its slot — UNLESS it carries a `values`
+// table (armor/regen, v6.3.4): then it rolls only the listed rarities, at the listed exact
+// amounts, and returns null at any other rarity (epic/mythic) so the card just isn't offered at
+// that tier — the caller (rollCard) must treat a null return as "no candidate here", not a bug.
 function makePassiveCard(run, id, rarity) {
   const cfg = PASSIVES[id]
-  const mult = RARITIES[rarity].mult
-  let bonus = cfg.base * mult
-  if (cfg.kind === 'flat') bonus = Math.round(bonus * 10) / 10
+  let bonus
+  if (cfg.values) {
+    if (!(rarity in cfg.values)) return null
+    bonus = cfg.values[rarity]
+  } else {
+    const mult = RARITIES[rarity].mult
+    bonus = cfg.base * mult
+    if (cfg.kind === 'flat') bonus = Math.round(bonus * 10) / 10
+  }
   const picks = run.passivePicks[id] ?? 0
   const desc = cfg.kind === 'pct'
     ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
@@ -5152,7 +5168,11 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
       if (wc.rarity === rarity && !pickedIds.has(wc.id)) options.push(wc)
     }
     for (const pid of passiveIds) {
-      if (!pickedIds.has(pid)) options.push(makePassiveCard(run, pid, rarity))
+      // makePassiveCard returns null for a values-passive (armor/regen) rolled at a rarity
+      // outside its table (epic/mythic) — that's not a candidate at this tier, not a bug.
+      if (pickedIds.has(pid)) continue
+      const pc = makePassiveCard(run, pid, rarity)
+      if (pc) options.push(pc)
     }
     for (const mc of modCandidates) {
       // Skip if already offered this pool, or its weapon already hit the per-pool card cap
