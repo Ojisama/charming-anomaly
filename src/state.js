@@ -3,6 +3,7 @@ import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
   chapterMaxDifficulty,
+  EARLY_CALM_CHAPTERS, EARLY_CALM_SPAWN_MUL, EARLY_CALM_XP_MUL,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
   SNAP_TRAP_R, SNAP_TRAP_MIN_DIST,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
@@ -717,11 +718,20 @@ export function createRun(meta, opts = {}) {
   // Pre-run modifiers (see MUTATORS + difficulty consts in config.js and the doc block above):
   // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP AND enemy-damage tax on
   // top of mutators (v6.3.4 anti-turtle: HP-only difficulty made runs longer, not more dangerous).
+  // v6.4.1: explicit difficulty 1 of the onboarding chapters (EARLY_CALM_CHAPTERS) also thins the
+  // swarm and fattens xp per kill — see early-calm gate below.
   const difficulty = opts.difficulty ?? 1
   const mods = mergeMutatorMods(opts.mutators ?? [])
   mods.enemyHpMul *= difficultyHpMul(difficulty)
   mods.enemyDmgMul *= difficultyDmgMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
+  // v6.4.1 early-calm (see EARLY_CALM_* in config.js): explicit-difficulty-1 runs of the first
+  // three chapters thin the swarm and fatten each kill's xp. opts.difficulty (not the defaulted
+  // local) on purpose — daily runs and tests omit it and must keep baseline density.
+  if (opts.difficulty === 1 && EARLY_CALM_CHAPTERS.includes(opts.chapter ?? 'body')) {
+    mods.spawnMul *= EARLY_CALM_SPAWN_MUL
+    mods.xpMul *= EARLY_CALM_XP_MUL
+  }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []
   const hasHeadstart = consumables.includes('headstart')

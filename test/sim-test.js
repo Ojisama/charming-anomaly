@@ -56,6 +56,8 @@ import {
   ENEMIES, dmgScale, difficultyDmgMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, MINE_STUN, SOAP_INTERVAL,
+  // v6.4.1 early-calm (Run OO)
+  EARLY_CALM_CHAPTERS, EARLY_CALM_SPAWN_MUL, EARLY_CALM_XP_MUL,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -6716,6 +6718,74 @@ function testPondIdentity() {
   console.log('PASS run NN (v6.4 Pond identity): eddy streaming + force contract + escape invariant, tardigrade phase contract, mine stun, bloom slow, tideCarried')
 }
 
+// v6.4.1 (owner directive, Run OO): explicit difficulty-1 runs of the three onboarding chapters
+// (EARLY_CALM_CHAPTERS: body/pond/garden) spawn 40% fewer enemies and pay proportionally more xp
+// per kill — gated on opts.difficulty === 1 EXPLICITLY, not the defaulted local, since daily runs
+// and (almost) every test call createRun without a difficulty and must keep baseline density.
+function testEarlyCalm() {
+  const EPS = 1e-9
+
+  // (a) explicit difficulty 1 on each onboarding chapter: spawnMul/xpMul hit the early-calm values.
+  {
+    Math.random = mulberry32(20260714)
+    for (const chapter of EARLY_CALM_CHAPTERS) {
+      const run = createRun(makeMeta(), { chapter, difficulty: 1 })
+      assert.strictEqual(run.mods.spawnMul, EARLY_CALM_SPAWN_MUL,
+        `expected ${chapter} d1 mods.spawnMul === ${EARLY_CALM_SPAWN_MUL}, got ${run.mods.spawnMul}`)
+      assert.strictEqual(run.mods.xpMul, EARLY_CALM_XP_MUL,
+        `expected ${chapter} d1 mods.xpMul === ${EARLY_CALM_XP_MUL}, got ${run.mods.xpMul}`)
+    }
+    console.log('PASS run OO.a (early-calm applies): body/pond/garden at explicit d1 get spawnMul/xpMul from EARLY_CALM_*')
+  }
+
+  // (b) same chapters at difficulty 2: difficulty tax multipliers don't touch spawn/xp — only
+  // enemyHpMul/enemyDmgMul/coinMul do (see difficultyHpMul/difficultyDmgMul/difficultyCoinMul).
+  {
+    Math.random = mulberry32(20260714)
+    for (const chapter of EARLY_CALM_CHAPTERS) {
+      const run = createRun(makeMeta(), { chapter, difficulty: 2 })
+      assert.strictEqual(run.mods.spawnMul, 1, `expected ${chapter} d2 mods.spawnMul === 1, got ${run.mods.spawnMul}`)
+      assert.strictEqual(run.mods.xpMul, 1, `expected ${chapter} d2 mods.xpMul === 1, got ${run.mods.xpMul}`)
+    }
+    console.log('PASS run OO.b (difficulty 2 unaffected): body/pond/garden at d2 keep baseline spawnMul/xpMul=1')
+  }
+
+  // (c) a chapter outside EARLY_CALM_CHAPTERS at explicit difficulty 1 stays baseline.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 1 })
+    assert.strictEqual(run.mods.spawnMul, 1, `expected undergrowth d1 mods.spawnMul === 1, got ${run.mods.spawnMul}`)
+    assert.strictEqual(run.mods.xpMul, 1, `expected undergrowth d1 mods.xpMul === 1, got ${run.mods.xpMul}`)
+    console.log('PASS run OO.c (chapter not in EARLY_CALM_CHAPTERS): undergrowth at d1 keeps baseline spawnMul/xpMul=1')
+  }
+
+  // (d) difficulty omitted entirely (the daily/test shape) — the local `difficulty` defaults to 1
+  // internally, but opts.difficulty stays undefined, so the gate must NOT fire.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'pond' })
+    assert.strictEqual(run.mods.spawnMul, 1, `expected pond (no difficulty opt) mods.spawnMul === 1, got ${run.mods.spawnMul}`)
+    assert.strictEqual(run.mods.xpMul, 1, `expected pond (no difficulty opt) mods.xpMul === 1, got ${run.mods.xpMul}`)
+    console.log('PASS run OO.d (difficulty omitted): pond with no opts.difficulty keeps baseline spawnMul/xpMul=1 (daily/test shape)')
+  }
+
+  // (e) mutator stack: overtime (spawnMul:1.4, xpMul:1.3, see MUTATORS in config.js) composes
+  // with the early-calm gate rather than being overwritten by it.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1, mutators: ['overtime'] })
+    const expectedSpawn = 1.4 * EARLY_CALM_SPAWN_MUL
+    const expectedXp = 1.3 * EARLY_CALM_XP_MUL
+    assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
+      `expected body d1+overtime mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
+    assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
+      `expected body d1+overtime mods.xpMul ≈ ${expectedXp}, got ${run.mods.xpMul}`)
+    console.log(`PASS run OO.e (mutator composition): body d1+overtime spawnMul=${run.mods.spawnMul.toFixed(4)} (expected ${expectedSpawn.toFixed(4)}), xpMul=${run.mods.xpMul.toFixed(4)} (expected ${expectedXp.toFixed(4)})`)
+  }
+
+  console.log('PASS run OO (v6.4.1 early-calm): explicit-d1 onboarding chapters thin spawns and fatten xp, gated correctly on opts.difficulty and chapter membership, composes with mutators')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -6764,6 +6834,7 @@ try {
   testTheBlankDifficulty()
   testAntiTurtle()
   testPondIdentity()
+  testEarlyCalm()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

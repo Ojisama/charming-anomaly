@@ -1090,6 +1090,13 @@ export const difficultyDmgMul = (d) => 1 + DIFFICULTY_DMG_PER_LEVEL * (Math.max(
 // run.mods.coinMul, and applied to the end-of-run kill bonus in main.js).
 export const DIFFICULTY_COIN_PER_LEVEL = 0.25
 export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.max(1, d) - 1)
+// v6.4.1 (owner directive): difficulty 1 of the onboarding chapters spawns thinner but pays more
+// xp per kill — 40% fewer enemies, xp ×~1/0.6 so the leveling pace holds. Applied in createRun
+// (state.js) ONLY when the caller passes difficulty 1 EXPLICITLY (main.js's classic ladder always
+// does): daily runs and tests omit opts.difficulty, so they keep baseline density on purpose.
+export const EARLY_CALM_CHAPTERS = ['body', 'pond', 'garden']
+export const EARLY_CALM_SPAWN_MUL = 0.6
+export const EARLY_CALM_XP_MUL = 1.67
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 // The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and
 // `exclude` (denylist) scope an anomaly to where its mechanic actually exists. With no
