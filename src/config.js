@@ -1322,6 +1322,10 @@ export const CHAPTERS = {
     eliteFlags: ['acidPool'],           // pill elites dissolve into acid pools
     signature: null,                    // intro chapter has no signature mechanic
     obstacles: null,                    // keeps the open field
+    // v6.4.5 (owner directive): chapter-wide baseline easing — every difficulty AND dailies run
+    // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
+    // d1-only EARLY_CALM all stack on top.
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, xpMul: 1.25 },
     // ---- render-only (v5.0 task 6; interpreted by render.js, ZERO effect on sim) ----
     // body is the baseline look: bgColor = the app's clear colour (main.js); tints are
     // multiply-identity white and there's no player tail. Enemy silhouettes are baked per
@@ -1352,6 +1356,10 @@ export const CHAPTERS = {
       eddies: { cell: 1000, chance: 0.5, r: 170, pull: 30, swirl: 120, minDist: 480 },
     },
     obstacles: { count: 14, minR: 26, maxR: 44, minDist: 220 }, // minDist from spawn point
+    // v6.4.5 (owner directive): chapter-wide baseline easing — every difficulty AND dailies run
+    // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
+    // d1-only EARLY_CALM all stack on top.
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, xpMul: 1.25 },
     // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
     // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
     // multiplies playerTint onto the blob + shows an animated flagellum tail (tailTint). Enemy

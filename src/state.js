@@ -721,7 +721,9 @@ export function createRun(meta, opts = {}) {
   // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP AND enemy-damage tax on
   // top of mutators (v6.3.4 anti-turtle: HP-only difficulty made runs longer, not more dangerous).
   // v6.4.1/v6.4.3: explicit difficulty 1 of the onboarding chapters (EARLY_CALM in config.js) also
-  // thins the swarm and fattens xp per kill, per chapter — see early-calm gate below.
+  // thins the swarm and fattens xp per kill, per chapter — see early-calm gate below. v6.4.5: some
+  // chapters additionally carry a CHAPTERS[id].balance block that eases spawn/damage at EVERY
+  // difficulty (dailies included) — see the chapter-balance block below, which stacks on top.
   const difficulty = opts.difficulty ?? 1
   const mods = mergeMutatorMods(opts.mutators ?? [])
   mods.enemyHpMul *= difficultyHpMul(difficulty)
@@ -734,6 +736,14 @@ export function createRun(meta, opts = {}) {
   if (calm) {
     mods.spawnMul *= calm.spawnMul
     mods.xpMul *= calm.xpMul
+  }
+  // v6.4.5 chapter-wide balance (CHAPTERS[id].balance): body/pond run gentler at every
+  // difficulty, dailies included — unlike EARLY_CALM this has no explicit-difficulty gate.
+  const bal = CHAPTERS[opts.chapter ?? 'body'].balance
+  if (bal) {
+    mods.spawnMul *= bal.spawnMul ?? 1
+    mods.enemyDmgMul *= bal.enemyDmgMul ?? 1
+    mods.xpMul *= bal.xpMul ?? 1
   }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []

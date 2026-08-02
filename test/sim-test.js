@@ -6290,8 +6290,10 @@ function testAntiTurtle() {
   // (a) dmg carries dmgScale(run.time) at spawn (checked against a non-elite d1 spawn, so
   // ELITE.dmgMul/enemyDmgMul stay at their neutral values and isolate the time curve), and the
   // difficulty ladder folds difficultyDmgMul into mods.enemyDmgMul exactly, once, at createRun.
+  // v6.4.5: pinned to garden — body/pond now carry a chapter-wide balance.enemyDmgMul, so the
+  // default chapter no longer has the neutral mods this scenario's whole point is to isolate.
   {
-    const run = createRun(makeMeta(), { difficulty: 1 })
+    const run = createRun(makeMeta(), { chapter: 'garden', difficulty: 1 })
     run.weapons = [] // isolate: no kills/xp/levelup, just the spawn-time dmg property
     run.player.hp = run.player.maxHP = 1e9
     run.player.x = 0; run.player.y = 0
@@ -6325,7 +6327,8 @@ function testAntiTurtle() {
     console.log(`PASS run MM.a.1 (time scaling): ratio@t≈0=${ratio0.toFixed(3)} ratio@t≈300=${ratio1.toFixed(3)}`)
   }
   {
-    const run = createRun(makeMeta(), { difficulty: 5 })
+    // v6.4.5: garden here too — same neutral-mods isolation as (a) above.
+    const run = createRun(makeMeta(), { chapter: 'garden', difficulty: 5 })
     assert.strictEqual(run.mods.enemyDmgMul, difficultyDmgMul(5), `expected mods.enemyDmgMul === difficultyDmgMul(5), got ${run.mods.enemyDmgMul}`)
     assert.strictEqual(run.mods.enemyDmgMul, 1.6, `expected difficultyDmgMul(5) === 1.6 (1 + ${DIFFICULTY_DMG_PER_LEVEL}*4), got ${run.mods.enemyDmgMul}`)
     console.log(`PASS run MM.a.2 (difficulty scaling): d5 mods.enemyDmgMul=${run.mods.enemyDmgMul}`)
@@ -6355,8 +6358,12 @@ function testAntiTurtle() {
   // measurably loses ground once dmgScale ramps contact damage up late-run. run.time is jumped
   // instead of simulated from 0 (300s of real-time stepping per sub-test would make the suite
   // slow), so — same as (a) — the elite-cadence pointer is reset with it.
+  // v6.4.5: pinned to garden. The owner-directed body/pond balance.enemyDmgMul (0.75) re-admits
+  // the stationary turtle on those two chapters (accepted trade-off, flagged at ship time — the
+  // 999 coin cap bounds what afk-farming there can extract); this scenario now pins the
+  // anti-turtle machinery on a balance-neutral chapter, where the invariant still holds.
   {
-    const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+    const run = createRun(makeMeta(), { chapter: 'garden', difficulty: 1 })
     run.weapons = []
     run.passives.armor = 7
     run.passives.regen = 3.2
@@ -6734,63 +6741,83 @@ function testPondIdentity() {
 // chapters (EARLY_CALM: body/pond/garden) spawn fewer enemies and pay proportionally more xp
 // per kill, per chapter (body is the gentlest) — gated on opts.difficulty === 1 EXPLICITLY, not
 // the defaulted local, since daily runs and (almost) every test call createRun without a
-// difficulty and must keep baseline density.
+// difficulty and must keep baseline density. v6.4.5: body/pond additionally carry a
+// CHAPTERS[id].balance block (Run RR) that eases spawn/dmg AND fattens xp (compensating the
+// thinner swarm) at EVERY difficulty with no gate at all — every spawnMul/xpMul expectation below
+// composes EARLY_CALM[chapter] (may be absent) with CHAPTERS[chapter].balance (may be absent)
+// since both can be live at once.
 function testEarlyCalm() {
   const EPS = 1e-9
   const EARLY_CALM_CHAPTERS = Object.keys(EARLY_CALM)
+  const balSpawnMul = (chapter) => CHAPTERS[chapter].balance?.spawnMul ?? 1
+  const balXpMul = (chapter) => CHAPTERS[chapter].balance?.xpMul ?? 1
 
-  // (a) explicit difficulty 1 on each onboarding chapter: spawnMul/xpMul hit that chapter's
-  // early-calm values.
+  // (a) explicit difficulty 1 on each onboarding chapter: spawnMul and xpMul both hit calm ×
+  // balance (both may apply at once — body/pond carry both, garden only carries calm).
   {
     Math.random = mulberry32(20260714)
     for (const chapter of EARLY_CALM_CHAPTERS) {
       const run = createRun(makeMeta(), { chapter, difficulty: 1 })
-      assert.strictEqual(run.mods.spawnMul, EARLY_CALM[chapter].spawnMul,
-        `expected ${chapter} d1 mods.spawnMul === ${EARLY_CALM[chapter].spawnMul}, got ${run.mods.spawnMul}`)
-      assert.strictEqual(run.mods.xpMul, EARLY_CALM[chapter].xpMul,
-        `expected ${chapter} d1 mods.xpMul === ${EARLY_CALM[chapter].xpMul}, got ${run.mods.xpMul}`)
+      const expectedSpawn = EARLY_CALM[chapter].spawnMul * balSpawnMul(chapter)
+      const expectedXp = EARLY_CALM[chapter].xpMul * balXpMul(chapter)
+      assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
+        `expected ${chapter} d1 mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
+      assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
+        `expected ${chapter} d1 mods.xpMul ≈ ${expectedXp}, got ${run.mods.xpMul}`)
     }
-    console.log('PASS run OO.a (early-calm applies): body/pond/garden at explicit d1 get spawnMul/xpMul from EARLY_CALM[chapter]')
+    console.log('PASS run OO.a (early-calm composes with chapter balance): body/pond/garden at explicit d1 get spawnMul/xpMul = EARLY_CALM×balance')
   }
 
-  // (b) same chapters at difficulty 2: difficulty tax multipliers don't touch spawn/xp — only
-  // enemyHpMul/enemyDmgMul/coinMul do (see difficultyHpMul/difficultyDmgMul/difficultyCoinMul).
+  // (b) same chapters at difficulty 2: EARLY_CALM doesn't fire (d1-only gate) and difficulty tax
+  // multipliers don't touch spawn/xp either — but CHAPTERS[chapter].balance has no difficulty gate
+  // at all, so body/pond's spawnMul/xpMul now equal the balance factors alone (garden has none,
+  // stays 1/1).
   {
     Math.random = mulberry32(20260714)
     for (const chapter of EARLY_CALM_CHAPTERS) {
       const run = createRun(makeMeta(), { chapter, difficulty: 2 })
-      assert.strictEqual(run.mods.spawnMul, 1, `expected ${chapter} d2 mods.spawnMul === 1, got ${run.mods.spawnMul}`)
-      assert.strictEqual(run.mods.xpMul, 1, `expected ${chapter} d2 mods.xpMul === 1, got ${run.mods.xpMul}`)
+      const expectedSpawn = balSpawnMul(chapter)
+      const expectedXp = balXpMul(chapter)
+      assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
+        `expected ${chapter} d2 mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
+      assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
+        `expected ${chapter} d2 mods.xpMul ≈ ${expectedXp}, got ${run.mods.xpMul}`)
     }
-    console.log('PASS run OO.b (difficulty 2 unaffected): body/pond/garden at d2 keep baseline spawnMul/xpMul=1')
+    console.log('PASS run OO.b (difficulty 2: calm gone, balance stays): body/pond keep balance-only spawnMul/xpMul, garden baseline 1/1')
   }
 
-  // (c) a chapter outside EARLY_CALM at explicit difficulty 1 stays baseline.
+  // (c) a chapter outside EARLY_CALM (and outside balance) at explicit difficulty 1 stays baseline.
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 1 })
     assert.strictEqual(run.mods.spawnMul, 1, `expected undergrowth d1 mods.spawnMul === 1, got ${run.mods.spawnMul}`)
     assert.strictEqual(run.mods.xpMul, 1, `expected undergrowth d1 mods.xpMul === 1, got ${run.mods.xpMul}`)
-    console.log('PASS run OO.c (chapter not in EARLY_CALM): undergrowth at d1 keeps baseline spawnMul/xpMul=1')
+    console.log('PASS run OO.c (chapter not in EARLY_CALM or balance): undergrowth at d1 keeps baseline spawnMul/xpMul=1')
   }
 
   // (d) difficulty omitted entirely (the daily/test shape) — the local `difficulty` defaults to 1
-  // internally, but opts.difficulty stays undefined, so the gate must NOT fire.
+  // internally, but opts.difficulty stays undefined, so the EARLY_CALM gate must NOT fire. The
+  // chapter balance block, unlike EARLY_CALM, has no gate — it fires here too, so pond's
+  // spawnMul/xpMul are the balance factors alone (0.75/1.25), not baseline 1/1.
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'pond' })
-    assert.strictEqual(run.mods.spawnMul, 1, `expected pond (no difficulty opt) mods.spawnMul === 1, got ${run.mods.spawnMul}`)
-    assert.strictEqual(run.mods.xpMul, 1, `expected pond (no difficulty opt) mods.xpMul === 1, got ${run.mods.xpMul}`)
-    console.log('PASS run OO.d (difficulty omitted): pond with no opts.difficulty keeps baseline spawnMul/xpMul=1 (daily/test shape)')
+    const expectedSpawn = balSpawnMul('pond')
+    const expectedXp = balXpMul('pond')
+    assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
+      `expected pond (no difficulty opt) mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
+    assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
+      `expected pond (no difficulty opt) mods.xpMul ≈ ${expectedXp}, got ${run.mods.xpMul}`)
+    console.log(`PASS run OO.d (difficulty omitted): pond with no opts.difficulty keeps EARLY_CALM off but balance on (spawnMul≈${expectedSpawn}, xpMul≈${expectedXp}) — daily/test shape`)
   }
 
   // (e) mutator stack: overtime (spawnMul:1.4, xpMul:1.3, see MUTATORS in config.js) composes
-  // with the early-calm gate rather than being overwritten by it.
+  // with BOTH the early-calm gate and the chapter balance block rather than being overwritten.
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1, mutators: ['overtime'] })
-    const expectedSpawn = 1.4 * EARLY_CALM.body.spawnMul
-    const expectedXp = 1.3 * EARLY_CALM.body.xpMul
+    const expectedSpawn = 1.4 * EARLY_CALM.body.spawnMul * balSpawnMul('body')
+    const expectedXp = 1.3 * EARLY_CALM.body.xpMul * balXpMul('body')
     assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
       `expected body d1+overtime mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
     assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
@@ -6798,7 +6825,7 @@ function testEarlyCalm() {
     console.log(`PASS run OO.e (mutator composition): body d1+overtime spawnMul=${run.mods.spawnMul.toFixed(4)} (expected ${expectedSpawn.toFixed(4)}), xpMul=${run.mods.xpMul.toFixed(4)} (expected ${expectedXp.toFixed(4)})`)
   }
 
-  console.log('PASS run OO (v6.4.1/v6.4.3 early-calm): explicit-d1 onboarding chapters thin spawns and fatten xp per chapter, gated correctly on opts.difficulty and chapter membership, composes with mutators')
+  console.log('PASS run OO (v6.4.1/v6.4.3 early-calm): explicit-d1 onboarding chapters thin spawns and fatten xp per chapter, gated correctly on opts.difficulty and chapter membership, composes with mutators and the v6.4.5 chapter balance block')
 }
 
 // v6.4.2 (owner directive): run.coinsEarned never exceeds COIN_CAP_PER_RUN, and re-earning after
@@ -6881,6 +6908,84 @@ function testOpeningCredit() {
   console.log('PASS run QQ (v6.4.3 opening credit): the first ordinary-spawn step banks SPAWN_OPENING_CREDIT once, skips it when silenced, and never runs for scripted chapters')
 }
 
+// v6.4.5 (owner directive, Run RR): CHAPTERS[id].balance eases body/pond spawn AND enemy contact
+// damage, while fattening xp to compensate the thinner swarm, at EVERY difficulty, dailies
+// included — unlike EARLY_CALM (Run OO, d1-only, explicit-gate only) this block has no gate at
+// all, so it stacks on top of EARLY_CALM, difficulty taxes, and mutators. Other chapters carry no
+// balance key (absent = neutral, see config.js).
+function testChapterBalance() {
+  const EPS = 1e-9
+
+  // (a) body, difficulty omitted entirely (the daily/test shape — EARLY_CALM never fires without
+  // an explicit opts.difficulty): balance alone thins spawn, softens contact damage, and fattens xp.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    assert(Math.abs(run.mods.spawnMul - 0.75) < EPS,
+      `expected body (no difficulty opt) mods.spawnMul ≈ 0.75, got ${run.mods.spawnMul}`)
+    assert(Math.abs(run.mods.enemyDmgMul - 0.75) < EPS,
+      `expected body (no difficulty opt) mods.enemyDmgMul ≈ 0.75, got ${run.mods.enemyDmgMul}`)
+    assert(Math.abs(run.mods.xpMul - 1.25) < EPS,
+      `expected body (no difficulty opt) mods.xpMul ≈ 1.25, got ${run.mods.xpMul}`)
+    console.log(`PASS run RR.a (body baseline balance, daily shape): spawnMul=${run.mods.spawnMul}, enemyDmgMul=${run.mods.enemyDmgMul}, xpMul=${run.mods.xpMul}`)
+  }
+
+  // (b) pond, explicit difficulty 3: EARLY_CALM doesn't fire (d1-only), but balance has no gate at
+  // all — enemyDmgMul stacks 0.75 (balance) × difficultyDmgMul(3) (the d3 tax), spawnMul is the
+  // balance factor alone since nothing else touches spawn at d3.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'pond', difficulty: 3 })
+    const expectedDmg = 0.75 * difficultyDmgMul(3)
+    assert(Math.abs(run.mods.spawnMul - 0.75) < EPS,
+      `expected pond d3 mods.spawnMul ≈ 0.75, got ${run.mods.spawnMul}`)
+    assert(Math.abs(run.mods.enemyDmgMul - expectedDmg) < EPS,
+      `expected pond d3 mods.enemyDmgMul ≈ ${expectedDmg}, got ${run.mods.enemyDmgMul}`)
+    console.log(`PASS run RR.b (pond d3 stacks balance with the difficulty tax): enemyDmgMul=${run.mods.enemyDmgMul.toFixed(4)} (expected ${expectedDmg.toFixed(4)})`)
+  }
+
+  // (c) garden has no balance block (config.js: only body/pond do) — stays at baseline 1 even
+  // though it's an EARLY_CALM chapter, since difficulty is omitted here and calm needs d1 explicit.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    assert.strictEqual(run.mods.spawnMul, 1, `expected garden (no balance block) mods.spawnMul === 1, got ${run.mods.spawnMul}`)
+    assert.strictEqual(run.mods.enemyDmgMul, 1, `expected garden (no balance block) mods.enemyDmgMul === 1, got ${run.mods.enemyDmgMul}`)
+    assert.strictEqual(run.mods.xpMul, 1, `expected garden (no balance block) mods.xpMul === 1, got ${run.mods.xpMul}`)
+    console.log('PASS run RR.c (garden has no balance block): spawnMul/enemyDmgMul/xpMul stay baseline 1')
+  }
+
+  // (d) blank (the scripted boss chapter) has no balance block either — untouched.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'blank' })
+    assert.strictEqual(run.mods.enemyDmgMul, 1, `expected blank (no balance block) mods.enemyDmgMul === 1, got ${run.mods.enemyDmgMul}`)
+    console.log('PASS run RR.d (blank has no balance block): enemyDmgMul stays baseline 1')
+  }
+
+  // (e) the balance block actually reaches spawned enemies, not just run.mods: a fresh body run's
+  // opening-credit enemies (spawnEnemy, sim.js ~934) carry dmg = base.dmg * dmgScale(t) *
+  // (isElite ? ELITE.dmgMul : 1) * mods.enemyDmgMul. Difficulty omitted (no EARLY_CALM), t is still
+  // under the first elite window (_nextEliteAt starts at 40), so every credit enemy is a
+  // non-elite drone (WAVE_TABLE[0] = {drone:1}) and dmg reduces to base.dmg * dmgScale(t) * 0.75.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    stepSim(run, { x: 0, y: 0 }, 1 / 60)
+    assert(run.enemies.length > 0, 'expected the opening credit to have spawned at least one enemy')
+    for (const e of run.enemies) {
+      assert.strictEqual(e.elite, false, `expected an early credit enemy to be non-elite, got elite=${e.elite}`)
+      const base = ENEMIES[e.type]
+      const expectedDmg = base.dmg * dmgScale(run.time) * run.mods.enemyDmgMul
+      assert(Math.abs(e.dmg - expectedDmg) < EPS,
+        `expected ${e.type} dmg ≈ ${expectedDmg} (base ${base.dmg} × dmgScale(${run.time}) × balance 0.75), got ${e.dmg}`)
+    }
+    console.log(`PASS run RR.e (spawned enemies carry the balance dmg mul): ${run.enemies.length} enemies, dmg ≈ base×dmgScale×0.75`)
+  }
+
+  console.log('PASS run RR (v6.4.5 chapter-wide balance): body/pond ease spawn+dmg and fatten xp at EVERY difficulty (dailies included, no gate), composes with EARLY_CALM and difficulty taxes, garden/blank untouched, spawned enemies carry the eased dmg')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -6932,6 +7037,7 @@ try {
   testEarlyCalm()
   testCoinCap()
   testOpeningCredit()
+  testChapterBalance()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
