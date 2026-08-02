@@ -131,7 +131,7 @@ import {
   BLANK_WAKE_DPS, BLANK_MEMORY_T, BLANK_RECRUIT_T, BLANK_RECRUIT_N, BLANK_ACCEL_MUL,
   BLANK_BOSS_SPEED_P3, BLANK_PHASE_LEVELS, BLANK_FAN_N, BLANK_FAN_SPREAD, BLANK_FAN_SPEED,
   // v6.3.1 difficulty pass: 4x HP/faster P1/doubled waves + crossReactive (d2+)/affinityMature (d3)
-  BLANK_BOSS_SPEED_P1, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
+  BLANK_BOSS_SPEED_P1, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX, BLANK_WAVE_XP_MUL,
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K, BLANK_XREACT_STRIDE,
   BLANK_READ1_K_MATURE, BLANK_NODE_MAX_MATURE, BLANK_FAN_N_MATURE,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
@@ -463,6 +463,7 @@ function stepBossScript(run, dt) {
         const e = spawnBlankEnemy(run, wave.ids[i % wave.ids.length])
         if (!e) break // BLANK_MAX_ALIVE — leftovers already saturate the field
         e._wave = true
+        e.xp *= BLANK_WAVE_XP_MUL // v6.3.3: the horde is pressure, not a leveling shortcut (gems are float-safe)
       }
       s.spawned = true
       s.waveT = 0

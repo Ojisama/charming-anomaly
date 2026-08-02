@@ -3533,22 +3533,30 @@ export const CHAPTER_UNLOCK_LINES = {
 // block ends and stage++ once its last wave's block is cleared/timed out; a boss phase ends ONLY
 // on kill (no timer victory in this chapter) and stage++ starts the next wave block. Killing the
 // last boss phase IS the win.
+// v6.3.2→v6.3.3 (owner directive): wave counts ×4 again — the inter-phases are a HORDE now, but
+// each wave body is worth a third of the xp (BLANK_WAVE_XP_MUL below), so the army is pressure
+// and spectacle, not a leveling shortcut (net wave xp ≈ 4/3 of v6.3.1, spread over 4× the bodies).
 export const BLANK_SCRIPT = [
-  { waves: [ { n: 32, ids: ['probe'] }, { n: 44, ids: ['probe'] }, { n: 52, ids: ['probe','binder'] } ] },
+  { waves: [ { n: 128, ids: ['probe'] }, { n: 176, ids: ['probe'] }, { n: 208, ids: ['probe','binder'] } ] },
   { boss: 'antibody1' },
-  { waves: [ { n: 36, ids: ['binder','probe'] }, { n: 48, ids: ['binder','probe'] }, { n: 56, ids: ['binder','eraser'] } ] },
+  { waves: [ { n: 144, ids: ['binder','probe'] }, { n: 192, ids: ['binder','probe'] }, { n: 224, ids: ['binder','eraser'] } ] },
   { boss: 'antibody2' },
-  { waves: [ { n: 40, ids: ['eraser','binder'] }, { n: 52, ids: ['eraser','probe','binder'] }, { n: 64, ids: ['eraser','probe','binder'] } ] },
+  { waves: [ { n: 160, ids: ['eraser','binder'] }, { n: 208, ids: ['eraser','probe','binder'] }, { n: 256, ids: ['eraser','probe','binder'] } ] },
   { boss: 'antibody3' },
 ]
+export const BLANK_WAVE_XP_MUL = 1 / 3    // v6.3.3: wave (_wave-tagged) bodies only — recruits and the
+                                          // antibody keep full value; gem xp is float-safe end to end
 export const BLANK_WAVE_TIMEOUT = 20      // s, next wave arrives even if this one isn't cleared
 export const BLANK_BOSS_HP = [8800, 24000, 45600] // v6.3.1: ×4 (owner directive); v6.3.2: P2 ×2, P3 ×3 on top —
                                                   // the fight ESCALATES: each phase is a bigger wall than the last
 export const BLANK_BOSS_R = 80            // world px, set post-spawn; render bakes at this size
 export const BLANK_BOSS_SPEED = 70        // px/s toward the band (P2)
 export const BLANK_BOSS_SPEED_P1 = 120    // v6.3.1: P1 closes and circles ~70% faster — menace, not a rule change
-export const BLANK_MAX_ALIVE = 500        // v6.3.1 [panel/bugs]: doubled waves' zero-clear worst case (424) would
-                                          // starve nodes/recruits at the global MAX_ALIVE (400); blank gets headroom
+export const BLANK_MAX_ALIVE = 700        // blank-only cap (v6.3.1 [panel/bugs]: the shared MAX_ALIVE 400 starved
+                                          // nodes/recruits under big waves). v6.3.3: 500→700 with the ×4 waves —
+                                          // one block's zero-clear worst case is 512; the cap keeps node/recruit
+                                          // headroom above that and truncates only a truly ignored horde.
+                                          // Movement/collision are O(n) (see stepEnemyMovement's ponytail note).
 export const BLANK_CATCHUP_MAX = 200      // px/s ceiling on catch-up pursuit [panel/fun+gameplay]: 120×2.8=336 would
                                           // outrun even a maxed moveSpeed build (308) — fleeing must keep working
 export const BLANK_BOSS_SPEED_P3 = 170    // px/s — P3 drops the standoff and RUNS YOU DOWN (player ~220)
@@ -3682,8 +3690,8 @@ export const MUTATORS = {
   // behavior (faster telegraphs, death residue) is read directly off run.mutators by sim.js.
   accelResponse: { name: 'Accelerated Response', icon: '⚡', desc: 'its telegraphs are 25% faster',      hidden: true, effects: {} },
   immuneMemory:  { name: 'Immune Memory',        icon: '🧠', desc: 'slain cells leave erasing residue',  hidden: true, effects: {} },
-  crossReactive: { name: 'Cross-Reactivity',    icon: '🔀', desc: 'each phase borrows a neighboring read', hidden: true, effects: {} },
-  affinityMature:{ name: 'Affinity Maturation', icon: '🧬', desc: 'its own reads run deeper',              hidden: true, effects: {} },
+  crossReactive: { name: 'Cross-Reactivity',    icon: '🔀', desc: 'each phase steals a second attack from another',            hidden: true, effects: {} },
+  affinityMature:{ name: 'Affinity Maturation', icon: '🧬', desc: 'every attack grows — more bombs, more nodes, a wider star', hidden: true, effects: {} },
   // v5.25: chapter anomalies — each turns ITS chapter's signature mechanic up, paired with a
   // small reward like every generic entry above. `chapters` scopes the roll to where the
   // mechanic exists: a modifier that references a system the chapter doesn't run is noise, not

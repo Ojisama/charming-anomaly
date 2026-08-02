@@ -44,6 +44,7 @@ import {
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
+  BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -4876,7 +4877,7 @@ function testTheBlank() {
   {
     const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
     run.player.hp = run.player.maxHP = 1e6
-    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    run.weapons = [{ id: 'wave', level: MAX_WEAPON_LEVEL }]
     stepSim(run, { x: 0, y: 0 }, dt) // wave 1 spawns
     assert.strictEqual(run.script.waveIdx, 0)
     for (const e of run.enemies) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 }
@@ -4907,7 +4908,7 @@ function testTheBlank() {
   {
     const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
     run.player.hp = run.player.maxHP = 1e6
-    run.weapons = [{ id: 'star', level: MAX_WEAPON_LEVEL }]
+    run.weapons = [{ id: 'wave', level: MAX_WEAPON_LEVEL }]
     stepSim(run, { x: 0, y: 0 }, dt) // wave 1 spawns
     for (let w = 0; w < 3; w++) {
       for (const e of run.enemies) {
@@ -6210,7 +6211,7 @@ function testTheBlankDifficulty() {
   // spawnBlankEnemy nulls out past that without stepSim throwing.
   {
     const wave0 = BLANK_SCRIPT[0].waves[0]
-    assert.strictEqual(wave0.n, 32, `expected wave 1's size doubled to 32, got ${wave0.n}`)
+    assert.strictEqual(wave0.n, 128, `expected wave 1's size at the v6.3.3 horde scale (128), got ${wave0.n}`)
 
     const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
     run.player.hp = run.player.maxHP = 1e6
@@ -6225,7 +6226,26 @@ function testTheBlankDifficulty() {
     console.log(`PASS run LL.h (doubled waves + blank cap): wave0.n=${wave0.n}, padded to ${BLANK_MAX_ALIVE - 1} -> capped cleanly at ${run.enemies.length}`)
   }
 
-  console.log('PASS run LL (blank difficulty pass): P1 borrowed shot, P2 borrowed read + node cleanup, P3 star/fan/echo, mature read depth, speed/HP pins + catch-up cap, fight-wide desperation, residue widening, doubled waves + blank cap')
+  // (i) v6.3.3 wave xp cut: a _wave-tagged body is worth a third of its roster xp; the boss-phase
+  // recruit drip (same rosterId, no _wave tag) keeps full value.
+  {
+    const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.weapons = []
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns wave 1 (all probes)
+    const waveProbe = run.enemies.find((e) => e._wave && e.rosterId === 'probe')
+    assert(waveProbe, 'expected a wave probe')
+    Object.assign(run.script, { stage: 1, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
+    stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody1, arms the recruit timer
+    advance(run, BLANK_RECRUIT_T[0] + 1, dt, { x: 0, y: 0 })
+    const recruitProbe = run.enemies.find((e) => !e._wave && e.rosterId === 'probe' && e.id !== run.script.bossId)
+    assert(recruitProbe, 'expected a P1 recruit probe within the drip window')
+    assert(Math.abs(waveProbe.xp - recruitProbe.xp * BLANK_WAVE_XP_MUL) < 1e-9,
+      `expected wave xp = recruit xp × ${BLANK_WAVE_XP_MUL.toFixed(3)}, got wave ${waveProbe.xp} vs recruit ${recruitProbe.xp}`)
+    console.log(`PASS run LL.i (wave xp cut): wave probe worth ${waveProbe.xp.toFixed(2)}, recruit probe worth ${recruitProbe.xp}`)
+  }
+
+  console.log('PASS run LL (blank difficulty pass): P1 borrowed shot, P2 borrowed read + node cleanup, P3 star/fan/echo, mature read depth, speed/HP pins + catch-up cap, fight-wide desperation, residue widening, horde waves at a third xp + blank cap')
 }
 
 try {
