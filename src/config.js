@@ -3542,7 +3542,8 @@ export const BLANK_SCRIPT = [
   { boss: 'antibody3' },
 ]
 export const BLANK_WAVE_TIMEOUT = 20      // s, next wave arrives even if this one isn't cleared
-export const BLANK_BOSS_HP = [8800, 12000, 15200] // v6.3.1: ×4 — phases must be EARNED (owner directive)
+export const BLANK_BOSS_HP = [8800, 24000, 45600] // v6.3.1: ×4 (owner directive); v6.3.2: P2 ×2, P3 ×3 on top —
+                                                  // the fight ESCALATES: each phase is a bigger wall than the last
 export const BLANK_BOSS_R = 80            // world px, set post-spawn; render bakes at this size
 export const BLANK_BOSS_SPEED = 70        // px/s toward the band (P2)
 export const BLANK_BOSS_SPEED_P1 = 120    // v6.3.1: P1 closes and circles ~70% faster — menace, not a rule change
@@ -3641,7 +3642,8 @@ export const BLANK_WAKE_T = 1.6
 export const BLANK_WAKE_DPS = 14
 export const BLANK_MEMORY_T = 2.0         // s an immuneMemory residue lives (len/w = BLANK_WAKE_*)
 export const BLANK_RECRUIT_T = [6, 7, 3]  // s between recruit spawns in phase 1/2/3 — P3 pulses fast:
-export const BLANK_RECRUIT_N = [3, 2, 5]  // endless fodder so a low-damage build can still farm xp mid-duel
+export const BLANK_RECRUIT_N = [3, 4, 15] // endless fodder so a low-damage build can still farm xp mid-duel
+                                          // (v6.3.2: P2 adds ×2, P3 adds ×3 — the duel gets CROWDED, owner directive)
 export const BLANK_ACCEL_MUL = 0.75       // accelResponse: applied to READ1_T/READ3_T/NODE_T/SHOT_T/fuses/WAVE_TIMEOUT
 
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
