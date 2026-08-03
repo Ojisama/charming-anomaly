@@ -1,6 +1,6 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta } from './state.js'
+import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot } from './state.js'
 import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, COIN_CAP_PER_RUN } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
@@ -217,6 +217,12 @@ const ui = initUI({
   // every module re-reads a fresh loadMeta() rather than trying to reconcile in-memory state.
   onReset() {
     resetSave()
+    location.reload()
+  },
+  // Save-slot switch (title's 💾 button) — write the pointer and reload, same idiom as onReset:
+  // every module re-reads loadMeta() from the new slot rather than reconciling in-memory state.
+  onSlot(n) {
+    setActiveSlot(n)
     location.reload()
   },
 })

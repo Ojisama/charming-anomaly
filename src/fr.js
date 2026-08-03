@@ -47,6 +47,10 @@ const UI = {
   'Coins, upgrades, card slots and best scores will be permanently erased.':
     'Pièces, améliorations, emplacements de carte et records seront définitivement effacés.',
   'Erase everything': 'Tout effacer',
+  'Save slots': 'Emplacements de sauvegarde',
+  'Slot': 'Emplacement',
+  'Empty — new game': 'Vide — nouvelle partie',
+  'Current': 'Actuel',
 
   // level-up
   'LEVEL UP!': 'NIVEAU SUPÉRIEUR !',

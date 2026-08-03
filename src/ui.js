@@ -2,6 +2,7 @@
 import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
+import { SAVE_SLOTS, activeSlot, slotSummary } from './state.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
@@ -108,7 +109,7 @@ function formatShopBonus(id, levels) {
  * Contract used by main.js:
  *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(), onSkill(),
- *                       onSacrifice(picks)->bool, onReset() })
+ *                       onSacrifice(picks)->bool, onReset(), onSlot(n) })
  *     - onChapter(id): title screen's chapter carousel (v5.2 — see carouselHtml/wireCarousel).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
  *       centre (the locked preview card never calls it) — main.js re-guards via
@@ -147,6 +148,9 @@ function formatShopBonus(id, levels) {
  *     - onReset(): shop's "🗑 Reset all progress" button, after its own confirm modal. Full
  *       new-game wipe — main.js is expected to clear the save and reload the page; the UI has
  *       nothing left to re-render after that.
+ *     - onSlot(n): title's 💾 save-slot picker (v6.4.6 — see slotsOpen/slotsModalHtml), fired
+ *       when tapping an inactive slot row. main.js writes the slot pointer and reloads the page,
+ *       same "nothing left to re-render" idiom as onReset — never fires for the already-active slot.
  *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
  *     - 'levelup' data: { choices, rerollCost, coins } — choices is run.levelUpChoices
  *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
@@ -483,6 +487,7 @@ export function initUI(hooks) {
     if (!meta.chapters?.[browseChapterId]) browseChapterId = meta.chapter
     screens.title.innerHTML = `
       <button class="lang-toggle" data-act="lang" aria-label="language">🌐 ${getLang().toUpperCase()}</button>
+      <button class="slot-toggle" data-act="slots" aria-label="save slots">💾 ${activeSlot()}/${SAVE_SLOTS}</button>
       <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
       ${carouselHtml()}
@@ -490,8 +495,41 @@ export function initUI(hooks) {
       ${navHtml('battle')}
       ${boosterSheetHtml()}
       ${buildStampHtml()}
+      ${slotsModalHtml()}
     `
     wireCarousel()
+  }
+
+  // Save-slot picker modal (v6.4.6) — same backdrop/confirm-sheet idiom as the reset-all-progress
+  // modal below (resetOpen/resetModalHtml): a ui-local boolean, not persisted, toggled by the
+  // title's 💾 button and the slot rows themselves.
+  let slotsOpen = false
+
+  function slotsModalHtml() {
+    if (!slotsOpen) return ''
+    const rows = Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1).map((n) => {
+      const isCurrent = n === activeSlot()
+      const summary = slotSummary(n)
+      const line2 = summary
+        ? `🪙 ${summary.coins} · ${summary.unlocked}/${summary.total}`
+        : t('Empty — new game')
+      const label = isCurrent ? `${t('Slot')} ${n} — ${t('Current')}` : `${t('Slot')} ${n}`
+      return `
+        <button class="btn btn--soft slot-row" data-act="slot-pick" data-slot="${n}" ${isCurrent ? 'disabled' : ''}>
+          <span class="slot-row-name">${label}</span>
+          <small class="slot-row-summary">${line2}</small>
+        </button>`
+    }).join('')
+    return `
+      <div class="modal-backdrop" data-act="slots-cancel">
+        <div class="confirm-sheet">
+          <h2 class="confirm-sheet-title">💾 ${t('Save slots')}</h2>
+          ${rows}
+          <div class="confirm-sheet-actions">
+            <button class="btn btn--soft btn--small" data-act="slots-cancel">${t('Cancel')}</button>
+          </div>
+        </div>
+      </div>`
   }
 
   // ---- shop ------------------------------------------------------------
@@ -1184,6 +1222,7 @@ export function initUI(hooks) {
   function switchTab(target) {
     if (active === target) return
     if (active === 'shop') resetShopModals()
+    if (active === 'title') slotsOpen = false // v6.4.6: don't strand the slot modal open on return
     playSfx('click')
     showScreen(target)
   }
@@ -1242,6 +1281,25 @@ export function initUI(hooks) {
         const next = ids[(ids.indexOf(getLang()) + 1) % ids.length]
         hooks.onLang?.(next)
         renderTitle()
+        break
+      }
+      // v6.4.6 save slots: title's 💾 button opens the picker, backdrop/Cancel closes it, tapping
+      // an inactive slot row hands off to main.js (which reloads — see hooks.onSlot). Same
+      // direct-backdrop-hit guard as reset-cancel/boosters-close below.
+      case 'slots':
+        playSfx('click')
+        slotsOpen = true
+        renderTitle()
+        break
+      case 'slots-cancel':
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        playSfx('click')
+        slotsOpen = false
+        renderTitle()
+        break
+      case 'slot-pick': {
+        const n = Number(el.dataset.slot)
+        if (n !== activeSlot()) hooks.onSlot?.(n)
         break
       }
       case 'brief-start': hooks.onBriefStart?.(); break

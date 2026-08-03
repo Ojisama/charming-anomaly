@@ -1,6 +1,6 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
-import { createRun, loadMeta, ensureChapterMeta } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS } from '../src/state.js'
 import {
   SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
@@ -6986,6 +6986,67 @@ function testChapterBalance() {
   console.log('PASS run RR (v6.4.5 chapter-wide balance): body/pond ease spawn+dmg and fatten xp at EVERY difficulty (dailies included, no gate), composes with EARLY_CALM and difficulty taxes, garden/blank untouched, spawned enemies carry the eased dmg')
 }
 
+// v6.4.6 (owner directive, Run SS): save slots — SAVE_SLOTS independent profiles, each its own
+// localStorage key (state.js's slotKey), a pointer key says which is active (activeSlot/
+// setActiveSlot), slot 1 IS the legacy SAVE_KEY (existing saves become slot 1 for free), and a
+// module-level boundKey pins any save that fires before the caller's reload to the slot the
+// in-memory meta was actually loaded from — never the slot the pointer was JUST flipped to. This
+// scenario stubs localStorage (plain node has none) and consumes zero Math.random, so it's safe
+// to run last without disturbing the shared seeded stream the rest of the file relies on.
+function testSaveSlots() {
+  const LEGACY_KEY = 'charming-anomaly-save-v1'
+  const _store = new Map()
+  globalThis.localStorage = {
+    getItem: (k) => (_store.has(k) ? _store.get(k) : null),
+    setItem: (k, v) => _store.set(k, String(v)),
+    removeItem: (k) => _store.delete(k),
+  }
+
+  // (a) empty store -> activeSlot() defaults to 1.
+  assert.strictEqual(activeSlot(), 1, `expected activeSlot() to default to 1 on an empty store, got ${activeSlot()}`)
+  console.log('PASS run SS.a (default slot): activeSlot() === 1 with an empty store')
+
+  // (b) loadMeta() binds boundKey to the active slot's key; slot 1 IS the legacy key, so a
+  // subsequent saveMeta writes there — the "existing save becomes slot 1 for free" guarantee.
+  let m = loadMeta()
+  saveMeta(m)
+  assert(_store.has(LEGACY_KEY), `expected saveMeta to write the legacy key ${LEGACY_KEY}`)
+  console.log('PASS run SS.b (slot 1 = legacy key): loadMeta + saveMeta writes charming-anomaly-save-v1')
+
+  // (c) race guard: setActiveSlot(2) writes ONLY the pointer. The meta loaded in (b) is still
+  // bound to the legacy key, so a save firing in the window before the caller's reload must still
+  // land there, never bleed into the slot the pointer was just flipped to.
+  setActiveSlot(2)
+  saveMeta(m)
+  assert(_store.has(LEGACY_KEY), 'expected saveMeta to still write the legacy key after setActiveSlot(2) (boundKey race guard)')
+  assert(!_store.has(`${LEGACY_KEY}:2`), `expected ${LEGACY_KEY}:2 to stay absent before the reload rebinds`)
+  console.log('PASS run SS.c (race guard): saveMeta still targets the legacy key right after setActiveSlot(2), :2 key absent')
+
+  // (d) a fresh loadMeta() rebinds boundKey to the now-active slot (2) — saveMeta now targets :2.
+  m = loadMeta()
+  saveMeta(m)
+  assert(_store.has(`${LEGACY_KEY}:2`), `expected a fresh loadMeta() to rebind to ${LEGACY_KEY}:2`)
+  console.log('PASS run SS.d (rebind on reload): a fresh loadMeta() + saveMeta now writes charming-anomaly-save-v1:2')
+
+  // (e) slotSummary is a display-only peek, no mutation: slot 3 was never written -> null; slot 2
+  // (just saved in (d)) is a real summary shaped { coins, unlocked, total }.
+  assert.strictEqual(slotSummary(3), null, 'expected slotSummary(3) to be null (never written)')
+  const s2 = slotSummary(2)
+  assert(s2 && typeof s2.coins === 'number' && typeof s2.unlocked === 'number',
+    `expected slotSummary(2) to be a non-null summary with numeric coins/unlocked, got ${JSON.stringify(s2)}`)
+  assert.strictEqual(s2.total, CHAPTER_ORDER.length, `expected slotSummary(2).total === CHAPTER_ORDER.length (${CHAPTER_ORDER.length}), got ${s2.total}`)
+  console.log(`PASS run SS.e (slotSummary): slot 3 null (empty), slot 2 = {coins:${s2.coins}, unlocked:${s2.unlocked}, total:${s2.total}}`)
+
+  // (f) a garbage/out-of-range pointer clamps activeSlot() back into [1, SAVE_SLOTS] rather than
+  // propagating the garbage value.
+  setActiveSlot(99)
+  const clamped = activeSlot()
+  assert(clamped >= 1 && clamped <= SAVE_SLOTS, `expected activeSlot() to clamp into [1, ${SAVE_SLOTS}], got ${clamped}`)
+  console.log(`PASS run SS.f (clamp): setActiveSlot(99) -> activeSlot() = ${clamped} (clamped into [1, ${SAVE_SLOTS}])`)
+
+  console.log('PASS run SS (v6.4.6 save slots): default slot, slot 1 = legacy key, boundKey race guard across setActiveSlot, rebind on reload, slotSummary null/real, garbage-pointer clamp')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -7038,6 +7099,7 @@ try {
   testCoinCap()
   testOpeningCredit()
   testChapterBalance()
+  testSaveSlots()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

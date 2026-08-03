@@ -12,6 +12,57 @@ import {
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
+// v6.4.6 save slots: SAVE_SLOTS independent profiles, switchable from the title screen.
+// SLOT_PTR_KEY holds which one is active ('1'|'2'|'3', see activeSlot/setActiveSlot). Slot 1 is
+// the LEGACY SAVE_KEY unchanged (slotKey below) — every pre-existing save silently becomes slot
+// 1 with zero migration code.
+export const SAVE_SLOTS = 3
+const SLOT_PTR_KEY = 'charming-anomaly-slot'
+
+function slotKey(n) {
+  return n === 1 ? SAVE_KEY : `${SAVE_KEY}:${n}`
+}
+
+// Active slot number, clamped into [1, SAVE_SLOTS]; defaults to 1 on a missing/invalid pointer
+// or a throw (private-mode localStorage), same try/catch idiom as loadMeta/saveMeta below.
+export function activeSlot() {
+  try {
+    const n = parseInt(localStorage.getItem(SLOT_PTR_KEY), 10)
+    if (Number.isInteger(n) && n >= 1 && n <= SAVE_SLOTS) return n
+  } catch { /* private mode */ }
+  return 1
+}
+
+// Writes ONLY the slot pointer — never touches save data. The caller (main.js's onSlot hook)
+// reloads the page right after, so every module re-reads loadMeta() against the new slot rather
+// than reconciling in-memory state (same idiom as onReset).
+export function setActiveSlot(n) {
+  try { localStorage.setItem(SLOT_PTR_KEY, String(n)) } catch { /* private mode */ }
+}
+
+// Display-only peek at slot n for the slot-picker modal — reads its raw save without going
+// through loadMeta (no migration, no ensureChapterMeta, no mutation). null when the slot is
+// empty or corrupted; otherwise a small summary. A save that predates meta.chapters (pre-v5.0)
+// reports unlocked:1 since chapter 1 ('body') is always unlocked.
+export function slotSummary(n) {
+  try {
+    const raw = localStorage.getItem(slotKey(n))
+    if (!raw) return null
+    const m = JSON.parse(raw)
+    const unlocked = m.chapters
+      ? CHAPTER_ORDER.filter((id) => m.chapters?.[id]?.unlocked).length
+      : 1
+    return { coins: m.coins ?? 0, unlocked, total: CHAPTER_ORDER.length }
+  } catch { return null }
+}
+
+// Which slot's key the CURRENT in-memory meta was loaded from/saves to. Set at the top of
+// loadMeta(); saveMeta/resetSave fall back to slotKey(activeSlot()) only when nothing has been
+// loaded yet. Race guard: after setActiveSlot(n) fires (title's slot-switch button), the page
+// hasn't reloaded yet — any save that fires in that window (e.g. an in-flight autosave) must
+// still land in the slot the in-memory meta actually came from, never bleed into the new slot.
+let boundKey = null
+
 // ---- Meta shape (persisted save, see loadMeta/saveMeta) — contract, keep in sync ----------
 // meta.chapter: selected chapter id (default 'body').
 // meta.chapters[id] = { unlocked, maxDifficulty, difficulty, best: { time, kills } } — one
@@ -26,6 +77,10 @@ const SAVE_KEY = 'charming-anomaly-save-v1'
 // absorbs the save's top-level maxDifficulty/difficulty (grandfathered in as chapters.body's
 // ladder, unlocked); top-level meta.best is KEPT (still updated by endRun); top-level
 // meta.difficulty/meta.maxDifficulty are deleted once migrated.
+// v6.4.6 save slots: SAVE_SLOTS independent metas, each its own localStorage key (slotKey), a
+// pointer key (SLOT_PTR_KEY) says which is active, slot 1 IS the legacy SAVE_KEY (no migration
+// needed for existing saves), and module-level boundKey pins every save fired before the next
+// reload to the slot the in-memory meta was actually loaded from (see boundKey's own comment).
 
 // ensureChapterMeta (v5.0): fetches meta.chapters[id], creating it if missing (unlocked only
 // for the 'body' chapter — every later chapter starts locked), and always clamps
@@ -48,8 +103,9 @@ export function ensureChapterMeta(meta, id) {
 }
 
 export function loadMeta() {
+  boundKey = slotKey(activeSlot()) // v6.4.6: bind this in-memory meta to its slot's key up front
   try {
-    const raw = localStorage.getItem(SAVE_KEY)
+    const raw = localStorage.getItem(boundKey)
     if (raw) {
       const m = JSON.parse(raw)
       for (const id of Object.keys(SHOP)) m.shop[id] ??= 0
@@ -94,13 +150,13 @@ export function loadMeta() {
 }
 
 export function saveMeta(meta) {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(meta)) } catch { /* private mode */ }
+  try { localStorage.setItem(boundKey ?? slotKey(activeSlot()), JSON.stringify(meta)) } catch { /* private mode */ }
 }
 
 // Full new-game wipe (shop's "Reset all progress" button, see hooks.onReset in main.js) —
 // erases the save outright; the caller is expected to reload the page right after.
 export function resetSave() {
-  try { localStorage.removeItem(SAVE_KEY) } catch { /* private mode */ }
+  try { localStorage.removeItem(boundKey ?? slotKey(activeSlot())) } catch { /* private mode */ }
 }
 
 // Effective permanent multipliers/bonuses from shop levels.
