@@ -327,15 +327,18 @@ function generateWells(sig) {
  *               tryChainBullet/tryRicochetBullet in sim.js). run._chains/_ricochets are debug
  *               counters incremented each time one of those triggers (not a render contract).
  * novas[i]:   { x, y, r, maxR, dmg, knockback, life, hit:Set<enemyId> }  (r grows; render draws the ring)
- *             knockback (v4.3): Undertow (see WEAPON_MODS.wave) bakes a NEGATIVE knockback in
- *             at cast time to invert push into pull (magnitude also amplified per stack) —
- *             stepNovas' math is unchanged, it just applies whatever signed value is here.
- *             Tsunami (v4.3) similarly bakes a bigger maxR/dmg into every TSUNAMI_EVERY-th cast
- *             (tracked by run._waveCasts, a sim-internal counter, not a render contract).
+ *             knockback (v4.3): always the weapon's normal positive value — novas push enemies
+ *             back regardless of mods. (v6.4.8: Chemotaxis/wave.undertow no longer inverts this
+ *             into a pull; it instead reels in loot — see gems/coins _vac below and sim.js's
+ *             stepWaveWeapon.) Tsunami (v4.3) bakes a bigger maxR/dmg into every TSUNAMI_EVERY-th
+ *             cast (tracked by run._waveCasts, a sim-internal counter, not a render contract).
  * orbs[i]:    { x, y, r } positions + effective hit radius computed by sim each frame (render
  *             just draws them; r = ORB_R × (1 + orbit.bigOrbs bonus), same for main-ring and
  *             twinRing orbs — see WEAPON_MODS.orbit in config.js)
- * gems[i]:    { x, y, xp }   coins[i]: { x, y, value }
+ * gems[i]:    { x, y, xp, _vac? }   coins[i]: { x, y, value, _vac? }
+ *             _vac (v6.4.8, optional): set by Chemotaxis (WEAPON_MODS.wave.undertow) on every
+ *             gem/coin within its reel radius at nova cast time — stepPickups then homes it to
+ *             the player every frame regardless of magnet range, until collected.
  *
  * v2 weapon entities (all sim-owned, render-drawn):
  * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set, hitR, backhandMul, seekerTurnRate }

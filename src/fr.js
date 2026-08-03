@@ -238,7 +238,7 @@ const CONFIG = {
   'Immune Echo': 'Écho Immunitaire',
   'echo wave(s) per cast': 'vague(s) en écho par lancer',
   'Chemotaxis': 'Chimiotaxie',
-  'knockback stack(s) (pulls in instead of pushing out)': 'cumul(s) de recul (attire au lieu de repousser)',
+  'novas reel in gems and coins (wider per stack)': 'les novas ramènent gemmes et pièces (portée accrue par cumul)',
   'Cytokine Storm': 'Tempête de Cytokines',
   'radius/damage on every 3rd (monster) wave': 'rayon/dégâts toutes les 3 vagues (monstres)',
   'Extra Blades': 'Lames Bonus',

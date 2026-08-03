@@ -47,7 +47,7 @@ import {
   ORBIT_TWIN_RING_RADIUS_FRAC, WAVE_ECHO_DELAY, WAVE_ECHO_DMG_FRAC,
   MINE_CLUSTER_DMG_FRAC, MINE_CLUSTER_RADIUS_FRAC, MINE_CLUSTER_ARM,
   MINE_CLUSTER_SCATTER_MIN, MINE_CLUSTER_SCATTER_MAX, MINE_STUN, HOLE_SINGULARITY_FRAC,
-  ORBIT_NOVA_RADIUS, UNDERTOW_KB_PER_STACK, TSUNAMI_EVERY, SEEKER_TURN_RATE,
+  ORBIT_NOVA_RADIUS, UNDERTOW_VAC_RADIUS_PER_STACK, TSUNAMI_EVERY, SEEKER_TURN_RATE,
   MINE_CRAWL_SPEED, WISP_NOVA_RADIUS, SWARM_DMG_FRAC, SWARM_LIFE, CRUNCH_DMG_MUL,
   STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
   CHILL_SLOW_BASE, CHILL_SLOW_PER_POTENCY, CHILL_SLOW_CAP, CHILL_DURATION,
@@ -3500,15 +3500,28 @@ function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
     const isTsunami = tsunamiBonus > 0 && run._waveCasts % TSUNAMI_EVERY === 0
     const radius = isTsunami ? stats.radius * (1 + tsunamiBonus) : stats.radius
     const dmg = isTsunami ? stats.dmg * (1 + tsunamiBonus) : stats.dmg
-    // Undertow: bake the inverted (pulling) + amplified knockback into the nova at cast time, so
-    // mid-run picks don't retroactively change already-live waves (see spawnNova/stepNovas).
-    const knockback = undertowStacks > 0
-      ? -stats.knockback * (1 + UNDERTOW_KB_PER_STACK * undertowStacks)
-      : stats.knockback
+    const knockback = stats.knockback
     spawnNova(run, p.x, p.y, radius, dmg, knockback)
+    // Chemotaxis: main cast only — echoes re-cast at a stale spot and re-marking there would reel
+    // loot toward a place the player left. `radius` is already tsunami-adjusted here (deliberate:
+    // a monster wave reels wider too). Marked items home to the player in stepPickups regardless
+    // of magnet range, until collected.
+    if (undertowStacks > 0) {
+      const vacR = radius * (1 + UNDERTOW_VAC_RADIUS_PER_STACK * undertowStacks)
+      const vacRSq = vacR * vacR
+      for (const it of run.gems) {
+        const dx = it.x - p.x, dy = it.y - p.y
+        if (dx * dx + dy * dy <= vacRSq) it._vac = true
+      }
+      for (const it of run.coins) {
+        const dx = it.x - p.x, dy = it.y - p.y
+        if (dx * dx + dy * dy <= vacRSq) it._vac = true
+      }
+    }
     run.events.push({ type: 'shoot', weapon: 'wave', x: run.player.x, y: run.player.y, maxR: stats.radius }) // v6.2: render draws the ripple train at the cast point
     // Echo Wave: queue N delayed re-casts at the same spot, each WAVE_ECHO_DELAY later than the
-    // previous, at WAVE_ECHO_DMG_FRAC damage (full radius/knockback, already tsunami/undertow-adjusted).
+    // previous, at WAVE_ECHO_DMG_FRAC damage (full radius/knockback, tsunami-adjusted but never
+    // vacuum — see Chemotaxis comment above).
     for (let i = 1; i <= echoCount; i++) {
       run._waveEchoes.push({
         delay: WAVE_ECHO_DELAY * i, x: p.x, y: p.y,
@@ -5111,7 +5124,9 @@ function stepPickups(run, dt) {
       const dx = p.x - it.x, dy = p.y - it.y
       const distSq = dx * dx + dy * dy
       if (distSq <= pickupSq) { onPickup(it); continue }
-      if (distSq <= magnetSq) {
+      // Chemotaxis-marked loot (_vac) homes in regardless of magnet range — it rides the same
+      // speed ramp as a normal magnet pull (magnetSpeed clamps at dist >= magnet either way).
+      if (it._vac || distSq <= magnetSq) {
         const dist = Math.sqrt(distSq)
         const spd = magnetSpeed(dist, magnet)
         it.x += (dx / dist) * spd * dt

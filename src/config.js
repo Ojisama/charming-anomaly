@@ -491,8 +491,10 @@ export const MAX_PASSIVE_LEVEL = 5
 //   orbit.supernova:    when an orbit-orb hit KILLS an enemy, it splashes bonus × that hit's
 //                       dealt damage to everything else in ORBIT_NOVA_RADIUS (no re-roll) + an
 //                       explode event.
-//   wave.undertow:      inverts nova knockback into a pull, baked into the nova at cast time;
-//                       each stack (flat) adds +UNDERTOW_KB_PER_STACK magnitude on top.
+//   wave.undertow:      knockback stays normal/positive (novas always push enemies back); at
+//                       cast time every gem/coin within radius * (1 + UNDERTOW_VAC_RADIUS_PER_STACK
+//                       * stacks) of the cast point is marked `_vac` and homes to the player until
+//                       collected, ignoring magnet range. Echo re-casts do not re-vacuum.
 //   wave.tsunami:       every TSUNAMI_EVERY-th cast (tracked by run._waveCasts) multiplies that
 //                       cast's radius AND damage by (1 + bonus) — a "monster wave".
 //   boomerang.backhand: boomerangs deal (1 + bonus)× damage while in their 'back' (return) phase.
@@ -547,7 +549,7 @@ export const WEAPON_MODS = {
     shove:     { name: 'Fever Shove', desc: 'nova knockback',        icon: '👊', base: 0.20, kind: 'pct' },
     amplitude: { name: 'Inflammation', desc: 'wave damage',           icon: '📢', base: 0.20, kind: 'pct' },
     echo:      { name: 'Immune Echo', desc: 'echo wave(s) per cast', icon: '🔁', kind: 'tier' },
-    undertow:  { name: 'Chemotaxis',  desc: 'knockback stack(s) (pulls in instead of pushing out)', icon: '↩️', base: 1, kind: 'flat' },
+    undertow:  { name: 'Chemotaxis',  desc: 'novas reel in gems and coins (wider per stack)', icon: '🧲', base: 1, kind: 'flat' },
     tsunami:   { name: 'Cytokine Storm',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
   },
   // v5.3: the id stays 'boomerang' (Leaf Blade re-theme is copy-only, see WEAPONS.boomerang);
@@ -830,8 +832,8 @@ export const STAR_RICOCHET_EXTRA_LIFE = 0.4                   // s, minimum flig
 // Supernova Sparks (orbit): splash radius around an orb-killed enemy.
 export const ORBIT_NOVA_RADIUS = 85 // px
 
-// Undertow (wave): extra knockback magnitude per stack, on top of the inverted (pulling) nova.
-export const UNDERTOW_KB_PER_STACK = 0.5 // +50% knockback magnitude per stack
+// Chemotaxis (wave.undertow): each stack widens the loot-reel burst by +50% of the nova's radius.
+export const UNDERTOW_VAC_RADIUS_PER_STACK = 0.5
 
 // Tsunami (wave): cast cadence for a "monster wave" (radius/damage both multiplied).
 export const TSUNAMI_EVERY = 3 // every 3rd wave cast

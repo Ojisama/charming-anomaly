@@ -9,7 +9,7 @@ import {
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
-  ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL,
+  ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
@@ -1222,14 +1222,29 @@ function testCrazyMods() {
     console.log('PASS run O.1 (orbit supernova): explosion on orb kill confirmed')
   }
 
-  // 2. wave.undertow: nova knockback points toward the player (negative radial) instead of away.
+  // 2. wave.undertow (Chemotaxis, v6.4.8 redesign): knockback stays a normal push-back, and the
+  // cast instead reels in nearby gems/coins (marks them _vac, which pulls them in past magnet range).
   function testUndertow() {
     const run = createRun(makeMeta())
-    run.weapons = [{ id: 'wave', level: 1 }]
+    run.weapons = [{ id: 'wave', level: 1 }] // level0 stats: radius 150, knockback 140
     run.weaponMods.wave.undertow = 1
     run.player.x = 0; run.player.y = 0
     const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })
     run.enemies.push(target)
+
+    // Seed loot before the cast: a gem+coin inside the reel radius (radius * 1.5 with 1 stack)
+    // but outside the player's magnet range (baseMagnet 70, no shop/passive bonus in a fresh run),
+    // plus a gem just past the reel radius that must stay untouched.
+    const vacR = WEAPONS.wave.levels[0].radius * (1 + UNDERTOW_VAC_RADIUS_PER_STACK * 1)
+    assert(vacR > run.player.magnet, `test setup: expected reel radius (${vacR}) > magnet (${run.player.magnet})`)
+    const vacGem = { x: vacR - 20, y: 0, xp: 1 }
+    const vacCoin = { x: 0, y: vacR - 20, value: 1 }
+    const farGem = { x: vacR + 30, y: 0, xp: 1 }
+    run.gems.push(vacGem, farGem)
+    run.coins.push(vacCoin)
+    const startXp = run.player.xp
+    const startCoinsEarned = run.coinsEarned
+
     let sawKb = false
     const steps = Math.round(3 / dt)
     for (let i = 0; i < steps && !sawKb; i++) {
@@ -1238,9 +1253,24 @@ function testCrazyMods() {
       if (t && (t.kb.x !== 0 || t.kb.y !== 0)) sawKb = true
     }
     const t = run.enemies.find((e) => e.id === target.id)
-    assert(sawKb, 'expected the nova to knock back (pull) the target')
-    assert(t.kb.x < 0, `expected undertow knockback to pull the target toward the player (negative kb.x), got ${t.kb.x}`)
-    console.log(`PASS run O.2 (undertow): kb.x=${t.kb.x.toFixed(2)}`)
+    assert(sawKb, 'expected the nova to knock back the target')
+    assert(t.kb.x > 0, `expected knockback to stay a normal push-back (positive kb.x) with Chemotaxis active, got ${t.kb.x}`)
+
+    // The cast that produced the knockback should also have marked the in-range loot _vac, and
+    // left the out-of-range gem alone.
+    assert.strictEqual(vacGem._vac, true, 'expected the near gem (inside the reel radius) to be marked _vac')
+    assert.strictEqual(vacCoin._vac, true, 'expected the near coin (inside the reel radius) to be marked _vac')
+    assert.strictEqual(farGem._vac, undefined, 'expected the far gem (outside the reel radius) to stay unmarked')
+
+    // Give the vac'd loot time to travel in and get collected, despite starting outside magnet range.
+    for (let i = 0; i < Math.round(3 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run.player.xp > startXp, 'expected the vac gem to be collected (player xp rose)')
+    assert(!run.gems.includes(vacGem), 'expected the vac gem to be removed from run.gems once collected')
+    assert(run.coinsEarned > startCoinsEarned, 'expected the vac coin to be collected (coinsEarned rose)')
+    assert(!run.coins.includes(vacCoin), 'expected the vac coin to be removed from run.coins once collected')
+    assert(run.gems.includes(farGem), 'expected the far gem to remain uncollected (outside the reel and outside magnet range)')
+
+    console.log(`PASS run O.2 (undertow/chemotaxis): kb.x=${t.kb.x.toFixed(2)} (push-back kept), vac gem+coin collected, far gem untouched`)
   }
 
   // 3. wave.tsunami: every 3rd wave cast has a bigger maxR than the 1st.
