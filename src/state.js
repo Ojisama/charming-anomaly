@@ -52,7 +52,9 @@ export function slotSummary(n) {
     const unlocked = m.chapters
       ? CHAPTER_ORDER.filter((id) => m.chapters?.[id]?.unlocked).length
       : 1
-    return { coins: m.coins ?? 0, unlocked, total: CHAPTER_ORDER.length }
+    // Number() both normalizes odd shapes and defuses a tampered string coins ("<img onerror=…>")
+    // that the slot modal would otherwise interpolate into innerHTML.
+    return { coins: Number(m.coins) || 0, unlocked, total: CHAPTER_ORDER.length }
   } catch { return null }
 }
 

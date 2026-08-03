@@ -7044,6 +7044,14 @@ function testSaveSlots() {
   assert(clamped >= 1 && clamped <= SAVE_SLOTS, `expected activeSlot() to clamp into [1, ${SAVE_SLOTS}], got ${clamped}`)
   console.log(`PASS run SS.f (clamp): setActiveSlot(99) -> activeSlot() = ${clamped} (clamped into [1, ${SAVE_SLOTS}])`)
 
+  // (g) v6.4.7: tampered string coins (an adversarial probe injected '<img onerror=…>' here)
+  // coerce to a number — the slot modal interpolates summary.coins into innerHTML, so slotSummary
+  // must never pass a string through.
+  _store.set(`${LEGACY_KEY}:3`, JSON.stringify({ coins: '<img src=x onerror=1>', chapters: {} }))
+  const s3 = slotSummary(3)
+  assert.strictEqual(s3.coins, 0, `expected tampered string coins to coerce to 0, got ${JSON.stringify(s3.coins)}`)
+  console.log('PASS run SS.g (coins coercion): tampered string coins summarize as 0, never raw into innerHTML')
+
   console.log('PASS run SS (v6.4.6 save slots): default slot, slot 1 = legacy key, boundKey race guard across setActiveSlot, rebind on reload, slotSummary null/real, garbage-pointer clamp')
 }
 

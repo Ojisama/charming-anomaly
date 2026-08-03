@@ -1253,6 +1253,7 @@ export function initUI(hooks) {
         const ids = mode === 'daily' ? [] : [...selectedConsumables]
         selectedConsumables.clear()
         boostersOpen = false
+        slotsOpen = false // keyboard focus can reach Play behind the slot backdrop — don't strand the modal open on return
         hooks.onPlay(mode, ids)
         break
       }

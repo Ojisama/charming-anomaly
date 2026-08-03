@@ -1284,6 +1284,10 @@ body {
 .reset-link:active { opacity: 1; }
 .confirm-sheet {
   width: min(88vw, 340px);
+  /* The slot picker (v6.4.6) is tall enough to clip in short landscape (568×320) — scroll
+     instead of pushing Cancel off-screen. */
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
