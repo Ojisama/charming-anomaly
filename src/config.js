@@ -1265,11 +1265,17 @@ export const hpScale = (t) => {
 // stationary armor stack that floors every hit to 1 early is chipped through by t=300.
 export const dmgScale = (t) => 1 + t / RUN_DURATION
 export const MAX_ALIVE = 400
-// v6.6.4 (owner directive): the onboarding chapters cap the on-screen swarm LOWER than the rest —
-// body -55% (v6.6.6, was -30%), pond -20%, garden -10% (CHAPTERS[id].balance.maxAliveMul). Because
-// the field saturates in the last third at every difficulty, this cap — not the spawn rate — is
-// what sets the crowd a player actually looks at there; see the body's balance block for the
-// measurement. This is a different knob
+// v6.6.4 (owner directive): the onboarding chapters cap the on-screen swarm LOWER than the rest,
+// via CHAPTERS[id].balance.maxAliveMul. Because the field saturates in the last third at every
+// difficulty, this cap — not the spawn rate — is what sets the crowd a player actually looks at
+// there; see the body's balance block for the measurement. The ladder (v6.6.7, owner directive
+// "smooth out the chapter curve"), in CHAPTER_ORDER:
+//   body 0.45 = 180   pond 0.60 = 240   garden 0.75 = 300   undergrowth onwards = 400
+// The steps are even in RATIO, not in absolute count — +33% / +25% / +33% — which is the shape
+// that reads as a smooth ramp, because a crowd 60 bigger matters far more at 180 than at 340. The
+// pre-v6.6.7 ladder (180/320/360/400) was one cliff then two nudges: +78%, +13%, +11%.
+// undergrowth is where the easing STOPS by design — it is a mid-game unlock, not onboarding — so
+// the last step is a full-density step, not a fourth rung. This is a different knob
 // from spawnMul: spawn RATE controls how fast enemies arrive, this controls how many may exist at
 // once, i.e. the density you actually have to path through once the field saturates. Every
 // MAX_ALIVE gate in sim.js goes through maxAliveFor so the two can never drift apart. The blank
@@ -1429,7 +1435,9 @@ export const CHAPTERS = {
     // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
     // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.10, owner directive): the per-chapter
     // HP ladder — pond −15%.
-    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.8 },
+    // maxAliveMul 0.8 -> 0.6 in v6.6.7 (owner directive: "smooth out the chapter curve"): see the
+    // ladder note above MAX_ALIVE.
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.6 },
     // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
     // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
     // multiplies playerTint onto the blob + shows an animated flagellum tail (tailTint). Enemy
@@ -1461,7 +1469,9 @@ export const CHAPTERS = {
     signature: { type: 'pheromones' },
     obstacles: { count: 12, minR: 22, maxR: 40, minDist: 220 }, // grass stalks / pebbles
     // v6.4.10 (owner directive): per-chapter enemy HP ladder — garden −5%.
-    balance: { enemyHpMul: 0.95, maxAliveMul: 0.9 },
+    // maxAliveMul 0.9 -> 0.75 in v6.6.7 (owner directive: "smooth out the chapter curve"): see the
+    // ladder note above MAX_ALIVE.
+    balance: { enemyHpMul: 0.95, maxAliveMul: 0.75 },
     // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
     // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
     // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). Enemy silhouettes are baked
