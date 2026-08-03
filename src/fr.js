@@ -22,7 +22,9 @@ const UI = {
   'coins': 'pièces',
   'win level {n} to unlock {m}': 'gagne le niveau {n} pour débloquer le {m}',
   'win {name} at difficulty 3+': 'gagne {name} en difficulté 3+',
-  'win The Beyond at level 5 — something has been counting': "gagne L'Au-delà au niveau 5 — quelque chose compte",
+  // 'te compte', not 'compte': objectless `compter` reads as "matters", not "is counting" — the
+  // pronoun forces the intended, creepier sense while keeping "counting what?" withheld.
+  'win The Beyond at level 5 — something has been counting': "gagne L'Au-delà au niveau 5 — quelque chose te compte",
   'best': 'record',
   'Boosters': 'Boosters',
   'this run only': 'cette partie seulement',
@@ -36,32 +38,41 @@ const UI = {
     'Débloque le {nth} emplacement d\'amélioration — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
   // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
   // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
-  'buy : 🪙 {n}': 'achat : 🪙 {n}',
+  'buy : 🪙 {n}': 'achat : 🪙 {n}',
   // Deliberately shorter than the English: the full phrase is 217px in a 202px pill on a 320px
   // phone. The modal this pill opens spells it out ("emplacement d'amélioration") in full.
   '{nth} upgrade slot': '{nth} emplacement',
-  'tap a stat below to offer its levels': 'touche une stat ci-dessous pour offrir ses niveaux',
   'Offer': 'Offrir',
-  'Undo': 'Annuler',
+  // 'Retirer', not 'Annuler': the sacrifice screen shows this per-row ↺ button AND a footer
+  // Cancel at the same time, and both would otherwise read 'Annuler'. Undo takes back one offered
+  // level; Cancel abandons the whole flow.
+  'Undo': 'Retirer',
   'Offered {offered}/{cost}': 'Offert {offered}/{cost}',
   'Cancel': 'Annuler',
   'Confirm sacrifice': 'Confirmer le sacrifice',
   'Reset all progress': 'Réinitialiser la progression',
-  'Erase everything?': 'Tout effacer ?',
+  'Erase everything?': 'Tout effacer ?',
   'Coins, upgrades, slots and best scores will be permanently erased.':
     'Pièces, améliorations, emplacements et records seront définitivement effacés.',
   'Erase everything': 'Tout effacer',
   'Save slots': 'Emplacements de sauvegarde',
+  // screen-reader only (aria-label), lowercase to match how they read aloud in context
+  'progress': 'progression',
+  'add booster': 'ajouter un booster',
+  'language': 'langue',
   'Slot': 'Emplacement',
   'Empty — new game': 'Vide — nouvelle partie',
   'Current': 'Actuel',
 
   // level-up
-  'LEVEL UP!': 'NIVEAU SUPÉRIEUR !',
+  // 'montée de niveau' is the term the dictionary already uses for this concept elsewhere
+  // ('Commence avec 2 montées de niveau en réserve'); 'niveau supérieur' named a state rather than
+  // the action, giving one concept two words. Same length, so the headline is unaffected.
+  'LEVEL UP!': 'MONTÉE DE NIVEAU !',
   '1-{n} · arrows · enter · R reroll': '1-{n} · flèches · entrée · R relance',
   'Reroll ({n}🪙)': 'Relancer ({n}🪙)',
   'Reroll': 'Relancer',
-  'New!': 'Nouveau !',
+  'New!': 'Nouveau !',
 
   // briefings + anomalies
   'Daily Anomaly': 'Anomalie du jour',
@@ -80,36 +91,33 @@ const UI = {
   // pause + summary
   'Paused': 'Pause',
   'Resume': 'Reprendre',
-  'Quit to menu': 'Quitter vers le menu',
-  'You escaped! 🎉': 'Tu t\'es échappé·e ! 🎉',
+  'Quit to menu': 'Retour au menu',
+  'You escaped! 🎉': 'Tu t\'es échappé·e ! 🎉',
   'Squished… 💦': 'Écrabouillé·e… 💦',
   'Time': 'Temps',
   'Kills': 'Victimes',
   'Level reached': 'Niveau atteint',
-  'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
-  'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
-  'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer te veut de retour',
+  'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
+  'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
+  'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
 
   // HUD
   'WAVE': 'VAGUE',
   'Lv': 'Niv',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
-  '📋 REPORTED — pest control dispatched': '📋 SIGNALÉ — la dératisation est en route',
+  '📋 REPORTED — pest control dispatched': '📋 SIGNALÉ·E — la dératisation est en route',
 
-  // level-up card composition parts (see tCardDesc/tCardTag in ui.js)
+  // level-up card composition parts (see tCardDesc/tCardTag in ui.js).
+  // The stat-name half of a card line is deliberately NOT repeated here. Those keys ('damage',
+  // 'fire rate', 'armor (flat damage block)', …) are PASSIVES descs owned by the CONFIG section
+  // below, and `FR = { ...UI, ...CONFIG }` means CONFIG silently wins for any key both define — so
+  // a UI copy is unreachable dead code. Ten such copies existed until v6.6.8 and two had drifted
+  // apart from their live CONFIG twin, which meant the wording being maintained was the one no
+  // player could ever see. Keep every config.js content string in CONFIG, and only strings ui.js
+  // itself invents up here.
   'potency': 'puissance',
-  '{name} upgrade': 'amélioration : {name}',
-  'move speed': 'vitesse de déplacement',
-  'gem magnet': 'aimant à gemmes',
-  'max HP (and heals as much)': 'PV max (et soigne d\'autant)',
-  'fire rate': 'cadence de tir',
-  'damage': 'dégâts',
-  'crit chance': 'chance de critique',
-  'crit damage': 'dégâts critiques',
-  'armor (flat damage block)': 'armure (blocage fixe de dégâts)',
-  'HP regen per second': 'régén. de PV par seconde',
-  'XP gain': 'gain d\'XP',
+  '{name} upgrade': 'amélioration : {name}',
 
   // rarities (RARITIES[..].name)
   'Normal': 'Normale',
@@ -142,19 +150,19 @@ const UI = {
 // config.js content strings — filled by the translation pass (see fr-config section below).
 const CONFIG = {
   // v6.2 Remaster — per-chapter endings
-  'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
+  'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
   'Neutralized… 🩸': 'Neutralisé·e… 🩸',
-  'You reached open water! 🎉': 'Tu as atteint les eaux libres ! 🎉',
+  'You reached open water! 🎉': 'Tu as atteint les eaux libres ! 🎉',
   'Filtered out… 💧': 'Filtré·e… 💧',
-  'You outgrew the garden! 🎉': 'Tu as dépassé le jardin ! 🎉',
+  'You outgrew the garden! 🎉': 'Tu as dépassé le jardin ! 🎉',
   'Swatted… 🍃': 'Balayé·e… 🍃',
-  'You out-hunted the hunters! 🎉': 'Tu as chassé les chasseurs ! 🎉',
+  'You out-hunted the hunters! 🎉': 'Tu as chassé les chasseurs ! 🎉',
   'Caught… 🦴': 'Attrapé·e… 🦴',
-  'You slipped the dragnet! 🎉': 'Tu as échappé au coup de filet ! 🎉',
+  'You slipped the dragnet! 🎉': 'Tu as échappé au coup de filet ! 🎉',
   'Pest control wins… 🚚': 'La dératisation gagne… 🚚',
-  'They couldn\'t bring you down! 🎉': 'Ils n\'ont pas pu t\'abattre ! 🎉',
+  'They couldn\'t bring you down! 🎉': 'Ils n\'ont pas pu t\'abattre ! 🎉',
   'Grounded… 💥': 'Cloué·e au sol… 💥',
-  'You crossed the edge of the map! 🎉': 'Tu as franchi le bord de la carte ! 🎉',
+  'You crossed the edge of the map! 🎉': 'Tu as franchi le bord de la carte ! 🎉',
   'Erased from the record… ✨': 'Effacé·e des registres… ✨',
   'THE ANTIBODY FAILED. 🎉': 'L\'ANTICORPS A ÉCHOUÉ. 🎉',
   'DELETED. ⬜': 'SUPPRIMÉ·E. ⬜',
@@ -167,7 +175,7 @@ const CONFIG = {
   'The Beyond — you were never the only anomaly': 'L\'Au-delà — tu n\'as jamais été la seule anomalie',
   'Toxic Shock': 'Choc Toxique',
   'Elite acid pools burn far hotter. Richer coins.': 'Les flaques d\'acide des élites brûlent bien plus fort. Pièces plus riches.',
-  'Spike Protein': 'Protéine de Pointe',
+  'Spike Protein': 'Protéine Spike',
   'Flings barbed antigens at the nearest cell.': 'Projette des antigènes barbelés sur la cellule la plus proche.',
   'Phage Ring': 'Anneau de Phages',
   'Tamed phages circle you, shredding whatever they touch.': 'Des phages apprivoisés tournent autour de toi et déchiquettent tout ce qu\'ils touchent.',
@@ -200,7 +208,7 @@ const CONFIG = {
   'Trash Tornado': 'Tornade de Détritus',
   'Whips up street trash to orbit and batter what it touches.': 'Soulève les détritus de la rue pour qu\'ils tournoient et frappent tout ce qu\'ils touchent.',
   'Sewer Geyser': 'Geyser d\'Égout',
-  'Cracks the street open; scalding jets erupt where foes stand.': 'Fissure la rue ; des jets brûlants jaillissent sous les pieds des ennemis.',
+  'Cracks the street open; scalding jets erupt where foes stand.': 'Fissure la rue ; des jets brûlants jaillissent sous les pieds des ennemis.',
   'Roar': 'Rugissement',
   'A sonic cone that flattens everything in front of you.': 'Un cône sonique qui aplatit tout ce qui se trouve devant toi.',
   'Tail Swipe': 'Coup de Queue',
@@ -285,7 +293,7 @@ const CONFIG = {
   'vortex radius': 'rayon du vortex',
   'Lasting Vortex': 'Vortex Durable',
   'vortex duration': 'durée du vortex',
-  'Denser Pull': 'Attraction Dense',
+  'Denser Pull': 'Attraction Intense',
   'vortex pull': 'force d\'attraction du vortex',
   'Singularity': 'Singularité',
   'extra vortex(es) per cast': 'vortex bonus par lancer',
@@ -367,7 +375,7 @@ const CONFIG = {
   'every 3rd rake slashes twice': 'toutes les 3 griffures tranchent deux fois',
   'Bleeding Claws': 'Griffes Sanglantes',
   'bleed on raked foes (over 3s, dot)': 'saignement sur les ennemis griffés (sur 3s, dégâts continus)',
-  'Ambush Predator': 'Prédateur embusqué',
+  'Ambush Predator': 'Prédateur Embusqué',
   'claws hit harder near a trap': 'les griffes frappent plus fort près d\'un piège',
   'Sharp Quills': 'Piquants Acérés',
   'quill damage': 'dégâts des piquants',
@@ -422,7 +430,7 @@ const CONFIG = {
   'roar damage': 'dégâts du rugissement',
   'Wide Roar': 'Rugissement Large',
   'roar arc': 'arc du rugissement',
-  'Carrying Roar': 'Rugissement Portant',
+  'Carrying Roar': 'Rugissement Porteur',
   'roar range': 'portée du rugissement',
   'Short Breath': 'Souffle Court',
   'roar rate': 'cadence du rugissement',
@@ -462,7 +470,7 @@ const CONFIG = {
   'shard pierce': 'perforation des éclats',
   'Quick Draw': 'Dégainage Rapide',
   'Rift Scar': 'Cicatrice de Faille',
-  'each blink leaves a detonating rift': 'chaque clignement laisse une faille qui détone',
+  'each blink leaves a detonating rift': 'chaque saut laisse une faille qui détone',
   'Recursion': 'Récursion',
   'shard(s) forked when one expires': 'éclat(s) dédoublé(s) quand l\'un expire',
   'Wide Fold': 'Pli Large',
@@ -490,13 +498,13 @@ const CONFIG = {
   'Coin Nose': 'Flair à Pièces',
   '+10% coins found': '+10% pièces',
   'Fire Infusion': 'Infusion de Feu',
-  'Ignites enemies for burn damage over time. Combo: shatters chilled foes, detonates with ⚡.': 'Enflamme les ennemis pour des dégâts de brûlure sur la durée. Combo : brise les ennemis gelés, détone avec ⚡.',
+  'Ignites enemies for burn damage over time. Combo: shatters chilled foes, detonates with ⚡.': 'Enflamme les ennemis pour des dégâts de brûlure sur la durée. Combo : brise les ennemis gelés, détone avec ⚡.',
   'Cold Infusion': 'Infusion de Givre',
-  'Chills and freezes enemies. Combo: shatters with 🔥, chilling arcs with ⚡.': 'Refroidit et gèle les ennemis. Combo : éclate avec 🔥, arcs glaçants avec ⚡.',
+  'Chills and freezes enemies. Combo: shatters with 🔥, chilling arcs with ⚡.': 'Refroidit et gèle les ennemis. Combo : éclate avec 🔥, arcs glaçants avec ⚡.',
   'Lightning Infusion': 'Infusion de Foudre',
-  'Shocks arc damage to nearby foes. Combo: detonates 🔥 ignites, spreads ❄️ chill, copies ☠️ venom.': 'Électrocute les ennemis proches par arcs de dégâts. Combo : détone les brûlures 🔥, propage le froid ❄️, copie le venin ☠️.',
+  'Shocks arc damage to nearby foes. Combo: detonates 🔥 ignites, spreads ❄️ chill, copies ☠️ venom.': 'Électrocute les ennemis proches par arcs de dégâts. Combo : détone les brûlures 🔥, propage le froid ❄️, copie le venin ☠️.',
   'Venom Infusion': 'Infusion de Venin',
-  'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.': 'Un poison cumulatif qui amplifie tous les dégâts subis. Combo : amplification doublée sur ❄️, brûlure plus rapide avec 🔥.',
+  'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.': 'Un poison cumulatif qui amplifie tous les dégâts subis. Combo : amplification doublée sur ❄️, brûlure plus rapide avec 🔥.',
   'Overtime Shift': 'Heures Sup\'',
   'Way more anomalies, way more XP.': 'Beaucoup plus d\'anomalies, beaucoup plus d\'XP.',
   'Bulky Batch': 'Lot Costaud',
@@ -510,20 +518,22 @@ const CONFIG = {
   'Glass Goo': 'Gelée de Verre',
   'You hit much harder but take much more.': 'Tu frappes bien plus fort, mais tu encaisses bien plus aussi.',
   'Sticky Floor': 'Sol Collant',
-  'You move slower, but pickups fly to you.': 'Tu te déplaces plus lentement, mais les butins volent jusqu\'à toi.',
+  'You move slower, but pickups fly to you.': 'Tu te déplaces plus lentement, mais le butin vole jusqu\'à toi.',
   'Jumbo Anomalies': 'Anomalies Jumbo',
   'Big squishy enemies, bonus XP and coins.': 'De gros ennemis tout mous, XP et pièces en bonus.',
   'Accelerated Response': 'Réponse Accélérée',
   'its telegraphs are 25% faster': 'ses attaques s\'annoncent 25% plus vite',
   'Immune Memory': 'Mémoire Immunitaire',
-  'slain cells leave erasing residue': 'les cellules tuées laissent une trace qui vous efface',
+  'slain cells leave erasing residue': 'les cellules tuées laissent une trace qui t\'efface',
   'Cross-Reactivity': 'Réactivité Croisée',
   'each phase steals a second attack from another': 'chaque phase vole une seconde attaque à une autre',
   'Affinity Maturation': 'Maturation d\'Affinité',
   'every attack grows — more bombs, more nodes, a wider star': 'chaque attaque s\'amplifie — plus de bombes, plus de nœuds, une étoile plus large',
   'Riptide': 'Courant de Fond',
   'The currents shove twice as hard. Richer coins.': 'Les courants poussent deux fois plus fort. Pièces plus généreuses.',
-  'Overscent': 'Effluve Intense',
+  // 'Persistant', not 'Intense': the anomaly extends pheromone DURATION, and its own desc below
+  // already says 'persistent deux fois plus longtemps' — the name now matches the effect.
+  'Overscent': 'Effluve Persistant',
   'Pheromone trails linger twice as long. Bonus XP.': 'Les traces de phéromones persistent deux fois plus longtemps. XP en bonus.',
   'Trap Season': 'Saison des Pièges',
   'Half again more snap traps. Richer coins.': '50% de pièges à mâchoires en plus. Pièces plus généreuses.',
@@ -564,6 +574,8 @@ const CONFIG = {
   'Robot Vacuum': 'Robot Aspirateur',
   'Rat-Catcher Drone': 'Drone Chasse-Rats',
   'Pigeon': 'Pigeon',
+  'Patrol Drone': 'Drone de Patrouille',
+  'Street Rat': 'Rat des Rues',
   'The Skies': 'Les Cieux',
   'they brought the air force': 'ils ont amené l\'armée de l\'air',
   'Fighter Jet': 'Avion de Chasse',
@@ -598,9 +610,9 @@ const CONFIG = {
   'Bully': 'Brute',
   'crit damage': 'dégâts critiques',
   'Thick Jelly': 'Gelée Épaisse',
-  'armor (flat damage block)': 'armure (blocage de dégâts fixe)',
+  'armor (flat damage block)': 'armure (blocage fixe de dégâts)',
   'Self-Goo': 'Auto-Gelée',
-  'HP regen per second': 'régén. PV par seconde',
+  'HP regen per second': 'régén. de PV par seconde',
   'Big Brain': 'Gros Cerveau',
   'XP gain': 'gain d\'XP',
 }

@@ -1,6 +1,9 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS } from '../src/state.js'
+// fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
+import { FR } from '../src/fr.js'
 import {
   SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
@@ -14,6 +17,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter,
+  ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
@@ -7624,6 +7628,53 @@ function testChapterDensityCap() {
   console.log(`PASS run VV (v6.6.4 per-chapter density cap): peak alive body ${peaks.body} / pond ${peaks.pond} / garden ${peaks.garden} / city ${peaks.city} (global ${MAX_ALIVE})`)
 }
 
+// ---- Run XX: v6.6.8 French dictionary integrity ----------------------------------------------
+// fr.js is the one module that is pure data with no Pixi/DOM, so it IS testable here, and the
+// v6.6.8 localisation pass found three failure modes that are all invisible by inspection:
+//   (a) a DUPLICATE KEY. `FR = { ...UI, ...CONFIG }` means the CONFIG copy silently wins, so a
+//       hand-written UI translation becomes unreachable dead code. Ten keys were duplicated and
+//       two had drifted apart, i.e. the wording someone maintained was not the wording shipped.
+//       Nothing throws, nothing warns, and reading either section alone looks completely correct.
+//   (b) a key that no English source string can produce. Keys ARE the English source (i18n.js:
+//       `t = (s) => DICTS[lang]?.[s] ?? s`), so any drift means a silent fall back to English —
+//       and the French typography sweep in (c) makes this a live risk, since a no-break space
+//       looks identical to a normal one in an editor.
+//   (c) French spacing before `: ; ! ?`, which must be U+00A0 in VALUES and must never appear in
+//       a key. A plain space there is the single most visible marker of an unproofed French build.
+function testFrenchDictionary() {
+  const src = readFileSync(new URL('../src/fr.js', import.meta.url), 'utf8')
+  // Key literals, both quote styles (one entry uses "…" because its value contains an apostrophe).
+  const keys = [...src.matchAll(/^\s*'((?:[^'\\]|\\.)*)':/gm)].map((m) => m[1])
+    .concat([...src.matchAll(/^\s*"((?:[^"\\]|\\.)*)":/gm)].map((m) => m[1]))
+  const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
+  assert.deepStrictEqual(dupes, [], `fr.js has duplicate keys — the later section silently wins and the earlier translation is dead: ${JSON.stringify(dupes)}`)
+
+  const NBSP = ' '
+  const badKeys = Object.keys(FR).filter((k) => k.includes(NBSP))
+  assert.deepStrictEqual(badKeys, [], `a key contains U+00A0 — it can never match an English source string, so it falls back to English: ${JSON.stringify(badKeys)}`)
+  const badValues = Object.values(FR).filter((v) => / [:;!?]/.test(v))
+  assert.deepStrictEqual(badValues, [], `French values must use U+00A0 before : ; ! ? — plain space found in: ${JSON.stringify(badValues)}`)
+
+  // Every player-visible string config.js owns must have an entry. This is what caught the two
+  // City enemies added in v6.3 after the original translation pass.
+  const missing = new Set()
+  const need = (s) => { if (typeof s === 'string' && s && !FR[s]) missing.add(s) }
+  for (const id of CHAPTER_ORDER.concat(['blank'])) {
+    const ch = CHAPTERS[id]
+    if (!ch) continue
+    need(ch.name); need(ch.tagline)
+    for (const r of ch.roster ?? []) need(r.name)
+  }
+  for (const table of [WEAPONS, WEAPON_MODS, ELEMENTS, MUTATORS, CONSUMABLES, RARITIES, SHOP, PASSIVES]) {
+    for (const v of Object.values(table ?? {})) { need(v?.name); need(v?.desc); need(v?.title) }
+  }
+  for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
+  for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  assert.deepStrictEqual([...missing], [], `config.js strings with no French entry (they ship in English): ${JSON.stringify([...missing])}`)
+
+  console.log(`PASS run XX (v6.6.8 French dictionary): ${keys.length} keys, no duplicates, no NBSP in keys, ${Object.values(FR).filter((v) => v.includes(NBSP)).length} values with French NBSP, full config.js coverage`)
+}
+
 // ---- Run WW: v6.6.5 early spawn boost (owner directive) --------------------------------------
 // "have early monsters (<1min in) spawn a bit faster". spawnRate is multiplied by spawnEarlyMul,
 // which is 1 + SPAWN_EARLY_BOOST at t=0 and decays LINEARLY to exactly 1 at SPAWN_EARLY_UNTIL.
@@ -7742,6 +7793,7 @@ try {
   testEnemySeparation()
   testChapterDensityCap()
   testEarlySpawnBoost()
+  testFrenchDictionary()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

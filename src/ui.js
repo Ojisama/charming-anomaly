@@ -293,7 +293,7 @@ export function initUI(hooks) {
         </div>
         <span class="hero-name">${t(chapter.name)}</span>
         <span class="hero-tagline">${t(chapter.tagline)}</span>
-        <div class="hero-stars" aria-label="progress">${stars}</div>
+        <div class="hero-stars" aria-label="${t('progress')}">${stars}</div>
         ${best}
       </div>`
   }
@@ -318,10 +318,10 @@ export function initUI(hooks) {
     const selected = [...selectedConsumables]
     const slots = Array.from({ length: 3 }, (_, i) => {
       const id = selected[i]
-      if (!id) return `<button class="booster-slot booster-slot--empty" data-act="boosters-open" aria-label="add booster">＋</button>`
+      if (!id) return `<button class="booster-slot booster-slot--empty" data-act="boosters-open" aria-label="${t('add booster')}">＋</button>`
       const item = CONSUMABLES[id]
       return `
-        <button class="booster-slot booster-slot--filled" data-act="boosters-open" aria-label="${item.name}">
+        <button class="booster-slot booster-slot--filled" data-act="boosters-open" aria-label="${t(item.name)}">
           <span class="booster-slot-icon">${item.icon}</span>
           <span class="booster-slot-cost">${item.cost}🪙</span>
         </button>`
@@ -486,8 +486,8 @@ export function initUI(hooks) {
   function renderTitle() {
     if (!meta.chapters?.[browseChapterId]) browseChapterId = meta.chapter
     screens.title.innerHTML = `
-      <button class="lang-toggle" data-act="lang" aria-label="language">🌐 ${getLang().toUpperCase()}</button>
-      <button class="slot-toggle" data-act="slots" aria-label="save slots">💾 ${activeSlot()}/${SAVE_SLOTS}</button>
+      <button class="lang-toggle" data-act="lang" aria-label="${t('language')}">🌐 ${getLang().toUpperCase()}</button>
+      <button class="slot-toggle" data-act="slots" aria-label="${t('Save slots')}">💾 ${activeSlot()}/${SAVE_SLOTS}</button>
       <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
       ${carouselHtml()}
@@ -917,7 +917,7 @@ export function initUI(hooks) {
         </span>`).join('')
       // mutator chips are run-wide rules, not gameplay progress — icon-only, never change mid-run
       const mutatorChips = mutatorIds.map((id) => `
-        <span class="weapon-chip weapon-chip--mutator" title="${MUTATORS[id]?.name ?? id}">
+        <span class="weapon-chip weapon-chip--mutator" title="${t(MUTATORS[id]?.name ?? id)}">
           <span class="weapon-chip-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
         </span>`).join('')
       hud.weaponRow.innerHTML = weaponChips + elementChips + mutatorChips
