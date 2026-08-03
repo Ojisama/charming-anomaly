@@ -35,6 +35,9 @@ const UI = {
   'All 4 upgrade slots unlocked.': 'Les 4 emplacements d\'amélioration sont débloqués.',
   'Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).':
     'Débloque le {nth} emplacement d\'amélioration — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
+  // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
+  // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
+  'buy : 🪙 {n}': 'achat : 🪙 {n}',
   // Deliberately shorter than the English: the full phrase is 217px in a 202px pill on a 320px
   // phone. The modal this pill opens spells it out ("emplacement d'amélioration") in full.
   '{nth} upgrade slot': '{nth} emplacement',
@@ -483,7 +486,7 @@ const CONFIG = {
   'Slippery': 'Glissant',
   '+4% move speed': '+4% vitesse',
   'Magnetic Charm': 'Charme Magnétique',
-  '+12% gem magnet': '+12% aimant gemmes',
+  '+12% gem magnet': '+12% aimant',
   'Coin Nose': 'Flair à Pièces',
   '+10% coins found': '+10% pièces',
   'Fire Infusion': 'Infusion de Feu',

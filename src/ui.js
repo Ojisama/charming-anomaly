@@ -97,7 +97,7 @@ function lerpColor(a, b, t) {
   return `rgb(${r}, ${g}, ${b2})`
 }
 
-// Formats a SHOP stat's total bonus at a given level the same way its shop-card desc reads
+// Formats a SHOP stat's total bonus at a given level the same way its shop-row desc reads
 // (e.g. "+25%" for percentage stats, "+150" for flat ones like maxHP) — used by the sacrifice
 // modal's per-row "current -> after" preview.
 function formatShopBonus(id, levels) {
@@ -563,7 +563,7 @@ export function initUI(hooks) {
   // shop scrolled on a small phone. It is now one two-line pill (label + progress toward the
   // cost); the paragraph moved inside the modal the pill opens, so nothing is lost, and the
   // reset link shares the same row as a 🗑 square. Both live in .shop-foot, a fixed-height flex
-  // row, which is what lets .shop-grid own every remaining pixel (see styles.css).
+  // row, which is what lets .shop-rows own every remaining pixel (see styles.css).
   function shopFootHtml(slots, cost) {
     const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
     let sac
@@ -684,37 +684,36 @@ export function initUI(hooks) {
     const cost = sacrificeCost(slots)
     // v6.6 card: the NAME is gone from the face. A purchase turns on the effect and the price —
     // "Power Gel" is flavour the player already knows by icon after one session, and it was
-    // costing the biggest type on the card plus a whole line. The effect is promoted into that
-    // slot (it may wrap to two lines; it must never ellipsize — it is the decision), the level is
-    // the gel rising inside the card rather than a bar drawn on it, and the name survives in
-    // aria-label so screen readers and the sacrifice list still speak it.
+    // costing the biggest type on the card plus a whole line. The effect takes that slot, and the
+    // name survives in aria-label so screen readers and the sacrifice list still speak it.
+    // v6.6.2 (owner picked this shape over the two-column cards): ONE COLUMN of eight rows. A full
+    // -width row is what lets the effect sit on a single line and never ellipsize, in either
+    // language — horizontal room is the scarce axis at 320px, and every previous attempt lost
+    // labels to a meter competing for the same line. So the meter is not on the line: ten discrete
+    // notches ride the row's bottom edge, and reading down the column shows the whole build at
+    // once. The price is an explicit gold "buy" chip rather than a bare number.
     const cards = Object.entries(SHOP).map(([id, item]) => {
       const level = meta.shop[id]
       const maxed = level >= MAX_SHOP_LEVEL
       const buyCost = maxed ? 0 : shopCost(id, level)
       const afford = !maxed && meta.coins >= buyCost
-      // The one card just bought animates its gel from the PREVIOUS level, so a purchase reads as
-      // a rise rather than a jump. Every other card renders at its resting height (the shop
-      // re-renders wholesale on each tap, so an ungated animation would replay on all eight).
-      const fromPct = id === bounceId ? `--gel-from:${((level - 1) / MAX_SHOP_LEVEL) * 100}%;` : ''
+      const notches = Array.from({ length: MAX_SHOP_LEVEL },
+        (_, i) => `<i class="notch${i < level ? ' notch--on' : ''}"></i>`).join('')
       const label = `${t(item.name)} — ${t(item.desc)} · ${level}/${MAX_SHOP_LEVEL} · ${maxed ? 'MAX' : `🪙 ${buyCost}`}`
       return `
         <!-- maxed is NOT disabled-looking: a finished upgrade is an achievement, not a dead
              control. It gets the gold treatment instead of the grey one (onBuy already no-ops on
-             a maxed id, so the tap is safe). Only unaffordable cards fade. -->
-        <button class="card shop-card${afford || maxed ? '' : ' card--disabled'}${maxed ? ' shop-card--maxed' : ''}${id === bounceId ? ' card--bounce' : ''}"
+             a maxed id, so the tap is safe). Only unaffordable rows fade. -->
+        <button class="card shop-row${afford || maxed ? '' : ' card--disabled'}${maxed ? ' shop-row--maxed' : ''}${id === bounceId ? ' card--bounce' : ''}"
                 data-buy="${id}" aria-label="${label}">
-          ${level > 0 ? `<span class="shop-gel" style="height:${(level / MAX_SHOP_LEVEL) * 100}%;${fromPct}"></span>` : ''}
-          <!-- v6.0.2: layout lives on an inner span, NOT the button — iOS Safari doesn't grow a
-               flex <button> around wrapped content, which let the cost overflow under the next
-               card. The button is a plain block; the span does the column. -->
-          <span class="shop-card-in">
-            <span class="shop-card-effect"><span class="shop-card-icon">${item.icon}</span>${t(item.desc)}</span>
-            <span class="shop-card-foot">
-              <span class="shop-card-lv">${level}/${MAX_SHOP_LEVEL}</span>
-              <span class="shop-card-cost">${maxed ? 'MAX' : `🪙 ${buyCost}`}</span>
-            </span>
+          <!-- v6.0.2: layout lives on an inner span, NOT the button — iOS Safari doesn't reliably
+               grow a flex <button> around its content. The button is a plain block. -->
+          <span class="shop-row-in">
+            <span class="shop-row-icon">${item.icon}</span>
+            <span class="shop-row-effect">${t(item.desc)}</span>
+            <span class="shop-row-buy">${maxed ? 'MAX' : tt('buy : 🪙 {n}', { n: buyCost })}</span>
           </span>
+          <span class="shop-rail">${notches}</span>
         </button>`
     }).join('')
     // Full re-render resets scroll positions — carry the sacrifice list's scroll across so
@@ -723,7 +722,7 @@ export function initUI(hooks) {
     // Nav (below) replaces the old "← Back" header; the coins badge floats top-right like the title.
     screens.shop.innerHTML = `
       <header class="shop-head"><span class="shop-balance">🪙 <b>${meta.coins}</b></span></header>
-      <div class="shop-grid">${cards}</div>
+      <div class="shop-rows">${cards}</div>
       ${shopFootHtml(slots, cost)}
       ${navHtml('shop')}
       ${sacrificeModalHtml(cost)}

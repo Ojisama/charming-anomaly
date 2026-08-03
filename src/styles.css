@@ -214,7 +214,7 @@ body {
    that reservation wasted goes to the grid. */
 .screen--shop {
   justify-content: flex-start;
-  gap: 10px;
+  gap: 8px;
   padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
 .shop-head {
@@ -228,7 +228,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 16px 5px 12px;
+  padding: 4px 15px 4px 11px;
   border: 3px solid var(--gold-edge);
   border-radius: 999px;
   background: var(--gold);
@@ -236,28 +236,26 @@ body {
   font-weight: 800;
   box-shadow: 0 3px 0 var(--gold-edge);
 }
-.shop-balance b { font-size: 1.35rem; font-weight: 900; font-variant-numeric: tabular-nums; }
-.shop-grid {
+.shop-balance b { font-size: 1.25rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+.shop-rows {
   width: 100%;
   max-width: 540px;
-  /* v6.6: the grid OWNS the leftover height (flex:1) instead of being sized by its content, so on
-     a normal phone the whole shop fits with no scrolling at all — the four rows simply share
+  /* v6.6: this OWNS the leftover height (flex:1) instead of being sized by its content, so on a
+     normal phone the whole shop fits with no scrolling at all — the eight rows simply share
      whatever the screen has left after the footer row and the nav. min-height:0 is what lets a
      flex item shrink below its content and scroll internally. */
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0,…): a card's min-content width must never widen the track past the viewport */
   /* v6.0.2 THE phone bug: this grid is a flex item of .screen--shop, so short viewports shrink
-     it; grid then squeezes `auto` rows down to the items' MIN size (the card's min-height) and
-     the card content — the price line last — spills invisibly under the next row. max-content
-     rows never squeeze; the grid scrolls instead (overflow-y below).
-     v6.6 keeps that floor and adds a ceiling: minmax(max-content, 1fr) still refuses to squeeze
-     below the card's natural height (so the v6.0.2 bug cannot come back — a screen too short for
-     four honest rows scrolls, it does not clip), but now GROWS the rows to fill a taller screen
-     rather than leaving the cards cramped at the top with dead space below. */
-  grid-template-rows: repeat(4, minmax(max-content, 1fr));
-  gap: 10px;
+     it; grid then squeezes `auto` rows down to the items' MIN size and the row's content spills
+     invisibly under the next one. max-content rows never squeeze; the grid scrolls instead
+     (overflow-y below). v6.6 keeps that floor and adds a ceiling: minmax(max-content, 1fr) still
+     refuses to squeeze below a row's natural height (so the v6.0.2 bug cannot come back — a
+     screen too short for eight honest rows scrolls, it does not clip), but now GROWS the rows to
+     fill a taller screen rather than bunching them at the top with dead space below. */
+  grid-template-rows: repeat(8, minmax(max-content, 1fr));
+  gap: 4px;
   overflow-y: auto;
   touch-action: pan-y;
   padding: 2px 2px 4px;
@@ -274,77 +272,88 @@ body {
   transition: transform 0.1s, box-shadow 0.1s;
 }
 .card:active { transform: translateY(2px) scale(0.98); box-shadow: 0 1px 0 rgba(53, 53, 74, 0.25); }
-/* v6.0.2 phone fix: the button is a plain block and .shop-card-in does the column layout —
-   iOS Safari doesn't reliably grow a flex <button> around wrapped content, which pushed the
-   cost line under the next card. The footer row keeps pips + price on one always-visible line.
-   v6.0.3: cards are COMPACT (three short lines, tight padding) so the full 2×4 grid plus the
-   sacrifice panel fit a phone screen with no scrolling — the descs are one-liners ("+5%
-   damage"), they never needed roomy cards. */
-.shop-card {
-  position: relative; /* containing block for .shop-gel */
+/* v6.0.2 phone fix: the button is a plain block and .shop-row-in does the flex layout — iOS
+   Safari doesn't reliably grow a flex <button> around its content, which used to push the cost
+   line under the next card.
+   v6.6.2: one full-width row per upgrade. The row's whole line belongs to the label, which is why
+   nothing ellipsizes here in either language — the level meter is NOT on the line, it rides the
+   bottom edge (.shop-rail). Bottom padding clears the rail; the border-radius clips its ends. */
+.shop-row {
+  position: relative; /* containing block for .shop-rail */
   display: block;
-  min-height: 48px;
-  padding: 9px 10px;
-  overflow: hidden; /* the gel is a rectangle — the card's radius has to clip its corners */
+  min-height: 36px;
+  padding: 5px 9px 9px;
+  border-radius: 13px;
+  overflow: hidden;
 }
-.shop-card-in {
-  position: relative; /* above the gel */
+.shop-row-in { display: flex; align-items: center; gap: 9px; min-width: 0; height: 100%; }
+/* both the icon and the buy chip below are fixed-height flex boxes for one reason: an emoji's
+   intrinsic line box is ~2x its font-size no matter the line-height, and eight rows each 12px
+   taller than they need is the difference between fitting a 320x568 screen and scrolling. */
+.shop-row-icon { flex-shrink: 0; display: flex; align-items: center; height: 1.2em; font-size: 1rem; line-height: 1; }
+.shop-row-effect {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the price is a real chip, not a bare number: "what does a tap cost" should not have to be
+   inferred from the row being tappable */
+.shop-row-buy {
+  flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  /* the row may be taller than the content once it grows (1fr above): spread the lines over the
-     card instead of leaving them bunched at the top with dead space under the price */
-  height: 100%;
-  justify-content: space-between;
+  align-items: center;
+  height: 1.55em;
+  padding: 0 10px;
+  border: 2.5px solid var(--gold-edge);
+  border-radius: 999px;
+  background: var(--gold);
+  font-size: 0.7rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 0 var(--gold-edge);
+  font-variant-numeric: tabular-nums;
 }
-/* THE signature: an upgrade's level is gel filling the card, ten discrete steps, not a bar drawn
-   on it. Reading eight cards' fill heights answers "where is my build" in one glance, and it
-   costs zero vertical space in a screen whose whole problem was vertical space. Low alpha keeps
-   ink-on-gel above 8:1 contrast; the darker top edge is the meniscus that makes it read as
-   liquid rather than as a plain block. */
-.shop-gel {
+/* the level: ten discrete notches on the row's bottom edge. Discrete because levels ARE countable
+   — a smooth bar would lie about granularity — and on the edge because the line above is spoken
+   for. Read down the column and the notches show the whole build at once. */
+.shop-rail {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  border-top: 2px solid var(--mint-dark);
-  background: linear-gradient(180deg, rgba(125, 227, 195, 0.62), rgba(125, 227, 195, 0.36));
+  height: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 0 3px 2px;
   pointer-events: none;
 }
-/* a full card is gold to the brim — the screen's reward state, and the reason maxed cards are
-   never given the faded 'disabled' look */
-.shop-card--maxed { border-color: var(--gold-edge); box-shadow: 0 4px 0 var(--gold-edge); }
-.shop-card--maxed .shop-gel {
-  border-top-color: var(--gold-edge);
-  background: linear-gradient(180deg, rgba(255, 217, 61, 0.55), rgba(255, 217, 61, 0.3));
-}
-/* the one card just bought rises from its previous level — the only motion on the screen */
-@keyframes gel-rise { from { height: var(--gel-from, 0%); } }
-.card--bounce .shop-gel { animation: gel-rise 0.45s cubic-bezier(0.34, 1.16, 0.64, 1); }
-/* the effect is the decision, so it takes the card's biggest type and is allowed to WRAP —
-   "+15% crit damage" (longer still in French) must never be cut to fit */
-.shop-card-effect { font-size: 0.86rem; font-weight: 800; line-height: 1.2; }
-.shop-card-icon { margin-right: 4px; font-size: 0.95rem; }
-.shop-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  line-height: 1.15; /* the 🪙 glyph's intrinsic line box is ~32px tall otherwise — half the card */
+/* the EMPTY notches have to read as slots, not as background — at #e6dcc9 they vanished into the
+   cream card and the rail looked like a stray dash rather than a ten-step track */
+.shop-rail .notch { flex: 1; border-radius: 1px; background: #d5c7ad; }
+.shop-rail .notch--on { background: var(--mint-dark); }
+/* a full row is gold end to end — the screen's reward state, and the reason maxed rows are never
+   given the faded 'disabled' look */
+.shop-row--maxed { border-color: var(--gold-edge); box-shadow: 0 4px 0 var(--gold-edge); }
+.shop-row--maxed .shop-rail .notch { background: var(--gold-edge); }
+.shop-row--maxed .shop-row-buy {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  color: var(--gold-edge);
+  letter-spacing: 0.06em;
 }
 .card--disabled { opacity: 0.55; box-shadow: none; }
 .card--bounce { animation: bounce 0.35s ease-out; }
-.shop-card-lv { flex-shrink: 0; font-size: 0.66rem; font-weight: 800; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
-.shop-card--maxed .shop-card-lv { color: var(--gold-edge); }
 .pips { display: flex; gap: 3px; }
 .pip { width: 8px; height: 8px; border-radius: 50%; background: #e0d6c4; }
 .pip--on { background: var(--mint-dark); }
 /* sacrifice modal: a pip about to be given up (still owned, but offered) */
 .pip--lost { background: var(--danger); }
-/* fixed-height flex box: the 🪙 emoji's font metrics otherwise inflate the inline line box to
-   ~31px no matter the line-height, doubling every card's height */
-.shop-card-cost { font-weight: 800; font-size: 0.85rem; color: #9a7b00; display: flex; align-items: center; height: 1.2em; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.shop-card--maxed .shop-card-cost { color: var(--gold-edge); letter-spacing: 0.06em; }
 
 @keyframes bounce {
   0% { transform: scale(1); }
@@ -805,7 +814,7 @@ body {
   .modal-backdrop, .sacrifice-sheet, .confirm-sheet, .sacrifice-counter,
   .sacrifice-counter--ready, .sacrifice-stat-row--bounce,
   .sacrifice-modal--enter, .sacrifice-modal--enter .sacrifice-sheet,
-  .sacrifice-chip--pop, .card--bounce .shop-gel,
+  .sacrifice-chip--pop,
   .amb, .hero-creature, .hero-star--pulse,
   .rampage-bar--active { animation: none; } /* v5.8: the RAMPAGE glow pulse is still infinite */
   /* the drifting ambient decor only reads as motion — hide it entirely when motion is unwanted */
