@@ -29,7 +29,6 @@ const UI = {
   'Done': 'OK',
 
   // shop
-  '/ level': '/ niveau',
   '3rd': '3e',
   '4th': '4e',
   'All 4 upgrade slots unlocked.': 'Les 4 emplacements d\'amélioration sont débloqués.',
@@ -43,6 +42,7 @@ const UI = {
   '{nth} upgrade slot': '{nth} emplacement',
   'tap a stat below to offer its levels': 'touche une stat ci-dessous pour offrir ses niveaux',
   'Offer': 'Offrir',
+  'Undo': 'Annuler',
   'Offered {offered}/{cost}': 'Offert {offered}/{cost}',
   'Cancel': 'Annuler',
   'Confirm sacrifice': 'Confirmer le sacrifice',

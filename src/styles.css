@@ -349,11 +349,6 @@ body {
 }
 .card--disabled { opacity: 0.55; box-shadow: none; }
 .card--bounce { animation: bounce 0.35s ease-out; }
-.pips { display: flex; gap: 3px; }
-.pip { width: 8px; height: 8px; border-radius: 50%; background: #e0d6c4; }
-.pip--on { background: var(--mint-dark); }
-/* sacrifice modal: a pip about to be given up (still owned, but offered) */
-.pip--lost { background: var(--danger); }
 
 @keyframes bounce {
   0% { transform: scale(1); }
@@ -811,10 +806,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .title-logo, .modal, .lv-card, .card--bounce, .lv-card[data-rarity="mythic"],
-  .modal-backdrop, .sacrifice-sheet, .confirm-sheet, .sacrifice-counter,
-  .sacrifice-counter--ready, .sacrifice-stat-row--bounce,
-  .sacrifice-modal--enter, .sacrifice-modal--enter .sacrifice-sheet,
-  .sacrifice-chip--pop,
+  .modal-backdrop, .confirm-sheet, .sacrifice-counter,
+  .sacrifice-counter--ready,
   .amb, .hero-creature, .hero-star--pulse,
   .rampage-bar--active { animation: none; } /* v5.8: the RAMPAGE glow pulse is still infinite */
   /* the drifting ambient decor only reads as motion — hide it entirely when motion is unwanted */
@@ -1199,7 +1192,7 @@ body {
 .shop-sac-meter { flex: 1; min-width: 16px; height: 6px; border-radius: 999px; background: rgba(53, 53, 74, 0.14); overflow: hidden; }
 .shop-sac-meter > i { display: block; height: 100%; border-radius: 999px; background: var(--danger); }
 .shop-sac-count { flex-shrink: 0; font-size: 0.72rem; font-weight: 800; color: var(--danger); }
-.sacrifice-desc { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); text-align: center; }
+.sacrifice-desc { flex-shrink: 0; width: 100%; max-width: 540px; margin: 0; font-size: 0.74rem; line-height: 1.25; font-weight: 600; color: var(--ink-soft); text-align: center; }
 
 /* ---- generic modal backdrop (sacrifice sheet + reset confirm both use it) ---- */
 .modal-backdrop {
@@ -1215,138 +1208,69 @@ body {
 }
 
 /* ---- sacrifice sheet ---- */
-/* Enter animation (backdrop fade + sheet pop) is gated behind --enter, which ui.js applies ONLY on
-   the first render after the modal opens (sacrificeAnimated). The shop re-renders wholesale on each
-   tap, recreating this node — without the gate the enter would replay every tap (the "janky" bug).
-   The base rules deliberately carry NO animation so those re-renders paint silently. */
-.sacrifice-modal { animation: none; }
-.sacrifice-modal--enter { animation: pop-in 0.15s ease-out; }
-.sacrifice-modal--enter .sacrifice-sheet { animation: pop-in 0.22s ease-out; }
-.sacrifice-sheet {
-  width: min(92vw, 420px);
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border: 3px solid var(--ink);
-  border-radius: 20px;
-  background: var(--cream);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-  overflow: hidden;
-}
-/* ---- altar zone (pinned top): counter + one chip per offered stat ---- */
-.sacrifice-altar {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px 12px;
-  border-bottom: 2px dashed #e0d6c4;
-  background: var(--danger-soft);
-  text-align: center;
-}
-.sacrifice-altar--ready { background: #dff5ec; } /* mint tint once the altar is exactly full */
+/* ---- sacrifice VIEW (v6.6.3) ----
+   Not a modal: it replaces the shop screen's contents, so it inherits the screen's full height
+   instead of paying for a sheet's own border, header and footer inside it. --sac drops the
+   bottom-nav padding reservation because the nav is not rendered during a Cancel/Confirm flow. */
+.screen--shop.screen--sac { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.shop-head--sac { justify-content: center; }
 .sacrifice-counter {
-  display: inline-block;
-  font-weight: 900;
-  font-size: 1.6rem;
-  animation: counter-pop 0.25s ease-out; /* per-tap pulse — meant to replay on every re-render */
-}
-.sacrifice-counter--ready { animation: counter-pop 0.25s ease-out, ready-pulse 0.9s ease-in-out infinite; }
-.sacrifice-altar-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-}
-.sacrifice-altar-empty { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); opacity: 0.75; }
-.sacrifice-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 32px;
-  padding: 5px 11px;
-  border: 2px solid var(--danger);
+  padding: 5px 16px;
+  border: 3px solid var(--danger);
   border-radius: 999px;
-  background: #fff;
-  color: var(--danger-edge);
+  background: var(--danger-soft);
+  font-weight: 900;
+  font-size: 1.05rem;
+  animation: counter-pop 0.25s ease-out; /* per-tap pulse — meant to replay on every re-render */
+}
+.sacrifice-counter--ready {
+  border-color: var(--mint-dark);
+  background: #dff5ec;
+  animation: counter-pop 0.25s ease-out, ready-pulse 0.9s ease-in-out infinite;
+}
+/* the sacrifice list only holds stats you actually own, so its row count varies — auto rows
+   instead of the shop's fixed repeat(8) */
+.shop-rows--sac { grid-template-rows: none; grid-auto-rows: minmax(max-content, 1fr); }
+.shop-foot--sac { gap: 10px; }
+.shop-foot--sac .btn { flex: 1; width: auto; min-width: 0; min-height: 46px; padding: 6px 8px; font-size: 0.84rem; }
+/* ---- sacrifice rows: the SHOP row component, reused verbatim ----
+   The row markup is .shop-row/.shop-row-in/.shop-row-icon/.shop-row-effect/.shop-rail — the same
+   classes the upgrade list uses — so the eight things you choose between look identical on both
+   screens. Only three things differ, and each is a real difference in meaning: the action chip is
+   blood-red instead of gold, the rail gains a "lost" state for levels on the altar, and the effect
+   slot can hold a before → after preview. */
+.sac-row { flex-shrink: 0; cursor: default; padding: 4px 8px 7px; } /* the sheet body is a flex column, not a grid — rows must not squish */
+.sac-row:active { transform: none; box-shadow: 0 4px 0 rgba(53, 53, 74, 0.25); } /* the row is a container now; only its two buttons act */
+/* Two round controls per row: 🩸+ puts one level on the altar, ↺ takes one back. Taking back used
+   to mean hunting for the stat's chip in the altar strip — a second place for an action you
+   perform here — so that strip is gone and both directions live on the row they affect. */
+.sac-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
   font: inherit;
-  font-size: 0.78rem;
-  font-weight: 800;
+  font-size: 0.76rem;
+  font-weight: 900;
   line-height: 1;
   cursor: pointer;
 }
-.sacrifice-chip:active { transform: scale(0.94); }
-.sacrifice-chip--pop { animation: counter-pop 0.25s ease-out; }
-.sacrifice-chip-name { white-space: nowrap; }
-.sacrifice-chip-count { color: var(--danger); font-weight: 900; }
-.sacrifice-sheet-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  touch-action: pan-y;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-}
-/* whole-row offer target: no +/− buttons — one tap offers one level (see sacrifice-offer) */
-.sacrifice-stat-row {
-  display: flex;
-  flex-shrink: 0; /* the sheet body is a scrollable flex column — without this, rows squish and clip their pips */
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 48px;
-  min-width: 0;
-  padding: 10px 12px;
-  border: 2px solid var(--cream-edge);
-  border-radius: 14px;
-  background: var(--cream-soft);
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.sacrifice-stat-row:active { transform: scale(0.99); background: var(--danger-soft); }
-.sacrifice-stat-row:disabled { opacity: 0.45; cursor: default; }
-.sacrifice-stat-row:disabled:active { transform: none; background: var(--cream-soft); }
-.sacrifice-stat-row--bounce { animation: bounce 0.35s ease-out; }
-.sacrifice-stat-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.sacrifice-stat-name {
-  font-weight: 800;
-  font-size: 0.92rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sacrifice-stat-effect { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); }
-.sacrifice-bonus-preview { font-size: 0.8rem; font-weight: 700; }
-.sacrifice-bonus-before { color: var(--ink-soft); }
-.sacrifice-bonus-after { color: var(--danger); font-weight: 800; }
-.sacrifice-offer-affordance {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  color: var(--danger);
-  font-size: 1.15rem;
-  line-height: 1;
-}
-.sacrifice-offer-label { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
-.sacrifice-stat-row:disabled .sacrifice-offer-affordance { color: var(--ink-soft); }
-.sacrifice-sheet-foot {
-  flex-shrink: 0;
-  display: flex;
-  gap: 10px;
-  padding: 12px 14px;
-  border-top: 2px dashed #e0d6c4;
-}
-.sacrifice-sheet-foot .btn { flex: 1; width: auto; min-width: 0; }
+.sac-btn b { font-size: 0.7rem; font-weight: 900; }
+.sac-btn--offer { border: 2.5px solid var(--danger); background: var(--danger-soft); color: var(--danger-edge); box-shadow: 0 2px 0 var(--danger); }
+.sac-btn--undo { border: 2.5px solid var(--cream-edge); background: var(--cream-soft); color: var(--ink-soft); font-size: 0.95rem; box-shadow: 0 2px 0 var(--cream-edge); }
+.sac-btn:not(:disabled):active { transform: translateY(2px); box-shadow: none; }
+.sac-btn:disabled { opacity: 0.34; cursor: default; box-shadow: none; }
+/* levels currently on the altar — red in the same rail that shows the ones you keep, so a row
+   answers "what I have / what I am giving up / what is empty" without a second control */
+.shop-rail .notch--lost { background: var(--danger); }
+.sac-row-before { color: var(--ink-soft); }
+.sac-row-after { color: var(--danger); }
 
 @keyframes counter-pop {
   0% { transform: scale(0.85); }

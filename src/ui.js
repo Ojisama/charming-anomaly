@@ -542,16 +542,8 @@ export function initUI(hooks) {
   let sacrificeOpen = false
   let sacrificePicks = {} // statId -> levels offered so far this sacrifice session
   let sacrificeBounceId = null
-  // The shop re-renders wholesale on every tap (screens.shop.innerHTML is rebuilt), which recreates
-  // the modal node and would restart its CSS enter animation each tap — the "janky replay" bug.
-  // sacrificeAnimated is flipped false when the modal opens and consumed on the FIRST render after
-  // (see sacrificeModalHtml): only that first paint carries the .sacrifice-modal--enter class, so
-  // the slide-up plays exactly once. Per-tap feedback (counter + touched chip) uses its own always-on
-  // pulse, which is fine to replay because it SHOULD fire on every offer.
-  let sacrificeAnimated = false
-
-  // Reset-all-progress confirmation modal — same backdrop idiom as the sacrifice modal, just a
-  // small confirm/cancel sheet instead of a scrollable stat list. Not persisted either.
+  // Reset-all-progress confirmation: a backdrop + a small confirm/cancel sheet. Still a modal (a
+  // destructive yes/no genuinely wants to block), unlike the sacrifice list which is a view now.
   let resetOpen = false
 
   function sacrificeOffered() {
@@ -592,55 +584,56 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // Full-screen sacrifice modal (v5.1.1 altar rework): a dim backdrop (tapping it directly, not the
-  // sheet, cancels — see the sacrifice-cancel case below) centering a rounded sheet. Top is a pinned
-  // ALTAR zone — the big Offered X/COST counter plus one chip per offered stat (tap a chip to un-offer
-  // one level). Below scrolls the stat list where the WHOLE row is one tap target offering ONE level
-  // (no +/− steppers): unambiguous, since the only action a row affords is "give up a level here".
-  // enter animation: gated by sacrificeAnimated so the slide-up plays only on the first paint.
-  function sacrificeModalHtml(cost) {
-    if (!sacrificeOpen || cost == null) return ''
+  // v6.6.3: the sacrifice list is a VIEW, not a modal. It used to be a 523px sheet floating inside
+  // a 568px phone, which meant paying for two sets of chrome (the sheet's own header and footer on
+  // top of the screen's) and left less room for the eight rows than the screen itself has. It now
+  // replaces the shop's contents in place, and the bottom nav is withheld while it is up — you are
+  // in a committed Cancel/Confirm flow, so wandering off to Battle mid-offer should take an
+  // explicit cancel. Same header/rows/footer skeleton as the upgrade list.
+  function sacrificeViewHtml(cost) {
     const offered = sacrificeOffered()
     const ready = offered === cost
     const full = offered >= cost
     const counterColor = ready ? 'var(--mint-dark)' : lerpColor('#7a7a90', '#c23a52', offered / cost)
-    // Consume the once-only enter flag: only this first render after opening tags the modal with
-    // --enter (the animated class), so subsequent tap re-renders can't replay the slide-up.
-    const enter = !sacrificeAnimated
-    sacrificeAnimated = true
 
-    // Altar chips: one per offered stat, tap to take ONE level back off the altar. The just-touched
-    // one gets --pop so it scale-pops on appear/increment (recreated each render → restart-safe).
-    const chips = Object.entries(sacrificePicks).filter(([, n]) => n > 0).map(([id, n]) => `
-      <button class="sacrifice-chip${id === sacrificeBounceId ? ' sacrifice-chip--pop' : ''}" data-act="sacrifice-unoffer" data-id="${id}">
-        <span class="sacrifice-chip-name">${t(SHOP[id].name)}</span>
-        <span class="sacrifice-chip-count">×${n}</span>
-      </button>`).join('')
-    const altarInner = chips || `<span class="sacrifice-altar-empty">${t('tap a stat below to offer its levels')}</span>`
+    // v6.6.3: the altar's chip strip is GONE. Its only job was taking a level back off the altar,
+    // and every row now carries its own ↺ button — so the strip was a second control for something
+    // you can do where you did it, costing ~40px on the one screen that must show eight rows.
+    // What's on the altar is legible from the rows themselves: red notches on each row's rail.
 
+    // v6.6.3: these are literally the shop's rows — same .shop-row/.shop-rail component, same icon
+    // and effect, so the eight things you are choosing between look identical on both screens
+    // (they were "Power Gel" here and "💥 +5% damage" one tap away). The rail does double duty
+    // that the pips could not: mint = levels you keep, red = levels on the altar, plain = empty.
     const rows = Object.entries(SHOP).filter(([id]) => (meta.shop[id] ?? 0) > 0).map(([id, item]) => {
       const level = meta.shop[id]
       const picked = sacrificePicks[id] ?? 0
       const kept = level - picked
       const canOffer = picked < level && !full
-      const pips = Array.from({ length: MAX_SHOP_LEVEL }, (_, i) => {
-        const cls = i < kept ? 'pip pip--on' : i < level ? 'pip pip--lost' : 'pip'
+      const notches = Array.from({ length: MAX_SHOP_LEVEL }, (_, i) => {
+        const cls = i < kept ? 'notch notch--on' : i < level ? 'notch notch--lost' : 'notch'
         return `<i class="${cls}"></i>`
       }).join('')
-      // "disappearing" preview: current total bonus at this level -> what's left after the offer
-      const preview = picked > 0
-        ? `<span class="sacrifice-bonus-preview"><span class="sacrifice-bonus-before">${formatShopBonus(id, level)}</span> → <span class="sacrifice-bonus-after">${formatShopBonus(id, kept)}</span></span>`
-        : ''
+      // The middle slot answers whichever question is live: normally "what does one level give
+      // me", and once you have offered some, "what am I about to lose" (total now → total after).
+      // Swapping in place is what keeps this a one-line row instead of the old four-line block.
+      const mid = picked > 0
+        ? `<span class="sac-row-before">${formatShopBonus(id, level)}</span> → <span class="sac-row-after">${formatShopBonus(id, kept)}</span>`
+        : t(item.desc)
+      // A div, not a button: the row holds two real buttons now and buttons cannot nest. Offering
+      // and taking back are both per-row, which is why the altar no longer needs its chip strip.
       return `
-        <button class="sacrifice-stat-row${id === sacrificeBounceId ? ' sacrifice-stat-row--bounce' : ''}" data-act="sacrifice-offer" data-id="${id}" ${canOffer ? '' : 'disabled'}>
-          <div class="sacrifice-stat-info">
-            <span class="sacrifice-stat-name">${t(item.name)}</span>
-            <span class="sacrifice-stat-effect">${t(item.desc)} ${t('/ level')}</span>
-            ${preview}
-            <span class="pips">${pips}</span>
-          </div>
-          <span class="sacrifice-offer-affordance">🩸<span class="sacrifice-offer-label">${t('Offer')}</span></span>
-        </button>`
+        <div class="card shop-row sac-row${id === sacrificeBounceId ? ' card--bounce' : ''}">
+          <span class="shop-row-in">
+            <span class="shop-row-icon">${item.icon}</span>
+            <span class="shop-row-effect">${mid}</span>
+            <button class="sac-btn sac-btn--offer" data-act="sacrifice-offer" data-id="${id}" ${canOffer ? '' : 'disabled'}
+                    aria-label="${t('Offer')} — ${t(item.name)}">🩸<b>+</b></button>
+            <button class="sac-btn sac-btn--undo" data-act="sacrifice-unoffer" data-id="${id}" ${picked > 0 ? '' : 'disabled'}
+                    aria-label="${t('Undo')} — ${t(item.name)}">↺</button>
+          </span>
+          <span class="shop-rail">${notches}</span>
+        </div>`
     }).join('')
 
     // v6.6: the "what does this buy me" line lives here now — the shop screen no longer carries a
@@ -648,20 +641,15 @@ export function initUI(hooks) {
     const nth = (meta.choiceSlots ?? 2) === 2 ? t('3rd') : t('4th')
 
     return `
-      <div class="modal-backdrop sacrifice-modal${enter ? ' sacrifice-modal--enter' : ''}" data-act="sacrifice-cancel">
-        <div class="sacrifice-sheet">
-          <p class="sacrifice-desc">${tt('Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost })}</p>
-          <div class="sacrifice-altar${ready ? ' sacrifice-altar--ready' : ''}">
-            <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 ${tt('Offered {offered}/{cost}', { offered, cost })}</span>
-            <div class="sacrifice-altar-chips">${altarInner}</div>
-          </div>
-          <div class="sacrifice-sheet-body">${rows}</div>
-          <footer class="sacrifice-sheet-foot">
-            <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">${t('Cancel')}</button>
-            <button class="btn btn--danger btn--small" data-act="sacrifice-confirm" ${ready ? '' : 'disabled'}>${t('Confirm sacrifice')}</button>
-          </footer>
-        </div>
-      </div>`
+      <header class="shop-head shop-head--sac">
+        <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 ${tt('Offered {offered}/{cost}', { offered, cost })}</span>
+      </header>
+      <p class="sacrifice-desc">${tt('Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost })}</p>
+      <div class="shop-rows shop-rows--sac">${rows}</div>
+      <footer class="shop-foot shop-foot--sac">
+        <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">${t('Cancel')}</button>
+        <button class="btn btn--danger btn--small" data-act="sacrifice-confirm" ${ready ? '' : 'disabled'}>${t('Confirm sacrifice')}</button>
+      </footer>`
   }
 
   function resetModalHtml() {
@@ -682,6 +670,14 @@ export function initUI(hooks) {
   function renderShop(bounceId) {
     const slots = meta.choiceSlots ?? 2
     const cost = sacrificeCost(slots)
+    // The sacrifice list takes over the shop screen rather than floating above it (see
+    // sacrificeViewHtml). --sac drops the bottom-nav padding reservation, since the nav is not
+    // rendered while a Cancel/Confirm flow is up.
+    screens.shop.classList.toggle('screen--sac', sacrificeOpen && cost != null)
+    if (sacrificeOpen && cost != null) {
+      screens.shop.innerHTML = sacrificeViewHtml(cost)
+      return
+    }
     // v6.6 card: the NAME is gone from the face. A purchase turns on the effect and the price —
     // "Power Gel" is flavour the player already knows by icon after one session, and it was
     // costing the biggest type on the card plus a whole line. The effect takes that slot, and the
@@ -716,20 +712,14 @@ export function initUI(hooks) {
           <span class="shop-rail">${notches}</span>
         </button>`
     }).join('')
-    // Full re-render resets scroll positions — carry the sacrifice list's scroll across so
-    // offering a stat at the bottom doesn't fling the player back to the top of the list.
-    const prevScroll = screens.shop.querySelector('.sacrifice-sheet-body')?.scrollTop ?? 0
-    // Nav (below) replaces the old "← Back" header; the coins badge floats top-right like the title.
+    // Nav (below) replaces the old "← Back" header.
     screens.shop.innerHTML = `
       <header class="shop-head"><span class="shop-balance">🪙 <b>${meta.coins}</b></span></header>
       <div class="shop-rows">${cards}</div>
       ${shopFootHtml(slots, cost)}
       ${navHtml('shop')}
-      ${sacrificeModalHtml(cost)}
       ${resetModalHtml()}
     `
-    const body = screens.shop.querySelector('.sacrifice-sheet-body')
-    if (body && prevScroll) body.scrollTop = prevScroll
   }
 
   // ---- hud (built once; updateHUD mutates in place) ---------------------
@@ -1347,14 +1337,10 @@ export function initUI(hooks) {
         sacrificeOpen = true
         sacrificePicks = {}
         sacrificeBounceId = null
-        sacrificeAnimated = false // arm the once-only enter animation for the next render
         playSfx('click')
         renderShop()
         break
       case 'sacrifice-cancel':
-        // A tap anywhere inside the sheet also resolves to this backdrop element (nothing in
-        // the sheet stops propagation), so only close on a *direct* hit on the backdrop itself.
-        if (el.classList.contains('modal-backdrop') && el !== e.target) break
         sacrificeOpen = false
         sacrificePicks = {}
         sacrificeBounceId = null
