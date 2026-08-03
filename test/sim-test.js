@@ -1182,17 +1182,17 @@ function testFocusNudge() {
 // Difficulty d (1..MAX_DIFFICULTY): +25% enemy HP per level above 1, stacked ON TOP of
 // mutator effects; main.js also rolls d-1 random mutators (randomMutators is tested here).
 function testDifficulty() {
-  // garden: this run isolates the DIFFICULTY ladder, so it needs a chapter without a
-  // CHAPTERS[id].balance block — body's enemyHpMul 0.75 (v6.4.9) would fold into every product
-  // here (same repoint as run MM's).
-  const base = createRun(makeMeta(), { chapter: 'garden' })
+  // undergrowth: this run isolates the DIFFICULTY ladder, so it needs a chapter without a
+  // CHAPTERS[id].balance block — v6.4.10's per-chapter HP ladder reached garden (0.95), leaving
+  // undergrowth and beyond as the balance-free chapters.
+  const base = createRun(makeMeta(), { chapter: 'undergrowth' })
   assert.strictEqual(base.mods.enemyHpMul, 1, 'difficulty defaults to 1 = untouched enemy HP')
 
-  const d3 = createRun(makeMeta(), { chapter: 'garden', difficulty: 3 })
+  const d3 = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
   assert.strictEqual(d3.mods.enemyHpMul, 1.5, `difficulty 3 => enemyHpMul 1.5, got ${d3.mods.enemyHpMul}`)
   assert.strictEqual(d3.mods.coinMul, 1.5, `difficulty 3 => coinMul 1.5, got ${d3.mods.coinMul}`)
 
-  const d5bulky = createRun(makeMeta(), { chapter: 'garden', difficulty: 5, mutators: ['bulky'] })
+  const d5bulky = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 5, mutators: ['bulky'] })
   assert.strictEqual(d5bulky.mods.enemyHpMul, 1.5 * 2, `bulky(1.5) x difficulty5(2) => 3, got ${d5bulky.mods.enemyHpMul}`)
   assert.strictEqual(d5bulky.mods.coinMul, 1.6 * 2, `bulky coins(1.6) x difficulty5(2) => 3.2, got ${d5bulky.mods.coinMul}`)
 
@@ -6980,21 +6980,35 @@ function testChapterBalance() {
       `expected pond d3 mods.spawnMul ≈ 0.75, got ${run.mods.spawnMul}`)
     assert(Math.abs(run.mods.enemyDmgMul - expectedDmg) < EPS,
       `expected pond d3 mods.enemyDmgMul ≈ ${expectedDmg}, got ${run.mods.enemyDmgMul}`)
-    // pond's balance block has no enemyHpMul (v6.4.9 is body-only) — only the d3 tax applies.
-    assert(Math.abs(run.mods.enemyHpMul - difficultyHpMul(3)) < EPS,
-      `expected pond d3 mods.enemyHpMul ≈ difficulty tax alone ${difficultyHpMul(3)}, got ${run.mods.enemyHpMul}`)
+    // v6.4.10 per-chapter HP ladder: pond 0.85, stacking with the d3 tax.
+    assert(Math.abs(run.mods.enemyHpMul - 0.85 * difficultyHpMul(3)) < EPS,
+      `expected pond d3 mods.enemyHpMul ≈ 0.85 × difficulty tax ${0.85 * difficultyHpMul(3)}, got ${run.mods.enemyHpMul}`)
     console.log(`PASS run RR.b (pond d3 stacks balance with the difficulty tax): enemyDmgMul=${run.mods.enemyDmgMul.toFixed(4)} (expected ${expectedDmg.toFixed(4)})`)
   }
 
-  // (c) garden has no balance block (config.js: only body/pond do) — stays at baseline 1 even
+  // (c) v6.4.10: garden's balance block is HP-ONLY (0.95) — spawn/dmg/xp stay baseline 1 even
   // though it's an EARLY_CALM chapter, since difficulty is omitted here and calm needs d1 explicit.
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'garden' })
-    assert.strictEqual(run.mods.spawnMul, 1, `expected garden (no balance block) mods.spawnMul === 1, got ${run.mods.spawnMul}`)
-    assert.strictEqual(run.mods.enemyDmgMul, 1, `expected garden (no balance block) mods.enemyDmgMul === 1, got ${run.mods.enemyDmgMul}`)
-    assert.strictEqual(run.mods.xpMul, 1, `expected garden (no balance block) mods.xpMul === 1, got ${run.mods.xpMul}`)
-    console.log('PASS run RR.c (garden has no balance block): spawnMul/enemyDmgMul/xpMul stay baseline 1')
+    assert.strictEqual(run.mods.spawnMul, 1, `expected garden (HP-only balance) mods.spawnMul === 1, got ${run.mods.spawnMul}`)
+    assert.strictEqual(run.mods.enemyDmgMul, 1, `expected garden (HP-only balance) mods.enemyDmgMul === 1, got ${run.mods.enemyDmgMul}`)
+    assert.strictEqual(run.mods.xpMul, 1, `expected garden (HP-only balance) mods.xpMul === 1, got ${run.mods.xpMul}`)
+    assert(Math.abs(run.mods.enemyHpMul - 0.95) < EPS, `expected garden mods.enemyHpMul ≈ 0.95, got ${run.mods.enemyHpMul}`)
+    console.log('PASS run RR.c (garden balance is HP-only): enemyHpMul 0.95, spawnMul/enemyDmgMul/xpMul stay baseline 1')
+  }
+
+  // (c2) v6.4.10 per-chapter enemy HP ladder, the full sweep: body 0.75, pond 0.85, garden 0.95,
+  // undergrowth 1 (no block), city 1.05, skies 1.15, beyond 1 (no block).
+  {
+    const LADDER = { body: 0.75, pond: 0.85, garden: 0.95, undergrowth: 1, city: 1.05, skies: 1.15, beyond: 1 }
+    for (const [ch, hp] of Object.entries(LADDER)) {
+      Math.random = mulberry32(20260714)
+      const run = createRun(makeMeta(), { chapter: ch })
+      assert(Math.abs(run.mods.enemyHpMul - hp) < EPS,
+        `expected ${ch} mods.enemyHpMul ≈ ${hp}, got ${run.mods.enemyHpMul}`)
+    }
+    console.log('PASS run RR.c2 (HP ladder sweep): body 0.75 / pond 0.85 / garden 0.95 / undergrowth 1 / city 1.05 / skies 1.15 / beyond 1')
   }
 
   // (d) blank (the scripted boss chapter) has no balance block either — untouched.

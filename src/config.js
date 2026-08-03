@@ -1361,8 +1361,9 @@ export const CHAPTERS = {
     obstacles: { count: 14, minR: 26, maxR: 44, minDist: 220 }, // minDist from spawn point
     // v6.4.5 (owner directive): chapter-wide baseline easing — every difficulty AND dailies run
     // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
-    // d1-only EARLY_CALM all stack on top.
-    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, xpMul: 1.25 },
+    // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.10, owner directive): the per-chapter
+    // HP ladder — pond −15%.
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.85, xpMul: 1.25 },
     // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
     // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
     // multiplies playerTint onto the blob + shows an animated flagellum tail (tailTint). Enemy
@@ -1393,6 +1394,8 @@ export const CHAPTERS = {
     // sim.js gates its trail logic on signature.type === 'pheromones' (future chapters' ants differ).
     signature: { type: 'pheromones' },
     obstacles: { count: 12, minR: 22, maxR: 40, minDist: 220 }, // grass stalks / pebbles
+    // v6.4.10 (owner directive): per-chapter enemy HP ladder — garden −5%.
+    balance: { enemyHpMul: 0.95 },
     // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
     // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
     // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). Enemy silhouettes are baked
@@ -1468,6 +1471,8 @@ export const CHAPTERS = {
     // hydrant/cone kind pool (perKindRadius stays keyed on render.districts, skies only) while
     // gaining road exclusion, blockSnap curb alignment and biome build-density.
     roads: true,
+    // v6.4.10 (owner directive): per-chapter enemy HP ladder — city +5%.
+    balance: { enemyHpMul: 1.05 },
     obstacles: {
       count: 16, minR: 22, maxR: 42, minDist: 220,
       // clamp biome build-density >= 1: city's floor can't show biomes, so the sprawl must never
@@ -1519,6 +1524,8 @@ export const CHAPTERS = {
     // existing volatile-bomb array: telegraph fuse -> explode, damages player AND enemies).
     // `rate` = seconds between bombardment volleys; the rest is BOMBARDMENT_* below.
     signature: { type: 'bombardment', rate: 2.6 },
+    // v6.4.10 (owner directive): per-chapter enemy HP ladder — skies +15%.
+    balance: { enemyHpMul: 1.15 },
     // v5.8 kaiju redesign: cell 420->260, count 13->34, minR/maxR 30/60->10/28, minDist 240->160.
     // BOTH cell and count had to move together — count is a density reference over
     // OBSTACLE_FIELD_RADIUS and is invariant under cell size alone (see STRUCTURE_KINDS' comment
