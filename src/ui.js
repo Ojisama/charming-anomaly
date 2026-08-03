@@ -568,7 +568,7 @@ export function initUI(hooks) {
     const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
     let sac
     if (slots >= 4) {
-      sac = `<div class="shop-sac shop-sac--done">🩸 ${t('All 4 card slots unlocked.')}</div>`
+      sac = `<div class="shop-sac shop-sac--done">🩸 ${t('All 4 upgrade slots unlocked.')}</div>`
     } else {
       const nth = slots === 2 ? t('3rd') : t('4th')
       const afford = owned >= cost
@@ -578,7 +578,7 @@ export function initUI(hooks) {
       const have = Math.min(owned, cost)
       sac = `
         <button class="shop-sac${afford ? ' shop-sac--ready' : ''}" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>
-          <span class="shop-sac-label">🩸 ${tt('{nth} card slot', { nth })}</span>
+          <span class="shop-sac-label">🩸 ${tt('{nth} upgrade slot', { nth })}</span>
           <span class="shop-sac-track">
             <span class="shop-sac-meter"><i style="width:${pct}%"></i></span>
             <span class="shop-sac-count">${have}/${cost}</span>
@@ -650,7 +650,7 @@ export function initUI(hooks) {
     return `
       <div class="modal-backdrop sacrifice-modal${enter ? ' sacrifice-modal--enter' : ''}" data-act="sacrifice-cancel">
         <div class="sacrifice-sheet">
-          <p class="sacrifice-desc">${tt('Unlock the {nth} level-up card — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost })}</p>
+          <p class="sacrifice-desc">${tt('Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost })}</p>
           <div class="sacrifice-altar${ready ? ' sacrifice-altar--ready' : ''}">
             <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 ${tt('Offered {offered}/{cost}', { offered, cost })}</span>
             <div class="sacrifice-altar-chips">${altarInner}</div>
@@ -670,7 +670,7 @@ export function initUI(hooks) {
       <div class="modal-backdrop reset-modal" data-act="reset-cancel">
         <div class="confirm-sheet">
           <h2 class="confirm-sheet-title">${t('Erase everything?')}</h2>
-          <p class="confirm-sheet-body">${t('Coins, upgrades, card slots and best scores will be permanently erased.')}</p>
+          <p class="confirm-sheet-body">${t('Coins, upgrades, slots and best scores will be permanently erased.')}</p>
           <div class="confirm-sheet-actions">
             <button class="btn btn--soft btn--small" data-act="reset-cancel">${t('Cancel')}</button>
             <button class="btn btn--danger btn--small" data-act="reset-confirm">${t('Erase everything')}</button>

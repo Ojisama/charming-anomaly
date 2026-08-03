@@ -32,10 +32,12 @@ const UI = {
   '/ level': '/ niveau',
   '3rd': '3e',
   '4th': '4e',
-  'All 4 card slots unlocked.': 'Les 4 emplacements de carte sont débloqués.',
-  'Unlock the {nth} level-up card — sacrifice {cost} upgrade levels (no coin refund).':
-    'Débloque la {nth} carte de montée de niveau — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
-  '{nth} card slot': '{nth} emplacement de carte',
+  'All 4 upgrade slots unlocked.': 'Les 4 emplacements d\'amélioration sont débloqués.',
+  'Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).':
+    'Débloque le {nth} emplacement d\'amélioration — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
+  // Deliberately shorter than the English: the full phrase is 217px in a 202px pill on a 320px
+  // phone. The modal this pill opens spells it out ("emplacement d'amélioration") in full.
+  '{nth} upgrade slot': '{nth} emplacement',
   'tap a stat below to offer its levels': 'touche une stat ci-dessous pour offrir ses niveaux',
   'Offer': 'Offrir',
   'Offered {offered}/{cost}': 'Offert {offered}/{cost}',
@@ -43,8 +45,8 @@ const UI = {
   'Confirm sacrifice': 'Confirmer le sacrifice',
   'Reset all progress': 'Réinitialiser la progression',
   'Erase everything?': 'Tout effacer ?',
-  'Coins, upgrades, card slots and best scores will be permanently erased.':
-    'Pièces, améliorations, emplacements de carte et records seront définitivement effacés.',
+  'Coins, upgrades, slots and best scores will be permanently erased.':
+    'Pièces, améliorations, emplacements et records seront définitivement effacés.',
   'Erase everything': 'Tout effacer',
   'Save slots': 'Emplacements de sauvegarde',
   'Slot': 'Emplacement',
