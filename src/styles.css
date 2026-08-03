@@ -206,33 +206,61 @@ body {
 }
 
 /* ---- shop ---- */
-/* v5.2: the '← Back' header is gone (the persistent bottom nav replaces it), so reserve room top
-   (floating coins badge) and bottom (fixed nav), mirroring the title screen. */
+/* v5.2: the '← Back' header is gone (the persistent bottom nav replaces it), so reserve room
+   bottom for the fixed nav, mirroring the title screen.
+   v6.6: the coins badge used to FLOAT here, which meant 62px of padding-top reserved as empty
+   space to clear it. It is a header row in normal flow now — the balance is the one number every
+   decision on this screen is measured against, so it earns the top slot honestly — and the 46px
+   that reservation wasted goes to the grid. */
 .screen--shop {
   justify-content: flex-start;
-  gap: 12px;
-  padding-top: calc(62px + env(safe-area-inset-top));
+  gap: 10px;
   padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
-.screen--shop .coins-badge {
-  position: absolute;
-  top: calc(14px + env(safe-area-inset-top));
-  right: calc(14px + env(safe-area-inset-right));
+.shop-head {
+  width: 100%;
+  max-width: 540px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
+.shop-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 16px 5px 12px;
+  border: 3px solid var(--gold-edge);
+  border-radius: 999px;
+  background: var(--gold);
+  font-size: 1rem;
+  font-weight: 800;
+  box-shadow: 0 3px 0 var(--gold-edge);
+}
+.shop-balance b { font-size: 1.35rem; font-weight: 900; font-variant-numeric: tabular-nums; }
 .shop-grid {
   width: 100%;
   max-width: 540px;
+  /* v6.6: the grid OWNS the leftover height (flex:1) instead of being sized by its content, so on
+     a normal phone the whole shop fits with no scrolling at all — the four rows simply share
+     whatever the screen has left after the footer row and the nav. min-height:0 is what lets a
+     flex item shrink below its content and scroll internally. */
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0,…): a card's min-content width must never widen the track past the viewport */
   /* v6.0.2 THE phone bug: this grid is a flex item of .screen--shop, so short viewports shrink
      it; grid then squeezes `auto` rows down to the items' MIN size (the card's min-height) and
      the card content — the price line last — spills invisibly under the next row. max-content
-     rows never squeeze; the grid scrolls instead (overflow-y below). */
-  grid-auto-rows: max-content;
-  gap: 12px;
+     rows never squeeze; the grid scrolls instead (overflow-y below).
+     v6.6 keeps that floor and adds a ceiling: minmax(max-content, 1fr) still refuses to squeeze
+     below the card's natural height (so the v6.0.2 bug cannot come back — a screen too short for
+     four honest rows scrolls, it does not clip), but now GROWS the rows to fill a taller screen
+     rather than leaving the cards cramped at the top with dead space below. */
+  grid-template-rows: repeat(4, minmax(max-content, 1fr));
+  gap: 10px;
   overflow-y: auto;
   touch-action: pan-y;
-  padding: 4px 2px 12px;
+  padding: 2px 2px 4px;
 }
 .card {
   border: 3px solid var(--ink);
@@ -253,30 +281,61 @@ body {
    sacrifice panel fit a phone screen with no scrolling — the descs are one-liners ("+5%
    damage"), they never needed roomy cards. */
 .shop-card {
+  position: relative; /* containing block for .shop-gel */
   display: block;
   min-height: 48px;
-  padding: 9px 11px;
+  padding: 9px 10px;
+  overflow: hidden; /* the gel is a rectangle — the card's radius has to clip its corners */
 }
 .shop-card-in {
+  position: relative; /* above the gel */
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+  /* the row may be taller than the content once it grows (1fr above): spread the lines over the
+     card instead of leaving them bunched at the top with dead space under the price */
+  height: 100%;
+  justify-content: space-between;
 }
+/* THE signature: an upgrade's level is gel filling the card, ten discrete steps, not a bar drawn
+   on it. Reading eight cards' fill heights answers "where is my build" in one glance, and it
+   costs zero vertical space in a screen whose whole problem was vertical space. Low alpha keeps
+   ink-on-gel above 8:1 contrast; the darker top edge is the meniscus that makes it read as
+   liquid rather than as a plain block. */
+.shop-gel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-top: 2px solid var(--mint-dark);
+  background: linear-gradient(180deg, rgba(125, 227, 195, 0.62), rgba(125, 227, 195, 0.36));
+  pointer-events: none;
+}
+/* a full card is gold to the brim — the screen's reward state, and the reason maxed cards are
+   never given the faded 'disabled' look */
+.shop-card--maxed { border-color: var(--gold-edge); box-shadow: 0 4px 0 var(--gold-edge); }
+.shop-card--maxed .shop-gel {
+  border-top-color: var(--gold-edge);
+  background: linear-gradient(180deg, rgba(255, 217, 61, 0.55), rgba(255, 217, 61, 0.3));
+}
+/* the one card just bought rises from its previous level — the only motion on the screen */
+@keyframes gel-rise { from { height: var(--gel-from, 0%); } }
+.card--bounce .shop-gel { animation: gel-rise 0.45s cubic-bezier(0.34, 1.16, 0.64, 1); }
+/* the effect is the decision, so it takes the card's biggest type and is allowed to WRAP —
+   "+15% crit damage" (longer still in French) must never be cut to fit */
+.shop-card-effect { font-size: 0.86rem; font-weight: 800; line-height: 1.2; }
+.shop-card-icon { margin-right: 4px; font-size: 0.95rem; }
 .shop-card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   line-height: 1.15; /* the 🪙 glyph's intrinsic line box is ~32px tall otherwise — half the card */
 }
 .card--disabled { opacity: 0.55; box-shadow: none; }
 .card--bounce { animation: bounce 0.35s ease-out; }
-.shop-card-name { font-weight: 800; font-size: 0.92rem; }
-/* smaller pips inside shop cards only: 10 full-size pips + the price don't share 143px of a
-   phone-width column (the sacrifice modal keeps the 8px ones) */
-.shop-card .pips { gap: 2px; }
-.shop-card .pip { width: 6px; height: 6px; }
-.shop-card-desc { font-size: 0.74rem; font-weight: 600; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shop-card-lv { flex-shrink: 0; font-size: 0.66rem; font-weight: 800; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.shop-card--maxed .shop-card-lv { color: var(--gold-edge); }
 .pips { display: flex; gap: 3px; }
 .pip { width: 8px; height: 8px; border-radius: 50%; background: #e0d6c4; }
 .pip--on { background: var(--mint-dark); }
@@ -284,7 +343,8 @@ body {
 .pip--lost { background: var(--danger); }
 /* fixed-height flex box: the 🪙 emoji's font metrics otherwise inflate the inline line box to
    ~31px no matter the line-height, doubling every card's height */
-.shop-card-cost { font-weight: 800; font-size: 0.85rem; color: #9a7b00; display: flex; align-items: center; height: 1.2em; white-space: nowrap; }
+.shop-card-cost { font-weight: 800; font-size: 0.85rem; color: #9a7b00; display: flex; align-items: center; height: 1.2em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.shop-card--maxed .shop-card-cost { color: var(--gold-edge); letter-spacing: 0.06em; }
 
 @keyframes bounce {
   0% { transform: scale(1); }
@@ -745,7 +805,7 @@ body {
   .modal-backdrop, .sacrifice-sheet, .confirm-sheet, .sacrifice-counter,
   .sacrifice-counter--ready, .sacrifice-stat-row--bounce,
   .sacrifice-modal--enter, .sacrifice-modal--enter .sacrifice-sheet,
-  .sacrifice-chip--pop,
+  .sacrifice-chip--pop, .card--bounce .shop-gel,
   .amb, .hero-creature, .hero-star--pulse,
   .rampage-bar--active { animation: none; } /* v5.8: the RAMPAGE glow pulse is still infinite */
   /* the drifting ambient decor only reads as motion — hide it entirely when motion is unwanted */
@@ -1092,22 +1152,45 @@ body {
 
 /* sacrifice section (shop screen, v4.8/v4.9): sacrifice owned SHOP levels for a permanent 3rd/4th
    level-up card slot. Danger accent (matches .fx-chip--bad) since it's a one-way, no-refund cost. */
-.sacrifice-panel {
+/* v6.6 shop footer: one fixed-height row holding the sacrifice pill and the reset square. It
+   replaces the old standing .sacrifice-panel (a centered paragraph + button, ~170px) — the
+   paragraph now lives inside the modal the pill opens, and the height it gave back is what the
+   grid above uses to fit four rows without scrolling. */
+.shop-foot {
   width: 100%;
   max-width: 540px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.shop-sac {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 12px;
   border: 3px solid var(--danger);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--danger-soft);
-  text-align: center;
+  color: var(--danger-edge);
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
 }
-.sacrifice-title { font-weight: 800; font-size: 0.95rem; color: var(--danger-edge); }
-.sacrifice-desc { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); }
-.sacrifice-hint { margin: 0; font-size: 0.74rem; font-weight: 700; color: var(--danger); }
+.shop-sac[disabled] { opacity: 0.62; cursor: default; }
+.shop-sac--done { justify-content: center; font-size: 0.8rem; text-align: center; }
+.shop-sac--ready { box-shadow: 0 3px 0 var(--danger); }
+.shop-sac:not([disabled]):active { transform: translateY(2px); box-shadow: none; }
+.shop-sac-label { font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shop-sac-track { display: flex; align-items: center; gap: 8px; }
+.shop-sac-meter { flex: 1; min-width: 16px; height: 6px; border-radius: 999px; background: rgba(53, 53, 74, 0.14); overflow: hidden; }
+.shop-sac-meter > i { display: block; height: 100%; border-radius: 999px; background: var(--danger); }
+.shop-sac-count { flex-shrink: 0; font-size: 0.72rem; font-weight: 800; color: var(--danger); }
+.sacrifice-desc { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft); text-align: center; }
 
 /* ---- generic modal backdrop (sacrifice sheet + reset confirm both use it) ---- */
 .modal-backdrop {
@@ -1268,18 +1351,24 @@ body {
 
 /* reset-all-progress: a deliberately unassuming text link at the very bottom of the shop, plus
    a small confirm sheet reusing the same .modal-backdrop idiom as the sacrifice modal above. */
+/* v6.6: a labelled underline link no longer fits the footer row — it is a 🗑 square now, with the
+   label carried by aria-label/title. Safe to shorten precisely because it is not the destructive
+   step: it only opens the "Erase everything?" confirm sheet. */
 .reset-link {
-  margin-top: 2px;
-  padding: 6px 10px;
-  border: none;
-  background: none;
+  flex-shrink: 0;
+  width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 3px solid var(--cream-edge);
+  border-radius: 14px;
+  background: var(--cream-soft);
   color: var(--danger);
   font: inherit;
-  font-size: 0.76rem;
-  font-weight: 700;
-  text-decoration: underline;
+  font-size: 1.05rem;
   cursor: pointer;
-  opacity: 0.75;
+  opacity: 0.8;
 }
 .reset-link:active { opacity: 1; }
 .confirm-sheet {

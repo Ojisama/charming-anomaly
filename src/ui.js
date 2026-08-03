@@ -558,23 +558,37 @@ export function initUI(hooks) {
     return Object.values(sacrificePicks).reduce((sum, n) => sum + n, 0)
   }
 
-  function sacrificeSectionHtml(slots, cost) {
-    if (slots >= 4) {
-      return `
-        <div class="sacrifice-panel">
-          <span class="sacrifice-title">🩸 Sacrifice</span>
-          <p class="sacrifice-desc">${t('All 4 card slots unlocked.')}</p>
-        </div>`
-    }
-    const nth = slots === 2 ? t('3rd') : t('4th')
+  // v6.6 shop redesign: the sacrifice explainer used to be a permanent ~170px panel under the
+  // grid — a paragraph of standing text for something a save does twice, which is most of why the
+  // shop scrolled on a small phone. It is now one two-line pill (label + progress toward the
+  // cost); the paragraph moved inside the modal the pill opens, so nothing is lost, and the
+  // reset link shares the same row as a 🗑 square. Both live in .shop-foot, a fixed-height flex
+  // row, which is what lets .shop-grid own every remaining pixel (see styles.css).
+  function shopFootHtml(slots, cost) {
     const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
-    const afford = owned >= cost
+    let sac
+    if (slots >= 4) {
+      sac = `<div class="shop-sac shop-sac--done">🩸 ${t('All 4 card slots unlocked.')}</div>`
+    } else {
+      const nth = slots === 2 ? t('3rd') : t('4th')
+      const afford = owned >= cost
+      const pct = Math.min(100, Math.round((owned / cost) * 100))
+      // The fraction is progress toward the requirement, not an inventory count — so it reads
+      // "20/20" once you qualify, never "21/20". (The modal shows what you actually own.)
+      const have = Math.min(owned, cost)
+      sac = `
+        <button class="shop-sac${afford ? ' shop-sac--ready' : ''}" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>
+          <span class="shop-sac-label">🩸 ${tt('{nth} card slot', { nth })}</span>
+          <span class="shop-sac-track">
+            <span class="shop-sac-meter"><i style="width:${pct}%"></i></span>
+            <span class="shop-sac-count">${have}/${cost}</span>
+          </span>
+        </button>`
+    }
     return `
-      <div class="sacrifice-panel">
-        <span class="sacrifice-title">🩸 Sacrifice</span>
-        <p class="sacrifice-desc">${tt('Unlock the {nth} level-up card — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost })}</p>
-        <button class="btn btn--soft btn--small" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>${tt('Sacrifice {cost} levels', { cost })}</button>
-        ${afford ? '' : `<p class="sacrifice-hint">${tt('Not enough upgrade levels owned ({owned}/{cost}).', { owned, cost })}</p>`}
+      <div class="shop-foot">
+        ${sac}
+        <button class="reset-link" data-act="reset-start" aria-label="${t('Reset all progress')}" title="${t('Reset all progress')}">🗑</button>
       </div>`
   }
 
@@ -629,9 +643,14 @@ export function initUI(hooks) {
         </button>`
     }).join('')
 
+    // v6.6: the "what does this buy me" line lives here now — the shop screen no longer carries a
+    // standing panel to hold it (see shopFootHtml).
+    const nth = (meta.choiceSlots ?? 2) === 2 ? t('3rd') : t('4th')
+
     return `
       <div class="modal-backdrop sacrifice-modal${enter ? ' sacrifice-modal--enter' : ''}" data-act="sacrifice-cancel">
         <div class="sacrifice-sheet">
+          <p class="sacrifice-desc">${tt('Unlock the {nth} level-up card — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost })}</p>
           <div class="sacrifice-altar${ready ? ' sacrifice-altar--ready' : ''}">
             <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 ${tt('Offered {offered}/{cost}', { offered, cost })}</span>
             <div class="sacrifice-altar-chips">${altarInner}</div>
@@ -643,10 +662,6 @@ export function initUI(hooks) {
           </footer>
         </div>
       </div>`
-  }
-
-  function resetSectionHtml() {
-    return `<button class="reset-link" data-act="reset-start">🗑 ${t('Reset all progress')}</button>`
   }
 
   function resetModalHtml() {
@@ -667,23 +682,36 @@ export function initUI(hooks) {
   function renderShop(bounceId) {
     const slots = meta.choiceSlots ?? 2
     const cost = sacrificeCost(slots)
+    // v6.6 card: the NAME is gone from the face. A purchase turns on the effect and the price —
+    // "Power Gel" is flavour the player already knows by icon after one session, and it was
+    // costing the biggest type on the card plus a whole line. The effect is promoted into that
+    // slot (it may wrap to two lines; it must never ellipsize — it is the decision), the level is
+    // the gel rising inside the card rather than a bar drawn on it, and the name survives in
+    // aria-label so screen readers and the sacrifice list still speak it.
     const cards = Object.entries(SHOP).map(([id, item]) => {
       const level = meta.shop[id]
       const maxed = level >= MAX_SHOP_LEVEL
       const buyCost = maxed ? 0 : shopCost(id, level)
       const afford = !maxed && meta.coins >= buyCost
-      const pips = Array.from({ length: MAX_SHOP_LEVEL },
-        (_, i) => `<i class="pip${i < level ? ' pip--on' : ''}"></i>`).join('')
+      // The one card just bought animates its gel from the PREVIOUS level, so a purchase reads as
+      // a rise rather than a jump. Every other card renders at its resting height (the shop
+      // re-renders wholesale on each tap, so an ungated animation would replay on all eight).
+      const fromPct = id === bounceId ? `--gel-from:${((level - 1) / MAX_SHOP_LEVEL) * 100}%;` : ''
+      const label = `${t(item.name)} — ${t(item.desc)} · ${level}/${MAX_SHOP_LEVEL} · ${maxed ? 'MAX' : `🪙 ${buyCost}`}`
       return `
-        <button class="card shop-card${afford ? '' : ' card--disabled'}${id === bounceId ? ' card--bounce' : ''}" data-buy="${id}">
+        <!-- maxed is NOT disabled-looking: a finished upgrade is an achievement, not a dead
+             control. It gets the gold treatment instead of the grey one (onBuy already no-ops on
+             a maxed id, so the tap is safe). Only unaffordable cards fade. -->
+        <button class="card shop-card${afford || maxed ? '' : ' card--disabled'}${maxed ? ' shop-card--maxed' : ''}${id === bounceId ? ' card--bounce' : ''}"
+                data-buy="${id}" aria-label="${label}">
+          ${level > 0 ? `<span class="shop-gel" style="height:${(level / MAX_SHOP_LEVEL) * 100}%;${fromPct}"></span>` : ''}
           <!-- v6.0.2: layout lives on an inner span, NOT the button — iOS Safari doesn't grow a
                flex <button> around wrapped content, which let the cost overflow under the next
                card. The button is a plain block; the span does the column. -->
           <span class="shop-card-in">
-            <span class="shop-card-name">${t(item.name)}</span>
-            <span class="shop-card-desc">${t(item.desc)}</span>
+            <span class="shop-card-effect"><span class="shop-card-icon">${item.icon}</span>${t(item.desc)}</span>
             <span class="shop-card-foot">
-              <span class="pips">${pips}</span>
+              <span class="shop-card-lv">${level}/${MAX_SHOP_LEVEL}</span>
               <span class="shop-card-cost">${maxed ? 'MAX' : `🪙 ${buyCost}`}</span>
             </span>
           </span>
@@ -694,10 +722,9 @@ export function initUI(hooks) {
     const prevScroll = screens.shop.querySelector('.sacrifice-sheet-body')?.scrollTop ?? 0
     // Nav (below) replaces the old "← Back" header; the coins badge floats top-right like the title.
     screens.shop.innerHTML = `
-      <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
+      <header class="shop-head"><span class="shop-balance">🪙 <b>${meta.coins}</b></span></header>
       <div class="shop-grid">${cards}</div>
-      ${sacrificeSectionHtml(slots, cost)}
-      ${resetSectionHtml()}
+      ${shopFootHtml(slots, cost)}
       ${navHtml('shop')}
       ${sacrificeModalHtml(cost)}
       ${resetModalHtml()}
