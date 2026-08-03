@@ -1326,8 +1326,9 @@ export const CHAPTERS = {
     obstacles: null,                    // keeps the open field
     // v6.4.5 (owner directive): chapter-wide baseline easing — every difficulty AND dailies run
     // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
-    // d1-only EARLY_CALM all stack on top.
-    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, xpMul: 1.25 },
+    // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.9, owner directive): body enemies
+    // also carry 25% less HP.
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.75, xpMul: 1.25 },
     // ---- render-only (v5.0 task 6; interpreted by render.js, ZERO effect on sim) ----
     // body is the baseline look: bgColor = the app's clear colour (main.js); tints are
     // multiply-identity white and there's no player tail. Enemy silhouettes are baked per

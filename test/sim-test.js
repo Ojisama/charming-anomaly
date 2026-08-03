@@ -53,7 +53,7 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
-  ENEMIES, dmgScale, difficultyDmgMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
+  ENEMIES, dmgScale, difficultyDmgMul, difficultyHpMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1/v6.4.3 early-calm (Run OO)
@@ -765,7 +765,10 @@ function testAffixes() {
       const events = run.events
       run.events = [] // drain, mirroring main.js — otherwise old events re-classify on every later frame
       for (const e of events) {
-        if (e.type === 'hit') (droppedThreshold ? belowHits : aboveHits).push(e.dmg)
+        // Scope the tally to hits ON the crafted elite (events carry the enemy's position):
+        // background spawns die fast enough since v6.4.9's body enemyHpMul that their full-damage
+        // hits land inside the window and would pollute an all-hits tally.
+        if (e.type === 'hit' && Math.hypot(e.x - target.x, e.y - target.y) < 40) (droppedThreshold ? belowHits : aboveHits).push(e.dmg)
       }
       if (!droppedThreshold && aboveHits.length >= 3) {
         target.hp = target.maxHP * (SHIELD_HP_FRAC / 2) // force below the shield threshold
@@ -1179,14 +1182,17 @@ function testFocusNudge() {
 // Difficulty d (1..MAX_DIFFICULTY): +25% enemy HP per level above 1, stacked ON TOP of
 // mutator effects; main.js also rolls d-1 random mutators (randomMutators is tested here).
 function testDifficulty() {
-  const base = createRun(makeMeta())
+  // garden: this run isolates the DIFFICULTY ladder, so it needs a chapter without a
+  // CHAPTERS[id].balance block — body's enemyHpMul 0.75 (v6.4.9) would fold into every product
+  // here (same repoint as run MM's).
+  const base = createRun(makeMeta(), { chapter: 'garden' })
   assert.strictEqual(base.mods.enemyHpMul, 1, 'difficulty defaults to 1 = untouched enemy HP')
 
-  const d3 = createRun(makeMeta(), { difficulty: 3 })
+  const d3 = createRun(makeMeta(), { chapter: 'garden', difficulty: 3 })
   assert.strictEqual(d3.mods.enemyHpMul, 1.5, `difficulty 3 => enemyHpMul 1.5, got ${d3.mods.enemyHpMul}`)
   assert.strictEqual(d3.mods.coinMul, 1.5, `difficulty 3 => coinMul 1.5, got ${d3.mods.coinMul}`)
 
-  const d5bulky = createRun(makeMeta(), { difficulty: 5, mutators: ['bulky'] })
+  const d5bulky = createRun(makeMeta(), { chapter: 'garden', difficulty: 5, mutators: ['bulky'] })
   assert.strictEqual(d5bulky.mods.enemyHpMul, 1.5 * 2, `bulky(1.5) x difficulty5(2) => 3, got ${d5bulky.mods.enemyHpMul}`)
   assert.strictEqual(d5bulky.mods.coinMul, 1.6 * 2, `bulky coins(1.6) x difficulty5(2) => 3.2, got ${d5bulky.mods.coinMul}`)
 
@@ -6957,7 +6963,10 @@ function testChapterBalance() {
       `expected body (no difficulty opt) mods.enemyDmgMul ≈ 0.75, got ${run.mods.enemyDmgMul}`)
     assert(Math.abs(run.mods.xpMul - 1.25) < EPS,
       `expected body (no difficulty opt) mods.xpMul ≈ 1.25, got ${run.mods.xpMul}`)
-    console.log(`PASS run RR.a (body baseline balance, daily shape): spawnMul=${run.mods.spawnMul}, enemyDmgMul=${run.mods.enemyDmgMul}, xpMul=${run.mods.xpMul}`)
+    // v6.4.9 (owner directive): body enemies also carry 25% less HP — body-only, pond keeps hp 1.
+    assert(Math.abs(run.mods.enemyHpMul - 0.75) < EPS,
+      `expected body (no difficulty opt) mods.enemyHpMul ≈ 0.75, got ${run.mods.enemyHpMul}`)
+    console.log(`PASS run RR.a (body baseline balance, daily shape): spawnMul=${run.mods.spawnMul}, enemyDmgMul=${run.mods.enemyDmgMul}, enemyHpMul=${run.mods.enemyHpMul}, xpMul=${run.mods.xpMul}`)
   }
 
   // (b) pond, explicit difficulty 3: EARLY_CALM doesn't fire (d1-only), but balance has no gate at
@@ -6971,6 +6980,9 @@ function testChapterBalance() {
       `expected pond d3 mods.spawnMul ≈ 0.75, got ${run.mods.spawnMul}`)
     assert(Math.abs(run.mods.enemyDmgMul - expectedDmg) < EPS,
       `expected pond d3 mods.enemyDmgMul ≈ ${expectedDmg}, got ${run.mods.enemyDmgMul}`)
+    // pond's balance block has no enemyHpMul (v6.4.9 is body-only) — only the d3 tax applies.
+    assert(Math.abs(run.mods.enemyHpMul - difficultyHpMul(3)) < EPS,
+      `expected pond d3 mods.enemyHpMul ≈ difficulty tax alone ${difficultyHpMul(3)}, got ${run.mods.enemyHpMul}`)
     console.log(`PASS run RR.b (pond d3 stacks balance with the difficulty tax): enemyDmgMul=${run.mods.enemyDmgMul.toFixed(4)} (expected ${expectedDmg.toFixed(4)})`)
   }
 

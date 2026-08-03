@@ -804,6 +804,7 @@ export function createRun(meta, opts = {}) {
   if (bal) {
     mods.spawnMul *= bal.spawnMul ?? 1
     mods.enemyDmgMul *= bal.enemyDmgMul ?? 1
+    mods.enemyHpMul *= bal.enemyHpMul ?? 1
     mods.xpMul *= bal.xpMul ?? 1
   }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
