@@ -625,10 +625,15 @@ function testHolePullsCoins() {
 
 // Difficulty must keep climbing all the way to the end, not flatten out once a build comes
 // online: (a) the spawnRate/hpScale/elite-cadence curves hit their late-game targets, and (b)
-// with weapons stripped (so nothing ever dies and enemies simply pile up — contact damage hurts
-// the player but never removes an enemy, see stepContactDamage) a late-run alive-count snapshot
-// beats an early one, showing the higher spawn rate + MAX_ALIVE cap actually let more enemies
-// stack up on screen later in the run.
+// with weapons stripped (so almost nothing dies and enemies simply pile up) a late-run
+// alive-count snapshot beats an early one, showing the higher spawn rate + MAX_ALIVE cap
+// actually let more enemies stack up on screen later in the run.
+// The late snapshot is read AFTER the loop rather than on an exact-time match: a declined
+// level-up costs an iteration without advancing run.time, so any run that levels up ends a few
+// hundredths of a second short of 280 and an `Math.abs(run.time - 280) < dt` probe silently
+// never fires (it read 0 and failed the compare when v6.5.2's tighter enemy separation started
+// jostling 'latch' enemies into the player often enough to feed a level-up — the escalation
+// curve was never the thing that broke).
 function testEscalation() {
   assert(spawnRate(300) >= 15, `expected spawnRate(300) >= 15, got ${spawnRate(300)}`)
   assert(hpScale(300) >= 7, `expected hpScale(300) >= 7, got ${hpScale(300)}`)
@@ -641,16 +646,16 @@ function testEscalation() {
 
   const dt = 1 / 60
   let earlyAlive = 0
-  let lateAlive = 0
   const steps = Math.round(280 / dt)
   for (let i = 0; i < steps; i++) {
     if (run.phase === 'levelup') { declineLevelUp(run); continue }
     if (run.phase !== 'playing') break
     stepSim(run, { x: 0, y: 0 }, dt)
-    if (Math.abs(run.time - 60) < dt) earlyAlive = run.enemies.length
-    if (Math.abs(run.time - 280) < dt) lateAlive = run.enemies.length
+    if (!earlyAlive && run.time >= 60) earlyAlive = run.enemies.length
   }
+  const lateAlive = run.enemies.length
 
+  assert(run.time >= 275, `expected the run to reach the late window, stopped at t=${run.time.toFixed(1)}`)
   assert(earlyAlive > 0, `expected some enemies alive at the t=60 snapshot, got ${earlyAlive}`)
   assert(lateAlive > earlyAlive,
     `expected late-run alive count (${lateAlive}) > early-run alive count (${earlyAlive})`)
@@ -7387,8 +7392,8 @@ function testStreamedTrapPredators() {
 // enemies apart via a spatial-hash pair search: two enemies may overlap until their centers are
 // within ENEMY_SEP_FRAC of their combined radii but never past it, snapped to minSep per frame
 // (ENEMY_SEP_RESOLVE 1 — a soft resolve loses to convergence pressure, see config.js). Every
-// assert derives from the constants, so retunes (0.2 -> 0.4 on the owner's follow-up) pass
-// through. This locks in: (a) an exactly-coincident pair (the stacked-spawn case) converges
+// assert derives from the constants, so retunes (0.2 -> 0.4 -> 0.65 across the owner's
+// successive "less clustered" passes) go through untouched. This locks in: (a) an exactly-coincident pair (the stacked-spawn case) converges
 // to >= minSep apart via the deterministic golden-angle tiebreak, and the same pair-finding also
 // resolves a pair straddling a spatial-hash cell boundary (the neighbor-bucket search), (b) a pair
 // already legally spaced is left bit-for-bit untouched, (c) rosterId 'bindnode' (the blank's

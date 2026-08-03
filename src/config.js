@@ -1284,9 +1284,10 @@ export const speedCreepMul = (t) => 1 + Math.min(SPEED_CREEP_CAP, Math.max(0, t 
 // Enemy separation (v6.5.1, owner directive: "enemies should not stack perfectly — in the boss
 // level the larvae stack 50 on top of each other and you only see one. 80% stack, not 100%").
 // Two enemies may overlap until their centers are closer than ENEMY_SEP_FRAC of their combined
-// radii; 0 would be full body-blocking, which is NOT wanted. The directive's "80% stack" was 0.2;
-// the owner's follow-up on seeing it live — "Even less clustered, like 60% overlap" — set 0.4.
-export const ENEMY_SEP_FRAC = 0.4
+// radii; 0 would be full body-blocking, which is NOT wanted, and 1 would be bodies just touching.
+// Overlap = 1 - FRAC, so the owner's tune reads straight off this number: the directive's "80%
+// stack" was 0.2, "like 60% overlap" set 0.4, and "like 35%" sets 0.65.
+export const ENEMY_SEP_FRAC = 0.65
 // Fraction of a pair's intrusion resolved per frame. 1 = snap the pair to minSep outright —
 // stepObstacles' own idiom. A soft 0.5 was tried first and LOST to convergence pressure: enemies
 // seeking the player's exact point close ~2.8px/frame while a half-resolve pushes ~1.2px/frame
@@ -1294,9 +1295,11 @@ export const ENEMY_SEP_FRAC = 0.4
 // (the very bug this exists to fix). Pair fixes can still contradict each other in a dense crowd,
 // but per-frame moves are ≤ a few px, so the residual jitter is invisible at sprite scale.
 export const ENEMY_SEP_RESOLVE = 1
-// px, spatial-hash cell for stepEnemySeparation's pair search. Min separation tops out ~14px for
-// two elite tanks (ENEMY_SEP_FRAC * 2 * ELITE.sizeMul * ENEMIES.tank.radius), so 64px neighborhoods
-// can never miss a pair.
+// px, spatial-hash cell for stepEnemySeparation's pair search. A pair is only ever compared when
+// it lands in the same or an adjacent cell, so any intruding pair is found as long as minSep stays
+// under the cell size. Worst case is two elite tanks (ENEMY_SEP_FRAC * 2 * ELITE.sizeMul *
+// ENEMIES.tank.radius) = ~51px at FRAC 0.65 — under 64, but that is the headroom: raising
+// ENEMY_SEP_FRAC past ~0.8 needs this cell raised with it or the biggest pairs stop separating.
 export const ENEMY_SEP_CELL = 64
 
 // ---- Progression ---------------------------------------------------------------
