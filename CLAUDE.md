@@ -80,6 +80,28 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - `.gitignore` excludes `/*.png` **and nothing else** — a PNG at the repo ROOT is ignored; a PNG in a subdirectory is not, and neither is any other scratch artifact. Verification work regularly produces `.json` dumps at the root and files staged under `public/` so the dev server can serve them to a browser probe; none of that is covered. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
 
+## Browser probing (headless / backgrounded tabs)
+
+- Background tabs throttle rAF to a crawl: never wait wall-clock for the sim. Drive frames
+  explicitly — `let now = performance.now(); for (…) app.ticker.update(now += 50)` — or stop the
+  ticker and call `__stepSim` + `__renderer.sync(run, dt, run.events.splice(0))` +
+  `app.renderer.render(app.stage)` manually.
+- main.js reacts to phase transitions (levelup/dead/victory) ONLY when its own ticker's stepSim
+  flips them. Forcing `run.phase` or stepping via `__stepSim` never fires endRun — set the
+  preconditions instead (e.g. `run.time = 299.9` while 'playing') and let `ticker.update` cross
+  the line.
+- Screenshotting short-lived FX: `app.ticker.stop()` first, drive frames manually, render, then
+  shoot — the live rAF loop otherwise expires the effect between evaluate and screenshot.
+- `vite preview` snapshots the dist file list at startup (always restart it AFTER `npm run
+  build`) and serves at `/`, not the Pages subpath. Stale preview servers from other sessions
+  squat ports — pick a fresh one (`--port N --strictPort`) rather than killing unattributed pids.
+- Seeding a save: `localStorage.setItem` + `reload()` gets clobbered by the app re-saving its
+  in-memory meta during unload — use a DevTools navigate `initScript` (runs on the fresh document
+  before app boot). Open tabs share localStorage and can clobber a seeded save — use isolated
+  browser contexts or close extras first.
+- `scripts/deploy-watch.sh "vX.Y.Z · <sha>" ["more strings" …]` watches the Pages deploy to
+  completion, then greps the LIVE bundle for each string — the standard post-push gate.
+
 ## Design docs
 
 `docs/superpowers/specs/` and `docs/superpowers/plans/` hold the v1 design, the chapters design, and the chapters implementation plan — useful background for why systems are shaped the way they are.
