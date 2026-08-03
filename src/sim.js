@@ -34,7 +34,7 @@ import {
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
   RARITIES, RARITY_ORDER, RARITY_WEIGHTS,
   ENEMIES, ELITE, WAVE_TABLE,
-  spawnRate, hpScale, dmgScale, MAX_ALIVE, eliteEveryAt, SPAWN_RING, speedCreepMul,
+  spawnRate, hpScale, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
@@ -349,7 +349,8 @@ function stepSpawning(run, dt) {
   // than a wall. See LANE_SPAWN_MUL.
   const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL : 1
   run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * laneMul * dt
-  while (run._spawnAcc >= 1 && run.enemies.length < MAX_ALIVE) {
+  const cap = maxAliveFor(run.mods) // per-chapter density cap (v6.6.4) — see maxAliveFor
+  while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
     spawnEnemy(run)
   }
@@ -384,7 +385,7 @@ function stepFormations(run, dt) {
     // through a multi-row wave never works.
     const offset = (row % 2) * pitch * 0.5
     for (let col = 0; col < FORMATION_COLS; col++) {
-      if (run.enemies.length >= MAX_ALIVE) return
+      if (run.enemies.length >= maxAliveFor(run.mods)) return
       const x = -hw + pitch * (col + 0.5) + offset
       const y = p.y - Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL) - row * FORMATION_ROW_PX
       // rosterId: a rank is rank-and-file invaders, never whatever the archetype pool happens to
@@ -1283,7 +1284,7 @@ function stepEnemyMovement(run, dt) {
       e._spawnT = (e._spawnT ?? SPAWNER_INTERVAL) - dt
       if (e._spawnT <= 0) {
         e._spawnT += SPAWNER_INTERVAL
-        for (let i = 0; i < SPAWNER_COUNT && run.enemies.length < MAX_ALIVE; i++) {
+        for (let i = 0; i < SPAWNER_COUNT && run.enemies.length < maxAliveFor(run.mods); i++) {
           const a = Math.random() * Math.PI * 2
           const sd = Math.random() * SPAWNER_SCATTER
           const sx = e.x + Math.cos(a) * sd

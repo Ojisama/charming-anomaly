@@ -1255,6 +1255,15 @@ export const hpScale = (t) => {
 // stationary armor stack that floors every hit to 1 early is chipped through by t=300.
 export const dmgScale = (t) => 1 + t / RUN_DURATION
 export const MAX_ALIVE = 400
+// v6.6.4 (owner directive): the onboarding chapters cap the on-screen swarm LOWER than the rest —
+// body -30%, pond -20%, garden -10% (CHAPTERS[id].balance.maxAliveMul). This is a different knob
+// from spawnMul: spawn RATE controls how fast enemies arrive, this controls how many may exist at
+// once, i.e. the density you actually have to path through once the field saturates. Every
+// MAX_ALIVE gate in sim.js goes through maxAliveFor so the two can never drift apart. The blank
+// is unaffected — it has its own BLANK_MAX_ALIVE.
+// This gates SPAWNING, it is not a hard ceiling: spawnSplitChildren pushes a dying enemy's clones
+// unconditionally (a corpse's children have to appear), so a saturated field can sit a few over.
+export const maxAliveFor = (mods) => Math.round(MAX_ALIVE * (mods?.maxAliveMul ?? 1))
 // Elite cadence shrinks over the run: ELITE_EVERY_START seconds between elites at t=0,
 // linearly down to ELITE_EVERY_END by RUN_DURATION (so multiple elites can be alive at once
 // late-run — intended).
@@ -1363,7 +1372,7 @@ export const CHAPTERS = {
     // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
     // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.9, owner directive): body enemies
     // also carry 25% less HP.
-    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.75, xpMul: 1.25 },
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.75, xpMul: 1.25, maxAliveMul: 0.7 },
     // ---- render-only (v5.0 task 6; interpreted by render.js, ZERO effect on sim) ----
     // body is the baseline look: bgColor = the app's clear colour (main.js); tints are
     // multiply-identity white and there's no player tail. Enemy silhouettes are baked per
@@ -1398,7 +1407,7 @@ export const CHAPTERS = {
     // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
     // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.10, owner directive): the per-chapter
     // HP ladder — pond −15%.
-    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.85, xpMul: 1.25 },
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.8 },
     // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
     // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
     // multiplies playerTint onto the blob + shows an animated flagellum tail (tailTint). Enemy
@@ -1430,7 +1439,7 @@ export const CHAPTERS = {
     signature: { type: 'pheromones' },
     obstacles: { count: 12, minR: 22, maxR: 40, minDist: 220 }, // grass stalks / pebbles
     // v6.4.10 (owner directive): per-chapter enemy HP ladder — garden −5%.
-    balance: { enemyHpMul: 0.95 },
+    balance: { enemyHpMul: 0.95, maxAliveMul: 0.9 },
     // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
     // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
     // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). Enemy silhouettes are baked
@@ -3904,6 +3913,7 @@ const MUTATOR_MOD_KEYS = [
   'spawnMul', 'enemyHpMul', 'enemySpeedMul', 'enemyDmgMul', 'enemyRadiusMul',
   'contactDmgTakenMul', 'playerDmgMul', 'playerSpeedMul', 'coinMul', 'xpMul',
   'eliteEveryMul', 'elementWeightMul', 'magnetMul', 'acidPotencyMul',
+  'maxAliveMul',        // maxAliveFor (the concurrent-enemy cap; set per chapter, see MAX_ALIVE)
   // v5.25 chapter-anomaly knobs (each consumed at its signature's one site):
   'currentForceMul',    // currentForce (pond drift field strength)
   'pheromoneLifeMul',   // dealDamage's trailFollow drop (garden trail lifetime)

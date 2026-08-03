@@ -443,9 +443,11 @@ function generateWells(sig) {
  * the run started — opts.mutators passed to createRun, e.g. from the Daily Anomaly
  * (dailyMutators(todayKey())) or a future free-pick screen. run.mods is the derived,
  * pre-multiplied modifier object (mergeMutatorMods(run.mutators)) that sim.js reads at fixed
- * points (spawn rate, enemy hp/speed/dmg/radius, elite cadence, contact damage taken, player
- * outgoing damage, player move speed, magnet range, xp/coin pickup value, element card weight)
- * — see sim.js's module doc for the exact list. Both are set once at createRun and never
+ * points (spawn rate, concurrent-enemy cap, enemy hp/speed/dmg/radius, elite cadence, contact
+ * damage taken, player outgoing damage, player move speed, magnet range, xp/coin pickup value,
+ * element card weight) — see sim.js's module doc for the exact list. Difficulty, EARLY_CALM and
+ * CHAPTERS[id].balance all multiply into this same object below, so a chapter-wide knob is set
+ * once here and read wherever that key is consumed. Both are set once at createRun and never
  * mutated mid-run.
  *
  * bombs[i]: { x, y, radius, fuse, duration, dmg }  volatile-elite death bombs (v4.0). fuse
@@ -811,6 +813,7 @@ export function createRun(meta, opts = {}) {
     mods.enemyDmgMul *= bal.enemyDmgMul ?? 1
     mods.enemyHpMul *= bal.enemyHpMul ?? 1
     mods.xpMul *= bal.xpMul ?? 1
+    mods.maxAliveMul *= bal.maxAliveMul ?? 1
   }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []

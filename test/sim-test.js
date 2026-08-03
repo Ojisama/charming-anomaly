@@ -66,6 +66,8 @@ import {
   SPAWN_OPENING_CREDIT,
   // v6.5.1 enemy separation (Run UU)
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
+  // v6.6.4 per-chapter density cap
+  MAX_ALIVE, maxAliveFor,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -699,6 +701,9 @@ function testMutators() {
   function spawnedCount(spawnMul) {
     const run = createRun(makeMeta())
     run.mods.spawnMul = spawnMul
+    // v6.6.4: this measures the spawn RATE, not density — body's -30% concurrent cap would
+    // saturate the doubled run and clip it back to the cap, hiding the very thing under test.
+    run.mods.maxAliveMul = 1
     run.weapons = []
     run.player.hp = 1e9
     run.player.maxHP = 1e9
@@ -7551,6 +7556,62 @@ function testEnemySeparation() {
   console.log('PASS run UU (v6.5.1 enemy separation): coincident + cross-cell convergence, already-legal spacing untouched, bindnode exclusion, deep-knot dispersal, zero-RNG')
 }
 
+// ---- Run VV: v6.6.4 per-chapter concurrent-enemy cap (owner directive) ----------------------
+// CHAPTERS[id].balance.maxAliveMul thins how many enemies may be ALIVE AT ONCE (a different knob
+// from spawnMul, which is how fast they arrive): body -30%, pond -20%, garden -10%, everyone else
+// untouched. createRun folds it into run.mods like every other chapter-balance key, and every
+// MAX_ALIVE gate in sim.js reads maxAliveFor(run.mods), so this pins (a) the multipliers the owner
+// asked for, (b) that the cap is actually ENFORCED by a saturating run rather than merely stored,
+// and (c) that a late chapter is left at the global cap.
+function testChapterDensityCap() {
+  // (a) the three multipliers, and that no other chapter carries one
+  const want = { body: 0.7, pond: 0.8, garden: 0.9 }
+  for (const id of CHAPTER_ORDER) {
+    const mul = CHAPTERS[id].balance?.maxAliveMul ?? 1
+    assert.strictEqual(mul, want[id] ?? 1, `expected ${id} maxAliveMul ${want[id] ?? 1}, got ${mul}`)
+  }
+  assert.strictEqual(maxAliveFor({ maxAliveMul: 0.7 }), Math.round(MAX_ALIVE * 0.7))
+  assert.strictEqual(maxAliveFor({}), MAX_ALIVE, 'a mods object without the key must fall back to the global cap')
+  assert.strictEqual(maxAliveFor(undefined), MAX_ALIVE, 'no mods at all must fall back to the global cap')
+
+  // (b) createRun folds it into run.mods, and a saturating run never exceeds it. Weapons stripped
+  // so nothing dies and the field can only grow; difficulty omitted so EARLY_CALM stays out of it
+  // and this measures the balance block alone.
+  const dt = 1 / 60
+  const peaks = {}
+  for (const id of ['body', 'pond', 'garden', 'city']) {
+    Math.random = mulberry32(20260804)
+    const run = createRun(makeMeta(), { chapter: id })
+    run.weapons = []
+    run.player.hp = run.player.maxHP = 1e9
+    const cap = maxAliveFor(run.mods)
+    assert.strictEqual(cap, Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1)),
+      `expected ${id} run cap to match its chapter multiplier`)
+    let peak = 0
+    for (let i = 0; i < Math.round(300 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.player.hp = run.player.maxHP
+      if (run.enemies.length > peak) peak = run.enemies.length
+    }
+    peaks[id] = peak
+  }
+  // The cap gates SPAWNING, it is not a hard ceiling: spawnSplitChildren pushes a dying enemy's
+  // clones unconditionally (a corpse's children must appear), so a saturated field can sit a few
+  // over. Assert each chapter reaches its cap and never runs meaningfully past it.
+  for (const [id, peak] of Object.entries(peaks)) {
+    const cap = Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1))
+    assert(peak >= cap, `expected ${id} to saturate its cap ${cap}, peaked at ${peak}`)
+    assert(peak <= cap * 1.05, `expected ${id} to stay at its cap ${cap} (only split children may exceed), peaked at ${peak}`)
+  }
+  // (c) ordering: the eased chapters are strictly thinner than each other and than baseline
+  assert(peaks.body < peaks.pond && peaks.pond < peaks.garden && peaks.garden < peaks.city,
+    `expected body < pond < garden < city peaks, got ${JSON.stringify(peaks)}`)
+
+  console.log(`PASS run VV (v6.6.4 per-chapter density cap): peak alive body ${peaks.body} / pond ${peaks.pond} / garden ${peaks.garden} / city ${peaks.city} (global ${MAX_ALIVE})`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -7606,6 +7667,7 @@ try {
   testSaveSlots()
   testStreamedTrapPredators()
   testEnemySeparation()
+  testChapterDensityCap()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
