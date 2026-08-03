@@ -1233,9 +1233,19 @@ export const SPAWN_OPENING_CREDIT = 3
 export const SPAWN_RATE_LINEAR = 0.021
 export const SPAWN_LATE_START = 120     // s, when the late-game acceleration kicks in
 export const SPAWN_LATE_QUAD = 0.0004   // extra t^2 coefficient beyond SPAWN_LATE_START
+// v6.6.5 (owner directive: "have early monsters (<1min in) spawn a bit faster"): a multiplier on
+// the rate that is largest at t=0 and DECAYS LINEARLY TO 1 exactly at SPAWN_EARLY_UNTIL, so the
+// opening fills in faster without a step change at the one-minute mark — a flat boost that
+// switched off at 60s would drop the rate ~25% mid-fight, which reads as the game losing
+// interest. Separate from SPAWN_OPENING_CREDIT: that banks a few spawns on frame one so the ring
+// is not empty, this shapes the whole first minute. It multiplies the CURVE, so a chapter eased
+// by mods.spawnMul (body/pond) stays proportionally eased.
+export const SPAWN_EARLY_BOOST = 0.35   // +35% at t=0, +17.5% at t=30, +0% from t=60
+export const SPAWN_EARLY_UNTIL = 60     // s the boost tapers away over
+export const spawnEarlyMul = (t) => (t >= SPAWN_EARLY_UNTIL ? 1 : 1 + SPAWN_EARLY_BOOST * (1 - t / SPAWN_EARLY_UNTIL))
 export const spawnRate = (t) => {
   const base = SPAWN_RATE_BASE + t * SPAWN_RATE_LINEAR
-  if (t <= SPAWN_LATE_START) return base
+  if (t <= SPAWN_LATE_START) return base * spawnEarlyMul(t)
   const late = t - SPAWN_LATE_START
   return base + SPAWN_LATE_QUAD * late * late
 }

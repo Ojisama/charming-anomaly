@@ -68,6 +68,8 @@ import {
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
   // v6.6.4 per-chapter density cap
   MAX_ALIVE, maxAliveFor,
+  // v6.6.5 early spawn boost
+  SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -7612,6 +7614,67 @@ function testChapterDensityCap() {
   console.log(`PASS run VV (v6.6.4 per-chapter density cap): peak alive body ${peaks.body} / pond ${peaks.pond} / garden ${peaks.garden} / city ${peaks.city} (global ${MAX_ALIVE})`)
 }
 
+// ---- Run WW: v6.6.5 early spawn boost (owner directive) --------------------------------------
+// "have early monsters (<1min in) spawn a bit faster". spawnRate is multiplied by spawnEarlyMul,
+// which is 1 + SPAWN_EARLY_BOOST at t=0 and decays LINEARLY to exactly 1 at SPAWN_EARLY_UNTIL.
+// The decay is the point: a flat boost that switched off at 60s would drop the spawn rate ~25%
+// mid-fight, so the load-bearing assert here is that the rate never decreases anywhere — that is
+// what a cliff at the boundary would break, and it is invisible to a spot check at t=0 and t=60.
+function testEarlySpawnBoost() {
+  // (a) the taper's shape, at both ends and the midpoint
+  assert(Math.abs(spawnEarlyMul(0) - (1 + SPAWN_EARLY_BOOST)) < 1e-9, `expected full boost at t=0, got ${spawnEarlyMul(0)}`)
+  assert(Math.abs(spawnEarlyMul(SPAWN_EARLY_UNTIL / 2) - (1 + SPAWN_EARLY_BOOST / 2)) < 1e-9, 'expected half the boost at the midpoint')
+  assert.strictEqual(spawnEarlyMul(SPAWN_EARLY_UNTIL), 1, 'expected the boost to be spent exactly at SPAWN_EARLY_UNTIL')
+  assert.strictEqual(spawnEarlyMul(SPAWN_EARLY_UNTIL + 30), 1, 'expected no boost after the window')
+
+  // (b) NO CLIFF: the rate is strictly increasing across the whole early+mid game, so nothing
+  // drops when the boost runs out. (A flat boost would step down ~25% at the 60s boundary.)
+  let prev = -Infinity
+  for (let t = 0; t <= 120; t += 0.25) {
+    const r = spawnRate(t)
+    assert(r >= prev - 1e-9, `expected spawnRate to never decrease, dropped at t=${t} (${prev} -> ${r})`)
+    prev = r
+  }
+  const atBoundary = Math.abs(spawnRate(SPAWN_EARLY_UNTIL) - spawnRate(SPAWN_EARLY_UNTIL - 0.01))
+  assert(atBoundary < 0.05, `expected a seamless boundary at t=${SPAWN_EARLY_UNTIL}, jumped ${atBoundary}`)
+
+  // (c) it is faster than the unboosted curve inside the window, and identical outside it
+  const plain = (t) => SPAWN_RATE_BASE + t * SPAWN_RATE_LINEAR
+  for (const t of [0, 10, 30, 50]) assert(spawnRate(t) > plain(t), `expected a boost at t=${t}`)
+  for (const t of [SPAWN_EARLY_UNTIL, 90, 120]) {
+    assert(Math.abs(spawnRate(t) - plain(t)) < 1e-9, `expected the plain curve at t=${t}, got ${spawnRate(t)} vs ${plain(t)}`)
+  }
+  assert(spawnRate(300) >= 15, 'late-game curve must be untouched (Run I pins this too)')
+
+  // (d) a real run actually lands more enemies in the first minute. Weapons stripped so nothing
+  // dies and the count is pure arrivals; spawnMul forced to 1 so chapter easing is not the
+  // variable under test, and the density cap neutralised so it cannot clip the comparison.
+  const dt = 1 / 60
+  const arrivalsInFirstMinute = (rateMul) => {
+    Math.random = mulberry32(20260805)
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.weapons = []
+    run.mods.spawnMul = rateMul
+    run.mods.maxAliveMul = 1
+    run.player.hp = run.player.maxHP = 1e9
+    for (let i = 0; i < Math.round(60 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.player.hp = run.player.maxHP
+    }
+    return run._nextId - 1
+  }
+  const boosted = arrivalsInFirstMinute(1)
+  // the unboosted baseline, reconstructed by integrating the plain curve over the same window
+  let plainExpected = 0
+  for (let i = 0; i < Math.round(60 / dt); i++) plainExpected += plain(i * dt) * dt
+  assert(boosted > plainExpected * 1.08,
+    `expected the first minute to land meaningfully more enemies than the unboosted curve (plain ~${plainExpected.toFixed(0)}, got ${boosted})`)
+
+  console.log(`PASS run WW (v6.6.5 early spawn boost): rate ${plain(0).toFixed(2)}->${spawnRate(0).toFixed(2)}/s at t=0, seamless at t=${SPAWN_EARLY_UNTIL}, first-minute arrivals ~${plainExpected.toFixed(0)} -> ${boosted}`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -7668,6 +7731,7 @@ try {
   testStreamedTrapPredators()
   testEnemySeparation()
   testChapterDensityCap()
+  testEarlySpawnBoost()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
