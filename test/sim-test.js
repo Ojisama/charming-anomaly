@@ -7560,14 +7560,14 @@ function testEnemySeparation() {
 
 // ---- Run VV: v6.6.4 per-chapter concurrent-enemy cap (owner directive) ----------------------
 // CHAPTERS[id].balance.maxAliveMul thins how many enemies may be ALIVE AT ONCE (a different knob
-// from spawnMul, which is how fast they arrive): body -30%, pond -20%, garden -10%, everyone else
+// from spawnMul, which is how fast they arrive): body -55% (v6.6.6), pond -20%, garden -10%, everyone else
 // untouched. createRun folds it into run.mods like every other chapter-balance key, and every
 // MAX_ALIVE gate in sim.js reads maxAliveFor(run.mods), so this pins (a) the multipliers the owner
 // asked for, (b) that the cap is actually ENFORCED by a saturating run rather than merely stored,
 // and (c) that a late chapter is left at the global cap.
 function testChapterDensityCap() {
   // (a) the three multipliers, and that no other chapter carries one
-  const want = { body: 0.7, pond: 0.8, garden: 0.9 }
+  const want = { body: 0.45, pond: 0.8, garden: 0.9 }
   for (const id of CHAPTER_ORDER) {
     const mul = CHAPTERS[id].balance?.maxAliveMul ?? 1
     assert.strictEqual(mul, want[id] ?? 1, `expected ${id} maxAliveMul ${want[id] ?? 1}, got ${mul}`)

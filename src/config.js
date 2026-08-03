@@ -1266,7 +1266,10 @@ export const hpScale = (t) => {
 export const dmgScale = (t) => 1 + t / RUN_DURATION
 export const MAX_ALIVE = 400
 // v6.6.4 (owner directive): the onboarding chapters cap the on-screen swarm LOWER than the rest —
-// body -30%, pond -20%, garden -10% (CHAPTERS[id].balance.maxAliveMul). This is a different knob
+// body -55% (v6.6.6, was -30%), pond -20%, garden -10% (CHAPTERS[id].balance.maxAliveMul). Because
+// the field saturates in the last third at every difficulty, this cap — not the spawn rate — is
+// what sets the crowd a player actually looks at there; see the body's balance block for the
+// measurement. This is a different knob
 // from spawnMul: spawn RATE controls how fast enemies arrive, this controls how many may exist at
 // once, i.e. the density you actually have to path through once the field saturates. Every
 // MAX_ALIVE gate in sim.js goes through maxAliveFor so the two can never drift apart. The blank
@@ -1382,7 +1385,16 @@ export const CHAPTERS = {
     // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
     // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.9, owner directive): body enemies
     // also carry 25% less HP.
-    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.75, xpMul: 1.25, maxAliveMul: 0.7 },
+    // maxAliveMul 0.7 -> 0.45 in v6.6.6 (owner directive: "still way too many enemies in chapter 1
+    // in the last third"). The cap is the right knob and the late spawn RAMP is not, which is not
+    // obvious: damping SPAWN_LATE_QUAD for this chapter alone (measured at 0.5/0.35/0.25) only
+    // moved WHEN the field saturates, never WHETHER — past ~150s arrivals outrun any starter
+    // build's kill rate, so the field fills to the cap regardless and the cap alone sets the
+    // density you look at. Measured with the kite-recycler on, ~every alive enemy sits within a
+    // screen of the player, so this number IS the on-screen crowd. It also self-targets the last
+    // third: at d1 the field is ~27 alive at 150s and only reaches the cap around 250s, so
+    // lowering it leaves the first two thirds untouched.
+    balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.75, xpMul: 1.25, maxAliveMul: 0.45 },
     // ---- render-only (v5.0 task 6; interpreted by render.js, ZERO effect on sim) ----
     // body is the baseline look: bgColor = the app's clear colour (main.js); tints are
     // multiply-identity white and there's no player tail. Enemy silhouettes are baked per
