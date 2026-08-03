@@ -4,8 +4,7 @@ import {
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
   chapterMaxDifficulty,
   EARLY_CALM,
-  OBSTACLE_FIELD_RADIUS, OBSTACLE_MIN_GAP, OBSTACLE_PLACEMENT_ATTEMPTS,
-  SNAP_TRAP_R, SNAP_TRAP_MIN_DIST,
+  OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed,
 } from './config.js'
@@ -173,14 +172,16 @@ function shopBonus(meta, id) {
 // deterministically off this seed (no RNG stream consumed at step time — seeded tests stay
 // stable). A null seed disables streaming entirely; tests that blank run.obstacles set it null.
 
-// Shared rejection sampler for the v5.4 fixed-radius signature fields (run.traps, run.wells —
-// see below): `count` centers of radius `r`, each at a random angle and a distance in
-// [minDist, OBSTACLE_FIELD_RADIUS] from the run's origin, rejected if it comes within minGap
-// (edge-to-edge) of one already placed. Unseeded-Math.random, give-up-per-entry — placement is
-// never something sim.js depends on being deterministic. (These stay origin-seeded setpieces,
-// unlike obstacles, which stream — a signature field is the arena's opening hand, not terrain.)
-// Unlike obstacles these fields don't block movement, so they're only spaced against THEMSELVES
-// (a trap under a root is fine); one field never checks against another.
+// Shared rejection sampler for v5.4 fixed-radius signature fields seeded ONCE at createRun:
+// run.wells (below) — run.traps used to be one too (generateTraps) until v6.5 moved traps to
+// sim.js's streamTraps, the same cell-hash streaming idiom obstacles/eddies use, so the field
+// never goes dead as a run walks away from the origin. `count` centers of radius `r`, each at a
+// random angle and a distance in [minDist, OBSTACLE_FIELD_RADIUS] from the run's origin, rejected
+// if it comes within minGap (edge-to-edge) of one already placed. Unseeded-Math.random, give-up-
+// per-entry — placement is never something sim.js depends on being deterministic. (These stay
+// origin-seeded setpieces, unlike obstacles, which stream — a signature field is the arena's
+// opening hand, not terrain.) Unlike obstacles these fields don't block movement, so they're only
+// spaced against THEMSELVES (a well under a root is fine); one field never checks against another.
 function scatterField(count, r, minDist, minGap) {
   const out = []
   for (let i = 0; i < count; i++) {
@@ -194,14 +195,6 @@ function scatterField(count, r, minDist, minGap) {
     }
   }
   return out
-}
-
-// Snap traps (v5.4 undergrowth 'predators' signature, see run.traps below): seeded once here from
-// CHAPTERS[chapter].signature.traps. Any chapter whose signature isn't 'predators' yields [].
-function generateTraps(sig, countMul = 1) {
-  if (!sig || sig.type !== 'predators' || !sig.traps) return []
-  return scatterField(Math.round(sig.traps * countMul), SNAP_TRAP_R, SNAP_TRAP_MIN_DIST, OBSTACLE_MIN_GAP)
-    .map(({ x, y }) => ({ x, y, r: SNAP_TRAP_R, armed: true, cd: 0 }))
 }
 
 // Gravity wells (v5.4 beyond 'gravity' signature, see run.wells below): seeded once here from
@@ -631,14 +624,26 @@ function generateWells(sig) {
  *   Before this event existed the run had no warning at all — see the bug/arithmetic writeup on
  *   stepStrafe in sim.js for why STRAFE_TELEGRAPH_T (0.5s) is enough to actually dodge it.
  *
- * traps[i]: { x, y, r, armed, cd } — snap traps, seeded ONCE at createRun (generateTraps above)
- *   from CHAPTERS[chapter].signature.traps under the undergrowth's 'predators' signature; [] for
- *   every other chapter. Permanent field furniture: they never expire, never move, never block
- *   movement (they may overlap obstacles) — they only spring and re-arm. An ARMED trap containing
- *   the center of the player OR of any enemy snaps: it damages THAT ONE entity for SNAP_TRAP_DMG —
- *   BOTH sides, that's the mechanic (kite the swarm over them) — then armed=false / cd=
- *   SNAP_TRAP_REARM and emits {type:'explode', x, y, radius:r}. cd counts down to 0, then re-arms
- *   (cd is 0 while armed). See stepTraps in sim.js.
+ * traps[i]: { x, y, r, armed, rearmAt, _cell } — v6.5: snap traps, STREAMED by sim.js's
+ *   streamTraps (the same _obstacleSeed cell-hash idiom as obstacles/eddies, own salts 15-17) from
+ *   CHAPTERS[chapter].signature.traps under the undergrowth's 'predators' signature; [] for every
+ *   other chapter, and for a null _obstacleSeed. Never seeded here (generateTraps deleted) — the
+ *   old createRun-time scatter went dead the moment a run walked away from the origin. Permanent
+ *   field furniture: they never expire, never move, never block movement (they may overlap
+ *   obstacles) — they only spring and re-arm. An ARMED trap containing the center of the player OR
+ *   of any enemy snaps: it damages THAT ONE entity — BOTH sides, that's the mechanic (kite the
+ *   swarm over them) — then armed=false / rearmAt=run.time+SNAP_TRAP_REARM and emits
+ *   {type:'explode', x, y, radius:r}. rearmAt is the absolute run.time the trap re-arms (0 while
+ *   armed); _cell is the streaming cell key (null for hand-placed test fixtures, which springTrap's
+ *   ledger write guards against). See stepTraps/streamTraps in sim.js.
+ * _trapRearm (v6.5, Map<cellKey, rearmAt>): persists a sprung trap's re-arm time for cells that
+ *   stream OUT of range (see streamTraps' doc in sim.js for why: without this a cell that scrolls
+ *   back in would forget it was ever sprung). Materialization reads this ledger to derive a
+ *   rematerialized trap's armed state, deleting the entry once it's no longer needed (armed again).
+ *   Always present (every chapter) but only ever written/read when the signature is 'predators'.
+ * _trapCellI/_trapCellJ (sim-internal, created lazily by sim.js like _eddyCellI/_eddyCellJ): the
+ *   last-scanned cell coordinates streamTraps used to skip re-scanning every frame the player stays
+ *   in the same cell.
  * wells[i]: { x, y, r, g } — gravity wells, seeded ONCE at createRun (generateWells above) from
  *   CHAPTERS[chapter].signature.wells under the beyond's 'gravity' signature; [] elsewhere. r =
  *   influence radius, g = GRAVITY_FORCE (px/s² at the center, falling linearly to 0 at r). Permanent:
@@ -942,12 +947,21 @@ export function createRun(meta, opts = {}) {
     webs: [],
     strips: [],
     lures: [],
-    // v5.4 chapter behavior (see doc block above). traps/wells are permanent signature FURNITURE,
-    // seeded once here from this chapter's signature (any other signature -> []); the rest are fed
-    // during the run — lanes by the city's traffic signature, enemyShots by missileVolley
-    // helicopters, debris by the Trash Tornado (rewritten every frame, like orbs), geysers by the
-    // Sewer Geyser (and the Reality Shard's rifts), lobs by the Debris Toss.
-    traps: generateTraps(CHAPTERS[chapter].signature, mods.trapCountMul), // trap-season anomaly seeds more
+    // v5.4 chapter behavior (see doc block above). wells are permanent signature FURNITURE, seeded
+    // once here from this chapter's signature (any other signature -> []); the rest are fed during
+    // the run — lanes by the city's traffic signature, enemyShots by missileVolley helicopters,
+    // debris by the Trash Tornado (rewritten every frame, like orbs), geysers by the Sewer Geyser
+    // (and the Reality Shard's rifts), lobs by the Debris Toss.
+    // v6.5: traps are no longer seeded here (generateTraps deleted) — sim.js's streamTraps
+    // materializes them around the player the same way streamObstacles/streamEddies do, keyed off
+    // _obstacleSeed. Starts empty, populated on the first step; [] forever for a non-predators
+    // chapter or a null seed (tests that blank the field).
+    traps: [],
+    // v6.5: cell key -> absolute run.time a sprung trap re-arms. Lets a trap's armed/disarmed state
+    // survive streaming out of range and back in (see streamTraps' doc in sim.js) — without this a
+    // player could kite a swarm out past OBSTACLE_DROP_RADIUS and back to find every trap in the
+    // field freshly re-armed regardless of how recently it sprang.
+    _trapRearm: new Map(),
     wells: generateWells(CHAPTERS[chapter].signature),
     lanes: [],
     enemyShots: [],

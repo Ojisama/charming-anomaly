@@ -20,9 +20,11 @@ import {
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS, STINGER_HIVE_EVERY,
   POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LAND_T,
+  // v6.5 undergrowth streamed traps (Run TT)
+  POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T, AERIAL_STRIKE_MAX_LIVE,
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL,
-  SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM, SNAP_TRAP_MIN_DIST,
+  SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM,
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R,
@@ -62,6 +64,7 @@ import {
   COIN_CAP_PER_RUN,
   // v6.4.3 opening spawn credit (Run QQ)
   SPAWN_OPENING_CREDIT,
+  // v6.5.1 enemy separation (Run UU)
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -3223,33 +3226,45 @@ function testV54Flags() {
 function testV54Signatures() {
   const dt = 1 / 60
 
-  // (a) predators: the trap field is seeded at createRun (never under the player), and an armed trap
-  // damages BOTH sides — the player AND enemies — then re-arms. Damaging both IS the mechanic.
+  // (a) predators: v6.5 — the trap field STREAMS around the player (sim.js streamTraps, no longer
+  // seeded once at createRun, which went dead the moment a run walked away from the origin), and
+  // an armed trap damages BOTH sides — the player AND enemies — then re-arms. Damaging both IS the
+  // mechanic.
   {
     const seeded = createRun(makeMeta(), { chapter: 'undergrowth' })
-    assert.strictEqual(seeded.traps.length, CHAPTERS.undergrowth.signature.traps,
-      `expected ${CHAPTERS.undergrowth.signature.traps} traps seeded, got ${seeded.traps.length}`)
+    seeded.mods.spawnMul = 0 // isolate the streaming assertion from spawn/enemy noise
+    stepSim(seeded, { x: 0, y: 0 }, dt) // one step: streamTraps runs right after streamEddies
+    assert(seeded.traps.length > 0, 'expected the streamed field to materialize traps around the origin')
+    const minDist = CHAPTERS.undergrowth.signature.traps.minDist
     for (const tr of seeded.traps) {
-      assert(Math.hypot(tr.x, tr.y) >= SNAP_TRAP_MIN_DIST, `expected traps >= ${SNAP_TRAP_MIN_DIST}px from the origin, got ${Math.hypot(tr.x, tr.y).toFixed(1)}`)
-      assert.strictEqual(tr.armed, true, 'expected a fresh trap armed')
+      assert(Math.hypot(tr.x, tr.y) >= minDist, `expected traps >= ${minDist}px from the origin, got ${Math.hypot(tr.x, tr.y).toFixed(1)}`)
+      assert(Math.hypot(tr.x - seeded.player.x, tr.y - seeded.player.y) <= OBSTACLE_STREAM_RADIUS,
+        `expected a materialized trap within OBSTACLE_STREAM_RADIUS, got ${Math.hypot(tr.x - seeded.player.x, tr.y - seeded.player.y).toFixed(1)}`)
+      assert.strictEqual(tr.armed, true, 'expected a freshly streamed trap armed')
       assert.strictEqual(tr.r, SNAP_TRAP_R, `expected trap radius ${SNAP_TRAP_R}, got ${tr.r}`)
     }
-    // Other chapters never seed one (the array exists and stays empty).
-    assert.strictEqual(createRun(makeMeta(), { chapter: 'city' }).traps.length, 0, 'expected a non-predators chapter to seed no traps')
+    // Other chapters never stream one (the array exists and stays empty).
+    const city = createRun(makeMeta(), { chapter: 'city' })
+    city.mods.spawnMul = 0
+    stepSim(city, { x: 0, y: 0 }, dt)
+    assert.strictEqual(city.traps.length, 0, 'expected a non-predators chapter to stream no traps')
 
     // Player side: standing on an armed trap springs it, hurts, and puts it on cooldown.
+    // Hand-placed (_obstacleSeed null, no _cell) — streamTraps no-ops so this trap stays exactly
+    // as placed, isolated from the streaming field above.
     const run = createRun(makeMeta(), { chapter: 'undergrowth' })
     run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = 500; run.player.maxHP = 500; run.player.invuln = 0
-    run.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, cd: 0 }]
+    run.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, rearmAt: 0 }]
     const hp0 = run.player.hp
     stepSim(run, { x: 0, y: 0 }, dt)
     assert(run.player.hp < hp0, `expected a snap trap to damage the player (${hp0} -> ${run.player.hp})`)
     assert.strictEqual(run.traps[0].armed, false, 'expected a sprung trap to disarm')
-    assert.strictEqual(run.traps[0].cd, SNAP_TRAP_REARM, `expected cd ${SNAP_TRAP_REARM}, got ${run.traps[0].cd}`)
+    assert.strictEqual(run.traps[0].rearmAt, run.time + SNAP_TRAP_REARM,
+      `expected rearmAt ${run.time + SNAP_TRAP_REARM}, got ${run.traps[0].rearmAt}`)
     assert(run.events.some((ev) => ev.type === 'explode'), 'expected a sprung trap to emit an explode event')
 
-    // ...and it re-arms rather than expiring (permanent furniture).
+    // ...and it re-arms rather than expiring (permanent furniture) once run.time passes rearmAt.
     for (let i = 0; i < Math.round((SNAP_TRAP_REARM + 0.1) / dt); i++) {
       run.player.invuln = 1e9 // hold the player harmless so it re-arms instead of instantly re-springing
       stepSim(run, { x: 0, y: 0 }, dt)
@@ -3257,17 +3272,19 @@ function testV54Signatures() {
     assert.strictEqual(run.traps.length, 1, 'expected a trap to never expire')
     assert.strictEqual(run.traps[0].armed, true, 'expected a sprung trap to re-arm after SNAP_TRAP_REARM')
 
-    // Enemy side (the kite mechanic): the same trap damages an enemy that walks onto it.
+    // Enemy side (the kite mechanic): the same trap damages an enemy that walks onto it, scaled by
+    // hpScale(run.time) — negligible this early (rounds away), but the formula is exercised.
     const kite = createRun(makeMeta(), { chapter: 'undergrowth' })
     kite.weapons = []; kite.obstacles = []; kite._obstacleSeed = null; kite.mods.spawnMul = 0
     kite.player.x = 5000; kite.player.y = 0; kite.player.hp = 1e9; kite.player.maxHP = 1e9
     const e = makeStatusEnemy(kite, { x: 0, y: 0, hp: 500, speed: 0 })
     kite.enemies.push(e)
-    kite.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, cd: 0 }]
+    kite.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, rearmAt: 0 }]
     stepSim(kite, { x: 0, y: 0 }, dt)
-    assert.strictEqual(e.hp, 500 - SNAP_TRAP_DMG, `expected the trap to deal ${SNAP_TRAP_DMG} to the enemy, hp=${e.hp}`)
+    const expectedDmg = Math.round(SNAP_TRAP_DMG * hpScale(kite.time))
+    assert.strictEqual(e.hp, 500 - expectedDmg, `expected the trap to deal ${expectedDmg} to the enemy, hp=${e.hp}`)
     assert.strictEqual(kite.traps[0].armed, false, 'expected the enemy to spring the trap too')
-    console.log(`PASS run Z.a (predators): ${seeded.traps.length} traps seeded, snaps on BOTH sides, re-arms`)
+    console.log(`PASS run Z.a (predators): ${seeded.traps.length} traps streamed around the origin, snaps on BOTH sides, re-arms`)
   }
 
   // (b) traffic: 'warn' is a harmless telegraph; the 'sweep' vehicle damages BOTH sides + knocks back.
@@ -3730,7 +3747,7 @@ function testV54Weapons() {
     ret.weaponMods.quillBurst.retaliate = 1
     ret.player.hp = 500; ret.player.maxHP = 500; ret.player.invuln = 0
     ret.weaponTimers.quillBurst = 1e6 // park the timer: any burst now can only be the retaliation
-    ret.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, cd: 0 }] // a trap under the player = a free hit
+    ret.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, rearmAt: 0 }] // a trap under the player = a free hit
     stepSim(ret, { x: 0, y: 0 }, dt)
     assert(ret.bullets.length > 0, 'expected retaliate to fire a free burst when the player is hurt')
     assert.strictEqual(ret.bullets.length, lvl.count + 1, `expected the level's count + 1 retaliate pick, got ${ret.bullets.length}`)
@@ -5156,10 +5173,27 @@ function testChapterAnomalies() {
   const r1 = createRun(makeMeta(), { chapter: 'beyond', mutators: ['supermassive'] })
   assert.strictEqual(r1.mods.wellForceMul, 1.8, 'supermassive lands in run.mods.wellForceMul')
   assert.strictEqual(createRun(makeMeta(), { chapter: 'pond' }).mods.currentForceMul, 1, 'knobs default neutral')
-  const base = createRun(makeMeta(), { chapter: 'undergrowth' }).traps.length
-  const more = createRun(makeMeta(), { chapter: 'undergrowth', mutators: ['trapseason'] }).traps.length
-  assert(more > base, `expected trap season to seed more traps (${base} -> ${more})`)
-  console.log(`PASS run GG (chapter anomalies): scoped pools, scoped daily, wellForceMul 1.8, traps ${base}->${more}`)
+  // v6.5: traps STREAM (sim.js streamTraps) instead of being seeded once at createRun — trapseason
+  // widens the per-cell occupancy chance via mods.trapCountMul, so the assertion pins the same
+  // _obstacleSeed on both runs and compares streamed counts after one step, rather than reading
+  // run.traps straight off createRun (which is now always []).
+  {
+    const dt = 1 / 60
+    const base = createRun(makeMeta(), { chapter: 'undergrowth' })
+    base.mods.spawnMul = 0
+    base._obstacleSeed = 0xC0FFEE
+    stepSim(base, { x: 0, y: 0 }, dt)
+    const baseCount = base.traps.length
+
+    const more = createRun(makeMeta(), { chapter: 'undergrowth', mutators: ['trapseason'] })
+    more.mods.spawnMul = 0
+    more._obstacleSeed = 0xC0FFEE
+    stepSim(more, { x: 0, y: 0 }, dt)
+    const moreCount = more.traps.length
+
+    assert(moreCount > baseCount, `expected trap season's higher occupancy chance to stream more traps (${baseCount} -> ${moreCount})`)
+    console.log(`PASS run GG (chapter anomalies): scoped pools, scoped daily, wellForceMul 1.8, traps ${baseCount}->${moreCount}`)
+  }
 }
 
 // ---- Run HH: The Blank pacing pass (v6.0.0) --------------------------------------------------
@@ -7111,6 +7145,242 @@ function testSaveSlots() {
   console.log('PASS run SS (v6.4.6 save slots): default slot, slot 1 = legacy key, boundKey race guard across setActiveSlot, rebind on reload, slotSummary null/real, garbage-pointer clamp')
 }
 
+// ---- Run TT: v6.5 undergrowth streamed traps + predator interactions ------------------------
+// Traps moved from a one-shot origin scatter (state.js's deleted generateTraps) to sim.js's
+// deterministic cell-hash streaming (streamTraps, the streamEddies idiom, salts 15/16/17), with
+// sprung state persisted across streaming via run._trapRearm (a Map, cell -> absolute re-arm
+// time). This locks in: (a) determinism + zero Math.random() at stream time, (b) a sprung trap's
+// state surviving the trap object itself streaming out of range and back, (c) the cat's pounce
+// land-slam (predators-gated) vs the leap-skip that lets it fly OVER traps mid-air, (d) claw
+// rake's ambushPredator mod (armed OR sprung, not armed-only), and (e) dartRat's minT/weight gate
+// on the undergrowth roster.
+function testStreamedTrapPredators() {
+  const dt = 1 / 60
+
+  // (a) determinism + zero-RNG: streamTraps is a pure hash of (cell, _obstacleSeed, salt), so two
+  // runs pinned to the SAME _obstacleSeed literal materialize byte-identical trap fields, and
+  // re-scanning a fresh neighborhood (crossing a full cell width) draws NOT ONE Math.random() call
+  // — the AA.c/runStarOnly scar this whole streaming idiom exists to avoid (mirrors Run NN.a's
+  // eddy version of the same check).
+  {
+    Math.random = mulberry32(20260714)
+    const SEED = 0xBADC0DE
+    const runA = createRun(makeMeta(), { chapter: 'undergrowth' })
+    runA.mods.spawnMul = 0
+    runA._obstacleSeed = SEED
+    stepSim(runA, { x: 0, y: 0 }, dt)
+
+    const runB = createRun(makeMeta(), { chapter: 'undergrowth' })
+    runB.mods.spawnMul = 0
+    runB._obstacleSeed = SEED
+    stepSim(runB, { x: 0, y: 0 }, dt)
+
+    assert(runA.traps.length > 0, 'expected the pinned seed to stream at least one trap')
+    const key = (tr) => `${tr._cell}:${tr.x.toFixed(3)}:${tr.y.toFixed(3)}:${tr.armed}`
+    assert.strictEqual(runB.traps.map(key).sort().join('|'), runA.traps.map(key).sort().join('|'),
+      'expected two runs pinned to the same _obstacleSeed to stream IDENTICAL trap fields')
+
+    // Cross a full cell (signature.traps.cell px) so streamTraps' cursor forces a re-scan, wrapped
+    // in a counting Math.random proxy.
+    const cellPx = CHAPTERS.undergrowth.signature.traps.cell
+    const before = Math.random
+    let calls = 0
+    Math.random = (...a) => { calls++; return before(...a) }
+    try {
+      runA.player.x += cellPx
+      stepSim(runA, { x: 0, y: 0 }, dt)
+    } finally {
+      Math.random = before
+    }
+    assert.strictEqual(calls, 0, `expected streamTraps' re-scan to consume ZERO Math.random() draws, got ${calls}`)
+    console.log(`PASS run TT.a (determinism + zero-RNG): ${runA.traps.length} identical traps across two pinned-seed runs; re-scan after crossing a cell drew ${calls} draws`)
+  }
+
+  // (b) sprung persistence across streaming: springing a streamed trap writes run._trapRearm keyed
+  // by _cell; the trap ITSELF can stream out of range (dropped) and back (rematerialized) while the
+  // ledger remembers it was recently sprung, only clearing (lazily) once it's read back armed.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.mods.spawnMul = 0
+    run._obstacleSeed = 0xC0FFEE
+    run.player.hp = run.player.maxHP = 1e9
+    stepSim(run, { x: 0, y: 0 }, dt) // materialize the field around the origin
+    assert(run.traps.length > 0, 'expected at least one streamed trap to pick as the test subject')
+    const target = run.traps[0]
+    const cellKey = target._cell
+
+    // Spring it: stand on it with invuln cleared.
+    run.player.invuln = 0
+    run.player.x = target.x; run.player.y = target.y
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(run._trapRearm.has(cellKey), 'expected the ledger to hold the sprung cell')
+    const rearmAt = run._trapRearm.get(cellKey)
+    assert(rearmAt > run.time, `expected rearmAt in the future, got ${rearmAt} at run.time=${run.time}`)
+
+    // Walk far enough away to drop the trap object itself (crossing cells forces the re-scan).
+    run.player.x = target.x + OBSTACLE_DROP_RADIUS + 5000
+    run.player.y = target.y
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert(!run.traps.some((tr) => tr._cell === cellKey), 'expected the sprung trap to despawn once out of range')
+    assert(run._trapRearm.has(cellKey), 'expected the ledger entry to SURVIVE the trap streaming out of range')
+    assert.strictEqual(run._trapRearm.get(cellKey), rearmAt, 'expected the ledger to keep the SAME rearmAt while out of range')
+
+    // Walk back before rearmAt (crossing cells again, so the re-scan actually runs): the SAME cell
+    // rematerializes a trap, reading its armed state back off the ledger rather than defaulting armed.
+    run.player.x = target.x; run.player.y = target.y
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const back = run.traps.find((tr) => tr._cell === cellKey)
+    assert(back, 'expected the same cell to rematerialize a trap on return')
+    assert.strictEqual(back.armed, false, 'expected the rematerialized trap to come back UNARMED (still on cooldown)')
+    assert.strictEqual(back.rearmAt, rearmAt, 'expected the rematerialized trap to carry the ledger rearmAt exactly')
+    assert(run._trapRearm.has(cellKey), 'expected the ledger entry to still be present before rearmAt')
+
+    // Advance run.time past rearmAt (resetting the elite-cadence pointer per the file's jump-time
+    // idiom) — it re-arms in place and the ledger entry is lazily deleted.
+    run.time = rearmAt + 0.1
+    run._nextEliteAt = run.time + eliteEveryAt(run.time)
+    stepSim(run, { x: 0, y: 0 }, dt)
+    const rearmed = run.traps.find((tr) => tr._cell === cellKey)
+    assert(rearmed, 'expected the trap to still be present after re-arming')
+    assert.strictEqual(rearmed.armed, true, 'expected the trap to re-arm once run.time passes rearmAt')
+    assert(!run._trapRearm.has(cellKey), 'expected the ledger entry to be deleted once read back armed')
+
+    console.log(`PASS run TT.b (sprung persistence across streaming): cell ${cellKey} sprung -> despawned (ledger survived) -> rematerialized unarmed -> re-armed + ledger cleared`)
+  }
+
+  // (c) leap-skip + land-slam: an airborne cat (_pounceState 'leap') flies OVER an armed trap
+  // untouched — stepTraps' enemy loop explicitly skips any enemy mid-leap — but its LANDING slams
+  // any armed trap under it (combined radius tr.r+e.radius) for
+  // max(SNAP_TRAP_DMG*2, maxHP*POUNCE_TRAP_HP_FRAC), gated on the chapter's 'predators' signature.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 5000; run.player.y = 5000 // far away — this is about the trap, not contact damage
+    run.player.hp = run.player.maxHP = 1e9
+    // Hand-placed trap: NO _cell, exercising springTrap's `_cell != null` ledger guard.
+    run.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, rearmAt: 0 }]
+    const trap = run.traps[0]
+
+    const maxHP = 2000
+    const cat = makeStatusEnemy(run, { x: 0, y: 0, hp: maxHP, speed: 60 })
+    cat.flags = ['pounce']
+    cat._pounceState = 'leap'
+    cat._pounceT = 0.2 // stays leaping through this whole frame
+    cat._pounceDirX = 1; cat._pounceDirY = 0
+    run.enemies.push(cat)
+
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(cat._pounceState, 'leap', `expected the cat still airborne, got '${cat._pounceState}'`)
+    assert.strictEqual(trap.armed, true, 'expected an armed trap under an airborne (leap) cat to stay armed (leap-skip)')
+    assert.strictEqual(cat.hp, maxHP, 'expected the leap-skip to deal no damage')
+
+    // Expire _pounceT this frame so the land transition fires while still inside tr.r + e.radius.
+    cat._pounceT = 0.001
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(cat._pounceState, 'land', `expected the cat to land, got '${cat._pounceState}'`)
+    assert.strictEqual(trap.armed, false, 'expected the landing to spring the trap')
+    const expectedDmg = Math.max(SNAP_TRAP_DMG * 2, maxHP * POUNCE_TRAP_HP_FRAC)
+    assert.strictEqual(cat.hp, maxHP - expectedDmg, `expected the land-slam to deal ${expectedDmg}, cat hp=${cat.hp} (maxHP ${maxHP})`)
+
+    // Gated on the chapter's 'predators' signature: an identical landing in a non-predators chapter
+    // (city — traffic) never scans run.traps at all.
+    const cityRun = createRun(makeMeta(), { chapter: 'city' })
+    cityRun.weapons = []; cityRun.obstacles = []; cityRun._obstacleSeed = null; cityRun.mods.spawnMul = 0
+    cityRun._laneAcc = 1e6 // park traffic — irrelevant noise here
+    cityRun.player.x = 5000; cityRun.player.y = 5000
+    cityRun.player.hp = cityRun.player.maxHP = 1e9
+    cityRun.traps = [{ x: 0, y: 0, r: SNAP_TRAP_R, armed: true, rearmAt: 0 }]
+    const cityTrap = cityRun.traps[0]
+    const cityCat = makeStatusEnemy(cityRun, { x: 0, y: 0, hp: maxHP, speed: 60 })
+    cityCat.flags = ['pounce']
+    cityCat._pounceState = 'leap'
+    cityCat._pounceT = 0.001 // lands THIS frame, right on the trap
+    cityCat._pounceDirX = 1; cityCat._pounceDirY = 0
+    cityRun.enemies.push(cityCat)
+    stepSim(cityRun, { x: 0, y: 0 }, dt)
+    assert.strictEqual(cityCat._pounceState, 'land', `expected the city cat to land too, got '${cityCat._pounceState}'`)
+    assert.strictEqual(cityTrap.armed, true, 'expected a non-predators chapter to leave the trap untouched by the land-slam')
+    assert.strictEqual(cityCat.hp, maxHP, 'expected a non-predators chapter to deal no land-slam damage')
+
+    console.log(`PASS run TT.c (leap-skip + land-slam): airborne cat over an armed trap took 0 dmg (still armed), landing sprung it for ${expectedDmg} dmg (maxHP ${maxHP}); a non-predators landing left the trap untouched`)
+  }
+
+  // (d) ambushPredator: clawRake hits harder near ANY trap — armed OR sprung (a SPRUNG trap here
+  // deliberately pins that contract: springing your own trap must not switch the buff off) —
+  // within AMBUSH_R of the PLAYER. Each variant reseeds identically so the crit roll (Math.random
+  // in applyDamage) lines up between them; passives.damage=3 (a flat x4 multiplier) inflates the
+  // raw numbers so integer rounding can't blur the ratio.
+  {
+    function ambushRun(trapDist) {
+      Math.random = mulberry32(20260714)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = [{ id: 'clawRake', level: MAX_WEAPON_LEVEL }]
+      run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+      run.passives.damage = 3
+      run.weaponMods.clawRake = { ambushPredator: 0.45 }
+      run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+      run.traps = [{ x: trapDist, y: 0, r: SNAP_TRAP_R, armed: false, rearmAt: 1e9 }] // SPRUNG, not armed
+      const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e9, speed: 0 })
+      target.flags = []
+      run.enemies.push(target)
+      let sawRake = null
+      for (let i = 0; i < Math.round(2 / dt) && !sawRake; i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        sawRake = run.events.find((ev) => ev.type === 'clawRake')
+      }
+      assert(sawRake, `expected a clawRake slash within 2s (trapDist=${trapDist})`)
+      return 1e9 - target.hp
+    }
+
+    const near = ambushRun(AMBUSH_R - 10)
+    const far = ambushRun(AMBUSH_R + 200)
+    const ratio = near / far
+    assert(Math.abs(ratio - 1.45) < 0.02,
+      `expected a sprung trap within AMBUSH_R to hit ~1.45x harder than one beyond it, got x${ratio.toFixed(3)} (near=${near}, far=${far})`)
+    console.log(`PASS run TT.d (ambushPredator): sprung trap inside AMBUSH_R -> ${near} dmg, outside -> ${far} dmg (x${ratio.toFixed(3)}, armed-or-sprung contract pinned via the sprung trap)`)
+  }
+
+  // (e) dartRat minT/weight (v6.5): Run KK.c's roster-pool approach — force spawnEnemy via the REAL
+  // path (_spawnAcc primed, spawnMul=0, run.time pinned) so every spawn in the batch sees the same
+  // wave-table/minT window. Undergrowth's WAVE_TABLE spawns only 'drone' (normal archetype) before
+  // t=40, so the rat/dartRat pool is the entire forced batch at t=10.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+
+    run.time = 10
+    run._spawnAcc = 40
+    stepSim(run, { x: 0, y: 0 }, 1e-6)
+    const early = run.enemies.filter((e) => e.rosterId === 'rat' || e.rosterId === 'dartRat')
+    assert(early.length > 0, 'expected at least one normal-archetype spawn before t=30 to make the next assert meaningful')
+    const earlyDart = early.filter((e) => e.rosterId === 'dartRat').length
+    assert.strictEqual(earlyDart, 0, `expected ZERO dartRat spawns before minT=30, got ${earlyDart}/${early.length}`)
+
+    run.enemies = []
+    run.time = 60
+    run._nextEliteAt = run.time + eliteEveryAt(run.time)
+    run._spawnAcc = 80
+    stepSim(run, { x: 0, y: 0 }, 1e-6)
+    const late = run.enemies.filter((e) => e.rosterId === 'rat' || e.rosterId === 'dartRat')
+    const rats = late.filter((e) => e.rosterId === 'rat')
+    const dartRats = late.filter((e) => e.rosterId === 'dartRat')
+    assert(rats.length > 0, `expected plain rats to still spawn at t=60, got ${rats.length}/${late.length}`)
+    assert(dartRats.length > 0, `expected dartRat spawns once minT=30 has passed, got ${dartRats.length}/${late.length}`)
+    for (const dr of dartRats) {
+      assert(dr.flags.includes('dashBurst'), `expected every dartRat to carry the dashBurst flag, got [${dr.flags.join(',')}]`)
+    }
+
+    console.log(`PASS run TT.e (dartRat minT/weight): 0/${early.length} dartRat before t=30, ${dartRats.length}/${late.length} after (all carrying dashBurst)`)
+  }
+
+  console.log('PASS run TT (v6.5 undergrowth streamed traps): determinism + zero-RNG, sprung persistence across streaming, leap-skip + land-slam, ambushPredator armed-or-sprung, dartRat minT/weight')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -7164,6 +7434,7 @@ try {
   testOpeningCredit()
   testChapterBalance()
   testSaveSlots()
+  testStreamedTrapPredators()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

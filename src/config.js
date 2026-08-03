@@ -650,6 +650,9 @@ export const WEAPON_MODS = {
   // rend/wideRake/longClaws fold into clawRake's levels[] via WEAPON_STAT_MODS; quickPaws (attack
   // rate — dividing it into the levels[] `rate` would SLOW it, like flagella.frenzy) is read at the
   // fire site. doubleSlash/bleedClaws are behavioral (see stepClawRake/applyBleed in sim.js).
+  // ambushPredator (v6.5, behavioral — see slashClaws/AMBUSH_R): conditional-vs-flat vs rend — counts
+  // an armed OR sprung trap near the PLAYER, so springing your own trap can't turn the buff off
+  // (that anti-synergy is why the pre-panel 0.30/armed-only draft lost to plain rend).
   clawRake: {
     rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
     wideRake:    { name: 'Wide Rake',     desc: 'claw arc',    icon: '🪭', base: 0.30, kind: 'pct' },
@@ -657,6 +660,7 @@ export const WEAPON_MODS = {
     quickPaws:   { name: 'Quick Paws',    desc: 'rake rate',   icon: '💨', base: 0.25, kind: 'pct' },
     doubleSlash: { name: 'Double Slash',  desc: 'every 3rd rake slashes twice',        icon: '🐈', base: 1, kind: 'flat' },
     bleedClaws:  { name: 'Bleeding Claws', desc: 'bleed on raked foes (over 3s, dot)', icon: '🩹', base: 0.50, kind: 'pct' },
+    ambushPredator: { name: 'Ambush Predator', desc: 'claws hit harder near a trap', icon: '🪤', base: 0.45, kind: 'pct' },
   },
   // sharpQuills/moreQuills/piercingQuills fold into quillBurst's levels[] via WEAPON_STAT_MODS;
   // longQuills (range AND speed) and rapidQuills (burst rate) are read at the fire site.
@@ -918,6 +922,15 @@ export const CLAW_DOUBLE_DELAY = 0.12    // s between the first slash and its fo
 export const CLAW_DOUBLE_DMG_FRAC = 0.7  // follow-up slash's damage, as a fraction of the first's
 // bleedClaws (behavioral) reuses flagella's barbed bleed verbatim (applyBleed / BARBED_DMG_MUL /
 // BARBED_DURATION above) — same DoT, re-themed as claw wounds. No constants of its own.
+
+// ambushPredator (v6.5, behavioral — see slashClaws in sim.js): a conditional damage buff, counting
+// an armed OR sprung trap within AMBUSH_R of the PLAYER (not the target) — springing your own trap
+// must not switch the buff off, or baiting one anti-synergizes with the mod that's supposed to
+// reward standing near the field. v6.5 panel math: at streamed density the armed-or-sprung ambient
+// uptime near a random trap is ~39%, but a player who deliberately lurks near the field sees ~60% —
+// that gap is what lets a conditional 0.45 beat rend's unconditional 0.35 (rend's 3rd-stack
+// marginal value is lower than a well-played ambush stack's).
+export const AMBUSH_R = 200 // px, player-to-trap radius that keeps ambushPredator's buff live
 
 // Quill Burst (undergrowth — see WEAPONS.quillBurst + stepQuillWeapon in sim.js): each quill is a
 // run.bullets projectile tagged weapon:'quill' so stepBullets applies quill-only behaviour without
@@ -1268,7 +1281,6 @@ export const SPEED_CREEP_START = 120     // s, creep begins after this
 export const SPEED_CREEP_PER_SEC = 0.0004 // +0.04%/s of base speed
 export const SPEED_CREEP_CAP = 0.25       // max +25% speed
 export const speedCreepMul = (t) => 1 + Math.min(SPEED_CREEP_CAP, Math.max(0, t - SPEED_CREEP_START) * SPEED_CREEP_PER_SEC)
-
 // ---- Progression ---------------------------------------------------------------
 export const xpForLevel = (level) => 5 + level * 4
 export const GEM_VALUE = 1
@@ -1421,13 +1433,22 @@ export const CHAPTERS = {
       // fast ground predator — it closes into rake range and dies there, like every ground enemy.
       { id: 'centipede', archetype: 'fast', name: 'Centipede', hpMul: 1.15, speedMul: 1.05, flags: [] },
       { id: 'rat', archetype: 'normal', name: 'Rat', hpMul: 0.85, speedMul: 1.15, flags: [] },
+      // Dart Rat (v6.5): the startled-darting variant, same look as the plain rat. weight/minT keep
+      // it a MINORITY that phases in at t=30 — WAVE_TABLE spawns only normals until t=40, so an
+      // all-dashBurst opening would be a pulsed monoculture (panel fun F5).
+      { id: 'dartRat', archetype: 'normal', name: 'Rat', hpMul: 0.85, speedMul: 1.15, flags: ['dashBurst'], weight: 0.4, minT: 30 },
     ],
     eliteFlags: ['flashlightCone'],       // exterminator elites sweep a cone that ENRAGES other enemies
     // Signature: predator telegraphs (the cat's 'pounce' is the telegraph — it crouches, aims, then
-    // leaps and lands in a punish window) PLUS a field of snap traps seeded at createRun. `traps` = how
-    // many traps to scatter; every other trap number is a SNAP_TRAP_* constant below. sim.js gates
-    // its trap step on signature.type === 'predators' and seeds run.traps from signature.traps.
-    signature: { type: 'predators', traps: 10 },
+    // leaps and lands in a punish window) PLUS a field of snap traps. v6.5: traps are STREAMED by
+    // sim.js's streamTraps on the same obstacle cell hash obstacles/eddies use (run._obstacleSeed),
+    // not seeded once at createRun — the old origin-scatter field went dead the moment you walked
+    // OBSTACLE_FIELD_RADIUS away, so "the signature is dead 15 seconds in" was the literal defect.
+    // `cell`/`chance` are a per-cell occupancy probability (cell² / chance ≈ 254k px² per trap —
+    // parity with the old 10-in-900px-radius field's density); `minDist` is spawn-ring clearance
+    // from the run's ORIGIN only (streamed cells far from the origin are never excluded). Every
+    // other trap number stays a SNAP_TRAP_* constant below.
+    signature: { type: 'predators', traps: { cell: 400, chance: 0.63, minDist: 200 } },
     obstacles: { count: 15, minR: 24, maxR: 46, minDist: 220 }, // roots / bones (traps are separate, see run.traps)
     // ---- render-only (v5.4; interpreted by render.js, ZERO effect on sim) ---- dim forest floor
     // seen from ankle height: dark loam showing between leaf litter, a drab dead-leaf floorTint, a
@@ -1439,6 +1460,9 @@ export const CHAPTERS = {
       playerTint: 0xd8a86a, // warm tan fur for the blob (you're a small furry critter now)
       tail: true,
       tailTint: 0xc99a5e,   // slightly darker tan — a critter tail, not a flagellum
+      // v6.5: screen-space falling leaves (render.js updateLeaves) — render-only, zero sim
+      // effect, same contract as every other key in this block.
+      leaves: true,
     },
   },
   city: {
@@ -2389,11 +2413,11 @@ export const SOAP_DPS = 6
 // finds the same rock; no RNG stream is consumed (seeded tests stay stable). The chapter config's
 // `count` keeps its old meaning — expected obstacles within the old origin field — and is
 // converted to a per-cell probability, so density matches what the origin field used to feel like.
-export const OBSTACLE_FIELD_RADIUS = 900       // px, the density reference area (and traps/wells scatter radius)
+export const OBSTACLE_FIELD_RADIUS = 900       // px, the density reference area (and wells' scatter radius — v6.5: traps stream instead, see signature.traps)
 export const OBSTACLE_CELL = 420               // px, streaming grid cell — at most one obstacle per cell
 export const OBSTACLE_STREAM_RADIUS = 1400     // px, cells within this of the player materialize (beyond any screen edge)
 export const OBSTACLE_DROP_RADIUS = 1900       // px, obstacles beyond this are dropped (hysteresis vs pop-in churn)
-export const OBSTACLE_MIN_GAP = 40             // px, min edge-to-edge gap (traps/wells scatterField spacing)
+export const OBSTACLE_MIN_GAP = 40             // px, min edge-to-edge gap (wells' scatterField spacing — v6.5: no longer traps, see signature.traps)
 export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts per entry (traps/wells scatterField)
 // Per-chapter override of the streaming grid cell above (OBSTACLE_CELL) — absent everywhere except
 // skies (v5.8 kaiju redesign): see CHAPTERS.skies.obstacles.cell and sim.js's streamObstacles,
@@ -2811,14 +2835,23 @@ export const SPRAY_DPS = 10        // damage/second to a player standing in a li
 //   leap:  POUNCE_LEAP_T of straight flight at POUNCE_LEAP_SPEED_MUL, ignoring the player's moves
 //          (it overshoots if you dodge). Contact damage is normal during the leap — no bonus.
 //   land:  POUNCE_LAND_T frozen (the punish window: it can't move or deal contact damage), then 'hold'
-// Damages: the PLAYER only, and only via ordinary contact damage (stepContactDamage) — a pounce
-// has no attack of its own. It reads/writes nothing on run.*.
+// Damages: the PLAYER only via ordinary contact damage (stepContactDamage) — a pounce has no
+// attack of its own. v6.5: the leap->land transition (sim.js stepPounce) also slams any armed trap
+// under the landing cat (see POUNCE_TRAP_HP_FRAC) — the leap itself flies OVER traps untouched
+// (stepTraps skips any enemy mid-'leap'), so this is the one point where the cat reads run.traps.
 export const POUNCE_RANGE = 260          // px, distance at which a holding cat commits to a leap
 export const POUNCE_HOLD_SPEED_MUL = 0.8 // seek speed while stalking (multiplier of the cat's OWN speed)
 export const POUNCE_AIM_T = 0.55         // s, telegraphed crouch (dead stop; heading locks at its start)
 export const POUNCE_LEAP_T = 0.40        // s, leap phase (straight, no steering)
 export const POUNCE_LEAP_SPEED_MUL = 6.0 // leap speed multiplier — fast enough that only a dodge beats it
 export const POUNCE_LAND_T = 0.70        // s frozen after a leap (the free-hits window)
+// Fraction of the LANDING cat's own maxHP a slammed trap deals, floored by max(SNAP_TRAP_DMG*2, …):
+// a flat multiple of SNAP_TRAP_DMG dies against hpScale (the first cat ever to spawn, ~t=140, already
+// carries ~368 HP) — the trap needs to stay a real threat, not decoration, against that curve. The
+// floor keeps a tiny future pouncer's slam from rounding to nothing. Chain-slamming one cat back onto
+// the same trap tops out around once per max(SNAP_TRAP_REARM, a pounce cycle) — a real bait play,
+// still slower than just fighting the cat.
+export const POUNCE_TRAP_HP_FRAC = 0.25
 
 // aerialStrike (undergrowth's owl): circles out of reach, marks the ground, then drops. State on
 // e._airState ('circle'|'mark'|'strike'|'climb') / _airT / _airAngle (its angle on the circle) /
@@ -2869,21 +2902,38 @@ export const FLASHLIGHT_ENRAGE_T = 2.0     // s of enrage granted (refreshed eve
 export const FLASHLIGHT_SPEED_MUL = 1.5
 export const FLASHLIGHT_DMG_MUL = 1.4
 
-// predators signature (undergrowth): snap traps. run.traps is seeded ONCE at createRun with
-// signature.traps entries, rejection-sampled exactly like run.obstacles (same
-// OBSTACLE_FIELD_RADIUS / OBSTACLE_MIN_GAP / OBSTACLE_PLACEMENT_ATTEMPTS, min SNAP_TRAP_MIN_DIST
-// from the origin) — traps do NOT block movement, so they may overlap obstacles freely.
-// run.traps entries: { x, y, r, armed, cd } — armed (bool) = ready to snap; cd (s) = time left
-// until it re-arms (0 while armed). Every frame, an ARMED trap whose radius r contains the center
-// of the player OR of any enemy snaps: it damages THAT ONE entity for SNAP_TRAP_DMG (BOTH sides —
-// this is the whole point: kite the swarm over them), sets armed=false / cd=SNAP_TRAP_REARM, and
-// emits {type:'explode', x, y, radius:r}. Player damage goes through the normal armor/
-// contactDmgTakenMul path and respects player.invuln; enemy damage goes through dealDamage.
-// Traps are permanent field furniture — they never expire, they only re-arm.
+// predators signature (undergrowth): snap traps. v6.5: run.traps is STREAMED by sim.js's
+// streamTraps, the exact streamEddies idiom (own cell cursor _trapCellI/_trapCellJ, own hash
+// salts 15/16/17, same run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS) —
+// this REPLACES the old createRun-time scatterField seeding (state.js's generateTraps, deleted),
+// whose field went dead the instant a run walked OBSTACLE_FIELD_RADIUS from the origin. Traps do
+// NOT block movement, so they may overlap obstacles freely.
+// run.traps entries: { x, y, r, armed, rearmAt, _cell } — r is always SNAP_TRAP_R (jitter slack
+// uses the constant directly, not a cfg.r — the signature's traps block carries no radius);
+// armed (bool) = ready to snap; rearmAt (absolute run.time) = when a sprung trap re-arms (0 while
+// armed); _cell = the streaming cell key, used to persist sprung state (see run._trapRearm below)
+// and null for hand-placed test fixtures (springTrap's ledger write is guarded on _cell != null).
+// Every frame, an ARMED trap whose radius r contains the center of the player OR of any enemy
+// snaps: it damages THAT ONE entity (BOTH sides — this is the whole point: kite the swarm over
+// them), sets armed=false / rearmAt=run.time+SNAP_TRAP_REARM, and emits {type:'explode', x, y,
+// radius:r}. Player damage is a flat SNAP_TRAP_DMG through the normal armor/contactDmgTakenMul
+// path (respects player.invuln — an INVULNERABLE player walks over a trap without springing it;
+// this is a DELIBERATE forgiveness rule, not an accident, so a trap is never spent for free on a
+// player who couldn't have taken the hit anyway). Enemy damage is SNAP_TRAP_DMG * hpScale(run.
+// time) through dealDamage: a flat number on both sides looks symmetric but isn't — enemy HP
+// climbs 7.6x by late-run (hpScale(300)) while a flat snap would decay from "real hazard" to
+// "decoration" the swarm shrugs off, so enemy-side damage scales with the same curve enemy HP
+// does; the player-side number stays flat because the player's own toughness doesn't scale.
+// Traps are permanent field furniture — they never expire, they only re-arm. run._trapRearm (a
+// Map, state.js) persists a sprung trap's rearmAt keyed by _cell across streaming: a cell that
+// scrolls out of OBSTACLE_DROP_RADIUS and back in re-materializes disarmed until its ledger entry
+// expires (materialization derives `armed` from the ledger, deleting the entry once it's stale —
+// see streamTraps in sim.js).
+// minDist (origin spawn-ring clearance) lives on CHAPTERS.undergrowth.signature.traps, not here —
+// it's a per-cell streaming knob like cell/chance, not a fixed geometry constant.
 export const SNAP_TRAP_R = 30          // px, trigger radius
-export const SNAP_TRAP_DMG = 24        // damage to whichever single entity trips it (player or enemy)
+export const SNAP_TRAP_DMG = 24        // damage to whichever single entity trips it (player or enemy; enemy side further scales by hpScale)
 export const SNAP_TRAP_REARM = 4.0     // s before a sprung trap can snap again
-export const SNAP_TRAP_MIN_DIST = 200  // px, min distance from the run's origin (don't spawn one under the player)
 
 // ---- City chapter behavior flags (v5.4, see sim.js) ------------------------------------------
 // lineCharge (city's robot vacuums): line up -> telegraph a straight lane -> charge down it.
@@ -3816,7 +3866,10 @@ export const MUTATORS = {
   // signature, so it keeps the generic pool alone.
   riptide:      { name: 'Riptide',        icon: '🌊', desc: 'The currents shove twice as hard. Richer coins.',            chapters: ['pond'],        effects: { currentForceMul: 2, coinMul: 1.25 } },
   overscent:    { name: 'Overscent',      icon: '🌼', desc: 'Pheromone trails linger twice as long. Bonus XP.',           chapters: ['garden'],      effects: { pheromoneLifeMul: 2, xpMul: 1.15 } },
-  trapseason:   { name: 'Trap Season',    icon: '🪤', desc: 'Half again more snap traps. Richer coins.',                  chapters: ['undergrowth'], effects: { trapCountMul: 1.5, coinMul: 1.3 } },
+  // v6.5 panel: chance x1.5 is already a net player buff (free enemy-side trap clears scale with
+  // it too) — coinMul was 1.3 pre-panel, trimmed to 1.15 so an attentive player kiting around the
+  // denser field doesn't also collect a near-full generic-mutator coin bonus on top.
+  trapseason:   { name: 'Trap Season',    icon: '🪤', desc: 'Half again more snap traps. Richer coins.',                  chapters: ['undergrowth'], effects: { trapCountMul: 1.5, coinMul: 1.15 } },
   rushhour:     { name: 'Rush Hour',      icon: '🚦', desc: 'Traffic barely lets up. Richer coins.',                      chapters: ['city'],        effects: { trafficIntervalMul: 0.6, coinMul: 1.25 } },
   barrage:      { name: 'Carpet Barrage', icon: '🎯', desc: 'The bombardment barely pauses. Bonus XP.',                   chapters: ['skies'],       effects: { bombardIntervalMul: 0.6, xpMul: 1.2 } },
   supermassive: { name: 'Supermassive',   icon: '🕳️', desc: 'The wells pull far harder — nothing flies straight. Richer coins.', chapters: ['beyond'], effects: { wellForceMul: 1.8, coinMul: 1.25 } },
@@ -3831,7 +3884,7 @@ const MUTATOR_MOD_KEYS = [
   // v5.25 chapter-anomaly knobs (each consumed at its signature's one site):
   'currentForceMul',    // currentForce (pond drift field strength)
   'pheromoneLifeMul',   // dealDamage's trailFollow drop (garden trail lifetime)
-  'trapCountMul',       // generateTraps (state.js — undergrowth snap-trap count)
+  'trapCountMul',       // streamTraps (sim.js — undergrowth snap-trap cell chance)
   'trafficIntervalMul', // stepLanes cadence (city; <1 = more often, like eliteEveryMul)
   'bombardIntervalMul', // stepBombardment cadence (skies; <1 = more often)
   'wellForceMul',       // wellForce (beyond gravity bend on every projectile)

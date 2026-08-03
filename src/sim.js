@@ -73,11 +73,12 @@ import {
   SPRAY_INTERVAL, SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS,
   // v5.4 undergrowth
   POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, POUNCE_LAND_T,
+  POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_RADIUS, AERIAL_ORBIT_SPEED, AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
   AERIAL_STRIKE_SPEED_MUL, AERIAL_CLIMB_T, AERIAL_STRIKE_MAX_LIVE,
   FLASHLIGHT_RANGE, FLASHLIGHT_ARC, FLASHLIGHT_SWEEP, FLASHLIGHT_SWEEP_SPEED,
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL, FLASHLIGHT_DMG_MUL,
-  SNAP_TRAP_DMG, SNAP_TRAP_REARM,
+  SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM,
   CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
   QUILL_R, QUILL_RETALIATE_CD,
   FEAR_SPEED_MUL, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
@@ -141,6 +142,7 @@ import {
   COIN_CAP_PER_RUN,
   // v6.4.3 (owner directive): opening spawn credit
   SPAWN_OPENING_CREDIT,
+  // v6.5.1 (owner directive): enemy separation — no more 100% stacks
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -176,8 +178,10 @@ export function stepSim(run, input, dt) {
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
+  streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
-  stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any)
+  stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
+
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
   stepRampage(run, dt)    // v5.8 skies kaiju: rampage meter decay/trigger/drain (crush-gated, no-op elsewhere)
   stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
@@ -1153,7 +1157,7 @@ function stepEnemyMovement(run, dt) {
     } else if (e.flags && e.flags.includes('diveBomb')) {
       stepDiveBomb(e, tx, ty, dt, slowMul)
     } else if (e.flags && e.flags.includes('pounce')) {
-      stepPounce(e, tx, ty, dt, slowMul, enrageMul)
+      stepPounce(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('aerialStrike')) {
       airLiveCount = stepAerialStrike(e, tx, ty, dt, slowMul, enrageMul, airLiveCount)
     } else if (e.flags && e.flags.includes('lineCharge')) {
@@ -1335,7 +1339,7 @@ function stepDiveBomb(e, tx, ty, dt, slowMul) {
 // and stepContactDamage won't let it hurt you there). It has no attack of its own — a cat that
 // lands on you damages you through ordinary contact damage, like any other enemy.
 // (tx,ty) is the seek target; spdMul folds in enrage. slowMul folds in chill/freeze (0 = frozen).
-function stepPounce(e, tx, ty, dt, slowMul, spdMul) {
+function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
   if (e._pounceState === undefined) { e._pounceState = 'hold'; e._pounceT = 0 }
   e._pounceT -= dt
   const dx = tx - e.x, dy = ty - e.y
@@ -1352,7 +1356,26 @@ function stepPounce(e, tx, ty, dt, slowMul, spdMul) {
   } else if (e._pounceState === 'leap') {
     const spd = e.speed * spdMul * POUNCE_LEAP_SPEED_MUL
     vx = e._pounceDirX * spd; vy = e._pounceDirY * spd
-    if (e._pounceT <= 0) { e._pounceState = 'land'; e._pounceT = POUNCE_LAND_T }
+    if (e._pounceT <= 0) {
+      // The landing slams any armed trap under the cat (combined radius — the pounce IS the
+      // trigger weight). One per landing; gated on the chapter's 'predators' signature like
+      // stepTraps, because 'pounce' is a chapter-agnostic flag and a future chapter's run.traps
+      // could mean something else. The leap itself flew OVER traps untouched (stepTraps skips
+      // any enemy mid-'leap') — this is the deliberate reversal of an earlier draft that let a
+      // leap's center spring a trap for plain damage before landing, cannibalizing this slam.
+      const sig = CHAPTERS[run.chapter].signature
+      if (sig?.type === 'predators') {
+        for (const tr of run.traps) {
+          if (!tr.armed) continue
+          const rr = tr.r + e.radius
+          if ((e.x - tr.x) ** 2 + (e.y - tr.y) ** 2 > rr * rr) continue
+          springTrap(run, tr)
+          dealDamage(run, e, Math.max(SNAP_TRAP_DMG * 2, e.maxHP * POUNCE_TRAP_HP_FRAC), false)
+          break
+        }
+      }
+      e._pounceState = 'land'; e._pounceT = POUNCE_LAND_T
+    }
   } else { // land: frozen (the free-hits window)
     if (e._pounceT <= 0) { e._pounceState = 'hold'; e._pounceT = 0 }
   }
@@ -2197,6 +2220,65 @@ function streamEddies(run) {
   }
 }
 
+// -- Snap traps (v6.5 undergrowth identity: streamed) ---------------------------------
+// Exact copy of streamEddies' idiom above (itself a copy of streamObstacles') — own cell size
+// (sig.traps.cell), own _trapCellI/_trapCellJ cell cursor (independent of streamObstacles' and
+// streamEddies' cursors), same run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS.
+// Own hash salts (15 occupancy, 16 x jitter, 17 y jitter) so a trap's roll never collides with an
+// obstacle's (0-4) or an eddy's (11-14) roll at the same cell. ZERO Math.random() at step time —
+// same hard rule as streamObstacles/streamEddies (the AA.c/runStarOnly scar).
+// v6.5: this REPLACES the old createRun-time scatterField seeding (state.js's generateTraps) —
+// that field was a fixed set of entries around the run's ORIGIN, so a run that walked away from
+// (0,0) walked out of the entire signature mechanic ("the signature is dead 15 seconds in", the
+// defect this rework exists to kill). Streaming means the field is everywhere, always.
+// Jitter slack uses the SNAP_TRAP_R CONSTANT directly, not a cfg.r read — unlike sig.eddies, the
+// traps config block carries no radius (every trap is SNAP_TRAP_R); reading cfg.r here would NaN
+// every coordinate.
+// Sprung state survives streaming via run._trapRearm (a Map, state.js): a cell that streams out
+// past OBSTACLE_DROP_RADIUS and is later re-scanned looks up its OWN rearmAt (keyed by cell) rather
+// than defaulting back to armed — a trap that snapped 1s before you turned around shouldn't forget
+// it did the instant it leaves render range. The ledger entry is deleted once the trap is read back
+// as armed (lazy expiry — nothing needs to sweep it separately).
+function streamTraps(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'predators' || !sig.traps) return
+  if (run._obstacleSeed == null) return
+  const cfg = sig.traps
+  const p = run.player
+  const cs = cfg.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._trapCellI && cj === run._trapCellJ) return // same cell as last scan — field unchanged
+  run._trapCellI = ci; run._trapCellJ = cj
+
+  for (let k = run.traps.length - 1; k >= 0; k--) {
+    const tr = run.traps[k]
+    if (Math.hypot(tr.x - p.x, tr.y - p.y) > OBSTACLE_DROP_RADIUS) run.traps.splice(k, 1)
+  }
+  const live = new Set()
+  for (const tr of run.traps) live.add(tr._cell)
+
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      // chance is a DIRECT per-cell occupancy probability (see config.js's doc on signature.traps),
+      // widened by trapCountMul (Trap Season anomaly — see MUTATOR_MOD_KEYS' doc in config.js).
+      if (obstacleCellHash(i, j, seed, 15) >= cfg.chance * (run.mods.trapCountMul ?? 1)) continue
+      const slack = Math.max(0, cs / 2 - SNAP_TRAP_R - 20) // same jitter-slack formula obstacles/eddies use
+      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 16) - 0.5) * 2 * slack
+      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 17) - 0.5) * 2 * slack
+      if (Math.hypot(x, y) < cfg.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      const at = run._trapRearm.get(key) ?? 0
+      const armed = run.time >= at
+      if (armed && at > 0) run._trapRearm.delete(key) // lazy expiry
+      run.traps.push({ x, y, r: SNAP_TRAP_R, armed, rearmAt: armed ? 0 : at, _cell: key })
+    }
+  }
+}
+
 // v5.8 kaiju redesign: both loops used to call Math.hypot(dx,dy) unconditionally and compare it to
 // minSep. At skies' new density (2.6x the obstacles, see config.js) the enemy loop alone is
 // enemies x obstacles with no spatial index anywhere in sim.js — at MAX_ALIVE 400 that's ~60k
@@ -2377,13 +2459,22 @@ function stepStrips(run, dt) {
   return playerDied
 }
 
-// -- Predators signature mechanic (v5.4, e.g. undergrowth) ----------------------------
-// Snap traps (run.traps, seeded once at createRun — see state.js). Permanent field furniture: they
-// never expire, they only spring and re-arm. An ARMED trap containing the center of the player OR
-// of any enemy snaps on THAT ONE entity for SNAP_TRAP_DMG and goes on cooldown.
+// -- Predators signature mechanic (v5.4, e.g. undergrowth; v6.5 streamed) -------------
+// Snap traps (run.traps, STREAMED by streamTraps above — no longer seeded once at createRun, see
+// that function's doc for why). Permanent field furniture: they never expire, they only spring and
+// re-arm. An ARMED trap containing the center of the player OR of any enemy snaps on THAT ONE
+// entity and goes on cooldown (rearmAt, an absolute run.time — see run._trapRearm's doc, state.js,
+// for how this survives a sprung trap streaming out of range and back).
 // It damages BOTH sides, and that IS the mechanic: the trap field is only a hazard until you learn
 // to kite the swarm across it. Gated on the chapter's 'predators' signature so a trap array in a
 // future chapter could mean something else.
+// v6.5 panel: enemy-side damage now scales by hpScale(run.time) — a flat SNAP_TRAP_DMG on both
+// sides looks symmetric but isn't, against enemy HP that climbs 7.6x by late-run; the player side
+// stays flat because the player's own toughness doesn't scale the same way. The enemy loop skips
+// any enemy mid-'leap' (pounce's airborne phase, Task 2) — the cat flies OVER traps on the way in;
+// this is the deliberate reversal of an earlier draft that let a leap's center cross a trap and
+// spring it for plain damage before landing, which cannibalized the land-slam (Task 2 stepPounce)
+// that's supposed to own the interaction.
 // @returns true if the player died this frame (phase set to 'dead').
 function stepTraps(run, dt) {
   if (!run.traps || run.traps.length === 0) return false
@@ -2394,8 +2485,10 @@ function stepTraps(run, dt) {
 
   for (const tr of run.traps) {
     if (!tr.armed) {
-      tr.cd -= dt
-      if (tr.cd <= 0) { tr.armed = true; tr.cd = 0 }
+      if (run.time >= tr.rearmAt) {
+        tr.armed = true
+        if (tr._cell != null) run._trapRearm.delete(tr._cell)
+      }
       continue
     }
     const rSq = tr.r * tr.r
@@ -2411,10 +2504,11 @@ function stepTraps(run, dt) {
     }
     for (const e of run.enemies) {
       if (e._dead) continue
+      if (e._pounceState === 'leap') continue // airborne — the landing owns the interaction (Task 2)
       const dx = e.x - tr.x, dy = e.y - tr.y
       if (dx * dx + dy * dy > rSq) continue
       springTrap(run, tr)
-      dealDamage(run, e, SNAP_TRAP_DMG, false)
+      dealDamage(run, e, SNAP_TRAP_DMG * hpScale(run.time), false)
       break // one entity per snap
     }
   }
@@ -2423,7 +2517,8 @@ function stepTraps(run, dt) {
 
 function springTrap(run, tr) {
   tr.armed = false
-  tr.cd = SNAP_TRAP_REARM
+  tr.rearmAt = run.time + SNAP_TRAP_REARM
+  if (tr._cell != null) run._trapRearm.set(tr._cell, tr.rearmAt) // hand-placed test traps carry no _cell — stay ledger-free
   run.events.push({ type: 'explode', x: tr.x, y: tr.y, radius: tr.r })
 }
 
@@ -4517,10 +4612,20 @@ function slashClaws(run, o) {
   const p = run.player
   const angle = aimAngle(run)
   const bleedBonus = run.weaponMods.clawRake?.bleedClaws ?? 0
+  // ambushPredator (v6.5): evaluated ONCE per slash, off the PLAYER's position — not baked into
+  // o.dmg, so a queued doubleSlash follow-up re-evaluates at its own moment/position. Counts an
+  // armed OR sprung trap (any trap at all) within AMBUSH_R: see config.js for why armed-only lost.
+  const ambush = run.weaponMods.clawRake?.ambushPredator ?? 0
+  let ambushMul = 1
+  if (ambush > 0) {
+    for (const tr of run.traps) {
+      if ((tr.x - p.x) ** 2 + (tr.y - p.y) ** 2 <= AMBUSH_R * AMBUSH_R) { ambushMul = 1 + ambush; break }
+    }
+  }
   for (const e of run.enemies) {
     if (e._dead) continue
     if (!inSector(p.x, p.y, angle, o.range, o.arc, e, false)) continue
-    const dealt = applyDamage(run, e, o.dmg)
+    const dealt = applyDamage(run, e, o.dmg * ambushMul)
     // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
     if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
     if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom

@@ -363,6 +363,8 @@ const CONFIG = {
   'every 3rd rake slashes twice': 'toutes les 3 griffures tranchent deux fois',
   'Bleeding Claws': 'Griffes Sanglantes',
   'bleed on raked foes (over 3s, dot)': 'saignement sur les ennemis griffés (sur 3s, dégâts continus)',
+  'Ambush Predator': 'Prédateur embusqué',
+  'claws hit harder near a trap': 'les griffes frappent plus fort près d\'un piège',
   'Sharp Quills': 'Piquants Acérés',
   'quill damage': 'dégâts des piquants',
   'Bristling': 'Hérissement',

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -231,6 +231,9 @@ export function createRenderer(app) {
   // (including pond/undergrowth, which also set `tail: true`) never sees this flag flip true, so
   // their rig is byte-identical to before this pass.
   let chapterHasKaiju = false
+  // v6.5 undergrowth: screen-space falling leaves (CHAPTERS[].render.leaves — currently only
+  // `undergrowth`). Same latch pattern as chapterHasStorm; read by updateLeaves.
+  let chapterHasLeaves = false
   let chapterHasLane = false   // v5.18 beyond: bottom-anchored camera (CHAPTERS[].lane)
   // v5.24 the blank: the white void draws NO decorative floor (CHAPTERS[].render.voidFloor) —
   // every scatter layer's populate callback early-outs on this, so bgColor alone is the ground.
@@ -2074,6 +2077,7 @@ export function createRenderer(app) {
     owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // PARKED (v5.6.8): aerialStrike is unkillable in a melee chapter — kept for a future ranged one
     centipede: { archetype: 'fast', draw: drawCentipede, lean: 90, phases: 6 }, // top-down, ±y mirrored; 6 baked wave phases = the slither
     rat: { archetype: 'normal', draw: drawRat, lean: 30 },             // 3/4: both ears at -y, every leg at +y
+    dartRat: { archetype: 'normal', draw: drawRat, lean: 30 },         // v6.5: same rat art, dashBurst's minority variant
     vacuum: { archetype: 'tank', draw: drawVacuum, lean: 0, phases: 2 }, // vertical cylinder, never rotates; 2 phases strobe the police light bar
     ratDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 },   // top-down quadrotor: 4 arms + rotors in ±y pairs
     patrolDrone: { archetype: 'normal', draw: drawRatDrone, lean: 90 }, // v6.3: same quadrotor art, aerialStrike's ranged-chapter home
@@ -5638,6 +5642,11 @@ export function createRenderer(app) {
   const cloudShadowLayer = new Container()
   const stormCloudLayer = new Container()
   const stormRainLayer = new Container()
+  // v6.5 undergrowth: falling leaves (chapterHasLeaves) — stage-level screen-space overlay,
+  // dustLayer's exact idiom (own container directly on stage, unaffected by camera/world
+  // position). Declared here for the same reason as the layers above it: addChild'd before its
+  // own const is a TDZ crash that only shows in the minified bundle.
+  const leafLayer = new Container()
 
   // ---- the light layer (v5.10, spec §7) — the chapter's identity -------------------------------
   // "TOKUSATSU NIGHT — the lights are looking for you." Sits between the cloud shadows and the
@@ -5646,7 +5655,7 @@ export function createRenderer(app) {
   // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
   // blend-mode/texture transition — three sub-containers, three draw calls.
   world.addChild(floorLayer, cloudShadowLayer, entitiesLayer)
-  app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, lightningFlash, vignette)
+  app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -7051,6 +7060,59 @@ export function createRenderer(app) {
       if (m.y < -0.08) m.y += 1.16
       m.s.position.set(m.x * w, m.y * h)
       m.s.alpha = 0.2 + 0.1 * Math.sin(dustT * 2 + i)
+    }
+  }
+
+  // v6.5 undergrowth: falling leaves (CHAPTERS[].render.leaves — chapterHasLeaves, latched in
+  // reset()). Same "own container directly on stage" screen-space idiom as dust motes above, but
+  // tinted OFF the floor-scatter leaf palette (config.js DETAIL_UNDERGROWTH's 0xb08050/0x8a6a3e IS
+  // the floor — a leaf falling in the same tint over dead-leaf loam would be invisible) and
+  // carrying a per-frame tumble the static floor litter can never fake. T.props.leaf loads async
+  // (propsReady), so the sprites are built LAZILY the first update after props land — updateFloorLayer's
+  // own `if (!propsReady) return` idiom — rather than eagerly with a Texture.EMPTY placeholder.
+  const LEAF_COUNT = 12
+  const LEAF_TINTS = [0x9fb36a, 0xd9c9a0, 0xc4a76a] // pale fresh-fall greens/tans, not the dead-leaf floor
+  const leaves = []
+  let leavesBuilt = false
+
+  function buildLeaves() {
+    for (let i = 0; i < LEAF_COUNT; i++) {
+      const s = new Sprite(T.props.leaf)
+      s.anchor.set(0.5)
+      s.tint = LEAF_TINTS[i % LEAF_TINTS.length]
+      s.alpha = 0.5
+      const size = lerp(10, 18, hash(i * 6.11 + 8.8))
+      s.scale.set(size / 1024) // leaf.png is a 1024px source sheet — applyPropKind's own scale idiom
+      leafLayer.addChild(s)
+      leaves.push({
+        s,
+        x: hash(i * 3.71 + 1.11),
+        y: hash(i * 5.33 + 2.22),
+        vy: lerp(20, 35, hash(i * 4.44 + 3.33)),
+        swayAmp: lerp(10, 24, hash(i * 2.99 + 4.44)),
+        swayFreq: lerp(0.6, 1.4, hash(i * 7.13 + 5.55)),
+        swayPh: hash(i * 8.31 + 6.66) * Math.PI * 2,
+        spin: (hash(i * 9.77 + 7.77) - 0.5) * 3, // per-frame tumble rate, +- a bit over 1 rev/s
+        rot: hash(i * 1.31 + 0.55) * Math.PI * 2,
+      })
+    }
+    leavesBuilt = true
+  }
+
+  function updateLeaves(dt) {
+    leafLayer.visible = chapterHasLeaves
+    if (!chapterHasLeaves || !propsReady) return
+    if (!leavesBuilt) buildLeaves()
+    if (dt <= 0) return // frozen behind modals, same rule as dust motes
+    const w = app.screen.width
+    const h = app.screen.height
+    for (const l of leaves) {
+      l.y += (l.vy * dt) / h
+      l.rot += l.spin * dt
+      if (l.y > 1.08) { l.y = -0.08; l.x = Math.random() } // re-enter at the top, fresh column
+      const sway = Math.sin(animT * l.swayFreq + l.swayPh) * l.swayAmp
+      l.s.position.set(l.x * w + sway, l.y * h)
+      l.s.rotation = l.rot
     }
   }
 
@@ -8853,11 +8915,16 @@ export function createRenderer(app) {
   // Every one of these guards its run.* field (`run.traps || []`): the sim half lands in parallel,
   // and a chapter that never seeds the array must render nothing rather than throw.
   //
-  // Snap traps (undergrowth signature, run.traps {x,y,r,armed,cd}): permanent furniture that bites
-  // BOTH sides, so it's drawn to be read at a glance — the armed texture is a wide toothed ring, the
-  // sprung one a shut bar (see the bakes). A sprung trap dims to alpha 0.45 and lifts back to full
-  // as its cd runs down toward SNAP_TRAP_REARM, so "this one is about to be live again" is legible
-  // without a number; an armed trap breathes so it reads as hot even when you're not looking at it.
+  // Snap traps (undergrowth signature, run.traps {x,y,r,armed,rearmAt,_cell} — v6.5, STREAMED by
+  // sim.js's streamTraps, see that function's doc): permanent furniture that bites BOTH sides, so
+  // it's drawn to be read at a glance — the armed texture is a wide toothed ring, the sprung one a
+  // shut bar (see the bakes). rearmAt is an ABSOLUTE run.time (0 while armed); a sprung trap dims
+  // to alpha 0.45 and lifts back to full as `simTime` (latched once per frame in sync(), before
+  // this pool syncs) closes on rearmAt, so "this one is about to be live again" is legible without
+  // a number. An armed trap breathes so it reads as hot even when you're not looking at it. Any
+  // trap — armed or sprung — within AMBUSH_R of the player also carries a warm pulse while
+  // WEAPON_MODS.clawRake.ambushPredator is held (ambushHeld/ambushPX/ambushPY, same per-frame
+  // latch), mirroring the armed-or-sprung contract slashClaws' own scan uses (sim.js).
   const trapPool = []
   // v5.21 lane: an asteroid. Reuses T.asteroid — the same rock already scattered as this chapter's
   // baked obstacle furniture, which is the point: the hazard IS the local debris, not a new species.
@@ -8879,19 +8946,32 @@ export function createRenderer(app) {
     if (s.texture !== look.tex) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
     s.position.set(tr.x, tr.y)
     const sc = (tr.r || 30) / 15 // both traps are baked at a 15px working radius
+    let tint = 0xffffff
+    let alpha = 1
     if (tr.armed) {
-      s.tint = 0xffffff
-      s.alpha = 1
       s.scale.set(sc * (1 + 0.03 * Math.sin(animT * 3 + (tr.x + tr.y) * 0.05)))
       s.rotation = 0
     } else {
-      // re-arm tell: the closer cd gets to 0, the brighter/steadier the sprung trap sits
-      const k = SNAP_TRAP_REARM > 0 ? 1 - Math.max(0, Math.min(1, tr.cd / SNAP_TRAP_REARM)) : 1
-      s.tint = mix(0x6b727c, 0xffffff, k)
-      s.alpha = 0.45 + k * 0.5
+      // re-arm tell: the closer simTime gets to rearmAt (an absolute run.time), the
+      // brighter/steadier the sprung trap sits
+      const k = SNAP_TRAP_REARM > 0 ? 1 - Math.max(0, Math.min(1, (tr.rearmAt - simTime) / SNAP_TRAP_REARM)) : 1
+      tint = mix(0x6b727c, 0xffffff, k)
+      alpha = 0.45 + k * 0.5
       s.scale.set(sc)
       s.rotation = 0
     }
+    // ambushPredator tell (render-only, fun F1): armed OR sprung — mirrors slashClaws' scan, so
+    // springing your own trap can't visibly look like it switched the buff off.
+    if (ambushHeld) {
+      const dx = tr.x - ambushPX, dy = tr.y - ambushPY
+      if (dx * dx + dy * dy <= AMBUSH_R * AMBUSH_R) {
+        const pulse = 0.5 + 0.5 * Math.sin(animT * 6)
+        tint = mix(tint, 0xfff2c0, 0.3 + 0.25 * pulse)
+        alpha = Math.min(1, alpha + 0.15 * pulse)
+      }
+    }
+    s.tint = tint
+    s.alpha = alpha
   }
 
   // Traffic lanes (city signature, run.lanes): 'warn' telegraphs a hazard-striped band (the
@@ -9910,6 +9990,14 @@ export function createRenderer(app) {
 
   // ------------------------------------------------------------------- state
   let animT = 0        // run animation clock (frozen when dt=0)
+  // v6.5 undergrowth: set once per frame in sync(), before the syncPool block — placeTrap reads
+  // simTime against a trap's absolute rearmAt for the re-arm tell; ambushHeld/ambushPX/ambushPY
+  // mirror slashClaws' own AMBUSH_R scan (sim.js) for the render-only proximity pulse. Read-only
+  // snapshots of `run`, never written back.
+  let simTime = 0
+  let ambushHeld = false
+  let ambushPX = 0
+  let ambushPY = 0
   let hop = 0          // player hop phase
   let breathe = 0
   let idleT = 0
@@ -11154,6 +11242,13 @@ export function createRenderer(app) {
     // v5.16: the LIGHTNING REVEAL (spec §7.3) went with the light layer — it was one alpha channel
     // on that container, and there is no longer a container to brighten.
 
+    // v6.5 undergrowth: latch this frame's trap/ambush read-state BEFORE the syncPool block below
+    // reads them (placeTrap's re-arm tell, ambush proximity pulse).
+    simTime = run.time
+    ambushHeld = (run.weaponMods.clawRake?.ambushPredator ?? 0) > 0
+    ambushPX = run.player.x
+    ambushPY = run.player.y
+
     syncObstacles(run)
     tickPlanetSpin()   // must follow syncObstacles: a rebuild repopulates the spinner list
     syncWells(run)
@@ -11211,6 +11306,7 @@ export function createRenderer(app) {
     updateRings(dt)
     updateDamage(dt)
     updateDustMotes(dt)
+    updateLeaves(dt)
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
     updateStorm(run, dt, cx, cy)
@@ -11446,6 +11542,7 @@ export function createRenderer(app) {
     chapterHasRain = !!(chapterRender.storm || chapterRender.rain)
     chapterHasRuins = !!(chapterRender.storm || chapterRender.ruins)
     chapterHasKaiju = !!chapterRender.kaiju
+    chapterHasLeaves = !!chapterRender.leaves
     // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
     // the player on the Paused screen. Every other line in this block already guards for that.
