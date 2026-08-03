@@ -1281,6 +1281,24 @@ export const SPEED_CREEP_START = 120     // s, creep begins after this
 export const SPEED_CREEP_PER_SEC = 0.0004 // +0.04%/s of base speed
 export const SPEED_CREEP_CAP = 0.25       // max +25% speed
 export const speedCreepMul = (t) => 1 + Math.min(SPEED_CREEP_CAP, Math.max(0, t - SPEED_CREEP_START) * SPEED_CREEP_PER_SEC)
+// Enemy separation (v6.5.1, owner directive: "enemies should not stack perfectly — in the boss
+// level the larvae stack 50 on top of each other and you only see one. 80% stack, not 100%").
+// Two enemies may overlap until their centers are closer than ENEMY_SEP_FRAC of their combined
+// radii; 0 would be full body-blocking, which is NOT wanted. The directive's "80% stack" was 0.2;
+// the owner's follow-up on seeing it live — "Even less clustered, like 60% overlap" — set 0.4.
+export const ENEMY_SEP_FRAC = 0.4
+// Fraction of a pair's intrusion resolved per frame. 1 = snap the pair to minSep outright —
+// stepObstacles' own idiom. A soft 0.5 was tried first and LOST to convergence pressure: enemies
+// seeking the player's exact point close ~2.8px/frame while a half-resolve pushes ~1.2px/frame
+// back out, so a blank probe knot equilibrated at sub-pixel spread and still read as one sprite
+// (the very bug this exists to fix). Pair fixes can still contradict each other in a dense crowd,
+// but per-frame moves are ≤ a few px, so the residual jitter is invisible at sprite scale.
+export const ENEMY_SEP_RESOLVE = 1
+// px, spatial-hash cell for stepEnemySeparation's pair search. Min separation tops out ~14px for
+// two elite tanks (ENEMY_SEP_FRAC * 2 * ELITE.sizeMul * ENEMIES.tank.radius), so 64px neighborhoods
+// can never miss a pair.
+export const ENEMY_SEP_CELL = 64
+
 // ---- Progression ---------------------------------------------------------------
 export const xpForLevel = (level) => 5 + level * 4
 export const GEM_VALUE = 1

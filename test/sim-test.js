@@ -65,6 +65,7 @@ import {
   // v6.4.3 opening spawn credit (Run QQ)
   SPAWN_OPENING_CREDIT,
   // v6.5.1 enemy separation (Run UU)
+  ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
 
@@ -7381,6 +7382,170 @@ function testStreamedTrapPredators() {
   console.log('PASS run TT (v6.5 undergrowth streamed traps): determinism + zero-RNG, sprung persistence across streaming, leap-skip + land-slam, ambushPredator armed-or-sprung, dartRat minT/weight')
 }
 
+// ---- Run UU: v6.5.1 enemy separation — no more 100% stacks (owner directive) -----------------
+// stepEnemySeparation (sim.js, called every stepSim right before stepObstacles) pushes overlapping
+// enemies apart via a spatial-hash pair search: two enemies may overlap until their centers are
+// within ENEMY_SEP_FRAC of their combined radii but never past it, snapped to minSep per frame
+// (ENEMY_SEP_RESOLVE 1 — a soft resolve loses to convergence pressure, see config.js). Every
+// assert derives from the constants, so retunes (0.2 -> 0.4 on the owner's follow-up) pass
+// through. This locks in: (a) an exactly-coincident pair (the stacked-spawn case) converges
+// to >= minSep apart via the deterministic golden-angle tiebreak, and the same pair-finding also
+// resolves a pair straddling a spatial-hash cell boundary (the neighbor-bucket search), (b) a pair
+// already legally spaced is left bit-for-bit untouched, (c) rosterId 'bindnode' (the blank's
+// stationary binding nodes) is excluded outright, and (d) the whole pass draws ZERO Math.random()
+// (the counting-proxy idiom from Run TT.a) — this runs every frame on every tested path.
+function testEnemySeparation() {
+  const dt = 1 / 60
+
+  // (a) exactly-coincident pair: converges to >= minSep apart (not merely closer), and a second
+  // pair straddling a ENEMY_SEP_CELL boundary (different buckets, adjacent cells) resolves too —
+  // proving the forward-neighbor-bucket search, not just the same-bucket path.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta())
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 5000; run.player.y = 5000 // far away — this is about the pair, not contact damage
+    run.player.hp = run.player.maxHP = 1e9
+
+    const a = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    const b = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    run.enemies.push(a, b)
+    const minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
+
+    // Straddles the cell boundary at x = ENEMY_SEP_CELL: c sits just inside the lower cell, d just
+    // inside the next one, close enough to overlap past minSep but bucketed into DIFFERENT cells.
+    const c = makeStatusEnemy(run, { x: ENEMY_SEP_CELL - 3, y: 5 * ENEMY_SEP_CELL, hp: 1e9, speed: 0 })
+    const d = makeStatusEnemy(run, { x: ENEMY_SEP_CELL + 3, y: 5 * ENEMY_SEP_CELL, hp: 1e9, speed: 0 })
+    run.enemies.push(c, d)
+    assert.notStrictEqual(Math.floor(c.x / ENEMY_SEP_CELL), Math.floor(d.x / ENEMY_SEP_CELL),
+      'expected c/d to sit in different spatial-hash cells (test setup check)')
+
+    for (let i = 0; i < 100; i++) stepSim(run, { x: 0, y: 0 }, dt)
+
+    const distAB = Math.hypot(b.x - a.x, b.y - a.y)
+    assert(distAB > 1e-6, 'expected the coincident pair to no longer be coincident')
+    assert(distAB >= minSep - 1e-6, `expected the coincident pair to reach >= minSep=${minSep}, got ${distAB}`)
+
+    const distCD = Math.hypot(d.x - c.x, d.y - c.y)
+    assert(distCD >= minSep - 1e-6, `expected the cross-cell pair to reach >= minSep=${minSep}, got ${distCD}`)
+
+    console.log(`PASS run UU.a (coincident + cross-cell convergence): same-point pair -> ${distAB.toFixed(3)}px apart (minSep ${minSep}), cell-boundary pair -> ${distCD.toFixed(3)}px apart`)
+  }
+
+  // (b) already-legal spacing: a pair placed just OVER minSep apart is left bit-for-bit untouched
+  // (no drift when nothing is actually stacked).
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta())
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 5000; run.player.y = 5000
+    run.player.hp = run.player.maxHP = 1e9
+
+    const a = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    const minSep = ENEMY_SEP_FRAC * (a.radius + a.radius)
+    const b = makeStatusEnemy(run, { x: minSep + 1, y: 0, hp: 1e9, speed: 0 })
+    run.enemies.push(a, b)
+    const ax0 = a.x, ay0 = a.y, bx0 = b.x, by0 = b.y
+
+    for (let i = 0; i < 20; i++) stepSim(run, { x: 0, y: 0 }, dt)
+
+    assert.strictEqual(a.x, ax0, 'expected a legally-spaced enemy to be left untouched (x)')
+    assert.strictEqual(a.y, ay0, 'expected a legally-spaced enemy to be left untouched (y)')
+    assert.strictEqual(b.x, bx0, 'expected a legally-spaced enemy to be left untouched (x)')
+    assert.strictEqual(b.y, by0, 'expected a legally-spaced enemy to be left untouched (y)')
+    console.log(`PASS run UU.b (already-legal spacing untouched): pair at minSep+1=${(minSep + 1).toFixed(1)}px stayed bit-for-bit unchanged across 20 frames`)
+  }
+
+  // (c) bindnode exclusion: a rosterId 'bindnode' enemy stacked with two ordinary mobs never
+  // moves — the mobs still separate from EACH OTHER (proving the pass is actually running, not
+  // merely a no-op scenario), while the bindnode is skipped outright.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta())
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 5000; run.player.y = 5000
+    run.player.hp = run.player.maxHP = 1e9
+
+    const node = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    node.rosterId = 'bindnode'
+    const mobA = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    const mobB = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    run.enemies.push(node, mobA, mobB)
+
+    for (let i = 0; i < 100; i++) stepSim(run, { x: 0, y: 0 }, dt)
+
+    assert.strictEqual(node.x, 0, 'expected the bindnode to be excluded from separation (x)')
+    assert.strictEqual(node.y, 0, 'expected the bindnode to be excluded from separation (y)')
+    const mobDist = Math.hypot(mobB.x - mobA.x, mobB.y - mobA.y)
+    assert(mobDist > 1e-6, 'expected the two ordinary mobs to still separate from each other (pass is active)')
+    console.log(`PASS run UU.c (bindnode exclusion): bindnode stayed at its spawn point while the two stacked mobs separated to ${mobDist.toFixed(3)}px apart`)
+  }
+
+  // (d) zero Math.random(): the entire pass — both the regular unit-delta push and the coincident
+  // golden-angle tiebreak — is pure arithmetic, wrapped in the counting-proxy idiom (Run TT.a).
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta())
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 5000; run.player.y = 5000
+    run.player.hp = run.player.maxHP = 1e9
+
+    // One exactly-coincident pair (exercises the tiebreak branch) and one merely-overlapping pair
+    // (exercises the regular unit-delta branch) in the same frame.
+    const a = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    const b = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e9, speed: 0 })
+    const c = makeStatusEnemy(run, { x: 1000, y: 1000, hp: 1e9, speed: 0 })
+    const d = makeStatusEnemy(run, { x: 1003, y: 1000, hp: 1e9, speed: 0 })
+    run.enemies.push(a, b, c, d)
+
+    const before = Math.random
+    let calls = 0
+    Math.random = (...args) => { calls++; return before(...args) }
+    try {
+      for (let i = 0; i < 10; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    } finally {
+      Math.random = before
+    }
+    assert.strictEqual(calls, 0, `expected stepEnemySeparation's pass (tiebreak + regular branch) to consume ZERO Math.random() draws, got ${calls}`)
+    console.log(`PASS run UU.d (zero-RNG): 10 frames over a coincident pair + an overlapping pair drew ${calls} Math.random() calls`)
+  }
+
+  // (e) a DEEP knot disperses — the case two-enemy tests cannot see. With the tiebreak keyed on
+  // the pair's FIRST index alone (the first-draft bug, found live in the blank's probe swarm),
+  // pairs (A,B), (A,C), (A,D)... all push B/C/D along the SAME angle: the knot's members land on
+  // one new shared point every frame and the pile never disperses. The per-PAIR angle (i and j
+  // both feed it) must spread a 30-deep stack into a disc with the pairwise floor held.
+  {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta())
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.hp = run.player.maxHP = 1e9
+    // Stacked SEEKERS chasing the player from 300px out — the convergence pressure is part of
+    // the scenario (a static stack is easier than the real blank knot).
+    for (let i = 0; i < 30; i++) run.enemies.push(makeStatusEnemy(run, { x: 300, y: 0, hp: 1e9, speed: 90 }))
+    for (let f = 0; f < 120; f++) stepSim(run, { x: 0, y: 0 }, dt)
+    const es = run.enemies.filter((e) => !e._dead)
+    assert.strictEqual(es.length, 30, `expected all 30 knot enemies alive, got ${es.length}`)
+    const minSep = ENEMY_SEP_FRAC * (16 + 16)
+    let minD = Infinity, cx = 0, cy = 0
+    for (const e of es) { cx += e.x / es.length; cy += e.y / es.length }
+    let spread = 0
+    for (let a2 = 0; a2 < es.length; a2++) {
+      spread = Math.max(spread, Math.hypot(es[a2].x - cx, es[a2].y - cy))
+      for (let b2 = a2 + 1; b2 < es.length; b2++) {
+        minD = Math.min(minD, Math.hypot(es[a2].x - es[b2].x, es[a2].y - es[b2].y))
+      }
+    }
+    // 0.75x tolerance: single-iteration pair resolution leaves a Gauss-Seidel residual below the
+    // exact floor in a crowd; what matters is the pile is a DISC, not a point.
+    assert(minD >= minSep * 0.75, `expected the knot's pairwise floor to hold (>= ${(minSep * 0.75).toFixed(1)}), got ${minD.toFixed(2)}`)
+    assert(spread >= minSep * 3, `expected a 30-knot to disperse into a disc (radius >= ${(minSep * 3).toFixed(1)}), got ${spread.toFixed(1)}`)
+    console.log(`PASS run UU.e (deep-knot dispersal): 30 stacked seekers -> min pair ${minD.toFixed(2)}px (floor ${minSep.toFixed(1)}), disc radius ${spread.toFixed(1)}px`)
+  }
+
+  console.log('PASS run UU (v6.5.1 enemy separation): coincident + cross-cell convergence, already-legal spacing untouched, bindnode exclusion, deep-knot dispersal, zero-RNG')
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -7435,6 +7600,7 @@ try {
   testChapterBalance()
   testSaveSlots()
   testStreamedTrapPredators()
+  testEnemySeparation()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)

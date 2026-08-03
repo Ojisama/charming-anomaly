@@ -143,6 +143,7 @@ import {
   // v6.4.3 (owner directive): opening spawn credit
   SPAWN_OPENING_CREDIT,
   // v6.5.1 (owner directive): enemy separation — no more 100% stacks
+  ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -180,6 +181,7 @@ export function stepSim(run, input, dt) {
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
+  stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
 
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
@@ -2277,6 +2279,103 @@ function streamTraps(run) {
       run.traps.push({ x, y, r: SNAP_TRAP_R, armed, rearmAt: armed ? 0 : at, _cell: key })
     }
   }
+}
+
+// v6.5.1 enemy separation (owner directive, all chapters): "enemies should not stack perfectly —
+// in the boss level the larvae stack 50 on top of each other and you only see one. 80% stack, not
+// 100%." — tuned to a 60% stack on the owner's live follow-up. Two enemies may overlap until
+// their centers are within ENEMY_SEP_FRAC of their combined radii. Each overlapping pair is pushed apart by
+// ENEMY_SEP_RESOLVE of the intrusion this frame — 1 in practice, i.e. snapped to minSep, the
+// stepObstacles idiom. It MUST be a full snap: enemies converging on the player's exact point
+// close faster per frame than a soft resolve pushes back out, so a partial resolve equilibrates
+// a dense knot at sub-pixel spread — the one-sprite pile this pass exists to prevent (see
+// ENEMY_SEP_RESOLVE's doc in config.js). Contradicting pair fixes in a crowd cost only a few px
+// of residual jitter, invisible at sprite scale.
+// Pairs are found via a spatial hash (module-scope reusable Map, cleared per call — no per-frame
+// Map allocation) instead of the naive O(n^2) scan: the blank boss fight alone can hold ~700 live
+// enemies, and 700^2/2 ≈ 244k pair checks/frame is not a phone-friendly budget. Bucketing by
+// ENEMY_SEP_CELL and only visiting each enemy's own cell plus the 4 "forward" neighbor cells
+// (the standard half-neighborhood trick) checks every unordered pair exactly once.
+// Excluded outright: `_dead` corpses, `_phaseSolid === false` ghosted phase-flicker enemies (same
+// rule stepObstacles uses, above), `rosterId === 'bindnode'` (the blank's stationary binding
+// nodes — speedMul 0 by design, nothing to separate), and any `affixes.includes('anchored')`
+// enemy — the blank boss's own marker ("knockback/pull immune — checked by every kb site", see
+// spawnBlankEnemy) — separation is morally a knockback site: shoving the boss off its scripted
+// band/phase movement would be exactly the bug anchored exists to prevent.
+const _sepBuckets = new Map() // cellKey ('ci,cj') -> array of run.enemies INDICES, rebuilt every call
+const SEP_NEIGHBOR_OFFSETS = [[1, 0], [-1, 1], [0, 1], [1, 1]]
+function stepEnemySeparation(run) {
+  const buckets = _sepBuckets
+  buckets.clear()
+
+  // Pass 1: bucket every eligible enemy by its cell.
+  for (let i = 0; i < run.enemies.length; i++) {
+    const e = run.enemies[i]
+    if (e._dead) continue
+    if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes through everything
+    if (e.rosterId === 'bindnode') continue // v5.24: stationary by design, nothing to separate
+    if (e.affixes && e.affixes.includes('anchored')) continue // knockback/pull immune — checked by every kb site; separation is morally a kb site
+    const ci = Math.floor(e.x / ENEMY_SEP_CELL)
+    const cj = Math.floor(e.y / ENEMY_SEP_CELL)
+    const key = ci + ',' + cj
+    let bucket = buckets.get(key)
+    if (!bucket) { bucket = []; buckets.set(key, bucket) }
+    bucket.push(i)
+  }
+  if (buckets.size === 0) return
+
+  // Pass 2: within each bucket, resolve against later entries in the SAME bucket (each intra-cell
+  // pair once) and against the 4 forward neighbor buckets (each inter-cell pair once — the usual
+  // half-neighborhood trick: the other 4 of the 8 neighbors are covered when THEY are the "own"
+  // bucket being processed).
+  for (const [key, bucket] of buckets) {
+    const comma = key.indexOf(',')
+    const ci = Number(key.slice(0, comma))
+    const cj = Number(key.slice(comma + 1))
+
+    for (let a = 0; a < bucket.length; a++) {
+      for (let b = a + 1; b < bucket.length; b++) {
+        resolveSeparationPair(run, bucket[a], bucket[b])
+      }
+    }
+    for (const [di, dj] of SEP_NEIGHBOR_OFFSETS) {
+      const nBucket = buckets.get((ci + di) + ',' + (cj + dj))
+      if (!nBucket) continue
+      for (const ia of bucket) {
+        for (const ib of nBucket) {
+          resolveSeparationPair(run, ia, ib)
+        }
+      }
+    }
+  }
+}
+
+// Push one pair of enemy INDICES (into run.enemies) apart if they're stacked past ENEMY_SEP_FRAC
+// of their combined radii. i, j are run.enemies indices, i < j (see the two call sites above).
+function resolveSeparationPair(run, i, j) {
+  const a = run.enemies[i], b = run.enemies[j]
+  const dx = b.x - a.x, dy = b.y - a.y
+  const minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
+  const distSq = dx * dx + dy * dy
+  if (distSq >= minSep * minSep) return // squared-distance early-out, like every other pair loop in the file
+  const d = Math.sqrt(distSq)
+  let nx, ny, push
+  if (d > 1e-6) {
+    nx = dx / d; ny = dy / d
+    push = (minSep - d) / 2 * ENEMY_SEP_RESOLVE
+  } else {
+    // Exactly coincident (the stacked-spawn case) — no direction to normalize. Deterministic
+    // per-PAIR angle (golden-angle by i, golden-ratio offset by j); ZERO Math.random() (this runs
+    // every frame on tested paths). It MUST vary with BOTH indices: keyed on i alone, every
+    // partner of the same first enemy gets pushed along the SAME direction — a 6-deep knot's
+    // members B..F all land on one new shared point and the pile never disperses (found live in
+    // the blank's probe swarm; two-enemy tests can't see it).
+    const ang = (i * 2.399963 + j * 1.618034) % (Math.PI * 2)
+    nx = Math.cos(ang); ny = Math.sin(ang)
+    push = minSep / 2 * ENEMY_SEP_RESOLVE
+  }
+  a.x -= nx * push; a.y -= ny * push
+  b.x += nx * push; b.y += ny * push
 }
 
 // v5.8 kaiju redesign: both loops used to call Math.hypot(dx,dy) unconditionally and compare it to
