@@ -63,6 +63,16 @@ const UI = {
   'Slot': 'Emplacement',
   'Empty — new game': 'Vide — nouvelle partie',
   'Current': 'Actuel',
+  // v6.6.12 save names. Two keys, not one: 'Name this save' is a heading AND the ✏️ button's
+  // aria-label, where an infinitive is right for both — but the text FIELD wants a noun phrase, or a
+  // screen reader announces the identical sentence twice in a row and the second carries nothing.
+  'Name this save': 'Nommer cette sauvegarde',
+  'Save name': 'Nom de la sauvegarde',
+  // 'au numéro', not 'à un numéro': the referent is introduced two words earlier, so French requires
+  // the definite article. The indefinite is an English calque that reads as "back to SOME number" —
+  // the exact ambiguity this line exists to remove.
+  'Slot {n} — leave it empty to go back to a number.':
+    'Emplacement {n} — laisse vide pour revenir au numéro.',
 
   // level-up
   // 'montée de niveau' is the term the dictionary already uses for this concept elsewhere

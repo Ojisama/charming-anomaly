@@ -77,6 +77,13 @@ export function initInput(rootEl) {
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return
+    // v6.6.12: a focused text field owns its keystrokes. This handler binds keys that are also
+    // ordinary characters — Space latches a skill press that SURVIVES until the next getInput(), so
+    // before this guard, typing a space into a save name spent the next run's skill before it
+    // started, and Escape fired game-pause mid-word. The rename field is the codebase's first
+    // <input>; the pairing field will be the second.
+    const el = e.target
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
     if (e.code === 'Escape' || e.code === 'KeyP') {
       window.dispatchEvent(new CustomEvent('game-pause'))
       return

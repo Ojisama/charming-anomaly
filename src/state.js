@@ -53,8 +53,73 @@ export function slotSummary(n) {
       : 1
     // Number() both normalizes odd shapes and defuses a tampered string coins ("<img onerror=…>")
     // that the slot modal would otherwise interpolate into innerHTML.
-    return { coins: Number(m.coins) || 0, unlocked, total: CHAPTER_ORDER.length }
+    // `name` is ADDED, never substituted — the shape asserted by SS.e stays valid.
+    return { coins: Number(m.coins) || 0, unlocked, total: CHAPTER_ORDER.length, name: cleanName(m.name) }
   } catch { return null }
+}
+
+// The save's display name (design §4.1) — the FIRST player-authored free text in this codebase, and
+// the only value in a save that can arrive from another device. 14 characters, not the 24 an earlier
+// draft chose from an abuse ceiling: `.slot-row` has 193.6px of inner width and the line must also
+// carry `Slot 2`, `— Current` and a status glyph, which leaves about twelve.
+export const NAME_MAX = 14
+
+// Clamped and stripped ON PARSE, never on adopt: the conflict prompt renders the CLOUD's name
+// BEFORE adopting it — that is the modal's entire purpose — so an adopt-time clamp would let a 4 KB
+// name reach the one screen the player cannot dismiss (§7.2 disables backdrop-tap and Escape).
+// Strips C0/C1 control characters, which survive HTML-escaping and can still break a row's layout.
+// This is a LAYOUT and legibility clamp, not the injection defence — that is esc() at the render
+// site, because escaping is what makes a value safe to interpolate and truncation never is.
+export function cleanName(v) {
+  // eslint-disable-next-line no-control-regex
+  return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, NAME_MAX) : ''
+}
+
+// Per-side data for the conflict prompt's two cards (§4.2), for the local blob and the downloaded
+// cloud one alike.
+//
+// TOTAL BY CONSTRUCTION. It runs on a RAW blob that never went through loadMeta — §3.4 has the
+// Worker storing bytes it never parses, so both sides are derived client-side from whatever
+// arrives. An earlier draft wrote this as plain property accesses and each one threw on a REALISTIC
+// blob: `chapters: {}` is a legitimately fresh save, a missing `shop` is reachable from a truncated
+// response with no attacker at all, and `savedAt` is absent on every save not rewritten since the
+// upgrade. A throw mid-render leaves the modal half-drawn over the title screen — and §7.2
+// deliberately makes that modal undismissable — so the player would have to clear site data,
+// destroying all three slots, to get back into the game. Every access is guarded and every numeric
+// goes through Number()||0 for that reason, not for tidiness.
+export function saveSummary(meta) {
+  const m = (meta && typeof meta === 'object' && !Array.isArray(meta)) ? meta : {}
+  const chapters = (m.chapters && typeof m.chapters === 'object' && !Array.isArray(m.chapters)) ? m.chapters : {}
+  // The same walk as ui.js's furthestUnlockedChapterId, plus the one id it structurally cannot see:
+  // The Blank lives OUTSIDE CHAPTER_ORDER (config.js) so no loop over it can reach it, yet it is
+  // unambiguously the furthest a save can get. It therefore wins outright when unlocked — which
+  // also makes §4.2's "beaten is 5 for beyond when blank is unlocked" exception unreachable by
+  // construction, since that override has already moved chapterId off 'beyond'. Left out rather
+  // than written as dead code: `beaten` stays each chapter's OWN ladder, exactly as the hero card's
+  // ★ row reads it, so the card and the prompt can never state two different numbers.
+  let chapterId = CHAPTER_ORDER[0]
+  for (const id of CHAPTER_ORDER) if (chapters[id]?.unlocked) chapterId = id
+  if (chapters.blank?.unlocked) chapterId = 'blank'
+  const entry = (chapters[chapterId] && typeof chapters[chapterId] === 'object') ? chapters[chapterId] : {}
+  const shop = (m.shop && typeof m.shop === 'object' && !Array.isArray(m.shop)) ? m.shop : {}
+  return {
+    name: cleanName(m.name),
+    coins: Number(m.coins) || 0,
+    // The idiom shopFootHtml's `owned` already uses (ui.js), so the shop's sacrifice meter and the
+    // prompt can never disagree about what "upgrades owned" means — with the coercion it is missing,
+    // since Object.values of a tampered shop otherwise concatenates into "0<b>X</b>00000000".
+    upgrades: Object.values(shop).reduce((s, l) => s + (Number(l) || 0), 0),
+    // The best "which of these is my main save?" tiebreaker in the whole blob — better than coins,
+    // which run BACKWARDS (§7.1: the more advanced save routinely shows fewer, because coins get spent).
+    runs: Number(m.runs) || 0,
+    chapterId,
+    // The same field and the same fallback as the hero card's ★ row, so the card and the prompt can
+    // never state two different numbers. `won` is read directly when present; the `?? maxDifficulty - 1`
+    // is the backfill ensureChapterMeta applies on load, repeated here because this function runs on
+    // a RAW blob that never passed through it.
+    beaten: Math.max(0, Number(entry.won ?? ((Number(entry.maxDifficulty) || 1) - 1)) || 0),
+    savedAt: Number(m.savedAt) || 0,
+  }
 }
 
 // Which slot's key the CURRENT in-memory meta was loaded from/saves to. Set at the top of
@@ -70,13 +135,18 @@ let boundSlot = null
 
 // ---- Meta shape (persisted save, see loadMeta/saveMeta) — contract, keep in sync ----------
 // meta.chapter: selected chapter id (default 'body').
-// meta.chapters[id] = { unlocked, maxDifficulty, difficulty, best: { time, kills } } — one
+// meta.chapters[id] = { unlocked, maxDifficulty, difficulty, won, best: { time, kills } } — one
 //   entry per CHAPTER_ORDER id (config.js), created/repaired by ensureChapterMeta below.
 //   difficulty/maxDifficulty here are that chapter's OWN 1..MAX_DIFFICULTY ladder (replaces
 //   the pre-v5.0 top-level meta.difficulty/meta.maxDifficulty, which no longer exist).
 //   maxDifficulty is floored at 1 but NOT capped on load (R3 — see ensureChapterMeta): a save
 //   written by a build that shipped a LONGER ladder keeps its number. Only `difficulty`, the
 //   level actually launched, is clamped to what this build can play.
+//   won (v6.6.12): the highest difficulty actually BEATEN in that chapter, 0 for none. Distinct
+//   from maxDifficulty, which is the highest level UNLOCKED and stops moving once the last one is
+//   unlocked — so it can never express "beat the hardest level" and the hero card's final star was
+//   unreachable. Stamped by endRun on every classic victory, backfilled from maxDifficulty - 1 on
+//   load, floored but never capped (R3). Read by the ★ row (ui.js) and saveSummary's `beaten`.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
 // meta.coins / meta.shop / meta.choiceSlots / meta.runs: shared, chapter-agnostic, untouched
@@ -132,6 +202,20 @@ export function ensureChapterMeta(meta, id) {
   entry.unlocked ??= id === 'body'
   entry.maxDifficulty = Math.max(1, Number(entry.maxDifficulty) || 1)
   entry.difficulty = Math.max(1, Math.min(chapterMaxDifficulty(id), entry.maxDifficulty, Number(entry.difficulty) || 1))
+  // v6.6.12: the highest difficulty actually WON, which the save could not express before. It is not
+  // derivable from maxDifficulty: that field is the highest UNLOCKED level and winning the last one
+  // has nothing left to unlock, so it stops moving. The hero card's ★ row read `maxDifficulty - 1`,
+  // which therefore capped one short — every chapter's final star was unreachable by construction.
+  // Backfilled from the old rule, so an existing save keeps exactly the stars it already showed.
+  entry.won ??= entry.maxDifficulty - 1
+  // R3: floored, never capped. A future build with a longer ladder legitimately stores a bigger
+  // number here and capping would hand the smaller value straight to the next saveMeta.
+  entry.won = Math.max(0, Number(entry.won) || 0)
+  // The one retroactive repair, and it is a widening rather than a clamp so R3 permits it:
+  // chapters.blank.unlocked is the save's only genuine "won The Beyond at level 5" fact (endRun's
+  // third unlock block), and it predates this field. Applied here rather than at each render site so
+  // the hero card and saveSummary cannot state two different numbers.
+  if (id === 'beyond' && meta.chapters?.blank?.unlocked) entry.won = Math.max(entry.won, MAX_DIFFICULTY)
   entry.best ??= { time: 0, kills: 0 }
   entry.best.time ??= 0
   entry.best.kills ??= 0
@@ -181,6 +265,14 @@ export function loadMeta() {
       m.choiceSlots = Math.max(2, Number(m.choiceSlots) || 2)
       m.lang ??= 'en' // v6.1 i18n: display language, read once at boot (main.js -> i18n.setLang)
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
+      // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
+      // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
+      // English source strings ARE the French dictionary's keys and translation happens at render
+      // time, so a name written into the blob on a French device would be a stale English literal
+      // travelling to every other device forever. An empty string has no language, and ui.js renders
+      // the numbered fallback.
+      m.name ??= ''
+      m.savedAt ??= 0 // stamped by saveMeta below; 0 means "never written by a build that had this field"
       return m
     }
   } catch { /* corrupted save -> fresh */ }
@@ -194,6 +286,12 @@ export function loadMeta() {
     chapters: {},
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
+    // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
+    // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
+    // "exactly what is on disk". Hence the defaults live in this literal too, and saveSummary
+    // tolerates both being absent.
+    name: '',
+    savedAt: 0,
   }
   for (const id of CHAPTER_ORDER) ensureChapterMeta(fresh, id)
   return fresh
@@ -223,6 +321,12 @@ export function freezeSaves() { frozen = true }
 export function saveMeta(meta) {
   if (frozen) return
   let ok = false
+  // The device's own clock, stamped on every write and shown to the human — NEVER used to order two
+  // saves. Ordering is the generation counter's job, always (§6.2): clock skew between a phone and a
+  // laptop is normal, and a sync design that resolves conflicts by comparing wall clocks loses a
+  // session whenever a device's clock is wrong. Stamped BEFORE stringify so what lands on disk is
+  // what the push uploads.
+  meta.savedAt = Date.now()
   try {
     localStorage.setItem(boundKey ?? slotKey(activeSlot()), JSON.stringify(meta))
     ok = true
@@ -260,6 +364,24 @@ export function importSlot(n, json) {
   if (typeof m.shop !== 'object' || m.shop === null || Array.isArray(m.shop)) return false
   if (m.chapters != null && (typeof m.chapters !== 'object' || Array.isArray(m.chapters))) return false
   try { localStorage.setItem(slotKey(n), json); return true } catch { return false }
+}
+
+// Renames a slot that is NOT the one currently loaded, by patching its raw blob in place. The
+// active slot never comes through here — main.js sets meta.name and calls saveMeta instead, because
+// a disk patch would be overwritten by the very next save from the live in-memory object.
+// Returns false for an empty or unreadable slot, which is also why ui.js hides ✏️ on empty rows:
+// there is no save to name yet. Deliberately does NOT touch savedAt — that stamp means "this device
+// played this save", and naming another slot from the title screen is not a session.
+export function setSlotName(n, name) {
+  try {
+    const raw = localStorage.getItem(slotKey(n))
+    if (!raw) return false
+    const m = JSON.parse(raw)
+    if (typeof m !== 'object' || m === null || Array.isArray(m)) return false
+    m.name = cleanName(name)
+    localStorage.setItem(slotKey(n), JSON.stringify(m))
+    return true
+  } catch { return false }
 }
 
 // Full new-game wipe (shop's "Reset all progress" button, see hooks.onReset in main.js) —

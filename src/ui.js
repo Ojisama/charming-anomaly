@@ -2,7 +2,7 @@
 import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
-import { SAVE_SLOTS, activeSlot, slotSummary } from './state.js'
+import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
@@ -17,6 +17,15 @@ const DISPATCH_NOTICE_T = 2.5
 // the module importable outside a Vite build, e.g. from a plain node script.
 const BUILD_STAMP = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'dev'
 const buildStampHtml = () => `<div class="build-stamp" title="build actually running">${BUILD_STAMP}</div>`
+
+// v6.6.12: this file's FIRST HTML escape, and it needs to exist now for a reason that did not apply
+// before. Until now every value interpolated into a template here was a number or a trusted
+// config/i18n string — which is why a helper was never needed and why `grep` finds none. meta.name
+// is the first player-authored free text in the codebase, and once saves sync it is also the first
+// value that arrives FROM ANOTHER DEVICE. Escape at the render site, not at the parse site:
+// state.js's cleanName clamps length and strips control characters, which is a LAYOUT fix, and
+// truncating a string has never made it safe to interpolate.
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
 // v5.0: difficulty pips/hints/gating read the SELECTED chapter's ladder (meta.chapters[id],
 // see state.js's meta.chapters doc block) rather than the pre-v5.0 top-level
@@ -257,15 +266,18 @@ export function initUI(hooks) {
   // drifting ambient layer, a glowing bobbing creature (the chapter emoji), a ★ progress row and a
   // "best" line. Locked: flat greyscale + 🔒 + "???" + unlock hint, no ambient/stars.
   //
-  // ★ ROW SEMANTICS: chMeta.maxDifficulty is the highest UNLOCKED level, so levels actually BEATEN
-  // = maxDifficulty - 1 (clamped ≥ 0) → that many gold stars. A 5th (all-MAX) gold star would mean
-  // "won level 5", which the save does NOT track today; so at maxDifficulty === MAX_DIFFICULTY we
-  // still fill 4 and render the 5th as a hollow, gently PULSING star (a "one to go" tease) rather
-  // than inventing a win-flag. Row length is per-chapter (chapterMaxDifficulty) — blank's ladder
-  // caps at 3, so its card shows 3 stars, not 5.
-  // v5.24: Beyond is the one exception — meta.chapters.blank.unlocked IS the save's first "won
-  // level 5" fact (see endRun's third unlock block), so once it's true Beyond's 5th star can finally
-  // render as a genuine win (gold, no pulse) instead of the "one to go" tease.
+  // ★ ROW SEMANTICS (v6.6.12): one gold star per difficulty actually WON — chMeta.won, which endRun
+  // stamps on every classic victory. Row length is per-chapter (chapterMaxDifficulty), so blank's
+  // ladder caps at 3 and its card shows 3 stars, not 5.
+  // This used to read `maxDifficulty - 1`, and that could never fill the last star for ANY chapter:
+  // maxDifficulty is the highest UNLOCKED level, winning the ladder's last level has nothing left to
+  // unlock, so the number stops one short of the row's length. The save simply had no field for
+  // "beat the hardest one" — the old comment here called that "not inventing a win-flag", but a
+  // player who beats level 5 has earned the fifth star and the card owed them one. The one case that
+  // did work (Beyond, via meta.chapters.blank.unlocked) is now a retroactive repair inside
+  // ensureChapterMeta, so it also reaches saveSummary instead of living only in this template.
+  // The hollow last star still PULSES when that level is unlocked but not yet won — a "one to go"
+  // tease, which is what it always should have meant.
   function heroCardHtml(id) {
     if (!meta.chapters?.[id]?.unlocked) {
       const tagline = id === 'blank'
@@ -286,10 +298,13 @@ export function initUI(hooks) {
       ? `linear-gradient(160deg, ${shade(base, 0.4)}, ${base} 58%, ${shade(base, -0.1)})`
       : `linear-gradient(160deg, ${shade(base, 0.22)}, ${base} 55%, ${shade(base, -0.32)})`
     const cap = chapterMaxDifficulty(id)
-    const filled = Math.max(0, chMeta.maxDifficulty - 1)
-    const beyondWon = id === 'beyond' && meta.chapters?.blank?.unlocked
+    // v6.6.12: the highest level actually WON (state.js's ensureChapterMeta, which backfills it from
+    // the old maxDifficulty - 1 rule and applies the one retroactive Beyond repair). The old
+    // expression capped at cap - 1, because winning the last level unlocks nothing and maxDifficulty
+    // stops moving — so no chapter could ever show its final star.
+    const filled = Math.max(0, Number(chMeta.won) || 0)
     const stars = Array.from({ length: cap }, (_, i) => {
-      const on = i < filled || (beyondWon && i === cap - 1)
+      const on = i < filled
       const pulse = !on && i === cap - 1 && chMeta.maxDifficulty === cap
       return `<span class="hero-star${on ? ' hero-star--on' : ''}${pulse ? ' hero-star--pulse' : ''}">${on ? '★' : '☆'}</span>`
     }).join('')
@@ -510,8 +525,11 @@ export function initUI(hooks) {
       ${boosterSheetHtml()}
       ${buildStampHtml()}
       ${slotsModalHtml()}
+      ${renameSheetHtml()}
     `
     wireCarousel()
+    // After the wholesale innerHTML rewrite, never before it.
+    focusRenameField()
   }
 
   // Save-slot picker modal (v6.4.6) — same backdrop/confirm-sheet idiom as the reset-all-progress
@@ -519,21 +537,79 @@ export function initUI(hooks) {
   // title's 💾 button and the slot rows themselves.
   let slotsOpen = false
 
+  // v6.6.12 save names. The row is now a WRAPPER holding two real sibling buttons — the picker and
+  // a ✏️ — because buttons cannot nest, the same wall this codebase already hit and documented at
+  // the booster row ("A div, not a button: the row holds two real buttons now"). Two sibling
+  // buttons also fix the thing that made an earlier design's in-row glyph unbuildable: the picker
+  // for the CURRENT slot is `disabled`, so anything inside it is unclickable, and renaming the save
+  // you are actually playing is the single most likely thing a player wants. As a separate element
+  // the ✏️ stays live. It is a full 44px target rather than a ~24px glyph, which matters because a
+  // miss on this row reloads the page into a different save.
+  // `rename` renders the ✏️ COLUMN, disabled when the slot is empty rather than omitted: dropping the
+  // button lets that row stretch into the column and the sheet's right edge goes ragged. Disabled
+  // also says the true thing — there is no save here to name yet.
+  function slotRowHtml(n, { act = 'slot-pick', disabled = false, rename = true } = {}) {
+    const summary = slotSummary(n)
+    const named = summary?.name
+    const line1 = `${named || `${t('Slot')} ${n}`}${n === activeSlot() ? ` — ${t('Current')}` : ''}`
+    // The slot NUMBER moves to the small line once a name replaces it on the headline: the reset
+    // confirm and the sync copy both say "Slot 2", so the number has to stay visible somewhere.
+    const line2 = summary
+      ? `${named ? `${t('Slot')} ${n} · ` : ''}🪙 ${summary.coins} · ${summary.unlocked}/${summary.total}`
+      : t('Empty — new game')
+    return `
+      <div class="slot-row-wrap">
+        <button class="btn btn--soft slot-row" data-act="${act}" data-slot="${n}" ${disabled ? 'disabled' : ''}>
+          <span class="slot-row-name">${esc(line1)}</span>
+          <small class="slot-row-summary">${esc(line2)}</small>
+        </button>
+        ${rename ? `<button class="btn btn--soft slot-rename" data-act="slot-rename" data-slot="${n}"
+          ${summary ? '' : 'disabled'} aria-label="${t('Name this save')}">✏️</button>` : ''}
+      </div>`
+  }
+
+  // Which slot the rename sheet is editing (null = closed), and the in-progress text. The draft
+  // lives OUT here on purpose: renderTitle() replaces screens.title.innerHTML wholesale and the
+  // sheet is inside that template, so any re-render — the 🌐 toggle, a booster tap, Cancel —
+  // destroys the live <input> and everything typed into it. Holding the value here and restoring it
+  // (plus the caret) after each render is what makes a text field survive this render model at all.
+  // This is the codebase's first <input>, and the pairing field will reuse exactly this machinery.
+  let renameSlot = null
+  let renameDraft = ''
+
+  function renameSheetHtml() {
+    if (renameSlot == null) return ''
+    return `
+      <div class="modal-backdrop" data-act="rename-cancel">
+        <div class="confirm-sheet">
+          <h2 class="confirm-sheet-title">✏️ ${t('Name this save')}</h2>
+          <p class="confirm-sheet-body">${tt('Slot {n} — leave it empty to go back to a number.', { n: renameSlot })}</p>
+          <input class="text-field" id="rename-field" type="text" value="${esc(renameDraft)}"
+            maxlength="${NAME_MAX}" autocapitalize="sentences" autocorrect="off" autocomplete="off"
+            spellcheck="false" enterkeyhint="done" aria-label="${t('Save name')}">
+          <div class="confirm-sheet-actions">
+            <button class="btn btn--soft btn--small" data-act="rename-cancel">${t('Cancel')}</button>
+            <button class="btn btn--small" data-act="rename-save">${t('Done')}</button>
+          </div>
+        </div>
+      </div>`
+  }
+
+  // Restores what the wholesale innerHTML rewrite just destroyed. Caret to the end rather than a
+  // preserved offset: the only thing that re-renders mid-rename is a full sheet redraw, after which
+  // "carry on typing" is the right place to be.
+  function focusRenameField() {
+    if (renameSlot == null) return
+    const el = screens.title.querySelector('#rename-field')
+    if (!el) return
+    el.focus()
+    try { el.setSelectionRange(el.value.length, el.value.length) } catch { /* not all input types support it */ }
+  }
+
   function slotsModalHtml() {
     if (!slotsOpen) return ''
-    const rows = Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1).map((n) => {
-      const isCurrent = n === activeSlot()
-      const summary = slotSummary(n)
-      const line2 = summary
-        ? `🪙 ${summary.coins} · ${summary.unlocked}/${summary.total}`
-        : t('Empty — new game')
-      const label = isCurrent ? `${t('Slot')} ${n} — ${t('Current')}` : `${t('Slot')} ${n}`
-      return `
-        <button class="btn btn--soft slot-row" data-act="slot-pick" data-slot="${n}" ${isCurrent ? 'disabled' : ''}>
-          <span class="slot-row-name">${label}</span>
-          <small class="slot-row-summary">${line2}</small>
-        </button>`
-    }).join('')
+    const rows = Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1)
+      .map((n) => slotRowHtml(n, { disabled: n === activeSlot() })).join('')
     return `
       <div class="modal-backdrop" data-act="slots-cancel">
         <div class="confirm-sheet">
@@ -1257,6 +1333,20 @@ export function initUI(hooks) {
     showScreen(target)
   }
 
+  // v6.6.12: the text-field pair that keeps a value alive across renderTitle()'s wholesale innerHTML
+  // rewrite. Delegated, so it survives the field being destroyed and recreated on every re-render.
+  root.addEventListener('input', (e) => {
+    if (e.target.id === 'rename-field') renameDraft = e.target.value
+  })
+  root.addEventListener('keydown', (e) => {
+    if (e.target.id !== 'rename-field') return
+    // Enter commits and Escape cancels, because a soft keyboard's "done" key is the only obvious
+    // exit once it covers the buttons — which on iOS it does, since the sheet is centred in a
+    // position:fixed backdrop and the visual viewport shrinks under it without moving the layout.
+    if (e.key === 'Enter') { e.preventDefault(); root.querySelector('[data-act="rename-save"]')?.click() }
+    else if (e.key === 'Escape') { e.preventDefault(); root.querySelector('[data-act="rename-cancel"]')?.click() }
+  })
+
   // ---- one delegated click handler for every screen ---------------------------
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable]')
@@ -1331,6 +1421,32 @@ export function initUI(hooks) {
       case 'slot-pick': {
         const n = Number(el.dataset.slot)
         if (n !== activeSlot()) hooks.onSlot?.(n)
+        break
+      }
+      // v6.6.12 save names. Opens over the slots sheet rather than replacing it, so Cancel lands
+      // back where the player was instead of dumping them on the title screen.
+      case 'slot-rename': {
+        renameSlot = Number(el.dataset.slot)
+        renameDraft = slotSummary(renameSlot)?.name ?? ''
+        playSfx('click')
+        renderTitle()
+        break
+      }
+      case 'rename-cancel':
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        renameSlot = null
+        playSfx('click')
+        renderTitle()
+        break
+      case 'rename-save': {
+        // Read the LIVE field, not renameDraft: `input` fires per keystroke but a soft keyboard's
+        // autocomplete or a paste can commit text without one, and the value in the DOM is the only
+        // thing the player has actually seen.
+        const field = screens.title.querySelector('#rename-field')
+        hooks.onRename?.(renameSlot, field ? field.value : renameDraft)
+        renameSlot = null
+        playSfx('click')
+        renderTitle()
         break
       }
       case 'brief-start': hooks.onBriefStart?.(); break

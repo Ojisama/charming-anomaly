@@ -1,6 +1,6 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot } from './state.js'
+import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
 import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
@@ -237,6 +237,15 @@ const ui = initUI({
     setActiveSlot(n)
     location.reload()
   },
+  // v6.6.12 save names (the slots sheet's ✏️). Two paths, and they are not interchangeable: the
+  // slot being played is renamed in MEMORY and saved, because patching its blob on disk would be
+  // overwritten by the next saveMeta from this same object. Any other slot is patched on disk,
+  // because its blob is the only copy that exists.
+  onRename(n, name) {
+    if (n === activeSlot()) { meta.name = cleanName(name); saveMeta(meta) }
+    else setSlotName(n, name)
+    playSfx('click')
+  },
 })
 
 // Everything the level-up screen needs to render its cards + footer buttons.
@@ -297,6 +306,11 @@ function endRun(victory) {
   const unlockedDifficulty = victory && runMode === 'classic' &&
     (run.difficulty ?? 1) >= chMeta.maxDifficulty && chMeta.maxDifficulty < runChapterMaxDifficulty
   if (unlockedDifficulty) chMeta.maxDifficulty = Math.min(runChapterMaxDifficulty, (run.difficulty ?? 1) + 1)
+  // v6.6.12: record the level actually WON, separately from the level unlocked. Winning the ladder's
+  // last level unlocks nothing (the guard above requires maxDifficulty < the cap), so before this the
+  // save had no way to express "beat the hardest one" and the hero card's final star never lit.
+  // Math.max, not assignment: replaying an easier level must not walk the record back down.
+  if (victory && runMode === 'classic') chMeta.won = Math.max(Number(chMeta.won) || 0, run.difficulty ?? 1)
 
   // Chapter unlock (v5.0): winning a classic run at difficulty 3+ unlocks the NEXT chapter (see
   // nextChapter in config.js), if there is one and it isn't already unlocked. Guarded on "not

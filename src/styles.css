@@ -1307,8 +1307,13 @@ body {
 .confirm-sheet {
   width: min(88vw, 340px);
   /* The slot picker (v6.4.6) is tall enough to clip in short landscape (568×320) — scroll
-     instead of pushing Cancel off-screen. */
-  max-height: calc(100dvh - 32px);
+     instead of pushing Cancel off-screen.
+     v6.6.12: the inset term is a real bug fix, not padding. .modal-backdrop pads its bottom with
+     calc(16px + env(safe-area-inset-bottom)) while this subtracted a FLAT 32px, so on a
+     home-indicator phone the sheet's own max-height exceeded the backdrop's content box — and with
+     align-items:center that overflow is split evenly, clipping the sheet at BOTH ends at once. The
+     slot picker was already the tallest sheet here and is about to grow a sync row. */
+  max-height: calc(100dvh - 32px - env(safe-area-inset-bottom));
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1340,6 +1345,49 @@ body {
 }
 .slot-row-name { font-weight: 800; font-size: 1rem; }
 .slot-row-summary { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); }
+
+/* v6.6.12 save names. Both lines are ellipsised rather than wrapped: a name is player-authored and
+   can also arrive from another device once saves sync, and without this a long one wraps, pushes the
+   row past 56px and cascades into the sheet's height budget — which at 320×568 has no slack to
+   give. min-width:0 on the flex child is what actually lets text-overflow fire inside a flex row. */
+.slot-row-wrap { display: flex; align-items: stretch; gap: 8px; width: 100%; }
+.slot-row-wrap .slot-row { flex: 1 1 auto; min-width: 0; width: auto; }
+.slot-row-name, .slot-row-summary { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A full 44px target, not a ~24px glyph tucked into the row: a miss on the row itself reloads the
+   page into a different save. Sibling to the picker rather than inside it, because buttons cannot
+   nest AND because the current slot's picker is `disabled` — renaming the save you are playing is
+   the most likely rename there is, and inside a disabled button it would never fire. */
+.slot-rename {
+  flex: 0 0 44px;
+  width: 44px;
+  min-width: 0;
+  padding: 0;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* v6.6.12: the codebase's first text input. Three global rules have to be undone for a caret and
+   selection handles to behave — body{user-select:none} and html,body{touch-action:none} exist for
+   the game canvas and are actively hostile to a text field. */
+.text-field {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-align: center;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+.text-field:focus { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
 
 /* ---- Repulsion skill button (v5.21, lane chapters only) ---------------------------------------
    Bottom-RIGHT, mirroring the floating joystick's usual thumb: the lane is strafe-only, so the left

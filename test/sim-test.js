@@ -1,7 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
@@ -7951,6 +7951,129 @@ function testSyncDecisions() {
   console.log('PASS run ZZ (sync core): decision table, derived dirty, lost-ACK reqId rule, schema gate, shape validation, freeze latch')
 }
 
+// run SM — saveSummary's TOTALITY (design §4.2) and the two new meta fields (§4.1). This exists
+// because saveSummary feeds the conflict prompt, §7.2 deliberately makes that prompt undismissable
+// (no backdrop tap, no Escape), and it runs on a blob that never went through loadMeta. A throw here
+// is not a wrong number on screen — it is a half-drawn modal the player can only escape by clearing
+// site data, which destroys all three save slots. So every scenario below feeds it something that
+// made an earlier draft throw, and asserts a value came back at all.
+function testSaveSummary() {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  }
+
+  // (a) THE THREE BLOBS THAT THREW. Each is realistic — no attacker required.
+  //   chapters:{}  a legitimately fresh save; the furthest-chapter walk then indexes undefined
+  //   no shop      reachable from a truncated response body
+  //   no savedAt   the normal state of EVERY save not rewritten since this build shipped
+  const fresh = saveSummary({ coins: 0, shop: {}, chapters: {} })
+  assert.strictEqual(fresh.beaten, 0, 'a fresh save reports 0 beaten rather than throwing on chapters[id]')
+  assert.strictEqual(fresh.chapterId, CHAPTER_ORDER[0], 'and falls back to the first chapter')
+  assert.strictEqual(saveSummary({ coins: 5, chapters: {} }).upgrades, 0, 'a blob with no shop reports 0 upgrades, not a TypeError')
+  assert.strictEqual(saveSummary({ shop: {} }).savedAt, 0, 'a blob with no savedAt reports 0, which the render layer shows as "unknown"')
+  // And the shapes that are not objects at all. The Worker never parses (§3.4), so "the blob is a
+  // JSON array" is a thing the client has to survive, not a thing the server prevents.
+  for (const junk of [null, undefined, [], 'a string', 42, { chapters: [], shop: [] }]) {
+    const s = saveSummary(junk)
+    assert.strictEqual(typeof s.coins, 'number', `saveSummary(${JSON.stringify(junk)}) still returns a numeric coins`)
+    assert.strictEqual(typeof s.chapterId, 'string', `saveSummary(${JSON.stringify(junk)}) still names a chapter`)
+  }
+  console.log('PASS run SM.a (totality): every blob that made an earlier draft throw returns a summary — a throw here locks the player out behind an undismissable modal')
+
+  // (b) THE FURTHEST CHAPTER, including the one a CHAPTER_ORDER walk structurally cannot see.
+  const twoUnlocked = saveSummary({ shop: {}, chapters: { [CHAPTER_ORDER[0]]: { unlocked: true }, [CHAPTER_ORDER[1]]: { unlocked: true } } })
+  assert.strictEqual(twoUnlocked.chapterId, CHAPTER_ORDER[1], 'the furthest UNLOCKED ordered chapter wins')
+  const withBlank = saveSummary({ shop: {}, chapters: { [CHAPTER_ORDER[0]]: { unlocked: true }, blank: { unlocked: true, maxDifficulty: 2 } } })
+  assert.strictEqual(withBlank.chapterId, 'blank', "The Blank lives outside CHAPTER_ORDER, so it can only be reached by an explicit override")
+  assert.strictEqual(withBlank.beaten, 1, "and its ★ row reads its OWN ladder — the same rule the hero card uses, so the two can never disagree")
+  console.log('PASS run SM.b (furthest chapter): the ordered walk plus the explicit Blank override that no loop over CHAPTER_ORDER can reach')
+
+  // (c) COERCION AT THE BOUNDARY. Every field here is attacker-controlled for anyone holding a
+  // pairing code (§10 concedes it is an unrevocable bearer token), and the conflict prompt renders
+  // BOTH summaries — so merely READING the comparison is the attack, before any button is pressed.
+  const hostile = saveSummary({
+    coins: '<img src=x onerror=alert(1)>',
+    runs: '<svg onload=alert(2)>',
+    shop: { hp: '<b>X</b>', dmg: 3 },
+    chapters: {},
+  })
+  assert.strictEqual(hostile.coins, 0, 'a tampered coins string coerces to 0 rather than reaching innerHTML')
+  assert.strictEqual(hostile.runs, 0, 'and so does runs')
+  assert.strictEqual(hostile.upgrades, 3, 'the upgrades reduction coerces per level — without it Object.values concatenates into "0<b>X</b>3"')
+  console.log('PASS run SM.c (coercion): coins, runs and every shop level are numbers before they reach a template')
+
+  // (d) THE NAME CLAMP, applied ON PARSE. It has to be here rather than at adopt time because the
+  // prompt renders the CLOUD's name before adopting it — that is the modal's whole purpose.
+  assert.strictEqual(saveSummary({ name: 'x'.repeat(200) }).name.length, NAME_MAX, 'a 200-character name is clamped to the layout budget')
+  assert.strictEqual(saveSummary({ name: 'a\u0000b\u001fc' }).name, 'abc', 'C0 control characters are stripped — they survive HTML-escaping and still break a row')
+  assert.strictEqual(saveSummary({ name: '  \t  ' }).name, '', 'a whitespace-only name is empty, so the numbered fallback renders instead of a blank row')
+  assert.strictEqual(saveSummary({ name: 42 }).name, '', 'a non-string name is empty rather than "42"')
+  // Escaping is NOT this function's job and must not be, or the value would be double-escaped at
+  // the render site. What it guarantees is a short, control-free string.
+  assert.strictEqual(saveSummary({ name: '<b>hi' }).name, '<b>hi', 'markup is left intact here — esc() at the render site is what makes it safe, and truncation never is')
+  console.log('PASS run SM.d (name clamp): clamped and stripped on parse, not on adopt, because the prompt renders the cloud name before adopting it')
+
+  // (e) THE TWO NEW META FIELDS survive a load, and saveMeta stamps the clock.
+  store.clear()
+  const m = loadMeta()
+  assert.strictEqual(m.name, '', 'a fresh save has an EMPTY name — never a baked "Save 1", which would be a stale English literal travelling between devices forever')
+  assert.strictEqual(m.savedAt, 0, 'and savedAt 0, meaning "never written by a build that had this field"')
+  const before = Date.now()
+  saveMeta(m)
+  assert.ok(m.savedAt >= before, 'saveMeta stamps the device clock on every write')
+  const onDisk = JSON.parse(exportSlot(activeSlot()))
+  assert.strictEqual(onDisk.savedAt, m.savedAt, 'and stamps it BEFORE stringify, so what is on disk is what a push uploads')
+  assert.strictEqual(onDisk.name, '', 'the defaults are in the fresh literal too — loadMeta repairs are in-memory only and never written back')
+  console.log('PASS run SM.e (new fields): name and savedAt default on load, live in the fresh literal, and savedAt is stamped before the write')
+
+  // (f) slotSummary GAINS a field rather than changing one, so SS.e's asserted shape stays valid.
+  store.set('charming-anomaly-save-v1', JSON.stringify({ coins: 7, name: 'Phone', shop: {}, chapters: {} }))
+  const ss = slotSummary(1)
+  assert.strictEqual(ss.name, 'Phone', 'the slot picker can show a name')
+  assert.strictEqual(ss.coins, 7, 'without disturbing what it already showed')
+  assert.strictEqual(typeof ss.total, 'number', 'or the rest of its shape')
+  console.log('PASS run SM.f (slotSummary): name is an added field, so the shape the existing SS.e scenario asserts still holds')
+
+  // (g) THE FINAL STAR (v6.6.12). Reported from play: the last star of a chapter never lit, no
+  // matter how the hardest level went. The cause is that the save had no field for it — the ★ row
+  // read `maxDifficulty - 1`, maxDifficulty is the highest UNLOCKED level, and winning the ladder's
+  // last level unlocks nothing, so the number stops one short of the row's own length.
+  const cap = chapterMaxDifficulty('body')
+  const topped = { chapters: { body: { unlocked: true, maxDifficulty: cap, difficulty: cap } } }
+  ensureChapterMeta(topped, 'body')
+  // The defect itself, asserted rather than described: the old expression CANNOT reach `cap`, so no
+  // value of maxDifficulty ever fills the row. This is what makes the new field load-bearing rather
+  // than decorative — delete `won` and this line is unsatisfiable.
+  assert.ok(topped.chapters.body.maxDifficulty - 1 < cap, 'maxDifficulty - 1 is structurally one short of a full row, whatever the player does')
+  assert.strictEqual(topped.chapters.body.won, cap - 1, 'and an existing save backfills to exactly the stars it already showed — nobody gains one for free')
+  // Winning the top level is what endRun now records (main.js), and only then does the row fill.
+  topped.chapters.body.won = Math.max(topped.chapters.body.won, cap)
+  assert.strictEqual(saveSummary(topped).beaten, cap, 'beating the hardest level finally fills every star')
+
+  // R3 again: a future build with a longer ladder stores a bigger `won`, and load must not shrink it.
+  const future = { chapters: { body: { unlocked: true, maxDifficulty: 9, difficulty: 1, won: 8 } } }
+  ensureChapterMeta(future, 'body')
+  assert.strictEqual(future.chapters.body.won, 8, "a future build's higher won survives load — capping it here would write the smaller number straight back to disk")
+
+  // The one retroactive repair: chapters.blank.unlocked is the only record a pre-v6.6.12 save has
+  // of winning The Beyond at 5, and it must survive into the new field or those players lose a star
+  // they already earned.
+  const veteran = { chapters: { beyond: { unlocked: true, maxDifficulty: MAX_DIFFICULTY, difficulty: 1 }, blank: { unlocked: true } } }
+  ensureChapterMeta(veteran, 'beyond')
+  assert.strictEqual(veteran.chapters.beyond.won, MAX_DIFFICULTY, 'a save that had already beaten The Beyond at 5 keeps that star')
+  // And a save that merely UNLOCKED level 5 there does not get it.
+  const nearly = { chapters: { beyond: { unlocked: true, maxDifficulty: MAX_DIFFICULTY, difficulty: 1 } } }
+  ensureChapterMeta(nearly, 'beyond')
+  assert.strictEqual(nearly.chapters.beyond.won, MAX_DIFFICULTY - 1, 'while unlocking the hardest level still leaves the last star hollow')
+  console.log('PASS run SM.g (final star): the save now records the level WON, not just the level unlocked — backfilled, R3-safe, and the Beyond veterans keep their fifth star')
+
+  delete globalThis.localStorage
+  console.log('PASS run SM (save summary): total against every realistic malformed blob, coerced at the boundary, name clamped on parse, and the final star reachable')
+}
+
 function testForwardCompatibleSave() {
   const KEY = 'charming-anomaly-save-v1'
   const store = new Map()
@@ -8220,6 +8343,11 @@ try {
   testEarlySpawnBoost()
   testFrenchDictionary()
   testForwardCompatibleSave()
+  // BEFORE testSyncDecisions, and that is not cosmetic: run ZZ.f calls freezeSaves(), which is a
+  // ONE-WAY latch with no unlatch by design (§3.3 — the only exit is the reload already on its way),
+  // so every saveMeta after it silently no-ops. Any future scenario that writes a save belongs above
+  // this line.
+  testSaveSummary()
   testSyncDecisions()
   console.log('ALL TESTS PASSED')
 } catch (err) {
