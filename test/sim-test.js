@@ -7159,6 +7159,25 @@ function testSaveSlots() {
   assert.strictEqual(s3.coins, 0, `expected tampered string coins to coerce to 0, got ${JSON.stringify(s3.coins)}`)
   console.log('PASS run SS.g (coins coercion): tampered string coins summarize as 0, never raw into innerHTML')
 
+  // (h) v6.6.10: the SAME hardening on loadMeta, which SS.g never covered. slotSummary feeds only
+  // the slot modal; loadMeta feeds the title coins badge (ui.js:491), the shop balance (:717), the
+  // reroll button (:1132) and shopFootHtml's `owned` sum (:560) — all interpolated into innerHTML.
+  // Every value below survived loadMeta verbatim before this fix.
+  setActiveSlot(1)
+  _store.set(LEGACY_KEY, JSON.stringify({
+    coins: '<img src=x onerror=1>',
+    runs: '<svg onload=2>',
+    shop: { [Object.keys(SHOP)[0]]: '<b>X</b>' },
+    chapters: {},
+  }))
+  const tampered = loadMeta()
+  assert.strictEqual(tampered.coins, 0, `expected loadMeta to coerce tampered coins to 0, got ${JSON.stringify(tampered.coins)}`)
+  assert.strictEqual(tampered.runs, 0, `expected loadMeta to coerce tampered runs to 0, got ${JSON.stringify(tampered.runs)}`)
+  const owned = Object.values(tampered.shop).reduce((sum, l) => sum + l, 0) // shopFootHtml's exact expression
+  assert.strictEqual(owned, 0, `expected shop levels to sum as a number, got ${JSON.stringify(owned)}`)
+  assert(Object.values(tampered.shop).every((l) => typeof l === 'number'), 'expected every shop level to be a number after loadMeta')
+  console.log('PASS run SS.h (loadMeta coercion): tampered coins/runs/shop levels all load as numbers, never raw into innerHTML')
+
   console.log('PASS run SS (v6.4.6 save slots): default slot, slot 1 = legacy key, boundKey race guard across setActiveSlot, rebind on reload, slotSummary null/real, garbage-pointer clamp')
 }
 
