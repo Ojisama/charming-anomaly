@@ -2,13 +2,13 @@ name = "charming-anomaly-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
-# `wrangler d1 create charming-anomaly-sync` prints the real database_id — paste it here before the
-# first `wrangler deploy`. The placeholder is fine for `wrangler dev --local`, which never contacts
-# Cloudflare: local D1 is a SQLite file under .wrangler/state, which is what test.sh runs against.
+# Created 2026-08-04 with a WEUR primary location: D1 writes go to the primary, and the owner and
+# the first players are in Europe. `wrangler dev --local` ignores this id entirely — local D1 is a
+# SQLite file under .wrangler/state, which is what test.sh runs against.
 [[d1_databases]]
 binding = "DB"
 database_name = "charming-anomaly-sync"
-database_id = "PLACEHOLDER-REPLACE-AFTER-d1-create"
+database_id = "5b826e56-9fe7-4930-98fa-ede74f4a2ca0"
 
 # Design §10. Keyed on the code HASH, not an IP, and it works on *.workers.dev — which matters
 # because this deployment has no Cloudflare zone (the game is served from ojisama.github.io with no

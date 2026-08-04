@@ -1394,6 +1394,22 @@ What actually works here:
    `workers.dev`. It is enforced per Cloudflare location, so it is a loose filter rather than a hard
    cap — which is all the in-row counter would have been too. This replaces both the WAF rule and
    the `writes_day`/`writes_n` columns of an earlier draft.
+
+   **Measured against the deployed Worker, 2026-08-04, and it is far looser than "loose filter"
+   suggests: 40 sequential requests against one code drew ZERO 429s.** A 30-way concurrent burst
+   drew two on one run and none on the next. This is the documented design, not a misconfiguration —
+   Cloudflare states the binding is *"permissive, eventually consistent, and intentionally designed
+   to not be used as an accurate accounting system"*, with counters *"cached on the same machine
+   that your Worker runs in, and updated asynchronously in the background"*, and a separate limit
+   per location.
+
+   So state its job precisely: **it sheds concurrency bursts and does nothing about a paced
+   attacker.** One request every two seconds from a single IP never trips it and still costs 43,200
+   invocations a day. That does not change the conclusion below — the daily budget was already
+   declared unprotectable — but it does mean this binding must not be cited as the reason the budget
+   is safe. It is not. `worker/smoke-live.sh` therefore asserts only that the binding is still
+   *declared*; it reports the observed throttle count without gating on it, because an assertion on
+   best-effort behaviour is flaky forever, and a flaky gate trains you to re-run until green.
 2. **Reject a malformed or absent `Authorization` before any D1 query**, so garbage costs one CPU
    microsecond and zero row reads.
 3. **Short-circuit `OPTIONS` before auth and before D1** — see the preflight note below, which is
