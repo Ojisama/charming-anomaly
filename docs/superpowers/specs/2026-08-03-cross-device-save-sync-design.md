@@ -1,7 +1,7 @@
 # Cross-device save sync — design + technical strategy
 
-**Date:** 2026-08-03
-**Status:** Design approved in-session (owner decisions marked below); implementation plan to follow.
+**Date:** 2026-08-03, revised 2026-08-04
+**Status:** Design settled — every open question closed (§14). Not implemented; plan to follow.
 **Use case, verbatim:** *"I start a save on my phone, I want to continue on my computer, then back
 on my phone when I leave for work."*
 
@@ -345,7 +345,34 @@ Putting any of this inside `meta` would be wrong in three distinct ways, and the
 
 The sync record survives `resetSave()` precisely because it is a different key.
 
-### 5.3 Reset interacts with sync, and must say so
+### 5.3 The second device names the destination slot
+
+**Owner decision (2026-08-04).** When device B enters the code, it does not adopt the cloud save
+into whatever slot happens to be active. It asks: *"Where should this save go?"* — the three slots
+listed with their existing summaries, exactly the rows `slotsModalHtml` already renders. The player
+points at one. That slot becomes this device's synced slot (the `slot` field of §5.2).
+
+This is a better rule than automatic placement, and it removes a case rather than adding one. The
+design previously had to answer "what if every slot is occupied", because an automatic *keep both*
+needs somewhere free to put things; an explicit picker has nothing to fall back from. The two
+outcomes now follow from what the player pointed at:
+
+- **An empty slot** → `importSlot(slot, cloudBlob)`, `baseGen = cloud.gen`, `dirty` clear, reload.
+  Nothing is destroyed and no prompt appears. This is the common path, and the one the owner's use
+  case walks: a phone save arriving on a laptop that has a free slot.
+- **An occupied slot** → the four-field comparison prompt of §7.2, that slot's save on the left and
+  the cloud's on the right. The player is choosing to overwrite *this specific save*, having just
+  read what is in it.
+
+The distinction that matters: an overwrite still happens, but only where the player aimed it, and
+never as a side effect of linking two devices. Pairing is a moment when the player is thinking
+"connect these", not "spend one of my three saves" — so the destructive branch must be one they
+steered into, with both saves' contents in front of them.
+
+Slot rows in the picker keep working the way they already do; the pairing flow reuses the component
+and changes only its heading and its callback.
+
+### 5.4 Reset interacts with sync, and must say so
 
 Given the record survives, what should "Reset all progress" do when it targets the synced slot?
 Two coherent answers: unlink sync and leave the cloud alone, or propagate the wipe.
@@ -493,6 +520,18 @@ Rendered as a modal over the title screen, reusing the existing `.modal-backdrop
 already share — same backdrop-tap-to-cancel guard as `slots-cancel` (`ui.js:1311-1316`). It can
 only appear while `run === null`.
 
+It has exactly two entry contexts, and one component serves both:
+
+1. **At pairing**, when the player aimed the cloud save at an occupied slot (§5.3).
+2. **In steady state**, when a push 409s because both devices advanced from the same generation
+   (§6.2) — the case the feature exists to survive.
+
+They differ only in copy. Context 1 is a deliberate act with a known target, so its heading reads
+*"Slot 2 already has a save"*; context 2 is news, so it reads *"Two versions of this save"*. The
+rows, the data, the two buttons and the consequences are identical, which is the point of routing
+both through one component: the choice a player makes about their progress should look the same
+wherever it reaches them.
+
 Four rows, per owner requirement 3, both sides side by side, plus the name so the player can tell
 which save is which at a glance:
 
@@ -518,7 +557,10 @@ postponing it. Backdrop tap and Escape are inert on this one modal.
 
 ### 7.3 After each choice
 
-**Keep this device's** → push with `baseGen = cloud.gen`, which the 409 response already carried.
+In the pairing context the cloud's generation arrived on the GET; in the steady-state context the
+409 response carried it. Everything below is the same either way.
+
+**Keep this device's** → push with `baseGen = cloud.gen`.
 That write is accepted (nobody else moved in between), the cloud row advances to `gen + 1` holding
 the local blob, `dirty` clears. No reload — the local save was already the truth on this device.
 The cloud's previous content is preserved in `prev_blob`.
@@ -567,21 +609,36 @@ over (`:31`, `:39`, `:138`, `:154`, `:160`, each with a `/* private mode */` or
 
 ## 9. UI surface
 
+**Owner decision (2026-08-04): sync lives inside the existing 💾 slots sheet. The title screen
+gains nothing.** It already carries 🌐 (`ui.js:489`), 💾 n/3 (`ui.js:490`) and a coins badge, and a
+fourth control competes for the top edge of a 320px phone. Sync and slots are one mental category —
+"which of my saves, and where does it live" — so the sheet the player already opens to switch saves
+is also where they will look to link them. The cost of this choice is one extra tap to reach sync;
+the benefit is that the title screen stays legible at its narrowest, which is the screen the game is
+most often seen on.
+
 Four additions, all in `ui.js`, all reusing existing components:
 
-1. **A sync panel**, reached from the title screen. States: *not linked* (a "Sync this save"
-   button), *linked* ("Synced · 2 minutes ago", the code revealable, an "Unlink" button), *offline*.
-   Linking from the first device shows the generated code; linking from a second shows a code entry
-   field.
-2. **Save names** in the existing slot modal (`slotsModalHtml`, `ui.js:508-533`), which already
-   renders one row per slot with a coins/chapters summary — the row gains the name and a rename
-   affordance, and a synced slot gets a small 🔗 marker.
+1. **A sync section inside `slotsModalHtml`** (`ui.js:508-533`), below the three slot rows. States:
+   *not linked* (a "Sync this save" button), *linked* ("Synced · 2 minutes ago", the code
+   revealable, an "Unlink" button), *offline*. Linking from the first device shows the generated
+   code; linking from a second shows a code entry field, then the destination-slot question of
+   §5.3 — which is the same three rows, one sheet up, with a different heading.
+2. **Save names** on the existing slot rows, which already show a coins/chapters summary — the row
+   gains the name and a rename affordance, and the synced slot gets a small ☁️ marker. That marker
+   is what makes the whole feature legible at a glance: one of your three saves is the one that
+   travels.
 3. **The conflict prompt** (§7.2).
-4. **The reset modal's revised copy** (§5.3).
+4. **The reset modal's revised copy** (§5.4).
 
-Where the entry point lives is a layout question flagged in §13 — the title screen already carries
-🌐 (`ui.js:489`) and 💾 (`ui.js:490`) buttons in its corners and a third competes for space on a
-320px phone.
+**Re-pointing which slot syncs (owner decision, 2026-08-04): allowed, behind a confirm.** Tapping
+the ☁️ marker on a different row moves sync to that slot. Because the next push then replaces the
+cloud save with the newly designated slot's contents, the confirm must name what it is about to
+overwrite, using the same `saveSummary` fields as the conflict prompt rather than a generic "are you
+sure": *"Sync will follow Slot 3 instead. The cloud save (The Beyond · beat 4, 47 upgrades) will be
+replaced by it on the next save."* Locking the choice at pairing was the alternative and is worse —
+changing it would then mean unlink-and-re-pair, which is the identical destructive act with more
+steps and no confirmation at the end of them.
 
 Unlinking deletes the local sync record only. The cloud row is untouched, so re-pairing with the
 same code restores everything — which is also the rollback story for the whole feature.
@@ -751,27 +808,41 @@ Named deliberately, so the shortcuts are choices rather than omissions — and e
   above with their evidence; each has a clean upgrade path precisely because the Worker never
   parses the blob and the client owns the code.
 
-## 14. Open questions
 
-1. **Who operates the Worker, on whose Cloudflare account?** The design assumes a single operator
-   for the canonical deploy. A fork gets an empty `__SYNC_URL__` and no sync at all, which is the
-   right default but should be a stated intention rather than an accident.
-2. **What should pairing do when the second device's synced slot already has a save?** As designed,
-   the PUT 409s and the standard four-field prompt appears — one save survives. A better experience
-   might be a third option at pairing time only: *"Keep both — put the cloud save in slot 3."* The
-   machinery exists (three slots, `importSlot`, the slot picker), but whether the extra branch earns
-   its place is a product call, not something the codebase can settle.
-3. **May the player change which slot syncs after pairing?** Default assumption: yes, re-pointing is
-   allowed and the next push overwrites the cloud with the newly designated slot. That is a policy
-   choice with a destructive edge, and it may deserve its own confirm.
-4. **Where does the sync entry point live on the title screen?** It already carries 🌐 and 💾 in its
-   corners plus a coins badge, and a 320px phone is the constraint that decides. My recommendation
-   is a third corner button next to 💾 (sync and slots are the same mental category), but that needs
-   to be seen on a real phone before it is fixed.
-5. **Should the daily challenge care about sync?** Investigated and, as far as the save is
-   concerned, no: nothing in `meta` records daily participation (the fields are `coins`, `shop`,
-   `best`, `runs`, `choiceSlots`, `chapter`, `chapters`, `lang`), so there is no per-day flag that
-   two devices could disagree about or that a player could double-dip by switching devices. Noted
-   because it is the kind of thing that gets assumed rather than checked — but if a daily streak or
-   a once-per-day reward is ever added to `meta`, it becomes the first field where sync and fairness
-   interact, and it should be designed with that in mind.
+## 14. Decisions taken, and what remains open
+
+All five questions this design closed with have been answered. Recorded here so the implementation
+plan inherits settled ground rather than re-litigating it.
+
+**Resolved by the owner, 2026-08-04:**
+
+1. **The second device names the destination slot** (§5.3). Not automatic placement, not an
+   automatic *keep both*. The player is shown the three slots and points at one; an empty slot
+   adopts silently, an occupied one routes through the comparison prompt. This deleted the
+   "what if all three slots are full" branch the earlier draft needed.
+2. **Re-pointing which slot syncs is allowed, behind a confirm** (§9). The confirm names the cloud
+   save it is about to replace, in `saveSummary` terms.
+3. **The entry point lives inside the 💾 slots sheet** (§9). No new title-screen control; the synced
+   slot is marked ☁️ on its existing row.
+
+**Resolved by investigation:**
+
+4. **The Worker runs on the owner's own Cloudflare account**, as the single canonical deploy. A
+   fork builds with an empty `__SYNC_URL__` and has no sync at all — the correct default, now a
+   stated intention rather than an accident of the build.
+5. **The daily challenge does not interact with sync.** Checked rather than assumed: nothing in
+   `meta` records daily participation (the fields are `coins`, `shop`, `best`, `runs`,
+   `choiceSlots`, `chapter`, `chapters`, `lang`), so there is no per-day flag two devices could
+   disagree about, and no way to double-dip a daily reward by switching devices. **This stops being
+   true the moment a daily streak or a once-per-day reward is added to `meta`** — that field would
+   be the first place where sync and fairness interact, and it must be designed knowing two devices
+   can both claim it.
+
+**Still open, and deliberately deferred to implementation:**
+
+- **The exact copy of every new string, in both languages.** The prompt headings, the re-point
+  confirm, the pairing errors and the revised reset warning are all new player-facing text. Per the
+  standing rule, the French goes through an adversarial review pass rather than being written
+  alongside the English, and anything uncertain comes back as a question.
+- **How the sync section looks at 320px.** The layout decision is made; whether the section fits
+  under three slot rows without scrolling is a thing to see on a real phone, not to settle on paper.
