@@ -1,0 +1,17 @@
+# test.sh only. Identical to wrangler.toml except the rate limit, which is raised so the functional
+# assertions (~30 requests against one code) are not throttled by the production 10/60. The real
+# numbers are asserted from wrangler.toml by the suite, and the enforcement path is exercised
+# separately by hammering a fresh code past this limit — so raising it here hides nothing.
+name = "charming-anomaly-sync"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "charming-anomaly-sync"
+database_id = "PLACEHOLDER-REPLACE-AFTER-d1-create"
+
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 40, period = 60 }

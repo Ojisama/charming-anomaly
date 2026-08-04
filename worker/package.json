@@ -1,0 +1,16 @@
+{
+  "name": "charming-anomaly-sync",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Save-sync Worker for Charming Anomaly. Deployed separately from the game; the game does not import it.",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "db:local": "wrangler d1 execute charming-anomaly-sync --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute charming-anomaly-sync --remote --file=./schema.sql",
+    "test": "./test.sh",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.118.0"
+  }
+}
