@@ -5478,11 +5478,46 @@ export function createRenderer(app) {
       T.nova = { tex, ax: 0.5, ay: 0.5 }
       T.novaTexR = fxRadius(tex)
     }
-    // boomerang: warm-orange crescent slash, tinted live (see placeBoomerang)
+    // Leaf Blade (run.boomerangs): a DRAWN leaf. v6.6.13, playtest — "leaf blade doesn't look like
+    // a leaf". It didn't: the weapon has been the Leaf Blade since v5.3, but the art stayed the
+    // Kenney slash glyph tinted orange, i.e. a crescent BLADE. Shape is what says leaf, so it's
+    // drawn: a pointed lens widest ~40% from the base, a midrib, three vein pairs and a stem.
+    // It stays WARM AMBER rather than going green — the garden floor is bright lawn (bg 0x4e8240
+    // under a 0xaad066 tint) and a green leaf on it is a green leaf on green grass. A dry leaf
+    // reads as a leaf and keeps the contrast the orange crescent had.
     {
-      const tex = T.fx.slash_02
-      T.boomerang = { tex, ax: 0.5, ay: 0.5 }
-      T.boomerangScale = fxScale(tex, 34)
+      const LEAF_FILL = 0xf2a04a       // dry warm amber
+      const LEAF_RIM = 0x6d3411        // dark rim: what actually separates it from the lawn
+      const LEAF_VEIN = 0xffd9a5       // pale midrib/veins — the detail that names the shape
+      const L = 34, HW = 9.5           // length, half-width at the belly
+      const N = 36
+      const halfW = (t) => {
+        const u = Math.min(1, Math.max(0, Math.pow(t, 0.78))) // belly ~40% from the base, sharp tip
+        // The ripple is the art rule, not decoration: a clean lens reads as a procedural blob.
+        return HW * Math.pow(Math.max(0, Math.sin(Math.PI * u)), 0.85) * (1 + 0.09 * Math.sin(t * 27))
+      }
+      const g = new Graphics()
+      const top = [], bot = []
+      for (let i = 0; i <= N; i++) {
+        const t = i / N
+        const x = -L / 2 + L * t
+        const w = halfW(t)
+        top.push(x, -w)
+        bot.push(x, w)
+      }
+      const back = []
+      for (let i = bot.length - 2; i >= 0; i -= 2) back.push(bot[i], bot[i + 1])
+      g.poly([...top, ...back]).fill(LEAF_FILL).stroke({ width: 1.4, color: LEAF_RIM, join: 'round' })
+      g.moveTo(-L / 2, 0).lineTo(L / 2 - 1, 0).stroke({ width: 1.5, color: LEAF_VEIN })
+      for (const t of [0.32, 0.5, 0.68]) {
+        const x = -L / 2 + L * t
+        const w = halfW(t) * 0.7
+        g.moveTo(x, 0).lineTo(x + L * 0.13, -w).stroke({ width: 1, color: LEAF_VEIN })
+        g.moveTo(x, 0).lineTo(x + L * 0.13, w).stroke({ width: 1, color: LEAF_VEIN })
+      }
+      g.moveTo(-L / 2, 0).lineTo(-L / 2 - 3.5, 0).stroke({ width: 1.8, color: LEAF_RIM })
+      T.boomerang = bake(g)            // anchor = the local origin = mid-rib, so it spins about itself
+      T.boomerangScale = 1             // baked at its on-screen size already
     }
     // slime mine: coral glow behind a red-pink diamond core
     {
@@ -9510,36 +9545,83 @@ export function createRenderer(app) {
   }
 
   // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs). An ANCHORED melee
-  // swoosh — NOT a projectile: one big curved twirl glyph (Kenney twirl = an arc curling around a
-  // center) pinned to the player, double-stacked (soft alpha needs it), deep mint over the murky
-  // floor, rotating across the swept wedge over its short life with a fainter trailing ghost as
-  // motion smear and a bright spark cracking at the tip. Segment-chain approaches read as
-  // "concatenated blobs" (twice user-rejected) — one glyph IS the arc, don't rebuild it from parts.
+  // swoosh — NOT a projectile: ONE curved shape pinned to the player, deep mint over the murky
+  // floor, cracking across the swept wedge over its short life with a fainter trailing ghost as
+  // motion smear and a bright spark at the tip. Segment-chain approaches read as "concatenated
+  // blobs" (twice user-rejected) — one shape IS the arc, don't rebuild it from parts.
+  //
+  // v6.6.13: the swoosh is DRAWN, not stamped from Kenney's slash_02. Measured, that PNG's ink
+  // spans ~177 degrees about its own centre, so the swing covered two to three times the wedge the
+  // sim actually tests (80 degrees at lv1): enemies stood well inside the swoosh taking nothing,
+  // and a Wide Arc pick — a real +34% enemies hit per swing, measured — changed nothing anyone
+  // could SEE. That is the playtest report ("not clear or doesn't do anything") in full. Same
+  // defect and same fix as the Claw Rake's gash (see bakeClawGash): draw it, and budget the DRAWN
+  // extent onto the TESTED extent. Shared with the kaiju tail swipe, which has the same mod.
   const MAX_WHIPS = 8
   const WHIP_CORE = 0x2fd6a0         // vivid spring-green swoosh — must sit clearly ABOVE the murky floor
-  const WHIP_EDGE = 0x9fffd9         // lighter mint on the stacked top copy
+  const WHIP_EDGE = 0x9fffd9         // lighter mint rim: what separates the swoosh from the floor
   const WHIP_TIP = 0xcafff0          // the crack: the one light accent, tip only
-  const WHIP_GHOST_LAG = 0.5         // rad the ghost swoosh trails the leading one
+  // Baked reference geometry. The band hangs INWARD from SWOOSH_R, so the drawn outer edge lands
+  // on `range` and can never overshoot the sector.
+  const SWOOSH_R = 100
+  const SWOOSH_SPAN = 1.05           // rad the baked shape subtends. Kept well clear of pi: the
+                                     // squash below inverts a tan, which is useless near the pole
+                                     // (this is why slash_02's ~3.1 rad of ink could not be squashed
+                                     // into honesty — there was no faithful q to solve for).
+  const SWOOSH_W = 40                // radial thickness at the belly — FAT is the whip's whole read
+  const SWOOSH_BELLY = 2.0           // >1 pushes the belly toward the LEADING end; the tail drags thin
+  const WHIP_SWEEP = 0.45            // fraction of the wedge spent on TRAVEL; the shape's own width
+                                     // is the rest, and the two always sum to exactly `arc`
+  // Widest the SHAPE is ever drawn, in rad. Squashing (q<1) keeps the band hugging the reach
+  // circle; STRETCHING it (q>1) throws the ends off that circle and the swoosh degenerates into a
+  // vertical lens — caught on glass at the kaiju tail's 169deg, where it stopped reading as a swing
+  // at all. So the shape never exceeds its own baked span, and a wider wedge than that spends the
+  // surplus on TRAVEL instead: the tail sweeps further, cyclone goes all the way round, and the
+  // drawn extent still lands on `arc` exactly.
+  const WHIP_HALF_MAX = SWOOSH_SPAN / 2
+  const WHIP_GHOST_LAG = 0.35        // fraction of the swing the ghost trails by, in TIME not angle —
+                                     // an angular lag put the smear outside the wedge at k=0
   const whips = []
-  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.18, root: null, lead: null, ghost: null, tip: null })
+  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, travel: 0, tipA: 0, tipR: 0, t: 0, dur: 0.18, root: null, lead: null, ghost: null, tip: null })
   let whipCursor = 0
-  function makeSwoosh(tintA, tintB) {
-    const c = new Container()
-    for (const tint of [tintA, tintB]) {
-      const s = new Sprite(T.fx.slash_02)
-      s.anchor.set(0.5)
-      s.tint = tint
-      c.addChild(s)
+  // One curved, belly-forward swoosh, baked once and shared by every swing. Drawn with the arc's
+  // CENTRE at the local origin and bulging +x, so bake()'s anchor puts that centre on the player,
+  // rotation is just the bearing, and scale is just the reach — the gash's convention exactly.
+  let swooshTex = null
+  function bakeSwoosh() {
+    const g = new Graphics()
+    const N = 48
+    const outer = [], inner = []
+    for (let i = 0; i <= N; i++) {
+      const t = i / N                                  // 0 = trailing tail, 1 = leading crack
+      const a = -SWOOSH_SPAN / 2 + SWOOSH_SPAN * t
+      const ca = Math.cos(a), sa = Math.sin(a)
+      // Belly profile: 0 at both ends, fat toward the leading end. Clamp the sin's argument — t can
+      // land a hair outside [0,1] in float, and pow(negative, fraction) is NaN, and ONE NaN vertex
+      // blanks the whole baked texture (the v5.4 bulge() bug, same shape as bakeClawGash's clamp).
+      const u = Math.min(1, Math.max(0, Math.pow(t, SWOOSH_BELLY)))
+      const w = SWOOSH_W * Math.pow(Math.max(0, Math.sin(Math.PI * u)), 0.7)
+      outer.push(SWOOSH_R * ca, SWOOSH_R * sa)
+      inner.push((SWOOSH_R - w) * ca, (SWOOSH_R - w) * sa)
     }
-    return c
+    const back = []
+    for (let i = inner.length - 2; i >= 0; i -= 2) back.push(inner[i], inner[i + 1])
+    g.poly([...outer, ...back]).fill(WHIP_CORE).stroke({ width: 2, color: WHIP_EDGE, join: 'round' })
+    return bake(g)
+  }
+  function makeSwoosh() {
+    if (!swooshTex) swooshTex = bakeSwoosh()
+    const s = new Sprite(swooshTex.tex)
+    s.anchor.set(swooshTex.ax, swooshTex.ay) // the arc's centre → sits on the player
+    return s
   }
   function spawnWhip(x, y, angle, range, arc) {
     const wp = whips[whipCursor]
     whipCursor = (whipCursor + 1) % MAX_WHIPS
     if (!wp.root) {
       wp.root = new Container()
-      wp.ghost = makeSwoosh(WHIP_CORE, WHIP_CORE)
-      wp.lead = makeSwoosh(WHIP_CORE, WHIP_EDGE)
+      wp.ghost = makeSwoosh()
+      wp.lead = makeSwoosh()
       wp.tip = new Sprite(T.fx.spark_04)
       wp.tip.anchor.set(0.5)
       wp.tip.tint = WHIP_TIP
@@ -9550,10 +9632,21 @@ export function createRenderer(app) {
     wp.x = x; wp.y = y; wp.angle = angle; wp.range = range; wp.arc = arc || 1
     wp.t = 0
     wp.root.visible = true
-    // size the swoosh so its arc reaches `range` from the player (twirl art spans ~90% of its frame)
-    const sc = (range * 2) / (T.fx.slash_02.width * 0.9)
-    wp.lead.scale.set(sc)
-    wp.ghost.scale.set(sc)
+    // Budget the drawn wedge onto the tested one: half-span + half the travel == arc/2, exactly.
+    // Scaling y by q maps a local angle a to atan(q * tan a), so the drawn span follows q — the
+    // rake's solve, inverted rather than linearised (tan is superlinear; the linearisation runs
+    // several percent wide at the tips, and wide is the direction that lies to the player).
+    const half = Math.min(wp.arc * (1 - WHIP_SWEEP) / 2, WHIP_HALF_MAX)
+    wp.travel = wp.arc - half * 2
+    // half <= SWOOSH_SPAN/2 by the clamp above, so q <= 1 always: the squash only ever pulls the
+    // shape INSIDE the reach circle, never past the sector the sim tests.
+    const q = Math.tan(half) / Math.tan(SWOOSH_SPAN / 2)
+    const cs = Math.cos(SWOOSH_SPAN / 2), sn = Math.sin(SWOOSH_SPAN / 2)
+    const sc = wp.range / SWOOSH_R
+    wp.lead.scale.set(sc, sc * q)
+    wp.ghost.scale.set(sc, sc * q)
+    wp.tipA = half                          // == atan(q * tan(SPAN/2)) by construction of q
+    wp.tipR = sc * SWOOSH_R * Math.hypot(cs, q * sn) // the shape's end, which the squash pulls in
   }
   function updateWhips(dt) {
     for (const wp of whips) {
@@ -9563,15 +9656,14 @@ export function createRenderer(app) {
       const k = wp.t / wp.dur
       wp.root.position.set(wp.x, wp.y)
       const flash = Math.sin(Math.PI * k) // ramp in then out
-      // the swoosh cracks from one arc rim to the other (a full turn when arc = 2pi / cyclone)
-      const sweep = wp.angle - wp.arc / 2 + wp.arc * k
-      // slash_02's crescent bulge natively points DOWN (+y) in its frame — offset by -pi/2 so the
-      // bulge tracks the sweep direction (the side the swing actually hits)
-      wp.lead.rotation = sweep - Math.PI / 2
+      // the swoosh cracks from one rim of the wedge to the other (a full turn at arc = 2pi / cyclone)
+      const bearing = (kk) => wp.angle - wp.travel / 2 + wp.travel * kk
+      wp.lead.rotation = bearing(k)
       wp.lead.alpha = flash
-      wp.ghost.rotation = sweep - Math.PI / 2 - Math.min(wp.arc, WHIP_GHOST_LAG)
+      wp.ghost.rotation = bearing(Math.max(0, k - WHIP_GHOST_LAG)) // lags in time, so it stays inside
       wp.ghost.alpha = flash * 0.3
-      wp.tip.position.set(wp.range * Math.cos(sweep), wp.range * Math.sin(sweep))
+      const tipAngle = bearing(k) + wp.tipA
+      wp.tip.position.set(wp.tipR * Math.cos(tipAngle), wp.tipR * Math.sin(tipAngle))
       wp.tip.rotation = k * 6 // a little spin on the spark
       wp.tip.alpha = Math.pow(flash, 1.6) * 0.95 // sharp pop, concentrated at full extension
       wp.tip.scale.set(fxScale(T.fx.spark_04, wp.range * 0.3))
@@ -9582,8 +9674,8 @@ export function createRenderer(app) {
   }
 
   // Claw Rake slashes (one-off {type:'clawRake'} events) — the whip's anchored-melee idiom, on a
-  // deliberately different shape. The whip is slash_02: one FAT solid swoosh curling across the
-  // wedge, and borrowing it made the rake read as a second whip. A rake is THREE THIN PARALLEL
+  // deliberately different shape. The whip is ONE FAT solid swoosh curling across the wedge
+  // (bakeSwoosh above), and borrowing it made the rake read as a second whip. A rake is THREE THIN PARALLEL
   // GASHES landing together, side by side at one reach, splayed across the wedge. They flash as one
   // and drift outward as they fade — the arc reads as raked, not swung. Each tine is one drawn gash
   // (see bakeClawGash), never a chain of segments — the same "one shape IS the arc" rule as the whip.
@@ -11359,10 +11451,10 @@ export function createRenderer(app) {
   }
   function placeBoomerang(s, b, i) {
     s.position.set(b.x, b.y)
-    s.tint = 0xff8c42
+    s.tint = 0xffffff                 // the leaf carries its own colours (see the bake) — do not tint
     s.rotation = animT * 14 + i * 1.7 // fast spin, derived from animT so dt=0 freezes it
     const sizeMul = b.hitR ? b.hitR / 14 : 1 // v4.1 Big Blade mod (14 = base BOOMERANG_HIT_R in sim.js)
-    s.scale.set(T.boomerangScale * sizeMul * 1.15, T.boomerangScale * sizeMul * 0.92) // slight motion stretch
+    s.scale.set(T.boomerangScale * sizeMul)  // uniform: a stretch skews the leaf, and the spin already reads as speed
   }
   function placeMine(s, m) {
     s.position.set(m.x, m.y)

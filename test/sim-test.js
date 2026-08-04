@@ -7,7 +7,7 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
+  SHOP, PASSIVES, RARITIES, RARITY_ORDER, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
@@ -8349,8 +8349,111 @@ try {
   // this line.
   testSaveSummary()
   testSyncDecisions()
+  testPlaytestSweepAndBlades()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
   process.exit(1)
+}
+
+// ---- Run PT: the v6.6.13 playtest findings ------------------------------------------------
+// Two of the four reports were about numbers, and both are pinned here.
+//
+// PT.a/b: "2+ leaf blades should be epic, it's too strong". Extra Blades was kind 'flat' base 1,
+// i.e. max(1, round(1 * rarityMult)) — so a RARE roll already handed out +2 blades and a mythic
+// one +7, stacked on the weapon's own 1/1/2/2/3 level ladder. That is precisely the spiral
+// WEAPON_MOD_TIER_BONUS was introduced to stop, and Extra Blades is the textbook case for it: a
+// per-cast ENTITY COUNT. As a tier mod the second blade starts at epic, which is the ask.
+//
+// PT.c: "'+X whip arc' not clear or doesn't do anything". It does something — this measures how
+// much, so nobody has to take the claim on faith again. The card copy was the actual defect
+// (PT.d): "arc" is design vocabulary, and four sector weapons all named their widening that way.
+function testPlaytestSweepAndBlades() {
+  // -- PT.a: the rarity ladder for Extra Blades, and the ladder it replaced ------------------
+  const cfg = WEAPON_MODS.boomerang.extraRang
+  assert.strictEqual(cfg.kind, 'tier', 'Extra Blades must stay a TIER mod — a per-cast entity count multiplied by rarityMult is the documented spiral')
+  const tier = (r) => WEAPON_MOD_TIER_BONUS[r]
+  const oldFlat = (r) => Math.max(1, Math.round(1 * RARITIES[r].mult)) // the pre-v6.6.13 rule
+  assert.strictEqual(tier('normal'), 1, 'a normal roll still gives one extra blade')
+  assert.strictEqual(tier('rare'), 1, 'a RARE roll no longer gives two — that was the complaint')
+  assert.strictEqual(tier('epic'), 2, 'the second blade starts at epic, exactly as asked')
+  assert.strictEqual(tier('mythic'), 3, 'and the top of the ladder is 3, not 7')
+  assert.ok(oldFlat('rare') === 2 && oldFlat('mythic') === 7, 'the rule this replaced really did pay +2 at rare and +7 at mythic')
+  for (const r of RARITY_ORDER) {
+    assert.ok(tier(r) <= oldFlat(r), `tier is never more generous than the flat rule it replaced (${r})`)
+  }
+  console.log('PASS run PT.a (extra blades): a tier mod now — the second blade starts at epic, and the old flat rule really did pay +7 at mythic')
+
+  // -- PT.b: the bonus actually reaches the throw --------------------------------------------
+  // Rarity tables are only half the story: the mod still has to fold into the weapon's `count`.
+  function bladesPerThrow(level, bonus) {
+    const run = createRun(makeMeta(), { chapterId: 'garden', difficulty: 1 })
+    run.weapons = [{ id: 'boomerang', level }]
+    run.mods.spawnMul = 0
+    run.player.hp = 1e9
+    run.player.maxHP = 1e9
+    if (bonus) run.weaponMods.boomerang.extraRang = bonus
+    run.enemies.push(makeStatusEnemy(run, { x: 120, y: 0, hp: 1e15, speed: 0 }))
+    // The FIRST frame that puts leaves in the air is the throw. Anything later can hold two
+    // throws at once (level 5 re-throws every 0.78s while the first pair is still returning).
+    for (let f = 0; f < 240; f++) {
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      if (run.boomerangs.length > 0) return run.boomerangs.length
+    }
+    throw new Error('nothing was ever thrown')
+  }
+  assert.strictEqual(bladesPerThrow(1, 0), 1, 'level 1 throws one leaf')
+  assert.strictEqual(bladesPerThrow(1, tier('epic')), 3, 'one epic pick makes it three')
+  assert.strictEqual(bladesPerThrow(5, 0), 3, 'level 5 throws three on its own')
+  console.log('PASS run PT.b (fold-through): the tier bonus lands on the weapon\'s count, not just in the card text')
+
+  // -- PT.c: a wider sweep hits strictly more, and about proportionally ----------------------
+  // A ring of motionless drones, all comfortably inside reach, so ONLY the angle gates a hit.
+  // Spaced wider than stepEnemySeparation's minSep, so the ring is still a ring when the swing lands.
+  function swingHits(level, wideArc) {
+    const run = createRun(makeMeta(), { chapterId: 'pond', difficulty: 1 })
+    run.weapons = [{ id: 'flagella', level }]
+    run.mods.spawnMul = 0
+    run.player.hp = 1e9
+    run.player.maxHP = 1e9
+    if (wideArc) run.weaponMods.flagella.wideArc = wideArc
+    const N = 72
+    const r = WEAPONS.flagella.levels[level - 1].range * 0.7
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2
+      const e = makeStatusEnemy(run, { x: run.player.x + r * Math.cos(a), y: run.player.y + r * Math.sin(a), hp: 1e15, speed: 0 })
+      e.radius = 4 // small enough that minSep stays under the ring's own spacing
+      run.enemies.push(e)
+    }
+    for (let f = 0; f < 240; f++) {
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      const swing = run.events.find((ev) => ev.type === 'whip')
+      if (swing) return { hits: run.events.filter((ev) => ev.type === 'hit').length, arc: swing.arc, n: N }
+    }
+    throw new Error('the whip never swung')
+  }
+  for (const level of [1, 3, 5]) {
+    const base = swingHits(level, 0)
+    const wide = swingHits(level, 0.30)
+    assert.ok(Math.abs(wide.arc - base.arc * 1.3) < 1e-9, `+30% Wide Arc widens the TESTED wedge by 30% at lv${level}`)
+    assert.ok(wide.hits > base.hits, `a wider wedge hits strictly more of the ring at lv${level} (${base.hits} -> ${wide.hits})`)
+    // Hits track the wedge: each enemy subtends 2pi/N, so allow one enemy of quantisation either way.
+    for (const s of [base, wide]) {
+      assert.ok(Math.abs(s.hits - s.n * s.arc / (Math.PI * 2)) <= 1.5, `hits follow the wedge at lv${level} (${s.hits} of ${s.n} for ${(s.arc * 180 / Math.PI).toFixed(0)} degrees)`)
+    }
+  }
+  console.log('PASS run PT.c (wide arc): the mod does exactly what it claims — the tested wedge widens 30% and ~30% more of a ring is hit')
+
+  // -- PT.d: the four sector weapons stopped naming a thing the player cannot see ------------
+  const sectorMods = [['flagella', 'wideArc'], ['clawRake', 'wideRake'], ['roar', 'wideRoar'], ['tailSwipe', 'broadSweep']]
+  for (const [weaponId, modId] of sectorMods) {
+    const desc = WEAPON_MODS[weaponId][modId].desc
+    assert.ok(!/\barc\b/i.test(desc), `${modId} must not sell itself as an "arc" — that is design vocabulary, not something on screen (got "${desc}")`)
+    assert.ok(/width/.test(desc), `${modId} says what widens (got "${desc}")`)
+    assert.ok(FR[desc], `${modId}'s new desc is in the French dictionary (missing key "${desc}")`)
+  }
+  console.log('PASS run PT.d (card copy): whip/claw/roar/tail sell a visible width, not an "arc", in both languages')
+  console.log('PASS run PT (playtest v6.6.13): extra blades tiered, wide arc measured and honest, sector copy says what widens')
 }

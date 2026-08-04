@@ -93,6 +93,8 @@ export const WEAPONS = {
     // WEAPON_MODS.boomerang set below). Keeping the id 'boomerang' keeps render.js/main.js
     // (outside the v5.3 sim scope) working; the display name is what the player sees. Moved
     // from vaulted into the garden's weapon pool (see CHAPTERS.garden.weapons).
+    // v6.6.13: the ART caught up with the name — for three releases this threw a tinted crescent
+    // BLADE and a playtester said so. It is a drawn leaf now (see T.boomerang in render.js).
     name: 'Leaf Blade',
     desc: 'Flings a spinning leaf that slices out and curves back.',
     icon: '🍃', rarity: 'rare',
@@ -555,7 +557,12 @@ export const WEAPON_MODS = {
   // v5.3: the id stays 'boomerang' (Leaf Blade re-theme is copy-only, see WEAPONS.boomerang);
   // only the desc copy was retouched from 'boomerang' to 'leaf blade' where it named the weapon.
   boomerang: {
-    extraRang:  { name: 'Extra Blades', desc: 'leaf blades per throw', icon: '🍃', base: 1,    kind: 'flat' },
+    // v6.6.13 (playtest): was kind 'flat' base 1, i.e. max(1, round(1 * rarityMult)) — a RARE roll
+    // already handed out +2 blades and a mythic one +7, on top of the weapon's own 1/1/2/2/3 ladder.
+    // That is exactly the spiral WEAPON_MOD_TIER_BONUS exists to prevent (see its note above): a
+    // per-cast ENTITY COUNT must not be multiplied by rarity. As a tier mod the second blade now
+    // starts at epic (1/1/2/2/3 by rarity), which is what the playtester asked for.
+    extraRang:  { name: 'Extra Blades', desc: 'leaf blade(s) per throw', icon: '🍃', kind: 'tier' },
     longThrow:  { name: 'Long Throw',   desc: 'leaf blade range',      icon: '📏', base: 0.20, kind: 'pct' },
     bigBlade:   { name: 'Big Blade',    desc: 'leaf blade hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
     heavyBlade: { name: 'Heavy Blade',  desc: 'leaf blade damage',     icon: '🔨', base: 0.20, kind: 'pct' },
@@ -602,7 +609,11 @@ export const WEAPON_MODS = {
   // behavioral (read at their trigger sites — see fireFlagella/applyBleed in sim.js).
   flagella: {
     reach:     { name: 'Long Reach',  desc: 'whip range',  icon: '📏', base: 0.35, kind: 'pct' },
-    wideArc:   { name: 'Wide Arc',    desc: 'whip arc',    icon: '🪭', base: 0.30, kind: 'pct' },
+    // v6.6.13 (playtest: "'+X whip arc' not clear or doesn't do anything"). It does — a +30% pick
+    // hits 34% more of a ring of enemies, measured. But "arc" is design vocabulary, not something
+    // the player can see, so the card named a number nobody could check. All four sector weapons
+    // (whip/claw/roar/tail) named theirs the same way; they now say what widens on screen.
+    wideArc:   { name: 'Wide Arc',    desc: 'whip sweep width', icon: '🪭', base: 0.30, kind: 'pct' },
     frenzy:    { name: 'Frenzy',      desc: 'whip speed',  icon: '💨', base: 0.25, kind: 'pct' },
     heavyLash: { name: 'Heavy Lash',  desc: 'whip damage', icon: '🔨', base: 0.40, kind: 'pct' },
     cyclone:   { name: 'Cyclone',     desc: 'full 360° sweep (every 3rd swing)', icon: '🌀', base: 1, kind: 'flat' },
@@ -655,7 +666,7 @@ export const WEAPON_MODS = {
   // (that anti-synergy is why the pre-panel 0.30/armed-only draft lost to plain rend).
   clawRake: {
     rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
-    wideRake:    { name: 'Wide Rake',     desc: 'claw arc',    icon: '🪭', base: 0.30, kind: 'pct' },
+    wideRake:    { name: 'Wide Rake',     desc: 'claw sweep width', icon: '🪭', base: 0.30, kind: 'pct' },
     longClaws:   { name: 'Long Claws',    desc: 'claw reach',  icon: '📏', base: 0.30, kind: 'pct' },
     quickPaws:   { name: 'Quick Paws',    desc: 'rake rate',   icon: '💨', base: 0.25, kind: 'pct' },
     doubleSlash: { name: 'Double Slash',  desc: 'every 3rd rake slashes twice',        icon: '🐈', base: 1, kind: 'flat' },
@@ -714,7 +725,7 @@ export const WEAPON_MODS = {
   // rate) is read at the fire site. stagger/resonance are behavioral (see stepRoarWeapon).
   roar: {
     bellow:    { name: 'Bellow',      desc: 'roar damage', icon: '📢', base: 0.30, kind: 'pct' },
-    wideRoar:  { name: 'Wide Roar',   desc: 'roar arc',    icon: '🪭', base: 0.30, kind: 'pct' },
+    wideRoar:  { name: 'Wide Roar',   desc: 'roar cone width', icon: '🪭', base: 0.30, kind: 'pct' },
     farRoar:   { name: 'Carrying Roar', desc: 'roar range', icon: '📏', base: 0.30, kind: 'pct' },
     rapidRoar: { name: 'Short Breath', desc: 'roar rate',   icon: '💨', base: 0.25, kind: 'pct' },
     stagger:   { name: 'Stagger',     desc: 'stun on roared foes',              icon: '💫', base: 0.50, kind: 'pct' },
@@ -726,7 +737,7 @@ export const WEAPON_MODS = {
   tailSwipe: {
     heavyTail:    { name: 'Heavy Tail',    desc: 'swipe damage', icon: '🔨', base: 0.30, kind: 'pct' },
     longTail:     { name: 'Long Tail',     desc: 'swipe reach',  icon: '📏', base: 0.30, kind: 'pct' },
-    broadSweep:   { name: 'Broad Sweep',   desc: 'swipe arc',    icon: '🪭', base: 0.25, kind: 'pct' },
+    broadSweep:   { name: 'Broad Sweep',   desc: 'tail sweep width', icon: '🪭', base: 0.25, kind: 'pct' },
     quickTail:    { name: 'Quick Tail',    desc: 'swipe rate',   icon: '💨', base: 0.25, kind: 'pct' },
     wreckingTail: { name: 'Wrecking Tail', desc: 'collateral damage where launched foes land', icon: '🎳', base: 0.40, kind: 'pct' },
     counterSwipe: { name: 'Counter Swipe', desc: 'getting hit triggers a free swipe',          icon: '💢', base: 1, kind: 'flat' },
