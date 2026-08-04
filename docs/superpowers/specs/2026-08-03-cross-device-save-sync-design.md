@@ -200,7 +200,7 @@ does raw-read-without-migrating):
 That second point is a correction to an earlier draft, which said only *"parses first, refuses to
 write if it does not parse."* A parse check does not prevent the wipe it was written to prevent.
 `loadMeta` recovers to a **fresh save** — silently, via its `catch { /* corrupted save -> fresh */ }`
-at `state.js:138` — for any blob whose shape it does not expect, and all of the following are
+at `state.js:145` — for any blob whose shape it does not expect, and all of the following are
 perfectly valid JSON. Verified by executing the real `loadMeta`:
 
 | blob | `loadMeta` result |
@@ -211,7 +211,7 @@ perfectly valid JSON. Verified by executing the real `loadMeta`:
 | `{}` | **fresh save — total wipe** |
 | `null` | **fresh save — total wipe** |
 
-The mechanism is `loadMeta:112` — `for (const id of Object.keys(SHOP)) m.shop[id] ??= 0` throws a
+The mechanism is `loadMeta:119` — `for (const id of Object.keys(SHOP)) m.shop[id] ??= 0` throws a
 `TypeError` when `m.shop` is absent or not an object, and the catch swallows it. Every one of those
 blobs passes a parse check, gets written to disk, and the reload lands the player on a fresh save
 with their slot gone. This is reachable three ways with no attacker at all: a truncated response
@@ -291,8 +291,11 @@ changing a line of server code (§10).
 
 ### 4.1 New `meta` fields
 
-Two fields, both repaired on load with the `??=` idiom `loadMeta` already uses for `m.chapter`,
-`m.choiceSlots` and `m.lang` (`state.js:123-135`) — the same repair-on-load discipline as
+**Three fields** — `name`, `savedAt`, and `schema` (the last added by the tech strategy's §2.4,
+where its reasoning lives: it is the only defence against a stale build pushing an older blob at a
+valid `baseGen`, which the generation counter cannot catch because it orders writes, not versions).
+All repaired on load with the `??=` idiom `loadMeta` already uses for `m.chapter`,
+`m.choiceSlots` and `m.lang` (`state.js:130-142`) — the same repair-on-load discipline as
 `ensureChapterMeta` (`state.js:93-104`), which is why no migration branch is needed.
 
 **`meta.name`** — the save's display name (owner requirement 2). Default `m.name ??= ''`.
@@ -386,13 +389,13 @@ Rendering rules, which §7.2 must implement and an earlier draft left contradict
 Note also that `loadMeta`'s repairs are **in-memory only and never written back**, so a save that
 has not been re-saved since the upgrade has no `savedAt` key *on disk* — and §3.2 pushes
 `exportSlot`, "exactly what is on disk". The defaults must therefore also be added to `loadMeta`'s
-`fresh` object literal (`state.js:139-148`), which has neither field today, and `saveSummary` must
+`fresh` object literal (`state.js:146-155`), which has neither field today, and `saveSummary` must
 tolerate both being absent (§4.2).
 
-Both fields are additive, and `loadMeta` returns the parsed object wholesale after patching, so
+All three fields are additive, and `loadMeta` returns the parsed object wholesale after patching, so
 unknown keys survive a round-trip: a save written by the new build still loads correctly in the old
 build, and a save that visits an old build and comes back keeps its new fields. (One exception, for
-accuracy: the v4→v5 migration `delete`s `m.difficulty`/`m.maxDifficulty` at `state.js:120-121`.)
+accuracy: the v4→v5 migration `delete`s `m.difficulty`/`m.maxDifficulty` at `state.js:127-128`.)
 The rollout cannot corrupt anything mid-flight.
 
 ### 4.2 The save summary
@@ -462,16 +465,16 @@ CREATE TABLE saves (
   device     TEXT    NOT NULL,     -- last writer's device id; used only for the lost-ACK check (§6.4)
   req_id     TEXT    NOT NULL,     -- last writer's per-push idempotency key (§6.4)
   updated_at INTEGER NOT NULL,     -- server clock, epoch ms — write throttle + any future sweep
-  writes_day INTEGER NOT NULL,     -- server-day bucket + counter, per-code write cap (§10)
-  writes_n   INTEGER NOT NULL,
   prev_blob  TEXT,                 -- the blob this write replaced; operator-only undo (§7.3)
   prev_gen   INTEGER
 );
 ```
 
 `req_id` replaces the earlier draft's reliance on `saved_at` for lost-ACK detection (§6.4);
-`saved_at` remains stored, but exclusively for display. `writes_day`/`writes_n` cap how much of the
-shared free-tier budget any single code can burn (§10).
+`saved_at` remains stored, but exclusively for display. An earlier draft also carried
+`writes_day`/`writes_n` for a per-code write cap — deleted, because the Workers rate-limiting
+binding does that job with no schema (§10). `updated_at` lost its last reader when the 1-second
+throttle went with it; keep it only if something is named that will read it.
 
 No secondary index. Every query is a primary-key point lookup on `id`; adding an index on
 `updated_at` only makes sense once something sweeps by age, and at ~1 KB per row against a 5 GB
@@ -558,7 +561,7 @@ Putting any of this inside `meta` would be wrong in three distinct ways, and the
    1). Which slot that is, is a property of *this device* — the phone might sync slot 1 and the
    laptop slot 3. A field inside a slot's blob cannot express that, and switching slots would
    switch identity.
-3. **`resetSave()` would destroy it.** `state.js:159-161` does `localStorage.removeItem(boundKey)` —
+3. **`resetSave()` would destroy it.** `state.js:166-168` does `localStorage.removeItem(boundKey)` —
    the whole blob. A credential inside the blob is erased by the shop's "Erase everything" button,
    orphaning the cloud row with no code left to reach it. The player would have locked themselves
    out of their own cloud save by resetting a local one.
@@ -610,7 +613,7 @@ obvious repair of "just push a bit harder."
 
 **Why the push-based mechanism fails**, three independent ways:
 
-1. **There is nothing to push.** `resetSave()` (`state.js:159-161`) is a bare
+1. **There is nothing to push.** `resetSave()` (`state.js:166-168`) is a bare
    `localStorage.removeItem(boundKey)` — the key is *gone*, and `exportSlot(n)` returns `null`. The
    "fresh save" exists only in memory, and only after a reload. Pushing `null` or `""` either gets
    refused by §3.2's hardened `importSlot` or, without it, wipes the other device via `loadMeta`'s
@@ -623,8 +626,9 @@ obvious repair of "just push a bit harder."
    offline → record still says `{gen: 7, clean}` → the other device pushes gen 8 carrying the
    pre-reset progress → the wiped device pulls, sees `8 > 7` and not dirty, and **adopts it
    silently**. Every coin and chapter the player deliberately erased comes back, with no message.
-3. **The 1-second same-row PUT throttle defeats it** (§10). Finish a run (push at T), open the
-   shop, tap Reset at T+0.4 s → **429** → straight into failure mode 2.
+3. *(An earlier draft had a third failure here: the 1-second same-row PUT throttle would 429 a
+   Reset tapped moments after a run ended, dropping it straight into failure 2. That throttle is now
+   deleted — §10 — so this failure is gone rather than mitigated.)*
 
 **The mechanism: `DELETE /v1/save` writes a tombstone** — the row survives with `blob = NULL` and
 `gen` incremented like any other write (§6.1). Three properties follow, and each answers one of the
@@ -637,9 +641,10 @@ failures above:
    progress that pushes *after* the tombstone simply conflicts, and the player is asked; a device
    that pulls *after* it gets the deletion. Failure 2 required a device to look clean while holding
    a stale generation, and a tombstone advances the generation.
-3. **It is exempt from the 1-second same-row throttle** (§10), which kills failure 3. The exemption
-   is safe because `DELETE` is idempotent and rare — repeating it against an already-tombstoned row
-   is a no-op that returns the current `gen`.
+3. **Failure 3 no longer exists**, because the 1-second same-row throttle that caused it has been
+   deleted outright (§10) — the generation counter already orders writes and `reqId` already makes a
+   retry idempotent, so it was preventing nothing while breaking this. `DELETE` is idempotent
+   regardless: repeating it against an already-tombstoned row is a no-op returning the current `gen`.
 
 If the `DELETE` cannot complete within a 2-second bound, **the player is told before the local
 wipe**, never promised a retry that has no trigger:
@@ -699,6 +704,24 @@ DELETE /v1/save
 `GET` returns it, a stale `DELETE` 409s like any stale write, and a device that pushes after one
 conflicts normally. Nothing in §6.2's decision table needs a new row; only the *adopt* step branches,
 on `blob === null` → the confirm of §5.4 rather than `importSlot`.
+
+**The `DELETE` statement must not reuse the PUT's shape, or the deletion does not delete.** The PUT
+opens with `SET prev_blob = blob, prev_gen = gen` — copy that into `DELETE` and erasing a save
+**writes the player's full save into `prev_blob`**, leaving it on the server after they were told it
+was gone. That would make "Erase everything" a lie and hollow out the one operation that carries a
+data-deletion promise. So:
+
+```sql
+UPDATE saves
+   SET blob = NULL, prev_blob = NULL, prev_gen = NULL,
+       gen = gen + 1, saved_at = ?, device = '', req_id = ?, updated_at = ?
+ WHERE id = ? AND gen = ?
+```
+
+Erasing `prev_blob` here is the point, not an oversight: the operator undo of §7.3 exists to recover
+a *mis-tap*, and a deliberate deletion is the one case where retaining a copy is exactly wrong. With
+that, `DELETE` is the whole proportionate data-deletion story for a save holding anonymous
+progression plus one 14-character name.
 
 `DELETE` is idempotent: repeating it against an already-tombstoned row is a no-op returning the
 current `gen`, which is what makes the throttle exemption safe.
@@ -1070,7 +1093,7 @@ covers completely. If a third device ever becomes normal, this is the line to re
 
 Every entry point in `sync.js` is wrapped and every failure resolves to "do nothing, stay dirty,
 retry on the next trigger" — the same swallow-and-continue idiom `state.js` already uses **six**
-times over (`:31`, `:39`, `:57`, `:138`, `:154`, `:160`, each with a `/* private mode */` or
+times over (`:31`, `:39`, `:57`, `:145`, `:161`, `:167`, each with a `/* private mode */` or
 `/* corrupted save -> fresh */` comment saying why).
 
 Status copy is **evidence, not intent** — see H3 in §9. Character counts are English / French.
@@ -1107,14 +1130,12 @@ Status copy is **evidence, not intent** — see H3 in §9. Character counts are 
   `Loaded your latest save from the cloud.` (38) / `Dernière sauvegarde chargée depuis le cloud.` (44).
   There is no toast component today; the `.build-stamp` slot proves a small non-interactive
   title-screen line is cheap.
-- **Service worker** — the guard holds, but it is a **deployment invariant, not a code guarantee**.
+- **Service worker** — a non-issue for this deployment, and an earlier draft over-argued it.
   `public/sw.js:28` early-returns on `req.method !== 'GET' || !req.url.startsWith(self.location.origin)`,
-  so a cross-origin `SYNC_URL` bypasses the cache entirely and PUTs bypass on the method check
-  regardless. A cached `GET /v1/save` would be a disaster. But the property currently depends on
-  *choosing a `*.workers.dev` hostname*: point `SYNC_URL` at a Worker route on the Pages custom
-  domain — an entirely normal thing to do — and it becomes same-origin, cached, and served stale
-  from `caches.match(req)`. **Enforce it in code:** add `if (new URL(req.url).pathname.startsWith('/v1/')) return`
-  to `sw.js`, and have the browser probe assert it (§11).
+  and the Worker is *necessarily* cross-origin: GitHub Pages cannot host a Cloudflare Worker route
+  on `github.io`, so the same-origin configuration the draft worried about is unreachable rather
+  than merely unchosen. Add `if (new URL(req.url).pathname.startsWith('/v1/')) return` anyway — one
+  free line that survives a future custom-domain move — and skip the browser probe for it.
 - **PWA cold start offline** — the game boots from cache as it does today, sync fails on the first
   pull, the player plays, the disk hash diverges, and the first online boot pushes.
 - **No `__SYNC_URL__`** (a fork, a local build, `npm test`) — `sync.js` disables itself entirely.
@@ -1358,27 +1379,53 @@ the daily limit trips the Worker fails for *everyone*, §8 treats that as offlin
 accumulate divergence, and the first successful sync after the outage is **the destructive conflict
 prompt**. A trivially cheap DoS converts into a modal asking players to discard a save.
 
-Four layers instead, none elaborate:
+A four-layer replacement was drafted next. It was also wrong, for a reason no amount of tuning
+fixes: **this deployment has no Cloudflare zone.** The game is served from `ojisama.github.io`
+(no `CNAME` in the repo, no custom domain), and WAF rate-limiting rules are a zone feature that does
+not apply to `*.workers.dev`. There is nothing to attach a rule to. And even with a zone, the free
+plan allows **one rule, IP only, a 10-second counting period only** — "10 per minute" is not
+expressible, and a threshold of 1 per 10 s still permits 8,640/day/IP.
 
-1. **~10 requests/minute per IP** with a small burst allowance. Legitimate usage is ~3 writes and
-   1–2 GETs *per session*; 10/minute is still an order of magnitude of slack.
+What actually works here:
+
+1. **The Workers rate-limiting binding.** `[[ratelimits]]` in `wrangler.toml`
+   (`simple = { limit = 10, period = 60 }`) plus `await env.LIMITER.limit({ key: idHash })`. Three
+   lines of config, one line of code, keyed on the **code hash** rather than an IP, and it works on
+   `workers.dev`. It is enforced per Cloudflare location, so it is a loose filter rather than a hard
+   cap — which is all the in-row counter would have been too. This replaces both the WAF rule and
+   the `writes_day`/`writes_n` columns of an earlier draft.
 2. **Reject a malformed or absent `Authorization` before any D1 query**, so garbage costs one CPU
    microsecond and zero row reads.
-3. **A per-code daily write cap** (`writes_day`/`writes_n`, §4.3), so a compromised or shared code
-   cannot burn the shared budget either. ~50/day is ~10× a heavy player.
-4. **The 1-second same-row PUT throttle** from the earlier draft — kept, but see §5.4: reset must be
-   **exempt**, because a player who finishes a run and immediately taps Reset would otherwise get a
-   429 on the one write that must not be dropped.
+3. **Short-circuit `OPTIONS` before auth and before D1** — see the preflight note below, which is
+   also why the request estimate in §2 is ~10/session rather than ~3.
 
-State plainly in the operator notes: 100k/day is a **shared** budget, so one abused code degrades
-every player.
+The 1-second same-row PUT throttle of the earlier draft is **deleted**, not tuned. The generation
+counter already orders writes and `reqId` already makes a retry idempotent, so it prevented nothing
+the design did not already prevent — while creating the §5.4 failure where a player who finishes a
+run and immediately taps Reset gets a 429 on the one write that must not be dropped. Deleting it
+deletes that failure, its DELETE exemption, and the last reader of `updated_at`.
+
+**Be honest about what none of this covers.** Every layer above runs *inside* the Worker, so each
+still costs an invocation. Only a pre-Worker edge rule saves one, and that is the zone feature this
+deployment does not have. **The 100,000 requests/day budget is unprotectable on the free tier as
+deployed.** An attacker can exhaust the day; the blast radius is that sync stops until 00:00 UTC,
+surfacing as a 5xx → §8's *"Sync is down right now. Nothing is lost."* Local saves are the source of
+truth and lose nothing either way. Cloudflare's free 1,000 req/minute burst ceiling is automatic and
+is the first thing an abuser hits. State this as an accepted risk rather than claiming a mitigation
+that does not exist — and note the budget is **shared**, so one abused code degrades every player.
+
+**CORS preflights double the request count unless one header prevents it.** `Authorization` is not a
+CORS-safelisted header, so even the `GET` preflights; `PUT`/`DELETE` preflight on method too. The
+default `Access-Control-Max-Age` is **5 seconds**, which means effectively every request is two
+invocations. Set `Access-Control-Max-Age: 7200` (Chromium's cap; Firefox honours 86400) and
+preflights collapse to roughly one per two hours per browser.
 
 **Guessing a code** is not a threat: 80 bits against the limiter above. `GET` returns 404 for an
 unknown code, which leaks only the existence of a random **64**-hex-digit id (SHA-256 is 32 bytes;
 an earlier draft said 128) — not sensitive, and it is what lets the pairing screen distinguish
 "typo" from "nothing pushed yet".
 
-**CORS** is set to the Pages origin plus the dev origin — and it is *not* a security boundary. The
+**CORS** is `Access-Control-Allow-Origin: *`, and it is *not* a security boundary. The
 credential is an `Authorization` header, not a cookie, so CSRF does not apply, and any HTTP client
 can call the API regardless of what the browser is told. CORS is here so browsers behave, and
 claiming otherwise would be theatre.
@@ -1407,7 +1454,7 @@ someone has 4,000 coins", that is a bad trade in a feature whose entire purpose 
 progress.
 
 Two caveats stated rather than buried. First, `meta.name` is free text and the operator can read it;
-if a player types their real name it is visible. The mitigations are the 24-character cap and the
+if a player types their real name it is visible. The mitigations are the 14-character cap (§9.4) and the
 fact that names are only ever displayed on the owner's own devices. Second, the upgrade path is
 clean *because* the Worker never parses the blob (§3.4): adding an envelope later is a client-only
 change plus a one-byte version prefix on the stored string, with no schema migration and no server
@@ -1426,7 +1473,7 @@ Appending at the end is not cosmetic: the suite seeds `Math.random` and scenario
 its determinism contract.
 
 - `meta.name` and `meta.savedAt` defaults, on a fresh save **and** on an old save missing both —
-  including the `fresh` object literal (`state.js:139-148`), which has neither field today (§4.1).
+  including the `fresh` object literal (`state.js:146-155`), which has neither field today (§4.1).
 - `saveMeta` stamps `savedAt`; a later save stamps a later value.
 - The save hook fires with the bound slot number on a successful write, does **not** fire when the
   write throws (stub a `setItem` that throws), and **a throwing hook does not propagate** (§3.2) —
@@ -1497,9 +1544,10 @@ its determinism contract.
   Without the `run → null` pull trigger this is the case that silently runs a whole session stale.
 - DevTools offline mode: boot, play a full run, reach the summary — no modal, no console error, no
   perceptible delay at boot.
-- `list_network_requests` to assert no `/v1/save` request is served from the service worker cache —
-  and assert it with `SYNC_URL` pointed at a **same-origin** path, which is the configuration where
-  the guard actually has to work (§8).
+- `list_network_requests` to assert **preflight behaviour**, which is the one that costs money:
+  after `Access-Control-Max-Age` lands, a session should show roughly one `OPTIONS` per host rather
+  than one per request (§10). The service-worker cache assertion an earlier draft specified here is
+  dropped — the same-origin configuration it tested is unreachable on GitHub Pages (§8).
 - **Layout at 320×568 and 568×320**, both languages: the slots sheet with the sync row, the sync
   sheet in each of its states, and the conflict prompt — no scrolling, nothing clipped, Cancel
   reachable. §9's budgets are arithmetic and want confirming on glass.
@@ -1509,11 +1557,11 @@ no vitest" rule is about the game's suite and does not extend to it. Even so, th
 that works is a short `worker/test.sh` of `curl` assertions against `wrangler dev --local` (D1 runs
 against local SQLite), covering: first write with `baseGen: 0`; a normal write; a stale-`baseGen`
 409 carrying the current row **and its `reqId`**; an unknown code 404; an oversize blob 400; a
-missing/malformed `Authorization` 401 **without a D1 read**; the one-second throttle 429; the
-per-code daily write cap; a `DELETE` tombstoning the row (`blob` NULL, `gen` bumped); a repeated
-`DELETE` being a no-op that returns the same `gen`; a `DELETE` **not** throttled a second after a
-PUT; and a `GET` on a tombstoned row returning `blob: null` rather than 404. Twelve cases, one file,
-no framework.
+missing/malformed `Authorization` 401 **without a D1 read**; an `OPTIONS` preflight answered
+**before** auth and before any D1 query, carrying `Access-Control-Max-Age`; the rate-limit binding
+returning 429; a `DELETE` tombstoning the row (`blob` NULL, `gen` bumped, **and `prev_blob` NULL**);
+a repeated `DELETE` being a no-op that returns the same `gen`; and a `GET` on a tombstoned row
+returning `blob: null` rather than 404. Eleven cases, one file, no framework.
 
 **Post-push gate.** `scripts/deploy-watch.sh "vX.Y.Z · <sha>" "<sync host>"` — the repo's standard
 gate, with the sync host as an extra grep string so the `define` substitution is confirmed to have
@@ -1660,7 +1708,7 @@ digits (not 128).
 
 6. **Reset writes a tombstone** (§5.4, §6.1). `DELETE /v1/save` sets `blob = NULL` and bumps `gen`,
    so a deletion is distinguishable from an empty save, ordered by the same counter as everything
-   else, and exempt from the 1-second throttle. A tombstone arriving on another device is
+   else. A tombstone arriving on another device is
    **confirmed before it lands**, with "Keep it here" unlinking rather than wiping — two devices
    disagreeing about whether a save should exist is the player's call.
 7. **The conflict prompt gains `Decide later`** (§7.2). Both saves survive a postponement, so the

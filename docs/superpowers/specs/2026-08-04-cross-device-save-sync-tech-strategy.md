@@ -9,12 +9,14 @@
 
 ## 1. The strategy in one paragraph
 
-Ship it in five slices, each independently useful and independently revertible, and put the two
-that carry all the risk first. Slice 0 is a bug fix the shipped game needs whether or not sync ever
-exists. Slice 1 is a backend nobody uses yet. Nothing the player can see moves until slice 3, and
-by then the parts that can lose data have been running against tests for two slices. The kill
-switch is one build variable: an empty `__SYNC_URL__` disables the whole feature at the module
-level, so "turn it off" never requires a revert.
+Ship it in five slices, each independently revertible, and put the two that carry all the risk
+first. Slice 0 is bug fixes the shipped game needs whether or not sync ever exists — including two
+silent data-loss paths that already affect a player who merely downgrades. Slice 1 is a backend
+nobody uses yet. Slice 2 is a tested module nothing reaches, which is the one slice that is *not*
+independently useful. Nothing a player can see moves until slice 3, and by then the parts that can
+lose data have been under test for two slices. The kill switch is one build variable: an empty
+`__SYNC_URL__` disables the whole feature at the module level, so "turn it off" never requires a
+revert.
 
 ---
 
@@ -31,136 +33,184 @@ Today one device runs one build. A save moves forward through builds and never b
 idiom fills new scalar fields, and the v4→v5 migration shows the pattern for a structural change.
 
 Sync introduces **forward compatibility**, which the codebase has never needed: an *old* build
-reading a *newer* save. The phone auto-updates on Monday; the laptop's service worker serves the
-cached bundle until its next successful network boot. In between, the laptop pulls a save the
-running code has never seen. This is not an edge case — it is the normal state of a two-device
-setup for hours or days after every release.
+reading a *newer* save. The phone auto-updates on Monday; the laptop is still running the previous
+bundle. In between, the laptop pulls a save the running code has never seen.
 
-### 2.2 What already works — verified, not assumed
+Be accurate about how long that window is, because §2 is sized off it. `public/sw.js` is
+well-behaved: `skipWaiting()` (`:19`), `clients.claim()` (`:23`), old caches purged, and navigations
+refetched with `cache: 'no-store'` (`:33`). **Any online reload lands the newest bundle
+immediately.** The stale window is therefore two narrower cases — an offline or failed boot falling
+through to `caches.match(req)` (`:42`), and a tab or installed PWA left open across a release
+without ever navigating. The second is true of every web app and is not a service-worker property.
+Both are unbounded in principle and bounded in practice by the player's next successful online
+reload. An earlier draft of this section said "hours or days after every release" and blamed the
+service worker; that overstated the window and misattributed the cause. **The window is smaller than
+that and the service worker should not change** — but it is not zero, and one device on a stale
+bundle is all it takes.
 
-Executed against the real `loadMeta`/`saveMeta` with a save carrying a future chapter (`atlantis`),
-a future currency (`shards`), and a future shop id (`futureUpgrade`):
+### 2.2 What survives, and what does not — verified by execution
 
-| property | result |
-|---|---|
-| unknown chapter entry in `meta.chapters` | **survives** load |
-| unknown top-level currency | **survives** load |
-| unknown shop upgrade id | **survives** load |
-| known-chapter progress alongside them | **intact** |
-| all three after an old build *saves back* | **survive** the round-trip |
+Run against the real `loadMeta`/`saveMeta`. **Additive future data survives; known fields with
+out-of-range values do not.** An earlier draft tested only the first column and concluded, wrongly,
+that "data added by a future build is not destroyed by an older one."
 
+**Unknown keys survive a full round-trip** — an unknown chapter entry in `meta.chapters`, an unknown
+top-level currency, an unknown shop upgrade id, all intact after an old build loads *and saves*.
 The mechanism is that `loadMeta` patches in place and returns the parsed object wholesale
-(`state.js:136`), and `saveMeta` stringifies that same object. **Data added by a future build is not
-destroyed by an older one.** That is the single most important property for this feature, and it is
-already true. (One documented exception: the v4→v5 migration `delete`s `m.difficulty`/
-`m.maxDifficulty`, `state.js:120-121`.)
+(`state.js:143`), and `saveMeta` stringifies that same object.
 
-### 2.3 What breaks — verified
+**Known keys are clamped to the running build's ranges and written back to disk:**
 
-`meta.chapter` is a **pointer**, not data. `loadMeta` only defaults it when missing
-(`m.chapter ??= 'body'`, `state.js:123`), so a value naming a chapter the running build does not
-have passes straight through. Then:
+| a save from a build that raised… | after an old build's `loadMeta` → `saveMeta` |
+|---|---|
+| `MAX_DIFFICULTY`, so `chapters.body.maxDifficulty = 7` | **`5`** — clamped at `state.js:97`, persisted |
+| the choice-slot ceiling, so `choiceSlots = 6` | **`4`** — clamped at `state.js:141`, persisted |
+
+That is silent, permanent progression loss, and with sync it propagates back to the updated device
+on the next push. It is also the *most likely* breaking release this game will ship — raising the
+difficulty ladder is a routine content change, not an exotic migration — and no schema bump would
+accompany it.
+
+**A malformed blob wipes the slot.** Sync makes this a network-reachable input, so it belongs here
+and not only in the design's §3.2: a blob merely **missing `shop`** makes `state.js:119`'s
+`Object.keys(SHOP)` loop throw, the `catch` at `:145` swallows it, and `loadMeta` returns `fresh` —
+coins 500 → 0. (This predates v6.6.10: the `??= 0` it replaced threw identically on an undefined
+`shop`. Verified, so nobody spends time reverting a non-regression.)
+
+**Save slots.** There are three (`SAVE_SLOTS`, `state.js:14-65`), and everything above is per-slot.
+Only one syncs. Every rule below is about the synced slot; the other two are untouched by any of it.
+
+### 2.3 The crash — verified, and smaller than it looks
+
+`meta.chapter` is a **pointer into a table**, not data. `loadMeta` only defaults it when missing
+(`m.chapter ??= 'body'`, `state.js:130`), so a value naming a chapter the running build does not
+have passes straight through to:
 
 ```
-ensureChapterMeta(meta, 'atlantis')  ->  OK (it only touches meta.chapters)
-createRun(meta, { chapter: 'atlantis', … })
+state.js:817   const bal = CHAPTERS[opts.chapter ?? 'body'].balance
   ->  TypeError: Cannot read properties of undefined (reading 'balance')
 ```
 
-The carousel has the same shape of problem earlier: `browseChapterId = meta.chapter` (`ui.js:204`),
-and the guard at `ui.js:487` checks `meta.chapters?.[browseChapterId]` — which **exists**, because it
-came from the future save — rather than checking the build's own `CHAPTERS` table. Two later sites
-do have fallbacks (`CHAPTERS[d.chapterId] ?? CHAPTERS.body` at `ui.js:1116`, and `ui.js:1174`),
-which is why this reads as an oversight rather than a policy.
-
-**Reachable today** by loading a stale cached bundle against a save from a newer build. **Routine
-once sync ships.**
+**But the blast radius is one button, not the game.** Traced: `carouselHtml`/`titleBelowHtml` read
+`meta.chapters?.[…]`, `chapterMaxDifficulty` returns a default for an unknown id rather than
+throwing, and `positionCarousel` early-returns on the missing card. The title screen renders fine.
+Only **Play** throws, out of a click handler, non-fatally — and it self-heals on the first carousel
+swipe, because `settle()` (`ui.js:472-475`) reassigns `browseChapterId` and calls `hooks.onChapter`.
+The honest symptom is *"Play does nothing until you swipe once."* An earlier draft of §7 called it
+"the game is unopenable", which is false and inflated the fix's urgency.
 
 ### 2.4 The rules
 
-**R1 — Pointer fields are validated against the running build's tables, not merely defaulted.**
-Data fields may be unknown; *pointers into tables* may not. `meta.chapter` is the only one today:
+**R1 — Validate table-backed pointers at the consumer, never destructively on load.**
+
+`meta.chapter` is not the only pointer; `meta.lang` is one too, and the codebase already handles it
+correctly — `setLang` does `(l === 'en' || DICTS[l]) ? l : 'en'` (`i18n.js:14`), and `ui.js` does
+`CHAPTERS[x] ?? CHAPTERS.body` twice (`:1116`, `:1174`). Three existing precedents, all at the
+consumer, all non-destructive. So:
 
 ```js
-// state.js, loadMeta, after the existing `m.chapter ??= 'body'`
-if (!CHAPTERS[m.chapter]) m.chapter = CHAPTER_ORDER[0]
+// state.js:817, replacing the existing `opts.chapter ?? 'body'`
+const bal = CHAPTERS[CHAPTERS[opts.chapter] ? opts.chapter : CHAPTER_ORDER[0]].balance
 ```
 
-Note what this costs and what it does not. `loadMeta`'s repairs are in-memory and never written
-back, so an old build that merely *looks* at the save leaves the player's real selection intact for
-the updated device. Only if the old build performs a save does the selection collapse to `body` —
-and a lost *selection* is a different order of harm from a lost *save*. State that ceiling in a
-`// ponytail:` comment rather than building selection-preservation machinery for it.
+An earlier draft instead proposed repairing `m.chapter` inside `loadMeta`, arguing the damage was
+limited because "`loadMeta`'s repairs are in-memory and never written back". That reasoning does not
+survive contact with the code: old builds save constantly — `onChapter` (`main.js:173`), every run
+end, every purchase — so the collapse to `body` is immediate, not conditional, and with sync it
+propagates to the updated device. It was a **destructive** repair sold as a benign one, it invented
+a new rule where the codebase already had an idiom, and it protected only `createRun` while missing
+`meta.lang` entirely.
 
-**R2 — Changes to `meta` are additive. Never rename, never repurpose.** While two builds can hold
-the same save — which, with sync, is always — a rename is a delete plus an add, and the old build
-carries the corpse forward. If a field must change meaning, add a new one and leave the old in
-place; storage is 900 bytes against a 5 GB allowance.
+**R2 — `meta` changes are additive. Never rename, never repurpose.** A rename is a delete plus an
+add, and the old build carries the corpse forward.
 
-**R3 — New content is additive by construction, and the existing idioms already cover it.**
+**R3 — Widening a range is a breaking change. Clamp on use, never on load.**
 
-| change | what makes it safe | anything to do? |
+This is the rule §2.2's second table demands, and an earlier draft had it exactly inverted — it
+listed "new difficulty level → nothing to do", citing the very clamp that eats the newer save.
+
+```js
+// state.js:97-98 — preserve what is stored; clamp only what is played
+entry.maxDifficulty = Math.max(1, entry.maxDifficulty ?? 1)
+entry.difficulty = Math.max(1, Math.min(Math.min(chapterMaxDifficulty(id), entry.maxDifficulty), entry.difficulty ?? 1))
+```
+
+Storing a `maxDifficulty` above what this build offers is harmless — `main.js:164` already caps the
+selectable difficulty with `chapterMaxDifficulty` — while *lowering* it is unrecoverable. Same
+shape for `choiceSlots` (`state.js:141`): keep the stored value, clamp at the consumer.
+
+| change | safe because | to do |
 |---|---|---|
-| new chapter | `ensureChapterMeta` creates the entry on load; `CHAPTER_ORDER` drives unlocks | R1, so the pointer can't dangle |
-| new difficulty level | `maxDifficulty` is a number, clamped by `chapterMaxDifficulty` | nothing |
-| new permanent upgrade | `for (const id of Object.keys(SHOP)) m.shop[id] = Number(…) \|\| 0` fills it | nothing |
-| new currency | `m.newCurrency ??= 0` in `loadMeta`, same idiom as `m.choiceSlots` | one line |
-| new mutator / weapon / element | not persisted in `meta` at all | nothing |
+| new chapter | `ensureChapterMeta` creates the entry; unknown entries survive | R1 |
+| **new difficulty level** | **nothing — this is the breaking one** | **R3** |
+| new permanent upgrade | the `Object.keys(SHOP)` loop fills it; unknown ids survive | nothing |
+| new currency | `m.newCurrency ??= 0`, same idiom as `m.choiceSlots` | one line |
+| **raising any ceiling** (`choiceSlots`, a chapter cap) | **nothing** | **R3** |
+| new mutator / weapon / element | not persisted in `meta` | nothing |
 
-The one wrinkle worth knowing: an old build's `owned` sum (`ui.js:560`) includes levels of upgrades
-it does not know, so the sacrifice meter reads high on a downgraded device. Cosmetic, self-correcting,
-not worth code.
+**R4 — `meta.schema`, and refuse to adopt from the future.** One integer, default `??= 1`, bumped
+only for a change an older build genuinely cannot survive.
 
-**R4 — `meta.schema`, and refuse to adopt from the future.** Add a single integer, bumped only on a
-change an older build genuinely cannot survive (a structural migration, never an additive field).
-Default `m.schema ??= 1`.
+```js
+if (remote.schema > SCHEMA) return 'too-new'   // adopt nothing, push nothing
+```
 
-The rule is asymmetric on purpose:
+The refusal *is* the suspension — an earlier draft added a "suspend sync for that save" state, which
+is a concept with no implementation behind it. What R4 buys that nothing else does: **the generation
+counter orders writes, not versions.** A stale build holding a correct `baseGen` pushes its older
+blob at `gen+1` and the server accepts it, with no 409 and no prompt. That is the one hole R1–R3
+cannot close.
 
-- **Pulling a blob with `schema` greater than this build understands → do not adopt.** Show
-  `This save is from a newer version. Reload to update.` and leave the local save untouched. The
-  Worker never parses the blob (design §3.4), so this decision belongs to the client and nowhere
-  else.
-- **Pulling a blob with a lower `schema` → adopt normally.** That is ordinary backward
-  compatibility, which `loadMeta` already handles.
-- **Never push a downgrade.** A build that refused to adopt must also not overwrite the newer cloud
-  save with its older one, or the updated device loses progress to the stale one. Refusing to adopt
-  and continuing to push is the worst of both; the refusal has to suspend sync for that save until
-  the build catches up.
-
-R4 is the safety net for the case R1–R3 cannot cover: a genuinely breaking change. It costs one
-integer and one comparison, and without it the failure mode is an old build confidently writing a
-mangled save back over a good one.
+**R4 ships in slice 0.** A build released without the comparison can never be taught to refuse
+anything; by the time slice 2 exists, the entire population it protects is already in the wild.
+This is the only rule here with a deadline.
 
 ### 2.5 Test obligations
 
-Two scenarios in `test/sim-test.js`, both pure `state.js` work and both permanent:
+Two permanent scenarios in `test/sim-test.js`, both pure `state.js`:
 
-- **Forward compatibility.** Build a save carrying an unknown chapter, an unknown currency and an
-  unknown shop id; assert all three survive `loadMeta` → `saveMeta`; assert `meta.chapter` is
-  clamped to a known id (R1); assert `createRun` does **not** throw.
-- **`schema` gating.** The decision function returns `'too-new'` for a blob above this build's
-  schema, and that outcome pushes nothing.
+- **Range preservation (R3).** A save with `maxDifficulty: 7` and `choiceSlots: 6` survives
+  `loadMeta` → `saveMeta` without being written back lower. **This is the assert that would have
+  caught a real bug**, and it fails today.
+- **Pointer safety (R1).** With `meta.chapter` naming an unknown chapter, `createRun` does not
+  throw. Also fails today.
 
-The forward-compat scenario is the one that will actually catch a regression, because it fails the
-moment someone adds a table-backed pointer to `meta` without validating it.
+An earlier draft additionally asserted that unknown chapters/currencies/shop ids survive a
+round-trip. Those pass today and are testing `JSON.parse` → `JSON.stringify`; they document a
+property rather than defending one. Drop them.
 
----
+Note what these tests do **not** do, so nobody mistakes them for a guarantee: they are hardcoded to
+`meta.chapter`, `maxDifficulty` and `choiceSlots`. Adding a *new* pointer or a *new* bounded field
+fails nothing. R1–R3 are rules for humans; only these three instances are enforced.
+
+The `schema` gate (R4) is asserted with slice 2's decision function, not here.
 
 ## 3. Build order
 
-Each slice ends green, ships on its own, and is revertible without touching the ones before it.
+Each slice ends green and is revertible without touching the ones before it. **Slices 0, 1, 3 and 4
+ship on their own; slice 2 does not** — it is a tested module nothing reaches, and calling it
+independently useful would be a lie about what a player gets.
 
 ### Slice 0 — harden `state.js` (no sync, no backend)
 
-Everything in the design that improves the *shipped* game, extracted so it can ship immediately and
-be judged on its own:
+Everything that improves the *shipped* game, extracted so it can ship immediately and be judged on
+its own. Every item here is worth doing even if sync is abandoned:
 
 - `loadMeta` coerces `coins`/`runs`/shop levels — **done, v6.6.10 (`c90c1cc`)**.
-- R1's `meta.chapter` validation, plus the forward-compat test of §2.5.
-- `esc()` in `ui.js`, applied to every interpolated summary value.
+- **R3's clamp-on-use** (`state.js:97-98`, `:141`) plus its range-preservation test. This is the
+  one that silently eats a newer save's progression, so it is the highest-value item in the slice.
+- **R1's consumer-side pointer guard** (`state.js:817`) plus its test.
+- **R4's `schema` comparison.** It ships here and nowhere later, for the reason §2.4 gives: a build
+  released without the check can never be taught to refuse. The `sync.js` side that *uses* it lands
+  in slice 2; the field and the constant land now.
 
-No new module, no network, no UI. If sync is abandoned entirely, this slice still deserved to ship.
+Not in this slice: `esc()`. The design's §4.1 settles that the boundary beats the render site and
+lists `esc()` as belt-and-braces *behind* the boundary normalisation — which lives in `importSlot`,
+which does not exist until slice 2. Shipping the sweep here would guard a threat that cannot exist
+until slice 4, at the cost of touching every render site. The `name` clamp the design already
+applies on receive is the cheaper half and lands with `importSlot`.
+
+No new module, no network, no UI.
 
 ### Slice 1 — the Worker, standalone
 
@@ -199,27 +249,43 @@ string, so the `define` substitution is confirmed in the live bundle rather than
 
 ## 4. Repo and deployment
 
-`worker/` is **not** built or deployed by `.github/workflows/deploy.yml`, which runs `npm ci` →
-`npm run build` → uploads `dist/`. Verified. So the Worker deploys separately:
+**The game is served from `ojisama.github.io`** — no `CNAME` in the repo, no custom domain. That
+single fact decides most of this section and all of §6's abuse story: **the deployment has no
+Cloudflare zone**, so every zone-scoped feature (WAF rate-limiting rules, status-code analytics) is
+unavailable regardless of plan. Buying a domain is the only way to get them, and that is a priced
+decision, not a config tweak.
+
+`worker/` deploys separately from the game:
 
 - `worker/` holds `wrangler.toml`, `schema.sql`, `src/index.js`, `test.sh`, its own `package.json`.
-- Deployed with `wrangler deploy` from that directory — manually at first. A second workflow is
-  premature until the Worker changes more than once a quarter.
-- The D1 database is created once by hand (`wrangler d1 create`) and its id lives in
-  `wrangler.toml`.
+- Deployed with `wrangler deploy` from that directory — manually. Design §3.4 makes the Worker
+  independent of every game change, so it changes approximately never; a workflow is premature.
+- **The drift risk is the schema, not the deploy.** `schema.sql` sits in the repo against a
+  hand-created database that nothing compares it to. Write it `CREATE TABLE IF NOT EXISTS` and
+  record `wrangler d1 execute DB --remote --file=schema.sql` as the one command that applies it.
+- **There are no secrets here.** `database_id` in `wrangler.toml` is an identifier, useless without
+  an account-scoped API token; the only credential is the operator's local `wrangler` login. Stated
+  explicitly because a public repo will keep raising the question.
 - **`SYNC_URL` is a build-time `define`**, alongside `__BUILD_STAMP__` (`vite.config.js:24`), read
-  through the same `typeof` guard `ui.js:18` uses. It is a public URL, not a secret — the secret is
-  the player's pairing code, which never leaves their devices in plaintext.
-- A fork building without `SYNC_URL` gets sync disabled at the module level, which is the correct
-  default and now a stated intention.
+  through the same `typeof` guard `ui.js:18` uses. It ships in a public bundle, which is fine: the
+  only capability it grants is burning the shared request budget, and that is unprotectable anyway
+  (§6) — hiding a URL does not fix it. The player's pairing code is the actual secret and never
+  leaves their devices in plaintext.
+- Write the define as `JSON.stringify(process.env.SYNC_URL ?? '')`. `JSON.stringify(undefined)`
+  returns `undefined`, not `'undefined'`, and Vite's `define` does not substitute it the way you
+  want — one missing `?? ''` is a blank-page debug.
+- **`.github/workflows/deploy.yml` has no `env:` block today.** Adding one is a required step and
+  was missing from an earlier draft of this list. Forget it and `__SYNC_URL__` is empty: a feature
+  that looks shipped and silently does nothing. Slice 4's deploy-watch grep is the only gate that
+  catches it, which is why that gate is not optional.
+- A fork building without `SYNC_URL` gets sync disabled at the module level — the correct default,
+  and now a stated intention.
 
-**Service worker interaction.** `public/sw.js:28` early-returns on non-GET and cross-origin, so
-Worker calls bypass the cache — but only while `SYNC_URL` is cross-origin. Add the explicit
-pathname guard from design §8 so the property is enforced by code rather than by hostname choice.
-
-Worth noting for §2's sake: the service worker is *why* forward compatibility matters. A player on
-a stale bundle stays there until a successful network boot replaces it. Whatever the SW's update
-policy is, it is now part of this feature's blast radius.
+**Service worker.** `sw.js:28` already early-returns on non-GET and cross-origin, and the Worker is
+*necessarily* cross-origin: GitHub Pages cannot host a Cloudflare Worker route on `github.io`, so
+the same-origin hazard design §8 defends against is unreachable for this deployment. Keep the
+one-line pathname guard — it is free and it survives a future custom-domain move — and drop the
+argument around it.
 
 ---
 
@@ -230,25 +296,65 @@ policy is, it is now part of this feature's blast radius.
   local saves are untouched, because localStorage is the source of truth throughout.
 - **Rollback:** unlinking deletes only the local sync record. The cloud row survives, so re-pairing
   with the same code restores everything. That is the rollback story for the whole feature.
-- **No migration required.** Both new `meta` fields are additive and defaulted on load, so every
-  existing save works with no migration branch, and a save that visits an old build and comes back
-  keeps them (§2.2).
+- **No migration required.** The three new `meta` fields — `name`, `savedAt`, `schema` — are
+  additive and defaulted on load, so every existing save works with no migration branch, and a save
+  that visits an old build and comes back keeps them (§2.2).
 
 ---
 
 ## 6. Operations
 
-- **Cost:** free tier throughout. ~3 writes/session against 100,000 rows/day; ~1 KB/row against
-  5 GB. The binding constraint is Workers' 100,000 requests/day, which §10 of the design now
-  rate-limits for rather than assuming.
-- **The quota is shared.** One abused code degrades every player, which is why the per-code daily
-  write cap exists and not only the per-IP limit.
-- **Monitoring:** Cloudflare's built-in Worker analytics. Do not build a dashboard. The signal worth
-  watching is 409 rate — a rising one means the conflict prompt is firing more than the design
-  predicts, which would mean a bug in the decision function rather than in the players.
-- **Support:** `prev_blob` recovers a cloud save clobbered by a wrong tap, via one SQL statement. It
-  covers one generation; the ceiling is stated in design §7.3.
-- **Logging:** never the `Authorization` header, never the blob.
+**Cost:** free tier throughout, and all three cited limits are current — D1 at 5 M rows read/day,
+100 k rows written/day, 5 GB; Workers at 100 k requests/day. Writes are not close to binding.
+Requests are the constraint, and **the real figure is ~10 invocations per session, not 3**, because
+CORS preflights count (below). That is ~10,000 sessions/day — comfortable, but one order of
+magnitude of headroom, not two.
+
+**Two Worker-level limits worth naming**, since neither is a daily quota: the free plan's **10 ms
+CPU per request** (fine here — a SHA-256 of 16 bytes plus one primary-key point lookup, and D1 I/O
+wait is not CPU time — but it is the only limit that fails *per request*, so let `wrangler dev`
+prove it), and the **1,000 requests/minute burst ceiling**, which is free, automatic, and the first
+thing an abuser actually hits.
+
+**Preflights double the request count unless one header says otherwise.** `Authorization` is not a
+CORS-safelisted header, so even the `GET` preflights, and the default `Access-Control-Max-Age` is
+**5 seconds**. Set it to 7200 (Chromium's cap; Firefox honours 86400) and short-circuit `OPTIONS`
+before auth and before any D1 query.
+
+**The 100 k/day request budget is unprotectable on the free tier as deployed. Say so rather than
+claiming otherwise.** Both the Workers rate-limiting binding and any in-row counter run *inside*
+the Worker, so they cap writes and abuse but not invocations; only a pre-Worker edge rule saves an
+invocation, and that needs the zone §4 says does not exist. The accepted consequence: an attacker
+can exhaust the day. The blast radius is already handled correctly — error 1027 surfaces as a 5xx,
+design §8 renders *"Sync is down right now. Nothing is lost."*, local saves are untouched, and the
+quota resets at 00:00 UTC.
+
+**Rate limiting is one binding, not four layers.** `[[ratelimits]]` in `wrangler.toml`
+(`simple = { limit = 10, period = 60 }`) plus `await env.LIMITER.limit({ key: idHash })` — three
+lines of config, one line of code, keyed on the code hash rather than IP, and it works on
+`workers.dev`. It is enforced **per Cloudflare location**, so it is a loose filter rather than a
+hard cap; that is all the alternatives were too. This replaces the WAF rule that cannot exist, the
+`writes_day`/`writes_n` columns, and the 1-second same-row throttle (the generation counter already
+orders writes and `req_id` already makes a retry idempotent).
+
+**Backups: D1 Time Travel, already on.** Point-in-time restore to any minute in the last 7 days on
+the free plan, automatic, zero setup. `wrangler d1 time-travel restore` is the whole procedure.
+Build nothing. This also demotes `prev_blob` from "the cheapest insurance in the design" to what it
+actually is — the *surgical* one-row fix that avoids a destructive whole-database restore.
+
+**Retention: none, deliberately.** 900 B × 100 k players ≈ 90 MB against 5 GB, and an orphaned row
+is indistinguishable from an idle one, so it could never be swept safely anyway.
+
+**Deletion:** `DELETE /v1/save` is the whole data-deletion story, and it is proportionate for
+anonymous progression plus one 14-character free-text name. It must genuinely erase — see the
+design's §5.4 correction about `prev_blob`.
+
+**Monitoring:** `wrangler tail` when a player emails. Cloudflare's built-in Worker analytics gives
+requests, errors, CPU time and invocation status — **not** a status-code breakdown, which is zone
+analytics and unavailable here, so the "watch the 409 rate" plan in an earlier draft had nothing to
+watch it with. Analytics Engine would work and is exactly the pipeline §8 refuses.
+
+**Logging:** never the `Authorization` header, never the blob.
 
 ---
 
@@ -256,20 +362,21 @@ policy is, it is now part of this feature's blast radius.
 
 | risk | cost | mitigation |
 |---|---|---|
-| A data-loss path survives review | a player's progress, silently | slice 2 is headless and over-tested; the three known paths each have a named regression assert |
-| Forward incompatibility crashes an un-updated device | the game is unopenable until it updates | §2's R1 + R4, and the forward-compat test |
-| The 320px budgets are wrong on real glass | rework in slice 3 | slice 3 builds against the disabled preview state specifically so this is found before traffic |
-| Free-tier exhaustion by abuse | sync down for everyone until midnight UTC | four rate-limit layers; local saves unaffected either way |
-| The owner stops wanting to run a backend | the feature dies | slices 0 and 2 keep their value; slice 0 has already shipped |
+| A data-loss path survives review | a player's progress, silently | slice 2 is headless and over-tested; every known path has a named regression assert |
+| **A future release widens a range** (a 6th difficulty, a 5th choice slot) | the newer save's progression, silently, then synced back over the good copy | R3 + its range-preservation test — the likeliest of these to actually happen |
+| Forward incompatibility on an un-updated device | Play does nothing until the player swipes the carousel once (§2.3) | R1 + its test |
+| Free-tier exhaustion by abuse | sync down for everyone until 00:00 UTC | **not preventable on this deployment (§6)** — accepted; local saves unaffected either way |
+| The owner stops wanting to run a backend | the feature dies | slice 0 keeps its value and has already begun shipping |
 
 ---
 
 ## 8. What this strategy deliberately does not do
 
-- **No CI for the Worker.** Eight-plus `curl` assertions in one file, run by hand on change. Add a
-  workflow when the Worker changes often enough to forget.
-- **No staging environment.** `wrangler dev --local` is the staging environment.
-- **No account system, no per-device tokens, no code expiry.** All rejected in the design with
-  their upgrade paths; the paths stay open because the Worker never parses the blob.
-- **No dashboard, no metrics pipeline, no alerting.** A single-player browser game with a
-  900-byte save does not need an on-call rotation.
+- **No CI and no staging for the Worker.** `curl` assertions in one file, `wrangler dev --local`,
+  both run by hand. The Worker changes approximately never.
+- **No custom domain** — and therefore no edge rate limiting and no status-code analytics. The
+  consequence is §6's accepted risk, made explicit here so it is a choice rather than a discovery.
+- **No backup system** — because D1 Time Travel already is one.
+- **No retention policy** — because 5 GB.
+- **No dashboard, no metrics pipeline, no alerting.** A single-player browser game with a 900-byte
+  save does not need an on-call rotation.
