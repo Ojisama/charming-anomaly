@@ -1,7 +1,7 @@
 # Cross-device save sync — design + technical strategy
 
 **Date:** 2026-08-03, revised 2026-08-04
-**Status:** Design settled — every open question closed (§14). Not implemented; plan to follow.
+**Status:** Revised after adversarial UI/UX + edge-case review (§14.3). Four product calls open (§14.4). Not implemented.
 **Use case, verbatim:** *"I start a save on my phone, I want to continue on my computer, then back
 on my phone when I leave for work."*
 
@@ -68,12 +68,22 @@ roughly **3 writes per session**. Two orders of magnitude of headroom on the tig
 The module table in `CLAUDE.md` gives `state.js` the rule *"May NOT touch: Pixi, DOM (localStorage
 only)"*. `fetch` is a Web API, so putting network I/O in `state.js` breaks that row on its face —
 but the concrete harm is better than the stylistic one. `test/sim-test.js` imports `state.js`
-directly (line 3: `import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot,
-setActiveSlot, slotSummary, SAVE_SLOTS } from '../src/state.js'`) and stubs exactly one browser
-global to make that work — `globalThis.localStorage`, in `testSaveSlots`. Node 22 ships a global
-`fetch`, so a network call inside `loadMeta`/`saveMeta` would not throw during `npm test`; it would
-**silently attempt a real request** on every save the suite performs. A test suite that quietly
-talks to the internet is worse than one that fails.
+directly (line 4: `import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot,
+setActiveSlot, slotSummary, SAVE_SLOTS } from '../src/state.js'`) and stubs one browser global to
+make that work — `globalThis.localStorage`. Node 22 ships a global `fetch`, so a network call inside
+`loadMeta`/`saveMeta` would not throw during `npm test`; it would **silently attempt a real request**
+on every save the suite performs. A test suite that quietly talks to the internet is worse than one
+that fails.
+
+Correcting an earlier draft, which said that stub appears "exactly once, in `testSaveSlots`": it is
+installed at **five** sites (`sim-test.js:1763`, `1826`, `1878`, `1941`, `7105-7110`), and the one at
+`1941` is `{ getItem: () => …, setItem: () => {} }` — a **no-op `setItem` that reports success**.
+Under §3.2's `saveMeta` that sets `ok = true`, so the hook would fire there too. The conclusion
+still holds — nothing in the suite calls `setSaveHook`, so `saveHook` stays `null` and no request is
+attempted — but it holds because of the wiring, not because the suite only saves once. The residual
+risk is real: five scenarios call `saveMeta` against a succeeding `setItem`, so the moment anything
+installs a hook at module scope, the suite starts firing it. §11 adds a guard asserting `saveHook`
+is null after a full run.
 
 Second reason: `loadMeta()` is synchronous and is the first statement of `boot()` (`main.js:17`).
 Sync cannot be part of it. `main.js` may not use top-level `await` (the Pixi v8 blank-page
@@ -84,7 +94,20 @@ So the table gains one row:
 
 | File | Role | May NOT touch |
 |------|------|---------------|
-| `sync.js` | **Cloud save sync.** Owns the pairing credential and its own localStorage key, decides when to pull/push, talks to the Worker, hands `main.js` a decision. Never parses gameplay data beyond the four summary fields. | Pixi, DOM, `run`, `sim.js`, `render.js`, save-slot localStorage keys |
+| `sync.js` | **Cloud save sync.** Owns the pairing credential and its own localStorage key, decides when to pull/push, talks to the Worker, hands `main.js` a decision. Never parses gameplay data beyond the summary fields. | Pixi, DOM (incl. event listeners), `run`, `sim.js`, `render.js`, save-slot localStorage keys *directly* |
+
+Two clauses of that row would otherwise be violated by this very design, so `main.js` owns them:
+
+- **`run === null` is the safety invariant behind §3.3, and `sync.js` cannot read it.** `run` is a
+  `let` local inside `boot()` (`main.js:19`) — not exported, not reachable from another module. So
+  `main.js` passes an **`isIdle()` predicate** into `sync.js` at wiring time, and `sync.js` calls it
+  before any adopt. Without this the invariant is prose with no implementation.
+- **`visibilitychange` / `pagehide` are DOM registrations.** §6.3 needs them for both pull and push.
+  They are registered in `main.js` — which is where §3.1's own rule puts them ("`main.js` stays glue:
+  it wires `sync.js`'s callbacks") — and call into `sync.js`.
+
+The "save-slot localStorage keys *directly*" wording is deliberate: `sync.js` reaches slots only
+through `state.js`'s `exportSlot`/`importSlot`, and never constructs a key.
 
 `sync.js` must keep its module scope free of browser globals — `fetch` and `localStorage` only
 inside function bodies, and `__SYNC_URL__` behind the same `typeof` guard `ui.js:18` already uses
@@ -119,26 +142,52 @@ let saveHook = null
 export function setSaveHook(fn) { saveHook = fn }   // sync.js, wired once from main.js
 ```
 
-and `saveMeta` fires it **only on a successful write**, outside the try/catch:
+and `saveMeta` fires it **only on a successful write**, in its own try/catch, with a one-way freeze
+latch in front of everything:
 
 ```js
+let saveHook = null
+let frozen = false
+export function setSaveHook(fn) { saveHook = fn }
+export function freezeSaves() { frozen = true }   // one-way; only a reload clears it
+
 export function saveMeta(meta) {
+  if (frozen) return                              // an adopt is committing; do not write over it
   const key = boundKey ?? slotKey(activeSlot())
   meta.savedAt = Date.now()
   let ok = false
   try { localStorage.setItem(key, JSON.stringify(meta)); ok = true } catch { /* private mode */ }
-  if (ok) saveHook?.(boundSlot ?? activeSlot())
+  if (ok) { try { saveHook?.(boundSlot ?? activeSlot()) } catch { /* sync is best-effort */ } }
 }
 ```
 
-Two details matter. Firing outside the catch means a throwing hook surfaces as a real error instead
-of being mistaken for private mode. And firing only on success means a device whose localStorage is
-refusing writes never uploads state it is about to forget.
+Three details matter, and the middle one is a correction to an earlier draft of this document.
+
+**The hook is wrapped.** An earlier draft fired it outside any catch, reasoning that *"a throwing
+hook surfaces as a real error instead of being mistaken for private mode."* That reasoning is wrong
+about where the throw lands. `saveMeta` is called by `endRun` (`main.js:329`), which is called from
+inside the Pixi ticker callback (`main.js:357-358`), and PixiJS does not catch listener exceptions —
+so a throwing hook takes down the frame loop, in the one code path that has just banked a run's
+coins. §8's rule ("every sync failure resolves to do-nothing-and-retry") wins over the diagnostic
+convenience, and the separate try/catch keeps both properties anyway: a localStorage failure is
+still distinguishable from a sync failure, because they are now two different catches.
+
+**Firing only on success** means a device whose localStorage is refusing writes never uploads state
+it is about to forget.
+
+**The freeze latch** exists for §3.3 and is explained there. In short: writing a blob to disk and
+then leaving live event handlers able to write over it before the reload commits is not safe, and
+this codebase has no unload handler that would have caught it.
 
 The hook receives a **slot number**, not a key: `state.js` keeps a module-level `boundSlot`
 alongside the existing `boundKey` (both set on the same line of `loadMeta`, `state.js:107`), so key
 construction stays entirely inside `state.js` and `sync.js` never learns the shape of a save key.
 `sync.js` compares the slot number against the one it syncs and ignores everything else.
+
+**The hook is a nudge, not the truth.** It tells `sync.js` *when* to re-evaluate; it never sets a
+"needs pushing" flag. See §6.2 — `dirty` is derived from the save's content hash, precisely so that
+a save the hook never announced (an old cached bundle, a second tab, a future ninth call site)
+cannot go unnoticed.
 
 `state.js` also gains the two raw accessors `sync.js` needs, next to `slotSummary` (which already
 does raw-read-without-migrating):
@@ -146,9 +195,38 @@ does raw-read-without-migrating):
 - `exportSlot(n)` → the slot's raw JSON string, or `null`. This is what gets pushed — **not**
   `JSON.stringify(meta)` of the live in-memory object, which may have been mutated since the last
   save. What we promise the cloud is exactly what is on disk.
-- `importSlot(n, json)` → parses first, refuses to write if it does not parse, then writes. A
-  corrupted download must not be able to brick a slot; `loadMeta`'s catch would silently recover to
-  a fresh save, which is worse than refusing.
+- `importSlot(n, json)` → **validates shape, not syntax**, then writes.
+
+That second point is a correction to an earlier draft, which said only *"parses first, refuses to
+write if it does not parse."* A parse check does not prevent the wipe it was written to prevent.
+`loadMeta` recovers to a **fresh save** — silently, via its `catch { /* corrupted save -> fresh */ }`
+at `state.js:138` — for any blob whose shape it does not expect, and all of the following are
+perfectly valid JSON. Verified by executing the real `loadMeta`:
+
+| blob | `loadMeta` result |
+|---|---|
+| `{"coins":5,"chapters":{}}` (no `shop` key) | **fresh save — total wipe** |
+| `{"coins":5,"shop":"x","chapters":{}}` | **fresh save — total wipe** |
+| `{"coins":5,"shop":{},"chapters":"zzz"}` | **fresh save — total wipe** |
+| `{}` | **fresh save — total wipe** |
+| `null` | **fresh save — total wipe** |
+
+The mechanism is `loadMeta:112` — `for (const id of Object.keys(SHOP)) m.shop[id] ??= 0` throws a
+`TypeError` when `m.shop` is absent or not an object, and the catch swallows it. Every one of those
+blobs passes a parse check, gets written to disk, and the reload lands the player on a fresh save
+with their slot gone. This is reachable three ways with no attacker at all: a truncated response
+body, an old-format save predating a field, or a blob written by a future build.
+
+So `importSlot` validates:
+
+```js
+const m = JSON.parse(json)                        // throws -> refuse
+if (typeof m !== 'object' || m === null) return false
+if (typeof m.shop !== 'object' || m.shop === null || Array.isArray(m.shop)) return false
+if (m.chapters != null && (typeof m.chapters !== 'object' || Array.isArray(m.chapters))) return false
+```
+
+and refuses on any failure. A refused import is reported to the player, never silent (§8).
 
 ### 3.3 Adopting a cloud save = write + reload
 
@@ -161,13 +239,42 @@ both mutate localStorage and call `location.reload()`, and `state.js:36-37` stat
 outright: *"The caller … reloads the page right after, so every module re-reads `loadMeta()`
 against the new slot rather than reconciling in-memory state."*
 
-**Adopting a cloud save is `importSlot(slot, blob)` then `location.reload()`.** Same idiom, one
-line, provably correct.
+**Adopting a cloud save is `freezeSaves()`, then `importSlot(slot, blob)`, then commit the sync
+record, then `location.reload()` — in that order.**
 
-The consequence is a real constraint: a reload destroys an in-progress run, so **sync only acts
-when `run === null`**. Pull on boot, and pull when the tab becomes visible while at a menu. During a
-run, nothing happens — which costs nothing, because `saveMeta` never fires mid-run either (all
-eight call sites above are menu actions or `endRun`).
+An earlier draft said *"same idiom, one line, provably correct"* and cited `onReset`/`onSlot` as
+precedent. The citation is right and the conclusion was wrong: those two are safe for a reason that
+does not transfer.
+
+`location.reload()` queues a navigation; it does not stop script execution. There is **no
+`beforeunload`, `pagehide` or `unload` handler anywhere in this repo** (verified: zero matches
+across `src/`, `public/` and `index.html`), so the hazard is not an unload race — it is that **live
+event handlers keep firing until the navigation commits**, tens to hundreds of milliseconds later,
+longer with a request in flight. Any of them calls `saveMeta` with the *stale in-memory* `meta`:
+
+- the chapter carousel's `settle`, from its own 130 ms `setTimeout` (`ui.js:471-476` →
+  `main.js:171-176`) — no new tap required, a scroll already in progress is enough;
+- a difficulty pip (`main.js:165`), the 🌐 toggle (`main.js:134`), a shop purchase (`main.js:144`).
+
+That alone overwrites the freshly adopted blob with the pre-adopt save. What makes it a *sync* bug
+rather than a local one is what happens next: that same `saveMeta` fires the §3.2 hook, and the
+sync record has **already** been advanced to `baseGen = cloud.gen`. So the next push is
+`{baseGen: <current>, blob: <stale local>}`, the server accepts it because nobody else moved, and
+the other device's session is overwritten **with no 409 and no conflict prompt**. The entire
+conflict machinery is bypassed precisely because the adopt half-completed.
+
+`onReset` and `onSlot` are immune only incidentally — a clobber there rewrites a save that is about
+to be erased anyway, or one bound to a different key. Adopt has no such immunity, so it needs the
+explicit latch: `freezeSaves()` sets a one-way flag that makes every subsequent `saveMeta` a no-op
+until the reload clears it with the whole JS context. Belt and braces, `setSaveHook(null)` too.
+
+**Every adopt path takes the latch** — the boot/visible pull (§6.3), the pairing adopt (§5.3), and
+"Take the cloud's" (§7.3).
+
+The consequence is a real constraint: a reload destroys an in-progress run, so **sync only adopts
+when `run === null`**. See §6.3 for the trigger list and §3.1/§12 for how `sync.js` learns that,
+given `run` is a `let` local inside `boot()` (`main.js:19`) and is not reachable from another
+module at all.
 
 ### 3.4 The Worker never parses the save
 
@@ -198,34 +305,97 @@ other device forever. An empty string has no language.
 
 `meta.name` is the **first player-authored free text in this codebase**, it is interpolated into
 `innerHTML` (the title screen, the slot modal, the conflict prompt), and — uniquely — it arrives
-**from the network**. `state.js:55-56` already documents the shape of this hazard for a value that
+**from the network**. `state.js:54-55` already documents the shape of this hazard for a value that
 merely came from localStorage:
 
 > *"`Number()` both normalizes odd shapes and defuses a tampered string coins (`"<img onerror=…>"`)
 > that the slot modal would otherwise interpolate into innerHTML."*
 
 There is no HTML-escaping helper anywhere in `ui.js` today — every interpolated value is either a
-number or a trusted config/i18n string, so the templating style has never needed one. This design
-introduces the first value that breaks that assumption, so it must also introduce the helper: a
-four-line `esc()` in `ui.js` applied to `meta.name` at every render site, plus a hard clamp
-(24 characters, control characters stripped) applied on input **and** on adopt, so a hostile blob
-cannot arrive with a 4 KB name.
+number or a trusted config/i18n string, so the templating style has never needed one.
+
+**`name` is not the dangerous field, and an earlier draft of this section got that wrong.** It
+specified `esc()` "applied to `meta.name` at every render site" and left every other field alone,
+having just quoted the comment that explains why `coins` is dangerous. But that `Number()` hardening
+lives in `slotSummary` (`state.js:54-55`, covered by test `SS.g`), **not in `loadMeta`** — `loadMeta`
+never touches `coins` or `runs` at all. Until now that was fine, because nothing arrived from
+outside the device. Verified by executing the real `loadMeta` against a tampered blob:
+
+| field in blob | after `loadMeta` |
+|---|---|
+| `"coins": "<img src=x onerror=alert(1)>"` | `"<img src=x onerror=alert(1)>"` — **untouched** |
+| `"runs": "<svg onload=alert(2)>"` | `"<svg onload=alert(2)>"` — **untouched** |
+| `"shop": {"hp": "<b>X</b>"}` | §4.2's `upgrades` reduction returns `"0<b>X</b>00000000"` |
+
+and `${meta.coins}` is interpolated raw into `innerHTML` at **three** live sites — `ui.js:491`
+(the title coins badge), `ui.js:717` (the shop balance) and `ui.js:1132` (the reroll button). Since
+§3.4 has the Worker storing an opaque blob it never parses, **every field is attacker-controlled**
+for anyone holding a pairing code, and §10 concedes the code is an unrevocable bearer token. There
+are two sinks, and the first one fires *before* the player decides anything: the conflict prompt
+renders both summaries, so merely **reading** the comparison is the attack. The second is the next
+boot, post-adopt. XSS on the game's own origin means reading and rewriting all three save slots and
+the sync record itself.
+
+So the rule is the boundary, not the render site:
+
+1. **`importSlot` normalises before it writes** (§3.2) — `Number(m.coins) || 0`, `Number(m.runs) || 0`,
+   the `name` clamp below, and the shape validation. Killing the class at the boundary beats
+   escaping at N render sites, because N grows.
+2. **`loadMeta` coerces too** — `m.coins = Number(m.coins) || 0`, `m.runs = Number(m.runs) || 0`.
+   The same hardening `slotSummary` already has, at the site that actually feeds the UI. This is
+   worth doing on its own merits and is the one fix here that improves a shipped build.
+3. **§4.2's `upgrades` reduction becomes** `reduce((s, l) => s + (Number(l) || 0), 0)`.
+4. **`esc()` on every interpolated summary value**, not just `name` — belt and braces behind 1–3.
+
+The `name` clamp (control characters stripped, `nowrap`/`ellipsis` at the render site) is applied
+**on receive/parse, not on adopt**. An earlier draft said "on input and on adopt", but the conflict
+prompt renders the cloud's `name` *before* adopt — that is its entire purpose — so an adopt-time
+clamp lets a 4 KB name reach the modal exactly as feared. The character limit is a layout question,
+settled in §9: a `.slot-row` has ~193.6px of inner width and must also carry the slot label, a
+status glyph and a rename affordance, so 24 characters does not fit and the cap is **14**.
 
 **`meta.savedAt`** — epoch milliseconds, stamped by `saveMeta` on every write (§3.2). Default
-`m.savedAt ??= 0`, which the prompt renders as "unknown" — seen once, on the first sync after
-upgrading.
+`m.savedAt ??= 0`.
 
 This is the device's own clock, and clock skew between a phone and a laptop is normal.
-**The timestamp is shown to the human and never used to decide anything.** Ordering is the
-generation counter's job, always (§6.2). A sync design that resolves conflicts by comparing wall
-clocks is a sync design that loses a session whenever a device's clock is wrong.
+**The timestamp is shown to the human and never used by the protocol to decide anything.** Ordering
+is the generation counter's job, always (§6.2). A sync design that resolves conflicts by comparing
+wall clocks is a sync design that loses a session whenever a device's clock is wrong.
+
+That sentence has to be qualified, because an earlier draft stated it absolutely and then broke it
+three times in the same document. All three are corrected in place — §6.4 no longer keys the
+lost-ACK check on `savedAt`, and §6.3's pull throttle uses `Math.abs` — but the honest statement of
+the rule is: **no clock value ever orders two saves.** Where a clock is unavoidable (a throttle
+window, a human-readable "8 minutes ago"), it is used for a duration or for display, never for
+"which of these is newer."
+
+Rendering rules, which §7.2 must implement and an earlier draft left contradictory:
+
+- **`savedAt === 0` or absent renders "unknown"**, not a date. §4.1 said "unknown" while §7.2 said
+  `Intl.RelativeTimeFormat` under a day and an absolute time beyond it — under which `0` renders
+  *"1 January 1970"*. That lands on the first sync after upgrading, which is exactly when it is
+  most confusing.
+- **A `savedAt` in the future renders "unknown (clock differs)".** `Intl.RelativeTimeFormat` with a
+  positive delta happily renders *"in 3 hours"*. Clamp anything more than 60 s ahead.
+- **When the clock disagrees with the generation counter, say so.** The machine knows which save is
+  newer (§6.2); if the older generation carries the later `savedAt`, the prompt shows a one-line
+  warning rather than letting the misleading number stand. This matters because in the prompt *the
+  human is the decision function*, and `savedAt` is the only row carrying recency — every other row
+  can legitimately move **down** on the newer save, since coins get spent (§7.1).
+
+Note also that `loadMeta`'s repairs are **in-memory only and never written back**, so a save that
+has not been re-saved since the upgrade has no `savedAt` key *on disk* — and §3.2 pushes
+`exportSlot`, "exactly what is on disk". The defaults must therefore also be added to `loadMeta`'s
+`fresh` object literal (`state.js:139-148`), which has neither field today, and `saveSummary` must
+tolerate both being absent (§4.2).
 
 Both fields are additive, and `loadMeta` returns the parsed object wholesale after patching, so
 unknown keys survive a round-trip: a save written by the new build still loads correctly in the old
-build, and a save that visits an old build and comes back keeps its new fields. The rollout cannot
-corrupt anything mid-flight.
+build, and a save that visits an old build and comes back keeps its new fields. (One exception, for
+accuracy: the v4→v5 migration `delete`s `m.difficulty`/`m.maxDifficulty` at `state.js:120-121`.)
+The rollout cannot corrupt anything mid-flight.
 
-### 4.2 The four-field summary
+### 4.2 The save summary
 
 Owner requirement 3: the conflict prompt shows, per side, the furthest chapter and the difficulty
 beaten there, the total upgrades owned, the save time, and the coins. Three derive from data that
@@ -233,13 +403,37 @@ already exists. A new pure export in `state.js`, next to `slotSummary`:
 
 ```js
 export function saveSummary(meta)
-// → { name, coins, upgrades, chapterId, beaten, savedAt }
+// → { name, coins, upgrades, runs, chapterId, beaten, savedAt }
 ```
 
-- **coins** — `meta.coins`.
-- **upgrades** — `Object.values(meta.shop).reduce((s, l) => s + l, 0)`. This exact expression
-  already exists as `owned` in `ui.js`'s `shopFootHtml` (line 560); reuse the idiom so the shop's
-  sacrifice meter and the conflict prompt can never disagree about what "upgrades owned" means.
+**`saveSummary` must be total.** It runs on a **raw downloaded blob**, not on a `loadMeta`-repaired
+object — §3.4 requires exactly that, since the Worker does not parse and both sides are derived
+client-side. An earlier draft wrote it as a set of direct property accesses, each of which throws on
+a realistic blob:
+
+- `chapters[chapterId].maxDifficulty` — `furthestUnlockedChapterId` defaults to `CHAPTER_ORDER[0]`
+  when nothing is unlocked (`ui.js:73-79`), so a blob with `chapters: {}` (a legitimately fresh
+  save) gives `chapters['body'] === undefined` → **TypeError**.
+- `Object.values(meta.shop)` → **TypeError** on any blob missing `shop`, which §3.2's table shows is
+  reachable without an attacker.
+- `Intl.RelativeTimeFormat().format(NaN)` → **RangeError** when `savedAt` is absent, which §4.1
+  shows is the normal state of any save not re-written since the upgrade.
+
+A throw mid-render leaves the modal half-drawn over the title screen — and §7.2 deliberately
+disables backdrop-tap and Escape, so **the player is locked out of the game** and has to clear site
+data, destroying all three slots, to recover. Every access is therefore guarded, every numeric is
+`Number(x) || 0`, a missing or garbage `chapters[chapterId]` yields `beaten: 0`, and §7.2 wraps the
+whole render in a try/catch that falls back to a "this save could not be read — keep local" state.
+
+- **coins** — `Number(meta.coins) || 0` (§4.1: never the raw value).
+- **upgrades** — `Object.values(meta.shop ?? {}).reduce((s, l) => s + (Number(l) || 0), 0)`. The
+  unguarded form of this expression already exists as `owned` in `ui.js`'s `shopFootHtml` (line
+  560); reuse the idiom so the shop's sacrifice meter and the conflict prompt can never disagree
+  about what "upgrades owned" means, but not the missing coercion.
+- **runs** — `Number(meta.runs) || 0`. Added after review: it is already in `meta`, costs nothing,
+  and is the single best "which of these is my main save?" tiebreaker in the whole blob — better
+  than coins, which §7.1 proves runs *backwards* (the more advanced save often shows fewer coins,
+  because coins get spent).
 - **chapterId** — the last `CHAPTER_ORDER` id whose `chapters[id].unlocked` is true, which is
   exactly `furthestUnlockedChapterId` (`ui.js:73-79`), **then overridden by `'blank'` when
   `meta.chapters.blank?.unlocked`**. The Blank lives outside `CHAPTER_ORDER` by design (see
@@ -266,11 +460,18 @@ CREATE TABLE saves (
   blob       TEXT    NOT NULL,     -- the meta JSON verbatim; opaque to the Worker
   saved_at   INTEGER NOT NULL,     -- writer's clock, epoch ms — display only, never compared
   device     TEXT    NOT NULL,     -- last writer's device id; used only for the lost-ACK check (§6.4)
+  req_id     TEXT    NOT NULL,     -- last writer's per-push idempotency key (§6.4)
   updated_at INTEGER NOT NULL,     -- server clock, epoch ms — write throttle + any future sweep
+  writes_day INTEGER NOT NULL,     -- server-day bucket + counter, per-code write cap (§10)
+  writes_n   INTEGER NOT NULL,
   prev_blob  TEXT,                 -- the blob this write replaced; operator-only undo (§7.3)
   prev_gen   INTEGER
 );
 ```
+
+`req_id` replaces the earlier draft's reliance on `saved_at` for lost-ACK detection (§6.4);
+`saved_at` remains stored, but exclusively for display. `writes_day`/`writes_n` cap how much of the
+shared free-tier budget any single code can burn (§10).
 
 No secondary index. Every query is a primary-key point lookup on `id`; adding an index on
 `updated_at` only makes sense once something sweeps by age, and at ~1 KB per row against a 5 GB
@@ -304,6 +505,21 @@ in anything that runs Pixi v8, and `crypto.subtle.digest('SHA-256', …)` is nee
 80 bits is beyond brute force by any margin that matters, and 16 characters is about fifteen seconds
 of typing.
 
+**Linking on the first device uploads immediately, and no code is shown until the upload is
+ACKed.** This is push trigger 4 (§6.3), and it exists because an earlier draft had none: linking
+mints a code and writes a localStorage record, which is not a `saveMeta`, so it matched none of the
+push triggers. The result was a flow that could not work — device A shows a code, the player walks
+to the laptop and types all sixteen characters correctly, and gets a **404**, because A never
+uploaded. §8's message for that case read *"No save found for that code — check the letters."* The
+letters were fine, and the player would retype the code several times before concluding the feature
+is broken, on the one screen where their patience is already spent.
+
+So the pairing UI has explicit states — *uploading*, then *ready* — and the code appears only in
+the second. The 404 copy must also cover both of its causes, since §6.1 documents that a 404 means
+"no row under this code (never synced, **or** code mistyped)" and the old copy asserted only one of
+them. (It was also wrong on its face: Crockford base32 is letters *and* digits.) Exact strings are
+in §9.
+
 **The Worker stores `SHA-256(code)` as the row id and never stores the code.** A plain SHA-256 is
 the correct hash here — and only here — because the input is a full-entropy 80-bit random value,
 not a human-chosen password: there is no dictionary to attack and no work factor to buy. The
@@ -317,15 +533,19 @@ The sync record is its own localStorage key, `charming-anomaly-sync`, entirely s
 
 ```jsonc
 {
-  "code":     "A7K3-9WQM-2FTX-B4NE", // the bearer token
-  "slot":     2,                     // which LOCAL slot this device syncs — device-local by design
-  "device":   "b6f1…",               // crypto.randomUUID(), once, for the lost-ACK check
-  "gen":      7,                     // baseGen: the generation the local save descends from
-  "dirty":    true,                  // local save changed since gen was last confirmed
-  "sentAt":   1754251200000,         // savedAt of the push currently in flight
-  "pulledAt": 1754251180000          // last successful GET, for the pull throttle
+  "code":       "A7K3-9WQM-2FTX-B4NE", // the bearer token
+  "slot":       2,                     // which LOCAL slot this device syncs — device-local by design
+  "device":     "b6f1…",               // crypto.randomUUID(), once, for the lost-ACK check
+  "gen":        7,                     // baseGen: the generation the local save descends from
+  "syncedHash": "9f2c…",               // hash(exportSlot(slot)) as of generation `gen`
+  "reqId":      "3a70…",               // per-push idempotency key, for the lost-ACK check
+  "pulledAt":   1754251180000          // last successful GET, for the pull throttle
 }
 ```
+
+**There is no `dirty` boolean, and no `sentAt`.** Both were in an earlier draft and both were
+unsound; the replacements are `syncedHash` and `reqId`. The reasoning is in §6.2 and §6.4, and it is
+the single highest-leverage correction in this document.
 
 Putting any of this inside `meta` would be wrong in three distinct ways, and the third is fatal:
 
@@ -360,7 +580,7 @@ outcomes now follow from what the player pointed at:
 - **An empty slot** → `importSlot(slot, cloudBlob)`, `baseGen = cloud.gen`, `dirty` clear, reload.
   Nothing is destroyed and no prompt appears. This is the common path, and the one the owner's use
   case walks: a phone save arriving on a laptop that has a free slot.
-- **An occupied slot** → the four-field comparison prompt of §7.2, that slot's save on the left and
+- **An occupied slot** → the comparison prompt of §7.2, that slot's save on the left and
   the cloud's on the right. The player is choosing to overwrite *this specific save*, having just
   read what is in it.
 
@@ -379,15 +599,46 @@ Two coherent answers: unlink sync and leave the cloud alone, or propagate the wi
 
 **Propagate.** A player who has deliberately linked their devices expects them to agree; the
 surprising outcome is the laptop re-uploading the old save an hour later and un-resetting the
-phone. So `onReset` on the synced slot pushes the fresh save before reloading, and the confirm
-modal's copy — today *"Coins, upgrades, slots and best scores will be permanently erased."*
-(`ui.js:661`) — gains *"…on this device and on every device linked to this save."* Anything less is
-a lie about scope.
+phone. The confirm copy must therefore state the true scope — see §9.6 for the two conditional
+bodies that replace today's static string.
 
-Mechanically: `onReset` awaits the push with a 2-second bound before `location.reload()` (it is a
-modal-confirmed destructive action; a brief spinner is acceptable), and falls back to "reset
-locally now, push on the next boot" if the network is gone. `sendBeacon` is not usable here — it
-cannot carry an `Authorization` header.
+> **⚠ The mechanism below is unresolved — see §14, question 1.** An earlier draft specified
+> *"`onReset` pushes the fresh save before reloading, with a 2-second bound, falling back to reset
+> locally now and push on the next boot."* That is not implementable and its fallback delivers the
+> exact outcome this section promises to prevent. Recorded here so the implementation plan cannot
+> inherit it.
+
+**Why the push-based mechanism fails**, three independent ways:
+
+1. **There is nothing to push.** `resetSave()` (`state.js:159-161`) is a bare
+   `localStorage.removeItem(boundKey)` — the key is *gone*, and `exportSlot(n)` returns `null`. The
+   "fresh save" exists only in memory, and only after a reload. Pushing `null` or `""` either gets
+   refused by §3.2's hardened `importSlot` or, without it, wipes the other device via `loadMeta`'s
+   catch. Every resolution of the unspecified case is one of §3.2's two hazards.
+2. **The fallback has no trigger, and silently un-resets the player.** With `dirty` derived from a
+   content hash (§6.2), a wiped-then-reloaded device hashes its *fresh* save and compares against a
+   `syncedHash` from before the wipe, so it does read as dirty — but only if the record survives in
+   a coherent state, and the earlier draft's boolean version did not set anything at all, because
+   nothing calls `saveMeta` at boot (verified in §6.3). Under that draft the sequence was: reset
+   offline → record still says `{gen: 7, clean}` → the other device pushes gen 8 carrying the
+   pre-reset progress → the wiped device pulls, sees `8 > 7` and not dirty, and **adopts it
+   silently**. Every coin and chapter the player deliberately erased comes back, with no message.
+3. **The 1-second same-row PUT throttle defeats it** (§10). Finish a run (push at T), open the
+   shop, tap Reset at T+0.4 s → **429** → straight into failure mode 2.
+
+**What a correct mechanism needs**, whichever option §14 settles on: reset must be its own protocol
+operation rather than a push, so that the other device can tell "erased" from "an empty save
+arrived"; it must be exempt from the 1-second throttle; and if it cannot complete, the player must
+be told **before** the local wipe, not promised a retry that has no trigger.
+
+**And a wipe arriving on the other device must be announced.** Even on the happy path, the earlier
+draft's other device experience was: open the game → it reloads by itself → everything is gone → no
+text, ever. That is indistinguishable from save corruption and is the single most likely source of
+a "the game deleted my save" report. A deletion is the one pull that must be confirmed *before* it
+lands (§9), not adopted silently — and the player who says no is choosing to keep a save on a device
+they are holding, which is their call, so that path unlinks rather than wipes.
+
+`sendBeacon` is not usable in any variant — it cannot carry an `Authorization` header.
 
 ## 6. Sync protocol
 
@@ -398,25 +649,32 @@ Two, and the client mints its own code.
 ```
 GET /v1/save
   Authorization: Bearer <code>
-  200 { gen, blob, savedAt, device }
+  200 { gen, blob, savedAt, device, reqId }
   404                                  no row under this code (never synced, or code mistyped)
   401                                  malformed code
   429                                  rate limited
 
 PUT /v1/save
   Authorization: Bearer <code>
-  { baseGen, blob, savedAt, device }
+  { baseGen, blob, savedAt, device, reqId }
   200 { gen }                          accepted; gen === baseGen + 1
-  409 { gen, blob, savedAt, device }   stale baseGen — the current row comes back with it
+  409 { gen, blob, savedAt, device, reqId }   stale baseGen — the current row comes back with it
   400                                  blob too large or unparseable envelope
   401 / 429
 ```
 
 `baseGen: 0` means *"I believe no row exists"* and maps to `INSERT … ON CONFLICT(id) DO NOTHING`;
 zero rows affected produces the same 409 as any other stale write, carrying the existing row. So
-**one code path covers first write, ordinary write, and conflict** — including the case where a
-player types a code on a device that already has local progress. There is no create endpoint and no
-create response to lose.
+**one client-visible code path covers first write, ordinary write, and conflict** — including the
+case where a player types a code on a device that already has local progress. There is no create
+endpoint and no create response to lose.
+
+To be precise about the server side, since an earlier draft said "one code path" and then showed
+only the `UPDATE`: `baseGen: 0` takes the `INSERT … ON CONFLICT DO NOTHING` and every other value
+takes the `UPDATE` below — two statements and a branch. Both are followed by a `SELECT` when zero
+rows changed, to build the 409 body. Write the whole thing as a **D1 batch/transaction** so the
+`SELECT` cannot observe a row written between the failed write and the read; the earlier draft left
+that unstated.
 
 Client-minted codes were chosen over server-minted ones for exactly that robustness: a lost
 response to a server-side create leaves an orphaned row and a player holding nothing, while a lost
@@ -429,74 +687,179 @@ no read-modify-write race even under concurrent pushes:
 ```sql
 UPDATE saves
    SET prev_blob = blob, prev_gen = gen,
-       blob = ?, gen = gen + 1, saved_at = ?, device = ?, updated_at = ?
+       blob = ?, gen = gen + 1, saved_at = ?, device = ?, req_id = ?, updated_at = ?
  WHERE id = ? AND gen = ?           -- ?  = baseGen
 ```
 
-Zero rows changed → read the row and return 409 with it.
+Zero rows changed → read the row and return 409 with it (in the same transaction, above).
 
 ### 6.2 The generation counter
 
 `gen` is a plain integer, incremented by the server on every accepted write. The client stores the
-generation its local save descends from (`record.gen`, "baseGen") plus a `dirty` flag set whenever
-`saveMeta` fires on the synced slot and cleared on a successful push.
+generation its local save descends from (`record.gen`, "baseGen").
 
-Those two values are the entire decision function, and it is pure:
+**`dirty` is derived, never stored:**
 
-| local `dirty` | cloud `gen` vs baseGen | decision |
+```js
+const dirty = hash(exportSlot(record.slot)) !== record.syncedHash
+```
+
+An earlier draft made `dirty` a boolean that `saveMeta`'s hook set and a successful push cleared.
+That is wrong in three independent ways, and all three are silent data loss:
+
+1. **A save that lands while a push is in flight is invisible.** Phone finishes a run → disk is
+   **B1**, push sent. 400 ms later the player buys a booster → disk is **B2**; the hook fires and
+   sets `dirty = true`, which it already was — **a no-op, so the new data leaves no trace**. The
+   ACK arrives, `dirty` clears, baseGen advances. Cloud holds B1, disk holds B2, and no trigger
+   will ever push B2. The laptop then pulls B1 and adopts it; when it pushes, the phone adopts
+   *that* and B2 is destroyed on both devices with no prompt. This needs no exotic timing —
+   trigger 3 below is a push deliberately issued *while the player is still shopping*, so the
+   window is seconds wide by design.
+2. **Two tabs share the record with no atomicity.** localStorage has no compare-and-swap. Two tabs
+   both read `{gen: 7}`, both push from it, one wins, the loser's 409 lands on a record the winner
+   has already rewritten — and the loser's disk content is the one that survives locally while
+   `dirty` reads false.
+3. **An old cached bundle has no hook at all.** `public/sw.js` falls back to `caches.match(req)`
+   when the network fails, so an offline boot serves the **previous build**. It writes the same
+   slot key, advances real progress, and sets nothing. §3.2 argued the hook exists because "eight
+   edits that a ninth call site will silently skip" — right instinct, wrong depth: an entire
+   *build* is the ninth call site.
+
+A content hash fixes all three at once because it asks the disk rather than trusting a writer. No
+writer cooperation is required, so tabs, cached bundles and future call sites are all covered, and
+a lost race is self-healing rather than silently cleared. `hash` can be any cheap non-cryptographic
+32-bit string hash over ~900 bytes — this is a change-detector, not a security boundary.
+
+The decision function stays pure:
+
+| `dirty` (derived) | cloud `gen` vs baseGen | decision |
 |---|---|---|
 | false | equal | **nothing** — the common case |
-| false | greater | **pull** — adopt silently, `importSlot` + reload |
+| false | greater | **pull** — adopt, `importSlot` + reload (announced, see §8) |
 | true | equal | **push** |
 | true | greater | **conflict** — both sides moved from a common ancestor; prompt (§7) |
-| any | less | **push** (server rolled back or was restored; our baseGen wins the next write anyway) |
+| any | **less** | **resync, then re-run this table** |
 
-Nothing in this table consults a timestamp. That is the point.
+That last row was `push` in an earlier draft, with the parenthetical *"our baseGen wins the next
+write anyway."* It does not. §6.1's write is `UPDATE … WHERE id = ? AND gen = ?` with `? = baseGen`;
+if the row's `gen` is *lower* than baseGen, the predicate can never match, because the row only
+counts up from where it is and each step is written by some other device using *its* baseGen. Zero
+rows change → 409 → **a conflict prompt on every trigger, forever.** And it is reachable without a
+database restore: §8 says a 404 outside pairing means "treat as `baseGen: 0` and push", so if device
+B ever recreates a deleted row at gen 1 while device A holds baseGen 12, device A is permanently
+wedged — and every wedge is a modal inviting the player to overwrite something. `cloud.gen < baseGen`
+is not a decision, it is a desynchronisation: set `baseGen = cloud.gen` unconditionally and evaluate
+the table again (which lands on `push` if dirty, `nothing` if not).
+
+**On every successful push**, set `baseGen = gen` from the response and
+`syncedHash = hash(<the exact blob that was sent>)` — not a fresh `exportSlot()` read, which may
+already have moved. If the disk has changed since, the next evaluation derives `dirty = true` on its
+own and the following push is a clean fast-forward rather than a conflict.
+
+Nothing in this table consults a timestamp. That is the point, and §6.4 no longer breaks it.
 
 ### 6.3 When to pull, when to push
 
 **Pull** — fire-and-forget, never awaited by `boot()`:
 
 - on boot, after the title screen has rendered;
-- on `visibilitychange` → visible, when `run === null` and `pulledAt` is more than 10 seconds old.
+- on `visibilitychange` → visible, when `Math.abs(Date.now() - pulledAt)` is more than 10 seconds;
+- **when `run` transitions to `null`** — i.e. `onQuit` (`main.js:211-215`), returning to the title
+  from the pause or summary screen.
 
-A pull may be issued at any time (a GET is harmless), but an *adopt* only happens when
-`run === null`, because adopting means reloading (§3.3).
+A pull may be issued at any time (a GET is harmless), but an *adopt* only happens when `isIdle()`
+(§3.1), because adopting means reloading (§3.3).
+
+**The third trigger and the `Math.abs` are both corrections, and the first one rescues the owner's
+own use case.** An earlier draft listed only boot and `visible`, and gated the `visible` pull on
+`run === null`. But `run` is set to `null` in exactly one place — `onQuit`, `main.js:212` — so
+**the summary screen and the pause screen both have `run !== null`**. Walk the return leg of the
+stated use case:
+
+- Laptop plays, pushes → gen 8. The player closes the lid with the tab open **on the summary
+  screen**, which is where a run ends.
+- Phone plays → gen 9.
+- The player reopens the laptop. `visibilitychange` → visible fires, but `run !== null`, so no
+  adopt. The GET itself succeeds, so `pulledAt` updates and the 10-second throttle now suppresses
+  retries. **Nothing ever re-evaluates**, because no trigger was tied to leaving that screen.
+- The laptop plays a whole session on the stale gen-8 save, then pushes → 409 against gen 9 →
+  the destructive prompt, with the phone's session on the line.
+
+*"then back on my phone when I leave for work"* is the use case; that was its return leg landing on
+the modal instead of the invisible handoff §1 promises. Two rules prevent it: pull when `run`
+becomes `null`, and **never bump `pulledAt` for a pull whose adopt was blocked** — otherwise the
+throttle remembers a decision that was never made.
+
+The `Math.abs` guards a device whose clock steps *backwards*: a bare `Date.now() - pulledAt > 10_000`
+goes negative and suppresses every pull for the duration of the jump, during which the device runs
+on a stale save and accumulates divergence.
 
 **Push** — three triggers, in owner-estimated order of importance:
 
 1. run end (`endRun`'s `saveMeta`, `main.js:329`) — the one that carries a session's progress;
 2. `visibilitychange` → hidden, and `pagehide`, while dirty — pocketing the phone;
 3. a 10-second trailing debounce after any save on the synced slot, so a tab closed without ever
-   being hidden loses at most ten seconds of menu shopping.
+   being hidden loses at most ten seconds of menu shopping;
+4. **immediately on linking** (§5.1), which is not a `saveMeta` and therefore matched none of the
+   three triggers above. Without it, device A mints a code and never uploads, so device B types a
+   *correct* code and gets a 404. See §5.1 — this was a real dead end in an earlier draft.
 
 Trigger 3 collapses a burst of shop purchases into one request. Measured against the eight save
 sites, this lands at roughly 3–5 pushes per session — against a 100,000-row/day allowance.
 
-A dropped push is never fatal: `dirty` stays set, and the next trigger retries. The worst case is
-that the other device pulls a slightly older generation, is not itself dirty, adopts it, and gets
-corrected on the next pull. The failure mode degrades toward *a stale but valid save*, never toward
-silent divergence — because the moment the second device has its own changes, it is dirty, and the
-table above routes to the prompt.
+**Pushes are serialised per device.** Wrap every push in `navigator.locks.request('ca-sync', …)` —
+universally available wherever Pixi v8 runs, the same availability argument §5.1 makes for `crypto`.
+Two tabs otherwise interleave freely on a store with no compare-and-swap (§6.2, reason 2). The
+derived `dirty` makes a lost race self-healing; the lock makes it rare.
 
-One verified detail that decides whether `dirty` is trustworthy on a freshly adopted device:
+A dropped push is never fatal: the hash still differs, so the next evaluation derives `dirty = true`
+and retries. The worst case is that the other device pulls a slightly older generation, is not
+itself dirty, adopts it, and gets corrected on the next pull. The failure mode degrades toward *a
+stale but valid save*, never toward silent divergence — because the moment the second device has
+its own changes, its hash differs, and the table above routes to the prompt.
+
+One verified detail, which mattered more when `dirty` was a flag but is still worth recording:
 nothing calls `saveMeta` at boot without a user action. In particular the chapter carousel does not
 — `positionCarousel` scrolls programmatically and fires `scroll`, but `settle` early-returns when
-the centred card already matches `browseChapterId` (`ui.js:471`), and `browseChapterId` is
-initialised from `meta.chapter` (`ui.js:204`), which is the card `positionCarousel` centres. No
-spurious save, so no spurious dirty flag, so no spurious conflict prompt.
+the centred card already matches `browseChapterId` (`ui.js:471`, plus a second guard at `:474` on
+`browseChapterId !== meta.chapter`), and `browseChapterId` is initialised from `meta.chapter`
+(`ui.js:204`), which is the card `positionCarousel` centres. No spurious save on a freshly adopted
+device, so no spurious conflict prompt.
 
 ### 6.4 The lost-ACK case
 
-If a push is accepted but the response never arrives, the client keeps `dirty` and a stale
-`baseGen`. Its next push 409s against a row that it wrote itself, and the player would be shown a
-conflict between their save and their own save.
+If a push is accepted but the response never arrives, the client keeps a stale `baseGen`. Its next
+push 409s against a row that it wrote itself, and the player would be shown a conflict between their
+save and their own save.
 
-The `device` column closes this: on a 409, if `server.device === record.device` **and**
-`server.savedAt === record.sentAt`, this is our own lost acknowledgement — adopt `server.gen` as
-the new baseGen, clear `dirty`, no prompt. `sentAt` is written into the record *before* the request
-goes out, so the check works even though the response was lost. Three lines, and it removes an
-entire class of spurious prompt.
+**The check is keyed on a per-push `reqId`, not on a timestamp.** The client mints
+`reqId = crypto.randomUUID()`, writes it into the sync record *before* the request goes out, and
+sends it as a column the server stores alongside the row. On a 409: if
+`server.device === record.device` **and** `server.reqId === record.reqId`, this is our own lost
+acknowledgement — set `baseGen = server.gen`, re-derive `dirty` from the disk hash (§6.2), no
+prompt.
+
+An earlier draft used `server.savedAt === record.sentAt`, where `sentAt` was "the `savedAt` of the
+push currently in flight" — a `Date.now()` value. That broke §4.1's own rule that no clock decides
+anything, and it broke the check in both directions:
+
+- **False negative — the rule fails exactly when it matters.** Phone pushes B1 at `savedAt = T`;
+  the server accepts, the response is lost. The player shops; `saveMeta` writes B2 at `T'`. The
+  retry carries `sentAt = T'` and 409s against a row whose `savedAt` is still `T`. `device` matches,
+  the timestamps do not → **conflict prompt, comparing the phone against its own older save**. Tap
+  "Take the cloud's" and the shopping is destroyed. The rule only fired when *no save happened*
+  between the lost push and the retry — while trigger 3 exists specifically to batch a burst of
+  saves into that same window. It removed one member of the class it claimed to remove.
+- **False positive — silent loss.** A device whose clock steps backwards can stamp two different
+  saves with the same `savedAt`. Push B1 at T (accepted, ACK lost); clock rolls back; B2 also lands
+  on T; the retry's `sentAt` matches the row's `savedAt` → "our own lost ACK" → adopt the gen and
+  clear. **B2 is never pushed, and the flag is cleared over it.** Using a wall clock as an
+  idempotency key is precisely the failure §4.1 swore off.
+
+A `reqId` has neither failure: it is unique per attempt, the client cannot accidentally reproduce
+one, and it is compared against a value the server echoes back rather than against a clock either
+side owns. Resolution is always *adopt the gen, then re-derive `dirty`* — never an unconditional
+clear, which is what turned this check into a data-loss path rather than a convenience.
 
 ## 7. Conflict detection and resolution
 
@@ -532,28 +895,78 @@ rows, the data, the two buttons and the consequences are identical, which is the
 both through one component: the choice a player makes about their progress should look the same
 wherever it reaches them.
 
-Four rows, per owner requirement 3, both sides side by side, plus the name so the player can tell
-which save is which at a glance:
+**Two stacked full-width cards, not a three-column table.** An earlier draft used side-by-side
+columns; the arithmetic rules it out. At 320px, `.confirm-sheet` is `width: min(88vw, 340px)` =
+281.6px, less 3px borders and 20px padding each side → **235.6px of content**. Three columns with a
+66px label column leaves **~84px per side ≈ 14 characters** at 0.7rem. `The Undergrowth`
+(`config.js`) is 15 characters *before* the difficulty suffix, and French runs 15–25% longer
+(`Les Sous-Bois · niveau 3 battu` = 30). The layout is roughly 2× over budget in English and worse
+in French, and `.confirm-sheet` is `text-align: center`, so every cell would need an override too.
+
+Each card owns its own button, which also removes the "which button belongs to which column"
+ambiguity:
 
 ```
               Two versions of this save
-
-                    THIS DEVICE            THE CLOUD
-  Name              Pocket run             Pocket run
-  Furthest          The Skies · beat 3     The Beyond · beat 4
-  Upgrades          42                     47
-  Coins             1 204                  310
-  Saved             8 minutes ago          yesterday, 19:41
-
-      [ Keep this device's ]   [ Take the cloud's ]
+  ┌──────────────────────────────────────┐
+  │ THIS DEVICE                8 min ago │
+  │ 🐾 The Undergrowth          ★★★☆☆     │
+  │ 12 runs · 42 upgrades · 🪙 1 204      │
+  │           [ Use this one ]           │
+  └──────────────────────────────────────┘
+  ┌──────────────────────────────────────┐
+  │ THE CLOUD                  yesterday │
+  │ 🌌 The Beyond               ★★★★☆     │
+  │  9 runs · 47 upgrades · 🪙 310        │
+  │           [ Use this one ]           │
+  └──────────────────────────────────────┘
+           The other one is deleted.
 ```
 
-Every value comes from `saveSummary` (§4.2). `Saved` is rendered with `Intl.RelativeTimeFormat`
-under a day and an absolute local time beyond it, both in the active language. Every new string
-needs an `fr.js` entry in the same commit — the standing i18n rule.
+Height ≈ 20 + 24 + 12 + 130 + 12 + 130 + 12 + 18 + 20 ≈ **378px**, inside the 536px budget at
+320×568 even with the title wrapping to two lines in French.
 
-Cancelling is not offered: the two saves have already diverged and the decision is not improved by
-postponing it. Backdrop tap and Escape are inert on this one modal.
+Four things changed in the content, all of them corrections:
+
+1. **Recency is promoted to the header.** It is the strongest signal for "which one has last
+   night's session in it", and it was the *last* row before.
+2. **`runs` is added** (§4.2) — the best "which is my main save" tiebreaker in the blob.
+3. **Coins and upgrades share one line**, so the trade between them reads as a trade. §7.1 proves
+   coins get *spent*, so the more advanced save routinely shows the **smaller** coin number — the
+   earlier draft's mock put `Upgrades 42 vs 47` above `Coins 1 204 vs 310` as if they were peers,
+   which invites the player to pick the save that is behind. The document identified that exact
+   trap in §7.1 and then rendered it in §7.2.
+4. **`beat 3` is replaced by the ★ row.** "beat N" is vocabulary this game has never used; progress
+   is shown as numbered difficulty pips (`ui.js:404-408`) or the hero card's gold ★ row
+   (`ui.js:250-258`, `:279`). Reusing the ★ row costs no horizontal pixels, is language-neutral,
+   and means the card and the prompt can never state two different numbers. Introducing a third
+   phrasing on the one screen where the player makes an irreversible choice is the worst place for
+   it.
+
+**The loser is deleted, and the prompt must say so.** Nothing in the earlier draft told the player
+that the save they do not pick is destroyed. `The other one is deleted.` (25) / FR
+`L'autre sera supprimée.` (23) is not optional copy.
+
+Every value comes from `saveSummary` (§4.2), which must be **total** — see there for the three
+throws that would otherwise leave this modal half-drawn. The whole render is wrapped in a try/catch
+falling back to a "this save could not be read — keep local" state. Recency renders with
+`Intl.RelativeTimeFormat` under a day and an absolute local time beyond it, in the active language,
+with the `savedAt === 0` → "unknown" and future-clamp branches of §4.1. Every new string needs an
+`fr.js` entry in the same commit — the standing i18n rule — and the French goes through an
+adversarial review pass, never written alongside the English.
+
+**Guarding against mis-taps.** This modal appears unbidden over the title screen while the thumb
+may already be travelling toward `.btn--play`, and both of its buttons destroy a save. So: a 400 ms
+tap shield after the sheet animates in (no such pattern exists in the codebase today, and note that
+`pop-in` is disabled under `prefers-reduced-motion` at `styles.css:809`, which renders both buttons
+*instantly*), and `Play` plus the nav are disabled while a conflict is pending. That last part is
+load-bearing: `ui.js:1272` documents that keyboard focus can already reach Play behind a modal
+backdrop, and the existing workaround (`case 'play'` force-closes `slotsOpen`) is unavailable to a
+modal that must not be dismissible. Without it, Tab-then-Enter starts a run under the prompt, whose
+held `cloudBlob`/`gen` are then stale — so the prompt must always re-derive from the current 409
+response rather than from a cached one.
+
+Whether the prompt offers a third, non-destructive way out is a product call, flagged in §14.
 
 ### 7.3 After each choice
 
@@ -565,8 +978,13 @@ That write is accepted (nobody else moved in between), the cloud row advances to
 the local blob, `dirty` clears. No reload — the local save was already the truth on this device.
 The cloud's previous content is preserved in `prev_blob`.
 
-**Take the cloud's** → `importSlot(slot, cloudBlob)`, set `baseGen = cloud.gen`, clear `dirty`,
-`location.reload()`. The local divergence is gone.
+**Take the cloud's** → `freezeSaves()`, `importSlot(slot, cloudBlob)` (which refuses a
+malformed blob, §3.2), commit `baseGen = cloud.gen` and `syncedHash = hash(cloudBlob)`, then
+`location.reload()`. The order matters and the freeze is not optional — see §3.3. The local
+divergence is gone.
+
+Committing the sync record **before** the reload is also what prevents a boot loop: a crash between
+`importSlot` and the record write would otherwise leave a device that re-adopts on every boot.
 
 `prev_blob`/`prev_gen` exist because this is the single most destructive tap in the feature and it
 costs one column and one clause in an UPDATE that already runs. There is **no endpoint and no UI**
@@ -580,32 +998,58 @@ stashing it under another localStorage key (§12).
 **localStorage stays the source of truth. Sync is best-effort and never blocks play or boot.**
 
 Every entry point in `sync.js` is wrapped and every failure resolves to "do nothing, stay dirty,
-retry on the next trigger" — the same swallow-and-continue idiom `state.js` already uses five times
-over (`:31`, `:39`, `:138`, `:154`, `:160`, each with a `/* private mode */` or
+retry on the next trigger" — the same swallow-and-continue idiom `state.js` already uses **six**
+times over (`:31`, `:39`, `:57`, `:138`, `:154`, `:160`, each with a `/* private mode */` or
 `/* corrupted save -> fresh */` comment saying why).
 
-- **Network failure, timeout, 5xx** — requests carry `AbortSignal.timeout(5000)`. The sync panel's
-  status line reads "offline — will sync later". No modal, no toast, no interruption. A 5xx is
-  treated exactly like an offline failure: the server is not to be trusted this second, and the
-  local save has lost nothing.
+Status copy is **evidence, not intent** — see H3 in §9. Character counts are English / French.
+
+- **Network failure, timeout, 5xx** — requests carry `AbortSignal.timeout(5000)`. No modal, no
+  toast, no interruption; the local save has lost nothing. But the three cases must not share one
+  message, because "offline" is a lie when the wifi is fine:
+  - offline → `Offline — your progress is safe here.` (37) / `Hors ligne — ta progression est en sécurité ici.` (47)
+  - 5xx → `Sync is down right now. Nothing is lost.` (40) / `La synchro est indisponible. Rien n'est perdu.` (46)
+  - dirty and waiting → `Not uploaded yet — waiting for a connection.` (44) / `Pas encore envoyé — en attente de connexion.` (44)
+
+  The earlier draft's `offline — will sync later` promised a retry it cannot keep if the app is
+  never reopened online.
 - **429** — same as offline, plus back off to the next natural trigger. Never retry in a loop.
-- **404 on GET** — the row does not exist yet (nothing has ever been pushed under this code, or the
-  player mistyped during pairing). During pairing this is the actionable error: *"No save found for
-  that code — check the letters."* Outside pairing it means the row was deleted; treat as
-  `baseGen: 0` and push.
+- **404 on GET** — the row does not exist yet. Two causes, and §6.1 documents both, so the message
+  must cover both: `No save under that code yet. Check the code, and make sure the other device says "Ready".` (88)
+  / `Aucune sauvegarde pour ce code. Vérifiez le code, et que l'autre appareil affiche « Prêt ».` (91).
+  The earlier draft's *"check the letters"* asserted only the mistype cause — and Crockford base32
+  contains digits. Outside pairing a 404 means the row was deleted; treat as `baseGen: 0` and push.
+- **`importSlot` refuses a blob** (§3.2) — never silent. The pull is abandoned, the local save is
+  untouched, and the status reads `That cloud save could not be read. Your save here is untouched.` (61)
+  / `Cette sauvegarde cloud est illisible. Celle-ci n'a pas changé.` (61).
 - **Private browsing / localStorage throws** — `activeSlot()` already falls back to 1 and
   `saveMeta` already no-ops. `sync.js` reads its record inside a try/catch; on a throw it returns
-  `null` and every entry point early-returns. **No localStorage means no sync, silently.** That is
-  correct rather than merely convenient: without a durable credential and a durable baseGen, every
-  page load would mint a new code and orphan a row.
-- **Service worker** — verified non-issue. `public/sw.js`'s fetch handler early-returns on
-  `!req.url.startsWith(self.location.origin)`, so Worker calls are cross-origin, bypass the cache
-  entirely, and can never be served stale. A cached `GET /v1/save` would have been a disaster; the
-  existing guard prevents it and a browser probe should assert it (§11).
+  `null` and every entry point early-returns. No localStorage means no sync — which is correct,
+  because without a durable credential and baseGen every page load would mint a new code and orphan
+  a row. **But not silently:** the earlier draft said "silently", which leaves a dead button with no
+  explanation. Render the sync row disabled with a reason:
+  `Unavailable in private browsing.` (32) / `Indisponible en navigation privée.` (34)
+- **A pull that adopts is announced, never silent.** §6.2 row 2 called it "adopt silently", which is
+  right about the decision (none is needed) and wrong about the feedback: the player sees the app
+  reload under them and every number change, which is indistinguishable from a crash or a
+  save-corruption bug. After the reload, a one-line title-screen notice for ~3 s —
+  `Loaded your latest save from the cloud.` (38) / `Dernière sauvegarde chargée depuis le cloud.` (44).
+  There is no toast component today; the `.build-stamp` slot proves a small non-interactive
+  title-screen line is cheap.
+- **Service worker** — the guard holds, but it is a **deployment invariant, not a code guarantee**.
+  `public/sw.js:28` early-returns on `req.method !== 'GET' || !req.url.startsWith(self.location.origin)`,
+  so a cross-origin `SYNC_URL` bypasses the cache entirely and PUTs bypass on the method check
+  regardless. A cached `GET /v1/save` would be a disaster. But the property currently depends on
+  *choosing a `*.workers.dev` hostname*: point `SYNC_URL` at a Worker route on the Pages custom
+  domain — an entirely normal thing to do — and it becomes same-origin, cached, and served stale
+  from `caches.match(req)`. **Enforce it in code:** add `if (new URL(req.url).pathname.startsWith('/v1/')) return`
+  to `sw.js`, and have the browser probe assert it (§11).
 - **PWA cold start offline** — the game boots from cache as it does today, sync fails on the first
-  pull, the player plays, `dirty` accumulates, and the first online boot pushes.
-- **No `__SYNC_URL__`** (a fork, a local build, `npm test`) — `sync.js` disables itself entirely and
-  the sync UI does not render.
+  pull, the player plays, the disk hash diverges, and the first online boot pushes.
+- **No `__SYNC_URL__`** (a fork, a local build, `npm test`) — `sync.js` disables itself entirely.
+  The sync UI still **renders in a disabled preview state** rather than vanishing: hiding it made
+  §14's own deferred layout question unanswerable, since `npm run dev` sets no `SYNC_URL` and the
+  phone-on-the-LAN check `CLAUDE.md` is built around would show the sheet without the feature in it.
 
 ## 9. UI surface
 
@@ -617,55 +1061,251 @@ is also where they will look to link them. The cost of this choice is one extra 
 the benefit is that the title screen stays legible at its narrowest, which is the screen the game is
 most often seen on.
 
-Four additions, all in `ui.js`, all reusing existing components:
+### 9.1 One row in the slots sheet, one dedicated sync sheet behind it
 
-1. **A sync section inside `slotsModalHtml`** (`ui.js:508-533`), below the three slot rows. States:
-   *not linked* (a "Sync this save" button), *linked* ("Synced · 2 minutes ago", the code
-   revealable, an "Unlink" button), *offline*. Linking from the first device shows the generated
-   code; linking from a second shows a code entry field, then the destination-slot question of
-   §5.3 — which is the same three rows, one sheet up, with a different heading.
-2. **Save names** on the existing slot rows, which already show a coins/chapters summary — the row
-   gains the name and a rename affordance, and the synced slot gets a small ☁️ marker. That marker
-   is what makes the whole feature legible at a glance: one of your three saves is the one that
-   travels.
-3. **The conflict prompt** (§7.2).
-4. **The reset modal's revised copy** (§5.4).
+An earlier draft put a whole sync *section* inside `slotsModalHtml` (`ui.js:508-533`). It does not
+fit. Counting the linked state at 320×568, where `.confirm-sheet` gives 235.6px of content width and
+`max-height: calc(100dvh - 32px)` gives a **536px** budget:
 
-**Re-pointing which slot syncs (owner decision, 2026-08-04): allowed, behind a confirm.** Tapping
-the ☁️ marker on a different row moves sync to that slot. Because the next push then replaces the
-cloud save with the newly designated slot's contents, the confirm must name what it is about to
-overwrite, using the same `saveSummary` fields as the conflict prompt rather than a generic "are you
-sure": *"Sync will follow Slot 3 instead. The cloud save (The Beyond · beat 4, 47 upgrades) will be
-replaced by it on the next save."* Locking the choice at pairing was the alternative and is worse —
-changing it would then mean unlink-and-re-pair, which is the identical destructive act with more
-steps and no confirmation at the end of them.
+| element | px |
+|---|---|
+| sheet padding, top + bottom | 40 |
+| title (FR `Emplacements de sauvegarde`, 26 ch, wraps to 2 lines at 20px/900) | 48 |
+| 3 slot rows grown to hold name + rename + status glyph (a 44px target + 2 text lines ⇒ ≥64px) | 198 |
+| sync section: heading 18 + status 18 + code chip 34 + bearer warning (FR wraps to 3 lines) 44 + Unlink 48 + gaps 32 | 194 |
+| Cancel | 48 |
+| 5 × 12px sheet gaps | 60 |
+| **total** | **588** |
 
-Unlinking deletes the local sync record only. The cloud row is untouched, so re-pairing with the
-same code restores everything — which is also the rollback story for the whole feature.
+English lands ~550. Even the most generous variant — rows stay 56px, no divider, warning at 2 lines
+— is 510px, inside 536 by 26px, with nothing left for a notch, for iOS `dvh` behaviour, or for the
+*pairing* state which adds an input and a soft keyboard. At 568×320 landscape it is roughly 2× the
+288px budget. And `.confirm-sheet`'s `overflow-y: auto` is not headroom to spend: `styles.css:1309`
+says it exists because *"The slot picker (v6.4.6) is tall enough to clip in short landscape"* — it
+is a documented failure fallback that this feature would be leaning on from day one.
+
+There is a latent container bug this would push over the line, worth fixing while here:
+`.modal-backdrop` pads with `calc(16px + env(safe-area-inset-bottom))` while `.confirm-sheet`
+subtracts a flat 32px, so on a home-indicator phone the sheet can exceed the backdrop's content box
+and `align-items: center` clips it at **both** ends.
+
+So the slots sheet gains **one row**, shaped like the three above it so it reads as one more item in
+the list, and everything else moves into a dedicated sync sheet behind it:
+
+```
+  Cloud sync
+  Off — this save stays on this device            →
+```
+
+- `Cloud sync` (10) / `Synchro cloud` (13)
+- off: `Off — this save stays on this device` (36) / `Non — cette sauvegarde reste sur cet appareil` (45)
+- on: `On — Slot 2, updated 2 min ago` (30) / `Oui — emplacement 2, il y a 2 min` (33)
+
+New total: **426px** French, **402px** English. Fits portrait with ~110px spare.
+
+Do **not** label the entry point `Sync this save`: French is `Synchroniser cette sauvegarde` (30 ch
+≈ 240px in a 199.6px button), so the feature's own front door would overflow.
+
+### 9.2 What lives in the sync sheet
+
+**First run must explain itself.** An unlinked device opens to a two-sentence explainer and two
+explicit buttons — because a bare "Sync this save" answers none of *sync to what, which of my three
+saves, do I need an account, does it cost anything, can I undo it*:
+
+- `Keep one save in step across your phone and computer. No account — you type a code once.` (87)
+  / `Gardez une sauvegarde à jour entre votre téléphone et votre ordinateur. Sans compte — un code à saisir une fois.` (110 — 4 lines at 0.85rem; flag for the French reviewer, may need trimming)
+- `Sync Slot 2` (11) / `Synchroniser l'emplacement 2` (28 — fits a 199.6px button only at ≤0.9rem; flag)
+- `I have a code` (13) / `J'ai déjà un code` (17)
+
+Those two buttons also close a gap: an earlier draft said *"linking from the first device shows the
+generated code; linking from a second shows a code entry field"* — **the client cannot know which it
+is.** One unpaired device is indistinguishable from another. The branch was missing, and it is a
+whole screen. Interpolating the slot number into the first button also removes an unstated default:
+§5.3 goes to real trouble to stop device *B* adopting into "whatever slot happens to be active", and
+the earlier draft then had device A designate one implicitly.
+
+**Linking (device A)** shows `Uploading…` (10) / `Envoi…` (6), then — only once the push is ACKed
+(§5.1, §6.3 trigger 4) — `Ready — enter this code on your other device` (43) /
+`Prêt — saisissez ce code sur l'autre appareil` (45), the code itself, and a `Copy code` (9) /
+`Copier` (6) button using `navigator.clipboard.writeText`. §5.1 estimated "about fifteen seconds of
+typing"; with shift-per-character on a soft keyboard and one retry it is 30–60 s, and a copy button
+turns the phone→laptop direction into a paste.
+
+**Linking (device B)** shows the code field, then the destination-slot picker of §5.3 — the same
+three rows, with a different heading.
+
+**Success is confirmed.** An earlier draft ended pairing with `importSlot` + reload and *nothing
+else*: sixteen typed characters, a slot choice, then a page reload and no word. On a slow connection
+that is indistinguishable from failure. Land on the title with
+`Linked. Slot 2 now follows you between devices.` (46) /
+`Lié. L'emplacement 2 vous suit maintenant d'un appareil à l'autre.` (65), same mechanism as §8's
+adopt notice.
+
+**Linked state** shows the evidence-based status (below), the code revealable, and Unlink.
+
+### 9.3 Status must report evidence, not intent
+
+`Synced · 2 minutes ago` is derived from the last successful handshake, so it can read reassuringly
+while every push has failed for an hour. Worse, it survives a broken pairing entirely: unlink on the
+phone and re-pair it (new code, new row), and **the laptop keeps pushing happily to the old row** —
+200s, `gen` climbing, status reading "Synced". Every word true, the player's conclusion false. This
+is the worst failure class for this feature: not data loss, but a confident, accurate-looking UI
+asserting a relationship that no longer exists, discovered only when a handoff silently doesn't
+happen.
+
+Silence is the only symptom, so surface silence as the symptom:
+
+- recent round trip → `On — Slot 2, updated 2 min ago` (30)
+- long quiet → `On — nothing new in 12 days` (27) / `Oui — rien de neuf depuis 12 jours` (34)
+- on unlink → `Your other devices are still using the old code. Unlink there too.` (66) /
+  `Vos autres appareils utilisent encore l'ancien code. Déliez-les aussi.` (70)
+
+### 9.4 Slot rows, names, and re-pointing
+
+**Re-pointing moves into the sync sheet. The ☁️ on a slot row is read-only.** The owner's decision
+stands — re-pointing is allowed, behind a confirm — but the earlier draft's *mechanism* (tap the ☁️
+marker on another row) cannot be built:
+
+1. **Buttons cannot nest.** The row is `<button class="btn btn--soft slot-row" data-act="slot-pick" …>`
+   (`ui.js:518`), so a tappable ☁️ inside it is invalid HTML. The codebase already hit this and
+   documented the fix at `ui.js:624`: *"A div, not a button: the row holds two real buttons now and
+   buttons cannot nest."* Converting the row changes its markup, hit target and semantics — so
+   §5.3's claim that the picker "keeps working the way it already does" would have been false.
+2. **The active slot's row is `disabled`**, so clicks on it and its descendants never fire. You
+   could never designate the save you are *currently playing* as the synced one — the single most
+   likely thing a player wants.
+3. **There is no ☁️ to tap on the other rows**, since by definition only the synced slot has one.
+   The draft contradicted itself between "the synced slot gets a marker" and "tap the marker on a
+   different row".
+
+On top of which, the row's whole-row tap **switches saves and reloads the page**; a ~24px glyph
+inside it, where a miss costs a reload into a different save, is a hostile target. So re-pointing is
+a `Which save syncs?` picker inside the sync sheet, reusing the same three-row component §5.3 needs
+anyway — one picker, two entry points — and the ☁️ on a slot row goes back to being what every other
+emoji in that sheet is: a status glyph.
+
+The confirm names both sides, because the earlier copy said neither what happens to the abandoned
+slot nor when:
+
+- `Slot 3 becomes your synced save. Slot 1 stops syncing, and its cloud copy is replaced as soon as you play.` (105)
+- `L'emplacement 3 devient votre sauvegarde synchronisée. L'emplacement 1 cesse d'être synchronisé et sa copie cloud sera remplacée dès votre prochaine partie.` (154 — 6 lines; flag, likely wants splitting)
+
+**Names are capped at 14 characters, not 24.** §4.1's 24 came from an abuse ceiling, not a layout:
+`.slot-row` has 193.6px of inner width, `.slot-row-name` is 1rem/800 ≈ 22 characters for the whole
+line, and the line must also carry `Slot 2`, `— Current`, the status glyph and a rename affordance
+(two 44px targets = 88px, leaving ~12 characters). `.slot-row-name` has no `white-space: nowrap` /
+`text-overflow: ellipsis` today, so an over-long name wraps and pushes the row past 56px, cascading
+into §9.1's budget. Add both, cap at 14, and move rename out of the row into the slot detail.
+
+### 9.5 The codebase has no text inputs, and this feature adds two
+
+`grep '<input'` across `src/` returns **nothing**. Everything below is a cost this design incurs and
+the earlier draft did not mention while calling the work "reusing existing components":
+
+1. **The re-render model destroys them.** `renderTitle()` replaces `screens.title.innerHTML`
+   wholesale and the slots sheet is inside that template (`ui.js:498`). Any re-render — the 🌐
+   toggle (`ui.js:1300`), a booster tap (`ui.js:1263`), `slots-cancel` — wipes a half-typed code and
+   drops focus. The pairing input must hold its value in a module-level variable and restore value
+   *and* caret after every render, or live outside the template.
+2. **iOS keyboard occlusion.** The sheet is centred in a `position: fixed; inset: 0` backdrop; iOS
+   shrinks the visual viewport but not the layout viewport, so the sheet does not move and a field
+   in its lower half is covered. Switch to `align-items: flex-start` with a top offset while an
+   input is focused, or track `visualViewport.resize`.
+3. **Global CSS blocks it.** `body { user-select: none }` (`styles.css:32-34`) and
+   `html, body { touch-action: none }` (`:4`) need per-input overrides or the caret and selection
+   handles misbehave.
+4. **Input attributes** for a 16-char uppercase base32 field: `inputmode="text"`,
+   `autocapitalize="characters"`, `autocorrect="off"`, `autocomplete="off"`, `spellcheck="false"`,
+   `enterkeyhint="go"`, `maxlength="19"`, and auto-inserted hyphens. Without `autocapitalize`, every
+   character needs a manual shift.
+5. **Tab switches discard the flow.** `switchTab` sets `slotsOpen = false` when leaving the title
+   (`ui.js:1241`), as does `case 'play'` (`:1272`). A player who checks the shop mid-pairing loses
+   the sheet and the typed code. The code is recoverable from localStorage — so the sync sheet must
+   offer to show it again rather than restarting the flow.
+
+### 9.6 Reset copy is conditional, and "slots" is overloaded
+
+Today's body is `Coins, upgrades, slots and best scores will be permanently erased.` (`ui.js:661`).
+An earlier draft simply appended the propagation clause. Three problems:
+
+1. **It is static.** `resetModalHtml()` renders one string; the propagation sentence is only true
+   when the reset targets the synced slot. Appending it unconditionally alarms players resetting an
+   unsynced one.
+2. **No slot context.** `reset-start` fires from `shopFootHtml`'s 🗑 (`ui.js:583`) on the **shop**
+   screen, which shows no slot indicator. With three named saves and one of them synced, "which save
+   am I erasing" has to be on screen.
+3. **"slots" now means three things.** In that sentence it means *upgrade choice slots*
+   (`meta.choiceSlots`); the player has just come from a sheet titled `Save slots`; and this feature
+   adds a *synced slot*. A player reading it will reasonably fear all three saves are going.
+
+Two conditional bodies, slot number interpolated:
+
+- unsynced: `Coins, upgrades and best scores in Slot 2 are erased for good. Your other saves are untouched.` (93)
+  / `Les pièces, améliorations et records de l'emplacement 2 sont effacés définitivement. Vos autres sauvegardes ne changent pas.` (122)
+- synced: `Slot 2 and its cloud copy are erased. Every linked device wipes itself the next time it opens.` (93)
+  / `L'emplacement 2 et sa copie cloud sont effacés. Chaque appareil lié s'effacera à sa prochaine ouverture.` (103)
+
+The synced version states a **future action on a device not in the player's hand**, which is the
+fact the earlier phrasing left out and the whole reason the warning exists.
+
+### 9.7 Everything else
+
+- **The conflict prompt** (§7.2).
+- **An ambient sync signal on the title screen, costing no new control:** `💾 2/3` becomes
+  `💾 2/3 ☁️` when the active slot is the synced one. Without it there is no way to notice §9.3's
+  broken-link case outside the sheet. One glyph, no new tap target.
+- **Unlinking deletes the local sync record only.** The cloud row is untouched, so re-pairing with
+  the same code restores everything — the rollback story for the whole feature.
+- **Every new string needs an `fr.js` entry in the same commit**, and the French goes through an
+  adversarial review pass rather than being written alongside the English. Counts above are
+  estimates for layout budgeting; the reviewer's renderings win.
 
 ## 10. Security and abuse
 
 **The code is a bearer token.** Anyone who has it has full read/write on that save, forever. There
 is no revocation short of minting a new code, which orphans the old row — and because the old row
 still holds the old save, "unlink and re-pair" is a genuine recovery for a leaked code rather than
-a euphemism. Both facts belong in the sync panel's copy, in one line, not a wall of text: *"Anyone
-with this code can load your save."*
+a euphemism. Both facts belong in the sync panel's copy, in one line, not a wall of text:
+`Anyone with this code can load or overwrite your save.` (53) /
+`Toute personne ayant ce code peut charger ou écraser ta sauvegarde.` (66). An earlier draft said
+only *"can load your save"* — the code is read **and** write, and understating that in the one line
+the player reads about it is the wrong place to be brief.
 
 **Size caps.** Reject `Content-Length` over 8 KB and blobs over 4 KB with 400. Today's save is 893
 bytes; 4 KB is ~4.5× headroom for a save that keeps gaining chapters. A cap that is not tight is
 not a cap.
 
-**Rate limiting.** Two layers, neither elaborate. In the Worker: reject a PUT arriving less than one
-second after the row's `updated_at` with 429 — the row already carries the timestamp, so this costs
-nothing extra. Outside it: one Cloudflare Rate Limiting rule on the route (60 requests/minute per
-IP). Be honest about the residual: an attacker with many IPs can still create rows, and the blast
-radius is quota — sync stops working until the next day — not data loss or corruption. At 100,000
-row-writes/day against ~3 legitimate writes per session, that is an acceptable exposure for a free
-hobby backend.
+**Rate limiting.** An earlier draft set one Cloudflare Rate Limiting rule at **60 requests/minute
+per IP** and called the residual acceptable. The arithmetic says otherwise: 60 × 60 × 24 =
+**86,400 requests/day from a single IP**, against the **100,000/day** Workers free tier §2 names as
+the platform ceiling. One IP, entirely inside the published limit, takes 86% of the daily budget;
+two exceed it before lunch. No pairing code is needed — a 404 still costs a Worker invocation.
 
-**Guessing a code** is not a threat: 80 bits against a 60/minute limiter. `GET` returns 404 for an
-unknown code, which leaks only the existence of a random 128-hex-digit id — not sensitive, and it
-is what lets the pairing screen distinguish "typo" from "nothing pushed yet".
+That is not merely a quota problem, which is how the earlier draft characterised it ("the blast
+radius is quota … not data loss or corruption"). It is one hop from the worst UI in the design: when
+the daily limit trips the Worker fails for *everyone*, §8 treats that as offline, both devices
+accumulate divergence, and the first successful sync after the outage is **the destructive conflict
+prompt**. A trivially cheap DoS converts into a modal asking players to discard a save.
+
+Four layers instead, none elaborate:
+
+1. **~10 requests/minute per IP** with a small burst allowance. Legitimate usage is ~3 writes and
+   1–2 GETs *per session*; 10/minute is still an order of magnitude of slack.
+2. **Reject a malformed or absent `Authorization` before any D1 query**, so garbage costs one CPU
+   microsecond and zero row reads.
+3. **A per-code daily write cap** (`writes_day`/`writes_n`, §4.3), so a compromised or shared code
+   cannot burn the shared budget either. ~50/day is ~10× a heavy player.
+4. **The 1-second same-row PUT throttle** from the earlier draft — kept, but see §5.4: reset must be
+   **exempt**, because a player who finishes a run and immediately taps Reset would otherwise get a
+   429 on the one write that must not be dropped.
+
+State plainly in the operator notes: 100k/day is a **shared** budget, so one abused code degrades
+every player.
+
+**Guessing a code** is not a threat: 80 bits against the limiter above. `GET` returns 404 for an
+unknown code, which leaks only the existence of a random **64**-hex-digit id (SHA-256 is 32 bytes;
+an earlier draft said 128) — not sensitive, and it is what lets the pairing screen distinguish
+"typo" from "nothing pushed yet".
 
 **CORS** is set to the Pages origin plus the dev origin — and it is *not* a security boundary. The
 credential is an `Authorization` header, not a cookie, so CSRF does not apply, and any HTTP client
@@ -710,25 +1350,54 @@ dependencies are testable that way, because everything else needs Pixi or the DO
 
 **Headless (`npm test`)** — a new scenario function appended at the *end* of `test/sim-test.js`,
 following `testSaveSlots`'s pattern of stubbing `globalThis.localStorage` with a `Map`
-(`sim-test.js:7101-7106`) and registered in the call list at the bottom. Appending at the end is not
-cosmetic: the suite seeds `Math.random` and scenario order is part of its determinism contract.
+(the stub literal is `sim-test.js:7105-7110`) and registered in the call list at the bottom.
+Appending at the end is not cosmetic: the suite seeds `Math.random` and scenario order is part of
+its determinism contract.
 
-- `meta.name` and `meta.savedAt` defaults, on a fresh save and on an old save missing both.
+- `meta.name` and `meta.savedAt` defaults, on a fresh save **and** on an old save missing both —
+  including the `fresh` object literal (`state.js:139-148`), which has neither field today (§4.1).
 - `saveMeta` stamps `savedAt`; a later save stamps a later value.
-- The save hook fires with the bound slot number on a successful write, and does **not** fire when
-  the write throws (stub a `setItem` that throws).
-- `saveSummary` on hand-built metas: coins; upgrades as the sum of `meta.shop`; furthest chapter as
-  the last unlocked `CHAPTER_ORDER` id; `'blank'` overriding it when unlocked; `beaten` as
-  `maxDifficulty - 1`; and the beyond/blank exception producing 5.
-- `exportSlot`/`importSlot` round-trip, and `importSlot` refusing unparseable JSON without
-  clobbering the existing slot.
+- The save hook fires with the bound slot number on a successful write, does **not** fire when the
+  write throws (stub a `setItem` that throws), and **a throwing hook does not propagate** (§3.2) —
+  the one that protects the Pixi ticker.
+- `freezeSaves()` makes every subsequent `saveMeta` a no-op (§3.3). This is the guard for the
+  worst silent-loss path in the design, so it is the one assert that must exist.
+- **Hostile-blob hardening**, all executable against `state.js` alone (§4.1):
+  - `loadMeta` coerces `coins` and `runs` — a blob with `coins: "<img src=x onerror=…>"` yields
+    a number, not the string. (Verified today: it currently yields the string verbatim.)
+  - `importSlot` **refuses** each of `{"coins":5,"chapters":{}}` (no `shop`), `shop` as a string,
+    `chapters` as a string, `{}` and `null`, and leaves the existing slot intact. Every one of
+    these is valid JSON that `loadMeta` silently resolves to a **fresh save** — a total wipe — so a
+    parse-only guard passes them (§3.2).
+  - the `upgrades` reduction returns a number on a hostile `shop`, not `"0<b>X</b>00000000"`.
+- `saveSummary` on hand-built metas: coins; upgrades as the sum of `meta.shop`; runs; furthest
+  chapter as the last unlocked `CHAPTER_ORDER` id; `'blank'` overriding it when unlocked; `beaten`
+  as `maxDifficulty - 1`; and the beyond/blank exception producing 5.
+- **`saveSummary` is total** (§4.2): it returns a value rather than throwing on `chapters: {}`,
+  on a blob with no `shop`, and on a missing `savedAt`. Each of those is a `TypeError`/`RangeError`
+  in the naive form, and each would leave the uncancellable prompt half-drawn.
+- `exportSlot`/`importSlot` round-trip.
 - **The decision function** from §6.2, which is the heart of the feature and is pure: given
-  `{ baseGen, dirty }` and `{ gen }`, it returns `'none' | 'pull' | 'push' | 'conflict'`. This is
-  what makes §3.1's module-scope discipline pay: `sync.js` stays importable from plain node, so
-  this can be asserted directly across all five rows of the table.
-- The lost-ACK rule (§6.4): a 409 whose `device` and `savedAt` match the in-flight record resolves
-  to "adopt gen, no prompt"; a 409 that differs in either field resolves to "conflict".
-- The 24-character name clamp and control-character stripping applied on adopt.
+  `{ baseGen, syncedHash }`, the current disk blob, and `{ gen }`, it returns
+  `'none' | 'pull' | 'push' | 'conflict' | 'resync'`. This is what makes §3.1's module-scope
+  discipline pay: `sync.js` stays importable from plain node, so it can be asserted directly across
+  all five rows — **including `cloud.gen < baseGen` resolving to `resync`, not `push`**, which is
+  the wedged-forever case.
+- **Derived `dirty`** (§6.2): a save landing between "push sent" and "ACK received" still reads as
+  dirty afterwards. Concretely — snapshot the blob, mutate the slot, apply the success handler with
+  the snapshot's hash, and assert the next evaluation is `push`, not `none`. That single assert is
+  the regression guard for the design's worst silent-loss path.
+- The lost-ACK rule (§6.4): a 409 whose `device` and **`reqId`** match the in-flight record resolves
+  to "adopt gen, re-derive dirty, no prompt"; a 409 differing in either resolves to "conflict".
+  Explicitly assert the two clock cases that broke the earlier `savedAt`-keyed version: a save
+  *between* push and retry must still not be lost, and two saves sharing one `savedAt` (backwards
+  clock) must not be treated as an ACK.
+- `savedAt` rendering branches (§4.1): `0`/absent → "unknown"; a future value → "unknown (clock
+  differs)"; and the clock-vs-generation disagreement warning.
+- The **14**-character name clamp and control-character stripping, applied **on receive**, not on
+  adopt — the prompt renders the cloud's name before any adopt happens.
+- A guard that `saveHook` is still `null` at the end of a full suite run, so nothing has quietly
+  wired sync into a suite that stubs a succeeding `setItem` at five sites (§3.1).
 
 **Browser probe** (Chrome DevTools, following `CLAUDE.md`'s probing notes) — everything involving
 `ui.js`, reloads, or the service worker:
@@ -738,22 +1407,35 @@ cosmetic: the suite seeds `Math.random` and scenario order is part of its determ
   `setItem` + `reload()` gets clobbered by the app re-saving during unload).
 - Pair B with A's code; assert B adopts A's save after the reload and that the title screen shows
   A's coins and chapter ladder.
-- Make both dirty; assert the prompt renders all four fields per side, and that each button
-  produces the state §7.3 describes — including that "Keep this device's" leaves the local save
-  untouched and bumps the cloud generation.
-- Paste a name containing `<img src=x onerror=…>` into the cloud blob and assert it renders as text
-  on the other device. This is the `SS.g` scenario's lesson (`sim-test.js:7150-7156`) applied to a
-  field that now arrives over the network.
+- Make both dirty; assert the prompt renders every field per side, and that each button produces
+  the state §7.3 describes — including that "Keep this device's" leaves the local save untouched
+  and bumps the cloud generation.
+- Put `<img src=x onerror=…>` in the cloud blob's **`coins`** as well as its `name`, and assert both
+  render as text. `coins` is the field that is actually unguarded today (§4.1) and it reaches
+  `innerHTML` at `ui.js:491`, `:717` and `:1132`. This is the `SS.g` scenario's lesson
+  (`sim-test.js:7154-7160`) applied to fields that now arrive over the network.
+- **The adopt-then-reload race** (§3.3): with a pull adopting, fire a `saveMeta`-producing
+  interaction in the same tick and assert the adopted blob survives — this is the freeze latch
+  proving itself against live handlers, since there is no unload handler in this repo to catch it.
+- **The return leg of the use case** (§6.3): leave device A on the *summary* screen (not the
+  title), push from device B, bring A back to the foreground, quit to title, and assert A adopts.
+  Without the `run → null` pull trigger this is the case that silently runs a whole session stale.
 - DevTools offline mode: boot, play a full run, reach the summary — no modal, no console error, no
   perceptible delay at boot.
-- `list_network_requests` to assert no `/v1/save` request is served from the service worker cache.
+- `list_network_requests` to assert no `/v1/save` request is served from the service worker cache —
+  and assert it with `SYNC_URL` pointed at a **same-origin** path, which is the configuration where
+  the guard actually has to work (§8).
+- **Layout at 320×568 and 568×320**, both languages: the slots sheet with the sync row, the sync
+  sheet in each of its states, and the conflict prompt — no scrolling, nothing clipped, Cancel
+  reachable. §9's budgets are arithmetic and want confirming on glass.
 
 **The Worker, separately.** It is a different deployable with its own `package.json`; the "no jest,
 no vitest" rule is about the game's suite and does not extend to it. Even so, the smallest thing
 that works is a short `worker/test.sh` of `curl` assertions against `wrangler dev --local` (D1 runs
 against local SQLite), covering: first write with `baseGen: 0`; a normal write; a stale-`baseGen`
-409 carrying the current row; an unknown code 404; an oversize blob 400; a missing/malformed
-`Authorization` 401; and the one-second throttle 429. Seven cases, one file, no framework.
+409 carrying the current row **and its `reqId`**; an unknown code 404; an oversize blob 400; a
+missing/malformed `Authorization` 401 **without a D1 read**; the one-second throttle 429; and the
+per-code daily write cap. Eight cases, one file, no framework.
 
 **Post-push gate.** `scripts/deploy-watch.sh "vX.Y.Z · <sha>" "<sync host>"` — the repo's standard
 gate, with the sync host as an extra grep string so the `define` substitution is confirmed to have
@@ -796,53 +1478,127 @@ Named deliberately, so the shortcuts are choices rather than omissions — and e
   cases. Ceiling: a tab closed from the title screen right after a shop spree loses those purchases
   until the next boot pushes them — and if the other device made progress meanwhile, that surfaces
   as a conflict prompt rather than as loss. Cheapest thing to drop first.
-- **The `device` column and the lost-ACK rule (§6.4).** Cost of cutting: an occasional conflict
-  prompt where both sides are actually the same save, after a dropped response. Annoying, never
-  destructive. Second cheapest.
+- **The `device`/`req_id` columns and the lost-ACK rule (§6.4).** Cost of cutting: an occasional
+  conflict prompt where both sides are actually the same save, after a dropped response. Annoying,
+  never destructive — *provided* resolution re-derives `dirty` rather than clearing it. Second
+  cheapest.
 - **`prev_blob`/`prev_gen` (§7.3).** One column pair with no reader until a player emails. Cutting
   it makes "Keep this device's" irreversible. Keep it; it is the cheapest insurance in the design.
+  Its ceiling is now stated rather than implied: it covers **one** generation, so with three devices
+  two successive overwrites make the middle save unrecoverable even by the operator. Whether that
+  becomes a two-slot ring is §14.4, question 4.
 - **Stashing the discarded *local* blob** on "Take the cloud's", for symmetry with `prev_blob`. One
-  extra localStorage key. Not in the main design because the player explicitly chose to discard it;
-  add it if support requests appear.
+  extra localStorage key. Left out of the earlier draft on the grounds that "the player explicitly
+  chose to discard it" — but that is the same argument `prev_blob` already rejects for the cloud
+  side, and it applies to the *more* mis-tappable of the two buttons. Now §14.4, question 3.
+
+**Not cuttable, though an earlier draft treated them as optional or absent:** the derived `dirty`
+hash (§6.2), the `freezeSaves()` latch (§3.3), `importSlot`'s shape validation (§3.2) and
+`saveSummary`'s totality (§4.2). Each is the only thing standing between a routine sequence of
+events and silent, unrecoverable loss — they are the design's floor, not its polish.
 - **Compression, encryption, per-device tokens, code expiry, a retention sweep.** All rejected
   above with their evidence; each has a clean upgrade path precisely because the Worker never
   parses the blob and the client owns the code.
 
 
-## 14. Decisions taken, and what remains open
+## 14. Decisions taken, corrections applied, and what remains open
 
-All five questions this design closed with have been answered. Recorded here so the implementation
-plan inherits settled ground rather than re-litigating it.
+### 14.1 Settled by the owner, 2026-08-04
 
-**Resolved by the owner, 2026-08-04:**
+1. **The second device names the destination slot** (§5.3). An empty slot adopts silently; an
+   occupied one routes through the comparison prompt. This deleted the "what if all three slots are
+   full" branch an automatic *keep both* would have needed.
+2. **Re-pointing which slot syncs is allowed, behind a confirm** (§9.4). The *mechanism* changed
+   after review — the ☁️ marker on a slot row cannot be a tap target (§9.4) — but the decision
+   stands; re-pointing lives in the sync sheet.
+3. **The entry point lives in the 💾 slots sheet** (§9.1). Also survived review, though as one
+   *row* rather than a whole section, because a section does not fit at 320px.
 
-1. **The second device names the destination slot** (§5.3). Not automatic placement, not an
-   automatic *keep both*. The player is shown the three slots and points at one; an empty slot
-   adopts silently, an occupied one routes through the comparison prompt. This deleted the
-   "what if all three slots are full" branch the earlier draft needed.
-2. **Re-pointing which slot syncs is allowed, behind a confirm** (§9). The confirm names the cloud
-   save it is about to replace, in `saveSummary` terms.
-3. **The entry point lives inside the 💾 slots sheet** (§9). No new title-screen control; the synced
-   slot is marked ☁️ on its existing row.
+### 14.2 Settled by investigation
 
-**Resolved by investigation:**
+4. **The Worker runs on the owner's own Cloudflare account.** A fork builds with an empty
+   `__SYNC_URL__` and has no sync — though the UI still renders in a disabled preview state (§8),
+   because hiding it made §9's layout unverifiable on the dev server.
+5. **The daily challenge does not interact with sync.** Nothing in `meta` records daily
+   participation. **This stops being true the moment a daily streak or once-per-day reward is added
+   to `meta`** — that field is where sync and fairness would first collide.
 
-4. **The Worker runs on the owner's own Cloudflare account**, as the single canonical deploy. A
-   fork builds with an empty `__SYNC_URL__` and has no sync at all — the correct default, now a
-   stated intention rather than an accident of the build.
-5. **The daily challenge does not interact with sync.** Checked rather than assumed: nothing in
-   `meta` records daily participation (the fields are `coins`, `shop`, `best`, `runs`,
-   `choiceSlots`, `chapter`, `chapters`, `lang`), so there is no per-day flag two devices could
-   disagree about, and no way to double-dip a daily reward by switching devices. **This stops being
-   true the moment a daily streak or a once-per-day reward is added to `meta`** — that field would
-   be the first place where sync and fairness interact, and it must be designed knowing two devices
-   can both claim it.
+### 14.3 Corrected after adversarial review, 2026-08-04
 
-**Still open, and deliberately deferred to implementation:**
+Two independent reviews — one on UI/UX, one on edge cases and protocol correctness — were run
+against this document and the codebase. Every claim below was verified against the source or by
+executing `state.js` before being applied; the corrections are folded into the sections named.
 
-- **The exact copy of every new string, in both languages.** The prompt headings, the re-point
-  confirm, the pairing errors and the revised reset warning are all new player-facing text. Per the
-  standing rule, the French goes through an adversarial review pass rather than being written
-  alongside the English, and anything uncertain comes back as a question.
-- **How the sync section looks at 320px.** The layout decision is made; whether the section fits
-  under three slot rows without scrolling is a thing to see on a real phone, not to settle on paper.
+**Silent data loss, three independent paths:**
+
+- **`dirty` as a writer-set boolean** (§6.2) — invisible to a save landing mid-push, unsafe across
+  two tabs, and entirely absent from an offline-cached old bundle. Replaced by a derived content
+  hash. This is the highest-leverage change in the revision.
+- **The unfenced reload window** (§3.3) — live handlers kept writing the *pre-adopt* save over a
+  freshly adopted blob, and because baseGen had already advanced, the result then propagated to the
+  other device with a **valid** generation and no conflict prompt. Fixed with a `freezeSaves()`
+  latch. The repo has no unload handler that would have caught this.
+- **The `savedAt`-keyed lost-ACK check** (§6.4) — broke this document's own rule that no clock
+  decides anything, and failed in both directions. Replaced by a per-push `reqId`.
+
+**Hostile or merely malformed blobs, verified by executing the real `loadMeta`:**
+
+- **`esc()` was specified for the wrong field** (§4.1). `coins` and `runs` pass through `loadMeta`
+  completely uncoerced and reach `innerHTML` at three sites; `name` was never the dangerous one.
+  The `Number()` hardening this document *quoted* lives in `slotSummary`, not `loadMeta`.
+- **`importSlot`'s parse check does not prevent the wipe it was written to prevent** (§3.2). Five
+  shapes of valid JSON — including `{}` and a blob merely missing `shop` — resolve to a **fresh
+  save**. Now validates shape.
+- **`saveSummary` threw on realistic blobs** (§4.2), which would have left the *uncancellable*
+  prompt half-drawn and locked the player out of the game.
+
+**Correctness and reachability:**
+
+- `cloud.gen < baseGen` wedged a device into a permanent conflict prompt (§6.2).
+- **Pairing never uploaded** (§5.1) — a correct code got a 404 telling the player to check the
+  letters.
+- **The pull triggers missed the owner's own use case** (§6.3): `run` is null only in `onQuit`, so a
+  laptop left on the summary screen never re-evaluated.
+- The 60/min/IP rate limit allowed one IP to consume 86% of the daily Workers quota (§10).
+- A throwing save hook would have propagated out of the Pixi ticker (§3.2).
+
+**UI, all measured against a 320px viewport:**
+
+- The sync *section* overran the sheet budget by ~50px (§9.1) — now one row plus a dedicated sheet.
+- The three-column comparison table was ~2× over its column budget (§7.2) — now stacked cards.
+- The ☁️ re-point gesture was unbuildable: nested buttons, and the active row is `disabled` (§9.4).
+- Coins and upgrades as peer rows invited picking the *older* save, by this document's own §7.1
+  argument (§7.2).
+- Unlinking one device left the other reading "Synced" indefinitely (§9.3).
+- Reset copy, first-run explanation, success confirmation, and the fact that the losing save is
+  **deleted** — all absent (§9.2, §9.6, §7.2).
+- The codebase contains **zero** `<input>` elements; this feature adds two, with everything that
+  costs (§9.5).
+
+Line-reference corrections: `state.js:54-55` (not `:55-56`); **six** swallow-and-continue sites in
+`state.js` (not five); `sim-test.js` line **4** (not 3); the localStorage stub appears at **five**
+sites (not once, in `testSaveSlots`); `SS.g` is `sim-test.js:7154-7160`; SHA-256 is **64** hex
+digits (not 128).
+
+### 14.4 Open — product calls the owner must make
+
+1. **How does reset propagate?** (§5.4) The push-based mechanism is broken three ways and the
+   fallback silently un-resets the player. A tombstone/`DELETE` is the obvious replacement, but
+   "reset unlinks and leaves the cloud alone" is also coherent. **Blocking** — §5.4 cannot be
+   implemented as written.
+2. **Does the conflict prompt get a non-destructive way out?** (§7.2) Today both buttons destroy a
+   save and there is no cancel. The no-cancel rule was argued for the *divergence* case and then
+   inherited by the *pairing* case, where nothing has diverged and a wrong-row tap is the likeliest
+   reason the prompt is on screen.
+3. **Is the discarded local blob stashed on "Take the cloud's"?** (§7.3, §13) The cloud side has
+   `prev_blob`; the local side has nothing — so the more mis-tappable button is the one with no
+   recovery.
+4. **Does `prev_blob` become a small ring, or is the two-device ceiling stated?** (§7.3) With three
+   devices, two successive overwrites make the middle save unrecoverable even by the operator.
+
+### 14.5 Open — deferred to implementation
+
+- **The exact copy of every new string, in both languages.** The counts in §7–§10 are estimates for
+  layout budgeting. Per the standing rule the French goes through an adversarial review pass rather
+  than being written alongside the English, and anything uncertain comes back as a question.
+- **Confirming §9's layout arithmetic on glass**, at 320×568 and 568×320, in both languages.
