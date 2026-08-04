@@ -63,6 +63,10 @@ export function slotSummary(n) {
 // hasn't reloaded yet — any save that fires in that window (e.g. an in-flight autosave) must
 // still land in the slot the in-memory meta actually came from, never bleed into the new slot.
 let boundKey = null
+// The same binding as a slot NUMBER, set on the same line of loadMeta. The §3.2 save hook receives
+// this rather than boundKey so sync.js never learns the shape of a save key — it compares the number
+// against the slot it syncs and ignores everything else.
+let boundSlot = null
 
 // ---- Meta shape (persisted save, see loadMeta/saveMeta) — contract, keep in sync ----------
 // meta.chapter: selected chapter id (default 'body').
@@ -136,7 +140,8 @@ export function ensureChapterMeta(meta, id) {
 }
 
 export function loadMeta() {
-  boundKey = slotKey(activeSlot()) // v6.4.6: bind this in-memory meta to its slot's key up front
+  boundSlot = activeSlot()
+  boundKey = slotKey(boundSlot) // v6.4.6: bind this in-memory meta to its slot's key up front
   try {
     const raw = localStorage.getItem(boundKey)
     if (raw) {
@@ -194,8 +199,67 @@ export function loadMeta() {
   return fresh
 }
 
+// --- sync seam (design §3.2). Everything below is inert until sync.js installs a hook. ---
+
+// The observer that tells sync.js a save happened. There are eight saveMeta call sites in main.js;
+// adding a push line to each is eight edits a ninth call site would silently skip, so saveMeta
+// announces instead — the same shape as the sim/main event contract that already runs this codebase.
+// It is a NUDGE, not the truth: it says "re-evaluate", never "this needs pushing". §6.2 derives that
+// from the save's content hash precisely so a write the hook never announced (a second tab, an old
+// cached bundle serving the previous build, a future call site) cannot go unnoticed.
+let saveHook = null
+export function setSaveHook(fn) { saveHook = fn }
+
+// One-way latch, taken immediately before an adopt commits (§3.3). location.reload() QUEUES a
+// navigation — it does not stop script execution, and this repo has no beforeunload/pagehide/unload
+// handler anywhere, so live handlers keep firing for tens to hundreds of ms afterwards. The chapter
+// carousel's settle() alone fires from its own 130ms setTimeout with no new tap required, and it
+// calls saveMeta with the STALE in-memory meta — writing the pre-adopt save straight over the blob
+// we just adopted, and then announcing that write to sync. Never unlatched: the only exit is the
+// reload that is already on its way.
+let frozen = false
+export function freezeSaves() { frozen = true }
+
 export function saveMeta(meta) {
-  try { localStorage.setItem(boundKey ?? slotKey(activeSlot()), JSON.stringify(meta)) } catch { /* private mode */ }
+  if (frozen) return
+  let ok = false
+  try {
+    localStorage.setItem(boundKey ?? slotKey(activeSlot()), JSON.stringify(meta))
+    ok = true
+  } catch { /* private mode */ }
+  // Only on a successful write: a device whose localStorage is refusing writes must never upload
+  // state it is about to forget. Wrapped in its own catch because saveMeta is called by endRun from
+  // inside the Pixi ticker (main.js), and Pixi does not catch listener exceptions — a throwing hook
+  // would take down the frame loop in the one path that has just banked a run's coins. Two catches,
+  // so a storage failure stays distinguishable from a sync failure.
+  if (ok) { try { saveHook?.(boundSlot ?? activeSlot()) } catch { /* sync is best-effort */ } }
+}
+
+// The raw accessors sync.js needs. It reaches slots ONLY through these and never constructs a save
+// key itself, which is what keeps key construction entirely inside state.js.
+
+// What gets pushed — the bytes on disk, not JSON.stringify(meta) of the live in-memory object,
+// which may have been mutated since the last save. What we promise the cloud is what is stored.
+export function exportSlot(n) {
+  try { return localStorage.getItem(slotKey(n)) } catch { return null }
+}
+
+// Validates SHAPE, not syntax, then writes. Returns true if it wrote, false if it refused.
+// A parse check alone does not prevent the wipe this exists to prevent: loadMeta recovers to a
+// FRESH SAVE, silently, via its `catch { /* corrupted save -> fresh */ }`, for any blob whose shape
+// it does not expect — and `{}`, `null`, `{"coins":5,"chapters":{}}` (no shop key) and
+// `{"coins":5,"shop":"x"}` are all valid JSON that wipe the slot. The mechanism is loadMeta's
+// `for (const id of Object.keys(SHOP)) …` throwing a TypeError when `shop` is absent or not an
+// object, and the catch swallowing it. Reachable with no attacker at all: a truncated response
+// body, or a blob written by a build that changed the shape. A refused import is reported to the
+// player, never silent (§8).
+export function importSlot(n, json) {
+  let m
+  try { m = JSON.parse(json) } catch { return false }
+  if (typeof m !== 'object' || m === null || Array.isArray(m)) return false
+  if (typeof m.shop !== 'object' || m.shop === null || Array.isArray(m.shop)) return false
+  if (m.chapters != null && (typeof m.chapters !== 'object' || Array.isArray(m.chapters))) return false
+  try { localStorage.setItem(slotKey(n), json); return true } catch { return false }
 }
 
 // Full new-game wipe (shop's "Reset all progress" button, see hooks.onReset in main.js) —

@@ -1,7 +1,9 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot } from '../src/state.js'
+// sync.js keeps browser globals out of its module scope precisely so it can be imported here.
+import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
@@ -7802,6 +7804,153 @@ function testEarlySpawnBoost() {
 //
 // This scenario stubs localStorage (plain node has none) and runs last, so its Math.random reseed
 // cannot perturb any earlier scenario's stream.
+// run ZZ — sync.js's pure core (design §6.2 decision table, §6.4 lost ACK) and state.js's four sync
+// primitives. No network and no browser: sync.js keeps fetch/localStorage/crypto out of its module
+// scope for exactly this reason, so the logic that decides whether to overwrite a save is testable.
+// The tech strategy calls this "the slice to over-test" — every scenario below is a data-loss path
+// the adversarial review found, not a happy path.
+function testSyncDecisions() {
+  const KEY = 'charming-anomaly-save-v1'
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  }
+  const validBlob = (coins) => JSON.stringify({ coins, runs: 0, shop: {}, best: { time: 0, kills: 0 }, chapters: {} })
+
+  // (a) THE DECISION TABLE, all five rows, exhaustively over both dirty values.
+  const D = (dirty, cloudGen, baseGen) => decide({ dirty, cloudGen, baseGen }).action
+  assert.strictEqual(D(false, 5, 5), 'nothing', 'clean and level: the common case does nothing')
+  assert.strictEqual(D(false, 6, 5), 'pull', 'clean and behind: adopt the cloud')
+  assert.strictEqual(D(true, 5, 5), 'push', 'dirty and level: fast-forward')
+  assert.strictEqual(D(true, 6, 5), 'conflict', 'dirty and behind: both moved from a common ancestor')
+  // The row an earlier draft had as `push`. It cannot be: the server writes
+  // `UPDATE .. WHERE gen = ?` with ? = baseGen, so a row BELOW baseGen can never match — the row
+  // only counts up. That is 409 -> conflict prompt on every trigger, forever, and it is reachable
+  // with no database restore (a 404 outside pairing pushes at baseGen 0, so a recreated row sits at
+  // gen 1 while the other device holds 12). Every wedge is a modal inviting an overwrite.
+  const resync = decide({ dirty: false, cloudGen: 1, baseGen: 12 })
+  assert.strictEqual(resync.resynced, true, 'a cloud gen below baseGen is a desynchronisation, not a decision')
+  assert.strictEqual(resync.baseGen, 1, 'resync adopts the server gen unconditionally')
+  assert.strictEqual(resync.action, 'nothing', 'and re-runs the table, landing on nothing when clean')
+  assert.strictEqual(decide({ dirty: true, cloudGen: 1, baseGen: 12 }).action, 'push',
+    'and on push when dirty — never on a conflict prompt')
+  console.log('PASS run ZZ.a (decision table): all five rows, and a cloud gen below baseGen resyncs instead of wedging on conflict')
+
+  // (b) DERIVED dirty. The hash is asked of the DISK, which is what makes the three silent-loss
+  // paths impossible: a save landing mid-push, two tabs with no compare-and-swap, and an old cached
+  // bundle that has no hook at all. None of those can cooperate with a writer-set boolean.
+  setActiveSlot(1)
+  store.set(KEY, validBlob(10))
+  const rec = { code: 'ABCDEFGHJKMNPQRS', slot: 1, device: 'devA', gen: 3, syncedHash: hash(validBlob(10)), reqId: 'r1' }
+  assert.strictEqual(deriveDirty(rec), false, 'disk matching the last pushed blob is clean')
+  store.set(KEY, validBlob(20)) // a save lands — no hook fired, nothing told sync anything
+  assert.strictEqual(deriveDirty(rec), true, 'a write that announced nothing is still detected, because the disk is the source')
+  assert.strictEqual(deriveDirty(null), false, 'no record means nothing to compare')
+  store.delete(KEY)
+  assert.strictEqual(deriveDirty(rec), false, 'an empty slot has nothing to push')
+  assert.notStrictEqual(hash(validBlob(10)), hash(validBlob(20)), 'the hash must actually distinguish two saves')
+  assert.strictEqual(hash(validBlob(10)), hash(validBlob(10)), 'and be stable for identical bytes')
+  console.log('PASS run ZZ.b (derived dirty): a save that announced nothing is still seen, because the hash asks the disk not the writer')
+
+  // (c) THE LOST ACK (§6.4). Keyed on reqId, never a timestamp — an earlier draft compared savedAt
+  // against a stored sentAt and broke both ways: any save between the lost push and the retry made
+  // the rule stop firing (prompting the player against their OWN older save), and a clock stepping
+  // backwards made it fire wrongly (silently dropping the pending blob).
+  const mine = { device: 'devA', reqId: 'req-1' }
+  assert.strictEqual(isOwnLostAck({ device: 'devA', reqId: 'req-1' }, mine), true, 'same device AND same reqId is our own lost ACK')
+  assert.strictEqual(isOwnLostAck({ device: 'devB', reqId: 'req-1' }, mine), false, 'another device is a real conflict')
+  assert.strictEqual(isOwnLostAck({ device: 'devA', reqId: 'req-2' }, mine), false, 'our device but a different push is a real conflict')
+  assert.strictEqual(isOwnLostAck({ device: 'devA', reqId: '' }, { device: 'devA', reqId: '' }), false,
+    'two empty reqIds must not match each other into a false "our own ACK"')
+  assert.strictEqual(isOwnLostAck(null, mine), false, 'no server row is not our ACK')
+  console.log('PASS run ZZ.c (lost ACK): matched on device AND reqId, and an empty reqId never self-matches')
+
+  // (d) THE SCHEMA GATE (R4). Refuse a blob from a build whose save format this one cannot read.
+  assert.strictEqual(schemaOk(JSON.stringify({ schema: SCHEMA })), true, 'our own format is adoptable')
+  assert.strictEqual(schemaOk(JSON.stringify({ coins: 1 })), true, 'no field means the writer predated it — format 1')
+  assert.strictEqual(schemaOk(JSON.stringify({ schema: SCHEMA + 1 })), false, 'a newer format is refused, not guessed at')
+  assert.strictEqual(schemaOk(null), true, 'a tombstone carries no format')
+  assert.strictEqual(schemaOk('not json'), false, 'an unparseable blob is refused')
+  console.log(`PASS run ZZ.d (schema gate): SCHEMA=${SCHEMA} adopts, ${SCHEMA + 1} refuses, a missing field reads as 1`)
+
+  // (e) importSlot VALIDATES SHAPE, NOT SYNTAX. This is the assertion the whole function exists for:
+  // every blob below is valid JSON, and every one of them makes loadMeta fall into its
+  // `catch { /* corrupted save -> fresh */ }` and hand the player a FRESH SAVE — their slot gone.
+  // The mechanism is `for (const id of Object.keys(SHOP)) …` throwing when `shop` is absent or not
+  // an object. Reachable with no attacker: a truncated response body, or a future build's shape.
+  store.set(KEY, validBlob(99))
+  for (const bad of ['{}', 'null', '[]', '{"coins":5,"chapters":{}}', '{"coins":5,"shop":"x","chapters":{}}',
+                     '{"coins":5,"shop":[],"chapters":{}}', '{"coins":5,"shop":{},"chapters":"zzz"}',
+                     '{"coins":5,"shop":{},"chapters":[]}', 'not json at all']) {
+    assert.strictEqual(importSlot(1, bad), false, `importSlot must refuse ${bad} — loadMeta would wipe the slot on it`)
+  }
+  assert.strictEqual(exportSlot(1), validBlob(99), 'and every refusal must leave the slot on disk untouched')
+  assert.strictEqual(importSlot(1, validBlob(42)), true, 'a well-shaped blob is accepted')
+  assert.strictEqual(exportSlot(1), validBlob(42), 'and written verbatim — the bytes are what we promised')
+  assert.strictEqual(exportSlot(99), null, 'an unwritten slot exports null rather than throwing')
+  console.log('PASS run ZZ.e (importSlot shape validation): 9 valid-JSON blobs that would each wipe the slot are refused, disk untouched')
+
+  // (f) THE FREEZE LATCH (§3.3) AND THE SAVE HOOK (§3.2). location.reload() queues a navigation but
+  // does not stop script execution, and this repo has no unload handler — so without the latch the
+  // carousel's own 130ms setTimeout writes the PRE-ADOPT save back over the blob just adopted, and
+  // then announces that write to sync.
+  let announced = []
+  setSaveHook((slot) => announced.push(slot))
+  setActiveSlot(1)
+  store.set(KEY, validBlob(7))
+  const live = loadMeta()
+  live.coins = 123
+  saveMeta(live)
+  assert.deepStrictEqual(announced, [1], 'a successful save announces its SLOT NUMBER, so sync never learns the key shape')
+  assert.strictEqual(JSON.parse(exportSlot(1)).coins, 123, 'and the save actually landed')
+
+  // A hook that throws must not escape: saveMeta runs inside the Pixi ticker via endRun, and Pixi
+  // does not catch listener exceptions — a throwing hook would take down the frame loop in the one
+  // path that has just banked a run's coins.
+  setSaveHook(() => { throw new Error('sync exploded') })
+  live.coins = 456
+  assert.doesNotThrow(() => saveMeta(live), 'a throwing sync hook must never reach the caller')
+  assert.strictEqual(JSON.parse(exportSlot(1)).coins, 456, 'and the save still lands despite the hook throwing')
+
+  // The latch is one-way and there is no unlatch: the only exit is the reload already on its way.
+  announced = []
+  setSaveHook((slot) => announced.push(slot))
+  freezeSaves()
+  live.coins = 999
+  saveMeta(live)
+  assert.strictEqual(JSON.parse(exportSlot(1)).coins, 456, 'after freezeSaves a stale handler cannot overwrite the adopted blob')
+  assert.deepStrictEqual(announced, [], 'and a frozen save announces nothing, so it cannot be pushed either')
+  setSaveHook(null)
+  console.log('PASS run ZZ.f (freeze latch + save hook): the hook reports a slot number, survives a throw, and freezeSaves stops both the write and the announcement')
+
+  // (g) THE RECORD lives under its OWN key and never collides with a save slot.
+  assert.notStrictEqual(RECORD_KEY, KEY, 'the sync record must not share the save key')
+  assert(!RECORD_KEY.startsWith(`${KEY}:`), 'nor look like a save slot')
+  assert.strictEqual(readRecord(), null, 'no record reads as null, not as a throw')
+  writeRecord({ code: 'ABCDEFGHJKMNPQRS', slot: 1, device: 'devA', gen: 4, syncedHash: 'deadbeef', reqId: 'r9' })
+  assert.strictEqual(readRecord().gen, 4, 'a written record round-trips')
+  store.set(RECORD_KEY, '{"nope":true}')
+  assert.strictEqual(readRecord(), null, 'a record without a code is treated as absent, never half-trusted')
+  store.set(RECORD_KEY, 'not json')
+  assert.strictEqual(readRecord(), null, 'and an unparseable record does not throw on boot')
+  console.log('PASS run ZZ.g (sync record): its own key, and a malformed record reads as absent rather than throwing at boot')
+
+  // (h) THE SUITE MUST NEVER LEAVE A HOOK INSTALLED (§3.1/§11). Five scenarios in this file call
+  // saveMeta against a succeeding setItem stub, so the moment anything installs a hook at module
+  // scope the suite starts firing it — and sync.js's hook would attempt a real network request.
+  let leaked = false
+  setSaveHook(() => { leaked = true })
+  setSaveHook(null)
+  saveMeta(live)
+  assert.strictEqual(leaked, false, 'setSaveHook(null) must fully uninstall — a test suite that quietly talks to the internet is worse than one that fails')
+  console.log('PASS run ZZ.h (no leaked hook): setSaveHook(null) uninstalls, so npm test can never fire a real sync request')
+
+  delete globalThis.localStorage
+  console.log('PASS run ZZ (sync core): decision table, derived dirty, lost-ACK reqId rule, schema gate, shape validation, freeze latch')
+}
+
 function testForwardCompatibleSave() {
   const KEY = 'charming-anomaly-save-v1'
   const store = new Map()
@@ -8071,6 +8220,7 @@ try {
   testEarlySpawnBoost()
   testFrenchDictionary()
   testForwardCompatibleSave()
+  testSyncDecisions()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
