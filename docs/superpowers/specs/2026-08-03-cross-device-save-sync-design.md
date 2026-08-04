@@ -1,7 +1,7 @@
 # Cross-device save sync — design + technical strategy
 
 **Date:** 2026-08-03, revised 2026-08-04
-**Status:** Revised after adversarial UI/UX + edge-case review (§14.3). Four product calls open (§14.4). Not implemented.
+**Status:** Revised after adversarial UI/UX + edge-case review (§14.3); all product calls settled (§14.1, §14.4). Not implemented; plan to follow.
 **Use case, verbatim:** *"I start a save on my phone, I want to continue on my computer, then back
 on my phone when I leave for work."*
 
@@ -457,7 +457,7 @@ existing `SS.e` scenario stays valid.
 CREATE TABLE saves (
   id         TEXT    PRIMARY KEY,  -- lowercase hex SHA-256 of the pairing code; the code is never stored
   gen        INTEGER NOT NULL,     -- optimistic-concurrency counter, +1 per accepted write
-  blob       TEXT    NOT NULL,     -- the meta JSON verbatim; opaque to the Worker
+  blob       TEXT,                 -- the meta JSON verbatim, opaque to the Worker; NULL = tombstone (§5.4)
   saved_at   INTEGER NOT NULL,     -- writer's clock, epoch ms — display only, never compared
   device     TEXT    NOT NULL,     -- last writer's device id; used only for the lost-ACK check (§6.4)
   req_id     TEXT    NOT NULL,     -- last writer's per-push idempotency key (§6.4)
@@ -602,11 +602,11 @@ surprising outcome is the laptop re-uploading the old save an hour later and un-
 phone. The confirm copy must therefore state the true scope — see §9.6 for the two conditional
 bodies that replace today's static string.
 
-> **⚠ The mechanism below is unresolved — see §14, question 1.** An earlier draft specified
-> *"`onReset` pushes the fresh save before reloading, with a 2-second bound, falling back to reset
-> locally now and push on the next boot."* That is not implementable and its fallback delivers the
-> exact outcome this section promises to prevent. Recorded here so the implementation plan cannot
-> inherit it.
+**Owner decision (2026-08-04): reset writes a tombstone.** An earlier draft specified *"`onReset`
+pushes the fresh save before reloading, with a 2-second bound, falling back to reset locally now and
+push on the next boot."* That is not implementable, and its fallback delivers the exact outcome this
+section promises to prevent — the reasons are below, kept because they are what rules out the
+obvious repair of "just push a bit harder."
 
 **Why the push-based mechanism fails**, three independent ways:
 
@@ -626,17 +626,41 @@ bodies that replace today's static string.
 3. **The 1-second same-row PUT throttle defeats it** (§10). Finish a run (push at T), open the
    shop, tap Reset at T+0.4 s → **429** → straight into failure mode 2.
 
-**What a correct mechanism needs**, whichever option §14 settles on: reset must be its own protocol
-operation rather than a push, so that the other device can tell "erased" from "an empty save
-arrived"; it must be exempt from the 1-second throttle; and if it cannot complete, the player must
-be told **before** the local wipe, not promised a retry that has no trigger.
+**The mechanism: `DELETE /v1/save` writes a tombstone** — the row survives with `blob = NULL` and
+`gen` incremented like any other write (§6.1). Three properties follow, and each answers one of the
+failures above:
 
-**And a wipe arriving on the other device must be announced.** Even on the happy path, the earlier
-draft's other device experience was: open the game → it reloads by itself → everything is gone → no
-text, ever. That is indistinguishable from save corruption and is the single most likely source of
-a "the game deleted my save" report. A deletion is the one pull that must be confirmed *before* it
-lands (§9), not adopted silently — and the player who says no is choosing to keep a save on a device
-they are holding, which is their call, so that path unlinks rather than wipes.
+1. **A tombstone is distinguishable from an empty save.** The other device sees a deliberate
+   deletion, not a blob it has to guess about — which is what removes failure 1 entirely, since
+   there is no blob to push and none is pushed.
+2. **It is ordered by the generation counter**, like everything else. A device holding pre-reset
+   progress that pushes *after* the tombstone simply conflicts, and the player is asked; a device
+   that pulls *after* it gets the deletion. Failure 2 required a device to look clean while holding
+   a stale generation, and a tombstone advances the generation.
+3. **It is exempt from the 1-second same-row throttle** (§10), which kills failure 3. The exemption
+   is safe because `DELETE` is idempotent and rare — repeating it against an already-tombstoned row
+   is a no-op that returns the current `gen`.
+
+If the `DELETE` cannot complete within a 2-second bound, **the player is told before the local
+wipe**, never promised a retry that has no trigger:
+
+- `Erased here. Your other devices still have this save — open the game there and erase it too.` (90)
+- `Effacé ici. Vos autres appareils ont encore cette sauvegarde — ouvrez le jeu là-bas pour l'effacer aussi.` (105)
+
+and the local device unlinks, so it cannot later re-adopt what it just erased.
+
+**A wipe arriving on the other device is announced, not applied silently.** Even on the happy path
+the earlier draft's experience was: open the game → it reloads by itself → everything is gone → no
+text, ever. That is indistinguishable from save corruption and is the most likely source of a "the
+game deleted my save" report. So a tombstone is the one pull that is **confirmed before it lands**:
+
+- title: `This save was erased` (20) / `Cette sauvegarde a été effacée` (30)
+- body: `You erased it on another device. Erasing it here too keeps your devices in step.` (79) /
+  `Vous l'avez effacée sur un autre appareil. L'effacer ici aussi garde vos appareils synchronisés.` (95)
+- buttons: `Erase here too` (14) / `Effacer aussi ici` (17), and `Keep it here` (12) /
+  `La garder ici` (13) — which **unlinks** rather than wiping. Two devices disagreeing about whether
+  a save should exist is the player's call to make, not the protocol's, and the one device they are
+  holding is the one they can still speak for.
 
 `sendBeacon` is not usable in any variant — it cannot carry an `Authorization` header.
 
@@ -661,7 +685,23 @@ PUT /v1/save
   409 { gen, blob, savedAt, device, reqId }   stale baseGen — the current row comes back with it
   400                                  blob too large or unparseable envelope
   401 / 429
+
+DELETE /v1/save
+  Authorization: Bearer <code>
+  { baseGen }
+  200 { gen }                          tombstoned: blob = NULL, gen incremented
+  409 { gen, blob, savedAt, device, reqId }   stale baseGen — same shape as PUT
+  401 / 429                            (exempt from the 1-second same-row throttle, §5.4)
 ```
+
+**Three endpoints, and `blob: null` is a first-class value.** A tombstone is an ordinary row with
+`blob = NULL` and a bumped `gen`, so it travels through the generation machinery unchanged — a
+`GET` returns it, a stale `DELETE` 409s like any stale write, and a device that pushes after one
+conflicts normally. Nothing in §6.2's decision table needs a new row; only the *adopt* step branches,
+on `blob === null` → the confirm of §5.4 rather than `importSlot`.
+
+`DELETE` is idempotent: repeating it against an already-tombstoned row is a no-op returning the
+current `gen`, which is what makes the throttle exemption safe.
 
 `baseGen: 0` means *"I believe no row exists"* and maps to `INSERT … ON CONFLICT(id) DO NOTHING`;
 zero rows affected produces the same 409 as any other stale write, carrying the existing row. So
@@ -921,10 +961,11 @@ ambiguity:
   │           [ Use this one ]           │
   └──────────────────────────────────────┘
            The other one is deleted.
+                 [ Decide later ]
 ```
 
-Height ≈ 20 + 24 + 12 + 130 + 12 + 130 + 12 + 18 + 20 ≈ **378px**, inside the 536px budget at
-320×568 even with the title wrapping to two lines in French.
+Height ≈ 20 + 24 + 12 + 130 + 12 + 130 + 12 + 18 + 12 + 44 + 20 ≈ **434px**, inside the 536px
+budget at 320×568 even with the title wrapping to two lines in French.
 
 Four things changed in the content, all of them corrections:
 
@@ -955,8 +996,24 @@ with the `savedAt === 0` → "unknown" and future-clamp branches of §4.1. Every
 `fr.js` entry in the same commit — the standing i18n rule — and the French goes through an
 adversarial review pass, never written alongside the English.
 
+**There is a way out (owner decision, 2026-08-04):** `Decide later` (12) / `Plus tard` (9), styled
+quietly below the two cards. At pairing it returns to the slot picker; in steady state it dismisses,
+leaves the local save dirty, and the prompt returns on the next trigger.
+
+An earlier draft offered no cancel at all, arguing *"the two saves have already diverged and the
+decision is not improved by postponing it."* That argument is sound for the steady-state case and
+**false for the pairing case**, which then inherited it: at pairing nothing has diverged, the player
+has just typed a code and tapped a slot row, and the likeliest reason they are looking at this modal
+is that they **aimed at the wrong row**. Handing that player two buttons, both of which destroy a
+save, with no way back to the picker, is the design failing exactly the person it was built for.
+The asymmetry decides it: postponing costs nothing, because both saves still exist either way,
+while a mis-tap costs a session.
+
+Backdrop-tap and Escape stay inert. That is defensible once a *labelled* exit exists — the risk was
+never dismissibility, it was an accidental dismissal being indistinguishable from a decision.
+
 **Guarding against mis-taps.** This modal appears unbidden over the title screen while the thumb
-may already be travelling toward `.btn--play`, and both of its buttons destroy a save. So: a 400 ms
+may already be travelling toward `.btn--play`, and two of its three buttons destroy a save. So: a 400 ms
 tap shield after the sheet animates in (no such pattern exists in the codebase today, and note that
 `pop-in` is disabled under `prefers-reduced-motion` at `styles.css:809`, which renders both buttons
 *instantly*), and `Play` plus the nav are disabled while a conflict is pending. That last part is
@@ -966,8 +1023,6 @@ modal that must not be dismissible. Without it, Tab-then-Enter starts a run unde
 held `cloudBlob`/`gen` are then stale — so the prompt must always re-derive from the current 409
 response rather than from a cached one.
 
-Whether the prompt offers a third, non-destructive way out is a product call, flagged in §14.
-
 ### 7.3 After each choice
 
 In the pairing context the cloud's generation arrived on the GET; in the steady-state context the
@@ -975,23 +1030,39 @@ In the pairing context the cloud's generation arrived on the GET; in the steady-
 
 **Keep this device's** → push with `baseGen = cloud.gen`.
 That write is accepted (nobody else moved in between), the cloud row advances to `gen + 1` holding
-the local blob, `dirty` clears. No reload — the local save was already the truth on this device.
-The cloud's previous content is preserved in `prev_blob`.
+the local blob, and `syncedHash` is set from the pushed blob. No reload — the local save was already
+the truth on this device. The cloud's previous content is preserved in `prev_blob`.
 
-**Take the cloud's** → `freezeSaves()`, `importSlot(slot, cloudBlob)` (which refuses a
-malformed blob, §3.2), commit `baseGen = cloud.gen` and `syncedHash = hash(cloudBlob)`, then
-`location.reload()`. The order matters and the freeze is not optional — see §3.3. The local
-divergence is gone.
+**Take the cloud's** → stash the outgoing local blob (below), then `freezeSaves()`,
+`importSlot(slot, cloudBlob)` (which refuses a malformed blob, §3.2), commit `baseGen = cloud.gen`
+and `syncedHash = hash(cloudBlob)`, then `location.reload()`. The order matters and the freeze is
+not optional — see §3.3. The local divergence is gone.
 
 Committing the sync record **before** the reload is also what prevents a boot loop: a crash between
 `importSlot` and the record write would otherwise leave a device that re-adopts on every boot.
 
-`prev_blob`/`prev_gen` exist because this is the single most destructive tap in the feature and it
-costs one column and one clause in an UPDATE that already runs. There is **no endpoint and no UI**
-for it: it is an operator escape hatch, recoverable with one SQL statement when a player says they
-tapped the wrong button. Stated plainly so nobody mistakes it for a feature. It covers the cloud
-side only; the discarded *local* blob is genuinely gone, and making that symmetric would mean
-stashing it under another localStorage key (§12).
+**Decide later** → dismiss, change nothing. Both saves survive, the local one still hashes
+differently from `syncedHash`, and the next trigger re-evaluates to `conflict` and asks again.
+Because nothing is written, this is the only one of the three that is safe to reach by accident.
+
+**Both sides are recoverable (owner decision, 2026-08-04).**
+
+- *Cloud side* — `prev_blob`/`prev_gen`, one column pair and one clause in an UPDATE that already
+  runs. There is **no endpoint and no UI** for it: an operator escape hatch, recoverable with one
+  SQL statement when a player says they tapped the wrong button. Stated plainly so nobody mistakes
+  it for a feature.
+- *Local side* — one extra localStorage key holding the blob that "Take the cloud's" discarded,
+  overwritten each time. An earlier draft left this out on the grounds that "the player explicitly
+  chose to discard it", but that is the same argument `prev_blob` already rejects for the cloud
+  side, and it applies to the button a player is **more** likely to hit by accident. Symmetry here
+  is not tidiness; it is the difference between a recoverable mis-tap and a lost session.
+
+**`prev_blob` covers exactly one generation, and that ceiling is stated rather than implied.** With
+three devices diverging at once — a plane trip, an offline session each — the sequence B pushes, A
+overwrites, C overwrites leaves **B's session unrecoverable even by the operator**: it is in no
+column and on no device. A two-slot ring would cover it for one more `TEXT` column, and was
+considered and declined: the realistic deployment is a phone and a laptop, which one generation
+covers completely. If a third device ever becomes normal, this is the line to revisit.
 
 ## 8. Offline and failure behaviour
 
@@ -1396,6 +1467,10 @@ its determinism contract.
   differs)"; and the clock-vs-generation disagreement warning.
 - The **14**-character name clamp and control-character stripping, applied **on receive**, not on
   adopt — the prompt renders the cloud's name before any adopt happens.
+- **Tombstones** (§5.4): a pulled `blob === null` resolves to `'erased'` rather than `'pull'`, and
+  never reaches `importSlot`. Assert it separately from the null-blob *refusal* case in
+  `importSlot`, since the two look identical from a distance and mean opposite things — one is a
+  deliberate deletion to confirm, the other is a corrupt payload to reject.
 - A guard that `saveHook` is still `null` at the end of a full suite run, so nothing has quietly
   wired sync into a suite that stubs a succeeding `setItem` at five sites (§3.1).
 
@@ -1434,8 +1509,11 @@ no vitest" rule is about the game's suite and does not extend to it. Even so, th
 that works is a short `worker/test.sh` of `curl` assertions against `wrangler dev --local` (D1 runs
 against local SQLite), covering: first write with `baseGen: 0`; a normal write; a stale-`baseGen`
 409 carrying the current row **and its `reqId`**; an unknown code 404; an oversize blob 400; a
-missing/malformed `Authorization` 401 **without a D1 read**; the one-second throttle 429; and the
-per-code daily write cap. Eight cases, one file, no framework.
+missing/malformed `Authorization` 401 **without a D1 read**; the one-second throttle 429; the
+per-code daily write cap; a `DELETE` tombstoning the row (`blob` NULL, `gen` bumped); a repeated
+`DELETE` being a no-op that returns the same `gen`; a `DELETE` **not** throttled a second after a
+PUT; and a `GET` on a tombstoned row returning `blob: null` rather than 404. Twelve cases, one file,
+no framework.
 
 **Post-push gate.** `scripts/deploy-watch.sh "vX.Y.Z · <sha>" "<sync host>"` — the repo's standard
 gate, with the sync host as an extra grep string so the `define` substitution is confirmed to have
@@ -1484,13 +1562,11 @@ Named deliberately, so the shortcuts are choices rather than omissions — and e
   cheapest.
 - **`prev_blob`/`prev_gen` (§7.3).** One column pair with no reader until a player emails. Cutting
   it makes "Keep this device's" irreversible. Keep it; it is the cheapest insurance in the design.
-  Its ceiling is now stated rather than implied: it covers **one** generation, so with three devices
-  two successive overwrites make the middle save unrecoverable even by the operator. Whether that
-  becomes a two-slot ring is §14.4, question 4.
-- **Stashing the discarded *local* blob** on "Take the cloud's", for symmetry with `prev_blob`. One
-  extra localStorage key. Left out of the earlier draft on the grounds that "the player explicitly
-  chose to discard it" — but that is the same argument `prev_blob` already rejects for the cloud
-  side, and it applies to the *more* mis-tappable of the two buttons. Now §14.4, question 3.
+  Its ceiling is stated rather than implied: it covers **one** generation, which covers the phone +
+  laptop deployment completely and leaves a three-way divergence's middle save unrecoverable. A
+  two-slot ring was considered and declined (§7.3).
+- **The local stash** on "Take the cloud's" (§7.3) — now **in** the design, not a cut. One
+  localStorage key, and the only recovery for the more mis-tappable of the two destructive buttons.
 
 **Not cuttable, though an earlier draft treated them as optional or absent:** the derived `dirty`
 hash (§6.2), the `freezeSaves()` latch (§3.3), `importSlot`'s shape validation (§3.2) and
@@ -1580,21 +1656,23 @@ Line-reference corrections: `state.js:54-55` (not `:55-56`); **six** swallow-and
 sites (not once, in `testSaveSlots`); `SS.g` is `sim-test.js:7154-7160`; SHA-256 is **64** hex
 digits (not 128).
 
-### 14.4 Open — product calls the owner must make
+### 14.4 Settled by the owner after review, 2026-08-04
 
-1. **How does reset propagate?** (§5.4) The push-based mechanism is broken three ways and the
-   fallback silently un-resets the player. A tombstone/`DELETE` is the obvious replacement, but
-   "reset unlinks and leaves the cloud alone" is also coherent. **Blocking** — §5.4 cannot be
-   implemented as written.
-2. **Does the conflict prompt get a non-destructive way out?** (§7.2) Today both buttons destroy a
-   save and there is no cancel. The no-cancel rule was argued for the *divergence* case and then
-   inherited by the *pairing* case, where nothing has diverged and a wrong-row tap is the likeliest
-   reason the prompt is on screen.
-3. **Is the discarded local blob stashed on "Take the cloud's"?** (§7.3, §13) The cloud side has
-   `prev_blob`; the local side has nothing — so the more mis-tappable button is the one with no
-   recovery.
-4. **Does `prev_blob` become a small ring, or is the two-device ceiling stated?** (§7.3) With three
-   devices, two successive overwrites make the middle save unrecoverable even by the operator.
+6. **Reset writes a tombstone** (§5.4, §6.1). `DELETE /v1/save` sets `blob = NULL` and bumps `gen`,
+   so a deletion is distinguishable from an empty save, ordered by the same counter as everything
+   else, and exempt from the 1-second throttle. A tombstone arriving on another device is
+   **confirmed before it lands**, with "Keep it here" unlinking rather than wiping — two devices
+   disagreeing about whether a save should exist is the player's call.
+7. **The conflict prompt gains `Decide later`** (§7.2). Both saves survive a postponement, so the
+   only thing it costs is a second prompt later; a mis-tap costs a session. Backdrop-tap and Escape
+   stay inert now that a labelled exit exists.
+8. **The discarded local blob is stashed** (§7.3). One localStorage key, symmetric with the cloud
+   side's `prev_blob`, covering the button players are more likely to hit by accident.
+9. **`prev_blob` stays one generation deep, and the ceiling is written down** (§7.3). A phone and a
+   laptop are fully covered; a three-way divergence's middle save is not, and the spec says so
+   rather than implying safety it does not have.
+
+**No product questions remain open.**
 
 ### 14.5 Open — deferred to implementation
 
