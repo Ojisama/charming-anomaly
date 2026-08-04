@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, COIN_CAP_PER_RUN } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -95,19 +95,27 @@ const ui = initUI({
     // state.js. v6.0.2: when the roll produced anomalies, the run does NOT start yet — the
     // briefing screen explains them first, and only its Start button (onBriefStart) creates the
     // run, with the exact ids shown. Nothing is spent yet, so backing out via the nav is free.
-    const chMeta = ensureChapterMeta(meta, meta.chapter)
+    // R1 (see resolveChapterId in config.js): meta.chapter is a pointer into CHAPTERS and loadMeta
+    // never repairs it, so a save from a build that shipped a chapter this one lacks can name one
+    // that isn't here. createRun already degrades such a run to CHAPTER_ORDER[0] — resolve the same
+    // way BEFORE reading any ladder, so the difficulty, the anomaly roll, the briefing and (via
+    // run.chapter) endRun's credit all name the chapter that will actually be played. Reading the
+    // unknown chapter's ladder instead would launch The Body at a level the player never unlocked
+    // there and hand it that chapter's win. In memory only: meta.chapter is never written back.
+    const chapterId = resolveChapterId(meta.chapter)
+    const chMeta = ensureChapterMeta(meta, chapterId)
     // The Blank's difficulty ladder is a fixed, named set of modifiers per level (see
     // CHAPTERS.blank.modsByDifficulty) rather than random picks — its whole point is a
     // scripted, repeatable fight.
-    const mutators = meta.chapter === 'blank'
+    const mutators = chapterId === 'blank'
       ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
-      : randomMutators(chMeta.difficulty - 1, meta.chapter)
+      : randomMutators(chMeta.difficulty - 1, chapterId)
     if (mutators.length > 0) {
-      pendingPlay = { chapter: meta.chapter, difficulty: chMeta.difficulty, mutators, consumableIds }
-      ui.showScreen('brief', { chapterId: meta.chapter, difficulty: chMeta.difficulty, mutators, reroll: meta.chapter !== 'blank' })
+      pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, consumableIds }
+      ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: chapterId !== 'blank' })
       return
     }
-    startClassic(meta.chapter, chMeta.difficulty, mutators, consumableIds)
+    startClassic(chapterId, chMeta.difficulty, mutators, consumableIds)
   },
   onBriefStart() {
     if (!pendingPlay) return
@@ -160,8 +168,12 @@ const ui = initUI({
   onDifficulty(d) {
     // Belt-and-braces with the UI: never let a locked level (above the SELECTED chapter's
     // maxDifficulty) stick, even if a stray click somehow got through disabled/no-op pips.
-    const chMeta = ensureChapterMeta(meta, meta.chapter)
-    chMeta.difficulty = Math.max(1, Math.min(chMeta.maxDifficulty, Math.min(chapterMaxDifficulty(meta.chapter), d)))
+    // Same R1 resolution as onPlay above, for the same reason plus one of its own: writing a
+    // clamped difficulty into the entry of a chapter this build cannot play would LOWER a newer
+    // save's stored selection on disk — the exact clamp-and-persist loss R3 exists to prevent.
+    const chapterId = resolveChapterId(meta.chapter)
+    const chMeta = ensureChapterMeta(meta, chapterId)
+    chMeta.difficulty = Math.max(1, Math.min(chMeta.maxDifficulty, Math.min(chapterMaxDifficulty(chapterId), d)))
     saveMeta(meta)
     playSfx('click')
   },
@@ -322,7 +334,12 @@ function endRun(victory) {
   // Wins at the cap, deaths and dailies keep "Play again".
   let nextDifficulty = null
   if (victory && runMode === 'classic') {
-    const nextD = Math.min(chMeta.maxDifficulty, (run.difficulty ?? 1) + 1)
+    // R3 (state.js's ensureChapterMeta): chMeta.maxDifficulty may now sit ABOVE this build's
+    // ladder — a save from a build that shipped more levels keeps its number instead of being
+    // written back lower — so cap the bump with the chapter's own ceiling too. Without it, a win
+    // at the cap would advance the saved selection to a level this build has no pip for and never
+    // balanced, and the summary's "Next level" button would start it.
+    const nextD = Math.min(runChapterMaxDifficulty, chMeta.maxDifficulty, (run.difficulty ?? 1) + 1)
     if (nextD > (run.difficulty ?? 1)) { chMeta.difficulty = nextD; nextDifficulty = nextD }
   }
 

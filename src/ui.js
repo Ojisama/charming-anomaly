@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary } from './state.js'
@@ -44,7 +44,10 @@ function titleChapterList(meta) {
   // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
   // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
   if (meta.chapters?.blank?.unlocked) base.push('blank')
-  else if (meta.chapters?.beyond?.maxDifficulty === MAX_DIFFICULTY) base.push('blank')
+  // >= not ===: R3 (state.js) keeps a future build's higher maxDifficulty as stored, and a strict
+  // equality against this build's ceiling would make the "???" card vanish for exactly the players
+  // who have gone furthest. undefined/null still compare false, so nothing else changes.
+  else if (meta.chapters?.beyond?.maxDifficulty >= MAX_DIFFICULTY) base.push('blank')
   return base
 }
 
@@ -201,7 +204,14 @@ export function initUI(hooks) {
   //     unlocked chapter we persist the selection via hooks.onChapter (so meta.chapter tracks it);
   //     the locked preview card never calls onChapter and its Play button is disabled.
   //   boostersOpen: whether the booster bottom-sheet is up (replaces the v5.0.1 run-options panel).
-  let browseChapterId = meta.chapter
+  //   R1 (resolveChapterId, config.js): meta.chapter is a pointer into CHAPTERS, so a save from a
+  //     build that shipped a chapter this one lacks can name one that isn't here. main.js resolves
+  //     it before launching; browse it the same way or titleBelowHtml reads that chapter's ledger
+  //     entry and lights pips off ITS longer ladder while Play starts CHAPTER_ORDER[0] at its own
+  //     level — pips that disagree with the run. (The pip COUNT is the same either way:
+  //     chapterMaxDifficulty returns MAX_DIFFICULTY for an unknown id. It is the unlocked state
+  //     that lies.) No card exists for that id either, so the carousel would centre on nothing.
+  let browseChapterId = resolveChapterId(meta.chapter)
   let boostersOpen = false
 
   // Per-chapter DECORATIVE ambient shapes for the diorama card (v5.2). Pure CSS overlay INSIDE the
@@ -484,7 +494,11 @@ export function initUI(hooks) {
   }
 
   function renderTitle() {
-    if (!meta.chapters?.[browseChapterId]) browseChapterId = meta.chapter
+    // resolveChapterId, not raw meta.chapter: this fires when the browsed chapter has no ledger
+    // entry — reachable for 'blank', which lives outside CHAPTER_ORDER so ensureChapterMeta never
+    // creates one — and falling back to an unvalidated pointer would put the alien id straight back
+    // (R1, config.js).
+    if (!meta.chapters?.[browseChapterId]) browseChapterId = resolveChapterId(meta.chapter)
     screens.title.innerHTML = `
       <button class="lang-toggle" data-act="lang" aria-label="${t('language')}">🌐 ${getLang().toUpperCase()}</button>
       <button class="slot-toggle" data-act="slots" aria-label="${t('Save slots')}">💾 ${activeSlot()}/${SAVE_SLOTS}</button>

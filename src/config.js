@@ -1354,6 +1354,12 @@ export const shopCost = (id, level) => Math.round(SHOP[id].base * Math.pow(1.6, 
 // level-up card slot (see meta.choiceSlots in state.js and hooks.onSacrifice in main.js).
 export const SACRIFICE_COSTS = [20, 40]  // shop levels to give up for the 3rd, then 4th card slot
 export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // slots = current unlocked count (2..4)
+// The most level-up cards THIS build can deal. Derived from the sacrifice ladder, which is what
+// defines it: 2 free slots plus one per purchasable step. createRun clamps run.choiceSlots to it
+// (state.js) — a save written by a future build may legitimately store MORE, and loadMeta keeps
+// that number rather than writing it back lower (R3, docs/superpowers/specs/
+// 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
+export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
 
 // End-of-run coin bonus
 export const runBonusCoins = (kills) => Math.floor(kills / 10)
@@ -2270,6 +2276,20 @@ export const ROAD_JUNCTION = {
                               // (spec §11): a driving vehicle needs a pathfinder over roadAt, which
                               // is a point query with no graph.
 }
+
+// R1 — VALIDATE TABLE-BACKED POINTERS AT THE CONSUMER (docs/superpowers/specs/2026-08-04-cross-
+// device-save-sync-tech-strategy.md §2.4). meta.chapter is a POINTER INTO CHAPTERS, not data, and
+// loadMeta deliberately never repairs it (an old build saves on every chapter switch, run end and
+// purchase, so a load-time repair would be written straight back over a newer save). So every
+// consumer resolves it in memory instead, through this one helper — createRun (state.js) and
+// main.js's onPlay/onDifficulty. Sharing it matters: if the run degrades to 'body' while onPlay
+// still reads the ladder of a chapter this build does not have, the player is launched into The
+// Body at a level they never unlocked there, and endRun credits that win to body's ledger.
+// Object.hasOwn, not a truthiness test: '__proto__'/'constructor'/'toString' are all truthy on any
+// object literal and would otherwise pass as chapter ids. Membership is tested against CHAPTERS and
+// NOT against CHAPTER_ORDER — 'blank' is a real chapter that lives outside the order by design, and
+// an order check would silently turn every Blank run into a body run.
+export const resolveChapterId = (id) => (Object.hasOwn(CHAPTERS, id) ? id : CHAPTER_ORDER[0])
 
 export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers

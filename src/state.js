@@ -2,8 +2,8 @@
 import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
-  chapterMaxDifficulty,
-  EARLY_CALM,
+  chapterMaxDifficulty, resolveChapterId,
+  EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed,
@@ -70,10 +70,17 @@ let boundKey = null
 //   entry per CHAPTER_ORDER id (config.js), created/repaired by ensureChapterMeta below.
 //   difficulty/maxDifficulty here are that chapter's OWN 1..MAX_DIFFICULTY ladder (replaces
 //   the pre-v5.0 top-level meta.difficulty/meta.maxDifficulty, which no longer exist).
+//   maxDifficulty is floored at 1 but NOT capped on load (R3 — see ensureChapterMeta): a save
+//   written by a build that shipped a LONGER ladder keeps its number. Only `difficulty`, the
+//   level actually launched, is clamped to what this build can play.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
 // meta.coins / meta.shop / meta.choiceSlots / meta.runs: shared, chapter-agnostic, untouched
-//   by the v4 -> v5 migration below.
+//   by the v4 -> v5 migration below. choiceSlots is floored at 2 and, like maxDifficulty above,
+//   NOT capped on load — createRun clamps what this build actually deals (MAX_CHOICE_SLOTS).
+// meta.schema: save-format version (see SCHEMA below). A brand-new save is stamped with SCHEMA;
+//   a save that PREDATES the field is by definition format 1, so loadMeta fills in 1 rather than
+//   SCHEMA — an old blob must never be relabelled as this build's format. Nothing reads it yet.
 // Migration from a pre-v5.0 (v4) save: detected by the absence of meta.chapters. chapters.body
 // absorbs the save's top-level maxDifficulty/difficulty (grandfathered in as chapters.body's
 // ladder, unlocked); top-level meta.best is KEPT (still updated by endRun); top-level
@@ -83,19 +90,44 @@ let boundKey = null
 // needed for existing saves), and module-level boundKey pins every save fired before the next
 // reload to the slot the in-memory meta was actually loaded from (see boundKey's own comment).
 
+// Save-format version written into meta.schema. It lives here and not in config.js because it
+// versions the save SHAPE — state.js's job — rather than balance or content, and because the only
+// correct way to bump it is together with the loadMeta migration branch that produces the new
+// shape: that branch must ALSO stamp `m.schema = SCHEMA`, the way the v4 -> v5 migration rewrites
+// the save it upgrades (`??= 1` alone can never produce a 2). Bump ONLY for a change an older
+// build genuinely cannot survive — an additive field, a new chapter and a widened range are all
+// survivable and must NOT bump it (R2/R3 below).
+// Nothing reads SCHEMA yet: the comparison that refuses to adopt a save written by a newer build
+// belongs to the cross-device sync module (rule R4, docs/superpowers/specs/2026-08-04-cross-
+// device-save-sync-tech-strategy.md §2.4). The field ships AHEAD of its reader on purpose — a
+// build already in the wild without it can never be taught to refuse — so neither the constant nor
+// the field is dead code to sweep.
+export const SCHEMA = 1
+
 // ensureChapterMeta (v5.0): fetches meta.chapters[id], creating it if missing (unlocked only
-// for the 'body' chapter — every later chapter starts locked), and always clamps
-// maxDifficulty into [1, chapterMaxDifficulty(id)] (MAX_DIFFICULTY for every chapter but the
-// blank, which caps at 3 — config.js) and difficulty into [1, maxDifficulty], filling in a
-// missing best.{time,kills}. Called for every CHAPTER_ORDER id on every loadMeta so a save
-// that predates a newly-shipped chapter (or has a corrupted/garbage entry) always resolves to
-// a well-formed one. Returns the (mutated, in-place) entry.
+// for the 'body' chapter — every later chapter starts locked), sanitises that chapter's ladder,
+// and fills in a missing best.{time,kills}. Called for every CHAPTER_ORDER id on every loadMeta
+// so a save that predates a newly-shipped chapter (or has a corrupted/garbage entry) always
+// resolves to a well-formed one. Returns the (mutated, in-place) entry.
+//
+// R3 — CLAMP ON USE, NEVER ON LOAD (see the tech strategy cited above, §2.4). maxDifficulty is
+// floored at 1 and deliberately NOT capped at chapterMaxDifficulty: a save written by a FUTURE
+// build that shipped a longer ladder legitimately carries a bigger number, and capping it here
+// would hand the smaller value straight to the next saveMeta — silent, permanent progression loss
+// for anyone who opens an older build (routine once saves sync between devices). What this build
+// can actually PLAY is clamped instead: here for `difficulty` (the level launched), and
+// independently at every other consumer — ui.js renders exactly chapterMaxDifficulty(id) pips,
+// main.js's onDifficulty and endRun's next-level bump both cap with chapterMaxDifficulty, and
+// endRun's unlock bump only ever raises maxDifficulty toward that same cap.
+// Number(x) || fallback rather than `?? fallback` (same idiom as loadMeta's v6.6.10 coercion) so a
+// tampered non-numeric ladder resolves to 1 instead of NaN — `d > NaN` is false, so a NaN
+// maxDifficulty used to leave every difficulty pip reading as unlocked.
 export function ensureChapterMeta(meta, id) {
   meta.chapters ??= {}
   const entry = meta.chapters[id] ?? { unlocked: id === 'body', maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } }
   entry.unlocked ??= id === 'body'
-  entry.maxDifficulty = Math.max(1, Math.min(chapterMaxDifficulty(id), entry.maxDifficulty ?? 1))
-  entry.difficulty = Math.max(1, Math.min(entry.maxDifficulty, entry.difficulty ?? 1))
+  entry.maxDifficulty = Math.max(1, Number(entry.maxDifficulty) || 1)
+  entry.difficulty = Math.max(1, Math.min(chapterMaxDifficulty(id), entry.maxDifficulty, Number(entry.difficulty) || 1))
   entry.best ??= { time: 0, kills: 0 }
   entry.best.time ??= 0
   entry.best.kills ??= 0
@@ -137,9 +169,13 @@ export function loadMeta() {
         const prev = m.chapters[CHAPTER_ORDER[i - 1]]
         if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[CHAPTER_ORDER[i]].unlocked = true
       }
-      m.choiceSlots ??= 2
-      m.choiceSlots = Math.max(2, Math.min(4, m.choiceSlots))
+      // R3 (see ensureChapterMeta above): floor only. A future build's higher choiceSlots is kept
+      // exactly as stored — clamping it here would persist the smaller number — and createRun
+      // clamps what this build actually deals (MAX_CHOICE_SLOTS, config.js). Number()||2 subsumes
+      // the `??= 2` this replaces and turns a tampered value into 2 rather than NaN.
+      m.choiceSlots = Math.max(2, Number(m.choiceSlots) || 2)
       m.lang ??= 'en' // v6.1 i18n: display language, read once at boot (main.js -> i18n.setLang)
+      m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       return m
     }
   } catch { /* corrupted save -> fresh */ }
@@ -152,6 +188,7 @@ export function loadMeta() {
     chapter: 'body',
     chapters: {},
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
+    schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
   }
   for (const id of CHAPTER_ORDER) ensureChapterMeta(fresh, id)
   return fresh
@@ -748,7 +785,9 @@ function generateWells(sig) {
  *   coinsEarned's own field doc below.
  *   buildLevelUpChoices itself is reroll-agnostic; rerolling is just calling it again.
  * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
- *   snapshotted from meta.choiceSlots at createRun (2..4) and constant for the run's duration
+ *   snapshotted from meta.choiceSlots at createRun and clamped THERE into [2, MAX_CHOICE_SLOTS]
+ *   (config.js) — R3 clamp-on-use, since meta may legitimately store a higher ceiling written by a
+ *   future build (see ensureChapterMeta) — then constant for the run's duration
  *   (unlocking a slot mid-meta-shop never retroactively changes an in-progress run). Permanently
  *   unlocked in the meta shop by sacrificing SHOP levels (see sacrificeCost in config.js and
  *   hooks.onSacrifice in main.js) — applies to every mode, including Daily.
@@ -804,17 +843,37 @@ export function createRun(meta, opts = {}) {
   mods.enemyHpMul *= difficultyHpMul(difficulty)
   mods.enemyDmgMul *= difficultyDmgMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
+  // Chapter snapshot (v5.0, see CHAPTERS in config.js): opts.chapter (default 'body') picks the
+  // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
+  // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole
+  // run. Caller (main.js) is responsible for sourcing opts.difficulty/opts.mutators from that
+  // same chapter's meta.chapters[id] ladder/daily mutators — createRun itself doesn't read
+  // meta.chapters. main.js keeps that contract across the fallback below by resolving meta.chapter
+  // through the SAME helper before it reads any ladder (see resolveChapterId in config.js).
+  //
+  // R1 — VALIDATE TABLE-BACKED POINTERS AT THE CONSUMER (docs/superpowers/specs/2026-08-04-cross-
+  // device-save-sync-tech-strategy.md §2.4). opts.chapter comes from meta.chapter, which is a
+  // POINTER INTO CHAPTERS rather than data, and loadMeta only defaults it when MISSING. So a save
+  // written by a build that shipped a chapter this one lacks used to hand an unknown id straight to
+  // CHAPTERS[id].balance below -> TypeError out of the Play handler. The guard belongs here, at the
+  // consumer, exactly like i18n.js's setLang and ui.js's `CHAPTERS[x] ?? CHAPTERS.body` — NEVER as
+  // a repair inside loadMeta, because an old build saves on every chapter switch, run end and
+  // purchase, so a load-time repair would be written back over the newer save. resolveChapterId
+  // documents why it tests CHAPTERS membership with Object.hasOwn rather than CHAPTER_ORDER
+  // membership or truthiness ('blank' is a real chapter outside the order; '__proto__' is not one).
+  const chapter = resolveChapterId(opts.chapter)
   // v6.4.1/v6.4.3 early-calm (see EARLY_CALM in config.js): explicit-difficulty-1 runs of the
   // onboarding chapters thin the swarm and fatten each kill's xp, per chapter. opts.difficulty
   // (not the defaulted local) on purpose — daily runs and tests omit it and must keep baseline.
-  const calm = opts.difficulty === 1 ? EARLY_CALM[opts.chapter ?? 'body'] : null
+  // Keyed on the VALIDATED id so an unknown chapter degrades to a real body run, easing included.
+  const calm = opts.difficulty === 1 ? EARLY_CALM[chapter] : null
   if (calm) {
     mods.spawnMul *= calm.spawnMul
     mods.xpMul *= calm.xpMul
   }
   // v6.4.5 chapter-wide balance (CHAPTERS[id].balance): body/pond run gentler at every
   // difficulty, dailies included — unlike EARLY_CALM this has no explicit-difficulty gate.
-  const bal = CHAPTERS[opts.chapter ?? 'body'].balance
+  const bal = CHAPTERS[chapter].balance
   if (bal) {
     mods.spawnMul *= bal.spawnMul ?? 1
     mods.enemyDmgMul *= bal.enemyDmgMul ?? 1
@@ -827,12 +886,6 @@ export function createRun(meta, opts = {}) {
   const hasHeadstart = consumables.includes('headstart')
   const startXp = hasHeadstart ? xpForLevel(1) + xpForLevel(2) : 0
   const startWeaponLevel = consumables.includes('charged') ? 2 : 1
-  // Chapter snapshot (v5.0, see CHAPTERS in config.js): opts.chapter (default 'body') picks the
-  // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
-  // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole
-  // run. Caller (main.js) is responsible for sourcing opts.difficulty/opts.mutators from that
-  // same chapter's meta.chapters[id] ladder/daily mutators — createRun itself doesn't read meta.chapters.
-  const chapter = opts.chapter ?? 'body'
   // v6.3: hoisted out of the object literal below so _districtSeed can derive city's world seed
   // from the SAME draw _obstacleSeed uses, rather than spending a second Math.random() call — no
   // draw happens between here and where _obstacleSeed used to sit, so the order this consumes the
@@ -849,7 +902,10 @@ export function createRun(meta, opts = {}) {
     consumables,
     revives: consumables.includes('revive') ? 1 : 0,
     _rerolls: 0,
-    choiceSlots: meta.choiceSlots ?? 2,
+    // R3 clamp-on-use: meta.choiceSlots may legitimately store a future build's higher ceiling
+    // (loadMeta no longer caps it), but sim.js's buildLevelUpChoices must never deal more cards
+    // than the level-up screen is laid out for.
+    choiceSlots: Math.max(2, Math.min(MAX_CHOICE_SLOTS, Number(meta.choiceSlots) || 2)),
     player: {
       x: 0, y: 0,
       hp: maxHP, maxHP,

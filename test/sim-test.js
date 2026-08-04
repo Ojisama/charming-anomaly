@@ -1,13 +1,13 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA } from '../src/state.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
   SHOP, PASSIVES, RARITIES, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
-  sacrificeCost,
+  sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
@@ -1758,7 +1758,8 @@ function testChoiceSlots() {
   const fresh = loadMeta()
   assert.strictEqual(fresh.choiceSlots, 2, 'fresh meta starts at 2 choice slots')
 
-  // loadMeta clamps a stored choiceSlots into [2, 4] and defaults it when missing.
+  // loadMeta FLOORS a stored choiceSlots at 2 and defaults it when missing. It deliberately does
+  // NOT clamp it down any more (R3 — see run YY): the ceiling is applied by createRun, at use.
   const stub = {}
   globalThis.localStorage = {
     getItem: () => JSON.stringify(stub),
@@ -1769,7 +1770,7 @@ function testChoiceSlots() {
   const noField = loadMeta()
   assert.strictEqual(noField.choiceSlots, 2, 'loadMeta defaults a missing choiceSlots to 2')
   stub.choiceSlots = 99
-  assert.strictEqual(loadMeta().choiceSlots, 4, 'loadMeta clamps choiceSlots above 4 down to 4')
+  assert.strictEqual(loadMeta().choiceSlots, 99, 'loadMeta PRESERVES a choiceSlots above this build ceiling (R3)')
   stub.choiceSlots = 0
   assert.strictEqual(loadMeta().choiceSlots, 2, 'loadMeta clamps choiceSlots below 2 up to 2')
   delete globalThis.localStorage
@@ -1842,15 +1843,20 @@ function testDifficultyUnlock() {
   assert.strictEqual(clamped.chapters.body.maxDifficulty, 2, 'stored maxDifficulty=2 is kept as-is')
   assert.strictEqual(clamped.chapters.body.difficulty, 2, 'difficulty=5 > maxDifficulty=2 clamps down to 2')
 
-  // (d) Garbage maxDifficulty values clamp into [1, MAX_DIFFICULTY].
+  // (d) Garbage maxDifficulty values floor at 1. A value ABOVE this build's ladder is NOT clamped
+  // down (R3 — clamping it would persist a newer save's progression loss, see run YY); the ceiling
+  // lands on `difficulty`, the level actually launched.
   stub.difficulty = 1
   stub.maxDifficulty = 0
   assert.strictEqual(loadMeta().chapters.body.maxDifficulty, 1, 'maxDifficulty=0 clamps up to 1')
   stub.maxDifficulty = 99
-  assert.strictEqual(loadMeta().chapters.body.maxDifficulty, MAX_DIFFICULTY, `maxDifficulty=99 clamps down to ${MAX_DIFFICULTY}`)
+  stub.difficulty = 99
+  const future = loadMeta()
+  assert.strictEqual(future.chapters.body.maxDifficulty, 99, 'maxDifficulty=99 is PRESERVED, not clamped down')
+  assert.strictEqual(future.chapters.body.difficulty, MAX_DIFFICULTY, `the playable difficulty still clamps to this build's ladder (${MAX_DIFFICULTY})`)
   delete globalThis.localStorage
 
-  console.log('PASS run S (sequential difficulty unlock): fresh=1, grandfathered=4, stale-difficulty clamps to maxDifficulty, garbage maxDifficulty clamps to [1,5]')
+  console.log('PASS run S (sequential difficulty unlock): fresh=1, grandfathered=4, stale-difficulty clamps to maxDifficulty, maxDifficulty floors at 1 and is preserved above the ladder')
 }
 
 // ---- Run T: chapter data model + meta migration (v5.0) -----------------------------------
@@ -1914,10 +1920,11 @@ function testChapters() {
   }
   assert.strictEqual(seen.size, CHAPTER_ORDER.length, 'dailyChapter never returns an id outside CHAPTER_ORDER')
 
-  // (e) ensureChapterMeta clamps garbage entries into range and fills in missing fields.
+  // (e) ensureChapterMeta clamps garbage entries into range and fills in missing fields — except
+  // maxDifficulty, which is only floored: a value above this build's ladder is preserved (R3).
   const garbageMeta = { chapters: { pond: { unlocked: true, maxDifficulty: 99, difficulty: -5 } } }
   const pond = ensureChapterMeta(garbageMeta, 'pond')
-  assert.strictEqual(pond.maxDifficulty, MAX_DIFFICULTY, `garbage maxDifficulty=99 clamps down to ${MAX_DIFFICULTY}`)
+  assert.strictEqual(pond.maxDifficulty, 99, "a maxDifficulty above this build's ladder is preserved (R3), not clamped")
   assert.strictEqual(pond.difficulty, 1, 'garbage difficulty=-5 clamps up to 1')
   assert.strictEqual(pond.best.time, 0, 'ensureChapterMeta fills in a missing best.time')
   assert.strictEqual(pond.best.kills, 0, 'ensureChapterMeta fills in a missing best.kills')
@@ -5056,9 +5063,9 @@ function testTheBlank() {
     console.log(`PASS run EE.d2 (no timer victory): phase='${run.phase}' at t=${run.time.toFixed(1)}s (>= RUN_DURATION)`)
   }
 
-  // (e) Meta: a fresh save starts blank locked at maxDifficulty 1; ensureChapterMeta clamps any
-  // stray maxDifficulty into the chapter's own 3-rung ladder (chapterMaxDifficulty('blank') === 3,
-  // not the game-wide MAX_DIFFICULTY of 5).
+  // (e) Meta: a fresh save starts blank locked at maxDifficulty 1; ensureChapterMeta clamps the
+  // PLAYED difficulty into the chapter's own 3-rung ladder (chapterMaxDifficulty('blank') === 3,
+  // not the game-wide MAX_DIFFICULTY of 5) while PRESERVING a stray/future maxDifficulty (R3).
   {
     const meta = makeMeta()
     const entry = ensureChapterMeta(meta, 'blank')
@@ -5066,10 +5073,12 @@ function testTheBlank() {
     assert.strictEqual(entry.maxDifficulty, 1, `expected a fresh blank entry's maxDifficulty to start at 1, got ${entry.maxDifficulty}`)
 
     meta.chapters.blank.maxDifficulty = 99
+    meta.chapters.blank.difficulty = 99
     const clamped = ensureChapterMeta(meta, 'blank')
     assert.strictEqual(chapterMaxDifficulty('blank'), 3, `expected chapterMaxDifficulty('blank') === 3, got ${chapterMaxDifficulty('blank')}`)
-    assert.strictEqual(clamped.maxDifficulty, 3, `expected blank's maxDifficulty to clamp to 3, got ${clamped.maxDifficulty}`)
-    console.log('PASS run EE.e (meta): blank starts locked at maxDifficulty 1, clamps to its own 3-rung cap')
+    assert.strictEqual(clamped.maxDifficulty, 99, `expected blank's stray maxDifficulty to be preserved (R3), got ${clamped.maxDifficulty}`)
+    assert.strictEqual(clamped.difficulty, 3, `expected blank's PLAYED difficulty to clamp to its own 3-rung cap, got ${clamped.difficulty}`)
+    console.log('PASS run EE.e (meta): blank starts locked at maxDifficulty 1; the PLAYED difficulty clamps to its own 3-rung cap')
   }
 
   console.log('PASS run EE (The Blank): script spawner, clear/timeout advance, boss-phase-ends-only-on-kill, victory, no timer victory, difficulty-3 cap')
@@ -7769,6 +7778,240 @@ function testEarlySpawnBoost() {
   console.log(`PASS run WW (v6.6.5 early spawn boost): rate ${plain(0).toFixed(2)}->${spawnRate(0).toFixed(2)}/s at t=0, seamless at t=${SPAWN_EARLY_UNTIL}, first-minute arrivals ~${plainExpected.toFixed(0)} -> ${boosted}`)
 }
 
+// ---- Run YY: forward compatibility — an OLDER build must not destroy a NEWER build's save -----
+// Slice 0 of docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md (§2.4/§2.5).
+// Today a save only ever moves FORWARD through builds, so only backward compatibility mattered.
+// Once saves sync between devices, an old bundle routinely reads a save a newer bundle wrote — the
+// phone auto-updates, the laptop tab has been open since last week. Three rules, all asserted here:
+//
+//   R3  Widening a range is a breaking change. CLAMP ON USE, NEVER ON LOAD. loadMeta used to clamp
+//       chapters[id].maxDifficulty to this build's ladder and choiceSlots to this build's ceiling,
+//       and the very next saveMeta wrote those smaller numbers back — silent, permanent progression
+//       loss. Both halves are pinned: what is STORED round-trips untouched, what is PLAYED still
+//       respects this build's ranges.
+//   R1  Validate table-backed pointers at the CONSUMER. meta.chapter is a pointer into CHAPTERS,
+//       and loadMeta only defaults it when MISSING, so an id from a build that shipped a chapter
+//       this one lacks reached CHAPTERS[id].balance in createRun and threw TypeError out of the
+//       Play handler. The guard is at EVERY consumer — createRun, and main.js's onPlay/onDifficulty
+//       through the shared resolveChapterId (config.js) — and never a repair in loadMeta: an old
+//       build saves on every chapter switch, run end and purchase, so a load-time repair is written
+//       straight back over the newer save.
+//   R4  meta.schema exists and defaults. The comparison that REFUSES a newer save lands with
+//       sync.js (slice 2); the field and the constant ship now, because a build already in the wild
+//       without them can never be taught to refuse.
+//
+// This scenario stubs localStorage (plain node has none) and runs last, so its Math.random reseed
+// cannot perturb any earlier scenario's stream.
+function testForwardCompatibleSave() {
+  const KEY = 'charming-anomaly-save-v1'
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  }
+  const seed = (m) => store.set(KEY, JSON.stringify(m))
+  const onDisk = () => JSON.parse(store.get(KEY))
+
+  // (a) R3 THE ROUND TRIP — the assert that catches the real bug. A save from a build with a
+  // 7-rung ladder and a 6-card level-up survives loadMeta -> saveMeta with both numbers intact.
+  seed({
+    coins: 500, runs: 12, shop: {}, best: { time: 300, kills: 100 },
+    choiceSlots: 6, chapter: 'body', lang: 'en',
+    chapters: { body: { unlocked: true, maxDifficulty: 7, difficulty: 7, best: { time: 300, kills: 100 } } },
+  })
+  const future = loadMeta()
+  saveMeta(future)
+  assert.strictEqual(onDisk().chapters.body.maxDifficulty, 7, 'a future maxDifficulty must never be written back lower')
+  assert.strictEqual(onDisk().choiceSlots, 6, 'a future choiceSlots must never be written back lower')
+  assert.strictEqual(onDisk().coins, 500, 'the round trip leaves the rest of the save alone')
+  console.log('PASS run YY.a (R3 range preservation): stored maxDifficulty=7 / choiceSlots=6 survive loadMeta -> saveMeta')
+
+  // (b) R3 THE OTHER HALF — nothing out of range is actually PLAYED. `difficulty` (the level
+  // launched) clamps on load, and createRun clamps the cards it deals, so buildLevelUpChoices
+  // never rolls 6 cards onto a screen laid out for MAX_CHOICE_SLOTS. main.js caps the same two
+  // values independently (onDifficulty, and endRun's "Next level" bump) — not reachable from this
+  // headless suite, which has no DOM, so those are read-verified rather than asserted here.
+  assert.strictEqual(future.chapters.body.difficulty, MAX_DIFFICULTY,
+    `expected the launched difficulty to clamp to ${MAX_DIFFICULTY}, got ${future.chapters.body.difficulty}`)
+  // The ceiling is pinned to a LITERAL, deliberately, even though every assert below derives from
+  // the constant. `capped.choiceSlots === MAX_CHOICE_SLOTS` is min(MAX, stored) === MAX, an
+  // identity for any MAX at or below the stored value — so on its own it cannot catch a ceiling set
+  // too HIGH, which is the only direction that overflows the level-up modal. And that modal really
+  // is laid out for four: ui.js's level-up key map is a literal { Digit1..Digit4 }, so a 5th card
+  // would be unselectable by keyboard while the hint above it counts to 5. Raising this number is a
+  // UI change (key map + .lv-cards layout in styles.css), not a config tweak — if you are here
+  // because you added a rung to SACRIFICE_COSTS, that is the change you also owe.
+  assert.strictEqual(MAX_CHOICE_SLOTS, 4, 'the level-up screen is laid out (and keyboard-mapped) for exactly 4 cards')
+  Math.random = mulberry32(20260804)
+  const capped = createRun(future, { chapter: 'body', difficulty: future.chapters.body.difficulty })
+  assert.strictEqual(capped.difficulty, MAX_DIFFICULTY, "the run launches at this build's ceiling")
+  assert.strictEqual(capped.choiceSlots, MAX_CHOICE_SLOTS,
+    `expected run.choiceSlots to clamp to ${MAX_CHOICE_SLOTS}, got ${capped.choiceSlots}`)
+  capped.player.xp = capped.player.xpNext + 1
+  stepSim(capped, { x: 0, y: 0 }, 1 / 60)
+  assert.strictEqual(capped.phase, 'levelup', 'expected a level-up to trigger')
+  assert.strictEqual(capped.levelUpChoices.length, MAX_CHOICE_SLOTS,
+    `a stored choiceSlots of 6 must still deal exactly ${MAX_CHOICE_SLOTS} cards, got ${capped.levelUpChoices.length}`)
+  // Per-chapter ceilings use the chapter's OWN ladder, not the game-wide one (blank caps at 3).
+  const blankEntry = ensureChapterMeta({ chapters: { blank: { unlocked: true, maxDifficulty: 9, difficulty: 9 } } }, 'blank')
+  assert.strictEqual(blankEntry.maxDifficulty, 9, 'blank keeps its stored maxDifficulty')
+  assert.strictEqual(blankEntry.difficulty, chapterMaxDifficulty('blank'), "blank plays at its OWN 3-rung cap, not MAX_DIFFICULTY")
+  console.log(`PASS run YY.b (R3 play safety): plays at ${MAX_DIFFICULTY}/${MAX_CHOICE_SLOTS} cards, blank still capped at ${chapterMaxDifficulty('blank')}`)
+
+  // (c) R1 POINTER SAFETY — meta.chapter naming a chapter this build has no table entry for. This
+  // threw `TypeError: Cannot read properties of undefined (reading 'balance')` before the fix.
+  seed({
+    coins: 0, runs: 0, shop: {}, best: { time: 0, kills: 0 },
+    chapter: 'nebula-of-the-future', chapters: {},
+  })
+  const alien = loadMeta()
+  assert.strictEqual(alien.chapter, 'nebula-of-the-future',
+    'loadMeta must NOT repair meta.chapter — a load-time repair is written back over the newer save')
+  Math.random = mulberry32(20260804)
+  const degraded = createRun(alien, { chapter: alien.chapter, difficulty: 1 })
+  assert.strictEqual(degraded.chapter, CHAPTER_ORDER[0], `an unknown chapter id must degrade to ${CHAPTER_ORDER[0]}, got ${degraded.chapter}`)
+  assert.strictEqual(degraded.weapons[0].id, CHAPTERS[CHAPTER_ORDER[0]].starter,
+    'the fallback run must carry the fallback chapter\'s starter weapon, not undefined')
+  // ...and it is a REAL run of that chapter, not a half-built one: identical modifiers (the
+  // EARLY_CALM easing and the chapter balance block included), and it steps like any other run.
+  Math.random = mulberry32(20260804)
+  const reference = createRun(alien, { chapter: CHAPTER_ORDER[0], difficulty: 1 })
+  assert.deepStrictEqual(degraded.mods, reference.mods, 'the fallback run must get the fallback chapter\'s modifiers, not a bare baseline')
+  for (let i = 0; i < 300 && degraded.phase !== 'dead'; i++) {
+    if (degraded.phase === 'levelup') { declineLevelUp(degraded); continue }
+    stepSim(degraded, { x: 1, y: 0 }, 1 / 60)
+    degraded.player.hp = degraded.player.maxHP
+  }
+  assert.strictEqual(degraded.phase, 'playing', 'the fallback run must step like any other run')
+  // Inherited keys are truthy on any object literal, so a plain `CHAPTERS[id] ?` guard would let
+  // them through and build a nameless half-run. Object.hasOwn rejects them too.
+  for (const key of ['__proto__', 'constructor', 'toString']) {
+    assert.strictEqual(createRun(makeMeta(), { chapter: key }).chapter, CHAPTER_ORDER[0],
+      `an inherited key '${key}' must degrade to ${CHAPTER_ORDER[0]}, not be treated as a chapter`)
+  }
+  // ...and the run must be launched at the FALLBACK chapter's ladder position, not the alien one.
+  // createRun degrading run.chapter is only half of R1: main.js's onPlay reads the difficulty and
+  // rolls the anomalies BEFORE createRun sees anything, so if it read them from meta.chapter
+  // unresolved, an alien chapter at the top of its ladder would drop the player into The Body at
+  // level 5 with four anomalies they never unlocked there — and endRun, which keys off run.chapter
+  // and therefore says 'body', would credit that win to body's ladder and unlock the next chapter
+  // off it. onPlay is not reachable from this headless suite (main.js imports Pixi), which is why
+  // the resolution lives in one shared helper — resolveChapterId (config.js) — that every consumer
+  // calls and this scenario can pin directly.
+  seed({
+    coins: 0, runs: 0, shop: {}, best: { time: 0, kills: 0 },
+    chapter: 'nebula-of-the-future',
+    chapters: {
+      // 8/8: above this build's ladder ON PURPOSE, so the round-trip assert below has teeth — a
+      // consumer that reached into this entry would clamp `difficulty` to 5 and persist it.
+      'nebula-of-the-future': { unlocked: true, maxDifficulty: 8, difficulty: 8, best: { time: 300, kills: 900 } },
+      body: { unlocked: true, maxDifficulty: 2, difficulty: 1, best: { time: 0, kills: 0 } },
+    },
+  })
+  const ahead = loadMeta()
+  const playedId = resolveChapterId(ahead.chapter) // exactly what main.js's onPlay/onDifficulty do
+  assert.strictEqual(playedId, CHAPTER_ORDER[0], 'an unknown selected chapter resolves to the fallback before any ladder is read')
+  assert.strictEqual(ensureChapterMeta(ahead, playedId).difficulty, 1,
+    "the run must launch at the FALLBACK chapter's own stored level, not the alien chapter's")
+  assert.strictEqual(createRun(ahead, { chapter: playedId, difficulty: ensureChapterMeta(ahead, playedId).difficulty }).difficulty, 1,
+    'and createRun must build that run at that level')
+  // Nor may the alien chapter's entry be touched on the way past: ensureChapterMeta clamps
+  // `difficulty` to THIS build's ladder, and onDifficulty/onPlay reaching into a chapter this build
+  // cannot play would write that clamp straight back to disk (the R3 loss, no run required).
+  saveMeta(ahead)
+  assert.deepStrictEqual(onDisk().chapters['nebula-of-the-future'],
+    { unlocked: true, maxDifficulty: 8, difficulty: 8, best: { time: 300, kills: 900 } },
+    "the unknown chapter's entry must round-trip untouched — no consumer may clamp a ladder it cannot play")
+  // The RENDER-side consumer needs the same resolution. Not because of the pip COUNT — that comes
+  // from chapterMaxDifficulty, which is `CHAPTERS[id]?.maxDifficultyCap ?? MAX_DIFFICULTY` and so
+  // returns the same 5 for an unknown id as for body — but because of which pips read UNLOCKED,
+  // which ui.js takes from meta.chapters[browseChapterId] (titleBelowHtml's chMeta). ui.js seeds
+  // browseChapterId from the raw meta.chapter, so browsing the alien id unresolved lights every
+  // pip off its 8-rung ladder while Play (resolved above) launches body at body's level 1. ui.js
+  // imports the DOM and cannot be loaded here, so pin the two ledger reads it derives that from.
+  assert.strictEqual(chapterMaxDifficulty(ahead.chapter), chapterMaxDifficulty(playedId),
+    'the pip COUNT is identical either way — an unknown id falls through to the full ladder, so the count is not what the render-side resolution fixes')
+  assert(ahead.chapters[ahead.chapter].maxDifficulty > ahead.chapters[playedId].maxDifficulty,
+    'the ledger read IS what differs: unresolved, the title lights pips off the alien chapter\'s longer ladder while the run uses the fallback\'s')
+  console.log(`PASS run YY.c (R1 pointer safety): unknown chapter id -> a real ${CHAPTER_ORDER[0]} run at ${CHAPTER_ORDER[0]}'s own level (was TypeError), meta.chapter and the alien entry left untouched on disk, render cap resolves too`)
+
+  // (d) R1 THE REGRESSION TRAP — The Blank is a real chapter that deliberately lives OUTSIDE
+  // CHAPTER_ORDER (config.js; ui.js appends its card by hand), so a guard written against
+  // CHAPTER_ORDER membership instead of CHAPTERS membership would silently turn every Blank run
+  // into a body run — invisible to a smoke test, because a body run looks perfectly healthy.
+  assert(!!CHAPTERS.blank && !CHAPTER_ORDER.includes('blank'),
+    'blank must stay a real chapter outside CHAPTER_ORDER — if that ever changes, retune this assert')
+  assert.strictEqual(createRun(makeMeta(), { chapter: 'blank' }).chapter, 'blank',
+    'The Blank must survive the pointer guard even though it is not in CHAPTER_ORDER')
+  for (const id of CHAPTER_ORDER) {
+    assert.strictEqual(createRun(makeMeta(), { chapter: id }).chapter, id, `chapter '${id}' must round-trip unchanged`)
+  }
+  assert.strictEqual(createRun(makeMeta(), {}).chapter, CHAPTER_ORDER[0], 'an omitted opts.chapter must still default')
+  console.log(`PASS run YY.d (R1 blank not broken): blank + all ${CHAPTER_ORDER.length} ordered chapters unchanged, omitted id still defaults`)
+
+  // (e) R4 meta.schema — present on a brand-new save, and defaulted on a save that predates the
+  // field. The two defaults differ ON PURPOSE: absence is evidence the writer predated the field,
+  // so that save IS format 1; stamping SCHEMA there would relabel a legacy blob as this build's
+  // format the moment SCHEMA is first bumped. A newer save's higher schema is never lowered.
+  assert(Number.isInteger(SCHEMA) && SCHEMA >= 1, `expected SCHEMA to be a positive integer, got ${SCHEMA}`)
+  store.delete(KEY)
+  assert.strictEqual(loadMeta().schema, SCHEMA, 'a brand-new save is stamped with this build\'s SCHEMA')
+  seed({ coins: 7, runs: 0, shop: {}, best: { time: 0, kills: 0 }, chapters: {} })
+  const legacy = loadMeta()
+  assert.strictEqual(legacy.schema, 1, 'a save written before the field existed loads as format 1')
+  saveMeta(legacy)
+  assert.strictEqual(onDisk().schema, 1, 'and that 1 is what gets persisted')
+  seed({ coins: 7, runs: 0, shop: {}, best: { time: 0, kills: 0 }, chapters: {}, schema: 99 })
+  saveMeta(loadMeta())
+  assert.strictEqual(onDisk().schema, 99, 'a newer save\'s schema is never lowered')
+  console.log(`PASS run YY.e (R4 meta.schema): SCHEMA=${SCHEMA} on a fresh save, 1 on a pre-field save, a stored 99 preserved`)
+
+  // (f) NO BACKWARD REGRESSION. Everything above loosens what loadMeta rewrites, and loadMeta runs
+  // on every load of every existing save — so an ordinary, well-formed save must come back byte
+  // for byte, and a corrupt one must still resolve to sane in-range values (no NaN, nothing below
+  // the floor, nothing playable above the cap). 'abc' used to yield NaN, and `d > NaN` is false,
+  // so a tampered ladder read as every difficulty unlocked; it now reads as 1.
+  store.delete(KEY)
+  const ordinary = loadMeta()
+  ordinary.coins = 1234
+  ordinary.runs = 7
+  ordinary.chapters.body.maxDifficulty = 3
+  ordinary.chapters.body.difficulty = 2
+  ordinary.chapters.pond.unlocked = true
+  saveMeta(ordinary)
+  const beforeBlob = store.get(KEY)
+  saveMeta(loadMeta())
+  assert.strictEqual(store.get(KEY), beforeBlob, 'an ordinary save must round-trip byte-identical through loadMeta -> saveMeta')
+
+  for (const [label, entry] of Object.entries({
+    absent: undefined,
+    zero: { maxDifficulty: 0, difficulty: 0 },
+    negative: { maxDifficulty: -3, difficulty: -5 },
+    nulls: { maxDifficulty: null, difficulty: null },
+    garbage: { maxDifficulty: 'abc', difficulty: 'abc' },
+    numericString: { maxDifficulty: '3', difficulty: '2' },
+  })) {
+    const e = ensureChapterMeta(entry ? { chapters: { body: { unlocked: true, ...entry } } } : {}, 'body')
+    assert(Number.isInteger(e.maxDifficulty) && e.maxDifficulty >= 1,
+      `${label}: maxDifficulty must stay a sane integer >= 1, got ${JSON.stringify(e.maxDifficulty)}`)
+    assert(Number.isInteger(e.difficulty) && e.difficulty >= 1 && e.difficulty <= MAX_DIFFICULTY,
+      `${label}: the playable difficulty must stay in [1, ${MAX_DIFFICULTY}], got ${JSON.stringify(e.difficulty)}`)
+  }
+  for (const stored of [undefined, null, 0, 1, -3, 2, 4, 6, 99, 'abc']) {
+    const m = { coins: 0, runs: 0, shop: {}, best: { time: 0, kills: 0 }, chapters: {} }
+    if (stored !== undefined) m.choiceSlots = stored
+    seed(m)
+    const slots = createRun(loadMeta()).choiceSlots
+    assert(Number.isInteger(slots) && slots >= 2 && slots <= MAX_CHOICE_SLOTS,
+      `a stored choiceSlots of ${JSON.stringify(stored)} must deal between 2 and ${MAX_CHOICE_SLOTS} cards, got ${slots}`)
+  }
+  console.log('PASS run YY.f (no backward regression): an ordinary save round-trips byte-identical, corrupt ladders and choiceSlots still resolve sane')
+
+  delete globalThis.localStorage
+  console.log(`PASS run YY (forward compatibility): R3 stored ranges preserved and clamped only at use, R1 unknown chapter pointer degrades to ${CHAPTER_ORDER[0]} without throwing (blank intact), R4 meta.schema defaults`)
+}
+
 try {
   testMovementAndCombat()
   testDeath()
@@ -7827,6 +8070,7 @@ try {
   testChapterDensityCap()
   testEarlySpawnBoost()
   testFrenchDictionary()
+  testForwardCompatibleSave()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
