@@ -1,6 +1,6 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS } from '../src/state.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
@@ -7672,7 +7672,21 @@ function testFrenchDictionary() {
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
   assert.deepStrictEqual([...missing], [], `config.js strings with no French entry (they ship in English): ${JSON.stringify([...missing])}`)
 
-  console.log(`PASS run XX (v6.6.8 French dictionary): ${keys.length} keys, no duplicates, no NBSP in keys, ${Object.values(FR).filter((v) => v.includes(NBSP)).length} values with French NBSP, full config.js coverage`)
+  // (d) the reverse direction (v6.6.9, owner directive "remove unused / shadowed keys"): a key no
+  // source file can produce is dead weight that reads as coverage. It costs nothing at runtime,
+  // which is exactly why it accumulates — the pre-v6.6.8 dictionary still carried the explainer
+  // line from a sacrifice screen deleted three releases earlier. Keys are matched as literals
+  // against every src/*.js but fr.js itself, testing both the raw key and the backslash-escaped
+  // form a single-quoted source literal would use. If a key is ever legitimately BUILT rather
+  // than written (concatenation, a template literal), this assert is the wrong shape for it and
+  // the fix is to exempt that key here by name, not to delete a live translation.
+  const srcDir = new URL('../src/', import.meta.url)
+  const blob = readdirSync(srcDir).filter((f) => f.endsWith('.js') && f !== 'fr.js')
+    .map((f) => readFileSync(new URL(f, srcDir), 'utf8')).join('\n')
+  const dead = Object.keys(FR).filter((k) => !blob.includes(k) && !blob.includes(k.replace(/'/g, "\\'")))
+  assert.deepStrictEqual(dead, [], `fr.js keys no source string can produce — delete them: ${JSON.stringify(dead)}`)
+
+  console.log(`PASS run XX (v6.6.8 French dictionary): ${keys.length} keys, no duplicates, none dead, no NBSP in keys, ${Object.values(FR).filter((v) => v.includes(NBSP)).length} values with French NBSP, full config.js coverage`)
 }
 
 // ---- Run WW: v6.6.5 early spawn boost (owner directive) --------------------------------------
