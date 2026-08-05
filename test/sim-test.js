@@ -8395,6 +8395,7 @@ try {
   testSwitchMods()
   testBuildReadout()
   testAnomalyReroll()
+  testCommitVisibility()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -8915,4 +8916,118 @@ function testAnomalyReroll() {
   }
 
   console.log('PASS run AR (per-anomaly reroll): targeted, duplicate-free, chapter-scoped, and never charges for nothing')
+}
+
+// ---- Run AV: v6.6.24 nothing you cannot see may commit to a leap -------------------------------
+// Owner: "the bees sometimes jump on you without you seeing them, like on the phone when they come
+// from the side. The rule should be: if it's not displayed on the screen, it should not be able to
+// jump on you." The load-bearing case is SIDEWAYS ON A PHONE, and it is invisible to any radial
+// check: at viewRadius ~465 a wasp 220px to the side is well "in range" and entirely off a 390px
+// screen. So these assert against the RECTANGLE, and the escape hatch being tested is that the
+// wasp still attacks — a gate that quietly turned wasps passive would pass a naive off-screen test.
+function testCommitVisibility() {
+  const PHONE_W = 195, PHONE_H = 422        // half-extents of a 390x844 portrait phone
+  const phone = (run) => {
+    run.viewRadius = Math.hypot(390, 844) / 2
+    run.viewW = PHONE_W; run.viewH = PHONE_H
+    return run
+  }
+  // Drive one enemy's behaviour machine for `secs`, player parked, and report the states it reached.
+  const states = (run, e, key, secs) => {
+    const seen = new Set()
+    for (let i = 0; i < secs * 60; i++) {
+      run.player.hp = 1e9
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      if (e[key]) seen.add(e[key])
+      if (!run.enemies.includes(e)) break
+    }
+    return seen
+  }
+  // One enemy of `rosterId`, alone, parked at (dx,dy) from a player who cannot die or shoot.
+  // run.time = 200 is load-bearing, not padding: the spawner gates archetypes by time, so at t=0 the
+  // garden only ever produces ants and undergrowth never produces a cat at all — forceSpawn would
+  // return empty-handed and every assert below would silently test nothing.
+  const solo = (chapter, archetype, rosterId, dx, dy) => {
+    Math.random = mulberry32(20260805)
+    const run = phone(createRun(makeMeta(), { chapter }))
+    run.weapons = []; run.mods.spawnMul = 0; run.time = 200
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    forceSpawn(run, archetype, rosterId)
+    const e = run.enemies[run.enemies.length - 1]
+    assert(e && e.rosterId === rosterId, `could not spawn a ${rosterId} to test — the scenario would prove nothing`)
+    run.enemies = [e]
+    e.x = dx; e.y = dy
+    return { run, e }
+  }
+
+  // (a) THE REPORTED BUG: a wasp parked off the SIDE of the phone, at a distance a radius call
+  // would happily allow, must never reach 'telegraph' — the phase that locks aim and fires a dive.
+  {
+    const { run, e } = solo('garden', 'fast', 'wasp', PHONE_W + 120, 0)
+    // pin the premise: this really is inside the radius the old code would have used
+    assert(Math.hypot(e.x, e.y) < run.viewRadius,
+      `the test case must sit INSIDE viewRadius (${Math.hypot(e.x, e.y)} vs ${run.viewRadius}) or it proves nothing`)
+    e._diveState = 'hover'; e._diveT = 0.01      // due to commit immediately
+    // hold it out there: without pinning, the hover clamp walks it back on screen (which is the fix)
+    const seen = new Set()
+    for (let i = 0; i < 4 * 60; i++) {
+      e.x = PHONE_W + 120; e.y = 0               // re-park every frame — it may not sneak in
+      e._diveT = Math.min(e._diveT, 0.01)
+      run.player.hp = 1e9
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      seen.add(e._diveState)
+    }
+    assert(!seen.has('telegraph') && !seen.has('dive'),
+      `an off-screen wasp must never wind up or dive, saw: ${[...seen].join(',')}`)
+    console.log('PASS run AV.a (the reported bug): a wasp off the SIDE of a phone never telegraphs or dives, though it is inside viewRadius')
+  }
+
+  // (b) and it is not simply broken — the same wasp on screen still dives.
+  {
+    const { run, e } = solo('garden', 'fast', 'wasp', 120, 0)
+    const seen = states(run, e, '_diveState', 8)
+    assert(seen.has('telegraph') && seen.has('dive'),
+      `an on-screen wasp must still attack, saw: ${[...seen].join(',')}`)
+    console.log('PASS run AV.b (still an enemy): an on-screen wasp telegraphs and dives as before')
+  }
+
+  // (c) THE DEADLOCK THE RULE COULD HAVE CAUSED. DIVE_STANDOFF (220) is bigger than the phone's
+  // 195px horizontal half-view, so a wasp holding station to the side is off-screen BY
+  // CONSTRUCTION: gate alone, and it would hover unseen forever and never attack again. Released
+  // from the far side and left alone, it must pull itself into view and get its dive off.
+  {
+    assert(DIVE_STANDOFF > PHONE_W,
+      `this test is only meaningful while DIVE_STANDOFF (${DIVE_STANDOFF}) exceeds the phone half-view (${PHONE_W})`)
+    const { run, e } = solo('garden', 'fast', 'wasp', PHONE_W + 100, 0)
+    const seen = states(run, e, '_diveState', 12)
+    assert(seen.has('dive'), `a wasp starting off-screen must close to a visible standoff and still dive, saw: ${[...seen].join(',')}`)
+    assert(Math.abs(e.x) <= PHONE_W && Math.abs(e.y) <= PHONE_H,
+      `it must end up on screen, ended at (${e.x.toFixed(0)}, ${e.y.toFixed(0)})`)
+    console.log('PASS run AV.c (no deadlock): a wasp beyond the phone edge closes to a VISIBLE standoff and dives from there')
+  }
+
+  // (d) the same rule on the cat, whose POUNCE_RANGE (260) is likewise wider than the phone. No
+  // clamp was added there because 'hold' keeps seeking — so this asserts the gate holds AND that
+  // walking in unblocks it, which together are the whole contract.
+  {
+    assert(POUNCE_RANGE > PHONE_W,
+      `only meaningful while POUNCE_RANGE (${POUNCE_RANGE}) exceeds the phone half-view (${PHONE_W})`)
+    const { run, e } = solo('undergrowth', 'tank', 'cat', PHONE_W + 40, 0)
+    let sawAimOffScreen = false
+    for (let i = 0; i < 60; i++) {
+      e.x = PHONE_W + 40; e.y = 0
+      run.player.hp = 1e9
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      if (e._pounceState === 'aim') sawAimOffScreen = true
+    }
+    assert(!sawAimOffScreen, 'a cat off the side of a phone must not crouch to leap')
+    const seen = states(run, e, '_pounceState', 10)
+    assert(seen.has('leap'), `once it walks into view the cat must still pounce, saw: ${[...seen].join(',')}`)
+    console.log('PASS run AV.d (cats too): no crouch from off-screen, and the pounce still lands once it walks into view')
+  }
+
+  console.log('PASS run AV (commit visibility): the leap attacks wait to be seen, and none of them deadlocked')
 }

@@ -2948,6 +2948,40 @@ export const PHEROMONE_SPEED_MUL = 1.35    // seek-speed multiplier while follow
 // diveBomb (garden's wasps): a hover -> telegraph -> straight accelerating dive -> recover cycle
 // (state on e._diveState/_diveT/_diveDirX/_diveDirY/_diveElapsed). Every speed below is a
 // multiplier of the enemy's OWN speed; the dive ramps from _START to _END (accelerating line).
+// ---- v6.6.24: nothing you cannot see may commit to a leap (owner directive) --------------------
+// "the bees sometimes jump on you without you seeing them, like on the phone when they come from
+// the side. The rule should be: if it's not displayed on the screen, it should not be able to jump
+// on you." This is the FAST => COMMITTED rule stated from the player's side: a threat may be
+// impossible to IGNORE, never impossible to ESCAPE, and a dive launched from off-screen is
+// unescapable by construction — you cannot dodge what was never drawn.
+// The test is the VIEWPORT RECTANGLE, which is the whole point. Every existing range in this file
+// is radial, and a radius cannot express the phone case: at viewRadius ~465 a wasp 220px to the
+// side is comfortably "in range" and entirely off the edge of a 390px-wide screen.
+export const COMMIT_EDGE_PAD = 28       // px inside the edge — half a wasp poking in is not "seen"
+// True when `e` is inside the drawn viewport (with the pad), i.e. the player has actually had the
+// chance to see it. Falls back to the radius when a caller has no rectangle (never in the game —
+// only a hand-built test run that skipped createRun's defaults).
+export const canCommitFrom = (run, e) => {
+  const p = run?.player
+  if (!p) return true
+  const hw = (run.viewW ?? run.viewRadius ?? 0) - COMMIT_EDGE_PAD
+  const hh = (run.viewH ?? run.viewRadius ?? 0) - COMMIT_EDGE_PAD
+  return Math.abs(e.x - p.x) <= hw && Math.abs(e.y - p.y) <= hh
+}
+// How far out a hovering attacker may hold along (ux,uy) and still be inside that rectangle. The
+// wasp's own DIVE_STANDOFF is 220, which EXCEEDS a portrait phone's ~195px horizontal half-view —
+// so a wasp coming from the side used to hold station off-screen by construction, which is exactly
+// the reported bug. Without this clamp the rule above would deadlock it: it would hover unseen,
+// never be allowed to commit, and sit there forever. Vertical approaches are unaffected (a phone's
+// ~350px half-height already clears 220), so this only pulls in the axis that was broken.
+export const visibleStandoff = (run, ux, uy, want) => {
+  const hw = (run?.viewW ?? run?.viewRadius ?? Infinity) - COMMIT_EDGE_PAD
+  const hh = (run?.viewH ?? run?.viewRadius ?? Infinity) - COMMIT_EDGE_PAD
+  const tx = Math.abs(ux) > 1e-6 ? hw / Math.abs(ux) : Infinity
+  const ty = Math.abs(uy) > 1e-6 ? hh / Math.abs(uy) : Infinity
+  return Math.max(40, Math.min(want, tx, ty))   // never collapse onto the player
+}
+
 export const DIVE_STANDOFF = 220        // px, hover distance held from the target
 export const DIVE_HOVER_T = 1.4         // s, hover phase before a dive
 export const DIVE_TELEGRAPH_T = 0.5     // s, telegraphed pause (dive aim locks at its start)

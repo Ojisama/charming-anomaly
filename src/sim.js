@@ -68,6 +68,7 @@ import {
   STINGER_R, STINGER_HIVE_EVERY, LURE_STICKY_R, LURE_STICKY_DUR,
   PHEROMONE_LIFE, PHEROMONE_FOLLOW_RADIUS, PHEROMONE_SPEED_MUL,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T, DIVE_RECOVER_T,
+  canCommitFrom, visibleStandoff,
   DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
   WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
   // v5.4 undergrowth
@@ -1159,7 +1160,7 @@ function stepEnemyMovement(run, dt) {
       // it means this change commits the DIRECTION and nothing else — no silent balance shift.
       stepDashBurst(e, tx, ty, dt, slowMul, affixSpeedMul * enrageMul)
     } else if (e.flags && e.flags.includes('diveBomb')) {
-      stepDiveBomb(e, tx, ty, dt, slowMul)
+      stepDiveBomb(run, e, tx, ty, dt, slowMul)
     } else if (e.flags && e.flags.includes('pounce')) {
       stepPounce(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('aerialStrike')) {
@@ -1298,7 +1299,7 @@ function stepEnemyMovement(run, dt) {
 // telegraph (a brief pause, aim locked at its start), dive in a straight accelerating line through
 // the target and overshoot, then recover — repeating. (tx,ty) is the enemy's current seek target
 // (player or lure). Speeds are multipliers of e.speed; slowMul folds in chill/freeze (0 = frozen).
-function stepDiveBomb(e, tx, ty, dt, slowMul) {
+function stepDiveBomb(run, e, tx, ty, dt, slowMul) {
   if (e._diveState === undefined) { e._diveState = 'hover'; e._diveT = DIVE_HOVER_T }
   e._diveT -= dt
   const dx = tx - e.x, dy = ty - e.y
@@ -1306,14 +1307,24 @@ function stepDiveBomb(e, tx, ty, dt, slowMul) {
   const ux = dx / d, uy = dy / d
   let vx = 0, vy = 0
   if (e._diveState === 'hover') {
-    // Hold DIVE_STANDOFF: close in if too far, back off if too near, hold still within the deadzone.
-    const diff = d - DIVE_STANDOFF
+    // Hold the standoff: close in if too far, back off if too near, hold still within the deadzone.
+    // v6.6.24: the held distance is DIVE_STANDOFF clamped to what is actually on screen along this
+    // approach — off the side of a phone that is nearer than 220, and holding station out there is
+    // what let a wasp wind up unseen. Coming from above/below nothing changes.
+    const standoff = visibleStandoff(run, ux, uy, DIVE_STANDOFF)
+    const diff = d - standoff
     if (Math.abs(diff) > DIVE_HOVER_DEADZONE) {
       const dir = diff > 0 ? 1 : -1
       const spd = e.speed * DIVE_HOVER_SPEED_MUL
       vx = ux * dir * spd; vy = uy * dir * spd
     }
-    if (e._diveT <= 0) { e._diveState = 'telegraph'; e._diveT = DIVE_TELEGRAPH_T; e._diveDirX = ux; e._diveDirY = uy }
+    // The rule: it may only wind up if the player can see it. Off-screen the timer simply does not
+    // fire — it keeps hovering (and, thanks to the clamp above, keeps closing to somewhere visible)
+    // rather than launching out of nowhere. Not a reset: the wait already served is kept, so a wasp
+    // that drifts back into view commits promptly instead of restarting its whole cycle.
+    if (e._diveT <= 0 && canCommitFrom(run, e)) {
+      e._diveState = 'telegraph'; e._diveT = DIVE_TELEGRAPH_T; e._diveDirX = ux; e._diveDirY = uy
+    }
   } else if (e._diveState === 'telegraph') {
     // Locked pause (aim already snapshotted on entry) — the telegraph the player reacts to.
     if (e._diveT <= 0) { e._diveState = 'dive'; e._diveT = DIVE_T; e._diveElapsed = 0 }
@@ -1348,7 +1359,13 @@ function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
   if (e._pounceState === 'hold') {
     const spd = e.speed * spdMul * POUNCE_HOLD_SPEED_MUL
     vx = ux * spd; vy = uy * spd
-    if (d <= POUNCE_RANGE) { e._pounceState = 'aim'; e._pounceT = POUNCE_AIM_T; e._pounceDirX = ux; e._pounceDirY = uy }
+    // v6.6.24: same rule as the wasp — a cat may not crouch to leap from off-screen. POUNCE_RANGE
+    // (260) also exceeds a phone's horizontal half-view, so a cat closing from the side used to
+    // commit while still undrawn. No clamp is needed here, unlike the wasp: 'hold' KEEPS SEEKING,
+    // so a cat held off by this gate walks into view on its own and pounces a moment later.
+    if (d <= POUNCE_RANGE && canCommitFrom(run, e)) {
+      e._pounceState = 'aim'; e._pounceT = POUNCE_AIM_T; e._pounceDirX = ux; e._pounceDirY = uy
+    }
   } else if (e._pounceState === 'aim') {
     // Dead stop, heading already snapshotted on entry — the telegraph the player reacts to.
     if (e._pounceT <= 0) { e._pounceState = 'leap'; e._pounceT = POUNCE_LEAP_T }

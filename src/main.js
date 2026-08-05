@@ -382,6 +382,10 @@ app.ticker.add((ticker) => {
 
   if (run.phase === 'playing') {
     run.viewRadius = Math.hypot(app.screen.width, app.screen.height) / 2
+    // v6.6.24: the rectangle, not just its diagonal — see run.viewW/viewH in state.js and
+    // canCommitFrom in config.js. The camera centres the player in every chapter but the lane.
+    run.viewW = app.screen.width / 2
+    run.viewH = app.screen.height / 2
     stepSim(run, getInput(), dt)
     const events = run.events
     run.events = []

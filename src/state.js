@@ -1242,6 +1242,13 @@ export function createRun(meta, opts = {}) {
     coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect
     levelUpChoices: null,
     viewRadius: 600,       // half screen diagonal, updated by main each frame; spawn enemies at viewRadius + SPAWN_RING from player
+    // v6.6.24: the half-EXTENTS of the same viewport, updated by main alongside viewRadius. The
+    // diagonal alone cannot answer "can the player see this": on a portrait phone viewRadius is
+    // ~465 while the horizontal half-view is only ~195, so a wasp 220px to the side is well inside
+    // the radius and completely off the screen. Defaults are the 960x720 that gives viewRadius 600,
+    // so a headless run (tests) frames the same world main.js would.
+    viewW: 480,
+    viewH: 360,
     _nextId: 1,
     _spawnAcc: 0,
     // _openingSpawned (v6.4.3, sim-internal, not a render contract): NOT initialized here —
