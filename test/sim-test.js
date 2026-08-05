@@ -7058,17 +7058,18 @@ function testChapterBalance() {
   }
 
   // (c) garden's balance block. v6.4.10 made it HP-only (0.95); v6.6.15 (owner: "reduce 20% the
-  // number of enemies") added spawnMul 0.8, so it is no longer HP-only — rewritten in place
-  // because this is a DIRECTED change, not a break. Damage and xp still stay baseline 1, and the
+  // number of enemies") added spawnMul 0.8, so it is no longer HP-only; v6.6.23 (owner: "5% less
+  // monster hp and 5% less monster quantity in chapter 3") took both down 5% again, to 0.76/0.9 —
+  // rewritten in place each time because these are DIRECTED changes, not breaks. Damage and xp still stay baseline 1, and the
   // EARLY_CALM thinning still does NOT apply here, because calm needs difficulty 1 stated
   // EXPLICITLY and this call omits it (the v6.4.1 gate).
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'garden' })
-    assert(Math.abs(run.mods.spawnMul - 0.8) < EPS, `expected garden mods.spawnMul ≈ 0.8, got ${run.mods.spawnMul}`)
+    assert(Math.abs(run.mods.spawnMul - 0.76) < EPS, `expected garden mods.spawnMul ≈ 0.76, got ${run.mods.spawnMul}`)
     assert.strictEqual(run.mods.enemyDmgMul, 1, `expected garden mods.enemyDmgMul === 1, got ${run.mods.enemyDmgMul}`)
     assert.strictEqual(run.mods.xpMul, 1, `expected garden mods.xpMul === 1, got ${run.mods.xpMul}`)
-    assert(Math.abs(run.mods.enemyHpMul - 0.95) < EPS, `expected garden mods.enemyHpMul ≈ 0.95, got ${run.mods.enemyHpMul}`)
+    assert(Math.abs(run.mods.enemyHpMul - 0.9) < EPS, `expected garden mods.enemyHpMul ≈ 0.9, got ${run.mods.enemyHpMul}`)
     // The spider carries its own roster multiplier UNDER the chapter one, so it is thinned twice.
     const spider = CHAPTERS.garden.roster.find((r) => r.id === 'spider')
     assert(Math.abs(spider.hpMul - 1.2) < EPS, `expected the spider's roster hpMul 1.2, got ${spider.hpMul}`)
@@ -7086,20 +7087,20 @@ function testChapterBalance() {
       const e = spawnRun.enemies.find((x) => x.rosterId === id)
       if (e) assert(Math.abs(e.radius - base * mul) < 0.001, `${id} spawns at radius ${e.radius}, expected ${base * mul}`)
     }
-    console.log(`PASS run RR.c (garden balance): spawnMul 0.8, enemyHpMul 0.95, spider roster hpMul 1.2, dmg/xp baseline`)
+    console.log(`PASS run RR.c (garden balance): spawnMul 0.76, enemyHpMul 0.9, spider roster hpMul 1.2, dmg/xp baseline`)
   }
 
-  // (c2) v6.4.10 per-chapter enemy HP ladder, the full sweep: body 0.75, pond 0.85, garden 0.95,
+  // (c2) v6.4.10 per-chapter enemy HP ladder, the full sweep: body 0.75, pond 0.85, garden 0.9,
   // undergrowth 1 (no block), city 1.05, skies 1.15, beyond 1 (no block).
   {
-    const LADDER = { body: 0.75, pond: 0.85, garden: 0.95, undergrowth: 1, city: 1.05, skies: 1.15, beyond: 1 }
+    const LADDER = { body: 0.75, pond: 0.85, garden: 0.9, undergrowth: 1, city: 1.05, skies: 1.15, beyond: 1 }
     for (const [ch, hp] of Object.entries(LADDER)) {
       Math.random = mulberry32(20260714)
       const run = createRun(makeMeta(), { chapter: ch })
       assert(Math.abs(run.mods.enemyHpMul - hp) < EPS,
         `expected ${ch} mods.enemyHpMul ≈ ${hp}, got ${run.mods.enemyHpMul}`)
     }
-    console.log('PASS run RR.c2 (HP ladder sweep): body 0.75 / pond 0.85 / garden 0.95 / undergrowth 1 / city 1.05 / skies 1.15 / beyond 1')
+    console.log('PASS run RR.c2 (HP ladder sweep): body 0.75 / pond 0.85 / garden 0.9 / undergrowth 1 / city 1.05 / skies 1.15 / beyond 1')
   }
 
   // (d) blank (the scripted boss chapter) has no balance block either — untouched.

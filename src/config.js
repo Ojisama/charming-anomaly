@@ -1541,7 +1541,14 @@ export const CHAPTERS = {
     // v6.6.15 (owner): "reduce 20% the number of enemies" -> spawnMul 0.8, the same lever v6.4.5
     // used for "25% fewer enemies" on body/pond. maxAliveMul (the density CEILING) is left alone —
     // it was set to 0.75 in v6.6.7 for the chapter-curve pass and answers a different question.
-    balance: { spawnMul: 0.8, enemyHpMul: 0.95, maxAliveMul: 0.75 },
+    // v6.6.23 (owner: "5% less monster hp and 5% less monster quantity in chapter 3"): 0.8 -> 0.76
+    // and 0.95 -> 0.9, each 5% off what was there. Quantity is spawnMul ALONE, deliberately:
+    // maxAliveMul is the concurrent cap, and measured over 5 seeds x 300s the garden field only
+    // reaches it in 0-6% of samples (avg alive 38 at d1, 79 at d5, against a cap of 300), so
+    // trimming the cap moves the enemies a player actually meets by 0-1.4% — it would look like a
+    // balance change and be a no-op. Cutting spawnMul 5% measures as ~5% fewer arrivals AND ~5%
+    // lower average alive, which is what the directive asks for.
+    balance: { spawnMul: 0.76, enemyHpMul: 0.9, maxAliveMul: 0.75 },
     // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
     // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
     // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). Enemy silhouettes are baked
