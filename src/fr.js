@@ -27,7 +27,12 @@ const UI = {
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
                          // '6.3 dég. x3' puts two dots three characters apart at 11px
   'LV': 'NIV',
-  'You': 'Toi',
+  // 'Ton anomalie' (owner call, v6.6.20), not 'Toi' and not 'Perso': every sibling heading in
+  // this panel is a noun (weapon names, 'Éléments'), and a lone pronoun broke the column a
+  // player scans down. It is also literally true — the player IS the anomaly — and keeps the
+  // tutoiement 'Toi' was chosen for. Fits: .bd-nm ellipsises and already carries longer
+  // weapon names in the same slot, with no LV badge on this row to compete for width.
+  'You': 'Ton anomalie',
   'Elements': 'Éléments',
   '{n} picks': '{n} choix',
   // nav + title
@@ -124,10 +129,12 @@ const UI = {
   'The Blank\'s ladder is fixed — each difficulty adds its named modifier.':
     'L\'échelle du Blanc est fixe — chaque difficulté ajoute son modificateur attitré.',
   'you have {coins}': 'tu as {coins}',
-  // v6.6.19 per-anomaly reroll. The button label stays INFINITIVE and mirrors 'Relancer ({n}🪙)'
-  // above; the note below it is IMPERATIVE, because this file reserves the infinitive for controls
-  // ('Relancer', 'Commencer', 'Offrir') and addresses the player directly in prose — cf.
-  // 'Emplacement {n} — laisse vide pour revenir au numéro'.
+  // v6.6.19 per-anomaly reroll. BOTH are INFINITIVE, mirroring 'Relancer ({n}🪙)' above.
+  // The FR review argued the note should be imperative ('Relance'), since this file reserves the
+  // infinitive for controls and addresses the player directly in prose — cf. 'Emplacement {n} —
+  // laisse vide pour revenir au numéro'. The owner overruled it (v6.6.20) on the competing
+  // reading, which the review had itself flagged as defensible: the note is prefixed with the same
+  // 🎲 as the buttons, so it reads as a LEGEND for that affordance, and legends label like controls.
   // NOT 'n'importe quelle anomalie': that means "whichever, no matter which" and buries the whole
   // point — the free whole-set reroll already exists, the coins buy the CHOICE of which one.
   // Definite 'l'anomalie', not 'une': the referent is the cards listed right above (same rule as
@@ -140,7 +147,7 @@ const UI = {
   // the rule ui.js's fmtStat already applies to French units, and it stops "100" and "🪙"
   // splitting across lines on a 320px phone.
   'Reroll this anomaly ({n}🪙)': 'Relancer cette anomalie ({n}🪙)',
-  'Reroll one anomaly of your choice — {n} 🪙': 'Relance l\'anomalie de ton choix — {n} 🪙',
+  'Reroll one anomaly of your choice — {n} 🪙': 'Relancer l\'anomalie de ton choix — {n} 🪙',
 
   // pause + summary
   'Paused': 'Pause',
