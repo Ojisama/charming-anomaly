@@ -462,6 +462,13 @@ export const MAX_PASSIVE_LEVEL = 5
 // boomerang/mine slot/wisp/pierce/shard/bounce) per pick.
 // kind 'pct' (base ~0.20): bonus = base * rarityMult, additive — a percent bump to a stat
 // (radius/speed/damage/range/duration/...).
+// kind 'switch' (v6.6.15): the mod is an ON/OFF unlock — sim.js reads it as `(... ?? 0) > 0` and a
+// second pick changes NOTHING. Playtest caught this: Sticky Scent was declared flat base 1, so a
+// legendary roll printed "+4 burst leaves a slow zone" — a number that meant nothing, on a card the
+// player had already taken, and it could be offered up to MAX_WEAPON_MOD_PICKS times. A switch is
+// therefore offered AT MOST ONCE, only at normal rarity (it has no magnitude for rarity to scale,
+// exactly like the values-passives that decline to roll outside their own table), and its card
+// prints the effect with no "+N" in front of it.
 // kind 'tier': bonus = WEAPON_MOD_TIER_BONUS[rarity], extra "things per cast" (rings/echoes/
 // bomblets/vortexes/beams/volleys/jumps) — tiered rather than rarityMult-multiplied so a
 // mythic pick can't spiral a per-cast entity count out of control the way a flat rarityMult
@@ -616,7 +623,7 @@ export const WEAPON_MODS = {
     wideArc:   { name: 'Wide Arc',    desc: 'whip sweep width', icon: '🪭', base: 0.30, kind: 'pct' },
     frenzy:    { name: 'Frenzy',      desc: 'whip speed',  icon: '💨', base: 0.25, kind: 'pct' },
     heavyLash: { name: 'Heavy Lash',  desc: 'whip damage', icon: '🔨', base: 0.40, kind: 'pct' },
-    cyclone:   { name: 'Cyclone',     desc: 'full 360° sweep (every 3rd swing)', icon: '🌀', base: 1, kind: 'flat' },
+    cyclone:   { name: 'Cyclone',     desc: 'full 360° sweep (every 3rd swing)', icon: '🌀', kind: 'switch' },
     barbed:    { name: 'Barbed Lash', desc: 'bleed on struck foes (over 3s, dot)', icon: '🩸', base: 0.50, kind: 'pct' },
   },
   // bigBloom/lasting/virulent fold into bloom's levels[] via WEAPON_STAT_MODS; quickCast (cast
@@ -631,7 +638,7 @@ export const WEAPON_MODS = {
     virulent:   { name: 'Virulent',        desc: 'cloud tick damage', icon: '☣️', base: 0.35, kind: 'pct' },
     quickCast:  { name: 'Quick Cast',      desc: 'cast rate',         icon: '⏩', base: 0.25, kind: 'pct' },
     twinBloom:  { name: 'Twin Bloom',      desc: 'extra cloud(s) per cast',        icon: '🌺', base: 1, kind: 'flat' },
-    sporeburst: { name: 'Sporeburst',      desc: 'mini-cloud when a foe dies inside', icon: '💥', base: 1, kind: 'flat' },
+    sporeburst: { name: 'Sporeburst',      desc: 'mini-cloud when a foe dies inside', icon: '💥', kind: 'switch' },
     tideCarried:{ name: 'Tide-Carried',    desc: 'clouds ride the current, ticking harder', icon: '🌊', base: 1, kind: 'flat' },
   },
   // Garden natives (v5.3 task, see stepStingerWeapon/stepLureWeapon in sim.js). sharper/volley fold
@@ -643,8 +650,8 @@ export const WEAPON_MODS = {
     volley:      { name: 'Wider Volley', desc: 'needles per volley',   icon: '🎯', base: 2,    kind: 'flat' },
     longNeedles: { name: 'Long Needles', desc: 'needle range & speed', icon: '📏', base: 0.30, kind: 'pct' },
     rapid:       { name: 'Rapid Fire',   desc: 'volley rate',          icon: '🚀', base: 0.25, kind: 'pct' },
-    venomTips:   { name: 'Venom Tips',   desc: 'needles inject 1 venom stack', icon: '☠️', base: 1, kind: 'flat' },
-    hive:        { name: 'Hive Mind',    desc: 'every 4th volley fires all around', icon: '🐝', base: 1, kind: 'flat' },
+    venomTips:   { name: 'Venom Tips',   desc: 'needles inject 1 venom stack', icon: '☠️', kind: 'switch' },
+    hive:        { name: 'Hive Mind',    desc: 'every 4th volley fires all around', icon: '🐝', kind: 'switch' },
   },
   // widerTaunt/longerLure fold into lure's levels[] via WEAPON_STAT_MODS; bigBurst (burst dmg AND
   // radius) and fastLure (plant rate) are read at the plant/burst site. twinLure (+decoy, a flat
@@ -655,7 +662,7 @@ export const WEAPON_MODS = {
     longerLure:  { name: 'Lasting Lure',  desc: 'lure duration',         icon: '⏳', base: 0.35, kind: 'pct' },
     fastLure:    { name: 'Quick Bait',    desc: 'plant rate',            icon: '⏩', base: 0.25, kind: 'pct' },
     twinLure:    { name: 'Twin Lure',     desc: 'extra decoy(s) per cast', icon: '🌺', base: 1, kind: 'flat' },
-    stickyScent: { name: 'Sticky Scent',  desc: 'burst leaves a slow zone', icon: '🕸️', base: 1, kind: 'flat' },
+    stickyScent: { name: 'Sticky Scent',  desc: 'burst leaves a slow zone', icon: '🕸️', kind: 'switch' },
   },
   // ---- Undergrowth natives (v5.4) ----
   // rend/wideRake/longClaws fold into clawRake's levels[] via WEAPON_STAT_MODS; quickPaws (attack
@@ -669,7 +676,7 @@ export const WEAPON_MODS = {
     wideRake:    { name: 'Wide Rake',     desc: 'claw sweep width', icon: '🪭', base: 0.30, kind: 'pct' },
     longClaws:   { name: 'Long Claws',    desc: 'claw reach',  icon: '📏', base: 0.30, kind: 'pct' },
     quickPaws:   { name: 'Quick Paws',    desc: 'rake rate',   icon: '💨', base: 0.25, kind: 'pct' },
-    doubleSlash: { name: 'Double Slash',  desc: 'every 3rd rake slashes twice',        icon: '🐈', base: 1, kind: 'flat' },
+    doubleSlash: { name: 'Double Slash',  desc: 'every 3rd rake slashes twice',        icon: '🐈', kind: 'switch' },
     bleedClaws:  { name: 'Bleeding Claws', desc: 'bleed on raked foes (over 3s, dot)', icon: '🩹', base: 0.50, kind: 'pct' },
     ambushPredator: { name: 'Ambush Predator', desc: 'claws hit harder near a trap', icon: '🪤', base: 0.45, kind: 'pct' },
   },
@@ -729,7 +736,7 @@ export const WEAPON_MODS = {
     farRoar:   { name: 'Carrying Roar', desc: 'roar range', icon: '📏', base: 0.30, kind: 'pct' },
     rapidRoar: { name: 'Short Breath', desc: 'roar rate',   icon: '💨', base: 0.25, kind: 'pct' },
     stagger:   { name: 'Stagger',     desc: 'stun on roared foes',              icon: '💫', base: 0.50, kind: 'pct' },
-    resonance: { name: 'Resonance',   desc: 'every 3rd roar goes all around',   icon: '🌀', base: 1, kind: 'flat' },
+    resonance: { name: 'Resonance',   desc: 'every 3rd roar goes all around',   icon: '🌀', kind: 'switch' },
   },
   // heavyTail/longTail/broadSweep fold into tailSwipe's levels[] via WEAPON_STAT_MODS; quickTail
   // (attack rate) is read at the fire site. wreckingTail/counterSwipe are behavioral (see
@@ -740,7 +747,7 @@ export const WEAPON_MODS = {
     broadSweep:   { name: 'Broad Sweep',   desc: 'tail sweep width', icon: '🪭', base: 0.25, kind: 'pct' },
     quickTail:    { name: 'Quick Tail',    desc: 'swipe rate',   icon: '💨', base: 0.25, kind: 'pct' },
     wreckingTail: { name: 'Wrecking Tail', desc: 'collateral damage where launched foes land', icon: '🎳', base: 0.40, kind: 'pct' },
-    counterSwipe: { name: 'Counter Swipe', desc: 'getting hit triggers a free swipe',          icon: '💢', base: 1, kind: 'flat' },
+    counterSwipe: { name: 'Counter Swipe', desc: 'getting hit triggers a free swipe',          icon: '💢', kind: 'switch' },
   },
   // heavyDebris/bigImpact/moreDebris fold into debrisToss' levels[] via WEAPON_STAT_MODS; longToss
   // (castRange) and rapidToss (cast rate) are read at the throw site. shrapnel is behavioral
@@ -1477,9 +1484,14 @@ export const CHAPTERS = {
     roster: [
       { id: 'ant',    archetype: 'normal', name: 'Ant',    hpMul: 0.85, speedMul: 1.1, flags: ['trailFollow'] },
       { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, flags: ['diveBomb'] },
-      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.5,  speedMul: 0.9, flags: ['webZone'] },
+      // v6.6.15 (owner): spiders -20% hp. This is the ROSTER multiplier, so it thins the spider
+      // alone; garden's chapter-wide enemyHpMul below still applies on top of it.
+      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, flags: ['webZone'] },
     ],
-    eliteFlags: ['sprayStrip'],           // pesticide-drone elites paint telegraphed spray strips
+    eliteFlags: ['mower'],                // v6.6.14: an elite means the gardener is working this
+                                          // patch — a mower crosses every MOWER_INTERVAL (see the
+                                          // MOWER_* block). Was 'sprayStrip', a rectangle marked on
+                                          // the player by nothing the player could see.
     // Signature: dying trailFollow ants drop fading pheromone nodes (run.trails) that living ants
     // accelerate along. No field force (unlike currents) — the mechanic IS the ant behaviour, so
     // sim.js gates its trail logic on signature.type === 'pheromones' (future chapters' ants differ).
@@ -1488,7 +1500,10 @@ export const CHAPTERS = {
     // v6.4.10 (owner directive): per-chapter enemy HP ladder — garden −5%.
     // maxAliveMul 0.9 -> 0.75 in v6.6.7 (owner directive: "smooth out the chapter curve"): see the
     // ladder note above MAX_ALIVE.
-    balance: { enemyHpMul: 0.95, maxAliveMul: 0.75 },
+    // v6.6.15 (owner): "reduce 20% the number of enemies" -> spawnMul 0.8, the same lever v6.4.5
+    // used for "25% fewer enemies" on body/pond. maxAliveMul (the density CEILING) is left alone —
+    // it was set to 0.75 in v6.6.7 for the chapter-curve pass and answers a different question.
+    balance: { spawnMul: 0.8, enemyHpMul: 0.95, maxAliveMul: 0.75 },
     // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
     // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
     // a sunny grass floorTint, a bug-ish blob (tint-only skin, no tail). Enemy silhouettes are baked
@@ -2908,17 +2923,10 @@ export const WEB_R = 72          // px, web patch radius
 export const WEB_DUR = 4         // s, web patch lifetime
 export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing in a web
 
-// sprayStrip (garden's pesticide-drone elites): periodically mark a telegraphed rectangular strip
-// centered on the player (run.strips), reusing the volatile-bomb telegraph idea. After `fuse`
-// telegraph seconds the strip goes live and ticks dot-flagged damage to the PLAYER standing inside
-// it (like run.pools) for SPRAY_ACTIVE seconds. run.strips entries:
-// { x, y, angle, len, w, fuse, t, dps } (fuse counts down first, then t counts down while live).
-export const SPRAY_INTERVAL = 3.5  // s between marked strips
-export const SPRAY_FUSE = 0.9      // s telegraph before a strip goes live (no damage yet)
-export const SPRAY_LEN = 340       // px, strip length
-export const SPRAY_W = 92          // px, strip width
-export const SPRAY_ACTIVE = 1.2    // s the live strip keeps ticking after its fuse
-export const SPRAY_DPS = 10        // damage/second to a player standing in a live strip
+// v6.6.14: the SPRAY_* block lived here (garden's pesticide-drone elites marking a rectangle on
+// the player). Deleted with the mechanic — see the MOWER_* block above for what replaced it, and
+// note run.strips itself is still very much alive: the Blank's erasure bands, eraser wakes and
+// immuneMemory residue all feed it, all tagged look:'erase'.
 
 // ---- Undergrowth chapter behavior flags (v5.4, see sim.js) ----------------------------------
 // pounce (undergrowth's cat): a hold -> telegraph -> flat leap -> land/recover cycle, state on
@@ -3132,6 +3140,43 @@ export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon', 'rat', 'patrolDrone']
 // forces anything this big to bake as the dumpster — the one prop actually shaped like something
 // that stops a car.
 export const COVER_MIN_R = 26
+
+// ---- The Mower (v6.6.14, garden's `mower` elite flag) -----------------------------------------
+// Playtest: "the rectangle yellow telegraph are what? A lawnmower attack? If so we should see the
+// lawnmower like we see the taxi in city level." What it WAS: a `sprayStrip` elite marked a 340x92
+// rectangle CENTRED ON THE PLAYER at a random angle, with no geometric relationship to the elite
+// that fired it — so the hazard had no visible cause anywhere on screen. Now the lawn gets mowed:
+// the same run.lanes machinery the city drives its taxi with (telegraph -> a vehicle crosses ->
+// it flattens both sides), so there is one lane system in this codebase rather than two.
+//
+// ONE PASS AT A TIME, run-level, NOT per-elite. sprayStrip ran an accumulator per elite, and elite
+// cadence falls to ~12s by t=300 while garden tanks pass 4000 HP, so two or three concurrent
+// elites is routine late — each would have rolled its own mower. The city caps concurrent lanes at
+// signature.lanes for exactly this reason; the run-level timer here is that cap, taken at the root.
+// The timer is ARMED while any mower-flagged elite lives and idles otherwise, so the pacing the
+// chapter was tuned around is unchanged.
+export const MOWER_INTERVAL = 3.5     // s between passes (== the SPRAY_INTERVAL it replaces)
+export const MOWER_WARN = 1.3         // s of harmless telegraph before the deck arrives
+export const MOWER_SWEEP = 1.4        // s to cross MOWER_LEN — 786 px/s, slower than the taxi's 1000
+export const MOWER_LEN = 1100         // px, lane length: longer than a screen, so it enters/leaves offscreen
+export const MOWER_W = 120            // px, width of the mown band (the telegraph)
+// px, max perpendicular offset of the band from the player. DELIBERATELY under MOWER_DECK_W/2, so
+// "always crosses you" is literally true even standing still. (TRAFFIC_OFFSET 90 is well over its
+// own car's 55px half-width, so the city's van in fact misses a stationary player ~39% of rolls —
+// harmless there because players move, but not a property worth copying on purpose.)
+export const MOWER_OFFSET = 40
+export const MOWER_DECK_LEN = 60      // px, cutting-deck hitbox along the lane (a mower is SHORT)
+export const MOWER_DECK_W = 96        // px, cutting-deck hitbox across the lane (and WIDE)
+// Damage to the player. Parity with the spray it replaces, which was worth exactly 12: dot-flagged
+// at SPRAY_DPS 10, i.e. round(10 * STATUS_TICK) = 3 per tick x floor(SPRAY_ACTIVE / STATUS_TICK) = 4
+// ticks. A dot bypasses armour AND the invuln window; this is an ordinary hit, so armour now
+// reduces it and it grants invuln like any other. Net: parity bare, strictly gentler with armour —
+// which is the right direction for a chapter that has been eased four times.
+export const MOWER_DMG = 12
+export const MOWER_KB = 300           // knockback along the lane to struck enemies
+// The mower one-shots the light roster the way a taxi one-shots a pigeon; wasps and spiders (and
+// any elite) take MOWER_DMG like everyone else. Non-elite only, checked by rosterId.
+export const MOWER_SQUASH = ['ant']
 
 // ---- Skies chapter behavior flags (v5.4, see sim.js) -----------------------------------------
 // strafe (skies' fighter jets): flies straight passes THROUGH the player rather than chasing.

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SPRAY_FUSE, SPRAY_ACTIVE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -3918,6 +3918,38 @@ export function createRenderer(app) {
         g.ellipse(-L * 0.47, s * W * 0.24, L * 0.03, W * 0.07).fill(0xff5545)         // tail lights
       }
       T.car = bake(g)
+    }
+    {
+      // The Mower (v6.6.14, garden's `mower` elite flag — see rollMowerLane in sim.js). Same
+      // contract as the car above: top-down, nose +x, drawn at the REAL deck hitbox so what
+      // sweeps you is what you saw coming. A mower is the car's opposite proportion — short and
+      // wide, not long and narrow — and that silhouette is most of the read at a glance.
+      const g = new Graphics()
+      const L = MOWER_DECK_LEN
+      const W = MOWER_DECK_W
+      const deck = 0xd94f3d        // domestic-machine red: the one saturated thing on a green lawn
+      const line = 0x4a1b14
+      const metal = 0x9aa3ab
+      // handle bars trailing behind the deck — the shape that says "somebody is pushing this"
+      for (const s of [-1, 1]) {
+        g.moveTo(-L * 0.2, s * W * 0.22).lineTo(-L * 0.92, s * W * 0.26)
+        g.stroke({ width: 4, color: metal })
+      }
+      g.moveTo(-L * 0.92, -W * 0.26).lineTo(-L * 0.92, W * 0.26)
+      g.stroke({ width: 6, color: metal })
+      for (const s of [-1, 1]) {   // wheels, under the deck
+        g.rect(L * 0.2, s * W * 0.4 - W * 0.09, L * 0.2, W * 0.18).fill(0x1c1f24)
+        g.rect(-L * 0.4, s * W * 0.4 - W * 0.09, L * 0.2, W * 0.18).fill(0x1c1f24)
+      }
+      // the deck: one rounded slab, widest across the cut
+      g.poly(spineOutline((t) => [-L * 0.5 + t * L, 0], (t) => W * 0.46 * bulge(0.5, 0.85), 24))
+        .fill(deck).stroke({ width: 2.4, color: line })
+      g.ellipse(0, W * 0.24, L * 0.34, W * 0.16).fill({ color: 0x8f2b1f, alpha: 0.28 })  // shaded flank
+      g.ellipse(0, -W * 0.26, L * 0.3, W * 0.12).fill({ color: 0xff9a86, alpha: 0.3 })   // lit flank
+      g.rect(L * 0.26, -W * 0.34, L * 0.1, W * 0.68).fill({ color: line, alpha: 0.75 })  // cutting slot at the nose
+      g.circle(-L * 0.02, 0, W * 0.17).fill(metal).stroke({ width: 2, color: line })     // engine housing
+      g.circle(-L * 0.02, 0, W * 0.07).fill(0x30363c)
+      T.mower = bake(g)
     }
     {
       // trash chunk (city, run.debris): an angular scrap of junk — hard facets, nothing rounded
@@ -8910,10 +8942,12 @@ export function createRenderer(app) {
         flat.push(s.x + lx * cos - ly * sin, s.y + lx * sin + ly * cos)
       }
       // v5.24 the blank (look:'erase' — erasure bands, eraser wakes, immuneMemory residue): a strip
-      // of world going BLANK, not a chemical spray — pale cool fill instead of amber/acid. Fuses
-      // here vary per source (0.15-0.75s, vs the garden's one SPRAY_FUSE), so the warning is a flat
-      // pulse rather than a fuse-normalised urgency ramp; active strips fade out over their last
-      // half second (t counts down) instead of over SPRAY_ACTIVE.
+      // of world going BLANK. v6.6.14: this is now the ONLY kind of strip in the game. The garden's
+      // pesticide spray was the other one, and it is gone — its elite drives a visible mower now
+      // (see the MOWER_* block in config.js), because a rectangle drawn on the player by an
+      // offscreen ant is a hazard with no cause anyone could see. Fuses here vary per source
+      // (0.15-0.75s), so the warning is a flat pulse rather than a fuse-normalised urgency ramp,
+      // and active strips fade over their last half second.
       // v6.3.1: strips tagged variant:'residue' (immuneMemory death residue, eraser wakes) draw at
       // ~0.55× alpha, fuse and live alike — at d3 they can be onscreen alongside the boss's OWN
       // (untagged, full-strength) bands/star, and three identical erase hazard families stacked
@@ -8929,19 +8963,6 @@ export function createRenderer(app) {
           stripG.poly(flat).fill({ color: 0xdde4ee, alpha: 0.9 * fade * dim })
           stripG.poly(flat).stroke({ width: 2.5, color: 0x9aa6c4, alpha: 0.85 * fade * dim })
         }
-        continue
-      }
-      if (s.fuse > 0) {
-        const urgency = SPRAY_FUSE > 0 ? 1 - s.fuse / SPRAY_FUSE : 1
-        const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
-        const fillA = 0.05 + urgency * 0.08 + pulse * 0.03
-        const rimA = Math.min(1, 0.5 + urgency * 0.35 + pulse * 0.1)
-        stripG.poly(flat).fill({ color: 0xffd24a, alpha: fillA })
-        stripG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
-      } else {
-        const fade = Math.min(1, s.t / SPRAY_ACTIVE)
-        stripG.poly(flat).fill({ color: 0x8fe04a, alpha: 0.34 * fade })
-        stripG.poly(flat).stroke({ width: 2.5, color: 0xbfff6a, alpha: 0.7 * fade })
       }
     }
   }
@@ -9026,12 +9047,28 @@ export function createRenderer(app) {
         flat.push(ln.x + lx * cos - ly * sin, ln.y + lx * sin + ly * cos)
       }
       const warn = ln.phase === 'warn'
-      const urgency = warn ? (TRAFFIC_WARN > 0 ? 1 - ln.t / TRAFFIC_WARN : 1) : 1
+      const warnT = ln.warnT ?? TRAFFIC_WARN
+      const urgency = warn ? (warnT > 0 ? 1 - ln.t / warnT : 1) : 1
       const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
       const fillA = warn ? 0.06 + urgency * 0.1 + pulse * 0.04 : 0.05
       const rimA = warn ? Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.12) : 0.3
-      laneG.poly(flat).fill({ color: 0xffd24a, alpha: fillA })
+      // v6.6.14: two vehicles share this band now. The mower's telegraph is the STRIPE A MOWER
+      // LEAVES — pale cut grass running the length of the lane — so the shape itself says what is
+      // coming, while the rim stays the same warning amber the city uses (the hazard reading is
+      // carried by the rim, not by inventing a second danger colour). Deliberately NOT green: the
+      // floor is lawn, and the garden already spends amber on pheromone trails and green on webs.
+      const mower = ln.look === 'mower'
+      laneG.poly(flat).fill({ color: mower ? 0xf2ecd0 : 0xffd24a, alpha: mower ? fillA * 1.6 : fillA })
       laneG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
+      if (mower) {
+        // mown rows ALONG the lane — the one pattern nothing else in this game draws
+        for (let i = -1; i <= 1; i++) {
+          const off = i * hy * 0.5
+          laneG.moveTo(ln.x - hx * cos - off * sin, ln.y - hx * sin + off * cos)
+          laneG.lineTo(ln.x + hx * cos - off * sin, ln.y + hx * sin + off * cos)
+          laneG.stroke({ width: 2, color: 0xffffff, alpha: (warn ? 0.16 + urgency * 0.16 : 0.1) * (0.7 + 0.3 * pulse) })
+        }
+      } else {
       // chevrons along the lane, pointing downstream — the "which way" cue
       const n = 7
       for (let i = 0; i < n; i++) {
@@ -9047,11 +9084,15 @@ export function createRenderer(app) {
         }
         laneG.stroke({ width: 3, color: 0xffe37a, alpha: (warn ? 0.3 + urgency * 0.3 : 0.16) * (0.7 + 0.3 * pulse) })
       }
+      }
       // v6.3 Task 4: "this can shield you" — during the telegraph only, ring every obstacle big
       // enough to stop the car (o.r >= COVER_MIN_R, see its doc in config.js) whose center falls
       // inside this band. Same along/perp test as the quad above, padded by the obstacle's own
       // radius so a shield merely clipping the band's edge still lights up.
-      if (warn) {
+      // ln.cover === false (the mower) skips this ENTIRELY: sim.js does not consult findCover for
+      // such a lane, and garden obstacles do sit in the >= COVER_MIN_R band, so drawing the ring
+      // here would visibly promise a shield that does nothing.
+      if (warn && ln.cover !== false) {
         for (const o of run.obstacles || []) {
           if (o.r < COVER_MIN_R) continue
           const odx = o.x - ln.x, ody = o.y - ln.y
@@ -9068,15 +9109,18 @@ export function createRenderer(app) {
   // Its centre is (x,y) + dir × ((carT - 0.5) × len), straight off the contract.
   const carPool = []
   let carCount = 0
+  // v6.6.14: the pool holds BOTH vehicles, so a rig has one sprite per look and shows the one this
+  // lane calls for. A single shared sprite would have put a taxi on the lawn.
   function acquireCar() {
     const root = new Container()
     const glow = new Sprite(T.fx.light_02)
     glow.anchor.set(0.5)
     glow.tint = 0xfff3c4
     const body = spriteOf(T.car)
-    root.addChild(glow, body)
+    const mower = spriteOf(T.mower)
+    root.addChild(glow, body, mower)
     carLayer.addChild(root)
-    return { root, glow, body }
+    return { root, glow, body, mower }
   }
   function syncCars(run) {
     const lanes = (run.lanes || []).filter((l) => l.phase === 'sweep')
@@ -9084,21 +9128,33 @@ export function createRenderer(app) {
     for (let i = 0; i < lanes.length; i++) {
       const ln = lanes[i]
       const cv = carPool[i]
+      const isMower = ln.look === 'mower'
       cv.root.visible = true
       const d = ((ln.carT ?? 0) - 0.5) * ln.len
       const cx = ln.x + Math.cos(ln.angle) * d
       const cy = ln.y + Math.sin(ln.angle) * d
       cv.root.position.set(cx, cy)
       cv.root.rotation = ln.angle
+      cv.body.visible = !isMower
+      cv.mower.visible = isMower
       cv.body.scale.set(1)
-      // headlight wash: thrown forward along the lane, flickering just enough to feel driven
+      cv.mower.scale.set(1)
+      // headlight wash: thrown forward along the lane, flickering just enough to feel driven. A
+      // mower on a sunlit lawn at noon has no headlights.
+      cv.glow.visible = !isMower
       cv.glow.position.set(TRAFFIC_CAR_LEN * 0.75, 0)
       cv.glow.scale.set(fxScale(T.fx.light_02, TRAFFIC_CAR_W * 2.4), fxScale(T.fx.light_02, TRAFFIC_CAR_W * 1.5))
       cv.glow.alpha = 0.5 + 0.08 * Math.sin(animT * 22)
-      if (frameDt > 0 && Math.random() < 0.5) { // exhaust/road spray off the back
-        spawnParticle(T.fx.circle_05, cx - Math.cos(ln.angle) * TRAFFIC_CAR_LEN * 0.5,
-          cy - Math.sin(ln.angle) * TRAFFIC_CAR_LEN * 0.5,
-          -Math.cos(ln.angle) * 40, -Math.sin(ln.angle) * 40, 0.3, 0.08, 0x8f959d, 0.1, 2)
+      const backLen = (isMower ? MOWER_DECK_LEN : TRAFFIC_CAR_LEN) * 0.5
+      if (frameDt > 0 && Math.random() < (isMower ? 0.9 : 0.5)) {
+        // the car throws exhaust and road spray; the mower throws CLIPPINGS — same particle, sprayed
+        // sideways out of the deck rather than straight back, because that is where a chute points
+        const side = isMower ? (Math.random() < 0.5 ? 1 : -1) : 0
+        const nx = -Math.sin(ln.angle) * side * 70
+        const ny = Math.cos(ln.angle) * side * 70
+        spawnParticle(T.fx.circle_05, cx - Math.cos(ln.angle) * backLen, cy - Math.sin(ln.angle) * backLen,
+          -Math.cos(ln.angle) * 40 + nx, -Math.sin(ln.angle) * 40 + ny,
+          isMower ? 0.45 : 0.3, isMower ? 0.06 : 0.08, isMower ? 0x7cb342 : 0x8f959d, 0.1, 2)
       }
     }
     for (let i = lanes.length; i < carCount; i++) carPool[i].root.visible = false

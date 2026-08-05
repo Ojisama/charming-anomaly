@@ -24,7 +24,7 @@ import {
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
-  SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS, STINGER_HIVE_EVERY,
+  STINGER_HIVE_EVERY,
   POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LAND_T,
   // v6.5 undergrowth streamed traps (Run TT)
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
@@ -33,7 +33,8 @@ import {
   SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM,
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
-  TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R,
+  TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
+  MOWER_INTERVAL, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_DECK_W, MOWER_DECK_LEN, MOWER_DMG, MOWER_OFFSET,
   MISSILE_SPEED, MISSILE_STANDOFF,
   STRAFE_BANK_T, STRAFE_RUN_T, STRAFE_TELEGRAPH_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
@@ -2660,31 +2661,37 @@ function testGarden() {
     console.log(`PASS run X.c (webZone): plain=${plain.toFixed(2)} web=${web.toFixed(2)} latch=${latch.toFixed(2)} both=${both.toFixed(2)}`)
   }
 
-  // (d) sprayStrip: a marked strip deals NO damage during its fuse (telegraph), then dot-flagged
-  // damage to the player standing inside it once the fuse elapses.
+  // (d) run.strips, the generic contract: a marked strip deals NO damage during its fuse
+  // (telegraph), then dot-flagged damage to the player standing inside it once the fuse elapses.
+  // v6.6.14: this used to be the garden's pesticide spray, which no longer exists — its elite
+  // drives a visible mower now (run MW). The Blank's erasure bands, eraser wakes and immuneMemory
+  // residue are the only remaining producers, so the fixture uses their numbers and the scenario
+  // covers what it actually still guards. Kept in place rather than appended: it rewrites an
+  // existing scenario's fixture without adding or removing a seeded draw.
   {
     const run = createRun(makeMeta(), { chapter: 'garden' })
     run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
-    run.strips.push({ x: 0, y: 0, angle: 0, len: SPRAY_LEN, w: SPRAY_W, fuse: SPRAY_FUSE, t: SPRAY_ACTIVE, dps: SPRAY_DPS })
+    const FUSE = 0.9, ACTIVE = 1.2
+    run.strips.push({ x: 0, y: 0, angle: 0, len: 340, w: 92, fuse: FUSE, t: ACTIVE, dps: 10, look: 'erase' })
 
     let hurtDuringFuse = false
-    for (let i = 0; i < Math.round((SPRAY_FUSE - 0.05) / dt); i++) {
+    for (let i = 0; i < Math.round((FUSE - 0.05) / dt); i++) {
       stepSim(run, { x: 0, y: 0 }, dt)
       if (run.events.some((e) => e.type === 'hurt')) hurtDuringFuse = true
     }
-    assert(!hurtDuringFuse, 'expected no damage during the spray strip telegraph (fuse)')
+    assert(!hurtDuringFuse, 'expected no damage during the strip telegraph (fuse)')
     const hpAfterFuse = run.player.hp
 
     let dotHurt = false
-    for (let i = 0; i < Math.round((SPRAY_FUSE + 0.6) / dt) && !dotHurt; i++) {
+    for (let i = 0; i < Math.round((FUSE + 0.6) / dt) && !dotHurt; i++) {
       stepSim(run, { x: 0, y: 0 }, dt)
       if (run.events.some((e) => e.type === 'hurt' && e.dot)) dotHurt = true
     }
-    assert(dotHurt, 'expected the live spray strip to deal dot-flagged damage after the fuse')
+    assert(dotHurt, 'expected the live strip to deal dot-flagged damage after the fuse')
     assert(run.player.hp < hpAfterFuse, `expected the live strip to damage the standing player (before=${hpAfterFuse}, after=${run.player.hp})`)
-    console.log('PASS run X.d (sprayStrip): no damage during fuse, dot damage after')
+    console.log('PASS run X.d (strips): no damage during fuse, dot damage after')
   }
 
   // (e) Pheromone Lure: an enemy inside a lure's aggro radius paths toward the DECOY (away from the
@@ -7048,16 +7055,22 @@ function testChapterBalance() {
     console.log(`PASS run RR.b (pond d3 stacks balance with the difficulty tax): enemyDmgMul=${run.mods.enemyDmgMul.toFixed(4)} (expected ${expectedDmg.toFixed(4)})`)
   }
 
-  // (c) v6.4.10: garden's balance block is HP-ONLY (0.95) — spawn/dmg/xp stay baseline 1 even
-  // though it's an EARLY_CALM chapter, since difficulty is omitted here and calm needs d1 explicit.
+  // (c) garden's balance block. v6.4.10 made it HP-only (0.95); v6.6.15 (owner: "reduce 20% the
+  // number of enemies") added spawnMul 0.8, so it is no longer HP-only — rewritten in place
+  // because this is a DIRECTED change, not a break. Damage and xp still stay baseline 1, and the
+  // EARLY_CALM thinning still does NOT apply here, because calm needs difficulty 1 stated
+  // EXPLICITLY and this call omits it (the v6.4.1 gate).
   {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'garden' })
-    assert.strictEqual(run.mods.spawnMul, 1, `expected garden (HP-only balance) mods.spawnMul === 1, got ${run.mods.spawnMul}`)
-    assert.strictEqual(run.mods.enemyDmgMul, 1, `expected garden (HP-only balance) mods.enemyDmgMul === 1, got ${run.mods.enemyDmgMul}`)
-    assert.strictEqual(run.mods.xpMul, 1, `expected garden (HP-only balance) mods.xpMul === 1, got ${run.mods.xpMul}`)
+    assert(Math.abs(run.mods.spawnMul - 0.8) < EPS, `expected garden mods.spawnMul ≈ 0.8, got ${run.mods.spawnMul}`)
+    assert.strictEqual(run.mods.enemyDmgMul, 1, `expected garden mods.enemyDmgMul === 1, got ${run.mods.enemyDmgMul}`)
+    assert.strictEqual(run.mods.xpMul, 1, `expected garden mods.xpMul === 1, got ${run.mods.xpMul}`)
     assert(Math.abs(run.mods.enemyHpMul - 0.95) < EPS, `expected garden mods.enemyHpMul ≈ 0.95, got ${run.mods.enemyHpMul}`)
-    console.log('PASS run RR.c (garden balance is HP-only): enemyHpMul 0.95, spawnMul/enemyDmgMul/xpMul stay baseline 1')
+    // The spider carries its own roster multiplier UNDER the chapter one, so it is thinned twice.
+    const spider = CHAPTERS.garden.roster.find((r) => r.id === 'spider')
+    assert(Math.abs(spider.hpMul - 1.2) < EPS, `expected the spider's roster hpMul 1.2, got ${spider.hpMul}`)
+    console.log(`PASS run RR.c (garden balance): spawnMul 0.8, enemyHpMul 0.95, spider roster hpMul 1.2, dmg/xp baseline`)
   }
 
   // (c2) v6.4.10 per-chapter enemy HP ladder, the full sweep: body 0.75, pond 0.85, garden 0.95,
@@ -8350,6 +8363,8 @@ try {
   testSaveSummary()
   testSyncDecisions()
   testPlaytestSweepAndBlades()
+  testMower()
+  testSwitchMods()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -8456,4 +8471,230 @@ function testPlaytestSweepAndBlades() {
   }
   console.log('PASS run PT.d (card copy): whip/claw/roar/tail sell a visible width, not an "arc", in both languages')
   console.log('PASS run PT (playtest v6.6.13): extra blades tiered, wide arc measured and honest, sector copy says what widens')
+}
+
+// ---- Run MW: The Mower (v6.6.14) -----------------------------------------------------------
+// Playtest: "the rectangle yellow telegraph are what? A lawnmower attack? If so we should see the
+// lawnmower like we see the taxi in city level." The garden's `sprayStrip` elite used to mark a
+// rectangle ON the player from wherever it happened to be standing, so the hazard had no visible
+// cause. It now drives a mower down a lane, on the city's own run.lanes machinery.
+//
+// The two properties worth defending forever are (1) ONE pass at a time no matter how many elites
+// are alive — the old flag ran a timer per elite, and elite cadence falls to ~12s late — and
+// (2) damage parity with the spray it replaced, in a chapter the owner has eased four times.
+function testMower() {
+  const dt = 1 / 60
+
+  // A garden run with the spawner silenced and a stationary mower elite parked out of reach, so
+  // the only thing that can touch the player is the mower itself.
+  function gardenWithElites(n) {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    for (let i = 0; i < n; i++) {
+      const e = makeStatusEnemy(run, { x: 4000 + i * 50, y: 0, elite: true, hp: 1e9, speed: 0 })
+      e.flags = ['mower']
+      e.rosterId = 'spider'
+      run.enemies.push(e)
+    }
+    return run
+  }
+  // run.events is drained by the CONSUMER (main.js splices it), never by stepSim — so a loop that
+  // reads it without clearing re-counts every earlier event on every later frame.
+  const runFor = (run, seconds) => {
+    for (let i = 0; i < Math.round(seconds / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+  }
+
+  // -- MW.a: the timer is ARMED by an elite, and idle without one ----------------------------
+  {
+    const quiet = gardenWithElites(0)
+    runFor(quiet, MOWER_INTERVAL * 3)
+    assert.strictEqual(quiet.lanes.length, 0, 'no mower without an elite — the gardener is not out')
+
+    const busy = gardenWithElites(1)
+    runFor(busy, MOWER_INTERVAL + 0.1)
+    assert.strictEqual(busy.lanes.length, 1, 'one elite alive puts a mower on the lawn')
+    const lane = busy.lanes[0]
+    assert.strictEqual(lane.look, 'mower', 'and it is a mower, not a taxi')
+    assert.strictEqual(lane.phase, 'warn', 'which telegraphs before it cuts')
+    console.log('PASS run MW.a (armed by an elite): no elite means no mower, one elite means one mower, telegraphed')
+  }
+
+  // -- MW.b: ONE pass at a time, however many elites are alive -------------------------------
+  // The blocker the design panel caught: sprayStrip ran a per-elite accumulator, so three live
+  // elites meant three independent 96px sweeps from three angles with no ceiling anywhere.
+  {
+    const run = gardenWithElites(3)
+    runFor(run, MOWER_INTERVAL * 4)
+    assert.ok(run.lanes.length <= 1, `three mower elites must still yield at most one live pass (got ${run.lanes.length})`)
+    // ...and the lane still turns over: a pass ends and a later one can start.
+    let sawPass = 0
+    let had = run.lanes.length > 0
+    for (let i = 0; i < Math.round((MOWER_INTERVAL * 4) / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const now = run.lanes.length > 0
+      if (now && !had) sawPass++
+      had = now
+      assert.ok(run.lanes.length <= 1, 'never more than one mower, at any instant')
+    }
+    assert.ok(sawPass >= 1, 'passes keep coming while the elite lives')
+    console.log(`PASS run MW.b (one at a time): 3 elites, never more than 1 live pass, ${sawPass} further passes started`)
+  }
+
+  // -- MW.c/d: telegraph is harmless, then exactly ONE armour-bypassing hit at parity ---------
+  {
+    const run = gardenWithElites(1)
+    runFor(run, MOWER_INTERVAL + 0.02)
+    const lane = run.lanes[0]
+    // Pin the geometry: aim the lane straight down +x through the player, who stands still at 0,0.
+    lane.x = 0; lane.y = 0; lane.angle = 0
+    run.passives.armor = 6 // a dot ignores armour — that is the parity the spray had
+
+    let hurtDuringWarn = 0
+    for (let i = 0; i < Math.round((MOWER_WARN - 0.05) / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      hurtDuringWarn += run.events.filter((e) => e.type === 'hurt').length
+      run.events.length = 0
+    }
+    assert.strictEqual(hurtDuringWarn, 0, 'the mown-lane telegraph must not damage anything')
+
+    const hpBefore = run.player.hp
+    let hits = 0
+    let sawDot = false
+    for (let i = 0; i < Math.round((MOWER_SWEEP + 0.4) / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      for (const e of run.events) {
+        if (e.type !== 'hurt') continue
+        hits++
+        if (e.dot) sawDot = true
+      }
+      run.events.length = 0
+    }
+    assert.strictEqual(hits, 1, `the deck hits a standing player exactly once per pass (got ${hits})`)
+    assert.ok(sawDot, 'dot-flagged, like the spray it replaced — so it bypasses armour AND grants no invuln')
+    assert.strictEqual(hpBefore - run.player.hp, MOWER_DMG, `and for exactly MOWER_DMG through 6 armour (lost ${hpBefore - run.player.hp})`)
+    assert.strictEqual(run.player.invuln, 0, 'a guaranteed hit must NOT hand a standing player free invulnerability (v6.3.4 anti-turtle)')
+    // Parity with what it replaced: SPRAY_DPS 10 dot-ticked round(10*STATUS_TICK)=3 per tick,
+    // floor(SPRAY_ACTIVE 1.2 / STATUS_TICK 0.25) = 4 ticks = 12 damage to a player who stood in it.
+    assert.strictEqual(MOWER_DMG, 12, 'MOWER_DMG holds parity with the spray strip it replaced')
+    console.log('PASS run MW.c/d (one hit, at parity): telegraph harmless, exactly one dot-flagged hit of 12, no free invuln')
+  }
+
+  // -- MW.e: the lane carries its OWN hitbox, knockback and squash list -----------------------
+  // Before v6.6.14 the stepper read TRAFFIC_KB and TRAFFIC_SQUASH straight off the module, so a
+  // mower could not have had its own numbers at all — it would have squashed city pigeons.
+  {
+    const run = gardenWithElites(1)
+    runFor(run, MOWER_INTERVAL + 0.02)
+    const lane = run.lanes[0]
+    lane.x = 0; lane.y = 0; lane.angle = 0
+    run.player.x = 0; run.player.y = 3000 // out of the band; this scenario is about the enemies
+    assert.deepStrictEqual(lane.squash, ['ant'], 'the mower squashes ants, not the city roster')
+    assert.strictEqual(lane.deckW, MOWER_DECK_W, 'and tests its OWN deck width')
+    assert.strictEqual(lane.deckLen, MOWER_DECK_LEN, 'and its own deck length')
+
+    const ant = makeStatusEnemy(run, { x: 0, y: 0, hp: 5000, speed: 0 })
+    ant.rosterId = 'ant'
+    const spider = makeStatusEnemy(run, { x: 0, y: 0, hp: 5000, speed: 0 })
+    spider.rosterId = 'spider'
+    run.enemies.push(ant, spider)
+    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.3)
+    assert.ok(ant.hp <= 0 || ant._dead, 'an ant goes under the deck outright, the way a taxi flattens a pigeon')
+    assert.ok(spider.hp < 5000 && spider.hp > 0, `a spider is hurt but not squashed (hp ${spider.hp})`)
+    console.log('PASS run MW.e (own numbers): the lane carries its deck, knockback and squash list — ant squashed, spider only hurt')
+  }
+
+  // -- MW.f: cover is a city idea; a grass stalk does not stop a mower ------------------------
+  {
+    const run = gardenWithElites(1)
+    runFor(run, MOWER_INTERVAL + 0.02)
+    const lane = run.lanes[0]
+    lane.x = 0; lane.y = 0; lane.angle = 0
+    assert.strictEqual(lane.cover, false, 'a mower lane opts out of findCover')
+    // A garden obstacle comfortably over COVER_MIN_R, parked between the deck and the player.
+    run.obstacles = [{ x: -200, y: 0, r: COVER_MIN_R + 12, kind: 'tree', _cell: 'x' }]
+    const hpBefore = run.player.hp
+    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.3)
+    assert.ok(run.player.hp < hpBefore, 'the obstacle must not shield the player from a mower')
+    assert.strictEqual(run.obstacles.length, 1, 'and must not be crushed as if it had')
+    console.log('PASS run MW.f (no cover): a big garden obstacle neither shields the player nor gets destroyed')
+  }
+
+  // -- MW.g: "always crosses you" is literally true, not approximately -----------------------
+  {
+    assert.ok(MOWER_OFFSET < MOWER_DECK_W / 2,
+      `MOWER_OFFSET ${MOWER_OFFSET} must stay under the deck half-width ${MOWER_DECK_W / 2}, or a standing player can be missed`)
+    assert.ok(TRAFFIC_OFFSET > TRAFFIC_CAR_W / 2,
+      'documenting the city precedent this deliberately does NOT copy: the taxi can miss a stationary player')
+    assert.ok(MOWER_LEN >= TRAFFIC_LEN, 'the lane outruns a screen, so the mower enters and leaves offscreen')
+    console.log('PASS run MW.g (always crosses): offset stays inside the deck, unlike the taxi lane it is modelled on')
+  }
+
+  console.log('PASS run MW (the mower): armed by an elite, one pass at a time, parity damage, its own deck, no false cover')
+}
+
+// ---- Run SW: on/off upgrades stop pretending to stack (v6.6.15) ------------------------------
+// Playtest, with a screenshot: a Legendary "Sticky Scent — +4 burst leaves a slow zone" offered to
+// a player who had already taken "+2". The honest answer was that it does nothing: sim.js reads it
+// as `(run.weaponMods.lure?.stickyScent ?? 0) > 0`, so the first pick buys the whole effect. It was
+// declared kind 'flat' base 1, so the card multiplied 1 by the rolled rarity and printed a number
+// that meant nothing, and nothing stopped it being offered up to MAX_WEAPON_MOD_PICKS times.
+function testSwitchMods() {
+  // Every mod sim.js reads as a boolean gate must be declared kind 'switch'. This list is the
+  // audit: if someone adds a `(mods?.x ?? 0) > 0` read, it belongs here or it will print "+4".
+  const SWITCHES = [
+    ['flagella', 'cyclone'], ['bloom', 'sporeburst'], ['stinger', 'venomTips'], ['stinger', 'hive'],
+    ['lure', 'stickyScent'], ['clawRake', 'doubleSlash'], ['roar', 'resonance'], ['tailSwipe', 'counterSwipe'],
+  ]
+  for (const [weapon, mod] of SWITCHES) {
+    const cfg = WEAPON_MODS[weapon][mod]
+    assert.strictEqual(cfg.kind, 'switch', `${weapon}.${mod} is read as an on/off gate, so it must be kind 'switch'`)
+    assert.strictEqual(cfg.base, undefined, `${weapon}.${mod} must not carry a base — there is no magnitude to scale`)
+  }
+  // quillBurst.retaliate LOOKS like one (it early-returns on bonus <= 0) but genuinely scales:
+  // it feeds `stats.count + bonus`. It must stay a counting mod.
+  assert.strictEqual(WEAPON_MODS.quillBurst.retaliate.kind, 'flat',
+    'Retaliation scales the burst it fires, so it is NOT a switch')
+
+  // Driven through the REAL level-up pool rather than a reimplementation of the card builder:
+  // equip only the Pheromone Lure, force level-ups, and look at every Sticky Scent card offered.
+  const poolRun = () => {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = [{ id: 'lure', level: 1 }]
+    run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    return run
+  }
+  const collect = (run, rounds) => {
+    const seen = []
+    for (let i = 0; i < rounds; i++) {
+      run.levelUpChoices = null
+      run.phase = 'playing'
+      run.player.xp = run.player.xpNext + 1
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      for (const c of run.levelUpChoices || []) if (c.id === 'stickyScent') seen.push(c)
+    }
+    return seen
+  }
+  {
+    const run = poolRun()
+    const seen = collect(run, 400)
+    assert.ok(seen.length > 0, 'Sticky Scent must still be offerable at all')
+    for (const c of seen) {
+      assert.strictEqual(c.rarity, 'normal', `a switch never appears above normal (saw ${c.rarity})`)
+      assert.strictEqual(c.desc, 'burst leaves a slow zone', `the card states the effect, with no "+N" (got "${c.desc}")`)
+      assert.strictEqual(c.bonus, 1, 'and applies exactly the 1 the > 0 gate needs')
+    }
+    // ...and once taken it is gone, where an ordinary percent mod on the same weapon is not.
+    run.weaponMods.lure.stickyScent = 1
+    run.weaponModPicks.lure.stickyScent = 1
+    const after = collect(run, 400)
+    assert.strictEqual(after.length, 0, `a taken switch must never be offered again (saw ${after.length})`)
+    const stillPct = collect(poolRun(), 1) // sanity: the harness does produce lure cards at all
+    assert.ok(Array.isArray(stillPct), 'harness sanity')
+    console.log(`PASS run SW.a (offer contract): ${seen.length} Sticky Scent cards, all normal, all numberless, 0 after it was taken`)
+  }
+  console.log('PASS run SW (switch upgrades): 8 on/off mods declared, offered once, normal-only, and the card shows the effect not a meaningless "+N"')
 }

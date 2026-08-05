@@ -70,7 +70,6 @@ import {
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T, DIVE_RECOVER_T,
   DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
   WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
-  SPRAY_INTERVAL, SPRAY_FUSE, SPRAY_LEN, SPRAY_W, SPRAY_ACTIVE, SPRAY_DPS,
   // v5.4 undergrowth
   POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, POUNCE_LAND_T,
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
@@ -88,6 +87,8 @@ import {
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
   TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH, COVER_MIN_R,
+  MOWER_INTERVAL, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
+  MOWER_DECK_LEN, MOWER_DECK_W, MOWER_DMG, MOWER_KB, MOWER_SQUASH,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
   TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
   GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
@@ -1236,15 +1237,10 @@ function stepEnemyMovement(run, dt) {
       }
     }
 
-    // sprayStrip elite flag (v5.3 garden's pesticide-drone elites): periodically mark a telegraphed
-    // rectangular spray strip centered on the player (see run.strips / stepStrips below).
-    if (e.elite && e.flags && e.flags.includes('sprayStrip') && !e._dead) {
-      e._sprayAcc = (e._sprayAcc ?? 0) + dt
-      if (e._sprayAcc >= SPRAY_INTERVAL) {
-        e._sprayAcc -= SPRAY_INTERVAL
-        run.strips.push({ x: p.x, y: p.y, angle: Math.random() * Math.PI, len: SPRAY_LEN, w: SPRAY_W, fuse: SPRAY_FUSE, t: SPRAY_ACTIVE, dps: SPRAY_DPS })
-      }
-    }
+    // v6.6.14: the `sprayStrip` flag lived here — it marked a rectangle ON the player, from an
+    // elite that could be anywhere on screen, so the hazard had no visible cause. It is now the
+    // `mower` flag, and it does not act per-enemy at all: one run-level timer, armed while any
+    // such elite lives, drives a single mower pass. See rollMowerLane.
 
     // artillery flag (v5.4 skies' tank columns AND its AA-turret elites): a plain slow seek (above)
     // that shells the player's PREDICTED position from wherever it stands. It pushes the EXISTING
@@ -2663,8 +2659,15 @@ function findCover(run, cx, cy, px, py) {
 // fine: missing reads as false and those lanes never carry obstacles worth shielding anyway).
 // @returns true if the player died this frame (phase set to 'dead').
 function stepLanes(run, dt) {
+  rollTrafficLane(run, dt)
+  rollMowerLane(run, dt)
+  return stepLanePasses(run, dt)
+}
+
+/** City's traffic signature rolling its own lanes. A no-op in every other chapter. */
+function rollTrafficLane(run, dt) {
   const sig = CHAPTERS[run.chapter].signature
-  if (!sig || sig.type !== 'traffic') return false
+  if (!sig || sig.type !== 'traffic') return
   const p = run.player
 
   const laneEvery = TRAFFIC_INTERVAL * run.mods.trafficIntervalMul // rush-hour anomaly shortens it
@@ -2710,37 +2713,105 @@ function stepLanes(run, dt) {
       }
       run.lanes.push({
         x, y, angle, len: TRAFFIC_LEN, w: TRAFFIC_W,
-        phase: 'warn', t: TRAFFIC_WARN, carT: 0,
-        dmg: TRAFFIC_DMG, // snapshotted so a mid-run retune can't desync a live lane
+        phase: 'warn', t: TRAFFIC_WARN, warnT: TRAFFIC_WARN, carT: 0,
+        // v6.6.14: every number the stepper needs is snapshotted ON THE LANE — originally just
+        // `dmg`, so a mid-run retune couldn't desync a live lane, and now the rest of it too so a
+        // second vehicle (the garden's mower) can ride the same stepper with its own dimensions
+        // instead of the stepper reaching for TRAFFIC_* module constants behind its back.
+        dmg: TRAFFIC_DMG, sweep: TRAFFIC_SWEEP, deckLen: TRAFFIC_CAR_LEN, deckW: TRAFFIC_CAR_W,
+        kb: TRAFFIC_KB, squash: TRAFFIC_SQUASH, look: 'car', cover: true,
         hitIds: new Set(),
       })
     }
   }
+}
 
+// -- The Mower (v6.6.14, garden's `mower` elite flag — see the MOWER_* block in config.js) -------
+// One pass at a time, on a RUN-level timer that is armed while any mower-flagged elite is alive.
+// Deliberately not per-elite: elite cadence falls to ~12s late while garden tanks pass 4000 HP, so
+// concurrent elites are routine and a per-elite timer (what sprayStrip did) would have stacked
+// independent 96px sweeps from different angles with no ceiling. The city caps this with
+// signature.lanes; here the single timer IS the cap.
+function rollMowerLane(run, dt) {
+  if (!(CHAPTERS[run.chapter].eliteFlags || []).includes('mower')) return
+  const mowerEveryS = MOWER_INTERVAL
+  run._mowerAcc = (run._mowerAcc ?? mowerEveryS) - dt
+  if (run._mowerAcc > 0) return
+  run._mowerAcc += mowerEveryS
+  if (run.lanes.length > 0) return                        // one mower at a time, chapter-wide
+  // Armed only while the gardener is out. One O(n) scan per interval, not per frame.
+  let elite = false
+  for (const e of run.enemies) {
+    if (e.elite && !e._dead && e.flags && e.flags.includes('mower')) { elite = true; break }
+  }
+  if (!elite) return
+  const p = run.player
+  // Traffic's tier-3 shape — random heading, then a perpendicular offset — but MOWER_OFFSET is
+  // deliberately UNDER the deck half-width, so unlike the taxi this always crosses a standing
+  // player: the offset varies WHERE across you it passes, not WHETHER. Escaping is the player's
+  // job and MOWER_WARN is generous about it (286px of travel at base speed, for 48px of clearance).
+  // Two draws, and no existing seeded test reaches this — see the panel's RNG-budget note.
+  const angle = Math.random() * Math.PI * 2
+  const off = (Math.random() * 2 - 1) * MOWER_OFFSET
+  run.lanes.push({
+    x: p.x - Math.sin(angle) * off,
+    y: p.y + Math.cos(angle) * off,
+    angle, len: MOWER_LEN, w: MOWER_W,
+    phase: 'warn', t: MOWER_WARN, warnT: MOWER_WARN, carT: 0,
+    dmg: MOWER_DMG, sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
+    kb: MOWER_KB, squash: MOWER_SQUASH, look: 'mower', dot: true,
+    cover: false, // a grass stalk does not stop a mower — and render must not ring one as if it did
+    hitIds: new Set(),
+  })
+}
+
+/**
+ * Steps every live lane, whatever pushed it: telegraph, then a vehicle crosses and flattens both
+ * sides. Runs in ANY chapter — the signature gate lives on the traffic ROLL, not here, so the
+ * garden's mower gets the whole contract (telegraph, one hit per enemy per pass, knockback) free.
+ * @returns true if the player died this frame.
+ */
+function stepLanePasses(run, dt) {
+  const p = run.player
   let playerDied = false
   for (const lane of run.lanes) {
+    // Every lane field below falls back to the city's constant when absent, so the hand-built
+    // lane literals in the test suite keep meaning exactly what they meant before v6.6.14.
+    const sweepT = lane.sweep ?? TRAFFIC_SWEEP
     lane.t -= dt
     if (lane.phase === 'warn') {
-      if (lane.t <= 0) { lane.phase = 'sweep'; lane.t = TRAFFIC_SWEEP; lane.carT = 0 }
+      if (lane.t <= 0) { lane.phase = 'sweep'; lane.t = sweepT; lane.carT = 0 }
       continue // telegraph: nothing is damaged
     }
-    lane.carT = Math.min(1, Math.max(0, 1 - lane.t / TRAFFIC_SWEEP))
+    lane.carT = Math.min(1, Math.max(0, 1 - lane.t / sweepT))
     const cos = Math.cos(lane.angle), sin = Math.sin(lane.angle)
     const cx = lane.x + cos * (lane.carT - 0.5) * lane.len
     const cy = lane.y + sin * (lane.carT - 0.5) * lane.len
 
-    // The vehicle's hitbox: a TRAFFIC_CAR_LEN × TRAFFIC_CAR_W box on (cx, cy), aligned to the lane.
+    // The vehicle's hitbox: a deckLen × deckW box on (cx, cy), aligned to the lane. The mower's
+    // deck is short and wide where the taxi is long and narrow, so these ride the lane.
+    const deckLen = lane.deckLen ?? TRAFFIC_CAR_LEN
+    const deckW = lane.deckW ?? TRAFFIC_CAR_W
     const inCar = (x, y, pad) => {
       const dx = x - cx, dy = y - cy
       const along = dx * cos + dy * sin
       const perp = -dx * sin + dy * cos
-      return Math.abs(along) <= TRAFFIC_CAR_LEN / 2 + pad && Math.abs(perp) <= TRAFFIC_CAR_W / 2 + pad
+      return Math.abs(along) <= deckLen / 2 + pad && Math.abs(perp) <= deckW / 2 + pad
     }
 
-    if (!playerDied && p.invuln <= 0 && inCar(p.x, p.y, 0)) {
+    // v6.6.14: a lane may hurt the player as an ordinary hit (the taxi) or as a dot (the mower).
+    // The mower is dot-flagged to hold EXACT parity with the spray strip it replaces: dot bypasses
+    // armour and grants no invulnerability. That second half is the load-bearing one — a normal hit
+    // hands out PLAYER.invulnTime, so a guaranteed pass every MOWER_INTERVAL would give a standing
+    // armoured player ~21% uptime of blanket immunity from the swarm, measurably undoing v6.3.4's
+    // anti-turtle work (run MM.c: the turtle kept 25 more hp with the mower as a normal hit).
+    // A dot grants no invuln, so "once per pass" stops being implicit and needs saying out loud.
+    const dotHit = lane.dot === true
+    const mayHit = dotHit ? !lane._hitPlayer : p.invuln <= 0
+    if (!playerDied && mayHit && inCar(p.x, p.y, 0)) {
       // v6.3 Task 4: cover first — see findCover's doc above. lane._coverUsed caps it at one save
       // per lane pass, same spirit as hitIds capping enemy hits below.
-      const shield = lane._coverUsed ? null : findCover(run, cx, cy, p.x, p.y)
+      const shield = (lane._coverUsed || lane.cover === false) ? null : findCover(run, cx, cy, p.x, p.y)
       if (shield) {
         lane._coverUsed = true // one save per pass — and the car totals the shield
         const idx = run.obstacles.indexOf(shield)
@@ -2754,8 +2825,11 @@ function stepLanes(run, dt) {
         // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural
         // cell crossing re-triggers streamObstacles — see stepCrush's identical line above.
         run._obstacleRev = (run._obstacleRev || 0) + 1
-      } else if (hurtPlayer(run, lane.dmg)) playerDied = true
-      // invuln makes "once per pass" implicit either way, the way contact damage does.
+      } else {
+        lane._hitPlayer = true // for a dot lane this IS the once-per-pass guard
+        if (hurtPlayer(run, lane.dmg, dotHit)) playerDied = true
+      }
+      // For a normal hit, invuln makes "once per pass" implicit, the way contact damage does.
     }
     for (const e of run.enemies) {
       if (e._dead || lane.hitIds.has(e.id)) continue
@@ -2764,10 +2838,11 @@ function stepLanes(run, dt) {
       // v5.6.14 (user): cars ONE-SHOT the light roster — a non-elite pigeon/drone dies outright
       // under a car (dealt its remaining hp, so drops/death flow normally). Elites and everything
       // not in TRAFFIC_SQUASH take the ordinary TRAFFIC_DMG.
-      const squash = !e.elite && TRAFFIC_SQUASH.includes(e.rosterId)
+      const squash = !e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)
       dealDamage(run, e, squash ? e.hp : lane.dmg, false)
-      e.kb.x += cos * TRAFFIC_KB
-      e.kb.y += sin * TRAFFIC_KB
+      const kb = lane.kb ?? TRAFFIC_KB
+      e.kb.x += cos * kb
+      e.kb.y += sin * kb
     }
     if (lane.t <= 0) lane._done = true
   }
@@ -4913,7 +4988,10 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
 // Is (x,y) inside ANY live lane's band — warn (telegraph) OR sweep, the band is "live" the moment
 // it's telegraphed? Same rotated-rect along/perp idiom as stepLanes' own `inCar` (and inBeamArm):
 // the lane's REST-FRAME band (lane.x/y/angle/len/w), not the moving car hitbox. Read-only, used by
-// trafficMain (below) — a no-op outside the traffic signature since run.lanes is then always empty.
+// trafficMain (below). v6.6.14: run.lanes is NO LONGER city-only — the garden's mower feeds it too
+// — so this scans lanes of both kinds. Harmless today (trafficMain rides sewerGeyser, and a
+// chapter can only offer its own weapons, so a garden run can never hold that mod), but do not
+// re-assume "lanes implies city" here: filter on lane.look if a future reader needs one kind.
 function pointInLane(run, x, y) {
   for (const lane of run.lanes) {
     const cos = Math.cos(lane.angle), sin = Math.sin(lane.angle)
@@ -5426,7 +5504,10 @@ function eligibleWeaponModCandidates(run) {
     const modCfgs = WEAPON_MODS[w.id]
     if (!modCfgs) continue
     const picks = run.weaponModPicks[w.id]
-    const owned = Object.keys(modCfgs).filter((modId) => (picks?.[modId] ?? 0) < MAX_WEAPON_MOD_PICKS)
+    // v6.6.15: a 'switch' mod is an on/off unlock, so it is eligible ONCE. It used to sit in the
+    // pool for MAX_WEAPON_MOD_PICKS picks, offering the player a card that did nothing.
+    const owned = Object.keys(modCfgs).filter((modId) =>
+      (picks?.[modId] ?? 0) < (modCfgs[modId].kind === 'switch' ? 1 : MAX_WEAPON_MOD_PICKS))
     shuffleInPlace(owned)
     for (const modId of owned.slice(0, MOD_CANDIDATES_PER_WEAPON)) candidates.push({ weapon: w.id, mod: modId })
   }
@@ -5480,14 +5561,21 @@ function makePassiveCard(run, id, rarity) {
 // unique across weapons (see WEAPON_MODS in config.js) so pickedIds dedup still works untouched.
 function makeWeaponModCard(run, weaponId, modId, rarity) {
   const cfg = WEAPON_MODS[weaponId][modId]
+  // v6.6.15: a switch has no magnitude, so there is nothing for rarity to scale. It declines to
+  // roll above normal (the makePassiveCard idiom — returning null just means "not a candidate at
+  // this tier"), and its card states the effect rather than a meaningless "+N".
+  if (cfg.kind === 'switch' && rarity !== 'normal') return null
   const mult = RARITIES[rarity].mult
   let bonus
-  if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity]
+  if (cfg.kind === 'switch') bonus = 1
+  else if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity]
   else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * mult))
   else bonus = cfg.base * mult
-  const desc = cfg.kind === 'pct'
-    ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
-    : `+${bonus} ${cfg.desc}`
+  const desc = cfg.kind === 'switch'
+    ? cfg.desc
+    : cfg.kind === 'pct'
+      ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
+      : `+${bonus} ${cfg.desc}`
   return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc, tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
 }
 
@@ -5528,7 +5616,9 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
       // (MAX_MODS_PER_WEAPON_PER_POOL) — so one weapon can't monopolize a level-up screen.
       if (pickedIds.has(mc.mod)) continue
       if ((modWeaponCounts.get(mc.weapon) ?? 0) >= MAX_MODS_PER_WEAPON_PER_POOL) continue
-      options.push(makeWeaponModCard(run, mc.weapon, mc.mod, rarity))
+      // null = a switch mod declining a rarity above normal, same contract as makePassiveCard
+      const wc = makeWeaponModCard(run, mc.weapon, mc.mod, rarity)
+      if (wc) options.push(wc)
     }
     for (const eid of elementIds) {
       if (!pickedIds.has(eid)) options.push(makeElementCard(run, eid, rarity))

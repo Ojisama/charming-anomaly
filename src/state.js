@@ -502,7 +502,11 @@ function generateWells(sig) {
  *               -> recover state machine on sim-internal `_diveState`/`_diveT`/`_diveDirX`/
  *               `_diveDirY`/`_diveElapsed`, replacing the normal seek — not a render contract),
  *               'webZone' (stepEnemyMovement: drops run.webs slow-zones via `_webAcc`, NOT
- *               elite-gated), 'sprayStrip' (elite-only: marks run.strips via `_sprayAcc`).
+ *               elite-gated), 'mower' (elite-only, v6.6.14: does NOT act per-enemy at all — its
+ *               mere presence ARMS a run-level timer, run._mowerAcc, that pushes one lawnmower
+ *               lane into run.lanes every MOWER_INTERVAL. One pass at a time chapter-wide, however
+ *               many such elites are alive. Replaced 'sprayStrip', which marked a rectangle on the
+ *               player from an elite that could be anywhere — a hazard with no visible cause.)
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
@@ -826,8 +830,11 @@ function generateWells(sig) {
  *   (stepEnemyMovement, NOT elite-gated) and by the lure's stickyScent mod on burst. While the
  *   player stands in any web, stepPlayerMovement multiplies move speed by WEB_SLOW_MUL (stacking
  *   with the latch debuff via MIN, not multiply). t counts down; removed once t <= 0 (stepWebs).
- * strips[i]: { x, y, angle, len, w, fuse, t, dps } — telegraphed rectangular pesticide spray
- *   strips marked on the player by 'sprayStrip' elites (stepEnemyMovement). fuse (telegraph)
+ * strips[i]: { x, y, angle, len, w, fuse, t, dps, look:'erase', variant? } — telegraphed
+ *   rectangular hazard strips. v6.6.14: the Blank is now the ONLY producer (P3's erasure bands, the
+ *   eraser flag's wake, and immuneMemory death residue — the last two tagged variant:'residue'),
+ *   so every live strip carries look:'erase'. The garden's pesticide spray used to feed this too
+ *   and no longer does; see the 'mower' flag above. fuse (telegraph)
  *   counts down first with NO damage; once fuse <= 0 the strip is live and t counts down while it
  *   ticks dot-flagged {type:'hurt', dmg, dot:true} damage every STATUS_TICK to the player inside
  *   the rotated rectangle (stepStrips), same DoT contract as run.pools. Removed once fuse<=0 && t<=0.
@@ -883,15 +890,23 @@ function generateWells(sig) {
  *   run.bullets, run.homingShots, run.lobs, run.enemyShots — and nothing else (bodies, beams,
  *   orbitals and zones are untouched). Speed is renormalised after the bend: curvature, not
  *   acceleration. See stepGravityWells in sim.js.
- * lanes[i]: { x, y, angle, len, w, phase, t, carT, dmg, hitIds:Set<enemyId> } — traffic lanes
- *   (city's 'traffic' signature); empty elsewhere. x,y = the band's CENTER, angle = its direction,
- *   len/w = its extent. phase 'warn' (a harmless hazard-striped telegraph) for t = TRAFFIC_WARN
- *   seconds, then phase 'sweep' for t = TRAFFIC_SWEEP while a vehicle traverses the band: carT
- *   goes 0 -> 1 and the vehicle's center is (x, y) + dir × ((carT - 0.5) × len), dir =
- *   (cos angle, sin angle). A TRAFFIC_CAR_LEN × TRAFFIC_CAR_W box on that center damages BOTH the
- *   player (normal armor/contactDmgTakenMul path, gated by invuln) and every enemy it touches
- *   (dealDamage, once each — hitIds) for `dmg`, plus TRAFFIC_KB knockback along `angle`. Removed
- *   when t hits 0 in 'sweep'. See stepLanes in sim.js.
+ * lanes[i]: { x, y, angle, len, w, phase, t, carT, dmg, sweep, deckLen, deckW, kb, squash, look,
+ *   cover, dot?, hitIds:Set<enemyId> } — a vehicle pass. TWO sources since v6.6.14: the city's
+ *   'traffic' signature (look:'car') and the garden's 'mower' elite flag (look:'mower'); empty in
+ *   every other chapter. x,y = the band's CENTER, angle = its direction, len/w = its extent.
+ *   phase 'warn' (a harmless telegraph) for t seconds, then phase 'sweep' for t = `sweep` while the
+ *   vehicle traverses the band: carT goes 0 -> 1 and the vehicle's center is
+ *   (x, y) + dir × ((carT - 0.5) × len), dir = (cos angle, sin angle). A deckLen × deckW box on
+ *   that center damages BOTH the player and every enemy it touches (dealDamage, once each —
+ *   hitIds) for `dmg`, plus `kb` knockback along `angle`; enemies whose rosterId is in `squash` are
+ *   killed outright unless elite. EVERY ONE OF THOSE IS SNAPSHOTTED ON THE LANE — the stepper never
+ *   reads the TRAFFIC_ or MOWER_ constants itself, so the two vehicles can differ and a retune
+ *   desync a live pass (fields absent => the city's values, which keeps hand-built test lanes
+ *   meaning what they always meant). `cover:false` opts out of findCover (a grass stalk does not
+ *   stop a mower; render must not ring one as cover either). `dot:true` makes the player hit
+ *   dot-flagged — armour-bypassing and granting NO invulnerability, which is why such a lane also
+ *   carries its own once-per-pass guard (_hitPlayer) instead of leaning on the invuln window.
+ *   Removed when t hits 0 in 'sweep'. See stepLanes / rollTrafficLane / rollMowerLane in sim.js.
  * v6.3 dispatch beat: {type:'dispatch', x, y} — fired once, at spawnEnemy's own push, the instant a
  *   REAL elite is born (isElite true; never a spawner's forceNormal minions) in a chapter with
  *   CHAPTERS[chapter].dispatch (currently city only) — x,y = the elite's spawn position. No `run`
@@ -1193,8 +1208,9 @@ export function createRun(meta, opts = {}) {
         ? pickWorldSeed((obstacleSeed ^ 0x9e3779b9) | 0)
         : null,
     // v5.3 garden behavior (see doc block above): trails fed by dying trailFollow ants (pheromone
-    // signature), webs by webZone spiders + the lure's stickyScent mod, strips by sprayStrip elites,
-    // lures by the Pheromone Lure weapon. All empty unless something pushes to them.
+    // signature), webs by webZone spiders + the lure's stickyScent mod, lures by the Pheromone Lure
+    // weapon. v6.6.14: garden no longer feeds run.strips at all — its elite drives a mower into
+    // run.lanes. All empty unless something pushes to them.
     trails: [],
     webs: [],
     strips: [],
