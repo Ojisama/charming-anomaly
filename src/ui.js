@@ -9,6 +9,12 @@ const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨
 // v6.3 dispatch beat: how long the "pest control dispatched" HUD banner stays up, in run.time
 // seconds — a UI display duration, not sim balance, so it lives here rather than config.js.
 const DISPATCH_NOTICE_T = 2.5
+// v6.6.18 mis-tap guard: the level-up modal appears mid-fight, right where a thumb is already
+// reaching for the joystick, so a tap in the first instants is a stray press far more often than
+// a choice. Cards and Reroll stay inert this long after the modal renders — matched to the
+// .lv-card pop-in in styles.css, so the gate lifts exactly as the first card settles and becomes
+// readable. Input-guard timing, not sim balance, so it lives here (same call as DISPATCH_NOTICE_T).
+const LEVELUP_GRACE_MS = 300
 
 // v5.17 build stamp: "vX.Y.Z · <short sha>", substituted by vite.config.js's `define` from the git
 // HEAD at BUILD time — so it identifies the bundle you are actually running, not what the source
@@ -149,6 +155,10 @@ function formatShopBonus(id, levels) {
  *       cleared the same way). 'daily' fires from the daily briefing screen's Start button with
  *       consumableIds always [] — boosters never apply to daily runs (the title's Daily nav tab
  *       opens the 'daily' briefing screen first; the booster slots/sheet only live on title).
+ *     - onChoose(i): a level-up card tap (or its digit/enter key). NOT fired for the first
+ *       LEVELUP_GRACE_MS after the modal renders — the modal lands under a thumb already reaching
+ *       for the joystick, so an instant tap is a stray press, not a pick. Same gate on onReroll.
+ *       Nothing tells main.js a tap was swallowed; the player simply taps again.
  *     - onReroll(): level-up screen's Reroll button (or the 'R' key). main.js is expected to
  *       no-op silently if unaffordable/wrong phase, otherwise deduct RUN coins (run.coinsEarned,
  *       the HUD counter — not the meta bank), bump run._rerolls,
@@ -1031,6 +1041,10 @@ export function initUI(hooks) {
   // ---- level-up modal ----------------------------------------------------
   let lvCards = []
   let lvFocus = 0
+  // Every path that SPENDS the level-up (card pick, reroll) checks this; arrow/digit focus nav
+  // stays live throughout, so the modal never feels frozen.
+  let lvArmAt = 0
+  const lvArmed = () => performance.now() >= lvArmAt
 
   // Level-up card descs/tags arrive COMPOSED from sim.js ('+6% damage', '+1 potency — …',
   // 'Lv 2', 'Star Shooter upgrade') — translate the parts, never the composite: the numeric
@@ -1079,6 +1093,7 @@ export function initUI(hooks) {
       </div>
     `
     lvCards = Array.from(screens.levelup.querySelectorAll('.lv-card'))
+    lvArmAt = performance.now() + LEVELUP_GRACE_MS
     setLvFocus(0)
   }
 
@@ -1091,6 +1106,7 @@ export function initUI(hooks) {
 
   function chooseLvCard(i) {
     if (i < 0 || i >= lvCards.length) return
+    if (!lvArmed()) return
     hooks.onChoose(i)
   }
 
@@ -1118,7 +1134,7 @@ export function initUI(hooks) {
         break
       case 'KeyR':
         e.preventDefault(); e.stopPropagation()
-        hooks.onReroll()
+        if (lvArmed()) hooks.onReroll()
         break
     }
   }
@@ -1459,7 +1475,7 @@ export function initUI(hooks) {
       return
     }
     if (el.dataset.choose !== undefined) {
-      hooks.onChoose(Number(el.dataset.choose))
+      chooseLvCard(Number(el.dataset.choose))   // one gated path for taps and keys alike
       return
     }
     if (el.dataset.consumable !== undefined) {
@@ -1579,7 +1595,7 @@ export function initUI(hooks) {
       }
       case 'quit': playSfx('click'); hooks.onQuit(); break
       case 'skill': hooks.onSkill(); break
-      case 'reroll': hooks.onReroll(); break
+      case 'reroll': if (lvArmed()) hooks.onReroll(); break
       case 'sacrifice-start':
         sacrificeOpen = true
         sacrificePicks = {}
