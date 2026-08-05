@@ -2,7 +2,7 @@
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
 import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
-import { stepSim, applyChoice, buildLevelUpChoices } from './sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, buildReadout } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
@@ -162,7 +162,12 @@ const ui = initUI({
   },
   onPauseToggle() {
     if (!run) return
-    if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', { mutators: run.mutators, mode: runMode }) }
+    if (run.phase === 'playing') {
+      run.phase = 'paused'
+      // buildReadout is a read-only projection (see sim.js): main is the only place allowed to
+      // hand sim data to ui, which never imports sim.
+      ui.showScreen('pause', { mutators: run.mutators, mode: runMode, build: buildReadout(run) })
+    }
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
   },
   onDifficulty(d) {

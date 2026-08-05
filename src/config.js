@@ -792,6 +792,21 @@ export const WEAPON_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2
 // Level-up pool cap: if more weapon-mod candidates are eligible than this (many weapons owned,
 // each with several mods still under MAX_WEAPON_MOD_PICKS), uniformly sample this many per
 // buildLevelUpChoices call so mods don't crowd out weapon/passive/element cards.
+// Attack-RATE mods divide the interval at their own fire site rather than folding into levels[]
+// (folding would SLOW the weapon — see WEAPON_STAT_MODS' note in sim.js), which means a readout
+// that only folds stat mods reports the wrong cadence. This is that missing half, as data: weapon
+// id -> the mod that divides its interval. Weapons absent here have no rate mod.
+export const WEAPON_RATE_MODS = {
+  flagella: 'frenzy', bloom: 'quickCast', stinger: 'rapid', lure: 'fastLure',
+  clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
+  sewerGeyser: 'rapidGeyser', roar: 'rapidRoar', tailSwipe: 'quickTail',
+  debrisToss: 'rapidToss', realityShard: 'rapidShard', tesseractBeam: 'rapidFold',
+}
+// Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
+// multishot is read straight off run.weaponMods at its fire site. Without this the readout would
+// tell a player firing four bullets that they fire one.
+export const WEAPON_COUNT_MODS = { star: 'multishot' }
+
 export const MOD_POOL_MAX = 6
 // Per-weapon fairness for the level-up mod pool (v4.4): a single weapon contributes at most this
 // many of its eligible mods (randomly chosen) to the candidate list per level-up. Star is the

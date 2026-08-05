@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -1228,7 +1228,109 @@ export function initUI(hooks) {
   }
 
   // ---- pause modal -------------------------------------------------------
+  // ---- pause: the build readout -------------------------------------------------------------
+  // Design 2 (a weapon's real current numbers) inside design 3's collapsible rows, per the owner's
+  // pick. Collapsed, every section still states its headline figures, so the sheet answers "what am
+  // I running" without a single tap; opening one gives the full spec plus the picks behind it.
+  // Sections stay open across re-renders (openBuild), because toggling one re-renders the modal.
+  const openBuild = new Set()
+  let lastPauseData = null
+  // Weapon stat keys the readout may carry, in display order, with their labels. A weapon only
+  // shows the ones it actually has, capped so the sheet cannot be pushed past the buttons.
+  const STAT_LABEL = {
+    dmg: 'Damage', count: 'Projectiles', orbs: 'Orbs', chunks: 'Chunks', maxAlive: 'Max alive',
+    radius: 'Radius', r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length',
+    width: 'Width', pierce: 'Pierce', every: 'Every',
+  }
+  const STAT_MAX_ROWS = 5
+  // French writes 1,00 s — comma decimal, NBSP before the unit. The dictionary cannot fix a number,
+  // so the formatter has to know the language. (Raised by the FR review of this panel.) Declared
+  // ABOVE its callers: this file has been bitten before by an initialiser reaching for a const
+  // below it, and that class of fault only ever shows up in the minified prod bundle.
+  const dec = (n, digits) => (getLang() === 'fr' ? n.toFixed(digits).replace('.', ',') : n.toFixed(digits))
+  // Whole numbers for anything big enough that a decimal is noise — the sim rounds damage on the
+  // way out anyway, so "32.20 dmg" was reporting a precision the player never experiences.
+  const fmtNum = (n) => {
+    if (Math.abs(n - Math.round(n)) < 0.05 || Math.abs(n) >= 10) return String(Math.round(n))
+    return dec(Math.round(n * 10) / 10, 1)
+  }
+  const fmtStat = (key, v) => (key === 'every' ? `${dec(v, 2)}${getLang() === 'fr' ? '\u00a0s' : 's'}` : fmtNum(v))
+  // What the player's picks added to this stat, as the shortest true statement: a percent when the
+  // change is multiplicative, a count when it is not. Empty when the level alone got you here.
+  function statDelta(key, value, base) {
+    if (base == null || Math.abs(value - base) < 0.005) return ''
+    if (key === 'every') return `−${Math.round((1 - value / base) * 100)}%`
+    if (Number.isInteger(base) && Number.isInteger(value) && base < 40) return `+${fmtNum(value - base)}`
+    return `+${Math.round((value / base - 1) * 100)}%`
+  }
+  // A mod's accumulated effect, composed exactly the way its level-up card was (see
+  // makeWeaponModCard in sim.js) — so the pause sheet and the card that sold it agree word for word.
+  function modLine(weaponId, m) {
+    const cfg = WEAPON_MODS[weaponId]?.[m.id]
+    if (!cfg) return ''
+    const body = t(cfg.desc)
+    const head = cfg.kind === 'switch' ? '' : cfg.kind === 'pct' ? `+${Math.round(m.bonus * 100)}% ` : `+${fmtNum(m.bonus)} `
+    return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t"><b>${esc(head)}</b>${esc(body)}</span></div>`
+  }
+  function sectionHtml(key, icon, name, headline, bodyHtml, badge = '') {
+    const open = openBuild.has(key)
+    return `
+      <div class="bd-sec${open ? ' bd-sec--open' : ''}">
+        <button class="bd-row" data-act="build-toggle" data-key="${esc(key)}" aria-expanded="${open}">
+          <span class="bd-ic">${icon}</span>
+          <span class="bd-nm">${esc(name)}</span>
+          ${badge ? `<span class="bd-lvl">${esc(badge)}</span>` : ''}
+          <span class="bd-head">${esc(headline)}</span>
+          <span class="bd-caret">${open ? '▾' : '▸'}</span>
+        </button>
+        ${open ? `<div class="bd-body">${bodyHtml}</div>` : ''}
+      </div>`
+  }
+  function buildBlockHtml(build) {
+    if (!build || !build.weapons) return ''
+    const secs = []
+    for (const w of build.weapons) {
+      const cfg = WEAPONS[w.id]
+      if (!cfg) continue
+      const rows = w.stats.slice(0, STAT_MAX_ROWS)
+      const dmg = w.stats.find((s) => s.key === 'dmg')
+      const cnt = w.stats.find((s) => s.key === 'count' || s.key === 'orbs' || s.key === 'chunks')
+      // Not every weapon has damage or a projectile count (the Pheromone Lure has neither), and a
+      // blank headline reads as a broken row — fall back to whatever stat it does lead with.
+      let headline = [dmg ? `${fmtNum(dmg.value)} ${t('dmg')}` : '', cnt ? `×${fmtNum(cnt.value)}` : ''].filter(Boolean).join(' ')
+      if (!headline && rows.length) headline = `${t(STAT_LABEL[rows[0].key] ?? rows[0].key)} ${fmtStat(rows[0].key, rows[0].value)}`
+      const table = `<table class="bd-tbl">${rows.map((s) => {
+        const d = statDelta(s.key, s.value, s.base)
+        return `<tr><td class="bd-k">${esc(t(STAT_LABEL[s.key] ?? s.key))}</td><td class="bd-v">${esc(fmtStat(s.key, s.value))}</td><td class="bd-d">${esc(d)}</td></tr>`
+      }).join('')}</table>`
+      const lines = w.mods.map((m) => modLine(w.id, m)).join('')
+      secs.push(sectionHtml(`w:${w.id}`, cfg.icon ?? '⭐', t(cfg.name), headline, table + lines, `${t('LV')} ${w.level}`))
+    }
+    if (build.passives.length) {
+      const body = build.passives.map((ps) => {
+        const cfg = PASSIVES[ps.id]
+        if (!cfg) return ''
+        const head = cfg.kind === 'pct' ? `+${Math.round(ps.bonus * 100)}% ` : `+${fmtNum(ps.bonus)} `
+        return `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t"><b>${esc(head)}</b>${esc(t(cfg.desc))}</span></div>`
+      }).join('')
+      const n = build.passives.reduce((s, x) => s + x.picks, 0)
+      secs.push(sectionHtml('you', '🧍', t('You'), tt('{n} picks', { n }), body))
+    }
+    if (build.elements.length) {
+      const body = build.elements.map((el) => {
+        const cfg = ELEMENTS[el.id]
+        if (!cfg) return ''
+        return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '✨'}</span><span class="bd-eff-t"><b>${esc(fmtNum(el.potency))} </b>${esc(t(cfg.name))}</span></div>`
+      }).join('')
+      const head = build.elements.map((el) => `${ELEMENTS[el.id]?.icon ?? '✨'}${fmtNum(el.potency)}`).join(' ')
+      secs.push(sectionHtml('elements', '✨', t('Elements'), head, body))
+    }
+    if (!secs.length) return ''
+    return `<div class="bd">${secs.join('')}</div>`
+  }
+
   function renderPause(d) {
+    lastPauseData = d
     const mutatorIds = d.mutators || []
     const mutatorBlock = mutatorIds.length ? `
       <div class="pause-mutators">
@@ -1243,9 +1345,10 @@ export function initUI(hooks) {
           </div>`).join('')}
       </div>` : ''
     screens.pause.innerHTML = `
-      <div class="modal">
+      <div class="modal modal--pause">
         <h2 class="modal-title">${t('Paused')}</h2>
         ${mutatorBlock}
+        ${buildBlockHtml(d.build)}
         <button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>
         <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
         ${buildStampHtml()}
@@ -1460,6 +1563,20 @@ export function initUI(hooks) {
       }
       case 'pause':
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
+      case 'build-toggle': {
+        const key = el.dataset.key
+        if (openBuild.has(key)) openBuild.delete(key)
+        else openBuild.add(key)
+        playSfx('click')
+        if (lastPauseData) {
+          renderPause(lastPauseData)
+          // The re-render replaces the modal's DOM, so the row that was just activated no longer
+          // exists and focus falls back to <body> — put it back on the row's replacement, or a
+          // keyboard user loses their place in the list on every toggle.
+          screens.pause.querySelector(`[data-act="build-toggle"][data-key="${CSS.escape(key)}"]`)?.focus()
+        }
+        break
+      }
       case 'quit': playSfx('click'); hooks.onQuit(); break
       case 'skill': hooks.onSkill(); break
       case 'reroll': hooks.onReroll(); break

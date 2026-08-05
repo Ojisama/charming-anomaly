@@ -5,6 +5,31 @@
 /* eslint-disable quote-props */
 
 const UI = {
+  // v6.6.17 pause build readout. Stat-table labels are column headers on a 320px sheet, so they
+  // are kept to a single word wherever French allows one.
+  'Damage': 'Dégâts',
+  'Projectiles': 'Projectiles',
+  'Orbs': 'Orbes',
+  'Chunks': 'Morceaux',   // NOT 'Débris': that is the weapon's material name in-house
+                         // ('Jet de Débris'), and débris is a mass noun — you do not count 4 of them.
+                         // The mod copy already says 'morceaux de débris' / 'morceaux par lancer'.
+  'Max alive': 'Actifs max',
+  'Radius': 'Rayon',
+  'Range': 'Portée',
+  'Length': 'Longueur',
+  'Width': 'Largeur',
+  'Pierce': 'Perforation',
+  // 'Délai', not 'Toutes les' (a dangling preposition before a value column, and wrong number
+  // agreement under 2s) and NOT 'Cadence' — this dictionary already spends cadence on the INVERSE
+  // ('cast rate' -> 'cadence de lancer'), where bigger means faster. This row is a raw interval.
+  // 'délai entre élites/voitures/obus' is the established house term for exactly this.
+  'Every': 'Délai',
+  'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
+                         // '6.3 dég. x3' puts two dots three characters apart at 11px
+  'LV': 'NIV',
+  'You': 'Toi',
+  'Elements': 'Éléments',
+  '{n} picks': '{n} choix',
   // nav + title
   'Shop': 'Boutique',
   'Battle': 'Combat',

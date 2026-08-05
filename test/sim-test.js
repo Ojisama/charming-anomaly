@@ -16,6 +16,7 @@ import {
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
+  WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter,
@@ -79,7 +80,7 @@ import {
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, currentForce } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, currentForce, buildReadout } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -8380,6 +8381,7 @@ try {
   testPlaytestSweepAndBlades()
   testMower()
   testSwitchMods()
+  testBuildReadout()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -8729,4 +8731,98 @@ function testSwitchMods() {
     console.log(`PASS run SW.a (offer contract): ${seen.length} Sticky Scent cards, all normal, all numberless, 0 after it was taken`)
   }
   console.log('PASS run SW (switch upgrades): 8 on/off mods declared, offered once, normal-only, and the card shows the effect not a meaningless "+N"')
+}
+
+// ---- Run BR: the pause build readout (v6.6.17) -----------------------------------------------
+// The readout has to report what a weapon is ACTUALLY firing, not its paper numbers. Two whole
+// classes of mod deliberately never fold into levels[] — attack-rate mods divide the interval at
+// their own fire site, and the star's multishot is read at its own — so a readout built only from
+// effectiveWeaponStats would quietly under-report both. WEAPON_RATE_MODS / WEAPON_COUNT_MODS are
+// that missing half as data, and data can drift away from the code it mirrors: BR.f is the guard.
+function testBuildReadout() {
+  const mk = (weapons) => {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = weapons
+    run.mods.spawnMul = 0
+    return run
+  }
+  const weaponOf = (run, id) => buildReadout(run).weapons.find((w) => w.id === id)
+  const statOf = (w, key) => w.stats.find((s) => s.key === key)
+
+  // -- BR.a: folded stat mods show through ---------------------------------------------------
+  {
+    const run = mk([{ id: 'boomerang', level: 3 }])
+    const before = statOf(weaponOf(run, 'boomerang'), 'count').value
+    run.weaponMods.boomerang.extraRang = 2
+    run.weaponModPicks.boomerang.extraRang = 1
+    const after = weaponOf(run, 'boomerang')
+    assert.strictEqual(statOf(after, 'count').value, before + 2, 'Extra Blades shows on the blade count')
+    assert.strictEqual(statOf(after, 'count').base, before, 'and the base it is compared against is the level alone')
+    assert.strictEqual(after.mods.length, 1, 'only picked mods are listed')
+    assert.deepStrictEqual({ id: after.mods[0].id, bonus: after.mods[0].bonus, picks: after.mods[0].picks },
+      { id: 'extraRang', bonus: 2, picks: 1 }, 'with the accumulated bonus and the pick count')
+    console.log('PASS run BR.a (folded stats): a stat mod reaches the table, with the un-modded level as its baseline')
+  }
+
+  // -- BR.b: the rate map, and the global fire-rate passive -----------------------------------
+  {
+    const run = mk([{ id: 'stinger', level: 2 }])
+    const base = statOf(weaponOf(run, 'stinger'), 'every').value
+    run.weaponMods.stinger.rapid = 0.25
+    run.weaponModPicks.stinger.rapid = 1
+    const faster = statOf(weaponOf(run, 'stinger'), 'every').value
+    assert.ok(Math.abs(faster - base / 1.25) < 1e-9, `Rapid Fire must shorten the interval (${base} -> ${faster})`)
+    run.passives.fireRate = 0.5
+    const faster2 = statOf(weaponOf(run, 'stinger'), 'every').value
+    assert.ok(Math.abs(faster2 - base / 1.25 / 1.5) < 1e-9, 'and the global fire-rate passive divides it too')
+    console.log(`PASS run BR.b (true cadence): ${base.toFixed(2)}s -> ${faster2.toFixed(2)}s once the rate mod and the passive are counted`)
+  }
+
+  // -- BR.c: the star's multishot, which folds nowhere ----------------------------------------
+  {
+    const run = mk([{ id: 'star', level: 1 }])
+    const before = statOf(weaponOf(run, 'star'), 'count').value
+    run.weaponMods.star.multishot = 3
+    run.weaponModPicks.star.multishot = 2
+    assert.strictEqual(statOf(weaponOf(run, 'star'), 'count').value, before + 3,
+      'multishot is read at the fire site, so the readout has to add it back by hand')
+    console.log('PASS run BR.c (behavioural count): multishot reaches the table it does not fold into')
+  }
+
+  // -- BR.d/e: passives and elements appear only once picked ----------------------------------
+  {
+    const run = mk([{ id: 'boomerang', level: 1 }])
+    let out = buildReadout(run)
+    assert.deepStrictEqual(out.passives, [], 'nothing is listed before anything is picked')
+    assert.deepStrictEqual(out.elements, [], 'elements likewise')
+    run.passives.armor = 3; run.passivePicks.armor = 2
+    run.elements.fire = 2; run.elementPicks.fire = 1
+    out = buildReadout(run)
+    assert.deepStrictEqual(out.passives, [{ id: 'armor', bonus: 3, picks: 2 }], 'a picked passive carries its total and its count')
+    assert.deepStrictEqual(out.elements, [{ id: 'fire', potency: 2, picks: 1 }], 'and an element its potency')
+    console.log('PASS run BR.d/e (you + elements): listed only once picked, with totals not per-pick values')
+  }
+
+  // -- BR.f: the two maps must keep naming real mods on real weapons --------------------------
+  // They mirror decisions made inside sim.js's fire sites. If a weapon is renamed or a mod dropped
+  // and the map is not updated, the readout silently reports a wrong number — this catches that.
+  {
+    for (const [weaponId, modId] of Object.entries(WEAPON_RATE_MODS)) {
+      assert.ok(WEAPONS[weaponId], `WEAPON_RATE_MODS names a weapon that exists (${weaponId})`)
+      assert.ok(WEAPON_MODS[weaponId]?.[modId], `WEAPON_RATE_MODS.${weaponId} names a real mod (${modId})`)
+    }
+    for (const [weaponId, modId] of Object.entries(WEAPON_COUNT_MODS)) {
+      assert.ok(WEAPON_MODS[weaponId]?.[modId], `WEAPON_COUNT_MODS.${weaponId} names a real mod (${modId})`)
+    }
+    // Every weapon whose step function divides its interval by a mod must be in the rate map. The
+    // check is textual because that division only exists in sim.js's fire sites.
+    const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    const divided = [...src.matchAll(/fireRateMul \* \(1 \+ ([a-zA-Z]+)\)/g)].map((m) => m[1])
+    assert.ok(divided.length >= 10, `expected to find the rate-divided fire sites (found ${divided.length})`)
+    assert.strictEqual(divided.length, Object.keys(WEAPON_RATE_MODS).length,
+      `every rate-divided weapon needs an entry in WEAPON_RATE_MODS (${divided.length} fire sites vs ${Object.keys(WEAPON_RATE_MODS).length} entries)`)
+    console.log(`PASS run BR.f (maps track the code): ${Object.keys(WEAPON_RATE_MODS).length} rate mods and ${Object.keys(WEAPON_COUNT_MODS).length} count mod all real, and every divided fire site is covered`)
+  }
+
+  console.log('PASS run BR (build readout): folded stats, true cadence, behavioural counts, and the maps kept honest')
 }

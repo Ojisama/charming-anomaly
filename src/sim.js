@@ -30,7 +30,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, MAX_MODS_PER_WEAPON_PER_POOL,
+  MOD_CANDIDATES_PER_WEAPON, MAX_MODS_PER_WEAPON_PER_POOL, WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
   RARITIES, RARITY_ORDER, RARITY_WEIGHTS,
   ENEMIES, ELITE, WAVE_TABLE,
@@ -3459,6 +3459,53 @@ function effectiveWeaponStats(run, w) {
     }
   }
   return stats
+}
+
+/**
+ * Read-only projection of the player's whole build, for the pause screen. Lives here because this
+ * is where weapon maths lives: effectiveWeaponStats folds the stat mods, and the two maps in
+ * config.js cover the mods that deliberately do NOT fold (rate mods divide at their fire site,
+ * the star's multishot is read at its own). A readout built anywhere else would quietly report a
+ * weapon's paper numbers instead of the ones it is actually firing.
+ *
+ * Returns plain numbers and ids only — no copy, no formatting. ui.js owns both, and does not
+ * import this module; main.js passes the result through. Never mutates `run`.
+ */
+export function buildReadout(run) {
+  const p = run.player
+  // The global multiplier every weapon's cadence already divides by (see stepWeapons).
+  const globalRate = p.fireRateMul * (1 + run.passives.fireRate)
+  const weapons = run.weapons.map((w) => {
+    const cfg = WEAPONS[w.id]
+    const base = cfg.levels[Math.min(cfg.levels.length, Math.max(1, w.level)) - 1] ?? {}
+    const eff = effectiveWeaponStats(run, w)
+    const mods = run.weaponMods[w.id] ?? {}
+    const countMod = WEAPON_COUNT_MODS[w.id]
+    if (countMod && eff.count != null) eff.count += mods[countMod] ?? 0
+    const rateMod = WEAPON_RATE_MODS[w.id]
+    const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
+    const stats = []
+    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'r', 'maxR', 'range', 'length', 'width', 'pierce']) {
+      if (base[key] == null || eff[key] == null) continue
+      stats.push({ key, value: eff[key], base: base[key] })
+    }
+    const interval = base.rate ?? base.interval
+    if (interval != null && rateDiv > 0) stats.push({ key: 'every', value: interval / rateDiv, base: interval })
+    // Every mod the player has actually picked, with the bonus it accumulated. The table above
+    // covers the ones that fold into a stat; these carry the rest (behavioural mods and switches).
+    const picks = run.weaponModPicks[w.id] ?? {}
+    const modList = Object.keys(WEAPON_MODS[w.id] ?? {})
+      .filter((id) => (picks[id] ?? 0) > 0)
+      .map((id) => ({ id, bonus: mods[id] ?? 0, picks: picks[id] ?? 0, kind: WEAPON_MODS[w.id][id].kind }))
+    return { id: w.id, level: w.level, maxLevel: cfg.levels.length, stats, mods: modList }
+  })
+  const passives = Object.keys(run.passives)
+    .filter((id) => (run.passivePicks[id] ?? 0) > 0)
+    .map((id) => ({ id, bonus: run.passives[id], picks: run.passivePicks[id] }))
+  const elements = Object.keys(run.elements)
+    .filter((id) => (run.elementPicks[id] ?? 0) > 0)
+    .map((id) => ({ id, potency: run.elements[id], picks: run.elementPicks[id] }))
+  return { weapons, passives, elements }
 }
 
 function stepWeapons(run, dt) {

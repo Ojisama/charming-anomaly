@@ -1432,3 +1432,40 @@ body {
 }
 /* The glyph hides while a countdown number is showing — two symbols in one 78px circle is mush. */
 .skill-btn:not(.skill-btn--ready) .skill-btn-glyph { opacity: 0; }
+
+/* ---- pause: the build readout (v6.6.17) -------------------------------------------------- */
+/* Design 2's spec tables inside design 3's collapsible rows. The whole block is one flex column
+   that gives up height before the Resume/Quit buttons do — on a 320x568 phone the buttons must
+   never be pushed off, so this scrolls internally rather than growing the modal. */
+/* The pause modal is the only one that can carry an arbitrarily long list, so it is the only one
+   bounded to the screen. Without this it simply grows and pushes Resume/Quit off a 568px phone —
+   measured at 728px with two sections open. */
+.modal--pause { max-height: 100%; }
+.bd { display: flex; flex-direction: column; gap: 5px; flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.bd-sec { background: var(--cream-soft); border: 1.5px solid var(--cream-edge); border-radius: 9px; }
+.bd-sec--open { border-color: var(--mint-dark); }
+.bd-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 7px; background: none;
+          border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; min-height: 30px; }
+.bd-ic { font-size: 14px; line-height: 1; display: flex; align-items: center; height: 1.5em; }
+.bd-nm { font-weight: 800; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-lvl { font-size: 9.5px; font-weight: 800; color: #fff; background: var(--mint-dark);
+          border-radius: 5px; padding: 1px 5px; flex: 0 0 auto; }
+.bd-head { flex: 1; text-align: right; font-size: 11px; font-weight: 700; color: var(--mint-dark);
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-caret { font-size: 11px; opacity: .55; flex: 0 0 auto; }
+.bd-body { padding: 0 7px 6px; }
+/* table-layout: fixed is what makes the ellipsis below actually work — with auto layout a cell
+   ignores max-width and the column just grows, squeezing the value out instead. */
+.bd-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; table-layout: fixed; }
+.bd-tbl td { padding: 1.5px 0; }
+/* These two were the only text cells in this component without overflow protection, and French
+   labels run longer than English ones — an unprotected cell WRAPS and breaks the row alignment
+   rather than truncating cleanly. */
+.bd-k { opacity: .68; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 54%; }
+.bd-v { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bd-d { text-align: right; width: 52px; font-size: 10.5px; font-weight: 700; color: var(--mint-dark); white-space: nowrap; }
+.bd-eff { display: flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 2px 0 1px;
+          border-top: 1px dashed var(--cream-edge); margin-top: 3px; }
+.bd-eff-i { width: 15px; text-align: center; flex: 0 0 auto; }
+.bd-eff-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-eff-t b { color: var(--mint-dark); font-weight: 800; }
