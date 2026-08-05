@@ -7742,7 +7742,18 @@ function testFrenchDictionary() {
   const srcDir = new URL('../src/', import.meta.url)
   const blob = readdirSync(srcDir).filter((f) => f.endsWith('.js') && f !== 'fr.js')
     .map((f) => readFileSync(new URL(f, srcDir), 'utf8')).join('\n')
-  const dead = Object.keys(FR).filter((k) => !blob.includes(k) && !blob.includes(k.replace(/'/g, "\\'")))
+  // v6.6.19: matched as a COMPLETE quoted literal, not a substring. A substring test cannot see a
+  // dead key that is a prefix of a live one — 'Reroll' stayed invisible the moment 'Reroll this
+  // anomaly ({n}🪙)' existed, and only came out because it was being tracked by hand. Every
+  // wrapper the source could use is tried, with the escaping that wrapper would force.
+  const literals = (k) => [
+    `'${k.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`,
+    `'${k}'`,                                   // an apostrophe-free key, or one in a "…" value
+    `"${k.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`,
+    `"${k}"`,
+    `\`${k}\``,
+  ]
+  const dead = Object.keys(FR).filter((k) => !literals(k).some((lit) => blob.includes(lit)))
   assert.deepStrictEqual(dead, [], `fr.js keys no source string can produce — delete them: ${JSON.stringify(dead)}`)
 
   console.log(`PASS run XX (v6.6.8 French dictionary): ${keys.length} keys, no duplicates, none dead, no NBSP in keys, ${Object.values(FR).filter((v) => v.includes(NBSP)).length} values with French NBSP, full config.js coverage`)

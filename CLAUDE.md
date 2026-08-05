@@ -79,6 +79,12 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
 - `.gitignore` excludes `/*.png` **and nothing else** — a PNG at the repo ROOT is ignored; a PNG in a subdirectory is not, and neither is any other scratch artifact. Verification work regularly produces `.json` dumps at the root and files staged under `public/` so the dev server can serve them to a browser probe; none of that is covered. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
+- **Editing `src/fr.js` by exact-string match fails on the NBSP.** French values carry U+00A0
+  before `: ; ! ?` (`'Nouveau !'`, `'MONTÉE DE NIVEAU !'`, `'achat : 🪙 {n}'`), and it is
+  indistinguishable from a space on screen — an anchor that includes one of those lines will not
+  match no matter how carefully you copy it. Anchor on a single line with no French punctuation,
+  or make the edit with node/python. Same reason a NBSP must never reach a KEY: the key is the
+  English source string, so one U+00A0 in it means the lookup can never hit (run XX asserts this).
 
 ## Browser probing (headless / backgrounded tabs)
 
@@ -95,10 +101,22 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - `vite preview` snapshots the dist file list at startup (always restart it AFTER `npm run
   build`) and serves at `/`, not the Pages subpath. Stale preview servers from other sessions
   squat ports — pick a fresh one (`--port N --strictPort`) rather than killing unattributed pids.
-- Seeding a save: `localStorage.setItem` + `reload()` gets clobbered by the app re-saving its
-  in-memory meta during unload — use a DevTools navigate `initScript` (runs on the fresh document
-  before app boot). Open tabs share localStorage and can clobber a seeded save — use isolated
-  browser contexts or close extras first.
+- Seeding a save: use a DevTools navigate `initScript` (runs on the fresh document before app
+  boot). NOT `localStorage.setItem` + `location.reload()` from inside an evaluate — the reload
+  silently does not take, and you are left probing the pre-seed app while localStorage shows the
+  right bytes. (This repo has no unload handler; `state.js` says so explicitly. If a seed looks
+  ignored, suspect the reload or the save shape, not a clobber.) Open tabs share localStorage —
+  use isolated browser contexts or close extras first.
+- **A seeded save MUST carry `shop: {}`.** `loadMeta` does `m.shop[id] = …` inside its own
+  try/catch, so a save without it throws and falls back to a FRESH meta with no warning — the
+  symptom is a title screen at difficulty 1 in English while localStorage holds your seed. Same
+  trap for any field the loader writes into rather than reads: read `loadMeta` before hand-building
+  its input. A working seed is `{schema:1, coins, runs, lang, chapter, shop:{}, best:{}, chapters:{…}}`.
+- Judging layout at 320px: the devtools window will not resize below ~500px, and `resize_page`
+  fails SILENTLY (it reports success; `innerWidth` still reads 500). Always read `innerWidth` back
+  before trusting a width. To actually test the phone width, inject a style constraining the
+  screen + `.modal` to 320/294px — `.modal` is `min(92vw, 390px)`, so the viewport alone will not
+  do it — and measure there.
 - `scripts/deploy-watch.sh "vX.Y.Z · <sha>" ["more strings" …]` watches the Pages deploy to
   completion, then greps the LIVE bundle for each string — the standard post-push gate.
 
