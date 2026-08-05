@@ -5754,6 +5754,14 @@ export function createRenderer(app) {
   // cleared+redrawn per frame, driven purely by 'bindnode' entries in run.enemies (none elsewhere)
   const bindG = new Graphics()
   const trapLayer = new Container()
+  // v6.6.22: the stripes the mower leaves on the lawn. Render-only — cut grass has no sim effect,
+  // so this never touches `run` and lives entirely in renderer state. Deepest child of
+  // entitiesLayer below: a cut is ON the ground, under the trails, webs and everything else.
+  const mownG = new Graphics()
+  const mown = []                  // {x,y,angle,w,len} in world space, oldest first
+  const mownByLane = new WeakMap() // lane object -> its growing stripe, so a pass extends one entry
+  const MOWN_MAX = 24              // ~4 minutes of passes; the oldest cut fades from memory first
+  let mownDirty = false            // only rebuild the geometry while a mower is actually driving
   const laneG = new Graphics()
   const hazardG = new Graphics()
   const teleG = new Graphics()
@@ -5812,7 +5820,7 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
+    mownG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -9129,6 +9137,36 @@ export function createRenderer(app) {
     carLayer.addChild(root)
     return { root, glow, body, mower }
   }
+  // The cut lawn itself. Finished stripes never change, so the geometry is only rebuilt while a
+  // mower is mid-pass (mownDirty) — every other frame this is a no-op and the Graphics just draws.
+  // Paler and yellower than the garden floor (0x4e8240), which is how a fresh cut actually reads;
+  // the rows along it are the same pattern the mower's telegraph uses, so the promise and the
+  // result match. Kept translucent — cut grass is still grass, and the floor's blotches and
+  // foliage must show through it.
+  function redrawMown() {
+    if (!mownDirty) return
+    mownDirty = false
+    mownG.clear()
+    for (const st of mown) {
+      if (st.len <= 1) continue
+      const cos = Math.cos(st.angle)
+      const sin = Math.sin(st.angle)
+      const hx = st.len / 2
+      const hy = st.w / 2
+      const flat = []
+      for (const [lx, ly] of [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]]) {
+        flat.push(st.x + lx * cos - ly * sin, st.y + lx * sin + ly * cos)
+      }
+      mownG.poly(flat).fill({ color: 0x8caf5a, alpha: 0.5 })
+      for (let i = -1; i <= 1; i++) {
+        const off = i * hy * 0.5
+        mownG.moveTo(st.x - hx * cos - off * sin, st.y - hx * sin + off * cos)
+        mownG.lineTo(st.x + hx * cos - off * sin, st.y + hx * sin + off * cos)
+        mownG.stroke({ width: 2, color: 0xa9c977, alpha: 0.45 })
+      }
+    }
+  }
+
   function syncCars(run) {
     const lanes = (run.lanes || []).filter((l) => l.phase === 'sweep')
     while (carPool.length < lanes.length) carPool.push(acquireCar())
@@ -9153,6 +9191,27 @@ export function createRenderer(app) {
       cv.glow.scale.set(fxScale(T.fx.light_02, TRAFFIC_CAR_W * 2.4), fxScale(T.fx.light_02, TRAFFIC_CAR_W * 1.5))
       cv.glow.alpha = 0.5 + 0.08 * Math.sin(animT * 22)
       const backLen = (isMower ? MOWER_DECK_LEN : TRAFFIC_CAR_LEN) * 0.5
+      // v6.6.22: grow this pass's cut. The stripe runs from the lane's tail to the deck's leading
+      // edge, so grass goes short UNDER the mower rather than appearing once it has gone by. One
+      // entry per pass (keyed off the lane object, which survives the whole sweep), extended in
+      // place — the mower does not lay down a new stripe every frame.
+      if (isMower) {
+        let st = mownByLane.get(ln)
+        if (!st) {
+          st = { x: ln.x, y: ln.y, angle: ln.angle, w: ln.deckW ?? MOWER_DECK_W, len: 0 }
+          mownByLane.set(ln, st)
+          mown.push(st)
+          if (mown.length > MOWN_MAX) mown.shift()
+        }
+        const cut = Math.max(0, Math.min(ln.len, d + ln.len / 2 + backLen))
+        if (cut !== st.len) {
+          st.len = cut
+          const mid = -ln.len / 2 + cut / 2
+          st.x = ln.x + Math.cos(ln.angle) * mid
+          st.y = ln.y + Math.sin(ln.angle) * mid
+          mownDirty = true
+        }
+      }
       if (frameDt > 0 && Math.random() < (isMower ? 0.9 : 0.5)) {
         // the car throws exhaust and road spray; the mower throws CLIPPINGS — same particle, sprayed
         // sideways out of the deck rather than straight back, because that is where a chute points
@@ -10696,6 +10755,11 @@ export function createRenderer(app) {
     pacerG.clear()
     bombG.clear()
     stripG.clear()
+    // v6.6.22: the lawn grows back between runs. mownByLane is a WeakMap keyed on lane objects the
+    // old run owned, so it empties itself once those are unreachable — only the list needs clearing.
+    mown.length = 0
+    mownG.clear()
+    mownDirty = false
     laneG.clear()
     hazardG.clear()
     teleG.clear()
@@ -11430,6 +11494,7 @@ export function createRenderer(app) {
     }
     updateRampage(run, dt)           // clears rampG itself; no-ops (and decays the jamming) elsewhere
     syncCars(run)
+    redrawMown()                     // after syncCars: it is what grows the stripe this frame
     syncLobs(run)
 
     syncPool(bulletPool, bulletLayer, run.bullets, 'bullet', T.bullet, placeBullet)

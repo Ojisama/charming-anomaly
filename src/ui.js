@@ -11,10 +11,14 @@ const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨
 const DISPATCH_NOTICE_T = 2.5
 // v6.6.18 mis-tap guard: the level-up modal appears mid-fight, right where a thumb is already
 // reaching for the joystick, so a tap in the first instants is a stray press far more often than
-// a choice. Cards and Reroll stay inert this long after the modal renders — matched to the
-// .lv-card pop-in in styles.css, so the gate lifts exactly as the first card settles and becomes
-// readable. Input-guard timing, not sim balance, so it lives here (same call as DISPATCH_NOTICE_T).
-const LEVELUP_GRACE_MS = 300
+// a choice. Cards and Reroll stay inert this long after the modal renders.
+// v6.6.22 (owner directive): 300 -> 500. 300 matched the .lv-card pop-in exactly, which made it
+// tidy but too short in practice — a thumb already travelling when the modal lands is still
+// arriving well after the animation has settled. The gate now OUTLASTS the pop-in by 200ms, so
+// there is a beat where the cards look ready and are not; that is the intended trade, and it is
+// why the cost of a wrong tap (a spent level-up you cannot undo) sets this number, not the CSS.
+// Input-guard timing, not sim balance, so it lives here (same call as DISPATCH_NOTICE_T).
+const LEVELUP_GRACE_MS = 500
 
 // v5.17 build stamp: "vX.Y.Z · <short sha>", substituted by vite.config.js's `define` from the git
 // HEAD at BUILD time — so it identifies the bundle you are actually running, not what the source
