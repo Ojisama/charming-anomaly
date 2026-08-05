@@ -106,7 +106,9 @@ const UI = {
   'LEVEL UP!': 'MONTÉE DE NIVEAU !',
   '1-{n} · arrows · enter · R reroll': '1-{n} · flèches · entrée · R relance',
   'Reroll ({n}🪙)': 'Relancer ({n}🪙)',
-  'Reroll': 'Relancer',
+  // (bare 'Reroll' retired in v6.6.19 — its only caller was the briefing's whole-set reroll button,
+  // now replaced by per-anomaly ones. Run XX's dead-key sweep could not have caught it: that check
+  // is a substring match and the new 'Reroll this anomaly…' keys contain the word.)
   'New!': 'Nouveau !',
 
   // briefings + anomalies
@@ -122,6 +124,23 @@ const UI = {
   'The Blank\'s ladder is fixed — each difficulty adds its named modifier.':
     'L\'échelle du Blanc est fixe — chaque difficulté ajoute son modificateur attitré.',
   'you have {coins}': 'tu as {coins}',
+  // v6.6.19 per-anomaly reroll. The button label stays INFINITIVE and mirrors 'Relancer ({n}🪙)'
+  // above; the note below it is IMPERATIVE, because this file reserves the infinitive for controls
+  // ('Relancer', 'Commencer', 'Offrir') and addresses the player directly in prose — cf.
+  // 'Emplacement {n} — laisse vide pour revenir au numéro'.
+  // NOT 'n'importe quelle anomalie': that means "whichever, no matter which" and buries the whole
+  // point — the free whole-set reroll already exists, the coins buy the CHOICE of which one.
+  // Definite 'l'anomalie', not 'une': the referent is the cards listed right above (same rule as
+  // 'Emplacement {n}'). 'de ton choix' is safe — 'choix' is only otherwise spent on '{n} picks'.
+  // NO 'chacune' (and the English no longer says "each" either): it is feminine, so its only
+  // possible antecedent is 'anomalie', which would price the offer per anomaly when main.js
+  // charges per PRESS — the same card rerolled twice costs 200. 'pièce' is likewise out: this
+  // dictionary spends *pièce* on 'coin', so "{n} 🪙 pièce" reads as "100 coins coin".
+  // The space before 🪙 below is a NBSP — the first non-punctuation one in this file, but it is
+  // the rule ui.js's fmtStat already applies to French units, and it stops "100" and "🪙"
+  // splitting across lines on a 320px phone.
+  'Reroll this anomaly ({n}🪙)': 'Relancer cette anomalie ({n}🪙)',
+  'Reroll one anomaly of your choice — {n} 🪙': 'Relance l\'anomalie de ton choix — {n} 🪙',
 
   // pause + summary
   'Paused': 'Pause',

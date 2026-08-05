@@ -145,9 +145,11 @@ function formatShopBonus(id, levels) {
  *       renderBrief). main.js stages the rolled anomalies + booster picks in onPlay and only
  *       creates the run here; the 'brief' screen (ui.showScreen('brief', { chapterId,
  *       difficulty, mutators, reroll })) is skipped entirely when the roll is empty (difficulty 1).
- *     - onBriefReroll(): fired by the briefing's reroll button (v6.0.4, shown when data.reroll —
- *       classic non-blank only). main.js spends ANOMALY_REROLL_COST, rerolls the staged set and
- *       re-shows the brief; the button renders disabled when meta.coins can't cover it.
+ *     - onBriefReroll(i): fired by an anomaly card's own 🎲 button (v6.0.4; per-card since v6.6.19,
+ *       shown when data.reroll — classic non-blank only). i is that card's index in data.mutators.
+ *       main.js spends ANOMALY_REROLL_COST to replace THAT ONE anomaly and re-shows the brief; the
+ *       buttons render disabled when meta.coins can't cover it. Rerolling the whole set is still
+ *       free — back out to the title and press Play — which is exactly why the paid one is targeted.
  *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button (consumableIds = the booster bottom-sheet's session-local selection, an array
  *       of CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
@@ -1176,9 +1178,18 @@ export function initUI(hooks) {
   }
 
   // One anomaly explainer card (icon + name + desc + effect chips) — shared by the daily
-  // briefing and the classic pre-run briefing (v6.0.2).
-  function mutatorCardHtml(id) {
+  // briefing and the classic pre-run briefing (v6.0.2). `reroll` (v6.6.19) is { index, afford } on
+  // the classic briefing only and adds this card's own 🎲 button; the daily passes nothing (one
+  // shared seed for everyone — a paid swap would break the whole premise).
+  // NEVER call this as `ids.map(mutatorCardHtml)`: map hands the callback the INDEX as its second
+  // argument, which would light the reroll button up on every card but the first, on every screen.
+  function mutatorCardHtml(id, reroll) {
     const m = MUTATORS[id]
+    // The price lives in the label, not just the chip: an aria-label REPLACES the button's content
+    // for a screen reader, so a bare "Reroll this anomaly" would announce a purchase without ever
+    // saying what it costs. esc() because it lands in an attribute and French copy carries
+    // apostrophes. (Raised by the FR review of this screen.)
+    const label = esc(tt('Reroll this anomaly ({n}🪙)', { n: ANOMALY_REROLL_COST }))
     return `
       <div class="daily-mutator">
         <span class="daily-mutator-icon">${m?.icon ?? '❔'}</span>
@@ -1187,6 +1198,7 @@ export function initUI(hooks) {
           <span class="daily-mutator-desc">${t(m?.desc ?? '')}</span>
           <span class="daily-mutator-fx">${m ? effectChips(m.effects ?? {}) : ''}</span>
         </span>
+        ${reroll ? `<button class="mut-reroll" data-act="brief-reroll" data-i="${reroll.index}" ${reroll.afford ? '' : 'disabled'} aria-label="${label}" title="${label}">🎲<i>${ANOMALY_REROLL_COST}</i></button>` : ''}
       </div>`
   }
 
@@ -1204,7 +1216,7 @@ export function initUI(hooks) {
           <span class="daily-chapter-name">${t(chapter.name)}</span>
           ${isPreview ? `<span class="daily-chapter-preview">${t('preview')}</span>` : ''}
         </div>
-        ${ids.map(mutatorCardHtml).join('')}
+        ${ids.map((id) => mutatorCardHtml(id)).join('')}
         <p class="daily-note">${t('Everyone gets the same anomaly today — new one at midnight.')}</p>
         <button class="btn btn--big" data-act="daily-start">▶&nbsp; ${t('Start Daily Run')}</button>
       </div>
@@ -1232,11 +1244,11 @@ export function initUI(hooks) {
           <span class="daily-chapter-name">${t(chapter.name)} — ${t('difficulty')} ${d.difficulty ?? 1}</span>
         </div>
         <p class="daily-note">${note}</p>
-        ${ids.map(mutatorCardHtml).join('')}
+        ${ids.map((id, i) => mutatorCardHtml(id, d.reroll ? { index: i, afford: meta.coins >= ANOMALY_REROLL_COST } : null)).join('')}
         ${d.reroll ? `
-        <button class="btn btn--soft btn--small" data-act="brief-reroll" ${meta.coins >= ANOMALY_REROLL_COST ? '' : 'disabled'}>
-          🎲 ${t('Reroll')} — ${ANOMALY_REROLL_COST} 🪙 <span class="brief-coins">(${tt('you have {coins}', { coins: meta.coins })})</span>
-        </button>` : ''}
+        <p class="daily-note">🎲 ${tt('Reroll one anomaly of your choice — {n} 🪙', { n: ANOMALY_REROLL_COST })}
+          <span class="brief-coins">(${tt('you have {coins}', { coins: meta.coins })})</span>
+        </p>` : ''}
         <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
       </div>
       ${navHtml('battle')}
@@ -1569,7 +1581,7 @@ export function initUI(hooks) {
         break
       }
       case 'brief-start': hooks.onBriefStart?.(); break
-      case 'brief-reroll': hooks.onBriefReroll?.(); break
+      case 'brief-reroll': hooks.onBriefReroll?.(Number(el.dataset.i)); break
       case 'diff': {
         const d = Number(el.dataset.diff)
         if (d > selectedChapterMeta(meta).maxDifficulty) break // belt-and-braces: locked pips are disabled already

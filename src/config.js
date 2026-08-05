@@ -1171,6 +1171,26 @@ export const randomMutators = (count, chapterId) => {
   return pool.slice(0, Math.max(0, Math.min(count, pool.length)))
 }
 
+// v6.6.19: the briefing's paid reroll replaces ONE anomaly by index, not the whole set. Rerolling
+// everything was strictly worse than backing out to the title and pressing Play again — that
+// re-rolls the whole set for free — so the coins bought nothing a quit couldn't. Targeting a single
+// slot is the thing quitting CANNOT do, which is what makes it worth paying for.
+// The replacement is drawn from the chapter pool minus EVERY id already staged, the replaced one
+// included: paying and being handed back the same anomaly is the one outcome that reads as theft.
+// Returns a NEW array, or null when the pool has nothing left to offer so the caller can decline to
+// charge. (Unreachable today — the smallest chapter pool is 8 against 4 staged at MAX_DIFFICULTY.)
+export const rerollMutator = (ids, index, chapterId) => {
+  // Number.isInteger, not `index >= 0`: null >= 0 is TRUE in JS, so a null index would sail past a
+  // bare comparison and land as next[null] — a property on the array, silently charging for nothing.
+  if (!Array.isArray(ids) || !Number.isInteger(index) || index < 0 || index >= ids.length) return null
+  const taken = new Set(ids)
+  const pool = mutatorPool(chapterId).filter((id) => !taken.has(id))
+  if (pool.length === 0) return null
+  const next = ids.slice()
+  next[index] = pool[Math.floor(Math.random() * pool.length)]
+  return next
+}
+
 // ---- Build-focus nudge -------------------------------------------------------
 // The more level-up picks a player invests in their arsenal (weapon upgrades + weapon
 // mods), the rarer NEW-weapon cards get: each unowned weapon only joins a level-up's

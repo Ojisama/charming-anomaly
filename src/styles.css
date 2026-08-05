@@ -857,6 +857,29 @@ body {
 }
 .fx-chip--good { background: #d9f4e3; color: #1e7d4f; }
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
+/* v6.6.19 per-anomaly reroll: its own touch target at the card's right edge. The card itself is
+   not interactive, so nothing competes for the tap; 44px is the floor for a thumb. */
+.mut-reroll {
+  flex-shrink: 0;
+  align-self: center;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 6px;
+  border-radius: 10px;
+  border: 2px solid #8a5fd0;
+  background: #fff;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.mut-reroll i { font-style: normal; font-weight: 800; font-size: 0.62rem; color: #5d3fa0; }
+.mut-reroll:disabled { opacity: 0.4; cursor: default; }
+.mut-reroll:active:not(:disabled) { transform: translateY(1px); }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
 .brief-coins { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
 

@@ -8,7 +8,7 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 import { FR } from '../src/fr.js'
 import {
   SHOP, PASSIVES, RARITIES, RARITY_ORDER, spawnRate, hpScale, eliteEveryAt,
-  MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators,
+  MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
@@ -8382,6 +8382,7 @@ try {
   testMower()
   testSwitchMods()
   testBuildReadout()
+  testAnomalyReroll()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -8825,4 +8826,81 @@ function testBuildReadout() {
   }
 
   console.log('PASS run BR (build readout): folded stats, true cadence, behavioural counts, and the maps kept honest')
+}
+
+// ---- Run AR: v6.6.19 per-anomaly briefing reroll ---------------------------------------------
+// The paid reroll used to redraw the WHOLE set, which the player could do for free by backing out
+// to the title and pressing Play — so the coins bought nothing. rerollMutator replaces ONE slot.
+// The load-bearing property is that the replacement is drawn from the pool minus EVERY staged id,
+// the replaced one INCLUDED: being handed back the same anomaly you just paid to be rid of is the
+// one outcome that reads as theft, and it is the only bug here a player would actually notice.
+function testAnomalyReroll() {
+  // (a) one slot moves, the others do not, and the result is a fresh array
+  {
+    Math.random = mulberry32(20260805)
+    const ids = randomMutators(4, 'city')
+    assert.strictEqual(ids.length, 4, 'city must be able to stage a full difficulty-5 set')
+    for (let i = 0; i < ids.length; i++) {
+      const next = rerollMutator(ids, i, 'city')
+      assert.ok(next, `expected a replacement for slot ${i}`)
+      assert.notStrictEqual(next, ids, 'must return a NEW array — main.js keeps the old one staged on refusal')
+      assert.strictEqual(next.length, ids.length, 'the set never changes size')
+      assert.notStrictEqual(next[i], ids[i], `slot ${i} must actually change — a paid no-op reads as theft`)
+      for (let j = 0; j < ids.length; j++) {
+        if (j !== i) assert.strictEqual(next[j], ids[j], `slot ${j} must be untouched by a reroll of slot ${i}`)
+      }
+      assert.strictEqual(new Set(next).size, next.length, 'no duplicate anomaly may appear in the set')
+    }
+    console.log('PASS run AR.a (targeting): every slot rerolls to something new, alone, with no duplicate')
+  }
+
+  // (b) it never hands back ANY id already staged, over many draws. The single-draw check above
+  // passes by luck at pool sizes this small; this is the one that would actually fail.
+  {
+    Math.random = mulberry32(7771)
+    const ids = randomMutators(4, 'garden')
+    for (let n = 0; n < 400; n++) {
+      const next = rerollMutator(ids, 1, 'garden')
+      assert.ok(!ids.includes(next[1]), `replacement ${next[1]} was already staged (draw ${n})`)
+    }
+    console.log('PASS run AR.b (400 draws): the replacement is never an anomaly already in the set')
+  }
+
+  // (c) chapter scoping survives the reroll — the roll pool's allowlist/denylist still applies, so
+  // a swap cannot smuggle in an anomaly whose mechanic this chapter does not run.
+  {
+    Math.random = mulberry32(4242)
+    for (const [chapter, banned] of [['pond', 'sticky'], ['beyond', 'sticky'], ['garden', 'riptide'], ['city', 'overscent']]) {
+      const ids = randomMutators(2, chapter)
+      for (let n = 0; n < 200; n++) {
+        const next = rerollMutator(ids, 0, chapter)
+        assert.ok(!next.includes(banned), `${banned} must never reach ${chapter} via a reroll`)
+        for (const id of next) {
+          const m = MUTATORS[id]
+          assert.ok(!m.hidden, `${id} is hidden and must never be rolled`)
+          assert.ok(!m.chapters || m.chapters.includes(chapter), `${id} is scoped away from ${chapter}`)
+          assert.ok(!m.exclude || !m.exclude.includes(chapter), `${id} is excluded from ${chapter}`)
+        }
+      }
+    }
+    console.log('PASS run AR.c (scoping): allowlist + denylist + hidden still hold on the swap path')
+  }
+
+  // (d) refusals return null so main.js can decline to charge. Pool exhaustion is unreachable in
+  // the shipped game (smallest chapter pool is 8, against 4 staged at MAX_DIFFICULTY) — this pins
+  // the guard anyway, because the failure mode is taking 100 coins for nothing.
+  {
+    Math.random = mulberry32(99)
+    const ids = randomMutators(3, 'city')
+    for (const bad of [-1, 3, 99, undefined, null, NaN]) {
+      assert.strictEqual(rerollMutator(ids, bad, 'city'), null, `index ${bad} must be refused, not charged`)
+    }
+    assert.strictEqual(rerollMutator(null, 0, 'city'), null, 'a missing set is refused')
+    const whole = randomMutators(99, 'city')            // the entire chapter pool, nothing left over
+    assert.ok(whole.length >= 8, `expected city's pool to be at least 8, got ${whole.length}`)
+    assert.strictEqual(rerollMutator(whole, 0, 'city'), null, 'an exhausted pool refuses rather than repeating')
+    console.log(`PASS run AR.d (refusals): bad index, missing set and an exhausted ${whole.length}-entry pool all return null`)
+  }
+
+  console.log('PASS run AR (per-anomaly reroll): targeted, duplicate-free, chapter-scoped, and never charges for nothing')
 }

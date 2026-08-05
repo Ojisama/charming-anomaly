@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, buildReadout } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -123,16 +123,19 @@ const ui = initUI({
     pendingPlay = null
     startClassic(p.chapter, p.difficulty, p.mutators, p.consumableIds)
   },
-  // v6.0.4: reroll the staged anomaly set for ANOMALY_REROLL_COST, repeatable while affordable.
-  // Blank never gets here (its brief passes reroll: false and the guard below is belt-and-braces —
-  // its ladder is fixed by design).
-  onBriefReroll() {
+  // v6.0.4/v6.6.19: reroll ONE staged anomaly (by index) for ANOMALY_REROLL_COST, repeatable while
+  // affordable — see rerollMutator in config.js for why a whole-set reroll was worthless. Blank
+  // never gets here (its brief passes reroll: false and the guard below is belt-and-braces — its
+  // ladder is fixed by design). Charge only once the swap is known to be possible.
+  onBriefReroll(i) {
     if (!pendingPlay || pendingPlay.chapter === 'blank') return
     if (meta.coins < ANOMALY_REROLL_COST) return
+    const next = rerollMutator(pendingPlay.mutators, i, pendingPlay.chapter)
+    if (!next) return
     meta.coins -= ANOMALY_REROLL_COST
     saveMeta(meta)
     playSfx('buy')
-    pendingPlay.mutators = randomMutators(pendingPlay.difficulty - 1, pendingPlay.chapter)
+    pendingPlay.mutators = next
     ui.showScreen('brief', { chapterId: pendingPlay.chapter, difficulty: pendingPlay.difficulty, mutators: pendingPlay.mutators, reroll: true })
   },
   // v6.1 i18n: the title screen's 🌐 toggle. Persist, switch the live dictionary, and let ui.js
