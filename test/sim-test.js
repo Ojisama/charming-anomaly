@@ -34,7 +34,8 @@ import {
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
-  MOWER_INTERVAL, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_DECK_W, MOWER_DECK_LEN, MOWER_DMG, MOWER_OFFSET,
+  MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN,
+  MOWER_DECK_W, MOWER_DECK_LEN, MOWER_OFFSET, MOWER_ENEMY_HP_FRAC, MOWER_DMG_START, MOWER_DMG_END, mowerDmgAt,
   MISSILE_SPEED, MISSILE_STANDOFF,
   STRAFE_BANK_T, STRAFE_RUN_T, STRAFE_TELEGRAPH_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
@@ -7070,6 +7071,20 @@ function testChapterBalance() {
     // The spider carries its own roster multiplier UNDER the chapter one, so it is thinned twice.
     const spider = CHAPTERS.garden.roster.find((r) => r.id === 'spider')
     assert(Math.abs(spider.hpMul - 1.2) < EPS, `expected the spider's roster hpMul 1.2, got ${spider.hpMul}`)
+    // v6.6.16 (owner): ants and spiders 25% smaller, the wasp 25% bigger. Asserted on the SPAWNED
+    // enemy, not just the table — radiusMul has to survive spawnEnemy's archetype/elite maths.
+    const sizes = { ant: 0.75, wasp: 1.25, spider: 0.75 }
+    for (const [id, mul] of Object.entries(sizes)) {
+      const entry = CHAPTERS.garden.roster.find((r) => r.id === id)
+      assert(Math.abs(entry.radiusMul - mul) < EPS, `expected ${id} radiusMul ${mul}, got ${entry.radiusMul}`)
+      const base = ENEMIES[ARCHETYPE_TYPE[entry.archetype]].radius
+      const spawnRun = createRun(makeMeta(), { chapter: 'garden' })
+      spawnRun.mods.spawnMul = 0
+      spawnRun.enemies.length = 0
+      forceSpawn(spawnRun, entry.archetype, id)
+      const e = spawnRun.enemies.find((x) => x.rosterId === id)
+      if (e) assert(Math.abs(e.radius - base * mul) < 0.001, `${id} spawns at radius ${e.radius}, expected ${base * mul}`)
+    }
     console.log(`PASS run RR.c (garden balance): spawnMul 0.8, enemyHpMul 0.95, spider roster hpMul 1.2, dmg/xp baseline`)
   }
 
@@ -8482,140 +8497,155 @@ function testPlaytestSweepAndBlades() {
 // The two properties worth defending forever are (1) ONE pass at a time no matter how many elites
 // are alive — the old flag ran a timer per elite, and elite cadence falls to ~12s late — and
 // (2) damage parity with the spray it replaced, in a chapter the owner has eased four times.
+// Spawn until the wanted roster id appears (spawnEnemy picks archetype AND roster entry at random).
+// Returns silently if it never does — the caller treats a miss as "not asserted", never as a pass.
+function forceSpawn(run, archetype, rosterId) {
+  for (let i = 0; i < 400; i++) {
+    const before = run.enemies.length
+    stepSimSpawnOnce(run)
+    if (run.enemies.length > before && run.enemies[run.enemies.length - 1].rosterId === rosterId) return
+    run.enemies.length = before
+  }
+}
+function stepSimSpawnOnce(run) {
+  const keep = run.mods.spawnMul
+  run.mods.spawnMul = 1e6      // force the spawn timer over the line on a single step
+  stepSim(run, { x: 0, y: 0 }, 1 / 60)
+  run.mods.spawnMul = keep
+}
+
 function testMower() {
   const dt = 1 / 60
 
-  // A garden run with the spawner silenced and a stationary mower elite parked out of reach, so
-  // the only thing that can touch the player is the mower itself.
-  function gardenWithElites(n) {
+  // A garden run with the spawner silenced, parked just before the first pass is due. run.time is
+  // set directly rather than simulated: with spawnMul 0 there is no spawner state to desync, and
+  // simulating 30 idle seconds per scenario is pure cost.
+  function garden(atTime = MOWER_FIRST_T - 1) {
     const run = createRun(makeMeta(), { chapter: 'garden' })
     run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
-    for (let i = 0; i < n; i++) {
-      const e = makeStatusEnemy(run, { x: 4000 + i * 50, y: 0, elite: true, hp: 1e9, speed: 0 })
-      e.flags = ['mower']
-      e.rosterId = 'spider'
-      run.enemies.push(e)
-    }
+    run.time = atTime
     return run
   }
-  // run.events is drained by the CONSUMER (main.js splices it), never by stepSim — so a loop that
-  // reads it without clearing re-counts every earlier event on every later frame.
   const runFor = (run, seconds) => {
     for (let i = 0; i < Math.round(seconds / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
   }
 
-  // -- MW.a: the timer is ARMED by an elite, and idle without one ----------------------------
+  // -- MW.a: ambient, and only after MOWER_FIRST_T ------------------------------------------
+  // v6.6.16 (owner): "lawn mower should appear randomly, not only for elites... every 5-15
+  // seconds after second 30". No elite is involved anywhere in this scenario.
   {
-    const quiet = gardenWithElites(0)
-    runFor(quiet, MOWER_INTERVAL * 3)
-    assert.strictEqual(quiet.lanes.length, 0, 'no mower without an elite — the gardener is not out')
-
-    const busy = gardenWithElites(1)
-    runFor(busy, MOWER_INTERVAL + 0.1)
-    assert.strictEqual(busy.lanes.length, 1, 'one elite alive puts a mower on the lawn')
-    const lane = busy.lanes[0]
-    assert.strictEqual(lane.look, 'mower', 'and it is a mower, not a taxi')
-    assert.strictEqual(lane.phase, 'warn', 'which telegraphs before it cuts')
-    console.log('PASS run MW.a (armed by an elite): no elite means no mower, one elite means one mower, telegraphed')
+    const early = garden(0)
+    runFor(early, MOWER_FIRST_T - 1)
+    assert.strictEqual(early.lanes.length, 0, 'nothing mows during the opening 30 seconds')
+    assert.strictEqual(early.enemies.length, 0, 'and this run has no enemies at all, let alone an elite')
+    runFor(early, 2)
+    assert.strictEqual(early.lanes.length, 1, 'the first pass comes on its own once the run is old enough')
+    assert.strictEqual(early.lanes[0].look, 'mower', 'and it is a mower')
+    console.log('PASS run MW.a (ambient): silent for the first 30s, then a pass with no elite anywhere')
   }
 
-  // -- MW.b: ONE pass at a time, however many elites are alive -------------------------------
-  // The blocker the design panel caught: sprayStrip ran a per-elite accumulator, so three live
-  // elites meant three independent 96px sweeps from three angles with no ceiling anywhere.
+  // -- MW.b: gaps land in the asked-for band, vary, and never overlap -------------------------
   {
-    const run = gardenWithElites(3)
-    runFor(run, MOWER_INTERVAL * 4)
-    assert.ok(run.lanes.length <= 1, `three mower elites must still yield at most one live pass (got ${run.lanes.length})`)
-    // ...and the lane still turns over: a pass ends and a later one can start.
-    let sawPass = 0
-    let had = run.lanes.length > 0
-    for (let i = 0; i < Math.round((MOWER_INTERVAL * 4) / dt); i++) {
+    const run = garden()
+    const starts = []
+    let had = false
+    for (let i = 0; i < Math.round(200 / dt); i++) {
       stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
       const now = run.lanes.length > 0
-      if (now && !had) sawPass++
+      if (now && !had) starts.push(run.time)
       had = now
-      assert.ok(run.lanes.length <= 1, 'never more than one mower, at any instant')
+      assert.ok(run.lanes.length <= 1, 'never more than one mower at any instant')
     }
-    assert.ok(sawPass >= 1, 'passes keep coming while the elite lives')
-    console.log(`PASS run MW.b (one at a time): 3 elites, never more than 1 live pass, ${sawPass} further passes started`)
+    assert.ok(starts.length >= 8, `expect a steady stream of passes over 200s (got ${starts.length})`)
+    const gaps = starts.slice(1).map((t, i) => t - starts[i])
+    for (const g of gaps) {
+      assert.ok(g >= MOWER_GAP_MIN - 0.05 && g <= MOWER_GAP_MAX + 0.05, `gap ${g.toFixed(2)}s must sit in ${MOWER_GAP_MIN}-${MOWER_GAP_MAX}s`)
+    }
+    assert.ok(new Set(gaps.map((g) => g.toFixed(1))).size > 1, 'gaps are re-rolled, not a fixed rhythm to tune out')
+    // The shortest legal gap still exceeds a whole pass, which is WHY one-at-a-time never starves a roll.
+    assert.ok(MOWER_GAP_MIN > MOWER_WARN + MOWER_SWEEP, 'the minimum gap must outlast a full pass')
+    console.log(`PASS run MW.b (cadence): ${starts.length} passes over 200s, gaps ${Math.min(...gaps).toFixed(1)}-${Math.max(...gaps).toFixed(1)}s, never overlapping`)
   }
 
-  // -- MW.c/d: telegraph is harmless, then exactly ONE armour-bypassing hit at parity ---------
+  // -- MW.c/d: the player takes a FLAT ramping hit, once per pass -----------------------------
+  // Owner: "a flat 15hp damage in the beginning and a flat 30hp at the 5min mark". Flat means the
+  // dot flag stays: armour does not reduce it and it grants no invulnerability.
   {
-    const run = gardenWithElites(1)
-    runFor(run, MOWER_INTERVAL + 0.02)
+    assert.strictEqual(mowerDmgAt(0), MOWER_DMG_START, 'the ramp starts at 15')
+    assert.strictEqual(mowerDmgAt(300), MOWER_DMG_END, 'and reaches 30 at the 5 minute mark')
+    assert.strictEqual(mowerDmgAt(150), (MOWER_DMG_START + MOWER_DMG_END) / 2, 'linearly in between')
+    assert.strictEqual(mowerDmgAt(9999), MOWER_DMG_END, 'and never past 30, however long a run runs')
+
+    const run = garden()
+    runFor(run, 1.2)
     const lane = run.lanes[0]
-    // Pin the geometry: aim the lane straight down +x through the player, who stands still at 0,0.
-    lane.x = 0; lane.y = 0; lane.angle = 0
-    run.passives.armor = 6 // a dot ignores armour — that is the parity the spray had
+    assert.ok(lane, 'a pass is live')
+    lane.x = 0; lane.y = 0; lane.angle = 0     // pin the geometry through the standing player
+    const expected = Math.round(lane.dmg)
+    run.passives.armor = 9                      // flat means flat: armour must not touch it
 
     let hurtDuringWarn = 0
-    for (let i = 0; i < Math.round((MOWER_WARN - 0.05) / dt); i++) {
+    for (let i = 0; i < Math.round((MOWER_WARN - 0.1) / dt); i++) {
       stepSim(run, { x: 0, y: 0 }, dt)
       hurtDuringWarn += run.events.filter((e) => e.type === 'hurt').length
       run.events.length = 0
     }
-    assert.strictEqual(hurtDuringWarn, 0, 'the mown-lane telegraph must not damage anything')
+    assert.strictEqual(hurtDuringWarn, 0, 'the telegraph damages nothing')
 
     const hpBefore = run.player.hp
-    let hits = 0
-    let sawDot = false
+    let hits = 0, sawDot = false
     for (let i = 0; i < Math.round((MOWER_SWEEP + 0.4) / dt); i++) {
       stepSim(run, { x: 0, y: 0 }, dt)
-      for (const e of run.events) {
-        if (e.type !== 'hurt') continue
-        hits++
-        if (e.dot) sawDot = true
-      }
+      for (const e of run.events) { if (e.type === 'hurt') { hits++; if (e.dot) sawDot = true } }
       run.events.length = 0
     }
-    assert.strictEqual(hits, 1, `the deck hits a standing player exactly once per pass (got ${hits})`)
-    assert.ok(sawDot, 'dot-flagged, like the spray it replaced — so it bypasses armour AND grants no invuln')
-    assert.strictEqual(hpBefore - run.player.hp, MOWER_DMG, `and for exactly MOWER_DMG through 6 armour (lost ${hpBefore - run.player.hp})`)
-    assert.strictEqual(run.player.invuln, 0, 'a guaranteed hit must NOT hand a standing player free invulnerability (v6.3.4 anti-turtle)')
-    // Parity with what it replaced: SPRAY_DPS 10 dot-ticked round(10*STATUS_TICK)=3 per tick,
-    // floor(SPRAY_ACTIVE 1.2 / STATUS_TICK 0.25) = 4 ticks = 12 damage to a player who stood in it.
-    assert.strictEqual(MOWER_DMG, 12, 'MOWER_DMG holds parity with the spray strip it replaced')
-    console.log('PASS run MW.c/d (one hit, at parity): telegraph harmless, exactly one dot-flagged hit of 12, no free invuln')
+    assert.strictEqual(hits, 1, `exactly one hit per pass (got ${hits})`)
+    assert.ok(sawDot, 'dot-flagged, so armour is bypassed and no invulnerability is granted')
+    assert.strictEqual(hpBefore - run.player.hp, expected, `for the full flat ${expected} through 9 armour`)
+    assert.strictEqual(run.player.invuln, 0, 'a guaranteed pass must not hand a standing player free invulnerability')
+    console.log(`PASS run MW.c/d (flat ramping hit): ${expected} damage through 9 armour, once, no invuln, 15->30 across the run`)
   }
 
-  // -- MW.e: the lane carries its OWN hitbox, knockback and squash list -----------------------
-  // Before v6.6.14 the stepper read TRAFFIC_KB and TRAFFIC_SQUASH straight off the module, so a
-  // mower could not have had its own numbers at all — it would have squashed city pigeons.
+  // -- MW.e: enemies lose a share of their OWN max hp ----------------------------------------
+  // Owner: "50% hp damage to enemies, whatever their scaling" — a flat number falls behind hpScale
+  // within a minute, a fraction never does. NOTE this applies to elites too: two passes kill one.
   {
-    const run = gardenWithElites(1)
-    runFor(run, MOWER_INTERVAL + 0.02)
+    const run = garden()
+    runFor(run, 1.2)
     const lane = run.lanes[0]
     lane.x = 0; lane.y = 0; lane.angle = 0
-    run.player.x = 0; run.player.y = 3000 // out of the band; this scenario is about the enemies
-    assert.deepStrictEqual(lane.squash, ['ant'], 'the mower squashes ants, not the city roster')
-    assert.strictEqual(lane.deckW, MOWER_DECK_W, 'and tests its OWN deck width')
-    assert.strictEqual(lane.deckLen, MOWER_DECK_LEN, 'and its own deck length')
+    run.player.x = 0; run.player.y = 4000      // out of the band; this scenario is about the enemies
+    assert.strictEqual(lane.enemyFrac, MOWER_ENEMY_HP_FRAC, 'the lane carries the fraction')
+    assert.strictEqual(lane.squash, undefined, 'and no longer carries a squash list — the fraction replaced it')
 
-    const ant = makeStatusEnemy(run, { x: 0, y: 0, hp: 5000, speed: 0 })
+    const ant = makeStatusEnemy(run, { x: 0, y: 0, hp: 4000, speed: 0 })
     ant.rosterId = 'ant'
-    const spider = makeStatusEnemy(run, { x: 0, y: 0, hp: 5000, speed: 0 })
-    spider.rosterId = 'spider'
-    run.enemies.push(ant, spider)
-    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.3)
-    assert.ok(ant.hp <= 0 || ant._dead, 'an ant goes under the deck outright, the way a taxi flattens a pigeon')
-    assert.ok(spider.hp < 5000 && spider.hp > 0, `a spider is hurt but not squashed (hp ${spider.hp})`)
-    console.log('PASS run MW.e (own numbers): the lane carries its deck, knockback and squash list — ant squashed, spider only hurt')
+    const tough = makeStatusEnemy(run, { x: 0, y: 0, hp: 250000, speed: 0 })
+    tough.rosterId = 'spider'
+    const boss = makeStatusEnemy(run, { x: 0, y: 0, hp: 90000, speed: 0, elite: true })
+    boss.rosterId = 'spider'
+    run.enemies.push(ant, tough, boss)
+    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.4)
+    for (const [who, e, hp0] of [['ant', ant, 4000], ['spider', tough, 250000], ['elite', boss, 90000]]) {
+      assert.ok(Math.abs((hp0 - e.hp) - hp0 * MOWER_ENEMY_HP_FRAC) < 1,
+        `${who} loses half its own max hp, not a flat figure (lost ${hp0 - e.hp} of ${hp0})`)
+    }
+    console.log('PASS run MW.e (half of max hp): a 4k ant and a 250k spider each lose exactly half — scaling can never outrun it')
   }
 
   // -- MW.f: cover is a city idea; a grass stalk does not stop a mower ------------------------
   {
-    const run = gardenWithElites(1)
-    runFor(run, MOWER_INTERVAL + 0.02)
+    const run = garden()
+    runFor(run, 1.2)
     const lane = run.lanes[0]
     lane.x = 0; lane.y = 0; lane.angle = 0
     assert.strictEqual(lane.cover, false, 'a mower lane opts out of findCover')
-    // A garden obstacle comfortably over COVER_MIN_R, parked between the deck and the player.
     run.obstacles = [{ x: -200, y: 0, r: COVER_MIN_R + 12, kind: 'tree', _cell: 'x' }]
     const hpBefore = run.player.hp
-    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.3)
+    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.4)
     assert.ok(run.player.hp < hpBefore, 'the obstacle must not shield the player from a mower')
     assert.strictEqual(run.obstacles.length, 1, 'and must not be crushed as if it had')
     console.log('PASS run MW.f (no cover): a big garden obstacle neither shields the player nor gets destroyed')
@@ -8627,11 +8657,13 @@ function testMower() {
       `MOWER_OFFSET ${MOWER_OFFSET} must stay under the deck half-width ${MOWER_DECK_W / 2}, or a standing player can be missed`)
     assert.ok(TRAFFIC_OFFSET > TRAFFIC_CAR_W / 2,
       'documenting the city precedent this deliberately does NOT copy: the taxi can miss a stationary player')
-    assert.ok(MOWER_LEN >= TRAFFIC_LEN, 'the lane outruns a screen, so the mower enters and leaves offscreen')
-    console.log('PASS run MW.g (always crosses): offset stays inside the deck, unlike the taxi lane it is modelled on')
+    assert.ok(MOWER_DECK_LEN > MOWER_DECK_W,
+      'a mower is LONGER than it is wide — v6.6.14 shipped that ratio inverted and it read as a brick')
+    assert.ok(MOWER_LEN >= 1100, 'the lane outruns a screen, so the mower enters and leaves offscreen')
+    console.log('PASS run MW.g (proportions + always crosses): offset inside the deck, and the deck longer than wide')
   }
 
-  console.log('PASS run MW (the mower): armed by an elite, one pass at a time, parity damage, its own deck, no false cover')
+  console.log('PASS run MW (the mower): ambient after 30s on a 5-15s re-rolled gap, one at a time, flat ramping hit, half-max-hp to enemies')
 }
 
 // ---- Run SW: on/off upgrades stop pretending to stack (v6.6.15) ------------------------------

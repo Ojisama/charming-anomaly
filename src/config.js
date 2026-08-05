@@ -1482,16 +1482,19 @@ export const CHAPTERS = {
     // stinger + lure are new v5.3 natives. Starter = the leaf blade (boomerang).
     weapons: ['boomerang', 'stinger', 'lure'], starter: 'boomerang',
     roster: [
-      { id: 'ant',    archetype: 'normal', name: 'Ant',    hpMul: 0.85, speedMul: 1.1, flags: ['trailFollow'] },
-      { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, flags: ['diveBomb'] },
+      // v6.6.16 (owner): ants and spiders 25% smaller, the wasp 25% bigger. radiusMul is a ROSTER
+      // multiplier on the archetype's base radius, so it re-sizes one creature without touching
+      // the archetype every other chapter shares.
+      { id: 'ant',    archetype: 'normal', name: 'Ant',    hpMul: 0.85, speedMul: 1.1, radiusMul: 0.75, flags: ['trailFollow'] },
+      { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, radiusMul: 1.25, flags: ['diveBomb'] },
       // v6.6.15 (owner): spiders -20% hp. This is the ROSTER multiplier, so it thins the spider
       // alone; garden's chapter-wide enemyHpMul below still applies on top of it.
-      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, flags: ['webZone'] },
+      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, radiusMul: 0.75, flags: ['webZone'] },
     ],
-    eliteFlags: ['mower'],                // v6.6.14: an elite means the gardener is working this
-                                          // patch — a mower crosses every MOWER_INTERVAL (see the
-                                          // MOWER_* block). Was 'sprayStrip', a rectangle marked on
-                                          // the player by nothing the player could see.
+    eliteFlags: [],                       // v6.6.16: the mower left the elite flag and became a
+                                          // chapter hazard (see `mower` below) — it turns up on its
+                                          // own schedule now, so an elite no longer summons one.
+    mower: true,                          // ambient lawnmower passes; see the MOWER_* block
     // Signature: dying trailFollow ants drop fading pheromone nodes (run.trails) that living ants
     // accelerate along. No field force (unlike currents) — the mechanic IS the ant behaviour, so
     // sim.js gates its trail logic on signature.type === 'pheromones' (future chapters' ants differ).
@@ -3149,15 +3152,15 @@ export const COVER_MIN_R = 26
 // the same run.lanes machinery the city drives its taxi with (telegraph -> a vehicle crosses ->
 // it flattens both sides), so there is one lane system in this codebase rather than two.
 //
-// ONE PASS AT A TIME, run-level, NOT per-elite. sprayStrip ran an accumulator per elite, and elite
-// cadence falls to ~12s by t=300 while garden tanks pass 4000 HP, so two or three concurrent
-// elites is routine late — each would have rolled its own mower. The city caps concurrent lanes at
-// signature.lanes for exactly this reason; the run-level timer here is that cap, taken at the root.
-// The timer is ARMED while any mower-flagged elite lives and idles otherwise, so the pacing the
-// chapter was tuned around is unchanged.
-export const MOWER_INTERVAL = 3.5     // s between passes (== the SPRAY_INTERVAL it replaces)
+// v6.6.16 (owner): the mower is AMBIENT, not an elite's doing. It shows up on its own every
+// MOWER_GAP_MIN..MAX seconds once the run is MOWER_FIRST_T old — the lawn is simply being mowed,
+// which is a cleaner fiction than an ant summoning a machine, and it makes the hazard part of the
+// chapter instead of an elite tell. Still ONE PASS AT A TIME (run.lanes must be empty to roll).
+export const MOWER_FIRST_T = 30       // s before the first pass — the opening minute stays calm
+export const MOWER_GAP_MIN = 5        // s, shortest gap between passes
+export const MOWER_GAP_MAX = 15       // s, longest
 export const MOWER_WARN = 1.3         // s of harmless telegraph before the deck arrives
-export const MOWER_SWEEP = 1.4        // s to cross MOWER_LEN — 786 px/s, slower than the taxi's 1000
+export const MOWER_SWEEP = 2.8        // s to cross MOWER_LEN — 393 px/s, HALF the v6.6.15 speed
 export const MOWER_LEN = 1100         // px, lane length: longer than a screen, so it enters/leaves offscreen
 export const MOWER_W = 120            // px, width of the mown band (the telegraph)
 // px, max perpendicular offset of the band from the player. DELIBERATELY under MOWER_DECK_W/2, so
@@ -3165,28 +3168,23 @@ export const MOWER_W = 120            // px, width of the mown band (the telegra
 // own car's 55px half-width, so the city's van in fact misses a stationary player ~39% of rolls —
 // harmless there because players move, but not a property worth copying on purpose.)
 export const MOWER_OFFSET = 40
-// px, the machine's hitbox. Proportions are REAL: a 21-inch walk-behind is 56.4in long x 22.3in
-// wide assembled (Toro Recycler), ~1.3:1 for the body alone without the handle, and a 42in ride-on
-// is 68-76in long x 45-55in wide (~1.45:1). Every mower is LONGER THAN IT IS WIDE. v6.6.14 shipped
-// this backwards at 60x96 ("a mower is short and wide") and it read as a squashed brick.
-// Mechanically this is nearly free: an enemy is hit once per pass (hitIds) and the deck sweeps the
-// WHOLE lane either way, so the corridor it clears is lane length x DECK_W — DECK_LEN only changes
-// how many frames a body spends inside the box, not whether it is caught.
 // 160x96 = 1.67:1. A real body alone is ~1.3:1, but this silhouette INCLUDES the grass bag and the
 // handle, and a walk-behind with its handle is ~2.5:1 — so this still sits on the short side of the
 // reference rather than past it. (Owner, on the 1.33:1 draft: "a little longer still".)
 export const MOWER_DECK_LEN = 160
 export const MOWER_DECK_W = 96        // the CUT: this is the width the player has to clear
-// Damage to the player. Parity with the spray it replaces, which was worth exactly 12: dot-flagged
-// at SPRAY_DPS 10, i.e. round(10 * STATUS_TICK) = 3 per tick x floor(SPRAY_ACTIVE / STATUS_TICK) = 4
-// ticks. A dot bypasses armour AND the invuln window; this is an ordinary hit, so armour now
-// reduces it and it grants invuln like any other. Net: parity bare, strictly gentler with armour —
-// which is the right direction for a chapter that has been eased four times.
-export const MOWER_DMG = 12
 export const MOWER_KB = 300           // knockback along the lane to struck enemies
-// The mower one-shots the light roster the way a taxi one-shots a pigeon; wasps and spiders (and
-// any elite) take MOWER_DMG like everyone else. Non-elite only, checked by rosterId.
-export const MOWER_SQUASH = ['ant']
+// Enemies lose a FRACTION OF THEIR OWN MAX HP, not a flat number (owner: "50% hp damage to enemies,
+// whatever their scaling"). A flat figure falls behind hpScale within a minute and the mower stops
+// mattering; a fraction never does. Replaces the old squash list, which only ever killed ants.
+export const MOWER_ENEMY_HP_FRAC = 0.5
+// The player takes a FLAT amount that ramps across the run (owner: "flat 15hp in the beginning and
+// a flat 30hp at the 5min mark"). Flat means flat: the hit stays dot-flagged, so armour does not
+// reduce it and it grants no invulnerability — see the dot note on stepLanePasses.
+export const MOWER_DMG_START = 15
+export const MOWER_DMG_END = 30
+export const mowerDmgAt = (t) => MOWER_DMG_START
+  + (MOWER_DMG_END - MOWER_DMG_START) * Math.min(1, Math.max(0, (Number(t) || 0) / RUN_DURATION))
 
 // ---- Skies chapter behavior flags (v5.4, see sim.js) -----------------------------------------
 // strafe (skies' fighter jets): flies straight passes THROUGH the player rather than chasing.

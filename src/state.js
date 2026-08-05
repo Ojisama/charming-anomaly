@@ -502,11 +502,11 @@ function generateWells(sig) {
  *               -> recover state machine on sim-internal `_diveState`/`_diveT`/`_diveDirX`/
  *               `_diveDirY`/`_diveElapsed`, replacing the normal seek — not a render contract),
  *               'webZone' (stepEnemyMovement: drops run.webs slow-zones via `_webAcc`, NOT
- *               elite-gated), 'mower' (elite-only, v6.6.14: does NOT act per-enemy at all — its
- *               mere presence ARMS a run-level timer, run._mowerAcc, that pushes one lawnmower
- *               lane into run.lanes every MOWER_INTERVAL. One pass at a time chapter-wide, however
- *               many such elites are alive. Replaced 'sprayStrip', which marked a rectangle on the
- *               player from an elite that could be anywhere — a hazard with no visible cause.)
+ *               elite-gated). v6.6.16: there is no mower FLAG any more — the lawnmower became an
+ *               ambient chapter hazard (CHAPTERS[id].mower), rolling itself into run.lanes every
+ *               MOWER_GAP_MIN..MAX seconds once run.time passes MOWER_FIRST_T, one pass at a time.
+ *               It was briefly an elite flag (v6.6.14) and before that 'sprayStrip', which marked a
+ *               rectangle on the player from an elite that could be anywhere — no visible cause.
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
@@ -898,8 +898,10 @@ function generateWells(sig) {
  *   vehicle traverses the band: carT goes 0 -> 1 and the vehicle's center is
  *   (x, y) + dir × ((carT - 0.5) × len), dir = (cos angle, sin angle). A deckLen × deckW box on
  *   that center damages BOTH the player and every enemy it touches (dealDamage, once each —
- *   hitIds) for `dmg`, plus `kb` knockback along `angle`; enemies whose rosterId is in `squash` are
- *   killed outright unless elite. EVERY ONE OF THOSE IS SNAPSHOTTED ON THE LANE — the stepper never
+ *   hitIds), plus `kb` knockback along `angle`. What an ENEMY takes depends on the lane: the taxi
+ *   deals its flat `dmg` and one-shots any rosterId in `squash`; the mower carries `enemyFrac`
+ *   instead and removes that share of the target's OWN maxHP, elites included, so hpScale can never
+ *   outrun it. The PLAYER always takes `dmg`. EVERY ONE OF THOSE IS SNAPSHOTTED ON THE LANE — the stepper never
  *   reads the TRAFFIC_ or MOWER_ constants itself, so the two vehicles can differ and a retune
  *   desync a live pass (fields absent => the city's values, which keeps hand-built test lanes
  *   meaning what they always meant). `cover:false` opts out of findCover (a grass stalk does not

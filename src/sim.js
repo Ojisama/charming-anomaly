@@ -87,8 +87,8 @@ import {
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
   TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH, COVER_MIN_R,
-  MOWER_INTERVAL, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
-  MOWER_DECK_LEN, MOWER_DECK_W, MOWER_DMG, MOWER_KB, MOWER_SQUASH,
+  MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
+  MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
   TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
   GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
@@ -955,7 +955,7 @@ function spawnEnemy(run, opts = {}) {
   let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
   const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
   const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
-  const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul
+  const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul * (roster?.radiusMul ?? 1)
 
   const affixes = isElite ? rollAffixes(run) : []
   if (isElite && affixes.includes('gilded')) hp *= GILDED_HP_MUL
@@ -2733,18 +2733,13 @@ function rollTrafficLane(run, dt) {
 // independent 96px sweeps from different angles with no ceiling. The city caps this with
 // signature.lanes; here the single timer IS the cap.
 function rollMowerLane(run, dt) {
-  if (!(CHAPTERS[run.chapter].eliteFlags || []).includes('mower')) return
-  const mowerEveryS = MOWER_INTERVAL
-  run._mowerAcc = (run._mowerAcc ?? mowerEveryS) - dt
+  if (!CHAPTERS[run.chapter].mower) return
+  if (run.time < MOWER_FIRST_T) return                    // the opening minute stays calm
+  run._mowerAcc = (run._mowerAcc ?? 0) - dt
   if (run._mowerAcc > 0) return
-  run._mowerAcc += mowerEveryS
+  // Re-roll the gap every time, so passes never settle into a rhythm you can tune out.
+  run._mowerAcc = MOWER_GAP_MIN + Math.random() * (MOWER_GAP_MAX - MOWER_GAP_MIN)
   if (run.lanes.length > 0) return                        // one mower at a time, chapter-wide
-  // Armed only while the gardener is out. One O(n) scan per interval, not per frame.
-  let elite = false
-  for (const e of run.enemies) {
-    if (e.elite && !e._dead && e.flags && e.flags.includes('mower')) { elite = true; break }
-  }
-  if (!elite) return
   const p = run.player
   // Traffic's tier-3 shape — random heading, then a perpendicular offset — but MOWER_OFFSET is
   // deliberately UNDER the deck half-width, so unlike the taxi this always crosses a standing
@@ -2758,8 +2753,10 @@ function rollMowerLane(run, dt) {
     y: p.y + Math.cos(angle) * off,
     angle, len: MOWER_LEN, w: MOWER_W,
     phase: 'warn', t: MOWER_WARN, warnT: MOWER_WARN, carT: 0,
-    dmg: MOWER_DMG, sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
-    kb: MOWER_KB, squash: MOWER_SQUASH, look: 'mower', dot: true,
+    // Snapshotted at roll time like every other lane number: the player's flat damage ramps with
+    // run.time, so a pass hits for what it was worth when it started, not when it lands.
+    dmg: mowerDmgAt(run.time), sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
+    kb: MOWER_KB, enemyFrac: MOWER_ENEMY_HP_FRAC, look: 'mower', dot: true,
     cover: false, // a grass stalk does not stop a mower — and render must not ring one as if it did
     hitIds: new Set(),
   })
@@ -2802,7 +2799,7 @@ function stepLanePasses(run, dt) {
     // v6.6.14: a lane may hurt the player as an ordinary hit (the taxi) or as a dot (the mower).
     // The mower is dot-flagged to hold EXACT parity with the spray strip it replaces: dot bypasses
     // armour and grants no invulnerability. That second half is the load-bearing one — a normal hit
-    // hands out PLAYER.invulnTime, so a guaranteed pass every MOWER_INTERVAL would give a standing
+      // hands out PLAYER.invulnTime, so a guaranteed pass on every gap would give a standing
     // armoured player ~21% uptime of blanket immunity from the swarm, measurably undoing v6.3.4's
     // anti-turtle work (run MM.c: the turtle kept 25 more hp with the mower as a normal hit).
     // A dot grants no invuln, so "once per pass" stops being implicit and needs saying out loud.
@@ -2838,8 +2835,12 @@ function stepLanePasses(run, dt) {
       // v5.6.14 (user): cars ONE-SHOT the light roster — a non-elite pigeon/drone dies outright
       // under a car (dealt its remaining hp, so drops/death flow normally). Elites and everything
       // not in TRAFFIC_SQUASH take the ordinary TRAFFIC_DMG.
-      const squash = !e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)
-      dealDamage(run, e, squash ? e.hp : lane.dmg, false)
+      // lane.enemyFrac (the mower) takes a share of the target's OWN max hp, so it keeps mattering
+      // as hpScale climbs; the taxi still one-shots its squash list and deals its flat number.
+      let toEnemy
+      if (lane.enemyFrac > 0) toEnemy = Math.max(1, e.maxHP * lane.enemyFrac)
+      else toEnemy = (!e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)) ? e.hp : lane.dmg
+      dealDamage(run, e, toEnemy, false)
       const kb = lane.kb ?? TRAFFIC_KB
       e.kb.x += cos * kb
       e.kb.y += sin * kb
