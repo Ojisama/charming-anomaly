@@ -3920,35 +3920,42 @@ export function createRenderer(app) {
       T.car = bake(g)
     }
     {
-      // The Mower (v6.6.14, garden's `mower` elite flag — see rollMowerLane in sim.js). Same
-      // contract as the car above: top-down, nose +x, drawn at the REAL deck hitbox so what
-      // sweeps you is what you saw coming. A mower is the car's opposite proportion — short and
-      // wide, not long and narrow — and that silhouette is most of the read at a glance.
+      // The Mower (garden's `mower` elite flag — see rollMowerLane in sim.js). Same contract as
+      // the car above: top-down, nose +x, drawn at the REAL deck hitbox so what sweeps you is what
+      // you saw coming.
+      //
+      // v6.6.15: rebuilt from reference photos, because v6.6.14 shipped it on a false premise —
+      // "a mower is SHORT and WIDE, the opposite of the taxi". It is not. A 21-inch walk-behind is
+      // 56.4in x 22.3in assembled and every top view of one is LONGER than it is wide; the old
+      // 60x96 was the ratio inverted, and it read as a squashed brick. Now 160x96 with the real
+      // anatomy front to back: cutting deck with the engine on it, grass bag behind, handle last.
       const g = new Graphics()
       const L = MOWER_DECK_LEN
       const W = MOWER_DECK_W
       const deck = 0xd94f3d        // domestic-machine red: the one saturated thing on a green lawn
       const line = 0x4a1b14
+      const bag = 0x2b3138
       const metal = 0x9aa3ab
-      // handle bars trailing behind the deck — the shape that says "somebody is pushing this"
+      // Handle last in the silhouette and FIRST in the draw order, so the deck overlaps its roots.
       for (const s of [-1, 1]) {
-        g.moveTo(-L * 0.2, s * W * 0.22).lineTo(-L * 0.92, s * W * 0.26)
-        g.stroke({ width: 4, color: metal })
+        g.moveTo(-L * 0.16, s * W * 0.2).lineTo(-L * 0.46, s * W * 0.26)
+        g.stroke({ width: 4, color: metal, cap: 'round' })
       }
-      g.moveTo(-L * 0.92, -W * 0.26).lineTo(-L * 0.92, W * 0.26)
-      g.stroke({ width: 6, color: metal })
-      for (const s of [-1, 1]) {   // wheels, under the deck
-        g.rect(L * 0.2, s * W * 0.4 - W * 0.09, L * 0.2, W * 0.18).fill(0x1c1f24)
-        g.rect(-L * 0.4, s * W * 0.4 - W * 0.09, L * 0.2, W * 0.18).fill(0x1c1f24)
+      g.moveTo(-L * 0.46, -W * 0.26).lineTo(-L * 0.46, W * 0.26)
+      g.stroke({ width: 6, color: metal, cap: 'round' })
+      for (const s of [-1, 1]) {   // wheels: small in front, big at the back, outside the deck
+        g.roundRect(L * 0.18, s * W * 0.42 - W * 0.09, L * 0.13, W * 0.18, 3).fill(0x1c1f24)
+        g.roundRect(-L * 0.12, s * W * 0.45 - W * 0.11, L * 0.15, W * 0.22, 4).fill(0x1c1f24)
       }
-      // the deck: one rounded slab, widest across the cut
-      g.poly(spineOutline((t) => [-L * 0.5 + t * L, 0], (t) => W * 0.46 * bulge(0.5, 0.85), 24))
-        .fill(deck).stroke({ width: 2.4, color: line })
-      g.ellipse(0, W * 0.24, L * 0.34, W * 0.16).fill({ color: 0x8f2b1f, alpha: 0.28 })  // shaded flank
-      g.ellipse(0, -W * 0.26, L * 0.3, W * 0.12).fill({ color: 0xff9a86, alpha: 0.3 })   // lit flank
-      g.rect(L * 0.26, -W * 0.34, L * 0.1, W * 0.68).fill({ color: line, alpha: 0.75 })  // cutting slot at the nose
-      g.circle(-L * 0.02, 0, W * 0.17).fill(metal).stroke({ width: 2, color: line })     // engine housing
-      g.circle(-L * 0.02, 0, W * 0.07).fill(0x30363c)
+      // grass bag, slung behind the deck and narrower than it
+      g.roundRect(-L * 0.42, -W * 0.3, L * 0.3, W * 0.6, 9).fill(bag).stroke({ width: 2.4, color: 0x171a1e })
+      // the cutting deck: the widest thing on the machine, and the part that actually hits you
+      g.roundRect(-L * 0.2, -W * 0.44, L * 0.68, W * 0.88, 14).fill(deck).stroke({ width: 3, color: line })
+      g.roundRect(-L * 0.14, -W * 0.38, L * 0.56, W * 0.18, 8).fill({ color: 0xff9a86, alpha: 0.32 }) // lit flank
+      g.ellipse(L * 0.1, W * 0.28, L * 0.24, W * 0.1).fill({ color: 0x8f2b1f, alpha: 0.26 })          // shaded flank
+      g.roundRect(L * 0.4, -W * 0.34, L * 0.06, W * 0.68, 3).fill(line)                               // cutting lip
+      g.circle(L * 0.06, 0, W * 0.2).fill(metal).stroke({ width: 2.5, color: line })                  // engine
+      g.circle(L * 0.06, 0, W * 0.085).fill(0x30363c)
       T.mower = bake(g)
     }
     {

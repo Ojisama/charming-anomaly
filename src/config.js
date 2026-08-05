@@ -3165,8 +3165,18 @@ export const MOWER_W = 120            // px, width of the mown band (the telegra
 // own car's 55px half-width, so the city's van in fact misses a stationary player ~39% of rolls —
 // harmless there because players move, but not a property worth copying on purpose.)
 export const MOWER_OFFSET = 40
-export const MOWER_DECK_LEN = 60      // px, cutting-deck hitbox along the lane (a mower is SHORT)
-export const MOWER_DECK_W = 96        // px, cutting-deck hitbox across the lane (and WIDE)
+// px, the machine's hitbox. Proportions are REAL: a 21-inch walk-behind is 56.4in long x 22.3in
+// wide assembled (Toro Recycler), ~1.3:1 for the body alone without the handle, and a 42in ride-on
+// is 68-76in long x 45-55in wide (~1.45:1). Every mower is LONGER THAN IT IS WIDE. v6.6.14 shipped
+// this backwards at 60x96 ("a mower is short and wide") and it read as a squashed brick.
+// Mechanically this is nearly free: an enemy is hit once per pass (hitIds) and the deck sweeps the
+// WHOLE lane either way, so the corridor it clears is lane length x DECK_W — DECK_LEN only changes
+// how many frames a body spends inside the box, not whether it is caught.
+// 160x96 = 1.67:1. A real body alone is ~1.3:1, but this silhouette INCLUDES the grass bag and the
+// handle, and a walk-behind with its handle is ~2.5:1 — so this still sits on the short side of the
+// reference rather than past it. (Owner, on the 1.33:1 draft: "a little longer still".)
+export const MOWER_DECK_LEN = 160
+export const MOWER_DECK_W = 96        // the CUT: this is the width the player has to clear
 // Damage to the player. Parity with the spray it replaces, which was worth exactly 12: dot-flagged
 // at SPRAY_DPS 10, i.e. round(10 * STATUS_TICK) = 3 per tick x floor(SPRAY_ACTIVE / STATUS_TICK) = 4
 // ticks. A dot bypasses armour AND the invuln window; this is an ordinary hit, so armour now
