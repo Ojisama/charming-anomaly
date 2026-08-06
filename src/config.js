@@ -560,11 +560,24 @@ export const MAX_PASSIVE_LEVEL = 5
 // heavyBlade/minefield/bigBoom/heavyCharge/extraWisp/longLife/agile/biggerHole/lasting/denser/
 // wideBeam/longBeam/sustain) is a plain STAT mod folded into a weapon's per-level numbers by
 // effectiveWeaponStats — see sim.js.
+// v6.6.27 (owner: "reduce the number of redundant mods"). A mod may cap its OWN pick count below
+// MAX_WEAPON_MOD_PICKS via `maxPicks` (read by eligibleWeaponModCandidates in sim.js). This is the
+// v6.6.15 switch fix one step softer: a switch offered twice does literally nothing, while these
+// do something worth ~1% — legal, but a trap on a card that costs you the whole level-up.
+//
+// Every pierce mod in the game shares one ceiling, which is why they share one constant. A
+// projectile's hits per cast are bounded by GEOMETRY, not by its pierce budget: it can only meet
+// what its own path crosses before its life expires. Measured on the stinger at L5 (240s garden
+// d3, ~100-enemy field), volley hits plateau at ~11 no matter how large the budget gets —
+// pierce 3 -> 4 buys +14% dps, 4 -> 6 buys +11%, and every pick after that is worth ~1% each while
+// still consuming a card slot up to the global cap of 5. Two picks is where the curve flattens.
+// Raising the ladder in a weapon's levels[] is the honest lever past that point, not more cards.
+export const PIERCE_MAX_PICKS = 2
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
     // no-brainer even after the v4.4 offer caps (user call: star keeps 5 mods, no explosions).
-    pierce:    { name: 'Membrane Piercer',  desc: 'antigen pierce',                    icon: '🎯', base: 1,    kind: 'flat' },
+    pierce:    { name: 'Membrane Piercer',  desc: 'antigen pierce',                    icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     multishot: { name: 'Split Strain',     desc: 'antigens per volley',              icon: '💫', kind: 'tier' },
     split:     { name: 'Mitosis',     desc: "shard(s) on an antigen's first hit", icon: '🔱', base: 1,    kind: 'flat' },
     chain:     { name: 'Signal Cascade',     desc: 'chain jump(s) on spent antigens',  icon: '🔗', kind: 'tier' },
@@ -676,7 +689,7 @@ export const WEAPON_MODS = {
     volley:      { name: 'Wider Volley', desc: 'needles per volley',   icon: '🎯', base: 2,    kind: 'flat' },
     longNeedles: { name: 'Long Needles', desc: 'needle range & speed', icon: '📏', base: 0.30, kind: 'pct' },
     rapid:       { name: 'Rapid Fire',   desc: 'volley rate',          icon: '🚀', base: 0.25, kind: 'pct' },
-    piercingNeedles: { name: 'Barbed Needles', desc: 'needle pierce', icon: '🪝', base: 1, kind: 'flat' },
+    piercingNeedles: { name: 'Barbed Needles', desc: 'needle pierce', icon: '🪝', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     venomTips:   { name: 'Venom Tips',   desc: 'needles inject 1 venom stack', icon: '☠️', kind: 'switch' },
     hive:        { name: 'Hive Mind',    desc: 'every 4th volley fires all around', icon: '🐝', kind: 'switch' },
   },
@@ -715,7 +728,7 @@ export const WEAPON_MODS = {
     moreQuills:     { name: 'Bristling',      desc: 'quills per burst',    icon: '🦔', base: 2,    kind: 'flat' },
     longQuills:     { name: 'Long Quills',    desc: 'quill range & speed', icon: '📏', base: 0.30, kind: 'pct' },
     rapidQuills:    { name: 'Twitchy Spine',  desc: 'burst rate',          icon: '⏩', base: 0.25, kind: 'pct' },
-    piercingQuills: { name: 'Barbed Quills',  desc: 'quill pierce',        icon: '🎯', base: 1,    kind: 'flat' },
+    piercingQuills: { name: 'Barbed Quills',  desc: 'quill pierce',        icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     retaliate:      { name: 'Retaliation',    desc: 'getting hit fires a free burst', icon: '💢', base: 1, kind: 'flat' },
   },
   // terror/shockwave/shrill fold into chitterShriek's levels[] via WEAPON_STAT_MODS; rapidShriek
@@ -794,7 +807,7 @@ export const WEAPON_MODS = {
   realityShard: {
     keenShard:   { name: 'Keen Shards',  desc: 'shard damage',     icon: '🗡️', base: 0.25, kind: 'pct' },
     moreShards:  { name: 'Splintering',  desc: 'shards per volley', icon: '🔺', base: 1,    kind: 'flat' },
-    pierceShard: { name: 'Phase Edge',   desc: 'shard pierce',     icon: '🎯', base: 1,    kind: 'flat' },
+    pierceShard: { name: 'Phase Edge',   desc: 'shard pierce',     icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     rapidShard:  { name: 'Quick Draw',   desc: 'volley rate',      icon: '⏩', base: 0.25, kind: 'pct' },
     riftScar:    { name: 'Rift Scar',    desc: 'each blink leaves a detonating rift', icon: '🌀', base: 0.50, kind: 'pct' },
     recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one expires',    icon: '♾️', kind: 'tier' },

@@ -5630,8 +5630,11 @@ function eligibleWeaponModCandidates(run) {
     const picks = run.weaponModPicks[w.id]
     // v6.6.15: a 'switch' mod is an on/off unlock, so it is eligible ONCE. It used to sit in the
     // pool for MAX_WEAPON_MOD_PICKS picks, offering the player a card that did nothing.
+    // v6.6.27 (owner: "reduce the number of redundant mods") generalises that: a mod may declare
+    // its own `maxPicks` when its marginal value collapses well before the global cap. Same defect
+    // as the switch case, one step softer — a card that is still legal but no longer worth taking.
     const owned = Object.keys(modCfgs).filter((modId) =>
-      (picks?.[modId] ?? 0) < (modCfgs[modId].kind === 'switch' ? 1 : MAX_WEAPON_MOD_PICKS))
+      (picks?.[modId] ?? 0) < (modCfgs[modId].kind === 'switch' ? 1 : (modCfgs[modId].maxPicks ?? MAX_WEAPON_MOD_PICKS)))
     shuffleInPlace(owned)
     for (const modId of owned.slice(0, MOD_CANDIDATES_PER_WEAPON)) candidates.push({ weapon: w.id, mod: modId })
   }

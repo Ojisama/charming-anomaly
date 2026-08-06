@@ -15,7 +15,7 @@ import {
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
-  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL,
+  WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, MAX_MODS_PER_WEAPON_PER_POOL, PIERCE_MAX_PICKS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
@@ -8412,6 +8412,7 @@ try {
   testMowClears()
   testSpiderShare()
   testStingerPierce()
+  testRedundantMods()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -9392,4 +9393,66 @@ function testStingerPierce() {
   }
 
   console.log('PASS run SN (stinger pierce): ladder + piercingNeedles reach the needle, and needles pass through')
+}
+
+// ---- Run RM: redundant mods stop being offered (v6.6.27) --------------------------------------
+// Owner directive: "reduce the number of redundant mods". v6.6.15 already retired 'switch' mods
+// after one pick, because a second pick did literally nothing. This is the same defect one step
+// softer: a mod whose marginal value has collapsed is still LEGAL to take, so the pool kept
+// offering it up to MAX_WEAPON_MOD_PICKS. Every pierce mod is bounded by geometry rather than by
+// its pierce budget (a needle only meets what its path crosses), so picks past the second are
+// worth ~1% each — see the note on PIERCE_MAX_PICKS in config.js.
+function testRedundantMods() {
+  // (a) any declared cap must be a real cap: an integer that actually bites before the global one
+  let declared = 0
+  for (const [wid, byMod] of Object.entries(WEAPON_MODS)) {
+    for (const [mid, cfg] of Object.entries(byMod)) {
+      if (cfg.maxPicks === undefined) continue
+      declared++
+      assert.ok(Number.isInteger(cfg.maxPicks) && cfg.maxPicks >= 1, `${wid}.${mid} maxPicks must be an integer >= 1, got ${cfg.maxPicks}`)
+      assert.ok(cfg.maxPicks < MAX_WEAPON_MOD_PICKS, `${wid}.${mid} maxPicks ${cfg.maxPicks} does not bite — the global cap is already ${MAX_WEAPON_MOD_PICKS}`)
+      assert.notStrictEqual(cfg.kind, 'switch', `${wid}.${mid} is a switch — those are already capped at 1, maxPicks is redundant`)
+    }
+  }
+  assert.ok(declared >= 4, `expected the four pierce mods to declare a cap, found ${declared}`)
+  console.log(`PASS run RM.a (config): ${declared} mods declare a maxPicks below the global ${MAX_WEAPON_MOD_PICKS}`)
+
+  // (b) every pierce mod shares the ONE constant — the ceiling is a property of pierce, not of a
+  // weapon, so a future pierce mod added without it is the thing this catches.
+  const pierceMods = [['star', 'pierce'], ['stinger', 'piercingNeedles'], ['quillBurst', 'piercingQuills'], ['realityShard', 'pierceShard']]
+  for (const [wid, mid] of pierceMods) {
+    assert.strictEqual(WEAPON_MODS[wid][mid].maxPicks, PIERCE_MAX_PICKS, `${wid}.${mid} must share PIERCE_MAX_PICKS`)
+  }
+  console.log(`PASS run RM.b (shared ceiling): all ${pierceMods.length} pierce mods capped at PIERCE_MAX_PICKS=${PIERCE_MAX_PICKS}`)
+
+  // How often a given mod id shows up across many level-up pools for a weapon.
+  function offersOf(weaponId, modId, picksTaken) {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = [{ id: weaponId, level: 3 }]
+    run.choiceSlots = 4
+    run.weaponModPicks[weaponId][modId] = picksTaken
+    run.weaponMods[weaponId][modId] = picksTaken
+    let seen = 0
+    for (let i = 0; i < 400; i++) {
+      for (const c of buildLevelUpChoices(run)) if (c.kind === 'mod' && c.weapon === weaponId && c.id === modId) seen++
+      run.levelUpChoices = null
+    }
+    return seen
+  }
+
+  // (c) at the cap it disappears; (d) one below it, it is still offered — without (d), (c) would
+  // also pass if the mod were simply unreachable for some unrelated reason.
+  const atCap = offersOf('stinger', 'piercingNeedles', PIERCE_MAX_PICKS)
+  const belowCap = offersOf('stinger', 'piercingNeedles', PIERCE_MAX_PICKS - 1)
+  assert.strictEqual(atCap, 0, `expected Barbed Needles to stop being offered at ${PIERCE_MAX_PICKS} picks, saw it ${atCap} times`)
+  assert.ok(belowCap > 0, `expected Barbed Needles to still be offered at ${PIERCE_MAX_PICKS - 1} picks — otherwise RM.c proves nothing`)
+  console.log(`PASS run RM.c/d (the cap bites): offered ${belowCap}x at ${PIERCE_MAX_PICKS - 1} picks, ${atCap}x at ${PIERCE_MAX_PICKS}`)
+
+  // (e) it is SCOPED: an uncapped mod on the same weapon is untouched at the same pick count, so
+  // the cap is not just "the pool went quiet".
+  const uncapped = offersOf('stinger', 'sharper', PIERCE_MAX_PICKS)
+  assert.ok(uncapped > 0, 'expected an uncapped mod to still be offered at the same pick count')
+  console.log(`PASS run RM.e (scope): uncapped Sharper Tips still offered ${uncapped}x at ${PIERCE_MAX_PICKS} picks`)
+
+  console.log('PASS run RM (redundant mods): pierce cards retire once they stop being worth a level-up')
 }
