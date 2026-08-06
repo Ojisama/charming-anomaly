@@ -792,6 +792,15 @@ function generateWells(sig) {
  * state): spliced from obstacles[] (bumping _obstacleRev), permanently recorded in _crushed (see
  * below), an xp gem dropped via the same run.gems.push path a kill uses (CRUSH_XP, small by design
  * — see its doc in config.js for the xp-flooding hazard this avoids), and one event emitted:
+ *   {type:'mow', x, y, r}        the garden mower cut something down (a foliage obstacle, or a web
+ *                                it drove the middle of) — x,y = its center, r its radius, which
+ *                                only scales the burst. Render throws grass clippings, the mower's
+ *                                own particle. A SEPARATE event from 'crush' below on purpose: that
+ *                                one is the skies' masonry treatment (brick dust + a permanent ruin
+ *                                decal), and a mown shrub must not leave rubble on a lawn. Silent —
+ *                                the pass already has its engine noise, and one sfx per felled bush
+ *                                would machine-gun the graph exactly as design doc §2 warns.
+ *                                See `mows` under lanes[i] below, and stepLanePasses in sim.js.
  *   {type:'crush', x, y, kind}   a structure was destroyed (x,y = its center, kind = the obstacle's
  *                                STRUCTURE_KINDS tag) — render draws collapse + dust, audio maps it
  *                                to a crush sfx (throttled like shoot/hit/zap; see design doc §2).
@@ -908,6 +917,12 @@ function generateWells(sig) {
  *   stop a mower; render must not ring one as cover either). `dot:true` makes the player hit
  *   dot-flagged — armour-bypassing and granting NO invulnerability, which is why such a lane also
  *   carries its own once-per-pass guard (_hitPlayer) instead of leaning on the invuln window.
+ *   `mows:true` (v6.6.25, the mower alone) also CLEARS THE GROUND the deck drives over: obstacles
+ *   it touches are felled permanently (spliced + _crushed + _obstacleRev, exactly as stepCrush
+ *   does — without the _crushed entry streamObstacles re-rolls the identical bush straight back),
+ *   while webs and pheromone trails whose CENTRE it passes over are simply dropped. Those two are
+ *   NOT permanent: spiders spin new webs and ants lay new trails, so the lawn stays alive.
+ *   Each felled obstacle/web emits {type:'mow', x, y, r} for the clipping burst.
  *   Removed when t hits 0 in 'sweep'. See stepLanes / rollTrafficLane / rollMowerLane in sim.js.
  * v6.3 dispatch beat: {type:'dispatch', x, y} — fired once, at spawnEnemy's own push, the instant a
  *   REAL elite is born (isElite true; never a spawner's forceNormal minions) in a chapter with

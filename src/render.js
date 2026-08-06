@@ -10505,6 +10505,21 @@ export function createRenderer(app) {
         case 'kill':
           killPoof(e.x, e.y, e.etype, e.elite)
           break
+        // v6.6.25: something the mower cut down (sim.js's stepLanePasses, {type:'mow',x,y,r}).
+        // Deliberately NOT the 'crush' path below — that is the skies' masonry treatment, with
+        // brick dust and a permanent ruin decal, and a mown bush must not leave rubble on a lawn.
+        // Reuses the mower's own clipping particle so a felled bush and the spray off the deck read
+        // as one event. Scaled by the thing's radius: a big shrub throws more than a tuft.
+        case 'mow': {
+          const n = 4 + Math.min(8, Math.round((e.r ?? 24) / 5))
+          for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 60 + Math.random() * 90
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.35 + Math.random() * 0.2, 0.07, i % 3 ? 0x7cb342 : 0x9ccc65, 0.1, 2)
+          }
+          break
+        }
         case 'crush': {
           // v5.10: e.kind IS read now — it is the point. Brick does not fall like grain and neither
           // falls like a pier into water (SKIES_FX.crush.byKind), and the site keeps a kind-specific

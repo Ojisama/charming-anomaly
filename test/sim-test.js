@@ -37,6 +37,7 @@ import {
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN,
   MOWER_DECK_W, MOWER_DECK_LEN, MOWER_OFFSET, MOWER_ENEMY_HP_FRAC, MOWER_DMG_START, MOWER_DMG_END, mowerDmgAt,
+  WEB_R,
   MISSILE_SPEED, MISSILE_STANDOFF,
   STRAFE_BANK_T, STRAFE_RUN_T, STRAFE_TELEGRAPH_T,
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
@@ -8396,6 +8397,7 @@ try {
   testBuildReadout()
   testAnomalyReroll()
   testCommitVisibility()
+  testMowClears()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -8544,8 +8546,15 @@ function testMower() {
     run.time = atTime
     return run
   }
-  const runFor = (run, seconds) => {
-    for (let i = 0; i < Math.round(seconds / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+  // `sink` (v6.6.25, optional) collects the events drained each step. run.events is emptied here
+  // because in the real game main.js is the consumer that drains it — a scenario that leaves it
+  // filling would re-count the same event on every subsequent frame (the trap run MW hit in v6.6.14).
+  const runFor = (run, seconds, sink) => {
+    for (let i = 0; i < Math.round(seconds / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (sink) sink.push(...run.events)
+      run.events.length = 0
+    }
   }
 
   // -- MW.a: ambient, and only after MOWER_FIRST_T ------------------------------------------
@@ -8653,6 +8662,12 @@ function testMower() {
   }
 
   // -- MW.f: cover is a city idea; a grass stalk does not stop a mower ------------------------
+  // v6.6.25 rewrote the second half. It used to assert the obstacle SURVIVES, which was only ever a
+  // proxy for "the cover path did not consume it" — and the mower now mows foliage on purpose, so
+  // that proxy became a false alarm. The distinction is asserted directly instead: cover destroys
+  // an obstacle to SAVE the player and emits a 'crush'; mowing destroys it while the player is hurt
+  // anyway and emits 'mow'. A regression that resurrected cover here would hurt nobody and fire the
+  // wrong event, which the old shape could not have told apart.
   {
     const run = garden()
     runFor(run, 1.2)
@@ -8661,10 +8676,15 @@ function testMower() {
     assert.strictEqual(lane.cover, false, 'a mower lane opts out of findCover')
     run.obstacles = [{ x: -200, y: 0, r: COVER_MIN_R + 12, kind: 'tree', _cell: 'x' }]
     const hpBefore = run.player.hp
-    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.4)
+    const seen = []
+    runFor(run, MOWER_WARN + MOWER_SWEEP + 0.4, seen)
     assert.ok(run.player.hp < hpBefore, 'the obstacle must not shield the player from a mower')
-    assert.strictEqual(run.obstacles.length, 1, 'and must not be crushed as if it had')
-    console.log('PASS run MW.f (no cover): a big garden obstacle neither shields the player nor gets destroyed')
+    assert.ok(!lane._coverUsed, 'no cover save may be spent on a mower pass')
+    assert.strictEqual(seen.filter((e) => e.type === 'crush').length, 0,
+      'a mown bush must not emit the masonry crush event (brick dust + a permanent ruin decal on a lawn)')
+    assert.strictEqual(seen.filter((e) => e.type === 'mow').length, 1, 'it emits exactly one mow')
+    assert.strictEqual(run.obstacles.length, 0, 'and the mower does cut it down — just not as cover')
+    console.log('PASS run MW.f (no cover): a big garden obstacle does not shield the player; it is mown, not crushed')
   }
 
   // -- MW.g: "always crosses you" is literally true, not approximately -----------------------
@@ -9030,4 +9050,141 @@ function testCommitVisibility() {
   }
 
   console.log('PASS run AV (commit visibility): the leap attacks wait to be seen, and none of them deadlocked')
+}
+
+// ---- Run MC: v6.6.25 the mower clears the ground it drives over -------------------------------
+// Owner: "when a grass is cut by the lawnmower, the bush/herb/leaves/obstacles/spiderwebs etc
+// should disappear. Spiders can add more webs after." The second sentence is a requirement too:
+// obstacles go permanently (a felled bush stays felled) while webs and trails must be free to come
+// straight back, and MC.d pins that asymmetry — it is the one thing a careless "clear everything
+// permanently" implementation would get wrong and no other scenario would notice.
+function testMowClears() {
+  const dt = 1 / 60
+  // A garden run with the spawner and weapons silenced, parked just before the first pass is due,
+  // and a player who cannot die — the mower's own damage is MW's business, not this run's.
+  const garden = () => {
+    Math.random = mulberry32(20260806)
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = []; run.mods.spawnMul = 0; run.enemies.length = 0
+    run.obstacles = []; run._obstacleSeed = null   // no streaming: these scenarios place their own
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    run.time = MOWER_FIRST_T - 0.5
+    return run
+  }
+  const runFor = (run, seconds, sink) => {
+    for (let i = 0; i < Math.round(seconds / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (sink) sink.push(...run.events)
+      run.events.length = 0
+    }
+  }
+  // Arm a pass along the x axis through the origin, so "in the lane" is just |y| <= deckW/2.
+  // WEB_LONG, not WEB_DUR: a real web lives 4s and a full pass takes ~4.5s, so a naturally-expired
+  // web would look exactly like a mown one and MC.b/c/d would pass no matter what the mower did.
+  const WEB_LONG = 30
+  const armLane = (run) => {
+    runFor(run, 1.2)
+    assert.strictEqual(run.lanes.length, 1, 'a pass must be armed for this scenario to mean anything')
+    const lane = run.lanes[0]
+    lane.x = 0; lane.y = 0; lane.angle = 0
+    return lane
+  }
+  const FULL = MOWER_WARN + MOWER_SWEEP + 0.4
+
+  // (a) foliage in the path is cut; foliage beside it is not. The near miss is the assert that
+  // matters — "clears everything on the map" would pass a test that only checked the hit.
+  {
+    const run = garden()
+    const lane = armLane(run)
+    const inPath = { x: -200, y: 0, r: 30, kind: 'tree', _cell: 'a' }
+    const clear = { x: 200, y: MOWER_DECK_W / 2 + 30 + 25, r: 30, kind: 'tree', _cell: 'b' }
+    run.obstacles = [inPath, clear]
+    const rev = run._obstacleRev || 0
+    const seen = []
+    runFor(run, FULL, seen)
+    assert.ok(!run.obstacles.includes(inPath), 'a bush in the deck must be cut')
+    assert.ok(run.obstacles.includes(clear), 'a bush clear of the deck must survive')
+    assert.strictEqual(seen.filter((e) => e.type === 'mow').length, 1, 'exactly one mow event')
+    assert.ok((run._obstacleRev || 0) > rev,
+      'the obstacle revision must bump, or render keeps drawing the bush that is no longer there')
+    assert.ok(run._crushed.has('a'), 'the cut cell is recorded, or streamObstacles re-rolls the same bush right back')
+    assert.ok(!run._crushed.has('b'), 'the surviving cell is untouched')
+    console.log('PASS run MC.a (foliage): the deck fells what it touches, leaves what it misses, and tells render + the streamer')
+  }
+
+  // (b) webs and pheromone trails go too — the rest of the owner's list.
+  {
+    const run = garden()
+    const lane = armLane(run)
+    run.webs = [{ x: -100, y: 0, r: WEB_R, t: WEB_LONG }, { x: 100, y: 400, r: WEB_R, t: WEB_LONG }]
+    run.trails = [{ x: -50, y: 0, t: 9 }, { x: 50, y: 400, t: 9 }]
+    runFor(run, FULL)
+    assert.strictEqual(run.webs.length, 1, 'the web under the deck is shredded')
+    assert.strictEqual(run.webs[0].y, 400, 'and the far one is not')
+    assert.strictEqual(run.trails.length, 1, 'the scent trail under the deck is cut')
+    assert.strictEqual(run.trails[0].y, 400, 'and the far one is not')
+    console.log('PASS run MC.b (webs + trails): patches under the deck are cleared, patches beside it are left alone')
+  }
+
+  // (c) patches use their CENTRE, not overlap. A web is ~1.5x wider than the deck, so an overlap
+  // test would shred a 240px swath for a 96px cut — this pins the narrower rule deliberately.
+  {
+    assert.ok(WEB_R * 2 > MOWER_DECK_W,
+      `this scenario is only meaningful while a web (${WEB_R * 2}px across) is wider than the deck (${MOWER_DECK_W})`)
+    const run = garden()
+    armLane(run)
+    // centre outside the deck, but its circle very much overlaps
+    run.webs = [{ x: 0, y: MOWER_DECK_W / 2 + 20, r: WEB_R, t: WEB_LONG }]
+    runFor(run, FULL)
+    assert.strictEqual(run.webs.length, 1, 'a web merely CLIPPED by the deck survives — only the ones driven over go')
+    console.log('PASS run MC.c (centre, not overlap): a web the deck only clips is not shredded whole')
+  }
+
+  // (d) THE ASYMMETRY, straight from the directive's second sentence. A bush stays gone; a spider
+  // can immediately re-web the same ground. Both halves asserted on the SAME run so a blanket
+  // "remember everything we cleared" implementation cannot pass.
+  {
+    const run = garden()
+    armLane(run)
+    run.obstacles = [{ x: -200, y: 0, r: 30, kind: 'tree', _cell: 'a' }]
+    run.webs = [{ x: -100, y: 0, r: WEB_R, t: WEB_LONG }]
+    runFor(run, FULL)
+    assert.strictEqual(run.obstacles.length, 0, 'the bush is down')
+    assert.strictEqual(run.webs.length, 0, 'the web is gone')
+    // a spider spins again over the very ground just mown
+    run.webs.push({ x: -100, y: 0, r: WEB_R, t: WEB_LONG })
+    runFor(run, 1.0)
+    assert.strictEqual(run.webs.length, 1, 'spiders can add more webs after — nothing may blacklist that ground')
+    assert.ok(run._crushed.has('a'), 'while the felled bush stays felled for the rest of the run')
+    console.log('PASS run MC.d (the asymmetry): felled foliage stays down, but mown ground accepts a fresh web at once')
+  }
+
+  // (e) it is the MOWER that does this, not lanes in general — a taxi must not defoliate a street.
+  {
+    Math.random = mulberry32(20260806)
+    const city = createRun(makeMeta(), { chapter: 'city' })
+    city.weapons = []; city.mods.spawnMul = 0; city.enemies.length = 0
+    city._obstacleSeed = null
+    city.player.x = 0; city.player.y = 0; city.player.hp = 1e9; city.player.maxHP = 1e9
+    city.lanes = []
+    let lane = null
+    for (let i = 0; i < 60 * 60 && !lane; i++) {
+      stepSim(city, { x: 0, y: 0 }, dt); city.events.length = 0
+      lane = city.lanes[0] ?? null
+    }
+    assert.ok(lane, 'a traffic lane must arm for this comparison to mean anything')
+    assert.ok(!lane.mows, 'a traffic lane does not carry the mows flag')
+    lane.x = 0; lane.y = 0; lane.angle = 0
+    // well clear of the player, so the cover path (which CAN legitimately destroy an obstacle to
+    // shield you) is not what is being measured here
+    city.obstacles = [{ x: -200, y: 0, r: 30, kind: 'tree', _cell: 'c' }]
+    city.player.x = 3000; city.player.y = 3000
+    for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.4) / dt); i++) {
+      stepSim(city, { x: 0, y: 0 }, dt); city.events.length = 0
+    }
+    assert.strictEqual(city.obstacles.length, 1, 'a taxi must leave street furniture standing')
+    console.log('PASS run MC.e (mower only): a city traffic pass drives past an obstacle without felling it')
+  }
+
+  console.log('PASS run MC (mow clears): foliage felled for good, webs and trails cut but free to return, and only the mower does it')
 }

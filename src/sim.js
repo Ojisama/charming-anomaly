@@ -2774,6 +2774,8 @@ function rollMowerLane(run, dt) {
     // run.time, so a pass hits for what it was worth when it started, not when it lands.
     dmg: mowerDmgAt(run.time), sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
     kb: MOWER_KB, enemyFrac: MOWER_ENEMY_HP_FRAC, look: 'mower', dot: true,
+    mows: true,   // v6.6.25: this deck clears foliage/webs/trails — see stepLanePasses
+
     cover: false, // a grass stalk does not stop a mower — and render must not ring one as if it did
     hitIds: new Set(),
   })
@@ -2861,6 +2863,42 @@ function stepLanePasses(run, dt) {
       const kb = lane.kb ?? TRAFFIC_KB
       e.kb.x += cos * kb
       e.kb.y += sin * kb
+    }
+    // v6.6.25 (owner: "when a grass is cut by the lawnmower, the bush/herb/leaves/obstacles/
+    // spiderwebs etc should disappear"): the deck clears the ground it drives over. Only a lane
+    // that says so does this — the taxi drives on asphalt and must not defoliate a street.
+    // The two collections use DIFFERENT tests on purpose:
+    //   - an obstacle is a solid thing, so the blade touching any part of it fells the whole
+    //     (o.r pad — the same overlap rule stepCrush uses for a crushed structure), and it is
+    //     removed the same permanent way, or streamObstacles re-rolls the identical bush back in
+    //     from its pure hash the next time the player crosses a cell boundary.
+    //   - a web (and a pheromone trail) is a flat PATCH of ground, ~1.5x wider than the deck
+    //     itself. Overlap there would shred a 240px swath for a 96px cut, so these go only when
+    //     the deck passes over their CENTRE. Neither is permanent: spiders spin new webs and ants
+    //     lay new trails immediately, which is exactly the intended loop.
+    if (lane.mows) {
+      if (run.obstacles && run.obstacles.length > 0) {
+        let cut = false
+        for (let i = run.obstacles.length - 1; i >= 0; i--) {
+          const o = run.obstacles[i]
+          if (!inCar(o.x, o.y, o.r)) continue
+          run.obstacles.splice(i, 1)
+          run._crushed.add(o._cell)
+          cut = true
+          run.events.push({ type: 'mow', x: o.x, y: o.y, r: o.r })
+        }
+        // render's syncObstacles only rebuilds when this changes — without the bump it keeps
+        // drawing the bush that is no longer there (same line stepCrush and the cover path carry).
+        if (cut) run._obstacleRev = (run._obstacleRev || 0) + 1
+      }
+      if (run.webs && run.webs.length > 0) {
+        const kept = run.webs.filter((w) => !inCar(w.x, w.y, 0))
+        if (kept.length !== run.webs.length) {
+          for (const w of run.webs) if (inCar(w.x, w.y, 0)) run.events.push({ type: 'mow', x: w.x, y: w.y, r: w.r })
+          run.webs = kept
+        }
+      }
+      if (run.trails && run.trails.length > 0) run.trails = run.trails.filter((tr) => !inCar(tr.x, tr.y, 0))
     }
     if (lane.t <= 0) lane._done = true
   }
