@@ -46,7 +46,8 @@ import {
   BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
-  CLAW_DOUBLE_EVERY, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
+  CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
+  QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
@@ -6898,13 +6899,21 @@ function testEarlyCalm() {
     console.log('PASS run OO.b (difficulty 2: calm gone, balance stays): body/pond keep balance-only spawnMul/xpMul, garden baseline 1/1')
   }
 
-  // (c) a chapter outside EARLY_CALM (and outside balance) at explicit difficulty 1 stays baseline.
+  // (c) a chapter outside EARLY_CALM (and declaring no spawn/xp balance) at explicit difficulty 1
+  // stays baseline — i.e. EARLY_CALM does not leak to chapters it was never listed for.
+  // v6.6.28: the subject used to be hard-coded to 'undergrowth', and rotted the moment undergrowth
+  // gained a `balance: { spawnMul: 0.8 }` block (owner: "20% less enemies"). The claim under test
+  // is about the EARLY_CALM gate, not about any one chapter, so the subject is now DERIVED: the
+  // first chapter that is neither in EARLY_CALM nor declares a spawn/xp balance factor.
   {
     Math.random = mulberry32(20260714)
-    const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 1 })
-    assert.strictEqual(run.mods.spawnMul, 1, `expected undergrowth d1 mods.spawnMul === 1, got ${run.mods.spawnMul}`)
-    assert.strictEqual(run.mods.xpMul, 1, `expected undergrowth d1 mods.xpMul === 1, got ${run.mods.xpMul}`)
-    console.log('PASS run OO.c (chapter not in EARLY_CALM or balance): undergrowth at d1 keeps baseline spawnMul/xpMul=1')
+    const subject = CHAPTER_ORDER.find((id) =>
+      !EARLY_CALM_CHAPTERS.includes(id) && balSpawnMul(id) === 1 && balXpMul(id) === 1)
+    assert.ok(subject, 'no chapter left outside both EARLY_CALM and spawn/xp balance — OO.c has nothing to test')
+    const run = createRun(makeMeta(), { chapter: subject, difficulty: 1 })
+    assert.strictEqual(run.mods.spawnMul, 1, `expected ${subject} d1 mods.spawnMul === 1, got ${run.mods.spawnMul}`)
+    assert.strictEqual(run.mods.xpMul, 1, `expected ${subject} d1 mods.xpMul === 1, got ${run.mods.xpMul}`)
+    console.log(`PASS run OO.c (chapter not in EARLY_CALM or spawn/xp balance): ${subject} at d1 keeps baseline spawnMul/xpMul=1`)
   }
 
   // (d) difficulty omitted entirely (the daily/test shape) — the local `difficulty` defaults to 1
@@ -7425,42 +7434,68 @@ function testStreamedTrapPredators() {
     console.log(`PASS run TT.d (ambushPredator): sprung trap inside AMBUSH_R -> ${near} dmg, outside -> ${far} dmg (x${ratio.toFixed(3)}, armed-or-sprung contract pinned via the sprung trap)`)
   }
 
-  // (e) dartRat minT/weight (v6.5): Run KK.c's roster-pool approach — force spawnEnemy via the REAL
-  // path (_spawnAcc primed, spawnMul=0, run.time pinned) so every spawn in the batch sees the same
-  // wave-table/minT window. Undergrowth's WAVE_TABLE spawns only 'drone' (normal archetype) before
-  // t=40, so the rat/dartRat pool is the entire forced batch at t=10.
+  // (e) v6.6.28 (owner: "mice should not 'jump' only walk"). This slot used to cover the v6.5
+  // `dartRat` entry's minT/weight gate. That entry is GONE — `dashBurst` is idle-then-committed-
+  // lunge with no leap drawn for it, which on screen is a rat teleporting at you. So the slot now
+  // carries the owner's rule as a TRIPWIRE, and re-homes the generic minT/weight coverage the
+  // deleted assertions used to provide onto city's `patrolDrone`, which is still built on it.
   {
+    // (e1) the tripwire: nothing in undergrowth may re-acquire a dash/leap movement flag. Written
+    // against the flag VOCABULARY rather than against the one id that carried it, so re-adding the
+    // behaviour under a different roster id still trips this.
+    const JUMPY = ['dashBurst', 'pounce', 'diveBomb', 'blink', 'aerialStrike']
+    for (const entry of CHAPTERS.undergrowth.roster) {
+      if (entry.id === 'cat') continue // the one deliberate exception — asserted positively below
+      for (const flag of entry.flags ?? []) {
+        assert.ok(!JUMPY.includes(flag),
+          `undergrowth roster '${entry.id}' carries '${flag}' — the owner's rule is that its rodents WALK. ` +
+          'The cat keeps `pounce` because it is the chapter signature and is telegraphed; nothing else may leap.')
+      }
+    }
+    // The cat is the one deliberate exception, and it must still be there — otherwise the loop
+    // above is vacuously true and the chapter has silently lost its signature predator.
+    const cat = CHAPTERS.undergrowth.roster.find((e) => e.id === 'cat')
+    assert.ok(cat?.flags?.includes('pounce'), 'undergrowth lost the cat\'s telegraphed pounce — that IS the chapter signature')
+    assert.strictEqual(CHAPTERS.undergrowth.roster.length, 3,
+      'undergrowth roster changed size — if an entry was added, decide whether it may leap and update JUMPY above')
+    console.log(`PASS run TT.e1 (rodents walk): 0/${CHAPTERS.undergrowth.roster.length} undergrowth entries carry a leap flag, cat keeps its telegraphed pounce`)
+
+    // (e2) the minT/weight machinery itself, re-homed to city's patrolDrone (minT 60, weight 0.3).
+    // Same forced-batch approach the dartRat version used: prime _spawnAcc, silence spawnMul, pin
+    // run.time, and let the REAL spawn path pick out of the roster pool for that window.
     Math.random = mulberry32(20260714)
-    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    const drone = CHAPTERS.city.roster.find((e) => e.id === 'patrolDrone')
+    assert.ok(drone?.minT > 0 && drone.weight > 0, 'city patrolDrone lost its minT/weight gate — TT.e2 has nothing to test')
+    const run = createRun(makeMeta(), { chapter: 'city' })
     run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
 
-    run.time = 10
+    run.time = drone.minT - 20
     run._spawnAcc = 40
     stepSim(run, { x: 0, y: 0 }, 1e-6)
-    const early = run.enemies.filter((e) => e.rosterId === 'rat' || e.rosterId === 'dartRat')
-    assert(early.length > 0, 'expected at least one normal-archetype spawn before t=30 to make the next assert meaningful')
-    const earlyDart = early.filter((e) => e.rosterId === 'dartRat').length
-    assert.strictEqual(earlyDart, 0, `expected ZERO dartRat spawns before minT=30, got ${earlyDart}/${early.length}`)
+    const early = run.enemies.filter((e) => e.rosterId === 'ratDrone' || e.rosterId === 'patrolDrone')
+    assert(early.length > 0, 'expected at least one normal-archetype spawn before minT to make the next assert meaningful')
+    const earlyGated = early.filter((e) => e.rosterId === 'patrolDrone').length
+    assert.strictEqual(earlyGated, 0, `expected ZERO patrolDrone spawns before minT=${drone.minT}, got ${earlyGated}/${early.length}`)
 
     run.enemies = []
-    run.time = 60
+    run.time = drone.minT + 60
     run._nextEliteAt = run.time + eliteEveryAt(run.time)
     run._spawnAcc = 80
     stepSim(run, { x: 0, y: 0 }, 1e-6)
-    const late = run.enemies.filter((e) => e.rosterId === 'rat' || e.rosterId === 'dartRat')
-    const rats = late.filter((e) => e.rosterId === 'rat')
-    const dartRats = late.filter((e) => e.rosterId === 'dartRat')
-    assert(rats.length > 0, `expected plain rats to still spawn at t=60, got ${rats.length}/${late.length}`)
-    assert(dartRats.length > 0, `expected dartRat spawns once minT=30 has passed, got ${dartRats.length}/${late.length}`)
-    for (const dr of dartRats) {
-      assert(dr.flags.includes('dashBurst'), `expected every dartRat to carry the dashBurst flag, got [${dr.flags.join(',')}]`)
+    const late = run.enemies.filter((e) => e.rosterId === 'ratDrone' || e.rosterId === 'patrolDrone')
+    const plain = late.filter((e) => e.rosterId === 'ratDrone')
+    const gated = late.filter((e) => e.rosterId === 'patrolDrone')
+    assert(plain.length > 0, `expected plain rat-catcher drones to still spawn past minT, got ${plain.length}/${late.length}`)
+    assert(gated.length > 0, `expected patrolDrone spawns once minT=${drone.minT} has passed, got ${gated.length}/${late.length}`)
+    assert(gated.length < late.length, `weight=${drone.weight} must keep patrolDrone a MINORITY of the normal pool, got ${gated.length}/${late.length}`)
+    for (const d of gated) {
+      assert(d.flags.includes('aerialStrike'), `expected every patrolDrone to carry aerialStrike, got [${d.flags.join(',')}]`)
     }
-
-    console.log(`PASS run TT.e (dartRat minT/weight): 0/${early.length} dartRat before t=30, ${dartRats.length}/${late.length} after (all carrying dashBurst)`)
+    console.log(`PASS run TT.e2 (minT/weight machinery): 0/${early.length} patrolDrone before t=${drone.minT}, ${gated.length}/${late.length} after (all carrying aerialStrike)`)
   }
 
-  console.log('PASS run TT (v6.5 undergrowth streamed traps): determinism + zero-RNG, sprung persistence across streaming, leap-skip + land-slam, ambushPredator armed-or-sprung, dartRat minT/weight')
+  console.log('PASS run TT (v6.5 undergrowth streamed traps): determinism + zero-RNG, sprung persistence across streaming, leap-skip + land-slam, ambushPredator armed-or-sprung, rodents-walk tripwire + minT/weight')
 }
 
 // ---- Run UU: v6.5.1 enemy separation — no more 100% stacks (owner directive) -----------------
@@ -8413,6 +8448,7 @@ try {
   testSpiderShare()
   testStingerPierce()
   testRedundantMods()
+  testUndergrowthRound()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -9455,4 +9491,310 @@ function testRedundantMods() {
   console.log(`PASS run RM.e (scope): uncapped Sharper Tips still offered ${uncapped}x at ${PIERCE_MAX_PICKS} picks`)
 
   console.log('PASS run RM (redundant mods): pierce cards retire once they stop being worth a level-up')
+}
+
+// ---- Run UG: v6.6.28 undergrowth feedback round (owner directives) --------------------------
+// Six owner items landed on one chapter at once. Five of them are numbers a future edit could
+// silently undo, and two are new machinery. This run pins each one to the DIRECTIVE, not to the
+// implementation, so a regression reads as "the owner asked for X and no longer gets it".
+//   (a) centipede -30% HP            (b) claw width +30%       (c) claw crit +10 POINTS
+//   (d) quill ladder                 (e) reboundQuills         (f) chitterSpines
+//   (g) the dud card is actually gone
+function testUndergrowthRound() {
+  // (a) centipede hpMul. Pinned as the arithmetic the owner asked for (-30% of the old 1.15), not
+  // as a bare literal, so the intent survives a future re-tune of the pre-change number.
+  {
+    const cent = CHAPTERS.undergrowth.roster.find((e) => e.id === 'centipede')
+    assert.ok(Math.abs(cent.hpMul - 1.15 * 0.7) < 1e-9,
+      `expected centipede hpMul = 1.15 x 0.7 = 0.805 ("centipede -30%hp"), got ${cent.hpMul}`)
+    const softest = CHAPTERS.undergrowth.roster.reduce((a, b) => (a.hpMul <= b.hpMul ? a : b))
+    assert.strictEqual(softest.id, 'centipede',
+      `after the cut the centipede must be the squishiest thing in the chapter, but ${softest.id} is (${softest.hpMul})`)
+    console.log(`PASS run UG.a (centipede -30% hp): hpMul ${cent.hpMul}, now the softest of ${CHAPTERS.undergrowth.roster.length} roster entries`)
+  }
+
+  // (b) claw arc x1.30 at EVERY level, and the rake stays narrower than flagella at every level —
+  // that separation is the two melee starters' whole design and the widening must not erase it.
+  {
+    const PRE = [0.70, 0.75, 0.82, 0.88, 0.95]
+    const arcs = WEAPONS.clawRake.levels.map((l) => l.arc)
+    assert.strictEqual(arcs.length, PRE.length, 'clawRake level count changed — re-derive UG.b\'s PRE ladder')
+    arcs.forEach((arc, i) => {
+      // pinned as a RATIO, because the shipped ladder is written to 2dp and 0.95 x 1.3 = 1.235 sits
+      // exactly on a rounding boundary. The directive is "+30%", so that is what gets asserted.
+      const ratio = arc / PRE[i]
+      assert.ok(Math.abs(ratio - 1.3) < 0.01,
+        `expected clawRake L${i + 1} arc to be 1.30x its pre-v6.6.28 ${PRE[i]} ("base claw width +30%"), got ${arc} = x${ratio.toFixed(4)}`)
+      assert.ok(arc < WEAPONS.flagella.levels[i].arc,
+        `the rake must stay NARROWER than the whip at L${i + 1} (rake ${arc} vs whip ${WEAPONS.flagella.levels[i].arc}) — shape is what separates the two melee starters`)
+    })
+    console.log(`PASS run UG.b (claw width +30%): arcs ${arcs.join('/')}, all still under flagella's ${WEAPONS.flagella.levels.map((l) => l.arc).join('/')}`)
+  }
+
+  // (c) CLAW_BASE_CRIT actually reaches the roll. Measured, not asserted off the constant: run a
+  // claw-only build against a frozen target ring and count crit vs non-crit `hit` events. The
+  // player's own crit chance is pinned to 0 for the duration, so the ONLY crits that can appear are
+  // the rake's own — which makes this the mutation-sensitive form (drop the 4th arg at the
+  // slashClaws call site and the observed rate collapses to 0).
+  {
+    Math.random = mulberry32(20260728)
+    const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+    run.weapons = [{ id: 'clawRake', level: 5 }]
+    run.player.critChance = 0
+    run.passives.critChance = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+    run.mods.spawnMul = 0
+    run.obstacles = []; run._obstacleSeed = null; run.traps = []
+    seedTargetRing(run, 14, 1e9, 60)
+    // pin the ring: the rake carries 50 knockback, so an unpinned ring is shoved past `range` after
+    // a few slashes and the sample starves (154 hits instead of thousands)
+    const slots = run.enemies.map((e) => [e.x, e.y])
+    let crits = 0
+    let hits = 0
+    for (let i = 0; i < 13000; i++) {
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      for (const ev of run.events) if (ev.type === 'hit' && !ev.dot) { hits++; if (ev.crit) crits++ }
+      run.events.length = 0
+      run.levelUpChoices = null
+      if (run.phase === 'levelup') run.phase = 'playing'
+      run.weapons = [{ id: 'clawRake', level: 5 }]
+      run.player.critChance = 0
+      run.player.x = 0; run.player.y = 0
+      run.enemies.forEach((e, k) => { if (slots[k]) { e.x = slots[k][0]; e.y = slots[k][1]; e.kb.x = 0; e.kb.y = 0 } })
+    }
+    const rate = crits / hits
+    assert.ok(hits > 2000, `UG.c needs a big sample to bound the rate; only ${hits} rake hits landed`)
+    assert.ok(Math.abs(rate - CLAW_BASE_CRIT) < 0.02,
+      `with the player's own crit zeroed, rake hits must still crit at CLAW_BASE_CRIT=${CLAW_BASE_CRIT} ("base claw crit chance +10%"), observed ${(rate * 100).toFixed(1)}% over ${hits} hits`)
+    console.log(`PASS run UG.c (claw crit +10 points): ${crits}/${hits} rake hits crit = ${(rate * 100).toFixed(1)}% with player crit pinned at 0 (CLAW_BASE_CRIT=${CLAW_BASE_CRIT})`)
+  }
+
+  // (d) the quill ladder. The owner's complaint was that the RARE card opened weaker than the
+  // chapter's own starter, caused by pierce 1 at L1-L2 and a count+pierce cliff at L2->L3. Pin the
+  // shape of the fix: pierce flat, every other stat monotone, no single step carrying the weapon.
+  {
+    const lv = WEAPONS.quillBurst.levels
+    for (const l of lv) {
+      assert.strictEqual(l.pierce, 2, `every quillBurst level must carry pierce 2 (the L2->L3 cliff is what made the card open weak), got ${l.pierce}`)
+    }
+    for (let i = 1; i < lv.length; i++) {
+      assert.ok(lv[i].dmg > lv[i - 1].dmg, `quillBurst dmg must climb at L${i + 1}`)
+      assert.ok(lv[i].count > lv[i - 1].count, `quillBurst count must climb at L${i + 1}`)
+      assert.ok(lv[i].rate < lv[i - 1].rate, `quillBurst interval must shorten at L${i + 1}`)
+    }
+    // The cliff, in measurable form. NOT "share of total growth" — paper throughput is
+    // superlinear, so the last step always carries the biggest absolute share and that metric
+    // flags a perfectly even ladder (the old broken ladder's worst step by share was L4->L5 at
+    // 40%, not the L2->L3 cliff at 33%). What actually distinguishes them is the level-to-level
+    // GROWTH RATIO: the old ladder ran x1.51, x3.27, x1.48, x1.57 — one step nearly 3.3x while the
+    // rest sat near 1.5. Pin that the ladder is geometric, i.e. the fastest step is close to the
+    // slowest. This form fails loudly on the pre-v6.6.28 numbers (2.30) and passes on these (1.04).
+    const paper = lv.map((l) => (l.dmg * l.count * l.pierce) / l.rate)
+    const steps = paper.slice(1).map((p, i) => p / paper[i])
+    const spread = Math.max(...steps) / Math.min(...steps)
+    assert.ok(spread < 1.25,
+      `quillBurst's level-to-level growth must be even; got ${steps.map((r) => 'x' + r.toFixed(2)).join(' ')} — a spread of ${spread.toFixed(2)} means one level is carrying the weapon`)
+    console.log(`PASS run UG.d (quill ladder): pierce 2 at all 5 levels, monotone dmg/count/rate, growth ${steps.map((r) => 'x' + r.toFixed(2)).join(' ')} (spread ${spread.toFixed(2)})`)
+  }
+
+  // (e) reboundQuills. Hand-built quills pushed straight into run.bullets, exactly as fireQuills
+  // stamps them — stepBullets is not exported, but stepSim runs it over whatever is in the list, so
+  // this drives the real branch with no weapon, no spawns and no RNG in the way.
+  {
+    const mkQuill = (run, o = {}) => {
+      const speed = o.speed ?? 400
+      const life = o.life ?? 0.4
+      const b = {
+        x: o.x ?? 0, y: o.y ?? 0, vx: speed, vy: 0,
+        dmg: o.dmg ?? 40, pierce: o.pierce ?? 2, life, r: QUILL_R, speed,
+        hitIds: new Set(), weapon: 'quill',
+        _reboundsLeft: o.rebounds ?? 0,
+        _reboundPierce: o.pierce ?? 2,
+        _reboundLife: life / QUILL_REBOUND_SPEED_MUL,
+        _reboundSpeed: speed * QUILL_REBOUND_SPEED_MUL,
+        _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      }
+      run.bullets.push(b)
+      return b
+    }
+    const emptyRun = () => {
+      Math.random = mulberry32(20260728)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = []
+      run.mods.spawnMul = 0
+      run.obstacles = []; run._obstacleSeed = null; run.traps = []
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      run.enemies.length = 0
+      return run
+    }
+
+    // (e1) no budget => the quill expires at the end of its flight, exactly as before the mod.
+    {
+      const run = emptyRun()
+      mkQuill(run, { rebounds: 0 })
+      for (let i = 0; i < 60; i++) { stepSim(run, { x: 0, y: 0 }, 1 / 60); run.enemies.length = 0; run.events.length = 0 }
+      assert.strictEqual(run.bullets.length, 0, 'a quill with no rebound budget must expire at the end of its flight')
+    }
+
+    // (e2) with a budget it turns around, and the return speed is CONSTANT across trips. Multiplying
+    // b.vx by the speed factor each turn instead compounds: by the 15th trip the quill is at 10% of
+    // its range, vibrating in place. Sampling every generation is what catches that.
+    {
+      const run = emptyRun()
+      const b = mkQuill(run, { rebounds: 3, speed: 400 })
+      const speeds = []
+      let seen = 3
+      for (let i = 0; i < 400 && run.bullets.length; i++) {
+        stepSim(run, { x: 0, y: 0 }, 1 / 60); run.enemies.length = 0; run.events.length = 0
+        if (b._reboundsLeft < seen) { seen = b._reboundsLeft; speeds.push(Math.hypot(b.vx, b.vy)) }
+      }
+      assert.strictEqual(speeds.length, 3, `expected 3 return trips from a 3-rebound budget, saw ${speeds.length}`)
+      const want = 400 * QUILL_REBOUND_SPEED_MUL
+      for (const [i, sp] of speeds.entries()) {
+        assert.ok(Math.abs(sp - want) < 1e-6,
+          `return trip ${i + 1} must travel at the SAME speed as trip 1 (${want}), got ${sp} — the speed factor is compounding`)
+      }
+      assert.ok(b.vx < 0, 'a rebounded quill must be travelling back the way it came')
+    }
+
+    // (e3) the chain terminates on DAMAGE, not only on the pick count. Without that, decay by
+    // rounding parks at 1 damage forever — and every rebound hit is a full applyDamage, so an
+    // endless 1-damage quill is an endless free source of element stacks (measured: an uncapped
+    // chain took the share of the field chilled/frozen from 13% to 46%).
+    {
+      const run = emptyRun()
+      const b = mkQuill(run, { rebounds: 999, dmg: 30 })
+      let steps = 0
+      for (; steps < 20000 && run.bullets.length; steps++) {
+        stepSim(run, { x: 0, y: 0 }, 1 / 60); run.enemies.length = 0; run.events.length = 0
+      }
+      assert.strictEqual(run.bullets.length, 0,
+        `a quill with a 999-rebound budget must still die once its damage decays to 0, but it was alive at ${b.dmg} dmg after ${steps} frames`)
+      assert.ok(b._reboundsLeft > 900, 'the chain must have been ended by DAMAGE decay, not by exhausting the pick budget')
+    }
+
+    // (e4) a quill that spends its PIERCE rebounds too. This is the crowd case and it is the whole
+    // point: measured, the share of quills that die on life rather than pierce falls from 98% in a
+    // run's first minute to 56% at t=180-240, so a life-only rebound fires when the screen is empty
+    // and never when it is full — backwards for a card whose text promises a return sweep.
+    {
+      const run = emptyRun()
+      seedTargetRing(run, 10, 1e9, 40)
+      const b = mkQuill(run, { rebounds: 1, pierce: 1, dmg: 40, life: 2 })
+      let spentPierceAndLived = false
+      for (let i = 0; i < 30 && run.bullets.length; i++) {
+        stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0
+        if (b._reboundsLeft === 0 && b.pierce > 0) { spentPierceAndLived = true; break }
+      }
+      assert.ok(spentPierceAndLived,
+        'a quill that spent its pierce budget in a crowd must rebound rather than be filtered away')
+      assert.ok(b.vx < 0, 'the pierce-triggered rebound must reverse the quill, same as the life-triggered one')
+    }
+    console.log('PASS run UG.e (reboundQuills): expires without the mod; turns around on BOTH life and pierce exhaustion; constant return speed across trips; chain terminates on damage decay')
+  }
+
+  // (f) chitterSpines. The card must not lie about its own count: `perTier` is multiplied into the
+  // banked bonus by makeWeaponModCard, so the number printed on the card IS the number fired. With a
+  // bare tier bonus a normal pick fired exactly one spine, at world angle 0, due east, forever.
+  {
+    const cfg = WEAPON_MODS.chitterShriek.chitterSpines
+    assert.ok(Number.isInteger(cfg.perTier) && cfg.perTier > 1,
+      `chitterSpines needs a perTier > 1 — at a bare tier bonus a normal pick is ONE bullet on a fixed bearing, got ${cfg.perTier}`)
+
+    // the card the player is actually offered, and the bonus it promises
+    Math.random = mulberry32(20260728)
+    let card = null
+    for (let i = 0; i < 600 && !card; i++) {
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = [{ id: 'chitterShriek', level: 3 }]
+      run.choiceSlots = 4
+      card = buildLevelUpChoices(run).find((c) => c.kind === 'mod' && c.id === 'chitterSpines')
+      run.levelUpChoices = null
+    }
+    assert.ok(card, 'chitterSpines is never offered as a card')
+    assert.strictEqual(card.bonus, WEAPON_MOD_TIER_BONUS[card.rarity] * cfg.perTier,
+      'the chitterSpines card must promise tierBonus x perTier — otherwise it understates what it fires')
+    assert.ok(card.desc.startsWith(`+${card.bonus} `), `the card text must show the real count, got "${card.desc}"`)
+
+    // ... and banking exactly that bonus fires exactly that many spines, spread around the circle,
+    // starting ON the nova's rim (fired from the player they travel out through the disc the nova
+    // has just emptied with 280 knockback and 1.8s of fear, and reach fresh ground only after the
+    // ring already cleared it — measured that way, 66-73% of spines never touched anything).
+    const cast = (banked, alsoOwnQuill) => {
+      Math.random = mulberry32(20260728)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = alsoOwnQuill
+        ? [{ id: 'chitterShriek', level: 5 }, { id: 'quillBurst', level: 5 }]
+        : [{ id: 'chitterShriek', level: 5 }]
+      run.weaponMods.chitterShriek.chitterSpines = banked
+      if (alsoOwnQuill) {
+        run.weaponMods.quillBurst.reboundQuills = 5
+        run.weaponMods.quillBurst.piercingQuills = 3
+      }
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      run.mods.spawnMul = 0
+      run.obstacles = []; run._obstacleSeed = null; run.traps = []
+      let maxSeen = 0
+      let sample = null
+      // A spine is the one quill in the game with no rebound SNAPSHOT — fireQuills always stamps
+      // _reboundSpeed, fireShriekSpines never does. That is the identity used here rather than
+      // `_reboundsLeft === 0`, which a quillBurst quill also has whenever the mod is unpicked.
+      const spinesSeen = new Set()
+      for (let i = 0; i < 260; i++) {
+        const before = run.bullets.length
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        run.enemies.length = 0
+        run.events.length = 0
+        run.levelUpChoices = null
+        if (run.phase === 'levelup') run.phase = 'playing'
+        const fired = run.bullets.length - before
+        if (fired > 0) {
+          const born = run.bullets.slice(-fired)
+          // clone AT THE INSTANT OF FIRE — the spawn position is the thing under test and the
+          // bullets keep travelling for the rest of the loop
+          const spines = born.filter((b) => b.weapon === 'quill' && b._reboundSpeed === undefined)
+          for (const sp of spines) spinesSeen.add({ ...sp })
+          if (spines.length > maxSeen) { maxSeen = spines.length; sample = spines.map((b) => ({ ...b })) }
+        }
+      }
+      return { maxSeen, sample, spines: [...spinesSeen], radius: WEAPONS.chitterShriek.levels[4].radius }
+    }
+    const none = cast(0, false)
+    const one = cast(cfg.perTier, false)
+    assert.strictEqual(none.maxSeen, 0, `a shriek with no chitterSpines picks must fire no bullets at all, saw ${none.maxSeen}`)
+    assert.strictEqual(one.maxSeen, cfg.perTier, `a banked bonus of ${cfg.perTier} must fire ${cfg.perTier} spines, got ${one.maxSeen}`)
+    const headings = new Set(one.sample.map((b) => Math.round(Math.atan2(b.vy, b.vx) * 100)))
+    assert.strictEqual(headings.size, cfg.perTier, `expected ${cfg.perTier} distinct spine headings, got ${headings.size}`)
+    for (const sp of one.sample) {
+      const d = Math.hypot(sp.x, sp.y)
+      // +-10%: the snapshot is taken at the end of the firing frame, so the spine has already
+      // travelled one dt. The failure this guards against is spines spawning AT THE PLAYER (d ~ 8px),
+      // which is nowhere near this band.
+      assert.ok(d > one.radius * 0.9 && d < one.radius * 1.1, `a spine must start ON the nova rim (r=${one.radius}), got ${d.toFixed(1)}px from the player`)
+    }
+    // and they are the SHRIEK's, not the quill weapon's, even with quillBurst fully modded
+    const withQuill = cast(cfg.perTier, true)
+    assert.ok(withQuill.spines.length > 0, 'expected the shriek\'s own spines to be identifiable alongside quillBurst\'s')
+    assert.strictEqual(withQuill.maxSeen, cfg.perTier, `the spine count must not change because quillBurst is also owned, got ${withQuill.maxSeen}`)
+    for (const sp of withQuill.spines) {
+      assert.strictEqual(sp._reboundsLeft, 0, 'a shriek spine must never inherit quillBurst\'s reboundQuills')
+      assert.strictEqual(sp.pierce, 2, `a shriek spine carries its own pierce 2, not quillBurst's ${sp.pierce}`)
+    }
+    console.log(`PASS run UG.f (chitterSpines): card promises +${card.bonus} at ${card.rarity} and fires ${one.maxSeen}, on ${headings.size} headings, all launched from the nova rim; inherits nothing from a maxed quillBurst`)
+  }
+
+  // (g) the dud card is gone for good — not merely unreferenced, but absent from the mod table, so
+  // it can never be offered again. Guards against a half-revert that restores the entry and leaves
+  // the fire site reading a key nothing writes.
+  {
+    assert.ok(!('longQuills' in WEAPON_MODS.quillBurst),
+      'longQuills is back in the quillBurst mod pool — the owner called it useless and it scales range and speed together, so `life = range/speed` never changes')
+    assert.ok('reboundQuills' in WEAPON_MODS.quillBurst, 'reboundQuills is missing from the quillBurst mod pool')
+    assert.ok('chitterSpines' in WEAPON_MODS.chitterShriek, 'chitterSpines is missing from the chitterShriek mod pool')
+    const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    assert.ok(!/weaponMods\.quillBurst\?\.longQuills/.test(src), 'sim.js still reads a longQuills bonus that no mod writes')
+    console.log('PASS run UG.g (dud retired): longQuills absent from WEAPON_MODS and unread by sim.js; reboundQuills + chitterSpines present')
+  }
+
+  console.log('PASS run UG (v6.6.28 undergrowth round): centipede -30% hp, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills retired')
 }

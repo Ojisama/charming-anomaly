@@ -282,14 +282,20 @@ export const WEAPONS = {
     // nearest enemy — flagella's swing geometry exactly, and like flagella it NEVER moves the player
     // (see the CLAW_* block below for why). The two melee starters are separated by shape, not by a
     // gimmick: the whip is a WIDE, SLOW, long single sweep (arc 1.40-1.85, rate 0.90-0.58, range
-    // 130-175); the rake is HALF the arc at ~1.6x the cadence and shorter reach — a narrow, rapid
-    // shred you must point at one foe, against a lazy crowd-clearing lash.
+    // 130-175); the rake is ~2/3 of the arc at ~1.6x the cadence and shorter reach — a tighter,
+    // rapid shred you point at one foe, against a lazy crowd-clearing lash.
+    // v6.6.28 (owner: "base claw width +30%"): every arc x1.30 (0.70/0.75/0.82/0.88/0.95 ->
+    // 0.91/0.98/1.07/1.14/1.24). The rake stays the NARROWER of the two melee starters at every
+    // level — that separation is the whole design — but the old "HALF the arc" line above is no
+    // longer true and has been rewritten rather than left to rot. wideRake (+30% per pick) rides
+    // on top of these, so a maxed rake now reaches 1.24 x 2.5 = 3.1 rad, past flagella's ceiling;
+    // that is the mod doing its job, not this change.
     levels: [
-      { dmg: 11, rate: 0.42, range: 100, arc: 0.70, knockback: 32 },
-      { dmg: 13, rate: 0.39, range: 106, arc: 0.75, knockback: 36 },
-      { dmg: 16, rate: 0.35, range: 112, arc: 0.82, knockback: 40 },
-      { dmg: 20, rate: 0.31, range: 120, arc: 0.88, knockback: 45 },
-      { dmg: 25, rate: 0.27, range: 130, arc: 0.95, knockback: 50 },
+      { dmg: 11, rate: 0.42, range: 100, arc: 0.91, knockback: 32 },
+      { dmg: 13, rate: 0.39, range: 106, arc: 0.98, knockback: 36 },
+      { dmg: 16, rate: 0.35, range: 112, arc: 1.07, knockback: 40 },
+      { dmg: 20, rate: 0.31, range: 120, arc: 1.14, knockback: 45 },
+      { dmg: 25, rate: 0.27, range: 130, arc: 1.24, knockback: 50 },
     ],
   },
   quillBurst: {
@@ -299,12 +305,34 @@ export const WEAPONS = {
     // count = quills per burst, fired evenly around the full circle (never aimed — this is the
     // panic button, not the sniper). Each quill is a run.bullets projectile tagged weapon:'quill'
     // (life = range/speed, derived at fire time), same as stinger's needles.
+    //
+    // v6.6.28 (owner: "quill underpowered"). It was NOT weak at the top — measured solo against
+    // undergrowth's own spawn stream at difficulty 3, level 5 bare, quillBurst does 244 dps to
+    // clawRake's 250 and chitterShriek's 289, and with one pick of every mod it is the BEST of the
+    // three (431 vs 392 / 418). The weakness was the LADDER. Bare dps by level used to read
+    // 75/81/113/128/139 against clawRake's 96/108/118/129/139 — so the chapter's RARE card was 22%
+    // weaker than the chapter's own STARTER at the moment you picked it up, and only drew level
+    // with it at L5. Paper throughput (dmg x count x pierce / rate) spread 11.6x from L1 to L5;
+    // clawRake spreads 3.5x. Two things caused it: pierce 1 at L1-L2, and the L2->L3 step moving
+    // count 7->9 AND pierce 1->2 at once — one cliff carrying most of the weapon's growth.
+    // So: pierce 2 at EVERY level (the cliff is gone) and the whole ladder re-cut around it. L5 is
+    // the level held still on purpose — the complaint was about picking the card up, not about
+    // owning it maxed, and L5 was already at parity.
+    // Measured after (8 seeds, bare dps by level), quill vs clawRake: 99/111/120/135/143 against
+    // 96/105/114/126/139 — +4/+5/+5/+8/+3%, so the rare card now opens level with the chapter's
+    // starter instead of 22% behind it, and ends where it already was (+2% at L5). Kills/s at L5
+    // stays a three-way tie: claw 1.935, quill 1.987, shriek 1.954.
+    // L4 is NOT a rounding pass despite sitting between two small ones: dmg 17->18, rate 1.00->0.97
+    // and count 10->11 together are +20% paper throughput and +6% measured dps. It is the one level
+    // that gained without being part of the L1-L3 problem, and it is deliberate — L3->L4->L5 has to
+    // stay monotone in FEEL after L1-L3 were lifted under it, or the ladder just moves its flat
+    // stretch instead of removing it.
     levels: [
-      { dmg: 10, rate: 1.30, count: 6,  speed: 460, range: 240, pierce: 1 },
-      { dmg: 12, rate: 1.20, count: 7,  speed: 480, range: 255, pierce: 1 },
-      { dmg: 14, rate: 1.10, count: 9,  speed: 500, range: 270, pierce: 2 },
-      { dmg: 17, rate: 1.00, count: 10, speed: 520, range: 285, pierce: 2 },
-      { dmg: 20, rate: 0.90, count: 12, speed: 540, range: 300, pierce: 2 },
+      { dmg: 11, rate: 1.20, count: 8,  speed: 460, range: 240, pierce: 2 },
+      { dmg: 13, rate: 1.12, count: 9,  speed: 480, range: 255, pierce: 2 },
+      { dmg: 15, rate: 1.05, count: 10, speed: 500, range: 270, pierce: 2 },
+      { dmg: 18, rate: 0.97, count: 11, speed: 520, range: 285, pierce: 2 },
+      { dmg: 21, rate: 0.90, count: 12, speed: 540, range: 300, pierce: 2 },
     ],
   },
   chitterShriek: {
@@ -573,6 +601,15 @@ export const MAX_PASSIVE_LEVEL = 5
 // still consuming a card slot up to the global cap of 5. Two picks is where the curve flattens.
 // Raising the ladder in a weapon's levels[] is the honest lever past that point, not more cards.
 export const PIERCE_MAX_PICKS = 2
+// v6.6.28, same machinery, same reason — reboundQuills' marginal value collapses well before the
+// global cap. Measured solo quillBurst L5: 1 pick +9.4% dps, 2 picks +12%, 5 rare picks +17%,
+// 5 MYTHIC picks (15 accumulated return trips) +20%. Picks 3-5 are worth ~1.7% each while the live
+// quill count on a 390x844 phone goes from 11 to 47. `moreQuills` at three rare picks measures +15%
+// at twelve live quills — strictly more damage for a quarter of the clutter — so past the second
+// pick the card is dominated by its own stablemate AND is the one making the screen unreadable.
+// 2 picks = 6 return trips at mythic, which is where the dps curve flattens (6 trips +18.3%,
+// 15 trips +17.8%).
+export const REBOUND_MAX_PICKS = 2
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
@@ -721,12 +758,40 @@ export const WEAPON_MODS = {
     ambushPredator: { name: 'Ambush Predator', desc: 'claws hit harder near a trap', icon: '🪤', base: 0.45, kind: 'pct' },
   },
   // sharpQuills/moreQuills/piercingQuills fold into quillBurst's levels[] via WEAPON_STAT_MODS;
-  // longQuills (range AND speed) and rapidQuills (burst rate) are read at the fire site.
-  // retaliate is behavioral (read in hurtPlayer's path — see QUILL_RETALIATE_CD below).
+  // rapidQuills (burst rate) is read at the fire site. retaliate and reboundQuills are behavioral
+  // (hurtPlayer's path — see QUILL_RETALIATE_CD below — and stepBullets' end-of-life branch).
+  //
+  // v6.6.28 (owner: "'quill range and speed' is useless"). `longQuills` is gone; `reboundQuills`
+  // takes its slot. The owner is right, and the measurement agrees: at 8 seeds one pick of
+  // longQuills was worth +4.4% dps (se 1.8) against sharpQuills' +11.3% and retaliate's +11.9% —
+  // the bottom of the pool. The fault is that it scales range and speed TOGETHER, so
+  // `life = range/speed` never changes: the ring is 30% wider and gone in exactly the same 0.55s.
+  // A dud card is one you cannot see working, and that was the only quill mod that qualified.
+  // Post-fix, 8 seeds, L5 solo, one pick each: Retaliation +7.7%, Sharp Quills +6.4%, Twitchy Spine
+  // +5.3%, Rebound Quills +4.5% (and the best KILL gain of the pool, 303 -> 320), Bristling +3.6%,
+  // Barbed Quills -2.0%.
+  // That last number is a live problem and is recorded here rather than quietly left: flattening
+  // base pierce to 2 at every level (see WEAPONS.quillBurst above) fixed the ladder and in doing so
+  // ate the pierce MOD. Pierce on a 360-degree ring saturates — measured lambda (mean encounters
+  // over a quill's whole flight) is 0.477 at L5, so pierce 2 already captures 94% of it and
+  // pierce 2 -> infinity is worth +5.7% in total. Barbed Quills is now the dud that Long Quills
+  // used to be. The obvious re-point is quill THICKNESS (QUILL_R 8 against an enemy radius ~16, so
+  // +50%/pick moves lambda proportionally, predicted +19%/pick) — deliberately NOT taken here
+  // without the owner, because "more quill pierce" is one of the things they asked for by name.
+  // (An earlier 2-seed pass of this table put longQuills at +6.8% and piercingQuills at +6.1%. The
+  // per-seed sd of these paired deltas is 2.6-7.3 points, so two seeds carry +-2-5 points of
+  // standard error and could not resolve anything below a ~7-point gap. Eight seeds is the floor
+  // for ranking mods here; the ORDER survived the re-measure, the magnitudes did not.)
   quillBurst: {
     sharpQuills:    { name: 'Sharp Quills',   desc: 'quill damage',        icon: '🗡️', base: 0.25, kind: 'pct' },
     moreQuills:     { name: 'Bristling',      desc: 'quills per burst',    icon: '🦔', base: 2,    kind: 'flat' },
-    longQuills:     { name: 'Long Quills',    desc: 'quill range & speed', icon: '📏', base: 0.30, kind: 'pct' },
+    // The desc says RETURN PASSES PER QUILL, not "N quills come back", because that is what the
+    // code does: fireQuills stamps `_reboundsLeft` inside its per-quill loop, so EVERY quill in the
+    // ring carries the budget and the tier number is how many times each one turns around. The
+    // first draft of this string ('quill(s) sweep back through on the return') read as a count of
+    // quills and would have had a level-5 player believe two of twelve came back rather than all
+    // twelve, twice each.
+    reboundQuills:  { name: 'Rebound Quills', desc: 'return pass(es) per quill', icon: '↩️', kind: 'tier', maxPicks: REBOUND_MAX_PICKS },
     rapidQuills:    { name: 'Twitchy Spine',  desc: 'burst rate',          icon: '⏩', base: 0.25, kind: 'pct' },
     piercingQuills: { name: 'Barbed Quills',  desc: 'quill pierce',        icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     retaliate:      { name: 'Retaliation',    desc: 'getting hit fires a free burst', icon: '💢', base: 1, kind: 'flat' },
@@ -734,13 +799,35 @@ export const WEAPON_MODS = {
   // terror/shockwave/shrill fold into chitterShriek's levels[] via WEAPON_STAT_MODS; rapidShriek
   // (cast rate) is read at the cast site. echoShriek/panicRout are behavioral (see stepShriekWeapon
   // and the fear handling in dealDamage/stepEnemyMovement).
+  // v6.6.28 (owner: "maybe a couple of combining quill and shriek") adds chitterSpines. It lives on
+  // the SHRIEK, not on the quill, and that is the whole design decision:
+  //   - the obvious crossover — a quill mod that PANICS what it hits — is a trap. The quill ring
+  //     covers 300px every 0.9s at L5, so even a 0.4s fear on that cadence is ~44% uptime of total
+  //     contact immunity (fleeing enemies deal no contact damage at all), and stacked to the pick
+  //     cap it is permanent. It would also make quillBurst strictly better at chitterShriek's own
+  //     job: fear IS the shriek's identity, and the shriek only reaches 150-230px every 2.4-3.2s.
+  //   - put the crossover the other way round and both weapons keep what they are. The shriek's
+  //     weakness is REACH (it is a nova bounded by `radius`); firing quills outward on the cast
+  //     gives it exactly that, using the quill as the vehicle. It also can't be a dead card: the
+  //     spines are fired from the shriek's own stats, so it works with or without quillBurst owned.
+  // Post-fix, 8 seeds, L5 solo, one pick each: Shrill +5.7%, Shockwave +5.6%, Chitter Spines +4.7%,
+  // Echo Shriek +3.9%, Chatterbox +3.8%, Terror +1.2%, Panic Rout +0.8%. The FIRST draft of this
+  // card measured +0.0% — three separate causes, all documented at fireShriekSpines in sim.js.
+  // Mid-pack is the target for a reach card on a utility weapon; it is not meant to beat Shrill.
   chitterShriek: {
-    terror:      { name: 'Terror',       desc: 'fear duration',  icon: '😱', base: 0.35, kind: 'pct' },
-    shockwave:   { name: 'Shockwave',    desc: 'shriek radius',  icon: '📡', base: 0.30, kind: 'pct' },
-    shrill:      { name: 'Shrill',       desc: 'shriek damage',  icon: '📢', base: 0.30, kind: 'pct' },
-    rapidShriek: { name: 'Chatterbox',   desc: 'shriek rate',    icon: '⏩', base: 0.25, kind: 'pct' },
-    echoShriek:  { name: 'Echo Shriek',  desc: 'echo shriek(s) per cast',      icon: '🔁', kind: 'tier' },
-    panicRout:   { name: 'Panic Rout',   desc: 'damage taken by fleeing foes',  icon: '🏃', base: 0.40, kind: 'pct' },
+    terror:       { name: 'Terror',       desc: 'fear duration',  icon: '😱', base: 0.35, kind: 'pct' },
+    shockwave:    { name: 'Shockwave',    desc: 'shriek radius',  icon: '📡', base: 0.30, kind: 'pct' },
+    shrill:       { name: 'Shrill',       desc: 'shriek damage',  icon: '📢', base: 0.30, kind: 'pct' },
+    rapidShriek:  { name: 'Chatterbox',   desc: 'shriek rate',    icon: '⏩', base: 0.25, kind: 'pct' },
+    echoShriek:   { name: 'Echo Shriek',  desc: 'echo shriek(s) per cast',      icon: '🔁', kind: 'tier' },
+    panicRout:    { name: 'Panic Rout',   desc: 'damage taken by fleeing foes',  icon: '🏃', base: 0.40, kind: 'pct' },
+    // perTier 4: WEAPON_MOD_TIER_BONUS.normal is 1, and fireShriekSpines spaces its spines with
+    // `angle = (i / count) * 2pi` — so at a bare tier bonus a normal pick fires exactly ONE spine,
+    // at angle 0, due east, on every cast for the rest of the run. Measured that way the card was
+    // worth +0.5% dps (se 1.4): nothing. At 4 a normal pick throws a 4-point cross and a mythic one
+    // throws 12. (echoShriek gets away with a bare tier bonus because one extra echo is a whole
+    // extra nova; one extra spine is one bullet out of a ring.)
+    chitterSpines: { name: 'Chitter Spines', desc: 'quill(s) spat outward per shriek', icon: '🦔', kind: 'tier', perTier: 4 },
   },
   // ---- City natives (v5.4; Neon Beam rides the existing WEAPON_MODS.rainbow set above) ----
   // heavyTrash/wideTornado/fasterSpin/moreTrash fold into trashTornado's levels[] via
@@ -990,6 +1077,15 @@ export const LURE_STICKY_DUR = 2      // s, stickyScent slow-zone lifetime
 //      button. Note the enemy 'pounce' below is the SAME verb done right: the CAT leaps, telegraphs
 //      it, and the player dodges — that reads as a predator because the player still gets to answer.
 // If you are here to re-add a dash, re-read (2) first.
+// v6.6.28 (owner: "base claw crit chance +10%"). Added to the player's crit CHANCE for rake hits
+// only, as PERCENTAGE POINTS, not as a relative scaling: PLAYER.baseCritChance is 0.05, so a
+// +10% RELATIVE reading would be 0.05 -> 0.055 and would be indistinguishable from noise on any
+// number of runs a person could play. Read as points, a rake rolls at 15% while every other source
+// in the same build rolls at 5% — a real identity ("the claws find the soft spot") rather than a
+// rounding error. It is ADDITIVE with the shop's Lucky Eye and the critChance passive for the same
+// reason every other crit source is: crit chance is one probability, and multiplying independent
+// sources of it is how a 5% roll silently becomes a 40% one. Crit DAMAGE is untouched.
+export const CLAW_BASE_CRIT = 0.10
 export const CLAW_DOUBLE_EVERY = 3       // doubleSlash (behavioral): every Nth rake slashes a second time
 export const CLAW_DOUBLE_DELAY = 0.12    // s between the first slash and its follow-up (reads as one flurry)
 export const CLAW_DOUBLE_DMG_FRAC = 0.7  // follow-up slash's damage, as a fraction of the first's
@@ -1013,6 +1109,16 @@ export const QUILL_R = 8              // px, quill hit radius (added to enemy ra
 // (hurtPlayer), free of the weapon timer, at most once per QUILL_RETALIATE_CD seconds. Each pick
 // (flat) adds another quill to the retaliation burst on top of the level's `count`.
 export const QUILL_RETALIATE_CD = 1.2
+// reboundQuills (v6.6.28, behavioral — see the `b.life <= 0` branch of stepBullets): a quill that
+// runs out of flight REVERSES instead of expiring, sweeping back in through everything the
+// outbound ring already passed. Each rebound refunds the quill's pierce budget and clears its
+// hitIds, so the return pass hits afresh — that refund is the whole card, and it is why the tier
+// bonus (number of return trips) is bounded by WEAPON_MOD_TIER_BONUS rather than being a pct.
+// Damage decays per trip: a ring that came back three times at full strength would out-damage
+// every other quill mod combined, and the decay is also what stops a stationary player from
+// parking inside a permanent quill blender.
+export const QUILL_REBOUND_DMG_MUL = 0.7   // damage multiplier applied per return trip
+export const QUILL_REBOUND_SPEED_MUL = 0.85 // the return sweep is slower — it reads as a recoil, not a re-fire
 
 // Chitter Shriek (undergrowth utility — see WEAPONS.chitterShriek + stepShriekWeapon in sim.js): a
 // run.novas ring carrying an extra `fear` field (s). Enemies the ring hits get e.fearT = fear and
@@ -1023,6 +1129,17 @@ export const SHRIEK_ECHO_DELAY = 0.22 // s between an echoShriek cast and the ne
 export const SHRIEK_ECHO_DMG_FRAC = 0.6 // each echo's damage/fear, as a fraction of the original cast's
 // panicRout (behavioral): a FLEEING enemy (fearT > 0) takes (1 + bonus) × damage from EVERY source
 // (applied in dealDamage, alongside the venom amp). No constant — the bonus is the whole knob.
+// chitterSpines (v6.6.28, behavioral — see stepShriekWeapon): the cast also spits <tier bonus>
+// quills evenly around the circle, tagged weapon:'quill' like every other quill in the game. They
+// are fired from the SHRIEK's stats, never quillBurst's, so the card is not dead without quillBurst
+// owned and does not silently inherit quillBurst's mods. They carry NO fear — the ring is the
+// shriek's reach, not a second rout (see the WEAPON_MODS.chitterShriek block for why).
+export const SHRIEK_SPINE_DMG_FRAC = 0.8   // spine damage, as a fraction of the shriek's own
+export const SHRIEK_SPINE_SPEED = 500      // px/s
+export const SHRIEK_SPINE_RANGE_MUL = 1.6  // flight distance, as a multiple of the shriek's radius
+// Spine COUNT per cast is the mod's own banked bonus — see `perTier: 4` on chitterSpines above and
+// the note in makeWeaponModCard. It is not a constant here on purpose: a second copy of the number
+// at the fire site is exactly how a card ends up promising +1 and delivering 4.
 
 // ---- City weapons (v5.4: Trash Tornado + Sewer Geyser; Neon Beam = the rainbow re-theme) -------
 // Trash Tornado (city — see WEAPONS.trashTornado + stepTornadoWeapon in sim.js): chunks are evenly
@@ -1637,12 +1754,19 @@ export const CHAPTERS = {
       // clawRake loadout cleared 0% of owls. aerialStrike / drawOwl are kept parked (see sim.js /
       // render.js) for a future chapter that hands out a ranged weapon. The centipede is a plain
       // fast ground predator — it closes into rake range and dies there, like every ground enemy.
-      { id: 'centipede', archetype: 'fast', name: 'Centipede', hpMul: 1.15, speedMul: 1.05, flags: [] },
+      // v6.6.28 (owner: "centipede -30%hp"): hpMul 1.15 -> 0.805. The centipede is now the
+      // SQUISHIEST thing in the chapter (rat 0.85), which is the point — it is the `fast` lane and
+      // fast should die fast, per the FAST => COMMITTED rule this roster is built on.
+      { id: 'centipede', archetype: 'fast', name: 'Centipede', hpMul: 0.805, speedMul: 1.05, flags: [] },
       { id: 'rat', archetype: 'normal', name: 'Rat', hpMul: 0.85, speedMul: 1.15, flags: [] },
-      // Dart Rat (v6.5): the startled-darting variant, same look as the plain rat. weight/minT keep
-      // it a MINORITY that phases in at t=30 — WAVE_TABLE spawns only normals until t=40, so an
-      // all-dashBurst opening would be a pulsed monoculture (panel fun F5).
-      { id: 'dartRat', archetype: 'normal', name: 'Rat', hpMul: 0.85, speedMul: 1.15, flags: ['dashBurst'], weight: 0.4, minT: 30 },
+      // v6.6.28 (owner: "mice should not 'jump' only walk") DELETED the 'dartRat' entry that used
+      // to sit here — the v6.5 startled-darting variant. Its `dashBurst` flag is idle at 0.4x speed
+      // for 1.1s and then a COMMITTED 2.6x lunge for 0.5s with no re-aim (DASH_* below), and the
+      // renderer draws no leap for it, so on screen a rat simply teleports at you: exactly the
+      // "jump" the owner is describing. Stripping the flag and keeping the entry would have left an
+      // exact duplicate of `rat` above, so the entry goes. `dashBurst` itself STAYS — pond's tadpole
+      // is still built on it, and the flag vocabulary is chapter-agnostic. Test run TT.e is the
+      // tripwire: undergrowth's roster must carry no dashBurst.
     ],
     eliteFlags: ['flashlightCone'],       // exterminator elites sweep a cone that ENRAGES other enemies
     // Signature: predator telegraphs (the cat's 'pounce' is the telegraph — it crouches, aims, then
@@ -1655,6 +1779,25 @@ export const CHAPTERS = {
     // from the run's ORIGIN only (streamed cells far from the origin are never excluded). Every
     // other trap number stays a SNAP_TRAP_* constant below.
     signature: { type: 'predators', traps: { cell: 400, chance: 0.63, minDist: 200 } },
+    // v6.6.28 (owner: "20% less enemies"). Undergrowth had NO balance block at all until now, so
+    // this is the chapter's first entry in that ladder.
+    //
+    // spawnMul ALONE, matching garden's identical v6.6.15 request. The obvious extra lever is
+    // maxAliveMul, and it was in a draft of this block, because two critics measured that the
+    // arrival cut evaporates late in a WEAK run: at d3 with a starter-level build, spawnMul 0.8
+    // gives avg alive 271 vs 362 at t=180 and then 400 vs 400 at t=240 and t=270 — zero reduction
+    // past t~225s, because stepSpawning banks blocked spawns in an unbounded _spawnAcc rather than
+    // dropping them. Over a full run that turns "20% fewer" into a measured ~11%.
+    // It is still not the right lever HERE, because the concurrent cap is not free real estate: the
+    // v6.6.6/v6.6.7 density ladder is its own owner directive ("smooth out the chapter curve"), it
+    // runs 180/240/300 across the three onboarding chapters and is deliberately full 400 from
+    // undergrowth on, and it is required to climb in EVEN RATIO steps — the defect v6.6.7 fixed was
+    // a ladder that went +78% / +13% / +11%. Inserting 0.8 here makes garden->undergrowth a +6.7%
+    // step followed by a +25% one, i.e. re-creates exactly the shape that directive outlawed.
+    // So: this number is 20% fewer ARRIVALS, which is what it says and what garden shipped. The
+    // honest scope is that a run whose field is already pegged at the cap sees less than 20% —
+    // see run VV for the ladder this defers to.
+    balance: { spawnMul: 0.8 },
     obstacles: { count: 15, minR: 24, maxR: 46, minDist: 220 }, // roots / bones (traps are separate, see run.traps)
     // ---- render-only (v5.4; interpreted by render.js, ZERO effect on sim) ---- dim forest floor
     // seen from ankle height: dark loam showing between leaf litter, a drab dead-leaf floorTint, a

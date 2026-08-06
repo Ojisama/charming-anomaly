@@ -79,9 +79,10 @@ import {
   FLASHLIGHT_RANGE, FLASHLIGHT_ARC, FLASHLIGHT_SWEEP, FLASHLIGHT_SWEEP_SPEED,
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL, FLASHLIGHT_DMG_MUL,
   SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM,
-  CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
-  QUILL_R, QUILL_RETALIATE_CD,
+  CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
+  QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
   FEAR_SPEED_MUL, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
+  SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
   // v5.4 city
   LINE_CHARGE_RANGE, LINE_CHARGE_TRACK_SPEED_MUL, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
@@ -3222,14 +3223,20 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
   }
 }
 
-/** @returns the final applied damage number (post multiplier/crit), for effects like star blast. */
-function applyDamage(run, enemy, baseDmg) {
+/**
+ * @param critBonus v6.6.28: extra crit CHANCE in percentage points, added to the player's own for
+ *   this hit only. The one caller is slashClaws (CLAW_BASE_CRIT — see config.js for why points and
+ *   not a relative scale). Defaults to 0, so every other call site is bit-for-bit unchanged; it is
+ *   the LAST parameter for the same reason — a 3-arg call cannot accidentally acquire one.
+ * @returns the final applied damage number (post multiplier/crit), for effects like star blast.
+ */
+function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   if (damageImmune(enemy)) return 0 // v5.4 untouchable window: no crit roll, no elements either
   const p = run.player
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
   let crit = false
-  if (Math.random() < p.critChance + run.passives.critChance) {
+  if (Math.random() < p.critChance + run.passives.critChance + critBonus) {
     dmg *= (p.critDamage + run.passives.critDamage)
     crit = true
   }
@@ -3776,7 +3783,11 @@ function stepBullets(run, dt) {
       // recursion: a shard that ran out of LIFE (not one whose pierce was spent) forks. Checked
       // here, on the frame the life expires, so it fires exactly once before the filter drops it.
       if (b.weapon === 'shard' && b.pierce > 0 && !b._fork) tryShardRecursion(run, b)
-      continue
+      // reboundQuills (v6.6.28): a quill that ran out of FLIGHT turns around instead of expiring.
+      // Same frame as the shard branch above and for the same reason — the end-of-loop filter drops
+      // anything still at life <= 0, so the reversal has to happen HERE or it never happens.
+      if (b.weapon === 'quill' && b._reboundsLeft > 0) reboundQuill(run, b)
+      if (b.life <= 0) continue
     }
     if (b.pierce <= 0) continue
 
@@ -3811,8 +3822,60 @@ function stepBullets(run, dt) {
         tryRicochetBullet(run, b)
       }
     }
+    // ... and a quill that ran out of PIERCE turns around, the same as one that ran out of flight.
+    // It has to be caught HERE, after the hit scan and before the end-of-loop filter, because that
+    // filter drops `pierce <= 0` just as surely as it drops `life <= 0` — checking at the top of the
+    // next iteration is a frame too late and the quill is already gone. Getting this wrong is not a
+    // small miss: measured, the share of quills that die on life rather than pierce falls from 98%
+    // in a run's first minute to 56% at t=180-240, so a life-only rebound is a ~20x multiplier when
+    // 12 enemies are alive and a ~1.2x one when 337 are — exactly backwards for a card whose text
+    // promises a return sweep through a crowd.
+    if (b.weapon === 'quill' && b.pierce <= 0 && b.life > 0 && b._reboundsLeft > 0) reboundQuill(run, b)
   }
   run.bullets = bullets.filter((b) => b.life > 0 && b.pierce > 0)
+}
+
+// reboundQuills (v6.6.28): turn one quill around for a return sweep. Called from BOTH ends of a
+// quill's life in stepBullets — flight expired, or pierce budget spent — because the end-of-loop
+// filter drops either condition and a rebound that only caught one of them would fire when the
+// screen was empty and never when it was full.
+//
+// Three details that are all load-bearing:
+//  1. DAMAGE DECAYS TO ZERO, and a quill that would come back for 0 damage does not come back at
+//     all. The decay is not just a damage cap: every rebound hit is a full applyDamage, so it also
+//     applies elements. Measured with two cold picks, an uncapped rebound chain took the share of
+//     the field chilled/frozen from 13% to 46% — a mod card that advertises no crowd control at all
+//     silently becoming the best freeze engine in the game. Terminating the chain on damage, not
+//     just on the pick count, is what prices that.
+//  2. SPEED IS SET, NOT MULTIPLIED. `_reboundSpeed` is a fire-time constant, so trip 12 is the same
+//     speed as trip 1. Multiplying `b.vx` by 0.85 each turn instead compounds: by the 15th trip the
+//     quill is at 10% of range, vibrating in place over a ~30px arc for 0.65s at a time.
+//  3. The hit set is cleared — EXCEPT for whatever the quill is still overlapping at the instant it
+//     turns. Without that carve-out a quill that hit something on its last frame would hit it again
+//     on the next one without having travelled anywhere: a free double-hit, not a sweep. This is the
+//     whole reason the pierce-spent path above is safe.
+function reboundQuill(run, b) {
+  // floor, not round: Math.round(1 * 0.7) is 1, so a rounded chain parks at 1 damage and rebounds
+  // forever — the exact opposite of the termination this guard exists to provide.
+  const nextDmg = Math.floor(b.dmg * QUILL_REBOUND_DMG_MUL)
+  if (nextDmg <= 0) return
+  b._reboundsLeft--
+  const spd = Math.hypot(b.vx, b.vy) || 1
+  const k = -b._reboundSpeed / spd
+  b.vx *= k
+  b.vy *= k
+  b.life = b._reboundLife
+  b.pierce = b._reboundPierce
+  b.dmg = nextDmg
+  b.speed = b._reboundSpeed
+  b.hitIds.clear()
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - b.x
+    const dy = e.y - b.y
+    const rad = b.r + e.radius
+    if (dx * dx + dy * dy <= rad * rad) b.hitIds.add(e.id)
+  }
 }
 
 // Supernova Sparks: when an orb hit KILLS an enemy, splash bonus × that hit's dealt damage to
@@ -4924,7 +4987,9 @@ function slashClaws(run, o) {
   for (const e of run.enemies) {
     if (e._dead) continue
     if (!inSector(p.x, p.y, angle, o.range, o.arc, e, false)) continue
-    const dealt = applyDamage(run, e, o.dmg * ambushMul)
+    // CLAW_BASE_CRIT (v6.6.28): the rake's own +10 points of crit chance, on top of whatever the
+    // build carries. The doubleSlash follow-up re-enters slashClaws, so it inherits this too.
+    const dealt = applyDamage(run, e, o.dmg * ambushMul, CLAW_BASE_CRIT)
     // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
     if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
     if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom
@@ -4963,12 +5028,22 @@ function stepQuillWeapon(run, w, stats, fireRateMul, dt) {
 
 function fireQuills(run, stats, count) {
   const p = run.player
-  const longMul = 1 + (run.weaponMods.quillBurst?.longQuills ?? 0) // longQuills: +range AND +speed
-  const speed = stats.speed * longMul
-  const range = stats.range * longMul
-  const life = range / speed
+  const speed = stats.speed
+  const life = stats.range / speed
+  // reboundQuills (v6.6.28): snapshotted onto the bullet at fire time, like every other per-bullet
+  // budget here. Snapshot, not a read from run.weaponMods in stepBullets, so a quill already in
+  // flight when the card is picked keeps the budget it was fired with — and so a quill fired by
+  // ANYTHING ELSE (chitterSpines) can never acquire quillBurst's rebounds by accident.
+  const rebounds = run.weaponMods.quillBurst?.reboundQuills ?? 0
+  // Every burst used to leave on the SAME absolute bearings — `(i/count)*2pi`, no offset — so
+  // consecutive rings retraced each other's rays and, with reboundQuills, the return sweep covered
+  // exactly zero new angular ground. Rotating each burst by half a ray-spacing interleaves them.
+  // Measured dps-neutral (it is a coverage change, not a throughput one); it exists so the ring
+  // reads as a ring rather than as twelve fixed spokes.
+  run._quillSpin = ((run._quillSpin ?? 0) + 1) % 2
+  const base = (run._quillSpin * Math.PI) / count
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2
+    const angle = base + (i / count) * Math.PI * 2
     run.bullets.push({
       x: p.x, y: p.y,
       vx: Math.cos(angle) * speed,
@@ -4980,6 +5055,10 @@ function fireQuills(run, stats, count) {
       speed,
       hitIds: new Set(),
       weapon: 'quill',
+      _reboundsLeft: rebounds,
+      _reboundPierce: stats.pierce,   // what each return trip refunds the budget TO
+      _reboundLife: life / QUILL_REBOUND_SPEED_MUL,  // same DISTANCE back, at the slower speed
+      _reboundSpeed: speed * QUILL_REBOUND_SPEED_MUL,
       // Disable star's bullet behaviours on quills (they share run.bullets/stepBullets).
       _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
     })
@@ -5008,10 +5087,12 @@ function stepShriekWeapon(run, w, stats, fireRateMul, dt) {
   const mods = run.weaponMods.chitterShriek
   const rapid = mods?.rapidShriek ?? 0
   const echoCount = mods?.echoShriek ?? 0
+  const spineCount = mods?.chitterSpines ?? 0
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
     spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, stats.fear)
     run.events.push({ type: 'shriek', x: p.x, y: p.y, radius: stats.radius }) // v6.2: own event — was a generic 'shoot' the render couldn't distinguish
+    if (spineCount > 0) fireShriekSpines(run, stats, spineCount)
     run._shriekEchoes = run._shriekEchoes ?? []
     for (let i = 1; i <= echoCount; i++) {
       run._shriekEchoes.push({
@@ -5022,6 +5103,58 @@ function stepShriekWeapon(run, w, stats, fireRateMul, dt) {
     }
   })
   stepShriekEchoes(run, dt)
+}
+
+// chitterSpines (v6.6.28): the shriek spits `count` quills evenly around the circle. Deliberately
+// NOT a call into fireQuills — these are the SHRIEK's spines, fired from the shriek's own stats,
+// and routing them through the quill weapon's fire path would silently hand them quillBurst's
+// count/pierce/rebound mods (and require owning quillBurst at all). They carry no `fear`: fear is
+// carried by the nova, and a fear-bearing 360-degree ring is the exact design this mod was placed
+// on the shriek to AVOID — see WEAPON_MODS.chitterShriek in config.js.
+// Three things here are corrections to the first draft, and each was worth ~0 dps on its own:
+//  - the spines SPAWN ON THE NOVA'S RIM, not at the player. Fired from the centre they travelled
+//    outward through the disc the nova had just emptied — 280 knockback plus 1.8s of fear — and at
+//    SHRIEK_SPINE_SPEED 500 against the L5 nova front's own 511 px/s they rode just inside the ring
+//    for their whole useful life, reaching fresh ground only after the ring had already cleared it.
+//    Measured that way, 66-73% of spines never touched anything and the median spine flew 358 of
+//    its 368px untouched: +0.0% dps at one pick. Starting at the rim puts them straight into the
+//    band the rout has NOT cleared, and it is also the reading the name promises — spines shedding
+//    off the ring, not a second weapon firing from inside the player.
+//  - they FAN AROUND aimAngle, not around world 0. `(i / count) * 2pi` at count 1 is angle 0, i.e.
+//    due east in world space on every cast for the rest of the run.
+//  - pierce 2, not 1: a spine that starts at the rim is already past the ring's own kill zone, so
+//    stopping on the first body wastes the only thing this card adds, which is reach.
+function fireShriekSpines(run, stats, count) {
+  const p = run.player
+  const range = stats.radius * SHRIEK_SPINE_RANGE_MUL
+  const life = range / SHRIEK_SPINE_SPEED
+  const aim = aimAngle(run)
+  for (let i = 0; i < count; i++) {
+    const angle = aim + (i / count) * Math.PI * 2
+    const cx = Math.cos(angle)
+    const cy = Math.sin(angle)
+    run.bullets.push({
+      x: p.x + cx * stats.radius, y: p.y + cy * stats.radius,
+      vx: cx * SHRIEK_SPINE_SPEED,
+      vy: cy * SHRIEK_SPINE_SPEED,
+      dmg: Math.max(1, Math.round(stats.dmg * SHRIEK_SPINE_DMG_FRAC)),
+      pierce: 2,
+      life,
+      r: QUILL_R,
+      speed: SHRIEK_SPINE_SPEED,
+      hitIds: new Set(),
+      weapon: 'quill',
+      // Never a rebound, whatever quillBurst is carrying: these are the SHRIEK's spines, fired from
+      // the shriek's stats, and reboundQuill()'s snapshot fields are deliberately absent here.
+      _reboundsLeft: 0,
+      // Disable star's bullet behaviours (they share run.bullets/stepBullets).
+      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+    })
+  }
+  // No event: the cast already pushed {type:'shriek'}, which SFX_FOR_EVENT maps to the 'shoot'
+  // voice, so a second beat on the same frame would double-trigger it. ponytail: the spines are
+  // visible bullets on an already-audible cast — give them their own event only if they get their
+  // own voice in audio.js.
 }
 
 // Ticks down pending Echo Shriek casts (run._shriekEchoes, sim-internal) — cf. stepWaveEchoes.
@@ -5695,7 +5828,15 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   const mult = RARITIES[rarity].mult
   let bonus
   if (cfg.kind === 'switch') bonus = 1
-  else if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity]
+  // v6.6.28: `perTier` scales a tier mod's step without touching the shared ladder. One entity per
+  // rarity step is the right granularity when the entity is a whole nova or a whole blade, and much
+  // too fine when it is one bullet out of a ring — chitterSpines at a bare tier bonus fired ONE
+  // spine at a normal pick, and fireShriekSpines spaces its spines by `i / count`, so that single
+  // spine left at angle 0, due east, on every cast for the rest of the run. Multiplying HERE rather
+  // than at the fire site is what keeps the card honest: applyChoice banks this bonus verbatim, so
+  // the number the card promises is the number the weapon fires. `?? 1` leaves every existing tier
+  // mod bit-identical.
+  else if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity] * (cfg.perTier ?? 1)
   else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * mult))
   else bonus = cfg.base * mult
   const desc = cfg.kind === 'switch'
