@@ -9139,10 +9139,15 @@ export function createRenderer(app) {
   }
   // The cut lawn itself. Finished stripes never change, so the geometry is only rebuilt while a
   // mower is mid-pass (mownDirty) — every other frame this is a no-op and the Graphics just draws.
-  // Paler and yellower than the garden floor (0x4e8240), which is how a fresh cut actually reads;
-  // the rows along it are the same pattern the mower's telegraph uses, so the promise and the
-  // result match. Kept translucent — cut grass is still grass, and the floor's blotches and
-  // foliage must show through it.
+  // PALER than the garden floor (0x4e8240), which is how a fresh cut reads; the rows along it are
+  // the same pattern the mower's telegraph uses, so the promise and the result match. Kept
+  // translucent — cut grass is still grass, and the floor's blotches and foliage must show through.
+  // v6.6.26 (owner: "less yellow cut grass"). It was paler AND yellower: sampled off the live
+  // canvas, the finished stripe composited to hue 91 deg against the lawn's 107 (and the rows to
+  // 83), i.e. a 16-24 deg pull toward yellow on top of the +10 brightness. Cut grass is lighter,
+  // not yellower — yellow is what a DEAD lawn looks like. Both colours are re-picked to composite
+  // back to ~100 deg at 50%/45% alpha over 0x4e8240, so the stripe keeps the value lift that makes
+  // it legible and loses the hue shift that made it look scorched.
   function redrawMown() {
     if (!mownDirty) return
     mownDirty = false
@@ -9157,12 +9162,12 @@ export function createRenderer(app) {
       for (const [lx, ly] of [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]]) {
         flat.push(st.x + lx * cos - ly * sin, st.y + lx * sin + ly * cos)
       }
-      mownG.poly(flat).fill({ color: 0x8caf5a, alpha: 0.5 })
+      mownG.poly(flat).fill({ color: 0x78aa56, alpha: 0.5 })
       for (let i = -1; i <= 1; i++) {
         const off = i * hy * 0.5
         mownG.moveTo(st.x - hx * cos - off * sin, st.y - hx * sin + off * cos)
         mownG.lineTo(st.x + hx * cos - off * sin, st.y + hx * sin + off * cos)
-        mownG.stroke({ width: 2, color: 0xa9c977, alpha: 0.45 })
+        mownG.stroke({ width: 2, color: 0x92c977, alpha: 0.45 })
       }
     }
   }

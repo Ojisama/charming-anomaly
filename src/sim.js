@@ -313,13 +313,30 @@ function stepRegen(run, dt) {
 
 // ---- Spawning -------------------------------------------------------------------
 
-function waveWeights(t) {
+// The spawn-type mix at time t. `mul` is the chapter's optional CHAPTERS[].archetypeMul — the only
+// lever that can thin ONE creature in a chapter whose roster maps it 1:1 onto an archetype. A
+// roster `weight` cannot: spawnEnemy picks the type FIRST and only then narrows to the roster
+// entries wearing it, so weighting garden's spider (its only `tank`) would be a weighted pick over
+// a one-item pool — a silent no-op. Weights are relative, so thinning one archetype hands its share
+// to the others; the total spawn count is untouched (that is spawnMul's job, tuned in v6.6.23).
+//
+// Keyed by ARCHETYPE (normal/fast/tank — the vocabulary a chapter's roster is written in), NOT by
+// the drone/wisp/tank spawn types WAVE_TABLE uses. That translation is the whole reason
+// TYPE_ARCHETYPE exists: `tank` is its own inverse, so keying this on the raw table would have
+// worked for the one case shipped here and silently done NOTHING for a future
+// `archetypeMul: { fast: 0.8 }`. That precise mistake already shipped once — see the warning above
+// TYPE_ARCHETYPE in config.js, where indexing the wrong way made every 'fast' roster entry
+// unreachable until v5.5. Run SP asserts every key is a real archetype.
+function waveWeights(t, mul) {
   let table = WAVE_TABLE[0][1]
   for (const [from, weights] of WAVE_TABLE) {
     if (t >= from) table = weights
     else break
   }
-  return table
+  if (!mul) return table
+  const out = {}
+  for (const [type, w] of Object.entries(table)) out[type] = w * (mul[TYPE_ARCHETYPE[type]] ?? 1)
+  return out
 }
 
 // Generic weighted-random key pick; used for both enemy-type spawns and rarity rolls.
@@ -900,7 +917,7 @@ function spawnEnemy(run, opts = {}) {
   const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
   if (isElite) run._nextEliteAt += eliteEveryAt(run.time) * run.mods.eliteEveryMul
 
-  const type = opts.type ?? pickWeighted(waveWeights(run.time))
+  const type = opts.type ?? pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
   const base = ENEMIES[type]
   const p = run.player
 
@@ -3479,7 +3496,7 @@ const WEAPON_STAT_MODS = {
   // v5.3 garden natives: rapid/fastLure (attack rate) and longNeedles (range AND speed)/bigBurst
   // (burst dmg AND radius) are NOT here — they'd need to divide `rate` or touch two fields, so
   // they're read at the fire/plant/burst site instead (see stepStingerWeapon/stepLureWeapon).
-  stinger:   { sharper: ['dmg', 'pct'], volley: ['count', 'flat'] },
+  stinger:   { sharper: ['dmg', 'pct'], volley: ['count', 'flat'], piercingNeedles: ['pierce', 'flat'] },
   lure:      { widerTaunt: ['aggro', 'pct'], longerLure: ['dur', 'pct'] },
   // v5.4 natives. Same two exclusions as above, applied uniformly: every attack-RATE mod
   // (quickPaws/rapidQuills/rapidShriek/rapidGeyser/rapidRoar/quickTail/rapidToss/rapidShard/
@@ -4756,7 +4773,11 @@ function fireStinger(run, stats) {
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       dmg: stats.dmg,
-      pierce: 1,
+      // v6.6.26: from the levels[] ladder + piercingNeedles, not the old hard-coded 1 — see the
+      // note on WEAPONS.stinger.levels in config.js for why the 1 was the whole problem. Written
+      // bare, like quillBurst's and realityShard's: every level defines pierce, so a `?? 1` would
+      // be an unreachable branch that reads as if the hard-coded 1 were still a live fallback.
+      pierce: stats.pierce,
       life,
       r: STINGER_R,
       speed,

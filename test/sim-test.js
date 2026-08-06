@@ -2735,8 +2735,12 @@ function testGarden() {
     console.log(`PASS run X.e (lure): luredDx=${lured.toFixed(1)} normalDx=${normal.toFixed(1)}, burst damages + sticky web`)
   }
 
-  // (f) Stinger: a volley fires `count` needles in a tight cone (each pierce 1, tagged 'stinger');
-  // the hive mod makes every 4th volley fire in all directions (reaching a foe outside the cone).
+  // (f) Stinger: a volley fires `count` needles in a tight cone (each tagged 'stinger', pierce off
+  // the levels[] ladder); the hive mod makes every 4th volley fire in all directions (reaching a
+  // foe outside the cone).
+  // v6.6.26: this used to assert a hard-coded pierce of 1. That 1 WAS the bug (see the note on
+  // WEAPONS.stinger.levels), so the assertion now tracks the ladder — run SN owns the ladder's
+  // values and the mod that raises it.
   {
     const run = createRun(makeMeta(), { chapter: 'garden' })
     run.weapons = [{ id: 'stinger', level: MAX_WEAPON_LEVEL }]
@@ -2753,10 +2757,10 @@ function testGarden() {
     for (const b of volley) {
       const ang = Math.atan2(b.vy, b.vx)
       assert(Math.abs(ang) <= lvl.spread + 1e-6, `expected each needle within the ±${lvl.spread} cone, got angle ${ang.toFixed(3)}`)
-      assert.strictEqual(b.pierce, 1, 'expected needle base pierce 1')
+      assert.strictEqual(b.pierce, lvl.pierce, `expected needle pierce ${lvl.pierce} from the levels[] ladder`)
       assert.strictEqual(b.weapon, 'stinger', 'expected the needle tagged weapon:stinger')
     }
-    console.log(`PASS run X.f1 (stinger cone): ${volley.length} needles within ±${lvl.spread}rad, pierce 1`)
+    console.log(`PASS run X.f1 (stinger cone): ${volley.length} needles within ±${lvl.spread}rad, pierce ${lvl.pierce}`)
 
     // hive: an enemy well outside the cone (pinned there by a nearer anchor) is only reached by the
     // every-4th-volley all-directions burst.
@@ -7726,8 +7730,16 @@ function testFrenchDictionary() {
     need(ch.name); need(ch.tagline)
     for (const r of ch.roster ?? []) need(r.name)
   }
-  for (const table of [WEAPONS, WEAPON_MODS, ELEMENTS, MUTATORS, CONSUMABLES, RARITIES, SHOP, PASSIVES]) {
+  for (const table of [WEAPONS, ELEMENTS, MUTATORS, CONSUMABLES, RARITIES, SHOP, PASSIVES]) {
     for (const v of Object.values(table ?? {})) { need(v?.name); need(v?.desc); need(v?.title) }
+  }
+  // v6.6.26: WEAPON_MODS is TWO levels deep (WEAPON_MODS[weaponId][modId]), so the flat walk above
+  // silently checked nothing for it — Object.values() yielded the per-weapon dicts, whose own
+  // .name/.desc are undefined, and `need` skips undefined. Every weapon mod in the game was
+  // exempt from this assert while appearing to be covered by it. Found when piercingNeedles was
+  // added with no French entry and run XX still passed.
+  for (const byMod of Object.values(WEAPON_MODS ?? {})) {
+    for (const v of Object.values(byMod ?? {})) { need(v?.name); need(v?.desc); need(v?.title) }
   }
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
@@ -8398,6 +8410,8 @@ try {
   testAnomalyReroll()
   testCommitVisibility()
   testMowClears()
+  testSpiderShare()
+  testStingerPierce()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -9187,4 +9201,195 @@ function testMowClears() {
   }
 
   console.log('PASS run MC (mow clears): foliage felled for good, webs and trails cut but free to return, and only the mower does it')
+}
+
+// ---- Run SP: the chapter's per-archetype spawn multiplier (v6.6.26) --------------------------
+// Owner directive: "20% less spiders". The obvious lever — a `weight` on garden's spider roster
+// entry — is a SILENT NO-OP, and that is the whole reason this machinery exists: spawnEnemy picks
+// the ARCHETYPE first (from WAVE_TABLE) and only then narrows to the roster entries sharing it, so
+// weighting the single `tank` in garden's roster is a weighted pick over a one-item pool. The fix
+// is CHAPTERS[].archetypeMul, applied to the wave table before the pick.
+//
+// The share is deliberately NOT asserted numerically here. It is set from a closed-form integral
+// of spawnRate(t) * tankShare(t) (see the note on CHAPTERS.garden.archetypeMul), and a seeded sim can
+// not resolve it better than ~3% — one different pick re-rolls the whole downstream stream. What
+// IS pinned: the lever reaches the pick at all, it is chapter-scoped, and the roster fact that
+// makes it necessary.
+function testSpiderShare() {
+  const dt = 1 / 60
+
+  // (a) the load-bearing roster fact. If a second `tank` is ever added to garden, a roster weight
+  // becomes viable and the archetypeMul comment goes stale — this is the tripwire for that.
+  const tanks = CHAPTERS.garden.roster.filter((r) => r.archetype === 'tank')
+  assert.strictEqual(tanks.length, 1, 'garden must have exactly one tank for the archetypeMul rationale to hold')
+  assert.strictEqual(tanks[0].id, 'spider', 'garden\'s only tank must be the spider')
+  console.log('PASS run SP.a (roster): the spider is garden\'s only tank, so a roster weight would be a no-op')
+
+  // (b) the shipped multiplier thins tanks without removing them
+  const shipped = CHAPTERS.garden.archetypeMul
+  assert.ok(shipped && typeof shipped.tank === 'number', 'garden must carry an archetypeMul for tank')
+  assert.ok(shipped.tank > 0 && shipped.tank < 1, `expected garden archetypeMul.tank in (0,1), got ${shipped.tank}`)
+  console.log(`PASS run SP.b (config): garden archetypeMul.tank = ${shipped.tank}`)
+
+  // Counts every rosterId spawned over a fixed window, with the wave row pinned to the
+  // tank-heaviest one so the archetype under test is actually on offer. Enemies are cleared each
+  // frame so the maxAlive cap never binds and truncates the sample.
+  function spawnedIds(archetypeMul) {
+    Math.random = mulberry32(20260807)
+    const saved = CHAPTERS.garden.archetypeMul
+    if (archetypeMul === null) delete CHAPTERS.garden.archetypeMul
+    else CHAPTERS.garden.archetypeMul = archetypeMul
+    const counts = { ant: 0, wasp: 0, spider: 0 }
+    try {
+      const run = createRun(makeMeta(), { chapter: 'garden' })
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null
+      run.player.hp = 1e9; run.player.maxHP = 1e9
+      run.mods.spawnMul = 30                       // a big sample in few frames
+      for (let i = 0; i < Math.round(20 / dt); i++) {
+        run.time = 250                             // pin the tank-heaviest WAVE_TABLE row
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+        run.levelUpChoices = null
+        if (run.phase === 'levelup') run.phase = 'playing'
+        for (const e of run.enemies) if (counts[e.rosterId] != null) counts[e.rosterId]++
+        run.enemies.length = 0                     // counted; keep the density cap out of it
+      }
+    } finally {
+      if (saved === undefined) delete CHAPTERS.garden.archetypeMul
+      else CHAPTERS.garden.archetypeMul = saved
+    }
+    return counts
+  }
+
+  // (c) the multiplier reaches the archetype pick: tank 0 means NO spiders, ever...
+  const none = spawnedIds({ tank: 0 })
+  assert.strictEqual(none.spider, 0, `expected archetypeMul.tank=0 to spawn zero spiders, got ${none.spider}`)
+  assert.ok(none.ant + none.wasp > 0, 'expected ants/wasps to still spawn when tanks are suppressed')
+  // ...and (d) is the mutation check that makes (c) mean something: without the multiplier, the
+  // SAME setup does produce spiders. Without this, (c) would also pass if archetypeMul were ignored and
+  // spiders simply never spawned in this window.
+  const base = spawnedIds(null)
+  assert.ok(base.spider > 0, 'expected spiders on the same setup with no archetypeMul — otherwise SP.c proves nothing')
+  console.log(`PASS run SP.c/d (lever): tank 0 -> ${none.spider} spiders (ants+wasps ${none.ant + none.wasp}), no archetypeMul -> ${base.spider}`)
+
+  // (e) chapter-scoped: it must not leak into chapters that never asked for it.
+  for (const id of CHAPTER_ORDER) {
+    if (id === 'garden') continue
+    assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — the lever is garden-only`)
+  }
+  console.log('PASS run SP.e (scope): no other chapter carries an archetypeMul')
+
+  // (f) THE VOCABULARY TRIPWIRE. archetypeMul is keyed by ARCHETYPE (normal/fast/tank), while
+  // WAVE_TABLE is keyed by spawn TYPE (drone/wisp/tank). `tank` is its own inverse, so a key
+  // written in the wrong vocabulary — archetypeMul: { wisp: 0.8 }, or a plain typo — multiplies
+  // nothing and fails SILENTLY: the chapter ships, the tests pass, the number does nothing. That
+  // exact confusion already cost this codebase a release (see the warning above TYPE_ARCHETYPE in
+  // config.js, where every 'fast' roster entry was unreachable until v5.5), which is why it is
+  // asserted rather than trusted to code review.
+  // The value range is pinned for a second reason: pickWeighted returns the FIRST key when the
+  // total is <= 0, so a negative multiplier would not throw — it would quietly collapse the whole
+  // wave table to drones.
+  const ARCHETYPES = new Set(Object.keys(ARCHETYPE_TYPE))
+  for (const id of CHAPTER_ORDER) {
+    for (const [k, v] of Object.entries(CHAPTERS[id].archetypeMul ?? {})) {
+      assert.ok(ARCHETYPES.has(k), `'${id}'.archetypeMul key '${k}' is not an archetype (${[...ARCHETYPES].join('/')}) — it would silently do nothing`)
+      assert.ok(typeof v === 'number' && v >= 0 && Number.isFinite(v), `'${id}'.archetypeMul.${k} must be a finite number >= 0, got ${v}`)
+    }
+  }
+  console.log(`PASS run SP.f (vocabulary): every archetypeMul key is a real archetype (${[...ARCHETYPES].join('/')}), every value >= 0`)
+
+  console.log('PASS run SP (spider share): the archetype multiplier reaches the pick, garden-only')
+}
+
+// ---- Run SN: the Stinger's pierce ladder (v6.6.26) -------------------------------------------
+// Owner: "does stinger have as many upgrades as other? It feels underpowered". The upgrade COUNT
+// was already at parity (six, like the lure); the weakness was pierce, hard-coded to 1 at the fire
+// site with no mod able to raise it. A cone aimed at the NEAREST enemy puts every needle on the
+// closest body, so a volley stopped dead on the front rank. Measured over 240s of garden at d3 as
+// a share of the free STARTER boomerang's kills, a solo level-5 stinger went 64% -> 80% bare and
+// 77% -> 92% with one pick of every mod — just past the lure (84%) and still under the starter.
+function testStingerPierce() {
+  const dt = 1 / 60
+
+  // (a) the ladder exists, rises, and never regresses to the old flat 1
+  const levels = WEAPONS.stinger.levels
+  for (const [i, lv] of levels.entries()) {
+    assert.ok(Number.isInteger(lv.pierce) && lv.pierce >= 1, `stinger level ${i + 1} needs an integer pierce >= 1, got ${lv.pierce}`)
+    if (i > 0) assert.ok(lv.pierce >= levels[i - 1].pierce, `stinger pierce must not fall from level ${i} to ${i + 1}`)
+  }
+  assert.ok(levels[levels.length - 1].pierce > levels[0].pierce, 'the stinger pierce ladder must actually climb')
+  console.log(`PASS run SN.a (ladder): stinger pierce ${levels.map((l) => l.pierce).join(',')}`)
+
+  // (b) upgrade-count parity with its peers — the literal question that was asked
+  const count = (id) => Object.keys(WEAPON_MODS[id]).length
+  assert.ok(count('stinger') >= count('lure'), `stinger has ${count('stinger')} mods vs lure's ${count('lure')}`)
+  assert.ok(count('stinger') >= count('quillBurst'), `stinger has ${count('stinger')} mods vs quillBurst's ${count('quillBurst')}`)
+  assert.ok(WEAPON_MODS.stinger.piercingNeedles, 'stinger must own a pierce mod, like quillBurst and realityShard')
+  console.log(`PASS run SN.b (parity): stinger ${count('stinger')} mods, lure ${count('lure')}, quillBurst ${count('quillBurst')}`)
+
+  // Fires one volley and hands back its needles.
+  function volleyAt(level, mods) {
+    const run = createRun(makeMeta(), { chapter: 'garden' })
+    run.weapons = [{ id: 'stinger', level }]
+    run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+    for (const [k, v] of Object.entries(mods ?? {})) run.weaponMods.stinger[k] = v
+    run.enemies.push(makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 }))
+    for (let i = 0; i < Math.round(2 / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.bullets.length > 0) return run.bullets.slice()
+      run.events.length = 0
+    }
+    return []
+  }
+
+  // (c) the ladder reaches the BULLET — this is what the old hard-coded `pierce: 1` broke
+  for (const level of [1, MAX_WEAPON_LEVEL]) {
+    const v = volleyAt(level, null)
+    assert.ok(v.length > 0, `expected a volley at level ${level}`)
+    const want = levels[level - 1].pierce
+    for (const b of v) assert.strictEqual(b.pierce, want, `level ${level} needle should carry pierce ${want}, got ${b.pierce}`)
+  }
+  console.log('PASS run SN.c (plumbing): needle pierce comes from the level, not a hard-coded 1')
+
+  // (d) piercingNeedles adds on top — proves it is wired into WEAPON_STAT_MODS, not just declared
+  const bare = volleyAt(MAX_WEAPON_LEVEL, null)[0].pierce
+  const modded = volleyAt(MAX_WEAPON_LEVEL, { piercingNeedles: 1 })[0].pierce
+  assert.strictEqual(modded, bare + 1, `expected piercingNeedles to raise pierce ${bare} -> ${bare + 1}, got ${modded}`)
+  console.log(`PASS run SN.d (mod): piercingNeedles ${bare} -> ${modded}`)
+
+  // (e) the behaviour all of the above is a proxy for: ONE needle passes THROUGH a body instead of
+  // stopping in it. Three foes stacked along the aim axis, close enough that the cone has not
+  // fanned past them, so every needle meets the front rank first.
+  //
+  // Asserting "level 5 reaches all three" ALONE would be worthless — a volley is 3-5 needles, so
+  // three ranks could each simply eat their own needle. The discriminator is the A/B: at level 1
+  // the ladder's pierce is 1, and the same scenario must leave the rear ranks untouched. If that
+  // ever stops being true, this test is measuring needle COUNT, not pierce, and should be rebuilt.
+  {
+    function ranksReached(level) {
+      const run = createRun(makeMeta(), { chapter: 'garden' })
+      run.weapons = [{ id: 'stinger', level }]
+      run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+      run.player.x = 0; run.player.y = 0; run.player.hp = 1e9; run.player.maxHP = 1e9
+      const line = [40, 70, 100].map((x) => {
+        const e = makeStatusEnemy(run, { x, y: 0, hp: 1e6, speed: 0 })
+        e.radius = 12
+        run.enemies.push(e)
+        return e
+      })
+      const hp0 = line.map((e) => e.hp)
+      for (let i = 0; i < Math.round(1.2 / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+      return line.map((e, i) => e.hp < hp0[i])
+    }
+    const deep = ranksReached(MAX_WEAPON_LEVEL)
+    const shallow = ranksReached(1)
+    assert.strictEqual(deep.filter(Boolean).length, 3, `expected a pierce-${levels[MAX_WEAPON_LEVEL - 1].pierce} volley to reach all three ranks, got ${deep.filter(Boolean).length}`)
+    assert.ok(deep[2], 'expected the rearmost enemy to be reached through the two in front')
+    assert.strictEqual(levels[0].pierce, 1, 'this A/B assumes level 1 still sits at pierce 1')
+    assert.ok(!shallow[2], 'a pierce-1 volley must NOT reach the rearmost rank — otherwise SN.e is measuring needle count, not pierce')
+    console.log(`PASS run SN.e (pass-through): pierce ${levels[MAX_WEAPON_LEVEL - 1].pierce} reaches [${deep.map((h) => (h ? 'X' : '.')).join('')}], pierce 1 only [${shallow.map((h) => (h ? 'X' : '.')).join('')}]`)
+  }
+
+  console.log('PASS run SN (stinger pierce): ladder + piercingNeedles reach the needle, and needles pass through')
 }

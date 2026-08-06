@@ -408,6 +408,8 @@ const CONFIG = {
   'needle range & speed': 'portée et vitesse des aiguilles',
   'Rapid Fire': 'Tir Rapide',
   'volley rate': 'cadence de volée',
+  'Barbed Needles': 'Aiguilles Barbelées',
+  'needle pierce': 'perforation des aiguilles',
   'Venom Tips': 'Pointes Venimeuses',
   'needles inject 1 venom stack': 'les aiguilles injectent 1 charge de venin',
   'Hive Mind': 'Esprit Ruche',

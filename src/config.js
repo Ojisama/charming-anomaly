@@ -225,13 +225,38 @@ export const WEAPONS = {
     desc: 'Fires a tight cone of piercing needles at the nearest enemy.',
     icon: '🪡', rarity: 'normal',
     // count = needles per volley; spread = cone half-angle (rad); range/speed give a short-mid
-    // reach (life = range/speed, derived at fire time). pierce is a fixed 1 (no pierce mod).
+    // reach (life = range/speed, derived at fire time).
+    // v6.6.26 (owner: "does stinger have as many upgrades as other? It feels underpowered").
+    // It already had six mods — parity on COUNT with the lure and quillBurst — but measured 64% of
+    // the boomerang's kills over 240s of garden at d3, and the boomerang is the free STARTER. The
+    // cause was pierce, hard-coded to 1 with no mod to raise it: a cone aimed at the NEAREST enemy
+    // puts every needle on the closest body, so a 5-needle volley dumped 80 dmg into one ant and
+    // stopped, while the crowd behind it (avg 83 alive, vs 43 under the boomerang) walked through
+    // untouched. Every sibling volley weapon already ladders pierce AND carries a flat pierce mod
+    // — quillBurst 1,1,2,2,2 + piercingQuills; realityShard 1,1,2,2,3 + pierceShard; star the same
+    // 1,1,2,2,3. Stinger was the only one denied both. The ladder below (identical to star's and
+    // realityShard's, deliberately — this is parity, not a promotion) plus piercingNeedles takes it
+    // to seven mods, tying bloom/clawRake/sewerGeyser for the most-modded weapon in the game.
+    // Nothing else about the weapon changed: same damage, same cadence, same cone.
+    // Measured on the shipped tree (240s, garden d3, solo at L5, 3 seeds), as a share of the free
+    // starter boomerang's kills: bare 64% -> 80%, one pick of every mod 77% -> 92%. It stays UNDER
+    // the starter at every mod depth tested (x1/x3/x5) and at d3 and d5 — the aim was parity with
+    // the lure, not a promotion over the thing you get for free.
+    // ponytail: 87% of that gain is this ladder, not the mod — pierce 1 -> 3 is +87% dps on its
+    // own, the whole piercingNeedles line adds 14% (first pick) to 39% (theoretical max). So if
+    // this ever reads as too strong, the lever is the LADDER (1,1,2,2,3 -> 1,1,1,2,2), not the mod.
+    // The mod also has hard diminishing returns: the cone's fixed spread and the needle's
+    // range/speed lifetime cap a volley at ~11 landed hits however large the pierce budget gets,
+    // so picks 3-5 are worth ~1% dps each while the card keeps being offered up to
+    // MAX_WEAPON_MOD_PICKS. Left alone deliberately — star.pierce, quillBurst.piercingQuills and
+    // realityShard.pierceShard all share that shape, so a per-mod pick cap belongs to all four at
+    // once (a `maxPicks` field read by eligibleWeaponModCandidates) and not to a one-weapon patch.
     levels: [
-      { dmg: 8,  rate: 0.85, count: 3, speed: 620, range: 320, spread: 0.20 },
-      { dmg: 9,  rate: 0.78, count: 3, speed: 640, range: 340, spread: 0.20 },
-      { dmg: 11, rate: 0.70, count: 4, speed: 660, range: 360, spread: 0.22 },
-      { dmg: 13, rate: 0.62, count: 4, speed: 690, range: 380, spread: 0.22 },
-      { dmg: 16, rate: 0.54, count: 5, speed: 720, range: 410, spread: 0.24 },
+      { dmg: 8,  rate: 0.85, count: 3, speed: 620, range: 320, spread: 0.20, pierce: 1 },
+      { dmg: 9,  rate: 0.78, count: 3, speed: 640, range: 340, spread: 0.20, pierce: 1 },
+      { dmg: 11, rate: 0.70, count: 4, speed: 660, range: 360, spread: 0.22, pierce: 2 },
+      { dmg: 13, rate: 0.62, count: 4, speed: 690, range: 380, spread: 0.22, pierce: 2 },
+      { dmg: 16, rate: 0.54, count: 5, speed: 720, range: 410, spread: 0.24, pierce: 3 },
     ],
   },
   lure: {
@@ -641,8 +666,9 @@ export const WEAPON_MODS = {
     sporeburst: { name: 'Sporeburst',      desc: 'mini-cloud when a foe dies inside', icon: '💥', kind: 'switch' },
     tideCarried:{ name: 'Tide-Carried',    desc: 'clouds ride the current, ticking harder', icon: '🌊', base: 1, kind: 'flat' },
   },
-  // Garden natives (v5.3 task, see stepStingerWeapon/stepLureWeapon in sim.js). sharper/volley fold
-  // into stinger's levels[] via WEAPON_STAT_MODS; longNeedles (range AND speed) and rapid (attack
+  // Garden natives (v5.3 task, see stepStingerWeapon/stepLureWeapon in sim.js). sharper/volley/
+  // piercingNeedles fold into stinger's levels[] via WEAPON_STAT_MODS; longNeedles (range AND
+  // speed) and rapid (attack
   // rate — dividing it into the levels[] `rate` would SLOW it, like flagella.frenzy) are read at the
   // fire site. venomTips/hive are behavioral (needle hit site / volley fire site).
   stinger: {
@@ -650,6 +676,7 @@ export const WEAPON_MODS = {
     volley:      { name: 'Wider Volley', desc: 'needles per volley',   icon: '🎯', base: 2,    kind: 'flat' },
     longNeedles: { name: 'Long Needles', desc: 'needle range & speed', icon: '📏', base: 0.30, kind: 'pct' },
     rapid:       { name: 'Rapid Fire',   desc: 'volley rate',          icon: '🚀', base: 0.25, kind: 'pct' },
+    piercingNeedles: { name: 'Barbed Needles', desc: 'needle pierce', icon: '🪝', base: 1, kind: 'flat' },
     venomTips:   { name: 'Venom Tips',   desc: 'needles inject 1 venom stack', icon: '☠️', kind: 'switch' },
     hive:        { name: 'Hive Mind',    desc: 'every 4th volley fires all around', icon: '🐝', kind: 'switch' },
   },
@@ -1530,6 +1557,31 @@ export const CHAPTERS = {
                                           // chapter hazard (see `mower` below) — it turns up on its
                                           // own schedule now, so an elite no longer summons one.
     mower: true,                          // ambient lawnmower passes; see the MOWER_* block
+    // v6.6.26 (owner: "20% less spiders"). Relative spawn-share multiplier keyed by ARCHETYPE
+    // (normal/fast/tank — the same vocabulary this roster is written in), applied to WAVE_TABLE
+    // before the pick; see waveWeights in sim.js, which does the archetype -> spawn-type
+    // translation. It has to live here rather than on the spider's roster entry: the spider is
+    // garden's only `tank`, so a roster weight would be weighted-picking a one-item pool — a
+    // silent no-op.
+    // 0.73, NOT 0.80, because the weights are RELATIVE: cutting tank hands its share to the other
+    // archetypes and the pick re-normalises, so a flat 0.80 only removes 14.5%. The exact figure
+    // comes from integrating spawnRate(t) * tankShare(t) over RUN_DURATION (the pick is an
+    // independent draw per arrival, so the expected count is closed-form): 0.73 -> -20.0%,
+    // 0.74 -> -19.3%, 0.72 -> -20.9%. Seeded sim runs can NOT settle this to better than ~3% — one
+    // different pick re-rolls the whole downstream stream — so the integral is the authority.
+    // -20.0% is the figure OVER A FULL 300s RUN. The cut is row-dependent, because the late
+    // WAVE_TABLE rows are tank-heavier: -23.6% in [140,200), -20.9% in [200,240), -19.1% past 260.
+    // A player who dies at 200s met ~24% fewer spiders, not 20%. It is also -20% against the build
+    // this feedback came from (v6.6.24); measured against v6.6.22 it is -24%, since v6.6.23 had
+    // already taken 5% off spawnMul.
+    // BODY COUNT is untouched — ants and wasps absorb the difference — but DIFFICULTY is not, and
+    // the two are not the same thing: a 90hp tank is replaced by a 20hp drone or a 10hp wisp, so
+    // this quietly removes 11.9% of the chapter's total enemy HP and 8.7% of its XP (both
+    // closed-form over the same integral; measured level-ups over 300s fell 29 -> 28). Stacked on
+    // v6.6.23's -10% HP that is ~-22% of the garden's HP pool across three releases for only -5%
+    // bodies. Worth knowing before the next nerf: the chapter has been softened more than the
+    // "5% fewer monsters" framing of those release notes suggests.
+    archetypeMul: { tank: 0.73 },
     // Signature: dying trailFollow ants drop fading pheromone nodes (run.trails) that living ants
     // accelerate along. No field force (unlike currents) — the mechanic IS the ant behaviour, so
     // sim.js gates its trail logic on signature.type === 'pheromones' (future chapters' ants differ).
