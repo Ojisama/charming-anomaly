@@ -1812,6 +1812,20 @@ export const CHAPTERS = {
     // So: this number is 20% fewer ARRIVALS, which is what it says and what garden shipped. The
     // honest scope is that a run whose field is already pegged at the cap sees less than 20% —
     // see run VV for the ladder this defers to.
+    // v6.6.33 (owner: "20% less toads"). Relative spawn-share multiplier keyed by ARCHETYPE,
+    // applied to WAVE_TABLE before the pick — the same lever and the same arithmetic as garden's
+    // v6.6.26 spider cut, and it lands on the same number for the same reason: WAVE_TABLE and
+    // spawnRate are GLOBAL, so the tank share over a 300s run is identical in every chapter.
+    // 0.73, NOT 0.80, because the weights are RELATIVE: scaling one weight by m does not cut its
+    // share by (1-m), it cuts it by m/(m*w + rest). Closed-form integral of
+    // spawnRate(t) * tankShare(t, m) over the run, bisected: 0.7309 is exact, and on the 2dp grid
+    // 0.73 -> -20.1%, 0.74 -> -19.3%, 0.72 -> -20.9%. Seeded sims cannot settle this to better than
+    // ~3% because the RNG stream diverges the moment one pick differs — do not "verify" it that way.
+    // This is a SHARE cut and stacks multiplicatively with the spawnMul below, which is a TOTAL cut:
+    // the owner asked for 20% fewer toads than they currently see, and that is what this gives.
+    // The toad is undergrowth's only `tank`, which is why this has to live here rather than as a
+    // roster weight — a roster weight would be weighted-picking a one-item pool, a silent no-op.
+    archetypeMul: { tank: 0.73 },
     balance: { spawnMul: 0.8 },
     obstacles: { count: 15, minR: 24, maxR: 46, minDist: 220 }, // roots / bones (traps are separate, see run.traps)
     // ---- render-only (v5.4; interpreted by render.js, ZERO effect on sim) ---- dim forest floor
@@ -3288,12 +3302,38 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // the leap passes THROUGH where you were and lands beyond it, so running in a straight line is not
 // an escape and stepping aside still is. That is the FAST => COMMITTED contract stated properly:
 // impossible to ignore, never impossible to escape.
-export const POUNCE_RANGE = 180          // px, distance at which a holding cat commits to a leap
-export const POUNCE_LEAP_DIST = 300      // px the leap covers, whatever its own speed is
+// v6.6.33 (owner: "the leap is wayyy too long it flies off screen. The leap build-up is too short,
+// should be twice as long to prepare. [...] Toads are slow and tanky: when they land, they slowly
+// turn towards the player and build-up another leap"). This retires the gap-closer framing the
+// block above was written under. v6.6.30 fixed a CAT whose pounce lost ground every time it
+// attacked, and the fix was a leap long enough to out-run the frozen windows: 300px. On a 390px
+// phone the horizontal half-view is 195px, so a 300px leap left the screen by construction — the
+// fix for one owner complaint created the next one.
+// A toad is not a pursuer. It is a heavy ambusher that sits, winds up visibly, snaps a SHORT
+// distance, lands hard, and takes its time coming round again. So the leap is now shorter than the
+// phone half-view and the wind-up is the dominant phase of the cycle. It closes ground far more
+// slowly than the cat did, and that is the intended reading rather than a regression — see run
+// UG.j, whose old "must net forward against a fleeing player" assertion belonged to the cat and is
+// replaced by the constraint that actually matters now: the leap must stay on screen.
+export const POUNCE_RANGE = 140          // px, distance at which a holding toad commits to a leap
+export const POUNCE_LEAP_DIST = 150      // px the leap covers — must stay under a phone's 195px half-view
 export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of its OWN speed)
-export const POUNCE_AIM_T = 0.45         // s, telegraphed crouch (dead stop; heading locks at its start)
-export const POUNCE_LEAP_T = 0.42        // s, leap phase (straight, no steering) — 714 px/s at 300px
+export const POUNCE_AIM_T = 0.90         // s, telegraphed crouch (dead stop; heading locks at its start)
+export const POUNCE_LEAP_T = 0.30        // s, leap phase (straight, no steering) — 500 px/s at 150px.
+                                         // Short AND fast: a toad's leap is a snap, and holding the
+                                         // old 0.42s over half the distance would have halved the
+                                         // launch speed, which is not what "too long" asked for.
 export const POUNCE_LAND_T = 0.50        // s frozen after a leap (the free-hits window)
+// How fast the body may SWING ROUND, in rad/s. The owner's rule: "when it leaps, it turns mid air
+// towards the player: it shouldn't. It has committed to a jump and should keep facing same
+// direction during jump. Otherwise momentum conservation is not realistic."
+// Until v6.6.33 facing was recomputed from the bearing to the player EVERY FRAME for every enemy in
+// the game, so a committed leap visibly steered even though the sim had locked its heading — the
+// body said one thing and the trajectory said another. Read by ROSTER_LOOKS.toad's faceDir/turnRate
+// hooks in render.js; every other creature keeps the old instant facing and is untouched.
+export const POUNCE_TURN_AIM = 7.0       // rad/s while winding up — it must finish aimed before launch
+export const POUNCE_TURN_LEAP = 0        // rad/s mid-air. Zero. That is the whole rule.
+export const POUNCE_TURN_IDLE = 1.9      // rad/s landed/stalking — ~1.7s for a half turn, a slow heavy animal
 // Fraction of the LANDING cat's own maxHP a slammed trap deals, floored by max(SNAP_TRAP_DMG*2, …):
 // a flat multiple of SNAP_TRAP_DMG dies against hpScale (the first cat ever to spawn, ~t=140, already
 // carries ~368 HP) — the trap needs to stay a real threat, not decoration, against that curve. The

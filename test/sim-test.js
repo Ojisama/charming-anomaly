@@ -9312,10 +9312,13 @@ function testSpiderShare() {
   assert.ok(base.spider > 0, 'expected spiders on the same setup with no archetypeMul — otherwise SP.c proves nothing')
   console.log(`PASS run SP.c/d (lever): tank 0 -> ${none.spider} spiders (ants+wasps ${none.ant + none.wasp}), no archetypeMul -> ${base.spider}`)
 
-  // (e) chapter-scoped: it must not leak into chapters that never asked for it.
+  // (e) chapter-scoped: it must not leak into chapters that never asked for it. v6.6.33 added
+  // undergrowth (owner: "20% less toads"), so the list is explicit rather than "garden-only" — the
+  // claim under test is that a chapter gets this lever only by asking, not that garden is special.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth']
   for (const id of CHAPTER_ORDER) {
-    if (id === 'garden') continue
-    assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — the lever is garden-only`)
+    if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
+    assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — only ${ARCHETYPE_MUL_CHAPTERS.join('/')} asked for it`)
   }
   console.log('PASS run SP.e (scope): no other chapter carries an archetypeMul')
 
@@ -9867,18 +9870,25 @@ function testUndergrowthRound() {
   // used to LOSE ground every time it attacked. Two assertions: the arithmetic that made that
   // possible, and the behaviour that proves the leap is still escapable.
   {
-    // (j1) the arithmetic. A pounce cycle freezes the cat for aim + land; if the leap covers less
-    // ground than a player travels in that time, attacking is strictly worse than walking and the
-    // cat can never arrive. Pre-v6.6.30 this read 106px of leap against 275px of frozen time.
-    const frozen = (POUNCE_AIM_T + POUNCE_LAND_T) * PLAYER.baseSpeed
-    assert.ok(POUNCE_LEAP_DIST > frozen,
-      `a pounce must NET FORWARD: the leap covers ${POUNCE_LEAP_DIST}px but the cat is frozen long enough for a player to cover ${frozen.toFixed(0)}px — attacking would lose it ground, which is exactly the "dash forward then slide back" the owner saw`)
-    // (j2) it must be able to reach what it committed to. Committing from further out than the leap
-    // can travel is the other half of the same bug.
+    // (j1) it must stay ON SCREEN. This replaces v6.6.30's "a pounce must net forward against a
+    // fleeing player" assertion, which belonged to the CAT: that animal was a gap-closer whose leap
+    // had to out-run its own frozen windows, and the 300px leap that satisfied it overshot a
+    // 390px-wide phone's 195px half-view every single time. A toad is an ambusher, not a pursuer —
+    // it is allowed to lose ground — so the binding constraint is the owner's actual complaint.
+    const PHONE_HALF_W = 195   // half of a 390px portrait phone, the narrowest real viewport
+    assert.ok(POUNCE_LEAP_DIST < PHONE_HALF_W,
+      `a leap of ${POUNCE_LEAP_DIST}px does not fit inside a phone's ${PHONE_HALF_W}px half-view — it would fly off screen, which is the thing this number exists to prevent`)
+    // (j2) it must still be able to reach what it committed to. Committing from further out than
+    // the leap can travel is the other half of the v6.6.30 bug and is still forbidden.
     assert.ok(POUNCE_LEAP_DIST >= POUNCE_RANGE,
-      `a cat commits inside ${POUNCE_RANGE}px but can only leap ${POUNCE_LEAP_DIST}px — it would aim at something it cannot reach`)
+      `a toad commits inside ${POUNCE_RANGE}px but can only leap ${POUNCE_LEAP_DIST}px — it would aim at something it cannot reach`)
+    // (j3) the WIND-UP dominates the attack (owner: "the leap build-up [...] should be twice as
+    // long to prepare"). This is what makes it read as a heavy animal gathering itself rather than
+    // as a twitch, and it is the property a future "make the cat snappier" edit would silently undo.
+    assert.ok(POUNCE_AIM_T >= POUNCE_LEAP_T * 2,
+      `the wind-up (${POUNCE_AIM_T}s) must be at least twice the leap itself (${POUNCE_LEAP_T}s), or the telegraph stops being a telegraph`)
 
-    // (j3) behaviour. A player who stands still is caught; a player who steps SIDEWAYS is not.
+    // (j4) behaviour. A player who stands still is caught; a player who steps SIDEWAYS is not.
     // The leap locks its heading at the start of 'aim' and never re-steers, so perpendicular motion
     // is the counterplay, and this is the assertion that keeps it that way.
     const trial = (policy) => {
@@ -9889,7 +9899,7 @@ function testUndergrowthRound() {
       run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
       run.mods.spawnMul = 0
       run.enemies.length = 0
-      const e = makeStatusEnemy(run, { x: 250, y: 0, type: 'tank', speed: 45 })
+      const e = makeStatusEnemy(run, { x: 200, y: 0, type: 'tank', speed: 45 })
       e.flags = ['pounce']
       e.rosterId = 'toad'
       run.enemies.push(e)
@@ -9897,7 +9907,7 @@ function testUndergrowthRound() {
       let contacts = 0
       let inLeap = false
       let hitThisLeap = false
-      for (let i = 0; i < 60 * 30; i++) {
+      for (let i = 0; i < 60 * 40; i++) {
         run.player.hp = run.player.maxHP = 1e9
         const dx = e.x - run.player.x
         const dy = e.y - run.player.y
@@ -9915,13 +9925,70 @@ function testUndergrowthRound() {
     }
     const still = trial('still')
     const side = trial('side')
-    assert.ok(still.leaps > 0, 'the cat never leapt at a stationary player at all')
+    assert.ok(still.leaps > 0, 'the toad never leapt at a stationary player at all')
     assert.ok(still.contacts / still.leaps > 0.8,
       `a pounce must CONNECT against a player who does not move: only ${still.contacts}/${still.leaps} landed`)
-    assert.ok(side.leaps > 0, 'the cat never leapt at a sidestepping player — it must still commit')
+    assert.ok(side.leaps > 0, 'the toad never leapt at a sidestepping player — it must still commit')
     assert.strictEqual(side.contacts, 0,
       `stepping sideways must beat a pounce every time (the heading locks at 'aim' and never re-steers), but ${side.contacts}/${side.leaps} still connected`)
-    console.log(`PASS run UG.j (the pounce arrives): leap ${POUNCE_LEAP_DIST}px vs ${frozen.toFixed(0)}px of frozen time; ${still.contacts}/${still.leaps} land on a standing player, ${side.contacts}/${side.leaps} on one stepping aside`)
+    console.log(`PASS run UG.j (the pounce): ${POUNCE_LEAP_DIST}px leap inside a ${PHONE_HALF_W}px half-view, wind-up ${POUNCE_AIM_T}s vs leap ${POUNCE_LEAP_T}s; ${still.contacts}/${still.leaps} land on a standing player, ${side.contacts}/${side.leaps} on one stepping aside`)
+
+    // (j5) THE HEADING IS LOCKED FOR THE WHOLE LEAP (owner: "when it leaps, it turns mid air towards
+    // the player: it shouldn't. It has committed to a jump"). render.js's faceDir hook points the
+    // body at _pounceDir while airborne, so that vector not moving is the contract the visual rests
+    // on: if the sim ever re-aims mid-leap, the body would steer again and nothing else would fail.
+    {
+      Math.random = mulberry32(20260728)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = []
+      run.obstacles = []; run._obstacleSeed = null; run.traps = []
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      run.mods.spawnMul = 0
+      run.enemies.length = 0
+      const e = makeStatusEnemy(run, { x: 120, y: 0, type: 'tank', speed: 45 })
+      e.flags = ['pounce']
+      e.rosterId = 'toad'
+      run.enemies.push(e)
+      let locked = null
+      let framesAirborne = 0
+      let drift = 0
+      for (let i = 0; i < 60 * 12; i++) {
+        run.player.hp = run.player.maxHP = 1e9
+        // the player ORBITS hard: if anything re-aimed mid-flight, this is what would move it
+        const a = i * 0.09
+        stepSim(run, { x: Math.cos(a), y: Math.sin(a) }, 1 / 60)
+        run.events.length = 0
+        if (e._pounceState === 'leap') {
+          if (!locked) locked = [e._pounceDirX, e._pounceDirY]
+          framesAirborne++
+          drift = Math.max(drift, Math.abs(e._pounceDirX - locked[0]) + Math.abs(e._pounceDirY - locked[1]))
+        } else locked = null
+      }
+      assert.ok(framesAirborne > 30, `UG.j5 needs real airborne frames to mean anything, saw ${framesAirborne}`)
+      assert.strictEqual(drift, 0,
+        `the leap heading moved by ${drift} mid-flight while the player orbited — a committed leap must not re-aim`)
+      console.log(`PASS run UG.j5 (committed mid-air): heading held across ${framesAirborne} airborne frames against an orbiting player`)
+    }
+  }
+
+  // (k) v6.6.33. render.js is not headless-testable (Pixi + DOM), so this is a SOURCE tripwire for
+  // the one failure mode that bit during the committed-leap work: makeRosterLook builds a FRESH
+  // object rather than passing the ROSTER_LOOKS entry through, so a hook that is declared on an
+  // entry and not copied there is silently inert — syncEnemies reads `look.faceDir`, gets undefined,
+  // and falls back to the old always-face-the-player behaviour with no error anywhere. The first cut
+  // of "a committed leap must not re-aim" shipped as an exact no-op that way and was only caught by
+  // measuring the drawn heading in a browser. Cheap to assert, expensive to miss.
+  {
+    const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const declared = [...src.matchAll(/^\s{6}(faceDir|turnRate|poseOf):/gm)].map((m) => m[1])
+    assert.ok(declared.length >= 3, `expected the toad to declare faceDir/turnRate/poseOf, found [${declared}]`)
+    for (const hook of ['faceDir', 'turnRate', 'poseOf']) {
+      assert.ok(src.includes(`${hook}: entry.${hook}`),
+        `ROSTER_LOOKS declares '${hook}' but makeRosterLook never copies it onto the baked look — it would be a silent no-op`)
+      assert.ok(src.includes(`look.${hook}`),
+        `nothing in render.js ever READS look.${hook} — the hook is dead weight`)
+    }
+    console.log('PASS run UG.k (render hooks are wired): faceDir/turnRate/poseOf are declared, forwarded by makeRosterLook, and read by syncEnemies')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
