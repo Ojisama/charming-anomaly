@@ -1622,6 +1622,9 @@ export const CHAPTERS = {
     // multiply-identity white and there's no player tail. Enemy silhouettes are baked per
     // rosterId in render.js (v5.4 — redcell/wbc/antibody), so no per-chapter enemy map here.
     render: {
+      // Hero-card cast (v6.7): the first three roster entries as faces, so a chapter card says
+      // WHO lives there instead of being a colour and one emoji. RENDER-ONLY — sim.js never reads it.
+      cast: ['🔴', '⚪', '🧬'],
       bgColor: 0xf4efe6,   // == main.js app background
       floorTint: 0xffffff, // multiply-identity → floor sprites keep their baked pastel tints
       playerTint: 0xffffff,
@@ -1660,6 +1663,9 @@ export const CHAPTERS = {
     // silhouettes are baked per rosterId (v5.4 — amoeba/tadpole/tardigrade), and statusless
     // soap-bubble elites shimmer through `eliteIridescent`. currents motes driven off signature.type.
     render: {
+      // Hero-card cast (v6.7): the first three roster entries as faces, so a chapter card says
+      // WHO lives there instead of being a colour and one emoji. RENDER-ONLY — sim.js never reads it.
+      cast: ['🫧', '🐸', '🐻'],
       bgColor: 0x2e6258,    // murky teal water showing between the floor blotches
       floorTint: 0x66c2a9,  // teal multiply — pushes the green foliage toward pond weeds
       playerTint: 0xb0f0ff, // cools the mint blob toward a saturated cyan-teal
@@ -1737,6 +1743,9 @@ export const CHAPTERS = {
     // per rosterId (v5.4 — ant/wasp/spider). render.js also draws the five garden sim systems
     // (trails/webs/strips/lures + stinger needles), all data-driven no-ops elsewhere.
     render: {
+      // Hero-card cast (v6.7): the first three roster entries as faces, so a chapter card says
+      // WHO lives there instead of being a colour and one emoji. RENDER-ONLY — sim.js never reads it.
+      cast: ['🐜', '🐝', '🕷️'],
       bgColor: 0x4e8240,    // sunlit lawn green between the grass blades (brighter than pond)
       floorTint: 0xaad066,  // warm sunny grass-green multiply on the floor sprites
       playerTint: 0xc2f070, // bug-ish warm caterpillar green for the blob
@@ -1810,6 +1819,9 @@ export const CHAPTERS = {
     // furry tan critter with a tail. Deliberately the DARKEST biome so far (the garden's sunlit lawn
     // gives way to the shade under it). Enemy silhouettes are baked per rosterId (toad/centipede/rat).
     render: {
+      // Hero-card cast (v6.7): the first three roster entries as faces, so a chapter card says
+      // WHO lives there instead of being a colour and one emoji. RENDER-ONLY — sim.js never reads it.
+      cast: ['🐸', '🐛', '🐀'],
       bgColor: 0x2b2417,    // dark loam/soil showing between the leaf litter
       floorTint: 0x8a7a4e,  // drab dead-leaf brown multiply on the floor sprites
       playerTint: 0xd8a86a, // warm tan fur for the blob (you're a small furry critter now)
@@ -1862,6 +1874,9 @@ export const CHAPTERS = {
     // grey floor, a neon-lit slime monster (no tail). Enemy silhouettes baked per rosterId
     // (vacuum/ratDrone/pigeon). render.js also draws run.lanes (hazard-striped band -> headlights).
     render: {
+      // Hero-card cast (v6.7): the first three roster entries as faces, so a chapter card says
+      // WHO lives there instead of being a colour and one emoji. RENDER-ONLY — sim.js never reads it.
+      cast: ['🤖', '🛸', '🚓'],
       bgColor: 0x2c2f38,    // wet night asphalt between the pavement slabs
       floorTint: 0x9aa0ac,  // cold concrete grey multiply on the floor sprites
       playerTint: 0x9ef0c8, // neon-sign green — an urban monster lit by the storefronts
@@ -1959,6 +1974,9 @@ export const CHAPTERS = {
     // rosterId: jet/helicopter/tankColumn — see their re-lit fills at the top of the Skies section
     // in render.js (the floor flip forced a matching contrast re-pass on all three).
     render: {
+      // Hero-card cast (v6.7): the first three roster entries as faces, so a chapter card says
+      // WHO lives there instead of being a colour and one emoji. RENDER-ONLY — sim.js never reads it.
+      cast: ['✈️', '🚁', '🚛'],
       bgColor: 0x2a3240,    // dark storm indigo-grey sky showing between the rubble
       floorTint: 0x717c88,  // wet-asphalt cool grey multiply — rain-slicked night wreckage
       // playerTint/tailTint: read only when `kaiju` (below) is false — render.js's syncPlayer
@@ -2050,6 +2068,9 @@ export const CHAPTERS = {
     // more). eliteIridescent gives UFO elites the same statusless shimmer the pond's soap bubbles
     // use. rosterId: blinker/flicker/swarmDrone.
     render: {
+      // Hero-card cast (v6.7): the first three roster entries as faces, so a chapter card says
+      // WHO lives there instead of being a colour and one emoji. RENDER-ONLY — sim.js never reads it.
+      cast: ['🌑', '✨', '👁️'],
       bgColor: 0x120a26,    // deep violet-black void showing between the asteroid crust
       floorTint: 0x6a5fa0,  // cold violet multiply — dead rock lit only by starlight
       playerTint: 0xe0b0ff, // luminous cosmic violet-white for the blob
@@ -2091,6 +2112,8 @@ CHAPTERS.blank = {
   modsByDifficulty: { 1: [], 2: ['accelResponse', 'crossReactive'],
                       3: ['accelResponse', 'crossReactive', 'immuneMemory', 'affinityMature'] },
   render: { bgColor: 0xf2efe8, floorTint: 0xffffff, playerTint: 0x8a55d6, tail: false,
+            cast: ['▫️', '▪️', '◼️'],   // probe / binder / eraser — see the cast note on the other chapters
+
             voidFloor: true,   // RENDER gates all decorative floor layers off
             ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
 }

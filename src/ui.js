@@ -326,18 +326,44 @@ export function initUI(hooks) {
       return `<span class="hero-star${on ? ' hero-star--on' : ''}${pulse ? ' hero-star--pulse' : ''}">${on ? '★' : '☆'}</span>`
     }).join('')
     const best = chMeta.best?.time ? `<span class="hero-best">${t('best')} ${fmtTime(chMeta.best.time)}</span>` : ''
+    // v6.7: the cast — three faces from CHAPTERS[id].render.cast (config.js). The complaint the whole
+    // redesign started from was that a card is "just a colour and an emoji"; this is the cheapest
+    // honest answer, because it says what you will actually be running away from in there.
+    const cast = (chapter.render.cast ?? []).map((e) => `<span class="hero-face">${e}</span>`).join('')
     return `
       <div class="hero-card${light ? ' hero-card--light' : ''}" data-chapter="${id}" data-hero style="background:${bg}; color:${light ? 'var(--ink)' : '#f5f9f7'}">
         <div class="hero-ambient" aria-hidden="true">${ambientHtml(id)}</div>
+        <div class="hero-scene" aria-hidden="true"><i class="hero-band hero-band--far"></i><i class="hero-band hero-band--mid"></i><i class="hero-band hero-band--near"></i></div>
+        ${best}
         <div class="hero-creature">
           <span class="hero-glow"></span>
           <span class="hero-icon">${chapter.icon}</span>
+          <span class="hero-shadow"></span>
         </div>
-        <span class="hero-name">${t(chapter.name)}</span>
-        <span class="hero-tagline">${t(chapter.tagline)}</span>
-        <div class="hero-stars" aria-label="${t('progress')}">${stars}</div>
-        ${best}
+        <div class="hero-foot">
+          <span class="hero-name">${t(chapter.name)}</span>
+          <span class="hero-tagline">${t(chapter.tagline)}</span>
+          ${cast ? `<div class="hero-cast" aria-hidden="true">${cast}</div>` : ''}
+          <div class="hero-stars" aria-label="${t('progress')}">${stars}</div>
+        </div>
       </div>`
+  }
+
+  // "CHAPTER 3" under the strip — the POSITION only. The total is deliberately withheld until every
+  // chapter is unlocked (owner directive): printing "3 of 8" on a fresh save hands away both how much
+  // game is left and the existence of the hidden 8th, which the carousel itself is careful never to
+  // reveal (see titleChapterList). Once there is nothing left to spoil the total joins it as a
+  // completion badge. Position is the index in the carousel list, which is a prefix of CHAPTER_ORDER
+  // plus at most the one locked tease, so it matches the chapter's real number either way.
+  function chapterCounterLabel(list) {
+    const i = list.indexOf(browseChapterId)
+    if (i < 0) return ''
+    const everything = CHAPTER_ORDER.every((cid) => meta.chapters?.[cid]?.unlocked) && !!meta.chapters?.blank?.unlocked
+    // Composed from one translated word plus digits, rather than a whole sentence per form: the only
+    // thing the FR dictionary has to carry here is 'Chapter', and a slash needs no translation at all.
+    return everything
+      ? `${t('Chapter')} ${i + 1} / ${list.length}`
+      : `${t('Chapter')} ${i + 1}`
   }
 
   // The scroll-snap carousel: one card per titleChapterList entry, plus page dots under it. The
@@ -351,6 +377,7 @@ export function initUI(hooks) {
     }).join('')
     return `
       <div class="chapter-carousel" data-carousel>${cards}</div>
+      <div class="carousel-count">${chapterCounterLabel(list)}</div>
       <div class="carousel-dots">${dots}</div>`
   }
 
@@ -468,6 +495,10 @@ export function initUI(hooks) {
     for (const dot of screens.title.querySelectorAll('.carousel-dot')) {
       dot.classList.toggle('carousel-dot--active', dot.dataset.dot === browseChapterId)
     }
+    // The counter names the card you just scrolled to, so it moves with the dots (v6.7). Text only:
+    // the node always exists (carouselHtml renders it even when empty), so it can never go missing.
+    const count = screens.title.querySelector('.carousel-count')
+    if (count) count.textContent = chapterCounterLabel(titleChapterList(meta))
   }
 
   // Centre the browsed card in the carousel WITHOUT animation. Must run while the title screen is
@@ -532,14 +563,15 @@ export function initUI(hooks) {
     // (R1, config.js).
     if (!meta.chapters?.[browseChapterId]) browseChapterId = resolveChapterId(meta.chapter)
     screens.title.innerHTML = `
-      <button class="lang-toggle" data-act="lang" aria-label="${t('language')}">🌐 ${getLang().toUpperCase()}</button>
-      <button class="slot-toggle" data-act="slots" aria-label="${t('Save slots')}">💾 ${activeSlot()}/${SAVE_SLOTS}</button>
-      <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
-      <h1 class="title-logo"><span>Charming</span><span>Anomaly</span></h1>
+      <header class="title-bar">
+        <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
+        <h1 class="title-logo"><span>Charming</span> <span>Anomaly</span></h1>
+        <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
+      </header>
       ${carouselHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
       ${navHtml('battle')}
-      ${buildStampHtml()}
+      ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
     `
@@ -548,9 +580,35 @@ export function initUI(hooks) {
     focusRenameField()
   }
 
+  // v6.7 settings sheet. The title used to float four separate things over the artwork — 🌐, 💾, the
+  // coins badge and the build stamp — which is most of what "there's a lot on the page" meant, and
+  // the stamp was drawn straight through the 🌐 pill. Everything except the coins badge now lives
+  // behind one ⚙, including the build stamp, which is a diagnostic and belongs where you go looking
+  // for it. Save slots keep their own modal (slotsModalHtml) and open FROM here.
+  let settingsOpen = false
+  function settingsSheetHtml() {
+    if (!settingsOpen) return ''
+    const langRows = LANGS.map(([id, label]) => `
+      <button class="settings-lang${id === getLang() ? ' settings-lang--on' : ''}" data-act="lang-pick" data-lang="${id}">${label}</button>`).join('')
+    return `
+      <div class="modal-backdrop sheet-backdrop" data-act="settings-close">
+        <div class="bottom-sheet">
+          <div class="sheet-handle"></div>
+          <h3 class="sheet-title">⚙ ${t('Settings')}</h3>
+          <div class="settings-row">
+            <span class="settings-label">🌐 ${t('language')}</span>
+            <span class="settings-langs">${langRows}</span>
+          </div>
+          <button class="btn btn--soft btn--small settings-slots" data-act="slots">💾 ${t('Save slots')} <i>${activeSlot()}/${SAVE_SLOTS}</i></button>
+          ${buildStampHtml()}
+          <button class="btn btn--soft btn--small sheet-done" data-act="settings-close">${t('Done')}</button>
+        </div>
+      </div>`
+  }
+
   // Save-slot picker modal (v6.4.6) — same backdrop/confirm-sheet idiom as the reset-all-progress
-  // modal below (resetOpen/resetModalHtml): a ui-local boolean, not persisted, toggled by the
-  // title's 💾 button and the slot rows themselves.
+  // modal below (resetOpen/resetModalHtml): a ui-local boolean, not persisted, opened from the
+  // settings sheet (v6.7; it was the title's own 💾 button before) and by the slot rows themselves.
   let slotsOpen = false
 
   // v6.6.12 save names. The row is now a WRAPPER holding two real sibling buttons — the picker and
@@ -1251,8 +1309,8 @@ export function initUI(hooks) {
         ? t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')
         : t('Anomalies bend the rules of this run — every difficulty level past the first adds one more.')
     screens.brief.innerHTML = `
-      <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       <div class="modal daily-brief">
+        <div class="coins-badge coins-badge--inline">🪙 <b>${meta.coins}</b></div>
         <h2 class="modal-title">${chapter.icon} ${t(chapter.name)}</h2>
         <div class="daily-chapter">
           <span class="daily-chapter-name">${t('difficulty')} ${d.difficulty ?? 1}</span>
@@ -1476,7 +1534,7 @@ export function initUI(hooks) {
   function switchTab(target) {
     if (active === target) return
     if (active === 'shop') resetShopModals()
-    if (active === 'title') slotsOpen = false // v6.4.6: don't strand the slot modal open on return
+    if (active === 'title') { slotsOpen = false; settingsOpen = false } // don't strand a sheet open on return
     if (active === 'brief') boostersOpen = false // v6.7: same, for the booster sheet that lives there now
     playSfx('click')
     showScreen(target)
@@ -1523,7 +1581,8 @@ export function initUI(hooks) {
         const mode = el.dataset.mode || 'classic'
         selectedConsumables.clear()
         boostersOpen = false
-        slotsOpen = false // keyboard focus can reach Play behind the slot backdrop — don't strand the modal open on return
+        slotsOpen = false // keyboard focus can reach Play behind a backdrop — don't strand the modal open on return
+        settingsOpen = false
         hooks.onPlay(mode)
         break
       }
@@ -1546,15 +1605,28 @@ export function initUI(hooks) {
       case 'shop': switchTab('shop'); break
       case 'daily': switchTab('daily'); break
       case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily'); break
-      case 'lang': {
-        // v6.1 i18n: cycle to the next language, persist via main.js, re-render this screen live
-        const ids = LANGS.map(([id]) => id)
-        const next = ids[(ids.indexOf(getLang()) + 1) % ids.length]
-        hooks.onLang?.(next)
+      // v6.7 settings sheet — the one ⚙ that replaced the title's floating 🌐 / 💾 / build stamp.
+      case 'settings':
+        playSfx('click')
+        settingsOpen = true
+        renderTitle()
+        break
+      case 'settings-close':
+        // Same direct-backdrop-hit guard as every other sheet: a tap inside also resolves here.
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        playSfx('click')
+        settingsOpen = false
+        renderTitle()
+        break
+      case 'lang-pick': {
+        // v6.1 i18n, v6.7: pick the language outright instead of cycling — with a list on screen,
+        // a cycle makes the player tap a row and watch a DIFFERENT one light up.
+        const next = el.dataset.lang
+        if (next && next !== getLang()) hooks.onLang?.(next)
         renderTitle()
         break
       }
-      // v6.4.6 save slots: title's 💾 button opens the picker, backdrop/Cancel closes it, tapping
+      // v6.4.6 save slots: the settings sheet's 💾 row opens the picker, backdrop/Cancel closes it, tapping
       // an inactive slot row hands off to main.js (which reloads — see hooks.onSlot). Same
       // direct-backdrop-hit guard as reset-cancel/boosters-close below.
       case 'slots':

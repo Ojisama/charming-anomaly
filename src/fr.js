@@ -85,6 +85,7 @@ const UI = {
   'Coins, upgrades, slots and best scores will be permanently erased.':
     'Pièces, améliorations, emplacements et records seront définitivement effacés.',
   'Erase everything': 'Tout effacer',
+  'Settings': 'Réglages',
   'Save slots': 'Emplacements de sauvegarde',
   // screen-reader only (aria-label), lowercase to match how they read aloud in context
   'progress': 'progression',
@@ -160,6 +161,9 @@ const UI = {
   'Level reached': 'Niveau atteint',
   'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
   'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
+  // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no
+  // article and no agreement — the single word is the whole string on purpose.
+  'Chapter': 'Chapitre',
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
 

@@ -114,57 +114,48 @@ body {
 }
 
 /* ---- title ---- */
-/* The pre-run summary shows the same badge in the same corner: boosters and the anomaly reroll are
-   both bought from that wallet, so it has to be readable while choosing them (v6.7). */
-.screen--title .coins-badge,
-.screen--brief .coins-badge {
-  position: absolute;
-  top: calc(14px + env(safe-area-inset-top));
-  right: calc(14px + env(safe-area-inset-right));
+/* The pre-run summary carries the wallet INSIDE its card, top-right (v6.7): boosters and the anomaly
+   reroll are both bought from it, so it has to be readable while choosing them — and floated over the
+   screen it clipped the card's own corner, since that card is nearly full-height. Same call the shop
+   made in v6.6: a number this screen's decisions are measured against belongs in its flow. */
+.coins-badge--inline { align-self: flex-end; margin-bottom: -4px; }
+/* v6.7 title header. Four things used to float over the artwork — 🌐, 💾, the coins badge and the
+   build stamp, the last two of which overlapped — and floating means every one of them also cost
+   padding-top to clear. One honest row instead: ⚙ (everything else, in a sheet), the wordmark, the
+   wallet. Nothing overlaps because nothing is positioned. */
+.title-bar {
+  flex-shrink: 0;
+  display: flex;
+  width: 100%;
+  max-width: 460px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
-/* v6.1 i18n: the language toggle, mirroring the coins badge on the opposite corner */
-.lang-toggle {
-  position: absolute;
-  top: calc(14px + env(safe-area-inset-top));
-  left: calc(14px + env(safe-area-inset-left));
-  padding: 8px 14px;
+.pill-btn {
+  min-width: 44px;
+  min-height: 40px;
+  padding: 8px 12px;
   border: 3px solid var(--cream-edge);
   border-radius: 999px;
   background: var(--cream-soft);
   color: var(--ink);
   font: inherit;
+  font-size: 1.05rem;
   font-weight: 800;
-  font-size: 0.85rem;
   cursor: pointer;
 }
-/* v6.4.6 save slots: the slot-picker toggle, stacked directly under the lang toggle on the same
-   left edge (the other corner is claimed by the coins badge). The build stamp continues that same
-   column below it — see .build-stamp. */
-.slot-toggle {
-  position: absolute;
-  top: calc(56px + env(safe-area-inset-top));
-  left: calc(14px + env(safe-area-inset-left));
-  padding: 8px 14px;
-  border: 3px solid var(--cream-edge);
-  border-radius: 999px;
-  background: var(--cream-soft);
-  color: var(--ink);
-  font: inherit;
-  font-weight: 800;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
+.pill-btn:active { transform: translateY(1px); }
 /* v5.17 build stamp — the version + short SHA of the bundle actually running, stamped from git at
    build time (see vite.config.js). It exists to settle "am I looking at the new build or a cached
    old one?", which a service worker had made a real question. Deliberately tiny, low-contrast and
    selectable: it is a diagnostic to be read out, never a UI element competing for attention. */
 .build-stamp {
-  position: absolute;
-  /* Left column, BELOW the 🌐 and 💾 pills (14px and 56px, ~38px tall each) — not the bottom-left
-     corner, which is under the nav tab bar where this was invisible, and no longer 18px, which put
-     it straight through the middle of the language pill. Players read that overlap as a bug. */
-  left: calc(16px + env(safe-area-inset-left));
-  top: calc(100px + env(safe-area-inset-top));
+  /* v6.7: in normal flow inside the settings sheet and the pause modal, never floating over a
+     screen. It spent two releases colliding with whatever pill shared its corner — first invisible
+     under the nav bar, then drawn through the language pill — because a diagnostic was competing
+     for the same scarce edges as the controls. It is not competing for anything in a sheet. */
+  align-self: center;
   font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
@@ -183,31 +174,28 @@ body {
 }
 /* v5.1: compact logo — the hero card is the centerpiece now, so the wordmark shrinks and sits on
    one line worth of vertical space rather than dominating. */
+/* v6.7: one line, inside the header row. The two-line wobbling wordmark spent ~110px of a phone
+   screen on a name the player already knows, and the chapter is the thing worth looking at. */
 .title-logo {
   margin: 0;
   text-align: center;
-  font-size: clamp(1.9rem, 8vw, 2.9rem);
+  font-size: clamp(0.82rem, 3.6vw, 1.05rem);
   font-weight: 900;
-  line-height: 0.92;
-  letter-spacing: -0.02em;
-  animation: wobble 3.2s ease-in-out infinite;
-  text-shadow: 0 3px 0 rgba(53, 53, 74, 0.08);
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
-.title-logo span { display: block; }
 .title-logo span:last-child { color: var(--mint-dark); }
 /* v5.1 title is a top-anchored column with a fixed bottom nav; reserve room for the nav so the
    scrollable content never hides under it. */
 .screen--title {
   justify-content: flex-start;
-  gap: 12px;
+  gap: 10px;
   overflow-y: auto;
+  padding-top: calc(10px + env(safe-area-inset-top));
   padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
 
-@keyframes wobble {
-  0%, 100% { transform: rotate(-1.6deg); }
-  50% { transform: rotate(1.6deg); }
-}
 
 /* ---- shop ---- */
 /* v5.2: the '← Back' header is gone (the persistent bottom nav replaces it), so reserve room
@@ -904,7 +892,7 @@ body {
   gap: 12px;
   width: 100%;
   max-width: 460px;
-  padding: 6px 0;
+  padding: 6px 8%;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;            /* Firefox */
@@ -912,8 +900,13 @@ body {
   overscroll-behavior-x: contain;
 }
 .chapter-carousel::-webkit-scrollbar { display: none; } /* WebKit/Blink */
-/* v5.3.1 (user): cards span the FULL carousel width — one card per view, no peeking neighbor
-   slabs (they read as a weird background frame); the dots carry the "more chapters" signal. */
+/* v6.7 (user, redesign A): the neighbours peek again — 8% gutters either side, so the edge of the
+   next chapter is always on screen and the game reads as a shelf instead of a single card.
+   This is NOT a return of v5.3.1's rejected version: that one drew shorter, contentless slabs
+   BESIDE the card, which read as a background frame. What peeks here is the real neighbouring
+   card, full height, with its own art — the gutter is padding on the scroller, not a new element.
+   The card itself is still exactly one viewport wide (flex 0 0 100% of the padded content box),
+   which is also what lets the first and last cards centre under scroll-snap. */
 .hero-card {
   position: relative;
   flex: 0 0 100%;
@@ -923,8 +916,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 236px;
-  padding: 24px 20px;
+  min-height: 356px;
+  padding: 22px 18px 104px;
   border-radius: 24px;
   color: #f5f9f7;
   /* no drop shadow: the carousel's overflow clips it into a hard grey band under the card
@@ -935,6 +928,20 @@ body {
   background: linear-gradient(160deg, #6a6a78, #3a3a46 60%, #26262e);
   filter: grayscale(0.4);
 }
+/* v6.7 scene: three soft horizon bands built from plain black/white alpha, so they land correctly
+   on ANY chapter's bgColor without a per-chapter art asset — a lit sky wash, a mid ridge, a dark
+   near ridge. This is the "the cards are a bit blank" fix that costs nothing per chapter. */
+.hero-scene { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.hero-band { position: absolute; left: -12%; right: -12%; border-radius: 50% 50% 0 0; }
+.hero-band--far { bottom: 26%; height: 34%; background: rgba(255, 255, 255, 0.10); }
+.hero-band--mid { bottom: 12%; height: 30%; background: rgba(0, 0, 0, 0.13); }
+.hero-band--near { bottom: -8%; height: 28%; background: rgba(0, 0, 0, 0.24); }
+/* On a light chapter (cream Body, white Blank) black ridges read as dirt — invert the stack so the
+   scene stays a set of soft hills instead of a stain. */
+.hero-card--light .hero-band--far { background: rgba(255, 255, 255, 0.42); }
+.hero-card--light .hero-band--mid { background: rgba(53, 53, 74, 0.07); }
+.hero-card--light .hero-band--near { background: rgba(53, 53, 74, 0.13); }
+
 /* ambient drifting decor (soft, blurred, low-opacity — see CHAPTER_AMBIENT in ui.js) */
 .hero-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .amb {
@@ -985,7 +992,45 @@ body {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }
 }
-.hero-icon { position: relative; font-size: 3.4rem; line-height: 1; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22)); }
+.hero-icon { position: relative; font-size: 3.9rem; line-height: 1; filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.3)); }
+/* Grounds the creature: without it the emoji floats in the gradient with nothing under it, which is
+   most of why the old card read as a sticker on a colour. It does NOT bob with the creature — a
+   shadow that rises with its owner is the one thing that makes a bob look wrong. */
+.hero-shadow {
+  position: absolute;
+  bottom: -16px;
+  width: 74px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.26);
+  filter: blur(3px);
+}
+.hero-card--light .hero-shadow { background: rgba(53, 53, 74, 0.16); }
+/* The name/tagline/cast/stars block is pinned to the card's bottom so every chapter's text starts
+   on the same line — the creature is what changes size between chapters, not the copy. */
+.hero-foot {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+/* the cast: three faces from CHAPTERS[id].render.cast — who you will be running from in there */
+.hero-cast { display: flex; gap: 6px; margin-top: 1px; }
+.hero-face {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.26);
+  border: 2px solid rgba(255, 255, 255, 0.26);
+}
+.hero-card--light .hero-face { background: rgba(255, 255, 255, 0.6); border-color: rgba(53, 53, 74, 0.16); }
 .hero-card--locked .hero-icon { opacity: 0.85; }
 .hero-name { font-size: 1.6rem; font-weight: 900; letter-spacing: -0.01em; text-align: center; }
 .hero-tagline { font-size: 0.82rem; font-weight: 700; opacity: 0.9; text-align: center; }
@@ -995,11 +1040,42 @@ body {
 .hero-card--light .hero-star { color: rgba(53, 53, 74, 0.28); }
 .hero-star--on { color: var(--gold); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
 .hero-star--pulse { color: var(--gold); animation: star-pulse 2s ease-in-out infinite; }
+/* `.hero-card--light .hero-star` above is a two-class selector and outranks the single-class
+   --on/--pulse rules, so on the cream chapters (Body, Blank) EVERY star rendered grey and those
+   cards looked unplayed no matter how many levels you had won. Re-state the lit colours at the
+   same weight rather than reordering: the hollow-star rule genuinely needs the descendant form. */
+.hero-card--light .hero-star--on,
+.hero-card--light .hero-star--pulse { color: var(--gold-edge); text-shadow: none; }
 @keyframes star-pulse {
   0%, 100% { opacity: 0.45; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.16); }
 }
-.hero-best { font-size: 0.72rem; font-weight: 700; opacity: 0.85; }
+/* best time as a corner chip, out of the foot's column: it is a record, not part of the pitch */
+.hero-best {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+}
+.hero-card--light .hero-best { background: rgba(255, 255, 255, 0.62); border-color: rgba(53, 53, 74, 0.16); }
+
+/* v6.7: "Chapter 3" — the position, and the TOTAL only once everything is unlocked (see
+   chapterCounterLabel in ui.js; printing the total earlier gives away both how much game is left
+   and that a hidden 8th exists). Empty string renders an empty box, which is why it has no
+   min-height: on a save with one chapter there is nothing to count and nothing to show. */
+.carousel-count {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
 
 /* page dots under the carousel — active dot elongates mint (mockup-C idiom) */
 .carousel-dots { display: flex; flex-shrink: 0; justify-content: center; gap: 6px; margin-top: 2px; }
@@ -1089,6 +1165,24 @@ body {
 .sheet-title { margin: 0; font-size: 1.1rem; font-weight: 900; text-align: center; }
 .sheet-note { font-size: 0.72rem; font-weight: 700; color: var(--ink-soft); }
 .sheet-list { display: flex; flex-direction: column; gap: 8px; }
+/* v6.7 settings sheet: a language row and a link into the save-slot picker, plus the build stamp. */
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.settings-label { font-weight: 800; font-size: 0.9rem; }
+.settings-langs { display: flex; gap: 6px; }
+.settings-lang {
+  padding: 8px 14px;
+  border: 3px solid var(--cream-edge);
+  border-radius: 999px;
+  background: var(--cream-soft);
+  color: var(--ink-soft);
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.settings-lang--on { background: var(--mint); border-color: var(--mint-dark); color: var(--ink); }
+.settings-slots { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.settings-slots i { font-style: normal; color: var(--ink-soft); font-size: 0.8rem; }
 .booster-item {
   display: flex;
   align-items: center;
@@ -1162,23 +1256,42 @@ body {
 }
 
 /* difficulty selector on the title screen */
-.diff-row { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
-.diff-label { font-weight: 800; font-size: 0.78rem; color: var(--ink-soft); margin-right: 2px; }
-.diff-pip {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  border: 2px solid #d8cbbd;
-  background: #fffdf8;
-  color: var(--ink-soft);
+/* v6.7: the five separate pips join into one segmented control. Five floating rounded squares read
+   as five buttons to choose between; one bar with a lit segment reads as a level you are ON, which
+   is what it is. Same markup, same hit sizes. */
+.diff-row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+/* No gap on the row: the pips are its direct children, so any gap here would prise the segmented
+   control back apart into separate buttons. The label buys its own space with a margin. */
+.diff-label {
+  margin-right: 9px;
   font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.diff-pip {
+  width: 36px;
+  height: 34px;
+  border: 3px solid var(--cream-edge);
+  border-right-width: 0;
+  background: var(--cream-soft);
+  color: var(--ink-soft);
+  font: inherit;
+  font-weight: 900;
   font-size: 0.9rem;
   cursor: pointer;
 }
-.diff-pip--on { background: #ffd9a8; border-color: #e08b3c; color: #8a4d12; }
+.diff-pip:first-of-type { border-radius: 999px 0 0 999px; }
+.diff-pip:last-of-type { border-radius: 0 999px 999px 0; border-right-width: 3px; }
+.diff-pip--on { background: var(--gold); color: #4a3a00; }
 .diff-pip:active { transform: translateY(1px); }
 /* locked difficulty pip (v4.10): not yet unlocked — muted, no press feedback, default cursor */
-.diff-pip--locked { opacity: 0.45; cursor: default; }
+.diff-pip--locked { opacity: 0.5; cursor: default; }
 .diff-pip--locked:active { transform: none; }
 .diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }
 .diff-hint-reward { color: #1e7d4f; }

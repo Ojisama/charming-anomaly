@@ -138,7 +138,8 @@ const ui = initUI({
     pendingPlay.mutators = next
     ui.showScreen('brief', { chapterId: pendingPlay.chapter, difficulty: pendingPlay.difficulty, mutators: pendingPlay.mutators, reroll: true })
   },
-  // v6.1 i18n: the title screen's 🌐 toggle. Persist, switch the live dictionary, and let ui.js
+  // v6.1 i18n: the language rows in the title's ⚙ settings sheet (v6.7; it was a floating 🌐
+  // toggle before). Persist, switch the live dictionary, and let ui.js
   // re-render the title itself (same pattern as onDifficulty/onChapter).
   onLang(l) {
     meta.lang = l
