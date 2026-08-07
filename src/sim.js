@@ -89,7 +89,7 @@ import {
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
-  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH, COVER_MIN_R,
+  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH, TRAFFIC_ENEMY_HP_FRAC, COVER_MIN_R,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
@@ -113,7 +113,7 @@ import {
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
   STRUCTURE_RADIUS,
   // v5.4 beyond
-  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
+  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FLY_T,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -1714,11 +1714,29 @@ function stepStandoff(e, tx, ty, dt, slowMul, spdMul) {
   }
 }
 
-// blink (v5.4 beyond's glitch blinkers): the blink IS its movement — it barely crawls between
-// jumps. State on _blinkT (s to the next blink). A jump is clamped so it never lands closer than
-// BLINK_MIN_DIST (no free contact hit) and never inside an obstacle: it retries the same heading at
-// half distance, then gives up on this blink entirely rather than cheating through a wall.
+// blink (v5.4; v6.7.5 the burst is FLOWN, not teleported — see the BLINK_* block in config.js):
+// the burst IS its movement — it barely crawls between them. State on _blinkT (s to the next
+// burst) and _blinkFly (s left in the current one) + the heading it committed to (_blinkDirX/Y,
+// locked at takeoff so a burst cannot steer). The distance is clamped at takeoff so the burst
+// never ENDS closer than BLINK_MIN_DIST — no free contact hit.
+//
+// Nothing here consults obstacles: a burst is now an ordinary continuous mover, so stepObstacles
+// pushes it back out like everything else. That is what let blockedByObstacle go — it existed only
+// because a teleport cannot be shoved out of a wall it materialised inside.
 function stepBlink(run, e, tx, ty, dt, slowMul, spdMul) {
+  if (e._blinkT === undefined) e._blinkT = BLINK_INTERVAL
+  e._blinkT -= dt
+
+  // mid-burst: fly the locked heading, ignoring where the player has moved to since takeoff
+  if (e._blinkFly > 0) {
+    const fly = Math.min(e._blinkFly, dt)
+    e._blinkFly -= dt
+    const spd = (e._blinkDist / BLINK_FLY_T) * slowMul
+    e.x += (e._blinkDirX || 0) * spd * fly
+    e.y += (e._blinkDirY || 0) * spd * fly
+    return
+  }
+
   const dx = tx - e.x, dy = ty - e.y
   const d = Math.hypot(dx, dy)
   if (d > 1e-6 && slowMul > 0) {
@@ -1727,40 +1745,16 @@ function stepBlink(run, e, tx, ty, dt, slowMul, spdMul) {
     e.y += (dy / d) * spd * slowMul * dt
   }
 
-  if (e._blinkT === undefined) e._blinkT = BLINK_INTERVAL
-  e._blinkT -= dt
   if (e._blinkT > 0) return
   e._blinkT += BLINK_INTERVAL
 
   const ndx = tx - e.x, ndy = ty - e.y
   const nd = Math.hypot(ndx, ndy)
   if (nd <= BLINK_MIN_DIST) return // already close enough — nothing to close
-  const ux = ndx / nd, uy = ndy / nd
-  const tryJump = (want) => {
-    const dist = Math.min(want, nd - BLINK_MIN_DIST) // clamp: never overshoot into the player's lap
-    if (dist <= 0) return null
-    const x = e.x + ux * dist, y = e.y + uy * dist
-    return blockedByObstacle(run, x, y, e.radius) ? null : { x, y }
-  }
-  const spot = tryJump(BLINK_DIST) ?? tryJump(BLINK_DIST / 2)
-  if (!spot) return
-  run.events.push({ type: 'explode', x: e.x, y: e.y, radius: BLINK_FX_R })
-  e.x = spot.x
-  e.y = spot.y
-  run.events.push({ type: 'explode', x: e.x, y: e.y, radius: BLINK_FX_R })
-}
-
-// Would a body of radius `r` centered at (x,y) overlap one of this chapter's obstacles? Only the
-// blink teleport asks — every other mover is resolved by stepObstacles pushing it back out, which
-// a teleport can't rely on (it would let a blinker pop through a root and get shoved out the far side).
-function blockedByObstacle(run, x, y, r) {
-  if (!run.obstacles || run.obstacles.length === 0) return false
-  for (const o of run.obstacles) {
-    const dx = x - o.x, dy = y - o.y
-    const minSep = o.r + r
-    if (dx * dx + dy * dy < minSep * minSep) return true
-  }
-  return false
+  e._blinkDirX = ndx / nd
+  e._blinkDirY = ndy / nd
+  e._blinkDist = Math.min(BLINK_DIST, nd - BLINK_MIN_DIST) // clamp: never overshoot into the player's lap
+  e._blinkFly = BLINK_FLY_T
 }
 
 // phase (v5.4 beyond's flickers): alternates solid <-> ghosted forever on _phaseSolid/_phaseT,
@@ -2782,7 +2776,8 @@ function rollTrafficLane(run, dt) {
         // second vehicle (the garden's mower) can ride the same stepper with its own dimensions
         // instead of the stepper reaching for TRAFFIC_* module constants behind its back.
         dmg: TRAFFIC_DMG, sweep: TRAFFIC_SWEEP, deckLen: TRAFFIC_CAR_LEN, deckW: TRAFFIC_CAR_W,
-        kb: TRAFFIC_KB, squash: TRAFFIC_SQUASH, look: 'car', cover: true,
+        kb: TRAFFIC_KB, squash: TRAFFIC_SQUASH, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
+        look: 'car', cover: true,
         hitIds: new Set(),
       })
     }
@@ -2819,7 +2814,8 @@ function rollMowerLane(run, dt) {
     // Snapshotted at roll time like every other lane number: the player's flat damage ramps with
     // run.time, so a pass hits for what it was worth when it started, not when it lands.
     dmg: mowerDmgAt(run.time), sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
-    kb: MOWER_KB, enemyFrac: MOWER_ENEMY_HP_FRAC, look: 'mower', dot: true,
+    // squash: [] — a lawnmower has no roadkill list; the squash test now runs first (stepLanePasses).
+    kb: MOWER_KB, enemyFrac: MOWER_ENEMY_HP_FRAC, squash: [], look: 'mower', dot: true,
     mows: true,   // v6.6.25: this deck clears foliage/webs/trails — see stepLanePasses
 
     cover: false, // a grass stalk does not stop a mower — and render must not ring one as if it did
@@ -2898,13 +2894,17 @@ function stepLanePasses(run, dt) {
       if (!inCar(e.x, e.y, e.radius)) continue
       lane.hitIds.add(e.id) // one hit per enemy per pass
       // v5.6.14 (user): cars ONE-SHOT the light roster — a non-elite pigeon/drone dies outright
-      // under a car (dealt its remaining hp, so drops/death flow normally). Elites and everything
-      // not in TRAFFIC_SQUASH take the ordinary TRAFFIC_DMG.
-      // lane.enemyFrac (the mower) takes a share of the target's OWN max hp, so it keeps mattering
-      // as hpScale climbs; the taxi still one-shots its squash list and deals its flat number.
+      // under a car (dealt its remaining hp, so drops/death flow normally).
+      // Everything else takes lane.enemyFrac of its OWN max hp, so a vehicle keeps mattering as
+      // hpScale climbs (see MOWER_ENEMY_HP_FRAC / TRAFFIC_ENEMY_HP_FRAC in config.js), falling back
+      // to the flat lane.dmg only for a lane that declares neither — which is every hand-built lane
+      // literal in the test suite, so those keep meaning what they meant.
+      // v6.7.5: the squash test moved AHEAD of the fraction (it used to be the else-branch of it),
+      // so the taxi can have both. The mower passes squash: [] — a lawnmower has no roadkill list.
       let toEnemy
-      if (lane.enemyFrac > 0) toEnemy = Math.max(1, e.maxHP * lane.enemyFrac)
-      else toEnemy = (!e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)) ? e.hp : lane.dmg
+      if (!e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)) toEnemy = e.hp
+      else if (lane.enemyFrac > 0) toEnemy = Math.max(1, e.maxHP * lane.enemyFrac)
+      else toEnemy = lane.dmg
       dealDamage(run, e, toEnemy, false)
       const kb = lane.kb ?? TRAFFIC_KB
       e.kb.x += cos * kb

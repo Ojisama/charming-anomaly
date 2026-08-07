@@ -35,6 +35,7 @@ import {
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
+  TRAFFIC_SQUASH, TRAFFIC_ENEMY_HP_FRAC,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN,
   MOWER_DECK_W, MOWER_DECK_LEN, MOWER_OFFSET, MOWER_ENEMY_HP_FRAC, MOWER_DMG_START, MOWER_DMG_END, mowerDmgAt,
   WEB_R,
@@ -43,7 +44,7 @@ import {
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
   ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
-  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL,
+  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FLY_T,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
@@ -3134,36 +3135,40 @@ function testV54Flags() {
     console.log(`PASS run Y.g (artillery): shell led ${lead.toFixed(1)}px ahead; elites shell wider; range gate + ${SHELL_MAX_LIVE}-shell cap hold`)
   }
 
-  // (h) blink: a blinker teleports toward the player — never landing closer than BLINK_MIN_DIST,
-  // and never inside an obstacle (it gives up rather than cheating through one).
+  // (h) blink: a blinker bursts toward the player — never ENDING closer than BLINK_MIN_DIST, and
+  // (v6.7.5) covering the gap CONTINUOUSLY over BLINK_FLY_T rather than teleporting across it.
   {
-    // v5.18: these three use a FREE-ROAM chapter, not 'beyond'. Beyond is now a lane (its player
-    // auto-advances up-screen at LANE_SCROLL_SPEED), which moves the blink's target ~418px during
-    // the 2.2s interval and slides the walled case's blocking obstacles off the blink path. `blink`
-    // is chapter-agnostic vocabulary, so testing it in a chapter whose movement mode interferes was
-    // testing two things at once.
+    // v5.18: these use a FREE-ROAM chapter, not 'beyond'. Beyond is now a lane (its player
+    // auto-advances up-screen at LANE_SCROLL_SPEED), which moves the burst's target ~418px during
+    // the interval. `blink` is chapter-agnostic vocabulary, so testing it in a chapter whose
+    // movement mode interferes was testing two things at once.
     const { run, e } = flagRun('city', ['blink'], { at: 600, speed: 40 })
     const x0 = e.x
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    // Step past the burst's takeoff AND its flight, sampling the largest single-frame displacement.
+    // v6.7.5's whole point: no frame may move the bird more than one frame of flight, so a player
+    // watching it never sees a discontinuity. The pre-v6.7.5 teleport moved BLINK_DIST in one frame.
+    let maxFrameStep = 0
+    for (let i = 0; i < Math.round((BLINK_INTERVAL + BLINK_FLY_T + 0.05) / dt); i++) {
+      const px = e.x, py = e.y
+      stepSim(run, { x: 0, y: 0 }, dt)
+      maxFrameStep = Math.max(maxFrameStep, Math.hypot(e.x - px, e.y - py))
+    }
     const jumped = e.x - x0
-    assert(jumped > BLINK_DIST * 0.9, `expected a ~${BLINK_DIST}px blink toward the player, got ${jumped.toFixed(1)}px`)
+    assert(jumped > BLINK_DIST * 0.9, `expected a ~${BLINK_DIST}px burst toward the player, got ${jumped.toFixed(1)}px`)
+    const frameCap = (BLINK_DIST / BLINK_FLY_T) * dt * 1.2 // +20% slack for the crawl underneath
+    assert(maxFrameStep <= frameCap,
+      `expected no frame to jump more than ${frameCap.toFixed(1)}px (a flight, not a teleport), got ${maxFrameStep.toFixed(1)}px`)
 
     // Clamp: from just outside BLINK_MIN_DIST it may only close the remaining gap, never overshoot.
     const near = flagRun('city', ['blink'], { at: BLINK_MIN_DIST + 60, speed: 0 })
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(near.run, { x: 0, y: 0 }, dt)
+    for (let i = 0; i < Math.round((BLINK_INTERVAL + BLINK_FLY_T + 0.05) / dt); i++) stepSim(near.run, { x: 0, y: 0 }, dt)
     const dist = Math.hypot(near.e.x - near.run.player.x, near.e.y - near.run.player.y)
-    assert(dist >= BLINK_MIN_DIST - 1e-6, `expected a blink never to land closer than ${BLINK_MIN_DIST}, got ${dist.toFixed(1)}`)
+    assert(dist >= BLINK_MIN_DIST - 1e-6, `expected a burst never to end closer than ${BLINK_MIN_DIST}, got ${dist.toFixed(1)}`)
 
-    // Obstacle: block both the full-distance and the half-distance landing spots -> no blink at all.
-    const walled = flagRun('city', ['blink'], { at: 600, speed: 0 })
-    walled.run.obstacles = [
-      { x: -600 + BLINK_DIST, y: 0, r: 60 },
-      { x: -600 + BLINK_DIST / 2, y: 0, r: 60 },
-    ]
-    const wx0 = walled.e.x
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(walled.run, { x: 0, y: 0 }, dt)
-    assert(Math.abs(walled.e.x - wx0) < 1, `expected a blocked blink to be skipped entirely, moved ${(walled.e.x - wx0).toFixed(1)}px`)
-    console.log(`PASS run Y.h (blink): jumped ${jumped.toFixed(0)}px, clamped at ${dist.toFixed(0)}px, blocked by obstacles`)
+    // Obstacles no longer get a bespoke test here: a burst is an ordinary continuous mover now, so
+    // stepObstacles pushes it back out like everything else (run V.g covers that path). The old
+    // "give up rather than cheat through a wall" branch went with the teleport that needed it.
+    console.log(`PASS run Y.h (blink): flew ${jumped.toFixed(0)}px in ${maxFrameStep.toFixed(1)}px steps, clamped at ${dist.toFixed(0)}px`)
   }
 
   // (i) phase: a ghosted flicker takes NO damage and deals none; a solid one is an ordinary enemy.
@@ -3376,17 +3381,36 @@ function testV54Signatures() {
     assert(eliteDrone.hp >= 1e6 - TRAFFIC_DMG * 2 && eliteDrone.hp < 1e6,
       `expected the ELITE drone to take ordinary car damage, not a one-shot (hp=${eliteDrone.hp})`)
 
+    // v6.7.5 (owner: "taxis should do as much dmg as lawnmowers"): a REAL rolled lane carries
+    // TRAFFIC_ENEMY_HP_FRAC, so a body that isn't on the squash list loses that share of its OWN
+    // max hp instead of a flat 34 that hpScale outruns. The hand-built lanes above deliberately
+    // carry neither field and still take lane.dmg — that fallback is what keeps them meaningful.
+    const frac = laneRun()
+    frac.lanes[0].squash = TRAFFIC_SQUASH
+    frac.lanes[0].enemyFrac = TRAFFIC_ENEMY_HP_FRAC
+    const tank = makeStatusEnemy(frac, { x: 300, y: 0, hp: 1e6, speed: 0 })
+    tank.flags = []; tank.rosterId = 'vacuum'; tank.elite = false; tank.maxHP = 1e6
+    frac.enemies.push(tank)
+    for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(frac, { x: 0, y: 0 }, dt)
+    const tookFrac = 1e6 - tank.hp
+    assert(Math.abs(tookFrac - 1e6 * TRAFFIC_ENEMY_HP_FRAC) < 1,
+      `expected the van to take ${TRAFFIC_ENEMY_HP_FRAC * 100}% of a non-squash body's max hp, took ${tookFrac}`)
+
     // The signature actually rolls lanes on its own in a city run (capped by signature.lanes).
     const auto = createRun(makeMeta(), { chapter: 'city' })
     auto.weapons = []; auto.mods.spawnMul = 0; auto.player.hp = 1e9; auto.player.maxHP = 1e9
     let maxAlive = 0
+    let rolled = null
     for (let i = 0; i < Math.round(12 / dt); i++) {
       stepSim(auto, { x: 0, y: 0 }, dt)
+      if (auto.lanes[0]) rolled = rolled ?? auto.lanes[0]
       maxAlive = Math.max(maxAlive, auto.lanes.length)
     }
     assert(maxAlive > 0, 'expected a city run to roll traffic lanes on its own')
     assert(maxAlive <= CHAPTERS.city.signature.lanes, `expected at most ${CHAPTERS.city.signature.lanes} lanes alive, saw ${maxAlive}`)
-    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, one-shots basics, spares elites, <= ${maxAlive} lane(s) live`)
+    assert.strictEqual(rolled.enemyFrac, TRAFFIC_ENEMY_HP_FRAC, 'a rolled taxi lane carries the enemy hp fraction')
+    assert.strictEqual(rolled.squash, TRAFFIC_SQUASH, 'and keeps its roadkill list — a pigeon under a van is dead, not half-dead')
+    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, one-shots basics, ${(TRAFFIC_ENEMY_HP_FRAC * 100).toFixed(0)}% max-hp to the rest, <= ${maxAlive} lane(s) live`)
   }
 
   // (c) bombardment: telegraphed circles rain on the player's area continuously, and (being run.bombs)
@@ -8695,7 +8719,10 @@ function testMower() {
     lane.x = 0; lane.y = 0; lane.angle = 0
     run.player.x = 0; run.player.y = 4000      // out of the band; this scenario is about the enemies
     assert.strictEqual(lane.enemyFrac, MOWER_ENEMY_HP_FRAC, 'the lane carries the fraction')
-    assert.strictEqual(lane.squash, undefined, 'and no longer carries a squash list — the fraction replaced it')
+    // v6.7.5: the squash test runs BEFORE the fraction now (so the city taxi can have both), which
+    // means the mower must say out loud that it has no roadkill list — an absent `squash` would
+    // fall back to TRAFFIC_SQUASH and start one-shotting city rosterIds on a lawn.
+    assert.deepStrictEqual(lane.squash, [], 'a lawnmower carries an EMPTY squash list, not an absent one')
 
     const ant = makeStatusEnemy(run, { x: 0, y: 0, hp: 4000, speed: 0 })
     ant.rosterId = 'ant'

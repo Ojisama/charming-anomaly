@@ -3572,8 +3572,16 @@ export const TRAFFIC_SNAP_R = 150     // px: player within this of a road center
                                        // never itself push the player outside the band it just built.
 export const TRAFFIC_CAR_LEN = 150    // px, the vehicle's hitbox length (along `angle`)
 export const TRAFFIC_CAR_W = 110      // px, the vehicle's hitbox width (across `angle`)
-export const TRAFFIC_DMG = 34         // damage to the player AND to each enemy the vehicle hits
+export const TRAFFIC_DMG = 34         // damage to the PLAYER (and the pre-v6.7.5 enemy figure — see below)
 export const TRAFFIC_KB = 420         // knockback applied along the lane to struck enemies
+// v6.7.5 (owner: "taxis should do as much dmg as lawnmowers"). Enemies now lose a FRACTION OF THEIR
+// OWN MAX HP under the van, exactly like the mower — and for the reason MOWER_ENEMY_HP_FRAC already
+// spells out: a flat 34 falls behind hpScale inside the first minute, after which the city's
+// signature hazard visibly bounces off everything it hits while the garden's flattens the field.
+// The squash list still wins where it applies (a pigeon under a van is dead, not half-dead), so
+// this only changes what happens to the bodies that were shrugging it off. Kept as its own constant
+// rather than reusing MOWER_ENEMY_HP_FRAC: two chapters, two tuning knobs, same starting value.
+export const TRAFFIC_ENEMY_HP_FRAC = 0.5
 // v5.6.14 (user): a car ONE-SHOTS the light roster — a pigeon or a cardboard drone does not
 // survive being run over; only elites (and the vacuum, which is street furniture itself) take
 // TRAFFIC_DMG like everyone else. rosterIds, checked non-elite-only in stepTraffic.
@@ -4185,24 +4193,34 @@ export const SKIES_LIGHT = {
 }
 
 
-// ---- Blink behavior flag (v5.4; RETUNED v6.3 for the city pigeon, see below) ------------------
-// blink: teleports instead of closing distance. State on e._blinkT (s until the next blink).
-// Moves at BLINK_CRAWL_SPEED_MUL of its own speed between blinks (it barely walks — the blink IS
-// its movement). Every BLINK_INTERVAL s, if further than BLINK_MIN_DIST from the player, it jumps
-// BLINK_DIST px straight toward them (clamped so it never lands closer than BLINK_MIN_DIST, and
-// never inside an obstacle — retry along the same heading at BLINK_DIST/2, else skip this blink)
-// and emits {type:'explode', x, y, radius: BLINK_FX_R} at BOTH the departure and arrival points so
-// the pop reads.
+// ---- Blink behavior flag (v5.4; RETUNED v6.3, REWORKED v6.7.5 — see below) --------------------
+// blink: closes in bursts instead of walking. State on e._blinkT (s until the next burst) and
+// e._blinkFly (s left in the current one). Moves at BLINK_CRAWL_SPEED_MUL of its own speed between
+// bursts (it barely walks — the burst IS its movement). Every BLINK_INTERVAL s, if further than
+// BLINK_MIN_DIST from the player, it commits to a heading and covers up to BLINK_DIST px along it
+// over BLINK_FLY_T seconds (clamped so it never ends closer than BLINK_MIN_DIST).
 // Damages: the PLAYER only, via ordinary contact damage. No run.* array.
 // v6.3: the beyond roster no longer uses this flag (no roster entry carries it) — these constants
 // are retuned freely for their new and only owner, city's pigeon, as the fast lane's SPICE (not
 // its entirety): faster cadence, longer hop, lands one reaction beat outside contact, quicker
-// crawl. A startle-hop reads on a bird.
+// crawl.
+// v6.7.5 (owner: "why the fuck are pigeons teleporting"). Because it WAS a teleport: the position
+// was assigned outright, with an explode pop at each end to sell the discontinuity. sim.js already
+// carries this exact finding one chapter over — v6.6.28 pulled dashBurst out of undergrowth because
+// "an untelegraphed lunge reads as teleporting" — so the answer is the same one, applied to the
+// thing that was literally teleporting: the bird now FLIES the gap. Same cadence, same distance,
+// same landing rule; it is simply continuous, at BLINK_DIST/BLINK_FLY_T = 686 px/s, which is fast
+// enough to still be the fast lane's spice and slow enough that the eye tracks the bird across it.
+// The flag id stays `blink` — renaming it would churn config/sim/state for zero player-visible
+// change, the same call WEAPONS.rainbow made when it became the Neon Beam.
+// Balance: the flight eats 0.35s of each 1.6s cycle that used to be crawl, so ground covered per
+// cycle drops ~7% (1.6->1.25 crawl-seconds at 0.55x speed). Deliberately not compensated — the
+// pigeon reads as a threat now, which is worth more than the 7%.
 export const BLINK_INTERVAL = 1.6
 export const BLINK_DIST = 240
-export const BLINK_MIN_DIST = 70        // px, it never blinks to closer than this — lands one reaction beat outside contact
+export const BLINK_MIN_DIST = 70        // px, it never ends a burst closer than this — lands one reaction beat outside contact
 export const BLINK_CRAWL_SPEED_MUL = 0.55
-export const BLINK_FX_R = 30            // px, explode-event radius at the departure/arrival points (visual only)
+export const BLINK_FLY_T = 0.35         // s the burst takes to cover BLINK_DIST (686 px/s)
 
 // phase (beyond's phase flickers): a windowed-vulnerability enemy. State on e._phaseSolid (bool) /
 // e._phaseT (s left in the current window). Alternates PHASE_SOLID_T solid <-> PHASE_GHOST_T

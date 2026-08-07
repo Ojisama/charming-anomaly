@@ -9142,9 +9142,11 @@ export function createRenderer(app) {
       // carried by the rim, not by inventing a second danger colour). Deliberately NOT green: the
       // floor is lawn, and the garden already spends amber on pheromone trails and green on webs.
       const mower = ln.look === 'mower'
-      laneG.poly(flat).fill({ color: mower ? 0xf2ecd0 : 0xffd24a, alpha: mower ? fillA * 1.6 : fillA })
-      laneG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
       if (mower) {
+        // The mower keeps its v6.6.14 volume EXACTLY — the owner named it (with the toad) as the
+        // level everything else should come down to, so it is the reference, not a target.
+        laneG.poly(flat).fill({ color: 0xf2ecd0, alpha: fillA * 1.6 })
+        laneG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
         // mown rows ALONG the lane — the one pattern nothing else in this game draws
         for (let i = -1; i <= 1; i++) {
           const off = i * hy * 0.5
@@ -9153,21 +9155,44 @@ export function createRenderer(app) {
           laneG.stroke({ width: 2, color: 0xffffff, alpha: (warn ? 0.16 + urgency * 0.16 : 0.1) * (0.7 + 0.3 * pulse) })
         }
       } else {
-      // chevrons along the lane, pointing downstream — the "which way" cue
-      const n = 7
-      for (let i = 0; i < n; i++) {
-        const d = -hx + ((i + 0.5) / n) * ln.len
-        const cx = ln.x + d * cos
-        const cy = ln.y + d * sin
-        const tip = [cx + cos * hy * 0.5, cy + sin * hy * 0.5]
-        const back = hy * 0.45
-        laneG.beginPath()
+        // v6.7.5 (owner: "all telegraphs should be more subtle, like the lawnmower and toad
+        // reworks"). The v6.6.30 pounce recipe, applied to the loudest telegraph in the game — a
+        // 1100x130 amber slab with a 3px rim all the way round and seven pulsing chevrons on it,
+        // three elements all shouting "here" while the player is trying to read a street.
+        // What survives, and why:
+        //   - the two LONG edges, as hairlines. They are the whole instruction ("be outside these"),
+        //     and they are the only part of the rim that carries it: the two end caps sit ~550px
+        //     away, off the edge of a phone screen, and say nothing.
+        //   - a whisper of fill, no pulse. It makes the band read as a region rather than as two
+        //     unrelated lines; at 0.03-0.08 it tints the asphalt instead of covering it.
+        //   - four chevrons instead of seven, thin and un-pulsed. Direction is a fact, not an
+        //     alarm — one glance answers it, and repeating it seven times a second does not help.
+        // The urgency ramp does most of the work the pulse was doing: everything here brightens as
+        // the fuse burns down, so the approach reads without the whole band strobing. The edges
+        // keep a real (if small) pulse for a city-specific reason found on the A/B: quietened to
+        // hairlines, amber-on-asphalt is EXACTLY what this chapter's road markings look like, and a
+        // telegraph that can be mistaken for street furniture is worse than a loud one. Motion is
+        // the cue paint can never counterfeit, so it is the one that stays.
+        laneG.poly(flat).fill({ color: 0xffd24a, alpha: warn ? 0.03 + urgency * 0.05 : 0.025 })
         for (const s of [-1, 1]) {
-          laneG.moveTo(tip[0] - cos * back - sin * s * hy * 0.55, tip[1] - sin * back + cos * s * hy * 0.55)
-          laneG.lineTo(tip[0], tip[1])
+          laneG.moveTo(ln.x - hx * cos - s * hy * sin, ln.y - hx * sin + s * hy * cos)
+          laneG.lineTo(ln.x + hx * cos - s * hy * sin, ln.y + hx * sin + s * hy * cos)
         }
-        laneG.stroke({ width: 3, color: 0xffe37a, alpha: (warn ? 0.3 + urgency * 0.3 : 0.16) * (0.7 + 0.3 * pulse) })
-      }
+        laneG.stroke({ width: 1.5, color: 0xffe37a, alpha: warn ? 0.2 + urgency * 0.3 + pulse * 0.16 : 0.16 })
+        const n = 4
+        for (let i = 0; i < n; i++) {
+          const d = -hx + ((i + 0.5) / n) * ln.len
+          const cx = ln.x + d * cos
+          const cy = ln.y + d * sin
+          const tip = [cx + cos * hy * 0.5, cy + sin * hy * 0.5]
+          const back = hy * 0.45
+          laneG.beginPath()
+          for (const s of [-1, 1]) {
+            laneG.moveTo(tip[0] - cos * back - sin * s * hy * 0.55, tip[1] - sin * back + cos * s * hy * 0.55)
+            laneG.lineTo(tip[0], tip[1])
+          }
+          laneG.stroke({ width: 2, color: 0xffe37a, alpha: warn ? 0.16 + urgency * 0.2 : 0.1 })
+        }
       }
       // v6.3 Task 4: "this can shield you" — during the telegraph only, ring every obstacle big
       // enough to stop the car (o.r >= COVER_MIN_R, see its doc in config.js) whose center falls
@@ -9462,6 +9487,11 @@ export function createRenderer(app) {
       // on the ground IS the attack — it's the only part of it the player can see or act on. The
       // blot swells (the owl is getting closer to the ground) while the amber ring tightens onto the
       // locked point. The point never re-aims, so walking off the mark always beats it.
+      // v6.7.5: the third element is gone. A static amber ring at exactly the blot's own radius
+      // drew the same circle the shadow was already filling — the pounce rework's "duplicated the
+      // lane and was the loudest thing on it" defect, in a different shape. Shadow says WHERE (and
+      // swelling, that the owl is dropping); the tightening ring says WHEN. Nothing else is needed,
+      // and the ring itself comes down to the volume the toad's landing ring settled on.
       if (e._airState === 'mark') {
         const urgency = AERIAL_MARK_T > 0 ? 1 - Math.max(0, e._airT || 0) / AERIAL_MARK_T : 1
         const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
@@ -9470,8 +9500,7 @@ export function createRenderer(app) {
         const r = e.radius * 1.4
         teleG.circle(tx, ty, r * (0.4 + urgency * 0.6)).fill({ color: 0x2a2438, alpha: 0.16 + urgency * 0.26 })
         teleG.circle(tx, ty, r * (2.4 - urgency * 1.4))
-          .stroke({ width: 2 + urgency * 2.5, color: 0xffe37a, alpha: Math.min(1, 0.4 + urgency * 0.45 + pulse * 0.12) })
-        teleG.circle(tx, ty, r).stroke({ width: 1.6, color: 0xffd24a, alpha: 0.25 + pulse * 0.2 })
+          .stroke({ width: 1.5 + urgency * 1.5, color: 0xffe37a, alpha: Math.min(1, 0.22 + urgency * 0.36 + pulse * 0.08) })
       }
 
       // lineCharge 'lock' (city's robot vacuum): deliberately the SAME band-and-chevrons lane the
@@ -9479,6 +9508,11 @@ export function createRenderer(app) {
       // straight line, so they must read as one rule rather than two things to learn. Only the
       // anchoring differs: a traffic lane is centred on its band, this one starts at the vacuum and
       // runs LINE_CHARGE_LEN forward along the heading it just locked.
+      // v6.7.5: quietened in lockstep with redrawLanes — see the recipe there. Same reduction, same
+      // reasoning; the two MUST move together or "one rule, not two" stops being true. One thing
+      // does differ: this band keeps its full rectangle stroke rather than dropping to two long
+      // edges, because its far end is only LINE_CHARGE_LEN away and IS information — it says where
+      // the charge stops, which is the difference between backing off and standing still.
       if (e._chargeState === 'lock') {
         const urgency = LINE_CHARGE_LOCK_T > 0 ? 1 - Math.max(0, e._chargeT || 0) / LINE_CHARGE_LOCK_T : 1
         const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
@@ -9489,10 +9523,10 @@ export function createRenderer(app) {
         for (const [lx, ly] of [[0, -hy], [LINE_CHARGE_LEN, -hy], [LINE_CHARGE_LEN, hy], [0, hy]]) {
           flat.push(e.x + lx * cos - ly * sin, e.y + lx * sin + ly * cos)
         }
-        teleG.poly(flat).fill({ color: 0xffd24a, alpha: 0.06 + urgency * 0.1 + pulse * 0.04 })
-        teleG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.12) })
-        // chevrons pointing downstream — the redrawLanes "which way" cue, same geometry
-        const n = 6
+        teleG.poly(flat).fill({ color: 0xffd24a, alpha: 0.03 + urgency * 0.05 })
+        teleG.poly(flat).stroke({ width: 1.5, color: 0xffe37a, alpha: 0.22 + urgency * 0.34 + pulse * 0.06 })
+        // chevrons pointing downstream — the redrawLanes "which way" cue, same geometry, same count
+        const n = 4
         for (let i = 0; i < n; i++) {
           const d = ((i + 0.5) / n) * LINE_CHARGE_LEN
           const tipX = e.x + (d + hy * 0.5) * cos
@@ -9503,7 +9537,7 @@ export function createRenderer(app) {
             teleG.moveTo(tipX - cos * back - sin * s * hy * 0.55, tipY - sin * back + cos * s * hy * 0.55)
             teleG.lineTo(tipX, tipY)
           }
-          teleG.stroke({ width: 3, color: 0xffe37a, alpha: (0.3 + urgency * 0.3) * (0.7 + 0.3 * pulse) })
+          teleG.stroke({ width: 2, color: 0xffe37a, alpha: 0.16 + urgency * 0.2 })
         }
       }
 
@@ -11241,14 +11275,19 @@ export function createRenderer(app) {
       if (bombSrc(b) !== null) continue
       const urgency = b.duration > 0 ? 1 - b.fuse / b.duration : 1
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 16))
-      const fillA = Math.min(0.32, 0.12 + urgency * 0.14 + pulse * 0.04)
-      const rimA = Math.min(1, 0.55 + urgency * 0.35 + pulse * 0.1)
+      // v6.7.5: same pass as redrawLanes. Nothing is removed here — a fill and a rim is already the
+      // minimum that says "circle, and it is filling up" — so this is volume only: the rim was
+      // reaching a solid alpha 1.0 at width 5, the single loudest stroke left in the game once the
+      // lanes came down. It is not the thing the owner named, but leaving it at full blast while
+      // its neighbours halve would just make IT the new loudest telegraph.
+      const fillA = Math.min(0.2, 0.08 + urgency * 0.1 + pulse * 0.03)
+      const rimA = Math.min(0.8, 0.35 + urgency * 0.35 + pulse * 0.08)
       // v5.24 the blank (src:'trail' — the Antibody detonating your own recorded path): same
       // urgency ramp, but violet. The warm red above was tuned against dark floors and washes out
       // on the white void; the violet is the player's own hue — it IS your trail coming back.
       const color = b.src === 'trail' ? 0x8a5fe0 : 0xff6b81
       bombG.circle(b.x, b.y, b.radius).fill({ color, alpha: fillA })
-      bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color, alpha: rimA })
+      bombG.circle(b.x, b.y, b.radius).stroke({ width: 1.5 + urgency * 1.5, color, alpha: rimA })
     }
     if (chapterHasStorm) drawSkiesBombs(run)
     else clearSkiesBombs()
