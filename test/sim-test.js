@@ -26,7 +26,7 @@ import {
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
-  POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
+  POUNCE_RANGE, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
   // v6.5 undergrowth streamed traps (Run TT)
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T, AERIAL_STRIKE_MAX_LIVE,
@@ -9975,6 +9975,53 @@ function testUndergrowthRound() {
       assert.strictEqual(drift, 0,
         `the leap heading moved by ${drift} mid-flight while the player orbited — a committed leap must not re-aim`)
       console.log(`PASS run UG.j5 (committed mid-air): heading held across ${framesAirborne} airborne frames against an orbiting player`)
+    }
+
+    // (j6) v6.7.4. THE WIND-UP IS SPLIT and both halves have to be real. Locking the heading at the
+    // start of the crouch made the toad catch a standing player and nobody else; locking it at
+    // LAUNCH made it a homing toad, which the owner rejected by name. The shipped answer tracks for
+    // POUNCE_AIM_TRACK_T and then freezes, so BOTH properties are load-bearing and this asserts each
+    // one separately — a regression that dropped either would leave the other's assertion passing.
+    {
+      assert.ok(POUNCE_AIM_TRACK_T > 0 && POUNCE_AIM_TRACK_T < POUNCE_AIM_T,
+        `the tracking window (${POUNCE_AIM_TRACK_T}s) must be a strict fraction of the wind-up (${POUNCE_AIM_T}s): at 0 the leap aims where you were a whole crouch ago, at the full wind-up it aims at launch and the toad homes`)
+      Math.random = mulberry32(20260807)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = []
+      run.obstacles = []; run._obstacleSeed = null; run.traps = []
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      run.mods.spawnMul = 0
+      run.enemies.length = 0
+      const toad = CHAPTERS.undergrowth.roster.find((r) => r.id === 'toad')
+      const e = makeStatusEnemy(run, { x: 120, y: 0, type: 'tank', speed: ENEMIES.tank.speed * toad.speedMul })
+      e.radius = ENEMIES.tank.radius
+      e.flags = ['pounce']
+      e.rosterId = 'toad'
+      run.enemies.push(e)
+      // The player ORBITS, so the bearing to it changes every frame: any frame that re-aims moves
+      // _pounceDir, and any frame that does not leaves it exactly where it was.
+      let trackMoves = 0, committedMoves = 0, committedFrames = 0, prev = null
+      for (let i = 0; i < 60 * 12; i++) {
+        run.player.hp = run.player.maxHP = 1e9
+        const a = i * 0.09
+        stepSim(run, { x: Math.cos(a), y: Math.sin(a) }, 1 / 60)
+        run.events.length = 0
+        if (e._pounceState !== 'aim') { prev = null; continue }
+        const now = [e._pounceDirX, e._pounceDirY]
+        const committed = e._pounceT <= POUNCE_AIM_T - POUNCE_AIM_TRACK_T
+        if (committed) committedFrames++
+        if (prev) {
+          const moved = Math.abs(now[0] - prev[0]) + Math.abs(now[1] - prev[1]) > 0
+          if (committed) { if (moved) committedMoves++ } else if (moved) trackMoves++
+        }
+        prev = now
+      }
+      assert.ok(trackMoves > 20,
+        `the first ${POUNCE_AIM_TRACK_T}s of the crouch must still line up on a moving player, but the heading changed on only ${trackMoves} frames — the toad is back to aiming where you stood a whole wind-up ago`)
+      assert.ok(committedFrames > 20, `UG.j6 needs real committed frames to mean anything, saw ${committedFrames}`)
+      assert.strictEqual(committedMoves, 0,
+        `the heading re-aimed on ${committedMoves} of ${committedFrames} COMMITTED frames — past POUNCE_AIM_TRACK_T the attack is locked, and a toad that keeps tracking to launch is the homing version the owner refused`)
+      console.log(`PASS run UG.j6 (split wind-up): tracks on ${trackMoves} frames of the first ${POUNCE_AIM_TRACK_T}s, then frozen across ${committedFrames} committed frames`)
     }
   }
 

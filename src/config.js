@@ -3296,10 +3296,12 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // ---- Undergrowth chapter behavior flags (v5.4, see sim.js) ----------------------------------
 // pounce (undergrowth's toad, a cat until v6.6.32): a hold -> telegraph -> flat leap -> land/recover cycle, state on
 // e._pounceState ('hold'|'aim'|'leap'|'land') / _pounceT (s left in the phase) / _pounceDirX,
-// _pounceDirY (leap heading, LOCKED at the START of 'aim' so the leap is dodgeable) — same
+// _pounceDirY (leap heading, tracked for the first POUNCE_AIM_TRACK_T of 'aim' and LOCKED for the
+// rest of it, so the leap is committed before it launches and stays dodgeable) — same
 // bookkeeping idiom as diveBomb's _diveState/_diveT/_diveDirX/_diveDirY.
 //   hold:  seeks the player normally at POUNCE_HOLD_SPEED_MUL until within POUNCE_RANGE, then 'aim'
-//   aim:   STOPS dead for POUNCE_AIM_T (the telegraph; heading locks here — render draws the arc)
+//   aim:   STOPS dead for POUNCE_AIM_T (the telegraph). Two halves: it keeps LINING UP on you for
+//          the first POUNCE_AIM_TRACK_T, then the heading freezes and the attack is committed.
 //   leap:  POUNCE_LEAP_T of straight flight at POUNCE_LEAP_SPEED_MUL, ignoring the player's moves
 //          (it overshoots if you dodge). Contact damage is normal during the leap — no bonus.
 //   land:  POUNCE_LAND_T frozen (the punish window: it can't move or deal contact damage), then 'hold'
@@ -3350,7 +3352,26 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 export const POUNCE_RANGE = 140          // px, distance at which a holding toad commits to a leap
 export const POUNCE_LEAP_DIST = 188      // px the leap covers — must stay under a phone's 195px half-view
 export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of its OWN speed)
-export const POUNCE_AIM_T = 0.90         // s, telegraphed crouch (dead stop; heading locks at its start)
+// v6.7.4. Measured after v6.7.3: the toad was catching a player who STOOD STILL and essentially
+// nobody else — 0% of leaps connected against a player holding the stick, and the +33% speed /
+// +25% distance of v6.7.3 moved that number by nothing. The reason was never speed or reach: the
+// heading locked at the START of a 0.9s crouch, and 0.9s at 220 px/s is ~198px of player travel
+// against a 48px-wide hitbox, so it was aiming at where you had been almost a second earlier.
+// Locking at LAUNCH instead fixes the connect rate outright (100% against a player at half speed)
+// and the owner refused it as "a homing toad" — correctly, that is not an ambush predator, it is a
+// tracking missile. So the wind-up is SPLIT: it lines up on you for POUNCE_AIM_TRACK_T, then the
+// heading freezes for the rest and the attack is committed from that instant. The dodge window is
+// the committed remainder plus the flight — (POUNCE_AIM_T - POUNCE_AIM_TRACK_T) + POUNCE_LEAP_T,
+// i.e. 0.6s, about 132px of travel at full speed against a 48px hitbox. Escapable on purpose, but
+// it now demands a reaction rather than merely not standing still.
+// The telegraph deliberately SWEEPS during the tracking half (owner: "the telegraph can move during
+// the first 0.3s") — render.js draws the lane straight off _pounceDir, so the lane following you
+// and then stopping IS the commit signal, and no extra art was needed to say it.
+export const POUNCE_AIM_T = 0.60         // s, telegraphed crouch (dead stop). Was 0.90.
+export const POUNCE_AIM_TRACK_T = 0.30   // s of that crouch spent still tracking; the rest is committed.
+                                         // MUST stay < POUNCE_AIM_T or the leap re-aims to the last
+                                         // instant and the toad becomes the homing version, which was
+                                         // measured, rejected by name, and is what run UG.j6 guards.
 export const POUNCE_LEAP_T = 0.30        // s, leap phase (straight, no steering) — 627 px/s at 188px.
                                          // Short AND fast: a toad's leap is a snap, and holding the
                                          // old 0.42s over half the distance would have halved the
@@ -3363,9 +3384,18 @@ export const POUNCE_LAND_T = 0.50        // s frozen after a leap (the free-hits
 // the game, so a committed leap visibly steered even though the sim had locked its heading — the
 // body said one thing and the trajectory said another. Read by ROSTER_LOOKS.toad's faceDir/turnRate
 // hooks in render.js; every other creature keeps the old instant facing and is untouched.
-export const POUNCE_TURN_AIM = 7.0       // rad/s while winding up — it must finish aimed before launch
+export const POUNCE_TURN_AIM = 7.0       // rad/s while winding up — it must finish aimed before launch.
+                                         // Deliberately NOT lowered to the 180 deg/s below: this is
+                                         // the wind-up alignment, and it now has only
+                                         // POUNCE_AIM_TRACK_T to finish in. At 180 deg/s it could
+                                         // swing 54 deg in that window and would launch visibly
+                                         // off-line at anything approaching from the side.
 export const POUNCE_TURN_LEAP = 0        // rad/s mid-air. Zero. That is the whole rule.
-export const POUNCE_TURN_IDLE = 1.9      // rad/s landed/stalking — ~1.7s for a half turn, a slow heavy animal
+// v6.7.4 (owner: "the turning rate of the toad should be faster, like 180 deg per second"): 1.9 ->
+// PI rad/s, i.e. a half turn in 1.0s rather than 1.7s. v6.6.33 read "toads are slow and tanky [...]
+// they slowly turn towards the player" as slowly as the words allowed, and it overshot — a toad
+// that cannot come round inside its own recovery window just presents its back.
+export const POUNCE_TURN_IDLE = Math.PI  // rad/s landed/stalking — 180 deg/s
 // Fraction of the LANDING cat's own maxHP a slammed trap deals, floored by max(SNAP_TRAP_DMG*2, …):
 // a flat multiple of SNAP_TRAP_DMG dies against hpScale (the first cat ever to spawn, ~t=140, already
 // carries ~368 HP) — the trap needs to stay a real threat, not decoration, against that curve. The

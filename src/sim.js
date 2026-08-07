@@ -72,7 +72,7 @@ import {
   DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
   WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
   // v5.4 undergrowth
-  POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
+  POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_RADIUS, AERIAL_ORBIT_SPEED, AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
   AERIAL_STRIKE_SPEED_MUL, AERIAL_CLIMB_T, AERIAL_STRIKE_MAX_LIVE,
@@ -1406,7 +1406,11 @@ function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
       e._pounceState = 'aim'; e._pounceT = POUNCE_AIM_T; e._pounceDirX = ux; e._pounceDirY = uy
     }
   } else if (e._pounceState === 'aim') {
-    // Dead stop, heading already snapshotted on entry — the telegraph the player reacts to.
+    // Dead stop. v6.7.4: the crouch has two halves. For the first POUNCE_AIM_TRACK_T it keeps
+    // lining up on you — moving during that window buys nothing, it just follows — and after that
+    // the heading is frozen and the attack is committed. The player's cue is the telegraph lane
+    // (drawn straight off _pounceDir) coming to a stop: from that instant the dodge is live.
+    if (e._pounceT > POUNCE_AIM_T - POUNCE_AIM_TRACK_T) { e._pounceDirX = ux; e._pounceDirY = uy }
     if (e._pounceT <= 0) { e._pounceState = 'leap'; e._pounceT = POUNCE_LEAP_T }
   } else if (e._pounceState === 'leap') {
     // v6.6.30: a fixed DISTANCE over a fixed time, not a multiple of the pouncer's own 44 px/s — see
