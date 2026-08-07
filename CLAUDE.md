@@ -15,6 +15,7 @@ npm run preview    # serve the built dist/
 npm test           # node test/sim-test.js — headless sim self-check, no framework
 node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
 node scripts/bake-cast.mjs           # re-bake src/cast/*.png (title cards' creature thumbnails)
+node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]   # phone-viewport screenshot without the MCP tab
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
 
 # Terrain, two dev views. Neither ships in the bundle.
@@ -78,6 +79,8 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - **Versioned commits.** Each release is a commit subject `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are visible — their events were silently dropped`). Chores use `chore: …`. Follow this format.
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
+- **UI that depicts a game entity uses the game's art, not a lookalike.** render.js already draws every creature (`ROSTER_LOOKS`), every weapon and every prop; if a menu needs to show one, route the real thing out (the `src/cast/*.png` bake is the worked example) rather than reaching for an emoji or a stand-in shape. v6.7.1 shipped 🐜🐝🕷️ per chapter and the tardigrade came out as 🐻 — a bear — while `drawTardigrade` sat in render.js the whole time. Emoji only survive where the glyph *is* the thing (a coin, a lock).
+- **Say when something is a stand-in.** If you do ship a placeholder or an approximation, name it as one in the commit and the report. That 🐻 shipped under a code comment calling it "the cheapest honest answer", which read as a considered decision and cost a review round-trip to undo.
 - `.gitignore` excludes `/*.png` **and nothing else** — a PNG at the repo ROOT is ignored; a PNG in a subdirectory is not, and neither is any other scratch artifact. Verification work regularly produces `.json` dumps at the root and files staged under `public/` so the dev server can serve them to a browser probe; none of that is covered. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
 - **Editing `src/fr.js` by exact-string match fails on the NBSP.** French values carry U+00A0
@@ -120,6 +123,31 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   do it — and measure there.
 - `scripts/deploy-watch.sh "vX.Y.Z · <sha>" ["more strings" …]` watches the Pages deploy to
   completion, then greps the LIVE bundle for each string — the standard post-push gate.
+
+### When there is no MCP browser tab
+
+The chrome-devtools MCP profile is single-instance: another Claude session (or a stale one) holding
+it makes every tool call fail with *"browser is already running"*, and claude-in-chrome needs the
+extension connected. Both can be unavailable at once. Fallbacks, in order:
+
+- **Pure DOM/CSS work on ui.js needs no browser boot at all.** Write a throwaway `harness.html` at
+  the repo root that imports `ui.js` + `state.js` + `config.js`, hand-builds a `meta`, stubs every
+  hook with `() => {}`, and calls `initUI` — optionally `ui.showScreen('brief'|'shop'|…)`. ui.js is
+  Pixi-free by contract, so it renders instantly, in any headless mode, with no WebGL. This is the
+  fast path for title/shop/summary layout; delete the file before committing.
+- **Anything needing the real app** (the Pixi canvas, `window.__renderer`, a real run):
+  `node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]`. Its header documents why it
+  exists; the three traps it exists to avoid are worth knowing on their own:
+  - `google-chrome --headless=new --screenshot` / `--dump-dom` report `innerWidth` as **0** here.
+    The page still paints at some unrelated size and gets tiled into the file, so captures show
+    clipped badges and overflowing cards that do not exist. **Do not debug layout from them** — one
+    session lost several rounds "fixing" CSS against these. `--headless=old` would honour
+    `--window-size`, but it has been removed from the Chrome binary. Use `chrome-headless-shell`
+    (puppeteer's cache, `~/.cache/puppeteer/chrome-headless-shell/*/`), which still behaves.
+  - `--virtual-time-budget` fires the capture when VIRTUAL time expires, which is unrelated to Pixi
+    finishing its async boot — the app screenshots blank. Drive CDP and sleep on the wall clock.
+  - If you must hand-roll CDP: node >= 22 has a global `WebSocket`, so no dependency is needed, and
+    `Page.addScriptToEvaluateOnNewDocument` is the CDP form of the initScript seeding rule above.
 
 ## Design docs
 
