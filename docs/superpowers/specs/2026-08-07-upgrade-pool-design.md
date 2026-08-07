@@ -32,6 +32,32 @@ faster clears → more XP → more levels → more cards, a compounding loop. Th
 call: accept it as intended (the game gets more generous), or offset it via the XP curve
 (`xpForLevel`) or `hpScale`. Do not let it ship undecided.
 
+### The declared bucket weights are NOT what you get (city, 2 slots, 25 runs)
+
+| | current | proposed | declared target |
+|---|---|---|---|
+| passive share | 67.2% | **34.0%** | 30% — inflated |
+| mod share | 20.6% | 30.4% | 30% ✓ |
+| weapon share | 5.4% | **6.7%** | 22% — cannot be spent |
+| element share | 6.8% | **21.4%** | 18% — inflated |
+| defence share | 20.2% | 21.5% | parity ✓ |
+| legendary share | 3.5% | 3.4% | ~3.5% ✓ (F1 holds outside body) |
+
+Six of seven chapters ship **3 weapons** against `MAX_WEAPONS = 4`, so the weapon bucket has at
+most 15 picks (3 × Lv5) to give and drains early. It achieves **6.7% against a declared 22%**, and
+the unspent ~15 points redistribute into passive and element — by an amount that **varies per
+chapter**. Same config yields passive 28.6% in body and 34.0% in city.
+
+This was previously filed as "the weapon bucket overflows its ceiling," which named the cause but
+not the symptom. The real failure is that **`BUCKET_WEIGHTS` is not the pool any chapter actually
+gets**, so tuning against `body` alone ships a different pool everywhere else.
+
+**Required before the card list is authored:** scale the weapon bucket off remaining capacity
+(`22 * remainingWeaponPicks / totalWeaponPicks`) so it tapers instead of falling off a cliff, and
+resolve the `MAX_WEAPONS = 4` vs 3-weapon-chapter mismatch — either give every chapter a fourth
+weapon, or set the cap to `min(4, chapterWeapons.length - 1)` so owning the full arsenal isn't the
+default outcome (measured at 73–99% of runs).
+
 Goal stated by the user: more fun, more player agency, more "aha moments" — via the rarity system,
 bucket percentages, per-chapter uniques, and card text/numbers/feel.
 
