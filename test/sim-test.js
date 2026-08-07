@@ -9899,7 +9899,14 @@ function testUndergrowthRound() {
       run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
       run.mods.spawnMul = 0
       run.enemies.length = 0
-      const e = makeStatusEnemy(run, { x: 200, y: 0, type: 'tank', speed: 45 })
+      // The REAL animal, not a stand-in: ENEMIES.tank scaled by the toad's own roster entry.
+      // makeStatusEnemy's defaults (45 px/s, r16) stopped describing the shipped toad the moment
+      // v6.6.34 moved speedMul, and the sidestep assertion below — the one that guarantees the
+      // pounce stays escapable — is exactly the check that would have gone quietly stale on a
+      // creature 30% faster and 60% wider than the one being measured here.
+      const toad = CHAPTERS.undergrowth.roster.find((r) => r.id === 'toad')
+      const e = makeStatusEnemy(run, { x: 200, y: 0, type: 'tank', speed: ENEMIES.tank.speed * toad.speedMul })
+      e.radius = ENEMIES.tank.radius
       e.flags = ['pounce']
       e.rosterId = 'toad'
       run.enemies.push(e)

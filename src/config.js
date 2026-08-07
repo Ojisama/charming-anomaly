@@ -1768,7 +1768,14 @@ export const CHAPTERS = {
       // archetype, `pounce`, the trap slam on landing. It is the one animal whose real locomotion
       // IS a telegraphed crouch-and-leap, so the state machine now describes the creature instead
       // of being bolted to it.
-      { id: 'toad', archetype: 'tank',   name: 'Toad', hpMul: 1.6,  speedMul: 0.8, flags: ['pounce'] },
+      // v6.7.3 (owner: "make them 33% faster [...] they a bit too easy to dodge now"): speedMul
+      // 0.8 -> 1.064, i.e. 44 -> 58.5 px/s off ENEMIES.tank.speed 55. This only scales the STALK
+      // (the 'hold' seek, itself x POUNCE_HOLD_SPEED_MUL) — the leap is a fixed distance over a
+      // fixed time and does not read e.speed at all, so this buys pounces-per-minute rather than a
+      // faster leap. A toad now walks slightly faster than a `normal` rat (0.85), which reads odd
+      // on paper but not on screen: it spends most of the cycle standing still in 'aim' or frozen
+      // in 'land', so its AVERAGE closing speed stays the slowest in the chapter.
+      { id: 'toad', archetype: 'tank',   name: 'Toad', hpMul: 1.6,  speedMul: 1.064, flags: ['pounce'] },
       // Centipede replaces the Owl (v5.6.8). The owl used 'aerialStrike' — circles overhead at
       // AERIAL_RADIUS, dives to a marked spot — which is un-killable in a MELEE-ONLY chapter: it
       // circles past every short-range weapon and dives to where a kiting player WAS, so a
@@ -3331,11 +3338,20 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // slowly than the cat did, and that is the intended reading rather than a regression — see run
 // UG.j, whose old "must net forward against a fleeing player" assertion belonged to the cat and is
 // replaced by the constraint that actually matters now: the leap must stay on screen.
+// v6.7.3 (owner: "25% increase leap range. They a bit too easy to dodge now"). LEAP_DIST 150 ->
+// 188, which is still inside the 195px half-view above — the two owner constraints now sit 7px
+// apart, so this number has no room left to grow and the next "further" request has to buy it by
+// shortening POUNCE_LEAP_T instead. POUNCE_RANGE deliberately stays at 140: the extra 48px is spent
+// as OVERSHOOT, not as a longer telegraph. A toad still commits from the same distance (so the
+// wind-up you react to starts where it always did) but now carries 48px PAST where you stood, and
+// since contact damage is live for the whole flight (contactHarmless excludes only 'land'), that
+// overshoot is the part that catches a player who backed off in a straight line. Raising RANGE
+// instead would have moved the telegraph further away and made it EASIER to dodge.
 export const POUNCE_RANGE = 140          // px, distance at which a holding toad commits to a leap
-export const POUNCE_LEAP_DIST = 150      // px the leap covers — must stay under a phone's 195px half-view
+export const POUNCE_LEAP_DIST = 188      // px the leap covers — must stay under a phone's 195px half-view
 export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of its OWN speed)
 export const POUNCE_AIM_T = 0.90         // s, telegraphed crouch (dead stop; heading locks at its start)
-export const POUNCE_LEAP_T = 0.30        // s, leap phase (straight, no steering) — 500 px/s at 150px.
+export const POUNCE_LEAP_T = 0.30        // s, leap phase (straight, no steering) — 627 px/s at 188px.
                                          // Short AND fast: a toad's leap is a snap, and holding the
                                          // old 0.42s over half the distance would have halved the
                                          // launch speed, which is not what "too long" asked for.
