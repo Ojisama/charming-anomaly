@@ -1018,19 +1018,28 @@ body {
   align-items: center;
   gap: 5px;
 }
-/* the cast: three faces from CHAPTERS[id].render.cast — who you will be running from in there */
+/* the cast: the chapter's own creatures, drawn with the game's baked art (render.js castThumbs via
+   main.js -> hooks.castArt). The token is a pale disc on every chapter, dark ones included: these
+   sprites are lit for their own biome floor, and a dark creature on a dark card disappeared. */
 .hero-cast { display: flex; gap: 6px; margin-top: 1px; }
 .hero-face {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  font-size: 0.95rem;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.26);
-  border: 2px solid rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.82);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.22);
 }
-.hero-card--light .hero-face { background: rgba(255, 255, 255, 0.6); border-color: rgba(53, 53, 74, 0.16); }
+.hero-face img {
+  max-width: 24px;
+  max-height: 24px;
+  /* the sprites are baked at game scale and vary a lot in size (a tank column dwarfs a tadpole);
+     contain keeps each one whole inside the disc instead of cropping the big ones */
+  object-fit: contain;
+}
+.hero-card--light .hero-face { background: rgba(255, 255, 255, 0.92); border-color: rgba(53, 53, 74, 0.14); }
 .hero-card--locked .hero-icon { opacity: 0.85; }
 .hero-name { font-size: 1.6rem; font-weight: 900; letter-spacing: -0.01em; text-align: center; }
 .hero-tagline { font-size: 0.82rem; font-weight: 700; opacity: 0.9; text-align: center; }

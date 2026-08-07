@@ -14,6 +14,7 @@ npm run build      # vite build -> dist/
 npm run preview    # serve the built dist/
 npm test           # node test/sim-test.js — headless sim self-check, no framework
 node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
+node scripts/bake-cast.mjs           # re-bake src/cast/*.png (title cards' creature thumbnails)
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
 
 # Terrain, two dev views. Neither ships in the bundle.
@@ -69,7 +70,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 - **No top-level `await` in `main.js`.** Suspending module evaluation deadlocks Pixi v8's dynamically-imported environment code in the production bundle (hangs on a blank page). `boot()` is a plain async fn called at the bottom.
 - **`vite.config.js` sets `inlineDynamicImports: true`.** Pixi v8 auto-detects its environment via dynamic import; as a split chunk it never loads in prod. Don't remove this.
-- **Asset globs use `import.meta.glob('./props/*.png', { eager: true, query: '?url' })`** in render.js — resolves to URL strings at build time, no runtime dynamic-import graph (required by the constraints above). Add art to `src/props/` (foliage) or `src/fx/` (Kenney particle PNGs, tinted per-use); they're auto-discovered.
+- **Asset globs use `import.meta.glob('./props/*.png', { eager: true, query: '?url' })`** in render.js — resolves to URL strings at build time, no runtime dynamic-import graph (required by the constraints above). Add art to `src/props/` (foliage) or `src/fx/` (Kenney particle PNGs, tinted per-use); they're auto-discovered. `src/cast/*.png` (ui.js) is the same idiom, but those files are **generated**, not authored — `node scripts/bake-cast.mjs` re-bakes them from render.js's own creature textures. Nothing warns you if they go stale.
 - **`base: './'`** in vite config — the game ships to a GitHub Pages subpath, so all asset paths must stay relative.
 
 ## Conventions

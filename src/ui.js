@@ -4,6 +4,13 @@ import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
 
+// Chapter-card cast thumbnails, keyed by rosterId: './cast/tardigrade.png' -> 'tardigrade'.
+// See the castArt note in initUI for where they come from and why they are files.
+const CAST_ART = Object.fromEntries(
+  Object.entries(import.meta.glob('./cast/*.png', { eager: true, query: '?url', import: 'default' }))
+    .map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, -4), url]),
+)
+
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 // v6.3 dispatch beat: how long the "pest control dispatched" HUD banner stays up, in run.time
@@ -240,6 +247,13 @@ export function initUI(hooks) {
   let browseChapterId = resolveChapterId(meta.chapter)
   let boostersOpen = false
 
+  // v6.7.2 cast art: rosterId -> URL of that creature's thumbnail, resolved at BUILD time from
+  // src/cast/*.png (baked by scripts/bake-cast.mjs out of render.js's own textures — re-run it when
+  // creature art changes). The eager ?url glob is the same idiom render.js uses for props/fx, and
+  // the same one CLAUDE.md requires: no runtime dynamic-import graph, just strings.
+  // This replaced extracting the textures live at boot. That was always in sync but cost a GPU
+  // readback per creature before the first paint, which on a slow context was seconds of black.
+
   // Per-chapter DECORATIVE ambient shapes for the diorama card (v5.2). Pure CSS overlay INSIDE the
   // DOM card (the "no procedural shapes" rule is about the Pixi canvas, not this HTML overlay):
   //   body → soft cells/blobs drifting slowly; pond → small bubbles rising. Each item carries its
@@ -326,10 +340,18 @@ export function initUI(hooks) {
       return `<span class="hero-star${on ? ' hero-star--on' : ''}${pulse ? ' hero-star--pulse' : ''}">${on ? '★' : '☆'}</span>`
     }).join('')
     const best = chMeta.best?.time ? `<span class="hero-best">${t('best')} ${fmtTime(chMeta.best.time)}</span>` : ''
-    // v6.7: the cast — three faces from CHAPTERS[id].render.cast (config.js). The complaint the whole
-    // redesign started from was that a card is "just a colour and an emoji"; this is the cheapest
-    // honest answer, because it says what you will actually be running away from in there.
-    const cast = (chapter.render.cast ?? []).map((e) => `<span class="hero-face">${e}</span>`).join('')
+    // v6.7: the cast — three faces from CHAPTERS[id].render.cast (config.js), which says what you
+    // will actually be running away from in there. v6.7.2: those are roster IDS now, drawn with the
+    // game's own baked art (CAST_ART, the src/cast/*.png glob at the top of this file). The first
+    // cut used an emoji per enemy and there is no glyph for most of this bestiary, so the
+    // tardigrade went out as 🐻.
+    // A named face with no baked file is skipped rather than drawn as an empty disc — that only
+    // happens if bake-cast.mjs has not been re-run for a newly added id, and a short row reads as a
+    // chapter with a small cast, where a blank disc reads as broken.
+    const cast = (chapter.render.cast ?? [])
+      .filter((rid) => CAST_ART[rid])
+      .map((rid) => `<span class="hero-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`)
+      .join('')
     return `
       <div class="hero-card${light ? ' hero-card--light' : ''}" data-chapter="${id}" data-hero style="background:${bg}; color:${light ? 'var(--ink)' : '#f5f9f7'}">
         <div class="hero-ambient" aria-hidden="true">${ambientHtml(id)}</div>

@@ -12003,5 +12003,29 @@ export function createRenderer(app) {
     clearGroundField()
   }
 
-  return { reset, sync, idle, ready, setMapMode }
+  // v6.7.2: PNG data URLs of the baked roster looks, for the title's chapter cards. The cards used
+  // to advertise each chapter with three emoji, and emoji lie — there is no tardigrade glyph, so it
+  // shipped as 🐻 and read as a bear. drawTardigrade already exists a few thousand lines up; the
+  // only thing missing was a way to get it out of Pixi, since ui.js may not import it.
+  // BUILD-TIME ONLY. The game never calls this: scripts/bake-cast.mjs does, once, through the
+  // ?debug window.__renderer handle, and writes the results to src/cast/*.png which ui.js globs as
+  // ordinary asset URLs. It is not called at runtime because each extract is a readPixels that
+  // stalls the pipeline until the GPU catches up, and doing two dozen before the first paint cost
+  // seconds of black screen on a slow context. Re-run the script when creature art changes.
+  // Never throws: a missing thumbnail costs one face on a card, and the script reports it.
+  async function castThumbs(ids) {
+    const out = {}
+    for (const id of ids) {
+      const look = T.roster[id]
+      if (!look) continue
+      try {
+        out[id] = await R.extract.base64(look.tex)
+      } catch {
+        // extract does a GPU readback; on a context that refuses one we simply have no face here
+      }
+    }
+    return out
+  }
+
+  return { reset, sync, idle, ready, setMapMode, castThumbs }
 }
