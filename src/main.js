@@ -18,9 +18,9 @@ const meta = loadMeta()
 setLang(meta.lang) // i18n before any screen renders — ui.js translates at render time
 let run = null
 let runMode = 'classic'
-// v6.0.2: a classic run staged behind the anomaly briefing screen — set by onPlay when the
-// roll produced anomalies, consumed by onBriefStart. Overwritten by the next Play if the
-// player backs out via the nav (nothing was created or spent, so abandoning it is free).
+// v6.0.2: a classic run staged behind the pre-run summary screen — set by onPlay, consumed by
+// onBriefStart. Overwritten by the next Play if the player backs out via the nav (nothing was
+// created or spent, so abandoning it is free).
 let pendingPlay = null
 
 // Spend boosters (cheapest-first affordability, ui already gates but belt-and-braces), create
@@ -78,7 +78,7 @@ initInput(document.body)
 
 const ui = initUI({
   meta,
-  onPlay(mode, consumableIds = []) {
+  onPlay(mode) {
     initAudio()
     runMode = mode
     // Daily = fixed shared seed, date-seeded chapter (see dailyChapter in config.js), base
@@ -92,9 +92,9 @@ const ui = initUI({
     }
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
     // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
-    // state.js. v6.0.2: when the roll produced anomalies, the run does NOT start yet — the
-    // briefing screen explains them first, and only its Start button (onBriefStart) creates the
-    // run, with the exact ids shown. Nothing is spent yet, so backing out via the nav is free.
+    // state.js. v6.0.2: the run does NOT start yet — the pre-run summary explains the anomalies
+    // and takes the booster picks first, and only its Start button (onBriefStart) creates the run,
+    // with the exact ids shown. Nothing is spent yet, so backing out via the nav is free.
     // R1 (see resolveChapterId in config.js): meta.chapter is a pointer into CHAPTERS and loadMeta
     // never repairs it, so a save from a build that shipped a chapter this one lacks can name one
     // that isn't here. createRun already degrades such a run to CHAPTER_ORDER[0] — resolve the same
@@ -110,18 +110,18 @@ const ui = initUI({
     const mutators = chapterId === 'blank'
       ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
       : randomMutators(chMeta.difficulty - 1, chapterId)
-    if (mutators.length > 0) {
-      pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators, consumableIds }
-      ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: chapterId !== 'blank' })
-      return
-    }
-    startClassic(chapterId, chMeta.difficulty, mutators, consumableIds)
+    // v6.7: EVERY classic run stops here first, even a difficulty-1 roll with no anomalies at all —
+    // the brief is the pre-run summary now and owns the booster picks, so skipping it when the roll
+    // is empty would make boosters unreachable at difficulty 1. The booster picks arrive one hook
+    // later, on onBriefStart (see the ui.js contract).
+    pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators }
+    ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: chapterId !== 'blank' })
   },
-  onBriefStart() {
+  onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
     const p = pendingPlay
     pendingPlay = null
-    startClassic(p.chapter, p.difficulty, p.mutators, p.consumableIds)
+    startClassic(p.chapter, p.difficulty, p.mutators, consumableIds)
   },
   // v6.0.4/v6.6.19: reroll ONE staged anomaly (by index) for ANOMALY_REROLL_COST, repeatable while
   // affordable — see rerollMutator in config.js for why a whole-set reroll was worthless. Blank
@@ -352,7 +352,7 @@ function endRun(victory) {
 
   // v6.4.4: a classic win below the chapter's cap advances the saved difficulty selection, so
   // the summary's main button becomes "Next level" and — via the same onPlay flow as the title
-  // Play button, which reads chMeta.difficulty — actually starts it (briefing included at d2+).
+  // Play button, which reads chMeta.difficulty — actually starts it (via the pre-run summary).
   // Wins at the cap, deaths and dailies keep "Play again".
   let nextDifficulty = null
   if (victory && runMode === 'classic') {

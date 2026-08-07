@@ -114,7 +114,10 @@ body {
 }
 
 /* ---- title ---- */
-.screen--title .coins-badge {
+/* The pre-run summary shows the same badge in the same corner: boosters and the anomaly reroll are
+   both bought from that wallet, so it has to be readable while choosing them (v6.7). */
+.screen--title .coins-badge,
+.screen--brief .coins-badge {
   position: absolute;
   top: calc(14px + env(safe-area-inset-top));
   right: calc(14px + env(safe-area-inset-right));
@@ -135,8 +138,8 @@ body {
   cursor: pointer;
 }
 /* v6.4.6 save slots: the slot-picker toggle, stacked directly under the lang toggle on the same
-   left edge (both corners are otherwise claimed — coins badge top-right, build stamp overlaps
-   lang-toggle's row on some layouts but sits lower, see .build-stamp above). */
+   left edge (the other corner is claimed by the coins badge). The build stamp continues that same
+   column below it — see .build-stamp. */
 .slot-toggle {
   position: absolute;
   top: calc(56px + env(safe-area-inset-top));
@@ -157,10 +160,11 @@ body {
    selectable: it is a diagnostic to be read out, never a UI element competing for attention. */
 .build-stamp {
   position: absolute;
-  /* TOP-left, mirroring the coins badge — the bottom-left corner is under the nav tab bar, where
-     this rendered at the right coordinates and was completely invisible. */
-  left: calc(14px + env(safe-area-inset-left));
-  top: calc(18px + env(safe-area-inset-top));
+  /* Left column, BELOW the 🌐 and 💾 pills (14px and 56px, ~38px tall each) — not the bottom-left
+     corner, which is under the nav tab bar where this was invisible, and no longer 18px, which put
+     it straight through the middle of the language pill. Players read that overlap as a bug. */
+  left: calc(16px + env(safe-area-inset-left));
+  top: calc(100px + env(safe-area-inset-top));
   font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
@@ -824,6 +828,9 @@ body {
 .daily-date { font-weight: 700; font-size: 0.8rem; color: var(--ink-soft); margin-top: -6px; }
 /* today's chapter, shown above the mutator cards (v5.0) */
 .daily-chapter { display: flex; align-items: center; gap: 8px; }
+/* On the pre-run summary this row is one short line ("difficulty 3") under a centred title, so
+   left-aligned it reads as a stray fragment. The daily screen keeps its left-aligned icon + name. */
+.screen--brief .daily-chapter { justify-content: center; }
 .daily-chapter-icon { font-size: 1.5rem; line-height: 1.1; }
 .daily-chapter-name { font-weight: 800; font-size: 0.95rem; }
 .daily-chapter-preview {

@@ -129,7 +129,7 @@ function formatShopBonus(id, levels) {
 
 /**
  * Contract used by main.js:
- *   const ui = initUI({ meta, onPlay(mode, consumableIds), onBuy(id)->bool, onChoose(i),
+ *   const ui = initUI({ meta, onPlay(mode), onBuy(id)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(), onSkill(),
  *                       onSacrifice(picks)->bool, onReset(), onSlot(n) })
  *     - onChapter(id): title screen's chapter carousel (v5.2 — see carouselHtml/wireCarousel).
@@ -145,22 +145,23 @@ function formatShopBonus(id, levels) {
  *       chapter's maxDifficulty render locked (🔒, disabled) and never fire this at all — level
  *       d+1 only unlocks by winning a classic run at level d in that same chapter (see endRun in
  *       main.js). Chapter selection itself is the onChapter hook right above.
- *     - onBriefStart(): fired by the classic pre-run briefing's Start button (v6.0.2 — see
- *       renderBrief). main.js stages the rolled anomalies + booster picks in onPlay and only
- *       creates the run here; the 'brief' screen (ui.showScreen('brief', { chapterId,
- *       difficulty, mutators, reroll })) is skipped entirely when the roll is empty (difficulty 1).
+ *     - onBriefStart(consumableIds): fired by the classic pre-run summary's Start button (v6.0.2 —
+ *       see renderBrief). main.js stages the rolled anomalies in onPlay and only creates the run
+ *       here. consumableIds (v6.7) is the booster bottom-sheet's session-local selection, an array
+ *       of CONSUMABLES ids — the picking moved off the title onto this screen, so THIS is the hook
+ *       that carries it (the selection is cleared as soon as it fires). The 'brief' screen
+ *       (ui.showScreen('brief', { chapterId, difficulty, mutators, reroll })) is shown for every
+ *       classic run now, including difficulty 1 where mutators is empty: the boosters live here.
  *     - onBriefReroll(i): fired by an anomaly card's own 🎲 button (v6.0.4; per-card since v6.6.19,
  *       shown when data.reroll — classic non-blank only). i is that card's index in data.mutators.
  *       main.js spends ANOMALY_REROLL_COST to replace THAT ONE anomaly and re-shows the brief; the
  *       buttons render disabled when meta.coins can't cover it. Rerolling the whole set is still
  *       free — back out to the title and press Play — which is exactly why the paid one is targeted.
- *     - onPlay(mode, consumableIds): mode is 'classic' | 'daily'. 'classic' fires from the title
- *       Play button (consumableIds = the booster bottom-sheet's session-local selection, an array
- *       of CONSUMABLES ids; the selection is cleared as soon as onPlay fires) and from the summary
- *       "Play again" button (which replays whatever mode the just-ended run used, selection
- *       cleared the same way). 'daily' fires from the daily briefing screen's Start button with
- *       consumableIds always [] — boosters never apply to daily runs (the title's Daily nav tab
- *       opens the 'daily' briefing screen first; the booster slots/sheet only live on title).
+ *     - onPlay(mode): mode is 'classic' | 'daily'. 'classic' fires from the title
+ *       Play button and from the summary "Play again" button (which replays whatever mode the
+ *       just-ended run used). 'daily' fires from the daily briefing screen's Start button.
+ *       It carries no boosters: since v6.7 classic boosters are picked one screen later, on the
+ *       pre-run summary, and arrive via onBriefStart. Boosters never applied to daily runs at all.
  *     - onChoose(i): a level-up card tap (or its digit/enter key). NOT fired for the first
  *       LEVELUP_GRACE_MS after the modal renders — the modal lands under a thumb already reaching
  *       for the joystick, so an instant tap is a stray press, not a pick. Same gate on onReroll.
@@ -219,7 +220,7 @@ export function initUI(hooks) {
 
   // ---- title -----------------------------------------------------------
   // Session-local pre-run booster selection (v4.5). Not saved to meta — plain in-memory Set,
-  // scoped to this initUI() call. Only applies to classic runs (see onPlay hook doc above);
+  // scoped to this initUI() call. Only applies to classic runs (see onBriefStart hook doc above);
   // cleared as soon as a run actually starts (see the 'play'/'daily-start' click cases below).
   let selectedConsumables = new Set()
 
@@ -353,8 +354,9 @@ export function initUI(hooks) {
       <div class="carousel-dots">${dots}</div>`
   }
 
-  // 3 booster slots under the difficulty row: session-selected consumables fill left-to-right,
-  // the rest show ＋. Any slot opens the booster bottom-sheet. Boosters are classic-only.
+  // 3 booster slots: session-selected consumables fill left-to-right, the rest show ＋. Any slot
+  // opens the booster bottom-sheet. Boosters are classic-only, and since v6.7 they live on the
+  // pre-run BRIEF screen (renderBrief), not the title — the title was carrying too much.
   function boosterSlotsHtml() {
     const selected = [...selectedConsumables]
     const slots = Array.from({ length: 3 }, (_, i) => {
@@ -372,7 +374,7 @@ export function initUI(hooks) {
 
   // Bottom sheet (same .modal-backdrop idiom as the sacrifice modal): the 3 CONSUMABLES as toggle
   // rows. A row is greyed (disabled) when adding it would push the running selection cost past
-  // meta.coins (cheapest-first affordability still finally resolved in main.js's onPlay).
+  // meta.coins (cheapest-first affordability still finally resolved in main.js's onBriefStart).
   function boosterSheetHtml() {
     if (!boostersOpen) return ''
     const selectedCost = [...selectedConsumables].reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
@@ -451,8 +453,7 @@ export function initUI(hooks) {
       <p class="diff-hint">${chMeta.difficulty === 1
         ? t('the base game')
         : `${diffHintLead(browseChapterId, chMeta.difficulty)} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% ${t('enemy HP')} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_DMG_PER_LEVEL) * 100)}% ${t('enemy damage')} · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% ${t('coins')}</b>`}</p>
-      ${chMeta.maxDifficulty < cap ? `<p class="diff-hint diff-hint--locked">${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</p>` : ''}
-      ${boosterSlotsHtml()}` : ''
+      ${chMeta.maxDifficulty < cap ? `<p class="diff-hint diff-hint--locked">${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</p>` : ''}` : ''
     return `
       ${playBlock}
       <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>`
@@ -538,7 +539,6 @@ export function initUI(hooks) {
       ${carouselHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
       ${navHtml('battle')}
-      ${boosterSheetHtml()}
       ${buildStampHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
@@ -1228,34 +1228,47 @@ export function initUI(hooks) {
     `
   }
 
-  // ---- classic pre-run briefing (v6.0.2) -----------------------------------
-  // Shown between the title's Play and actual gameplay whenever the classic roll produced
-  // anomalies (difficulty 2+, or The Blank's fixed ladder) — a new player otherwise meets
-  // "Riptide" as an unexplained icon chip in the HUD. The run does NOT exist yet: main.js
+  // ---- classic pre-run summary (v6.0.2 briefing, widened v6.7) ---------------
+  // Shown between the title's Play and actual gameplay for EVERY classic run — it explains the
+  // rolled anomalies (a new player otherwise meets "Riptide" as an unexplained icon chip in the
+  // HUD) and, since v6.7, owns the booster slots that used to crowd the title screen. That is why
+  // it now shows even when the roll produced nothing: at difficulty 1 there are no anomalies but
+  // there are still boosters to pick, so the page has to exist. The run does NOT exist yet: main.js
   // stages the rolled ids and only creates/starts the run from this screen's Start button
   // (backing out via the bottom nav costs nothing — boosters aren't spent either).
+  // lastBriefData mirrors the data showScreen was called with, so a booster tap can re-render this
+  // screen in place (the sheet lives here now, and re-rendering needs the same chapter/anomalies).
+  let lastBriefData = null
   function renderBrief(d) {
+    lastBriefData = d
     const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
     const ids = d.mutators ?? []
-    const note = d.chapterId === 'blank'
-      ? t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')
-      : t('Anomalies bend the rules of this run — every difficulty level past the first adds one more.')
+    // Level 1 rolls nothing, and its line is the same one the title's difficulty hint uses — same
+    // words for the same fact, and no new copy for the FR dictionary to have to earn.
+    const note = ids.length === 0
+      ? t('the base game')
+      : d.chapterId === 'blank'
+        ? t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')
+        : t('Anomalies bend the rules of this run — every difficulty level past the first adds one more.')
     screens.brief.innerHTML = `
+      <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
       <div class="modal daily-brief">
-        <h2 class="modal-title">🌀 ${t('Anomalies')}</h2>
+        <h2 class="modal-title">${chapter.icon} ${t(chapter.name)}</h2>
         <div class="daily-chapter">
-          <span class="daily-chapter-icon">${chapter.icon}</span>
-          <span class="daily-chapter-name">${t(chapter.name)} — ${t('difficulty')} ${d.difficulty ?? 1}</span>
+          <span class="daily-chapter-name">${t('difficulty')} ${d.difficulty ?? 1}</span>
         </div>
         <p class="daily-note">${note}</p>
         ${ids.map((id, i) => mutatorCardHtml(id, d.reroll ? { index: i, afford: meta.coins >= ANOMALY_REROLL_COST } : null)).join('')}
-        ${d.reroll ? `
+        ${d.reroll && ids.length ? `
         <p class="daily-note">🎲 ${tt('Reroll one anomaly of your choice — {n} 🪙', { n: ANOMALY_REROLL_COST })}
           <span class="brief-coins">(${tt('you have {coins}', { coins: meta.coins })})</span>
         </p>` : ''}
+        <h3 class="sheet-title">${t('Boosters')} <span class="sheet-note">${t('this run only')}</span></h3>
+        ${boosterSlotsHtml()}
         <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
       </div>
       ${navHtml('battle')}
+      ${boosterSheetHtml()}
     `
   }
 
@@ -1464,6 +1477,7 @@ export function initUI(hooks) {
     if (active === target) return
     if (active === 'shop') resetShopModals()
     if (active === 'title') slotsOpen = false // v6.4.6: don't strand the slot modal open on return
+    if (active === 'brief') boostersOpen = false // v6.7: same, for the booster sheet that lives there now
     playSfx('click')
     showScreen(target)
   }
@@ -1499,23 +1513,24 @@ export function initUI(hooks) {
       if (selectedConsumables.has(id)) selectedConsumables.delete(id)
       else selectedConsumables.add(id)
       playSfx('click')
-      renderTitle()
+      renderBrief(lastBriefData ?? {})
       return
     }
     switch (el.dataset.act) {
       case 'play': {
+        // v6.7: boosters are picked on the pre-run brief now, so Play never carries any. The
+        // summary screen's "Play again" reaches this case too and takes the same path.
         const mode = el.dataset.mode || 'classic'
-        const ids = mode === 'daily' ? [] : [...selectedConsumables]
         selectedConsumables.clear()
         boostersOpen = false
         slotsOpen = false // keyboard focus can reach Play behind the slot backdrop — don't strand the modal open on return
-        hooks.onPlay(mode, ids)
+        hooks.onPlay(mode)
         break
       }
       case 'boosters-open':
         boostersOpen = true
         playSfx('click')
-        renderTitle()
+        renderBrief(lastBriefData ?? {})
         break
       case 'boosters-close':
         // Tapping inside the sheet also resolves to the backdrop (nothing stops propagation), so
@@ -1523,14 +1538,14 @@ export function initUI(hooks) {
         if (el.classList.contains('modal-backdrop') && el !== e.target) break
         boostersOpen = false
         playSfx('click')
-        renderTitle()
+        renderBrief(lastBriefData ?? {})
         break
       // Persistent bottom nav (v5.2): 'battle' → title, 'shop' → shop, 'daily' → daily. A tap on
       // the current tab is inert. See switchTab (leaving the shop resets its modal state).
       case 'battle': switchTab('title'); break
       case 'shop': switchTab('shop'); break
       case 'daily': switchTab('daily'); break
-      case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily', []); break
+      case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily'); break
       case 'lang': {
         // v6.1 i18n: cycle to the next language, persist via main.js, re-render this screen live
         const ids = LANGS.map(([id]) => id)
@@ -1584,7 +1599,15 @@ export function initUI(hooks) {
         renderTitle()
         break
       }
-      case 'brief-start': hooks.onBriefStart?.(); break
+      case 'brief-start': {
+        // The booster picks are made on THIS screen (v6.7), so Start is what hands them over —
+        // and clears them, exactly like the title's Play used to.
+        const ids = [...selectedConsumables]
+        selectedConsumables.clear()
+        boostersOpen = false
+        hooks.onBriefStart?.(ids)
+        break
+      }
       case 'brief-reroll': hooks.onBriefReroll?.(Number(el.dataset.i)); break
       case 'diff': {
         const d = Number(el.dataset.diff)
