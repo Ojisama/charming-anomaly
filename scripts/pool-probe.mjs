@@ -31,6 +31,14 @@ const DEFENSIVE_WEIGHT = 4
 // Mythic is RETAINED: rainbow (the city starter) is mythic, WEAPON_MOD_TIER_BONUS has a
 // live mythic:3, and it is the only jackpot card left once anomalies produce no stats.
 const P_RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
+// Weapon rarity gates ACQUISITION, not levelling. A `New!` card carries the weapon's rarity —
+// that IS the jackpot moment. An upgrade card carries none: weighting owned weapons by their
+// rarity too made beyond read 16.6% legendary weapon offers and city 4.2% mythic, because the
+// colour kept re-firing for a jackpot the player already had.
+const WEAPON_UP_WEIGHT = 100
+// Override for MAX_MODS_PER_WEAPON_PER_POOL. The shipped 1 starves the mod bucket at 4 slots
+// (measured absent 15.5% of rolls in beyond). null = use config's value.
+const MODS_PER_WEAPON_PER_POOL = 2
 const ANOMALY_BASE_WEIGHT = 8
 const ANOMALY_PITY_PER_CARD = 2
 const ANOMALY_PITY_CAP = 45
@@ -139,7 +147,15 @@ function mkMod(run, w, m, rarity) {
 }
 const mkElement = (run, id, rarity) => ({ kind: 'element', id, rarity, bonus: C.ELEMENTS[id].base * rarityMult(rarity) })
 
-const stats = { anomalyRolls: 0, emptyAnomalyPool: 0, shortPools: 0, pools: 0 }
+const ORDINARY_TOTAL = Object.values(P_RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+
+const stats = {
+  anomalyRolls: 0, emptyAnomalyPool: 0, shortPools: 0, pools: 0,
+  // Bucket accounting: how often a bucket was ABSENT at roll time. Declared weights can only
+  // be honoured while a bucket has candidates, so this is the drift budget made visible
+  // instead of inferred from the output shares.
+  slots: 0, absent: { passive: 0, mod: 0, weapon: 0, element: 0 },
+}
 
 function proposedChoices(run, st) {
   const wp = weaponCands(run)
@@ -169,50 +185,66 @@ function proposedChoices(run, st) {
       }
     }
     const nEligible = Object.keys(eligible).length
-    const weights = { ...P_RARITY_WEIGHTS }
+    let card = null
+
+    // The anomaly tier is rolled against the WHOLE ordinary table, not as one entry inside
+    // it — so it never perturbs the rarity ladder and can never deflect onto legendary (the
+    // first draft measured 16.1% legendary vs 3.5% shipped by walking down the table).
     if (nEligible > 0) {
       stats.anomalyRolls++
-      weights.anomaly = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_CARD * st.since)
+      const aw = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_CARD * st.since)
+      if (Math.random() * (ORDINARY_TOTAL + aw) < aw) {
+        card = { kind: 'anomaly', id: pickW(eligible), rarity: 'anomaly' }
+        st.since = 0
+        anomalyThisPool = true
+      }
     } else {
       stats.emptyAnomalyPool++
     }
 
-    const rarity = pickW(weights)
-    let card = null
-
-    if (rarity === 'anomaly') {
-      card = { kind: 'anomaly', id: pickW(eligible), rarity: 'anomaly' }
-      st.since = 0
-      anomalyThisPool = true
-    } else {
-      // Bucket roll. Empty buckets are dropped; if the chosen bucket turns out empty at pick
-      // time (pickedIds dedup / MAX_MODS_PER_WEAPON_PER_POOL) we re-roll among the rest
-      // rather than returning null — returning null yields pools shorter than choiceSlots,
-      // which test/sim-test.js asserts against.
+    if (!card) {
+      // BUCKET FIRST, THEN RARITY. Rolling rarity first deleted the weapon bucket on every
+      // roll whose rarity no available weapon happened to carry, redistributing its 22 points
+      // to whatever was left — measured up to 15pts of drift from the declared weights, and
+      // it varied per chapter AND per slot count. Rarity is a BONUS SCALAR; it must not
+      // decide the kind of card.
+      // Empty buckets are still dropped (nothing to offer), which is now the ONLY source of
+      // drift — counted in stats.absent so the budget is visible rather than inferred.
       const passOk = passives.filter((p) => !picked.has(p))
-      const modOk = mc.filter((m) => !picked.has(m.mod) && (modWeaponCount.get(m.weapon) ?? 0) < C.MAX_MODS_PER_WEAPON_PER_POOL)
-      const wOk = wp.filter((w) => !picked.has(w.id) && w.rarity === rarity)
+      const modCap = MODS_PER_WEAPON_PER_POOL ?? C.MAX_MODS_PER_WEAPON_PER_POOL
+      const modOk = mc.filter((m) => !picked.has(m.mod) && (modWeaponCount.get(m.weapon) ?? 0) < modCap)
+      const wOk = wp.filter((w) => !picked.has(w.id))
       const eOk = elems.filter((e) => !picked.has(e))
       const buckets = {}
-      if (passOk.length) buckets.passive = BUCKET_WEIGHTS.passive
-      if (modOk.length) buckets.mod = BUCKET_WEIGHTS.mod
-      if (wOk.length) buckets.weapon = BUCKET_WEIGHTS.weapon
+      stats.slots++
+      if (passOk.length) buckets.passive = BUCKET_WEIGHTS.passive; else stats.absent.passive++
+      if (modOk.length) buckets.mod = BUCKET_WEIGHTS.mod; else stats.absent.mod++
+      if (wOk.length) buckets.weapon = BUCKET_WEIGHTS.weapon; else stats.absent.weapon++
       // MUTATORS.unstable's elementWeightMul must keep a reader once ELEMENT_CARD_WEIGHT dies.
       if (eOk.length) buckets.element = BUCKET_WEIGHTS.element * (run.mods.elementWeightMul ?? 1)
+      else stats.absent.element++
 
       const b = pickW(buckets)
       if (b === 'passive') {
         const w = {}
         for (const id of passOk) w[id] = DEFENSIVE.has(id) ? DEFENSIVE_WEIGHT : 1
-        card = mkPassive(run, pickW(w), rarity)
+        card = mkPassive(run, pickW(w), pickW(P_RARITY_WEIGHTS))
       } else if (b === 'mod') {
         const m = modOk[(Math.random() * modOk.length) | 0]
-        card = mkMod(run, m.weapon, m.mod, rarity)
+        card = mkMod(run, m.weapon, m.mod, pickW(P_RARITY_WEIGHTS))
       } else if (b === 'weapon') {
-        const c = wOk[(Math.random() * wOk.length) | 0]
-        card = { kind: 'weapon', id: c.id, rarity: c.rarity, tag: c.tag } // keeps cfg.rarity, not the rolled one
+        // Inherent rarity is a WEIGHT inside the bucket, never a filter — that keeps hole
+        // (legendary) and rainbow (mythic) rare FINDS without letting a rarity roll delete
+        // the whole bucket. Applied to `New!` only; an upgrade competes as a common and
+        // shows no tier, so owning a mythic doesn't inflate the mythic rate all run.
+        const w = {}
+        for (let i = 0; i < wOk.length; i++) {
+          w[i] = wOk[i].tag === 'New!' ? (P_RARITY_WEIGHTS[wOk[i].rarity] ?? 1) : WEAPON_UP_WEIGHT
+        }
+        const c = wOk[Number(pickW(w))]
+        card = { kind: 'weapon', id: c.id, rarity: c.tag === 'New!' ? c.rarity : 'upgrade', tag: c.tag }
       } else if (b === 'element') {
-        card = mkElement(run, eOk[(Math.random() * eOk.length) | 0], rarity)
+        card = mkElement(run, eOk[(Math.random() * eOk.length) | 0], pickW(P_RARITY_WEIGHTS))
       }
     }
 
@@ -305,13 +337,14 @@ function measure(mode) {
     shortPools: stats.shortPools,
     pools: stats.pools,
     kinds: Object.fromEntries(['passive', 'mod', 'weapon', 'element', 'anomaly'].map((k) => [k, share(kinds, k)])),
-    rarities: Object.fromEntries(['normal', 'rare', 'epic', 'legendary', 'mythic', 'anomaly'].map((k) => [k, share(rarities, k)])),
+    rarities: Object.fromEntries(['normal', 'rare', 'epic', 'legendary', 'mythic', 'anomaly', 'upgrade'].map((k) => [k, share(rarities, k)])),
     defPicks: Object.values(defPicks).reduce((a, b) => a + b, 0) / RUNS,
     defTotals: Object.fromEntries(Object.entries(defTotals).map(([k, v]) => [k, v / RUNS])),
     defShare: mode === 'proposed' ? defShare : (share(kinds, 'passive') * 3) / Object.keys(C.PASSIVES).length,
     anomalies: avg(anomalies),
     weaponLv: avg(weaponLv),
     emptyPool: stats.emptyAnomalyPool / RUNS,
+    absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
   }
 }
 
@@ -323,13 +356,29 @@ function report(r) {
   console.log(`kind   ${Object.entries(r.kinds).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`rarity ${Object.entries(r.rarities).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`defence ${f1(r.defShare)}% of cards, ${f1(r.defPicks)} picks/run — armor ${r.defTotals.armor.toFixed(2)} regen ${r.defTotals.regen.toFixed(2)} maxHP ${f1(r.defTotals.maxHP)}`)
-  if (r.mode === 'proposed') console.log(`anomalies ${r.anomalies.toFixed(2)}/run (cap ${MAX_ANOMALIES_PER_RUN})  empty-pool rolls ${f1(r.emptyPool)}/run`)
+  if (r.mode === 'proposed') {
+    console.log(`anomalies ${r.anomalies.toFixed(2)}/run (cap ${MAX_ANOMALIES_PER_RUN})  empty-pool rolls ${f1(r.emptyPool)}/run`)
+    console.log(`bucket absent ${Object.entries(r.absent).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}  <- the ONLY drift budget`)
+  }
+}
+
+// Declared vs achieved, per bucket. A bucket absent A% of the time loses at most A% of its
+// weight; anything beyond that is a bug in the roll, not a capacity ceiling.
+function fidelity(r) {
+  const tot = Object.values(BUCKET_WEIGHTS).reduce((a, b) => a + b, 0)
+  const ordinary = 100 - r.kinds.anomaly
+  console.log(`\n== bucket fidelity (${CHAPTER} slots=${SLOTS}) — share of ORDINARY cards`)
+  for (const k of ['passive', 'mod', 'weapon', 'element']) {
+    const want = (100 * BUCKET_WEIGHTS[k]) / tot
+    const got = (100 * r.kinds[k]) / ordinary
+    console.log(`  ${k.padEnd(8)} want ${f1(want).padStart(5)}%  got ${f1(got).padStart(5)}%  drift ${(got - want >= 0 ? '+' : '') + f1(got - want).padStart(5)}pts  (absent ${f1(r.absent[k])}% of rolls)`)
+  }
 }
 
 if (flags.has('--compare')) {
   const a = measure('current')
   const b = measure('proposed')
-  report(a); report(b)
+  report(a); report(b); fidelity(b)
   const row = (label, x, y, unit = '%') => console.log(`  ${label.padEnd(22)} ${f1(x).padStart(6)}${unit} -> ${f1(y).padStart(6)}${unit}`)
   console.log(`\n== diff (${CHAPTER} slots=${SLOTS})`)
   for (const k of ['passive', 'mod', 'weapon', 'element']) row(`${k} share`, a.kinds[k], b.kinds[k])

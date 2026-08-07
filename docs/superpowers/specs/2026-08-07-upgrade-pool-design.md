@@ -1,7 +1,9 @@
 # Track B — Upgrade pool redesign
 
-**Status: ACTIVE — this is the track to finalise first.** Design revised once under adversarial
-review and validated in the harness; **card list incomplete** — see [Open work](#open-work).
+**Status: ACTIVE — this is the track to finalise first.** Design revised twice under adversarial
+review and validated in the harness; distribution is now **within ~2pts of declared on all three
+reference configs**. Two things block the card list: the **net power buff** (one design call, below)
+and the **card list itself** — see [Open work](#open-work).
 **Blocks:** [Track A](./2026-08-07-dot-rework-and-sim-fixes-design.md), which is on hold until this
 design is final (user call, 2026-08-07 — A's DoT numbers are sized against today's 5.9% element
 share, which this design moves to 18%).
@@ -13,72 +15,103 @@ share, which this design moves to 18%).
 
 | | current | proposed | target |
 |---|---|---|---|
-| passive share | 59.8% | **28.6%** | ~30% |
-| mod share | 23.1% | 28.8% | 30% |
-| weapon share | 10.8% | 16.9% | 22% (drains — see Open work) |
-| element share | 6.3% | 17.4% | 18% |
-| **defence share** | 17.9% | **18.0%** | parity, no rebasing |
-| **legendary share** | 3.1% | **2.9%** | ~3.5%, **not** 9–16% (F1) |
-| mythic share | 1.7% | 1.6% | retained as jackpot |
-| short pools | 0/836 | **0/1040** | 0 (F2) |
-| anomalies/run | — | **2.73** | ≤ 4 (F11/F13) |
+| passive share | 62.1% | **30.1%** | 30% |
+| mod share | 21.0% | **29.7%** | 30% |
+| weapon share | 10.5% | **21.7%** | 22% |
+| element share | 6.4% | **18.6%** | 18% |
+| **defence share** | 18.6% | **18.0%** | parity, no rebasing |
+| **legendary share** | 4.5% | **2.6%** | ≤ shipped, **not** 9–16% (F1) |
+| mythic share | 1.9% | 1.5% | retained as jackpot |
+| short pools | 0/1106 | **0/1377** | 0 (F2) |
+| anomalies/run | — | **3.00** | ≤ 4 (F11/F13) |
 
-All guards pass. `empty-pool rolls 18.7/run` confirms the F1 path fires on ~27% of card rolls
-while legendary stays flat — under the first draft every one of those deflected into a legendary.
+All guards pass, all four buckets land within 0.6pts of declared. `empty-pool rolls 23.8/run`
+confirms the F1 path fires on ~35% of card rolls while legendary stays *below* baseline — under the
+first draft every one of those deflected into a legendary (measured 16.1%).
 
-**Unresolved, surfaced by the harness:** the proposal is a **net power buff**. Level 28.9 → 35.7,
-weaponLvSum 4.2 → 6.9, cards/run 55.7 → 69.3 (**+24% total picks**). Cutting filler passives means
-faster clears → more XP → more levels → more cards, a compounding loop. This needs a deliberate
-call: accept it as intended (the game gets more generous), or offset it via the XP curve
-(`xpForLevel`) or `hpScale`. Do not let it ship undecided.
+**Unresolved, surfaced by the harness — this is the one open design call.** The proposal is a **net
+power buff**, and the ordering fix made it larger than first measured:
 
-### BUCKET_WEIGHTS is aspirational — actual share is set by capacity ceilings
+| | body/2 | city/2 | beyond/4 |
+|---|---|---|---|
+| cards/run | 55.3 → 68.8 (**+24%**) | 64.5 → 77.7 (**+20%**) | 85.7 → 112.0 (**+31%**) |
+| **weaponLvSum** | 4.1 → **7.4** (1.8×) | 2.5 → **8.1** (3.2×) | 2.5 → **6.1** (2.4×) |
+| level reached | 28.6 → 35.4 | 33.4 → 39.9 | 22.4 → 29.0 |
 
-Proposed shares across three configs, against a declared `{passive 30, mod 30, weapon 22, element 18}`:
+The headline is not the extra cards, it is **weapon investment roughly tripling** — a direct
+consequence of the weapon bucket finally receiving its declared 22% instead of the 5–10% it
+emergently got. Combined with cutting filler passives, clears are faster → more XP → more levels →
+more cards, a compounding loop.
 
-| | body/2 | city/2 | beyond/4 | declared | worst drift |
+Three ways to go, and it must be decided before ~32 anomalies are balanced against it:
+
+1. **Accept it.** The game gets more generous; anomalies are authored against the stronger baseline.
+2. **Offset globally** via `xpForLevel` or `hpScale` — keeps the composition, restores the curve.
+3. **Lower `BUCKET_WEIGHTS.weapon`** below 22 — but then the ceiling problem returns by choice
+   rather than by accident, and weapons stay the thing you rarely get to build.
+
+Recommendation: **(1) with a `hpScale` check**. The old pool's power level was itself an accident of
+list lengths, so "preserve it exactly" is preserving noise. But the immortal probe cannot answer
+whether the run stays *hard*, and a survival rig is needed before this is settled.
+
+### RESOLVED — bucket weights are now honoured: roll the bucket, *then* the rarity
+
+The first draft rolled **rarity first, then bucket**, and filtered weapon candidates by the rolled
+rarity (`wOk = wp.filter(w => w.rarity === rarity)`). On any rarity no available weapon happened to
+carry, the weapon bucket did not exist at all and its 22 points redistributed to whatever remained.
+Same shape for mods via the per-pool cap. Measured drift against a declared
+`{passive 30, mod 30, weapon 22, element 18}`:
+
+| | body/2 | city/2 | beyond/4 | worst drift |
+|---|---|---|---|---|
+| passive | 28.6% | **34.0%** | **34.6%** | +4.6 |
+| mod | 28.8% | 30.4% | **22.1%** | −7.9 |
+| weapon | 16.9% | **6.7%** | 11.9% | **−15.3** |
+| element | 17.4% | **21.4%** | **23.3%** | +5.3 |
+
+**Rarity is a bonus scalar; it has no business choosing the kind of card.** The fix is ordering:
+
+1. Anomaly tier, rolled against the *whole* ordinary table rather than as an entry inside it.
+2. Bucket, from `BUCKET_WEIGHTS`, dropping only genuinely empty buckets.
+3. Rarity *within* the bucket, purely to scale the bonus.
+
+Weapon inherent rarity becomes a **weight inside the bucket, never a filter** — `hole` (legendary)
+and `rainbow` (mythic) stay rare finds without a rarity roll being able to delete the bucket.
+
+Measured after the fix (`--compare`, 40 runs, all buckets ±2pts):
+
+| bucket | declared | body/2 | city/2 | beyond/4 | absent |
 |---|---|---|---|---|---|
-| passive | 28.6% | **34.0%** | **34.6%** | 30% | +4.6 |
-| mod | 28.8% | 30.4% | **22.1%** | 30% | −7.9 |
-| weapon | 16.9% | **6.7%** | 11.9% | 22% | **−15.3** |
-| element | 17.4% | **21.4%** | **23.3%** | 18% | +5.3 |
-| defence | 18.0% | 21.5% | 21.9% | parity | ✓ |
-| legendary | 2.9% | 3.4% | 3.6% | ~3.5% | ✓ F1 holds |
-| anomalies/run | 2.73 | 3.20 | **1.65** | ≤4 | **1.9× spread** |
+| passive | 30% | 30.1% | 31.7% | 31.7% | 0.0% |
+| mod | 30% | 29.7% | 30.8% | 30.0% | ≤3.9% |
+| weapon | 22% | 21.7% | 20.2% | 20.4% | 2.5–9.5% |
+| element | 18% | 18.6% | 17.4% | 18.0% | 0.0% |
 
-**Three of the four buckets have hard capacity ceilings; only `passive` is effectively unbounded.**
-Whatever the capped buckets cannot spend flows into passive and element, by an amount that varies
-per chapter *and* per slot count. The declared weights are therefore not the pool any configuration
-actually receives.
+Two secondary findings fell out of it:
 
-- **weapon** — six of seven chapters ship 3 weapons against `MAX_WEAPONS = 4`, so the bucket holds
-  at most 15 picks (3 × Lv5) and drains early. City spends **6.7% of a declared 22%**.
-- **mod** — `MOD_CANDIDATES_PER_WEAPON = 2` and `MAX_MODS_PER_WEAPON_PER_POOL = 1` mean a 3-weapon
-  chapter can place at most 3 mod cards in a pool. At **4 slots** that is a binding cap, which is
-  why beyond undershoots at 22.1% while city (2 slots) reaches 30.4%.
-- **element** — 4 elements × 5 picks = 20, and it absorbs the overflow, overshooting everywhere.
+- **Weapon rarity must gate acquisition, not levelling.** Weighting *owned* weapons by inherent
+  rarity too made beyond read 16.6% legendary weapon offers and city 4.2% mythic (vs 1.4% shipped) —
+  the colour re-fired every pool for a jackpot the player already had. A `New!` card carries the
+  weapon's rarity; an upgrade card competes as a common and shows no tier. Legendary then lands at
+  **2.6 / 2.9 / 4.2%** against a shipped 4.5 / 3.4 / 4.4 — at or below baseline everywhere.
+- **`MAX_MODS_PER_WEAPON_PER_POOL` must be 2, not 1.** At 4 slots the shipped 1 left the mod bucket
+  empty on **15.1%** of rolls (−4.6pts). At 2: absent 2.6%, drift 0.0pts, and 2-slot configs are
+  unaffected (body mod absence 3.6% → 0.0%). Note this permits a 2-card pool of two mods from the
+  same weapon — acceptable, but confirm it reads well before shipping.
 
-This was previously filed as "the weapon bucket overflows its ceiling" — that named one cause and
-missed the pattern. The failure is systemic: **tuning `BUCKET_WEIGHTS` against one chapter/slot
-config silently ships a different pool to every other one.**
-
-**Required before the card list is authored:**
-
-1. Make bucket weights **capacity-aware** — scale each by remaining capacity
-   (`weight * remainingPicks / totalPicks`) so a drained bucket tapers instead of dumping its whole
-   weight elsewhere, and the declared numbers mean something.
-2. Resolve `MAX_WEAPONS = 4` vs 3-weapon chapters — either add a fourth weapon per chapter, or set
-   the cap to `min(4, chapterWeapons.length - 1)` so owning the full arsenal stops being the default
-   outcome (measured at 73–99% of runs).
-3. Re-check `MAX_MODS_PER_WEAPON_PER_POOL = 1` at 4 slots; it is currently a silent mod-share cap.
+Still open: `MAX_WEAPONS = 4` vs the six chapters that ship 3 weapons. It now costs only ~1.8pts
+(weapon bucket absent 9.5% in city, since the arsenal fills and maxes out), so it is a design
+question about whether owning everything should be the default outcome (measured 73–99% of runs),
+not a distribution bug.
 
 ### Anomaly rate is not controlled across chapters
 
-Measured **1.65/run (beyond/4) to 3.20/run (city/2) — a 1.9× spread**, and it does *not* track slot
-count: the 4-slot config produces the *fewest* anomalies. Two causes compound — chapter XP economies
-differ (city reaches level 32, beyond 19), and the level-gated anomaly tiers (`level >= 8`/`>= 10`)
-consume a larger fraction of a short run. F13 was filed as "city farms anomalies"; the real problem
-is that the rate is uncontrolled in both directions.
+Measured **2.25/run (beyond/4) to 3.25/run (city/2)** — a 1.44× spread, tightened from 1.9× by the
+ordering fix but not eliminated, and it still does *not* track slot count: the 4-slot config produces
+the *fewest* anomalies. Two causes compound — chapter XP economies differ (city reaches level 39,
+beyond 28), and the level-gated anomaly tiers (`level >= 8`/`>= 10`) consume a larger fraction of a
+short run. F13 was filed as "city farms anomalies"; the real problem is that the rate is uncontrolled
+in both directions.
 
 If "≈3 anomalies per run" is a design target rather than an average, drive pity off `run.time`
 instead of card count. Otherwise state the spread as intended and move on — but state it.
@@ -343,9 +376,10 @@ later HP picks are halved too — otherwise it is strictly better taken early).
 - **Duo/Deep gates are statistically unreachable at 2 slots.** A *specific* passive is offered ~1.3
   times per run, so "3 picks of two named passives" is P≈0. Measured: Blood Sugar 1.0%, Thick Skin
   0.7%. Gate at 2+2, or gate on a *category* ("any two defensive passives ≥2").
-- **The weapon bucket at 22% overflows its ceiling** — 3 weapons × 5 levels = 15 picks available,
-  but 22% of a 93-card run is 20.5 offers. Scale the weight off remaining capacity so it tapers
-  instead of emptying mid-run.
+- ~~The weapon bucket at 22% overflows its ceiling~~ — **resolved** by rolling the bucket before the
+  rarity; the weapon bucket now lands at 20.2–21.7% against a declared 22%, and is empty on only
+  2.5–9.5% of rolls. What remains is the design question of whether owning all 3 weapons in 73–99%
+  of runs is wanted, not a distribution bug.
 - **Damage-multiplier asymmetry (pre-existing).** 17 `dealDamage` sites bypass `damageMul`/crit
   entirely versus 17 `applyDamage` sites that don't. "+70% damage" is a true +70% for a star build
   and closer to +30% for a fire/venom or hole build. Any card balanced on a damage percentage is
@@ -358,9 +392,16 @@ later HP picks are halved too — otherwise it is strictly better taken early).
 `node scripts/pool-probe.mjs <chapter> <slots> <runs> [random|defense|dps]` reports level reached,
 cards/run, **short pools (must stay 0)**, kind and rarity distribution, and defensive totals/run.
 
-Before/after every distribution change, at minimum: `body 2`, `body 4`, `city 2`, `beyond 4`.
-Targets: passive ~30%, defensive share ~17.4%, short pools 0, anomalies ≤4/run, legendary ~3.5%
-(**not** 9–16% — that is the F1 regression).
+Before/after every distribution change, at minimum: `body 2`, `city 2`, `beyond 4` — **never one
+config alone.** Every drift finding in this document was invisible in at least one of the three;
+tuning against a single chapter/slot count silently ships a different pool to every other one.
+
+`--compare` prints a **bucket fidelity** block (declared vs achieved share of ordinary cards) and a
+**bucket absent** line. Absence is the entire drift budget: a bucket empty on A% of rolls can lose at
+most A% of its weight, so drift materially larger than absence is a bug in the roll, not a ceiling.
+
+Targets: all four buckets within ~2pts of declared, defensive share ~18%, short pools 0, anomalies
+≤4/run, legendary at or below the shipped baseline (**not** 9–16% — that is the F1 regression).
 
 The probe is immortal and vacuums gems; it measures offer distribution and throughput, never
 survival. `npm test` must stay green — `test/sim-test.js` asserts pool length, rarity membership,
