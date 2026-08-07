@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -2116,6 +2116,19 @@ export function createRenderer(app) {
     toad: {
       archetype: 'tank', draw: drawToad, lean: 90, poses: 4,
       poseOf: (e) => ({ hold: 0, aim: 1, leap: 2, land: 3 })[e._pounceState] ?? 0,
+      // v6.6.33 (owner: "when it leaps, it turns mid air towards the player: it shouldn't. It has
+      // committed to a jump and should keep facing same direction during jump"). While aiming and
+      // leaping the toad faces the heading the SIM locked at the start of 'aim' — the same vector
+      // the telegraph is drawn along — instead of tracking the player. Before this the body steered
+      // through the air while the trajectory did not, so the two disagreed on screen every leap.
+      faceDir: (e) => ((e._pounceState === 'aim' || e._pounceState === 'leap')
+        ? [e._pounceDirX ?? 0, e._pounceDirY ?? 0] : null),
+      // ...and it swings round at a real rate rather than snapping. Fast enough during the wind-up
+      // to finish aimed before launch (7 rad/s over a 0.9s aim is ample), ZERO in the air, and slow
+      // once it lands — "toads are slow and tanky: when they land, they slowly turn towards the
+      // player and build-up another leap" is this line plus POUNCE_LAND_T.
+      turnRate: (e) => (e._pounceState === 'leap' ? POUNCE_TURN_LEAP
+        : e._pounceState === 'aim' ? POUNCE_TURN_AIM : POUNCE_TURN_IDLE),
     },
     owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // PARKED (v5.6.8): aerialStrike is unkillable in a melee chapter — kept for a future ranged one
     centipede: { archetype: 'fast', draw: drawCentipede, lean: 90, phases: 6 }, // top-down, ±y mirrored; 6 baked wave phases = the slither
@@ -2186,6 +2199,13 @@ export function createRenderer(app) {
       frames: n > 1 ? frames : null,
       baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG,
       poseOf: entry.poseOf || null,
+      // v6.6.33: these two MUST be forwarded. The baked look is a fresh object, not the ROSTER_LOOKS
+      // entry, so a hook that is declared and not copied here is silently inert — syncEnemies reads
+      // `look.faceDir`, finds undefined, and falls straight back to the old always-face-the-player
+      // behaviour with no error anywhere. That is exactly how the first cut of the committed-leap
+      // fix shipped as a no-op, and it was only caught by measuring the drawn heading.
+      faceDir: entry.faceDir || null,
+      turnRate: entry.turnRate || null,
       spin: entry.spin || 0,
       shadow: shadowSpec, crown: crownSpec,
     }
@@ -11311,10 +11331,44 @@ export function createRenderer(app) {
       // facing exactly, maxLean = 0 collapses to the original pure mirror. The mirror pops at dx = 0,
       // exactly where the original flip popped, so this adds no pop that wasn't already there.
       // Scale runs BEFORE rotation, hence the flip on X.
-      const dx = px - e.x
+      //
+      // v6.6.33: the bearing that feeds this is no longer unconditionally "toward the player". Two
+      // optional look hooks sit in front of it, and every look without them behaves exactly as
+      // before (instant, player-facing):
+      //   look.faceDir(e)  -> a [dx, dy] the creature should face INSTEAD of the player, or null.
+      //                       The toad returns its locked _pounceDir while aiming and leaping.
+      //   look.turnRate(e) -> rad/s the body may swing at. Infinity (the default) is the old
+      //                       snap-to-bearing; 0 freezes the current facing outright.
+      // The smoothed heading lives on the SPRITE, not on `run` — render must never write to the
+      // sim, and the sprite is the stable per-enemy slot (same idiom as _spinA/_animFrame above).
+      // It is smoothed as a VECTOR and only then split into flip/lean: interpolating the decomposed
+      // pair would tear at the mirror boundary, where flip is discontinuous by construction.
+      let tdx = px - e.x
+      let tdy = run.player.y - e.y
+      if (look.faceDir) {
+        const d = look.faceDir(e)
+        if (d && (d[0] || d[1])) { tdx = d[0]; tdy = d[1] }
+      }
+      const tlen = Math.hypot(tdx, tdy) || 1
+      tdx /= tlen
+      tdy /= tlen
+      const rate = look.turnRate ? look.turnRate(e) : Infinity
+      if (!(rate < Infinity)) { s._dirX = tdx; s._dirY = tdy }
+      else {
+        if (s._dirX === undefined) { s._dirX = tdx; s._dirY = tdy }
+        // rotate the held heading toward the target by at most rate*dt, shortest way round
+        const cur = Math.atan2(s._dirY, s._dirX)
+        let diff = Math.atan2(tdy, tdx) - cur
+        while (diff > Math.PI) diff -= Math.PI * 2
+        while (diff < -Math.PI) diff += Math.PI * 2
+        const step = Math.min(Math.abs(diff), rate * frameDt) * Math.sign(diff)
+        s._dirX = Math.cos(cur + step)
+        s._dirY = Math.sin(cur + step)
+      }
+      const dx = s._dirX
       const flip = dx < 0 ? -1 : 1
       const maxLean = look.maxLean
-      const lean = Math.atan2(run.player.y - e.y, Math.abs(dx))
+      const lean = Math.atan2(s._dirY, Math.abs(dx))
       const face = flip * Math.max(-maxLean, Math.min(maxLean, lean))
       // holePull (0..1, set by sim while an enemy is being sucked into a black hole) may
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
