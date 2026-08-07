@@ -32,31 +32,56 @@ faster clears → more XP → more levels → more cards, a compounding loop. Th
 call: accept it as intended (the game gets more generous), or offset it via the XP curve
 (`xpForLevel`) or `hpScale`. Do not let it ship undecided.
 
-### The declared bucket weights are NOT what you get (city, 2 slots, 25 runs)
+### BUCKET_WEIGHTS is aspirational — actual share is set by capacity ceilings
 
-| | current | proposed | declared target |
-|---|---|---|---|
-| passive share | 67.2% | **34.0%** | 30% — inflated |
-| mod share | 20.6% | 30.4% | 30% ✓ |
-| weapon share | 5.4% | **6.7%** | 22% — cannot be spent |
-| element share | 6.8% | **21.4%** | 18% — inflated |
-| defence share | 20.2% | 21.5% | parity ✓ |
-| legendary share | 3.5% | 3.4% | ~3.5% ✓ (F1 holds outside body) |
+Proposed shares across three configs, against a declared `{passive 30, mod 30, weapon 22, element 18}`:
 
-Six of seven chapters ship **3 weapons** against `MAX_WEAPONS = 4`, so the weapon bucket has at
-most 15 picks (3 × Lv5) to give and drains early. It achieves **6.7% against a declared 22%**, and
-the unspent ~15 points redistribute into passive and element — by an amount that **varies per
-chapter**. Same config yields passive 28.6% in body and 34.0% in city.
+| | body/2 | city/2 | beyond/4 | declared | worst drift |
+|---|---|---|---|---|---|
+| passive | 28.6% | **34.0%** | **34.6%** | 30% | +4.6 |
+| mod | 28.8% | 30.4% | **22.1%** | 30% | −7.9 |
+| weapon | 16.9% | **6.7%** | 11.9% | 22% | **−15.3** |
+| element | 17.4% | **21.4%** | **23.3%** | 18% | +5.3 |
+| defence | 18.0% | 21.5% | 21.9% | parity | ✓ |
+| legendary | 2.9% | 3.4% | 3.6% | ~3.5% | ✓ F1 holds |
+| anomalies/run | 2.73 | 3.20 | **1.65** | ≤4 | **1.9× spread** |
 
-This was previously filed as "the weapon bucket overflows its ceiling," which named the cause but
-not the symptom. The real failure is that **`BUCKET_WEIGHTS` is not the pool any chapter actually
-gets**, so tuning against `body` alone ships a different pool everywhere else.
+**Three of the four buckets have hard capacity ceilings; only `passive` is effectively unbounded.**
+Whatever the capped buckets cannot spend flows into passive and element, by an amount that varies
+per chapter *and* per slot count. The declared weights are therefore not the pool any configuration
+actually receives.
 
-**Required before the card list is authored:** scale the weapon bucket off remaining capacity
-(`22 * remainingWeaponPicks / totalWeaponPicks`) so it tapers instead of falling off a cliff, and
-resolve the `MAX_WEAPONS = 4` vs 3-weapon-chapter mismatch — either give every chapter a fourth
-weapon, or set the cap to `min(4, chapterWeapons.length - 1)` so owning the full arsenal isn't the
-default outcome (measured at 73–99% of runs).
+- **weapon** — six of seven chapters ship 3 weapons against `MAX_WEAPONS = 4`, so the bucket holds
+  at most 15 picks (3 × Lv5) and drains early. City spends **6.7% of a declared 22%**.
+- **mod** — `MOD_CANDIDATES_PER_WEAPON = 2` and `MAX_MODS_PER_WEAPON_PER_POOL = 1` mean a 3-weapon
+  chapter can place at most 3 mod cards in a pool. At **4 slots** that is a binding cap, which is
+  why beyond undershoots at 22.1% while city (2 slots) reaches 30.4%.
+- **element** — 4 elements × 5 picks = 20, and it absorbs the overflow, overshooting everywhere.
+
+This was previously filed as "the weapon bucket overflows its ceiling" — that named one cause and
+missed the pattern. The failure is systemic: **tuning `BUCKET_WEIGHTS` against one chapter/slot
+config silently ships a different pool to every other one.**
+
+**Required before the card list is authored:**
+
+1. Make bucket weights **capacity-aware** — scale each by remaining capacity
+   (`weight * remainingPicks / totalPicks`) so a drained bucket tapers instead of dumping its whole
+   weight elsewhere, and the declared numbers mean something.
+2. Resolve `MAX_WEAPONS = 4` vs 3-weapon chapters — either add a fourth weapon per chapter, or set
+   the cap to `min(4, chapterWeapons.length - 1)` so owning the full arsenal stops being the default
+   outcome (measured at 73–99% of runs).
+3. Re-check `MAX_MODS_PER_WEAPON_PER_POOL = 1` at 4 slots; it is currently a silent mod-share cap.
+
+### Anomaly rate is not controlled across chapters
+
+Measured **1.65/run (beyond/4) to 3.20/run (city/2) — a 1.9× spread**, and it does *not* track slot
+count: the 4-slot config produces the *fewest* anomalies. Two causes compound — chapter XP economies
+differ (city reaches level 32, beyond 19), and the level-gated anomaly tiers (`level >= 8`/`>= 10`)
+consume a larger fraction of a short run. F13 was filed as "city farms anomalies"; the real problem
+is that the rate is uncontrolled in both directions.
+
+If "≈3 anomalies per run" is a design target rather than an average, drive pity off `run.time`
+instead of card count. Otherwise state the spread as intended and move on — but state it.
 
 Goal stated by the user: more fun, more player agency, more "aha moments" — via the rarity system,
 bucket percentages, per-chapter uniques, and card text/numbers/feel.
