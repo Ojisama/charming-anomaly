@@ -1385,7 +1385,7 @@ function stepDiveBomb(run, e, tx, ty, dt, slowMul) {
 // pounce (v5.4 undergrowth's cats): hold -> aim -> leap -> land, on _pounceState/_pounceT/
 // _pounceDirX/_pounceDirY (the diveBomb idiom). The heading locks at the START of 'aim' and the
 // leap never steers, so a dodge beats it and it overshoots; 'land' is the punish window (frozen,
-// and stepContactDamage won't let it hurt you there). It has no attack of its own — a cat that
+// and stepContactDamage won't let it hurt you there). It has no attack of its own — a pouncer that
 // lands on you damages you through ordinary contact damage, like any other enemy.
 // (tx,ty) is the seek target; spdMul folds in enrage. slowMul folds in chill/freeze (0 = frozen).
 function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
@@ -1398,10 +1398,10 @@ function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
   if (e._pounceState === 'hold') {
     const spd = e.speed * spdMul * POUNCE_HOLD_SPEED_MUL
     vx = ux * spd; vy = uy * spd
-    // v6.6.24: same rule as the wasp — a cat may not crouch to leap from off-screen. POUNCE_RANGE
-    // (260) also exceeds a phone's horizontal half-view, so a cat closing from the side used to
+    // v6.6.24: same rule as the wasp — a pouncer may not crouch to leap from off-screen. POUNCE_RANGE
+    // (260) also exceeds a phone's horizontal half-view, so one closing from the side used to
     // commit while still undrawn. No clamp is needed here, unlike the wasp: 'hold' KEEPS SEEKING,
-    // so a cat held off by this gate walks into view on its own and pounces a moment later.
+    // so one held off by this gate walks into view on its own and pounces a moment later.
     if (d <= POUNCE_RANGE && canCommitFrom(run, e)) {
       e._pounceState = 'aim'; e._pounceT = POUNCE_AIM_T; e._pounceDirX = ux; e._pounceDirY = uy
     }
@@ -1409,13 +1409,13 @@ function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
     // Dead stop, heading already snapshotted on entry — the telegraph the player reacts to.
     if (e._pounceT <= 0) { e._pounceState = 'leap'; e._pounceT = POUNCE_LEAP_T }
   } else if (e._pounceState === 'leap') {
-    // v6.6.30: a fixed DISTANCE over a fixed time, not a multiple of the cat's own 44 px/s — see
+    // v6.6.30: a fixed DISTANCE over a fixed time, not a multiple of the pouncer's own 44 px/s — see
     // the POUNCE_* block in config.js for the trace this replaces. spdMul (enrage) still scales it,
-    // so a flashlight-enraged cat leaps further, which is what enrage is for.
+    // so a flashlight-enraged toad leaps further, which is what enrage is for.
     const spd = (POUNCE_LEAP_DIST / POUNCE_LEAP_T) * spdMul
     vx = e._pounceDirX * spd; vy = e._pounceDirY * spd
     if (e._pounceT <= 0) {
-      // The landing slams any armed trap under the cat (combined radius — the pounce IS the
+      // The landing slams any armed trap under the toad (combined radius — the pounce IS the
       // trigger weight). One per landing; gated on the chapter's 'predators' signature like
       // stepTraps, because 'pounce' is a chapter-agnostic flag and a future chapter's run.traps
       // could mean something else. The leap itself flew OVER traps untouched (stepTraps skips
@@ -1877,7 +1877,7 @@ function damageImmune(e) {
 
 // v5.4: is this enemy harmless to touch right now? The mirror of damageImmune (an enemy that can't
 // be hit can't hit you either), plus the phases and statuses that disarm an enemy without making it
-// invulnerable: a landed cat and a stalled vacuum are punish windows, and a stunned or fleeing
+// invulnerable: a landed toad and a stalled vacuum are punish windows, and a stunned or fleeing
 // enemy isn't attacking anyone.
 function contactHarmless(e) {
   if (damageImmune(e)) return true
@@ -2626,7 +2626,7 @@ function stepStrips(run, dt) {
 // v6.5 panel: enemy-side damage now scales by hpScale(run.time) — a flat SNAP_TRAP_DMG on both
 // sides looks symmetric but isn't, against enemy HP that climbs 7.6x by late-run; the player side
 // stays flat because the player's own toughness doesn't scale the same way. The enemy loop skips
-// any enemy mid-'leap' (pounce's airborne phase, Task 2) — the cat flies OVER traps on the way in;
+// any enemy mid-'leap' (pounce's airborne phase, Task 2) — it flies OVER traps on the way in;
 // this is the deliberate reversal of an earlier draft that let a leap's center cross a trap and
 // spring it for plain damage before landing, which cannibalized the land-slam (Task 2 stepPounce)
 // that's supposed to own the interaction.

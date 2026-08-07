@@ -1029,174 +1029,111 @@ export function createRenderer(app) {
   //   owl = MID-LIGHT (tawny gold, 4.3x)
   //   rat = DIMMEST   (dusty grey-mauve, 2.8x — still well clear of the ~1.5x invisibility floor)
   //
-  // cat (v6.6.30 rev.4 — owner: "be original, this design sucks, look for low poly or 2d").
-  // Every earlier revision was a FILLED OUTLINE: one closed shape, a dark stroke around it, soft
-  // gradients inside. Six of them were rejected. This one is built on the low-poly contract
-  // instead, which is a different thing end to end:
-  //   - NO OUTLINE ANYWHERE. The form is carried by the boundaries between adjacent flat facets.
-  //     A stroke would fight them; low poly has none by definition.
-  //   - FLAT SHADING. Every triangle is one uniform colour. Gradients smear the light across a
-  //     facet and the faceting stops reading; flat fills make the planes snap.
-  //   - A SHORT RAMP WITH REAL VALUE SEPARATION. Five steps that are clearly different beats twenty
-  //     near-identical ones — palette sprawl is the classic low-poly failure.
-  //   - FEW, LARGE FACETS. ~30 triangles for the whole animal. At 26px anything finer is noise, and
-  //     hard-edged flat colour is exactly what survives being downsampled to that size (which is
-  //     the thing the soft gaussian shading in every previous revision could never do).
-  // The light is handled the way a TOP-DOWN view demands: not from a direction, but by HEIGHT.
-  // Facets near the spine are the top of the animal and take the light end of the ramp; facets at
-  // the silhouette are its flanks falling away and take the dark end. That is rotation-invariant,
-  // which matters because this sprite turns to face the player — a fixed light direction baked into
-  // the facets would swing around with the body and read as the sun orbiting the cat.
-  const CAT_RAMP = [0xf0e7d2, 0xdccdae, 0xc0ae8b, 0x9a8865, 0x71624a, 0x50442f]
-  const CAT_POSES = [
-    { len: 1.00, wid: 1.00, ear: 0.00, tail: 'stream' },  // stalk:  neutral
-    { len: 0.84, wid: 1.20, ear: 0.55, tail: 'up' },      // crouch: gathered, wide, ears going back
-    { len: 1.34, wid: 0.80, ear: 0.95, tail: 'out' },     // leap:   stretched thin, ears flat
-    { len: 0.90, wid: 1.26, ear: 0.75, tail: 'splay' },   // land:   splayed flattest
+
+  // --- Undergrowth's pouncing TANK. Was a cat through v6.6.31 and is a toad from v6.6.32 (owner,
+  // after rejecting seven cat revisions: "what's another animal that could fit the lore and be
+  // easier to draw?" -> three were drawn, this one was picked).
+  //
+  // Why the cat could never be made to work at this size, recorded so it is not re-attempted: a cat
+  // has NO GRAPHIC HOOK. Its identity is subtle proportion and flow — head-to-body ratio, the curve
+  // of the back — and at 26px subtlety is simply gone, leaving a pale quadruped indistinguishable
+  // from the chapter's rat. Every creature in this game that reads well has a feature you can COUNT:
+  // the spider's eight legs, the wasp's wings, the centipede's segments. The toad was chosen on
+  // exactly that property, and its hook is the pair of EYE DOMES that break the front silhouette.
+  // Nothing else in the game is a wide body with two lamps on the front of it.
+  //
+  // It is also the one candidate whose real locomotion IS the pounce, so hold -> aim -> leap -> land
+  // stops being a state machine bolted onto an animal and becomes what a toad actually does. The
+  // 0.5s frozen landing reads as a heavy toad recovering rather than as an arbitrary punish window.
+  // Lore fit is free: leaf litter is where toads live, and one that eats things your size is a
+  // genuine predator at ankle height.
+  //
+  // Palette: pale olive-stone. The undergrowth floor lands around 0x514628 and its documented
+  // failure mode is dark-on-dark, so the chapter's predators are all LIGHT — see the contrast note
+  // above drawRat. The green is warm and desaturated enough to stay in that family.
+  //
+  // FOUR POSES, keyed off the pounce state by ROSTER_LOOKS.toad.poseOf (the state-driven sibling of
+  // `phases` — see makeRosterLook). `fold` is the whole animation: 0 = hind legs folded into the
+  // sitting Z, 1 = extended straight back mid-leap. Every other number just squashes or stretches
+  // the same body, so the four poses read as one animal moving.
+  const TOAD_POSES = [
+    { len: 1.00, wid: 1.00, fold: 0.00 },  // hold:   sitting squat, legs folded
+    { len: 0.88, wid: 1.14, fold: 0.30 },  // aim:    gathered and wider, legs coiling
+    { len: 1.32, wid: 0.84, fold: 1.00 },  // leap:   stretched, legs trailing straight back
+    { len: 0.92, wid: 1.24, fold: 0.12 },  // land:   splatted widest, legs splayed
   ]
-  function drawCat(g, elite, white, pose = 0) {
-    const r = 22
-    const P = CAT_POSES[pose] ?? CAT_POSES[0]
+  function drawToad(g, elite, white, pose = 0) {
+    const r = 23
+    const P = TOAD_POSES[pose] ?? TOAD_POSES[0]
     const L = P.len
     const W = P.wid
-    groundShadow(r * 1.15, 0)
+    const K = P.fold
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x3d3a22)
+    const skin = f(0xd3cc9e)
+    const under = white ? 0xffffff : 0xa39c6e
+    const lw = Math.max(2.4, r * 0.1)
+    const X = (v) => v * L * r
+    const Y = (v, sgn) => v * sgn * W * r
+    const lerp2 = (a, b) => a + (b - a) * K
+    groundShadow(r * 1.1, 0)
 
-    // --- the ONE mesh, in normalised units. x is forward (nose at +x), y is lateral. The +y half is
-    // mirrored from the -y half, so only one side is written and the spine vertices sit on y = 0.
-    const V = {
-      nose: [1.56, 0], brow: [1.02, 0], crown: [0.52, 0],
-      nape: [0.16, 0], mid: [-0.44, 0], hip: [-0.94, 0], rump: [-1.38, 0],
-      muz: [1.30, -0.22], cheek: [1.00, -0.50], earF: [0.66, -0.46], earR: [0.28, -0.40],
-      // a real WAIST between shoulder and haunch: without the pinch the body is a loaf, and the
-      // pinch is most of what separates a cat's outline from a rodent's at this size
-      shoulder: [0.04, -0.56], waist: [-0.46, -0.38], haunch: [-0.94, -0.56], tailRoot: [-1.3, -0.2],
-      // ears swing from pricked-out (ear 0) to pinned-flat-back (ear 1)
-      earTip: [0.58 - P.ear * 0.62, -1.16 + P.ear * 0.42],
-      earIn: [0.56 - P.ear * 0.44, -0.82 + P.ear * 0.3],
-    }
-    const pt = (k, sgn) => {
-      const v = V[k]
-      return [v[0] * L * r, v[1] * sgn * W * r]
-    }
-    // Facet colour: index into CAT_RAMP by how far the facet sits from the spine (its height on the
-    // animal), then step it by a fixed per-facet offset so neighbours differ and the mesh reads as
-    // faceted rather than as three flat bands. `dark` lets a facet be pushed down the ramp to carve
-    // a tabby marking out of the geometry itself — no stripes drawn on top, the pattern IS facets.
-    const tri = (a, b, c, sgn, jitter, dark = 0) => {
-      const A = pt(a, sgn)
-      const B = pt(b, sgn)
-      const C = pt(c, sgn)
-      if (white) { g.poly([A[0], A[1], B[0], B[1], C[0], C[1]]).fill(0xffffff); return }
-      const h = (Math.abs(A[1]) + Math.abs(B[1]) + Math.abs(C[1])) / 3 / (r * W)
-      const step = Math.min(CAT_RAMP.length - 1, Math.max(0, Math.round(h * 4.2) + jitter + dark))
-      g.poly([A[0], A[1], B[0], B[1], C[0], C[1]]).fill(CAT_RAMP[step])
-    }
-
-    // --- tail: a strip of alternating triangles, tapering. Low poly does not do smooth curves, it
-    // does a chain of flat planes, and a tail is the one place that reads as deliberate rather than
-    // as a mistake — so it is built from the same vocabulary as the body instead of a taperStroke.
-    const TAILS = {
-      stream: [[-1.3, -0.06], [-1.92, 0.14], [-2.46, 0.46], [-2.78, 0.3]],
-      up: [[-1.3, -0.08], [-1.82, -0.48], [-2.1, -1.18], [-1.82, -1.6]],
-      out: [[-1.3, -0.04], [-2.02, 0.0], [-2.72, 0.04], [-3.24, 0.0]],
-      splay: [[-1.3, 0.06], [-1.84, 0.56], [-2.36, 1.02], [-2.72, 0.94]],
-    }
-    {
-      const seg = TAILS[P.tail].map(([x, y]) => [x * L * r, y * W * r])
-      for (let i = 0; i < seg.length - 1; i++) {
-        const w0 = r * (0.22 - i * 0.055)
-        const w1 = r * (0.22 - (i + 1) * 0.055)
-        const dx = seg[i + 1][0] - seg[i][0]
-        const dy = seg[i + 1][1] - seg[i][1]
-        const m = Math.hypot(dx, dy) || 1
-        const nx = -dy / m
-        const ny = dx / m
-        const quad = [
-          seg[i][0] + nx * w0, seg[i][1] + ny * w0,
-          seg[i + 1][0] + nx * w1, seg[i + 1][1] + ny * w1,
-          seg[i + 1][0] - nx * w1, seg[i + 1][1] - ny * w1,
-          seg[i][0] - nx * w0, seg[i][1] - ny * w0,
-        ]
-        if (white) { g.poly(quad).fill(0xffffff); continue }
-        // alternate the two halves of each segment down the ramp: that zigzag IS the low-poly read
-        g.poly([quad[0], quad[1], quad[2], quad[3], quad[4], quad[5]]).fill(CAT_RAMP[1 + (i % 2)])
-        g.poly([quad[0], quad[1], quad[4], quad[5], quad[6], quad[7]]).fill(CAT_RAMP[3 + (i % 2)])
+    // HIND LEGS first, and drawn FAT. Rev.1 of this toad had them at 0.3r and the eyes were doing
+    // all the work at 26px; the folded Z is meant to be the second cue and it has to survive being
+    // downsampled to read at all. hip -> knee -> ankle, lerped from folded to extended.
+    for (const sgn of [-1, 1]) {
+      const hip = [X(-0.46), Y(0.52, sgn)]
+      const knee = [X(lerp2(-0.1, -1.1)), Y(lerp2(1.24, 0.78), sgn)]
+      const ankle = [X(lerp2(-0.66, -1.8)), Y(lerp2(1.32, 0.5), sgn)]
+      taperStroke(g, [hip, knee, ankle], r * 0.4, r * 0.19, under, 4)
+      // splayed foot: three toes off the ankle. A toad's foot is a fan, and the fan is what stops
+      // the leg reading as a stub.
+      for (const t of [-0.36, 0, 0.36]) {
+        const tx = ankle[0] + X(lerp2(-0.4, -0.42)) * (1 + t * 0.3)
+        const ty = ankle[1] + Y(lerp2(0.1, -0.16), sgn) + Y(t * 0.42, sgn)
+        taperStroke(g, [ankle, [tx, ty]], r * 0.12, r * 0.05, under, 2)
       }
     }
-
-    // --- paws: single flat quads poking out from under the flanks, no legs. From above there are
-    // no legs to see, and every previous revision's tapered limbs read as pipe cleaners.
+    // front feet: tucked under the chin when sitting, reaching forward mid-leap
     for (const sgn of [-1, 1]) {
-      for (const [px, py] of [[-0.72, -0.66], [0.02, -0.68]]) {
-        const x = px * L * r
-        const y = py * sgn * W * r
-        if (white) { g.poly([x - r * 0.16, y, x + r * 0.06, y - r * sgn * 0.16, x + r * 0.2, y + r * sgn * 0.06]).fill(0xffffff) }
-        else g.poly([x - r * 0.16, y, x + r * 0.06, y - r * sgn * 0.16, x + r * 0.2, y + r * sgn * 0.06]).fill(CAT_RAMP[4])
+      const sh = [X(0.42), Y(0.42, sgn)]
+      const hand = [X(lerp2(0.84, 1.16)), Y(lerp2(0.6, 0.36), sgn)]
+      taperStroke(g, [sh, hand], r * 0.17, r * 0.09, under, 2)
+      for (const t of [-0.3, 0, 0.3]) {
+        taperStroke(g, [hand, [hand[0] + X(0.24), hand[1] + Y(0.04 + t * 0.5, sgn)]], r * 0.08, r * 0.035, under, 2)
       }
     }
-
-    // --- ears, before the skull so the skull's own facets close their bases
+    // body: wider than long, blunt at the snout, broad over the haunches. ONE outline — a toad is a
+    // single mass and any attempt to articulate it just brings back the lumpiness the cat died of.
+    g.poly(radialOutline((a) => r * 0.92 * (1 - 0.16 * Math.cos(a) + 0.07 * Math.cos(2 * a)), 52, L, 1.06 * W, 0, 0))
+      .fill(skin).stroke({ width: lw, color: line })
+    // EYE DOMES, drawn last and deliberately overlapping the outline so they BREAK the silhouette.
+    // This is the hook the whole design rests on; if they ever stop poking out, it is a bean again.
     for (const sgn of [-1, 1]) {
-      tri('earF', 'earTip', 'earR', sgn, 1)
+      const ex = X(0.5)
+      const ey = Y(0.44, sgn)
+      g.circle(ex, ey, r * 0.3).fill(skin).stroke({ width: lw * 0.85, color: line })
       if (!white) {
-        const A = pt('earF', sgn)
-        const B = pt('earIn', sgn)
-        const C = pt('earR', sgn)
-        g.poly([
-          A[0] * 0.55 + B[0] * 0.45, A[1] * 0.55 + B[1] * 0.45,
-          B[0] * 0.86 + A[0] * 0.07 + C[0] * 0.07, B[1] * 0.86 + A[1] * 0.07 + C[1] * 0.07,
-          C[0] * 0.55 + B[0] * 0.45, C[1] * 0.55 + B[1] * 0.45,
-        ]).fill(0xb8767c)
+        g.circle(ex + r * 0.04, ey, r * 0.19).fill(0xd9c24a)
+        g.ellipse(ex + r * 0.05, ey, r * 0.055, r * 0.15).fill(0x171408)
+        g.circle(ex + r * 0.13, ey - r * 0.09, Math.max(0.7, r * 0.055)).fill({ color: 0xffffff, alpha: 0.9 })
       }
     }
-
-    // --- body + skull. Two facets per band, spine vertices shared, so the mesh closes on itself.
-    for (const sgn of [-1, 1]) {
-      tri('rump', 'tailRoot', 'hip', sgn, 1)
-      tri('tailRoot', 'haunch', 'hip', sgn, 2)
-      tri('haunch', 'mid', 'hip', sgn, 0, 1)     // dark facet: a tabby band, carved from geometry
-      tri('haunch', 'waist', 'mid', sgn, 1)
-      tri('waist', 'nape', 'mid', sgn, 0)
-      tri('waist', 'shoulder', 'nape', sgn, 1, 1) // second band
-      tri('shoulder', 'earR', 'nape', sgn, 0)
-      tri('earR', 'crown', 'nape', sgn, -1)
-      tri('earR', 'earF', 'crown', sgn, 0)
-      tri('earF', 'cheek', 'crown', sgn, 1)
-      tri('cheek', 'brow', 'crown', sgn, -1)
-      tri('cheek', 'muz', 'brow', sgn, 0)
-      tri('muz', 'nose', 'brow', sgn, -1)
-    }
-
     if (!white) {
-      // The face is the only place that is not the fur ramp — three flat accents, no gradients.
-      for (const sgn of [-1, 1]) {
-        const e = pt('cheek', sgn)
-        const b = pt('brow', 1)
-        const ex = e[0] * 0.34 + b[0] * 0.66
-        const ey = e[1] * 0.56
-        g.poly([ex - r * 0.16, ey + r * sgn * 0.05, ex + r * 0.08, ey - r * sgn * 0.11, ex + r * 0.2, ey + r * sgn * 0.04])
-          .fill(0xcfe04a)
-        g.poly([ex + r * 0.01, ey - r * sgn * 0.04, ex + r * 0.09, ey - r * sgn * 0.02, ex + r * 0.03, ey + r * sgn * 0.03])
-          .fill(0x1d2413)
+      g.beginPath() // the wide mouth line across the snout
+      g.moveTo(X(0.76), Y(-0.32, 1)).quadraticCurveTo(X(0.98), 0, X(0.76), Y(0.32, 1))
+      g.stroke({ width: 1.6, color: 0x6d6840, alpha: 0.8 })
+      g.ellipse(X(0.32), 0, r * 0.3 * L, r * 0.34 * W).fill({ color: 0xe8e2c2, alpha: 0.4 }) // pale throat
+      // mottling + warts. Four big blotches carry at 26px; the dot scatter is texture that only
+      // shows when the sprite is large, which is the right way round.
+      for (const [bx, by, br] of [[-0.42, -0.34, 0.3], [-0.5, 0.4, 0.26], [0.02, 0.02, 0.22], [-0.78, 0.02, 0.2]]) {
+        g.ellipse(X(bx), Y(by, 1), br * r * L, br * r * 0.78 * W).fill({ color: 0x8f8b57, alpha: 0.34 })
       }
-      const n = pt('nose', 1)
-      const m = pt('muz', 1)
-      g.poly([n[0] - r * 0.1, 0, m[0] * 0.9, m[1] * 0.42, m[0] * 0.9, -m[1] * 0.42]).fill(0xb8767c)
-    }
-    // whiskers: the one line on the animal, and they leave the silhouette, so both variants draw
-    // them or the white twin's bounds come up short
-    {
-      const n = pt('nose', 1)
-      g.beginPath()
-      for (const sgn of [-1, 1]) {
-        g.moveTo(n[0] - r * 0.2, sgn * r * 0.1).lineTo(n[0] + r * 0.3, sgn * r * 0.44)
-        g.moveTo(n[0] - r * 0.18, sgn * r * 0.04).lineTo(n[0] + r * 0.36, sgn * r * 0.2)
+      for (const [wx, wy] of [[-0.2, -0.6], [-0.62, -0.62], [-0.24, 0.62], [-0.66, 0.6], [-0.86, -0.3], [0.1, -0.42], [0.12, 0.46]]) {
+        g.circle(X(wx), Y(wy, 1), r * 0.07).fill({ color: 0x6d6840, alpha: 0.45 })
       }
-      g.stroke({ width: 1, color: white ? 0xffffff : 0xf0e7d2, alpha: white ? 1 : 0.5 })
     }
-    // the ear tips are the silhouette's top edge in local space (y is lateral here, the sprite
-    // rotates), so the crown sits just clear of them rather than out in space
-    if (elite) eliteCrown(-r * 1.3 * P.wid, r)
+    if (elite) eliteCrown(-r * 1.2 * W, r)
   }
   // owl: seen from above-behind mid-swoop — body along x (head right), wings spread ±y and swept
   // back, each ONE tapered membrane with a scalloped trailing edge. The primaries are separate
@@ -2171,13 +2108,13 @@ export function createRenderer(app) {
     ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
-    // v6.6.30 rev.3: lean 90 (3/4 top-down — the whole animal turns to face you) and four baked
-    // POSES driven by the pounce state machine rather than by a timer. `poseOf` is the only thing
-    // separating this from `phases`: phases flip on animT (the centipede's slither), poses are
-    // SELECTED, so a cat crouched to leap stays crouched for exactly as long as it is crouching.
-    // Unknown/absent state falls to 0, which is also correct for a cat that has never pounced.
-    cat: {
-      archetype: 'tank', draw: drawCat, lean: 90, poses: 4,
+    // lean 90 (top-down — the whole animal turns to face you) and four baked POSES driven by the
+    // pounce state machine rather than by a timer. `poseOf` is the only thing separating this from
+    // `phases`: phases flip on animT (the centipede's slither), poses are SELECTED, so a toad
+    // crouched to leap stays crouched for exactly as long as it is crouching. Unknown/absent state
+    // falls to 0, which is also correct for one that has never pounced.
+    toad: {
+      archetype: 'tank', draw: drawToad, lean: 90, poses: 4,
       poseOf: (e) => ({ hold: 0, aim: 1, leap: 2, land: 3 })[e._pounceState] ?? 0,
     },
     owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // PARKED (v5.6.8): aerialStrike is unkillable in a melee chapter — kept for a future ranged one

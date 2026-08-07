@@ -629,7 +629,7 @@ const CONFIG = {
   'Spider': 'Araignée',
   'The Undergrowth': 'Les Sous-Bois',
   'the traps were already set': 'les pièges étaient déjà posés',
-  'Cat': 'Chat',
+  'Toad': 'Crapaud',
   'Centipede': 'Mille-Pattes',
   'Rat': 'Rat',
   'The City': 'La Ville',

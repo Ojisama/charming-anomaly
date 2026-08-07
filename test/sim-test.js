@@ -7445,7 +7445,7 @@ function testStreamedTrapPredators() {
     // behaviour under a different roster id still trips this.
     const JUMPY = ['dashBurst', 'pounce', 'diveBomb', 'blink', 'aerialStrike']
     for (const entry of CHAPTERS.undergrowth.roster) {
-      if (entry.id === 'cat') continue // the one deliberate exception — asserted positively below
+      if (entry.id === 'toad') continue // the one deliberate exception — asserted positively below
       for (const flag of entry.flags ?? []) {
         assert.ok(!JUMPY.includes(flag),
           `undergrowth roster '${entry.id}' carries '${flag}' — the owner's rule is that its rodents WALK. ` +
@@ -7454,8 +7454,8 @@ function testStreamedTrapPredators() {
     }
     // The cat is the one deliberate exception, and it must still be there — otherwise the loop
     // above is vacuously true and the chapter has silently lost its signature predator.
-    const cat = CHAPTERS.undergrowth.roster.find((e) => e.id === 'cat')
-    assert.ok(cat?.flags?.includes('pounce'), 'undergrowth lost the cat\'s telegraphed pounce — that IS the chapter signature')
+    const pouncer = CHAPTERS.undergrowth.roster.find((e) => e.id === 'toad')
+    assert.ok(pouncer?.flags?.includes('pounce'), 'undergrowth lost the toad\'s telegraphed pounce — that IS the chapter signature')
     assert.strictEqual(CHAPTERS.undergrowth.roster.length, 3,
       'undergrowth roster changed size — if an entry was added, decide whether it may leap and update JUMPY above')
     console.log(`PASS run TT.e1 (rodents walk): 0/${CHAPTERS.undergrowth.roster.length} undergrowth entries carry a leap flag, cat keeps its telegraphed pounce`)
@@ -9079,16 +9079,16 @@ function testCommitVisibility() {
     console.log('PASS run AV.c (no deadlock): a wasp beyond the phone edge closes to a VISIBLE standoff and dives from there')
   }
 
-  // (d) the same rule on the cat. When this was written POUNCE_RANGE was 260, wider than the phone
+  // (d) the same rule on the chapter's pouncer. When this was written POUNCE_RANGE was 260, wider than the phone
   // half-view, so the gate was the ONLY thing stopping an off-screen crouch. v6.6.30 cut the range
   // to 180 (owner: "cats dash 10cm then go back 10cm") — which is now INSIDE the 195px half-view,
   // so the geometry makes an off-screen commit impossible on its own and the gate is belt-and-
-  // braces for the cat. That is a strictly better world and the test is kept rather than deleted:
-  // the contract being asserted is "a cat off the side of a phone must not crouch to leap", which
+  // braces for it. That is a strictly better world and the test is kept rather than deleted:
+  // the contract being asserted is "a pouncer off the side of a phone must not crouch to leap", which
   // is true either way, and it is the thing that must not regress if POUNCE_RANGE ever grows back.
   // The enemy is released well beyond the edge, so the assertion still exercises the real path.
   {
-    const { run, e } = solo('undergrowth', 'tank', 'cat', PHONE_W + 40, 0)
+    const { run, e } = solo('undergrowth', 'tank', 'toad', PHONE_W + 40, 0)
     let sawAimOffScreen = false
     for (let i = 0; i < 60; i++) {
       e.x = PHONE_W + 40; e.y = 0
@@ -9097,10 +9097,10 @@ function testCommitVisibility() {
       run.events.length = 0
       if (e._pounceState === 'aim') sawAimOffScreen = true
     }
-    assert(!sawAimOffScreen, 'a cat off the side of a phone must not crouch to leap')
+    assert(!sawAimOffScreen, 'a pouncer off the side of a phone must not crouch to leap')
     const seen = states(run, e, '_pounceState', 10)
-    assert(seen.has('leap'), `once it walks into view the cat must still pounce, saw: ${[...seen].join(',')}`)
-    console.log('PASS run AV.d (cats too): no crouch from off-screen, and the pounce still lands once it walks into view')
+    assert(seen.has('leap'), `once it walks into view it must still pounce, saw: ${[...seen].join(',')}`)
+    console.log('PASS run AV.d (pouncers too): no crouch from off-screen, and the pounce still lands once it walks into view')
   }
 
   console.log('PASS run AV (commit visibility): the leap attacks wait to be seen, and none of them deadlocked')
@@ -9891,7 +9891,7 @@ function testUndergrowthRound() {
       run.enemies.length = 0
       const e = makeStatusEnemy(run, { x: 250, y: 0, type: 'tank', speed: 45 })
       e.flags = ['pounce']
-      e.rosterId = 'cat'
+      e.rosterId = 'toad'
       run.enemies.push(e)
       let leaps = 0
       let contacts = 0

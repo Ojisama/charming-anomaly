@@ -1747,7 +1747,13 @@ export const CHAPTERS = {
     name: 'The Undergrowth', tagline: 'the traps were already set', icon: '🐾',
     weapons: ['clawRake', 'quillBurst', 'chitterShriek'], starter: 'clawRake',
     roster: [
-      { id: 'cat', archetype: 'tank',   name: 'Cat', hpMul: 1.6,  speedMul: 0.8, flags: ['pounce'] },
+      // v6.6.32: was a Cat. Replaced after seven rejected art revisions — a cat has no graphic
+      // hook and at 26px it was indistinguishable from this chapter's own rat (the reasoning is
+      // kept in full above drawToad in render.js). A toad keeps every mechanic verbatim: the tank
+      // archetype, `pounce`, the trap slam on landing. It is the one animal whose real locomotion
+      // IS a telegraphed crouch-and-leap, so the state machine now describes the creature instead
+      // of being bolted to it.
+      { id: 'toad', archetype: 'tank',   name: 'Toad', hpMul: 1.6,  speedMul: 0.8, flags: ['pounce'] },
       // Centipede replaces the Owl (v5.6.8). The owl used 'aerialStrike' — circles overhead at
       // AERIAL_RADIUS, dives to a marked spot — which is un-killable in a MELEE-ONLY chapter: it
       // circles past every short-range weapon and dives to where a kiting player WAS, so a
@@ -1769,7 +1775,7 @@ export const CHAPTERS = {
       // tripwire: undergrowth's roster must carry no dashBurst.
     ],
     eliteFlags: ['flashlightCone'],       // exterminator elites sweep a cone that ENRAGES other enemies
-    // Signature: predator telegraphs (the cat's 'pounce' is the telegraph — it crouches, aims, then
+    // Signature: predator telegraphs (the toad's 'pounce' is the telegraph — it crouches, aims, then
     // leaps and lands in a punish window) PLUS a field of snap traps. v6.5: traps are STREAMED by
     // sim.js's streamTraps on the same obstacle cell hash obstacles/eddies use (run._obstacleSeed),
     // not seeded once at createRun — the old origin-scatter field went dead the moment you walked
@@ -1802,7 +1808,7 @@ export const CHAPTERS = {
     // ---- render-only (v5.4; interpreted by render.js, ZERO effect on sim) ---- dim forest floor
     // seen from ankle height: dark loam showing between leaf litter, a drab dead-leaf floorTint, a
     // furry tan critter with a tail. Deliberately the DARKEST biome so far (the garden's sunlit lawn
-    // gives way to the shade under it). Enemy silhouettes are baked per rosterId (cat/owl/rat).
+    // gives way to the shade under it). Enemy silhouettes are baked per rosterId (toad/centipede/rat).
     render: {
       bgColor: 0x2b2417,    // dark loam/soil showing between the leaf litter
       floorTint: 0x8a7a4e,  // drab dead-leaf brown multiply on the floor sprites
@@ -2747,7 +2753,7 @@ export const SPLIT_RADIUS_FRAC = 0.7  // child radius, as a fraction of the pare
 
 // weave (v6.6.29, undergrowth's centipede — owner directive, see stepEnemyMovement's last branch):
 // a serpentine lateral drift laid ON the plain seek. It exists because v6.6.28 deleted the chapter's
-// dartRat ("mice should not jump"), and the cat is a `tank` that WAVE_TABLE cannot spawn before
+// dartRat ("mice should not jump"), and the toad is a `tank` that WAVE_TABLE cannot spawn before
 // t=140 — so the first 140s of a 300s run, nearly half of it, was two enemies walking in perfectly
 // straight lines. The centipede owns ~35% of the 60-140s window and already has 6 baked slither
 // frames to sell the motion, so the rhythm goes there.
@@ -3228,7 +3234,7 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // immuneMemory residue all feed it, all tagged look:'erase'.
 
 // ---- Undergrowth chapter behavior flags (v5.4, see sim.js) ----------------------------------
-// pounce (undergrowth's cat): a hold -> telegraph -> flat leap -> land/recover cycle, state on
+// pounce (undergrowth's toad, a cat until v6.6.32): a hold -> telegraph -> flat leap -> land/recover cycle, state on
 // e._pounceState ('hold'|'aim'|'leap'|'land') / _pounceT (s left in the phase) / _pounceDirX,
 // _pounceDirY (leap heading, LOCKED at the START of 'aim' so the leap is dodgeable) — same
 // bookkeeping idiom as diveBomb's _diveState/_diveT/_diveDirX/_diveDirY.
@@ -3239,7 +3245,7 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 //   land:  POUNCE_LAND_T frozen (the punish window: it can't move or deal contact damage), then 'hold'
 // Damages: the PLAYER only via ordinary contact damage (stepContactDamage) — a pounce has no
 // attack of its own. v6.5: the leap->land transition (sim.js stepPounce) also slams any armed trap
-// under the landing cat (see POUNCE_TRAP_HP_FRAC) — the leap itself flies OVER traps untouched
+// under the landing toad (see POUNCE_TRAP_HP_FRAC) — the leap itself flies OVER traps untouched
 // (stepTraps skips any enemy mid-'leap'), so this is the one point where the cat reads run.traps.
 // v6.6.30 (owner: "cats dash 10cm then go back 10cm, so they never reach you"). The pounce was
 // arithmetically incapable of connecting, and the owner's description is exactly what it looked
@@ -3260,8 +3266,8 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // an escape and stepping aside still is. That is the FAST => COMMITTED contract stated properly:
 // impossible to ignore, never impossible to escape.
 export const POUNCE_RANGE = 180          // px, distance at which a holding cat commits to a leap
-export const POUNCE_LEAP_DIST = 300      // px the leap covers, whatever the cat's own speed is
-export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of the cat's OWN speed)
+export const POUNCE_LEAP_DIST = 300      // px the leap covers, whatever its own speed is
+export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of its OWN speed)
 export const POUNCE_AIM_T = 0.45         // s, telegraphed crouch (dead stop; heading locks at its start)
 export const POUNCE_LEAP_T = 0.42        // s, leap phase (straight, no steering) — 714 px/s at 300px
 export const POUNCE_LAND_T = 0.50        // s frozen after a leap (the free-hits window)
@@ -3270,7 +3276,7 @@ export const POUNCE_LAND_T = 0.50        // s frozen after a leap (the free-hits
 // carries ~368 HP) — the trap needs to stay a real threat, not decoration, against that curve. The
 // floor keeps a tiny future pouncer's slam from rounding to nothing. Chain-slamming one cat back onto
 // the same trap tops out around once per max(SNAP_TRAP_REARM, a pounce cycle) — a real bait play,
-// still slower than just fighting the cat.
+// still slower than just fighting the toad.
 export const POUNCE_TRAP_HP_FRAC = 0.25
 
 // aerialStrike (undergrowth's owl): circles out of reach, marks the ground, then drops. State on
