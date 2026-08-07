@@ -1,9 +1,20 @@
 # Track A — DoT rework + five independent sim fixes
 
-**Status:** designed, not implemented. Ready to pick up standalone.
-**Depends on:** nothing. Ships before and independently of
-[Track B, the upgrade-pool redesign](./2026-08-07-upgrade-pool-design.md).
+**Status: ON HOLD.** Do not implement yet.
+**Blocked by:** [Track B](./2026-08-07-upgrade-pool-design.md) reaching a final design.
 **Verify with:** `npm test`, and `node scripts/pool-probe.mjs <chapter> <slots> <runs> [policy]`.
+
+> **Why on hold (user call, 2026-08-07).** This spec was originally written to ship *first*,
+> standalone. It isn't independent enough for that. Track B's design touches the same surfaces:
+> its element-bucket weight (18% of cards, up from 5.9%) changes how much element investment a run
+> actually accumulates, which is the input to every DoT number below; and A2's contact-damage
+> decision is what Track B's defensive weighting was sized against. Revise this spec once Track B
+> is final, then implement whatever still applies.
+>
+> **Likely still valid regardless of Track B:** A1 (`hole.hungry`), A3 (`applyIgnite`), A4
+> (`pickWeighted`). These are defects, not balance.
+> **Likely to need re-derivation:** A2's fix choice, A5/cold thresholds, and every venom number in
+> Part 2 — all sized against today's ~5.9% element share.
 
 Every finding below was surfaced by adversarial review during the upgrade-pool
 brainstorm (2026-08-07) and then verified by hand against the code. None of it

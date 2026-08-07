@@ -1,10 +1,36 @@
 # Track B — Upgrade pool redesign
 
-**Status:** designed, revised once under adversarial review, **card list incomplete**.
-Not ready to implement as-is — see [Open work](#open-work).
-**Depends on:** [Track A](./2026-08-07-dot-rework-and-sim-fixes-design.md) — specifically A2
-(contact damage never scales) and A4 (`pickWeighted({})` throws).
-**Verify with:** `node scripts/pool-probe.mjs <chapter> <slots> <runs> [random|defense|dps]`.
+**Status: ACTIVE — this is the track to finalise first.** Design revised once under adversarial
+review and validated in the harness; **card list incomplete** — see [Open work](#open-work).
+**Blocks:** [Track A](./2026-08-07-dot-rework-and-sim-fixes-design.md), which is on hold until this
+design is final (user call, 2026-08-07 — A's DoT numbers are sized against today's 5.9% element
+share, which this design moves to 18%).
+**Verify with:** `node scripts/pool-probe.mjs <chapter> <slots> <runs> [policy] [--proposed|--compare]`.
+
+## Harness validation (body, 2 slots, 30 runs)
+
+`node scripts/pool-probe.mjs body 2 30 random --compare` against the pipeline in B1–B5:
+
+| | current | proposed | target |
+|---|---|---|---|
+| passive share | 59.8% | **28.6%** | ~30% |
+| mod share | 23.1% | 28.8% | 30% |
+| weapon share | 10.8% | 16.9% | 22% (drains — see Open work) |
+| element share | 6.3% | 17.4% | 18% |
+| **defence share** | 17.9% | **18.0%** | parity, no rebasing |
+| **legendary share** | 3.1% | **2.9%** | ~3.5%, **not** 9–16% (F1) |
+| mythic share | 1.7% | 1.6% | retained as jackpot |
+| short pools | 0/836 | **0/1040** | 0 (F2) |
+| anomalies/run | — | **2.73** | ≤ 4 (F11/F13) |
+
+All guards pass. `empty-pool rolls 18.7/run` confirms the F1 path fires on ~27% of card rolls
+while legendary stays flat — under the first draft every one of those deflected into a legendary.
+
+**Unresolved, surfaced by the harness:** the proposal is a **net power buff**. Level 28.9 → 35.7,
+weaponLvSum 4.2 → 6.9, cards/run 55.7 → 69.3 (**+24% total picks**). Cutting filler passives means
+faster clears → more XP → more levels → more cards, a compounding loop. This needs a deliberate
+call: accept it as intended (the game gets more generous), or offset it via the XP curve
+(`xpForLevel`) or `hpScale`. Do not let it ship undecided.
 
 Goal stated by the user: more fun, more player agency, more "aha moments" — via the rarity system,
 bucket percentages, per-chapter uniques, and card text/numbers/feel.
