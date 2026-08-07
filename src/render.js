@@ -1029,141 +1029,174 @@ export function createRenderer(app) {
   //   owl = MID-LIGHT (tawny gold, 4.3x)
   //   rat = DIMMEST   (dusty grey-mauve, 2.8x — still well clear of the ~1.5x invisibility floor)
   //
-  // cat: a crouched tabby in profile — ONE tapered outline carrying the whole feline back line (a
-  // raised haunch, a dipped waist, a rising shoulder) as terms of its own width profile, rather than
-  // a chain of discs. Real leg joints: the hind leg zigzags hip->stifle->hock->paw, which is what
-  // makes it read as a cat gathering itself rather than a quadruped diagram.
-  //
-  // v6.6.28 (owner: "cats should be redesigned they're ugly"). The rev.1 cat read as a four-horned
-  // white crab. Five separate faults, all of SHAPE — the palette above is a contrast budget and is
-  // deliberately unchanged:
-  //   1. the head was a featureless pale disc with one dot on it, parked on the body with a visible
-  //      step at the neck. It is now a skull-and-muzzle sweep: ONE radial outline whose radius
-  //      carries a forward muzzle term, a jowl term and a flattened brow, overlapped INTO the
-  //      shoulder so there is no seam.
-  //   2. the ears were two narrow spikes at wildly different angles with a wide gap between them —
-  //      that reads as horns. They are now broad near-parallel triangles rooted ON the skull, the
-  //      far one behind and dimmer, with a dusty-pink inner ear.
-  //   3. the whiskers reached to 1.42r, PAST the ear tips, giving the silhouette a second pair of
-  //      spikes. They now stop at 1.30r (the nose already juts to ~1.22r) and fan from the muzzle.
-  //   4. the tabby was three vertical full-height bars — a wasp abdomen, not a cat. It is now
-  //      mackerel: a dorsal stripe with short bands hooking DOWN off it over the ribs.
-  //   5. the legs were uniform noodles that stopped in mid-air. They taper into actual paws.
-  // The posture is also no longer neutral: this is the chapter's `pounce` enemy, so it is drawn
-  // mid-stalk — back low and level, haunch gathered high, head dropped forward below the shoulder.
+  // cat (v6.6.30 rev.4 — owner: "be original, this design sucks, look for low poly or 2d").
+  // Every earlier revision was a FILLED OUTLINE: one closed shape, a dark stroke around it, soft
+  // gradients inside. Six of them were rejected. This one is built on the low-poly contract
+  // instead, which is a different thing end to end:
+  //   - NO OUTLINE ANYWHERE. The form is carried by the boundaries between adjacent flat facets.
+  //     A stroke would fight them; low poly has none by definition.
+  //   - FLAT SHADING. Every triangle is one uniform colour. Gradients smear the light across a
+  //     facet and the faceting stops reading; flat fills make the planes snap.
+  //   - A SHORT RAMP WITH REAL VALUE SEPARATION. Five steps that are clearly different beats twenty
+  //     near-identical ones — palette sprawl is the classic low-poly failure.
+  //   - FEW, LARGE FACETS. ~30 triangles for the whole animal. At 26px anything finer is noise, and
+  //     hard-edged flat colour is exactly what survives being downsampled to that size (which is
+  //     the thing the soft gaussian shading in every previous revision could never do).
+  // The light is handled the way a TOP-DOWN view demands: not from a direction, but by HEIGHT.
+  // Facets near the spine are the top of the animal and take the light end of the ramp; facets at
+  // the silhouette are its flanks falling away and take the dark end. That is rotation-invariant,
+  // which matters because this sprite turns to face the player — a fixed light direction baked into
+  // the facets would swing around with the body and read as the sun orbiting the cat.
+  const CAT_RAMP = [0xf0e7d2, 0xdccdae, 0xc0ae8b, 0x9a8865, 0x71624a, 0x50442f]
+  const CAT_POSES = [
+    { len: 1.00, wid: 1.00, ear: 0.00, tail: 'stream' },  // stalk:  neutral
+    { len: 0.84, wid: 1.20, ear: 0.55, tail: 'up' },      // crouch: gathered, wide, ears going back
+    { len: 1.34, wid: 0.80, ear: 0.95, tail: 'out' },     // leap:   stretched thin, ears flat
+    { len: 0.90, wid: 1.26, ear: 0.75, tail: 'splay' },   // land:   splayed flattest
+  ]
+  function drawCat(g, elite, white, pose = 0) {
+    const r = 22
+    const P = CAT_POSES[pose] ?? CAT_POSES[0]
+    const L = P.len
+    const W = P.wid
+    groundShadow(r * 1.15, 0)
 
-  function drawCat(g, elite, white) {
-    const r = 26
-    const f = (c) => white ? 0xffffff : c
-    const line = f(0x453b2e)
-    const fur = f(0xcfc8b8)
-    const far = white ? 0xffffff : 0x8f8673
-    const lw = Math.max(2.6, r * 0.11)
-    const rearX = -r * 0.92
-    const len = r * 1.4  // rump -0.92r -> shoulder +0.48r; the head carries the front from there
-    const H = r * 0.47   // a cat is a barrel on short legs, not a greyhound
-    // back line of a stalking cat: level, with a shallow arch that settles FORWARD (the +t term),
-    // so the shoulder sits lower than the rump and the head hangs off the front of it.
-    const spine = (t) => [rearX + t * len, -r * 0.05 - Math.sin(t * Math.PI) * r * 0.1 + t * r * 0.14]
-    // profile = blunt end caps × (haunch bulge - waist pinch + shoulder bulge). Keeping the three
-    // masses as separate gaussian terms on ONE profile is what gives the back its curve.
-    const body = (t) => {
-      const cap = bulge(t, 0.3)
-      const haunch = 0.60 * Math.exp(-Math.pow((t - 0.13) / 0.2, 2))
-      const waist = -0.26 * Math.exp(-Math.pow((t - 0.52) / 0.18, 2))
-      const shoulder = 0.34 * Math.exp(-Math.pow((t - 0.9) / 0.2, 2))
-      return H * cap * (1 + haunch + waist + shoulder)
+    // --- the ONE mesh, in normalised units. x is forward (nose at +x), y is lateral. The +y half is
+    // mirrored from the -y half, so only one side is written and the spine vertices sit on y = 0.
+    const V = {
+      nose: [1.56, 0], brow: [1.02, 0], crown: [0.52, 0],
+      nape: [0.16, 0], mid: [-0.44, 0], hip: [-0.94, 0], rump: [-1.38, 0],
+      muz: [1.30, -0.22], cheek: [1.00, -0.50], earF: [0.66, -0.46], earR: [0.28, -0.40],
+      // a real WAIST between shoulder and haunch: without the pinch the body is a loaf, and the
+      // pinch is most of what separates a cat's outline from a rodent's at this size
+      shoulder: [0.04, -0.56], waist: [-0.46, -0.38], haunch: [-0.94, -0.56], tailRoot: [-1.3, -0.2],
+      // ears swing from pricked-out (ear 0) to pinned-flat-back (ear 1)
+      earTip: [0.58 - P.ear * 0.62, -1.16 + P.ear * 0.42],
+      earIn: [0.56 - P.ear * 0.44, -0.82 + P.ear * 0.3],
     }
-    const hx = r * 0.78   // skull centre — in FRONT of the shoulder and dropped, not stacked on it
-    const hy = r * 0.02
-    // skull + muzzle as one outline. Every term is gated on max(0, cos/sin) so it can never wrap
-    // onto the wrong quadrant the way an `a - k` gaussian on a 0..2pi sweep does.
-    const head = (a) => {
-      const c = Math.cos(a)
-      const s = Math.sin(a)
-      const muzzle = 0.30 * Math.pow(Math.max(0, c), 3)      // juts toward +x (the nose)
-      const jowl = 0.12 * Math.max(0, s) * Math.max(0, c)    // cheek under the muzzle
-      const brow = -0.08 * Math.pow(Math.max(0, -s), 2)      // flattens the top of the skull
-      return r * 0.31 * (1 + muzzle + jowl + brow)
+    const pt = (k, sgn) => {
+      const v = V[k]
+      return [v[0] * L * r, v[1] * sgn * W * r]
     }
-    groundShadow(r * 1.05, r * 0.96)
-    const leg = (pts, col, w) => taperStroke(g, pts, w, w * 0.52, col)
-    const paw = (x, y, w, col) => g.ellipse(x, y, w, w * 0.66).fill(col)
-    // far side first (behind the body, darker + tucked shorter) — depth without mirror symmetry
-    leg([[-r * 0.54, r * 0.16], [-r * 0.34, r * 0.5], [-r * 0.52, r * 0.72], [-r * 0.32, r * 0.86]], far, r * 0.18)
-    paw(-r * 0.27, r * 0.88, r * 0.11, far)
-    leg([[r * 0.26, r * 0.2], [r * 0.3, r * 0.54], [r * 0.24, r * 0.82]], far, r * 0.17)
-    paw(r * 0.27, r * 0.85, r * 0.105, far)
-    // tail: four real joints off the rump, a thick base curling up and back (never a uniform-width
-    // arc). Fat enough to read as fur at 26px — rev.1's 0.17r base looked like an antenna.
-    taperStroke(g, [[-r * 0.82, 0], [-r * 1.14, -r * 0.14], [-r * 1.3, -r * 0.5], [-r * 1.1, -r * 0.86], [-r * 0.86, -r * 0.94]],
-      r * 0.27, r * 0.11, f(0xb9b0a0), 5)
-    if (!white) { // dark tail tip — the one marking that survives at 26px, so it earns its two lines
-      taperStroke(g, [[-r * 1.14, -r * 0.82], [-r * 0.86, -r * 0.94]], r * 0.15, r * 0.11, 0x6b6153, 3)
+    // Facet colour: index into CAT_RAMP by how far the facet sits from the spine (its height on the
+    // animal), then step it by a fixed per-facet offset so neighbours differ and the mesh reads as
+    // faceted rather than as three flat bands. `dark` lets a facet be pushed down the ramp to carve
+    // a tabby marking out of the geometry itself — no stripes drawn on top, the pattern IS facets.
+    const tri = (a, b, c, sgn, jitter, dark = 0) => {
+      const A = pt(a, sgn)
+      const B = pt(b, sgn)
+      const C = pt(c, sgn)
+      if (white) { g.poly([A[0], A[1], B[0], B[1], C[0], C[1]]).fill(0xffffff); return }
+      const h = (Math.abs(A[1]) + Math.abs(B[1]) + Math.abs(C[1])) / 3 / (r * W)
+      const step = Math.min(CAT_RAMP.length - 1, Math.max(0, Math.round(h * 4.2) + jitter + dark))
+      g.poly([A[0], A[1], B[0], B[1], C[0], C[1]]).fill(CAT_RAMP[step])
     }
-    g.poly(spineOutline(spine, body, 40)).fill(fur).stroke({ width: lw, color: line })
-    // near legs: the hind one gathered under the haunch (coiled, this thing pounces), the fore one
-    // planted and reaching — two different poses, or the four legs read as a diagram
-    leg([[-r * 0.4, r * 0.2], [-r * 0.14, r * 0.54], [-r * 0.42, r * 0.78], [-r * 0.14, r * 0.92]], f(0xbcb3a2), r * 0.23)
-    paw(-r * 0.08, r * 0.94, r * 0.13, f(0xbcb3a2))
-    leg([[r * 0.42, r * 0.2], [r * 0.44, r * 0.6], [r * 0.5, r * 0.9]], f(0xbcb3a2), r * 0.21)
-    paw(r * 0.54, r * 0.92, r * 0.125, f(0xbcb3a2))
-    // ears BEFORE the head so the head's own fill/stroke closes their bases — a triangle whose base
-    // line is drawn over reads as attached; one drawn on top of the skull reads as stuck on.
-    g.poly([hx - r * 0.3, hy - r * 0.2, hx - r * 0.26, hy - r * 0.66, hx - r * 0.02, hy - r * 0.3])
-      .fill(far).stroke({ width: lw * 0.6, color: line })       // far ear: behind, dimmer, smaller
-    g.poly([hx - r * 0.1, hy - r * 0.24, hx + r * 0.02, hy - r * 0.76, hx + r * 0.2, hy - r * 0.24])
-      .fill(fur).stroke({ width: lw * 0.7, color: line })       // near ear: broad, near-vertical
-    g.poly(radialOutline(head, 44, 1, 0.96, hx, hy)).fill(fur).stroke({ width: lw, color: line })
+
+    // --- tail: a strip of alternating triangles, tapering. Low poly does not do smooth curves, it
+    // does a chain of flat planes, and a tail is the one place that reads as deliberate rather than
+    // as a mistake — so it is built from the same vocabulary as the body instead of a taperStroke.
+    const TAILS = {
+      stream: [[-1.3, -0.06], [-1.92, 0.14], [-2.46, 0.46], [-2.78, 0.3]],
+      up: [[-1.3, -0.08], [-1.82, -0.48], [-2.1, -1.18], [-1.82, -1.6]],
+      out: [[-1.3, -0.04], [-2.02, 0.0], [-2.72, 0.04], [-3.24, 0.0]],
+      splay: [[-1.3, 0.06], [-1.84, 0.56], [-2.36, 1.02], [-2.72, 0.94]],
+    }
+    {
+      const seg = TAILS[P.tail].map(([x, y]) => [x * L * r, y * W * r])
+      for (let i = 0; i < seg.length - 1; i++) {
+        const w0 = r * (0.22 - i * 0.055)
+        const w1 = r * (0.22 - (i + 1) * 0.055)
+        const dx = seg[i + 1][0] - seg[i][0]
+        const dy = seg[i + 1][1] - seg[i][1]
+        const m = Math.hypot(dx, dy) || 1
+        const nx = -dy / m
+        const ny = dx / m
+        const quad = [
+          seg[i][0] + nx * w0, seg[i][1] + ny * w0,
+          seg[i + 1][0] + nx * w1, seg[i + 1][1] + ny * w1,
+          seg[i + 1][0] - nx * w1, seg[i + 1][1] - ny * w1,
+          seg[i][0] - nx * w0, seg[i][1] - ny * w0,
+        ]
+        if (white) { g.poly(quad).fill(0xffffff); continue }
+        // alternate the two halves of each segment down the ramp: that zigzag IS the low-poly read
+        g.poly([quad[0], quad[1], quad[2], quad[3], quad[4], quad[5]]).fill(CAT_RAMP[1 + (i % 2)])
+        g.poly([quad[0], quad[1], quad[4], quad[5], quad[6], quad[7]]).fill(CAT_RAMP[3 + (i % 2)])
+      }
+    }
+
+    // --- paws: single flat quads poking out from under the flanks, no legs. From above there are
+    // no legs to see, and every previous revision's tapered limbs read as pipe cleaners.
+    for (const sgn of [-1, 1]) {
+      for (const [px, py] of [[-0.72, -0.66], [0.02, -0.68]]) {
+        const x = px * L * r
+        const y = py * sgn * W * r
+        if (white) { g.poly([x - r * 0.16, y, x + r * 0.06, y - r * sgn * 0.16, x + r * 0.2, y + r * sgn * 0.06]).fill(0xffffff) }
+        else g.poly([x - r * 0.16, y, x + r * 0.06, y - r * sgn * 0.16, x + r * 0.2, y + r * sgn * 0.06]).fill(CAT_RAMP[4])
+      }
+    }
+
+    // --- ears, before the skull so the skull's own facets close their bases
+    for (const sgn of [-1, 1]) {
+      tri('earF', 'earTip', 'earR', sgn, 1)
+      if (!white) {
+        const A = pt('earF', sgn)
+        const B = pt('earIn', sgn)
+        const C = pt('earR', sgn)
+        g.poly([
+          A[0] * 0.55 + B[0] * 0.45, A[1] * 0.55 + B[1] * 0.45,
+          B[0] * 0.86 + A[0] * 0.07 + C[0] * 0.07, B[1] * 0.86 + A[1] * 0.07 + C[1] * 0.07,
+          C[0] * 0.55 + B[0] * 0.45, C[1] * 0.55 + B[1] * 0.45,
+        ]).fill(0xb8767c)
+      }
+    }
+
+    // --- body + skull. Two facets per band, spine vertices shared, so the mesh closes on itself.
+    for (const sgn of [-1, 1]) {
+      tri('rump', 'tailRoot', 'hip', sgn, 1)
+      tri('tailRoot', 'haunch', 'hip', sgn, 2)
+      tri('haunch', 'mid', 'hip', sgn, 0, 1)     // dark facet: a tabby band, carved from geometry
+      tri('haunch', 'waist', 'mid', sgn, 1)
+      tri('waist', 'nape', 'mid', sgn, 0)
+      tri('waist', 'shoulder', 'nape', sgn, 1, 1) // second band
+      tri('shoulder', 'earR', 'nape', sgn, 0)
+      tri('earR', 'crown', 'nape', sgn, -1)
+      tri('earR', 'earF', 'crown', sgn, 0)
+      tri('earF', 'cheek', 'crown', sgn, 1)
+      tri('cheek', 'brow', 'crown', sgn, -1)
+      tri('cheek', 'muz', 'brow', sgn, 0)
+      tri('muz', 'nose', 'brow', sgn, -1)
+    }
+
     if (!white) {
-      // volume: darker belly crescent, lighter dorsal sheen along the back (same hue family)
-      g.ellipse(-r * 0.18, r * 0.28, r * 0.66, r * 0.22).fill({ color: 0x6b6153, alpha: 0.22 })
-      g.ellipse(-r * 0.3, -r * 0.3, r * 0.52, r * 0.14).fill({ color: mix(0xcfc8b8, 0xffffff, 0.5), alpha: 0.16 })
-      // mackerel tabby: short bands hooking DOWN off the spine over the ribs. Three, not five, and
-      // soft — rev.2 drew five hard bands plus a dorsal stripe, which read as an exposed ribcage.
-      // Each rides the body's OWN half-width, so a band can never escape the outline.
-      for (const t of [0.22, 0.4, 0.58]) {
-        const [x, y] = spine(t)
-        const w = body(t)
-        taperStroke(g, [[x, y - w * 0.7], [x - r * 0.07, y - w * 0.15], [x - r * 0.15, y + w * 0.4]],
-          2.4, 0.8, mix(0xcfc8b8, 0x6b6153, 0.62), 3)
+      // The face is the only place that is not the fur ramp — three flat accents, no gradients.
+      for (const sgn of [-1, 1]) {
+        const e = pt('cheek', sgn)
+        const b = pt('brow', 1)
+        const ex = e[0] * 0.34 + b[0] * 0.66
+        const ey = e[1] * 0.56
+        g.poly([ex - r * 0.16, ey + r * sgn * 0.05, ex + r * 0.08, ey - r * sgn * 0.11, ex + r * 0.2, ey + r * sgn * 0.04])
+          .fill(0xcfe04a)
+        g.poly([ex + r * 0.01, ey - r * sgn * 0.04, ex + r * 0.09, ey - r * sgn * 0.02, ex + r * 0.03, ey + r * sgn * 0.03])
+          .fill(0x1d2413)
       }
-      g.beginPath() // fur tufts along the belly line — hairline, reads as texture not outline
-      for (const t of [0.3, 0.45, 0.6, 0.75]) {
-        const [x, y] = spine(t)
-        const w = body(t)
-        g.moveTo(x, y + w * 0.8).lineTo(x - r * 0.06, y + w * 1.04)
+      const n = pt('nose', 1)
+      const m = pt('muz', 1)
+      g.poly([n[0] - r * 0.1, 0, m[0] * 0.9, m[1] * 0.42, m[0] * 0.9, -m[1] * 0.42]).fill(0xb8767c)
+    }
+    // whiskers: the one line on the animal, and they leave the silhouette, so both variants draw
+    // them or the white twin's bounds come up short
+    {
+      const n = pt('nose', 1)
+      g.beginPath()
+      for (const sgn of [-1, 1]) {
+        g.moveTo(n[0] - r * 0.2, sgn * r * 0.1).lineTo(n[0] + r * 0.3, sgn * r * 0.44)
+        g.moveTo(n[0] - r * 0.18, sgn * r * 0.04).lineTo(n[0] + r * 0.36, sgn * r * 0.2)
       }
-      g.stroke({ width: 1.2, color: 0x8b8273, alpha: 0.6 })
-      // inner ear: a dusty-pink wedge inset from the near ear's own three points
-      g.poly([hx - r * 0.05, hy - r * 0.26, hx + r * 0.02, hy - r * 0.62, hx + r * 0.13, hy - r * 0.26])
-        .fill({ color: 0xa9737a, alpha: 0.55 })
-      // pale chest bib under the jaw — the light patch every tabby has, and it separates head from body
-      g.ellipse(hx - r * 0.24, hy + r * 0.28, r * 0.18, r * 0.14).fill({ color: 0xe8e2d4, alpha: 0.55 })
-      g.ellipse(hx + r * 0.2, hy + r * 0.09, r * 0.15, r * 0.1).fill({ color: 0xe8e2d4, alpha: 0.5 }) // muzzle
-      g.poly([hx + r * 0.3, hy - r * 0.01, hx + r * 0.38, hy + r * 0.04, hx + r * 0.3, hy + r * 0.07])
-        .fill({ color: 0xa9737a, alpha: 0.9 })  // nose: a wedge, not a dot
-      g.beginPath().moveTo(hx + r * 0.31, hy + r * 0.07).lineTo(hx + r * 0.22, hy + r * 0.14)
-        .stroke({ width: 1.1, color: 0x5b4a3f, alpha: 0.7 })    // mouth line off the nose
-      // eye: a small ANGLED almond with a vertical slit, not a lens on a saucer. The rev.1 eye was
-      // a round dot on a blank disc, which is why the head read as a googly ping-pong ball.
-      const ex = hx + r * 0.06
-      const ey = hy - r * 0.12
-      g.poly([ex - r * 0.11, ey + r * 0.02, ex - r * 0.01, ey - r * 0.06, ex + r * 0.1, ey - r * 0.01, ex - r * 0.01, ey + r * 0.05])
-        .fill(0x8d9a35)
-      g.ellipse(ex, ey - r * 0.005, r * 0.022, r * 0.05).fill(0x161c0e)
-      g.circle(ex + r * 0.05, ey - r * 0.035, 0.7).fill({ color: 0xffffff, alpha: 0.85 })
+      g.stroke({ width: 1, color: white ? 0xffffff : 0xf0e7d2, alpha: white ? 1 : 0.5 })
     }
-    // whiskers: they reach past the muzzle, so they are part of the SILHOUETTE, not interior detail —
-    // drawn in both variants (identical geometry) or the white twin's bounds would come up short.
-    // They now stop SHORT of the ear tips' reach (1.30r vs the old 1.42r): out-reaching the ears is
-    // what turned them into a second pair of horns.
-    g.beginPath()
-    for (const s of [-1, 0.15, 1]) {
-      g.moveTo(hx + r * 0.28, hy + r * 0.02).lineTo(hx + r * 0.52, hy + r * 0.02 + s * r * 0.13)
-    }
-    g.stroke({ width: 1, color: white ? 0xffffff : 0xe8e2d4, alpha: white ? 1 : 0.5 })
-    if (elite) eliteCrown(-r * 1.04, r)   // the tail's curl is now the silhouette's top edge
+    // the ear tips are the silhouette's top edge in local space (y is lateral here, the sprite
+    // rotates), so the crown sits just clear of them rather than out in space
+    if (elite) eliteCrown(-r * 1.3 * P.wid, r)
   }
   // owl: seen from above-behind mid-swoop — body along x (head right), wings spread ±y and swept
   // back, each ONE tapered membrane with a scalloped trailing edge. The primaries are separate
@@ -2138,7 +2171,15 @@ export function createRenderer(app) {
     ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
-    cat: { archetype: 'tank', draw: drawCat, lean: 30 },               // profile: ears at -y, all four legs at +y
+    // v6.6.30 rev.3: lean 90 (3/4 top-down — the whole animal turns to face you) and four baked
+    // POSES driven by the pounce state machine rather than by a timer. `poseOf` is the only thing
+    // separating this from `phases`: phases flip on animT (the centipede's slither), poses are
+    // SELECTED, so a cat crouched to leap stays crouched for exactly as long as it is crouching.
+    // Unknown/absent state falls to 0, which is also correct for a cat that has never pounced.
+    cat: {
+      archetype: 'tank', draw: drawCat, lean: 90, poses: 4,
+      poseOf: (e) => ({ hold: 0, aim: 1, leap: 2, land: 3 })[e._pounceState] ?? 0,
+    },
     owl: { archetype: 'fast', draw: drawOwl, lean: 90 },               // PARKED (v5.6.8): aerialStrike is unkillable in a melee chapter — kept for a future ranged one
     centipede: { archetype: 'fast', draw: drawCentipede, lean: 90, phases: 6 }, // top-down, ±y mirrored; 6 baked wave phases = the slither
     rat: { archetype: 'normal', draw: drawRat, lean: 30 },             // 3/4: both ears at -y, every leg at +y
@@ -2197,13 +2238,17 @@ export function createRenderer(app) {
       const white = bake(w)
       return { tex: normal.tex, white: white.tex, ax: normal.ax, ay: normal.ay }
     }
-    const n = entry.phases ?? 1
+    // `phases` bakes n frames at evenly spaced ANGLES and flips through them on animT (the
+    // centipede's slither). `poses` bakes n frames and passes the plain INDEX, for a look whose
+    // frame is chosen by state instead of by time — see poseOf below and in syncEnemies.
+    const n = entry.poses ?? entry.phases ?? 1
     const frames = []
-    for (let p = 0; p < n; p++) frames.push(bakePhase((p / n) * Math.PI * 2))
+    for (let p = 0; p < n; p++) frames.push(bakePhase(entry.poses ? p : (p / n) * Math.PI * 2))
     return {
       tex: frames[0].tex, white: frames[0].white, ax: frames[0].ax, ay: frames[0].ay,
       frames: n > 1 ? frames : null,
       baseR: ROSTER_BASE_R[entry.archetype], maxLean: entry.lean * DEG,
+      poseOf: entry.poseOf || null,
       spin: entry.spin || 0,
       shadow: shadowSpec, crown: crownSpec,
     }
@@ -11291,9 +11336,15 @@ export function createRenderer(app) {
       // anchor, and the white twin of the SAME frame shares it, so hit-flash still doesn't jump.
       let frame = look
       if (look.frames) {
-        const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
-        if (!halted || s._animFrame === undefined || s._animFrame >= look.frames.length) {
-          s._animFrame = Math.floor(animT * 10 + e.id * 1.7) % look.frames.length
+        if (look.poseOf) {
+          // state-selected (the cat's pounce poses): no timer, no freeze rule — the pose IS the
+          // state, so a frozen cat correctly keeps whatever pose it was caught in.
+          s._animFrame = Math.min(look.frames.length - 1, Math.max(0, look.poseOf(e) | 0))
+        } else {
+          const halted = (e.frozen || 0) > 0 || (e.stunT || 0) > 0
+          if (!halted || s._animFrame === undefined || s._animFrame >= look.frames.length) {
+            s._animFrame = Math.floor(animT * 10 + e.id * 1.7) % look.frames.length
+          }
         }
         frame = look.frames[s._animFrame]
       }
