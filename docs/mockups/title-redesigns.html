@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Charming Anomaly — three title-screen redesigns</title>
+<style>
+/* Static mockups. Not wired to the game — a picture to argue about, nothing more.
+   Palette copied from src/styles.css so the proposals sit in the real skin. */
+:root{
+  --cream:#f4efe6; --cream-soft:#fbf8f2; --cream-edge:#d9cdb8;
+  --mint:#7de3c3; --mint-dark:#3aa88a; --ink:#35354a; --ink-soft:#7a7a90;
+  --gold:#ffd93d; --gold-edge:#c9a227; --radius:18px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:var(--ink);
+  background:#e7e1d6;padding:24px;display:flex;gap:28px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px}
+.col h2{font-size:1rem;font-weight:900}
+.col p.blurb{font-size:.76rem;color:#5a5a70;max-width:390px;text-align:center;line-height:1.45}
+.phone{width:390px;height:844px;border-radius:34px;overflow:hidden;position:relative;
+  background:var(--cream);box-shadow:0 18px 40px rgba(0,0,0,.25);border:6px solid #23232f}
+
+/* ---------- shared chrome ---------- */
+.topbar{position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 12px;z-index:6}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:7px 12px;border-radius:999px;
+  border:3px solid var(--cream-edge);background:var(--cream-soft);font-weight:800;font-size:.8rem}
+.pill--coins{border-color:var(--gold-edge);background:var(--gold);box-shadow:0 3px 0 var(--gold-edge)}
+.wordmark{font-weight:900;font-size:.95rem;letter-spacing:.06em}
+.wordmark i{font-style:normal;color:var(--mint-dark)}
+.nav{position:absolute;left:0;right:0;bottom:0;height:60px;display:flex;justify-content:space-around;
+  align-items:center;border-top:2px solid var(--cream-edge);background:var(--cream-soft);z-index:7}
+.nav div{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.62rem;font-weight:800;
+  padding:6px 22px;border-radius:14px}
+.nav div span{font-size:1.15rem}
+.nav .on{background:var(--mint);box-shadow:0 3px 0 var(--mint-dark)}
+.play{display:block;width:100%;min-height:60px;border:3px solid var(--mint-dark);border-radius:var(--radius);
+  background:var(--mint);color:var(--ink);font:inherit;font-size:1.35rem;font-weight:900;
+  box-shadow:0 4px 0 var(--mint-dark),0 8px 18px rgba(53,53,74,.12)}
+.diffrow{display:flex;align-items:center;gap:6px;justify-content:center}
+.diffrow b{font-size:.72rem;color:var(--ink-soft);letter-spacing:.04em;text-transform:uppercase}
+.seg{display:flex;border:3px solid var(--cream-edge);border-radius:999px;overflow:hidden;background:var(--cream-soft)}
+.seg i{font-style:normal;width:34px;height:32px;display:grid;place-items:center;font-size:.85rem;font-weight:900;
+  border-right:2px solid var(--cream-edge)}
+.seg i:last-child{border-right:0}
+.seg i.on{background:var(--gold);color:#4a3a00}
+.seg i.lock{color:#b3ab9b}
+.hint{font-size:.68rem;font-weight:700;color:var(--ink-soft);text-align:center}
+
+/* ---------- chapter scene (shared by A and C): bands + creature, no new art ---------- */
+.scene{position:absolute;inset:0;overflow:hidden}
+.band{position:absolute;left:-10%;right:-10%;border-radius:50% 50% 0 0}
+.band--far{bottom:22%;height:34%;background:rgba(255,255,255,.10)}
+.band--mid{bottom:10%;height:30%;background:rgba(0,0,0,.14)}
+.band--near{bottom:-6%;height:26%;background:rgba(0,0,0,.26)}
+.mote{position:absolute;border-radius:50%;background:rgba(255,255,255,.35)}
+.creature{position:absolute;left:50%;transform:translateX(-50%);text-align:center}
+.creature .glow{position:absolute;left:50%;top:50%;width:150px;height:150px;transform:translate(-50%,-50%);
+  border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.42),rgba(255,255,255,0) 68%)}
+.creature .emo{position:relative;font-size:4.6rem;line-height:1;filter:drop-shadow(0 10px 10px rgba(0,0,0,.35))}
+.creature .shadow{width:88px;height:14px;margin:2px auto 0;border-radius:50%;background:rgba(0,0,0,.28);filter:blur(3px)}
+.cast{display:flex;gap:6px;justify-content:center}
+.cast span{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:.95rem;
+  background:rgba(0,0,0,.28);border:2px solid rgba(255,255,255,.28)}
+.stars{letter-spacing:2px;font-size:.85rem;color:var(--gold)}
+.stars u{text-decoration:none;color:rgba(255,255,255,.4)}
+
+/* ================= A — SHELF ================= */
+.a-strip{position:absolute;top:58px;left:0;right:0;height:452px;display:flex;align-items:center;gap:9px;
+  padding:0 2px;overflow:hidden}
+.a-card{flex:0 0 286px;height:440px;border-radius:26px;position:relative;overflow:hidden;color:#f5f9f7;
+  box-shadow:0 10px 24px rgba(0,0,0,.22)}
+.a-side{flex:0 0 44px;height:384px;border-radius:22px;opacity:.85;position:relative;overflow:hidden}
+.a-body{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;padding:18px 14px 14px}
+.a-name{font-size:1.5rem;font-weight:900;text-shadow:0 2px 8px rgba(0,0,0,.4)}
+.a-tag{font-size:.78rem;font-weight:700;opacity:.9;margin-top:2px}
+.a-foot{position:absolute;left:0;right:0;bottom:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.a-best{position:absolute;top:14px;right:14px;font-size:.62rem;font-weight:800;padding:3px 8px;border-radius:999px;
+  background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.25)}
+.a-count{position:absolute;top:522px;left:0;right:0;text-align:center;font-size:.68rem;font-weight:800;color:var(--ink-soft)}
+.a-dots{position:absolute;top:544px;left:0;right:0;display:flex;gap:6px;justify-content:center}
+.a-dots i{width:7px;height:7px;border-radius:50%;background:var(--cream-edge)}
+.a-dots i.on{width:20px;border-radius:999px;background:var(--mint-dark)}
+.a-bottom{position:absolute;left:16px;right:16px;bottom:82px;display:flex;flex-direction:column;gap:12px}
+
+/* ================= B — JOURNEY ================= */
+.b-list{position:absolute;top:56px;bottom:60px;left:0;right:0;padding:10px 14px 12px 40px;overflow:hidden}
+.b-path{position:absolute;left:24px;top:16px;bottom:12px;width:0;border-left:3px dashed var(--cream-edge)}
+.b-node{position:absolute;left:-24px;width:16px;height:16px;border-radius:50%;background:var(--cream-soft);
+  border:3px solid var(--cream-edge);top:26px}
+.b-node.on{background:var(--mint);border-color:var(--mint-dark)}
+.b-tile{position:relative;display:flex;gap:12px;align-items:center;padding:10px;margin-bottom:10px;
+  border-radius:18px;border:3px solid var(--cream-edge);background:var(--cream-soft)}
+.b-tile .badge{width:58px;height:58px;flex:0 0 58px;border-radius:16px;display:grid;place-items:center;font-size:1.9rem;
+  box-shadow:inset 0 -8px 14px rgba(0,0,0,.25)}
+.b-meta{min-width:0;flex:1}
+.b-meta h3{font-size:1rem;font-weight:900}
+.b-meta p{font-size:.7rem;font-weight:700;color:var(--ink-soft)}
+.b-meta .stars{font-size:.75rem;margin-top:2px}
+.b-meta .stars u{color:var(--cream-edge)}
+.b-tile--open{border-color:var(--ink);background:var(--cream);flex-direction:column;align-items:stretch;
+  padding:0;overflow:hidden}
+.b-open-hero{height:132px;position:relative;display:flex;align-items:flex-end;padding:10px 14px;color:#f5f9f7}
+.b-open-hero .t{position:relative;z-index:2}
+.b-open-hero h3{font-size:1.3rem;font-weight:900;text-shadow:0 2px 8px rgba(0,0,0,.4)}
+.b-open-hero p{font-size:.72rem;font-weight:700;opacity:.9}
+.b-open-hero .emo{position:absolute;right:16px;bottom:8px;font-size:3.4rem;z-index:2;
+  filter:drop-shadow(0 8px 8px rgba(0,0,0,.35))}
+.b-open-body{padding:10px 12px 12px;display:flex;flex-direction:column;gap:9px}
+.b-tile--locked{opacity:.55}
+.b-tile--locked .badge{background:#cfc7b7;color:#8b8474}
+
+/* ================= C — MARQUEE ================= */
+.c-art{position:absolute;inset:0}
+.c-top{position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 12px;z-index:6;color:#f5f9f7}
+.c-top .wordmark{text-shadow:0 2px 8px rgba(0,0,0,.5)}
+.c-bottom{position:absolute;left:0;right:0;bottom:60px;z-index:5;display:flex;flex-direction:column;gap:12px}
+.c-tokens{display:flex;gap:8px;justify-content:center;align-items:center;padding:0 10px}
+.c-tokens i{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:1.05rem;font-style:normal;
+  border:2px solid rgba(255,255,255,.35);box-shadow:0 4px 10px rgba(0,0,0,.3)}
+.c-tokens i.on{width:52px;height:52px;font-size:1.5rem;border:3px solid #fff;box-shadow:0 0 0 4px rgba(255,255,255,.25),0 6px 14px rgba(0,0,0,.4)}
+.c-tokens i.lock{background:#3a3a45;color:#8f8fa0}
+.c-panel{padding:18px 18px 16px;
+  border-radius:26px 26px 0 0;background:rgba(251,248,242,.94);backdrop-filter:blur(8px);
+  box-shadow:0 -8px 26px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:11px;align-items:center}
+.c-panel h3{font-size:1.6rem;font-weight:900}
+.c-panel .tag{font-size:.8rem;font-weight:700;color:var(--ink-soft)}
+.c-panel .stars u{color:var(--cream-edge)}
+</style>
+</head>
+<body>
+
+<!-- ============================== A ============================== -->
+<div class="col">
+  <h2>A — Shelf</h2>
+  <p class="blurb">Today's screen, fixed. Neighbours peek so the strip reads as a shelf of chapters,
+  the card gains a scene + a cast of who lives there, and 🌐/💾/version collapse into one ⚙.</p>
+  <div class="phone">
+    <div class="topbar">
+      <span class="pill">⚙</span>
+      <span class="wordmark">CHARMING <i>ANOMALY</i></span>
+      <span class="pill pill--coins">🪙 1240</span>
+    </div>
+
+    <div class="a-strip">
+      <div class="a-side" style="background:linear-gradient(160deg,#5a8f86,#2e6258 55%,#1d413a)"></div>
+      <div class="a-card" style="background:linear-gradient(160deg,#7aa96e,#4e8240 55%,#35592c)">
+        <div class="scene">
+          <div class="band band--far"></div><div class="band band--mid"></div><div class="band band--near"></div>
+          <span class="mote" style="left:14%;top:22%;width:8px;height:8px"></span>
+          <span class="mote" style="left:74%;top:30%;width:5px;height:5px"></span>
+          <span class="mote" style="left:40%;top:14%;width:6px;height:6px"></span>
+          <span class="mote" style="left:86%;top:52%;width:4px;height:4px"></span>
+        </div>
+        <div class="a-body">
+          <span class="a-best">best 06:52</span>
+          <div class="creature" style="top:112px">
+            <span class="glow"></span><div class="emo">🐜</div><div class="shadow"></div>
+          </div>
+          <div class="a-foot">
+            <div class="a-name">The Garden</div>
+            <div class="a-tag">your scent gives you away</div>
+            <div class="cast"><span>🐛</span><span>🕷️</span><span>🐝</span></div>
+            <div class="stars">★★★<u>☆☆</u></div>
+          </div>
+        </div>
+      </div>
+      <div class="a-side" style="background:linear-gradient(160deg,#4a4335,#2b2417 55%,#171208)"></div>
+    </div>
+
+    <div class="a-count">CHAPTER 3 OF 8</div>
+    <div class="a-dots"><i></i><i></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div>
+
+    <div class="a-bottom">
+      <div class="diffrow">
+        <b>Difficulty</b>
+        <div class="seg"><i>1</i><i>2</i><i class="on">3</i><i>4</i><i class="lock">🔒</i></div>
+      </div>
+      <div class="hint">+2 anomalies · +50% HP · <b style="color:var(--mint-dark)">+30% coins</b></div>
+      <button class="play">▶ Play</button>
+    </div>
+
+    <div class="nav">
+      <div><span>🛒</span>Shop</div><div class="on"><span>⚔️</span>Battle</div><div><span>🌀</span>Daily</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== B ============================== -->
+<div class="col">
+  <h2>B — Journey</h2>
+  <p class="blurb">The chapters become a trail you climb. Four are on screen at once, the selected one
+  opens in place with its difficulty and Play, and the locked tail is always visible as the goal.</p>
+  <div class="phone">
+    <div class="topbar">
+      <span class="pill">⚙</span>
+      <span class="wordmark">CHARMING <i>ANOMALY</i></span>
+      <span class="pill pill--coins">🪙 1240</span>
+    </div>
+
+    <div class="b-list">
+      <div class="b-path"></div>
+
+      <div class="b-tile">
+        <span class="b-node on"></span>
+        <div class="badge" style="background:linear-gradient(150deg,#f8f4ec,#e6dccb)">🦠</div>
+        <div class="b-meta"><h3>The Body</h3><p>escape the host</p>
+          <div class="stars">★★★★★</div></div>
+      </div>
+
+      <div class="b-tile">
+        <span class="b-node on"></span>
+        <div class="badge" style="background:linear-gradient(150deg,#5a8f86,#2e6258)">💧</div>
+        <div class="b-meta"><h3>The Pond</h3><p>nothing floats forever</p>
+          <div class="stars">★★★★<u>☆</u></div></div>
+      </div>
+
+      <div class="b-tile b-tile--open">
+        <span class="b-node on"></span>
+        <div class="b-open-hero" style="background:linear-gradient(160deg,#7aa96e,#4e8240 55%,#35592c)">
+          <div class="scene">
+            <div class="band band--mid"></div><div class="band band--near"></div>
+            <span class="mote" style="left:20%;top:26%;width:7px;height:7px"></span>
+            <span class="mote" style="left:60%;top:16%;width:5px;height:5px"></span>
+          </div>
+          <div class="t"><h3>The Garden</h3><p>your scent gives you away</p></div>
+          <div class="emo">🐜</div>
+        </div>
+        <div class="b-open-body">
+          <div class="cast" style="justify-content:flex-start">
+            <span style="background:#e7e0d2;border-color:#cfc6b3">🐛</span>
+            <span style="background:#e7e0d2;border-color:#cfc6b3">🕷️</span>
+            <span style="background:#e7e0d2;border-color:#cfc6b3">🐝</span>
+            <span style="flex:1;width:auto;border:0;background:none;justify-content:flex-end;font-size:.68rem;font-weight:800;color:var(--ink-soft)">★★★☆☆ · best 06:52</span>
+          </div>
+          <div class="diffrow">
+            <b>Difficulty</b>
+            <div class="seg"><i>1</i><i>2</i><i class="on">3</i><i>4</i><i class="lock">🔒</i></div>
+          </div>
+          <button class="play" style="min-height:52px;font-size:1.2rem">▶ Play</button>
+        </div>
+      </div>
+
+      <div class="b-tile">
+        <span class="b-node on"></span>
+        <div class="badge" style="background:linear-gradient(150deg,#4a4335,#2b2417)">🐾</div>
+        <div class="b-meta"><h3>The Undergrowth</h3><p>the traps were already set</p>
+          <div class="stars">★<u>☆☆☆☆</u></div></div>
+      </div>
+
+      <div class="b-tile b-tile--locked">
+        <span class="b-node"></span>
+        <div class="badge">🔒</div>
+        <div class="b-meta"><h3>???</h3><p>win The Undergrowth at difficulty 3+</p></div>
+      </div>
+    </div>
+
+    <div class="nav">
+      <div><span>🛒</span>Shop</div><div class="on"><span>⚔️</span>Battle</div><div><span>🌀</span>Daily</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== C ============================== -->
+<div class="col">
+  <h2>C — Marquee</h2>
+  <p class="blurb">The chapter stops being a card and becomes the screen. A permanent token strip
+  shows all eight at a glance; everything else lives in one frosted panel at the bottom.</p>
+  <div class="phone">
+    <div class="c-art" style="background:linear-gradient(165deg,#8fbb80,#4e8240 48%,#24401c)">
+      <div class="scene">
+        <div class="band band--far" style="bottom:38%"></div>
+        <div class="band band--mid" style="bottom:26%"></div>
+        <div class="band band--near" style="bottom:14%"></div>
+        <span class="mote" style="left:12%;top:16%;width:9px;height:9px"></span>
+        <span class="mote" style="left:78%;top:22%;width:6px;height:6px"></span>
+        <span class="mote" style="left:34%;top:10%;width:5px;height:5px"></span>
+        <span class="mote" style="left:60%;top:34%;width:7px;height:7px"></span>
+        <span class="mote" style="left:88%;top:44%;width:4px;height:4px"></span>
+        <span class="mote" style="left:22%;top:40%;width:5px;height:5px"></span>
+      </div>
+      <div class="creature" style="top:190px">
+        <span class="glow" style="width:230px;height:230px"></span>
+        <div class="emo" style="font-size:7rem">🐜</div>
+        <div class="shadow" style="width:130px;height:20px"></div>
+      </div>
+    </div>
+
+    <div class="c-top">
+      <span class="wordmark">CHARMING <i style="color:#b6f2dc">ANOMALY</i></span>
+      <span style="display:flex;gap:8px">
+        <span class="pill" style="color:var(--ink)">⚙</span>
+        <span class="pill pill--coins">🪙 1240</span>
+      </span>
+    </div>
+
+    <div class="c-bottom">
+      <div class="c-tokens">
+      <i style="background:linear-gradient(150deg,#f8f4ec,#e6dccb)">🦠</i>
+      <i style="background:linear-gradient(150deg,#5a8f86,#2e6258)">💧</i>
+      <i class="on" style="background:linear-gradient(150deg,#7aa96e,#4e8240)">🐜</i>
+      <i style="background:linear-gradient(150deg,#4a4335,#2b2417)">🐾</i>
+      <i style="background:linear-gradient(150deg,#4a4e59,#2c2f38)">🏙️</i>
+        <i class="lock">🔒</i>
+      </div>
+
+      <div class="c-panel">
+      <h3>The Garden</h3>
+      <span class="tag">your scent gives you away</span>
+      <div class="cast">
+        <span style="background:#e7e0d2;border-color:#cfc6b3">🐛</span>
+        <span style="background:#e7e0d2;border-color:#cfc6b3">🕷️</span>
+        <span style="background:#e7e0d2;border-color:#cfc6b3">🐝</span>
+      </div>
+      <div class="stars">★★★<u>☆☆</u> <span style="font-size:.68rem;font-weight:800;color:var(--ink-soft)">· best 06:52</span></div>
+      <div class="diffrow">
+        <b>Difficulty</b>
+        <div class="seg"><i>1</i><i>2</i><i class="on">3</i><i>4</i><i class="lock">🔒</i></div>
+      </div>
+        <button class="play">▶ Play</button>
+      </div>
+    </div>
+
+    <div class="nav">
+      <div><span>🛒</span>Shop</div><div class="on"><span>⚔️</span>Battle</div><div><span>🌀</span>Daily</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
