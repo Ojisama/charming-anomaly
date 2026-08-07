@@ -3241,12 +3241,30 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // attack of its own. v6.5: the leap->land transition (sim.js stepPounce) also slams any armed trap
 // under the landing cat (see POUNCE_TRAP_HP_FRAC) — the leap itself flies OVER traps untouched
 // (stepTraps skips any enemy mid-'leap'), so this is the one point where the cat reads run.traps.
-export const POUNCE_RANGE = 260          // px, distance at which a holding cat commits to a leap
-export const POUNCE_HOLD_SPEED_MUL = 0.8 // seek speed while stalking (multiplier of the cat's OWN speed)
-export const POUNCE_AIM_T = 0.55         // s, telegraphed crouch (dead stop; heading locks at its start)
-export const POUNCE_LEAP_T = 0.40        // s, leap phase (straight, no steering)
-export const POUNCE_LEAP_SPEED_MUL = 6.0 // leap speed multiplier — fast enough that only a dodge beats it
-export const POUNCE_LAND_T = 0.70        // s frozen after a leap (the free-hits window)
+// v6.6.30 (owner: "cats dash 10cm then go back 10cm, so they never reach you"). The pounce was
+// arithmetically incapable of connecting, and the owner's description is exactly what it looked
+// like from behind the camera. Traced against a player walking away at base speed:
+//     dist 196 -> aim (dead stop) -> 71 after the leap -> 134 during 'land' -> 288 back in 'hold'
+// i.e. the cat lunged in and then appeared to slide straight back out. Three compounding causes:
+//   1. POUNCE_LEAP_SPEED_MUL was a multiple of the cat's OWN speed, and a tank archetype at
+//      speedMul 0.8 runs 44 px/s — so "6x speed for 0.40s" was a 106px hop at 264 px/s, barely
+//      above the player's own 220. A gap-closer must be defined by the GAP, not by how slow the
+//      thing closing it is. It is a DISTANCE now, and the flight speed falls out of it.
+//   2. The frozen windows (aim 0.55 + land 0.70 = 1.25s) handed a moving player 275px per cycle
+//      against that 106px of gain. Net -169px per pounce: the cat lost ground every single time
+//      it attacked. Both are trimmed, but they are NOT the fix — the punish window is the whole
+//      counterplay and shortening it too far would just make the cat unpunishable instead.
+//   3. POUNCE_RANGE 260 let it commit from further away than it could possibly leap.
+// Now: it commits inside POUNCE_RANGE and leaps POUNCE_LEAP_DIST, which is deliberately LONGER —
+// the leap passes THROUGH where you were and lands beyond it, so running in a straight line is not
+// an escape and stepping aside still is. That is the FAST => COMMITTED contract stated properly:
+// impossible to ignore, never impossible to escape.
+export const POUNCE_RANGE = 180          // px, distance at which a holding cat commits to a leap
+export const POUNCE_LEAP_DIST = 300      // px the leap covers, whatever the cat's own speed is
+export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of the cat's OWN speed)
+export const POUNCE_AIM_T = 0.45         // s, telegraphed crouch (dead stop; heading locks at its start)
+export const POUNCE_LEAP_T = 0.42        // s, leap phase (straight, no steering) — 714 px/s at 300px
+export const POUNCE_LAND_T = 0.50        // s frozen after a leap (the free-hits window)
 // Fraction of the LANDING cat's own maxHP a slammed trap deals, floored by max(SNAP_TRAP_DMG*2, …):
 // a flat multiple of SNAP_TRAP_DMG dies against hpScale (the first cat ever to spawn, ~t=140, already
 // carries ~368 HP) — the trap needs to stay a real threat, not decoration, against that curve. The

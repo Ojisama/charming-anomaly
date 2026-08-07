@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -1051,6 +1051,7 @@ export function createRenderer(app) {
   //   5. the legs were uniform noodles that stopped in mid-air. They taper into actual paws.
   // The posture is also no longer neutral: this is the chapter's `pounce` enemy, so it is drawn
   // mid-stalk — back low and level, haunch gathered high, head dropped forward below the shoulder.
+
   function drawCat(g, elite, white) {
     const r = 26
     const f = (c) => white ? 0xffffff : c
@@ -9422,26 +9423,37 @@ export function createRenderer(app) {
       // exactly where the cat will (speed × POUNCE_LEAP_T), and it vanishes the moment it leaps:
       // during 'leap' there is nothing left to warn about, the cat itself is the thing you see.
       if (e._pounceState === 'aim') {
+        // v6.6.30 (owner: "their telegraph should be a bit more subtle"). Three overlapping bright
+        // amber elements — a filled lane, a thick pulsing spine and a pulsing ring — were shouting
+        // the same fact three times. What survives is the INFORMATION, at a fraction of the volume:
+        //   - the lane stays, because it is the thing you step out of, but it is a hairline EDGE
+        //     pair instead of a filled slab, and it does not pulse at all
+        //   - the spine is gone entirely. It duplicated the lane and was the loudest thing on it.
+        //   - the landing ring stays and remains the strongest mark, because it is the only element
+        //     that says WHERE, and it is the one a player actually reads.
+        // Deliberately not quieter than this: v6.6.30 also makes the leap connect for the first
+        // time, so the telegraph is now carrying real counterplay rather than decorating a whiff.
         const urgency = POUNCE_AIM_T > 0 ? 1 - Math.max(0, e._pounceT || 0) / POUNCE_AIM_T : 1
         const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
         const ux = e._pounceDirX || 0
         const uy = e._pounceDirY || 0
-        const len = e.speed * POUNCE_LEAP_SPEED_MUL * POUNCE_LEAP_T
+        const len = POUNCE_LEAP_DIST
         const ex = e.x + ux * len
         const ey = e.y + uy * len
         const hw = e.radius * 1.5
         const nx = -uy * hw
         const ny = ux * hw
-        teleG.poly([e.x + nx, e.y + ny, ex + nx, ey + ny, ex - nx, ey - ny, e.x - nx, e.y - ny])
-          .fill({ color: 0xffd24a, alpha: 0.05 + urgency * 0.08 + pulse * 0.03 })
-        // the leap line: the spine of the arc, thickening as the crouch winds up
-        teleG.moveTo(e.x, e.y)
-        teleG.lineTo(ex, ey)
-        teleG.stroke({ width: 2 + urgency * 2.5, color: 0xffe37a, alpha: Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.1) })
+        // lane EDGES only — two hairlines that fade out along the leap, so the near end (where the
+        // cat is, and where you are looking) reads and the far end does not stripe the whole screen
+        for (const s of [1, -1]) {
+          teleG.moveTo(e.x + nx * s, e.y + ny * s)
+          teleG.lineTo(ex + nx * s, ey + ny * s)
+        }
+        teleG.stroke({ width: 1, color: 0xffd24a, alpha: 0.1 + urgency * 0.14 })
         // landing ring: closes onto the impact point as it commits — a shrinking ring reads as
         // "something is arriving here", which is exactly what is about to happen
         teleG.circle(ex, ey, hw * (1.9 - urgency * 0.8))
-          .stroke({ width: 2 + urgency * 2, color: 0xffe37a, alpha: Math.min(1, 0.35 + urgency * 0.5 + pulse * 0.12) })
+          .stroke({ width: 1.5 + urgency * 1.5, color: 0xffe37a, alpha: Math.min(1, 0.22 + urgency * 0.36 + pulse * 0.08) })
       }
 
       // aerialStrike 'mark' (undergrowth's owl): the owl is overhead and untouchable, so the shadow

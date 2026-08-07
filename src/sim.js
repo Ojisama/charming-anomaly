@@ -72,7 +72,7 @@ import {
   DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
   WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
   // v5.4 undergrowth
-  POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_SPEED_MUL, POUNCE_LAND_T,
+  POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_RADIUS, AERIAL_ORBIT_SPEED, AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
   AERIAL_STRIKE_SPEED_MUL, AERIAL_CLIMB_T, AERIAL_STRIKE_MAX_LIVE,
@@ -1409,7 +1409,10 @@ function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
     // Dead stop, heading already snapshotted on entry — the telegraph the player reacts to.
     if (e._pounceT <= 0) { e._pounceState = 'leap'; e._pounceT = POUNCE_LEAP_T }
   } else if (e._pounceState === 'leap') {
-    const spd = e.speed * spdMul * POUNCE_LEAP_SPEED_MUL
+    // v6.6.30: a fixed DISTANCE over a fixed time, not a multiple of the cat's own 44 px/s — see
+    // the POUNCE_* block in config.js for the trace this replaces. spdMul (enrage) still scales it,
+    // so a flashlight-enraged cat leaps further, which is what enrage is for.
+    const spd = (POUNCE_LEAP_DIST / POUNCE_LEAP_T) * spdMul
     vx = e._pounceDirX * spd; vy = e._pounceDirY * spd
     if (e._pounceT <= 0) {
       // The landing slams any armed trap under the cat (combined radius — the pounce IS the

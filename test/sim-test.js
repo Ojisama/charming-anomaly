@@ -26,7 +26,7 @@ import {
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
-  POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LAND_T,
+  POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
   // v6.5 undergrowth streamed traps (Run TT)
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T, AERIAL_STRIKE_MAX_LIVE,
@@ -9079,12 +9079,15 @@ function testCommitVisibility() {
     console.log('PASS run AV.c (no deadlock): a wasp beyond the phone edge closes to a VISIBLE standoff and dives from there')
   }
 
-  // (d) the same rule on the cat, whose POUNCE_RANGE (260) is likewise wider than the phone. No
-  // clamp was added there because 'hold' keeps seeking — so this asserts the gate holds AND that
-  // walking in unblocks it, which together are the whole contract.
+  // (d) the same rule on the cat. When this was written POUNCE_RANGE was 260, wider than the phone
+  // half-view, so the gate was the ONLY thing stopping an off-screen crouch. v6.6.30 cut the range
+  // to 180 (owner: "cats dash 10cm then go back 10cm") — which is now INSIDE the 195px half-view,
+  // so the geometry makes an off-screen commit impossible on its own and the gate is belt-and-
+  // braces for the cat. That is a strictly better world and the test is kept rather than deleted:
+  // the contract being asserted is "a cat off the side of a phone must not crouch to leap", which
+  // is true either way, and it is the thing that must not regress if POUNCE_RANGE ever grows back.
+  // The enemy is released well beyond the edge, so the assertion still exercises the real path.
   {
-    assert(POUNCE_RANGE > PHONE_W,
-      `only meaningful while POUNCE_RANGE (${POUNCE_RANGE}) exceeds the phone half-view (${PHONE_W})`)
     const { run, e } = solo('undergrowth', 'tank', 'cat', PHONE_W + 40, 0)
     let sawAimOffScreen = false
     for (let i = 0; i < 60; i++) {
@@ -9858,6 +9861,67 @@ function testUndergrowthRound() {
     assert.ok(WEAPONS.quillBurst.levels.every((l) => l.pierce === 2),
       'the base ladder is where quill pierce lives now — every level must still carry pierce 2')
     console.log('PASS run UG.i (pierce card cut): quillBurst down to 5 mods, all of which measure above noise; pierce 2 stays in the base ladder')
+  }
+
+  // (j) v6.6.30 (owner: "cats dash 10cm then go back 10cm, so they never reach you"). The pounce
+  // used to LOSE ground every time it attacked. Two assertions: the arithmetic that made that
+  // possible, and the behaviour that proves the leap is still escapable.
+  {
+    // (j1) the arithmetic. A pounce cycle freezes the cat for aim + land; if the leap covers less
+    // ground than a player travels in that time, attacking is strictly worse than walking and the
+    // cat can never arrive. Pre-v6.6.30 this read 106px of leap against 275px of frozen time.
+    const frozen = (POUNCE_AIM_T + POUNCE_LAND_T) * PLAYER.baseSpeed
+    assert.ok(POUNCE_LEAP_DIST > frozen,
+      `a pounce must NET FORWARD: the leap covers ${POUNCE_LEAP_DIST}px but the cat is frozen long enough for a player to cover ${frozen.toFixed(0)}px — attacking would lose it ground, which is exactly the "dash forward then slide back" the owner saw`)
+    // (j2) it must be able to reach what it committed to. Committing from further out than the leap
+    // can travel is the other half of the same bug.
+    assert.ok(POUNCE_LEAP_DIST >= POUNCE_RANGE,
+      `a cat commits inside ${POUNCE_RANGE}px but can only leap ${POUNCE_LEAP_DIST}px — it would aim at something it cannot reach`)
+
+    // (j3) behaviour. A player who stands still is caught; a player who steps SIDEWAYS is not.
+    // The leap locks its heading at the start of 'aim' and never re-steers, so perpendicular motion
+    // is the counterplay, and this is the assertion that keeps it that way.
+    const trial = (policy) => {
+      Math.random = mulberry32(20260728)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = []
+      run.obstacles = []; run._obstacleSeed = null; run.traps = []
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      run.mods.spawnMul = 0
+      run.enemies.length = 0
+      const e = makeStatusEnemy(run, { x: 250, y: 0, type: 'tank', speed: 45 })
+      e.flags = ['pounce']
+      e.rosterId = 'cat'
+      run.enemies.push(e)
+      let leaps = 0
+      let contacts = 0
+      let inLeap = false
+      let hitThisLeap = false
+      for (let i = 0; i < 60 * 30; i++) {
+        run.player.hp = run.player.maxHP = 1e9
+        const dx = e.x - run.player.x
+        const dy = e.y - run.player.y
+        const d = Math.hypot(dx, dy) || 1
+        const mv = policy === 'side' ? { x: -dy / d, y: dx / d } : { x: 0, y: 0 }
+        stepSim(run, mv, 1 / 60)
+        run.events.length = 0
+        if (e._pounceState === 'leap') {
+          if (!inLeap) { leaps++; hitThisLeap = false; inLeap = true }
+          const dd = Math.hypot(e.x - run.player.x, e.y - run.player.y)
+          if (!hitThisLeap && dd <= e.radius + PLAYER.radius) { contacts++; hitThisLeap = true }
+        } else inLeap = false
+      }
+      return { leaps, contacts }
+    }
+    const still = trial('still')
+    const side = trial('side')
+    assert.ok(still.leaps > 0, 'the cat never leapt at a stationary player at all')
+    assert.ok(still.contacts / still.leaps > 0.8,
+      `a pounce must CONNECT against a player who does not move: only ${still.contacts}/${still.leaps} landed`)
+    assert.ok(side.leaps > 0, 'the cat never leapt at a sidestepping player — it must still commit')
+    assert.strictEqual(side.contacts, 0,
+      `stepping sideways must beat a pounce every time (the heading locks at 'aim' and never re-steers), but ${side.contacts}/${side.leaps} still connected`)
+    console.log(`PASS run UG.j (the pounce arrives): leap ${POUNCE_LEAP_DIST}px vs ${frozen.toFixed(0)}px of frozen time; ${still.contacts}/${still.leaps} land on a standing player, ${side.contacts}/${side.leaps} on one stepping aside`)
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
