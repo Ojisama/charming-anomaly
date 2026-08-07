@@ -628,6 +628,16 @@ function generateWells(sig) {
  *               (1 + focusBonus × elapsed/duration), recomputed fresh every tick (not baked).
  *               Strobe Ray (v4.3) instead bakes a faster `tick` period in at cast time (no new
  *               field — it's applied straight to `tick` above).
+ *               prism (v6.7.6, optional): Beam Prism's split ladder, e.g. [4,3,2] at mythic —
+ *               baked at cast time like Strobe, and null on any beam without the mod (which
+ *               includes every Tesseract Beam, since only fireBeam ever sets it). See the PRISM_*
+ *               block in config.js. Its sub-beams are NOT entries here — they resolve inside the
+ *               tick that cast them and leave only the render-only segments below.
+ * prisms[i]:    { x, y, x2, y2, life }  v6.7.6, RENDER-ONLY — one drawn refraction segment. Damage
+ *               is already resolved by the time one of these exists; they linger PRISM_FLASH_T
+ *               purely so a split cast on a tick frame is visible for longer than one 16ms frame.
+ *               Nothing collides with them, nothing reads them but render.js. Stepped (aged and
+ *               filtered) at the end of stepBeams.
  *
  * Extra events beyond v1: {type:'explode',x,y,radius} mine pop, star-blast explosion, Supernova
  * Sparks orb-kill splash, Popping Wisps death-pop, or Big Crunch hole-collapse (radius from
@@ -1169,6 +1179,7 @@ export function createRun(meta, opts = {}) {
     homingShots: [],
     holes: [],
     beams: [],
+    prisms: [],
     blooms: [],
     gems: [],
     coins: [],

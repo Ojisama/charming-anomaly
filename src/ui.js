@@ -1393,6 +1393,14 @@ export function initUI(hooks) {
   function modLine(weaponId, m) {
     const cfg = WEAPON_MODS[weaponId]?.[m.id]
     if (!cfg) return ''
+    // v6.7.6: a mod with `descFor` (Beam Prism) writes its own whole line, prefix included, because
+    // its wording CHANGES with the amount rather than just its number — so composing it here from
+    // cfg.desc would quietly drop half the sentence and break the "word for word" promise above.
+    // It already returns the "+N <phrase>" shape, so tCardDesc splits and translates it identically
+    // to the level-up card.
+    if (cfg.descFor) {
+      return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t">${esc(tCardDesc(cfg.descFor(m.bonus)))}</span></div>`
+    }
     const body = t(cfg.desc)
     const head = cfg.kind === 'switch' ? '' : cfg.kind === 'pct' ? `+${Math.round(m.bonus * 100)}% ` : `+${fmtNum(m.bonus)} `
     return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t"><b>${esc(head)}</b>${esc(body)}</span></div>`

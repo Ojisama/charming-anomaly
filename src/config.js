@@ -610,6 +610,13 @@ export const PIERCE_MAX_PICKS = 2
 // 2 picks = 6 return trips at mythic, which is where the dps curve flattens (6 trips +18.3%,
 // 15 trips +17.8%).
 export const REBOUND_MAX_PICKS = 2
+// Beam Prism's two card phrases (WEAPON_MODS.rainbow.prism). Hoisted to consts rather than written
+// inline inside its `descFor` template so both stay COMPLETE QUOTED LITERALS in this file: run XX's
+// dead-key sweep matches fr.js keys as whole literals against src/*.js, and a phrase that only ever
+// exists as part of a template string reads to it as a translation nobody can produce. Its own
+// comment offers an exemption list for that case; a literal costs less and keeps the sweep honest.
+const PRISM_DESC = 'sub-beams where the beam lands'
+const PRISM_DESC_DEEP = 'sub-beams where the beam lands, each splitting again'
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
@@ -675,13 +682,34 @@ export const WEAPON_MODS = {
     hungry:      { name: 'Hungry Hole', desc: 'vortex growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
     crunch:      { name: 'Big Crunch',  desc: 'vortex collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
   },
+  // v6.7.6 (owner: "merge beam length and beam width into one series"). Wide Beam and Long Beam
+  // were the same card twice — both +20% pct, both plain geometry, and between them plus Sustain
+  // the player met a "+20% beam something" card on one level-up in five (measured, v6.7.5). One
+  // card now moves both numbers by the same 20%, so the ceiling is unchanged (five picks still buy
+  // 2x width and 2x length, i.e. 4x the swept area) and it costs half the level-ups to reach.
+  // WEAPON_STAT_MODS.rainbow folds the pair; the name says both, per v6.6.13's rule that a card
+  // must name what changes on screen.
   rainbow: {
-    wideBeam:  { name: 'Wide Beam',       desc: 'beam width',             icon: '📡', base: 0.20, kind: 'pct' },
-    longBeam:  { name: 'Long Beam',       desc: 'beam length',            icon: '↔️', base: 0.20, kind: 'pct' },
+    wideBeam:  { name: 'Big Beam',        desc: 'beam width & length',    icon: '📡', base: 0.20, kind: 'pct' },
     sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
     prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier' },
     focus:     { name: 'Focus Lens', desc: 'beam damage ramp by the end of its duration', icon: '🔎', base: 0.80, kind: 'pct' },
     strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct' },
+    // v6.7.6 Beam Prism (owner spec). A `values` mod — the SAME idiom PASSIVES.armor/regen use:
+    // it rolls only the listed rarities at the listed exact amounts, and makeWeaponModCard returns
+    // null at any other tier, so no card is offered at normal at all. That is deliberate and it is
+    // the whole design: RARITY IS THE STAT here. The number below is how many sub-beams the FIRST
+    // refraction throws; each layer after it throws one fewer, down to 2, then stops (see
+    // prismLadder). maxPicks 1 because a second pick would have nothing to add — the ladder is
+    // fully determined by the rarity of the card you took.
+    // `descFor` (not a plain `desc`) because a rare prism and a mythic one are different mechanics,
+    // not different magnitudes of one — and a card that read identically at both tiers would be the
+    // v6.6.13 defect exactly: a number nobody can check. It returns the same "+N <phrase>" shape
+    // every other card uses, so ui.js's tCardDesc strips the number and translates the phrase with
+    // no special case, and fr.js needs the two phrases and nothing else.
+    prism:     { name: 'Beam Prism', desc: PRISM_DESC, icon: '🔺',
+                 kind: 'prism', maxPicks: 1, values: { rare: 2, epic: 2, legendary: 3, mythic: 4 },
+                 descFor: (n) => `+${n} ${n > 2 ? PRISM_DESC_DEEP : PRISM_DESC}` },
   },
   // Pond natives (v5.0 task 4). Percents match the contract exactly (base = the normal-rarity
   // headline; rarity scales it, like every pct mod). reach/wideArc/heavyLash fold into
@@ -899,12 +927,16 @@ export const WEAPON_MODS = {
     riftScar:    { name: 'Rift Scar',    desc: 'each blink leaves a detonating rift', icon: '🌀', base: 0.50, kind: 'pct' },
     recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one expires',    icon: '♾️', kind: 'tier' },
   },
-  // wideFold/longFold/sustainFold fold into tesseractBeam's levels[] via WEAPON_STAT_MODS;
-  // rapidFold (cast rate) is read at the cast site. hyperfold/collapse are behavioral (see
-  // stepTesseractWeapon / the folded branch of stepBeams).
+  // wideFold/sustainFold fold into tesseractBeam's levels[] via WEAPON_STAT_MODS; rapidFold (cast
+  // rate) is read at the cast site. hyperfold/collapse are behavioral (see stepTesseractWeapon /
+  // the folded branch of stepBeams).
+  // v6.7.6: Long Fold merged into Wide Fold, for the reason spelled out on rainbow.wideBeam above —
+  // this weapon carried the identical redundant trio, and leaving it would fix the complaint in one
+  // chapter and leave it standing in another. The prism does NOT follow: the Tesseract's identity
+  // is the fold and its collapse, and a second splitting mechanic on a weapon whose arms already
+  // rake the full circle adds noise rather than a decision.
   tesseractBeam: {
-    wideFold:    { name: 'Wide Fold',    desc: 'beam width',    icon: '📡', base: 0.20, kind: 'pct' },
-    longFold:    { name: 'Long Fold',    desc: 'beam length',   icon: '↔️', base: 0.20, kind: 'pct' },
+    wideFold:    { name: 'Big Fold',     desc: 'beam width & length', icon: '📡', base: 0.20, kind: 'pct' },
     sustainFold: { name: 'Held Fold',    desc: 'beam duration', icon: '⌛', base: 0.20, kind: 'pct' },
     rapidFold:   { name: 'Quick Fold',   desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
     hyperfold:   { name: 'Hyperfold',    desc: 'extra fold arm(s) per cast',        icon: '🔷', kind: 'tier' },
@@ -1243,6 +1275,39 @@ export const TESSERACT_FAN_RATE = 2.2             // rad/s of that sweep
 // (1 + bonus) × the beam's per-tick damage, plus an {type:'explode'} at the player.
 export const TESSERACT_COLLAPSE_MUL = 8
 export const TESSERACT_COLLAPSE_PULL = 400
+
+// ---- Beam Prism (v6.7.6, rainbow.prism — behavioral, read in stepBeams) -----------------------
+// Owner spec: "when a beam touches an enemy, it splits into N sub-beams like a prism (each deal
+// 75% of initial beam and 50% length)". The refraction happens AT the body that was hit, fanning
+// forward around the parent's heading — a prism bends light onward, it does not seek targets.
+//
+// Rarity is the entire stat (see WEAPON_MODS.rainbow.prism's `values`): the card's number is how
+// many sub-beams the first refraction throws, and each layer below throws one fewer, down to 2,
+// then stops. That is prismLadder, and it reproduces the spec exactly:
+//   rare / epic  ->  [2]        split once into 2; a sub-beam that hits something just stops
+//   legendary    ->  [3, 2]     3 sub-beams; each that hits re-splits into 2 (i.e. into a rare)
+//   mythic       ->  [4, 3, 2]  4, then 3, then 2
+// The recursion is bounded three ways, and it needs all three — at mythic the tree is 4 + 12 + 24
+// = 40 rays per refraction:
+//   1. only the NEAREST body in the arm refracts per tick, not every body the arm crosses (light
+//      bends at the first surface it meets, and per-body would square the whole tree),
+//   2. a ray stops at the FIRST body it touches — that IS the spec's "it stops",
+//   3. one shared already-hit set per refraction, so no body is damaged twice by one cast and two
+//      sub-beams cannot ping-pong between the same pair forever.
+export const PRISM_DMG_MUL = 0.75    // each sub-beam's damage, as a share of the beam it came from
+export const PRISM_LEN_MUL = 0.50    // ...and its reach, as a share of that same parent
+// Total fan width of one refraction. Sub-beams spread evenly across it, centred on the parent's
+// heading — so an odd count keeps one ray going dead straight (the beam "carried on through"),
+// which is what makes the effect read as refraction rather than as a scatter.
+export const PRISM_SPREAD = 1.4      // rad, ~80deg corner to corner
+export const PRISM_FLASH_T = 0.12    // s each drawn sub-beam segment lingers (render-only, no damage)
+
+/** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
+export const prismLadder = (first) => {
+  const out = []
+  for (let n = Math.round(first) || 0; n >= 2; n--) out.push(n)
+  return out
+}
 
 // ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
 // Offered always (not gated behind a weapon), rolls a rarity like passives: applied

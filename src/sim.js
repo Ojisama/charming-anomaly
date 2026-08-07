@@ -124,6 +124,7 @@ import {
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
   SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
   TESSERACT_ARMS, TESSERACT_COLLAPSE_MUL, TESSERACT_COLLAPSE_PULL,
+  PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
   TESSERACT_FAN_ARC, TESSERACT_FAN_SWEEP, TESSERACT_FAN_RATE,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
@@ -3522,7 +3523,8 @@ const WEAPON_STAT_MODS = {
   mines:     { minefield: ['maxAlive', 'flat'], bigBoom: ['radius', 'pct'], heavyCharge: ['dmg', 'pct'] },
   homing:    { extraWisp: ['count', 'flat'], longLife: ['life', 'pct'], agile: ['turnRate', 'pct'] },
   hole:      { biggerHole: ['radius', 'pct'], lasting: ['duration', 'pct'], denser: ['pull', 'pct'] },
-  rainbow:   { wideBeam: ['width', 'pct'], longBeam: ['length', 'pct'], sustain: ['duration', 'pct'] },
+  // v6.7.6: wideBeam moves BOTH width and length — Long Beam merged into it (see WEAPON_MODS).
+  rainbow:   { wideBeam: [['width', 'length'], 'pct'], sustain: ['duration', 'pct'] },
   // v5.0 pond natives: frenzy/quickCast (attack-speed mods) are NOT here — folding them into the
   // `rate` field would SLOW the weapon (rate is the interval); they divide the interval at the
   // fire site instead (see stepFlagellaWeapon/stepBloomWeapon), like the global fire rate.
@@ -3548,7 +3550,7 @@ const WEAPON_STAT_MODS = {
   tailSwipe:     { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'], broadSweep: ['arc', 'pct'] },
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
-  tesseractBeam: { wideFold: ['width', 'pct'], longFold: ['length', 'pct'], sustainFold: ['duration', 'pct'] },
+  tesseractBeam: { wideFold: [['width', 'length'], 'pct'], sustainFold: ['duration', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -3562,7 +3564,15 @@ function effectiveWeaponStats(run, w) {
     for (const [modId, [field, kind]] of Object.entries(modMap)) {
       const bonus = mods[modId] ?? 0
       if (bonus === 0) continue
-      stats[field] = kind === 'flat' ? Math.round(stats[field] + bonus) : stats[field] * (1 + bonus)
+      // v6.7.6: `field` may be an ARRAY, for a mod that honestly moves two numbers at once (the
+      // merged Big Beam / Big Fold). Everything else still passes a single string and behaves
+      // bit-identically. This is the same shape stinger.longNeedles and lure.bigBurst wanted and
+      // could not have — they are read at their fire site precisely because this loop only did one
+      // field. They are NOT moved here: doing so is a separate change with its own risk, and the
+      // comment above this table still describes where they live.
+      for (const f of Array.isArray(field) ? field : [field]) {
+        stats[f] = kind === 'flat' ? Math.round(stats[f] + bonus) : stats[f] * (1 + bonus)
+      }
     }
   }
   return stats
@@ -4566,24 +4576,81 @@ function fireBeam(run, stats) {
   const strobeBonus = run.weaponMods.rainbow?.strobe ?? 0
   const tick = stats.tick / (1 + strobeBonus)
   const focusBonus = run.weaponMods.rainbow?.focus ?? 0
+  // Beam Prism: snapshot the ladder at cast time, same rule as Strobe above — a mod picked mid-run
+  // must not retroactively re-cut a beam that is already in the air. A beam with no prism carries
+  // an empty ladder and stepBeams' refraction branch never opens (this is also what keeps the
+  // Tesseract out of it: run.beams is shared, and only fireBeam ever sets this).
+  const prismLadderCast = prismLadder(run.weaponMods.rainbow?.prism ?? 0)
   for (let i = 0; i < beamCount; i++) {
     run.beams.push({
       angle: baseAngle + i * angleStep, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
       tick, width: stats.width, length: stats.length,
       rotSpeed: stats.rotSpeed, acc: 0, focusBonus,
+      prism: prismLadderCast.length > 0 ? prismLadderCast : null,
     })
   }
   run.events.push({ type: 'beam' })
 }
 
-// Is an enemy inside the beam arm at `angle`? Shared by the tick loop and Collapse.
-function inBeamArm(run, b, e, angle) {
-  const p = run.player
+// How far along the ray from (ox,oy) heading `angle` does `e` sit, or -1 if it isn't on it?
+// The ray is `len` long and `width` wide; a body counts if its DISC touches the axis, which is why
+// e.radius pads the perpendicular test and not the along one.
+// v6.7.6: extracted from inBeamArm so the prism can cast the identical test from a refraction point
+// that is NOT the player. Returning the distance rather than a bool is what lets the prism pick the
+// NEAREST body on a ray — the one light would actually meet first.
+function alongRay(ox, oy, angle, len, width, e) {
   const cos = Math.cos(angle), sin = Math.sin(angle)
-  const dx = e.x - p.x, dy = e.y - p.y
+  const dx = e.x - ox, dy = e.y - oy
   const along = dx * cos + dy * sin           // distance projected onto the beam axis
   const perp = -dx * sin + dy * cos            // perpendicular distance from the axis
-  return along >= 0 && along <= b.length && Math.abs(perp) < b.width / 2 + e.radius
+  if (along < 0 || along > len || Math.abs(perp) >= width / 2 + e.radius) return -1
+  return along
+}
+
+// Is an enemy inside the beam arm at `angle`? Shared by the tick loop and Collapse. A beam arm is
+// just a ray anchored at the player.
+function inBeamArm(run, b, e, angle) {
+  return alongRay(run.player.x, run.player.y, angle, b.length, b.width, e) >= 0
+}
+
+// The nearest live body on a ray, skipping anything already struck by this refraction. Returns
+// null if the ray reaches its full length without meeting one.
+function firstOnRay(run, ox, oy, angle, len, width, hit) {
+  let best = null
+  let bestD = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || hit.has(e.id)) continue
+    const d = alongRay(ox, oy, angle, len, width, e)
+    if (d < 0 || d >= bestD) continue
+    bestD = d
+    best = e
+  }
+  return best
+}
+
+/**
+ * One refraction: throw `ladder[depth]` sub-beams forward from (ox,oy), fanned across PRISM_SPREAD
+ * and centred on `angle`. Each ray stops at the first body it meets, damages it, and — if the
+ * ladder goes deeper — refracts again from there at PRISM_DMG_MUL damage and PRISM_LEN_MUL reach.
+ * See the PRISM_* block in config.js for the ladder and for the three things bounding this tree.
+ * `hit` is shared across the WHOLE tree, so one cast can never damage a body twice and two rays
+ * can never bounce between the same pair.
+ */
+function castPrism(run, ox, oy, angle, dmg, len, width, depth, ladder, hit) {
+  const n = ladder[depth]
+  if (!n || len < 1 || dmg < 1) return
+  const step = PRISM_SPREAD / (n - 1) // n >= 2 always (prismLadder stops at 2)
+  for (let i = 0; i < n; i++) {
+    const a = angle - PRISM_SPREAD / 2 + i * step
+    const e = firstOnRay(run, ox, oy, a, len, width, hit)
+    // Drawn to where it actually ended: at the body it stopped on, or out to its full reach.
+    const reach = e ? Math.hypot(e.x - ox, e.y - oy) : len
+    run.prisms.push({ x: ox, y: oy, x2: ox + Math.cos(a) * reach, y2: oy + Math.sin(a) * reach, life: PRISM_FLASH_T })
+    if (!e) continue
+    hit.add(e.id)
+    applyDamage(run, e, dmg)
+    castPrism(run, e.x, e.y, a, dmg * PRISM_DMG_MUL, len * PRISM_LEN_MUL, width, depth + 1, ladder, hit)
+  }
 }
 
 // A beam's arms: 1 for the Neon Beam, or `arms` evenly around the circle for a folded Tesseract
@@ -4626,6 +4693,7 @@ function collapseFold(run, b) {
 }
 
 function stepBeams(run, dt) {
+  const p = run.player
   for (const b of run.beams) {
     b.life -= dt
     if (b.life <= 0) {
@@ -4654,11 +4722,33 @@ function stepBeams(run, dt) {
           if (e._dead) continue
           if (inBeamArm(run, b, e, angle)) applyDamage(run, e, dmg)
         }
+        // Beam Prism (v6.7.6): the arm refracts off the NEAREST body it crosses — light bends at
+        // the first surface it meets, and refracting off every body in the arm would square a tree
+        // that is already 40 rays wide at mythic. The sub-beams take the arm's LIVE per-tick damage
+        // (so Focus Lens's ramp carries into them), and the body that bent the light is seeded into
+        // `hit` so the first sub-beam does not immediately strike it again.
+        if (b.prism) {
+          const src = firstOnRay(run, p.x, p.y, angle, b.length, b.width, EMPTY_HIT)
+          if (src) {
+            castPrism(run, src.x, src.y, angle, dmg * PRISM_DMG_MUL, b.length * PRISM_LEN_MUL,
+              b.width, 0, b.prism, new Set([src.id]))
+          }
+        }
       }
     }
   }
   run.beams = run.beams.filter((b) => b.life > 0)
+
+  // Refraction segments are render-only: no damage, no collision, they just linger PRISM_FLASH_T so
+  // a split cast on a tick frame is actually visible at 60fps instead of existing for 16ms.
+  if (run.prisms.length > 0) {
+    for (const s of run.prisms) s.life -= dt
+    run.prisms = run.prisms.filter((s) => s.life > 0)
+  }
 }
+// The prism's "already struck" set starts empty when we are only LOOKING for the refraction point
+// (nothing has been struck yet). Hoisted so the tick loop doesn't allocate one per arm per tick.
+const EMPTY_HIT = new Set()
 
 // -- Flagella Whip (v5.0 pond starter) --------------------------------------------------
 // A melee arc sweep: every `rate` seconds (frenzy divides that interval, like the global fire
@@ -5853,6 +5943,19 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // roll above normal (the makePassiveCard idiom — returning null just means "not a candidate at
   // this tier"), and its card states the effect rather than a meaningless "+N".
   if (cfg.kind === 'switch' && rarity !== 'normal') return null
+  // v6.7.6: `values` on a weapon mod works exactly as it does on a passive (makePassiveCard, and
+  // its doc comment) — the mod rolls ONLY the rarities the table lists, at the exact amounts it
+  // lists, and returns null everywhere else, which the caller already treats as "no candidate at
+  // this tier" rather than as a bug. Beam Prism uses it to have no normal-rarity card at all: its
+  // whole design is that the rarity you rolled IS the stat, and there is no meaningful split
+  // smaller than into 2.
+  if (cfg.values) {
+    if (!(rarity in cfg.values)) return null
+    const bonus = cfg.values[rarity]
+    return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
+      desc: cfg.descFor ? cfg.descFor(bonus) : `+${bonus} ${cfg.desc}`,
+      tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
+  }
   const mult = RARITIES[rarity].mult
   let bonus
   if (cfg.kind === 'switch') bonus = 1

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -5834,6 +5834,12 @@ export function createRenderer(app) {
   const laneG = new Graphics()
   const hazardG = new Graphics()
   const teleG = new Graphics()
+  // v6.7.6 Beam Prism (run.prisms): the refracted sub-beams. ADDITIVE and its own Graphics, because
+  // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
+  // already resolved damage by the time it is drawn (see the run.prisms note in state.js), so this
+  // draws a decaying segment and nothing else; the pooled beamPool sprites stay for the real arms.
+  const prismG = new Graphics()
+  prismG.blendMode = 'add'
   // v5.10 skies: the jet strafe's halogen landing-light pool is the one telegraph element that must
   // be ADDITIVE (a light on wet asphalt, not a painted band) — its own single-texture container, so
   // the blend-mode switch costs exactly one batch break. rampG carries the rampage rim-lights and
@@ -5895,7 +5901,7 @@ export function createRenderer(app) {
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
+    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, prismG, whipLayer, arcG,
     lobLayer, carLayer, smokeLayer, particleLayer, textLayer,
   )
 
@@ -8438,6 +8444,24 @@ export function createRenderer(app) {
       }
     }
     return out
+  }
+
+  // Beam Prism refractions (run.prisms): each entry is a finished segment with a decaying `life`.
+  // Two strokes per segment — a wide soft halo and a thin near-white core — which on an additive
+  // layer is what separates "a beam of light" from "a drawn line". The colour is the Neon Beam's
+  // own tip red (placeBeam's 0xff5a52 / 0xffd9d4), because a refraction has to read as THIS weapon's
+  // light bending, not as some second effect that happens to be near it.
+  function redrawPrisms(run) {
+    prismG.clear()
+    const list = run.prisms || []
+    if (list.length === 0) return
+    for (const s of list) {
+      const k = Math.max(0, Math.min(1, s.life / PRISM_FLASH_T)) // 1 at cast -> 0 as it fades
+      prismG.moveTo(s.x, s.y).lineTo(s.x2, s.y2)
+      prismG.stroke({ width: 7, color: 0xff5a52, alpha: 0.30 * k })
+      prismG.moveTo(s.x, s.y).lineTo(s.x2, s.y2)
+      prismG.stroke({ width: 2, color: 0xffd9d4, alpha: 0.75 * k })
+    }
   }
 
   function syncBeams(list) {
@@ -11701,6 +11725,7 @@ export function createRenderer(app) {
     // The angle math mirrors sim.js's beamArmAngles. render can't import sim, and the beam entity
     // carries everything needed to derive it — but the two must stay in step, so change them together.
     syncBeams(expandBeamArms(run.beams))
+    redrawPrisms(run)
     updateArcs(dt)
     redrawArcs()
 

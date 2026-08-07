@@ -36,6 +36,7 @@ import {
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
   TRAFFIC_SQUASH, TRAFFIC_ENEMY_HP_FRAC,
+  prismLadder, PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN,
   MOWER_DECK_W, MOWER_DECK_LEN, MOWER_OFFSET, MOWER_ENEMY_HP_FRAC, MOWER_DMG_START, MOWER_DMG_END, mowerDmgAt,
   WEB_R,
@@ -1523,6 +1524,70 @@ function testCrazyMods() {
     console.log(`PASS run O.12 (focus lens): early=${earlyDmg} late=${lateDmg}`)
   }
 
+  // 14. rainbow.prism (v6.7.6): the beam refracts off the nearest body it crosses, fanning
+  // sub-beams FORWARD from that body. The whole point is that a body standing OFF the arm gets hit,
+  // so that is what this pins — plus the ladder shape, the damage falloff, and the containment.
+  function testPrism() {
+    // The ladder is the mod: rare/epic split once into 2, legendary 3-then-2, mythic 4-then-3-then-2.
+    assert.deepStrictEqual(prismLadder(2), [2], 'rare/epic: one split into 2')
+    assert.deepStrictEqual(prismLadder(3), [3, 2], 'legendary: 3, and each of those into 2')
+    assert.deepStrictEqual(prismLadder(4), [4, 3, 2], 'mythic: 4, then 3, then 2')
+    assert.deepStrictEqual(prismLadder(0), [], 'no mod = no ladder, so the branch never opens')
+
+    // Geometry: the player at the origin, the arm along +x. `hub` sits on the arm and is what
+    // refracts. `off` sits well off the arm but squarely on the upper sub-beam, which leaves hub at
+    // +PRISM_SPREAD/2 — it is unreachable by the beam itself and can only be hit by a refraction.
+    const armLen = 400, armW = 60
+    const build = (withPrism) => {
+      const run = createRun(makeMeta(), { chapter: 'city' })
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+      run.player.x = 0; run.player.y = 0; run.player.critChance = 0
+      run._laneAcc = 1e6
+      const hub = makeStatusEnemy(run, { x: 200, y: 0, hp: 1e9, speed: 0 })
+      const a = PRISM_SPREAD / 2
+      const off = makeStatusEnemy(run, { x: 200 + Math.cos(a) * 120, y: Math.sin(a) * 120, hp: 1e9, speed: 0 })
+      run.enemies.push(hub, off)
+      run.beams.push({ angle: 0, life: 1, duration: 1, dmg: 100, tick: 0.1, width: armW,
+        length: armLen, rotSpeed: 0, acc: 0, prism: withPrism ? prismLadder(2) : null })
+      return { run, hub, off }
+    }
+
+    // Control: no mod, so `off` is untouched — proving it really is outside the beam.
+    const plain = build(false)
+    for (let i = 0; i < Math.round(0.25 / dt); i++) stepSim(plain.run, { x: 0, y: 0 }, dt)
+    assert(plain.hub.hp < 1e9, 'sanity: the arm must hit the body standing on it')
+    assert.strictEqual(plain.off.hp, 1e9, 'a body off the arm takes nothing without the prism')
+
+    // With the mod: the same body is now reached by the refraction, for PRISM_DMG_MUL of the hit.
+    const split = build(true)
+    let hubDmg = 0, offDmg = 0
+    for (let i = 0; i < Math.round(0.25 / dt); i++) {
+      stepSim(split.run, { x: 0, y: 0 }, dt)
+      for (const e of split.run.events) {
+        if (e.type !== 'hit') continue
+        if (Math.abs(e.x - split.hub.x) < 1) hubDmg += e.dmg
+        else offDmg += e.dmg
+      }
+      split.run.events.length = 0
+    }
+    assert(offDmg > 0, 'expected the refraction to reach a body the beam itself cannot touch')
+    assert(Math.abs(offDmg / hubDmg - PRISM_DMG_MUL) < 0.02,
+      `expected a sub-beam at ${PRISM_DMG_MUL}x its parent, got ${(offDmg / hubDmg).toFixed(3)}x`)
+
+    // Containment: no body is damaged twice by one refraction, so a tick can never hit `off` more
+    // than once no matter how many rays point at it. Two ticks fired above, so two hits, not four.
+    const hits = []
+    const one = build(true)
+    one.run.beams[0].tick = 1e6      // park the tick clock...
+    one.run.beams[0].acc = 1e6       // ...then force exactly one tick
+    stepSim(one.run, { x: 0, y: 0 }, dt)
+    for (const e of one.run.events) if (e.type === 'hit') hits.push(e)
+    assert.strictEqual(hits.length, 2, `expected exactly 2 bodies hit by one tick, got ${hits.length}`)
+    // And the drawn segments are render-only: they exist, and they carry no damage of their own.
+    assert(one.run.prisms.length > 0, 'expected drawn refraction segments for the renderer')
+    console.log(`PASS run O.14 (beam prism): ladders 2/[3,2]/[4,3,2], off-arm body took ${offDmg} (${(offDmg / hubDmg).toFixed(2)}x parent), ${one.run.prisms.length} segments, no double hits`)
+  }
+
   // 13. rainbow.strobe: a strobed beam lands more hit events than an unmodded one over the same time.
   function testStrobe() {
     function totalHits(strobeBonus) {
@@ -1562,6 +1627,7 @@ function testCrazyMods() {
   testCrunch()
   testFocus()
   testStrobe()
+  testPrism()
 }
 
 // ---- Run P: star balance invariants (v4.4) ---------------------------------------
