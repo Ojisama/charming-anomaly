@@ -757,7 +757,7 @@ export const WEAPON_MODS = {
     bleedClaws:  { name: 'Bleeding Claws', desc: 'bleed on raked foes (over 3s, dot)', icon: '🩹', base: 0.50, kind: 'pct' },
     ambushPredator: { name: 'Ambush Predator', desc: 'claws hit harder near a trap', icon: '🪤', base: 0.45, kind: 'pct' },
   },
-  // sharpQuills/moreQuills/piercingQuills fold into quillBurst's levels[] via WEAPON_STAT_MODS;
+  // sharpQuills/moreQuills fold into quillBurst's levels[] via WEAPON_STAT_MODS;
   // rapidQuills (burst rate) is read at the fire site. retaliate and reboundQuills are behavioral
   // (hurtPlayer's path — see QUILL_RETALIATE_CD below — and stepBullets' end-of-life branch).
   //
@@ -770,14 +770,15 @@ export const WEAPON_MODS = {
   // Post-fix, 8 seeds, L5 solo, one pick each: Retaliation +7.7%, Sharp Quills +6.4%, Twitchy Spine
   // +5.3%, Rebound Quills +4.5% (and the best KILL gain of the pool, 303 -> 320), Bristling +3.6%,
   // Barbed Quills -2.0%.
-  // That last number is a live problem and is recorded here rather than quietly left: flattening
-  // base pierce to 2 at every level (see WEAPONS.quillBurst above) fixed the ladder and in doing so
-  // ate the pierce MOD. Pierce on a 360-degree ring saturates — measured lambda (mean encounters
+  // Barbed Quills is not in that list any more. v6.6.29 (owner: "cut the card entirely") DELETED
+  // it. Flattening base pierce to 2 at every level — the ladder fix, see WEAPONS.quillBurst above —
+  // ate its own pierce mod: pierce on a 360-degree ring saturates, measured lambda (mean encounters
   // over a quill's whole flight) is 0.477 at L5, so pierce 2 already captures 94% of it and
-  // pierce 2 -> infinity is worth +5.7% in total. Barbed Quills is now the dud that Long Quills
-  // used to be. The obvious re-point is quill THICKNESS (QUILL_R 8 against an enemy radius ~16, so
-  // +50%/pick moves lambda proportionally, predicted +19%/pick) — deliberately NOT taken here
-  // without the owner, because "more quill pierce" is one of the things they asked for by name.
+  // pierce 2 -> infinity is worth +5.7% IN TOTAL. Measured at one pick it was -2.0%, i.e. the new
+  // Long Quills. The owner was offered a re-point onto quill THICKNESS (the one lever that is not
+  // saturated, predicted +19%/pick) and chose the cut: five cards that all do something beats six
+  // with a passenger. quillBurst therefore has five mods, and the pierce the owner asked for lives
+  // in the base ladder rather than in a card.
   // (An earlier 2-seed pass of this table put longQuills at +6.8% and piercingQuills at +6.1%. The
   // per-seed sd of these paired deltas is 2.6-7.3 points, so two seeds carry +-2-5 points of
   // standard error and could not resolve anything below a ~7-point gap. Eight seeds is the floor
@@ -793,7 +794,6 @@ export const WEAPON_MODS = {
     // twelve, twice each.
     reboundQuills:  { name: 'Rebound Quills', desc: 'return pass(es) per quill', icon: '↩️', kind: 'tier', maxPicks: REBOUND_MAX_PICKS },
     rapidQuills:    { name: 'Twitchy Spine',  desc: 'burst rate',          icon: '⏩', base: 0.25, kind: 'pct' },
-    piercingQuills: { name: 'Barbed Quills',  desc: 'quill pierce',        icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     retaliate:      { name: 'Retaliation',    desc: 'getting hit fires a free burst', icon: '💢', base: 1, kind: 'flat' },
   },
   // terror/shockwave/shrill fold into chitterShriek's levels[] via WEAPON_STAT_MODS; rapidShriek
@@ -1757,7 +1757,7 @@ export const CHAPTERS = {
       // v6.6.28 (owner: "centipede -30%hp"): hpMul 1.15 -> 0.805. The centipede is now the
       // SQUISHIEST thing in the chapter (rat 0.85), which is the point — it is the `fast` lane and
       // fast should die fast, per the FAST => COMMITTED rule this roster is built on.
-      { id: 'centipede', archetype: 'fast', name: 'Centipede', hpMul: 0.805, speedMul: 1.05, flags: [] },
+      { id: 'centipede', archetype: 'fast', name: 'Centipede', hpMul: 0.805, speedMul: 1.05, flags: ['weave'] },
       { id: 'rat', archetype: 'normal', name: 'Rat', hpMul: 0.85, speedMul: 1.15, flags: [] },
       // v6.6.28 (owner: "mice should not 'jump' only walk") DELETED the 'dartRat' entry that used
       // to sit here — the v6.5 startled-darting variant. Its `dashBurst` flag is idle at 0.4x speed
@@ -2745,6 +2745,18 @@ export const SPLIT_CHILD_COUNT = 2
 export const SPLIT_HP_FRAC = 0.45     // child hp/maxHP, as a fraction of the parent's maxHP
 export const SPLIT_RADIUS_FRAC = 0.7  // child radius, as a fraction of the parent's radius
 
+// weave (v6.6.29, undergrowth's centipede — owner directive, see stepEnemyMovement's last branch):
+// a serpentine lateral drift laid ON the plain seek. It exists because v6.6.28 deleted the chapter's
+// dartRat ("mice should not jump"), and the cat is a `tank` that WAVE_TABLE cannot spawn before
+// t=140 — so the first 140s of a 300s run, nearly half of it, was two enemies walking in perfectly
+// straight lines. The centipede owns ~35% of the 60-140s window and already has 6 baked slither
+// frames to sell the motion, so the rhythm goes there.
+// Expressed as a ROTATION of the heading, not as extra displacement: the enemy still closes at
+// exactly e.speed, so this buys back path variety without buying back pressure. And it is
+// deliberately NOT a burst — a weave is unambiguously a walk, which is the owner's whole constraint,
+// and it needs no telegraph precisely because nothing about it is sudden.
+export const WEAVE_AMP = 0.55   // rad, peak deviation of the heading from straight-at-you
+export const WEAVE_FREQ = 3.1   // rad/s of the weave's own sine — about one full S every 2s
 // dashBurst (e.g. pond's tadpole): alternates idle (slow) <-> dash (fast) toward the
 // player, both still along the normal seek direction — see stepEnemyMovement in sim.js.
 export const DASH_IDLE_T = 1.1        // s, idle phase duration

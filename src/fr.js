@@ -448,8 +448,6 @@ const CONFIG = {
   'return pass(es) per quill': 'passage(s) de retour par piquant',
   'Twitchy Spine': 'Échine Nerveuse',
   'burst rate': 'cadence de salve',
-  'Barbed Quills': 'Piquants Barbelés',
-  'quill pierce': 'perforation des piquants',
   'Retaliation': 'Riposte',
   'getting hit fires a free burst': 'être touché déclenche une salve gratuite',
   'Terror': 'Terreur',

@@ -9455,7 +9455,9 @@ function testRedundantMods() {
 
   // (b) every pierce mod shares the ONE constant — the ceiling is a property of pierce, not of a
   // weapon, so a future pierce mod added without it is the thing this catches.
-  const pierceMods = [['star', 'pierce'], ['stinger', 'piercingNeedles'], ['quillBurst', 'piercingQuills'], ['realityShard', 'pierceShard']]
+  // quillBurst.piercingQuills was cut in v6.6.29 — with base pierce 2 at every level it measured
+  // -2.0%, so the card was retired rather than capped. Three pierce mods left, one shared ceiling.
+  const pierceMods = [['star', 'pierce'], ['stinger', 'piercingNeedles'], ['realityShard', 'pierceShard']]
   for (const [wid, mid] of pierceMods) {
     assert.strictEqual(WEAPON_MODS[wid][mid].maxPicks, PIERCE_MAX_PICKS, `${wid}.${mid} must share PIERCE_MAX_PICKS`)
   }
@@ -9729,7 +9731,7 @@ function testUndergrowthRound() {
       run.weaponMods.chitterShriek.chitterSpines = banked
       if (alsoOwnQuill) {
         run.weaponMods.quillBurst.reboundQuills = 5
-        run.weaponMods.quillBurst.piercingQuills = 3
+        run.weaponMods.quillBurst.moreQuills = 6
       }
       run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
       run.mods.spawnMul = 0
@@ -9796,5 +9798,67 @@ function testUndergrowthRound() {
     console.log('PASS run UG.g (dud retired): longQuills absent from WEAPON_MODS and unread by sim.js; reboundQuills + chitterSpines present')
   }
 
-  console.log('PASS run UG (v6.6.28 undergrowth round): centipede -30% hp, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills retired')
+  // (h) v6.6.29 (owner: "give the centipede a weave"). Deleting dartRat in v6.6.28 left the chapter
+  // with one movement pattern for its first 140s — the cat is a `tank` and WAVE_TABLE cannot spawn
+  // one before then. The weave buys that variety back WITHOUT buying back a jump, which is the
+  // owner's actual constraint, so this pins both halves: the path bends, and the closing speed does
+  // not change. A weave that also moved the enemy faster would be a dash wearing a different name.
+  {
+    const walk = (flags) => {
+      Math.random = mulberry32(20260728)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = []
+      run.mods.spawnMul = 0
+      run.obstacles = []; run._obstacleSeed = null; run.traps = []
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      run.enemies.length = 0
+      // 170 px/s is roughly what a real centipede runs (fast archetype x speedMul 1.05), and the
+      // excursion scales with speed, so testing at a made-up slow speed would understate it
+      const e = makeStatusEnemy(run, { x: 900, y: 0, speed: 170 })
+      e.flags = flags
+      e.rosterId = 'centipede'
+      run.enemies.push(e)
+      const path = []
+      for (let i = 0; i < 180; i++) {
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        run.events.length = 0
+        run.player.x = 0; run.player.y = 0   // pin the target so the path is the enemy's alone
+        path.push([e.x, e.y])
+      }
+      const lateral = Math.max(...path.map(([, y]) => Math.abs(y)))
+      const closed = 900 - path[path.length - 1][0]
+      return { lateral, closed }
+    }
+    const straight = walk([])
+    const weaving = walk(['weave'])
+    assert.ok(straight.lateral < 1, `a plain walker must close in a straight line, drifted ${straight.lateral.toFixed(1)}px`)
+    assert.ok(weaving.lateral > 30,
+      `a weaving walker must visibly leave the straight line, only drifted ${weaving.lateral.toFixed(1)}px — the weave is not reaching the seek`)
+    // the closing RATE is the thing that must not move: the weave rotates the heading, it does not
+    // add displacement, so a weaving enemy arrives no faster than a walking one (it arrives a little
+    // SLOWER, since part of each step goes sideways — that is the honest cost of the path).
+    assert.ok(weaving.closed <= straight.closed,
+      `a weave must never close FASTER than a straight walk (${weaving.closed.toFixed(0)}px vs ${straight.closed.toFixed(0)}px) — that would be a dash`)
+    assert.ok(weaving.closed > straight.closed * 0.8,
+      `a weave must still be a WALK toward the player, but it only closed ${weaving.closed.toFixed(0)}px against a straight ${straight.closed.toFixed(0)}px`)
+    // and it must be the last branch: a weaving enemy that is ALSO feared must still flee
+    assert.ok(CHAPTERS.undergrowth.roster.find((r) => r.id === 'centipede').flags.includes('weave'),
+      'the centipede lost its weave')
+    console.log(`PASS run UG.h (centipede weave): straight walk drifts ${straight.lateral.toFixed(1)}px laterally, weaving ${weaving.lateral.toFixed(1)}px, closing ${weaving.closed.toFixed(0)}px vs ${straight.closed.toFixed(0)}px — a path change, not a speed change`)
+  }
+
+  // (i) v6.6.29 (owner: "cut the card entirely"). The pierce mod is gone from quillBurst, and the
+  // pierce the owner asked for lives in the base ladder instead. Asserted as absence-plus-presence
+  // so a half-revert that restores the key without the WEAPON_STAT_MODS wiring still fails.
+  {
+    assert.ok(!('piercingQuills' in WEAPON_MODS.quillBurst),
+      'Barbed Quills is back — with base pierce 2 at every level it measured -2.0%, the new Long Quills')
+    assert.strictEqual(Object.keys(WEAPON_MODS.quillBurst).length, 5,
+      `quillBurst should carry 5 mods after the cut, has ${Object.keys(WEAPON_MODS.quillBurst).length}`)
+    assert.ok(WEAPONS.quillBurst.levels.every((l) => l.pierce === 2),
+      'the base ladder is where quill pierce lives now — every level must still carry pierce 2')
+    console.log('PASS run UG.i (pierce card cut): quillBurst down to 5 mods, all of which measure above noise; pierce 2 stays in the base ladder')
+  }
+
+  console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
 }

@@ -80,6 +80,7 @@ import {
   FLASHLIGHT_ENRAGE_T, FLASHLIGHT_SPEED_MUL, FLASHLIGHT_DMG_MUL,
   SNAP_TRAP_R, SNAP_TRAP_DMG, SNAP_TRAP_REARM,
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
+  WEAVE_AMP, WEAVE_FREQ,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
   FEAR_SPEED_MUL, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
@@ -1199,8 +1200,28 @@ function stepEnemyMovement(run, dt) {
       // pullBeam (v5.4 beyond's UFO elites): the UFO holds still while its beam is open. The beam
       // itself (drag + DoT) is stepPullBeams' business — this branch is only its movement.
     } else if (d > 1e-6 && slowMul > 0) {
-      e.x += (dx / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
-      e.y += (dy / d) * e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
+      const step = e.speed * affixSpeedMul * flagSpeedMul * slowMul * dt
+      let ux = dx / d
+      let uy = dy / d
+      // weave (v6.6.29, undergrowth's centipede): a serpentine lateral drift ON the seek heading.
+      // It is the LAST branch on purpose — a weave is a modifier to walking, not a movement machine
+      // that replaces it, so it must not sit up with dashBurst/pounce/blink in the override chain.
+      // Deliberately not a burst of any kind: v6.6.28 removed dashBurst from this chapter because
+      // an untelegraphed lunge reads as teleporting, and re-adding rhythm here must not re-add that.
+      // The offset rides the enemy's OWN clock (phase seeded off e.id) so a pack does not slither in
+      // lockstep, and it is applied as a rotation of the heading rather than as extra displacement —
+      // the enemy still closes at exactly e.speed, so this changes the PATH and not the pressure.
+      if (e.flags && e.flags.includes('weave')) {
+        e._weaveT = (e._weaveT ?? 0) + dt
+        const a = Math.sin(e._weaveT * WEAVE_FREQ + e.id * 1.7) * WEAVE_AMP
+        const c = Math.cos(a)
+        const s = Math.sin(a)
+        const rx = ux * c - uy * s
+        uy = ux * s + uy * c
+        ux = rx
+      }
+      e.x += ux * step
+      e.y += uy * step
     }
 
     e.x += e.kb.x * dt
@@ -3512,7 +3533,7 @@ const WEAPON_STAT_MODS = {
   // (longQuills = range AND speed, longToss = castRange at the throw site). The rest is plain stat
   // folding.
   clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
-  quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'], piercingQuills: ['pierce', 'flat'] },
+  quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideTornado: ['radius', 'pct'], fasterSpin: ['rotSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
   sewerGeyser:   { pressure: ['dmg', 'pct'], wideGeyser: ['r', 'pct'], moreGeysers: ['count', 'flat'] },
