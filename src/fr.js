@@ -175,7 +175,6 @@ const UI = {
   'WAVE': 'VAGUE',
   'Lv': 'Niv',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
-  '📋 REPORTED — pest control dispatched': '📋 SIGNALÉ·E — la dératisation est en route',
 
   // level-up card composition parts (see tCardDesc/tCardTag in ui.js).
   // The stat-name half of a card line is deliberately NOT repeated here. Those keys ('damage',
@@ -486,8 +485,13 @@ const CONFIG = {
   'tornadoes': 'tornades',
   'Fling Debris': 'Projection de Débris',
   'chunk(s) hurled outward periodically': 'morceau(x) projeté(s) vers l\'extérieur périodiquement',
-  'Suction': 'Aspiration',
-  'inward pull on nearby foes': 'attraction vers l\'intérieur sur les ennemis proches',
+  // v6.9: the tornado stopped pulling ENEMIES and started sweeping LOOT, so 'Aspiration' /
+  // 'attraction ... sur les ennemis proches' went with the mechanic. 'Balayeuse' is the actual
+  // French word for a street-sweeping vehicle, which is exactly what the card depicts, and the
+  // effect line reuses this dictionary's established phrasing for the same job on wave.undertow
+  // ('les novas ramènent gemmes et pièces') so two cards doing one thing read as one thing.
+  'Street Sweeper': 'Balayeuse de Rue',
+  'funnels reel in gems and coins': 'les tornades ramènent gemmes et pièces',
   'High Pressure': 'Haute Pression',
   'eruption damage': 'dégâts de l\'éruption',
   'Wide Geyser': 'Geyser Large',

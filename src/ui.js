@@ -13,9 +13,6 @@ const CAST_ART = Object.fromEntries(
 
 const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
-// v6.3 dispatch beat: how long the "pest control dispatched" HUD banner stays up, in run.time
-// seconds — a UI display duration, not sim balance, so it lives here rather than config.js.
-const DISPATCH_NOTICE_T = 2.5
 // v6.6.18 mis-tap guard: the level-up modal appears mid-fight, right where a thumb is already
 // reaching for the joystick, so a tap in the first instants is a stray press far more often than
 // a choice. Cards and Reroll stay inert this long after the modal renders.
@@ -24,7 +21,7 @@ const DISPATCH_NOTICE_T = 2.5
 // arriving well after the animation has settled. The gate now OUTLASTS the pop-in by 200ms, so
 // there is a beat where the cards look ready and are not; that is the intended trade, and it is
 // why the cost of a wrong tap (a spent level-up you cannot undo) sets this number, not the CSS.
-// Input-guard timing, not sim balance, so it lives here (same call as DISPATCH_NOTICE_T).
+// Input-guard timing, not sim balance, so it lives here rather than in config.js.
 const LEVELUP_GRACE_MS = 500
 
 // v5.17 build stamp: "vX.Y.Z · <short sha>", substituted by vite.config.js's `define` from the git
@@ -208,8 +205,8 @@ function formatShopBonus(id, levels) {
  *       played (meta.chapter for classic, dailyChapter(todayKey()) for daily — the data object
  *       doesn't carry it) purely to show its icon/name in the header, unrelated to these unlocks.
  *   ui.updateHUD(run, events)   called every frame while playing — renders run.mutators as HUD
- *     chips. events (v6.3) is this frame's drained run.events array, scanned only for 'dispatch'
- *     (see DISPATCH_NOTICE_T) to (re)start the "pest control dispatched" HUD banner.
+ *     chips. events is this frame's drained run.events array. v6.9 removed its only consumer
+ *     (the "pest control dispatched" banner); the parameter stays for the next one.
  */
 export function initUI(hooks) {
   const root = document.getElementById('ui')
@@ -939,7 +936,6 @@ export function initUI(hooks) {
         <div class="rampage-bar" style="height:14px;"><div class="rampage-fill" style="background:#8a5fe0;"></div></div>
       </div>
     </div>
-    <div class="dispatch-notice"></div>
     <div class="xp-row">
       <span class="lv-badge">${t('Lv')} 1</span>
       <div class="xp-bar"><div class="xp-fill"></div></div>
@@ -965,7 +961,6 @@ export function initUI(hooks) {
     skillCd: screens.hud.querySelector('.skill-btn-cd'),
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
-    dispatchNotice: screens.hud.querySelector('.dispatch-notice'),
   }
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
@@ -978,10 +973,6 @@ export function initUI(hooks) {
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
     scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
-    // v6.3 dispatch beat: dispatchUntil is a run.time DEADLINE (0 = nothing pending), not a DOM
-    // timer — updateHUD already redraws every frame while playing, so comparing against run.time
-    // needs no separate countdown/interval and survives pause (run.time simply stops advancing).
-    dispatchUntil: 0, dispatchShown: undefined,
   }
 
   function updateHUD(run, events) {
@@ -1108,20 +1099,10 @@ export function initUI(hooks) {
         </span>`).join('')
       hud.weaponRow.innerHTML = weaponChips + elementChips + mutatorChips
     }
-    // v6.3 dispatch beat: a 'dispatch' event this frame (re)starts the banner's ~2.5s window —
-    // main.js drains run.events and passes them through here alongside render/audio, the same
-    // frame-loop cadence every other event consumer already uses (see main.js's ticker).
-    if (events) {
-      for (const e of events) {
-        if (e.type === 'dispatch') { last.dispatchUntil = run.time + DISPATCH_NOTICE_T; break }
-      }
-    }
-    const dispatchShown = run.time < last.dispatchUntil
-    if (dispatchShown !== last.dispatchShown) {
-      last.dispatchShown = dispatchShown
-      if (dispatchShown) hud.dispatchNotice.textContent = t('📋 REPORTED — pest control dispatched')
-      hud.dispatchNotice.classList.toggle('dispatch-notice--show', dispatchShown)
-    }
+    // v6.9 (owner: "remove the pest control alert"). The "📋 REPORTED — pest control dispatched"
+    // HUD banner is gone; the {type:'dispatch'} event itself STAYS, because render.js's red strobe
+    // at the spawn point and main.js's siren are the telegraph that an elite just arrived, and that
+    // is worth keeping. `events` is still in the signature for the next consumer.
   }
 
   // ---- level-up modal ----------------------------------------------------

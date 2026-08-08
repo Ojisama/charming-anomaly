@@ -45,7 +45,6 @@ import {
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
   ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
-  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FLY_T,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
@@ -3210,40 +3209,26 @@ function testV54Flags() {
     console.log(`PASS run Y.g (artillery): shell led ${lead.toFixed(1)}px ahead; elites shell wider; range gate + ${SHELL_MAX_LIVE}-shell cap hold`)
   }
 
-  // (h) blink: a blinker bursts toward the player — never ENDING closer than BLINK_MIN_DIST, and
-  // (v6.7.5) covering the gap CONTINUOUSLY over BLINK_FLY_T rather than teleporting across it.
+  // (h) flyover (v6.9, city's pigeon): buildings are not terrain to a bird. It is ONLY that — same
+  // speed, same seek — so the check is a matched pair walking the same line into the same wall.
+  // This replaces the `blink` scenario: that flag was retired after two attempts to make a
+  // crawl-then-burst mover read as anything but teleporting (see config.js's retirement note).
   {
-    // v5.18: these use a FREE-ROAM chapter, not 'beyond'. Beyond is now a lane (its player
-    // auto-advances up-screen at LANE_SCROLL_SPEED), which moves the burst's target ~418px during
-    // the interval. `blink` is chapter-agnostic vocabulary, so testing it in a chapter whose
-    // movement mode interferes was testing two things at once.
-    const { run, e } = flagRun('city', ['blink'], { at: 600, speed: 40 })
-    const x0 = e.x
-    // Step past the burst's takeoff AND its flight, sampling the largest single-frame displacement.
-    // v6.7.5's whole point: no frame may move the bird more than one frame of flight, so a player
-    // watching it never sees a discontinuity. The pre-v6.7.5 teleport moved BLINK_DIST in one frame.
-    let maxFrameStep = 0
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + BLINK_FLY_T + 0.05) / dt); i++) {
-      const px = e.x, py = e.y
-      stepSim(run, { x: 0, y: 0 }, dt)
-      maxFrameStep = Math.max(maxFrameStep, Math.hypot(e.x - px, e.y - py))
+    const wall = { x: -300, y: 0, r: 70, _cell: 'test', kind: 'rock', rot: 0 }
+    function walkIntoWall(flags) {
+      const { run, e } = flagRun('city', flags, { at: 460, speed: 120 })
+      run.obstacles = [{ ...wall }]
+      run._obstacleSeed = null
+      for (let i = 0; i < Math.round(4 / dt); i++) {
+        run.obstacles = [{ ...wall }]   // streamObstacles would otherwise drop/rebuild the field
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return Math.hypot(e.x - run.player.x, e.y - run.player.y)
     }
-    const jumped = e.x - x0
-    assert(jumped > BLINK_DIST * 0.9, `expected a ~${BLINK_DIST}px burst toward the player, got ${jumped.toFixed(1)}px`)
-    const frameCap = (BLINK_DIST / BLINK_FLY_T) * dt * 1.2 // +20% slack for the crawl underneath
-    assert(maxFrameStep <= frameCap,
-      `expected no frame to jump more than ${frameCap.toFixed(1)}px (a flight, not a teleport), got ${maxFrameStep.toFixed(1)}px`)
-
-    // Clamp: from just outside BLINK_MIN_DIST it may only close the remaining gap, never overshoot.
-    const near = flagRun('city', ['blink'], { at: BLINK_MIN_DIST + 60, speed: 0 })
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + BLINK_FLY_T + 0.05) / dt); i++) stepSim(near.run, { x: 0, y: 0 }, dt)
-    const dist = Math.hypot(near.e.x - near.run.player.x, near.e.y - near.run.player.y)
-    assert(dist >= BLINK_MIN_DIST - 1e-6, `expected a burst never to end closer than ${BLINK_MIN_DIST}, got ${dist.toFixed(1)}`)
-
-    // Obstacles no longer get a bespoke test here: a burst is an ordinary continuous mover now, so
-    // stepObstacles pushes it back out like everything else (run V.g covers that path). The old
-    // "give up rather than cheat through a wall" branch went with the teleport that needed it.
-    console.log(`PASS run Y.h (blink): flew ${jumped.toFixed(0)}px in ${maxFrameStep.toFixed(1)}px steps, clamped at ${dist.toFixed(0)}px`)
+    const bird = walkIntoWall(['flyover'])
+    const walker = walkIntoWall([])
+    assert(bird < walker - 20, `expected a flyover enemy to cross the obstacle a walker is held up by (bird ${bird.toFixed(0)}px vs walker ${walker.toFixed(0)}px from the player)`)
+    console.log(`PASS run Y.h (flyover): the bird crossed the building and closed to ${bird.toFixed(0)}px; the same enemy without the flag stalled at ${walker.toFixed(0)}px`)
   }
 
   // (i) phase: a ghosted flicker takes NO damage and deals none; a solid one is an ordinary enemy.
@@ -3279,7 +3264,7 @@ function testV54Flags() {
   // (j) pullBeam: a UFO's beam drags the player in and ticks dot damage — but at PULL_BEAM_FORCE
   // (< PLAYER.baseSpeed), so walking away still nets outward movement. That's the whole design.
   {
-    // v5.18: 'city', not 'beyond' — same reason as the blink cases above. Beyond is a lane now,
+    // v5.18: 'city', not 'beyond' — same reason as the flag cases above. Beyond is a lane now,
     // so its player advances up-screen every frame and cannot "stand still" for a drag test. The
     // lane's own y-axis rule for this beam (it drags sideways only there) is asserted in run CF.
     const { run, e } = flagRun('city', ['pullBeam'], { at: -200, speed: 0, elite: true }) // UFO at +200
@@ -3340,7 +3325,7 @@ function testV54Flags() {
     console.log(`PASS run Y.k (flashlightCone): enrages at ${(fast / plain).toFixed(2)}x speed, damages nothing`)
   }
 
-  console.log('PASS run Y (v5.4 behavior flags): pounce, aerialStrike, lineCharge, spawner, strafe, missileVolley, artillery, blink, phase, pullBeam, flashlightCone')
+  console.log('PASS run Y (v5.4 behavior flags): pounce, aerialStrike, lineCharge, spawner, strafe, missileVolley, artillery, flyover, phase, pullBeam, flashlightCone')
 }
 
 // ---- Run Z: v5.4 signature mechanics (predators/traffic/bombardment/gravity) --------------
@@ -3966,7 +3951,7 @@ function testV54Weapons() {
   // only the idle state); prey inside `hunt` px of the PLAYER pulls one off the ring; a kill sends
   // it home. One funnel per foe — the claim in stepTornadoWeapon is load-bearing, not cosmetic: the
   // damage cooldown is per ENEMY, so a pack piled on one target throws away all but one funnel's
-  // damage. suction drags foes in; flingDebris hurls chunks out as run.bullets tagged 'trash'.
+  // damage. sweepLoot reels gems/coins in; flingDebris hurls chunks out as run.bullets 'trash'.
   {
     const lvl = WEAPONS.trashTornado.levels[MAX_WEAPON_LEVEL - 1]
     const onRing = (r, d) => Math.abs(Math.hypot(d.x - r.player.x, d.y - r.player.y) - lvl.radius) < 1e-6
@@ -4029,24 +4014,32 @@ function testV54Weapons() {
     }
     assert.strictEqual(claimedFoes.size, lvl.chunks, `expected ${lvl.chunks} distinct targets, got ${claimedFoes.size}`)
 
-    // suction: a foe just inside the suction range is dragged toward the player.
-    function suctionDx(on) {
+    // Street Sweeper (v6.9, replaces the enemy-pulling suction): a gem near a FUNNEL — not near the
+    // player, and well outside magnet range — is marked _vac and reels in. Without the mod it sits.
+    function sweptGem(on) {
       const r = weaponRun('city', 'trashTornado')
-      if (on) r.weaponMods.trashTornado.suction = 0.50
-      const e = makeStatusEnemy(r, { x: 200, y: 0, hp: 1e6, speed: 0 })
-      e.flags = []
-      r.enemies.push(e)
-      stepQuiet(r, 0.3)
-      return e.x
+      if (on) r.weaponMods.trashTornado.sweepLoot = 1
+      r.player.magnet = 10           // so nothing here can be explained by the ordinary magnet
+      stepQuiet(r, 1.0)              // let the pack settle onto its idle ring
+      const t = r.debris[0]
+      const gem = { x: t.x + 20, y: t.y, r: 6, xp: 1 }
+      r.gems.push(gem)
+      const d0 = Math.hypot(gem.x - r.player.x, gem.y - r.player.y)
+      stepQuiet(r, 0.5)
+      return { vac: !!gem._vac, closed: d0 - Math.hypot(gem.x - r.player.x, gem.y - r.player.y) }
     }
-    assert(suctionDx(true) < suctionDx(false) - 1, 'expected suction to drag a nearby foe inward')
+    const swept = sweptGem(true), unswept = sweptGem(false)
+    assert(swept.vac, 'expected a gem beside a funnel to be marked _vac by Street Sweeper')
+    assert(!unswept.vac, 'expected no _vac marking without the mod')
+    assert(swept.closed > unswept.closed + 20,
+      `expected the swept gem to reel in past magnet range (closed ${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
 
     // flingDebris: chunks are hurled outward as bullets.
     const fling = weaponRun('city', 'trashTornado')
     fling.weaponMods.trashTornado.flingDebris = 2
     stepQuiet(fling, 2.0)
     assert(fling.bullets.some((b) => b.weapon === 'trash'), 'expected flingDebris to hurl chunks as weapon:trash bullets')
-    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + suction + fling`)
+    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px) + fling`)
   }
 
   // (e) sewerGeyser: telegraph (harmless) -> one eruption -> gone. Enemies only, never the player.
@@ -5640,8 +5633,8 @@ function testCityTerrainWiring() {
 
   // (c) v6.3 roster rework: weight/minT gate spawnEnemy's pool pick (still the same single
   // Math.random() draw), AERIAL_STRIKE_MAX_LIVE caps concurrent aerial enemies out of 'circle',
-  // and the retuned BLINK_* constants (now the city pigeon's, not the beyond's — see config.js)
-  // still respect their own contract.
+  // and (v6.9) the fast lane's post-blink shape: the pigeon carries `flyover` and both it and the
+  // rat took the owner's 15% speed cut.
   {
     Math.random = mulberry32(20260714)
     const dt = 1 / 60
@@ -5701,50 +5694,22 @@ function testCityTerrainWiring() {
     assert(outOfCircle <= AERIAL_STRIKE_MAX_LIVE,
       `expected at most AERIAL_STRIKE_MAX_LIVE=${AERIAL_STRIKE_MAX_LIVE} aerial enemies out of 'circle' in one frame, got ${outOfCircle}/${n}`)
 
-    // c3: blink retune (v6.3 — these constants are the city pigeon's now, not the beyond's).
-    // First, the retuned crawl in isolation: a throwaway enemy with real speed, stepped one frame
-    // (well short of BLINK_INTERVAL, so no blink fires in it) — pins that it advances at
-    // BLINK_CRAWL_SPEED_MUL of its own speed.
-    const cr = createRun(makeMeta(), { chapter: 'city' })
-    cr.weapons = []; cr.obstacles = []; cr._obstacleSeed = null; cr.mods.spawnMul = 0
-    cr.player.x = 0; cr.player.y = 0; cr.player.hp = cr.player.maxHP = 1e9
-    cr._laneAcc = 1e6
-    const crawler = makeStatusEnemy(cr, { x: -600, y: 0, hp: 1e6, speed: 90 })
-    crawler.flags = ['blink']
-    cr.enemies.push(crawler)
-    const crx0 = crawler.x
-    stepSim(cr, { x: 0, y: 0 }, dt)
-    const crawledPx = crawler.x - crx0
-    const expectedCrawlPx = crawler.speed * BLINK_CRAWL_SPEED_MUL * dt
-    assert(Math.abs(crawledPx - expectedCrawlPx) < 0.5,
-      `expected the between-blink crawl at BLINK_CRAWL_SPEED_MUL=${BLINK_CRAWL_SPEED_MUL} of its speed, got ${crawledPx.toFixed(3)}px vs expected ${expectedCrawlPx.toFixed(3)}px`)
-
-    // Then the blink JUMP contract itself, isolated from the (unclamped) crawl by pinning
-    // speed:0 — same isolation trick Y.h's own 'near' case uses. Never LANDS closer than
-    // BLINK_MIN_DIST (the crawl has no such floor — this is about the teleport specifically), and
-    // closes real ground purely via blinking — at least 200px over 3 intervals — against a
-    // stationary player at 600px.
-    const bl = createRun(makeMeta(), { chapter: 'city' })
-    bl.weapons = []; bl.obstacles = []; bl._obstacleSeed = null; bl.mods.spawnMul = 0
-    bl.player.x = 0; bl.player.y = 0; bl.player.hp = bl.player.maxHP = 1e9
-    bl._laneAcc = 1e6
-    const pigeon = makeStatusEnemy(bl, { x: -600, y: 0, hp: 1e6, speed: 0 })
-    pigeon.flags = ['blink']
-    bl.enemies.push(pigeon)
-    const dist0 = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
-
-    let minDistSeen = dist0
-    for (let i = 0; i < Math.round((BLINK_INTERVAL * 3 + 0.1) / dt); i++) {
-      stepSim(bl, { x: 0, y: 0 }, dt)
-      const d = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
-      if (d < minDistSeen) minDistSeen = d
+    // c3: v6.9 — the pigeon is an ordinary chaser with `flyover` now (blink retired, see the note
+    // in config.js), so what's worth pinning here is that the roster entry actually carries it and
+    // that both fast-lane speeds took the owner's 15% cut. The flag's BEHAVIOUR is run Y.h's job.
+    const fast = CHAPTERS.city.roster.filter((r) => r.archetype === 'fast')
+    const pigeonCfg = fast.find((r) => r.id === 'pigeon')
+    const ratCfg = fast.find((r) => r.id === 'rat')
+    assert(pigeonCfg && ratCfg, 'expected city to keep both fast-lane entries')
+    assert.deepStrictEqual(pigeonCfg.flags, ['flyover'], `expected the pigeon to carry only flyover, got ${JSON.stringify(pigeonCfg.flags)}`)
+    for (const r of CHAPTERS.city.roster) {
+      assert(!r.flags.includes('blink'), `expected no city roster entry to still carry the retired blink flag (${r.id})`)
     }
-    const distEnd = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
-    assert(minDistSeen >= BLINK_MIN_DIST - 1e-6, `expected a blink never to land closer than BLINK_MIN_DIST=${BLINK_MIN_DIST}, got ${minDistSeen.toFixed(1)}`)
-    const closed = dist0 - distEnd
-    assert(closed >= 200, `expected 3 blinks to close at least 200px, closed ${closed.toFixed(1)}px (${dist0.toFixed(0)} -> ${distEnd.toFixed(0)})`)
+    // x0.85 of the pre-v6.9 values (pigeon 1.2, rat 1.15), to 2dp.
+    assert(Math.abs(pigeonCfg.speedMul - 1.02) < 0.005, `pigeon speedMul ${pigeonCfg.speedMul}`)
+    assert(Math.abs(ratCfg.speedMul - 0.98) < 0.005, `rat speedMul ${ratCfg.speedMul}`)
 
-    console.log(`PASS run KK.c (roster v6.3): weight/minT (0 patrolDrone pre-t60 n=${early.length}, share ${patrolShare.toFixed(3)} at t=120 n=${late.length}), strike cap (${outOfCircle}/${n} out of 'circle', cap=${AERIAL_STRIKE_MAX_LIVE}), blink retune (min ${minDistSeen.toFixed(0)}px, closed ${closed.toFixed(0)}px/3 intervals)`)
+    console.log(`PASS run KK.c (roster v6.3): weight/minT (0 patrolDrone pre-t60 n=${early.length}, share ${patrolShare.toFixed(3)} at t=120 n=${late.length}), strike cap (${outOfCircle}/${n} out of 'circle', cap=${AERIAL_STRIKE_MAX_LIVE}), fast lane cut 15% (pigeon ${pigeonCfg.speedMul} flyover, rat ${ratCfg.speedMul})`)
   }
 }
 

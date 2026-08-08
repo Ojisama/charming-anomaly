@@ -871,9 +871,10 @@ function generateWells(sig) {
  * 'flashlightCone' (exterminator elites), 'lineCharge' (city vacuum), 'spawner' (van elites),
  * 'strafe' (jet — bank -> telegraph -> run; fires {type:'strafeLock'} once per pass, see below),
  * 'missileVolley' (helicopter -> run.enemyShots), 'artillery' (tank columns AND AA
- * elites -> run.bombs), 'blink' (city pigeon — a crawl punctuated by a flown burst; v6.7.5 stopped
- * it being a teleport, see the BLINK_* block in config.js), 'phase' (phase flicker), 'pullBeam'
- * (UFO elites).
+ * elites -> run.bombs), 'flyover' (city pigeon — passes straight through run.obstacles and nothing
+ * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites).
+ * RETIRED v6.9: 'blink' (a crawl punctuated by a burst — it read as teleporting through two
+ * rewrites; see the retirement note in config.js before reaching for that shape again).
  * Their phase state lives on sim-internal `_`-prefixed fields following the diveBomb idiom; the
  * two render.js may read are `e._phaseSolid` (bool, phase's alpha) and `e._coneAngle` (rad,
  * flashlightCone's sweep heading).

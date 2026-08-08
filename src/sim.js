@@ -93,7 +93,7 @@ import {
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
-  TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST, TORNADO_RESPACE,
+  TORNADO_SWEEP_R, TORNADO_RESPACE,
   GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
   GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
   // v5.4 skies
@@ -113,7 +113,6 @@ import {
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
   STRUCTURE_RADIUS,
   // v5.4 beyond
-  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FLY_T,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -1195,8 +1194,6 @@ function stepEnemyMovement(run, dt) {
       stepStandoff(e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('march')) {
       stepMarch(e, tx, dt, slowMul, enrageMul)
-    } else if (e.flags && e.flags.includes('blink')) {
-      stepBlink(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.elite && e.flags && e.flags.includes('pullBeam') && e._beamState === 'beam') {
       // pullBeam (v5.4 beyond's UFO elites): the UFO holds still while its beam is open. The beam
       // itself (drag + DoT) is stepPullBeams' business — this branch is only its movement.
@@ -1713,49 +1710,6 @@ function stepStandoff(e, tx, ty, dt, slowMul, spdMul) {
     e.x += (-dy / d) * e._driftDir * spd * BLANK_STANDOFF_DRIFT_MUL * dt
     e.y += (dx / d) * e._driftDir * spd * BLANK_STANDOFF_DRIFT_MUL * dt
   }
-}
-
-// blink (v5.4; v6.7.5 the burst is FLOWN, not teleported — see the BLINK_* block in config.js):
-// the burst IS its movement — it barely crawls between them. State on _blinkT (s to the next
-// burst) and _blinkFly (s left in the current one) + the heading it committed to (_blinkDirX/Y,
-// locked at takeoff so a burst cannot steer). The distance is clamped at takeoff so the burst
-// never ENDS closer than BLINK_MIN_DIST — no free contact hit.
-//
-// Nothing here consults obstacles: a burst is now an ordinary continuous mover, so stepObstacles
-// pushes it back out like everything else. That is what let blockedByObstacle go — it existed only
-// because a teleport cannot be shoved out of a wall it materialised inside.
-function stepBlink(run, e, tx, ty, dt, slowMul, spdMul) {
-  if (e._blinkT === undefined) e._blinkT = BLINK_INTERVAL
-  e._blinkT -= dt
-
-  // mid-burst: fly the locked heading, ignoring where the player has moved to since takeoff
-  if (e._blinkFly > 0) {
-    const fly = Math.min(e._blinkFly, dt)
-    e._blinkFly -= dt
-    const spd = (e._blinkDist / BLINK_FLY_T) * slowMul
-    e.x += (e._blinkDirX || 0) * spd * fly
-    e.y += (e._blinkDirY || 0) * spd * fly
-    return
-  }
-
-  const dx = tx - e.x, dy = ty - e.y
-  const d = Math.hypot(dx, dy)
-  if (d > 1e-6 && slowMul > 0) {
-    const spd = e.speed * spdMul * BLINK_CRAWL_SPEED_MUL
-    e.x += (dx / d) * spd * slowMul * dt
-    e.y += (dy / d) * spd * slowMul * dt
-  }
-
-  if (e._blinkT > 0) return
-  e._blinkT += BLINK_INTERVAL
-
-  const ndx = tx - e.x, ndy = ty - e.y
-  const nd = Math.hypot(ndx, ndy)
-  if (nd <= BLINK_MIN_DIST) return // already close enough — nothing to close
-  e._blinkDirX = ndx / nd
-  e._blinkDirY = ndy / nd
-  e._blinkDist = Math.min(BLINK_DIST, nd - BLINK_MIN_DIST) // clamp: never overshoot into the player's lap
-  e._blinkFly = BLINK_FLY_T
 }
 
 // phase (v5.4 beyond's flickers): alternates solid <-> ghosted forever on _phaseSolid/_phaseT,
@@ -2472,6 +2426,10 @@ function stepObstacles(run) {
   for (const e of run.enemies) {
     if (e._dead) continue
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes straight through
+    // flyover (v6.9, city's pigeon): it is a BIRD — buildings are not terrain to it. This is the
+    // whole of the flag; it does not change speed, seek or contact damage, so a flyover enemy is an
+    // ordinary chaser that happens to take the straight line while everything else goes around.
+    if (e.flags && e.flags.includes('flyover')) continue
     for (const o of run.obstacles) {
       const dx = e.x - o.x, dy = e.y - o.y
       const minSep = o.r + e.radius
@@ -5300,8 +5258,8 @@ function stepShriekEchoes(run, dt) {
 // travelSpeed and parks on it; with nothing in reach it spirals back into a ring of `radius`
 // around the player and circles at rotSpeed — the pre-v6.8 look, now the idle state. Damage is
 // unchanged, ticking on the per-enemy cooldown orbit uses (e._debrisCd, the run.orbs/orbCd
-// bookkeeping). flingDebris hurls chunks outward as run.bullets tagged weapon:'trash'; suction
-// drags nearby foes in (elites/tanks resist, like a black hole's).
+// bookkeeping). flingDebris hurls chunks outward as run.bullets tagged weapon:'trash'; sweepLoot
+// marks nearby gems/coins `_vac` so stepPickups reels them home past magnet range.
 function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   const p = run.player
   const mods = run.weaponMods.trashTornado
@@ -5392,23 +5350,24 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
     }
   }
 
-  // suction: everything nearby is dragged toward the player (the tornado's eye). Elites/tanks are
-  // heavier — capped at TORNADO_SUCTION_RESIST of the pull, mirroring HOLE_RESIST_CAP.
-  const suction = mods?.suction ?? 0
-  if (suction > 0) {
-    const rangeSq = TORNADO_SUCTION_RANGE * TORNADO_SUCTION_RANGE
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      if (e.affixes && e.affixes.includes('anchored')) continue
-      const dx = p.x - e.x, dy = p.y - e.y
-      const dSq = dx * dx + dy * dy
-      if (dSq > rangeSq || dSq <= 1e-6) continue
-      const d = Math.sqrt(dSq)
-      let pull = TORNADO_SUCTION_PULL * suction
-      if (e.elite || e.type === 'tank') pull *= TORNADO_SUCTION_RESIST
-      const step = Math.min(d, pull * dt)
-      e.x += (dx / d) * step
-      e.y += (dy / d) * step
+  // Street Sweeper (v6.9, replaces the enemy-pulling `suction`): every gem and coin within
+  // TORNADO_SWEEP_R of ANY funnel is marked `_vac` — the same flag wave.undertow sets — and
+  // stepPickups then homes it to the player ignoring magnet range. Marking is one-way and sticky,
+  // so a funnel only has to touch a drop once for it to come home; nothing needs un-marking,
+  // because collection removes the item.
+  if (mods?.sweepLoot) {
+    const sweepSq = TORNADO_SWEEP_R * TORNADO_SWEEP_R
+    for (const t of list) {
+      for (const it of run.gems) {
+        if (it._vac) continue
+        const dx = it.x - t.x, dy = it.y - t.y
+        if (dx * dx + dy * dy <= sweepSq) it._vac = true
+      }
+      for (const it of run.coins) {
+        if (it._vac) continue
+        const dx = it.x - t.x, dy = it.y - t.y
+        if (dx * dx + dy * dy <= sweepSq) it._vac = true
+      }
     }
   }
 

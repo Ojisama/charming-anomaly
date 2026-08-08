@@ -4049,19 +4049,25 @@ export function createRenderer(app) {
       // Graphics origin left at (0,0) — bake() anchors on that origin, so spinning the sprite
       // sweeps the offset circle around the hit centre, which IS the swirl.
       const DUST = 0xb9a98f, LIGHT = 0xe0d4bc, DARK = 0x4a4034
+      // v6.9 (owner: "make tornadoes 30% more transparent") — ONE multiplier over every alpha in
+      // this bake rather than a re-tuned ramp, so the depth gradient the design is built on stays
+      // exactly as picked and only its overall weight moves. Applies to the scraps too: leaving
+      // them opaque over a body this faint makes the junk read as the entity and the funnel as a
+      // smudge behind it.
+      const A = 0.7
       T.tornadoRings = []
       for (let i = 0; i < 6; i++) {
         const t = i / 5
         const g = new Graphics()
-        // Outer rings are hazier than v6.8.1's flat 0.2 (owner: "outer ring a bit transparent") —
-        // it read as a solid pale disc lying on the street rather than as airborne dust. The stroke
-        // is tied to the fill at just over half, because a crisp dark outline on a near-invisible
-        // ring is exactly what made the mouth look like a drawn object.
-        const alpha = 0.12 + 0.148 * i
+        // The ramp runs 0.12 -> 0.86 before A. v6.8.1's flat 0.2 outer read as a solid pale disc
+        // lying ON the street rather than as airborne dust. The stroke is tied to its own ring's
+        // fill at just over half, because a crisp dark outline on a near-invisible ring is exactly
+        // what made the mouth look like a drawn object.
+        const alpha = (0.12 + 0.148 * i) * A
         g.circle(11 * t * t, 0, 30 - 24 * t)          // quadratic step: the lean grows with depth
           .fill({ color: i % 2 ? LIGHT : DUST, alpha })
           .stroke({ width: 1.3, color: DARK, alpha: alpha * 0.55 })
-        if (i === 5) g.circle(11, 0, 4.5).fill({ color: 0x241f19, alpha: 0.85 }) // core, nearly black
+        if (i === 5) g.circle(11, 0, 4.5).fill({ color: 0x241f19, alpha: 0.85 * A }) // core
         // Caught scraps ride the MOUTH (the outermost ring), which is the one detail that says
         // TRASH tornado and not a portal — and riding one ring means they now orbit at the mouth's
         // own speed instead of being frozen relative to the throat. Same facet palette as the lone
@@ -4078,7 +4084,7 @@ export function createRenderer(app) {
               const rr = s * (0.65 + hash(j * 2.9 + cx * 0.13 + 3.1) * 0.6)
               pts.push(cx + Math.cos(ja) * rr, cy + Math.sin(ja) * rr)
             }
-            g.poly(pts).fill(DUST).stroke({ width: 1, color: DARK })
+            g.poly(pts).fill({ color: DUST, alpha: A }).stroke({ width: 1, color: DARK, alpha: A })
           }
         }
         T.tornadoRings.push(bake(g))

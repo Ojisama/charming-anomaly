@@ -864,7 +864,7 @@ export const WEAPON_MODS = {
   },
   // ---- City natives (v5.4; Neon Beam rides the existing WEAPON_MODS.rainbow set above) ----
   // heavyTrash/wideHunt/fastWinds/moreTrash fold into trashTornado's levels[] via WEAPON_STAT_MODS.
-  // flingDebris/suction are behavioral (see stepTornadoWeapon in sim.js).
+  // flingDebris/sweepLoot are behavioral (see stepTornadoWeapon in sim.js).
   // v6.8: the two cards that tuned the ORBIT are gone with the orbit's primacy — orbit radius
   // (wideTornado) and spin speed (fasterSpin) now describe what the funnels do while idle, which
   // is not a thing worth a level-up. They are replaced one for one by the two numbers that decide
@@ -875,7 +875,19 @@ export const WEAPON_MODS = {
     fastWinds:   { name: 'Fast Winds',    desc: 'travel speed',    icon: '💨', base: 0.25, kind: 'pct' },
     moreTrash:   { name: 'More Tornadoes', desc: 'tornadoes',      icon: '🌪️', base: 1,    kind: 'flat' },
     flingDebris: { name: 'Fling Debris',  desc: 'chunk(s) hurled outward periodically', icon: '🎯', kind: 'tier' },
-    suction:     { name: 'Suction',       desc: 'inward pull on nearby foes',           icon: '🌬️', base: 0.50, kind: 'pct' },
+    // v6.9 (owner): the tornado used to pull ENEMIES inward. It now sweeps up LOOT instead — the
+    // same job wave.undertow (Chemotaxis) does one chapter over, marking gems and coins `_vac` so
+    // stepPickups reels them in past magnet range. A funnel that hunts across the street and drags
+    // the drops home is a better fit than one that hands the player a pile of foes at point blank.
+    //
+    // On/off, epic only, one pick. `values` (the Beam Prism idiom) rather than kind:'switch',
+    // because makeWeaponModCard refuses a switch above normal rarity and this one is meant to BE
+    // an epic. maxPicks 1: a second pick would have nothing to add.
+    sweepLoot: {
+      name: 'Street Sweeper', icon: '🧲', kind: 'flat', maxPicks: 1, values: { epic: 1 },
+      desc: 'funnels reel in gems and coins',
+      descFor: () => 'funnels reel in gems and coins',
+    },
   },
   // pressure/wideGeyser/moreGeysers fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
   // rapidGeyser (cast rate) is read at the cast site. launch/chainGeyser/trafficMain are
@@ -1201,12 +1213,14 @@ export const TORNADO_FLING_EVERY = 1.5
 export const TORNADO_FLING_DMG_FRAC = 0.8
 export const TORNADO_FLING_SPEED = 430 // px/s
 export const TORNADO_FLING_RANGE = 260 // px before a flung chunk expires (life = range/speed)
-// suction (behavioral): enemies within TORNADO_SUCTION_RANGE of the player are dragged inward at
-// TORNADO_SUCTION_PULL × bonus px/s (elites/tanks resist — capped at TORNADO_SUCTION_RESIST of it,
-// mirroring HOLE_RESIST_CAP so the tornado can't trivially hold a tank).
-export const TORNADO_SUCTION_RANGE = 220
-export const TORNADO_SUCTION_PULL = 120
-export const TORNADO_SUCTION_RESIST = 0.5
+// Street Sweeper (sweepLoot, behavioral — v6.9, replaces the enemy-pulling `suction`): every gem
+// and coin within this of ANY funnel is marked `_vac`, exactly as wave.undertow marks its own, and
+// stepPickups then homes it to the player ignoring magnet range. Radius is per FUNNEL, not per
+// player: the point of the mod is that a pack out hunting brings the drops back with it.
+// 120 is a little under the level-5 orbit ring (130), so an idle pack alone sweeps a ring roughly
+// twice the base magnet — generous but not "collect the whole screen", which would make the magnet
+// passive and Sticky Aura pointless in this chapter.
+export const TORNADO_SWEEP_R = 120
 
 // Sewer Geyser (city utility — see WEAPONS.sewerGeyser + stepGeyserWeapon/stepGeysers in sim.js).
 // run.geysers entries: { x, y, r, fuse, dur, dmg, _chained? } — fuse counts down (harmless
@@ -1960,8 +1974,13 @@ export const CHAPTERS = {
       // opening minute.
       { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: ['aerialStrike'], weight: 0.3, minT: 60 },
       // Street Rat (v6.3): the fast PRESSURE lane (plain committed chaser). Pigeon is the lane's spice.
-      { id: 'rat',      archetype: 'fast',   name: 'Street Rat',     hpMul: 0.8,  speedMul: 1.15, flags: [] },
-      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.2,  flags: ['blink'] },
+      // v6.9 (owner: "pigeons are still dashing/teleporting. just make them move normally, but they
+      // can go through (fly over) obstacles. make them 15% slower and rats too"). The pigeon drops
+      // `blink` for `flyover`: v6.7.5 made the burst continuous rather than a teleport and it STILL
+      // read as one, because a 686 px/s hop between crawls is a discontinuity in speed even when it
+      // is not a discontinuity in position. Both speeds are the old ones x0.85.
+      { id: 'rat',      archetype: 'fast',   name: 'Street Rat',     hpMul: 0.8,  speedMul: 0.98, flags: [] },
+      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.02, flags: ['flyover'] },
     ],
     eliteFlags: ['spawner'],              // exterminator-van elites periodically disgorge minions
     // Signature: traffic lanes (run.lanes) — a marked band is telegraphed, then a vehicle sweeps
@@ -4279,34 +4298,17 @@ export const SKIES_LIGHT = {
 }
 
 
-// ---- Blink behavior flag (v5.4; RETUNED v6.3, REWORKED v6.7.5 — see below) --------------------
-// blink: closes in bursts instead of walking. State on e._blinkT (s until the next burst) and
-// e._blinkFly (s left in the current one). Moves at BLINK_CRAWL_SPEED_MUL of its own speed between
-// bursts (it barely walks — the burst IS its movement). Every BLINK_INTERVAL s, if further than
-// BLINK_MIN_DIST from the player, it commits to a heading and covers up to BLINK_DIST px along it
-// over BLINK_FLY_T seconds (clamped so it never ends closer than BLINK_MIN_DIST).
-// Damages: the PLAYER only, via ordinary contact damage. No run.* array.
-// v6.3: the beyond roster no longer uses this flag (no roster entry carries it) — these constants
-// are retuned freely for their new and only owner, city's pigeon, as the fast lane's SPICE (not
-// its entirety): faster cadence, longer hop, lands one reaction beat outside contact, quicker
-// crawl.
-// v6.7.5 (owner: "why the fuck are pigeons teleporting"). Because it WAS a teleport: the position
-// was assigned outright, with an explode pop at each end to sell the discontinuity. sim.js already
-// carries this exact finding one chapter over — v6.6.28 pulled dashBurst out of undergrowth because
-// "an untelegraphed lunge reads as teleporting" — so the answer is the same one, applied to the
-// thing that was literally teleporting: the bird now FLIES the gap. Same cadence, same distance,
-// same landing rule; it is simply continuous, at BLINK_DIST/BLINK_FLY_T = 686 px/s, which is fast
-// enough to still be the fast lane's spice and slow enough that the eye tracks the bird across it.
-// The flag id stays `blink` — renaming it would churn config/sim/state for zero player-visible
-// change, the same call WEAPONS.rainbow made when it became the Neon Beam.
-// Balance: the flight eats 0.35s of each 1.6s cycle that used to be crawl, so ground covered per
-// cycle drops ~7% (1.6->1.25 crawl-seconds at 0.55x speed). Deliberately not compensated — the
-// pigeon reads as a threat now, which is worth more than the 7%.
-export const BLINK_INTERVAL = 1.6
-export const BLINK_DIST = 240
-export const BLINK_MIN_DIST = 70        // px, it never ends a burst closer than this — lands one reaction beat outside contact
-export const BLINK_CRAWL_SPEED_MUL = 0.55
-export const BLINK_FLY_T = 0.35         // s the burst takes to cover BLINK_DIST (686 px/s)
+// ---- `blink` behavior flag: RETIRED v6.9 ------------------------------------------------------
+// It closed in bursts instead of walking: crawl at 0.55x, then cover 240px in 0.35s, every 1.6s.
+// v6.7.5 already tried to save it — the burst was a literal teleport, so it was made continuous at
+// 686 px/s — and the owner's verdict on that was "pigeons are still dashing/teleporting", which is
+// the correct read: a 12x speed step between crawl and burst is a discontinuity in VELOCITY, and
+// the eye reports that as teleporting whether or not the position is interpolated. Two attempts at
+// making a rhythm-mover legible is enough; city's pigeon (its last and only user) is now an
+// ordinary chaser with `flyover`, and the flag, its constants and stepBlink are gone rather than
+// left dead for the next session to re-apply. Its cousin `dashBurst` survives on pond's tadpole.
+// Nothing named blink* below this line belongs to it — realityShard's blinkEvery/blinkDist are a
+// bullet's own skip and share only the word.
 
 // phase (beyond's phase flickers): a windowed-vulnerability enemy. State on e._phaseSolid (bool) /
 // e._phaseT (s left in the current window). Alternates PHASE_SOLID_T solid <-> PHASE_GHOST_T
