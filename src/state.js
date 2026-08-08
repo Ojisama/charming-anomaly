@@ -971,7 +971,7 @@ function generateWells(sig) {
  *   drift/pull forces are NOT folded in). Written by stepPlayerMovement, read by the 'artillery'
  *   flag to lead its shells (ARTILLERY_LEAD).
  *
- * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
+ * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'anomaly'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
  *   rarity: key of RARITIES (a `New!` weapon: inherent; passives/mods/elements: rolled). icon: from
  *   config. v6.7.5: a weapon UPGRADE card carries UPGRADE_RARITY ('upgrade'), which is NOT a
  *   RARITIES key — ui.js renders no chip for it, because levelling a weapon you own is not a
@@ -986,6 +986,18 @@ function generateWells(sig) {
  *   kind 'element': elemental infusions (see ELEMENTS/COMBOS in config.js), offered always.
  *   run.elements[id] accumulates applied potency; run.elementPicks[id] counts picks (max
  *   MAX_ELEMENT_PICKS), mirroring passives/passivePicks.
+ *   kind 'anomaly' (v6.7.6, see ANOMALIES in config.js): the sixth rarity tier. Carries NO bonus
+ *   key at all — it buys a rule change, not a number — and has no levels, so applyChoice only
+ *   records it and eligibleAnomalyIds filters it out of every later pool. At most one per screen,
+ *   and never a screen's only card (a forced pick may not be "take a curse or take a curse").
+ *   It is the only kind carrying `from`: the fiction line naming why this card appeared now,
+ *   rendered by ui.js on its own wrapping row (tag is empty — that pill does not wrap).
+ *
+ * anomalies (v6.7.6): {id: true} for each anomaly taken this run, read at trigger sites in sim.js
+ *   (unstableCores -> rollAffixes gives every elite the `volatile` affix). Never serialized —
+ *   `run` is not saved — and never migrated for the same reason.
+ * _eliteKills (v6.7.6): elites killed this run. Gates anomaly `when` predicates; run.kills counts
+ *   every enemy and so cannot answer "has this player met an elite yet".
  *
  * v4.5 gold sinks (see CONSUMABLES/REROLL_* in config.js):
  * consumables: run.consumables is the array of CONSUMABLES ids (opts.consumables passed to
@@ -1161,6 +1173,13 @@ export function createRun(meta, opts = {}) {
     // elemental infusions (see ELEMENTS/COMBOS in config.js), offered always
     elements: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     elementPicks: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
+    // v6.7.6 anomalies (see ANOMALIES in config.js and the doc block above): {id: true} for every
+    // anomaly taken this run. No accumulator twin — an anomaly is a rule, not a number, and has no
+    // levels, so the presence of the key IS the whole state.
+    anomalies: {},
+    // Elites killed this run. Gates anomaly predicates ("you have met an elite"), which run.kills
+    // cannot answer. Incremented in dealDamage's elite death branch.
+    _eliteKills: 0,
     enemies: [],
     bullets: [],
     novas: [],

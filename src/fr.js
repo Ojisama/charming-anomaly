@@ -190,6 +190,12 @@ const UI = {
   'Epic': 'Épique',
   'Mythic': 'Mythique',
   'Legendary': 'Légendaire',
+  // The other five are ADJECTIVES agreeing with a feminine 'rareté' ('Normale', 'Épique'); this
+  // one is a NOUN, because the tier is not a degree of rarity — it is a kind of card. Same word
+  // the game already uses for a Daily's mutators ('Anomalie du jour') and for the player
+  // themselves ('Ton anomalie'), which is a live copy collision on both sides (see ANOMALIES in
+  // config.js) and needs the owner's call, not a French-only fix.
+  'Anomaly': 'Anomalie',
 
   // effect chip labels (EFFECT_LABELS in ui.js)
   'enemy spawns': 'apparitions ennemies',

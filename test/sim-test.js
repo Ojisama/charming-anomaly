@@ -9,6 +9,7 @@ import { FR } from '../src/fr.js'
 import {
   SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
+  ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
@@ -500,6 +501,170 @@ function testPoolBuckets() {
 
   const b4 = seen['body/4']
   console.log(`PASS run PB1 (bucket-first roll): body/4 defence ${b4.of('defense').toFixed(1)}% utility ${b4.of('utility').toFixed(1)}% mod ${b4.of('mod').toFixed(1)}% weapon ${b4.of('weapon').toFixed(1)}% element ${b4.of('element').toFixed(1)}%; legendary body/4 ${b4.pc(b4.rarities.legendary ?? 0).toFixed(1)}% beyond/4 ${seen['beyond/4'].pc(seen['beyond/4'].rarities.legendary ?? 0).toFixed(1)}%, mythic city/2 ${seen['city/2'].pc(seen['city/2'].rarities.mythic ?? 0).toFixed(1)}%; unstable element ${unstable.of('element').toFixed(1)}%`)
+}
+
+// ---- Run PB2: the anomaly tier -----------------------------------------------------
+// Anomalies are a SIXTH rarity tier, not a replacement for mythic. No rarity multiplier, no
+// levels — one-shot rule changes, filtered out once taken. See B3/B4/B5 in the Track B spec.
+function testAnomalyTier() {
+  Math.random = mulberry32(20260808)
+  const meta = makeMeta()
+  meta.choiceSlots = 3
+  const run = createRun(meta)
+  run.player.level = 12   // past ANOMALY_MIN_LEVEL (F10)
+  // The seed card's own gate: it teaches itself only to a player who has met an elite. Without
+  // this the tier is INELIGIBLE and every assertion below passes vacuously — the plan's draft of
+  // this test set the level but not the kill, so it could only ever have measured zero.
+  run._eliteKills = 1
+
+  const SLOTS = 3
+  let anomalyCards = 0, pools = 0
+  const slotHits = [0, 0, 0]
+  for (let i = 0; i < 4000; i++) {
+    run._screenRerolls = -1
+    const cards = buildLevelUpChoices(run)
+    pools++
+    assert.strictEqual(cards.length, SLOTS, `a pool returned ${cards.length} cards, not ${SLOTS}`)
+    const anomalies = cards.filter((c) => c.kind === 'anomaly')
+    if (anomalies.length === 0) continue
+    anomalyCards++
+    assert.strictEqual(anomalies.length, 1, 'at most one anomaly per pool')
+    // B5, as an INVARIANT and not a position: a forced pick must never be "take a curse or take
+    // a curse". The pool that contains an anomaly must contain something else too.
+    assert.ok(cards.some((c) => c.kind !== 'anomaly'), 'a pool offered nothing but anomalies')
+    slotHits[cards.findIndex((c) => c.kind === 'anomaly')]++
+    for (const c of anomalies) {
+      assert.ok(!('bonus' in c), `anomaly ${c.id} carries a stat bonus — anomalies produce no growth`)
+      assert.ok(ANOMALIES[c.id], `anomaly card has no valid id: ${c.id}`)
+      assert.strictEqual(c.rarity, 'anomaly', `an anomaly card must wear the anomaly tier, got ${c.rarity}`)
+    }
+  }
+  assert.ok(anomalyCards > 0, 'the anomaly tier never rolled at all')
+
+  // The tier's RATE, derived from config rather than from a copy of it: the anomaly weight is
+  // rolled against the ordinary table's TOTAL (never as an entry inside it), once per slot until
+  // one lands. This is the assertion that bites for any silent thinning of the tier — verified by
+  // mutation: re-adding the positional gate this design replaces (`i < slots - 1`) takes the rate
+  // 12.5% -> 8.6%, roughly 7 sigma at this sample. The POSITION cannot carry that check, because
+  // the shuffle below deliberately erases the difference between a gate and no gate.
+  const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+  const perRoll = ANOMALY_BASE_WEIGHT / (ordinaryTotal + ANOMALY_BASE_WEIGHT)
+  const wantRate = 100 * (1 - Math.pow(1 - perRoll, SLOTS))
+  const gotRate = (100 * anomalyCards) / pools
+  assert.ok(Math.abs(gotRate - wantRate) < 1.5,
+    `anomalies on ${gotRate.toFixed(1)}% of pools against a declared ${wantRate.toFixed(1)}% (ANOMALY_BASE_WEIGHT ${ANOMALY_BASE_WEIGHT} vs an ordinary total of ${ordinaryTotal}, ${SLOTS} slots)`)
+
+  // Position. The array is shuffled once a pool contains an anomaly, so the tier has no
+  // positional tell — but be precise about what this can prove: at the shipped base weight the
+  // UNSHUFFLED distribution is already 35/33/32 (rollCard may only place an anomaly while no
+  // earlier slot did, which is a geometric skew of a few points), so removing the shuffle does
+  // NOT fail this. What it catches is a hard positional rule — anything that pins the tier out of
+  // a slot, or into one. The shuffle earns its line once pity (Task 3) raises the weight, where
+  // the unshuffled skew reaches 41/33/26.
+  for (let i = 0; i < SLOTS; i++) {
+    const share = slotHits[i] / anomalyCards
+    assert.ok(Math.abs(share - 1 / SLOTS) < 0.08,
+      `anomalies landed in slot ${i} on ${(share * 100).toFixed(1)}% of their pools (want ~${(100 / SLOTS).toFixed(0)}%) — the tier is pinned to a position`)
+  }
+
+  // No rarity multiplier, or every anomaly silently scales stats.
+  assert.strictEqual(RARITIES.anomaly.mult, 1, 'an anomaly must carry no rarity multiplier')
+  // Adding a tier to RARITY_ORDER without a tier bonus breaks run PT.a's <= assertion.
+  assert.strictEqual(WEAPON_MOD_TIER_BONUS.anomaly, 1, 'every RARITY_ORDER entry needs a tier bonus')
+  // Mythic is RETAINED (B3) — anomaly is a sixth tier, not a replacement for the jackpot.
+  assert.ok(RARITY_ORDER.includes('mythic') && RARITY_ORDER.includes('anomaly'),
+    'anomaly must JOIN the ladder, not replace mythic')
+
+  // The three gates, each asserted alone. Every one of them is a silent no-op if it stops firing:
+  // the tier would simply be offered more often, which no share assertion above would catch.
+  const gated = (mutate) => {
+    Math.random = mulberry32(20260808)
+    const r = createRun(meta)
+    r.player.level = 12
+    r._eliteKills = 1
+    mutate(r)
+    for (let i = 0; i < 400; i++) {
+      r._screenRerolls = -1
+      if (buildLevelUpChoices(r).some((c) => c.kind === 'anomaly')) return true
+    }
+    return false
+  }
+  assert.ok(!gated((r) => { r.player.level = ANOMALY_MIN_LEVEL - 1 }),
+    `an anomaly was offered below ANOMALY_MIN_LEVEL (${ANOMALY_MIN_LEVEL}) — a new player's first look at the rarest tier is a pure downside (F10)`)
+  assert.ok(!gated((r) => { r._eliteKills = 0 }),
+    'an anomaly was offered while its `when` predicate was false — the hidden condition does nothing')
+  assert.ok(!gated((r) => { r.anomalies.unstableCores = true }),
+    'an anomaly already taken this run was offered again — anomalies have no levels')
+  assert.ok(gated(() => {}), 'the gate harness stopped reaching its subject — it offers nothing even ungated')
+
+  // pickedIds is ONE flat Set across every kind, so an anomaly id colliding with a weapon,
+  // passive, mod or element id would silently delete that card from any pool the anomaly landed
+  // in — and, at 2 slots with a one-item bucket, could empty the pool the invariant then rescues.
+  const takenIds = new Set([...Object.keys(WEAPONS), ...Object.keys(PASSIVES), ...Object.keys(ELEMENTS)])
+  for (const byMod of Object.values(WEAPON_MODS)) for (const m of Object.keys(byMod)) takenIds.add(m)
+  for (const id of Object.keys(ANOMALIES)) {
+    assert.ok(!takenIds.has(id), `anomaly id '${id}' collides with a weapon/passive/mod/element id — pickedIds is one flat Set`)
+  }
+
+  // A predicate that throws must lose its own card, never the screen: ANOMALIES is authored data
+  // and `r.weapons.find(...).level` is the documented way to write one that throws (config.js).
+  ANOMALIES._throwing = { name: 'x', icon: '💥', from: 'x', desc: 'x', weight: 99, chapter: null, when: (r) => r.weapons.find((w) => w.id === 'nope').level > 0 }
+  try {
+    Math.random = mulberry32(20260810)
+    const r = createRun(meta)
+    r.player.level = 12
+    r._eliteKills = 1
+    let offered = 0
+    for (let i = 0; i < 600; i++) {
+      r._screenRerolls = -1
+      for (const c of buildLevelUpChoices(r)) if (c.kind === 'anomaly') offered++
+    }
+    assert.ok(offered > 0, 'a throwing predicate took the whole tier down with it')
+  } finally {
+    delete ANOMALIES._throwing
+  }
+
+  // applyChoice must RECORD it — the shipped chain is closed over weapon|passive|mod|element|heal,
+  // so without a branch an anomaly card is silently consumed with no effect.
+  const taken = createRun(meta)
+  taken.levelUpChoices = [{ kind: 'anomaly', id: 'unstableCores', title: 'x', desc: 'x', tag: '', rarity: 'anomaly', icon: '💥' }]
+  applyChoice(taken, 0)
+  assert.strictEqual(taken.anomalies.unstableCores, true, 'applyChoice must record the anomaly on run.anomalies')
+
+  // The seed card's TRIGGER SITE, because a card that changes nothing has failed however
+  // correctly it rolls. `volatile` is an elite AFFIX, read ONLY as enemy.affixes.includes(...)
+  // in dealDamage's death path — `enemy.volatile = true` would be a dead store nothing reads and
+  // no test catches. Every ordinary spawn is forced elite here (spawnEnemy takes isElite from
+  // run.time >= run._nextEliteAt) so a dozen samples take seconds of sim, not a whole run.
+  const eliteRun = (anomaly) => {
+    Math.random = mulberry32(20260809)
+    const r = createRun(makeMeta())
+    if (anomaly) r.anomalies.unstableCores = true
+    r.player.hp = 1e9
+    r.player.maxHP = 1e9
+    const seen = []
+    for (let i = 0; i < 60 * 60 && seen.length < 12; i++) {
+      r._nextEliteAt = 0
+      if (r.phase === 'levelup') { declineLevelUp(r); continue }
+      stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      for (const e of r.enemies) if (e.elite && !seen.includes(e)) seen.push(e)
+    }
+    return { r, seen }
+  }
+  const withCores = eliteRun(true)
+  const without = eliteRun(false)
+  assert.ok(withCores.seen.length >= 6 && without.seen.length >= 6,
+    `only ${withCores.seen.length}/${without.seen.length} elites spawned — the trigger-site scenario stopped reaching its subject`)
+  const volatiles = (s) => s.filter((e) => e.affixes.includes('volatile')).length
+  assert.strictEqual(volatiles(withCores.seen), withCores.seen.length,
+    `Unstable Cores left ${withCores.seen.length - volatiles(withCores.seen)} of ${withCores.seen.length} elites non-volatile`)
+  assert.ok(volatiles(without.seen) < without.seen.length,
+    'every elite is volatile WITHOUT the anomaly — the card buys nothing (rollAffixes is ignoring run.anomalies)')
+  // _eliteKills feeds the predicates, so it has to actually count.
+  assert.ok(without.r._eliteKills > 0 && without.r._eliteKills <= without.r.kills,
+    `_eliteKills ${without.r._eliteKills} of ${without.r.kills} kills — the counter anomaly predicates read is not being kept`)
+
+  console.log(`PASS run PB2 (anomaly tier): ${gotRate.toFixed(1)}% of pools offered one vs a declared ${wantRate.toFixed(1)}% — never alone, never twice, unpinned (${slotHits.map((n) => ((100 * n) / anomalyCards).toFixed(0) + '%').join('/')}), gated on level/predicate/already-taken, and every elite dies volatile once it is held`)
 }
 
 // Declines every level-up screen (still banks the xp/level, per stepLevelUp, but grants no
@@ -8614,6 +8779,7 @@ try {
   testNewWeapons()
   testRaritySanity()
   testPoolBuckets()
+  testAnomalyTier()
   testStarMods()
   testAdvancedStarMods()
   testElements()

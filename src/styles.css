@@ -616,6 +616,10 @@ body {
 .lv-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .lv-card-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.02rem; }
 .lv-card-desc { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
+/* v6.7.6: an anomaly card's `from:` line — the fiction that says why THIS card showed up now
+   (ANOMALIES in config.js). A wrapping block, deliberately not a .tag: tag is a nowrap pill sized
+   for "Lv 3", and these are sentences. Only anomalies set c.from today, hence no tier selector. */
+.lv-card-from { font-size: 0.72rem; font-weight: 600; font-style: italic; color: var(--ink-soft); opacity: 0.72; }
 .tag {
   font-style: normal;
   font-size: 0.66rem;
@@ -698,12 +702,18 @@ body {
 .lv-card[data-rarity="epic"]      { border-color: #b06cf0; box-shadow: 0 4px 0 rgba(176, 108, 240, 0.4), 0 0 16px rgba(176, 108, 240, 0.4); }
 .lv-card[data-rarity="legendary"] { border-color: #ff9d3c; box-shadow: 0 4px 0 rgba(255, 157, 60, 0.4), 0 0 18px rgba(255, 157, 60, 0.45); }
 .lv-card[data-rarity="mythic"]    { box-shadow: 0 4px 0 rgba(255, 77, 106, 0.4), 0 0 20px rgba(255, 77, 106, 0.5); }
+/* anomaly (v6.7.6): the sixth tier. Its own colour rather than a hotter mythic, because it is not
+   a bigger number — it is a rule change, and it must not read as "mythic but more". Without this
+   rule the tier renders with no border, no chip background and no glow, and RARITIES.anomaly.color
+   is dead weight: ui.js reads only .name off the table. */
+.lv-card[data-rarity="anomaly"]   { border-color: #35e0c8; box-shadow: 0 4px 0 rgba(53, 224, 200, 0.4), 0 0 22px rgba(53, 224, 200, 0.55); }
 
 .lv-card[data-rarity="normal"] .rarity-chip    { background: #9aa0a6; }
 .lv-card[data-rarity="rare"] .rarity-chip      { background: #4da3ff; }
 .lv-card[data-rarity="epic"] .rarity-chip      { background: #b06cf0; }
 .lv-card[data-rarity="legendary"] .rarity-chip { background: #ff9d3c; color: #3a2000; }
 .lv-card[data-rarity="mythic"] .rarity-chip    { background: #ff4d6d; }
+.lv-card[data-rarity="anomaly"] .rarity-chip   { background: #35e0c8; color: #00332c; }
 
 /* mythic: extra-special animated rainbow border */
 .lv-card[data-rarity="mythic"] {

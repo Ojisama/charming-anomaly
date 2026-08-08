@@ -22,10 +22,24 @@ export const RARITIES = {
   epic:      { name: 'Epic',      color: 0xb06cf0, mult: 2.5 },
   legendary: { name: 'Legendary', color: 0xff9d3c, mult: 4.0 },
   mythic:    { name: 'Mythic',    color: 0xff4d6d, mult: 6.5 },
+  // v6.7.6 (Track B): a SIXTH tier, not a replacement for mythic. mult 1.0 because an anomaly buys
+  // no stat growth at all — it is a rule change (see ANOMALIES below), so there is nothing for a
+  // multiplier to scale. The key is not decorative: every reader that walks RARITY_ORDER reads
+  // .mult (test run PT.a, scripts/pool-probe.mjs's card scorer), and a missing one reads NaN.
+  anomaly:   { name: 'Anomaly',   color: 0x35e0c8, mult: 1.0 },
 }
-export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic']
+// Replacing mythic (the original design) would give the mythic city starter `rainbow` a "Normal"
+// chip, silently cap all 15 kind:'tier' mods at +2 via WEAPON_MOD_TIER_BONUS, break three
+// assertions in test/sim-test.js, and delete the pool's only jackpot at the same moment anomalies
+// stop producing stat growth. Hades precedent: legendary/duo boons stand APART from the rarity
+// scale rather than replacing its top rung.
+export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic', 'anomaly']
 // Fixed roll weights (user-tuned v4.7; no level scaling). Epic-or-better ≈ 12.3% per card,
 // so a screen shows at least one epic+ on ~23% (2 cards) / ~33% (3) / ~41% (4) of level-ups.
+// NO anomaly entry, deliberately: the anomaly weight depends on run eligibility (and, from
+// v6.7.7, on pity), so it is computed per roll and rolled AGAINST this table's total rather than
+// living inside it. That is also what keeps a failed anomaly roll from deflecting onto legendary
+// — the 16.1% legendary the shim's first draft measured (F1).
 export const RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
 // A weapon UPGRADE card carries NO tier — this value deliberately is not a key of RARITIES, so
 // ui.js finds nothing to look up and prints no chip (see renderLevelup). `New!` cards keep their
@@ -71,6 +85,54 @@ export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP']
 // measured moving hole 2.49% -> 2.14% and nothing at all in the single-unowned case, so it buys
 // no gate. If a rare weapon must be a genuinely rare FIND, that lever is the floor, not this.
 export const WEAPON_UP_WEIGHT = 100
+
+// ---- Anomalies (v6.7.6, Track B) -----------------------------------------------------
+// Run-changing cards with no rarity multiplier and no levels — the sixth tier in RARITY_ORDER.
+// They produce NO stat growth: the behaviour lives at a trigger site in sim.js reading
+// run.anomalies.<id>, the same pattern behavioural weapon mods already use, so this table stays
+// data plus pure predicates.
+//
+// PREDICATE HAZARD: run.weaponMods / run.weaponModPicks are pre-populated for EVERY weapon, so
+// `r.weaponModPicks.star?.chain` is safe. But `r.weapons.find(w => w.id === 'orbit').level` THROWS
+// when the weapon is not owned — use sim.js's hasWeaponAt instead, always. eligibleAnomalyIds
+// catches a throwing predicate and drops that card rather than the whole screen, but a predicate
+// that throws is a card that never appears, which no test would report as a failure.
+//
+// NAMING COLLISION, UNRESOLVED: "Anomaly" is already the player-facing word for a Daily's/
+// difficulty's MUTATORS (ANOMALY_REROLL_COST, ui.js "Reroll this anomaly", fr.js "Anomalie du
+// jour") and the player is themselves called "Ton anomalie" in the readout. Two meanings now share
+// the word on screen. Deliberately shipped as-is pending the owner's call on the tier's name —
+// renaming is a copy decision, and the slate of 19 more cards is the moment to make it once.
+// The five constants below are the measurement SHIM's values (scripts/pool-probe.mjs), retained
+// deliberately. The owner's call is 1-2 anomalies per run, which they do not deliver — but
+// retuning them against a ONE-card table measures nothing, and the "at least one by level N"
+// guarantee that has to accompany a low rate is worse than useless with one card (it would hand
+// 100% of qualifying runs the same card at the same moment). Both move to the slate plan, with the
+// 19 other cards. Measured on the shipped table, 40 runs: an immortal probe reaching level 34-40
+// takes 0.88 (body/2) to 1.00 (beyond/4) per run, i.e. the one-card ceiling; a mortal one
+// (--survival) reaching level 17-19 takes 0.45 (body/2 d3) to 0.78 (beyond/4 d1).
+export const ANOMALY_BASE_WEIGHT = 8
+// PITY and PITY_CAP are read from v6.7.7 (Task 3), not yet — they are here so the tuning block is
+// one block rather than two.
+export const ANOMALY_PITY_PER_CARD = 2
+export const ANOMALY_PITY_CAP = 45
+export const MAX_ANOMALIES_PER_RUN = 4
+// F10: the unconditional cards are eligible from level 1 and taken in ~100% of runs, so without a
+// floor a new player's first encounter with the rarest tier is a pure downside.
+export const ANOMALY_MIN_LEVEL = 8
+
+export const ANOMALIES = {
+  unstableCores: {
+    name: 'Unstable Cores', icon: '💥',
+    from: 'you killed an elite and something went critical',
+    desc: 'Every elite dies volatile. Stand back when it drops.',
+    // The hidden gate: this card teaches itself only to a player who has met an elite. Reads the
+    // run counter, never run.enemies — an elite alive on screen is not the lesson.
+    when: (r) => (r._eliteKills ?? 0) > 0,
+    weight: 1,      // unconditional 1 / conditional 6 / chapter inversion 2
+    chapter: null,  // or a chapter id, to scope the card to one biome
+  },
+}
 
 // ---- Level-up choice slots (v4.8: permanent, meta-shop-unlocked) ---------------------
 // A level-up screen shows meta.choiceSlots/run.choiceSlots cards (2 by default). The 3rd/4th
@@ -959,7 +1021,11 @@ export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
 // base*rarityMult, so high-rarity picks stay meaningful without letting per-cast entity counts
 // explode (a mythic pierce/blast pick multiplies fine; a mythic +6.5 stars-per-volley would not).
-export const WEAPON_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2, mythic: 3 }
+// The `anomaly: 1` entry is REQUIRED, not decorative: run PT.a asserts
+// WEAPON_MOD_TIER_BONUS[r] <= max(1, round(RARITIES[r].mult)) over every RARITY_ORDER entry, and
+// `undefined <= 1` is false. No mod card ever rolls the anomaly tier (rollCard returns the anomaly
+// card itself), so the value is a floor, not a balance number.
+export const WEAPON_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2, mythic: 3, anomaly: 1 }
 // Level-up pool cap: if more weapon-mod candidates are eligible than this (many weapons owned,
 // each with several mods still under MAX_WEAPON_MOD_PICKS), uniformly sample this many per
 // buildLevelUpChoices call so mods don't crowd out weapon/passive/element cards.

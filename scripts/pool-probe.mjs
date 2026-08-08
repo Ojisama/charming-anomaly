@@ -145,7 +145,13 @@ const ROLL_WEIGHTS = (() => {
   if (!RARITY_FLOOR) return P_RARITY_WEIGHTS
   const i = C.RARITY_ORDER.indexOf(RARITY_FLOOR)
   if (i < 0) throw new Error(`--rarityfloor: unknown tier "${RARITY_FLOOR}" (${C.RARITY_ORDER.join('|')})`)
-  return Object.fromEntries(C.RARITY_ORDER.slice(i).map((r) => [r, P_RARITY_WEIGHTS[r]]))
+  // v6.7.6: RARITY_ORDER ends in 'anomaly', which is a PARALLEL tier with no RARITY_WEIGHTS entry
+  // (it is rolled against the ordinary table's total, not inside it). Without this filter every
+  // --rarityfloor run would carry an `anomaly: undefined` weight into pickW and poison the sum
+  // with NaN — silently, since pickW's `r -= v` would just fall through to the first key.
+  return Object.fromEntries(C.RARITY_ORDER.slice(i)
+    .filter((r) => P_RARITY_WEIGHTS[r] != null)
+    .map((r) => [r, P_RARITY_WEIGHTS[r]]))
 })()
 
 // Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
@@ -548,8 +554,14 @@ function measure(mode) {
         }
         run.levelUpChoices = cards
         const i = choose(cards)
-        if (cards[i].kind === 'anomaly') { st.taken.add(cards[i].id); run.levelUpChoices = null }
-        else applyChoice(run, i)
+        // v6.7.6: applyChoice HAS an anomaly branch now (it records run.anomalies[id], which is
+        // what keeps the card out of every later pool), so anomalies go through it like any other
+        // card. Skipping it — as this did while the tier was shim-only — left the shipped pipeline
+        // re-offering the same anomaly for the rest of the run, i.e. the `current` column could
+        // not measure the real tier at all. st.taken stays as the counter because proposed-mode
+        // ids are stand-ins with no ANOMALIES entry.
+        if (cards[i].kind === 'anomaly') st.taken.add(cards[i].id)
+        applyChoice(run, i)
         grantSpread()   // a choice may have been a New! weapon
         run.phase = 'playing'
         continue
@@ -633,8 +645,12 @@ function report(r) {
   console.log(`kind   ${Object.entries(r.kinds).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`rarity ${Object.entries(r.rarities).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`defence ${f1(r.defShare)}% of cards, ${f1(r.defPicks)} picks/run — armor ${r.defTotals.armor.toFixed(2)} regen ${r.defTotals.regen.toFixed(2)} maxHP ${f1(r.defTotals.maxHP)}`)
+  // v6.7.6: the anomaly line is no longer proposed-only. The tier ships, so the `current` column
+  // measures the real ANOMALIES table (one card) while `proposed` measures the shim's 18
+  // stand-ins — two different questions, and gating the line hid the shipped one entirely.
+  console.log(`anomalies ${r.anomalies.toFixed(2)}/run (cap ${MAX_ANOMALIES_PER_RUN})` +
+    (r.mode === 'proposed' ? `  empty-pool rolls ${f1(r.emptyPool)}/run  [18 stand-in cards, not the shipped table]` : `  [${Object.keys(C.ANOMALIES).length} card(s) in ANOMALIES]`))
   if (r.mode === 'proposed') {
-    console.log(`anomalies ${r.anomalies.toFixed(2)}/run (cap ${MAX_ANOMALIES_PER_RUN})  empty-pool rolls ${f1(r.emptyPool)}/run`)
     console.log(`bucket absent ${Object.entries(r.absent).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}  <- the ONLY drift budget`)
   }
 }

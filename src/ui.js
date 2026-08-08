@@ -1166,6 +1166,7 @@ export function initUI(hooks) {
             ${c.tag ? `<i class="tag ${c.tag === 'New!' ? 'tag--new' : 'tag--lv'}">${tCardTag(c.tag)}</i>` : ''}
           </span>
           <span class="lv-card-desc">${tCardDesc(c.desc)}</span>
+          ${c.from ? `<span class="lv-card-from">${t(c.from)}</span>` : ''}
         </span>
       </button>`
     }).join('')
