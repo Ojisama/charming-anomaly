@@ -2700,17 +2700,18 @@ function rollTrafficLane(run, dt) {
       const ra = seed != null ? roadAt(p.x, p.y, seed) : { onRoad: false }
       let x, y, angle
       if (ra.onRoad && ra.dist <= TRAFFIC_SNAP_R) {
-        // Tier 1: on/near a road — snap the lane fully onto its centerline. roadAt's `dist` is
-        // UNSIGNED, so resolve which side of the player the centerline is on with one extra probe
-        // — the same sign-probe trick render.js's populateRoad uses (~6645-6654).
+        // Tier 1: on/near a road — snap the lane fully onto its centerline, using roadAt's SIGNED
+        // `off`. v6.9.1: this used to recover the sign by re-querying roadAt 8px to one side and
+        // seeing whether `dist` shrank, which is wrong for exactly the case the snap exists for —
+        // a player standing ON the line. Within 8px the probe crosses the centreline, `dist` does
+        // not shrink, the sign comes back negative, and the band is laid 2*dist off the road it was
+        // supposed to snap to. (Same bug, same fix, as render.js's carriageway.)
         const px = -Math.sin(ra.angle), py = Math.cos(ra.angle)
-        const probe = roadAt(p.x + px * 8, p.y + py * 8, seed)
-        const sgn = probe.onRoad && probe.dist < ra.dist ? 1 : -1
         // Perpendicular correction only — the along-axis coordinate stays exactly the player's, so
         // the band's length is centered on them (not merely overlapping): the always-crosses-the-
         // player invariant survives even a full snap onto the road.
-        x = p.x + px * sgn * ra.dist
-        y = p.y + py * sgn * ra.dist
+        x = p.x - px * ra.off
+        y = p.y - py * ra.off
         angle = ra.angle + (dirRoll < 0.5 ? 0 : Math.PI)
       } else {
         const near = seed != null ? nearestCity(p.x, p.y, seed) : null

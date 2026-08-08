@@ -8566,6 +8566,7 @@ try {
   testStingerPierce()
   testRedundantMods()
   testUndergrowthRound()
+  testRoadOff()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -10166,4 +10167,48 @@ function testUndergrowthRound() {
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
+}
+
+// ---- run VC (v6.9.1): roadAt's signed `off` ----------------------------------------------------
+// Both the carriageway renderer and the city's traffic-lane snap place geometry ON a street's
+// centreline, and until v6.9.1 both recovered which SIDE of the line they were on by re-querying
+// roadAt a few px to one side and checking whether `dist` shrank. That probe is wrong for every
+// query within the probe distance of the line — it steps across, `dist` does not shrink, and the
+// geometry is placed 2*dist the WRONG WAY. On a 30px street that is the staircase kerb the owner
+// reported, and for the lane snap it is a taxi lane laid off the road it snapped to.
+// `off` is the fix and is now load-bearing in two modules, so its convention gets asserted here.
+//
+// The test does NOT step the whole way to the centreline and re-query: a street is cut by water and
+// by the urban falloff, so the centreline point of a perfectly good on-road query can legitimately
+// answer onRoad:false (found the hard way — (-1876,-44) at seed 1 is a street on the near bank of a
+// river). It measures the DERIVATIVE instead, which no gate can perturb: step eps along the left
+// normal and `dist` must move to |off + eps|, not to |-off + eps|. Those two differ for every
+// sample with a non-zero offset, so a flipped sign cannot pass.
+function testRoadOff() {
+  const EPS = 0.5
+  const seeds = [1, 7, 12345, 998877]
+  let checked = 0, sawStreet = false, sawHighway = false
+  for (const seed of seeds) {
+    for (let k = 0; k < 6000 && checked < 900; k++) {
+      const x = (k * 977) % 9000 - 4500
+      const y = (k * 613) % 9000 - 4500
+      const r = roadAt(x, y, seed)
+      if (!r.onRoad) continue
+      assert.ok(Math.abs(Math.abs(r.off) - r.dist) < 1e-9,
+        `roadAt(${x},${y},${seed}).off ${r.off} must have magnitude dist ${r.dist}`)
+      if (Math.abs(r.off) < 1) continue           // the two predictions coincide near the line
+      const nx = -Math.sin(r.angle), ny = Math.cos(r.angle)
+      const q = roadAt(x + nx * EPS, y + ny * EPS, seed)
+      if (!q.onRoad || q.kind !== r.kind || Math.abs(q.angle - r.angle) > 1e-9) continue
+      checked++
+      if (r.kind === 'highway') sawHighway = true; else sawStreet = true
+      const right = Math.abs(q.dist - Math.abs(r.off + EPS))
+      const flipped = Math.abs(q.dist - Math.abs(-r.off + EPS))
+      assert.ok(right < flipped,
+        `off has the WRONG SIGN at (${x},${y},${seed}): off=${r.off}, stepping +${EPS} along the left normal gave dist ${q.dist} (|off+eps|=${Math.abs(r.off + EPS)}, |-off+eps|=${Math.abs(-r.off + EPS)})`)
+    }
+  }
+  assert.ok(checked > 200, `expected a few hundred usable on-road samples, got ${checked}`)
+  assert.ok(sawStreet && sawHighway, `wanted both kinds covered (street=${sawStreet} highway=${sawHighway})`)
+  console.log(`PASS run VC (roadAt.off): ${checked} on-road samples across 4 seeds, streets and highways, every one signed along the left normal`)
 }

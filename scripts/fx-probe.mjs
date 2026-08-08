@@ -243,17 +243,18 @@ await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 'debu
 // The scene runs thousands of sim steps SYNCHRONOUSLY, which blocks the main thread — a capture
 // taken during that block is plain white and looks exactly like a blank-page bug. So poll for the
 // ready flag rather than trusting a wall-clock wait.
+// ALWAYS kill the browser on the way out. A bail-out that leaves it running turns one failed run
+// into a permanent CPU tax: the next probe boots slower, times out, leaks another browser, and the
+// failures look like flaky scenes rather than the pile-up they are (8 orphans in one session).
+const die = (msg) => { console.error(msg); browser.kill(); process.exit(1) }
 let ready = false
 for (let i = 0; i < Math.ceil(waitMs / 500) + 40; i++) {
   if (await evaluate('window.__fxReady === true')) { ready = true; break }
   const err = await evaluate('window.__fxError || null')
-  if (err) { console.error(err); process.exit(1) }
+  if (err) die(err)
   await sleep(500)
 }
-if (!ready) {
-  console.error('scene never became ready — raise --wait, or check that the page reached a run')
-  process.exit(1)
-}
+if (!ready) die('scene never became ready — raise --wait, or check that the page reached a run')
 
 for (let i = 0; i < frames; i++) {
   await evaluate(`window.__fxScrub(${frames > 1 ? (i / (frames - 1)).toFixed(4) : '0'})`)

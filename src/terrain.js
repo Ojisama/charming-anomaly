@@ -326,7 +326,9 @@ const STREET_MIN_URBAN = 0.15
 const highwayCache = new Map()
 const HIGHWAY_CACHE_MAX = 2048
 
-function highwaysNear(ci, cj, seed) {
+// Exported (v6.9.1) so render.js can DRAW a highway as the single straight segment it is, instead
+// of rediscovering it one cell at a time. `ci, cj` is the CITY_GRID lattice cell of the query point.
+export function highwaysNear(ci, cj, seed) {
   const key = ci + ',' + cj + ',' + seed
   const hit = highwayCache.get(key)
   if (hit !== undefined) return hit
@@ -349,19 +351,32 @@ function highwaysNear(ci, cj, seed) {
   return segs
 }
 
-// Perpendicular distance from a point to a segment, plus the segment's own heading.
+// Perpendicular distance from a point to a segment, plus the segment's own heading and which SIDE
+// of it the point is on (`s`, +1/-1 along the heading's left normal (-sin, cos)).
 function segDist(px, py, ax, ay, bx, by) {
   const vx = bx - ax, vy = by - ay
   const len2 = vx * vx + vy * vy
-  if (len2 === 0) return { d: Math.hypot(px - ax, py - ay), angle: 0 }
+  if (len2 === 0) return { d: Math.hypot(px - ax, py - ay), angle: 0, s: 1 }
   let t = ((px - ax) * vx + (py - ay) * vy) / len2
   t = t < 0 ? 0 : t > 1 ? 1 : t
-  return { d: Math.hypot(px - (ax + t * vx), py - (ay + t * vy)), angle: Math.atan2(vy, vx) }
+  const side = (py - ay) * vx - (px - ax) * vy      // >0 when the point is left of the heading
+  return {
+    d: Math.hypot(px - (ax + t * vx), py - (ay + t * vy)),
+    angle: Math.atan2(vy, vx),
+    s: side >= 0 ? 1 : -1,
+  }
 }
 
 // Is (x, y) roadway? Returns { onRoad: false }, or:
 //   angle  — the road's heading in world space (0 = runs along +x)
 //   dist   — px from the centreline (>= 0)
+//   off    — the SAME distance, SIGNED along the heading's left normal (-sin angle, cos angle), so
+//            the centreline point is exactly (x - off * -sin angle, y - off * cos angle) with no
+//            probing. v6.9.1: render.js used to recover this sign by re-querying roadAt 4px to one
+//            side and seeing whether `dist` shrank — which is simply wrong whenever the query point
+//            is within 4px of the centreline (the probe crosses it, `dist` does not shrink, and the
+//            stamp is placed 2*dist off the line). On a 30px street that put a visible sideways jog
+//            in every other carriageway stamp: the reported "roads are not straight".
 //   half   — this road's own half-width, so dist/half is "how far toward the kerb"
 //   major  — avenue or highway: render draws these wider and with different markings
 //   kind   — 'street' | 'highway'
@@ -372,12 +387,12 @@ export function roadAt(x, y, seed) {
   // a city becomes its main artery rather than stopping at the boundary.
   const ci = Math.floor(x / CITY_GRID), cj = Math.floor(y / CITY_GRID)
   const half = HIGHWAY_WIDTH / 2
-  let bestD = Infinity, bestAngle = 0
+  let bestD = Infinity, bestAngle = 0, bestSide = 1
   for (const s of highwaysNear(ci, cj, seed)) {
     const r = segDist(x, y, s.ax, s.ay, s.bx, s.by)
-    if (r.d < bestD) { bestD = r.d; bestAngle = r.angle }
+    if (r.d < bestD) { bestD = r.d; bestAngle = r.angle; bestSide = r.s }
   }
-  if (bestD <= half) return { onRoad: true, angle: bestAngle, dist: bestD, half, major: true, kind: 'highway' }
+  if (bestD <= half) return { onRoad: true, angle: bestAngle, dist: bestD, off: bestD * bestSide, half, major: true, kind: 'highway' }
 
   // City streets: laid out in the nearest city's OWN rotated frame, which is what makes one city one
   // continuous grid instead of a slice of an infinite global lattice.
@@ -429,10 +444,13 @@ export function roadAt(x, y, seed) {
   }
   // At a junction the nearer centreline wins — that is the one anything distance-based should key
   // off (kerb fade, lane markings).
+  // `off` signs `dist` along the returned heading's left normal. The u axis points along
+  // (cos c.angle, sin c.angle) and the v axis along (-sin c.angle, cos c.angle); a u-street runs at
+  // c.angle + PI/2, whose left normal is the NEGATIVE u axis — hence the minus on that branch only.
   if (onU && (!onV || uDist <= vDist)) {
-    return { onRoad: true, angle: c.angle + Math.PI / 2, dist: uDist, half: uHalf, major: uMajor, kind: 'street' }
+    return { onRoad: true, angle: c.angle + Math.PI / 2, dist: uDist, off: -(u - ui * c.blockU), half: uHalf, major: uMajor, kind: 'street' }
   }
-  return { onRoad: true, angle: c.angle, dist: vDist, half: vHalf, major: vMajor, kind: 'street' }
+  return { onRoad: true, angle: c.angle, dist: vDist, off: v - vi * c.blockV, half: vHalf, major: vMajor, kind: 'street' }
 }
 
 // ---- biome classification ------------------------------------------------------------------------

@@ -6,8 +6,8 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -16,7 +16,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
-  ROAD_MAJOR_WIDTH, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
+  ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
 import { currentForce } from './sim.js'
 
@@ -3810,18 +3810,13 @@ export function createRenderer(app) {
       g.ellipse(18, 20, 46, 28).fill({ color: lo, alpha: 0.18 }) // shaded downslope
       T.contour = bake(g)
     }
-    // ---- road strips (skies only, v5.9 top-down region overhaul) --------------------------------
-    // A plain asphalt bar baked at a REF=100 unit square, long axis along +x, pad=0 so the bake's
-    // bounds are EXACTLY the REF square (no stroke overhang to pad for) — that's what lets
-    // populateRoad below set scale.set(len/REF, width/REF) and land on an EXACT target length/width,
-    // same "bake at a reference measurement, scale to a live target" idiom as T.obFoot's footprint
-    // ring above. roadAt (config.js) returns angle 0 for an east-west street (runs along x), PI/2
-    // for north-south — matching this bar's own "long axis = +x, rotate by `angle`" convention.
-    // v5.10 art direction (spec §4.2): the two carriageway tiles are now baked by
-    // buildSkiesTextures() below — kerb lines, wet crown sheen, wheel-polish bands, a dashed
-    // centreline at a pitch pre-compensated for the tile's non-uniform stamp scale, double yellow
-    // on avenues — with everything that has a SHAPE (manholes, patches, arrows, crosswalks) split
-    // out onto uniformly-scaled decal/junction sprites. They are declared there and nowhere else.
+    // ---- road strips (skies only) ---------------------------------------------------------------
+    // The carriageway tiles (T.roadMinor/Major/Highway) are baked by buildSkiesTextures() below and
+    // declared there and nowhere else: one tile pitch long by the street's own width, at TRUE world
+    // size, laid along a whole street run by updateStreets as a TilingSprite. Long axis is +x, which
+    // matches roadAt's convention (angle 0 = a street running along x). Anything with a SHAPE —
+    // manholes, patches, arrows, crosswalks — is a separate decal or junction sprite, because those
+    // vary along the street and a repeating tile by definition cannot.
     {
       // obstacle footprint (v5.6.10): the collision contract, drawn HARD where every decor shadow is
       // soft. A subtly darkened packed-earth pad plus a crisp rim ring sitting on the collider edge,
@@ -5444,42 +5439,44 @@ export function createRenderer(app) {
     // so anything baked into it is stretched by a different factor on each axis AND per road class.
     // Only shapes that survive that go in here, pre-compensated; everything with a shape becomes a
     // separate, uniformly-scaled decal below.
+    // v6.9.1: baked at TRUE WORLD SIZE — RP.tilePitch px along the street by the street's own width
+    // across it — and consumed by a TilingSprite laid along a whole street run (updateStreets). No
+    // stretch, so no pre-compensation: what is drawn here is what lands on the ground. The tile
+    // MUST be seamless left-to-right (every band runs the full pitch) and its top and bottom rows
+    // are the kerb, which is where the repeat wraps — anything that bleeds across that edge shows
+    // up as a doubled kerb.
     {
       const RP = ROAD_PAINT
-      const REF = 100
-      function carriageway(major) {
+      function carriageway(width, major) {
         const g = new Graphics()
-        const sy = major ? RP.stretchYMajor : RP.stretchYMinor
-        const px = (v) => v / RP.stretchX      // world px -> REF units along the road
-        const py = (v) => v / sy               // world px -> REF units across the road
-        g.rect(-REF / 2, -REF / 2, REF, REF).fill(major ? RP.asphaltMajor : RP.asphaltMinor)
-        // wet crown sheen: a static overhead reflection of the storm sky down the centreline.
-        // ponytail (spec §11): no dynamic sheen sprite — the full-field lightning flash already
-        // whitens it, and a per-road-cell additive sheen would be ~1000 extra sprites at cell 30.
-        g.rect(-REF / 2, -py(6), REF, py(12)).fill({ color: RP.sheen, alpha: RP.sheenAlpha })
+        const L = RP.tilePitch, h = width / 2
+        g.rect(-L / 2, -h, L, width).fill(major ? RP.asphaltMajor : RP.asphaltMinor)
+        g.rect(-L / 2, -6, L, 12).fill({ color: RP.sheen, alpha: RP.sheenAlpha })   // wet crown sheen
         for (const s of [-1, 1]) {             // wheel-polish bands where tyres actually run
-          const c = s * REF / 2 * RP.polishAt
-          g.rect(-REF / 2, c - py(3.5), REF, py(7)).fill({ color: RP.polish, alpha: RP.polishAlpha })
+          g.rect(-L / 2, s * h * RP.polishAt - 3.5, L, 7).fill({ color: RP.polish, alpha: RP.polishAlpha })
         }
         for (const s of [-1, 1]) {             // kerb line, both long edges
-          g.rect(-REF / 2, s * (REF / 2 - py(RP.kerbW)) - (s < 0 ? 0 : py(RP.kerbW)) + (s < 0 ? 0 : 0), REF, py(RP.kerbW))
-            .fill(RP.kerb)
+          g.rect(-L / 2, s < 0 ? -h : h - RP.kerbW, L, RP.kerbW).fill(RP.kerb)
         }
         if (major) {
           for (const s of [-1, 1]) {           // double yellow
-            g.rect(-REF / 2, s * py(RP.doubleYellowGap / 2) - py(RP.doubleYellowW / 2), REF, py(RP.doubleYellowW))
+            g.rect(-L / 2, s * RP.doubleYellowGap / 2 - RP.doubleYellowW / 2, L, RP.doubleYellowW)
               .fill({ color: RP.doubleYellow, alpha: 0.9 })
           }
-        } else {
-          // ONE dash, centred. The tile is stamped every ROAD_CELL (30) world px and is 1.6 cells
-          // wide, so neighbouring stamps overlap — a baked dash PATTERN would double-print into
-          // mush. One dash per tile centre lands them at an exact 30px pitch along the street.
-          g.rect(-px(7), -py(1.4), px(14), py(2.8)).fill({ color: RP.centreline, alpha: RP.centrelineAlpha })
+        } else {                               // minor streets: one dash per pitch, centred
+          g.rect(-RP.dashLen / 2, -1.4, RP.dashLen, 2.8).fill({ color: RP.centreline, alpha: RP.centrelineAlpha })
         }
-        return { ...bake(g, 0), ref: REF }
+        // Left at the default clamp addressMode ON PURPOSE. Setting it to 'repeat' looks like the
+        // obvious thing and is what breaks the tiling: these bakes are 96x60 / 96x108 / 96x128
+        // render textures, i.e. non-power-of-two, so the GPU sampler clamps instead of wrapping and
+        // the strip draws ONE tile and then extends its last column for the rest of the street. The
+        // symptom is a road with a single dash at one end and none after it. Pixi's own tiling
+        // shader wraps in the fragment stage and does not care about POT — so leave it alone.
+        return { ...bake(g, 0), w: width }
       }
-      T.roadMinor = carriageway(false)
-      T.roadMajor = carriageway(true)
+      T.roadMinor = carriageway(ROAD_MINOR_WIDTH, false)
+      T.roadMajor = carriageway(ROAD_MAJOR_WIDTH, true)
+      T.roadHighway = carriageway(HIGHWAY_WIDTH, true)
     }
     T.rdManhole = (() => {
       const g = new Graphics()
@@ -6862,30 +6859,30 @@ export function createRenderer(app) {
   // neutral stand-in for a smashed steel bin, and it costs zero new art.
   const RUIN_FOR_KIND = { tower: 'tower', house: 'house', barn: 'barn', silo: 'silo', pier: 'pier', tree: 'tree', rock: 'tree' }
 
-  // ---- roads (skies only, v5.9 top-down region overhaul) --------------------------------------
-  // Draws config.js's roadAt() street grid as a floor decal — a pooled per-cell prop layer (below),
-  // NOT per-frame Graphics: FLOOR_LAYERS already runs one pass over every visible cell each frame
-  // (touchFloorCell), so this reuses that exact machinery with a deterministic PREDICATE (roadAt)
-  // standing in for the usual random `chance` roll, same as every other layer's populate callback.
+  // ---- roads (skies only) ----------------------------------------------------------------------
+  // A street is ONE STRIP, not a chain of stamps. Until v6.9.1 this was a per-cell FLOOR_LAYERS
+  // layer: every 26px floor cell whose centre landed on tarmac stamped a short rotated quad, sliding
+  // itself onto the centreline by asking roadAt again 4px to one side and seeing whether `dist` had
+  // shrunk. That probe is wrong for every cell within 4px of the centreline — the probe crosses the
+  // line, `dist` does not shrink, and the quad is placed 2*dist off. On a 30px street the result was
+  // a visible sideways jog every few stamps, a kerb that doubled and thinned along its own length,
+  // and a dash pattern whose pitch was whatever the square cell lattice happened to project onto an
+  // oblique street. That is the reported "roads are ugly, sometimes aliasing, not straight".
   //
-  // ROAD_CELL must be <= ROAD_MINOR_WIDTH: consecutive probe points are ROAD_CELL apart, so a
-  // street ROAD_MINOR_WIDTH px wide is GUARANTEED to contain at least one probe (pigeonhole) for
-  // ANY per-seed grid offset — render.js never learns that offset directly (config.js keeps it
-  // private), it only ever calls the exported roadAt. -4 is a safety margin.
-  const ROAD_CELL = ROAD_MINOR_WIDTH - 4
-  // roadAt's `angle` is 0 for an east-west street (runs along x) or PI/2 for north-south — the
-  // perpendicular unit vector (the direction `dist` is measured along) is (sin(angle), cos(angle)).
-  // The unit normal to a road running at heading `angle`. The heading vector is (cos, sin), so the
-  // normal is (-sin, cos).
+  // Now the geometry comes from the generator instead of being rediscovered from it: streets are
+  // enumerated in their own city's rotated frame (exactly as updateJunctions already does), highways
+  // straight off terrain.js's segment list, and each RUN of continuous carriageway gets a single
+  // TilingSprite of the true-world-size tile baked above. One sprite per street per view instead of
+  // several hundred quads, perfectly straight by construction, and the dash pattern is phase-locked
+  // to the city's own along-street coordinate so it never doubles or skips.
   //
-  // v5.12 BUGFIX — this returned (+sin, cos), the MIRROR of the normal. Its dot product with the
-  // heading is 2*sin*cos = sin(2*angle), which is zero only when the angle is a multiple of PI/2 —
-  // so on the v5.10 global axis-aligned lattice the bug was exactly invisible, and it became visible
-  // the moment v5.11 gave every city its own rotation. Every consumer resolves a road's centreline
-  // by stepping `dist` along this vector, so on an oblique street they all stepped off at the wrong
-  // angle: 74% of carriageway tiles landed off the centreline (median 3.8px, p90 8.5px on a 30px
-  // road), which is a serrated kerb and a snaking centre line. This is literally the reported
-  // "you can't even do oblique streets".
+  // The march is still needed, and is the only reason this is not just "draw the whole line": a
+  // street stops at the urban falloff and at water (roadAt owns both rules), so a run has to be cut
+  // where roadAt stops answering. STREET_MARCH is the sampling pitch of that cut — coarse enough to
+  // be cheap, fine enough that a kerb never overshoots a coastline by more than its own width.
+  const STREET_MARCH = ROAD_MINOR_WIDTH
+  // The unit normal to a road running at heading `angle`: the heading is (cos, sin), so the LEFT
+  // normal is (-sin, cos). roadAt's `off` is signed along exactly this vector.
   function roadPerp(angle) { return { x: -Math.sin(angle), y: Math.cos(angle) } }
 
   // ---- MAP MODE (v5.12, dev/debug) -------------------------------------------------------------
@@ -6966,35 +6963,116 @@ export function createRenderer(app) {
     return near ? near.city.angle : 0
   }
 
-  function populateRoad(s, i, j, cell) {
-    if (!chapterHasRoads) { s.visible = false; return }
-    const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
-    const ra = roadAt(wx, wy, roadSeed)
-    if (!ra.onRoad) { s.visible = false; return }
-    // Resolve the EXACT centreline point: roadAt's `dist` is unsigned, so nudge along the
-    // perpendicular and see whether that grew or shrank it, then step the full `dist` the way that
-    // shrank it. One extra roadAt call, and exact (roadAt's distance math has no error to
-    // accumulate — only the sign was ambiguous), so segments from neighbouring cells land on the
-    // same line and read as one continuous strip instead of a cell-quantized staircase.
-    const perp = roadPerp(ra.angle)
-    const probe = roadAt(wx + perp.x * 4, wy + perp.y * 4, roadSeed)
-    const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
-    const cx = wx + perp.x * ra.dist * sign
-    const cy = wy + perp.y * ra.dist * sign
-    // v5.11: NO DISTRICT GATE. This is the line that produced "roads are 10 meters long" — a
-    // street was a continuous infinite line being drawn only where it crossed an urban district
-    // cell, so it appeared for a few hundred px and vanished. Every road roadAt now returns already
-    // belongs somewhere (a city's own grid, or a highway between two cities), so drawing all of it
-    // is correct: a highway crossing farmland SHOULD be drawn, and one crossing water reads as the
-    // causeway it is.
-    const look = ra.major ? T.roadMajor : T.roadMinor
-    s.texture = look.tex
-    s.anchor.set(look.ax, look.ay)
-    s.tint = 0xffffff
-    s.alpha = 1
-    s.rotation = ra.angle
-    s.scale.set((cell * 1.6) / look.ref, (ra.half * 2) / look.ref) // *1.6 overlaps neighbours so segments never gap
-    s.position.set(cx, cy)
+  // ---- street strips (v6.9.1) -------------------------------------------------------------------
+  // Rebuilt only when the camera leaves its 48px bucket: the strips are WORLD-space and the world
+  // container is what the camera moves, so a set built with STREET_PAD of slack stays correct for
+  // every frame in between. Without that gate this would re-march every visible street every frame,
+  // and the march is the only expensive part (roadAt samples elevation and river noise).
+  const STREET_PAD = 200
+  // Hard ceiling on strips per rebuild. Gameplay uses ~50; the cap only ever bites in MAP MODE,
+  // where the viewport is several thousand px across, and it bounds the MARCH as well as the pool
+  // (a full pool with an unbounded march would still burn every roadAt sample it was never going to
+  // draw). A truncated map view loses distant streets, which is the correct thing to lose.
+  const STREET_MAX = 220
+  const streetSprites = []
+  let streetKey = ''
+  function acquireStreet() {
+    const s = new TilingSprite({ texture: Texture.EMPTY, width: 1, height: 1 })
+    s.anchor.set(0, 0.5)   // origin at the run's START, mid-carriageway
+    roadLayer.addChild(s)
+    streetSprites.push(s)
+    return s
+  }
+
+  function updateStreets(cx, cy) {
+    const key = chapterHasRoads
+      ? roadSeed + '|' + mapZoom + '|' + Math.round(cx / 48) + '|' + Math.round(cy / 48)
+      : 'off'
+    if (key === streetKey) return
+    streetKey = key
+    let n = 0
+    // One strip for the stretch of `look`-class carriageway from along-coordinate a0 to a1 on the
+    // line through (ox, oy) heading `ang`. `phase` is the run start's along-coordinate in the road's
+    // OWN frame (the city's v/u axis, or distance from a highway's first endpoint), which is what
+    // keeps the dash pattern continuous across two runs split by a river.
+    const strip = (ox, oy, ang, a0, a1, phase, look) => {
+      if (a1 - a0 < 1 || n >= STREET_MAX) return
+      const s = streetSprites[n] || acquireStreet()
+      n++
+      s.visible = true
+      s.texture = look.tex
+      s.width = a1 - a0
+      s.height = look.w
+      s.rotation = ang
+      s.position.set(ox + Math.cos(ang) * a0, oy + Math.sin(ang) * a0)
+      const p = ROAD_PAINT.tilePitch
+      s.tilePosition.set(-(((phase % p) + p) % p), 0)
+    }
+    // March the line and cut it wherever roadAt stops answering `kind` — that is where the urban
+    // falloff or the water rule ends the street. Runs are extended half a step at each end so a
+    // kerb never visibly stops short of the last sample that was still on tarmac.
+    // The HEADING test is what keeps two overlapping cities apart. visibleCities returns every city
+    // whose lattice cell reaches the view, but roadAt answers in whichever city is NEAREST — so
+    // enumerating city B's grid while standing in city A finds "road" only at the handful of points
+    // where B's phantom line happens to cross one of A's real streets, and each of those became a
+    // stray 30px stub lying across the street at the wrong angle. A street this march is walking
+    // must come back with this march's own heading.
+    const march = (ox, oy, ang, a0, a1, kind, look) => {
+      const dx = Math.cos(ang), dy = Math.sin(ang)
+      let start = null, last = 0
+      for (let a = a0; a <= a1 + STREET_MARCH && n < STREET_MAX; a += STREET_MARCH) {
+        const r = a <= a1 ? roadAt(ox + dx * a, oy + dy * a, roadSeed) : { onRoad: false }
+        if (r.onRoad && r.kind === kind && Math.abs(Math.cos(r.angle - ang)) > 0.999) { if (start === null) start = a; last = a }
+        else if (start !== null) {
+          strip(ox, oy, ang, start - STREET_MARCH / 2, last + STREET_MARCH / 2, start - STREET_MARCH / 2, look)
+          start = null
+        }
+      }
+    }
+    if (chapterHasRoads) {
+      const { cities, x0, y0, x1, y1 } = visibleCities(cx, cy, STREET_PAD)
+      for (const c of cities) {
+        const b = cityViewBounds(c, x0, y0, x1, y1)
+        const E = STREET_SPACING_MAJOR_EVERY
+        // A street at u = ui*blockU runs along the city's +v axis (heading c.angle + PI/2), and vice
+        // versa. Both are enumerated straight from the grid indices roadAt itself uses, so the line
+        // drawn IS the line the generator answers on — no probing, no drift.
+        for (let ui = Math.ceil(b.uMin / c.blockU); ui * c.blockU <= b.uMax; ui++) {
+          const o = cityToWorld(c, ui * c.blockU, b.vMin)
+          const major = ((ui % E) + E) % E === 0
+          march(o.x, o.y, c.angle + Math.PI / 2, 0, b.vMax - b.vMin, 'street', major ? T.roadMajor : T.roadMinor)
+        }
+        for (let vi = Math.ceil(b.vMin / c.blockV); vi * c.blockV <= b.vMax; vi++) {
+          const o = cityToWorld(c, b.uMin, vi * c.blockV)
+          const major = ((vi % E) + E) % E === 0
+          march(o.x, o.y, c.angle, 0, b.uMax - b.uMin, 'street', major ? T.roadMajor : T.roadMinor)
+        }
+      }
+      // Highways are straight segments between two city centres and are deliberately exempt from the
+      // water rule (a trunk road on a causeway is real), so they need no march at all — just the
+      // stretch of each segment the view can see. Enumerated from the view's corners as well as its
+      // centre because map mode's viewport is wider than one CITY_GRID cell.
+      const segs = new Map()
+      for (const [px, py] of [[(x0 + x1) / 2, (y0 + y1) / 2], [x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+        for (const s of highwaysNear(Math.floor(px / CITY_GRID), Math.floor(py / CITY_GRID), roadSeed)) {
+          segs.set(s.ax + ',' + s.ay + ',' + s.bx + ',' + s.by, s)
+        }
+      }
+      for (const s of segs.values()) {
+        const ang = Math.atan2(s.by - s.ay, s.bx - s.ax)
+        const len = Math.hypot(s.bx - s.ax, s.by - s.ay)
+        const dx = Math.cos(ang), dy = Math.sin(ang)
+        let a0 = Infinity, a1 = -Infinity
+        for (const [px, py] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+          const a = (px - s.ax) * dx + (py - s.ay) * dy
+          if (a < a0) a0 = a
+          if (a > a1) a1 = a
+        }
+        a0 = Math.max(0, a0 - STREET_PAD); a1 = Math.min(len, a1 + STREET_PAD)
+        strip(s.ax, s.ay, ang, a0, a1, a0, T.roadHighway)
+      }
+    }
+    for (let i = n; i < streetSprites.length; i++) streetSprites[i].visible = false
   }
 
   // ---- road decals (v5.10, spec §4.2) ---------------------------------------------------------
@@ -7003,17 +7081,18 @@ export function createRenderer(app) {
   // tile — that tile is stamped at a non-uniform scale (x 0.48, y 0.34 minor / 0.62 major), so a
   // baked circle comes out an oval and by a DIFFERENT amount on an avenue than on a side street.
   // These are separate, uniformly-scaled sprites on their own 160px cell: one decal per cell,
-  // picked by cellHash, self-gating on roadAt exactly like populateRoad.
+  // picked by cellHash, self-gating on roadAt the way the carriageway layer used to before
+  // updateStreets replaced it.
   function populateRoadDecal(s, i, j, cell) {
     if (!chapterHasRoads) { s.visible = false; return }
     const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
     const ra = roadAt(wx, wy, roadSeed)
     if (!ra.onRoad) { s.visible = false; return }
+    // roadAt's `off` IS the signed distance along `perp`, so the centreline point is exact — no
+    // probe, and in particular no 8px misplacement for a decal that happens to land near the line.
     const perp = roadPerp(ra.angle)
-    const probe = roadAt(wx + perp.x * 4, wy + perp.y * 4, roadSeed)
-    const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
-    const cx = wx + perp.x * ra.dist * sign
-    const cy = wy + perp.y * ra.dist * sign
+    const cx = wx - perp.x * ra.off
+    const cy = wy - perp.y * ra.off
     const along = { x: Math.cos(ra.angle), y: Math.sin(ra.angle) }
     const pick = ['manhole', 'patch', 'drain', 'arrow'][Math.floor(cellHash(i, j, 21) * 4)]
     const slide = (cellHash(i, j, 22) - 0.5) * cell * 0.7
@@ -7131,7 +7210,9 @@ export function createRenderer(app) {
     // cell is PARCEL so one cell is exactly one farm field; at ~280px a 1900x1000 view is about 50
     // sprites, cheaper than the 420px blotch layer it stands in for.
     { name: 'terrain', cell: PARCEL, chance: 1.00, parent: blotchLayer, populate: populateTerrain },
-    { name: 'road', cell: ROAD_CELL, chance: 1.00, parent: roadLayer, populate: populateRoad },
+    // v6.9.1: no 'road' layer here any more — the carriageway is enumerated per STREET by
+    // updateStreets, not stamped per cell. The DECALS stay per-cell: they are randomly picked and
+    // randomly placed, which is exactly what a tiling strip cannot be.
     { name: 'roadDecal', cell: ROAD_DECAL.cell, chance: ROAD_DECAL.chance, parent: roadDecalLayer, populate: populateRoadDecal },
     { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig, skiesKeep: SKIES_FLOOR_KEEP.big, clump: true },
     { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid, skiesKeep: SKIES_FLOOR_KEEP.mid, clump: true },
@@ -7810,7 +7891,7 @@ export function createRenderer(app) {
             const p = cityToWorld(c, ui * c.blockU, vi * c.blockV)
             // A grid node inside the radius can still fall outside the street area — the urban
             // falloff is noise-wobbled, so the outermost nodes have no pavement under them. Asking
-            // roadAt is the one check guaranteed to agree with what populateRoad actually drew.
+            // roadAt is the one check guaranteed to agree with the carriageway updateStreets drew.
             if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
             // Class comes straight from the grid index, the same test roadAt itself uses — no probe.
             const E = STREET_SPACING_MAJOR_EVERY
@@ -9237,11 +9318,10 @@ export function createRenderer(app) {
     s.alpha = alpha
   }
 
-  // Traffic lanes (city signature, run.lanes): 'warn' telegraphs a hazard-striped band (the
-  // redrawStrips idiom — a shared Graphics cleared and redrawn per frame), then 'sweep' runs a car
-  // down it. The band stays drawn (fainter) during the sweep so you can still see where the lane is
-  // while the car is in it. Chevrons point the way the car will come — a lane you can't read the
-  // direction of is a coin flip, and this thing hits for TRAFFIC_DMG.
+  // Traffic lanes (city signature, run.lanes): 'warn' telegraphs the approach, then 'sweep' runs a
+  // vehicle down the band. One shared Graphics cleared and redrawn per frame (the redrawStrips
+  // idiom). The two vehicles that ride run.lanes want opposite telegraphs and get them below: the
+  // garden's mower shows the stripe it is about to cut, the city's van shows its headlights.
   function redrawLanes(run) {
     laneG.clear()
     for (const ln of run.lanes || []) {
@@ -9278,44 +9358,25 @@ export function createRenderer(app) {
           laneG.stroke({ width: 2, color: 0xffffff, alpha: (warn ? 0.16 + urgency * 0.16 : 0.1) * (0.7 + 0.3 * pulse) })
         }
       } else {
-        // v6.7.5 (owner: "all telegraphs should be more subtle, like the lawnmower and toad
-        // reworks"). The v6.6.30 pounce recipe, applied to the loudest telegraph in the game — a
-        // 1100x130 amber slab with a 3px rim all the way round and seven pulsing chevrons on it,
-        // three elements all shouting "here" while the player is trying to read a street.
-        // What survives, and why:
-        //   - the two LONG edges, as hairlines. They are the whole instruction ("be outside these"),
-        //     and they are the only part of the rim that carries it: the two end caps sit ~550px
-        //     away, off the edge of a phone screen, and say nothing.
-        //   - a whisper of fill, no pulse. It makes the band read as a region rather than as two
-        //     unrelated lines; at 0.03-0.08 it tints the asphalt instead of covering it.
-        //   - four chevrons instead of seven, thin and un-pulsed. Direction is a fact, not an
-        //     alarm — one glance answers it, and repeating it seven times a second does not help.
-        // The urgency ramp does most of the work the pulse was doing: everything here brightens as
-        // the fuse burns down, so the approach reads without the whole band strobing. The edges
-        // keep a real (if small) pulse for a city-specific reason found on the A/B: quietened to
-        // hairlines, amber-on-asphalt is EXACTLY what this chapter's road markings look like, and a
-        // telegraph that can be mistaken for street furniture is worse than a loud one. Motion is
-        // the cue paint can never counterfeit, so it is the one that stays.
-        laneG.poly(flat).fill({ color: 0xffd24a, alpha: warn ? 0.03 + urgency * 0.05 : 0.025 })
+        // v6.9.1 (owner: "their telegraph should be like headlights, not a bland yellow rectangle —
+        // it should move in front of the car, get brighter when the car is closer"). The v6.7.5
+        // telegraph was a static amber slab plus four chevrons: a DIAGRAM of the hazard, drawn all
+        // at once, saying nothing about how far off it was. What warns you on a real street is the
+        // car's own headlights arriving before the car, so that is what this draws — and it draws
+        // them in syncCars, on the SAME rig that carries the van, not here. Two reasons:
+        //   - they are literally the same lights. The rig's glow sprite runs through the telegraph
+        //     and straight on into the sweep with nothing switching over, which is the whole read.
+        //   - a beam has no edge. Drawn as Graphics it needs a gradient Pixi's fills do not have;
+        //     the stacked-cone workaround came back with visible straight steps across the asphalt,
+        //     which is worse than the slab it replaced. The soft fx sprite is edgeless for free.
+        // What stays here is the two long lane edges as hairlines: the beam only lights the stretch
+        // it has reached, and "be outside these" has to hold for the whole band. No chevrons — a
+        // beam already points where it is going.
         for (const s of [-1, 1]) {
           laneG.moveTo(ln.x - hx * cos - s * hy * sin, ln.y - hx * sin + s * hy * cos)
           laneG.lineTo(ln.x + hx * cos - s * hy * sin, ln.y + hx * sin + s * hy * cos)
         }
-        laneG.stroke({ width: 1.5, color: 0xffe37a, alpha: warn ? 0.2 + urgency * 0.3 + pulse * 0.16 : 0.16 })
-        const n = 4
-        for (let i = 0; i < n; i++) {
-          const d = -hx + ((i + 0.5) / n) * ln.len
-          const cx = ln.x + d * cos
-          const cy = ln.y + d * sin
-          const tip = [cx + cos * hy * 0.5, cy + sin * hy * 0.5]
-          const back = hy * 0.45
-          laneG.beginPath()
-          for (const s of [-1, 1]) {
-            laneG.moveTo(tip[0] - cos * back - sin * s * hy * 0.55, tip[1] - sin * back + cos * s * hy * 0.55)
-            laneG.lineTo(tip[0], tip[1])
-          }
-          laneG.stroke({ width: 2, color: 0xffe37a, alpha: warn ? 0.16 + urgency * 0.2 : 0.1 })
-        }
+        laneG.stroke({ width: 1.5, color: 0xffe37a, alpha: warn ? 0.18 + urgency * 0.26 + pulse * 0.12 : 0.16 })
       }
       // v6.3 Task 4: "this can shield you" — during the telegraph only, ring every obstacle big
       // enough to stop the car (o.r >= COVER_MIN_R, see its doc in config.js) whose center falls
@@ -9337,22 +9398,30 @@ export function createRenderer(app) {
     }
   }
 
-  // The car itself: one rig per live sweep — the baked car plus a headlight wash thrown ahead of it.
-  // Its centre is (x,y) + dir × ((carT - 0.5) × len), straight off the contract.
+  // The car itself: one rig per live lane — the baked vehicle plus the pair of headlight washes it
+  // throws down the street. Its centre is (x,y) + dir × ((carT - 0.5) × len), straight off the
+  // contract, EXCEPT during the city's telegraph, where the body is hidden and the rig is parked
+  // TRAFFIC_APPROACH px back up the lane, sliding forward so it arrives exactly as the sweep starts
+  // (v6.9.1 — see the redrawLanes branch and TRAFFIC_APPROACH's doc in config.js). One rig for both
+  // phases is the point: nothing switches over between the warning and the thing it warned about.
   const carPool = []
   let carCount = 0
   // v6.6.14: the pool holds BOTH vehicles, so a rig has one sprite per look and shows the one this
   // lane calls for. A single shared sprite would have put a taxi on the lawn.
   function acquireCar() {
     const root = new Container()
-    const glow = new Sprite(T.fx.light_02)
-    glow.anchor.set(0.5)
-    glow.tint = 0xfff3c4
+    const glows = [0, 1].map(() => {
+      const g = new Sprite(T.fx.light_02)
+      g.anchor.set(0.5)
+      g.tint = 0xfff3c4
+      root.addChild(g)
+      return g
+    })
     const body = spriteOf(T.car)
     const mower = spriteOf(T.mower)
-    root.addChild(glow, body, mower)
+    root.addChild(body, mower)
     carLayer.addChild(root)
-    return { root, glow, body, mower }
+    return { root, glows, body, mower }
   }
   // The cut lawn itself. Finished stripes never change, so the geometry is only rebuilt while a
   // mower is mid-pass (mownDirty) — every other frame this is a no-op and the Graphics just draws.
@@ -9390,28 +9459,45 @@ export function createRenderer(app) {
   }
 
   function syncCars(run) {
-    const lanes = (run.lanes || []).filter((l) => l.phase === 'sweep')
+    // A car lane gets its rig for the WHOLE lane, telegraph included (v6.9.1); a mower lane only
+    // once its deck is actually on the grass, because the mower's telegraph is the stripe it is
+    // about to cut and a machine hovering at the end of it would say the opposite.
+    const lanes = (run.lanes || []).filter((l) => l.phase === 'sweep' || l.look !== 'mower')
     while (carPool.length < lanes.length) carPool.push(acquireCar())
     for (let i = 0; i < lanes.length; i++) {
       const ln = lanes[i]
       const cv = carPool[i]
       const isMower = ln.look === 'mower'
+      const warn = ln.phase === 'warn'
+      // How lit the beams are, 0..1. During the telegraph this IS how close the car is; once it is
+      // on the lane it is simply full, so nothing dips at the handover.
+      const lit = warn ? 1 - ln.t / (ln.warnT ?? TRAFFIC_WARN) : 1
       cv.root.visible = true
-      const d = ((ln.carT ?? 0) - 0.5) * ln.len
+      // Telegraph: the lamps sit TRAFFIC_APPROACH px back up the lane and slide forward, reaching
+      // the lane's entry (carT 0, i.e. -len/2) exactly as the sweep begins.
+      const d = warn
+        ? -ln.len / 2 - (1 - lit) * TRAFFIC_APPROACH
+        : ((ln.carT ?? 0) - 0.5) * ln.len
       const cx = ln.x + Math.cos(ln.angle) * d
       const cy = ln.y + Math.sin(ln.angle) * d
       cv.root.position.set(cx, cy)
       cv.root.rotation = ln.angle
-      cv.body.visible = !isMower
-      cv.mower.visible = isMower
+      cv.body.visible = !isMower && !warn
+      cv.mower.visible = isMower && !warn
       cv.body.scale.set(1)
       cv.mower.scale.set(1)
-      // headlight wash: thrown forward along the lane, flickering just enough to feel driven. A
-      // mower on a sunlit lawn at noon has no headlights.
-      cv.glow.visible = !isMower
-      cv.glow.position.set(TRAFFIC_CAR_LEN * 0.75, 0)
-      cv.glow.scale.set(fxScale(T.fx.light_02, TRAFFIC_CAR_W * 2.4), fxScale(T.fx.light_02, TRAFFIC_CAR_W * 1.5))
-      cv.glow.alpha = 0.5 + 0.08 * Math.sin(animT * 22)
+      // The headlights: a PAIR of soft washes thrown well down the lane, flickering just enough to
+      // feel driven. Their length is TRAFFIC_BEAM, so during the telegraph the light reaches a
+      // player standing at the lane's centre long before the van does — which is the entire job of
+      // a telegraph, done by the object that is coming rather than by a rectangle drawn around it.
+      // A mower on a sunlit lawn at noon has no headlights.
+      for (let g = 0; g < 2; g++) {
+        const s = cv.glows[g]
+        s.visible = !isMower
+        s.position.set(TRAFFIC_BEAM * 0.42, (g ? 1 : -1) * TRAFFIC_CAR_W * 0.26)
+        s.scale.set(fxScale(T.fx.light_02, TRAFFIC_BEAM * 0.95), fxScale(T.fx.light_02, TRAFFIC_CAR_W * 1.15))
+        s.alpha = (0.16 + lit * 0.4) * (0.94 + 0.06 * Math.sin(animT * 22 + g))
+      }
       const backLen = (isMower ? MOWER_DECK_LEN : TRAFFIC_CAR_LEN) * 0.5
       // v6.6.22: grow this pass's cut. The stripe runs from the lane's tail to the deck's leading
       // edge, so grass goes short UNDER the mower rather than appearing once it has gone by. One
@@ -9434,7 +9520,7 @@ export function createRenderer(app) {
           mownDirty = true
         }
       }
-      if (frameDt > 0 && Math.random() < (isMower ? 0.9 : 0.5)) {
+      if (!warn && frameDt > 0 && Math.random() < (isMower ? 0.9 : 0.5)) {
         // the car throws exhaust and road spray; the mower throws CLIPPINGS — same particle, sprayed
         // sideways out of the deck rather than straight back, because that is where a chute points
         const side = isMower ? (Math.random() < 0.5 ? 1 : -1) : 0
@@ -11066,6 +11152,8 @@ export function createRenderer(app) {
     crushLedger.clear()
     for (const s of ruinSprites) s.visible = false
     for (const s of junctionSprites) s.visible = false
+    for (const s of streetSprites) s.visible = false
+    streetKey = ''
     prevSkiesShots = new Set()
     flashCooldown = 0
     jamSnapT = 0
@@ -11760,6 +11848,7 @@ export function createRenderer(app) {
     // v5.10 skies ground enumeration (spec §4.3): junctions and crush ruins are placed
     // ANALYTICALLY from the road grid + the render-local crush ledger, not by an extra
     // FLOOR_LAYERS sweep. (v5.16: updateLamps went with the light layer.)
+    updateStreets(cx, cy)
     updateJunctions(cx, cy)
     updateRuins(cx, cy)
 
@@ -12170,6 +12259,7 @@ export function createRenderer(app) {
       playerX = run.player.x
       playerY = run.player.y
       updateFloorLayer(cx, cy)
+      updateStreets(cx, cy)
       updateJunctions(cx, cy)
       syncPlayer(run.player, 0)
     } else {

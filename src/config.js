@@ -2647,8 +2647,8 @@ export const STORM_SHADOW_ALPHA_DARK = 0.16   // pairs with the above (STORM_VIS
 // and decals — works verbatim.
 export { roadAt } from './terrain.js'
 
-// Widths, re-exported under their historical names so render.js's bakes and ROAD_CELL keep
-// resolving. STREET_* are the terrain module's own names for the same quantities.
+// Widths, re-exported under their historical names so render.js's carriageway bakes keep resolving.
+// STREET_* are the terrain module's own names for the same quantities.
 export const ROAD_MINOR_WIDTH = STREET_MINOR_WIDTH
 export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 
@@ -2657,44 +2657,38 @@ export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 export {
   nearestCity, cityAt, blockSnap, parcelAt, PARCEL, pickWorldSeed,
   terrainAt, elevationAt, urbanAt, riverAt, clumpAt, BIOME_BUILD_DENSITY, CITY_GRID,
-  STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH,
+  STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH, highwaysNear,
 } from './terrain.js'
 
 
 // ---- Road ART (v5.10 art direction, spec §4.2-§4.3) — render-only, skies-only -------------------
 // "A road is a dashed yellow line on grass. It reads as a wireframe, not a place." The fix is not
-// more lines, it is a MARKING FAMILY plus VARIATION ALONG THE STREET, split across three mechanisms
-// for one blunt geometric reason:
+// more lines, it is a MARKING FAMILY plus VARIATION ALONG THE STREET.
 //
-// T.roadMinor/T.roadMajor are stamped by populateRoad with a NON-UNIFORM scale
-// (`scale.set((cell*1.6)/ref, (half*2)/ref)` — x factor 0.48, y factor 0.34 minor / 0.62 major).
-// ANYTHING baked into the carriageway tile is stretched by a different factor on each axis AND by a
-// different factor per road class: circles come out as ovals, zebra bars come out at the wrong pitch,
-// and the pitch is wrong by a DIFFERENT amount on a minor street than on an avenue. So the tile only
-// ever carries shapes that survive that (bands and lines parallel to the axes, pre-compensated), and
-// everything with a shape — manholes, patches, arrows — becomes a separate, UNIFORMLY scaled decal.
+// v6.9.1: the carriageway is a TilingSprite laid along a whole street run, so the tile below is
+// baked at TRUE WORLD SIZE — `tilePitch` px along the street by the street's own width across it —
+// and never distorted. That deletes the old stretch pre-compensation (the tile used to be stamped
+// per 26px floor cell at x0.48 / y0.34-0.62, so every baked shape came out as a different oval on a
+// side street than on an avenue). Shapes that vary ALONG the street — manholes, patches, arrows —
+// are still separate, uniformly scaled decals: they are placed at random, and a tiling pattern is
+// by definition not random.
 export const ROAD_PAINT = {
-  // Baked INTO the carriageway tile (stretched; pre-compensate the pitch by the factors above).
+  tilePitch: 48,                                     // px along the street per repeat = the dash pitch
   asphaltMinor: 0x33383f, asphaltMajor: 0x2b2f36,   // unchanged from what ships today
   kerb: 0x4a515b, kerbW: 2,                          // both long edges — the single strongest "this
                                                      // is a built road, not a painted strip" cue
   sheen: 0x8fa8c4, sheenAlpha: 0.10,                 // wet crown reflection down the centreline: a
                                                      // STATIC overhead reflection of the storm sky.
                                                      // ponytail: no dynamic sheen sprite — the
-                                                     // full-field lightning flash already whitens it,
-                                                     // and a per-road-cell additive sheen would be
-                                                     // ~1000 extra sprites at ROAD_CELL = 30. Revisit
-                                                     // only if the road floor layer is ever coarsened.
+                                                     // full-field lightning flash already whitens it.
   polish: 0x22262c, polishAlpha: 0.25, polishAt: 0.45,  // two darker wheel-polish bands at ±0.45 of
                                                         // the half-width — where tyres actually run
-  centreline: 0xd8d4c8, centrelineAlpha: 0.55,       // minor streets: dashed white
+  centreline: 0xd8d4c8, centrelineAlpha: 0.55, dashLen: 22,       // minor streets: dashed white
   doubleYellow: 0xdccf86, doubleYellowGap: 4, doubleYellowW: 2,   // avenues: two lines, 4px apart
-  stretchX: 0.48, stretchYMinor: 0.34, stretchYMajor: 0.62,       // the known constant aspect to
-                                                                  // pre-compensate against (above)
 }
 
 // The decal layer: `{ name: 'roadDecal', cell: 160, chance: 1.00, populate: populateRoadDecal }`,
-// self-gating on roadAt + render.js's ROAD_VISIBLE_DISTRICTS exactly like populateRoad. ONE decal
+// self-gating on roadAt, the way the carriageway did before it became one strip per street. ONE decal
 // per cell, picked by cellHash(i, j, salt) from `kinds`. VARIATION ALONG A STREET IS WHAT STOPS A
 // ROAD READING AS A WIREFRAME; one stamped tile repeated forever is what got us here.
 export const ROAD_DECAL = {
@@ -2707,16 +2701,16 @@ export const ROAD_DECAL = {
   },
 }
 
-// Junctions (spec §4.3) — ENUMERATED, NOT STAMPED. ROAD_CELL is 30 and ROAD_SPACING is 480, so a
-// junction is ~16 road cells across on each axis: "stamp a crosswalk when onV && onH" lays a dozen
-// overlapping zebras on one junction. Instead render.js recovers the per-seed road grid origin ONCE
-// per run (roadAt's onV depends only on x and onH only on y, so <= `latchProbes` probes along each
-// axis at `latchStepPx` finds it), after which junction centres are exactly (ox + m*ROAD_SPACING,
-// oy + n*ROAD_SPACING) — <= 6 on a 1280x720 view. Each gets ONE composite sprite from a pool of
+// Junctions (spec §4.3) — ENUMERATED, NOT STAMPED. A junction is many floor cells across on each
+// axis, so "stamp a crosswalk wherever two streets cross" lays a dozen overlapping zebras on one
+// junction. render.js instead walks each visible city's own grid indices (updateJunctions, the same
+// enumeration updateStreets uses for the carriageway) — <= 6 on a 1280x720 view. Each gets ONE
+// composite sprite from a pool of
 // `pool`, drawn from four variants baked AT TRUE WORLD SIZE so they are never scaled at all (which
 // is what lets a junction carry circles and zebra pitch that the stretched carriageway tile cannot).
 export const ROAD_JUNCTION = {
-  latchStepPx: 6, latchProbes: 80, pool: 8,
+  pool: 8,   // latchStepPx/latchProbes lived here until v6.9.1: leftovers of the pre-v5.11 global
+             // grid-origin probe, read by nothing since the cities got their own frames.
   variants: ['minorMinor', 'minorMajor', 'majorMinor', 'majorMajor'],
   zebraBars: 7, zebraColor: 0xd8d4c8, zebraAlpha: 0.55, zebraWornAlpha: 0.30, zebraWornEvery: 3,
   stopBarW: 3, manholes: 2, arrowsOnMajor: true,
@@ -3664,7 +3658,9 @@ export const SPAWNER_SCATTER = 70        // px, spawn scatter around the van
 // contactDmgTakenMul path, gated by player.invuln, once per pass is implicit via invuln) and every
 // enemy it touches (dealDamage, once each via hitIds) — plus TRAFFIC_KB knockback along `angle`.
 // The lane is removed when t hits 0 in 'sweep'.
-export const TRAFFIC_INTERVAL = 3.0   // s between lane rolls (while under signature.lanes alive)
+// v6.9.1 (owner: "cars should spawn 30% less often"). 3.0 -> 4.3 is a 0.7x rate, not a 0.7x gap:
+// the ask is about how often a car shows up, and the roll cadence is its reciprocal.
+export const TRAFFIC_INTERVAL = 4.3   // s between lane rolls (while under signature.lanes alive)
 export const TRAFFIC_WARN = 1.3       // s of harmless telegraph before the vehicle enters
 export const TRAFFIC_SWEEP = 1.1      // s for the vehicle to traverse the full lane length
 export const TRAFFIC_LEN = 1100       // px, lane length (comfortably longer than a screen)
@@ -3677,6 +3673,18 @@ export const TRAFFIC_SNAP_R = 150     // px: player within this of a road center
                                        // never itself push the player outside the band it just built.
 export const TRAFFIC_CAR_LEN = 150    // px, the vehicle's hitbox length (along `angle`)
 export const TRAFFIC_CAR_W = 110      // px, the vehicle's hitbox width (across `angle`)
+// v6.9.1 (owner: "their telegraph should be like headlights, not a bland yellow rectangle — it
+// should move in front of the car, get brighter when the car is closer"). What it WAS: a static
+// 1100x130 amber slab with four chevrons on it, i.e. a diagram of the hazard rather than a sign of
+// it. Now the warning is the thing that actually warns you on a real street — a pair of headlights
+// coming up it. The lamps start TRAFFIC_APPROACH px BEHIND the lane's entry and slide forward so
+// they reach the entry exactly as the sweep begins, throwing TRAFFIC_BEAM px of light ahead of
+// themselves; the beam therefore washes over a player standing at the lane centre partway through
+// the telegraph and keeps brightening. The numbers are picked against each other and against a
+// phone screen (~460px of lane visible either side of the player): at the start of the fuse the
+// lamps are offscreen and only their far spill shows, by the end the beam is past the player.
+export const TRAFFIC_APPROACH = 520
+export const TRAFFIC_BEAM = 760
 export const TRAFFIC_DMG = 34         // damage to the PLAYER (and the pre-v6.7.5 enemy figure — see below)
 export const TRAFFIC_KB = 420         // knockback applied along the lane to struck enemies
 // v6.7.5 (owner: "taxis should do as much dmg as lawnmowers"). Enemies now lose a FRACTION OF THEIR
