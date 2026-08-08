@@ -8592,6 +8592,7 @@ try {
   testUndergrowthRound()
   testRoadOff()
   testIntegerHP()
+  testDetonationScaling()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -10301,4 +10302,67 @@ function testIntegerHP() {
     assert(!survivor, `a pigeon starting at ${startHP} hp SURVIVED being run over (left at hp ${survivor && survivor.hp})`)
   }
   console.log('PASS run VD.b (the taxi one-shots): a squash-list pigeon dies under the car from every starting hp tried, fractional ones included')
+}
+
+// ---- run VE: mod-gated detonations must scale with the player's damage multiplier ----------
+// v6.9.3 regression. Apoptosis Pop (wispPop), Big Crunch (holeCrunch) and Collapse (collapseFold)
+// used to call dealDamage on a RAW config stat, so each contributed a FLAT constant that ignored
+// damageMul / passives.damage / mods.playerDmgMul and never crit — Big Crunch went from ~42% of
+// the vortex's output at 1x damage to ~7% at 10x. Their correct siblings (orbitSupernova, tail
+// wrecking) derive from an applyDamage RETURN value, so they always scaled.
+//
+// Method: identical seed, enemies pinned immortal so the two runs stay in lockstep, sum every
+// 'hit' event over a fixed window at 100x vs 300x damage. 100x (not 1x) keeps applyDamage's
+// Math.round off the result — at the vortex's 9-dmg ticks, rounding alone costs ~9% and would
+// masquerade as a shortfall. A weapon whose damage is fully player-scaled lands on exactly 3.000.
+function testDetonationScaling() {
+  const detonationCases = [
+    ['homing',        { wispNova: 0.6 }, 'Apoptosis Pop'],
+    ['hole',          { crunch: 1.0 },   'Big Crunch'],
+    ['tesseractBeam', { collapse: 0.8 }, 'Collapse'],
+  ]
+
+  const damageOver = (weapon, mods, dmgMul) => {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    run.weapons = [{ id: weapon, level: 5 }]
+    run.weaponTimers = {}
+    const p = run.player
+    p.critChance = 0; p.damageMul = dmgMul; p.fireRateMul = 1
+    for (const k of Object.keys(run.passives)) run.passives[k] = 0
+    for (const [id, v] of Object.entries(mods)) run.weaponMods[weapon][id] = v
+
+    let total = 0
+    for (let i = 0; i < 20 * 60; i++) {
+      p.hp = 1e9; p.maxHP = 1e9; p.invuln = 1
+      for (const e of run.enemies) { e.hp = 1e9; e.maxHP = 1e9 }
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      for (const e of run.enemies) { e.hp = 1e9; e.maxHP = 1e9; e._dead = false }
+      p.xp = 0
+      run.gems.length = 0
+      // body's antibody has the latch flag: it self-destructs for e.hp (1e9). Not weapon damage.
+      for (const ev of run.events) if (ev.type === 'hit' && ev.dmg < 1e8) total += ev.dmg
+    }
+    return total
+  }
+
+  for (const [weapon, mods, label] of detonationCases) {
+    const lo = damageOver(weapon, mods, 100)
+    const hi = damageOver(weapon, mods, 300)
+    assert.ok(lo > 0, `${label}: probe dealt no damage at all — the setup is broken, not the sim`)
+    const ratio = hi / lo
+    // Solve total = perMul*mul + flat for the unscaled remainder. Assert on `flat`, not on the
+    // ratio: a detonation is a small slice of a weapon's total output, so the ratio barely
+    // twitches when it breaks (the pre-fix Big Crunch read 2.994x — a 2.99 threshold waves it
+    // through) while `flat` goes from 0 to thousands. Tolerance is 0.1% of the run's damage,
+    // which is pure float noise; every regression here lands 3-40x above it.
+    const perMul = (hi - lo) / 200
+    const flat = lo - perMul * 100
+    assert.ok(Math.abs(flat) < lo * 1e-3,
+      `${label} (${weapon}) must scale with the player's damage multiplier: ${Math.round(flat)} ` +
+      `damage/run is a flat constant that a 3x damage increase did not move (ratio ${ratio.toFixed(4)}x, want 3.0000). ` +
+      `Its detonation is dealing raw config damage — use applyDamage, not dealDamage.`)
+    console.log(`PASS run VE (${label}): scales ${ratio.toFixed(4)}x with a 3x damage multiplier, flat residue ${Math.round(flat)}`)
+  }
 }

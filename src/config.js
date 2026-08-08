@@ -575,6 +575,8 @@ export const MAX_PASSIVE_LEVEL = 5
 //   homing.wispNova:    when a wisp dies (spent its last pierce on a hit, or its lifetime
 //                       expired) it pops: AoE splash = bonus × the wisp's dmg in
 //                       WISP_NOVA_RADIUS + explode event. Mini-wisps (see swarm) can pop too.
+//                       v6.9.3: the splash goes through applyDamage, so it crits and takes the
+//                       player's damage multipliers — the wisp's stored dmg is a RAW config stat.
 //   homing.swarm:       when a (non-mini) wisp's hit KILLS an enemy, spawn <tier bonus> mini
 //                       wisps at the kill spot (SWARM_DMG_FRAC × dmg, SWARM_LIFE lifetime, same
 //                       speed/turn rate) flagged `_mini` — mini wisps never re-trigger swarm.
@@ -583,7 +585,8 @@ export const MAX_PASSIVE_LEVEL = 5
 //                       render already re-reads h.radius/coreRadius every frame.
 //   hole.crunch:        when a hole expires, it collapses in a detonation: damage = hole tick
 //                       dmg × CRUNCH_DMG_MUL × (1 + bonus) to everything within its final
-//                       radius + explode event there.
+//                       radius + explode event there. v6.9.3: through applyDamage, so it crits
+//                       and takes the player's damage multipliers (the tick dmg is raw config).
 //   rainbow.focus:      a beam's damage ramps linearly from 1× at cast to (1 + bonus)× at the
 //                       end of its duration (recomputed every tick from elapsed/duration).
 //   rainbow.strobe:     beam tick period divided by (1 + bonus), baked in at cast time (faster
@@ -1303,6 +1306,8 @@ export const TESSERACT_FAN_RATE = 2.2             // rad/s of that sweep
 // collapse (behavioral): when a folded beam expires, everything currently inside ANY of its arms
 // is yanked toward the player at TESSERACT_COLLAPSE_PULL px/s and takes TESSERACT_COLLAPSE_MUL ×
 // (1 + bonus) × the beam's per-tick damage, plus an {type:'explode'} at the player.
+// v6.9.3: through applyDamage, so it crits and takes the player's damage multipliers — the
+// beam's stored per-tick dmg is a RAW config stat, not an already-rolled hit.
 export const TESSERACT_COLLAPSE_MUL = 8
 export const TESSERACT_COLLAPSE_PULL = 400
 

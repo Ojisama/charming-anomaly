@@ -4293,14 +4293,18 @@ function fireHoming(run, stats) {
 // Popping Wisps: on death (spent its last pierce on a hit, OR lifetime expiry) a wisp pops an
 // AoE splash = bonus × its own dmg in WISP_NOVA_RADIUS + explode event. Mini-wisps (Swarm) can
 // pop too — only re-triggering Swarm itself is disallowed (see the hit loop below).
+// v6.9.3: applyDamage, not dealDamage. h.dmg is the RAW config stat (fireHoming stores stats.dmg
+// unscaled; the wisp's own hit is what runs it through applyDamage), so dealing it directly made
+// the pop a flat constant that ignored damage passives/shop/mutators entirely — cf. orbitSupernova,
+// which is correct because it derives from an already-rolled applyDamage RETURN value.
 function wispPop(run, h, bonus) {
-  const dmg = Math.round(h.dmg * bonus)
+  const dmg = h.dmg * bonus
   if (dmg <= 0) return
   const radSq = WISP_NOVA_RADIUS * WISP_NOVA_RADIUS
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - h.x, dy = e.y - h.y
-    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+    if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
   }
   run.events.push({ type: 'explode', x: h.x, y: h.y, radius: WISP_NOVA_RADIUS })
 }
@@ -4434,14 +4438,15 @@ function fireHole(run, stats) {
 
 // Big Crunch: on expiry, a hole collapses in a detonation — damage = tick dmg × CRUNCH_DMG_MUL ×
 // (1 + bonus) to everything within its FINAL radius + explode event there.
+// v6.9.3: applyDamage, not dealDamage — h.dmg is the raw config tick stat (see wispPop's note).
 function holeCrunch(run, h, bonus) {
-  const dmg = Math.round(h.dmg * CRUNCH_DMG_MUL * (1 + bonus))
+  const dmg = h.dmg * CRUNCH_DMG_MUL * (1 + bonus)
   if (dmg <= 0) return
   const radSq = h.radius * h.radius
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - h.x, dy = e.y - h.y
-    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+    if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
   }
   run.events.push({ type: 'explode', x: h.x, y: h.y, radius: h.radius })
 }
@@ -4662,9 +4667,10 @@ function beamArmAngles(b) {
 
 // Collapse (tesseractBeam): when the fold snaps shut, everything inside ANY arm is yanked toward
 // the player and takes a multiple of the beam's per-tick damage, plus one explode at the player.
+// v6.9.3: applyDamage, not dealDamage — b.dmg is the raw config tick stat (see wispPop's note).
 function collapseFold(run, b) {
   const p = run.player
-  const dmg = Math.round(b.dmg * TESSERACT_COLLAPSE_MUL * (1 + b.collapseBonus))
+  const dmg = b.dmg * TESSERACT_COLLAPSE_MUL * (1 + b.collapseBonus)
   const angles = beamArmAngles(b)
   for (const e of run.enemies) {
     if (e._dead) continue
@@ -4675,7 +4681,7 @@ function collapseFold(run, b) {
       e.kb.x += (dx / d) * TESSERACT_COLLAPSE_PULL
       e.kb.y += (dy / d) * TESSERACT_COLLAPSE_PULL
     }
-    if (dmg > 0) dealDamage(run, e, dmg, false)
+    if (dmg > 0) applyDamage(run, e, dmg)
   }
   run.events.push({ type: 'explode', x: p.x, y: p.y, radius: b.length })
 }
