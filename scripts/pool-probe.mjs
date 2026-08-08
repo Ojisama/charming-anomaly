@@ -122,6 +122,20 @@ const DMG_MUL = Number(args.find((a) => a.startsWith('--dmg='))?.slice(6) ?? 1)
 //   (two --proposed invocations, same seeds) — comparing against the CURRENT pipeline would fold
 //   the redesign's own buff into the card's.
 const RARITY_FLOOR = args.find((a) => a.startsWith('--rarityfloor='))?.slice(14) ?? null
+// --spread=N  IPECAC-as-COUNT (user 2026-08-08: "3x projectiles, or beam arms, or 3 claws in
+//   different directions" instead of 3x damage). Grants +N to every OWNED weapon's count mod, once
+//   per weapon, as it is acquired. Every weapon has such a mod — that is the whole reason this
+//   version of the card is authorable at all.
+//   APPROXIMATE: this is "+N things per cast", not literally "xN things". For a weapon whose base
+//   count is 1 (star volley, rainbow beam) +2 IS x3; for one that already fires several (orbit's
+//   ring) it is less. Read it as the SHAPE of the change, not a calibrated multiplier.
+//   Stacks on top of whatever count mods the run picks, deliberately — that stacking is a live
+//   design question for the card, so the rig must not hide it.
+const SPREAD = Number(args.find((a) => a.startsWith('--spread='))?.slice(9) ?? 0)
+const COUNT_MOD = {
+  star: 'multishot', orbit: 'extraOrb', wave: 'echo', boomerang: 'extraRang', mines: 'minefield',
+  homing: 'extraWisp', hole: 'singularity', rainbow: 'prismatic', bloom: 'twinBloom',
+}
 // The table the rarity ROLL draws from. Weapon inherent rarity (the `New!` acquisition gate) keeps
 // reading the unfiltered P_RARITY_WEIGHTS below — that is a different question and a floor there
 // would silently delete common weapons from the pool rather than upgrade the roll.
@@ -491,6 +505,19 @@ function measure(mode) {
     // only 7 of them emit a 'shoot' event (those are for SFX), and none of the city three do.
     let fires = 0, eliteKills = 0
     const prevT = {}
+    // Weapons arrive mid-run, so the grant is re-checked rather than applied once at setup.
+    const spreadDone = new Set()
+    const grantSpread = () => {
+      if (!SPREAD || mode !== 'proposed') return
+      for (const w of run.weapons ?? []) {
+        const mod = COUNT_MOD[w.id]
+        if (!mod || spreadDone.has(w.id)) continue
+        run.weaponMods[w.id] ??= {}
+        run.weaponMods[w.id][mod] = (run.weaponMods[w.id][mod] ?? 0) + SPREAD
+        spreadDone.add(w.id)
+      }
+    }
+    grantSpread()
 
     // 305s: RUN_DURATION is 300 and victory flips ON the boundary, so the loop must cross it.
     for (let f = 0; f < 305 * 60; f++) {
@@ -513,6 +540,7 @@ function measure(mode) {
         const i = choose(cards)
         if (cards[i].kind === 'anomaly') { st.taken.add(cards[i].id); run.levelUpChoices = null }
         else applyChoice(run, i)
+        grantSpread()   // a choice may have been a New! weapon
         run.phase = 'playing'
         continue
       }

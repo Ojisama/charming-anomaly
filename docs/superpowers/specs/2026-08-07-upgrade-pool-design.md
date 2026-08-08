@@ -715,7 +715,7 @@ place. Numbers marked **open** are proposals awaiting the user's call, not decis
 | **CONSCRIPTION** | jackpot | accepted | killed elites fight for you, inheriting 50% damage / 100% fire rate & crit |
 | **BLIND FAITH** | trade | accepted, **cost open** | no normal/rare rolls; cards hidden but for the border; passed cards revealed |
 | **SOY MILK** | trade | accepted | ×5 fire rate/projectiles, −80% damage — measured ~neutral, ships as written |
-| **IPECAC** | trade | accepted, **number open** | ½ fire rate, ×3 damage — measured a **wash**; ×3 is not enough |
+| **IPECAC** | trade | accepted, **shape open** | ½ fire rate, ×3 **count** (user's revision) — must be authored per weapon |
 
 **Cut:** Event Horizon, Supercooled, Slow Burn, Toxic Bloom, Recoil, Riptide, Twin Study, Native,
 Harvest, Synchrony, Second Wind (a revive already ships in the shop), Thorns (`retaliate` is already
@@ -1196,6 +1196,73 @@ Measured (same rig and caveats as above; `--fire` / `--dmg`, new flags):
 
 This is the **measure-the-denominator rule** paying out again: both cards were "obviously" a
 dps-neutral trade and a +50% trade. Neither was.
+
+#### IPECAC, revised — ×3 COUNT instead of ×3 damage (user, 2026-08-08)
+
+> *"instead of 3x damage, can we do 3x projectiles, or beam arms, or 3 claws in different directions
+> around you, etc?"*
+
+**The instinct is right and it targets the measured failure.** ×3 damage died to overkill waste —
+surplus damage poured into an enemy that was already dying. Three projectiles in *different
+directions* cannot overkill the same enemy, so the surplus lands on targets that were not already
+dead. It is also the better fantasy: `rainbow.prismatic` already spreads beams at 180°/120°, which is
+exactly the "beam arms" picture.
+
+**Measured** (`--spread=N`, new flag: grants +N to each owned weapon's count mod as it is acquired;
+body/2 d3 shop 8, 40 runs, dps picks, proposed pipeline, kite-and-collect bot):
+
+| arm | kills | vs baseline | mean alive |
+|---|---|---|---|
+| baseline | 922 | — | 263.6s |
+| ½ fire, ×3 damage | 932 | +1.1% | 264.0s |
+| **½ fire, +2 count** | 645 | **−30%** | 237.6s |
+| ½ fire, +4 count | 990 | +7.4% | 270.6s |
+| ½ fire, +6 count | 1071 | +16% | 277.4s |
+| +2 count, **full** fire | 1217 | **+32%** | 291.3s |
+
+Two things fall out, and the second is the one that matters.
+
+**1. "+2 things" is worth ×1.35, not ×3.** A halved fire rate needs roughly **+4** to break even.
+Priced at "+2 per cast" the card is a −30% trap. The count grant on its own, with no fire penalty, is
+already a strong card at +32%.
+
+**2. Count is NOT COMMENSURABLE ACROSS WEAPONS — this is the per-shot-Overload error again.**
+`+N` means something different for every weapon, which is why +2 bought ×1.35 rather than ×3:
+
+- `star.multishot` +2 on a 1-projectile volley genuinely is ×3.
+- `wave.echo` +2 adds echoes that land at `WAVE_ECHO_DMG_FRAC` — a *fraction* of damage, not a copy.
+- `orbit.extraOrb` +2 adds to a **persistent ring** that never "fires" at all, so halving fire rate
+  and adding orbs are not even acting on the same quantity.
+
+**And four weapons have no count axis whatsoever.** Most do — `multishot`, `extraOrb`, `echo`,
+`extraRang`, `minefield`, `extraWisp`, `singularity`, `prismatic`, `twinBloom`, `twinLure`,
+`doubleSlash`, `moreQuills`, `echoShriek`, `moreTrash`, `moreGeysers`, `moreDebris`, `moreShards` —
+but **`roar`, `tailSwipe`, `flagella` and `tesseractBeam` have none**, and for a 360° roar or a tail
+sweep "three of them in different directions" is not a weak effect, it is an undefined one. Exactly
+the position a beam was in when Overload was priced per shot.
+
+> **A measurement that was thrown away, recorded so it is not re-run:** a beyond/4 arm read +2.1% and
+> looked like proof of a chapter lottery. It was an artifact — beyond's weapons are `realityShard`,
+> `hole`, `tesseractBeam` and the probe's `COUNT_MOD` table covered only `hole`, so two of three
+> weapons received no grant. **Check that an emulation actually reaches the subject before reading
+> its number.** The body figures above are valid: all four of its weapons are covered.
+
+**Recommendation — author the count PER WEAPON, and do not price it against fire rate globally.**
+
+A generic `+N` cannot produce the thing the user actually asked for; "3 claws in different
+directions" is an authored shape, not a counter bump. Each weapon needs its own reading of "three of
+it" (roar → three staggered pulses; tailSwipe → a three-hit sweep), or it declines the card. That is
+the same resolution the chapter-signature idea wanted and did not get, and here it is load-bearing
+rather than decorative.
+
+Open: whether the fire-rate halving survives at all. On the body numbers the count grant alone is
++32%, so there is a real card here with no downside clause — but that would make it a second BLIND
+FAITH (pure upside), which the slate already has one too many of.
+
+> **Clutter watch.** `REBOUND_MAX_PICKS`' note records live quill counts going 11 → 47 and being
+> "the one making the screen unreadable" on a 390×844 phone. A global count multiplier across four
+> equipped weapons is that failure mode by design — whatever number ships needs a look on a phone,
+> not just a kill count.
 
 #### Second wave — as first proposed (2026-08-08)
 
