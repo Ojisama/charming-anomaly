@@ -691,15 +691,69 @@ cannot see your build; an anomaly fires mid-run against a hidden condition. So t
 
 #### Card slate (drafted with the user, 2026-08-08)
 
-| card | kind | hidden gate | hook | cost to build |
-|---|---|---|---|---|
-| **DEADFALL** | pivot | undergrowth, lv ≥10 | new `trapSelfDmgMul` (0) gates `hurtPlayer` at sim.js:2656; new `trapRearmMul` (0.2) scales sim.js:2675 | 2 mod keys |
-| **UNSTABLE CORES** | jackpot | any elite killed | reuses the shipped `volatile` affix (sim.js:3214) | ~zero |
-| **ALIGNMENT** | jackpot | 2+ distinct elements | `run.elements[id] += 2`, the `applyChoice` path (sim.js:238) | zero |
-| **AVARICE** | jackpot | coins collected | `collect()` closure, sim.js:5683 | ~zero |
-| **WILDFIRE** | pivot | fire ≥ 2 | kill hook + `applyIgnite` | small |
-| **SUPERCOOLED** | pivot | cold ≥ 3 | lift `CHILL_SLOW_CAP` | small |
-| **SPECIALIST** | trade | 4+ mod picks on one weapon | bucket weight keys | Track B keys |
+**THE BAR (user, 2026-08-08): judge on fun, balance and gameplay — NOT implementation cost.** An
+earlier draft of this table ranked cards by how cheap they were to build, which is how two stat
+bumps in a costume (Alignment, Avarice) got onto a list whose whole purpose is to stop shipping stat
+bumps. Cost is a footnote, not a column.
+
+**A jackpot means no COST, not no DECISION.** Unstable Cores is the model: strictly good, and it
+still changes where you stand. A card that changes nothing about how you play has failed regardless
+of its rarity tier.
+
+**RARITY LICENSES EXTREMITY (user, 2026-08-08):** *"it's ok to have some crazy combos that would
+explode and break everything including you, if they're rare enough."* A card that can end a run is
+not a balance failure — it is the payoff, provided it is rare. Consequences for authoring:
+
+- Do **not** sand the swing off a card to make it safe. Gate it behind rarity instead.
+- The **risky trades** tier (≈6 cards) may be genuinely brutal, up to and including run-enders.
+- This composes with the decision to make anomalies **rarer, 1–2/run**: scarcity is what buys the
+  licence, so the two decisions are load-bearing on each other. If the rate ever climbs back toward
+  3+/run, the extreme cards must be re-priced.
+- The limit is **opt-in, not survivability**. The player reads the card before taking it, so a
+  self-inflicted catastrophe is a choice and is fair. What stays forbidden is catastrophe the player
+  could neither foresee nor act on — which is why the escape check on Unstable Cores below still
+  matters even though the combo itself is intended.
+
+Ranked by how much they change *playing*:
+
+| card | kind | hidden gate | what it changes about playing |
+|---|---|---|---|
+| **BERSERK** | pivot | took a real hit | **Inverts the core loop** — you stop avoiding damage and start seeking it. ×2 damage for 5s on taking a hit. |
+| **MINIMES** | pivot | lv ≥ 12 | Copies of you flee outward on a cadence and detonate. **Splits the swarm**; positioning becomes about where your decoys will be. Scales off *player* stats, not a weapon. |
+| **UNSTABLE CORES** | jackpot | any elite killed | Every elite dies volatile. Adds a **"back off before it dies"** beat, and packs chain-detonate. |
+| **WILDFIRE** | pivot | fire ≥ 2 | Ignite jumps to the nearest enemy on death. **Rewards engaging crowds** — light the front, let it propagate. |
+| **DEADFALL** | pivot | undergrowth, lv ≥10 | Immune to traps, traps re-arm 80% faster. **Kite *across* the field instead of away from it.** |
+| **ALIGNMENT** | jackpot | 2+ distinct elements | *(redesigned)* Element combos lose their cooldown — shatter/detonate/acid-burn/chilling-arc fire on **every** qualifying hit. Makes the interaction the star instead of a potency number. |
+| **SPECIALIST** | trade | 4+ mod picks on one weapon | Meta-level agency only; changes nothing moment-to-moment. Keep, but it is not a pivot. |
+| **SUPERCOOLED** | pivot | cold ≥ 3 | Mostly a cap number. **Weak against the bar** — keep only if the dead-investment fix justifies it. |
+| **AVARICE** | jackpot | — | 10% of coins give 1 HP. **Fails the bar** — changes nothing about play. Open: cut, or keep as filler. |
+
+Notes on the two newest, both user-authored:
+
+- **BERSERK takes NO cooldown and NO threshold** (user call, verified). The obvious objection was the
+  v6.3.4 turtle cheese — armor floors hits to 1, contact is constant, so a refreshing 5s window
+  would be permanent. **It no longer holds:** `armor` rolls 1/2/4 over at most 5 picks and measures
+  **2.4–3.7** in real runs, while `dmgScale(300)` = 2× puts late contact at 16 (drone) to 30 (tank)
+  before difficulty and elite multipliers. Armor blocks 10–20% of a hit, not 100%. Sustaining ×2
+  therefore costs 16–30 damage every `invulnTime` (0.75s) ≈ 21–40 dps against ~150 maxHP.
+  **The cost IS the damage, and it scales with `dmgScale`** — the card gets more dangerous the longer
+  the run runs, which is exactly the fantasy. No guard needed.
+- **MINIMES**: the decoy system already ships as the `lure` weapon — `run.lures`, enemies inside the
+  aggro radius path to the decoy instead of the player (sim.js:1103-1107, machines take the seek
+  target too), and it bursts for AoE at expiry (sim.js:4883-4884). New: auto-spawn cadence, fleeing
+  movement (lures are static), and reading player stats rather than weapon `levels[]`. This also
+  refines the Pack Leader kill below — allies that *fight* still do not exist, but decoys that taunt
+  and detonate are fully supported.
+
+**Balance risks to resolve before implementation** (named now, not discovered later):
+
+| card | risk |
+|---|---|
+| UNSTABLE CORES | **Not a risk — INTENDED.** User call: "that's the fun of crazy combos, high risk high reward." Do NOT cap the chain or add falloff; stacking with Elite Convention (`eliteEveryMul: 0.55`) is the payoff, consistent with the standing rule that spiky elites are a feature. **Verified escapable**, which is the test that actually matters (a threat may be impossible to ignore, never impossible to escape): `VOLATILE_FUSE` 0.8s vs `VOLATILE_RADIUS` 120px at `baseSpeed` 220px/s — the player clears the blast in 0.55s, and each bomb in a chain carries its own fuse, so a cascade propagates at 0.8s steps *behind* a running player. Watch instead: `VOLATILE_DMG` is a flat 20 and does **not** scale with `hpScale`, so the cascade is scary early and cosmetic late — that is the knob if it should stay dangerous. |
+| WILDFIRE | Uncapped cascade — ignite jumping on every death in a 200-enemy field never stops. Needs a jump budget per application. |
+| MINIMES | If decoys hold aggro reliably they do not add pressure, they **delete** it. Cadence and duration are the entire balance. |
+| DEADFALL | May trivialise undergrowth by turning its signature hazard into a free weapon — that hazard is the chapter's identity. |
+| BERSERK | Resolved (see above): self-limiting through damage taken. |
 
 **Cut, with reasons worth keeping:**
 
