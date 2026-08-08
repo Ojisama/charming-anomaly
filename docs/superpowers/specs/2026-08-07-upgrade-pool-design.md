@@ -1264,6 +1264,78 @@ FAITH (pure upside), which the slate already has one too many of.
 > equipped weapons is that failure mode by design — whatever number ships needs a look on a phone,
 > not just a kill count.
 
+#### IPECAC — the per-weapon table (user: *"Alright, per weapon it is"*, 2026-08-08)
+
+**One claim from the previous round is withdrawn.** I wrote that `roar`, `tailSwipe`, `flagella` and
+`tesseractBeam` have no meaningful reading. Missing a count *mod* is not the same as the effect being
+undefined, and three of those four are among the **easiest** rows in the table: roar is *"a sonic
+**cone** in front of you"*, flagella *"lashes a melee **arc**"*, tesseractBeam *"sweeps the
+**crease**"* — a cone, an arc and a line all split into three directions cleanly. What actually
+resists the split is not melee, it is **radial symmetry**.
+
+**The rule the table follows:** the ×3 must be a *genuine* 3× of output, landing in **different
+space or on different targets**. That is the whole reason this version beats ×3 damage — overkill
+eats surplus poured into one dying enemy, and cannot touch surplus that went somewhere else. Any row
+that resolves to "the same hit, bigger" has failed and should be re-authored.
+
+Three classes, by how a weapon can be made to spread:
+
+**A. DIRECTIONAL — 3 at spread angles, or 3 different targets.** The fantasy lands hardest here.
+
+| weapon | what it is | ×3 reads as |
+|---|---|---|
+| `star` | flings antigens at nearest | 3-antigen fan (`multishot`) |
+| `boomerang` | leaf out and back | **3 blades at 120°** |
+| `stinger` | tight cone of needles | 3 cones at the 3 nearest foes |
+| `homing` | seeker that hunts | 3 seekers, **each locking a different target** |
+| `realityShard` | splinters that skip | 3 shards fanned (`moreShards`) |
+| `debrisToss` | hurls a chunk | 3 chunks, 3 landing spots (`moreDebris`) |
+| `flagella` | melee arc at nearest | **3 lashes at 120°** |
+| `clawRake` | fast arc at nearest | **3 rakes at 120°** (`doubleSlash` is 2) |
+| `roar` | sonic cone in front | **3 cones — front, left, right** |
+| `tesseractBeam` | folds and sweeps a crease | **3 creases at different angles** |
+| `rainbow` | sweeping ray | **3 beam arms at 120°** (`prismatic`) |
+
+> `homing`'s "different target" clause is the load-bearing one in the whole table. Three seekers that
+> all lock the nearest enemy is a ×3 that overkill eats whole — i.e. it silently becomes the ×3
+> damage card that already measured as a wash.
+
+**B. PLACED — 3 at different positions.** Spread comes from where they land, not which way they face.
+
+| weapon | ×3 reads as |
+|---|---|
+| `mines` | 3 cysts scattered (`minefield`) |
+| `bloom` | 3 smaller clouds at 3 spots (`twinBloom` is 2) |
+| `lure` | 3 decoys at 3 spots (`twinLure`) — splits the crowd three ways |
+| `hole` | 3 smaller vortexes (`singularity`) |
+| `sewerGeyser` | 3 geysers under 3 different foes (`moreGeysers`) |
+| `trashTornado` | 3 separate tornadoes, not one denser one |
+
+**C. RADIAL — already 360°, so angle cannot spread them.** These are the genuinely hard rows, and
+the ones to watch: their honest reading is **density or staggered timing**, which is weaker and
+clutters more.
+
+| weapon | ×3 reads as | risk |
+|---|---|---|
+| `wave` | **3 full-damage rings at different radii** — NOT `echo`, whose rings land at `WAVE_ECHO_DMG_FRAC` | the fractional-echo trap that made +2 worth ×1.35 |
+| `quillBurst` | 3× quills in the ring (`moreQuills`) | **the documented clutter case** — 11 → 47 quills |
+| `chitterShriek` | 3 shrieks at expanding radii | reads as one thicker scream |
+| `tailSwipe` | a 3-hit sweep combo | timing, not space — overkill can reach it |
+| `orbit` | 3× phages on the ring | persistent, so "half fire rate" is halving a *tick*, not a cast |
+
+**Cost: the halved fire rate survives, and should stay.** It was only ever in doubt because the
+measured +2 grant was worth ×1.35 instead of ×3. Authored properly every row above is a true ×3 of
+output, so the paper trade returns to ×1.5 — and unlike the damage version, spread output is the kind
+overkill cannot reclaim. The bracket already measured says parity sits near +4 and +6 buys +16%, so a
+true ×3 across a loadout should land meaningfully positive without another downside clause. That also
+keeps it from becoming a second pure-upside card next to BLIND FAITH.
+
+**This is where the harness stops.** `--spread=N` grants the *existing* count mods, whose semantics
+are exactly what this table replaces — so it can bracket the authored card but cannot represent it.
+No further number should be quoted for Ipecac until the per-weapon shapes are implemented; the next
+honest measurement is a post-implementation one. Labelling that limit rather than reporting a
+convenient proxy is the point.
+
 #### Second wave — as first proposed (2026-08-08)
 
 Requested after the first slate settled: *"then propose 5 new fun crazy cards."* Authored under the
