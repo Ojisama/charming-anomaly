@@ -1,9 +1,9 @@
 # Track B — Upgrade pool redesign
 
-**Status: ACTIVE — this is the track to finalise first.** Design revised twice under adversarial
-review and validated in the harness; distribution is now **within ~2pts of declared on all three
-reference configs**. Two things block the card list: the **net power buff** (one design call, below)
-and the **card list itself** — see [Open work](#open-work).
+**Status: ACTIVE.** Design revised twice under adversarial review and validated in the harness.
+Distribution is **within ~2pts of declared on all three reference configs**, and the net power buff
+is **resolved** — offset with enemy HP ×1.8, measured to difficulty parity. The one remaining
+blocker is the **card list itself** — see [Open work](#open-work).
 **Blocks:** [Track A](./2026-08-07-dot-rework-and-sim-fixes-design.md), which is on hold until this
 design is final (user call, 2026-08-07 — A's DoT numbers are sized against today's 5.9% element
 share, which this design moves to 18%).
@@ -96,10 +96,68 @@ discriminate — use d3+ for this question. city and beyond never win, so read s
 get to build a weapon instead of collecting filler passives — survives a full clawback. So this is
 not "more fun vs. same difficulty"; you can have both.
 
-Recommendation: **(2), offset**, and prefer `xpForLevel` over enemy HP. +70% enemy HP makes
-everything spongier and attacks the symptom; a steeper XP curve attacks the cause (the compounding
-faster-clears → more-levels loop) and leaves time-to-kill feel intact. Enemy HP was used in the
-sweep only because `xpForLevel` is a module-level import the harness cannot shim.
+### Which lever — and why it is NOT `xpForLevel`
+
+Decision (user, 2026-08-08): **offset rather than accept**. The lever was initially specced as
+`xpForLevel`, on the reasoning that it attacks the compounding faster-clears → more-levels loop
+while leaving time-to-kill feel intact. **Measurement reversed that.**
+
+`xpForLevel` is a module-level import (config.js:1544) the harness cannot shim, so the sweep used
+`run.mods.xpMul` (sim.js:5705), which scales gem xp at pickup and moves total picks the same way.
+Cumulative xp to level L is `sum(5 + 4l) ≈ 5L + 2L²`, so the quadratic term dominates and cost
+scales ~linearly in the coefficient: **`xpMul = m` ≈ `xpForLevel = 5 + level * (4/m)`**.
+
+The buff is **composition, not volume.** At a stocked shop the offer probe shows cards/run moving
+only 67.0 → 70.5 (**+5%**) while `weaponLvSum` goes 4.7 → 8.3 (**+77%**). Cutting the XP curve ~40%
+to offset a +5% volume change is a large correction aimed at the wrong variable.
+
+(The earlier "+24% cards" figure was measured at **shop 0**. It is real for a first-ever run and
+much smaller for a progressed player — every card-count claim needs its shop level attached.)
+
+Both levers reach difficulty parity; they differ in what they cost. Body/2 d3 shop8, 40 runs:
+
+| lever | win rate | level-ups | weaponLvSum | verdict |
+|---|---|---|---|---|
+| baseline | 7.5% | 14.2 | 3.2 | — |
+| no offset | 35.0% | 19.6 | 6.3 | far too easy |
+| **enemy HP ×1.8** | **7.5%** | **12.8** | **5.1** | parity, −10% screens |
+| xpMul 0.6 (`5+level*6.67`) | 10.0% | 11.2 | 4.3 | parity, **−21% screens** |
+
+A level-up screen *is* a choice moment, so screens are the currency of the stated goal (more agency,
+more "aha"). The XP lever spends more of them for the same difficulty, because it cuts xp directly
+while enemy HP only does so through slower clears.
+
+**Recommendation: enemy HP for difficulty, `xpForLevel` only if screen count needs its own tuning.**
+Two orthogonal knobs, each doing one job:
+
+1. `hpScale`/`enemyHpMul` ≈ **×1.7–1.8** restores the difficulty baseline.
+2. If ~13 level-ups/run is too few, lower `xpForLevel` *deliberately* to buy screens back — do not
+   let screen count be a side effect of a difficulty knob.
+
+Note the standing tension, which no lever removes: **at difficulty parity you cannot also have more
+level-ups.** Parity difficulty means parity survival time, which means roughly parity kills, which
+means roughly parity xp income. Screens are structurally pinned near ~13 here.
+
+Two-knob sweep confirming that (body/2 d3 shop8, 40 runs; baseline win 7.5%, level 14.2):
+
+| HP × | xpMul | win rate | level-ups | weaponLvSum |
+|---|---|---|---|---|
+| 1.4 | 0.85 | 17.5% | 13.9 | 5.2 | 
+| 1.7 | 0.92 | 5.0% | 12.7 | 4.8 |
+| **1.8** | **1.0** | **7.5%** | **12.8** | **5.1** |
+| 2.0 | 1.15 | 7.5% | 13.3 | 4.8 |
+
+Raising xp to buy screens back needs a matching HP raise to stay at parity, and the extra HP
+suppresses kill count — which suppresses xp. ×2.0 sponge buys **+0.5 levels** over ×1.8 alone. Not
+worth it.
+
+**Settled: enemy HP ×1.8, single knob.** Parity difficulty (7.5% → 7.5%), −10% screens (14.2 → 12.8),
++59% weapon investment (3.2 → 5.1). Fewer, better-composed choices is a defensible reading of "more
+aha moments"; a screen that offers a real build decision beats one offering three filler passives.
+
+Watch item: ×1.8 lengthens time-to-kill and spongy enemies are a known feel-killer on this repo.
+Re-run the sweep against `hpScale` (the shipping lever) and check TTK in playtest before locking it.
+If TTK degrades, prefer accepting slightly-easier over pushing HP higher.
 
 Caveats: one bot policy, one pick policy (`dps`), 40 runs — win rates carry a wide binomial
 interval, and the offset bracket is ±0.2 at best. Treat ≈1.7× as an order of magnitude, and re-run

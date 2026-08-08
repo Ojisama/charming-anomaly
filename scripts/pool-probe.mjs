@@ -63,6 +63,7 @@ const POLICY = pos[3] ?? 'random'
 const SURVIVAL = flags.has('--survival')
 const DIFF = Number(args.find((a) => a.startsWith('--diff='))?.slice(7) ?? 1)
 const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1)
+const XPMUL = Number(args.find((a) => a.startsWith('--xpmul='))?.slice(8) ?? 1)
 
 // Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
 // nobody reaches city (ch5) or buys a 4th slot without a stocked shop, and a survival number from
@@ -371,6 +372,13 @@ function measure(mode) {
     // (sim.js:975), so this needs no src/ change. It is a stand-in for whichever lever ships —
     // xpForLevel is a module-level import and cannot be shimmed from here.
     if (mode === 'proposed' && OFFSET !== 1) run.mods.enemyHpMul *= OFFSET
+    // --xpmul=N: the xpForLevel offset, measured through the one lever the harness CAN reach.
+    // xpForLevel is a module-level import (config.js:1544, sim.js:40) so it cannot be shimmed;
+    // run.mods.xpMul (sim.js:5705) scales gem xp at pickup, which moves total picks the same way.
+    // CONVERSION: cumulative xp to level L is sum(5 + 4l) ~ 5L + 2L^2, so the quadratic term
+    // dominates and cost scales ~linearly in the coefficient. xpMul = m is therefore worth
+    // xpForLevel = 5 + level * (4 / m). Approximate — verify the real curve once it ships.
+    if (mode === 'proposed' && XPMUL !== 1) run.mods.xpMul *= XPMUL
     if (!SURVIVAL) run.player.magnet = 4000
     const st = { since: 0, taken: new Set() }
     const dt = 1 / 60
@@ -477,7 +485,7 @@ function fidelity(r) {
 
 function survivalReport(a, b) {
   const med = (xs) => { if (!xs.length) return NaN; const s = [...xs].sort((x, y) => x - y); return s[s.length >> 1] }
-  console.log(`\n== SURVIVAL (${CHAPTER} slots=${SLOTS} d${DIFF} shop=${SHOP_LV}/10 runs=${RUNS} picks=${POLICY}${OFFSET !== 1 ? ` offset=x${OFFSET} enemyHP` : ''})`)
+  console.log(`\n== SURVIVAL (${CHAPTER} slots=${SLOTS} d${DIFF} shop=${SHOP_LV}/10 runs=${RUNS} picks=${POLICY}${OFFSET !== 1 ? ` enemyHP x${OFFSET}` : ''}${XPMUL !== 1 ? ` xpMul x${XPMUL} (= xpForLevel 5+level*${(4 / XPMUL).toFixed(2)})` : ''})`)
   console.log(`   bot: kite-and-collect — flees enemies (1/d, 600px), else walks to nearest gem;`)
   console.log(`   pure flee inside ${PANIC_R}px. No projectile dodging, no cover, no obstacle pathing.`)
   console.log(`   A FLOOR on player skill, not a model of one. Quote the policy with the number.`)
