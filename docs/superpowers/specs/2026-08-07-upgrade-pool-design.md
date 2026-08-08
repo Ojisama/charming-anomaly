@@ -813,7 +813,153 @@ Open call: whether a coin past `COIN_CAP_PER_RUN` still heals. Recommend **yes**
 bound the meta payout, and proposed already measures 791/999, so late-run runs would otherwise watch
 the card silently switch off.
 
-#### Second wave — five crazy cards (PROPOSED 2026-08-08, not yet accepted)
+#### Second wave — user rulings (2026-08-08)
+
+| card | ruling |
+|---|---|
+| **TIME DEBT** | **ACCEPTED at 1.5×**, not 2×. |
+| **OVERLOAD** | **ACCEPTED at 2× fire rate** (not 3× — *"otherwise life would drain instantly"*) **plus +50% damage.** |
+| **EVENT HORIZON** | **CUT.** *"Enemies already swarm towards you, I don't see the point."* Correct, and both halves are redundant, not one: enemies path to the player every frame by default, and dragging pickups in is precisely the `magnet` passive. The card re-skinned two shipped behaviours. |
+| **BLOOD PACT** | Kept — *"could be fun, would need balancing."* Rate measured below. |
+| **BRITTLE** | **ACCEPTED as written** (maxHP → 1, damage ×4). |
+| **BLOOD MONEY** *(new, user)* | *"rerolls cost 10 HP instead of coins."* See pricing below — the idea is the strongest on either wave, the flat-HP number is the one thing that needs changing. |
+
+##### OVERLOAD must cost per SECOND, not per shot (measured)
+
+"Every shot costs 1 HP" is unshippable, and the harness now says so. Weapon fires counted by
+rising-edge on `run.weaponTimers` (which covers **every** weapon — only 7 emit a `shoot` event, and
+none of the city three do):
+
+| chapter | fires/run | fires/s |
+|---|---|---|
+| body | 1142.9 | **3.8/s** |
+| beyond | 888.4 | **3.0/s** |
+| city | 163.4 | **0.5/s** |
+
+**A 7.6× spread.** At 1 HP/shot with fire rate doubled that is 7.6 HP/s in the body and 1.0 HP/s in
+the city — the same card is a death sentence in one chapter and free in another. Worse, it
+*perversely punishes the fast-firing builds the card exists to enable*, and it is **undefined for
+beams and auras**: city's 0.5/s is the rainbow beam registering one "fire" per activation and then
+sustaining. A third of the arsenal has no "shot" to charge for.
+
+**Cost per second.** Uniform across builds and chapters, readable on the card, one number to tune.
+The harness takes `--overload=N` (N = HP/s), applying 2× `fireRateMul` and 1.5× `damageMul` with it.
+
+**The rate is far lower than it looks.** Body, 2 slots, d1, shop 8/10, 24 runs, `dps`, against a
+proposed-pool baseline of 100% win / level 29.8:
+
+| HP/s | drain/run | win rate | median death | level |
+|---|---|---|---|---|
+| baseline | — | 100% | — | 29.8 |
+| **0.5** | 150 HP | **100%** | — | **31.5** |
+| **1** | 300 HP | **29.2%** | 235.3s | 24.8 |
+| **2** | 600 HP | **0%** | 181.2s | 15.7 |
+| **4** | 1200 HP | **0%** | 180.4s | 13.6 |
+
+**There is a cliff between 0.5 and 1, and almost nothing in between.** At 0.5 HP/s the card is a
+straight *buff* — level goes **up**, 29.8 → 31.5, because 3× DPS kills faster, drops more gems and
+outruns the drain. At 1 HP/s it costs 71 points of win rate.
+
+The arithmetic explains the cliff exactly. The run's total HP budget measures **~233–250** (~110–127
+maxHP plus `regen` averaging 0.41/s ≈ 123 HP healed over 300s). 0.5 HP/s spends 150 of it — a
+comfortable 60%. 1 HP/s spends 300 — more than everything you have. The card flips from free to
+fatal because the drain crosses the budget line, not because of anything subtler.
+
+Conclusions:
+
+1. **Ship it at ~0.75 HP/s** (225 HP, sitting right on the budget line) — the only rate that is
+   neither free nor fatal.
+2. **The cliff is the design, not a defect.** Landing the cost at the budget line makes survival
+   depend on sustain investment, which is exactly what a build-conditional card should do — and it
+   gets there without a hard gate. It does mean the card is near-binary: a regen build lives, a
+   glass build dies.
+3. **A flat HP/s is still a doomsday clock** — constant while your survivability grows. If the
+   binary feel plays badly, the fix is to scale the cost with `dmgScale` so it ramps with the run
+   rather than dominating the opening.
+
+**Read the lethality as an upper bound.** The kite-and-collect bot is *"a FLOOR on player skill, not
+a model of one"* — it does not convert Overload's 3× DPS into fewer enemies touching it, which is
+exactly how a real player pays for the drain. This is the card where bot-vs-player divergence is
+widest, so **0.75 must be confirmed by hand-play before shipping.** Do not set it from the bot alone.
+
+##### TIME DEBT at 1.5× costs LEVELS, not survival — so it needs an upside
+
+Emulated by advancing `run.time` past real time after each step (`--timescale=1.5`), which is exactly
+the card: the clock runs 1.5× while weapons, movement and regen stay on the real one. Body, 2 slots,
+d1, shop 8/10, 24 runs, `dps`, proposed-vs-proposed:
+
+| | baseline | +TIME DEBT 1.5× |
+|---|---|---|
+| win rate | 100% | **100%** |
+| level reached | 29.8 | **21.3** |
+| weaponLvSum | 10.5 | **7.9** |
+
+**Survival is untouched; progression falls 28%.** The mechanism is not difficulty — it is collection
+time. The same total enemies spawn (the spawn integral is over `run.time`, which is unchanged), but
+they arrive in 200 real seconds instead of 300, and **gem pickup is rate-limited by walking, not by
+spawning.** You out-run your own ability to collect what you killed.
+
+Two consequences:
+
+1. **The card as stated is pure downside.** Density ×1.5 and an early endgame are the *feel*, but
+   nothing pays for a third of your levels. A pivot needs a reward, and "the run is shorter" is only
+   a reward for meta-farming (same kills and coins per run, in ⅔ the wall-clock — coins per real
+   minute up 50%).
+2. The obvious fix is **+50% XP**, and it works. Measured (`--timescale=1.5 --xpmul=1.5`):
+
+| | baseline | 1.5× clock | 1.5× clock **+50% XP** |
+|---|---|---|---|
+| win rate | 100% | 100% | 100% |
+| level reached | 29.8 | 21.3 | **27.7** |
+| weaponLvSum | 10.5 | 7.9 | **9.1** |
+
+**+50% XP recovers the loss to −7% of levels**, down from −28%. It does not recover it fully —
+compensation cannot be exact, because the shortfall is walking time, not XP — and that ~7% residual
+is a fair price. **SHIP TIME DEBT AS 1.5× CLOCK + 50% XP.** That makes it roughly power-neutral,
+which promotes it from a trade to a true **pivot**: the same run, compressed to 200 seconds at 1.5×
+density. The intensity *is* the product.
+
+**Caveat on this run:** both arms sit at 100% win at d1 body with shop 8/10, so **win rate is
+saturated and blind here** — level reached is the only live signal. A harder config is needed before
+claiming Time Debt costs no survival in general.
+
+##### BLOOD PACT — kills/run sets the rate
+
+| chapter | kills/run | at +1%/kill | at +0.2%/kill |
+|---|---|---|---|
+| body | 569.9 | ×6.7 | **×2.1** |
+| city | 1894.5 | ×19.9 | **×4.8** |
+| beyond | 1711.8 | ×18.1 | **×4.4** |
+
++1% per kill ends the run at ×7 to ×20 damage — past "absurd" and into "the last two minutes have no
+threat left", which is anti-fun in a way the rarity licence does not cover (the licence permits
+runs that *explode*, not runs that go inert). **Recommend +0.2% per kill, uncapped.** Note the 3.3×
+kill-rate spread between chapters survives any flat rate; if it matters, the rate is now measurable
+per chapter and can be set per chapter.
+
+*Variant worth considering:* stack on **elite** kills only. Elite cadence is governed by
+`eliteEvery`, so the rate self-normalises, and "hunt the elites" is better play than "kill anything".
+
+##### BLOOD MONEY — flat 10 HP is too cheap; charge 10 **maxHP**
+
+The idea targets the exact complaint that started this redesign (*"not enough agency… frustrating to
+aim for some mod and not see any"*), and it is the only card that converts survivability directly
+into agency. But **flat 10 current-HP does not bind.** Measured body run: ~111–127 maxHP plus
+`regen` averaging 0.41/s ≈ 123 HP healed across 300s — a budget of 230+ HP, or **23 rerolls**,
+against only ~28–37 level-up screens in the whole run. That is unlimited rerolls, which destroys the
+scarcity that makes a reroll a decision.
+
+**Charge 10 maxHP, permanently.** Keeps the user's number and the readability, and:
+
+- **Self-limiting without a cap** — you start at ~110–127 maxHP, so the run affords ~5–8 rerolls
+  before the cost becomes suicidal. No regen exploit, because regen cannot restore a ceiling.
+- **Escalating in real terms** — each reroll makes the next hit relatively worse.
+- **Revives a dead passive.** `maxHP` (Extra Squish / Big Mochi) becomes reroll fuel, which is a
+  genuine build decision where today it is the boring pick.
+- Anti-synergises sharply with BRITTLE (maxHP 1 = no rerolls at all) and with BLOOD PACT (no
+  healing, so every reroll is permanent) — both good, both legible before you take the card.
+
+#### Second wave — as first proposed (2026-08-08)
 
 Requested after the first slate settled: *"then propose 5 new fun crazy cards."* Authored under the
 rarity-licenses-extremity rule, so several are run-enders by design. **Each one is crazy along a

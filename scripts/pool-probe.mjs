@@ -96,6 +96,19 @@ const RESHAPED = LATE_RATE !== C.HP_SCALE_LATE_RATE || LATE_START !== C.HP_SCALE
 const curveRatio = (t) =>
   curve(t, LATE_START, LATE_RATE) / curve(t, C.HP_SCALE_LATE_START, C.HP_SCALE_LATE_RATE)
 
+// ---- Anomaly-card emulation (proposed mode only). All three ride live `run` knobs, no src change.
+// --timescale=N  TIME DEBT: the run CLOCK runs at N x while weapons, movement and regen stay on the
+//   real one. Everything that reads run.time (hpScale, dmgScale = 1 + t/300, spawnRate, eliteEvery,
+//   victory at RUN_DURATION) therefore arrives N x sooner, but your dps and sustain do not scale
+//   with it. Emulated by adding the surplus to run.time after each step.
+const TIMESCALE = Number(args.find((a) => a.startsWith('--timescale='))?.slice(12) ?? 1)
+// --overload=N   OVERLOAD: 2x fire rate, +50% damage, N HP per weapon FIRE. player.fireRateMul and
+//   player.damageMul are per-player knobs (state.js:1134-1135); the HP cost is applied raw rather
+//   than through hurtPlayer (not exported) — fine for pricing, it only skips the hurt event and the
+//   retaliate mods. N=0 measures the fire RATE alone, at no cost.
+const OVERLOAD = args.some((a) => a.startsWith('--overload'))
+const OVERLOAD_COST = Number(args.find((a) => a.startsWith('--overload='))?.slice(11) ?? 1)
+
 // Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
 // nobody reaches city (ch5) or buys a 4th slot without a stocked shop, and a survival number from
 // a zero-shop save on a late chapter measures the empty save, not the pool.
@@ -413,7 +426,7 @@ function measure(mode) {
   // at least once. User report (2026-08-08): "frustrating to aim for some mod (like laser prism
   // sub-beams) and not seeing any in the run" — this is the measurement of that complaint.
   const modRuns = new Map()
-  const coinsEarned = []
+  const coinsEarned = [], killCounts = [], fireCounts = []
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
   const defPicks = { armor: 0, regen: 0, maxHP: 0 }
   let offered = 0
@@ -441,9 +454,18 @@ function measure(mode) {
     if (mode === 'proposed' && XPMUL !== 1) run.mods.xpMul *= XPMUL
     const baseHpMul = run.mods.enemyHpMul
     if (!SURVIVAL) run.player.magnet = 4000
+    if (mode === 'proposed' && OVERLOAD) {
+      run.player.fireRateMul *= 2
+      run.player.damageMul *= 1.5
+    }
     const st = { since: 0, taken: new Set() }
     const seenMods = new Set()
     const dt = 1 / 60
+    // Counting weapon FIRES without touching src/: weaponTimers[id] counts DOWN to the next shot
+    // and is reset upward on fire, so a rising edge is exactly one fire. Covers every weapon —
+    // only 7 of them emit a 'shoot' event (those are for SFX), and none of the city three do.
+    let fires = 0
+    const prevT = {}
 
     // 305s: RUN_DURATION is 300 and victory flips ON the boundary, so the loop must cross it.
     for (let f = 0; f < 305 * 60; f++) {
@@ -481,6 +503,14 @@ function measure(mode) {
         input = { x: Math.cos(t * 0.7), y: Math.sin(t * 0.7) }
       }
       stepSim(run, input, dt)
+      for (const [id, t] of Object.entries(run.weaponTimers)) {
+        if (t > (prevT[id] ?? 0) + 1e-9) fires++
+        prevT[id] = t
+      }
+      // Cost is per SECOND, not per fire — see the fires/s spread in the spec: 0.5/s (city, beam)
+      // to 3.8/s (body) is a 7.6x chapter lottery, and "per shot" is undefined for beams entirely.
+      if (OVERLOAD && mode === 'proposed' && SURVIVAL) run.player.hp -= OVERLOAD_COST * dt
+      if (TIMESCALE !== 1 && mode === 'proposed') run.time += dt * (TIMESCALE - 1)
       run.events.length = 0
     }
     Math.random = REAL_RANDOM
@@ -488,6 +518,8 @@ function measure(mode) {
 
     for (const k of seenMods) modRuns.set(k, (modRuns.get(k) ?? 0) + 1)
     coinsEarned.push(run.coinsEarned ?? 0)
+    killCounts.push(run.kills ?? 0)
+    fireCounts.push(fires)
     levels.push(run.player.level)
     anomalies.push(st.taken.size)
     weaponLv.push(run.weapons.reduce((s, w) => s + w.level, 0))
@@ -518,6 +550,9 @@ function measure(mode) {
     absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
     modRuns,
     coins: avg(coinsEarned),
+    kills: avg(killCounts),
+    fires: avg(fireCounts),
+    liveT: avg(deaths.length ? deaths.map((d) => Math.min(d.t, C.RUN_DURATION)) : [C.RUN_DURATION]),
     winRate: deaths.length ? (100 * deaths.filter((d) => d.won).length) / deaths.length : 0,
     deathT: deaths.filter((d) => !d.won).map((d) => d.t),
   }
@@ -527,6 +562,7 @@ const f1 = (n) => n.toFixed(1)
 function report(r) {
   console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY} mode=${r.mode}`)
   console.log(`level ${f1(r.level)}  cards/run ${f1(r.cards)}  weaponLvSum ${f1(r.weaponLv)}  coins/run ${f1(r.coins)} (cap ${C.COIN_CAP_PER_RUN})`)
+  console.log(`kills/run ${f1(r.kills)}  fires/run ${f1(r.fires)} (${f1(r.fires / r.liveT)}/s over ${f1(r.liveT)}s alive)`)
   console.log(`short pools ${r.shortPools}/${r.pools}  (MUST be 0)`)
   console.log(`kind   ${Object.entries(r.kinds).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`rarity ${Object.entries(r.rarities).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
