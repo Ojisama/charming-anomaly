@@ -5838,6 +5838,10 @@ export function createRenderer(app) {
   // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
   // already resolved damage by the time it is drawn (see the run.prisms note in state.js), so this
   // draws a decaying segment and nothing else; the pooled beamPool sprites stay for the real arms.
+  // Two of them: prismBodyG paints NORMALLY so the fan holds its own red on any ground (additive
+  // red over a light floor barely moves the pixel), prismG stays additive for the white-hot core on
+  // top, where adding light is the correct model. See entitiesLayer.addChild for where they sit.
+  const prismBodyG = new Graphics()
   const prismG = new Graphics()
   prismG.blendMode = 'add'
   // v5.10 skies: the jet strafe's halogen landing-light pool is the one telegraph element that must
@@ -5901,8 +5905,13 @@ export function createRenderer(app) {
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, prismG, whipLayer, arcG,
-    lobLayer, carLayer, smokeLayer, particleLayer, textLayer,
+    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
+    lobLayer, carLayer, smokeLayer, particleLayer,
+    // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
+    // damage numbers. A taxi crossing a split used to paint over it, which on the one layer whose
+    // whole job is to be noticed is the wrong trade. Still under textLayer: numbers stay readable.
+    prismBodyG, prismG,
+    textLayer,
   )
 
   // ---------------------------------------------------------- organic floor
@@ -8447,20 +8456,61 @@ export function createRenderer(app) {
   }
 
   // Beam Prism refractions (run.prisms): each entry is a finished segment with a decaying `life`.
-  // Two strokes per segment — a wide soft halo and a thin near-white core — which on an additive
-  // layer is what separates "a beam of light" from "a drawn line". The colour is the Neon Beam's
-  // own tip red (placeBeam's 0xff5a52 / 0xffd9d4), because a refraction has to read as THIS weapon's
-  // light bending, not as some second effect that happens to be near it.
+  // The colour is the Neon Beam's own tip red (placeBeam's 0xff5a52 / 0xffd9d4), because a
+  // refraction has to read as THIS weapon's light bending, not as some second effect that happens
+  // to be near it.
+  const PRISM_GLOW = 0xff5a52
+  const PRISM_CORE = 0xffd9d4
+  const PRISM_BURST_F = 0.35   // share of a segment's life spent throwing itself out to full reach
+
+  // A tapered ray: fat where the light bent, pointed where it dies. Drawn as a triangle rather than
+  // a stroke because a constant-width stroke is exactly what made v6.7.6 read as a drawn line.
+  function prismWedge(g, x, y, ux, uy, halfW, len, color, alpha) {
+    const nx = -uy * halfW, ny = ux * halfW
+    g.poly([x + nx, y + ny, x - nx, y - ny, x + ux * len, y + uy * len])
+    g.fill({ color, alpha })
+  }
+
   function redrawPrisms(run) {
     prismG.clear()
+    prismBodyG.clear()
     const list = run.prisms || []
     if (list.length === 0) return
     for (const s of list) {
       const k = Math.max(0, Math.min(1, s.life / PRISM_FLASH_T)) // 1 at cast -> 0 as it fades
-      prismG.moveTo(s.x, s.y).lineTo(s.x2, s.y2)
-      prismG.stroke({ width: 7, color: 0xff5a52, alpha: 0.30 * k })
-      prismG.moveTo(s.x, s.y).lineTo(s.x2, s.y2)
-      prismG.stroke({ width: 2, color: 0xffd9d4, alpha: 0.75 * k })
+      const fade = Math.pow(k, 0.7)
+      const gen = s.d ?? 0
+      const dx = s.x2 - s.x, dy = s.y2 - s.y
+      const full = Math.hypot(dx, dy)
+      if (full < 1) continue
+      const ux = dx / full, uy = dy / full
+      // Each generation is thinner than its parent — light losing energy at every surface. Without
+      // it a 40-ray mythic tree draws every ray identically and the fan reads as noise.
+      const w = Math.max(3, 11 - gen * 2.6) * (0.55 + 0.45 * fade)
+      // The ray throws itself out from the split point rather than appearing whole — the motion is
+      // what makes it read as a splash rather than as a shape that was already there.
+      const grow = Math.min(1, 0.18 + (1 - k) / PRISM_BURST_F)
+      const len = full * grow
+
+      // Three nested wedges, each shorter and hotter than the last. That IS the gradient — a ray
+      // that is uniformly bright for 200px reads as a drawn stroke no matter how it's tinted, which
+      // is what made v6.7.6's fan look like wireframe. Dense at the surface, dissolving outward.
+      prismWedge(prismBodyG, s.x, s.y, ux, uy, w * 1.25, len, PRISM_GLOW, 0.30 * fade)
+      prismWedge(prismG, s.x, s.y, ux, uy, w, len * 0.62, PRISM_GLOW, 0.55 * fade)
+      prismWedge(prismG, s.x, s.y, ux, uy, w * 0.45, len * 0.30, PRISM_CORE, 0.95 * fade)
+
+      // The bloom AT the split point is what actually says "it bent here" — every ray of one
+      // refraction stacks its own, so a wide split lights up brighter than a narrow one for free.
+      prismBodyG.circle(s.x, s.y, w * 1.9).fill({ color: PRISM_GLOW, alpha: 0.28 * fade })
+      prismG.circle(s.x, s.y, w * 0.85).fill({ color: PRISM_CORE, alpha: 0.7 * fade })
+
+      // The travelling front, alive only while the ray is still extending. Kept small on purpose:
+      // at any size where it reads as a disc it reads as a BULLET, i.e. as a separate projectile
+      // this weapon does not have — it has to stay a spark riding the leading edge.
+      if (grow < 1) {
+        prismG.circle(s.x + ux * len, s.y + uy * len, w * 0.22)
+        prismG.fill({ color: PRISM_CORE, alpha: 0.45 * fade })
+      }
     }
   }
 

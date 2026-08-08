@@ -633,11 +633,12 @@ function generateWells(sig) {
  *               includes every Tesseract Beam, since only fireBeam ever sets it). See the PRISM_*
  *               block in config.js. Its sub-beams are NOT entries here — they resolve inside the
  *               tick that cast them and leave only the render-only segments below.
- * prisms[i]:    { x, y, x2, y2, life }  v6.7.6, RENDER-ONLY — one drawn refraction segment. Damage
- *               is already resolved by the time one of these exists; they linger PRISM_FLASH_T
- *               purely so a split cast on a tick frame is visible for longer than one 16ms frame.
- *               Nothing collides with them, nothing reads them but render.js. Stepped (aged and
- *               filtered) at the end of stepBeams.
+ * prisms[i]:    { x, y, x2, y2, d, life }  v6.7.6, RENDER-ONLY — one drawn refraction segment.
+ *               Damage is already resolved by the time one of these exists; they linger
+ *               PRISM_FLASH_T purely so a split cast on a tick frame is visible for longer than one
+ *               16ms frame. `d` is the generation (0 = straight off the beam, 1 = a sub-beam of a
+ *               sub-beam...), which render tapers on. Nothing collides with them, nothing reads
+ *               them but render.js. Stepped (aged and filtered) at the end of stepBeams.
  *
  * Extra events beyond v1: {type:'explode',x,y,radius} mine pop, star-blast explosion, Supernova
  * Sparks orb-kill splash, Popping Wisps death-pop, or Big Crunch hole-collapse (radius from

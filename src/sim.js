@@ -4645,7 +4645,10 @@ function castPrism(run, ox, oy, angle, dmg, len, width, depth, ladder, hit) {
     const e = firstOnRay(run, ox, oy, a, len, width, hit)
     // Drawn to where it actually ended: at the body it stopped on, or out to its full reach.
     const reach = e ? Math.hypot(e.x - ox, e.y - oy) : len
-    run.prisms.push({ x: ox, y: oy, x2: ox + Math.cos(a) * reach, y2: oy + Math.sin(a) * reach, life: PRISM_FLASH_T })
+    // `d` is the generation (0 = straight off the beam), so render can taper each one thinner and
+    // dimmer than its parent — without it every ray in a 40-wide mythic tree draws identically and
+    // the fan reads as noise rather than as light losing energy at each surface.
+    run.prisms.push({ x: ox, y: oy, x2: ox + Math.cos(a) * reach, y2: oy + Math.sin(a) * reach, d: depth, life: PRISM_FLASH_T })
     if (!e) continue
     hit.add(e.id)
     applyDamage(run, e, dmg)

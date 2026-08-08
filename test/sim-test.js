@@ -1585,7 +1585,14 @@ function testCrazyMods() {
     assert.strictEqual(hits.length, 2, `expected exactly 2 bodies hit by one tick, got ${hits.length}`)
     // And the drawn segments are render-only: they exist, and they carry no damage of their own.
     assert(one.run.prisms.length > 0, 'expected drawn refraction segments for the renderer')
-    console.log(`PASS run O.14 (beam prism): ladders 2/[3,2]/[4,3,2], off-arm body took ${offDmg} (${(offDmg / hubDmg).toFixed(2)}x parent), ${one.run.prisms.length} segments, no double hits`)
+    // v6.7.7: every segment names its generation, which is what render tapers on. A ladder of
+    // [4,3,2] can legitimately stop early (a ray that hits nothing does not re-split), so this
+    // asserts the range rather than the exact set — but d=0 must always be present, or the fan
+    // would be drawn at uniform width and the splash goes back to looking like wireframe.
+    const gens = one.run.prisms.map((s) => s.d)
+    assert(gens.every((d) => Number.isInteger(d) && d >= 0 && d < 3), `bad prism generations: ${gens}`)
+    assert(gens.includes(0), 'expected at least one first-generation segment')
+    console.log(`PASS run O.14 (beam prism): ladders 2/[3,2]/[4,3,2], off-arm body took ${offDmg} (${(offDmg / hubDmg).toFixed(2)}x parent), ${one.run.prisms.length} segments across generations ${[...new Set(gens)].sort()}, no double hits`)
   }
 
   // 13. rainbow.strobe: a strobed beam lands more hit events than an unmodded one over the same time.

@@ -1300,7 +1300,12 @@ export const PRISM_LEN_MUL = 0.50    // ...and its reach, as a share of that sam
 // heading — so an odd count keeps one ray going dead straight (the beam "carried on through"),
 // which is what makes the effect read as refraction rather than as a scatter.
 export const PRISM_SPREAD = 1.4      // rad, ~80deg corner to corner
-export const PRISM_FLASH_T = 0.12    // s each drawn sub-beam segment lingers (render-only, no damage)
+// How long a drawn sub-beam segment lingers (render-only, no damage). This MUST exceed the beam's
+// tick interval (0.13-0.15s, WEAPONS.rainbow.levels) or the splash blinks out between refractions
+// and reads as a flicker instead of a spray — v6.7.6 shipped it at 0.12 and that gap is most of
+// why the effect was invisible. At 0.26 consecutive refractions overlap, so a sweeping beam drags
+// a continuous fan behind whatever it is cutting through.
+export const PRISM_FLASH_T = 0.26
 
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
