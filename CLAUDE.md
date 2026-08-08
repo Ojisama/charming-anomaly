@@ -59,6 +59,14 @@ Every module has a hard rule about what it may touch. These rules are what make 
 
 `app.ticker` each frame: `stepSim(run, getInput(), dt)` → drain `run.events` into a fresh array → `renderer.sync(run, dt, events)` → map events to SFX → `ui.updateHUD` → react to phase change (`levelup`/`dead`/`victory`). `dt` is clamped to 0.05s. When paused/modal, `renderer.sync(run, 0, [])` draws a frozen world.
 
+`sync`'s `dt` also drives `animT`, which every sprite ROTATION and pulse is derived from — so `dt = 0` freezes the animation as well as the sim. That is the intended modal behaviour, and it is also the reason anything driving frames by hand has to pass real time when it wants motion (see `scripts/fx-probe.mjs`).
+
+### Sprite pools vs. rigs (render.js)
+
+One sprite per entity goes through `syncPool`. An entity needing independently-transformed parts (counter-rotating rings, scrolling beam streaks) is a **rig** instead: a `Container` per pool slot, acquired by its own `acquireX()`, hidden by `.root.visible = false`. Which pool is which is not guessable — read `reset()`, where the flat ones sit in one array literal and every rig gets its own `.root` line.
+
+**Converting a flat pool to a rig has a second site that fails silently.** `reset()` walks a hardcoded list of flat pools doing `for (const s of pool) s.visible = false`. Leave a rig pool in that list and it sets a dead property on a plain object — no throw, no warning, and the previous run's entities stay on screen. Move it down to the `.root.visible = false` block with the other rigs.
+
 ### The event contract
 
 `sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block at the top of `state.js` (lines ~150-530)** — read it before adding entities or events; keep it in sync when you change the `run` shape.
@@ -81,6 +89,26 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - **Versioned commits.** Each release is a commit subject `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are visible — their events were silently dropped`). Chores use `chore: …`. Follow this format.
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
+- **A new weapon STAT has to be registered twice, and fails silently otherwise.** Adding a key to a
+  weapon's `levels[]` is not enough for it to appear on the pause build sheet: `buildReadout`
+  (sim.js) only copies keys on its own hardcoded whitelist array, and `STAT_LABEL` (ui.js) supplies
+  the row label — miss either and the stat is simply absent, with no warning. Add the French too
+  (run XX asserts config coverage, not UI-chrome coverage, so it will not catch a missing label).
+  The whitelist is ordered and the sheet caps at `STAT_MAX_ROWS`, so where you insert the key
+  decides which stats get dropped.
+- **An on/off weapon mod that must be EPIC cannot be `kind: 'switch'`.** `makeWeaponModCard` tests
+  `kind === 'switch'` and returns null above normal rarity BEFORE it ever looks at `values`, so a
+  switch is a normal-rarity card by construction. Use `values: { epic: 1 }` (the Beam Prism idiom)
+  on a non-switch kind, plus `maxPicks: 1`, and write the wording with `descFor` since there is no
+  meaningful "+N". `trashTornado.sweepLoot` is the worked example.
+- **The camera looks straight down. Every entity bake is drawn from directly overhead.** Buildings
+  and props are the ONE exception (they stand upright, deliberately — see `upright` in the district
+  tables); creatures, weapons, effects and pickups are all plan views. v6.8 shipped the Trash
+  Tornado as a side elevation — a funnel with a mouth at the top and a tip dragging along the
+  street — which is a coherent drawing of a tornado and the wrong projection for this game, and it
+  took a whole version to undo. A screenshot does not catch this on its own: the v6.8 capture was
+  read for "does it look like a tornado" and passed. Ask the second question explicitly — *is this
+  the same viewpoint as the sprites around it?* — because the answer is in the same image.
 - **UI that depicts a game entity uses the game's art, not a lookalike.** render.js already draws every creature (`ROSTER_LOOKS`), every weapon and every prop; if a menu needs to show one, route the real thing out (the `src/cast/*.png` bake is the worked example) rather than reaching for an emoji or a stand-in shape. v6.7.1 shipped 🐜🐝🕷️ per chapter and the tardigrade came out as 🐻 — a bear — while `drawTardigrade` sat in render.js the whole time. Emoji only survive where the glyph *is* the thing (a coin, a lock).
 - **Say when something is a stand-in.** If you do ship a placeholder or an approximation, name it as one in the commit and the report. That 🐻 shipped under a code comment calling it "the cheapest honest answer", which read as a considered decision and cost a review round-trip to undo.
 - `.gitignore` excludes `/*.png` **and nothing else** — a PNG at the repo ROOT is ignored; a PNG in a subdirectory is not, and neither is any other scratch artifact. Verification work regularly produces `.json` dumps at the root and files staged under `public/` so the dev server can serve them to a browser probe; none of that is covered. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
