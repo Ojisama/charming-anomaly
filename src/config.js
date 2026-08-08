@@ -28,6 +28,26 @@ export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic']
 // so a screen shows at least one epic+ on ~23% (2 cards) / ~33% (3) / ~41% (4) of level-ups.
 export const RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
 
+// ---- Level-up buckets (v6.7, Track B) -----------------------------------------------
+// The pool rolls a BUCKET first, then a rarity inside it. The shipped order was the reverse,
+// which deleted a bucket entirely on every roll whose rarity no member happened to carry —
+// measured as weapon share collapsing to 9.6% against a declared 22% (4.9% in city). Empty
+// buckets are dropped and the rest renormalized, so these are relative weights, not percentages.
+export const BUCKET_WEIGHTS = { passive: 30, mod: 30, weapon: 22, element: 18 }
+// Cutting passive share 62% -> 30% is a survivability cut: these three are the only direct
+// defence in the pool. Do NOT rebase the PASSIVES numbers to compensate — a flat base scalar is
+// regressive, measured -41% defensive picks at 2 slots against only -7% at 4. Weighting inside
+// the bucket holds defensive share at parity at every slot count.
+export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP']
+export const DEFENSIVE_PASSIVE_WEIGHT = 4
+// Inside the weapon bucket, an UPGRADE of an owned weapon competes at this flat weight while a
+// `New!` card competes at its weapon's inherent rarity weight (times newWeaponChance — see
+// NEW_WEAPON_FADE below). Rarity gates ACQUISITION (that IS the jackpot moment); it must never
+// gate LEVELLING. Weighting owned weapons by rarity too was measured handing beyond's normal
+// starter 68.8% of its weapon cards and making city's mythic starter the hardest weapon in the
+// chapter to level — the pool choosing your build for you.
+export const WEAPON_UP_WEIGHT = 100
+
 // ---- Level-up choice slots (v4.8: permanent, meta-shop-unlocked) ---------------------
 // A level-up screen shows meta.choiceSlots/run.choiceSlots cards (2 by default). The 3rd/4th
 // slot is unlocked PERMANENTLY (applies to every future run, all modes) by sacrificing already-
@@ -943,8 +963,13 @@ export const MOD_POOL_MAX = 6
 // keeps the pool fair once several weapons are owned (no single one dominates).
 export const MOD_CANDIDATES_PER_WEAPON = 2
 // Belt-and-braces with the candidate cap: at most this many mod cards from the SAME weapon may
-// land in one 3-card level-up pool, so a roll can never hand a player an all-one-weapon screen.
-export const MAX_MODS_PER_WEAPON_PER_POOL = 1
+// land in one level-up pool, so a roll can never hand a player an all-one-weapon screen.
+// v6.7 (Track B): now slot-aware. A flat 2 starved nothing at 4 slots but flooded at 2 — with
+// only the starter owned every mod card is a star mod, so the cap alone decides the share:
+// 25.4% measured at 1 against 30.0% at 2 (testStarBalance run P.1 asserts on it). A flat 1 does
+// the reverse: the mod bucket measured absent from 15.5% of rolls in beyond at 4 slots, which is
+// a bucket that cannot pay its declared 30%.
+export const maxModsPerWeaponPerPool = (slots) => (slots >= 4 ? 2 : 1)
 
 // Twin Ring (orbit): inner ring radius, as a fraction of the main ring's radius.
 export const ORBIT_TWIN_RING_RADIUS_FRAC = 0.6
@@ -1268,11 +1293,11 @@ export const ELEMENTS = {
   },
 }
 export const MAX_ELEMENT_PICKS = 5
-// Level-up pool rarity: each eligible element id only joins a level-up's candidate pool with
-// this probability (rolled once per buildLevelUpChoices call, shared across all 3 card slots —
-// see eligibleElementIds in sim.js). Weapons/passives/star-mods always join when eligible, so
-// this makes element infusion cards appear roughly half as often as those in the level-up pool.
-export const ELEMENT_CARD_WEIGHT = 0.25
+// v6.7 (Track B): ELEMENT_CARD_WEIGHT is GONE. It was a per-id pre-filter that let an eligible
+// element join a pool only 25% of the time; with four elements, all four were dropped on
+// 0.75^4 = 31.6% of pools, so an 18% element bucket would only have delivered ~12%.
+// BUCKET_WEIGHTS.element is now the one and only element-frequency knob (MUTATORS.unstable's
+// elementWeightMul multiplies it — see rollCard in sim.js).
 
 // ---- Difficulty (classic runs; picked on the title screen, saved in meta) -----------
 // Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND stacks

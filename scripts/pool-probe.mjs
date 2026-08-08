@@ -44,9 +44,11 @@ const P_RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic
 // rarity too made beyond read 16.6% legendary weapon offers and city 4.2% mythic, because the
 // colour kept re-firing for a jackpot the player already had.
 const WEAPON_UP_WEIGHT = 100
-// Override for MAX_MODS_PER_WEAPON_PER_POOL. The shipped 1 starves the mod bucket at 4 slots
-// (measured absent 15.5% of rolls in beyond). null = use config's value.
-const MODS_PER_WEAPON_PER_POOL = 2
+// Override for the per-pool per-weapon mod cap. A flat 1 starves the mod bucket at 4 slots
+// (measured absent 15.5% of rolls in beyond); a flat 2 floods a 2-slot star-only pool. v6.7
+// shipped that as the slot-aware maxModsPerWeaponPerPool(slots), so the default is now null =
+// use config's value — otherwise --compare would be diffing two different mod caps.
+const MODS_PER_WEAPON_PER_POOL = null
 const ANOMALY_BASE_WEIGHT = 8
 const ANOMALY_PITY_PER_CARD = 2
 const ANOMALY_PITY_CAP = 45
@@ -322,7 +324,7 @@ function proposedChoices(run, st) {
       // Empty buckets are still dropped (nothing to offer), which is now the ONLY source of
       // drift — counted in stats.absent so the budget is visible rather than inferred.
       const passOk = passives.filter((p) => !picked.has(p))
-      const modCap = MODS_PER_WEAPON_PER_POOL ?? C.MAX_MODS_PER_WEAPON_PER_POOL
+      const modCap = MODS_PER_WEAPON_PER_POOL ?? C.maxModsPerWeaponPerPool(run.choiceSlots ?? 2)
       const modOk = mc.filter((m) => !picked.has(m.mod) && (modWeaponCount.get(m.weapon) ?? 0) < modCap)
       const wOk = wp.filter((w) => !picked.has(w.id))
       const eOk = elems.filter((e) => !picked.has(e))
@@ -467,6 +469,11 @@ function measure(mode) {
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
   const defPicks = { armor: 0, regen: 0, maxHP: 0 }
   let offered = 0
+  // Defensive-card share is now COUNTED, not inferred. It used to be inferred for the `current`
+  // column from passive share x 3/10, which silently assumed every passive is equally likely —
+  // true of the flat bag, false since v6.7 shipped DEFENSIVE_PASSIVE_WEIGHT. That estimator read
+  // 8.9% against a real 17-18%.
+  let defOffered = 0
 
   for (let n = 0; n < RUNS; n++) {
     // Seed EVERY mode, not just --survival. Unseeded offer runs made the `current` column swing
@@ -534,6 +541,7 @@ function measure(mode) {
           offered++
           kinds[c.kind] = (kinds[c.kind] ?? 0) + 1
           rarities[c.rarity] = (rarities[c.rarity] ?? 0) + 1
+          if (c.kind === 'passive' && DEFENSIVE.has(c.id)) defOffered++
           if (c.kind === 'mod') seenMods.add(`${c.weapon}.${c.id}`)
         }
         run.levelUpChoices = cards
@@ -587,8 +595,7 @@ function measure(mode) {
 
   const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length
   const share = (o, k) => (100 * (o[k] ?? 0)) / offered
-  const defShare = ((kinds.passive ?? 0) / offered) * 100 *
-    (3 * DEFENSIVE_WEIGHT) / (3 * DEFENSIVE_WEIGHT + (Object.keys(C.PASSIVES).length - 3))
+  const defShare = (defOffered / (offered || 1)) * 100
   return {
     mode,
     level: avg(levels),
@@ -599,7 +606,7 @@ function measure(mode) {
     rarities: Object.fromEntries(['normal', 'rare', 'epic', 'legendary', 'mythic', 'anomaly', 'upgrade'].map((k) => [k, share(rarities, k)])),
     defPicks: Object.values(defPicks).reduce((a, b) => a + b, 0) / RUNS,
     defTotals: Object.fromEntries(Object.entries(defTotals).map(([k, v]) => [k, v / RUNS])),
-    defShare: mode === 'proposed' ? defShare : (share(kinds, 'passive') * 3) / Object.keys(C.PASSIVES).length,
+    defShare,
     anomalies: avg(anomalies),
     weaponLv: avg(weaponLv),
     emptyPool: stats.emptyAnomalyPool / RUNS,

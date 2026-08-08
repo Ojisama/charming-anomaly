@@ -14,7 +14,7 @@
 //   playerSpeedMul       stepPlayerMovement
 //   magnetMul            stepPickups (magnet range)
 //   xpMul/coinMul        stepPickups (gem xp / coin value, at pickup time)
-//   elementWeightMul     eligibleElementIds (level-up pool weight)
+//   elementWeightMul     rollCard (multiplies BUCKET_WEIGHTS.element — the level-up pool weight)
 //
 // Elite affixes (v4.0, see ELITE_AFFIXES in config.js): rolled once at elite spawn, stored on
 // e.affixes. shielded/gilded apply in dealDamage; splitter/volatile apply in dealDamage's death
@@ -30,9 +30,12 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, MAX_MODS_PER_WEAPON_PER_POOL, WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
-  ELEMENTS, MAX_ELEMENT_PICKS, ELEMENT_CARD_WEIGHT, COMBOS,
-  RARITIES, RARITY_ORDER, RARITY_WEIGHTS,
+  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
+  ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
+  // RARITY_ORDER is deliberately NOT imported: it existed here only for the ladder walk the
+  // bucket-first roll deletes. Nothing in sim.js reads the tier ORDER any more.
+  RARITIES, RARITY_WEIGHTS,
+  BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, DEFENSIVE_PASSIVE_WEIGHT, WEAPON_UP_WEIGHT,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -5719,6 +5722,9 @@ function stepPickups(run, dt) {
 // Each carries its inherent config rarity; passives are added per-card once a rarity is rolled.
 // Build-focus nudge (see NEW_WEAPON_FADE in config.js): arsenal investment = every pick
 // spent upgrading an owned weapon or buying a weapon mod. Derived from state, no counter.
+// v6.7 (Track B): the nudge is applied by rollCard as a WEIGHT on each `New!` entry, not here as
+// a pre-filter. Under bucket-first the weapon bucket has a fixed share whenever it is non-empty,
+// so dropping `New!` entries from this list would only reshuffle which weapon card you get.
 function arsenalInvestment(run) {
   let n = 0
   for (const w of run.weapons) n += w.level - 1
@@ -5733,11 +5739,10 @@ function weaponCandidates(run) {
   const list = []
 
   if (run.weapons.length < MAX_WEAPONS) {
-    const pNew = newWeaponChance(arsenalInvestment(run))
     // New-weapon offers are scoped to the run's chapter (see CHAPTERS in config.js) — the other
     // chapters' natives simply never appear in this run's pool.
     for (const id of CHAPTERS[run.chapter].weapons) {
-      if (!ownedIds.has(id) && Math.random() < pNew) {
+      if (!ownedIds.has(id)) {
         const cfg = WEAPONS[id]
         list.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon })
       }
@@ -5806,14 +5811,12 @@ function eligibleWeaponModCandidates(run) {
   return sampled
 }
 
-// Elements are offered always (no weapon prerequisite), up to their pick cap — but each
-// eligible id only joins this level-up's pool with ELEMENT_CARD_WEIGHT probability (rolled
-// once here, shared by all 3 card slots below), making them rarer than weapons/passives/mods.
+// Elements are offered always (no weapon prerequisite), up to their pick cap. v6.7 (Track B):
+// the ELEMENT_CARD_WEIGHT pre-filter that used to thin this list is gone — how often an element
+// card appears is BUCKET_WEIGHTS.element and nothing else, so the declared 18% is deliverable.
+// (Dropping all four ids on 31.6% of pools capped the bucket at ~12%.)
 function eligibleElementIds(run) {
-  const weight = Math.min(1, ELEMENT_CARD_WEIGHT * run.mods.elementWeightMul)
-  return Object.keys(ELEMENTS)
-    .filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
-    .filter(() => Math.random() < weight)
+  return Object.keys(ELEMENTS).filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
 }
 
 // A passive card adopts whatever rarity was rolled for its slot — UNLESS it carries a `values`
@@ -5884,41 +5887,92 @@ function makeElementCard(run, id, rarity) {
   return { kind: 'element', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
 }
 
-// Roll one card: roll a rarity on the fixed RARITY_WEIGHTS table (no level scaling — see
-// config.js), gather candidates at that rarity
-// (inherent-rarity weapons + all eligible passives/weapon-mods/elements adopting the roll), and
-// walk down RARITY_ORDER if that tier is empty. Excludes ids already used by earlier cards this pool.
-function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts) {
-  let idx = RARITY_ORDER.indexOf(pickWeighted(RARITY_WEIGHTS))
-  while (idx >= 0) {
-    const rarity = RARITY_ORDER[idx]
-    const options = []
-    for (const wc of weaponPool) {
-      if (wc.rarity === rarity && !pickedIds.has(wc.id)) options.push(wc)
+// Roll ONE card: bucket first (BUCKET_WEIGHTS), then a rarity inside it. Never walks the rarity
+// ladder — an empty bucket is dropped and the remainder renormalized, because deflecting a failed
+// roll onto the next tier down is what produced 16.1% legendary in the shim's first draft (F1).
+// Rarity is a BONUS SCALAR; it has no business choosing the KIND of card, which is what rolling it
+// first did: the weapon bucket vanished on every roll no available weapon happened to carry, and
+// its 22 points silently went to whatever was left (weapon share measured 9.6% against a declared
+// 22%, worst chapter 4.9%). Excludes ids already used by earlier cards this pool.
+// The 8th parameter (allowAnomaly) is reserved for the anomaly tier and unused for now.
+function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts, allowAnomaly = false) {
+  // Build each bucket's live option list ONCE, so "is this bucket empty" and "pick from it" can
+  // never disagree.
+  const buckets = {}
+  const modCap = maxModsPerWeaponPerPool(run.choiceSlots ?? 2)
+
+  // The weapon bucket's members are weighted here rather than at pick time, because the
+  // build-focus fade has to be able to thin the RATE of `New!` cards and not just their share of
+  // the bucket. An UPGRADE competes at the flat WEAPON_UP_WEIGHT; a `New!` card competes at its
+  // weapon's inherent rarity weight times newWeaponChance (see NEW_WEAPON_FADE in config.js).
+  // Inherent rarity is a WEIGHT on `New!` only, never a filter, and never applied to upgrades —
+  // rarity gates ACQUISITION (that IS the jackpot moment), never LEVELLING.
+  // A weight inside the bucket can only decide WHICH weapon card you get, never how often you get
+  // one — so when every owned weapon is already MAXED the bucket holds nothing but `New!` entries
+  // and the fade has to gate the bucket itself. Without that, a fully committed build measured
+  // MORE discovery than a fresh one (357 `New!` cards against 254): the nudge running backwards.
+  // With an upgrade available the bucket is full weight, because an upgrade is always a card
+  // worth offering; the fade then only thins discovery's share of it.
+  const weaponOpts = weaponPool.filter((wc) => !pickedIds.has(wc.id))
+  const weaponW = {}
+  if (weaponOpts.length > 0) {
+    const pNew = newWeaponChance(arsenalInvestment(run))
+    let hasUpgrade = false
+    for (let i = 0; i < weaponOpts.length; i++) {
+      const isNew = weaponOpts[i].tag === 'New!'
+      if (!isNew) hasUpgrade = true
+      weaponW[i] = isNew ? (RARITY_WEIGHTS[weaponOpts[i].rarity] ?? 1) * pNew : WEAPON_UP_WEIGHT
     }
-    for (const pid of passiveIds) {
-      // makePassiveCard returns null for a values-passive (armor/regen) rolled at a rarity
-      // outside its table (epic/mythic) — that's not a candidate at this tier, not a bug.
-      if (pickedIds.has(pid)) continue
-      const pc = makePassiveCard(run, pid, rarity)
-      if (pc) options.push(pc)
-    }
-    for (const mc of modCandidates) {
-      // Skip if already offered this pool, or its weapon already hit the per-pool card cap
-      // (MAX_MODS_PER_WEAPON_PER_POOL) — so one weapon can't monopolize a level-up screen.
-      if (pickedIds.has(mc.mod)) continue
-      if ((modWeaponCounts.get(mc.weapon) ?? 0) >= MAX_MODS_PER_WEAPON_PER_POOL) continue
-      // null = a switch mod declining a rarity above normal, same contract as makePassiveCard
-      const wc = makeWeaponModCard(run, mc.weapon, mc.mod, rarity)
-      if (wc) options.push(wc)
-    }
-    for (const eid of elementIds) {
-      if (!pickedIds.has(eid)) options.push(makeElementCard(run, eid, rarity))
-    }
-    if (options.length > 0) return options[Math.floor(Math.random() * options.length)]
-    idx--
+    buckets.weapon = BUCKET_WEIGHTS.weapon * (hasUpgrade ? 1 : pNew)
   }
-  return null
+
+  const passiveOpts = passiveIds.filter((pid) => !pickedIds.has(pid))
+  if (passiveOpts.length > 0) buckets.passive = BUCKET_WEIGHTS.passive
+
+  const modOpts = modCandidates.filter((mc) =>
+    !pickedIds.has(mc.mod) && (modWeaponCounts.get(mc.weapon) ?? 0) < modCap)
+  if (modOpts.length > 0) buckets.mod = BUCKET_WEIGHTS.mod
+
+  const elementOpts = elementIds.filter((eid) => !pickedIds.has(eid))
+  // MUTATORS.unstable's elementWeightMul keeps its reader here now that ELEMENT_CARD_WEIGHT is
+  // gone: it scales the bucket, which is the one place element frequency is decided. It is
+  // applied EXACTLY once — folding it in here AND keeping a per-id gate double-counts.
+  if (elementOpts.length > 0) buckets.element = BUCKET_WEIGHTS.element * (run.mods?.elementWeightMul ?? 1)
+
+  if (Object.keys(buckets).length === 0) return null
+
+  const bucket = pickWeighted(buckets)
+  const rarity = pickWeighted(RARITY_WEIGHTS)
+
+  if (bucket === 'weapon') {
+    // A weapon card keeps cfg.rarity for its chip rather than adopting the rolled rarity —
+    // applyChoice's weapon branch never reads rarity, so an adopted colour would mean nothing.
+    return weaponOpts[Number(pickWeighted(weaponW))]
+  }
+
+  if (bucket === 'passive') {
+    const w = {}
+    for (const pid of passiveOpts) w[pid] = DEFENSIVE_PASSIVES.includes(pid) ? DEFENSIVE_PASSIVE_WEIGHT : 1
+    const pid = pickWeighted(w)
+    // makePassiveCard returns null for a values-passive (armor/regen) rolled at a rarity outside
+    // its own table. Re-roll the rarity within the bucket rather than falling back to 'normal':
+    // a fallback converts every epic/mythic defensive roll into an extra normal-tier defensive
+    // card, which is an unnamed balance change on a x4-weighted bucket member.
+    for (const r of [rarity, 'legendary', 'rare', 'normal']) {
+      const card = makePassiveCard(run, pid, r)
+      if (card) return card
+    }
+    return null
+  }
+
+  if (bucket === 'mod') {
+    const mc = modOpts[Math.floor(Math.random() * modOpts.length)]
+    // null = a switch mod declining a rarity above normal, same contract as makePassiveCard.
+    return makeWeaponModCard(run, mc.weapon, mc.mod, rarity) ?? makeWeaponModCard(run, mc.weapon, mc.mod, 'normal')
+  }
+
+  const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]
+  return makeElementCard(run, eid, rarity)
 }
 
 function buildLevelUpChoices(run) {
