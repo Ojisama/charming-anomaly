@@ -724,9 +724,12 @@ Ranked by how much they change *playing*:
 | **WILDFIRE** | pivot | fire ≥ 2 | Ignite jumps to the nearest enemy on death. **Rewards engaging crowds** — light the front, let it propagate. |
 | **DEADFALL** | pivot | undergrowth, lv ≥10 | Immune to traps, traps re-arm 80% faster. **Kite *across* the field instead of away from it.** |
 | **ALIGNMENT** | jackpot | 2+ distinct elements | *(redesigned)* Element combos lose their cooldown — shatter/detonate/acid-burn/chilling-arc fire on **every** qualifying hit. Makes the interaction the star instead of a potency number. |
+| **AVARICE** | trade | — | *(redesigned)* 20% of coins heal instead of paying out, **and all coin drops −30%**. Turns kill rate into sustain and spends your rerolls to buy it. |
 | **SPECIALIST** | trade | 4+ mod picks on one weapon | Meta-level agency only; changes nothing moment-to-moment. Keep, but it is not a pivot. |
-| **SUPERCOOLED** | pivot | cold ≥ 3 | Mostly a cap number. **Weak against the bar** — keep only if the dead-investment fix justifies it. |
-| **AVARICE** | jackpot | — | 10% of coins give 1 HP. **Fails the bar** — changes nothing about play. Open: cut, or keep as filler. |
+
+*(SUPERCOOLED cut by the user, 2026-08-08 — it was a cap number in a costume. The dead-investment
+defect it was covering for is real and stays on the list as a `config.js` fix, not a card: the cold
+cap is reached at potency 6.67 while 5 cold picks average 7.4, so the last pick is silently dead.)*
 
 Notes on the two newest, both user-authored:
 
@@ -772,11 +775,83 @@ Notes on the two newest, both user-authored:
 
 Notes for authoring: **UNSTABLE CORES has an intrinsic cost** — bombs damage the player too
 (`hurtPlayer`, sim.js:3128) as well as every enemy in radius (3131–3135), and a bomb's kill can
-detonate the next elite, so packs chain over `VOLATILE_FUSE`. **AVARICE heals per coin PICKUP, not
-per coin value**, so it is immune to every `coinMul` mutator; the coins/run rate (per-enemy
-`coinChance` 0.08–0.35) must be measured before fixing the heal at 1 HP, and whether a coin past
-`COIN_CAP_PER_RUN` still heals is an open call. **SUPERCOOLED fixes a real defect** — the cap is
-reached at potency 6.67 while 5 cold picks average 7.4, so today the last pick is silently dead.
+detonate the next elite, so packs chain over `VOLATILE_FUSE`.
+
+#### AVARICE — priced against a measured coin rate (2026-08-08)
+
+The heal was going to be fixed at 1 HP by eye. Measured instead — city, difficulty 2, `dps` policy,
+12 runs, `coinsEarned` at end of run:
+
+| pool | coins/run | cap |
+|---|---|---|
+| current | **593.0** | 999 |
+| proposed | **790.7** | 999 |
+
+Every coin is `value: 1` (sim.js:3195/3198), so that is also the **pickup count** — the quantity
+Avarice actually converts, since it heals per pickup and is therefore immune to every `coinMul`
+mutator.
+
+**At 20% conversion with drops at −30%: 415–554 coins survive, ~83–111 of them heal.**
+
+That is the number that kills the 1 HP version. Spread over a 300s run, 83–111 HP is **0.28–0.37
+HP/s** — and the `regen` passive pays **0.5 HP/s at its *first* normal roll**, up to 2.5 HP/s over
+`MAX_PASSIVE_LEVEL` 5. A card that costs 44% of the run's coins would be worth *less than one
+ordinary regen pick*. It fails the bar on power, not just on flavour.
+
+**Fix the heal at 5 HP.** That pays 415–555 HP/run ≈ **1.4–1.85 HP/s**, roughly three regen levels —
+but gated on kill rate, so it evaporates exactly when you are overwhelmed and cannot clear. That
+gating is what makes it a pivot rather than a stat: sustain becomes something you *earn per second*,
+and disengaging to survive stops working.
+
+The cost is real and dual: `run.coinsEarned` is **both** the end-of-run meta payout **and** the
+in-run reroll wallet (main.js:203-205). At `rerollCost` 10 × 1.5^n the ladder is 10/15/23/34/51/76/
+114/171/256/385, so 593 coins buys ~8 rerolls and 332 buys ~6. **Avarice trades level-up agency for
+survivability** — which is the sharpest thing on the slate, because agency is the exact complaint
+the redesign exists to answer.
+
+Open call: whether a coin past `COIN_CAP_PER_RUN` still heals. Recommend **yes** — the cap exists to
+bound the meta payout, and proposed already measures 791/999, so late-run runs would otherwise watch
+the card silently switch off.
+
+#### Second wave — five crazy cards (PROPOSED 2026-08-08, not yet accepted)
+
+Requested after the first slate settled: *"then propose 5 new fun crazy cards."* Authored under the
+rarity-licenses-extremity rule, so several are run-enders by design. **Each one is crazy along a
+different axis** — the failure mode to avoid is five cards that are all "big number, big drawback".
+
+| card | axis | effect | what it changes about playing |
+|---|---|---|---|
+| **TIME DEBT** | the clock | Run time advances at **2×** | Victory in ~150 real seconds — but `hpScale`, `dmgScale`, spawn rate and the elite cadence all read `run.time`, so late-game pressure arrives at double speed too. A short run, front-loaded. Slow builds stop being viable. |
+| **OVERLOAD** | the resource | **3× fire rate**; every shot costs **1 HP** | **HP becomes ammo.** Regen, armor and heals all convert into damage. Composes viciously with Berserk and Avarice. |
+| **EVENT HORIZON** | space | Enemies and pickups are dragged toward you continuously | Inverts the kiting game the whole title is built on. The swarm never strings out, so AoE gets enormous value and any gap in your damage kills you. |
+| **BLOOD PACT** | the economy | **Cannot heal, ever.** Every kill: **+1% damage, permanent, uncapped** | A snowball with no ceiling and no safety net. Dead early or absurd late. The card most dependent on the rarity licence, and memorable *because* it can end the run. |
+| **BRITTLE** | glass | maxHP → **1**; damage **×4** | The pure run-ender the "rare enough" rule exists to permit. |
+
+Coherence checks done at authoring time (the failure mode that killed half the first list was naming
+systems that do not exist):
+
+- **OVERLOAD's self-damage works as written.** `hurtPlayer(run, dmg, dot = true)` (sim.js:1819)
+  skips the `invulnTime` window, skips `HURT_CAP_FRAC`, **and skips armor subtraction** — so the cost
+  cannot be turtled away, which is what makes it a real resource. Note it *is* suppressed by
+  `run.rampageT > 0` (RAMPAGE = INVULNERABLE, the one guard covering every damage path), so rampage
+  becomes a free-fire window. That is a good emergent beat, not a bug.
+- **BRITTLE does NOT accidentally grant immortality.** The concern was `HURT_CAP_FRAC` 0.5 flooring a
+  hit to zero at maxHP 1. It does not: `Math.round(1 * 0.5)` is **1** in JS (half rounds up), and the
+  non-dot branch is `Math.min(1, Math.max(1, …))` = 1. One hit, one death — as intended, no bypass
+  needed.
+- **EVENT HORIZON is new, not a re-skin.** The beyond's gravity wells bend **projectiles** only
+  (config.js:4211), and `pullBeam` drags the **player** (config.js:4197). Dragging *enemies* toward
+  the player exists nowhere and is the inverse of the UFO beam.
+- **BLOOD PACT has three heal sites to suppress**, not one: sim.js:230 (level-up bonus), 241 (pickup
+  +30), 312 (`passives.regen`). There is no `healPlayer` funnel — unlike damage, which has exactly
+  one. Worth adding the funnel if this ships.
+- **TIME DEBT** touches only `run.time`'s advance, and every consumer already derives from it
+  (`hpScale`, `dmgScale` = `1 + t/RUN_DURATION`, `spawnRate`, `eliteEvery`, victory at
+  `RUN_DURATION` 300).
+
+Strongest two if the list must be cut: **OVERLOAD** (spending health as ammo re-prices every
+defensive card you own) and **BLOOD PACT** (uncapped stacking is the only thing here that reaches a
+genuinely absurd end state).
 
 #### Specialist is a targeting tool, not a deliverability fix (measured)
 

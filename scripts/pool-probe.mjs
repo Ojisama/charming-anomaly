@@ -413,6 +413,7 @@ function measure(mode) {
   // at least once. User report (2026-08-08): "frustrating to aim for some mod (like laser prism
   // sub-beams) and not seeing any in the run" — this is the measurement of that complaint.
   const modRuns = new Map()
+  const coinsEarned = []
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
   const defPicks = { armor: 0, regen: 0, maxHP: 0 }
   let offered = 0
@@ -486,6 +487,7 @@ function measure(mode) {
     if (SURVIVAL) deaths.push({ won: run.phase === 'victory', t: run.time, hp: run.player.hp })
 
     for (const k of seenMods) modRuns.set(k, (modRuns.get(k) ?? 0) + 1)
+    coinsEarned.push(run.coinsEarned ?? 0)
     levels.push(run.player.level)
     anomalies.push(st.taken.size)
     weaponLv.push(run.weapons.reduce((s, w) => s + w.level, 0))
@@ -515,6 +517,7 @@ function measure(mode) {
     emptyPool: stats.emptyAnomalyPool / RUNS,
     absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
     modRuns,
+    coins: avg(coinsEarned),
     winRate: deaths.length ? (100 * deaths.filter((d) => d.won).length) / deaths.length : 0,
     deathT: deaths.filter((d) => !d.won).map((d) => d.t),
   }
@@ -523,7 +526,7 @@ function measure(mode) {
 const f1 = (n) => n.toFixed(1)
 function report(r) {
   console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY} mode=${r.mode}`)
-  console.log(`level ${f1(r.level)}  cards/run ${f1(r.cards)}  weaponLvSum ${f1(r.weaponLv)}`)
+  console.log(`level ${f1(r.level)}  cards/run ${f1(r.cards)}  weaponLvSum ${f1(r.weaponLv)}  coins/run ${f1(r.coins)} (cap ${C.COIN_CAP_PER_RUN})`)
   console.log(`short pools ${r.shortPools}/${r.pools}  (MUST be 0)`)
   console.log(`kind   ${Object.entries(r.kinds).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`rarity ${Object.entries(r.rarities).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
