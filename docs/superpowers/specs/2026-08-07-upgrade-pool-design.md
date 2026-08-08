@@ -151,13 +151,19 @@ Raising xp to buy screens back needs a matching HP raise to stay at parity, and 
 suppresses kill count — which suppresses xp. ×2.0 sponge buys **+0.5 levels** over ×1.8 alone. Not
 worth it.
 
-**Settled: enemy HP ×1.8, single knob.** Parity difficulty (7.5% → 7.5%), −10% screens (14.2 → 12.8),
-+59% weapon investment (3.2 → 5.1). Fewer, better-composed choices is a defensible reading of "more
-aha moments"; a screen that offers a real build decision beats one offering three filler passives.
+**Superseded — see [the hpScale tail](#better-lever-steepen-the-hpscale-tail-not-a-flat-multiplier).**
+Flat enemy HP ×1.8 reaches parity but costs 10% of the level-up screens. Reshaping the tail reaches
+the same parity while *gaining* 7%, so the flat multiplier is strictly dominated. The ×1.8 figure is
+retained here only as the size of the buff, stated as a lever.
 
 Watch item: ×1.8 lengthens time-to-kill and spongy enemies are a known feel-killer on this repo.
 Re-run the sweep against `hpScale` (the shipping lever) and check TTK in playtest before locking it.
 If TTK degrades, prefer accepting slightly-easier over pushing HP higher.
+
+### SUPERSEDED — flat per-chapter multiplier, replaced by the hpScale tail below
+
+Kept for the ×3 measurement, which still stands. The ladder itself is superseded by
+[the tail reshape](#better-lever-steepen-the-hpscale-tail-not-a-flat-multiplier).
 
 ### Per-chapter ladder (user, 2026-08-08): "no change in ch1, up to ×3 in the last"
 
@@ -218,6 +224,67 @@ matching the shape v6.6.7 established for the `maxAliveMul` ladder.
 2. Add a monotonicity assert walking `CHAPTER_ORDER` (fails on a step that goes DOWN or exceeds
    +40%), mirroring Run VV's `maxAliveMul` guard. The current ladder would fail it today.
 3. Re-check TTK per chapter at the top of the ladder — 2.35 is a lot of sponge on beyond's roster.
+
+### BETTER LEVER: steepen the hpScale tail, not a flat multiplier
+
+User, 2026-08-08: *"rather than flat hp multiply, increase the top end of hp curve at the end of a
+5min run."* **Measured better than the flat multiplier on the metric that matters, and adopted.**
+
+The knob already exists and is already isolated (config.js:1467):
+
+```js
+hpScale(t) = (1 + t/90) * (t <= HP_SCALE_LATE_START ? 1 : 1 + HP_SCALE_LATE_RATE * (t - START))
+// shipped: START 150s, RATE 0.005  ->  hpScale(300) ≈ 7.6x
+```
+
+Body/2 d3 shop8, 40 runs, at difficulty parity either way:
+
+| | baseline | flat HP ×1.8 | **tail RATE 0.022** |
+|---|---|---|---|
+| win rate | 7.5% | 7.5% | 7.5% |
+| **level-ups** | 14.2 | 12.8 (**−10%**) | **15.2 (+7%)** |
+| weaponLvSum | 3.2 | 5.1 | 5.3 |
+
+Same difficulty, same build quality, but the tail **keeps the level-ups the flat multiplier ate** —
+because the curve is unchanged until 150s and most levelling happens before then. This directly
+fixes what killed ×3: a flat multiplier taxes the early game where you are still building, so it
+buys difficulty by deleting choice moments. The tail buys it from the part of the run where the
+player is already established.
+
+**The tail is self-targeting, which is the real argument for it.** It only affects runs that survive
+deep enough to reach it. beyond/4 (shop 2 — a player who spent 60 of 80 shop levels on slots) dies
+at a median 120s, *before* the 150s start, so the reshape does not touch them at all, while the same
+chapter's buffed runs reaching 190s+ do get hit. A struggling player is left alone by construction;
+a flat multiplier punishes them hardest.
+
+Cost: it is weaker against a strong progressed player, who out-scales it. beyond/2 shop8 (baseline
+win 22.5%) needs RATE **0.05** to come down from +50pts to +10pts, and still does not fully
+neutralise — but even there it holds level-ups *above* baseline (27.0 vs 21.3).
+
+**Proposed ladder on `HP_SCALE_LATE_RATE`** (per chapter, replacing the flat `enemyHpMul` ladder):
+
+| | body | pond | garden | undergrowth | city | skies | beyond |
+|---|---|---|---|---|---|---|---|
+| **RATE** | **0.005** | 0.010 | 0.015 | 0.020 | 0.028 | 0.036 | **0.045** |
+| hpScale(300) | 7.6× | 9.6× | 11.5× | 13.4× | 16.5× | 19.6× | 22.6× |
+
+Chapter 1 keeps the shipped curve, so it keeps the full gift of the redesign — right for onboarding,
+and consistent with how heavily body is already eased. The end of the run then gets progressively
+more brutal per chapter, which is "difficulty that never plateaus" expressed on the axis where it
+costs no choice moments.
+
+**Before shipping:**
+
+1. `HP_SCALE_LATE_RATE` is a module-level export read by `hpScale`; making it per-chapter means
+   routing it through `CHAPTERS[id].balance` and having `hpScale` take the chapter (or folding the
+   ratio into `run.mods` at spawn). Pick one — do not let sim.js read the constant directly.
+2. Verified on body/2 d3 and beyond/2 only; the rest are interpolated. Sweep each chapter.
+3. **TTK check is mandatory at the top.** beyond at 0.045 is 22.6× enemy HP at t=300 against a
+   shipped 7.6×. The player's power grows ~2.7× under the new pool, so this is not as lopsided as it
+   looks, but the last 60s of beyond needs to be played before locking the number.
+4. Harness support: `--laterate=N --latestart=N` (drives `run.mods.enemyHpMul` by the ratio of the
+   new curve to the shipped one, which reproduces the reshape exactly for enemies spawned after the
+   change — the same read-once-at-spawn semantics the real `hpScale` has).
 
 Caveats: one bot policy, one pick policy (`dps`), 40 runs — win rates carry a wide binomial
 interval, and the offset bracket is ±0.2 at best. Treat ≈1.7× as an order of magnitude, and re-run

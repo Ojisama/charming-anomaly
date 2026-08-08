@@ -64,6 +64,22 @@ const SURVIVAL = flags.has('--survival')
 const DIFF = Number(args.find((a) => a.startsWith('--diff='))?.slice(7) ?? 1)
 const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1)
 const XPMUL = Number(args.find((a) => a.startsWith('--xpmul='))?.slice(8) ?? 1)
+// --laterate / --latestart: reshape the TAIL of hpScale instead of multiplying it flat.
+// hpScale(t) = (1 + t/90) * (t <= START ? 1 : 1 + RATE*(t - START))   [config.js:1467]
+// hpScale is a module-level import sim.js cannot be made to re-read, but spawnEnemy multiplies
+// base.hp * hpScale(run.time) * run.mods.enemyHpMul (sim.js:975) — so driving enemyHpMul by the
+// RATIO of the new curve to the shipped one reproduces the reshaped curve exactly, for every
+// enemy spawned after the change. Already-alive enemies keep their HP, which is also how the
+// real hpScale behaves (it is read once, at spawn).
+const LATE_RATE = Number(args.find((a) => a.startsWith('--laterate='))?.slice(11) ?? C.HP_SCALE_LATE_RATE)
+const LATE_START = Number(args.find((a) => a.startsWith('--latestart='))?.slice(12) ?? C.HP_SCALE_LATE_START)
+const curve = (t, start, rate) => {
+  const b = 1 + t / 90
+  return t <= start ? b : b * (1 + rate * (t - start))
+}
+const RESHAPED = LATE_RATE !== C.HP_SCALE_LATE_RATE || LATE_START !== C.HP_SCALE_LATE_START
+const curveRatio = (t) =>
+  curve(t, LATE_START, LATE_RATE) / curve(t, C.HP_SCALE_LATE_START, C.HP_SCALE_LATE_RATE)
 
 // Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
 // nobody reaches city (ch5) or buys a 4th slot without a stocked shop, and a survival number from
@@ -379,6 +395,7 @@ function measure(mode) {
     // dominates and cost scales ~linearly in the coefficient. xpMul = m is therefore worth
     // xpForLevel = 5 + level * (4 / m). Approximate — verify the real curve once it ships.
     if (mode === 'proposed' && XPMUL !== 1) run.mods.xpMul *= XPMUL
+    const baseHpMul = run.mods.enemyHpMul
     if (!SURVIVAL) run.player.magnet = 4000
     const st = { since: 0, taken: new Set() }
     const dt = 1 / 60
@@ -407,6 +424,8 @@ function measure(mode) {
         continue
       }
       if (run.phase !== 'playing') break
+      // Reshaped tail: re-derive the spawn-time HP multiplier from the curve ratio each frame.
+      if (RESHAPED && mode === 'proposed') run.mods.enemyHpMul = baseHpMul * curveRatio(run.time)
       let input
       if (SURVIVAL) {
         input = kiteInput(run)
@@ -486,6 +505,11 @@ function fidelity(r) {
 function survivalReport(a, b) {
   const med = (xs) => { if (!xs.length) return NaN; const s = [...xs].sort((x, y) => x - y); return s[s.length >> 1] }
   console.log(`\n== SURVIVAL (${CHAPTER} slots=${SLOTS} d${DIFF} shop=${SHOP_LV}/10 runs=${RUNS} picks=${POLICY}${OFFSET !== 1 ? ` enemyHP x${OFFSET}` : ''}${XPMUL !== 1 ? ` xpMul x${XPMUL} (= xpForLevel 5+level*${(4 / XPMUL).toFixed(2)})` : ''})`)
+  if (RESHAPED) {
+    console.log(`   hpScale tail: START ${LATE_START}s RATE ${LATE_RATE} (shipped ${C.HP_SCALE_LATE_START}s ${C.HP_SCALE_LATE_RATE})`)
+    console.log(`   vs shipped -> ` + [120, 150, 180, 210, 240, 270, 300]
+      .map((t) => `${t}s x${curveRatio(t).toFixed(2)}`).join('  '))
+  }
   console.log(`   bot: kite-and-collect — flees enemies (1/d, 600px), else walks to nearest gem;`)
   console.log(`   pure flee inside ${PANIC_R}px. No projectile dodging, no cover, no obstacle pathing.`)
   console.log(`   A FLOOR on player skill, not a model of one. Quote the policy with the number.`)
