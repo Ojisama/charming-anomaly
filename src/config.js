@@ -2657,7 +2657,7 @@ export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 export {
   nearestCity, cityAt, blockSnap, parcelAt, PARCEL, pickWorldSeed,
   terrainAt, elevationAt, urbanAt, riverAt, clumpAt, BIOME_BUILD_DENSITY, CITY_GRID,
-  STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH, highwaysNear,
+  STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V,
 } from './terrain.js'
 
 

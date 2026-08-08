@@ -531,7 +531,7 @@ function stepBossScript(run, dt) {
     // Through the normal spawn path (ring placement, this chapter's roster skin/flags), then the
     // pinned overrides: the antibody's stats are a fixed per-phase table, not the hpScale curve.
     const e = spawnBlankEnemy(run, block.boss, true)
-    e.hp = e.maxHP = BLANK_BOSS_HP[phase - 1] * run.mods.enemyHpMul
+    e.hp = e.maxHP = roundHP(BLANK_BOSS_HP[phase - 1] * run.mods.enemyHpMul)
     e.radius = BLANK_BOSS_R
     // v6.3.1: P1 gets its own (faster) speed — closes and circles the standoff band ~70% quicker.
     e.speed = phase === 3 ? BLANK_BOSS_SPEED_P3 : phase === 1 ? BLANK_BOSS_SPEED_P1 : BLANK_BOSS_SPEED
@@ -758,7 +758,7 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   // who most needs it not to. Blank fights routinely run past 300s, so leaving dmgScale live
   // would silently inflate late waves; the ladder-driven enemyDmgMul stays.
   const base = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
-  e.hp = e.maxHP = base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul
+  e.hp = e.maxHP = roundHP(base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul)
   e.speed = base.speed * (roster.speedMul ?? 1) * run.mods.enemySpeedMul
   e.dmg = base.dmg * run.mods.enemyDmgMul
   return e
@@ -972,6 +972,16 @@ function spawnEnemy(run, opts = {}) {
     }
   }
 
+  // v6.9.2 BUGFIX — enemy HP IS AN INTEGER. Every factor here is fractional (hpScale, the difficulty
+  // and mutator muls, roster hpMul), so maxHP used to come out at e.g. 21.00388888888889, while the
+  // ONLY thing that ever subtracts from hp is dealDamage, which rounds. The fractional part is
+  // therefore immortal: the enemy lands on hp = 0.0038, `hp <= 0` is false, and it lives on a
+  // sliver no amount of chip damage can clear.
+  // Harmless for most weapons (they deal their own number and overshoot), FATAL for the city taxi:
+  // its squash branch deals a light enemy EXACTLY its remaining hp, so 0.0038 rounds to 0, the van
+  // deals nothing, hitIds blocks a second try, and the pigeon strolls out from under it with a
+  // floating "0". Measured over 10 five-minute city runs: 1193 of 13515 taxi hits (8.8%) dealt zero.
+  // Rounding at every point hp is ASSIGNED keeps it integral forever, which kills the whole class.
   let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
   const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
   const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
@@ -979,6 +989,8 @@ function spawnEnemy(run, opts = {}) {
 
   const affixes = isElite ? rollAffixes(run) : []
   if (isElite && affixes.includes('gilded')) hp *= GILDED_HP_MUL
+  hp = roundHP(hp)   // LAST, after every multiplier — gilded lands after the base roll and a x1.5
+                     // on an odd number puts the .5 straight back (caught by run VD.a)
 
   const flags = roster ? [...roster.flags] : []
   if (isElite) flags.push(...CHAPTERS[run.chapter].eliteFlags)
@@ -1044,7 +1056,7 @@ function spawnSplitChildren(run, parent, count) {
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2
     const d = Math.random() * 20
-    const hp = parent.maxHP * SPLIT_HP_FRAC
+    const hp = roundHP(parent.maxHP * SPLIT_HP_FRAC)
     run.enemies.push({
       id: run._nextId++,
       type: parent.type,
@@ -2718,8 +2730,9 @@ function rollTrafficLane(run, dt) {
         if (near) {
           // Tier 2: off-road but inside a city — angle snaps to the grid; the van jumps the curb
           // and still comes straight for the player via the ordinary crossing offset below.
-          const base = dirRoll < 0.25 ? 0 : dirRoll < 0.5 ? Math.PI : dirRoll < 0.75 ? Math.PI / 2 : -Math.PI / 2
-          angle = near.city.angle + base
+          // v6.9.2: the grid is the WORLD's and axis-aligned, so the four headings are simply the
+          // four axes — a city no longer carries a rotation to add them to.
+          angle = dirRoll < 0.25 ? 0 : dirRoll < 0.5 ? Math.PI : dirRoll < 0.75 ? Math.PI / 2 : -Math.PI / 2
         } else {
           // Tier 3: no world seed, or no city nearby — today's fully-random angle, unchanged.
           angle = dirRoll * Math.PI * 2
@@ -2861,8 +2874,14 @@ function stepLanePasses(run, dt) {
       // literal in the test suite, so those keep meaning what they meant.
       // v6.7.5: the squash test moved AHEAD of the fraction (it used to be the else-branch of it),
       // so the taxi can have both. The mower passes squash: [] — a lawnmower has no roadkill list.
+      // v6.9.2: CEIL, not the raw hp. This branch means "this thing dies under a van", and dealing
+      // exactly e.hp only expresses that while hp is a whole number — dealDamage rounds, so a
+      // fractional 9.0038 was dealt as 9 and the pigeon got up with 0.0038 left, then became
+      // unkillable by traffic entirely (round(0.0038) is 0, the literal "0" that was showing up
+      // over the car). roundHP now keeps every hp integral so this is a no-op in practice; it stays
+      // as the layer that makes the INTENT true on its own rather than by distant invariant.
       let toEnemy
-      if (!e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)) toEnemy = e.hp
+      if (!e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)) toEnemy = Math.max(1, Math.ceil(e.hp))
       else if (lane.enemyFrac > 0) toEnemy = Math.max(1, e.maxHP * lane.enemyFrac)
       else toEnemy = lane.dmg
       dealDamage(run, e, toEnemy, false)
@@ -3105,6 +3124,11 @@ function stepBombs(run, dt) {
   run.bombs = run.bombs.filter((b) => !b._dead)
   return playerDied
 }
+
+// Every enemy HP value in this file goes through here. See the doc at spawnEnemy's `hp` for why:
+// dealDamage subtracts integers, so a fractional maxHP leaves an unkillable sub-1 remainder.
+// Floor of 1 because an enemy that rounds to 0 hp would spawn already dead.
+function roundHP(v) { return Math.max(1, Math.round(v)) }
 
 // ---- Damage application (shared by all weapons) -----------------------------------
 

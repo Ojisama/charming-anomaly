@@ -16,7 +16,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
-  ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
+  ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
 import { currentForce } from './sim.js'
 
@@ -5547,7 +5547,12 @@ export function createRenderer(app) {
       const vh = (vMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
       const hh = (hMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
       const g = new Graphics()
-      const zebraDepth = 22
+      // v6.9.2: the crossing is sized OFF THE STREET, not fixed. The box and the bar spread already
+      // scaled with ROAD_*_WIDTH, but the depth of the crossing and the bar thickness were hard 22
+      // and 4 — fine on the old 30px lane, and a row of tick marks once a street became 130px wide.
+      const narrow = Math.min(vh, hh) * 2
+      const zebraDepth = Math.round(narrow * 0.28)
+      const barW = Math.max(4, Math.round(narrow * 0.055))
       g.rect(-vh, -hh, vh * 2, hh * 2).fill(vMajor || hMajor ? ROAD_PAINT.asphaltMajor : ROAD_PAINT.asphaltMinor)
       // four approach zebra crosswalks: 7 bars, every 3rd worn
       for (const [ax, ay] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
@@ -5557,8 +5562,8 @@ export function createRenderer(app) {
           const t = -along + 3 + (b * (along * 2 - 6)) / (J.zebraBars - 1)
           const worn = b % J.zebraWornEvery === 0
           const alpha = worn ? J.zebraWornAlpha : J.zebraAlpha
-          if (ax) g.rect(ax * outAt + (ax > 0 ? 3 : -3 - zebraDepth), t - 2, zebraDepth, 4).fill({ color: J.zebraColor, alpha })
-          else g.rect(t - 2, ay * outAt + (ay > 0 ? 3 : -3 - zebraDepth), 4, zebraDepth).fill({ color: J.zebraColor, alpha })
+          if (ax) g.rect(ax * outAt + (ax > 0 ? 3 : -3 - zebraDepth), t - barW / 2, zebraDepth, barW).fill({ color: J.zebraColor, alpha })
+          else g.rect(t - barW / 2, ay * outAt + (ay > 0 ? 3 : -3 - zebraDepth), barW, zebraDepth).fill({ color: J.zebraColor, alpha })
         }
         // stop bar behind each crossing
         if (ax) g.rect(ax * (outAt + zebraDepth + 5), -along, J.stopBarW, along * 2).fill({ color: J.zebraColor, alpha: 0.5 })
@@ -6902,55 +6907,8 @@ export function createRenderer(app) {
   const viewW = () => app.screen.width / mapZoom
   const viewH = () => app.screen.height / mapZoom
 
-  // ---- the city street FRAME (v5.11) ----------------------------------------------------------
-  // This replaces latchRoadOrigin, which recovered a single GLOBAL grid offset by probing roadAt
-  // along each axis. That worked only because the old grid was one infinite axis-aligned lattice
-  // shared by the whole world. Streets now belong to individual cities, each with its OWN origin,
-  // rotation and block size — so there is nothing global left to latch, and nothing needs latching:
-  // the city objects carry all three numbers directly (terrain.js cityAt), which is both exact and
-  // cheaper than the probe ever was.
-  //
-  // Everything that used to key off the latched origin — junctions, kerb lamps, parked-car
-  // alignment — now enumerates in the relevant city's frame instead.
-  function visibleCities(cx, cy, pad) {
-    const w = viewW(), h = viewH()
-    const x0 = -cx - pad, y0 = -cy - pad, x1 = -cx + w + pad, y1 = -cy + h + pad
-    const out = []
-    // +-1 lattice cell of slack: a city's centre can sit outside the view while its streets reach in.
-    const i0 = Math.floor(x0 / CITY_GRID) - 1, i1 = Math.floor(x1 / CITY_GRID) + 1
-    const j0 = Math.floor(y0 / CITY_GRID) - 1, j1 = Math.floor(y1 / CITY_GRID) + 1
-    for (let i = i0; i <= i1; i++) {
-      for (let j = j0; j <= j1; j++) {
-        const c = cityAt(i, j, districtSeed)
-        if (c) out.push(c)
-      }
-    }
-    return { cities: out, x0, y0, x1, y1 }
-  }
 
-  // The view rectangle expressed in one city's rotated frame, clamped to that city's own radius so
-  // a caller never enumerates grid nodes out in the countryside where the city has no streets.
-  function cityViewBounds(c, x0, y0, x1, y1) {
-    const cos = Math.cos(-c.angle), sin = Math.sin(-c.angle)
-    let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity
-    for (const [px, py] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
-      const dx = px - c.x, dy = py - c.y
-      const u = dx * cos - dy * sin
-      const v = dx * sin + dy * cos
-      if (u < uMin) uMin = u; if (u > uMax) uMax = u
-      if (v < vMin) vMin = v; if (v > vMax) vMax = v
-    }
-    return {
-      uMin: Math.max(uMin, -c.r), uMax: Math.min(uMax, c.r),
-      vMin: Math.max(vMin, -c.r), vMax: Math.min(vMax, c.r),
-    }
-  }
 
-  // (u, v) in a city's frame back to world space.
-  function cityToWorld(c, u, v) {
-    const cos = Math.cos(c.angle), sin = Math.sin(c.angle)
-    return { x: c.x + u * cos - v * sin, y: c.y + u * sin + v * cos }
-  }
 
   // Which way does the nearest street run at (wx, wy)? Used to align parked vehicles and painted
   // lots to the grid. Answers in the nearest city's frame; 0 outside any city, where there is no
@@ -6959,8 +6917,7 @@ export function createRenderer(app) {
     if (!chapterHasRoads) return 0
     const ra = roadAt(wx, wy, roadSeed)
     if (ra.onRoad) return ra.angle
-    const near = nearestCity(wx, wy, roadSeed)
-    return near ? near.city.angle : 0
+    return 0   // v6.9.2: off-road inside a city, the grid is the world's and runs on the axes
   }
 
   // ---- street strips (v6.9.1) -------------------------------------------------------------------
@@ -7011,12 +6968,10 @@ export function createRenderer(app) {
     // March the line and cut it wherever roadAt stops answering `kind` — that is where the urban
     // falloff or the water rule ends the street. Runs are extended half a step at each end so a
     // kerb never visibly stops short of the last sample that was still on tarmac.
-    // The HEADING test is what keeps two overlapping cities apart. visibleCities returns every city
-    // whose lattice cell reaches the view, but roadAt answers in whichever city is NEAREST — so
-    // enumerating city B's grid while standing in city A finds "road" only at the handful of points
-    // where B's phantom line happens to cross one of A's real streets, and each of those became a
-    // stray 30px stub lying across the street at the wrong angle. A street this march is walking
-    // must come back with this march's own heading.
+    // The HEADING test survives from v6.9.1, when overlapping cities each had their own rotated grid
+    // and enumerating one city's lines while standing in another produced stray stubs. The world
+    // grid makes that impossible, but the test is still the cheap way to stop a street run from
+    // continuing through a stretch a WIDER road has taken over (a highway leg outranks a street).
     const march = (ox, oy, ang, a0, a1, kind, look) => {
       const dx = Math.cos(ang), dy = Math.sin(ang)
       let start = null, last = 0
@@ -7030,23 +6985,20 @@ export function createRenderer(app) {
       }
     }
     if (chapterHasRoads) {
-      const { cities, x0, y0, x1, y1 } = visibleCities(cx, cy, STREET_PAD)
-      for (const c of cities) {
-        const b = cityViewBounds(c, x0, y0, x1, y1)
-        const E = STREET_SPACING_MAJOR_EVERY
-        // A street at u = ui*blockU runs along the city's +v axis (heading c.angle + PI/2), and vice
-        // versa. Both are enumerated straight from the grid indices roadAt itself uses, so the line
-        // drawn IS the line the generator answers on — no probing, no drift.
-        for (let ui = Math.ceil(b.uMin / c.blockU); ui * c.blockU <= b.uMax; ui++) {
-          const o = cityToWorld(c, ui * c.blockU, b.vMin)
-          const major = ((ui % E) + E) % E === 0
-          march(o.x, o.y, c.angle + Math.PI / 2, 0, b.vMax - b.vMin, 'street', major ? T.roadMajor : T.roadMinor)
-        }
-        for (let vi = Math.ceil(b.vMin / c.blockV); vi * c.blockV <= b.vMax; vi++) {
-          const o = cityToWorld(c, b.uMin, vi * c.blockV)
-          const major = ((vi % E) + E) % E === 0
-          march(o.x, o.y, c.angle, 0, b.uMax - b.uMin, 'street', major ? T.roadMajor : T.roadMinor)
-        }
+      const w = viewW(), h = viewH()
+      const x0 = -cx - STREET_PAD, y0 = -cy - STREET_PAD
+      const x1 = -cx + w + STREET_PAD, y1 = -cy + h + STREET_PAD
+      const E = STREET_SPACING_MAJOR_EVERY
+      // v6.9.2: ONE world grid, axis-aligned — no city frames to enumerate in, so a street is just
+      // a line at x = ui*BLOCK_U or y = vi*BLOCK_V. These are the exact indices roadAt itself uses,
+      // so the line drawn IS the line the generator answers on.
+      for (let ui = Math.ceil(x0 / BLOCK_U); ui * BLOCK_U <= x1; ui++) {
+        const major = ((ui % E) + E) % E === 0
+        march(ui * BLOCK_U, y0, Math.PI / 2, 0, y1 - y0, 'street', major ? T.roadMajor : T.roadMinor)
+      }
+      for (let vi = Math.ceil(y0 / BLOCK_V); vi * BLOCK_V <= y1; vi++) {
+        const major = ((vi % E) + E) % E === 0
+        march(x0, vi * BLOCK_V, 0, 0, x1 - x0, 'street', major ? T.roadMajor : T.roadMinor)
       }
       // Highways are straight segments between two city centres and are deliberately exempt from the
       // water rule (a trunk road on a causeway is real), so they need no march at all — just the
@@ -7882,13 +7834,12 @@ export function createRenderer(app) {
   function updateJunctions(cx, cy) {
     let n = 0
     if (chapterHasRoads && T.junction) {
-      const { cities, x0, y0, x1, y1 } = visibleCities(cx, cy, 90)
-      for (const c of cities) {
-        if (n >= junctionSprites.length) break
-        const b = cityViewBounds(c, x0, y0, x1, y1)
-        for (let ui = Math.ceil(b.uMin / c.blockU); ui * c.blockU <= b.uMax && n < junctionSprites.length; ui++) {
-          for (let vi = Math.ceil(b.vMin / c.blockV); vi * c.blockV <= b.vMax && n < junctionSprites.length; vi++) {
-            const p = cityToWorld(c, ui * c.blockU, vi * c.blockV)
+      const w = viewW(), h = viewH()
+      const x0 = -cx - 90, y0 = -cy - 90, x1 = -cx + w + 90, y1 = -cy + h + 90
+      {
+        for (let ui = Math.ceil(x0 / BLOCK_U); ui * BLOCK_U <= x1 && n < junctionSprites.length; ui++) {
+          for (let vi = Math.ceil(y0 / BLOCK_V); vi * BLOCK_V <= y1 && n < junctionSprites.length; vi++) {
+            const p = { x: ui * BLOCK_U, y: vi * BLOCK_V }
             // A grid node inside the radius can still fall outside the street area — the urban
             // falloff is noise-wobbled, so the outermost nodes have no pavement under them. Asking
             // roadAt is the one check guaranteed to agree with the carriageway updateStreets drew.
@@ -7904,8 +7855,7 @@ export function createRenderer(app) {
             s.anchor.set(look.ax, look.ay)
             s.tint = 0xffffff
             s.alpha = 1
-            // Baked axis-aligned, so it has to turn with the city it belongs to.
-            s.rotation = c.angle
+            s.rotation = 0   // baked axis-aligned, and the world grid is too
             s.scale.set(1)   // baked at TRUE world size
             s.position.set(p.x, p.y)
           }

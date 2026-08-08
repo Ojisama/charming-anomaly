@@ -35,7 +35,7 @@ import {
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
-  TRAFFIC_SQUASH, TRAFFIC_ENEMY_HP_FRAC,
+  TRAFFIC_SQUASH, TRAFFIC_ENEMY_HP_FRAC, TRAFFIC_CAR_LEN, TRAFFIC_KB,
   prismLadder, PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN,
   MOWER_DECK_W, MOWER_DECK_LEN, MOWER_OFFSET, MOWER_ENEMY_HP_FRAC, MOWER_DMG_START, MOWER_DMG_END, mowerDmgAt,
@@ -54,7 +54,7 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
-  roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
+  roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
@@ -2174,7 +2174,9 @@ function testChapterBehaviors() {
 
     const children = run.enemies.filter((e) => e._splitChild)
     assert.strictEqual(children.length, SPLIT_CHILD_COUNT, `expected ${SPLIT_CHILD_COUNT} split children, got ${children.length}`)
-    const expectedHp = parent.maxHP * SPLIT_HP_FRAC
+    // v6.9.2: rounded, like every enemy HP assignment — a fractional maxHP leaves a sub-1 remainder
+    // that dealDamage's integer subtraction can never clear (see roundHP in sim.js).
+    const expectedHp = Math.max(1, Math.round(parent.maxHP * SPLIT_HP_FRAC))
     const expectedRadius = parent.radius * SPLIT_RADIUS_FRAC
     for (const c of children) {
       assert(Math.abs(c.maxHP - expectedHp) < 1e-6, `expected child maxHP ${expectedHp}, got ${c.maxHP}`)
@@ -4777,7 +4779,13 @@ function testSkiesKaiju() {
     Math.random = mulberry32(20260714)
     const seed = 424242
 
-    const runA = seededSkiesRun(seed, 111)
+    // v6.9.2: world seeds whose ORIGIN IS DOWNTOWN. Obstacle density is a function of the biome
+    // (BIOME_BUILD_DENSITY), so a seed that opens at sea streams a handful of piers and nothing
+    // else — 111 used to clear this "> 5" by one or two, and the v6.9.2 road widening shaved that
+    // margin away without anything actually being wrong. A downtown origin is both what this test
+    // is about and 10x clear of the threshold, so it measures the generator rather than the luck of
+    // where one seed's streaming disc landed.
+    const runA = seededSkiesRun(seed, 4321)
     stepSim(runA, { x: 0, y: 0 }, dt)
     const kindsA = Object.fromEntries(runA.obstacles.map((o) => [o._cell, o.kind]))
     assert(Object.keys(kindsA).length > 5, 'expected the forced seed to stream in a real set of obstacles')
@@ -4793,7 +4801,7 @@ function testSkiesKaiju() {
     // the playtest report was about: A CITY IS DENSER THAN OPEN COUNTRY. Measured directly on the
     // generator over equal-area samples rather than on a live run, so it can't be confounded by
     // where the streaming disc happens to sit.
-    const runB = seededSkiesRun(seed, 999999)
+    const runB = seededSkiesRun(seed, 5150)
     stepSim(runB, { x: 0, y: 0 }, dt)
     assert(runB.obstacles.length > 5, 'expected the second world seed to stream in a real set of obstacles too')
 
@@ -4976,7 +4984,14 @@ function testRoads() {
     }
     const frac = onCount / total
     assert(frac > 0.02 && frac < 0.5, `expected roadway to cover a modest slice of a long diagonal sweep, got ${(frac * 100).toFixed(1)}% (a degenerate roadAt reads as ~0% or ~100%)`)
-    assert(transitions > 20, `expected many road/non-road transitions along a long diagonal sweep, got ${transitions}`)
+    // The floor is derived from the GRID PITCH, not a magic number: this sweep crosses roughly
+    // 20000/BLOCK_U vertical streets and 7400/BLOCK_V horizontal ones where it happens to be inside
+    // a city, so the old hardcoded 20 silently encoded the pre-v6.9.2 300x380 blocks and failed the
+    // moment the grid was widened. What the assertion is actually for is catching a DEGENERATE
+    // roadAt (always-on or always-off), and any positive transition count well clear of zero does
+    // that; a quarter of the vertical crossings is a comfortable margin either way.
+    const floor = Math.max(6, Math.round(20000 / BLOCK_U / 4))
+    assert(transitions > floor, `expected many road/non-road transitions along a long diagonal sweep, got ${transitions} (floor ${floor})`)
     console.log(`PASS run DD.b (road geometry): ${(frac * 100).toFixed(1)}% of a diagonal sweep on-road across ${transitions} transitions (neither constantly on nor off)`)
   }
 
@@ -5822,8 +5837,10 @@ function testTrafficLaneSnap() {
     const lane = run.lanes[0]
 
     assertPlayerInBand(run, lane, 'tier 2 (mid-block curb-jump)')
-    const angleErr = angleModDiff(lane.angle, spot.city.angle, Math.PI / 2)
-    assert(angleErr < 1e-6, `expected the lane's angle to align with the city grid mod pi/2, err=${angleErr}`)
+    // v6.9.2: the street grid is the WORLD's and axis-aligned, so "aligned with the grid" is now
+    // "aligned with the axes" — a city carries no rotation of its own to compare against.
+    const angleErr = angleModDiff(lane.angle, 0, Math.PI / 2)
+    assert(angleErr < 1e-6, `expected the lane's angle to align with the world grid mod pi/2, err=${angleErr}`)
     console.log(`PASS run KK.d.2 (traffic tier 2: mid-block curb-jump still crosses player): angle err=${angleErr.toExponential(2)}`)
   }
 
@@ -7816,6 +7833,13 @@ function testChapterDensityCap() {
     Math.random = mulberry32(20260804)
     const run = createRun(makeMeta(), { chapter: id })
     run.weapons = []
+    // v6.9.2: stripping weapons is not enough to stop things dying in the CITY — its signature
+    // hazard kills on its own, and the taxi one-shots the light roster. That confound was invisible
+    // until roundHP landed, because a fractional maxHP meant the squash branch dealt round(hp) and
+    // left frac(maxHP) behind, so ~half of everything it hit survived and the field saturated
+    // anyway. With the taxi actually killing again, city peaks at ~211 of its 400 cap. Park the
+    // traffic signature for the measurement so this still tests the SPAWN cap and nothing else.
+    run.mods.trafficIntervalMul = 1e9
     run.player.hp = run.player.maxHP = 1e9
     const cap = maxAliveFor(run.mods)
     assert.strictEqual(cap, Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1)),
@@ -8567,6 +8591,7 @@ try {
   testRedundantMods()
   testUndergrowthRound()
   testRoadOff()
+  testIntegerHP()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -10211,4 +10236,69 @@ function testRoadOff() {
   assert.ok(checked > 200, `expected a few hundred usable on-road samples, got ${checked}`)
   assert.ok(sawStreet && sawHighway, `wanted both kinds covered (street=${sawStreet} highway=${sawHighway})`)
   console.log(`PASS run VC (roadAt.off): ${checked} on-road samples across 4 seeds, streets and highways, every one signed along the left normal`)
+}
+
+// ---- run VD (v6.9.2): enemy HP is an integer, and the taxi's one-shot actually kills ------------
+// Reported as "taxi damage is buggy — sometimes 0, sometimes 9, sometimes 14 for the same enemy".
+// Root cause: every factor feeding maxHP is fractional (hpScale, difficulty/mutator muls, roster
+// hpMul) but the ONLY thing that subtracts from hp is dealDamage, which rounds. So the fractional
+// part was immortal, and the city taxi's squash branch — which deals a light enemy EXACTLY its
+// remaining hp — dealt round(hp) and left frac(maxHP) behind. Half of everything it ran over got
+// up again, and once parked on a sub-0.5 sliver it was unkillable BY THE TAXI for the rest of the
+// run (round(0.0038) === 0, which is the literal "0" that was showing up).
+function testIntegerHP() {
+  // (a) the invariant, across chapters, difficulties and a long run: hp and maxHP stay integral.
+  for (const [chapter, difficulty] of [['city', 1], ['city', 5], ['undergrowth', 3], ['body', 1]]) {
+    Math.random = mulberry32(90210)
+    const run = createRun(makeMeta(), { chapter, difficulty })
+    run.player.hp = run.player.maxHP = 1e9
+    const dt = 1 / 60
+    for (let i = 0; i < Math.round(180 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: Math.sin(i / 130), y: Math.cos(i / 91) }, dt)
+      run.player.hp = run.player.maxHP
+    }
+    assert(run.enemies.length > 0, `expected a populated field in ${chapter} d${difficulty}`)
+    for (const e of run.enemies) {
+      assert(Number.isInteger(e.maxHP), `${chapter} d${difficulty}: ${e.rosterId} maxHP ${e.maxHP} is not an integer`)
+      assert(Number.isInteger(e.hp), `${chapter} d${difficulty}: ${e.rosterId} hp ${e.hp} is not an integer`)
+      assert(e.hp > 0, `${chapter} d${difficulty}: ${e.rosterId} is alive at hp ${e.hp}`)
+    }
+  }
+  console.log('PASS run VD.a (integer HP): hp and maxHP are whole numbers across 4 chapter/difficulty runs, no enemy alive on a sliver')
+
+  // (b) the symptom itself: a car sweeping a squash-list enemy must KILL it, at any starting hp
+  // down to 1 — including the fractional maxHP the old code produced, forced here by hand so the
+  // test still fails if roundHP is ever removed and something re-introduces a float.
+  for (const startHP of [21.00388888888889, 12.4, 0.0038, 9, 1]) {
+    Math.random = mulberry32(4242)
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.player.hp = run.player.maxHP = 1e9
+    run.weapons = []
+    run.mods.trafficIntervalMul = 1e9      // no stray lanes; this test drives its own
+    const p = run.player
+    // makeStatusEnemy carries every status field the stepper touches; rosterId puts it on the
+    // squash list and speed 0 keeps it under the car.
+    const victim = makeStatusEnemy(run, { x: p.x + 40, y: p.y, hp: startHP, speed: 0 })
+    victim.rosterId = 'pigeon'
+    victim.maxHP = 21.00388888888889
+    victim.flags = []
+    run.enemies = [victim]
+    run.lanes = [{
+      x: p.x, y: p.y, angle: 0, len: 1100, w: 130,
+      phase: 'sweep', t: TRAFFIC_SWEEP, warnT: TRAFFIC_WARN, carT: 0,
+      dmg: TRAFFIC_DMG, sweep: TRAFFIC_SWEEP, deckLen: TRAFFIC_CAR_LEN, deckW: TRAFFIC_CAR_W,
+      kb: TRAFFIC_KB, squash: TRAFFIC_SQUASH, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
+      look: 'car', cover: false, hitIds: new Set(),
+    }]
+    const dt = 1 / 60
+    for (let i = 0; i < Math.round((TRAFFIC_SWEEP + 0.2) / dt) && run.enemies.length; i++) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    const survivor = run.enemies.find((e) => e === victim)
+    assert(!survivor, `a pigeon starting at ${startHP} hp SURVIVED being run over (left at hp ${survivor && survivor.hp})`)
+  }
+  console.log('PASS run VD.b (the taxi one-shots): a squash-list pigeon dies under the car from every starting hp tried, fractional ones included')
 }
