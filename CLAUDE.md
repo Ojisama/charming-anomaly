@@ -102,6 +102,20 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   the line.
 - Screenshotting short-lived FX: `app.ticker.stop()` first, drive frames manually, render, then
   shoot — the live rAF loop otherwise expires the effect between evaluate and screenshot.
+- **A/B-ing a look needs the SAME frame in every shot, and one `initScript` seeding of
+  `Math.random` does not give you that.** The ticker runs free between boot and whenever your
+  probe gets control, and each rendered frame burns randoms (dust motes, particles), so how many
+  is a function of machine load — every variant then lands on a different tile with a different
+  crowd and the comparison is worthless. Pin `Math.random` (mulberry32) in the initScript AND
+  **re-pin it again right after `app.ticker.stop()`**; everything after that is reproducible.
+- Judging an ANIMATED effect: don't re-boot per frame (~16s each). Boot once, stop the ticker,
+  compose the scene, then expose a scrub hook that rewinds the effect's own life field
+  (`s.life = full * (1 - age)`), re-syncs and re-renders — CDP `Runtime.evaluate` between
+  `Page.captureScreenshot` calls gives a whole frame sequence from one boot, and `ffmpeg` stacks
+  them into a comparison GIF. A burst or a fade cannot be judged from a still.
+- A probe that runs thousands of `__stepSim` calls synchronously BLOCKS the main thread, and a
+  screenshot taken during that block is plain white. That is not a blank-page bug — confirm which
+  one you have by shooting the same URL with no seed script at all before reporting a prod outage.
 - `vite preview` snapshots the dist file list at startup (always restart it AFTER `npm run
   build`) and serves at `/`, not the Pages subpath. Stale preview servers from other sessions
   squat ports — pick a fresh one (`--port N --strictPort`) rather than killing unattributed pids.
