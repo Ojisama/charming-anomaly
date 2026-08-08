@@ -34,8 +34,8 @@ import {
   ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
   // RARITY_ORDER is deliberately NOT imported: it existed here only for the ladder walk the
   // bucket-first roll deletes. Nothing in sim.js reads the tier ORDER any more.
-  RARITIES, RARITY_WEIGHTS,
-  BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, DEFENSIVE_PASSIVE_WEIGHT, WEAPON_UP_WEIGHT,
+  RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
+  BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -5751,7 +5751,11 @@ function weaponCandidates(run) {
   for (const w of run.weapons) {
     if (w.level < MAX_WEAPON_LEVEL) {
       const cfg = WEAPONS[w.id]
-      list.push({ kind: 'weapon', id: w.id, title: cfg.name, desc: cfg.desc, tag: `Lv ${w.level + 1}`, rarity: cfg.rarity, icon: cfg.icon })
+      // An upgrade shows NO tier (UPGRADE_RARITY, not a RARITIES key — see config.js). The weapon
+      // you already own is not a jackpot, and under bucket-first its card fires on 22% of rolls
+      // whatever the tier table says, so wearing cfg.rarity here put a Mythic border on 8.9% of
+      // city's cards — every one of them a Neon Beam level.
+      list.push({ kind: 'weapon', id: w.id, title: cfg.name, desc: cfg.desc, tag: `Lv ${w.level + 1}`, rarity: UPGRADE_RARITY, icon: cfg.icon })
     }
   }
   return list
@@ -5926,8 +5930,15 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     buckets.weapon = BUCKET_WEIGHTS.weapon * (hasUpgrade ? 1 : pNew)
   }
 
+  // Defence and utility are separate buckets (BUCKET_WEIGHTS), not one passive bucket with a
+  // weight inside it: the survivability share and the seven-other-passives share are two
+  // different design numbers, and a weight inside one bucket leaves the second one implicit —
+  // it can then halve without any test or any config line noticing.
   const passiveOpts = passiveIds.filter((pid) => !pickedIds.has(pid))
-  if (passiveOpts.length > 0) buckets.passive = BUCKET_WEIGHTS.passive
+  const defenseOpts = passiveOpts.filter((pid) => DEFENSIVE_PASSIVES.includes(pid))
+  const utilityOpts = passiveOpts.filter((pid) => !DEFENSIVE_PASSIVES.includes(pid))
+  if (defenseOpts.length > 0) buckets.defense = BUCKET_WEIGHTS.defense
+  if (utilityOpts.length > 0) buckets.utility = BUCKET_WEIGHTS.utility
 
   const modOpts = modCandidates.filter((mc) =>
     !pickedIds.has(mc.mod) && (modWeaponCounts.get(mc.weapon) ?? 0) < modCap)
@@ -5936,7 +5947,9 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   const elementOpts = elementIds.filter((eid) => !pickedIds.has(eid))
   // MUTATORS.unstable's elementWeightMul keeps its reader here now that ELEMENT_CARD_WEIGHT is
   // gone: it scales the bucket, which is the one place element frequency is decided. It is
-  // applied EXACTLY once — folding it in here AND keeping a per-id gate double-counts.
+  // applied EXACTLY once — folding it in here AND keeping a per-id gate double-counts. The
+  // multiplier itself was re-priced against this reader (config.js): the same x3 that saturated
+  // against the old per-id filter measures 38.6% of all cards elemental against this one.
   if (elementOpts.length > 0) buckets.element = BUCKET_WEIGHTS.element * (run.mods?.elementWeightMul ?? 1)
 
   if (Object.keys(buckets).length === 0) return null
@@ -5945,30 +5958,40 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   const rarity = pickWeighted(RARITY_WEIGHTS)
 
   if (bucket === 'weapon') {
-    // A weapon card keeps cfg.rarity for its chip rather than adopting the rolled rarity —
+    // A weapon card keeps its inherent rarity for its chip rather than adopting the rolled one —
     // applyChoice's weapon branch never reads rarity, so an adopted colour would mean nothing.
+    // weaponCandidates already gave UPGRADE entries UPGRADE_RARITY (no tier at all): the chip is
+    // the acquisition jackpot, and re-firing it for a weapon you own spends it for nothing.
     return weaponOpts[Number(pickWeighted(weaponW))]
   }
 
-  if (bucket === 'passive') {
+  if (bucket === 'defense' || bucket === 'utility') {
+    const opts = bucket === 'defense' ? defenseOpts : utilityOpts
+    const pid = opts[Math.floor(Math.random() * opts.length)]
+    const card = makePassiveCard(run, pid, rarity)
+    if (card) return card
+    // null = a values-passive (armor/regen) rolled outside its own table. Re-roll the rarity on
+    // RARITY_WEIGHTS RESTRICTED to the tiers that table declares — never a fixed ladder. Walking
+    // [rarity, 'legendary', …] sent every epic AND mythic roll (8.8% of the table) to the TOP
+    // tier, measured 12.2% legendary armor against a declared 3.5% and +15% mean armor per card;
+    // walking down to 'normal' is the same unnamed change in the other direction. Renormalising
+    // the passive's own keys is neutral by construction (normal 64.1 / rare 32.1 / legendary 3.9).
     const w = {}
-    for (const pid of passiveOpts) w[pid] = DEFENSIVE_PASSIVES.includes(pid) ? DEFENSIVE_PASSIVE_WEIGHT : 1
-    const pid = pickWeighted(w)
-    // makePassiveCard returns null for a values-passive (armor/regen) rolled at a rarity outside
-    // its own table. Re-roll the rarity within the bucket rather than falling back to 'normal':
-    // a fallback converts every epic/mythic defensive roll into an extra normal-tier defensive
-    // card, which is an unnamed balance change on a x4-weighted bucket member.
-    for (const r of [rarity, 'legendary', 'rare', 'normal']) {
-      const card = makePassiveCard(run, pid, r)
-      if (card) return card
-    }
-    return null
+    for (const r of Object.keys(PASSIVES[pid].values)) w[r] = RARITY_WEIGHTS[r] ?? 1
+    return makePassiveCard(run, pid, pickWeighted(w))
   }
 
   if (bucket === 'mod') {
-    const mc = modOpts[Math.floor(Math.random() * modOpts.length)]
-    // null = a switch mod declining a rarity above normal, same contract as makePassiveCard.
-    return makeWeaponModCard(run, mc.weapon, mc.mod, rarity) ?? makeWeaponModCard(run, mc.weapon, mc.mod, 'normal')
+    // A switch mod declines every rarity above normal (makeWeaponModCard returns null), so it is
+    // only a CANDIDATE on a normal roll — restricting the pick preserves that. Picking first and
+    // coercing the rarity down instead let a switch win its pick at any tier: measured 1.72x the
+    // shipped offer rate, against config.js's own "offered AT MOST ONCE, only at normal rarity".
+    const ok = modOpts.filter((mc) => makeWeaponModCard(run, mc.weapon, mc.mod, rarity))
+    // Every candidate declined (an all-switch bucket): the bucket was counted as non-empty, so it
+    // owes a card. Offer one at normal rather than returning null and shortening the pool.
+    const from = ok.length > 0 ? ok : modOpts
+    const mc = from[Math.floor(Math.random() * from.length)]
+    return makeWeaponModCard(run, mc.weapon, mc.mod, ok.length > 0 ? rarity : 'normal')
   }
 
   const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]

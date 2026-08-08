@@ -7,7 +7,8 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, PASSIVES, RARITIES, RARITY_ORDER, BUCKET_WEIGHTS, spawnRate, hpScale, eliteEveryAt,
+  SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
+  BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE,
@@ -246,7 +247,14 @@ function testRaritySanity() {
     run.player.level = level
     const choices = buildLevelUpChoices(run)
     for (const c of choices) {
-      assert(c.rarity in RARITIES, `invalid rarity key: ${c.rarity}`)
+      // v6.7.5: a weapon UPGRADE card carries NO tier and must carry EXACTLY the one non-tier
+      // value (UPGRADE_RARITY), which is deliberately not a RARITIES key so ui.js prints no chip.
+      // Every other card, `New!` weapons included, still has to name a real tier.
+      if (c.kind === 'weapon' && c.tag !== 'New!') {
+        assert.strictEqual(c.rarity, UPGRADE_RARITY, `a weapon upgrade card must show no tier, got ${c.rarity}`)
+      } else {
+        assert(c.rarity in RARITIES, `invalid rarity key: ${c.rarity}`)
+      }
       counter[c.rarity] = (counter[c.rarity] ?? 0) + 1
 
       if (c.kind === 'passive') {
@@ -291,7 +299,7 @@ function testRaritySanity() {
 // options, which deleted the weapon bucket on every roll no weapon happened to carry. Buckets
 // are now explicit and rolled first. See B1 in the Track B spec.
 function testPoolBuckets() {
-  const sample = (chapter, slots, weapons) => {
+  const sample = (chapter, slots, weapons, mods = null) => {
     Math.random = mulberry32(20260808)
     const meta = makeMeta()
     meta.choiceSlots = slots
@@ -299,8 +307,9 @@ function testPoolBuckets() {
     // meta.chapter is a title-screen pointer and setting it here would silently sample body.
     const run = createRun(meta, { chapter })
     run.weapons = weapons
-    const kinds = {}, rarities = {}, perWeapon = {}
-    let total = 0
+    if (mods) Object.assign(run.mods, mods)
+    const kinds = {}, rarities = {}, perWeapon = {}, passiveIds = {}, modIds = {}, valueTiers = {}
+    let total = 0, defence = 0
     for (let i = 0; i < 4000; i++) {
       run._screenRerolls = -1   // never let reroll decay contaminate a base-rate sample
       for (const c of buildLevelUpChoices(run)) {
@@ -308,30 +317,123 @@ function testPoolBuckets() {
         kinds[c.kind] = (kinds[c.kind] ?? 0) + 1
         rarities[c.rarity] = (rarities[c.rarity] ?? 0) + 1
         if (c.kind === 'weapon') perWeapon[c.id] = (perWeapon[c.id] ?? 0) + 1
+        if (c.kind === 'mod') modIds[`${c.weapon}:${c.id}`] = (modIds[`${c.weapon}:${c.id}`] ?? 0) + 1
+        if (c.kind === 'passive') {
+          passiveIds[c.id] = (passiveIds[c.id] ?? 0) + 1
+          if (DEFENSIVE_PASSIVES.includes(c.id)) defence++
+          if (PASSIVES[c.id].values) {
+            valueTiers[c.id] = valueTiers[c.id] ?? {}
+            valueTiers[c.id][c.rarity] = (valueTiers[c.id][c.rarity] ?? 0) + 1
+          }
+        }
         total++
       }
     }
-    return { kinds, rarities, perWeapon, total }
+    // defence/utility are two buckets that both emit kind 'passive', so their shares have to be
+    // split back out by id — the whole point of splitting them is that each is asserted alone.
+    const pc = (n) => (n / total) * 100
+    const of = (k) => pc(k === 'defense' ? defence : k === 'utility' ? (kinds.passive ?? 0) - defence : (kinds[k] ?? 0))
+    return { kinds, rarities, perWeapon, passiveIds, modIds, valueTiers, total, defence, pc, of }
   }
 
-  const body = sample('body', 4, [{ id: 'star', level: 3 }, { id: 'orbit', level: 2 }])
-  const share = (k) => (body.kinds[k] / body.total) * 100
   // Declared share = the bucket's weight as a percentage of the whole table, so the assertions
   // track BUCKET_WEIGHTS instead of a copy of it that can drift.
   const bucketTotal = Object.values(BUCKET_WEIGHTS).reduce((a, b) => a + b, 0)
   const declared = (k) => (BUCKET_WEIGHTS[k] / bucketTotal) * 100
+  const BUCKETS = ['defense', 'utility', 'weapon', 'element', 'mod']
 
-  // Measured seed-to-seed sd is ~0.4pt over this exact scenario, so +/-1.5pt is ~3.5 sigma —
-  // tight enough to catch a real regression. The first draft used +/-6pt, which is 12-15 sigma
-  // and would have passed a bucket anywhere in 16-28%.
-  for (const k of ['weapon', 'element', 'passive', 'mod']) {
-    assert.ok(Math.abs(share(k) - declared(k)) < 1.5,
-      `${k} share ${share(k).toFixed(1)}% vs declared ${declared(k).toFixed(1)}%`)
+  // armor/regen declare `values: {normal, rare, legendary}` — no epic, no mythic — so a roll
+  // outside that table has to be re-rolled on RARITY_WEIGHTS RESTRICTED to the table's own keys.
+  // A fixed ladder starting at 'legendary' sent every epic AND mythic roll (8.8% of the table) to
+  // the top tier: measured 12.2% legendary armor against the 3.9% renormalising gives, i.e. +15%
+  // mean armor per card, on the pool's only direct damage block. Nothing else in the suite reads
+  // a card's bonus BY rarity, which is why that shipped green.
+  // Pooled across every config below: one config's armor cards are ~500 draws, on which a 3.9%
+  // tier is +/-0.9pt of noise; pooling gets the sample to ~3500 and the check to ~5 sigma.
+  const valueTiers = {}
+  const collectTiers = (s) => {
+    for (const [id, tiers] of Object.entries(s.valueTiers)) {
+      valueTiers[id] = valueTiers[id] ?? {}
+      for (const [r, n] of Object.entries(tiers)) valueTiers[id][r] = (valueTiers[id][r] ?? 0) + n
+    }
   }
 
-  // F1: an empty bucket must NOT deflect onto a high rarity (first draft measured 16.1% legendary).
-  const legendaryShare = ((body.rarities.legendary ?? 0) / body.total) * 100
-  assert.ok(legendaryShare < 6, `legendary share ${legendaryShare.toFixed(1)}% — a bucket is deflecting up the ladder`)
+  const ladder = (name, s) => {
+    // The property no per-tier threshold expresses: the ladder must fall off monotonically. A
+    // chip that is common is not a chip.
+    let prev = Infinity
+    for (const r of RARITY_ORDER) {
+      const got = s.pc(s.rarities[r] ?? 0)
+      assert.ok(got <= prev, `${name}: ${r} ${got.toFixed(1)}% of cards exceeds the tier below it (${prev.toFixed(1)}%)`)
+      prev = got
+    }
+    // Defence is the only direct survivability in the pool and the passive share was cut
+    // 62% -> 30%; holding this at the shipped 17.8% is what the whole redesign promised. It has
+    // its OWN bucket weight precisely so this assertion can exist (a weight buried inside a
+    // passive bucket could halve with every test still green — verified by mutation).
+    assert.ok(s.of('defense') > 15,
+      `${name}: defence ${s.of('defense').toFixed(1)}% of cards — the survivability floor is gone`)
+  }
+
+  // Three chapters x both slot counts that matter, never one config alone: 4 slots is a 60-of-80
+  // meta-shop unlock, 2 is the DEFAULT, and every drift finding in the source spec was invisible
+  // in at least one chapter. These configs own their chapter's whole arsenal, so weaponCandidates
+  // emits no `New!` entries and the NEW_WEAPON_MIN_RATE floor cannot fire: what they measure is
+  // the BUCKET, not the bucket plus a compensating floor (which is worth up to
+  // 100*NEW_WEAPON_MIN_RATE/slots = 2.5pts of weapon share at 2 slots).
+  const full = [
+    { name: 'body/4', chapter: 'body', slots: 4, weapons: [{ id: 'star', level: 3 }, { id: 'orbit', level: 2 }, { id: 'wave', level: 2 }, { id: 'homing', level: 2 }] },
+    { name: 'body/2', chapter: 'body', slots: 2, weapons: [{ id: 'star', level: 3 }, { id: 'orbit', level: 2 }, { id: 'wave', level: 2 }, { id: 'homing', level: 2 }] },
+    { name: 'city/2', chapter: 'city', slots: 2, weapons: [{ id: 'rainbow', level: 2 }, { id: 'trashTornado', level: 2 }, { id: 'sewerGeyser', level: 2 }] },
+    { name: 'beyond/4', chapter: 'beyond', slots: 4, weapons: [{ id: 'realityShard', level: 3 }, { id: 'hole', level: 2 }, { id: 'tesseractBeam', level: 2 }] },
+    { name: 'beyond/2', chapter: 'beyond', slots: 2, weapons: [{ id: 'realityShard', level: 3 }, { id: 'hole', level: 2 }, { id: 'tesseractBeam', level: 2 }] },
+  ]
+  const seen = {}
+  for (const cfg of full) {
+    const s = sample(cfg.chapter, cfg.slots, cfg.weapons)
+    seen[cfg.name] = s
+    // Measured seed-to-seed sd is ~0.4pt over these scenarios, so +/-1.5pt is ~3.5 sigma — tight
+    // enough to catch a real regression. The first draft used +/-6pt, which is 12-15 sigma and
+    // would have passed a bucket anywhere in 16-28%.
+    for (const k of BUCKETS) {
+      assert.ok(Math.abs(s.of(k) - declared(k)) < 1.5,
+        `${cfg.name}: ${k} share ${s.of(k).toFixed(1)}% vs declared ${declared(k).toFixed(1)}%`)
+    }
+
+    // F1: nothing may deflect onto a high rarity, and an UPGRADE card must not wear a tier it
+    // never rolled. Asserted on EVERY chapter, not just body: body ships no legendary or mythic
+    // weapon, so it is the one chapter where the chip inflation is invisible by construction —
+    // the same samples measured beyond/4 legendary 11.3% and city/2 mythic 8.3% (against body's
+    // 3.7%) while upgrades kept cfg.rarity, and 11.3% is inside the 9-16% band the spec names as
+    // the F1 regression signature. Every weapon here is OWNED, so no card may exceed the table.
+    for (const r of ['epic', 'legendary', 'mythic']) {
+      const got = s.pc(s.rarities[r] ?? 0)
+      const want = (100 * RARITY_WEIGHTS[r]) / Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+      assert.ok(got <= want + 1.0, `${cfg.name}: ${r} ${got.toFixed(1)}% of cards vs a declared ${want.toFixed(1)}%`)
+    }
+    ladder(cfg.name, s)
+    collectTiers(s)
+  }
+
+  // Partial arsenals: the discovery floor is live and the mod bucket has a real capacity ceiling
+  // (one owned weapon x MOD_CANDIDATES_PER_WEAPON, minus the per-pool cap), so the tight
+  // fidelity band does not apply. What must still hold is that the weapon bucket pays its
+  // declared share — the whole point of the bucket-first roll — and that the ladder stays
+  // monotone even though `New!` cards legitimately carry their weapon's inherent tier.
+  const floorMax = (slots) => (100 * NEW_WEAPON_MIN_RATE) / slots
+  for (const cfg of [
+    { name: 'body/2 two owned', chapter: 'body', slots: 2, weapons: [{ id: 'star', level: 3 }, { id: 'orbit', level: 2 }] },
+    { name: 'city/2 starter only', chapter: 'city', slots: 2, weapons: [{ id: 'rainbow', level: 2 }] },
+    { name: 'beyond/2 starter only', chapter: 'beyond', slots: 2, weapons: [{ id: 'realityShard', level: 3 }] },
+  ]) {
+    const s = sample(cfg.chapter, cfg.slots, cfg.weapons)
+    seen[cfg.name] = s
+    assert.ok(s.of('weapon') > declared('weapon') - 1.5 && s.of('weapon') < declared('weapon') + 1.5 + floorMax(cfg.slots),
+      `${cfg.name}: weapon share ${s.of('weapon').toFixed(1)}% vs declared ${declared('weapon').toFixed(1)}% + a floor worth at most ${floorMax(cfg.slots).toFixed(1)}pts`)
+    assert.ok(s.of('mod') > 24, `${cfg.name}: mod share ${s.of('mod').toFixed(1)}% — a one-weapon mod bucket may thin, not collapse`)
+    ladder(cfg.name, s)
+    collectTiers(s)
+  }
 
   // Mythic is RETAINED (B3): rainbow is the mythic city starter, and WEAPON_MOD_TIER_BONUS has a
   // live mythic:3 that deleting the tier would silently cap at +2.
@@ -341,16 +443,63 @@ function testPoolBuckets() {
   // Inherent rarity gates ACQUISITION, never LEVELLING. A filter here would hand beyond's
   // normal-rarity starter 68.8% of weapon offers while the legendary hole took 13.8% — i.e. the
   // pool would pick the dominant build for you. Every owned weapon must compete flat.
-  const beyond = sample('beyond', 4, [
-    { id: 'realityShard', level: 3 }, { id: 'hole', level: 2 }, { id: 'tesseractBeam', level: 2 },
-  ])
+  const beyond = seen['beyond/4']
   const wTotal = Object.values(beyond.perWeapon).reduce((a, b) => a + b, 0)
   for (const [id, n] of Object.entries(beyond.perWeapon)) {
     assert.ok(n / wTotal < 0.45,
       `weapon ${id} took ${((n / wTotal) * 100).toFixed(1)}% of beyond's weapon cards — rarity is gating levelling, not acquisition`)
   }
 
-  console.log(`PASS run PB1 (bucket-first roll): weapon ${share('weapon').toFixed(1)}% mod ${share('mod').toFixed(1)}% passive ${share('passive').toFixed(1)}% element ${share('element').toFixed(1)}%, legendary ${legendaryShare.toFixed(1)}%, no weapon over 45% of beyond's weapon bucket`)
+  // ...but it must still gate acquisition somewhere: with both non-starters unowned, the
+  // legendary `hole` has to be a rarer FIND than the epic `tesseractBeam`. (The uniform
+  // NEW_WEAPON_MIN_RATE floor compresses this — it is a discovery guarantee, deliberately
+  // rarity-blind — so the assertion is directional, not a ratio.)
+  const fresh = seen['beyond/2 starter only']
+  assert.ok((fresh.perWeapon.hole ?? 0) < (fresh.perWeapon.tesseractBeam ?? 0),
+    `beyond: legendary hole offered ${fresh.perWeapon.hole} times against epic tesseractBeam's ${fresh.perWeapon.tesseractBeam} — rarity stopped gating acquisition`)
+
+  for (const [id, tiers] of Object.entries(valueTiers)) {
+    const keys = Object.keys(PASSIVES[id].values)
+    const wTotal = keys.reduce((a, r) => a + RARITY_WEIGHTS[r], 0)
+    const n = keys.reduce((a, r) => a + (tiers[r] ?? 0), 0)
+    assert.ok(n > 2000, `only ${n} ${id} cards sampled — too few to read a tier split off`)
+    for (const r of keys) {
+      const got = (100 * (tiers[r] ?? 0)) / n
+      const want = (100 * RARITY_WEIGHTS[r]) / wTotal
+      assert.ok(Math.abs(got - want) < 2,
+        `${id} rolled ${r} on ${got.toFixed(1)}% of its cards vs ${want.toFixed(1)}% — the failed-roll fallback is deflecting`)
+    }
+  }
+
+  // A switch mod has no magnitude, so it declines every rarity above normal (makeWeaponModCard)
+  // and config.js promises it is "offered AT MOST ONCE, only at normal rarity". That gate lives
+  // in the CANDIDATE list, not in the printed chip: picking a mod first and then coercing its
+  // rarity down to normal let a switch win its pick at any tier, measured 1.72x the shipped offer
+  // rate. garden owns three weapons carrying three switch mods between them.
+  const garden = sample('garden', 4, [{ id: 'boomerang', level: 3 }, { id: 'stinger', level: 2 }, { id: 'lure', level: 2 }])
+  let swN = 0, swCards = 0, otherN = 0, otherCards = 0
+  for (const [key, n] of Object.entries(garden.modIds)) {
+    const [w, m] = key.split(':')
+    if (WEAPON_MODS[w][m].kind === 'switch') { swN++; swCards += n } else { otherN++; otherCards += n }
+  }
+  assert.ok(swN >= 3 && otherN >= 10, `garden sample covered ${swN} switch / ${otherN} other mods — the scenario stopped reaching its subject`)
+  const switchRatio = (swCards / swN) / (otherCards / otherN)
+  assert.ok(switchRatio < 0.75,
+    `a switch mod is offered ${switchRatio.toFixed(2)}x as often as a repeatable one — it is only a candidate on a normal roll (58.5%), so this must sit near 0.55`)
+
+  // MUTATORS.unstable multiplies the ELEMENT BUCKET (rollCard), where it used to multiply a
+  // per-id 0.25 pre-filter that saturated. Same number, different reader = a different mutator,
+  // so the resulting SHARE is asserted here: the plan names 37% as the pathology, and an
+  // un-repriced x3 measured 38.6%.
+  const unstable = sample('body', 2, [{ id: 'star', level: 3 }, { id: 'orbit', level: 2 }],
+    { elementWeightMul: MUTATORS.unstable.effects.elementWeightMul })
+  assert.ok(unstable.of('element') < 33,
+    `unstable: element ${unstable.of('element').toFixed(1)}% of cards — above the 37% the plan names as the regression`)
+  assert.ok(unstable.of('element') > declared('element') + 6,
+    `unstable: element ${unstable.of('element').toFixed(1)}% — the mutator has stopped doing anything`)
+
+  const b4 = seen['body/4']
+  console.log(`PASS run PB1 (bucket-first roll): body/4 defence ${b4.of('defense').toFixed(1)}% utility ${b4.of('utility').toFixed(1)}% mod ${b4.of('mod').toFixed(1)}% weapon ${b4.of('weapon').toFixed(1)}% element ${b4.of('element').toFixed(1)}%; legendary body/4 ${b4.pc(b4.rarities.legendary ?? 0).toFixed(1)}% beyond/4 ${seen['beyond/4'].pc(seen['beyond/4'].rarities.legendary ?? 0).toFixed(1)}%, mythic city/2 ${seen['city/2'].pc(seen['city/2'].rarities.mythic ?? 0).toFixed(1)}%; unstable element ${unstable.of('element').toFixed(1)}%`)
 }
 
 // Declines every level-up screen (still banks the xp/level, per stepLevelUp, but grants no
@@ -1696,6 +1845,13 @@ function testStarBalance() {
       maxStarPerPool = Math.max(maxStarPerPool, perPool)
     }
     const share = starMods / totalCards
+    // Pin the cap's VALUES, not just the behaviour. Deriving the expectation from the function
+    // under test makes the structural guarantee self-ratifying: `(slots) => 2` would satisfy
+    // `maxStarPerPool <= starCap` at any slot count, and the share guard below is then the only
+    // thing standing between the pool and the 29% flood a flat 2 measures at 2 slots.
+    assert.strictEqual(maxModsPerWeaponPerPool(2), 1, 'a 2-card pool may show at most ONE mod of a given weapon')
+    assert.strictEqual(maxModsPerWeaponPerPool(3), 1, 'a 3-card pool may show at most ONE mod of a given weapon')
+    assert.strictEqual(maxModsPerWeaponPerPool(4), 2, 'a 4-card pool needs TWO or the mod bucket cannot pay its declared share')
     const starCap = maxModsPerWeaponPerPool(starOnly.choiceSlots ?? 2)
     assert(maxStarPerPool <= starCap,
       `expected <= ${starCap} star mod(s) per pool, saw ${maxStarPerPool}`)
@@ -1705,8 +1861,9 @@ function testStarBalance() {
     // 25.5%, with maxModsPerWeaponPerPool(2) = 1 emptying the bucket after the first. The old 20%
     // ceiling was measured against the flat-bag pool, whose whole mod share was 21.8%; no bucket
     // weight, cap, or candidate count can put a declared 30% bucket under it. What is still
-    // guaranteed — and still asserted — is that star mods cannot FLOOD: the per-pool cap above,
-    // and a share under the 30.0% a cap of 2 would produce at these slots (the ~32% original).
+    // guaranteed — and still asserted — is that star mods cannot FLOOD: the per-pool cap values
+    // above, and a share under the 29.1% that patching maxModsPerWeaponPerPool to a flat 2
+    // measures at these slots (the ~32% original). Measured here: 25.7%.
     assert(share < 0.28, `expected star-mod share of early cards < 28%, got ${(share * 100).toFixed(1)}%`)
     console.log(`PASS run P.1 (offer fairness): star-mod share=${(share * 100).toFixed(1)}% maxPerPool=${maxStarPerPool}`)
   }

@@ -972,7 +972,10 @@ function generateWells(sig) {
  *   flag to lead its shells (ARTILLERY_LEAD).
  *
  * levelUpChoices[i]: { kind:'weapon'|'passive'|'mod'|'element'|'heal', id, title, desc, tag, rarity, icon, bonus, weapon? }
- *   rarity: key of RARITIES (weapons: inherent; passives/mods/elements: rolled). icon: from config.
+ *   rarity: key of RARITIES (a `New!` weapon: inherent; passives/mods/elements: rolled). icon: from
+ *   config. v6.7.5: a weapon UPGRADE card carries UPGRADE_RARITY ('upgrade'), which is NOT a
+ *   RARITIES key — ui.js renders no chip for it, because levelling a weapon you own is not a
+ *   jackpot and applyChoice's weapon branch never reads rarity anyway.
  *   bonus: passives/mods/elements only — the pre-multiplied amount applyChoice will add. v6.3.4:
  *   a passive with a PASSIVES[id].values table (armor/regen) uses fixed per-rarity amounts instead
  *   of base*mult, and only ever rolls normal/rare/legendary — it never appears at epic/mythic.

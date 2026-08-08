@@ -27,25 +27,49 @@ export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic']
 // Fixed roll weights (user-tuned v4.7; no level scaling). Epic-or-better ≈ 12.3% per card,
 // so a screen shows at least one epic+ on ~23% (2 cards) / ~33% (3) / ~41% (4) of level-ups.
 export const RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
+// A weapon UPGRADE card carries NO tier — this value deliberately is not a key of RARITIES, so
+// ui.js finds nothing to look up and prints no chip (see renderLevelup). `New!` cards keep their
+// weapon's inherent rarity: acquiring `hole` IS the jackpot moment, levelling it is not. Letting
+// upgrades keep cfg.rarity was measured, on the bucket-first pipeline that offers a weapon card on
+// 22% of rolls regardless of tier, at city mythic 8.9% of ALL cards (shipped 1.4%) and beyond
+// legendary 7.3% (shipped 4.4%) — the latter inside the 9-16% band the spec names as the F1
+// regression signature once sampled on a fixed pool (11.3%). Every mythic card in city was one
+// card: `Neon Beam Lv N`. A border that predicts WHICH weapon rather than HOW BIG is worse than
+// no border, and applyChoice's weapon branch never reads rarity, so it promised nothing.
+export const UPGRADE_RARITY = 'upgrade'
 
 // ---- Level-up buckets (v6.7, Track B) -----------------------------------------------
 // The pool rolls a BUCKET first, then a rarity inside it. The shipped order was the reverse,
 // which deleted a bucket entirely on every roll whose rarity no member happened to carry —
 // measured as weapon share collapsing to 9.6% against a declared 22% (4.9% in city). Empty
-// buckets are dropped and the rest renormalized, so these are relative weights, not percentages.
-export const BUCKET_WEIGHTS = { passive: 30, mod: 30, weapon: 22, element: 18 }
-// Cutting passive share 62% -> 30% is a survivability cut: these three are the only direct
-// defence in the pool. Do NOT rebase the PASSIVES numbers to compensate — a flat base scalar is
-// regressive, measured -41% defensive picks at 2 slots against only -7% at 4. Weighting inside
-// the bucket holds defensive share at parity at every slot count.
+// buckets are dropped and the rest renormalized, so these are relative weights, not percentages —
+// but they are kept summing to 100 so each weight reads as its declared share of the table.
+// defence and utility are TWO buckets, not one passive bucket with a weight inside it, because
+// the two shares answer different questions and must be tunable (and assertable) apart:
+//   defense 19 — armor/regen/maxHP, the only direct defence in the pool. 19% holds parity with
+//     the 17.8% the shipped flat bag delivered, at every slot count. Do NOT rebase the PASSIVES
+//     numbers to compensate for the 62% -> 30% passive cut instead: a flat base scalar is
+//     regressive, measured -41% defensive picks at 2 slots against only -7% at 4.
+//   utility 11 — the other seven passives, 1.6% of cards each (measured 1.5-1.8%). That IS the
+//     cost of the passive cut, and it is stated here rather than falling out of a x4 weight:
+//     holding defence at parity inside a 30-point bucket means the seven interesting passives
+//     absorb the whole 32-point cut, ~0.27x their shipped offer rate. Variety is bought back by
+//     Track A (elements) and the anomaly slate, NOT by re-inflating stat bumps.
+export const BUCKET_WEIGHTS = { defense: 19, utility: 11, mod: 30, weapon: 22, element: 18 }
 export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP']
-export const DEFENSIVE_PASSIVE_WEIGHT = 4
 // Inside the weapon bucket, an UPGRADE of an owned weapon competes at this flat weight while a
 // `New!` card competes at its weapon's inherent rarity weight (times newWeaponChance — see
-// NEW_WEAPON_FADE below). Rarity gates ACQUISITION (that IS the jackpot moment); it must never
-// gate LEVELLING. Weighting owned weapons by rarity too was measured handing beyond's normal
-// starter 68.8% of its weapon cards and making city's mythic starter the hardest weapon in the
-// chapter to level — the pool choosing your build for you.
+// NEW_WEAPON_FADE below). Rarity TILTS acquisition; it must never touch LEVELLING. Weighting
+// owned weapons by rarity too was measured handing beyond's normal starter 68.8% of its weapon
+// cards and making city's mythic starter the hardest weapon in the chapter to level — the pool
+// choosing your build for you.
+// "Tilts", not "gates", and the difference is measured: with only the starter owned, beyond
+// offers the legendary `hole` on 2.49% of cards against the epic `tesseractBeam`'s 4.08%, but
+// 47% of hole's offers come from the rarity-blind NEW_WEAPON_MIN_RATE floor below (86% once it
+// is the only unowned weapon left, where the floor picks uniformly from a list of one). The
+// floor is the discovery GUARANTEE and is deliberately tier-blind; weighting it by rarity was
+// measured moving hole 2.49% -> 2.14% and nothing at all in the single-unowned case, so it buys
+// no gate. If a rare weapon must be a genuinely rare FIND, that lever is the floor, not this.
 export const WEAPON_UP_WEIGHT = 100
 
 // ---- Level-up choice slots (v4.8: permanent, meta-shop-unlocked) ---------------------
@@ -1384,7 +1408,10 @@ export const newWeaponChance = (invested) => Math.max(NEW_WEAPON_FADE_MIN, Math.
 // Hard apparition floor (v4.6): if a level-up's 3 cards ended up with no New! weapon card
 // (and the player can still equip one), this is the chance the last card gets swapped for a
 // random unowned weapon — guarantees new weapons appear on at least ~5% of level-ups no
-// matter how deep the focus-nudge fade goes.
+// matter how deep the focus-nudge fade goes. The pick is UNIFORM over unowned weapons: this is
+// the discovery guarantee, not the rarity table, and it is measurably the dominant acquisition
+// channel for a chapter's rare weapon (47-86% of `hole`'s offers in beyond — see WEAPON_UP_WEIGHT
+// above). Do not read "rarity gates acquisition" as describing this line.
 export const NEW_WEAPON_MIN_RATE = 0.05
 
 // Shared DoT tick period for ignite/venom (finer than 3s duration so damage reads smoothly
@@ -4430,7 +4457,14 @@ export const MUTATORS = {
   bulky:    { name: 'Bulky Batch',       icon: '🫧', desc: 'Tougher enemies, richer coin drops.',          effects: { enemyHpMul: 1.5, coinMul: 1.6 } },
   caffeine: { name: 'Caffeinated Swarm', icon: '☕', desc: 'Faster enemies, faster leveling.',             effects: { enemySpeedMul: 1.25, xpMul: 1.25 } },
   eliterush:{ name: 'Elite Convention',  icon: '👑', desc: 'Elites arrive twice as often, drop way more.', effects: { eliteEveryMul: 0.55, coinMul: 1.5 } },
-  unstable: { name: 'Unstable Physics',  icon: '🌀', desc: 'Elemental infusions everywhere, weapons hit softer.', effects: { elementWeightMul: 3, playerDmgMul: 0.85 } },
+  // unstable's elementWeightMul multiplies BUCKET_WEIGHTS.element (rollCard), where it used to
+  // multiply the 0.25 per-id ELEMENT_CARD_WEIGHT pre-filter and saturate at min(1, 0.25*mul).
+  // Same number in a different reader is a different mutator: x3 on the bucket measured 38.6% of
+  // all cards elemental (against a 17.5% base and the 16.5% the shipped x3 delivered), i.e. above
+  // the 37% the Track B plan names as the pathology to avoid, for the same -15% damage cost. x2
+  // measures 29.6% at 2 slots / 30.3% at 4 — a 1.7x lift on a bucket that is already the
+  // mutator's subject. Re-measure this share if the element bucket weight ever moves.
+  unstable: { name: 'Unstable Physics',  icon: '🌀', desc: 'Elemental infusions everywhere, weapons hit softer.', effects: { elementWeightMul: 2, playerDmgMul: 0.85 } },
   glass:    { name: 'Glass Goo',         icon: '💔', desc: 'You hit much harder but take much more.',      effects: { contactDmgTakenMul: 1.75, playerDmgMul: 1.35 } },
   // exclude: the lane's magnet is already infinite (stepPickups), so this one's upside would be
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat

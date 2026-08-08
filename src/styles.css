@@ -690,6 +690,9 @@ body {
   color: #fff;
   box-shadow: 0 2px 0 rgba(53, 53, 74, 0.25);
 }
+/* upgrade: a weapon you already own, levelling up. No tier, so no chip and no accent glow —
+   the neutral frame is the point (see UPGRADE_RARITY in config.js). */
+.lv-card[data-rarity="upgrade"]   { border-color: #c9c3b4; box-shadow: 0 4px 0 rgba(201, 195, 180, 0.4); }
 .lv-card[data-rarity="normal"]    { border-color: #9aa0a6; box-shadow: 0 4px 0 rgba(154, 160, 166, 0.4); }
 .lv-card[data-rarity="rare"]      { border-color: #4da3ff; box-shadow: 0 4px 0 rgba(77, 163, 255, 0.4), 0 0 14px rgba(77, 163, 255, 0.35); }
 .lv-card[data-rarity="epic"]      { border-color: #b06cf0; box-shadow: 0 4px 0 rgba(176, 108, 240, 0.4), 0 0 16px rgba(176, 108, 240, 0.4); }

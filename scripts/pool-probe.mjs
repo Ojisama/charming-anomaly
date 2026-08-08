@@ -31,11 +31,11 @@ import { stepSim, applyChoice } from '../src/sim.js'
 import * as C from '../src/config.js'
 
 // ─── TUNING: the Track B proposal. Edit these, re-run --compare, read the diff. ────────
-const BUCKET_WEIGHTS = { passive: 30, mod: 30, weapon: 22, element: 18 }
-// Inside the passive bucket: defence is weighted so its share survives the 62%->30% cut
-// WITHOUT rebasing PASSIVES (a flat base scalar is regressive — it overshoots at 4 slots).
+// v6.7.5: defence and utility are two BUCKETS, matching config.js — a weight inside one passive
+// bucket left the seven non-defensive passives' share implicit (and untested). Weights sum to 100,
+// so each one reads as its declared share of the table.
+const BUCKET_WEIGHTS = { defense: 19, utility: 11, mod: 30, weapon: 22, element: 18 }
 const DEFENSIVE = new Set(['armor', 'regen', 'maxHP'])
-const DEFENSIVE_WEIGHT = 4
 // Mythic is RETAINED: rainbow (the city starter) is mythic, WEAPON_MOD_TIER_BONUS has a
 // live mythic:3, and it is the only jackpot card left once anomalies produce no stats.
 const P_RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
@@ -259,7 +259,7 @@ const stats = {
   // Bucket accounting: how often a bucket was ABSENT at roll time. Declared weights can only
   // be honoured while a bucket has candidates, so this is the drift budget made visible
   // instead of inferred from the output shares.
-  slots: 0, absent: { passive: 0, mod: 0, weapon: 0, element: 0 },
+  slots: 0, absent: { defense: 0, utility: 0, mod: 0, weapon: 0, element: 0 },
 }
 
 function proposedChoices(run, st) {
@@ -330,7 +330,10 @@ function proposedChoices(run, st) {
       const eOk = elems.filter((e) => !picked.has(e))
       const buckets = {}
       stats.slots++
-      if (passOk.length) buckets.passive = BUCKET_WEIGHTS.passive; else stats.absent.passive++
+      const defOk = passOk.filter((p) => DEFENSIVE.has(p))
+      const utilOk = passOk.filter((p) => !DEFENSIVE.has(p))
+      if (defOk.length) buckets.defense = BUCKET_WEIGHTS.defense; else stats.absent.defense++
+      if (utilOk.length) buckets.utility = BUCKET_WEIGHTS.utility; else stats.absent.utility++
       if (modOk.length) buckets.mod = BUCKET_WEIGHTS.mod; else stats.absent.mod++
       if (wOk.length) buckets.weapon = BUCKET_WEIGHTS.weapon; else stats.absent.weapon++
       // MUTATORS.unstable's elementWeightMul must keep a reader once ELEMENT_CARD_WEIGHT dies.
@@ -338,10 +341,9 @@ function proposedChoices(run, st) {
       else stats.absent.element++
 
       const b = pickW(buckets)
-      if (b === 'passive') {
-        const w = {}
-        for (const id of passOk) w[id] = DEFENSIVE.has(id) ? DEFENSIVE_WEIGHT : 1
-        card = mkPassive(run, pickW(w), pickW(ROLL_WEIGHTS))
+      if (b === 'defense' || b === 'utility') {
+        const from = b === 'defense' ? defOk : utilOk
+        card = mkPassive(run, from[(Math.random() * from.length) | 0], pickW(ROLL_WEIGHTS))
       } else if (b === 'mod') {
         // --focus=<weapon>: the player-agency lever. Up-weights ONE weapon's mods inside the mod
         // bucket, so "I am building the tornado" becomes a thing the pool can actually serve.
@@ -471,7 +473,7 @@ function measure(mode) {
   let offered = 0
   // Defensive-card share is now COUNTED, not inferred. It used to be inferred for the `current`
   // column from passive share x 3/10, which silently assumed every passive is equally likely —
-  // true of the flat bag, false since v6.7 shipped DEFENSIVE_PASSIVE_WEIGHT. That estimator read
+  // true of the flat bag, false since v6.7 gave defence its own bucket weight. That estimator read
   // 8.9% against a real 17-18%.
   let defOffered = 0
 
@@ -660,9 +662,12 @@ function fidelity(r) {
   const tot = Object.values(BUCKET_WEIGHTS).reduce((a, b) => a + b, 0)
   const ordinary = 100 - r.kinds.anomaly
   console.log(`\n== bucket fidelity (${CHAPTER} slots=${SLOTS}) — share of ORDINARY cards`)
-  for (const k of ['passive', 'mod', 'weapon', 'element']) {
+  // defence/utility both emit kind 'passive', so their shares are split out of it: defShare is
+  // counted card by card (see defOffered), and utility is whatever passive share is left.
+  for (const k of ['defense', 'utility', 'mod', 'weapon', 'element']) {
     const want = (100 * BUCKET_WEIGHTS[k]) / tot
-    const got = (100 * r.kinds[k]) / ordinary
+    const raw = k === 'defense' ? r.defShare : k === 'utility' ? r.kinds.passive - r.defShare : r.kinds[k]
+    const got = (100 * raw) / ordinary
     console.log(`  ${k.padEnd(8)} want ${f1(want).padStart(5)}%  got ${f1(got).padStart(5)}%  drift ${(got - want >= 0 ? '+' : '') + f1(got - want).padStart(5)}pts  (absent ${f1(r.absent[k])}% of rolls)`)
   }
 }

@@ -1153,10 +1153,13 @@ export function initUI(hooks) {
     const { choices = [], rerollCost: rerollN = 0, coins = 0 } = data
     const cards = choices.map((c, i) => {
       const rarity = c.rarity ?? 'normal'
-      const rarityName = RARITIES[rarity]?.name ?? RARITIES.normal.name
+      // A card whose rarity is not a RARITIES key shows NO chip — that is how a weapon UPGRADE
+      // card carries no tier (UPGRADE_RARITY in config.js). Do not fall back to 'Normal' here:
+      // printing a tier the roll never granted is exactly the promise the chip must not make.
+      const tier = RARITIES[rarity]
       return `
       <button class="card lv-card" data-choose="${i}" data-rarity="${rarity}" style="animation-delay:${i * 90}ms">
-        <i class="rarity-chip">${t(rarityName)}</i>
+        ${tier ? `<i class="rarity-chip">${t(tier.name)}</i>` : ''}
         <span class="lv-card-icon">${c.icon ?? CHOICE_ICONS[c.kind] ?? '✨'}</span>
         <span class="lv-card-body">
           <span class="lv-card-title">${t(c.title)}

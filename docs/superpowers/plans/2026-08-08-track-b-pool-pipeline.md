@@ -285,6 +285,24 @@ git add src/config.js src/sim.js test/sim-test.js package.json
 git commit -m "v6.7.0: the level-up pool rolls a bucket before a rarity, so weapons stop vanishing from it"
 ```
 
+> **Shipped as v6.7.4 + v6.7.5 — read the code, not the snippets above.** The adversarial gate
+> (Step 7) confirmed five defects in the code this task prescribes, and the repair changed the
+> shape. Do not re-apply the literal snippets when building on Task 1:
+> 1. **`BUCKET_WEIGHTS` has FIVE buckets:** `{ defense: 19, utility: 11, mod: 30, weapon: 22,
+>    element: 18 }`. `DEFENSIVE_PASSIVE_WEIGHT` is gone — a weight inside one passive bucket left
+>    the seven non-defensive passives' share implicit (measured 1.6% of cards each) and untested
+>    (setting the weight to 1 halved defence share with the whole suite green).
+> 2. **A weapon UPGRADE card carries `UPGRADE_RARITY` and shows no chip** (spec line 334). Keeping
+>    `cfg.rarity` measured city mythic 8.9% of ALL cards, beyond legendary 11.3% on a fixed pool.
+> 3. **The values-passive fallback re-rolls the rarity on the passive's OWN `values` keys.** The
+>    prescribed `for (const r of [rarity, 'legendary', 'rare', 'normal'])` sent every epic and
+>    mythic roll to the top tier: 12.2% legendary armor, +15% mean armor per card.
+> 4. **The mod branch filters candidates by the rolled rarity** instead of coercing a declined
+>    roll to normal, which was offering switch mods 1.72x their shipped rate.
+> 5. **`MUTATORS.unstable.elementWeightMul` is 2, not 3** — the same number against a bucket
+>    weight instead of the old 0.25 per-id filter measured 38.6% of cards elemental (the plan's
+>    own 37% pathology). x2 measures 29.4%.
+
 ---
 
 ### Task 2: Anomaly as a sixth rarity tier
