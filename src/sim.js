@@ -2023,6 +2023,10 @@ function streamObstacles(run) {
   const cfg = CHAPTERS[run.chapter].obstacles
   if (!cfg) return
   const roadsOn = !!CHAPTERS[run.chapter].roads // v5.9 skies, v6.3 city — see CHAPTERS.skies.roads' comment
+  // v6.9.5: city's grid repeats over the whole plane instead of ending at the urban falloff, so
+  // every roadAt/blockSnap call in this function has to be asked the same way the renderer asks it,
+  // or buildings would be placed by one map and drawn against another.
+  const endless = !!CHAPTERS[run.chapter].endlessGrid
   const p = run.player
   const cs = cfg.cell ?? OBSTACLE_CELL
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
@@ -2097,7 +2101,7 @@ function streamObstacles(run) {
       // for the full account, and note that this retires the standing ponytail here about a street
       // grid being unaware of the district it crosses. It is aware now, because a street only exists
       // where a city put it, and cities are placed by consulting the terrain.
-      if (roadsOn && roadAt(x, y, worldSeed).onRoad) continue
+      if (roadsOn && roadAt(x, y, worldSeed, endless).onRoad) continue
 
       // v5.11 DENSITY IS A PROPERTY OF THE PLACE. The base probability here works out to 1.06 at the
       // skies numbers, i.e. >= 1, so before this every single cell in the streamed disc built a
@@ -2149,8 +2153,8 @@ function streamObstacles(run) {
       // cannot use the real radius yet and uses cfg.maxR — the chapter's largest possible structure
       // — as a conservative stand-in, exactly as the cell jitter above already does.
       let rot = 0
-      if (worldSeed != null && (biome === 'downtown' || biome === 'suburbs')) {
-        const snapped = blockSnap(x, y, worldSeed, cfg.maxR + STRUCTURE_SETBACK)
+      if (worldSeed != null && (endless || biome === 'downtown' || biome === 'suburbs')) {
+        const snapped = blockSnap(x, y, worldSeed, cfg.maxR + STRUCTURE_SETBACK, endless)
         if (snapped) {
           // The snap clears the CITY GRID, which is the only geometry it knows about — a highway
           // running through the same city is a separate segment, and pushing a building off a side
@@ -2158,7 +2162,7 @@ function streamObstacles(run) {
           // Re-checking after the move is both the cheapest and the most honest fix: it is the same
           // predicate the pre-snap gate already used, so "no structure stands on roadway" holds for
           // every road class without blockSnap having to learn about highways at all.
-          if (roadsOn && roadAt(snapped.x, snapped.y, worldSeed).onRoad) continue
+          if (roadsOn && roadAt(snapped.x, snapped.y, worldSeed, endless).onRoad) continue
           x = snapped.x; y = snapped.y; rot = snapped.angle
           // v6.3: re-check the spawn-ring clearance too — blockSnap can shove a structure back into
           // the spawn clearing — city spawns downtown, so this is the common case (also fixes a
@@ -2709,7 +2713,7 @@ function rollTrafficLane(run, dt) {
       const dirRoll = Math.random()
       const offRoll = Math.random()
       const seed = run._districtSeed
-      const ra = seed != null ? roadAt(p.x, p.y, seed) : { onRoad: false }
+      const ra = seed != null ? roadAt(p.x, p.y, seed, !!CHAPTERS[run.chapter].endlessGrid) : { onRoad: false }
       let x, y, angle
       if (ra.onRoad && ra.dist <= TRAFFIC_SNAP_R) {
         // Tier 1: on/near a road — snap the lane fully onto its centerline, using roadAt's SIGNED

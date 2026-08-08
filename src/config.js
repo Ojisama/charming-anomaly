@@ -2001,6 +2001,12 @@ export const CHAPTERS = {
     // hydrant/cone kind pool (perKindRadius stays keyed on render.districts, skies only) while
     // gaining road exclusion, blockSnap curb alignment and biome build-density.
     roads: true,
+    // v6.9.5 (owner: "why city ends? why not just repeating squares of roads?"). The street grid
+    // repeats over the whole plane here instead of ending at the urban falloff: this chapter IS
+    // downtown, and a player who walks far enough to find the edge of it has found the edge of the
+    // fiction. `skies` deliberately does NOT set this — it has farmland and parks that a street
+    // grid must not pave over. Read by sim.js and render.js, passed into roadAt/blockSnap.
+    endlessGrid: true,
     // v6.4.10 (owner directive): per-chapter enemy HP ladder — city +5%.
     balance: { enemyHpMul: 1.05 },
     obstacles: {

@@ -445,7 +445,7 @@ function segDist(px, py, ax, ay, bx, by) {
 //   kind   — 'street' | 'highway'
 // Signature-compatible with the v5.9 roadAt it replaces, minus the global lattice: EVERY road
 // returned here belongs to a city, either inside one or running between two.
-export function roadAt(x, y, seed) {
+export function roadAt(x, y, seed, endless = false) {
   // Highways first — they outrank a city street where the two overlap, since a highway running into
   // a city becomes its main artery rather than stopping at the boundary.
   const ci = Math.floor(x / CITY_GRID), cj = Math.floor(y / CITY_GRID)
@@ -459,7 +459,15 @@ export function roadAt(x, y, seed) {
 
   // City streets: laid out in the nearest city's OWN rotated frame, which is what makes one city one
   // continuous grid instead of a slice of an infinite global lattice.
-  const near = nearestCity(x, y, seed)
+  // v6.9.5 (owner: "why city ends? why not just repeating squares of roads?"). `endless` drops the
+  // two gates that make a street grid belong to a city — the nearest-city test and the urban
+  // falloff — leaving the grid to repeat over the whole plane. It is a PARAMETER rather than a new
+  // default because the two chapters that have roads want opposite things: `city` is downtown all
+  // the way out, `skies` is a built world with real farmland and parks that a street grid must not
+  // pave over. The WATER gate below is deliberately still enforced either way: an endless grid is
+  // still not a grid across the open sea, which is the exact artefact the v5.11 rewrite existed to
+  // remove.
+  const near = endless ? true : nearestCity(x, y, seed)
   if (!near) return { onRoad: false }
   // The EXTENT gate uses urbanAt (a max over every nearby city), the same function the ground colour
   // uses; the FRAME still comes from the nearest city, because a block belongs to exactly one grid.
@@ -467,7 +475,7 @@ export function roadAt(x, y, seed) {
   // disagree wherever two cities overlap — visibly, the grey of the city ended while its streets
   // carried on into open country. Two different answers to "is this place a city" is precisely the
   // kind of incoherence this rewrite is chasing out.
-  if (urbanAt(x, y, seed) < STREET_MIN_URBAN) return { onRoad: false }
+  if (!endless && urbanAt(x, y, seed) < STREET_MIN_URBAN) return { onRoad: false }
 
   // v6.9.2: the WORLD grid, not the nearest city's own rotated frame. `u` is simply x and `v` is y.
   const ui = gridIndex(x, BLOCK_U)
@@ -496,7 +504,14 @@ export function roadAt(x, y, seed) {
   // grid ignoring a river is not.
   const elev = elevationAt(x, y, seed)
   if (elev < SEA_LEVEL) return { onRoad: false }
-  if (elev < HILL_LEVEL) {
+  // The river rule is skipped on an ENDLESS grid. Measured on a city traverse it rejected 45 of 60
+  // street-centreline samples — the RIVER_MOUTH_GAIN term widens the exclusion far past anything
+  // the floor actually paints as water, so downtown came out with the grid missing over ground that
+  // renders as ordinary land. That is a fine trade for `skies`, where a river is a real feature of
+  // a mostly-rural map; it is just a hole in the road for a chapter that is city everywhere. Open
+  // SEA still stops the grid in both, because that one IS drawn and a street across it reads as the
+  // v5.11 "roads in the sea" bug all over again.
+  if (!endless && elev < HILL_LEVEL) {
     const lowness = (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)
     if (riverAt(x, y, seed) < RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness) return { onRoad: false }
   }
@@ -624,8 +639,8 @@ export const BIOME_BUILD_DENSITY = {
 // returns the position pushed to the nearest block interior plus the rotation that faces it onto the
 // street, or null when the point is not in a city (countryside keeps its free scatter).
 // `setback` is how far the facade sits from the street centreline.
-export function blockSnap(x, y, seed, setback) {
-  if (!nearestCity(x, y, seed)) return null
+export function blockSnap(x, y, seed, setback, endless = false) {
+  if (!endless && !nearestCity(x, y, seed)) return null
   // v6.9.2: the world grid, so this is a push in x and y with no frame to rotate through. Signed,
   // so a building is pushed to whichever side of the block it already sits on rather than always
   // the same side. Buildings square to the world because the streets now do.

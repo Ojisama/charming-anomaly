@@ -251,6 +251,7 @@ export function createRenderer(app) {
   // which is what chopped every street into 600px stubs. Roads are generated from cities now, so
   // there is nothing to hide and nothing to gate.
   let chapterHasRoads = false
+  let chapterEndlessGrid = false   // v6.9.5: city's grid repeats forever; skies' ends at its cities
   let roadSeed = 0
   // Active chapter's prop/obstacle biome (BIOMES, declared with the floor section below). Left null
   // here on purpose: BIOMES is a `const` further down, so reading it at construction time would be a
@@ -6410,6 +6411,15 @@ export function createRenderer(app) {
     return chapterHasDistricts ? DISTRICT_BIOMES[districtAt(wx, wy, districtSeed)] : chapterBiome
   }
 
+  // v6.9.5 (owner: "no trash cans, fire hydrant etc sprites on roads, only inbetween"). The
+  // OBSTACLE streamer has rejected roadway since v5.9, but the four decorative floor layers never
+  // asked — so hydrants, cones, dumpsters and foliage were scattered across the carriageway. They
+  // are skipped rather than pushed aside: a decor cell that lands on tarmac simply has nothing in
+  // it, which is also what the gaps between props on a real street look like.
+  function onCarriageway(wx, wy) {
+    return chapterHasRoads && roadAt(wx, wy, roadSeed, chapterEndlessGrid).onRoad
+  }
+
   function populateBig(s, i, j, cell) {
     if (chapterIsVoid) { s.visible = false; return } // the blank: flat void, no props
     // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
@@ -6419,6 +6429,7 @@ export function createRenderer(app) {
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = biomeAt(wx, wy).big
     const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
     s.position.set(pos.x, pos.y)
@@ -6489,6 +6500,7 @@ export function createRenderer(app) {
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = biomeAt(wx, wy).mid
     const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
     s.position.set(pos.x, pos.y)
@@ -6548,6 +6560,7 @@ export function createRenderer(app) {
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = biomeAt(wx, wy).detail
     const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
     s.position.set(pos.x, pos.y)
@@ -6915,7 +6928,7 @@ export function createRenderer(app) {
   // grid to align to and the caller's own jitter is the whole answer.
   function nearestStreetAngle(wx, wy) {
     if (!chapterHasRoads) return 0
-    const ra = roadAt(wx, wy, roadSeed)
+    const ra = roadAt(wx, wy, roadSeed, chapterEndlessGrid)
     if (ra.onRoad) return ra.angle
     return 0   // v6.9.2: off-road inside a city, the grid is the world's and runs on the axes
   }
@@ -7007,7 +7020,7 @@ export function createRenderer(app) {
         start = null
       }
       for (let a = a0; a <= a1 + STREET_MARCH && n < STREET_MAX; a += STREET_MARCH) {
-        const r = a <= a1 ? roadAt(ox + dx * a, oy + dy * a, roadSeed) : { onRoad: false }
+        const r = a <= a1 ? roadAt(ox + dx * a, oy + dy * a, roadSeed, chapterEndlessGrid) : { onRoad: false }
         if (r.onRoad && r.kind === kind && Math.abs(Math.cos(r.angle - ang)) > 0.999) {
           if (start === null) start = a   // softStart already holds the previous sample's verdict
           last = a
@@ -7087,7 +7100,7 @@ export function createRenderer(app) {
   function populateRoadDecal(s, i, j, cell) {
     if (!chapterHasRoads) { s.visible = false; return }
     const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
-    const ra = roadAt(wx, wy, roadSeed)
+    const ra = roadAt(wx, wy, roadSeed, chapterEndlessGrid)
     if (!ra.onRoad) { s.visible = false; return }
     // roadAt's `off` IS the signed distance along `perp`, so the centreline point is exact — no
     // probe, and in particular no 8px misplacement for a decal that happens to land near the line.
@@ -7142,6 +7155,7 @@ export function createRenderer(app) {
     const jx = (cellHash(i, j, 12) - 0.5) * cell * 0.9
     const jy = (cellHash(i, j, 13) - 0.5) * cell * 0.9
     const wx = (i + 0.5) * cell + jx, wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = CLUTTER_BY_DISTRICT[districtAt(wx, wy, districtSeed)]
     if (!kinds) { s.visible = false; return }
     const kind = kinds[Math.floor(cellHash(i, j, 1) * kinds.length)]
@@ -7892,7 +7906,7 @@ export function createRenderer(app) {
             // A grid node inside the radius can still fall outside the street area — the urban
             // falloff is noise-wobbled, so the outermost nodes have no pavement under them. Asking
             // roadAt is the one check guaranteed to agree with the carriageway updateStreets drew.
-            if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
+            if (!roadAt(p.x, p.y, roadSeed, chapterEndlessGrid).onRoad) continue
             // Class comes straight from the grid index, the same test roadAt itself uses — no probe.
             const E = STREET_SPACING_MAJOR_EVERY
             const uMajor = ((ui % E) + E) % E === 0
@@ -12227,6 +12241,7 @@ export function createRenderer(app) {
     // the others above — it's sim-relevant (streamObstacles keeps buildings off streets) as well as
     // render-relevant, so it lives next to `crush`/`obstacles`, not inside the render-only block.
     chapterHasRoads = !!cfg?.roads
+    chapterEndlessGrid = !!cfg?.endlessGrid
     // v5.12 BUGFIX — this was `run?._obstacleSeed`, i.e. render drew the street network from a
     // DIFFERENT Math.random() draw than the one the terrain, cities and buildings come from
     // (state.js draws the two independently). v5.11 moved sim's own roadAt call to the world seed
