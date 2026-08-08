@@ -10,6 +10,14 @@
 //   policy   random|defense|dps — which card the run picks     (default random)
 //   --proposed   run the Track B pipeline instead of the shipped one
 //   --compare    run both and print a side-by-side diff
+//   --survival   mortal probe: kiting bot, no HP refill, no mega-magnet. Answers "is it still
+//                hard?" — pair with --compare. Everything else measures OFFERS, not difficulty.
+//   --diff=N     run difficulty 1..5 (default 1). d1 with a stocked shop is at the win ceiling;
+//                use d3+ to discriminate.
+//   --shop=N     permanent shop level 0..10 per upgrade. Defaults off the sacrifice ladder
+//                (4 slots costs 60 of 80 levels, so slots=4 -> 2, slots=3 -> 6, slots=2 -> 8).
+//   --offset=N   enemy HP xN, PROPOSED pipeline only — measures how much clawback neutralises
+//                the pool's power gain.
 //
 // WHAT THIS MEASURES: offer distribution and pick throughput. The probe is IMMORTAL
 // (it refills HP every frame) and vacuums gems with a huge magnet, so it is NOT valid
@@ -52,10 +60,21 @@ const CHAPTER = pos[0] ?? 'body'
 const SLOTS = Number(pos[1] ?? 2)
 const RUNS = Number(pos[2] ?? 40)
 const POLICY = pos[3] ?? 'random'
+const SURVIVAL = flags.has('--survival')
+const DIFF = Number(args.find((a) => a.startsWith('--diff='))?.slice(7) ?? 1)
+const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1)
 
+// Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
+// nobody reaches city (ch5) or buys a 4th slot without a stocked shop, and a survival number from
+// a zero-shop save on a late chapter measures the empty save, not the pool.
+// NOTE the sacrifice ladder couples this to SLOTS: SACRIFICE_COSTS is [20, 40], so a 4-slot player
+// has spent 60 of the 80 available levels and can hold at most ~20 (≈2/upgrade). Defaults below
+// encode that; --shop=N overrides.
+const SHOP_LV = Number(args.find((a) => a.startsWith('--shop='))?.slice(7) ??
+  (SLOTS >= 4 ? 2 : SLOTS === 3 ? 6 : 8))
 const makeMeta = () => ({
   coins: 0,
-  shop: Object.fromEntries(Object.keys(C.SHOP).map((id) => [id, 0])),
+  shop: Object.fromEntries(Object.keys(C.SHOP).map((id) => [id, Math.min(SHOP_LV, C.MAX_SHOP_LEVEL)])),
   best: { time: 0, kills: 0 },
   runs: 0,
   choiceSlots: SLOTS,
@@ -256,6 +275,68 @@ function proposedChoices(run, st) {
   return cards
 }
 
+// ─── SURVIVAL MODE (--survival) ────────────────────────────────────────────────────────
+// The default probe is IMMORTAL and cannot answer "is the run still hard?". Survival mode
+// drops the HP refill and the 4000px magnet and drives a kiting bot, so death time and win
+// rate become measurable. It answers exactly one question: does the proposed pool make the
+// game materially easier than the shipped one?
+//
+// BOT POLICY (state it with every number — intake figures on this repo are
+// bot-policy-sensitive): **kite-and-collect**. Flees nearby enemies with 1/d weighting so the
+// nearest dominates, and otherwise walks to the nearest xp gem. The blend is the whole point:
+// a PURE kiter never collects, so it never levels (measured level 6.3 vs 28.6 immortal), and a
+// probe whose bot never levels cannot see a change to the level-up pool at all.
+// Flee takes over completely inside PANIC_R; outside it, collecting dominates.
+// It does not dodge projectiles, use cover, or path around obstacles — a floor on player
+// skill, not a model of one.
+const KITE_R2 = 600 * 600
+const PANIC_R = 170
+const GEM_R2 = 900 * 900
+function kiteInput(run) {
+  const p = run.player
+  let bx = 0, by = 0, nearest = Infinity
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = p.x - e.x, dy = p.y - e.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > KITE_R2) continue
+    if (d2 < nearest) nearest = d2
+    const d = Math.sqrt(d2) || 1
+    bx += (dx / d) / d
+    by += (dy / d) / d
+  }
+  const fm = Math.hypot(bx, by) || 1
+  bx /= fm; by /= fm
+
+  let gx = 0, gy = 0, best = GEM_R2
+  for (const g of run.gems) {
+    const dx = g.x - p.x, dy = g.y - p.y
+    const d2 = dx * dx + dy * dy
+    if (d2 < best) { best = d2; gx = dx; gy = dy }
+  }
+  const gm = Math.hypot(gx, gy)
+  if (gm > 0) { gx /= gm; gy /= gm }
+
+  // Panic blend: 1 = pure flee at contact, 0 = pure collect once the field is clear.
+  const w = gm === 0 ? 1 : Math.min(1, (PANIC_R * PANIC_R) / (nearest || 1))
+  const x = bx * w + gx * (1 - w)
+  const y = by * w + gy * (1 - w)
+  const m = Math.hypot(x, y) || 1
+  return { x: x / m, y: y / m }
+}
+
+// Per-run seeded RNG so `current` and `proposed` start from the same world. The two
+// pipelines consume different numbers of draws and diverge within a level, so this is
+// variance reduction and reproducibility, NOT a paired comparison — the sample size still
+// has to carry the result.
+const mulberry32 = (a) => () => {
+  a |= 0; a = (a + 0x6D2B79F5) | 0
+  let t = Math.imul(a ^ (a >>> 15), 1 | a)
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+const REAL_RANDOM = Math.random
+
 const DEF_SCORE = { armor: 100, maxHP: 60, regen: 40 }
 function choose(cards) {
   if (POLICY === 'random') return (Math.random() * cards.length) | 0
@@ -276,19 +357,26 @@ function choose(cards) {
 function measure(mode) {
   stats.anomalyRolls = stats.emptyAnomalyPool = stats.shortPools = stats.pools = 0
   const kinds = {}, rarities = {}
-  const levels = [], anomalies = [], weaponLv = []
+  const levels = [], anomalies = [], weaponLv = [], deaths = []
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
   const defPicks = { armor: 0, regen: 0, maxHP: 0 }
   let offered = 0
 
   for (let n = 0; n < RUNS; n++) {
-    const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: 1 })
+    if (SURVIVAL) Math.random = mulberry32(0x5eed + n * 7919)
+    const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: DIFF })
     run.choiceSlots = SLOTS
-    run.player.magnet = 4000
+    // --offset=N: enemy HP multiplier applied to the PROPOSED pipeline only, to measure how much
+    // clawback neutralises the pool's power gain. enemyHpMul is a live per-spawn knob
+    // (sim.js:975), so this needs no src/ change. It is a stand-in for whichever lever ships —
+    // xpForLevel is a module-level import and cannot be shimmed from here.
+    if (mode === 'proposed' && OFFSET !== 1) run.mods.enemyHpMul *= OFFSET
+    if (!SURVIVAL) run.player.magnet = 4000
     const st = { since: 0, taken: new Set() }
     const dt = 1 / 60
 
-    for (let f = 0; f < 300 * 60; f++) {
+    // 305s: RUN_DURATION is 300 and victory flips ON the boundary, so the loop must cross it.
+    for (let f = 0; f < 305 * 60; f++) {
       if (run.phase === 'levelup') {
         let cards = run.levelUpChoices
         if (mode === 'proposed') {
@@ -311,10 +399,20 @@ function measure(mode) {
         continue
       }
       if (run.phase !== 'playing') break
-      run.player.hp = run.player.maxHP // immortal probe: measuring the pool, not survival
-      const t = f / 60
-      stepSim(run, { x: Math.cos(t * 0.7), y: Math.sin(t * 0.7) }, dt)
+      let input
+      if (SURVIVAL) {
+        input = kiteInput(run)
+      } else {
+        run.player.hp = run.player.maxHP // immortal probe: measuring the pool, not survival
+        const t = f / 60
+        input = { x: Math.cos(t * 0.7), y: Math.sin(t * 0.7) }
+      }
+      stepSim(run, input, dt)
       run.events.length = 0
+    }
+    if (SURVIVAL) {
+      Math.random = REAL_RANDOM
+      deaths.push({ won: run.phase === 'victory', t: run.time, hp: run.player.hp })
     }
 
     levels.push(run.player.level)
@@ -345,6 +443,8 @@ function measure(mode) {
     weaponLv: avg(weaponLv),
     emptyPool: stats.emptyAnomalyPool / RUNS,
     absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
+    winRate: deaths.length ? (100 * deaths.filter((d) => d.won).length) / deaths.length : 0,
+    deathT: deaths.filter((d) => !d.won).map((d) => d.t),
   }
 }
 
@@ -375,9 +475,38 @@ function fidelity(r) {
   }
 }
 
+function survivalReport(a, b) {
+  const med = (xs) => { if (!xs.length) return NaN; const s = [...xs].sort((x, y) => x - y); return s[s.length >> 1] }
+  console.log(`\n== SURVIVAL (${CHAPTER} slots=${SLOTS} d${DIFF} shop=${SHOP_LV}/10 runs=${RUNS} picks=${POLICY}${OFFSET !== 1 ? ` offset=x${OFFSET} enemyHP` : ''})`)
+  console.log(`   bot: kite-and-collect — flees enemies (1/d, 600px), else walks to nearest gem;`)
+  console.log(`   pure flee inside ${PANIC_R}px. No projectile dodging, no cover, no obstacle pathing.`)
+  console.log(`   A FLOOR on player skill, not a model of one. Quote the policy with the number.`)
+  const row = (l, x, y, u = '') => console.log(`  ${l.padEnd(20)} ${f1(x).padStart(6)}${u} -> ${f1(y).padStart(6)}${u}`)
+  row('win rate', a.winRate, b.winRate, '%')
+  row('median death t', med(a.deathT), med(b.deathT), 's')
+  row('mean death t', a.deathT.reduce((s, v) => s + v, 0) / (a.deathT.length || 1),
+    b.deathT.reduce((s, v) => s + v, 0) / (b.deathT.length || 1), 's')
+  row('deaths', a.deathT.length, b.deathT.length, '')
+  row('level reached', a.level, b.level, '')
+  row('weaponLvSum', a.weaponLv, b.weaponLv, '')
+  // Win rate alone is blind at 0% and 100% — a config the bot always loses (or always wins) can
+  // still shift a lot. Read survival time there instead.
+  const dw = b.winRate - a.winRate
+  const ma = med(a.deathT), mb = med(b.deathT)
+  const dt = ma && mb ? (100 * (mb - ma)) / ma : 0
+  // Direction comes from the STRONGER signal, not from whichever is merely non-zero: one run in
+  // forty is 2.5pts of win rate and must not outvote a 58% survival-time shift.
+  const easier = Math.max(Math.abs(dw), Math.abs(dt)) >= 10
+  const dir = (Math.abs(dw) >= Math.abs(dt) ? dw : dt) > 0 ? 'EASIER' : 'HARDER'
+  console.log(`\n  VERDICT: win rate ${dw >= 0 ? '+' : ''}${f1(dw)}pts, median survival ${dt >= 0 ? '+' : ''}${f1(dt)}%.`)
+  console.log(`  ${easier ? `Proposed pool is MEASURABLY ${dir}.` : 'Within noise at this sample size.'}` +
+    (a.level < 8 ? `  CAVEAT: bot only reached level ${f1(a.level)} — too few level-ups for the pool to matter much here.` : ''))
+}
+
 if (flags.has('--compare')) {
   const a = measure('current')
   const b = measure('proposed')
+  if (SURVIVAL) { survivalReport(a, b); process.exit(0) }
   report(a); report(b); fidelity(b)
   const row = (label, x, y, unit = '%') => console.log(`  ${label.padEnd(22)} ${f1(x).padStart(6)}${unit} -> ${f1(y).padStart(6)}${unit}`)
   console.log(`\n== diff (${CHAPTER} slots=${SLOTS})`)

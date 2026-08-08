@@ -46,13 +46,64 @@ more cards, a compounding loop.
 Three ways to go, and it must be decided before ~32 anomalies are balanced against it:
 
 1. **Accept it.** The game gets more generous; anomalies are authored against the stronger baseline.
-2. **Offset globally** via `xpForLevel` or `hpScale` — keeps the composition, restores the curve.
+2. **Offset globally** via `xpForLevel` or enemy HP — keeps the composition, restores the curve.
 3. **Lower `BUCKET_WEIGHTS.weapon`** below 22 — but then the ceiling problem returns by choice
    rather than by accident, and weapons stay the thing you rarely get to build.
 
-Recommendation: **(1) with a `hpScale` check**. The old pool's power level was itself an accident of
-list lengths, so "preserve it exactly" is preserving noise. But the immortal probe cannot answer
-whether the run stays *hard*, and a survival rig is needed before this is settled.
+### Survival measurement — the buff is real, and it is worth ≈ +70% enemy HP
+
+`--survival` drops the HP refill and the 4000px magnet and drives a **kite-and-collect bot**
+(flees enemies 1/d inside 600px, else walks to the nearest gem; pure flee inside 170px; no
+projectile dodging, no cover, no obstacle pathing). It is a **floor on player skill, not a model of
+one** — quote the policy with every number, per the standing repo rule.
+
+Two rig findings that invalidate naive readings, recorded so they are not re-learned:
+
+- **A pure kiter never collects, so it never levels** (level 6.3 vs 28.6 immortal). A probe whose
+  bot barely levels cannot see a change to the level-up pool at all — it reported "+0.0pts, no
+  difference" for a pool that is in fact much stronger. Gem-seeking is load-bearing.
+- **Shop progression must be modelled.** `makeMeta()` originally gave every shop upgrade level 0.
+  Nobody reaches city (ch5) or buys a 4th slot on an empty save, and at shop 0 the bot reached
+  level 1.1 in city and died at 54s — measuring the empty save, not the pool. `--shop=N` now
+  defaults off the sacrifice ladder: `SACRIFICE_COSTS` is `[20, 40]`, so a **4-slot player has spent
+  60 of the 80 available shop levels** and can hold ~2/upgrade, while a 2-slot player can hold 8.
+
+Results (40 runs, `dps` pick policy, shop as noted):
+
+| config | win rate | median survival | level | weaponLvSum |
+|---|---|---|---|---|
+| body/2 d1 shop8 | 90% → 100% | — | 28.4 → 29.8 | — |
+| **body/2 d3 shop8** | **7.5% → 35.0%** | 213.8 → 237.1s (+11%) | 14.2 → 19.6 | 3.2 → 6.3 |
+| city/2 d1 shop8 | 0% → 0% | 118.3 → 137.4s (**+16%**) | 5.4 → 6.3 | 1.6 → 2.9 |
+| beyond/4 d1 shop2 | 2.5% → 0% | 120.6 → 190.7s (**+58%**) | 11.3 → 17.3 | 3.0 → 7.7 |
+
+body/2 **d1** is at the ceiling (the bot already wins 90% with a stocked shop) and cannot
+discriminate — use d3+ for this question. city and beyond never win, so read survival time there.
+
+**Offset sweep** (`--offset=N`, enemy HP ×N on the proposed pipeline only, body/2 d3 shop8):
+
+| offset | win rate | median survival | weaponLvSum |
+|---|---|---|---|
+| ×1.0 | 7.5% → 35.0% | +10.9% | 3.2 → 6.3 |
+| ×1.4 | 7.5% → 20.0% | +7.7% | 3.2 → 5.8 |
+| ×1.6 | 7.5% → 15.0% | −2.0% | 3.2 → 4.5 |
+| **×1.8** | **7.5% → 7.5%** | **−3.9%** | 3.2 → **5.1** |
+
+**≈1.7× enemy HP neutralises the entire gain** — that is the size of the buff, stated as a lever.
+
+**The finding that decides this: at ×1.8, difficulty is back at baseline but `weaponLvSum` is still
+5.1 against 3.2.** Composition and difficulty are **separable**. The redesign's actual goal — you
+get to build a weapon instead of collecting filler passives — survives a full clawback. So this is
+not "more fun vs. same difficulty"; you can have both.
+
+Recommendation: **(2), offset**, and prefer `xpForLevel` over enemy HP. +70% enemy HP makes
+everything spongier and attacks the symptom; a steeper XP curve attacks the cause (the compounding
+faster-clears → more-levels loop) and leaves time-to-kill feel intact. Enemy HP was used in the
+sweep only because `xpForLevel` is a module-level import the harness cannot shim.
+
+Caveats: one bot policy, one pick policy (`dps`), 40 runs — win rates carry a wide binomial
+interval, and the offset bracket is ±0.2 at best. Treat ≈1.7× as an order of magnitude, and re-run
+the sweep against whichever lever actually ships.
 
 ### RESOLVED — bucket weights are now honoured: roll the bucket, *then* the rarity
 
@@ -86,6 +137,9 @@ Measured after the fix (`--compare`, 40 runs, all buckets ±2pts):
 | mod | 30% | 29.7% | 30.8% | 30.0% | ≤3.9% |
 | weapon | 22% | 21.7% | 20.2% | 20.4% | 2.5–9.5% |
 | element | 18% | 18.6% | 17.4% | 18.0% | 0.0% |
+
+Re-verified after `--shop` defaults landed (longer runs → more capacity exhaustion): worst drift
+1.4pts, so the result is not an artifact of an empty save.
 
 Two secondary findings fell out of it:
 
