@@ -73,6 +73,12 @@ const MOD_CANDS = Number(args.find((a) => a.startsWith('--modcands='))?.slice(11
 // (2026-08-08) — trading roll chance between buckets/weapons for a cost. Applied to PROPOSED only.
 const FOCUS = args.find((a) => a.startsWith('--focus='))?.slice(8) ?? null
 const FOCUS_MUL = Number(args.find((a) => a.startsWith('--focusmul='))?.slice(11) ?? 3)
+// --specialist=N: the GATED focus. Unlike --focus (which biases a weapon from t=0 regardless of
+// whether it is owned), this fires only once a weapon has N mod picks — i.e. it models the
+// Specialist card actually being taken, on a weapon the player demonstrably owns and is building.
+// The distinction matters: the blanket version barely moved deliverability, and the suspected
+// reason was that late-acquired weapons have too few pools left, which a gate does not suffer.
+const SPECIALIST = Number(args.find((a) => a.startsWith('--specialist='))?.slice(13) ?? 0)
 // --laterate / --latestart: reshape the TAIL of hpScale instead of multiplying it flat.
 // hpScale(t) = (1 + t/90) * (t <= START ? 1 : 1 + RATE*(t - START))   [config.js:1467]
 // hpScale is a module-level import sim.js cannot be made to re-read, but spawnEnemy multiplies
@@ -209,6 +215,14 @@ function proposedChoices(run, st) {
   const passives = Object.keys(C.PASSIVES).filter((id) => (run.passivePicks[id] ?? 0) < C.MAX_PASSIVE_LEVEL)
   const mc = modCands(run)
   const elems = Object.keys(C.ELEMENTS).filter((id) => (run.elementPicks[id] ?? 0) < C.MAX_ELEMENT_PICKS)
+  // Specialist gate: the first weapon to reach SPECIALIST mod picks becomes the focus for the rest
+  // of the run (models taking the card the moment it is offered — a best case, state it as such).
+  if (SPECIALIST && !st.focus) {
+    for (const w of run.weapons) {
+      const n = Object.values(run.weaponModPicks[w.id] ?? {}).reduce((a, b) => a + b, 0)
+      if (n >= SPECIALIST) { st.focus = w.id; break }
+    }
+  }
   const picked = new Set()
   const modWeaponCount = new Map()
   const cards = []
@@ -281,9 +295,10 @@ function proposedChoices(run, st) {
         // bucket, so "I am building the tornado" becomes a thing the pool can actually serve.
         // Same shape as MUTATORS.unstable's existing elementWeightMul, generalised.
         let m
-        if (FOCUS) {
+        const focusOn = st.focus ?? FOCUS
+        if (focusOn) {
           const w = {}
-          for (let i = 0; i < modOk.length; i++) w[i] = modOk[i].weapon === FOCUS ? FOCUS_MUL : 1
+          for (let i = 0; i < modOk.length; i++) w[i] = modOk[i].weapon === focusOn ? FOCUS_MUL : 1
           m = modOk[Number(pickW(w))]
         } else m = modOk[(Math.random() * modOk.length) | 0]
         card = mkMod(run, m.weapon, m.mod, pickW(P_RARITY_WEIGHTS))
@@ -403,7 +418,12 @@ function measure(mode) {
   let offered = 0
 
   for (let n = 0; n < RUNS; n++) {
-    if (SURVIVAL) Math.random = mulberry32(0x5eed + n * 7919)
+    // Seed EVERY mode, not just --survival. Unseeded offer runs made the `current` column swing
+    // 6.1pts between two invocations of the same config — larger than the ~4pt effect a --specialist
+    // A/B was trying to resolve, so cross-invocation comparisons were pure noise. Per-run seeding
+    // makes the shipped-pipeline column reproducible across invocations, which is what makes
+    // proposed-vs-proposed comparisons legible at all.
+    Math.random = mulberry32(0x5eed + n * 7919)
     const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: DIFF })
     run.choiceSlots = SLOTS
     // --offset=N: enemy HP multiplier applied to the PROPOSED pipeline only, to measure how much
@@ -462,10 +482,8 @@ function measure(mode) {
       stepSim(run, input, dt)
       run.events.length = 0
     }
-    if (SURVIVAL) {
-      Math.random = REAL_RANDOM
-      deaths.push({ won: run.phase === 'victory', t: run.time, hp: run.player.hp })
-    }
+    Math.random = REAL_RANDOM
+    if (SURVIVAL) deaths.push({ won: run.phase === 'victory', t: run.time, hp: run.player.hp })
 
     for (const k of seenMods) modRuns.set(k, (modRuns.get(k) ?? 0) + 1)
     levels.push(run.player.level)

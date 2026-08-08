@@ -660,6 +660,96 @@ suppress/banish. Cheapest honest version: a per-run **focus on one weapon**, whi
 already stubbed in the harness as `--focus`. Note the measurement above says focus alone did *not*
 fix non-starter deliverability, so ship it for the agency, not as the deliverability fix.
 
+#### THE MOD-KEY VOCABULARY IS FULLY OCCUPIED — read before designing any card
+
+**Every `run.mods` knob is already spent by a `MUTATORS` entry.** All six chapter-signature knobs
+and every global one:
+
+| knob | taken by | knob | taken by |
+|---|---|---|---|
+| `currentForceMul` | **Riptide** (pond) | `spawnMul`/`xpMul` | Overtime |
+| `pheromoneLifeMul` | Overscent (garden) | `enemyHpMul`/`coinMul` | Bulky |
+| `trapCountMul` | Trap Season (undergrowth) | `enemySpeedMul` | Caffeine |
+| `trafficIntervalMul` | Rush Hour (city) | `eliteEveryMul` | Elite Convention |
+| `bombardIntervalMul` | Carpet Barrage (skies) | `elementWeightMul`/`playerDmgMul` | Unstable |
+| `wellForceMul` | Supermassive (beyond) | `contactDmgTakenMul` | Glass Goo |
+| | | `playerSpeedMul`/`magnetMul` | Sticky Floor |
+| | | `enemyRadiusMul` | Jumbo |
+
+Consequences:
+
+1. **A card built on these knobs is a mutator with extra steps, and it STACKS with one.** Riptide
+   mutator + a Riptide card = `currentForceMul` 4 on a chapter tuned for 2.
+2. **Correction to the audit below: "Riptide is revived" was WRONG.** `MUTATORS.riptide` already
+   ships (`currentForceMul: 2`, pond). The sim.js:1975 comment *"riptide anomaly turns the field
+   up"* names that mutator, not a planned card. The hook is occupied, not free.
+3. The "free hooks, zero sim code" route is therefore closed for pivots. The cheap cards are taken.
+
+**Anomalies must do what mutators structurally cannot.** A mutator is chosen before the run and
+cannot see your build; an anomaly fires mid-run against a hidden condition. So the territory is
+**build-conditional effects and rule changes**, not global multipliers.
+
+#### Card slate (drafted with the user, 2026-08-08)
+
+| card | kind | hidden gate | hook | cost to build |
+|---|---|---|---|---|
+| **DEADFALL** | pivot | undergrowth, lv ≥10 | new `trapSelfDmgMul` (0) gates `hurtPlayer` at sim.js:2656; new `trapRearmMul` (0.2) scales sim.js:2675 | 2 mod keys |
+| **UNSTABLE CORES** | jackpot | any elite killed | reuses the shipped `volatile` affix (sim.js:3214) | ~zero |
+| **ALIGNMENT** | jackpot | 2+ distinct elements | `run.elements[id] += 2`, the `applyChoice` path (sim.js:238) | zero |
+| **AVARICE** | jackpot | coins collected | `collect()` closure, sim.js:5683 | ~zero |
+| **WILDFIRE** | pivot | fire ≥ 2 | kill hook + `applyIgnite` | small |
+| **SUPERCOOLED** | pivot | cold ≥ 3 | lift `CHILL_SLOW_CAP` | small |
+| **SPECIALIST** | trade | 4+ mod picks on one weapon | bucket weight keys | Track B keys |
+
+**Cut, with reasons worth keeping:**
+
+- *Slow Burn* (3× ignite duration, ⅓ tick) — net-neutral damage, so it is a **sidegrade**. A card
+  costing a level-up must be an upgrade or a real trade.
+- *Toxic Bloom* (venom stops expiring while chilled) — needs venom **and** cold **and** for the
+  interaction to matter. Three conditions at 1–2 anomalies/run means it almost never fires.
+- *Recoil* (knockback shoves you) — breaks "auto-attacks MUST NOT move the player", the rule that
+  killed pounceClaws.
+- *Riptide* — already a shipped mutator (see above).
+- *Twin Study* (two weapons share mod effects) — **mod namespaces are not portable.** The
+  `{mod: [field, kind]}` table shows `dmg/pct` is the only field EVERY weapon shares; `clawRake` has
+  `arc`/`range`, `tesseractBeam` has `width`/`length`/`duration`. Claws+roar would share richly,
+  claws+mines only damage — so it collapses to "+X% damage in a costume" on most pairs, and creates
+  a new dominant pair on the rest.
+
+Notes for authoring: **UNSTABLE CORES has an intrinsic cost** — bombs damage the player too
+(`hurtPlayer`, sim.js:3128) as well as every enemy in radius (3131–3135), and a bomb's kill can
+detonate the next elite, so packs chain over `VOLATILE_FUSE`. **AVARICE heals per coin PICKUP, not
+per coin value**, so it is immune to every `coinMul` mutator; the coins/run rate (per-enemy
+`coinChance` 0.08–0.35) must be measured before fixing the heal at 1 HP, and whether a coin past
+`COIN_CAP_PER_RUN` still heals is an open call. **SUPERCOOLED fixes a real defect** — the cap is
+reached at potency 6.67 while 5 cold picks average 7.4, so today the last pick is silently dead.
+
+#### Specialist is a targeting tool, not a deliverability fix (measured)
+
+Seeded A/B, city, 40 runs, `dps` policy, focus ×2.5 gated at 4 mod picks. Proposed-vs-proposed:
+
+| | Δ vs no-Specialist |
+|---|---|
+| focused weapon (`rainbow.*`) | **+1.7 pts** |
+| other weapons | **−6.5 pts** (worst `heavyTrash` −17.5, `rapidGeyser` −15) |
+| MEAN | 60.3% → **57.2%** |
+
+**Focus redistributes deliverability, it does not create it.** The gain is small because the harness
+auto-assigns focus to the *first* weapon reaching the gate — the starter, already at 82–97% and with
+no headroom — while stripping the starved weapons that were the actual problem.
+
+That argues for **player-chosen** focus (one card instance per qualifying weapon) rather than
+auto-assignment: point it at the geyser you are building, not the rainbow you are not. Naming a
+weapon is worth ~5–17 points on its mods, taken from the others. Ship it for agency; do not sell it
+as the deliverability fix.
+
+**METHODOLOGY — this A/B was run twice.** The first attempt was unseeded and worthless: the
+`current` column, which both arms share and which `--specialist` cannot touch, swung **6.1 pts**
+between invocations — larger than the 4 pt effect being measured. Per-run seeding now applies in
+**every** mode (it was `--survival` only), and the control columns are byte-identical across
+invocations. **The noise floor at 40 runs is ~6 pts on the mean and worse per mod: no deliverability
+claim under ~10 pts is meaningful without seeding.**
+
 #### Trigger-site audit — COMPLETE (2026-08-08)
 
 The kill reasons were written from review notes, not re-checked against code. All twelve are now
@@ -669,7 +759,7 @@ so two cards come back.
 | Claim | Status | Evidence |
 |---|---|---|
 | `run.traps` scatters once and dies past the origin | **FALSE — stale** | v6.5 moved traps to `streamTraps` (cell-hash, salts 15–17): permanent streamed field furniture. state.js:875–886. **Trapper is revived.** |
-| Riptide cannot gate on `wave` (pond lacks it) | **Gate TRUE, effect LIVE** | `CHAPTERS.pond.weapons = ['flagella','mines','bloom']` (config.js:1638) — but `run.mods.currentForceMul` is a live hook, commented *"riptide anomaly turns the field up"* (sim.js:1975). **Only the gate was wrong.** Re-author against a weapon pond actually has. |
+| Riptide cannot gate on `wave` (pond lacks it) | TRUE — **and the card is dead for a second reason** | `CHAPTERS.pond.weapons = ['flagella','mines','bloom']` (config.js:1638). An earlier revision of this row claimed the effect hook was free and the card revivable; that was **wrong** — `MUTATORS.riptide` already ships `currentForceMul: 2`, and the sim.js:1975 comment names that mutator. See the mod-key section above. |
 | `run.wells` scatters once and dies past the origin | TRUE, and deliberate | `generateWells` → `scatterField`, within `OBSTACLE_FIELD_RADIUS` of the origin. state.js:405–414, 430–436: *"a signature field is the arena's opening hand, not terrain."* Local Physics stays dead unless that call is reopened. |
 | Elementalist re-triggers elemental application | TRUE | sim.js:3276–3277 — DoT ticks use `dealDamage` *specifically* so they don't recursively re-trigger it. The guard is documented by name. |
 | Overtuned has no per-pick rarity to promote | TRUE | `mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus`, sim.js:235 — one accumulated float. |
