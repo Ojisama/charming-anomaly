@@ -3696,16 +3696,13 @@ export const TRAFFIC_KB = 420         // knockback applied along the lane to str
 // OWN MAX HP under the van, exactly like the mower — and for the reason MOWER_ENEMY_HP_FRAC already
 // spells out: a flat 34 falls behind hpScale inside the first minute, after which the city's
 // signature hazard visibly bounces off everything it hits while the garden's flattens the field.
-// The squash list still wins where it applies (a pigeon under a van is dead, not half-dead), so
-// this only changes what happens to the bodies that were shrugging it off. Kept as its own constant
-// rather than reusing MOWER_ENEMY_HP_FRAC: two chapters, two tuning knobs, same starting value.
+// v6.9.3: this is now the WHOLE rule. It used to share the job with a TRAFFIC_SQUASH roadkill list
+// (v5.6.14) that one-shot non-elite ratDrone/pigeon/rat/patrolDrone by dealing them their remaining
+// hp — so the fraction below only ever applied to the heavy half of the roster, the damage number
+// a player saw over a drone was "whatever was left" rather than 50%, and rounding that remainder is
+// what produced the 0s in the v6.9.2 report. Owner: "car one shots drones. it should do 50% hp
+// damage". One rule, every enemy, elites included.
 export const TRAFFIC_ENEMY_HP_FRAC = 0.5
-// v5.6.14 (user): a car ONE-SHOTS the light roster — a pigeon or a cardboard drone does not
-// survive being run over; only elites (and the vacuum, which is street furniture itself) take
-// TRAFFIC_DMG like everyone else. rosterIds, checked non-elite-only in stepTraffic.
-// v6.3: rat and patrolDrone join — street rats scurry, patrol drones circle at head height, both
-// as roadkill-able as the pigeon they joined.
-export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon', 'rat', 'patrolDrone']
 // v6.3 Task 4 (cover): an obstacle must be at least this big to stop a car — cones don't block
 // traffic. Checked in sim.js's findCover (stepLanes' sweep branch): the FIRST obstacle >= this
 // radius standing on the car-center -> player segment takes the hit instead of the player, and is

@@ -320,7 +320,13 @@ export const STREET_SPACING_MAJOR_EVERY = 4   // every Nth street is an avenue
 // car plus a margin — so "the taxi owns the whole street, get off it" is legible from the geometry.
 export const STREET_MINOR_WIDTH = 130
 export const STREET_MAJOR_WIDTH = 210
-export const HIGHWAY_WIDTH = 250
+// v6.9.3: EXACTLY the avenue width, and highway legs snap to AVENUE grid lines (see highwaysNear).
+// Now that a highway is a grid line rather than a diagonal, any difference between the two widths
+// shows up as a step in the middle of a road — measured at the origin, a 250 trunk butting a 210
+// avenue on the same line, which is precisely the sort of seam the v6.9.1/2 work was removing. The
+// class still means something (markings, and it outranks a street in roadAt); it just no longer
+// means a different width.
+export const HIGHWAY_WIDTH = STREET_MAJOR_WIDTH
 // Block pitch, world-wide. Anisotropic on purpose (the v5.11 finding: one pitch on both axes makes
 // every city literal graph paper — an FFT of the road mask came back as two dominant frequencies at
 // the SAME 360px, 90 degrees apart). Sized off the widths above: a block has to keep a buildable
@@ -352,6 +358,13 @@ function streetHalf(i) {
 // opening image ("you are a kaiju standing downtown") for free.
 function gridIndex(v, pitch) { return Math.round(v / pitch) }
 
+// The nearest AVENUE line on an axis, in world px. Avenues are the grid indices divisible by
+// STREET_SPACING_MAJOR_EVERY, so this rounds to a multiple of that many pitches.
+function majorLine(v, pitch) {
+  const span = pitch * STREET_SPACING_MAJOR_EVERY
+  return Math.round(v / span) * span
+}
+
 // Highway segments passing near lattice cell (ci, cj), memoised. Each city links only to the sites
 // at (+1, 0) and (0, +1); every unordered pair is therefore generated exactly once, from its
 // lower-indexed end, so two cities can never disagree about where the road between them runs.
@@ -379,10 +392,12 @@ export function highwaysNear(ci, cj, seed) {
         // cut diagonally across the very grid it was joining. Both legs are snapped ONTO grid lines,
         // so a highway is a street-grid line promoted to trunk width — which is also what makes it
         // impossible for a highway to run parallel to a street a few px away and smear into it.
-        const ax = gridIndex(a.x, BLOCK_U) * BLOCK_U
-        const bx = gridIndex(b.x, BLOCK_U) * BLOCK_U
-        const ay = gridIndex(a.y, BLOCK_V) * BLOCK_V
-        const by = gridIndex(b.y, BLOCK_V) * BLOCK_V
+        // Snapped to AVENUE lines, not just any grid line: a trunk road runs along the big streets,
+        // and it is the only way its width can match the line it lands on.
+        const ax = majorLine(a.x, BLOCK_U)
+        const bx = majorLine(b.x, BLOCK_U)
+        const ay = majorLine(a.y, BLOCK_V)
+        const by = majorLine(b.y, BLOCK_V)
         // Which way round the corner goes is hashed off the PAIR, so both endpoints agree.
         if (ihash(i * 31 + di, j * 31 + dj, (seed + 877) | 0) < 0.5) {
           segs.push({ ax, ay, bx, by: ay })   // east-west leg first...

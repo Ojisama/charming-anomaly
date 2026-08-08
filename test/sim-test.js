@@ -35,7 +35,7 @@ import {
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
-  TRAFFIC_SQUASH, TRAFFIC_ENEMY_HP_FRAC, TRAFFIC_CAR_LEN, TRAFFIC_KB,
+  TRAFFIC_ENEMY_HP_FRAC, TRAFFIC_CAR_LEN, TRAFFIC_KB,
   prismLadder, PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN,
   MOWER_DECK_W, MOWER_DECK_LEN, MOWER_OFFSET, MOWER_ENEMY_HP_FRAC, MOWER_DMG_START, MOWER_DMG_END, mowerDmgAt,
@@ -3430,33 +3430,29 @@ function testV54Signatures() {
     assert(victim.x > 301, `expected the car to knock the enemy along the lane (+x), moved to ${victim.x.toFixed(1)}px`)
     assert.strictEqual(sweep.lanes.length, 0, 'expected the lane removed once the sweep ends')
 
-    // v5.6.14: a car ONE-SHOTS the light roster (TRAFFIC_SQUASH: non-elite ratDrone/pigeon die
-    // outright, far beyond TRAFFIC_DMG), while an ELITE of the same species just takes TRAFFIC_DMG.
-    const squash = laneRun()
-    const drone = makeStatusEnemy(squash, { x: 300, y: 0, hp: 1e6, speed: 0 })
-    drone.flags = []; drone.rosterId = 'ratDrone'; drone.elite = false
-    const eliteDrone = makeStatusEnemy(squash, { x: -300, y: 0, hp: 1e6, speed: 0 })
-    eliteDrone.flags = []; eliteDrone.rosterId = 'ratDrone'; eliteDrone.elite = true
-    squash.enemies.push(drone, eliteDrone)
-    for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(squash, { x: 0, y: 0 }, dt)
-    assert(drone._dead || drone.hp <= 0, `expected the car to ONE-SHOT a basic drone, hp=${drone.hp}`)
-    assert(eliteDrone.hp >= 1e6 - TRAFFIC_DMG * 2 && eliteDrone.hp < 1e6,
-      `expected the ELITE drone to take ordinary car damage, not a one-shot (hp=${eliteDrone.hp})`)
-
-    // v6.7.5 (owner: "taxis should do as much dmg as lawnmowers"): a REAL rolled lane carries
-    // TRAFFIC_ENEMY_HP_FRAC, so a body that isn't on the squash list loses that share of its OWN
-    // max hp instead of a flat 34 that hpScale outruns. The hand-built lanes above deliberately
-    // carry neither field and still take lane.dmg — that fallback is what keeps them meaningful.
+    // v6.9.3 (owner: "car one shots drones. it should do 50% hp damage"). The TRAFFIC_SQUASH
+    // roadkill list is GONE: a drone takes the same share of its own max hp as anything else, and
+    // an elite of the same species takes it too. What this pins is that there is exactly ONE rule
+    // left — the thing the old list quietly made untrue for four rosterIds.
     const frac = laneRun()
-    frac.lanes[0].squash = TRAFFIC_SQUASH
     frac.lanes[0].enemyFrac = TRAFFIC_ENEMY_HP_FRAC
-    const tank = makeStatusEnemy(frac, { x: 300, y: 0, hp: 1e6, speed: 0 })
-    tank.flags = []; tank.rosterId = 'vacuum'; tank.elite = false; tank.maxHP = 1e6
-    frac.enemies.push(tank)
+    const mk = (x, rosterId, elite) => {
+      const e = makeStatusEnemy(frac, { x, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []; e.rosterId = rosterId; e.elite = elite; e.maxHP = 1e6
+      frac.enemies.push(e)
+      return e
+    }
+    const drone = mk(300, 'ratDrone', false)      // was one-shot by the squash list
+    const pigeon = mk(200, 'pigeon', false)       // ditto
+    const eliteDrone = mk(-300, 'ratDrone', true)
+    const tank = mk(-200, 'vacuum', false)        // never was on the list
     for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(frac, { x: 0, y: 0 }, dt)
-    const tookFrac = 1e6 - tank.hp
-    assert(Math.abs(tookFrac - 1e6 * TRAFFIC_ENEMY_HP_FRAC) < 1,
-      `expected the van to take ${TRAFFIC_ENEMY_HP_FRAC * 100}% of a non-squash body's max hp, took ${tookFrac}`)
+    for (const [name, e] of [['drone', drone], ['pigeon', pigeon], ['elite drone', eliteDrone], ['vacuum', tank]]) {
+      const took = 1e6 - e.hp
+      assert(Math.abs(took - 1e6 * TRAFFIC_ENEMY_HP_FRAC) < 1,
+        `expected the van to take ${TRAFFIC_ENEMY_HP_FRAC * 100}% of the ${name}'s max hp, took ${took}`)
+      assert(!e._dead, `expected the ${name} to SURVIVE one pass at full health — no roadkill list any more`)
+    }
 
     // The signature actually rolls lanes on its own in a city run (capped by signature.lanes).
     const auto = createRun(makeMeta(), { chapter: 'city' })
@@ -3471,8 +3467,8 @@ function testV54Signatures() {
     assert(maxAlive > 0, 'expected a city run to roll traffic lanes on its own')
     assert(maxAlive <= CHAPTERS.city.signature.lanes, `expected at most ${CHAPTERS.city.signature.lanes} lanes alive, saw ${maxAlive}`)
     assert.strictEqual(rolled.enemyFrac, TRAFFIC_ENEMY_HP_FRAC, 'a rolled taxi lane carries the enemy hp fraction')
-    assert.strictEqual(rolled.squash, TRAFFIC_SQUASH, 'and keeps its roadkill list — a pigeon under a van is dead, not half-dead')
-    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, one-shots basics, ${(TRAFFIC_ENEMY_HP_FRAC * 100).toFixed(0)}% max-hp to the rest, <= ${maxAlive} lane(s) live`)
+    assert.strictEqual(rolled.squash, undefined, 'and carries NO roadkill list — v6.9.3 retired it')
+    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, ${(TRAFFIC_ENEMY_HP_FRAC * 100).toFixed(0)}% max-hp to EVERY enemy incl. drones and elites, <= ${maxAlive} lane(s) live`)
   }
 
   // (c) bombardment: telegraphed circles rain on the player's area continuously, and (being run.bombs)
@@ -8839,10 +8835,9 @@ function testMower() {
     lane.x = 0; lane.y = 0; lane.angle = 0
     run.player.x = 0; run.player.y = 4000      // out of the band; this scenario is about the enemies
     assert.strictEqual(lane.enemyFrac, MOWER_ENEMY_HP_FRAC, 'the lane carries the fraction')
-    // v6.7.5: the squash test runs BEFORE the fraction now (so the city taxi can have both), which
-    // means the mower must say out loud that it has no roadkill list — an absent `squash` would
-    // fall back to TRAFFIC_SQUASH and start one-shotting city rosterIds on a lawn.
-    assert.deepStrictEqual(lane.squash, [], 'a lawnmower carries an EMPTY squash list, not an absent one')
+    // v6.9.3: the squash mechanism is gone entirely, so a mower lane simply has no such field and
+    // there is nothing left for it to fall back to.
+    assert.strictEqual(lane.squash, undefined, 'no lane carries a roadkill list any more')
 
     const ant = makeStatusEnemy(run, { x: 0, y: 0, hp: 4000, speed: 0 })
     ant.rosterId = 'ant'
@@ -10269,39 +10264,43 @@ function testIntegerHP() {
   }
   console.log('PASS run VD.a (integer HP): hp and maxHP are whole numbers across 4 chapter/difficulty runs, no enemy alive on a sliver')
 
-  // (b) the symptom itself: a car sweeping a squash-list enemy must KILL it, at any starting hp
-  // down to 1 — including the fractional maxHP the old code produced, forced here by hand so the
-  // test still fails if roundHP is ever removed and something re-introduces a float.
-  for (const startHP of [21.00388888888889, 12.4, 0.0038, 9, 1]) {
+  // (b) the number the player sees. v6.9.3 retired TRAFFIC_SQUASH, so there is ONE rule: every
+  // enemy takes TRAFFIC_ENEMY_HP_FRAC of its own max hp. What this pins is that the figure is a
+  // function of maxHP ALONE — not of how hurt the target already was, which is what made the same
+  // drone read 0, then 9, then 14 in the original report — and that it is never rounded to zero.
+  for (const startHP of [21, 12, 9, 3, 1]) {
     Math.random = mulberry32(4242)
     const run = createRun(makeMeta(), { chapter: 'city' })
     run.player.hp = run.player.maxHP = 1e9
     run.weapons = []
     run.mods.trafficIntervalMul = 1e9      // no stray lanes; this test drives its own
     const p = run.player
-    // makeStatusEnemy carries every status field the stepper touches; rosterId puts it on the
-    // squash list and speed 0 keeps it under the car.
     const victim = makeStatusEnemy(run, { x: p.x + 40, y: p.y, hp: startHP, speed: 0 })
-    victim.rosterId = 'pigeon'
-    victim.maxHP = 21.00388888888889
+    victim.rosterId = 'ratDrone'           // was on the retired roadkill list
+    victim.maxHP = 40
     victim.flags = []
     run.enemies = [victim]
     run.lanes = [{
       x: p.x, y: p.y, angle: 0, len: 1100, w: 130,
       phase: 'sweep', t: TRAFFIC_SWEEP, warnT: TRAFFIC_WARN, carT: 0,
       dmg: TRAFFIC_DMG, sweep: TRAFFIC_SWEEP, deckLen: TRAFFIC_CAR_LEN, deckW: TRAFFIC_CAR_W,
-      kb: TRAFFIC_KB, squash: TRAFFIC_SQUASH, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
+      kb: TRAFFIC_KB, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
       look: 'car', cover: false, hitIds: new Set(),
     }]
     const dt = 1 / 60
-    for (let i = 0; i < Math.round((TRAFFIC_SWEEP + 0.2) / dt) && run.enemies.length; i++) {
+    const want = Math.round(40 * TRAFFIC_ENEMY_HP_FRAC)
+    let seen = null
+    for (let i = 0; i < Math.round((TRAFFIC_SWEEP + 0.2) / dt) && seen === null; i++) {
       run.player.hp = run.player.maxHP
       stepSim(run, { x: 0, y: 0 }, dt)
+      const hit = run.events.find((e) => e.type === 'hit')
+      if (hit) seen = hit.dmg
     }
-    const survivor = run.enemies.find((e) => e === victim)
-    assert(!survivor, `a pigeon starting at ${startHP} hp SURVIVED being run over (left at hp ${survivor && survivor.hp})`)
+    assert.strictEqual(seen, want,
+      `a drone at ${startHP}/40 hp should be dealt ${want} (50% of MAX hp), got ${seen} — the number must not depend on how hurt it already was`)
+    assert(seen > 0, `the car dealt ZERO at ${startHP} hp`)
   }
-  console.log('PASS run VD.b (the taxi one-shots): a squash-list pigeon dies under the car from every starting hp tried, fractional ones included')
+  console.log(`PASS run VD.b (one rule): the car deals exactly 50% of MAX hp to a drone at every starting health, never 0 and never a one-shot`)
 }
 
 // ---- run VE: mod-gated detonations must scale with the player's damage multiplier ----------

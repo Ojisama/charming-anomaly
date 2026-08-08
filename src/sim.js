@@ -89,7 +89,7 @@ import {
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
-  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH, TRAFFIC_ENEMY_HP_FRAC, COVER_MIN_R,
+  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_ENEMY_HP_FRAC, COVER_MIN_R,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
@@ -2749,7 +2749,7 @@ function rollTrafficLane(run, dt) {
         // second vehicle (the garden's mower) can ride the same stepper with its own dimensions
         // instead of the stepper reaching for TRAFFIC_* module constants behind its back.
         dmg: TRAFFIC_DMG, sweep: TRAFFIC_SWEEP, deckLen: TRAFFIC_CAR_LEN, deckW: TRAFFIC_CAR_W,
-        kb: TRAFFIC_KB, squash: TRAFFIC_SQUASH, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
+        kb: TRAFFIC_KB, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
         look: 'car', cover: true,
         hitIds: new Set(),
       })
@@ -2787,8 +2787,7 @@ function rollMowerLane(run, dt) {
     // Snapshotted at roll time like every other lane number: the player's flat damage ramps with
     // run.time, so a pass hits for what it was worth when it started, not when it lands.
     dmg: mowerDmgAt(run.time), sweep: MOWER_SWEEP, deckLen: MOWER_DECK_LEN, deckW: MOWER_DECK_W,
-    // squash: [] — a lawnmower has no roadkill list; the squash test now runs first (stepLanePasses).
-    kb: MOWER_KB, enemyFrac: MOWER_ENEMY_HP_FRAC, squash: [], look: 'mower', dot: true,
+    kb: MOWER_KB, enemyFrac: MOWER_ENEMY_HP_FRAC, look: 'mower', dot: true,
     mows: true,   // v6.6.25: this deck clears foliage/webs/trails — see stepLanePasses
 
     cover: false, // a grass stalk does not stop a mower — and render must not ring one as if it did
@@ -2866,24 +2865,18 @@ function stepLanePasses(run, dt) {
       if (e._dead || lane.hitIds.has(e.id)) continue
       if (!inCar(e.x, e.y, e.radius)) continue
       lane.hitIds.add(e.id) // one hit per enemy per pass
-      // v5.6.14 (user): cars ONE-SHOT the light roster — a non-elite pigeon/drone dies outright
-      // under a car (dealt its remaining hp, so drops/death flow normally).
-      // Everything else takes lane.enemyFrac of its OWN max hp, so a vehicle keeps mattering as
-      // hpScale climbs (see MOWER_ENEMY_HP_FRAC / TRAFFIC_ENEMY_HP_FRAC in config.js), falling back
-      // to the flat lane.dmg only for a lane that declares neither — which is every hand-built lane
-      // literal in the test suite, so those keep meaning what they meant.
-      // v6.7.5: the squash test moved AHEAD of the fraction (it used to be the else-branch of it),
-      // so the taxi can have both. The mower passes squash: [] — a lawnmower has no roadkill list.
-      // v6.9.2: CEIL, not the raw hp. This branch means "this thing dies under a van", and dealing
-      // exactly e.hp only expresses that while hp is a whole number — dealDamage rounds, so a
-      // fractional 9.0038 was dealt as 9 and the pigeon got up with 0.0038 left, then became
-      // unkillable by traffic entirely (round(0.0038) is 0, the literal "0" that was showing up
-      // over the car). roundHP now keeps every hp integral so this is a no-op in practice; it stays
-      // as the layer that makes the INTENT true on its own rather than by distant invariant.
-      let toEnemy
-      if (!e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)) toEnemy = Math.max(1, Math.ceil(e.hp))
-      else if (lane.enemyFrac > 0) toEnemy = Math.max(1, e.maxHP * lane.enemyFrac)
-      else toEnemy = lane.dmg
+      // EVERY enemy takes lane.enemyFrac of its OWN max hp — drones, rats and elites alike — so a
+      // vehicle keeps mattering as hpScale climbs (see TRAFFIC_ENEMY_HP_FRAC / MOWER_ENEMY_HP_FRAC
+      // in config.js). Falls back to the flat lane.dmg only for a lane that declares no fraction at
+      // all, which is the hand-built lane literals in the test suite.
+      //
+      // v6.9.3 (owner: "car one shots drones. it should do 50% hp damage"). There used to be a
+      // TRAFFIC_SQUASH roadkill list — non-elite ratDrone/pigeon/rat/patrolDrone were dealt their
+      // REMAINING hp instead, i.e. one-shot — which is where both halves of the reported damage bug
+      // came from: the number on screen was "whatever was left", never 50%, and rounding it was what
+      // produced the 0s. The list is gone rather than tuned; one rule for the whole roster is also
+      // the only version anyone can predict from the card text.
+      const toEnemy = lane.enemyFrac > 0 ? Math.max(1, e.maxHP * lane.enemyFrac) : lane.dmg
       dealDamage(run, e, toEnemy, false)
       const kb = lane.kb ?? TRAFFIC_KB
       e.kb.x += cos * kb

@@ -913,7 +913,7 @@ function generateWells(sig) {
  *   run.bullets, run.homingShots, run.lobs, run.enemyShots — and nothing else (bodies, beams,
  *   orbitals and zones are untouched). Speed is renormalised after the bend: curvature, not
  *   acceleration. See stepGravityWells in sim.js.
- * lanes[i]: { x, y, angle, len, w, phase, t, carT, dmg, sweep, deckLen, deckW, kb, squash, look,
+ * lanes[i]: { x, y, angle, len, w, phase, t, carT, dmg, sweep, deckLen, deckW, kb, enemyFrac, look,
  *   cover, dot?, hitIds:Set<enemyId> } — a vehicle pass. TWO sources since v6.6.14: the city's
  *   'traffic' signature (look:'car') and the garden's 'mower' elite flag (look:'mower'); empty in
  *   every other chapter. x,y = the band's CENTER, angle = its direction, len/w = its extent.
@@ -921,10 +921,10 @@ function generateWells(sig) {
  *   vehicle traverses the band: carT goes 0 -> 1 and the vehicle's center is
  *   (x, y) + dir × ((carT - 0.5) × len), dir = (cos angle, sin angle). A deckLen × deckW box on
  *   that center damages BOTH the player and every enemy it touches (dealDamage, once each —
- *   hitIds), plus `kb` knockback along `angle`. What an ENEMY takes depends on the lane: the taxi
- *   deals its flat `dmg` and one-shots any rosterId in `squash`; the mower carries `enemyFrac`
- *   instead and removes that share of the target's OWN maxHP, elites included, so hpScale can never
- *   outrun it. The PLAYER always takes `dmg`. EVERY ONE OF THOSE IS SNAPSHOTTED ON THE LANE — the stepper never
+ *   hitIds), plus `kb` knockback along `angle`. An ENEMY takes `enemyFrac` of its OWN maxHP —
+ *   every enemy, elites included, so hpScale can never outrun a vehicle. (v6.9.3 retired the taxi's
+ *   TRAFFIC_SQUASH roadkill list, which used to one-shot four light rosterIds by dealing them their
+ *   remaining hp instead; one rule for the whole roster.) The PLAYER always takes `dmg`. EVERY ONE OF THOSE IS SNAPSHOTTED ON THE LANE — the stepper never
  *   reads the TRAFFIC_ or MOWER_ constants itself, so the two vehicles can differ and a retune
  *   desync a live pass (fields absent => the city's values, which keeps hand-built test lanes
  *   meaning what they always meant). `cover:false` opts out of findCover (a grass stalk does not

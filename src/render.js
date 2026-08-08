@@ -6952,11 +6952,12 @@ export function createRenderer(app) {
     // line through (ox, oy) heading `ang`. `phase` is the run start's along-coordinate in the road's
     // OWN frame (the city's v/u axis, or distance from a highway's first endpoint), which is what
     // keeps the dash pattern continuous across two runs split by a river.
-    const strip = (ox, oy, ang, a0, a1, phase, look) => {
+    const strip = (ox, oy, ang, a0, a1, phase, look, alpha = 1) => {
       if (a1 - a0 < 1 || n >= STREET_MAX) return
       const s = streetSprites[n] || acquireStreet()
       n++
       s.visible = true
+      s.alpha = alpha
       s.texture = look.tex
       s.width = a1 - a0
       s.height = look.w
@@ -6965,6 +6966,18 @@ export function createRenderer(app) {
       const p = ROAD_PAINT.tilePitch
       s.tilePosition.set(-(((phase % p) + p) % p), 0)
     }
+    // Two short strips of falling alpha running AWAY from a road's hard end, so the carriageway
+    // fades out instead of stopping square. dir is +1 past the far end, -1 before the near one.
+    const TAPER = [[90, 0.55], [90, 0.22]]
+    const taper = (ox, oy, ang, at, dir, look) => {
+      let edge = at
+      for (const [len, alpha] of TAPER) {
+        const lo = dir > 0 ? edge : edge - len
+        strip(ox, oy, ang, lo, lo + len, lo, look, alpha)
+        edge += dir * len
+      }
+    }
+
     // March the line and cut it wherever roadAt stops answering `kind` — that is where the urban
     // falloff or the water rule ends the street. Runs are extended half a step at each end so a
     // kerb never visibly stops short of the last sample that was still on tarmac.
@@ -6974,15 +6987,37 @@ export function createRenderer(app) {
     // continuing through a stretch a WIDER road has taken over (a highway leg outranks a street).
     const march = (ox, oy, ang, a0, a1, kind, look) => {
       const dx = Math.cos(ang), dy = Math.sin(ang)
-      let start = null, last = 0
+      // softStart tracks whether the stretch BEFORE the current run was owned by a wider road
+      // (soft — no taper needed, that road draws it) or was nothing at all (hard). Starts true: the
+      // first sample sits at the view edge, and running out of view is not a road end.
+      let start = null, last = 0, softStart = true
+      const flush = (soft) => {
+        const s0 = start - STREET_MARCH / 2, s1 = last + STREET_MARCH / 2
+        strip(ox, oy, ang, s0, s1, s0, look)
+        // TAPER (v6.9.3, owner: "thats weird, road just stops"). A street ends where roadAt stops
+        // answering, which at the edge of a city is correct and deliberate — a grid that ran exactly
+        // to its own boundary would read as a stamped rectangle. What was wrong is HOW it ended: a
+        // 210px avenue stopping dead in open ground with a square butt. Two short strips of falling
+        // alpha past each hard end read as the paving petering out into a track, which is what
+        // leaving a town actually looks like.
+        // Only at a HARD end (no road there at all). An end where a highway took over is already
+        // covered by that highway's own strip, and fading into it would just dirty the join.
+        if (!soft) taper(ox, oy, ang, s1, 1, look)
+        if (!softStart) taper(ox, oy, ang, s0, -1, look)
+        start = null
+      }
       for (let a = a0; a <= a1 + STREET_MARCH && n < STREET_MAX; a += STREET_MARCH) {
         const r = a <= a1 ? roadAt(ox + dx * a, oy + dy * a, roadSeed) : { onRoad: false }
-        if (r.onRoad && r.kind === kind && Math.abs(Math.cos(r.angle - ang)) > 0.999) { if (start === null) start = a; last = a }
-        else if (start !== null) {
-          strip(ox, oy, ang, start - STREET_MARCH / 2, last + STREET_MARCH / 2, start - STREET_MARCH / 2, look)
-          start = null
+        if (r.onRoad && r.kind === kind && Math.abs(Math.cos(r.angle - ang)) > 0.999) {
+          if (start === null) start = a   // softStart already holds the previous sample's verdict
+          last = a
+        } else if (start !== null) {
+          flush(r.onRoad)   // r.onRoad here means a WIDER road owns this stretch, not "nothing"
+        } else {
+          softStart = r.onRoad
         }
       }
+      if (start !== null) flush(true)   // ran off the end of the view, not off the end of the road
     }
     if (chapterHasRoads) {
       const w = viewW(), h = viewH()
@@ -6992,13 +7027,26 @@ export function createRenderer(app) {
       // v6.9.2: ONE world grid, axis-aligned — no city frames to enumerate in, so a street is just
       // a line at x = ui*BLOCK_U or y = vi*BLOCK_V. These are the exact indices roadAt itself uses,
       // so the line drawn IS the line the generator answers on.
+      // The along-range is passed in ABSOLUTE WORLD COORDINATES and snapped to STREET_MARCH, which
+      // is what stops the roads flickering (v6.9.3, owner: "roads flicker and sometimes disappear
+      // when i move near it"). march() samples every STREET_MARCH px from a0; when a0 was the view's
+      // own edge, the sample POSITIONS slid with the camera, so a run's ends jumped up to a full
+      // 130px march every time the camera crossed a rebuild bucket — and a run only one sample long
+      // blinked in and out entirely depending on where the samples happened to land. Snapping a0/a1
+      // to the world grid makes the sample set a property of the WORLD, so two rebuilds at different
+      // camera positions produce byte-identical strips.
+      const snapLo = (v) => Math.floor(v / STREET_MARCH) * STREET_MARCH
+      const snapHi = (v) => Math.ceil(v / STREET_MARCH) * STREET_MARCH
+      // A vertical street runs at PI/2, so from origin (X, 0) the along-coordinate IS the world y;
+      // a horizontal one runs at 0, so from (0, Y) it is the world x. That is what lets the snap
+      // above be expressed in world units at all.
       for (let ui = Math.ceil(x0 / BLOCK_U); ui * BLOCK_U <= x1; ui++) {
         const major = ((ui % E) + E) % E === 0
-        march(ui * BLOCK_U, y0, Math.PI / 2, 0, y1 - y0, 'street', major ? T.roadMajor : T.roadMinor)
+        march(ui * BLOCK_U, 0, Math.PI / 2, snapLo(y0), snapHi(y1), 'street', major ? T.roadMajor : T.roadMinor)
       }
       for (let vi = Math.ceil(y0 / BLOCK_V); vi * BLOCK_V <= y1; vi++) {
         const major = ((vi % E) + E) % E === 0
-        march(x0, vi * BLOCK_V, 0, 0, x1 - x0, 'street', major ? T.roadMajor : T.roadMinor)
+        march(0, vi * BLOCK_V, 0, snapLo(x0), snapHi(x1), 'street', major ? T.roadMajor : T.roadMinor)
       }
       // Highways are straight segments between two city centres and are deliberately exempt from the
       // water rule (a trunk road on a causeway is real), so they need no march at all — just the
@@ -7020,7 +7068,8 @@ export function createRenderer(app) {
           if (a < a0) a0 = a
           if (a > a1) a1 = a
         }
-        a0 = Math.max(0, a0 - STREET_PAD); a1 = Math.min(len, a1 + STREET_PAD)
+        a0 = Math.max(0, Math.floor((a0 - STREET_PAD) / STREET_MARCH) * STREET_MARCH)
+        a1 = Math.min(len, Math.ceil((a1 + STREET_PAD) / STREET_MARCH) * STREET_MARCH)
         strip(s.ax, s.ay, ang, a0, a1, a0, T.roadHighway)
       }
     }
