@@ -93,7 +93,7 @@ import {
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
-  TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
+  TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST, TORNADO_RESPACE,
   GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
   GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
   // v5.4 skies
@@ -3544,7 +3544,7 @@ const WEAPON_STAT_MODS = {
   clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
-  trashTornado:  { heavyTrash: ['dmg', 'pct'], wideTornado: ['radius', 'pct'], fasterSpin: ['rotSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
+  trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
   sewerGeyser:   { pressure: ['dmg', 'pct'], wideGeyser: ['r', 'pct'], moreGeysers: ['count', 'flat'] },
   roar:          { bellow: ['dmg', 'pct'], wideRoar: ['arc', 'pct'], farRoar: ['range', 'pct'] },
   tailSwipe:     { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'], broadSweep: ['arc', 'pct'] },
@@ -3602,7 +3602,7 @@ export function buildReadout(run) {
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
-    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'r', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -3628,7 +3628,9 @@ export function buildReadout(run) {
 function stepWeapons(run, dt) {
   const p = run.player
   run.orbs = []
-  run.debris = [] // rewritten every frame by the Trash Tornado, exactly like run.orbs
+  // run.debris is NOT cleared here. v6.8: a tornado carries its own position between frames
+  // because it leaves the ring to hunt, so stepTornadoWeapon resizes the list instead of
+  // rebuilding it. (run.orbs above is still the rewrite-every-frame contract.)
   const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate)
     * (run.rampageT > 0 ? RAMPAGE_FIRE_RATE_MUL : 1)   // v5.14, read-time only (see config)
 
@@ -5292,24 +5294,98 @@ function stepShriekEchoes(run, dt) {
   run._shriekEchoes = echoes.filter((ec) => !ec._done)
 }
 
-// -- Trash Tornado (v5.4 city) -------------------------------------------------------------
-// An always-on orbital, exactly orbit's shape: sim rewrites every chunk's position into run.debris
-// each frame and ticks damage to whatever they overlap, on a per-chunk-per-enemy cooldown
-// (e._debrisCd, the run.orbs/orbCd bookkeeping). flingDebris hurls chunks outward as run.bullets
-// tagged weapon:'trash'; suction drags nearby foes in (elites/tanks resist, like a black hole's).
+// -- Trash Tornado (v5.4 city; v6.8 hunters) ------------------------------------------------
+// A pack of funnels, not an orbital. run.debris entries PERSIST between frames ({x, y, r, tgt})
+// and this function moves them: each picks an enemy inside `hunt` px of the PLAYER, flies at it at
+// travelSpeed and parks on it; with nothing in reach it spirals back into a ring of `radius`
+// around the player and circles at rotSpeed — the pre-v6.8 look, now the idle state. Damage is
+// unchanged, ticking on the per-enemy cooldown orbit uses (e._debrisCd, the run.orbs/orbCd
+// bookkeeping). flingDebris hurls chunks outward as run.bullets tagged weapon:'trash'; suction
+// drags nearby foes in (elites/tanks resist, like a black hole's).
 function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   const p = run.player
   const mods = run.weaponMods.trashTornado
+  const list = run.debris
 
-  for (let i = 0; i < stats.chunks; i++) {
-    const angle = (i / stats.chunks) * Math.PI * 2 + run.time * stats.rotSpeed
-    const ox = p.x + Math.cos(angle) * stats.radius
-    const oy = p.y + Math.sin(angle) * stats.radius
-    run.debris.push({ x: ox, y: oy, r: DEBRIS_R })
+  // Resize to `chunks` (moreTrash). A newcomer is seeded on its evenly-spaced ring slot rather
+  // than on the player, so picking the card doesn't spit a funnel out of your own feet.
+  while (list.length > stats.chunks) list.pop()
+  while (list.length < stats.chunks) {
+    const a = (list.length / stats.chunks) * Math.PI * 2 + run.time * stats.rotSpeed
+    list.push({ x: p.x + Math.cos(a) * stats.radius, y: p.y + Math.sin(a) * stats.radius, r: DEBRIS_R, tgt: null })
+  }
+
+  const huntSq = stats.hunt * stats.hunt
+  const leashed = (e) => {
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= huntSq
+  }
+  // Targets are STICKY while alive and still inside the leash: re-picking from scratch every frame
+  // makes a funnel dither between two enemies that are near-equidistant and never reach either.
+  // A held target is checked against the LIVE list rather than just its `_dead` flag — today
+  // stepSim's filter is the only thing that ever removes an enemy, but a funnel that outlives its
+  // prey by any other route would otherwise sit on the corpse's last coordinates forever, and that
+  // failure mode is invisible until someone adds a despawn. One Set beats an includes() per funnel.
+  const live = new Set(run.enemies)
+  const claimed = new Set()
+  for (const t of list) {
+    if (t.tgt && (t.tgt._dead || !live.has(t.tgt) || !leashed(t.tgt))) t.tgt = null
+    if (t.tgt) claimed.add(t.tgt)
+  }
+  // Whoever is free takes the nearest UNCLAIMED enemy — nearest to itself, not to the player, so a
+  // ring of funnels fans out across a crowd. Without the claim they all pile onto the single
+  // closest enemy, which looks like one blob and wastes most of the damage: the tick cooldown is
+  // per ENEMY, so the second funnel on a target contributes nothing until the first one's expires.
+  for (const t of list) {
+    if (t.tgt) continue
+    let best = null, bestD = Infinity
+    for (const e of run.enemies) {
+      if (e._dead || claimed.has(e) || !leashed(e)) continue
+      const dx = e.x - t.x, dy = e.y - t.y
+      const d = dx * dx + dy * dy
+      if (d < bestD) { bestD = d; best = e }
+    }
+    if (best) { t.tgt = best; claimed.add(best) }
+  }
+
+  const step = stats.travelSpeed * dt
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i]
+    if (t.tgt) {
+      const dx = t.tgt.x - t.x, dy = t.tgt.y - t.y
+      const d = Math.hypot(dx, dy)
+      if (d > 0.5) {
+        const m = Math.min(step, d)
+        t.x += (dx / d) * m
+        t.y += (dy / d) * m
+      }
+    } else {
+      // Nothing to hunt: spiral home. Integrated in POLAR — the angle advances at rotSpeed and the
+      // radius closes on `radius` at travelSpeed — rather than flying at the funnel's rotating ring
+      // slot in cartesian, which never converges: that slot travels rotSpeed × radius px/s, on the
+      // order of the funnel's own top speed, so it would trail its own place around you forever.
+      const dx = t.x - p.x, dy = t.y - p.y
+      const cur = Math.hypot(dx, dy)
+      let a = (cur < 1 ? (i / list.length) * Math.PI * 2 : Math.atan2(dy, dx)) + stats.rotSpeed * dt
+      // ...and drift back toward this funnel's evenly-spaced slot while you're at it. Two hunts in
+      // a row otherwise leave the pack bunched wherever it broke off, and the idle state stops
+      // reading as an orbit at all — which is the half of this weapon that was already right.
+      // `slot` is the pre-v6.8 ring formula verbatim, so a pack left alone settles into exactly the
+      // spacing the orbital had.
+      const slot = (i / list.length) * Math.PI * 2 + run.time * stats.rotSpeed
+      let err = (slot - a) % (Math.PI * 2)
+      if (err > Math.PI) err -= Math.PI * 2
+      if (err < -Math.PI) err += Math.PI * 2
+      a += err * Math.min(1, TORNADO_RESPACE * dt)
+      const rad = cur + Math.max(-step, Math.min(step, stats.radius - cur))
+      t.x = p.x + Math.cos(a) * rad
+      t.y = p.y + Math.sin(a) * rad
+    }
+
     for (const e of run.enemies) {
       if (e._dead || (e._debrisCd || 0) > 0) continue
-      const dx = e.x - ox, dy = e.y - oy
-      const rad = DEBRIS_R + e.radius
+      const dx = e.x - t.x, dy = e.y - t.y
+      const rad = t.r + e.radius
       if (dx * dx + dy * dy > rad * rad) continue
       applyDamage(run, e, stats.dmg)
       e._debrisCd = stats.tick / fireRateMul
@@ -5337,16 +5413,21 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   }
 
   // flingDebris: every TORNADO_FLING_EVERY seconds, hurl <tier bonus> chunks straight outward.
+  // v6.8: thrown BY a funnel, from wherever that funnel currently is. It used to spawn chunks on a
+  // fixed circle around the player, which with the funnels off hunting reads as junk materialising
+  // out of empty street. Aimed away from the player so a fling still sprays outward rather than
+  // back through you; a second chunk from the same funnel is fanned off so they don't overlap.
   const fling = mods?.flingDebris ?? 0
-  if (fling > 0) {
+  if (fling > 0 && list.length > 0) {
     run._tornadoFlingAcc = (run._tornadoFlingAcc ?? 0) + dt
     while (run._tornadoFlingAcc >= TORNADO_FLING_EVERY) {
       run._tornadoFlingAcc -= TORNADO_FLING_EVERY
       for (let i = 0; i < fling; i++) {
-        const angle = (i / fling) * Math.PI * 2 + run.time * stats.rotSpeed
+        const src = list[i % list.length]
+        const angle = Math.atan2(src.y - p.y, src.x - p.x) + Math.floor(i / list.length) * 0.7
         run.bullets.push({
-          x: p.x + Math.cos(angle) * stats.radius,
-          y: p.y + Math.sin(angle) * stats.radius,
+          x: src.x,
+          y: src.y,
           vx: Math.cos(angle) * TORNADO_FLING_SPEED,
           vy: Math.sin(angle) * TORNADO_FLING_SPEED,
           dmg: stats.dmg * TORNADO_FLING_DMG_FRAC,

@@ -1363,8 +1363,9 @@ export function initUI(hooks) {
   // Weapon stat keys the readout may carry, in display order, with their labels. A weapon only
   // shows the ones it actually has, capped so the sheet cannot be pushed past the buttons.
   const STAT_LABEL = {
-    dmg: 'Damage', count: 'Projectiles', orbs: 'Orbs', chunks: 'Chunks', maxAlive: 'Max alive',
-    radius: 'Radius', r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length',
+    dmg: 'Damage', count: 'Projectiles', orbs: 'Orbs', chunks: 'Tornadoes', maxAlive: 'Max alive',
+    radius: 'Radius', hunt: 'Hunt radius', travelSpeed: 'Travel speed',
+    r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length',
     width: 'Width', pierce: 'Pierce', every: 'Every',
   }
   const STAT_MAX_ROWS = 5

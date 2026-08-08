@@ -10,11 +10,15 @@ const UI = {
   'Damage': 'Dégâts',
   'Projectiles': 'Projectiles',
   'Orbs': 'Orbes',
-  'Chunks': 'Morceaux',   // NOT 'Débris': that is the weapon's material name in-house
-                         // ('Jet de Débris'), and débris is a mass noun — you do not count 4 of them.
-                         // The mod copy already says 'morceaux de débris' / 'morceaux par lancer'.
+  // v6.8: the Trash Tornado counts TORNADOES now, not chunks — 'Morceaux' (and the note about
+  // débris being a mass noun) went with the orbital it labelled.
+  'Tornadoes': 'Tornades',
   'Max alive': 'Actifs max',
   'Radius': 'Rayon',
+  // 'Traque' alone, per the single-word rule above: it sits in the same table as 'Rayon' (the
+  // idle orbit ring) with a px value beside it, so the row reads as a distance without saying so.
+  'Hunt radius': 'Traque',
+  'Travel speed': 'Vitesse',
   'Range': 'Portée',
   'Length': 'Longueur',
   'Width': 'Largeur',
@@ -271,7 +275,7 @@ const CONFIG = {
   'Chitter Shriek': 'Cri Strident',
   'A shrill scream that hurts, shoves, and panics the swarm.': 'Un cri perçant qui blesse, repousse et sème la panique dans l\'essaim.',
   'Trash Tornado': 'Tornade de Détritus',
-  'Whips up street trash to orbit and batter what it touches.': 'Soulève les détritus de la rue pour qu\'ils tournoient et frappent tout ce qu\'ils touchent.',
+  'Whips up street trash into funnels that hunt down what comes near.': 'Soulève les détritus de la rue en tornades qui traquent tout ce qui approche.',
   'Sewer Geyser': 'Geyser d\'Égout',
   'Cracks the street open; scalding jets erupt where foes stand.': 'Fissure la rue ; des jets brûlants jaillissent sous les pieds des ennemis.',
   'Roar': 'Rugissement',
@@ -470,13 +474,16 @@ const CONFIG = {
   'Chitter Spines': 'Cri Épineux',
   'quill(s) spat outward per shriek': 'piquant(s) craché(s) à chaque cri',
   'Heavy Trash': 'Détritus Lourds',
-  'debris damage': 'dégâts des débris',
-  'Wide Tornado': 'Tornade Large',
-  'orbit radius': 'rayon d\'orbite',
-  'Faster Spin': 'Rotation Rapide',
-  'spin speed': 'vitesse de rotation',
-  'More Trash': 'Plus de Détritus',
-  'debris chunks': 'morceaux de débris',
+  'funnel damage': 'dégâts des tornades',
+  // v6.8 replaced the two orbit cards ('Tornade Large' / 'Rotation Rapide') one for one — the
+  // orbit is only what the funnels do while there is nothing to hunt, so tuning it stopped being
+  // worth a level-up. 'Traque' is the verb the weapon's own description now uses.
+  'Wide Hunt': 'Traque Élargie',
+  'hunting radius': 'rayon de traque',
+  'Fast Winds': 'Vents Rapides',
+  'travel speed': 'vitesse de déplacement',
+  'More Tornadoes': 'Plus de Tornades',
+  'tornadoes': 'tornades',
   'Fling Debris': 'Projection de Débris',
   'chunk(s) hurled outward periodically': 'morceau(x) projeté(s) vers l\'extérieur périodiquement',
   'Suction': 'Aspiration',

@@ -83,6 +83,8 @@ import {
   MAX_ALIVE, maxAliveFor,
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
+  // v6.8 Trash Tornado rework (Run AA.d)
+  DEBRIS_R,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, currentForce, buildReadout } from '../src/sim.js'
 
@@ -3960,19 +3962,72 @@ function testV54Weapons() {
     console.log(`PASS run AA.c (chitterShriek): fears + inverts the seek at ${FEAR_SPEED_MUL}x, no contact damage, panicRout ${plainHit} -> ${routed}`)
   }
 
-  // (d) trashTornado: an always-on orbital rewritten into run.debris every frame (the run.orbs
-  // contract); suction drags foes in; flingDebris hurls chunks out as run.bullets tagged 'trash'.
+  // (d) trashTornado (v6.8): the funnels HUNT. Idle they orbit at `radius` (the pre-v6.8 look, now
+  // only the idle state); prey inside `hunt` px of the PLAYER pulls one off the ring; a kill sends
+  // it home. One funnel per foe — the claim in stepTornadoWeapon is load-bearing, not cosmetic: the
+  // damage cooldown is per ENEMY, so a pack piled on one target throws away all but one funnel's
+  // damage. suction drags foes in; flingDebris hurls chunks out as run.bullets tagged 'trash'.
   {
-    const run = weaponRun('city', 'trashTornado')
     const lvl = WEAPONS.trashTornado.levels[MAX_WEAPON_LEVEL - 1]
-    const victim = makeStatusEnemy(run, { x: lvl.radius, y: 0, hp: 1e6, speed: 0 })
+    const onRing = (r, d) => Math.abs(Math.hypot(d.x - r.player.x, d.y - r.player.y) - lvl.radius) < 1e-6
+
+    // idle: nothing to hunt, so the whole pack sits on the ring
+    const idle = weaponRun('city', 'trashTornado')
+    stepQuiet(idle, 1.0)
+    assert.strictEqual(idle.debris.length, lvl.chunks, `expected ${lvl.chunks} funnels, got ${idle.debris.length}`)
+    for (const d of idle.debris) assert(onRing(idle, d), 'expected an idle pack on the orbit ring')
+
+    // hunt: one foe inside the leash but far off the ring, so a funnel has to LEAVE to reach it
+    const run = weaponRun('city', 'trashTornado')
+    const victim = makeStatusEnemy(run, { x: lvl.hunt - 20, y: 0, hp: 1e6, speed: 0 })
+    victim.flags = []
     run.enemies.push(victim)
-    stepQuiet(run, 1.0)
-    assert.strictEqual(run.debris.length, lvl.chunks, `expected ${lvl.chunks} chunks in run.debris, got ${run.debris.length}`)
-    for (const d of run.debris) {
-      assert(Math.abs(Math.hypot(d.x - run.player.x, d.y - run.player.y) - lvl.radius) < 1e-6, 'expected chunks on the orbit ring')
+    stepQuiet(run, 2.0)
+    const caught = run.debris.filter((d) => Math.hypot(d.x - victim.x, d.y - victim.y) < DEBRIS_R)
+    assert.strictEqual(caught.length, 1, `expected exactly ONE funnel to claim a lone foe, got ${caught.length}`)
+    assert(victim.hp < 1e6, `expected the funnel that caught it to grind it, hp=${victim.hp}`)
+    const stayedHome = run.debris.filter((d) => onRing(run, d)).length
+    assert.strictEqual(stayedHome, lvl.chunks - 1, `expected ${lvl.chunks - 1} funnels still orbiting, got ${stayedHome}`)
+
+    // ...and when it dies the hunter spirals back home on its own
+    victim.hp = 1
+    stepQuiet(run, 3.0)
+    assert.strictEqual(run.enemies.length, 0, 'expected the victim dead')
+    for (const d of run.debris) assert(onRing(run, d), 'expected every funnel back on the ring after the kill')
+    // ...and the ring re-spaces itself (TORNADO_RESPACE), so two hunts running don't leave the pack
+    // bunched on one side. Gaps between neighbours should all be near 2pi/chunks.
+    const angles = run.debris.map((d) => Math.atan2(d.y - run.player.y, d.x - run.player.x)).sort((a, b) => a - b)
+    const want = (Math.PI * 2) / lvl.chunks
+    const gaps = angles.map((a, i) => (i === 0 ? angles[0] + Math.PI * 2 - angles.at(-1) : a - angles[i - 1]))
+    const worst = Math.max(...gaps.map((g) => Math.abs(g - want)))
+    assert(worst < want * 0.15, `expected the ring to re-space after a hunt, worst gap error ${worst.toFixed(3)} rad`)
+
+    // leash: a foe beyond `hunt` is invisible — the pack never wanders off after it
+    const far = weaponRun('city', 'trashTornado')
+    const ghost = makeStatusEnemy(far, { x: lvl.hunt + 120, y: 0, hp: 1e6, speed: 0 })
+    ghost.flags = []
+    far.enemies.push(ghost)
+    stepQuiet(far, 2.0)
+    assert.strictEqual(ghost.hp, 1e6, 'expected a foe outside the hunt radius to be ignored')
+    for (const d of far.debris) assert(onRing(far, d), 'expected the pack home while the only foe is out of leash')
+
+    // more prey than funnels: every funnel ends up on a DIFFERENT enemy
+    const many = weaponRun('city', 'trashTornado')
+    const flock = lvl.chunks + 2
+    for (let i = 0; i < flock; i++) {
+      const a = (i / flock) * Math.PI * 2
+      const e = makeStatusEnemy(many, { x: Math.cos(a) * 150, y: Math.sin(a) * 150, hp: 1e6, speed: 0 })
+      e.flags = []
+      many.enemies.push(e)
     }
-    assert(victim.hp < 1e6, `expected the chunks to grind an enemy on the ring, hp=${victim.hp}`)
+    stepQuiet(many, 2.0)
+    const claimedFoes = new Set()
+    for (const d of many.debris) {
+      for (const e of many.enemies) {
+        if (Math.hypot(e.x - d.x, e.y - d.y) < DEBRIS_R) { claimedFoes.add(e); break }
+      }
+    }
+    assert.strictEqual(claimedFoes.size, lvl.chunks, `expected ${lvl.chunks} distinct targets, got ${claimedFoes.size}`)
 
     // suction: a foe just inside the suction range is dragged toward the player.
     function suctionDx(on) {
@@ -3991,7 +4046,7 @@ function testV54Weapons() {
     fling.weaponMods.trashTornado.flingDebris = 2
     stepQuiet(fling, 2.0)
     assert(fling.bullets.some((b) => b.weapon === 'trash'), 'expected flingDebris to hurl chunks as weapon:trash bullets')
-    console.log(`PASS run AA.d (trashTornado): ${run.debris.length} orbiting chunks grind + suction + fling`)
+    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + suction + fling`)
   }
 
   // (e) sewerGeyser: telegraph (harmless) -> one eruption -> gone. Enemies only, never the player.

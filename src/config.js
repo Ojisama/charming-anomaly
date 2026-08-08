@@ -353,16 +353,21 @@ export const WEAPONS = {
   // See stepTornadoWeapon/stepGeyserWeapon in sim.js.
   trashTornado: {
     name: 'Trash Tornado',
-    desc: 'Whips up street trash to orbit and batter what it touches.',
+    desc: 'Whips up street trash into funnels that hunt down what comes near.',
     icon: '🌪️', rarity: 'rare',
-    // Always-on orbital, like orbit: sim recomputes every chunk's position each frame into
-    // run.debris ({x, y, r}) and ticks damage to whatever they overlap every `tick` seconds.
+    // v6.8: HUNTERS, not an orbital. Each funnel is a persistent run.debris entry the sim moves
+    // itself: with prey inside `hunt` px OF THE PLAYER it flies at that enemy at travelSpeed and
+    // parks on it; with nothing in reach it spirals back into a ring of `radius` around you and
+    // circles at rotSpeed. Damage still ticks on the per-enemy cooldown run.orbs uses. `hunt` is a
+    // leash around the PLAYER, not around the funnel — that is what keeps the weapon a bubble of
+    // threat you carry rather than a pack that wanders off and never comes home.
+    // Stat key order matters: the pause sheet shows the first five it recognises (buildReadout).
     levels: [
-      { dmg: 11, chunks: 3, radius: 90,  rotSpeed: 2.6, tick: 0.5 },
-      { dmg: 13, chunks: 3, radius: 98,  rotSpeed: 2.8, tick: 0.5 },
-      { dmg: 16, chunks: 4, radius: 108, rotSpeed: 3.1, tick: 0.45 },
-      { dmg: 20, chunks: 5, radius: 118, rotSpeed: 3.4, tick: 0.4 },
-      { dmg: 26, chunks: 6, radius: 130, rotSpeed: 3.8, tick: 0.35 },
+      { dmg: 11, chunks: 3, radius: 90,  hunt: 190, travelSpeed: 190, rotSpeed: 1.5, tick: 0.5 },
+      { dmg: 13, chunks: 3, radius: 98,  hunt: 205, travelSpeed: 205, rotSpeed: 1.6, tick: 0.5 },
+      { dmg: 16, chunks: 4, radius: 108, hunt: 225, travelSpeed: 220, rotSpeed: 1.8, tick: 0.45 },
+      { dmg: 20, chunks: 5, radius: 118, hunt: 245, travelSpeed: 240, rotSpeed: 2.0, tick: 0.4 },
+      { dmg: 26, chunks: 6, radius: 130, hunt: 270, travelSpeed: 260, rotSpeed: 2.2, tick: 0.35 },
     ],
   },
   sewerGeyser: {
@@ -858,13 +863,17 @@ export const WEAPON_MODS = {
     chitterSpines: { name: 'Chitter Spines', desc: 'quill(s) spat outward per shriek', icon: '🦔', kind: 'tier', perTier: 4 },
   },
   // ---- City natives (v5.4; Neon Beam rides the existing WEAPON_MODS.rainbow set above) ----
-  // heavyTrash/wideTornado/fasterSpin/moreTrash fold into trashTornado's levels[] via
-  // WEAPON_STAT_MODS. flingDebris/suction are behavioral (see stepTornadoWeapon in sim.js).
+  // heavyTrash/wideHunt/fastWinds/moreTrash fold into trashTornado's levels[] via WEAPON_STAT_MODS.
+  // flingDebris/suction are behavioral (see stepTornadoWeapon in sim.js).
+  // v6.8: the two cards that tuned the ORBIT are gone with the orbit's primacy — orbit radius
+  // (wideTornado) and spin speed (fasterSpin) now describe what the funnels do while idle, which
+  // is not a thing worth a level-up. They are replaced one for one by the two numbers that decide
+  // how the weapon actually kills: how far it hunts, and how fast it gets there.
   trashTornado: {
-    heavyTrash:  { name: 'Heavy Trash',   desc: 'debris damage',   icon: '🔨', base: 0.25, kind: 'pct' },
-    wideTornado: { name: 'Wide Tornado',  desc: 'orbit radius',    icon: '🪐', base: 0.25, kind: 'pct' },
-    fasterSpin:  { name: 'Faster Spin',   desc: 'spin speed',      icon: '🌀', base: 0.25, kind: 'pct' },
-    moreTrash:   { name: 'More Trash',    desc: 'debris chunks',   icon: '🗑️', base: 1,    kind: 'flat' },
+    heavyTrash:  { name: 'Heavy Trash',   desc: 'funnel damage',   icon: '🔨', base: 0.25, kind: 'pct' },
+    wideHunt:    { name: 'Wide Hunt',     desc: 'hunting radius',  icon: '🧭', base: 0.25, kind: 'pct' },
+    fastWinds:   { name: 'Fast Winds',    desc: 'travel speed',    icon: '💨', base: 0.25, kind: 'pct' },
+    moreTrash:   { name: 'More Tornadoes', desc: 'tornadoes',      icon: '🌪️', base: 1,    kind: 'flat' },
     flingDebris: { name: 'Fling Debris',  desc: 'chunk(s) hurled outward periodically', icon: '🎯', kind: 'tier' },
     suction:     { name: 'Suction',       desc: 'inward pull on nearby foes',           icon: '🌬️', base: 0.50, kind: 'pct' },
   },
@@ -1174,11 +1183,18 @@ export const SHRIEK_SPINE_RANGE_MUL = 1.6  // flight distance, as a multiple of 
 // at the fire site is exactly how a card ends up promising +1 and delivering 4.
 
 // ---- City weapons (v5.4: Trash Tornado + Sewer Geyser; Neon Beam = the rainbow re-theme) -------
-// Trash Tornado (city — see WEAPONS.trashTornado + stepTornadoWeapon in sim.js): chunks are evenly
-// spaced on a ring around the player, sim rewrites run.debris ({x, y, r}) every frame (same
-// contract as run.orbs), and each chunk damages enemies it overlaps every `tick` s (per-chunk,
-// per-enemy cooldown — same bookkeeping orbit uses).
-export const DEBRIS_R = 14            // px, base chunk hit radius (cf. ORB_R)
+// Trash Tornado (city — see WEAPONS.trashTornado + stepTornadoWeapon in sim.js). v6.8: run.debris
+// is PERSISTENT, not rewritten every frame — each entry is a funnel that hunts (see the levels[]
+// comment). Damage is unchanged: a funnel damages enemies it overlaps every `tick` s, on the
+// per-enemy cooldown orbit uses (e._debrisCd, the run.orbs/orbCd bookkeeping).
+export const DEBRIS_R = 20            // px, base funnel hit radius. Was 14 while these were single
+                                      // scraps of junk; a funnel has to read as one from a phone.
+// How hard an idle funnel is pulled back toward its evenly-spaced slot on the ring, in rad of
+// correction per second per rad of error (~0.8s to close most of a gap). Without it funnels rejoin
+// the ring wherever they happened to break off, two hunts running leaves them bunched, and the
+// idle state stops reading as an orbit at all — which is the half of the weapon that was already
+// right. Small on purpose: snapping them into place looks mechanical.
+export const TORNADO_RESPACE = 1.2
 // flingDebris (behavioral): every TORNADO_FLING_EVERY seconds the tornado hurls <tier bonus> chunks
 // straight outward as run.bullets tagged weapon:'trash', at TORNADO_FLING_DMG_FRAC of chunk damage.
 export const TORNADO_FLING_EVERY = 1.5

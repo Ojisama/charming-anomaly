@@ -545,7 +545,7 @@ function generateWells(sig) {
  *                 ignores everything else); decays like the other three once outside.
  *               Sim-internal only (not a render contract, do not rely on these): _chillStack,
  *               _freezeImmuneT, _shockCd, _comboCd, _bleedAcc, _debrisCd (Trash Tornado's
- *               per-enemy chunk cooldown, the run.debris analogue of orbCd). }
+ *               per-enemy funnel cooldown, the run.debris analogue of orbCd). }
  * bullets[i]: { x, y, vx, vy, dmg, pierce, life, r, speed, hitIds:Set<enemyId>,
  *               _shard (true for Split Stars shards; they never re-split), _splitDone,
  *               _chainsLeft (Chain Stars jumps remaining), _ricochetsLeft (Ricochet Stars
@@ -949,9 +949,12 @@ function generateWells(sig) {
  *   PLAYER only (normal armor path, respects invuln) and emits {type:'explode', x, y, radius:
  *   MISSILE_BLAST}. Never damages enemies. Bent by run.wells like any other projectile. See
  *   stepEnemyShots in sim.js.
- * debris[i]: { x, y, r } — Trash Tornado chunks (city weapon). Exactly the run.orbs contract: sim
- *   REWRITES the whole array every frame from the player's position (render just draws them; r =
- *   DEBRIS_R × (1 + trashTornado.heavyTrash-independent constants) — see stepTornadoWeapon).
+ * debris[i]: { x, y, r, tgt } — Trash Tornado funnels (city weapon). v6.8: NOT the run.orbs
+ *   contract any more — these PERSIST between frames, because a funnel hunts and so carries its
+ *   own position. stepTornadoWeapon resizes the array to `chunks` and moves each entry: toward
+ *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and inside `hunt` px
+ *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
+ *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
  * geysers[i]: { x, y, r, fuse, dur, dmg, _chained? } — telegraphed eruption zones (Sewer Geyser,
  *   city weapon; also reused by the Reality Shard's riftScar rifts). fuse counts down as a HARMLESS
  *   telegraph (dur is its starting value, so render can grow a warning ring from fuse/dur), then
@@ -1249,7 +1252,7 @@ export function createRun(meta, opts = {}) {
     // v5.4 chapter behavior (see doc block above). wells are permanent signature FURNITURE, seeded
     // once here from this chapter's signature (any other signature -> []); the rest are fed during
     // the run — lanes by the city's traffic signature, enemyShots by missileVolley helicopters,
-    // debris by the Trash Tornado (rewritten every frame, like orbs), geysers by the Sewer Geyser
+    // debris by the Trash Tornado (persistent since v6.8 — the funnels hunt), geysers by the Sewer Geyser
     // (and the Reality Shard's rifts), lobs by the Debris Toss.
     // v6.5: traps are no longer seeded here (generateTraps deleted) — sim.js's streamTraps
     // materializes them around the player the same way streamObstacles/streamEddies do, keyed off
