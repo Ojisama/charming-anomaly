@@ -660,23 +660,31 @@ suppress/banish. Cheapest honest version: a per-run **focus on one weapon**, whi
 already stubbed in the harness as `--focus`. Note the measurement above says focus alone did *not*
 fix non-starter deliverability, so ship it for the agency, not as the deliverability fix.
 
-#### Trigger-site audit (in progress, 2026-08-08)
+#### Trigger-site audit — COMPLETE (2026-08-08)
 
-The kill reasons below were themselves written from review notes, and at least one has already gone
-stale. Each must be re-checked against the code before a card is rewritten *or* left dead.
+The kill reasons were written from review notes, not re-checked against code. All twelve are now
+verified. **Ten hold, one was outright false, one was wrong about the gate but not the effect** —
+so two cards come back.
 
 | Claim | Status | Evidence |
 |---|---|---|
-| `run.traps` scatters once and dies past the origin | **FALSE — stale** | v6.5 moved traps to `streamTraps` (cell-hash, salts 15–17), permanent streamed field furniture. state.js:875–886. **Trapper is revived** — re-author it. |
-| `run.wells` scatters once and dies past the origin | **TRUE, and deliberate** | `generateWells` → `scatterField`, placed within `OBSTACLE_FIELD_RADIUS` of the run origin at createRun. state.js:405–414, 430–436. The comment states the intent: *"These stay origin-seeded setpieces, unlike obstacles, which stream — a signature field is the arena's opening hand, not terrain."* Local Physics stays dead unless that design call is reopened. |
-| pond has no `wave` weapon, so Riptide cannot gate on it | **TRUE** | `CHAPTERS.pond.weapons = ['flagella','mines','bloom']`, config.js:1638. |
+| `run.traps` scatters once and dies past the origin | **FALSE — stale** | v6.5 moved traps to `streamTraps` (cell-hash, salts 15–17): permanent streamed field furniture. state.js:875–886. **Trapper is revived.** |
+| Riptide cannot gate on `wave` (pond lacks it) | **Gate TRUE, effect LIVE** | `CHAPTERS.pond.weapons = ['flagella','mines','bloom']` (config.js:1638) — but `run.mods.currentForceMul` is a live hook, commented *"riptide anomaly turns the field up"* (sim.js:1975). **Only the gate was wrong.** Re-author against a weapon pond actually has. |
+| `run.wells` scatters once and dies past the origin | TRUE, and deliberate | `generateWells` → `scatterField`, within `OBSTACLE_FIELD_RADIUS` of the origin. state.js:405–414, 430–436: *"a signature field is the arena's opening hand, not terrain."* Local Physics stays dead unless that call is reopened. |
+| Elementalist re-triggers elemental application | TRUE | sim.js:3276–3277 — DoT ticks use `dealDamage` *specifically* so they don't recursively re-trigger it. The guard is documented by name. |
+| Overtuned has no per-pick rarity to promote | TRUE | `mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus`, sim.js:235 — one accumulated float. |
+| Hunger's `collect()` serves gems **and** coins | TRUE | one closure `collect(list, onPickup)` over a shared `pickupSq`, sim.js:5683–5690. Radius 0 ends XP *and* the reroll economy. |
+| Slipstream: there is no "caught in a current" state | TRUE | `currentForce` is a sum of four sines over (x, y, t), nonzero wherever the signature is `currents`. sim.js:1966–1976. |
+| Counter-Scent: nothing follows the player | TRUE | pheromone nodes are dropped by *dying ants* and followed by other ants. sim.js:3227–3229. |
+| Flak: `run.bombs` is shared | TRUE | four producers — blank boss trail (738), artillery (1299, 2969), volatile elite (3214). Gating it neuters all of them. |
+| Sonic Boom: no input sequences roar/tailSwipe | TRUE | both are **weapons** stepped in the auto-fire loop (sim.js:3640–3641). |
+| Debris Field: `run.debris` is rewritten every frame | TRUE | `run.debris = []` each frame, *"exactly like run.orbs"*. sim.js:3617, 5199–5211. |
+| Pack Leader needs allied units | TRUE | no `run.allies`, no allied/friendly entity anywhere in sim.js or state.js. |
 
-Remaining to verify: Elementalist (the `applyElements` recursion guard, sim.js:1662), Overtuned
-(`applyChoice` stores an accumulated float, no per-pick rarity), Hunger (`collect()` serves gems
-**and** coins off one `pickupSq`), Slipstream (`currentForce` nonzero across ~92% of the world),
-Counter-Scent (pheromones are trails from *dying* ants), Flak (`run.bombs` shared with
-volatile-elite and artillery), Sonic Boom (roar/tailSwipe on independent auto-timers), Debris Field
-(`run.debris` rewritten every frame), Pack Leader (no allied-unit system).
+**Net: Trapper and Riptide return to the card list.** The rest stay dead as written — but note the
+pattern in *why*: most died because the card named a system that exists under a different shape
+(shared bomb list, per-frame array, auto-fire weapon), not because the fantasy was wrong. Re-author
+the fantasy against the real hook rather than discarding the card.
 
 Dead as written, with reasons worth keeping:
 
