@@ -127,6 +127,13 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   every frame never stops flashing. Clear it, or you cannot judge an effect against the sprites it
   sits over. Same class of trap: a final `sync` handed the whole warm-up's `run.events` buries the
   frame in damage numbers, so drain events every step.
+- **A/B-ing a BAKE (an entity's texture, not its motion): put every candidate behind a throwaway
+  query param** — `const V = Number(new URLSearchParams(location.search).get('tv') || 0)` at
+  render.js module scope, one bake per value, then `--url 'http://127.0.0.1:PORT/?tv=N'` per shot
+  (fx-probe appends its own `&debug`). One edit and N probe runs, instead of editing render.js
+  between every shot and hoping the frame came back the same. Bakes happen once at boot, so the
+  param has to be read at module scope, not per frame. Delete the switch and the losing bakes with
+  the pick — grep the param name to prove it is gone before committing.
 - A probe that runs thousands of `__stepSim` calls synchronously BLOCKS the main thread, and a
   screenshot taken during that block is plain white. That is not a blank-page bug — confirm which
   one you have by shooting the same URL with no seed script at all before reporting a prod outage.

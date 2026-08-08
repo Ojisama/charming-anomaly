@@ -93,12 +93,17 @@ const bootstrap = `(() => {
     shop: {}, best: { time: 0, kills: 0 }, choiceSlots: 2, chapters,
   }))
 
-  function note(txt) {
+  // A note is DIAGNOSTIC — painted into the page so the screenshot carries it, and nothing more.
+  // It must not touch __fxError: that flag aborts the run, and a scene printing its entity counts
+  // would then race its own readiness flag and kill the shot it was describing.
+  function note(txt, fatal) {
     const d = document.createElement('pre')
-    d.style.cssText = 'position:fixed;left:0;bottom:0;z-index:99999;margin:0;padding:6px;background:#000;color:#0f0;font:11px monospace;white-space:pre-wrap;max-width:100%'
+    // NB: plain concatenation, not a template literal — this whole function is already inside one
+    // (the \`bootstrap\` string below), and a nested backtick closes it and breaks this file.
+    d.style.cssText = 'position:fixed;left:0;bottom:0;z-index:99999;margin:0;padding:6px;background:#000;font:11px monospace;white-space:pre-wrap;max-width:100%;color:' + (fatal ? '#f66' : '#0f0')
     d.textContent = txt
     document.body.appendChild(d)
-    window.__fxError = txt
+    if (fatal) window.__fxError = txt
   }
 
   const click = (sel) => { const el = document.querySelector(sel); if (el && !el.disabled) { el.click(); return true } return false }
@@ -108,7 +113,7 @@ const bootstrap = `(() => {
     if (stage === 'brief') { if (click('[data-act="brief-start"]')) stage = 'wait'; return }
     if (!window.__run || !window.__app || !window.__stepSim || !window.__renderer) return
     clearInterval(iv)
-    try { compose() } catch (e) { note('SCENE THREW: ' + (e && e.stack || e)) }
+    try { compose() } catch (e) { note('SCENE THREW: ' + (e && e.stack || e), true) }
   }, 100)
 
   function compose() {

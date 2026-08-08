@@ -4028,39 +4028,45 @@ export function createRenderer(app) {
       T.mower = bake(g)
     }
     {
-      // trash tornado (city, run.debris): an UPRIGHT funnel — wide mouth, pinched tip dragging on
-      // the street. v6.8 replaced a single angular scrap of junk here, which at any size read as a
-      // scrap ("it's not clear they are tornados"). Origin (0,0) is the sim's hit centre, and
-      // bake() anchors on the Graphics origin rather than the bounds centre, so the funnel is
-      // drawn straddling y=0 and lands exactly on run.debris[i].x/y.
+      // trash tornado (city, run.debris): the funnel's THROAT, seen from directly overhead — the
+      // mouth as a wide pale ring, then tighter rings stepping off-centre into a near-black core,
+      // so the shaft appears to lean away from you down a hole in the street.
+      //
+      // v6.8 first drew this as an upright side-elevation funnel (mouth at the top, tip dragging
+      // the ground) which is simply the wrong projection for this camera: every other entity here
+      // is seen from above. Owner picked this read from three top-down candidates shot on one
+      // identical in-game frame (spiral arms / this / a bodiless debris swarm) — see
+      // scripts/scenes/trash-tornado.js if it ever needs re-judging.
+      //
+      // The OFF-CENTRE step is what makes it work. Concentric rings drawn on a shared centre are
+      // rotationally symmetric, so spinning the sprite would animate nothing at all; stepping each
+      // ring sideways gives the column a direction, and the spin then reads as a throat wobbling
+      // as it turns. Origin (0,0) is the sim's hit centre and bake() anchors on the Graphics
+      // origin (not the bounds centre), so the mouth lands on run.debris[i].x/y.
+      const DUST = 0xb9a98f, LIGHT = 0xe0d4bc, DARK = 0x4a4034
       const g = new Graphics()
-      const TOP = -30, TIP = 18, W_TOP = 21, W_TIP = 3
-      const halfW = (y) => W_TOP + (W_TIP - W_TOP) * ((y - TOP) / (TIP - TOP))
-      // the dust column itself, behind everything, so the sheets below read as being INSIDE a body
-      g.poly([-W_TOP, TOP, W_TOP, TOP, W_TIP, TIP, -W_TIP, TIP]).fill({ color: 0x8d8271, alpha: 0.42 })
-      // Stacked sheets of turning dust, each squashed flat and narrower than the one above. This is
-      // the whole tornado cue: a column of rings at decreasing width is a funnel from any angle,
-      // where a rotating blob is just a rotating blob. Alternating tint + an off-centre lean per
-      // sheet so it turns rather than reading as a stack of plates.
       for (let i = 0; i < 6; i++) {
-        const y = TOP + ((i + 0.5) / 6) * (TIP - TOP)
-        const w = halfW(y)
-        g.ellipse(Math.sin(i * 1.9) * w * 0.22, y, w, Math.max(2.2, w * 0.3))
-          .fill({ color: i % 2 ? 0xe0d4bc : 0xb9a98f, alpha: 0.55 })
+        const t = i / 5
+        g.circle(11 * t * t, 0, 30 - 24 * t)          // quadratic step: the lean grows with depth
+          .fill({ color: i % 2 ? LIGHT : DUST, alpha: 0.2 + 0.13 * i })  // deeper rings read denser
+          .stroke({ width: 1.3, color: DARK, alpha: 0.35 })
       }
-      // hard edges last, so the column keeps a silhouette against the city's dark asphalt
-      g.beginPath().moveTo(-W_TOP, TOP).lineTo(-W_TIP, TIP).stroke({ width: 1.6, color: 0x5f5442, alpha: 0.75 })
-      g.beginPath().moveTo(W_TOP, TOP).lineTo(W_TIP, TIP).stroke({ width: 1.6, color: 0x5f5442, alpha: 0.75 })
-      // caught scraps riding the funnel — the one detail that says TRASH tornado and not dust
-      // devil. Same facet palette as the lone chunk this bake replaced.
+      g.circle(11, 0, 4.5).fill({ color: 0x241f19, alpha: 0.85 })        // the core, nearly black
+      // Caught scraps on the mouth — the one detail that says TRASH tornado and not a portal. Same
+      // facet palette as the lone chunk this bake replaced in v6.8.
       for (let i = 0; i < 4; i++) {
-        const y = TOP + 6 + hash(i * 2.7 + 1.3) * (TIP - TOP - 10)
-        const x = (hash(i * 5.1 + 4.4) - 0.5) * 1.6 * halfW(y)
-        const s = 2.6 + hash(i * 3.9 + 8.2) * 2.2
-        g.poly([x - s, y, x, y - s * 0.8, x + s, y + s * 0.2, x - s * 0.4, y + s * 0.7])
-          .fill(0xb9a98f).stroke({ width: 1, color: 0x4a4034 })
+        const a = hash(i * 5.7 + 0.9) * Math.PI * 2
+        const r = 16 + hash(i * 2.4 + 5.5) * 12
+        const cx = Math.cos(a) * r, cy = Math.sin(a) * r
+        const s = 3.2 + hash(i * 7.1) * 2
+        const pts = []
+        for (let k = 0; k < 5; k++) {
+          const ka = a + (k / 5) * Math.PI * 2
+          const rr = s * (0.65 + hash(k * 2.9 + cx * 0.13 + 3.1) * 0.6)
+          pts.push(cx + Math.cos(ka) * rr, cy + Math.sin(ka) * rr)
+        }
+        g.poly(pts).fill(DUST).stroke({ width: 1, color: DARK })
       }
-      g.ellipse(0, TIP + 1, 9, 3.2).fill({ color: 0xe0d4bc, alpha: 0.3 }) // scuff: the tip touches ground
       T.tornado = bake(g)
     }
     {
@@ -11902,9 +11908,11 @@ export function createRenderer(app) {
   function placeDebris(s, d, i) {
     s.position.set(d.x, d.y)
     s.tint = 0xffffff
-    s.rotation = 0.13 * Math.sin(animT * 3.1 + i * 1.7)
-    const k = (d.r ?? DEBRIS_R) / DEBRIS_R
-    s.scale.set(k * (1 + 0.1 * Math.sin(animT * 9 + i * 2.2)), k * (1 + 0.05 * Math.sin(animT * 6.5 + i)))
+    // A top-down throat SPINS — that is the whole animation, and it only works because the bake's
+    // rings are stepped off-centre (see T.tornado). The per-funnel phase offset stops a pack from
+    // turning in lockstep, which reads as one object smeared across the screen.
+    s.rotation = animT * 2.4 + i * 1.3
+    s.scale.set(((d.r ?? DEBRIS_R) / DEBRIS_R) * (1 + 0.06 * Math.sin(animT * 8 + i * 2.2)))
   }
   // Enemy missiles (run.enemyShots): aimed along velocity, trailing smoke. These are the only
   // things on screen shooting AT the player, so they get a trail — motion you can track and outrun.
