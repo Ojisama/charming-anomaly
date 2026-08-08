@@ -502,18 +502,19 @@ export function roadAt(x, y, seed, endless = false) {
   // exactly what the wide-area captures showed. Highways still cross (they are checked above and
   // deliberately exempt): a trunk road spanning water on a causeway is real, a residential street
   // grid ignoring a river is not.
-  const elev = elevationAt(x, y, seed)
-  if (elev < SEA_LEVEL) return { onRoad: false }
-  // The river rule is skipped on an ENDLESS grid. Measured on a city traverse it rejected 45 of 60
-  // street-centreline samples — the RIVER_MOUTH_GAIN term widens the exclusion far past anything
-  // the floor actually paints as water, so downtown came out with the grid missing over ground that
-  // renders as ordinary land. That is a fine trade for `skies`, where a river is a real feature of
-  // a mostly-rural map; it is just a hole in the road for a chapter that is city everywhere. Open
-  // SEA still stops the grid in both, because that one IS drawn and a street across it reads as the
-  // v5.11 "roads in the sea" bug all over again.
-  if (!endless && elev < HILL_LEVEL) {
-    const lowness = (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)
-    if (riverAt(x, y, seed) < RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness) return { onRoad: false }
+  // v6.9.6: an ENDLESS grid skips the WATER GATES ENTIRELY, sea included. The sea test exists so a
+  // street is never drawn across a painted ocean (the v5.11 "roads in the sea" artefact) — but the
+  // city chapter has no `districts` in its render block, so it never paints sea, hills or farmland
+  // at all: its floor is flat asphalt everywhere. The elevation field is still there underneath,
+  // so the grid was stopping dead at a coastline the player cannot see, which is the "road just
+  // stops" report arriving by a second route. `skies` DOES paint its terrain and keeps both gates.
+  if (!endless) {
+    const elev = elevationAt(x, y, seed)
+    if (elev < SEA_LEVEL) return { onRoad: false }
+    if (elev < HILL_LEVEL) {
+      const lowness = (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)
+      if (riverAt(x, y, seed) < RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness) return { onRoad: false }
+    }
   }
   // At a junction the nearer centreline wins — that is the one anything distance-based should key
   // off (kerb fade, lane markings).
