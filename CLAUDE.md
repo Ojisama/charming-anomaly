@@ -16,6 +16,8 @@ npm test           # node test/sim-test.js — headless sim self-check, no frame
 node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
 node scripts/bake-cast.mjs           # re-bake src/cast/*.png (title cards' creature thumbnails)
 node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]   # phone-viewport screenshot without the MCP tab
+node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14
+                                     # reproducible in-game frames of ONE effect, for A/B-ing a look
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
 
 # Terrain, two dev views. Neither ships in the bundle.
@@ -102,17 +104,29 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   the line.
 - Screenshotting short-lived FX: `app.ticker.stop()` first, drive frames manually, render, then
   shoot — the live rAF loop otherwise expires the effect between evaluate and screenshot.
-- **A/B-ing a look needs the SAME frame in every shot, and one `initScript` seeding of
-  `Math.random` does not give you that.** The ticker runs free between boot and whenever your
-  probe gets control, and each rendered frame burns randoms (dust motes, particles), so how many
-  is a function of machine load — every variant then lands on a different tile with a different
-  crowd and the comparison is worthless. Pin `Math.random` (mulberry32) in the initScript AND
-  **re-pin it again right after `app.ticker.stop()`**; everything after that is reproducible.
-- Judging an ANIMATED effect: don't re-boot per frame (~16s each). Boot once, stop the ticker,
-  compose the scene, then expose a scrub hook that rewinds the effect's own life field
-  (`s.life = full * (1 - age)`), re-syncs and re-renders — CDP `Runtime.evaluate` between
-  `Page.captureScreenshot` calls gives a whole frame sequence from one boot, and `ffmpeg` stacks
-  them into a comparison GIF. A burst or a fade cannot be judged from a still.
+- **Judging a LOOK (an effect, a weapon animation, a telegraph): use `scripts/fx-probe.mjs`.** It
+  boots once, seeds a save, pins the RNG, composes a scene from `scripts/scenes/<name>.js`, and
+  captures a frame sequence — `node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js
+  --out /tmp/pr --frames 14`. Write a new scene file per effect; `beam-prism.js` is the worked
+  example and documents the `H` helper surface (`weapon`/`breed`/`keep`/`place`/`pin`/`scrub`).
+  Stack the frames with `ffmpeg` into a labelled contact sheet or GIF. The three traps it exists to
+  bake out, which cost real rounds in v6.7.7 and will again if you hand-roll a probe:
+  - **One `initScript` seeding of `Math.random` does NOT give you the same frame twice.** The
+    ticker runs free between boot and whenever the probe gets control, and each rendered frame
+    burns randoms (dust motes, particles), so how many depends on machine load — every variant
+    lands on a different tile with a different crowd. Pin it in the initScript AND **again right
+    after `app.ticker.stop()`**. Even then only the SCENE is reproducible, not the pixels (animT
+    drives the beam pulse and floor dust): compare by eye, never by md5.
+  - **Don't re-boot per frame** (~16s each). Stop the ticker, compose once, then rewind the
+    effect's own life field (`s.life = full * (1 - age)`) and re-render between captures. A burst
+    or a fade cannot be judged from a still.
+  - **A scene that throws renders nothing, which looks exactly like "the effect is invisible".**
+    Paint the caught exception into the page so the screenshot carries it, and read that before
+    re-shooting anything.
+- Enemies that render as white silhouettes are `hitFlash`, not a bug — a pinned cast being struck
+  every frame never stops flashing. Clear it, or you cannot judge an effect against the sprites it
+  sits over. Same class of trap: a final `sync` handed the whole warm-up's `run.events` buries the
+  frame in damage numbers, so drain events every step.
 - A probe that runs thousands of `__stepSim` calls synchronously BLOCKS the main thread, and a
   screenshot taken during that block is plain white. That is not a blank-page bug — confirm which
   one you have by shooting the same URL with no seed script at all before reporting a prod outage.
@@ -136,7 +150,12 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   screen + `.modal` to 320/294px — `.modal` is `min(92vw, 390px)`, so the viewport alone will not
   do it — and measure there.
 - `scripts/deploy-watch.sh "vX.Y.Z · <sha>" ["more strings" …]` watches the Pages deploy to
-  completion, then greps the LIVE bundle for each string — the standard post-push gate.
+  completion, then greps the LIVE bundle for each string — the standard post-push gate. **Only
+  pass strings that survive minification**: user-visible copy, config text, French translations,
+  anything that is a string LITERAL in the source. Never an identifier — esbuild renames locals and
+  private functions, so grepping a variable name reports `0` and proves nothing (v6.7.7 asked it
+  for `prismBodyG`). A change with no new string literals cannot be gated this way at all; verify
+  it by shooting the built bundle instead (`npm run build`, `vite preview`, `scripts/fx-probe.mjs`).
 
 ### When there is no MCP browser tab
 
