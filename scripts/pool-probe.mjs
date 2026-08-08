@@ -64,6 +64,15 @@ const SURVIVAL = flags.has('--survival')
 const DIFF = Number(args.find((a) => a.startsWith('--diff='))?.slice(7) ?? 1)
 const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1)
 const XPMUL = Number(args.find((a) => a.startsWith('--xpmul='))?.slice(8) ?? 1)
+// How many of a weapon's mods are CANDIDATES each pool (shipped MOD_CANDIDATES_PER_WEAPON = 2).
+// The deliverability knob: it decides whether "aim for prismatic" is a strategy the pool can serve.
+// It does NOT widen a screen — MODS_PER_WEAPON_PER_POOL still caps how many reach the player — it
+// widens which mods are ELIGIBLE to be drawn.
+const MOD_CANDS = Number(args.find((a) => a.startsWith('--modcands='))?.slice(11) ?? C.MOD_CANDIDATES_PER_WEAPON)
+// --focus=<weaponId> [--focusmul=N]: model the player-directed weighting the user asked for
+// (2026-08-08) — trading roll chance between buckets/weapons for a cost. Applied to PROPOSED only.
+const FOCUS = args.find((a) => a.startsWith('--focus='))?.slice(8) ?? null
+const FOCUS_MUL = Number(args.find((a) => a.startsWith('--focusmul='))?.slice(11) ?? 3)
 // --laterate / --latestart: reshape the TAIL of hpScale instead of multiplying it flat.
 // hpScale(t) = (1 + t/90) * (t <= START ? 1 : 1 + RATE*(t - START))   [config.js:1467]
 // hpScale is a module-level import sim.js cannot be made to re-read, but spawnEnemy multiplies
@@ -162,7 +171,9 @@ function modCands(run) {
     const picks = run.weaponModPicks[w.id]
     const avail = Object.keys(cfgs).filter((m) => (picks?.[m] ?? 0) < C.MAX_WEAPON_MOD_PICKS)
     shuffle(avail)
-    for (const m of avail.slice(0, C.MOD_CANDIDATES_PER_WEAPON)) out.push({ weapon: w.id, mod: m })
+    // --modcands=N overrides MOD_CANDIDATES_PER_WEAPON (shipped 2). At 2, only 2 of a weapon's 6-7
+    // mods are candidates in a pool, which is why a NAMED mod appears in as few as 20% of runs.
+    for (const m of avail.slice(0, MOD_CANDS)) out.push({ weapon: w.id, mod: m })
   }
   return out
 }
@@ -266,7 +277,15 @@ function proposedChoices(run, st) {
         for (const id of passOk) w[id] = DEFENSIVE.has(id) ? DEFENSIVE_WEIGHT : 1
         card = mkPassive(run, pickW(w), pickW(P_RARITY_WEIGHTS))
       } else if (b === 'mod') {
-        const m = modOk[(Math.random() * modOk.length) | 0]
+        // --focus=<weapon>: the player-agency lever. Up-weights ONE weapon's mods inside the mod
+        // bucket, so "I am building the tornado" becomes a thing the pool can actually serve.
+        // Same shape as MUTATORS.unstable's existing elementWeightMul, generalised.
+        let m
+        if (FOCUS) {
+          const w = {}
+          for (let i = 0; i < modOk.length; i++) w[i] = modOk[i].weapon === FOCUS ? FOCUS_MUL : 1
+          m = modOk[Number(pickW(w))]
+        } else m = modOk[(Math.random() * modOk.length) | 0]
         card = mkMod(run, m.weapon, m.mod, pickW(P_RARITY_WEIGHTS))
       } else if (b === 'weapon') {
         // Inherent rarity is a WEIGHT inside the bucket, never a filter — that keeps hole
@@ -375,6 +394,10 @@ function measure(mode) {
   stats.anomalyRolls = stats.emptyAnomalyPool = stats.shortPools = stats.pools = 0
   const kinds = {}, rarities = {}
   const levels = [], anomalies = [], weaponLv = [], deaths = []
+  // Deliverability: can a player PURSUE a specific mod? Counts, per mod, how many runs offered it
+  // at least once. User report (2026-08-08): "frustrating to aim for some mod (like laser prism
+  // sub-beams) and not seeing any in the run" — this is the measurement of that complaint.
+  const modRuns = new Map()
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
   const defPicks = { armor: 0, regen: 0, maxHP: 0 }
   let offered = 0
@@ -398,6 +421,7 @@ function measure(mode) {
     const baseHpMul = run.mods.enemyHpMul
     if (!SURVIVAL) run.player.magnet = 4000
     const st = { since: 0, taken: new Set() }
+    const seenMods = new Set()
     const dt = 1 / 60
 
     // 305s: RUN_DURATION is 300 and victory flips ON the boundary, so the loop must cross it.
@@ -415,6 +439,7 @@ function measure(mode) {
           offered++
           kinds[c.kind] = (kinds[c.kind] ?? 0) + 1
           rarities[c.rarity] = (rarities[c.rarity] ?? 0) + 1
+          if (c.kind === 'mod') seenMods.add(`${c.weapon}.${c.id}`)
         }
         run.levelUpChoices = cards
         const i = choose(cards)
@@ -442,6 +467,7 @@ function measure(mode) {
       deaths.push({ won: run.phase === 'victory', t: run.time, hp: run.player.hp })
     }
 
+    for (const k of seenMods) modRuns.set(k, (modRuns.get(k) ?? 0) + 1)
     levels.push(run.player.level)
     anomalies.push(st.taken.size)
     weaponLv.push(run.weapons.reduce((s, w) => s + w.level, 0))
@@ -470,6 +496,7 @@ function measure(mode) {
     weaponLv: avg(weaponLv),
     emptyPool: stats.emptyAnomalyPool / RUNS,
     absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
+    modRuns,
     winRate: deaths.length ? (100 * deaths.filter((d) => d.won).length) / deaths.length : 0,
     deathT: deaths.filter((d) => !d.won).map((d) => d.t),
   }
@@ -487,6 +514,23 @@ function report(r) {
     console.log(`anomalies ${r.anomalies.toFixed(2)}/run (cap ${MAX_ANOMALIES_PER_RUN})  empty-pool rolls ${f1(r.emptyPool)}/run`)
     console.log(`bucket absent ${Object.entries(r.absent).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}  <- the ONLY drift budget`)
   }
+}
+
+// Can a player PURSUE a named mod? For every mod on every weapon in the chapter, the share of runs
+// that offered it AT LEAST ONCE. A low number means "aim for prismatic" is not a strategy the pool
+// supports — the card simply never shows up, which is the agency complaint, not a variety one.
+function deliverability(a, b) {
+  const ids = []
+  for (const w of C.CHAPTERS[CHAPTER].weapons) {
+    for (const m of Object.keys(C.WEAPON_MODS[w] ?? {})) ids.push(`${w}.${m}`)
+  }
+  const pct = (r, k) => (100 * (r.modRuns.get(k) ?? 0)) / RUNS
+  const rows = ids.map((k) => ({ k, a: pct(a, k), b: pct(b, k) })).sort((x, y) => x.a - y.a)
+  console.log(`\n== mod deliverability (${CHAPTER}) — % of runs offering this mod at least once`)
+  for (const r of rows) console.log(`  ${r.k.padEnd(24)} ${f1(r.a).padStart(5)}% -> ${f1(r.b).padStart(5)}%`)
+  const mean = (s) => rows.reduce((t, r) => t + r[s], 0) / rows.length
+  console.log(`  ${'MEAN'.padEnd(24)} ${f1(mean('a')).padStart(5)}% -> ${f1(mean('b')).padStart(5)}%` +
+    `   worst ${f1(rows[0].a)}% -> ${f1(rows[0].b)}%`)
 }
 
 // Declared vs achieved, per bucket. A bucket absent A% of the time loses at most A% of its
@@ -539,7 +583,7 @@ if (flags.has('--compare')) {
   const a = measure('current')
   const b = measure('proposed')
   if (SURVIVAL) { survivalReport(a, b); process.exit(0) }
-  report(a); report(b); fidelity(b)
+  report(a); report(b); fidelity(b); deliverability(a, b)
   const row = (label, x, y, unit = '%') => console.log(`  ${label.padEnd(22)} ${f1(x).padStart(6)}${unit} -> ${f1(y).padStart(6)}${unit}`)
   console.log(`\n== diff (${CHAPTER} slots=${SLOTS})`)
   for (const k of ['passive', 'mod', 'weapon', 'element']) row(`${k} share`, a.kinds[k], b.kinds[k])

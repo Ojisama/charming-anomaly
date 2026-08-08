@@ -583,6 +583,83 @@ choice-dependent and the pity counter would need folding into the seeded stream.
 code; adversarial review killed roughly half. Cards must be re-authored **against verified trigger
 sites**, with a `when` predicate, a `from:` line, a weight, and the sim.js site that implements it.
 
+#### Design decisions (user, 2026-08-08)
+
+1. **Anomaly character: mostly pivots, some of each.** Target mix ≈ 18 build-pivots (change *how*
+   the kit works — the Hades duo-boon shape), ≈ 8 jackpots (strictly good, flashy), ≈ 6 risky trades
+   (real cost to play around). The pool needs per-kind weighting, not one flat anomaly list.
+2. **Anomaly rate: rarer — 1–2 per run**, down from the 2.25–3.25 currently measured. Each should be
+   an event. **Consequence to handle:** at that rate a run can roll zero, which is a flat run — so
+   the design needs a *guarantee* (at least one by level N) alongside the lower base weight.
+   Supersedes the "≈3/run" target; `MAX_ANOMALIES_PER_RUN` and `ANOMALY_BASE_WEIGHT` both drop.
+3. **Arsenal: leave `MAX_WEAPONS = 4` alone — more weapons are coming later.** Do not build a
+   scarcity mechanic; the cap will bite on its own once chapters ship a 4th weapon.
+4. **What actually feels flat** (the part measurement could not supply):
+   - Cards are boring — mostly stat bumps.
+   - **There is a dominant build per chapter** ("maxing claw damage near traps"); everything else
+     feels underwhelming. This is a *balance* problem, distinct from the variety problem this spec
+     has been solving, and it is not addressed by bucket weights at all.
+   - **Not enough agency: you cannot pursue a mod.** "Frustrating to aim for some mod (like laser
+     prism sub-beams) and not see any in the run."
+
+#### Deliverability — measured, and it is real
+
+`--compare` now reports, per mod, the share of runs that offered it **at least once** (city, 40 runs):
+
+| mod | shipped | proposed |
+|---|---|---|
+| `rainbow.prismatic` (the named one) | **62.5%** | **95.0%** |
+| `rainbow.*` (starter, owned from t=0) | 60–80% | 82–95% |
+| `trashTornado.*` / `sewerGeyser.*` | **20–40%** | 27–45% |
+| MEAN across all 19 city mods | 42.9% | 51.7% |
+
+So the complaint is exact: **a named mod is missing from more than one run in three, and a
+non-starter weapon's mod from four runs in five.** The redesign fixes the starter case for free
+(mod share 21% → 30% is most of it) but barely moves non-starter weapons.
+
+Two levers tested and **neither worked**, recorded so they are not retried:
+
+- `MOD_CANDIDATES_PER_WEAPON` 2 → 4: mean 51.7% → 54.2%, worst case no better. It changes *which*
+  mods are eligible, not *how many* mod cards a run contains, so it dilutes rather than delivers.
+- A ×3 mod-bucket focus on one weapon: `trashTornado.*` moved only 37.5% → 45%.
+
+**Hypothesis for the residual (unverified — check before designing against it):** non-starter
+weapons are *acquired late*, so few pools remain no matter how their mods are weighted. Note the
+pool is fully owned in 73–99% of runs, so this is ownership **timing**, not ownership rate. If it
+holds, the lever is earlier/more reliable weapon acquisition, not mod weighting.
+
+#### Player-directed roll weights (user idea, 2026-08-08)
+
+> *"the anomaly where dmg is decreased but infusion chance increased is fun. I'd like more of those
+> … trade 'passive upgrade roll chance' for weapon upgrade roll chance, or decrease the chance of
+> rolling certain weapon mods … via permanent upgrades or gold in the starting view, or during a run"*
+
+**This is the same machinery this redesign already builds, exposed to the player.** `BUCKET_WEIGHTS`
+was specced as an internal balance knob; this makes it a mechanic. The precedent already ships:
+`MUTATORS.unstable` is `{ elementWeightMul: 3, playerDmgMul: 0.85 }` — a bucket weight traded for a
+real cost — and the bucket shim already preserves that hook
+(`BUCKET_WEIGHTS.element * (run.mods.elementWeightMul ?? 1)`).
+
+Generalise to one mod key per bucket: `passiveWeightMul` / `modWeightMul` / `weaponWeightMul` /
+`elementWeightMul`, all defaulting to 1 and all folded in `MUTATOR_MOD_KEYS` the way
+`elementWeightMul` already is. Three delivery surfaces, as named:
+
+| surface | shape | example |
+|---|---|---|
+| **Shop (permanent)** | a standing bias bought once | "Tinkerer — weapon-mod offers ×1.4, passive offers ×0.8" |
+| **Pre-run (gold)** | one-run booster at the briefing | spend the run's opening coins on a bucket tilt |
+| **In-run (anomaly)** | a trade card, `unstable`'s shape | "Scattershot — mod offers ×2.5, −15% damage" |
+
+Design rules: every tilt carries a **cost** (that is what makes `unstable` fun rather than free);
+tilts are multipliers on the declared weights so the capacity ceilings and fidelity guards still
+hold; and a tilt must never zero a bucket (`pickWeighted` throws on an empty object, sim.js:246 —
+and a zeroed bucket also reintroduces short pools, which `test/sim-test.js` asserts against).
+
+"Decrease the chance of rolling certain weapon mods" is the same lever pointed at one id — a
+suppress/banish. Cheapest honest version: a per-run **focus on one weapon**, which is the shape
+already stubbed in the harness as `--focus`. Note the measurement above says focus alone did *not*
+fix non-starter deliverability, so ship it for the agency, not as the deliverability fix.
+
 #### Trigger-site audit (in progress, 2026-08-08)
 
 The kill reasons below were themselves written from review notes, and at least one has already gone
