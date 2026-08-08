@@ -689,6 +689,29 @@ Consequences:
 cannot see your build; an anomaly fires mid-run against a hidden condition. So the territory is
 **build-conditional effects and rule changes**, not global multipliers.
 
+#### THE SLATE AS IT STANDS (2026-08-08) — read this first
+
+Two waves and several rounds of cuts have accumulated below. Current status of every card, in one
+place. Numbers marked **open** are proposals awaiting the user's call, not decisions.
+
+| card | kind | status | numbers |
+|---|---|---|---|
+| **TIME DEBT** | pivot | **FINAL** | 1.5× run clock, +50% XP |
+| **BRITTLE** | trade | **FINAL** | maxHP → 1, damage ×4 |
+| **BERSERK** | pivot | **FINAL** | ×2 damage 5s on taking a hit; no cooldown, no threshold |
+| **UNSTABLE CORES** | jackpot | **FINAL** | every elite dies volatile; chains intended, uncapped |
+| **OVERLOAD** | trade | effect final, **rate open** | 2× fire rate, +50% damage, **~0.75 HP/s** — must be hand-played first |
+| **AVARICE** | trade | effect final, **heal open** | 20% of coins heal, drops −30%, **5 HP** per converted coin |
+| **BLOOD PACT** | trade | **rate open** | cannot heal; **+0.2% damage/kill**, uncapped — or elite-kills-only variant |
+| **BLOOD MONEY** | trade | **cost open** | rerolls cost **10 maxHP** (permanent) instead of coins |
+| **MINIMES** | pivot | **cadence open** | fleeing self-copies that taunt and detonate, scaling off player stats |
+| **WILDFIRE** | pivot | **budget open** | ignite jumps on death; needs a jump budget |
+| **ALIGNMENT** | jackpot | accepted | element combos lose their cooldown |
+| **DEADFALL** | pivot | accepted | trap immunity, trap re-arm −80% |
+| **SPECIALIST** | trade | accepted, downgraded | player-named weapon; targeting tool, NOT a deliverability fix |
+
+**Cut:** Event Horizon, Supercooled, Slow Burn, Toxic Bloom, Recoil, Riptide, Twin Study.
+
 #### Card slate (drafted with the user, 2026-08-08)
 
 **THE BAR (user, 2026-08-08): judge on fun, balance and gameplay — NOT implementation cost.** An
@@ -817,7 +840,7 @@ the card silently switch off.
 
 | card | ruling |
 |---|---|
-| **TIME DEBT** | **ACCEPTED at 1.5×**, not 2×. |
+| **TIME DEBT** | **FINAL — 1.5× clock + 50% XP.** User accepted 1.5× (not 2×), then accepted the +XP compensation once measured. Nothing left open on this card. |
 | **OVERLOAD** | **ACCEPTED at 2× fire rate** (not 3× — *"otherwise life would drain instantly"*) **plus +50% damage.** |
 | **EVENT HORIZON** | **CUT.** *"Enemies already swarm towards you, I don't see the point."* Correct, and both halves are redundant, not one: enemies path to the player every frame by default, and dragging pickups in is precisely the `magnet` passive. The card re-skinned two shipped behaviours. |
 | **BLOOD PACT** | Kept — *"could be fun, would need balancing."* Rate measured below. |
