@@ -102,10 +102,11 @@ const curveRatio = (t) =>
 //   victory at RUN_DURATION) therefore arrives N x sooner, but your dps and sustain do not scale
 //   with it. Emulated by adding the surplus to run.time after each step.
 const TIMESCALE = Number(args.find((a) => a.startsWith('--timescale='))?.slice(12) ?? 1)
-// --overload=N   OVERLOAD: 2x fire rate, +50% damage, N HP per weapon FIRE. player.fireRateMul and
+// --overload=N   OVERLOAD: 2x fire rate, 2x damage, N HP per SECOND. player.fireRateMul and
 //   player.damageMul are per-player knobs (state.js:1134-1135); the HP cost is applied raw rather
 //   than through hurtPlayer (not exported) — fine for pricing, it only skips the hurt event and the
-//   retaliate mods. N=0 measures the fire RATE alone, at no cost.
+//   retaliate mods. Per-second, NOT per-shot: fires/s spans 0.5 (city, beam) to 3.8 (body), a 7.6x
+//   chapter lottery, and a beam has no "shot" to charge for at all.
 const OVERLOAD = args.some((a) => a.startsWith('--overload'))
 const OVERLOAD_COST = Number(args.find((a) => a.startsWith('--overload='))?.slice(11) ?? 1)
 
@@ -426,7 +427,7 @@ function measure(mode) {
   // at least once. User report (2026-08-08): "frustrating to aim for some mod (like laser prism
   // sub-beams) and not seeing any in the run" — this is the measurement of that complaint.
   const modRuns = new Map()
-  const coinsEarned = [], killCounts = [], fireCounts = []
+  const coinsEarned = [], killCounts = [], fireCounts = [], eliteKillCounts = []
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
   const defPicks = { armor: 0, regen: 0, maxHP: 0 }
   let offered = 0
@@ -456,7 +457,7 @@ function measure(mode) {
     if (!SURVIVAL) run.player.magnet = 4000
     if (mode === 'proposed' && OVERLOAD) {
       run.player.fireRateMul *= 2
-      run.player.damageMul *= 1.5
+      run.player.damageMul *= 2   // user 2026-08-08: double damage, not +50%
     }
     const st = { since: 0, taken: new Set() }
     const seenMods = new Set()
@@ -464,7 +465,7 @@ function measure(mode) {
     // Counting weapon FIRES without touching src/: weaponTimers[id] counts DOWN to the next shot
     // and is reset upward on fire, so a rising edge is exactly one fire. Covers every weapon —
     // only 7 of them emit a 'shoot' event (those are for SFX), and none of the city three do.
-    let fires = 0
+    let fires = 0, eliteKills = 0
     const prevT = {}
 
     // 305s: RUN_DURATION is 300 and victory flips ON the boundary, so the loop must cross it.
@@ -511,6 +512,8 @@ function measure(mode) {
       // to 3.8/s (body) is a 7.6x chapter lottery, and "per shot" is undefined for beams entirely.
       if (OVERLOAD && mode === 'proposed' && SURVIVAL) run.player.hp -= OVERLOAD_COST * dt
       if (TIMESCALE !== 1 && mode === 'proposed') run.time += dt * (TIMESCALE - 1)
+      // BLOOD PACT stacks per kill AND per elite kill, so both rates need their own denominator.
+      for (const ev of run.events) if (ev.type === 'kill' && ev.elite) eliteKills++
       run.events.length = 0
     }
     Math.random = REAL_RANDOM
@@ -519,6 +522,7 @@ function measure(mode) {
     for (const k of seenMods) modRuns.set(k, (modRuns.get(k) ?? 0) + 1)
     coinsEarned.push(run.coinsEarned ?? 0)
     killCounts.push(run.kills ?? 0)
+    eliteKillCounts.push(eliteKills)
     fireCounts.push(fires)
     levels.push(run.player.level)
     anomalies.push(st.taken.size)
@@ -551,6 +555,7 @@ function measure(mode) {
     modRuns,
     coins: avg(coinsEarned),
     kills: avg(killCounts),
+    eliteKills: avg(eliteKillCounts),
     fires: avg(fireCounts),
     liveT: avg(deaths.length ? deaths.map((d) => Math.min(d.t, C.RUN_DURATION)) : [C.RUN_DURATION]),
     winRate: deaths.length ? (100 * deaths.filter((d) => d.won).length) / deaths.length : 0,
@@ -562,7 +567,7 @@ const f1 = (n) => n.toFixed(1)
 function report(r) {
   console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY} mode=${r.mode}`)
   console.log(`level ${f1(r.level)}  cards/run ${f1(r.cards)}  weaponLvSum ${f1(r.weaponLv)}  coins/run ${f1(r.coins)} (cap ${C.COIN_CAP_PER_RUN})`)
-  console.log(`kills/run ${f1(r.kills)}  fires/run ${f1(r.fires)} (${f1(r.fires / r.liveT)}/s over ${f1(r.liveT)}s alive)`)
+  console.log(`kills/run ${f1(r.kills)} (elites ${f1(r.eliteKills)})  fires/run ${f1(r.fires)} (${f1(r.fires / r.liveT)}/s over ${f1(r.liveT)}s alive)`)
   console.log(`short pools ${r.shortPools}/${r.pools}  (MUST be 0)`)
   console.log(`kind   ${Object.entries(r.kinds).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`rarity ${Object.entries(r.rarities).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)

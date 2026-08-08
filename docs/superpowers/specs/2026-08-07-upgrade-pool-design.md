@@ -700,10 +700,10 @@ place. Numbers marked **open** are proposals awaiting the user's call, not decis
 | **BRITTLE** | trade | **FINAL** | maxHP → 1, damage ×4 |
 | **BERSERK** | pivot | **FINAL** | ×2 damage 5s on taking a hit; no cooldown, no threshold |
 | **UNSTABLE CORES** | jackpot | **FINAL** | every elite dies volatile; chains intended, uncapped |
-| **OVERLOAD** | trade | effect final, **rate open** | 2× fire rate, +50% damage, **~0.75 HP/s** — must be hand-played first |
+| **OVERLOAD** | trade | **FINAL** | 2× fire rate, 2× damage, 0.75 HP/s — measured 75% win, deaths cluster at 271s |
 | **AVARICE** | trade | effect final, **heal open** | 20% of coins heal, drops −30%, **5 HP** per converted coin |
-| **BLOOD PACT** | trade | **rate open** | cannot heal; **+0.2% damage/kill**, uncapped — or elite-kills-only variant |
-| **BLOOD MONEY** | trade | **cost open** | rerolls cost **10 maxHP** (permanent) instead of coins |
+| **BLOOD PACT** | trade | **FINAL** | cannot heal; +0.1% damage/kill and +1%/elite → ×1.7–3.0 end state |
+| **BLOOD MONEY** | trade | **FINAL** | rerolls cost 10 HP flat instead of coins (floor at 10 HP) |
 | **MINIMES** | pivot | **cadence open** | fleeing self-copies that taunt and detonate, scaling off player stats |
 | **WILDFIRE** | pivot | **budget open** | ignite jumps on death; needs a jump budget |
 | **ALIGNMENT** | jackpot | accepted | element combos lose their cooldown |
@@ -888,10 +888,29 @@ maxHP plus `regen` averaging 0.41/s ≈ 123 HP healed over 300s). 0.5 HP/s spend
 comfortable 60%. 1 HP/s spends 300 — more than everything you have. The card flips from free to
 fatal because the drain crosses the budget line, not because of anything subtler.
 
-Conclusions:
+##### CONFIRMED — 2× fire rate, 2× damage, 0.75 HP/s (user, 2026-08-08)
 
-1. **Ship it at ~0.75 HP/s** (225 HP, sitting right on the budget line) — the only rate that is
-   neither free nor fatal.
+The user raised the damage clause from +50% to **double** and took 0.75 HP/s. Re-measured at those
+numbers (same rig), against the proposed-pool baseline of 100% win / level 29.8 / weaponLvSum 10.5:
+
+| | baseline | **OVERLOAD final** |
+|---|---|---|
+| win rate | 100% | **75.0%** |
+| deaths | 0/24 | **6/24** |
+| median death | — | **270.9s** |
+| level reached | 29.8 | **30.8** |
+| weaponLvSum | 10.5 | 10.6 |
+
+**Well-tuned, and the shape is right.** It costs 25 points of win rate; it pays slightly *more*
+levels (4× DPS clears faster and drops more gems); and **every death lands in the final minute**
+(median 270.9s of a 300s run). The doomsday-clock property flagged below is real but arrives as a
+last-minute crescendo rather than a mid-run collapse — which is exactly the fantasy. No further
+change; the hand-play check below still applies, but the bot no longer says the card is broken.
+
+Conclusions from the rate sweep that produced it:
+
+1. **0.75 HP/s** (225 HP, sitting right on the budget line) is the only rate that is neither free nor
+   fatal — confirmed above.
 2. **The cliff is the design, not a defect.** Landing the cost at the budget line makes survival
    depend on sustain investment, which is exactly what a build-conditional card should do — and it
    gets there without a hard gate. It does mean the card is near-binary: a regen build lives, a
@@ -946,24 +965,59 @@ density. The intensity *is* the product.
 saturated and blind here** — level reached is the only live signal. A harder config is needed before
 claiming Time Debt costs no survival in general.
 
-##### BLOOD PACT — kills/run sets the rate
+##### BLOOD PACT — SETTLED at +0.1%/kill and +1%/elite (user, 2026-08-08)
 
-| chapter | kills/run | at +1%/kill | at +0.2%/kill |
-|---|---|---|---|
-| body | 569.9 | ×6.7 | **×2.1** |
-| city | 1894.5 | ×19.9 | **×4.8** |
-| beyond | 1711.8 | ×18.1 | **×4.4** |
++1% per kill was the first draft and it ends the run at ×6.7 (body) to ×19.9 (city) — past "absurd"
+and into "the last two minutes have no threat left", which the rarity licence does not cover (it
+permits runs that *explode*, not runs that go inert). The user set **+0.1% per kill plus +1% per
+elite kill**. Measured denominators:
 
-+1% per kill ends the run at ×7 to ×20 damage — past "absurd" and into "the last two minutes have no
-threat left", which is anti-fun in a way the rarity licence does not cover (the licence permits
-runs that *explode*, not runs that go inert). **Recommend +0.2% per kill, uncapped.** Note the 3.3×
-kill-rate spread between chapters survives any flat rate; if it matters, the rate is now measurable
-per chapter and can be set per chapter.
+| chapter | kills/run | elites/run | from kills | from elites | **end state** |
+|---|---|---|---|---|---|
+| body | 569.9 | 10.6 | +57.0% | +10.6% | **×1.68** |
+| city | 1901.7 | 8.6 | +190.2% | +8.6% | **×2.99** |
+| beyond | 1678.6 | 9.5 | +167.9% | +9.5% | **×2.77** |
 
-*Variant worth considering:* stack on **elite** kills only. Elite cadence is governed by
-`eliteEvery`, so the rate self-normalises, and "hunt the elites" is better play than "kill anything".
+**×1.7–3.0 is a good end state** — strong, memorable, still leaves the last minute threatening.
 
-##### BLOOD MONEY — flat 10 HP is too cheap; charge 10 **maxHP**
+**The finding worth acting on: elite count is chapter-INVARIANT.** 8.6–10.6 across three chapters
+whose *total* kill counts differ by 3.3×, because `eliteEvery` is a **time** cadence, not a kill
+cadence. That makes the two clauses do opposite jobs:
+
+- the **per-kill** clause is the chapter lottery (+57% to +190%, a 3.3× spread);
+- the **per-elite** clause is the chapter-fair one (+8.6% to +10.6%, near-uniform).
+
+At the chosen rates the fair clause contributes only **4–6% of the total bonus** — "+1% per elite"
+is very nearly decorative. If elites are meant to be *felt*, raise that clause to ~5% (+43–53%,
+uniform) and cut per-kill toward +0.02%; the card then rewards hunting elites and stops varying 3×
+by chapter. **Flagged, not changed — the shipped numbers are the user's +0.1% / +1%.**
+
+##### BLOOD MONEY — SETTLED at flat 10 HP (user overruled the maxHP proposal, 2026-08-08)
+
+**The user is right and the objection below was overstated.** It priced rerolls against a budget of
+"maxHP + regen", using `regen` **averaged across runs** (0.41/s in the body sample). That average
+hides a bimodal reality: *regen is not picked in most runs at all*. With no regen the budget is just
+maxHP (~110–127) — about 11 rerolls, not 23 — and the user's design argument follows from exactly
+that:
+
+> *"regen is not in every run, sometimes you don't pick regen. picking this will force you to pick
+> regen, which in turn will give you less upgrades for damage, so good trade i think."*
+
+That is the card working as intended: it does not merely *spend* HP, it **re-prices the passive
+pool**, turning a defensive pick into the enabler of an offensive strategy. Opportunity cost in
+level-up picks is a better cost than a flat resource drain, and it is paid in the currency the whole
+redesign is about — what you choose on the level-up screen.
+
+**FINAL: rerolls cost 10 HP, flat, replacing the coin cost.** Keep in mind at implementation:
+
+- **Floor it** — block the reroll below 10 HP rather than allowing a death on a modal screen.
+- **The ceiling is real and intended.** A dedicated max-`regen` build (2.5 HP/s = 750 HP/run) can
+  reroll essentially every screen. That is a legitimate build bought with 5 passive picks, not an
+  exploit — but it should be a known consequence, not a discovery.
+- Anti-synergies stay legible: BRITTLE (maxHP 1) disables rerolls entirely, BLOOD PACT (no healing)
+  makes every reroll permanent.
+
+<details><summary>Superseded proposal — charge 10 maxHP (kept for the reasoning)</summary>
 
 The idea targets the exact complaint that started this redesign (*"not enough agency… frustrating to
 aim for some mod and not see any"*), and it is the only card that converts survivability directly
@@ -981,6 +1035,8 @@ scarcity that makes a reroll a decision.
   genuine build decision where today it is the boring pick.
 - Anti-synergises sharply with BRITTLE (maxHP 1 = no rerolls at all) and with BLOOD PACT (no
   healing, so every reroll is permanent) — both good, both legible before you take the card.
+
+</details>
 
 #### Second wave — as first proposed (2026-08-08)
 
