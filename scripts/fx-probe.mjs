@@ -18,6 +18,12 @@
 //   3. A scene that throws renders nothing, which looks identical to "the effect is invisible".
 //      Any throw is painted into the page, so the screenshot itself carries the error text.
 //
+// JUDGING A ROTATION OR A PULSE: those are driven by animT, which only advances when sync() gets a
+// non-zero dt. H.render() feeds it the sim time H.tick() has accumulated, so a scene that ticks
+// between captures animates; a scene that only rewinds a decay field (beam-prism.js) still renders
+// frozen, which is what it wants. If a captured sequence of a spinning sprite looks static, check
+// that the scene is actually ticking before you go looking at the sprite.
+//
 // WHAT "REPRODUCIBLE" MEANS HERE: the SCENE is — same tile, same cast, same entity state, run
 // after run. The pixels are not quite. A few render effects key off animT (the beam's own pulse,
 // floor dust), and animT counts wall-clock time before the ticker was stopped, so two invocations
@@ -122,6 +128,7 @@ const bootstrap = `(() => {
     reseed()   // trap 1: the free-running ticker already burned an unknown number of randoms
 
     let pinned = []
+    let pendingDt = 0
     const H = {
       // One sim step with its events dropped. Without the drain the final sync receives every
       // event of the whole warm-up at once and the frame is buried under damage numbers.
@@ -129,6 +136,7 @@ const bootstrap = `(() => {
         step(run, { x: 0, y: 0 }, dt)
         run.events.length = 0
         run.player.hp = run.player.maxHP
+        pendingDt += dt
       },
       until(pred, max = 4000) { let g = 0; while (!pred() && g++ < max) { H.tick(); H.pin() } return g < max },
       breed(n, max = 6000) { run.player.hp = run.player.maxHP = 99999; return H.until(() => run.enemies.length >= n, max) },
@@ -160,7 +168,16 @@ const bootstrap = `(() => {
         const ui = document.getElementById('ui')
         if (ui) ui.style.display = 'none'
       },
-      render() { window.__renderer.sync(run, 0, []); app.renderer.render(app.stage) },
+      // Renders with the sim time accumulated by tick() since the last render, clamped to main.js's
+      // own 0.05 ceiling. NOT sync(run, 0): dt=0 is the game's "frozen behind a modal" path, which
+      // holds animT still — and animT is what drives every sprite ROTATION and pulse. A probe that
+      // always passed 0 could never show a spin, so a frame sequence of a turning sprite came back
+      // looking static and the motion read as "the animation does not work".
+      render() {
+        window.__renderer.sync(run, Math.min(pendingDt, 0.05), [])
+        pendingDt = 0
+        app.renderer.render(app.stage)
+      },
       // Remember a decaying list's lives so the same cast can be re-rendered at any point of its
       // fade. Returns the scrub function a scene should hand back.
       scrub(list) {

@@ -4043,31 +4043,46 @@ export function createRenderer(app) {
       // ring sideways gives the column a direction, and the spin then reads as a throat wobbling
       // as it turns. Origin (0,0) is the sim's hit centre and bake() anchors on the Graphics
       // origin (not the bounds centre), so the mouth lands on run.debris[i].x/y.
+      // v6.8.2: ONE TEXTURE PER RING, not one texture for the whole throat. The rings turn at
+      // different speeds (see TORNADO_RING_SPIN / syncTornadoes) and a single baked sprite can only
+      // turn as a unit. Each ring is baked with its off-centre offset already in it and its
+      // Graphics origin left at (0,0) — bake() anchors on that origin, so spinning the sprite
+      // sweeps the offset circle around the hit centre, which IS the swirl.
       const DUST = 0xb9a98f, LIGHT = 0xe0d4bc, DARK = 0x4a4034
-      const g = new Graphics()
+      T.tornadoRings = []
       for (let i = 0; i < 6; i++) {
         const t = i / 5
+        const g = new Graphics()
+        // Outer rings are hazier than v6.8.1's flat 0.2 (owner: "outer ring a bit transparent") —
+        // it read as a solid pale disc lying on the street rather than as airborne dust. The stroke
+        // is tied to the fill at just over half, because a crisp dark outline on a near-invisible
+        // ring is exactly what made the mouth look like a drawn object.
+        const alpha = 0.12 + 0.148 * i
         g.circle(11 * t * t, 0, 30 - 24 * t)          // quadratic step: the lean grows with depth
-          .fill({ color: i % 2 ? LIGHT : DUST, alpha: 0.2 + 0.13 * i })  // deeper rings read denser
-          .stroke({ width: 1.3, color: DARK, alpha: 0.35 })
-      }
-      g.circle(11, 0, 4.5).fill({ color: 0x241f19, alpha: 0.85 })        // the core, nearly black
-      // Caught scraps on the mouth — the one detail that says TRASH tornado and not a portal. Same
-      // facet palette as the lone chunk this bake replaced in v6.8.
-      for (let i = 0; i < 4; i++) {
-        const a = hash(i * 5.7 + 0.9) * Math.PI * 2
-        const r = 16 + hash(i * 2.4 + 5.5) * 12
-        const cx = Math.cos(a) * r, cy = Math.sin(a) * r
-        const s = 3.2 + hash(i * 7.1) * 2
-        const pts = []
-        for (let k = 0; k < 5; k++) {
-          const ka = a + (k / 5) * Math.PI * 2
-          const rr = s * (0.65 + hash(k * 2.9 + cx * 0.13 + 3.1) * 0.6)
-          pts.push(cx + Math.cos(ka) * rr, cy + Math.sin(ka) * rr)
+          .fill({ color: i % 2 ? LIGHT : DUST, alpha })
+          .stroke({ width: 1.3, color: DARK, alpha: alpha * 0.55 })
+        if (i === 5) g.circle(11, 0, 4.5).fill({ color: 0x241f19, alpha: 0.85 }) // core, nearly black
+        // Caught scraps ride the MOUTH (the outermost ring), which is the one detail that says
+        // TRASH tornado and not a portal — and riding one ring means they now orbit at the mouth's
+        // own speed instead of being frozen relative to the throat. Same facet palette as the lone
+        // chunk this bake replaced in v6.8.
+        if (i === 0) {
+          for (let k = 0; k < 4; k++) {
+            const a = hash(k * 5.7 + 0.9) * Math.PI * 2
+            const r = 16 + hash(k * 2.4 + 5.5) * 12
+            const cx = Math.cos(a) * r, cy = Math.sin(a) * r
+            const s = 3.2 + hash(k * 7.1) * 2
+            const pts = []
+            for (let j = 0; j < 5; j++) {
+              const ja = a + (j / 5) * Math.PI * 2
+              const rr = s * (0.65 + hash(j * 2.9 + cx * 0.13 + 3.1) * 0.6)
+              pts.push(cx + Math.cos(ja) * rr, cy + Math.sin(ja) * rr)
+            }
+            g.poly(pts).fill(DUST).stroke({ width: 1, color: DARK })
+          }
         }
-        g.poly(pts).fill(DUST).stroke({ width: 1, color: DARK })
+        T.tornadoRings.push(bake(g))
       }
-      T.tornado = bake(g)
     }
     {
       // rock chunk (skies, run.lobs): the kaiju's thrown masonry — chunkier and colder than trash
@@ -11011,10 +11026,14 @@ export function createRenderer(app) {
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
-      boomerangPool, minePool, homingPool, trapPool, debrisPool, shotPool,
+      boomerangPool, minePool, homingPool, trapPool, shotPool,
     ]) {
       for (const s of pool) s.visible = false
     }
+    // debrisPool holds RIGS since v6.8.2 (a Container per funnel, one sprite per ring), so it must
+    // hide .root — left in the flat list above, `s.visible = false` would set a dead property on a
+    // plain object and quietly leave last run's funnels on screen.
+    for (const tv of debrisPool) tv.root.visible = false
     for (const cv of carPool) cv.root.visible = false
     for (const lv of lobPool) lv.root.visible = false
     carCount = 0
@@ -11793,7 +11812,7 @@ export function createRenderer(app) {
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
     syncPool(minePool, mineLayer, run.mines, 'mine', T.mine, placeMine)
     syncPool(homingPool, homingLayer, run.homingShots, 'homing', T.homing, placeHoming)
-    syncPool(debrisPool, debrisLayer, run.debris || [], 'debris', T.tornado, placeDebris)
+    syncTornadoes(run.debris || [])
     syncPool(shotPool, shotLayer, run.enemyShots || [], 'shot', T.missile, placeShot)
     syncHoles(run.holes)
     // v5.22: expand a FOLDED beam into one drawn arm per damaging arm. syncBeams draws a single
@@ -11901,18 +11920,47 @@ export function createRenderer(app) {
       s.scale.set(base * (1 + 0.1 * Math.sin(animT * 8 + (m.x + m.y) * 0.05))) // armed: faster pulse
     }
   }
-  // Trash Tornado funnels (run.debris): sim owns their positions outright now (they hunt), so this
-  // only draws where they already are. The old scrap spun on its own phase; an upright funnel must
-  // NOT — cartwheeling it destroys the exact cue the bake exists to give. The turning is sold by a
-  // width pulse instead, with a slow lean off vertical so the pack doesn't look like a row of pins.
-  function placeDebris(s, d, i) {
-    s.position.set(d.x, d.y)
-    s.tint = 0xffffff
-    // A top-down throat SPINS — that is the whole animation, and it only works because the bake's
-    // rings are stepped off-centre (see T.tornado). The per-funnel phase offset stops a pack from
-    // turning in lockstep, which reads as one object smeared across the screen.
-    s.rotation = animT * 2.4 + i * 1.3
-    s.scale.set(((d.r ?? DEBRIS_R) / DEBRIS_R) * (1 + 0.06 * Math.sin(animT * 8 + i * 2.2)))
+  // Trash Tornado funnels (run.debris): sim owns their positions outright (they hunt), so this only
+  // draws where they already are.
+  //
+  // v6.8.2 (owner: "rings should swirl at different speeds") — each ring is its own sprite turning
+  // at its own rate, mouth slowest and core fastest, the way a real vortex conserves angular
+  // momentum inward. That differential is the whole reason this is a rig and not one rotated
+  // texture: turning six rings in lockstep is indistinguishable from turning one disc, which is
+  // what v6.8.1 shipped. Values are rad/s, driven by animT so a frozen frame (dt=0 behind a modal)
+  // freezes the swirl too.
+  const TORNADO_RING_SPIN = [1.1, 1.5, 2.0, 2.7, 3.6, 4.8]
+
+  function acquireTornado() {
+    const root = new Container()
+    const rings = T.tornadoRings.map((look) => {
+      const s = spriteOf(look)
+      root.addChild(s)
+      return s
+    })
+    debrisLayer.addChild(root)
+    return { root, rings }
+  }
+
+  function syncTornadoes(list) {
+    const n = list.length
+    while (debrisPool.length < n) debrisPool.push(acquireTornado())
+    for (let i = 0; i < n; i++) {
+      const rig = debrisPool[i]
+      const d = list[i]
+      rig.root.visible = true
+      rig.root.position.set(d.x, d.y)
+      // The breathing pulse stays on the ROOT so every ring swells together — per-ring pulses read
+      // as the throat coming apart rather than as one thing turning.
+      rig.root.scale.set(((d.r ?? DEBRIS_R) / DEBRIS_R) * (1 + 0.06 * Math.sin(animT * 8 + i * 2.2)))
+      for (let k = 0; k < rig.rings.length; k++) {
+        // The + i * 1.3 offset is per FUNNEL, not per ring: without it a pack turns in unison and
+        // six funnels read as one object smeared across the street.
+        rig.rings[k].rotation = animT * TORNADO_RING_SPIN[k] + i * 1.3 + k * 0.9
+      }
+    }
+    for (let i = n; i < prevCount.debris; i++) debrisPool[i].root.visible = false
+    prevCount.debris = n
   }
   // Enemy missiles (run.enemyShots): aimed along velocity, trailing smoke. These are the only
   // things on screen shooting AT the player, so they get a trail — motion you can track and outrun.
