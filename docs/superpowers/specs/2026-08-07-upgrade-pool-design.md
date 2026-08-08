@@ -583,6 +583,24 @@ choice-dependent and the pity counter would need folding into the seeded stream.
 code; adversarial review killed roughly half. Cards must be re-authored **against verified trigger
 sites**, with a `when` predicate, a `from:` line, a weight, and the sim.js site that implements it.
 
+#### Trigger-site audit (in progress, 2026-08-08)
+
+The kill reasons below were themselves written from review notes, and at least one has already gone
+stale. Each must be re-checked against the code before a card is rewritten *or* left dead.
+
+| Claim | Status | Evidence |
+|---|---|---|
+| `run.traps` scatters once and dies past the origin | **FALSE — stale** | v6.5 moved traps to `streamTraps` (cell-hash, salts 15–17), permanent streamed field furniture. state.js:875–886. **Trapper is revived** — re-author it. |
+| `run.wells` scatters once and dies past the origin | **TRUE, and deliberate** | `generateWells` → `scatterField`, placed within `OBSTACLE_FIELD_RADIUS` of the run origin at createRun. state.js:405–414, 430–436. The comment states the intent: *"These stay origin-seeded setpieces, unlike obstacles, which stream — a signature field is the arena's opening hand, not terrain."* Local Physics stays dead unless that design call is reopened. |
+| pond has no `wave` weapon, so Riptide cannot gate on it | **TRUE** | `CHAPTERS.pond.weapons = ['flagella','mines','bloom']`, config.js:1638. |
+
+Remaining to verify: Elementalist (the `applyElements` recursion guard, sim.js:1662), Overtuned
+(`applyChoice` stores an accumulated float, no per-pick rarity), Hunger (`collect()` serves gems
+**and** coins off one `pickupSq`), Slipstream (`currentForce` nonzero across ~92% of the world),
+Counter-Scent (pheromones are trails from *dying* ants), Flak (`run.bombs` shared with
+volatile-elite and artillery), Sonic Boom (roar/tailSwipe on independent auto-timers), Debris Field
+(`run.debris` rewritten every frame), Pack Leader (no allied-unit system).
+
 Dead as written, with reasons worth keeping:
 
 | Card | Why |
