@@ -36,6 +36,8 @@ node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Only `sim.js` (+ its `config.js`/`state.js` deps) is testable this way** — it's the only module free of Pixi/DOM.
 
+Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
+
 ## Module architecture — the boundaries are the design
 
 Every module has a hard rule about what it may touch. These rules are what make the sim headless-testable and the renderer swappable; **do not cross them.**
