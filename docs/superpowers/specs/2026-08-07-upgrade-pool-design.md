@@ -159,6 +159,66 @@ Watch item: ×1.8 lengthens time-to-kill and spongy enemies are a known feel-kil
 Re-run the sweep against `hpScale` (the shipping lever) and check TTK in playtest before locking it.
 If TTK degrades, prefer accepting slightly-easier over pushing HP higher.
 
+### Per-chapter ladder (user, 2026-08-08): "no change in ch1, up to ×3 in the last"
+
+**The channel already exists** — `CHAPTERS[id].balance.enemyHpMul`, folded at state.js:1098. This is a
+table edit, not new machinery. Current ladder:
+
+| body | pond | garden | undergrowth | city | skies | beyond |
+|---|---|---|---|---|---|---|
+| 0.75 | 0.85 | 0.9 | 1.0 | 1.05 | 1.15 | **1.0** |
+
+Note it **already goes down at the last step** (skies 1.15 → beyond 1.0): undergrowth and beyond
+carry no `enemyHpMul` at all, so the final chapter is currently softer than the two before it.
+
+**First: the offset needed for parity is roughly UNIFORM, ~1.9.** Measured 1.8 (body/2 d3 shop8) and
+1.9 (beyond/4 d1 shop2). An earlier read that "the easing scales with slot count" was **confounded**
+— the 4-slot config also runs at shop 2, because `SACRIFICE_COSTS` [20,40] spends 60 of the 80
+available shop levels, while the 2-slot config runs at shop 8. That was the shop, not the slots.
+(beyond/2 shop8: win 22.5% → 72.5%, level 21.3 → 32.9 — the buff is large at 2 slots too.)
+
+So a rising ladder is **not compensation, it is a deliberate re-cut of the difficulty curve.** That
+is a legitimate goal — "difficulty that never plateaus" is stated user taste — but it must be
+costed as such, not mistaken for neutralising the pool.
+
+**Second: ×3 at the top is too far.** It does not make the last chapter harder, it makes it
+*shorter* (beyond/4, 40 runs):
+
+| offset | median survival | **level-ups** | weaponLvSum |
+|---|---|---|---|
+| baseline | 120.6s | 11.3 | 3.0 |
+| ×1.0 | 190.7s (+58%) | 17.3 | 7.7 |
+| ×1.9 | 128.9s (+7%) | 11.8 | 5.7 |
+| ×2.2 | 95.6s (−21%) | 9.3 | 4.8 |
+| ×2.5 | 89.3s (−26%) | 7.9 | 4.4 |
+| ×3.0 | 71.9s (−40%) | **6.3** | **3.7** |
+
+At ×3 level-ups collapse 11.3 → 6.3 and `weaponLvSum` falls back to 3.7 — approximately the **old**
+pool. You die before you can build, so the redesign's entire payoff (meaningful build choices) is
+deleted in the chapter that should show it off best. **×2.2 is the practical ceiling**: clearly
+harder (−21% survival) while level-ups hold at 9.3.
+
+**Proposed ladder** — stated as TOTAL `enemyHpMul`, i.e. what goes in `CHAPTERS[id].balance`:
+
+| | body | pond | garden | undergrowth | city | skies | beyond |
+|---|---|---|---|---|---|---|---|
+| **new** | **0.75** | 1.00 | 1.25 | 1.55 | 1.85 | 2.10 | **2.35** |
+| vs parity (1.9×current) | 52% | 62% | 73% | 82% | 93% | 96% | **124%** |
+| step | — | +33% | +25% | +24% | +19% | +14% | +12% |
+
+Chapter 1 is untouched, so it keeps the full gift of the redesign — appropriate for onboarding, and
+consistent with how heavily body is already eased (net spawn 0.30, xp 2.775). The curve then
+tightens monotonically to *harder than today* in beyond. Steps decelerate and all stay under +40%,
+matching the shape v6.6.7 established for the `maxAliveMul` ladder.
+
+**Before shipping:**
+
+1. Verify per chapter — only body, city and beyond are measured; pond/garden/undergrowth/skies are
+   interpolated. Run `--survival --compare --offset=<new/current>` for each.
+2. Add a monotonicity assert walking `CHAPTER_ORDER` (fails on a step that goes DOWN or exceeds
+   +40%), mirroring Run VV's `maxAliveMul` guard. The current ladder would fail it today.
+3. Re-check TTK per chapter at the top of the ladder — 2.35 is a lot of sponge on beyond's roster.
+
 Caveats: one bot policy, one pick policy (`dps`), 40 runs — win rates carry a wide binomial
 interval, and the offset bracket is ±0.2 at best. Treat ≈1.7× as an order of magnitude, and re-run
 the sweep against whichever lever actually ships.
