@@ -109,6 +109,28 @@ const TIMESCALE = Number(args.find((a) => a.startsWith('--timescale='))?.slice(1
 //   chapter lottery, and a beam has no "shot" to charge for at all.
 const OVERLOAD = args.some((a) => a.startsWith('--overload'))
 const OVERLOAD_COST = Number(args.find((a) => a.startsWith('--overload='))?.slice(11) ?? 1)
+// --fire=N --dmg=N   SOY MILK / IPECAC: flat multipliers on the same two player knobs Overload
+//   rides. Soy Milk is --fire=5 --dmg=0.2 (dps-NEUTRAL on paper, 5 x 0.2 = 1.0); Ipecac is
+//   --fire=0.5 --dmg=3 (1.5x on paper). Both paper figures are the question, not the answer:
+//   overkill waste makes big hits worth less than their multiplier, and per-hit damage that falls
+//   under a tank's effective HP makes small hits worth less than theirs. Multipliers, unlike
+//   Overload's per-second cost, carry no cadence hazard — they scale a beam and a shotgun alike.
+const FIRE_MUL = Number(args.find((a) => a.startsWith('--fire='))?.slice(7) ?? 1)
+const DMG_MUL = Number(args.find((a) => a.startsWith('--dmg='))?.slice(6) ?? 1)
+// --rarityfloor=<tier>  BLIND FAITH: drop every tier below <tier> from the rarity roll. Read only
+//   inside proposedChoices, so it is proposed-only by construction. Run it as proposed-vs-proposed
+//   (two --proposed invocations, same seeds) — comparing against the CURRENT pipeline would fold
+//   the redesign's own buff into the card's.
+const RARITY_FLOOR = args.find((a) => a.startsWith('--rarityfloor='))?.slice(14) ?? null
+// The table the rarity ROLL draws from. Weapon inherent rarity (the `New!` acquisition gate) keeps
+// reading the unfiltered P_RARITY_WEIGHTS below — that is a different question and a floor there
+// would silently delete common weapons from the pool rather than upgrade the roll.
+const ROLL_WEIGHTS = (() => {
+  if (!RARITY_FLOOR) return P_RARITY_WEIGHTS
+  const i = C.RARITY_ORDER.indexOf(RARITY_FLOOR)
+  if (i < 0) throw new Error(`--rarityfloor: unknown tier "${RARITY_FLOOR}" (${C.RARITY_ORDER.join('|')})`)
+  return Object.fromEntries(C.RARITY_ORDER.slice(i).map((r) => [r, P_RARITY_WEIGHTS[r]]))
+})()
 
 // Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
 // nobody reaches city (ch5) or buys a 4th slot without a stocked shop, and a survival number from
@@ -303,7 +325,7 @@ function proposedChoices(run, st) {
       if (b === 'passive') {
         const w = {}
         for (const id of passOk) w[id] = DEFENSIVE.has(id) ? DEFENSIVE_WEIGHT : 1
-        card = mkPassive(run, pickW(w), pickW(P_RARITY_WEIGHTS))
+        card = mkPassive(run, pickW(w), pickW(ROLL_WEIGHTS))
       } else if (b === 'mod') {
         // --focus=<weapon>: the player-agency lever. Up-weights ONE weapon's mods inside the mod
         // bucket, so "I am building the tornado" becomes a thing the pool can actually serve.
@@ -315,7 +337,7 @@ function proposedChoices(run, st) {
           for (let i = 0; i < modOk.length; i++) w[i] = modOk[i].weapon === focusOn ? FOCUS_MUL : 1
           m = modOk[Number(pickW(w))]
         } else m = modOk[(Math.random() * modOk.length) | 0]
-        card = mkMod(run, m.weapon, m.mod, pickW(P_RARITY_WEIGHTS))
+        card = mkMod(run, m.weapon, m.mod, pickW(ROLL_WEIGHTS))
       } else if (b === 'weapon') {
         // Inherent rarity is a WEIGHT inside the bucket, never a filter — that keeps hole
         // (legendary) and rainbow (mythic) rare FINDS without letting a rarity roll delete
@@ -328,7 +350,7 @@ function proposedChoices(run, st) {
         const c = wOk[Number(pickW(w))]
         card = { kind: 'weapon', id: c.id, rarity: c.tag === 'New!' ? c.rarity : 'upgrade', tag: c.tag }
       } else if (b === 'element') {
-        card = mkElement(run, eOk[(Math.random() * eOk.length) | 0], pickW(P_RARITY_WEIGHTS))
+        card = mkElement(run, eOk[(Math.random() * eOk.length) | 0], pickW(ROLL_WEIGHTS))
       }
     }
 
@@ -459,6 +481,8 @@ function measure(mode) {
       run.player.fireRateMul *= 2
       run.player.damageMul *= 2   // user 2026-08-08: double damage, not +50%
     }
+    if (mode === 'proposed' && FIRE_MUL !== 1) run.player.fireRateMul *= FIRE_MUL
+    if (mode === 'proposed' && DMG_MUL !== 1) run.player.damageMul *= DMG_MUL
     const st = { since: 0, taken: new Set() }
     const seenMods = new Set()
     const dt = 1 / 60

@@ -709,8 +709,17 @@ place. Numbers marked **open** are proposals awaiting the user's call, not decis
 | **ALIGNMENT** | jackpot | accepted | element combos lose their cooldown |
 | **DEADFALL** | pivot | accepted | trap immunity, trap re-arm −80% |
 | **SPECIALIST** | trade | accepted, downgraded | player-named weapon; targeting tool, NOT a deliverability fix |
+| **STILLNESS** | pivot | accepted | damage ramps while you give no move input; decays on moving |
+| **MARTYR** | pivot | accepted | HP you lose detonates around you — makes HP into ammunition |
+| **CHAOS PACT** | pivot | accepted | repeating 60s cycle: 15s of +50% spawns, then +50% damage |
+| **CONSCRIPTION** | jackpot | accepted | killed elites fight for you, inheriting 50% damage / 100% fire rate & crit |
+| **BLIND FAITH** | trade | accepted, **cost open** | no normal/rare rolls; cards hidden but for the border; passed cards revealed |
+| **SOY MILK** | trade | accepted | ×5 fire rate/projectiles, −80% damage — measured ~neutral, ships as written |
+| **IPECAC** | trade | accepted, **number open** | ½ fire rate, ×3 damage — measured a **wash**; ×3 is not enough |
 
-**Cut:** Event Horizon, Supercooled, Slow Burn, Toxic Bloom, Recoil, Riptide, Twin Study.
+**Cut:** Event Horizon, Supercooled, Slow Burn, Toxic Bloom, Recoil, Riptide, Twin Study, Native,
+Harvest, Synchrony, Second Wind (a revive already ships in the shop), Thorns (`retaliate` is already
+a quill mod).
 
 #### Card slate (drafted with the user, 2026-08-08)
 
@@ -1037,6 +1046,156 @@ scarcity that makes a reroll a decision.
   healing, so every reroll is permanent) — both good, both legible before you take the card.
 
 </details>
+
+#### Third wave — user rulings (2026-08-08)
+
+Requested as *"design some more unique mods… thinking of isaac item combos, warframe abilities,
+hades boons, or other arpg/survivor/roguelite games."* Eight proposed, six survive.
+
+**Two died before they were written down**, killed by reading `config.js` rather than by argument —
+worth recording as the pattern, not the instances:
+
+- **Second Wind** (revive on death) — `SHOP.revive` already ships it: 150 coins, `REVIVE_HP_FRAC`
+  0.5, `REVIVE_SHOVE_RADIUS` 300.
+- **Thorns** (retaliate on being hit) — `WEAPON_MODS.quillBurst.retaliate` already is exactly that.
+
+**Cut by the user:**
+
+- **NATIVE** (the chapter's signature hazard changes sides — 6 faces, absorbing Deadfall as its
+  undergrowth face): *"not interesting enough we already have cars, lawnmowers etc."* The hazards
+  already exist as spectacle; reversing their polarity adds a rule, not an experience.
+- **HARVEST** (uncollected gems detonate instead of paying XP): *"no, not fun."*
+- **SYNCHRONY** (all weapons discharge together on a 3s beat) — replaced by the Soy Milk / Ipecac
+  pair below, which is the same "restructure the shot" idea with a live decision in it.
+
+**STILLNESS** — accepted as proposed. Damage ramps (~×3 over 2s) while you give no movement input,
+decaying instantly on moving. Inverts the one rule the genre teaches for 300 seconds.
+
+> **Key it off INPUT, not velocity.** Pond's currents shove the player (`currentForceMul`), so a
+> velocity test would hard-counter the card in exactly one chapter and nowhere else.
+
+Best pairing on the board is **MINIMES**: decoys buy you the standing time. Neither card mentions
+the other, which is the good kind of synergy.
+
+**MARTYR** — accepted (*"sounds fun with crazy combos"*). Every point of HP you lose detonates for
+N× that around you, from any source. This is the connective tissue for the four HP-trade cards
+already final: **OVERLOAD**'s 0.75 HP/s becomes a permanent damage aura, **BERSERK** already wants
+you hit, **BLOOD MONEY** turns a reroll into a bomb. It does *not* break **BRITTLE** — at 1 maxHP the
+detonation is worth ~4 damage, so the obvious degenerate pair is self-limiting.
+
+**Open number:** needs **hits taken per run** measured before N is written. Not per-kill — kills
+swing 3.3× across chapters (see the cadence rule).
+
+**CHAOS PACT** — accepted, restructured by the user from a one-shot into a **repeating 60s cycle**:
+the first 15s of each minute run +50% enemy spawns, then from 16s you hold +50% damage. Numbers
+explicitly deferred: *"number will be toyed with by playing."*
+
+Recorded so the playtest starts from the right suspicion: **the cycle is 25% danger and 75% payoff**,
+and spawn rate is the gentlest of the danger knobs — a kiting player outruns density, where enemy
+damage or HP would actually bite. As written this reads closer to a near-permanent +50% damage with
+a siren than to a pact. If it plays as a gift, raise the danger window (spawn ×2, or lend it
+`enemyDmgMul`) before shortening the payoff — the long payoff is what makes the rhythm legible.
+
+Interacts with **TIME DEBT**: the cycle keys off `run.time`, which Time Debt inflates 1.5×, so the
+beats arrive half again as often in real seconds. Intended, and worth a line of card text.
+
+**CONSCRIPTION** — accepted (*"fun, but a lot of balance to do"*), with the user's own simplification:
+conscripts inherit **50% of your damage, 100% of your fire rate and crit**. Cleanest reading is that
+a conscripted elite mirrors your weapon loadout at half damage — a second you, briefly — which is
+also how **MINIMES** was specced (scaling off player stats, not off a weapon), so the two share a
+concept rather than a system.
+
+Elites are the **chapter-fair** denominator: over full 300s runs they land 8.6–10.6 per run across
+chapters (1.2× spread) against kills' 3.3× and fires' 7.6×. (Under the survival probe elite counts
+track alive time instead — 5.0 to 8.6 here — so quote the invariance for full runs only.)
+
+**Open:** stacking. Elites die in clusters, so 2–3 concurrent conscripts is reachable. Left uncapped
+pending playtest, consistent with rarity licensing extremity. Combos into **UNSTABLE CORES** — your
+ally detonates when the loan expires, a third behaviour neither card describes.
+
+#### BLIND FAITH — measured, and it is the strongest card on the slate
+
+User ruling: *"ahhhh that's fun! let's say you can't roll normal or rare anymore, but all picks are
+hidden (just the border visible, and the ones you don't chose are revealed somehow to make you
+frustrated)."*
+
+An early objection of mine was **wrong and is withdrawn**: I claimed a hidden border would convey no
+information once the bottom tiers were banned. There are five tiers, not four. Banning normal and
+rare leaves `epic 12 / legendary 6 / mythic 3` → **57% / 29% / 14%**, so the border still varies and
+a mythic border stays a genuine event.
+
+**The arithmetic first.** Average `RARITIES.mult` per roll is `Σ(weight × mult) / Σweight`:
+
+| | normal | rare | epic | legendary | mythic | **avg mult** |
+|---|---|---|---|---|---|---|
+| shipped weights | 100 × 1.0 | 50 × 1.6 | 12 × 2.5 | 6 × 4.0 | 3 × 6.5 | **1.48** |
+| epic floor | — | — | 12 × 2.5 | 6 × 4.0 | 3 × 6.5 | **3.50** |
+
+So Blind Faith is **×2.36 on the magnitude of every stat pick** for the whole run (and ×1.88 on tier
+mods, `WEAPON_MOD_TIER_BONUS` going 1.14 → 2.14). Permanently. For free.
+
+**Measured** (`--rarityfloor=epic`, new flag; body/2 d3 shop 8, 40 runs, proposed pipeline in every
+arm, kite-and-collect bot — a floor on player skill, not a model of one):
+
+| arm | policy | level | mean alive | kills | maxHP from picks |
+|---|---|---|---|---|---|
+| baseline — picks well, normal rarities | dps | 19.6 | 263.6s | 922 | 6.1 |
+| picks blind, normal rarities | random | 15.9 | 241.1s | 668 | 29.7 |
+| **BLIND FAITH** — picks blind, epic floor | random | **24.2** | **289.6s** | **1221** | **105.0** |
+
+Decomposed: **picking blind costs −27.5% kills; the rarity floor pays +83%.** Net, Blind Faith beats
+*skilled picking* by **+32% kills and +26s alive while choosing at random.** The information you give
+up is worth about a third of what the floor hands back.
+
+**And that understates it.** The probe's `random` policy ignores the border — but the card explicitly
+shows it, so a real player picks the mythic over the epic every time. The measured +32% is a **floor**
+on the card's strength, not an estimate of it.
+
+**This is the one card on the slate that is pure upside.** Overload buys 2×/2× for 17pts of win rate;
+Blind Faith buys ×2.36 on everything for an emotion. It also sits oddly against the slate's own bar —
+*a jackpot means no cost, not no decision* — because blind picking removes decisions rather than
+adding them. The frustration reveal is a real design goal (it is Isaac's Curse of the Blind, and it
+works), but frustration is a feeling, not a price.
+
+**Cost options, recommended first:**
+
+1. **Drop to 2 card slots while blind.** Fits the fiction exactly — you cannot shop around in the
+   dark — and it cuts the residual choice value the border still gives. Measurable today (`slots` is
+   already a probe positional).
+2. **No rerolls at all.** Interacts hard with **BLOOD MONEY** and **SPECIALIST**, both of which exist
+   to buy information back.
+3. **Accept it** as the deliberate top of the power curve, and rely on rarity to gate it.
+
+#### SOY MILK / IPECAC — the paper multipliers are not the real ones
+
+User ruling, replacing Synchrony: *"why not the soy milk and the ipecac from isaac… x5 fire rate
+and / or projectile, but -80% damage. good for element infusions. then the opposite: halves the fire
+rate / projectile, but triples the damage."*
+
+Both ride `player.fireRateMul` / `player.damageMul` — the knobs Overload already uses. Unlike
+Overload's cost, a **multiplier carries no cadence hazard**: it scales a 0.5/s beam and a 3.8/s
+shotgun alike, which is exactly why per-shot Overload had to be rewritten and these do not.
+
+Measured (same rig and caveats as above; `--fire` / `--dmg`, new flags):
+
+| arm | paper dps | fires/s | level | mean alive | kills | **measured vs baseline** |
+|---|---|---|---|---|---|---|
+| baseline | 1.00× | 3.1 | 19.6 | 263.6s | 922 | — |
+| **SOY MILK** ×5 fire / ×0.2 dmg | 1.00× | 15.5 | 20.1 | 270.6s | 964 | **+4.6%** |
+| **IPECAC** ×0.5 fire / ×3 dmg | **1.50×** | 1.6 | 20.1 | 264.0s | 932 | **+1.1%** |
+
+- **Soy Milk ships as written.** Paper-neutral, measures neutral (+4.6%, near the noise floor), and
+  its stated upside — element procs are counted **per hit**, not per damage — is not even captured
+  here, since the probe does not read proc counts. The card is a genuine build-direction pivot that
+  costs nothing to balance.
+- **Ipecac's ×3 is not enough.** A paper **+50%** dps arrives as **+1.1%** — the entire multiplier is
+  eaten by **overkill waste**: tripling per-hit damage against enemies that were already dying pays
+  nothing, and halving the fire rate pays the cost in full. To feel like the trade the user described,
+  the damage multiplier needs to go up (×4–5 is the range to sweep), or the card needs to convert its
+  surplus into something overkill cannot waste — pierce, or splash.
+
+This is the **measure-the-denominator rule** paying out again: both cards were "obviously" a
+dps-neutral trade and a +50% trade. Neither was.
 
 #### Second wave — as first proposed (2026-08-08)
 
