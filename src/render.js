@@ -9786,6 +9786,7 @@ export function createRenderer(app) {
       // a dozen of these can overlap. Cool white-blue, nowhere near the amber/red that means "this
       // one hurts YOU".
       if (gy.jetDur > 0) {
+        if (gy.delay > 0) continue          // dormant, not yet arrived
         // The RANGE ring is drawn only while the hydrant is on its fuse — it is the telegraph, and
         // that is the one moment the player needs to know how far this thing will reach before
         // deciding where to stand. Once it is spraying, the streams show exactly what is being hit,
@@ -12225,7 +12226,9 @@ export function createRenderer(app) {
     // The hydrant rig owns BOTH phases of a Sewer Geyser zone — rattling on its fuse, then sheeting
     // water — so unlike the old open-jet-only pass this takes the whole list. Zones with no jetDur
     // are Reality Shard rifts, which keep the plain green telegraph redrawHazards draws above.
-    syncJets((run.geysers || []).filter((g) => g.jetDur > 0))
+    // `delay` zones are dormant (a cast's stagger) — planted in the sim but not yet arrived, so
+    // nothing is drawn for them at all.
+    syncJets((run.geysers || []).filter((g) => g.jetDur > 0 && !(g.delay > 0)))
     redrawTelegraphs(run)
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {

@@ -94,7 +94,7 @@ import {
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
-  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_ENEMY_HP_FRAC, COVER_MIN_R,
+  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_ENEMY_HP_FRAC, TRAFFIC_ROADKILL, COVER_MIN_R,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
@@ -2899,7 +2899,12 @@ function stepLanePasses(run, dt) {
       // came from: the number on screen was "whatever was left", never 50%, and rounding it was what
       // produced the 0s. The list is gone rather than tuned; one rule for the whole roster is also
       // the only version anyone can predict from the card text.
-      const toEnemy = lane.enemyFrac > 0 ? Math.max(1, e.maxHP * lane.enemyFrac) : lane.dmg
+      // v6.10.3: the light street life never survives a vehicle (TRAFFIC_ROADKILL — pigeons and
+      // rats, non-elite only). Dealt as MAX hp rather than remaining hp so the number that pops is
+      // the same every time; see the constant's comment for why "remaining" was a bug.
+      const roadkill = !e.elite && TRAFFIC_ROADKILL.includes(e.rosterId)
+      const toEnemy = roadkill ? e.maxHP
+        : lane.enemyFrac > 0 ? Math.max(1, e.maxHP * lane.enemyFrac) : lane.dmg
       dealDamage(run, e, toEnemy, false)
       const kb = lane.kb ?? TRAFFIC_KB
       e.kb.x += cos * kb
@@ -5519,14 +5524,19 @@ function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
     for (let i = 0; i < stats.count; i++) {
-      // Each zone in a cast waits a little longer than the last, and each leads by ITS OWN fuse —
-      // a mark that opens 1.2s out has to be planted further along the target's path than one
-      // opening at 0.6s, or the stagger just moves the whiff later.
-      const fuse = stats.fuse + i * GEYSER_STAGGER
-      const spot = pickGeyserSpot(run, stats.castRange, fuse)
+      // Each zone in a cast arrives a little later than the last. The wait is a DELAY that holds the
+      // zone dormant, NOT extra fuse: fuse is the hydrant's rattle-and-blow animation and every
+      // hydrant should play the same one. Folding the stagger into the fuse (v6.10 did) gave the
+      // third hydrant of a cast a 0.76s telegraph against the first's 0.20s — visibly different
+      // spawn animations for identical objects.
+      //
+      // The lead still has to cover the WHOLE wait (delay + fuse), because that is when this mark
+      // resolves; leading by the fuse alone would plant a late zone where the target already was.
+      const delay = i * GEYSER_STAGGER
+      const spot = pickGeyserSpot(run, stats.castRange, delay + stats.fuse)
       run.geysers.push({
-        x: spot.x, y: spot.y, r: stats.r, fuse, dur: fuse, dmg: stats.dmg,
-        jetDur: stats.jetDur, tick: stats.tick, nStreams: stats.streams,
+        x: spot.x, y: spot.y, r: stats.r, fuse: stats.fuse, dur: stats.fuse, dmg: stats.dmg,
+        delay, jetDur: stats.jetDur, tick: stats.tick, nStreams: stats.streams,
       })
     }
     run.events.push({ type: 'geyser', x: p.x, y: p.y })
@@ -5616,6 +5626,9 @@ function stepGeysers(run, dt) {
 
   for (const g of run.geysers) {
     if (g.jet > 0) { stepOpenJet(run, g, dt); continue }   // already erupted, still spraying
+    // Dormant: planted but not yet arrived (the cast's stagger). Nothing is drawn for it and
+    // nothing can touch it — its fuse has not started.
+    if (g.delay > 0) { g.delay -= dt; continue }
 
     g.fuse -= dt
     if (g.fuse > 0) continue // telegraph — harmless

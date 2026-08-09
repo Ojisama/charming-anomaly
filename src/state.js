@@ -962,11 +962,14 @@ function generateWells(sig) {
  *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and inside `hunt` px
  *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
  *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
- * geysers[i]: { x, y, r, fuse, dur, dmg, jetDur?, tick?, nStreams?, jet?, streams?, _cd?, _chained? }
+ * geysers[i]: { x, y, r, fuse, dur, dmg, delay?, jetDur?, tick?, nStreams?, jet?, streams?, _cd?,
+ *   _chained? }
  *   — telegraphed zones (Sewer Geyser, city weapon; also reused by the Reality Shard's riftScar
- *   rifts). fuse counts down as a HARMLESS telegraph (dur is its starting value, so render can grow
- *   a warning ring from fuse/dur), then the zone erupts for dmg in r against ENEMIES only (never
- *   the player) and emits {type:'explode', x, y, radius:r}.
+ *   rifts). `delay` (if set) holds the zone DORMANT first — planted but not yet arrived, drawn by
+ *   nothing, its fuse not started; that is how one cast staggers its zones without giving them
+ *   different-length spawn animations. Then fuse counts down as a HARMLESS telegraph (dur is its
+ *   starting value, so render can grow a warning ring from fuse/dur), and the zone erupts for dmg
+ *   in r against ENEMIES only (never the player), emitting {type:'explode', x, y, radius:r}.
  *
  *   What happens after the eruption depends on jetDur, and BOTH paths are live:
  *     jetDur > 0  a Sewer Geyser hydrant. It stays up for jetDur (`jet` counts the remaining time)

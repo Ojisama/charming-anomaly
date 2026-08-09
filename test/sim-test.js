@@ -4515,16 +4515,24 @@ function testV54Signatures() {
       frac.enemies.push(e)
       return e
     }
-    const drone = mk(300, 'ratDrone', false)      // was one-shot by the squash list
-    const pigeon = mk(200, 'pigeon', false)       // ditto
+    const drone = mk(300, 'ratDrone', false)
+    const pigeon = mk(200, 'pigeon', false)       // v6.10.3 roadkill
+    const rat = mk(150, 'rat', false)             // v6.10.3 roadkill
     const eliteDrone = mk(-300, 'ratDrone', true)
-    const tank = mk(-200, 'vacuum', false)        // never was on the list
+    const elitePigeon = mk(-150, 'pigeon', true)  // elites are exempt from roadkill
+    const tank = mk(-200, 'vacuum', false)
     for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(frac, { x: 0, y: 0 }, dt)
-    for (const [name, e] of [['drone', drone], ['pigeon', pigeon], ['elite drone', eliteDrone], ['vacuum', tank]]) {
+    // The FRACTION rule still governs everything that is not light street life. This is the half of
+    // the contract that v6.9.3 was reported about ("car one shots drones") — drones must survive.
+    for (const [name, e] of [['drone', drone], ['elite drone', eliteDrone], ['vacuum', tank], ['elite pigeon', elitePigeon]]) {
       const took = 1e6 - e.hp
       assert(Math.abs(took - 1e6 * TRAFFIC_ENEMY_HP_FRAC) < 1,
         `expected the van to take ${TRAFFIC_ENEMY_HP_FRAC * 100}% of the ${name}'s max hp, took ${took}`)
-      assert(!e._dead, `expected the ${name} to SURVIVE one pass at full health — no roadkill list any more`)
+      assert(!e._dead, `expected the ${name} to SURVIVE one pass at full health`)
+    }
+    // v6.10.3 (owner: "cars should 1 shot birds and rats always"): the light street life does not.
+    for (const [name, e] of [['pigeon', pigeon], ['rat', rat]]) {
+      assert(e._dead, `expected the van to kill the ${name} outright, hp=${e.hp}`)
     }
 
     // The signature actually rolls lanes on its own in a city run (capped by signature.lanes).
@@ -8762,7 +8770,10 @@ function testStreamedTrapPredators() {
     assert(gated.length > 0, `expected patrolDrone spawns once minT=${drone.minT} has passed, got ${gated.length}/${late.length}`)
     assert(gated.length < late.length, `weight=${drone.weight} must keep patrolDrone a MINORITY of the normal pool, got ${gated.length}/${late.length}`)
     for (const d of gated) {
-      assert(d.flags.includes('aerialStrike'), `expected every patrolDrone to carry aerialStrike, got [${d.flags.join(',')}]`)
+      // v6.10.3 (owner: "some drones circle and dash, remove that"). The patrol drone dropped
+      // `aerialStrike` and is a plain chaser now. Asserted as an ABSENCE so the behaviour cannot
+      // creep back in unnoticed — the weight/minT gating below is the part still under test.
+      assert(!d.flags.includes('aerialStrike'), `expected the patrolDrone to have NO aerialStrike, got [${d.flags.join(',')}]`)
     }
     console.log(`PASS run TT.e2 (minT/weight machinery): 0/${early.length} patrolDrone before t=${drone.minT}, ${gated.length}/${late.length} after (all carrying aerialStrike)`)
   }
@@ -10608,7 +10619,10 @@ function testSpiderShare() {
   // (e) chapter-scoped: it must not leak into chapters that never asked for it. v6.6.33 added
   // undergrowth (owner: "20% less toads"), so the list is explicit rather than "garden-only" — the
   // claim under test is that a chapter gets this lever only by asking, not that garden is special.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth']
+  // v6.10.3 added city (owner: "15% less Robo tanks at the beginning of their apparitions") — the
+  // Robot Vacuum is city's only tank, so a roster weight would be a one-item pool, same reason
+  // garden and undergrowth reached for this lever.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city']
   for (const id of CHAPTER_ORDER) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
     assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — only ${ARCHETYPE_MUL_CHAPTERS.join('/')} asked for it`)

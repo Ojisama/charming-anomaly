@@ -702,16 +702,21 @@ export const WEAPONS = {
     //
     // `dmg` is the ERUPTION punch; each spray tick is dmg * GEYSER_SPRAY_FRAC.
     //
+    // v6.10.3 (owner): fuse flat 0.20s at every level, down from 0.70-0.60. The telegraph is pure
+    // anticipation here, not a safety cue — a hydrant never hurts the player — so the only thing
+    // the long fuse bought was a delay between the cast and anything happening. It also fed the
+    // lead (leadSpot: speed x fuse), which now self-corrects to ~20-35px instead of ~100.
+    //
     // v6.10.2 (owner): r and jetDur both +35% over the v6.10 ladder. `r` is the turret's RANGE, not
     // a damage area — widening it costs no screen clutter now that the only radial art is the
     // fuse-phase ring, and it buys the hydrant more time hosing before the swarm walks out the far
     // side. Longer jetDur means more hydrants alive at once; GEYSER_MAX_LIVE is the backstop.
     levels: [
-      { rate: 3.0, castRange: 260, fuse: 0.70, r: 122, dmg: 22, count: 1, jetDur: 3.40, tick: 0.40, streams: 2 },
-      { rate: 2.8, castRange: 270, fuse: 0.70, r: 132, dmg: 27, count: 1, jetDur: 3.50, tick: 0.40, streams: 2 },
-      { rate: 2.6, castRange: 285, fuse: 0.65, r: 143, dmg: 32, count: 2, jetDur: 3.65, tick: 0.40, streams: 3 },
-      { rate: 2.3, castRange: 300, fuse: 0.65, r: 157, dmg: 40, count: 2, jetDur: 3.85, tick: 0.40, streams: 3 },
-      { rate: 2.0, castRange: 320, fuse: 0.60, r: 173, dmg: 48, count: 3, jetDur: 4.05, tick: 0.40, streams: 4 },
+      { rate: 3.0, castRange: 260, fuse: 0.20, r: 122, dmg: 22, count: 1, jetDur: 3.40, tick: 0.40, streams: 2 },
+      { rate: 2.8, castRange: 270, fuse: 0.20, r: 132, dmg: 27, count: 1, jetDur: 3.50, tick: 0.40, streams: 2 },
+      { rate: 2.6, castRange: 285, fuse: 0.20, r: 143, dmg: 32, count: 2, jetDur: 3.65, tick: 0.40, streams: 3 },
+      { rate: 2.3, castRange: 300, fuse: 0.20, r: 157, dmg: 40, count: 2, jetDur: 3.85, tick: 0.40, streams: 3 },
+      { rate: 2.0, castRange: 320, fuse: 0.20, r: 173, dmg: 48, count: 3, jetDur: 4.05, tick: 0.40, streams: 4 },
     ],
   },
   // Skies chapter natives (v5.4). See stepRoarWeapon/stepTailWeapon/stepDebrisWeapon in sim.js.
@@ -2370,10 +2375,13 @@ export const CHAPTERS = {
     roster: [
       { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge'] },
       { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
-      // Patrol Drone (v6.3): the owl machine (aerialStrike) finally in a ranged chapter. weight/
-      // minT keep it a minority that phases in — half the bulk archetype from t=0 rewrote the
-      // opening minute.
-      { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: ['aerialStrike'], weight: 0.3, minT: 60 },
+      // Patrol Drone. v6.10.3 (owner: "some drones circle and dash, remove that") — it has lost
+      // `aerialStrike` (circle -> mark -> strike -> climb, see stepAerialStrike in sim.js) and is
+      // now a plain committed chaser. The flag itself stays in the codebase; skies still uses it.
+      // What is left is a reskin of ratDrone at 0.85 hp with its own name and silhouette, which is
+      // fine — but the weight/minT gating below is now guarding nothing dangerous and could go if
+      // the opening minute ever wants the extra body.
+      { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: [], weight: 0.3, minT: 60 },
       // Street Rat (v6.3): the fast PRESSURE lane (plain committed chaser). Pigeon is the lane's spice.
       // v6.9 (owner: "pigeons are still dashing/teleporting. just make them move normally, but they
       // can go through (fly over) obstacles. make them 15% slower and rats too"). The pigeon drops
@@ -2387,6 +2395,21 @@ export const CHAPTERS = {
     // Signature: traffic lanes (run.lanes) — a marked band is telegraphed, then a vehicle sweeps
     // it end to end, deadly to the player AND to enemies. All tuning is in TRAFFIC_* below; the
     // per-chapter knob is how many lanes may be live at once.
+    // v6.10.3 (owner: "15% less Robo tanks at the beginning of their apparitions"). The Robot
+    // Vacuum is city's ONLY `tank`, so a roster weight would be weighted-picking a one-item pool —
+    // a silent no-op. This is the archetype-share lever garden and beyond already use, applied to
+    // WAVE_TABLE before the pick (see waveWeights in sim.js).
+    //
+    // 0.825, not 0.85, because the weights are RELATIVE: scaling one weight by m does not cut its
+    // share by (1-m). In the row where tanks FIRST appear, [140,200) = {drone 3, wisp 2, tank 1},
+    // the share goes 1/6 -> m/(5+m), so the cut is 1 - 6m/(5+m); solving for 0.15 gives m = 0.8252.
+    // (The same formula reproduces garden's documented -23.6% at m=0.73 exactly, which is what
+    // makes it trustworthy — seeded sims cannot settle this to better than ~3%.)
+    //
+    // The cut is deliberately front-loaded, which is what was asked for: -15.0% in [140,200) where
+    // they first show up, -13.2% in [200,240), -12.4% past 240. A flat share multiplier does this
+    // for free because the later WAVE_TABLE rows are tank-heavier.
+    archetypeMul: { tank: 0.825 },
     signature: { type: 'traffic', lanes: 2 },
     // dispatch (v6.3): the tagline ("you've been reported") finally cashes as a mechanic — every
     // city ELITE spawn (never a spawner's forceNormal minions) fires a {type:'dispatch'} event.
@@ -4106,6 +4129,18 @@ export const TRAFFIC_KB = 420         // knockback applied along the lane to str
 // what produced the 0s in the v6.9.2 report. Owner: "car one shots drones. it should do 50% hp
 // damage". One rule, every enemy, elites included.
 export const TRAFFIC_ENEMY_HP_FRAC = 0.5
+// v6.10.3 (owner: "cars should 1 shot birds and rats always"). Roster ids a vehicle kills outright
+// instead of dealing TRAFFIC_ENEMY_HP_FRAC to. This is a NARROW re-introduction of the v6.9.3
+// TRAFFIC_SQUASH list, which was deleted the same day for good reason — it covered ratDrone and
+// patrolDrone too, and "a car one-shots drones" is exactly what was complained about. The light
+// street life is the part that should never survive a taxi; the drones are not.
+//
+// Elites are exempt: an elite carries 5x hp and is a rare, deliberate spawn, and letting an
+// ambient car delete one removes the fight rather than resolving it. Same exemption the old list
+// had. The blow is dealt as the enemy's MAX hp, not its remaining hp — dealing "whatever is left"
+// is what produced the unreadable 0s and 9s of the v6.9.x damage bug, because the number on screen
+// was never the same twice.
+export const TRAFFIC_ROADKILL = ['pigeon', 'rat']
 // v6.3 Task 4 (cover): an obstacle must be at least this big to stop a car — cones don't block
 // traffic. Checked in sim.js's findCover (stepLanes' sweep branch): the FIRST obstacle >= this
 // radius standing on the car-center -> player segment takes the hit instead of the player, and is
