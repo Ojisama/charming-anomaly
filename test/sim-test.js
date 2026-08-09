@@ -30,7 +30,7 @@ import {
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
-  POUNCE_RANGE, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
+  POUNCE_RANGE, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
   // v6.5 undergrowth streamed traps (Run TT)
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T, AERIAL_STRIKE_MAX_LIVE,
@@ -39,6 +39,8 @@ import {
   LINE_CHARGE_RANGE, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_SCATTER, ARCHETYPE_TYPE, SPAWNER_ARCHETYPE,
   TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_DMG, TRAFFIC_OFFSET, TRAFFIC_SNAP_R, COVER_MIN_R, TRAFFIC_CAR_W,
+  TRAFFIC_ENEMY_HP_FRAC, TRAFFIC_CAR_LEN, TRAFFIC_KB,
+  prismLadder, PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN,
   MOWER_DECK_W, MOWER_DECK_LEN, MOWER_OFFSET, MOWER_ENEMY_HP_FRAC, MOWER_DMG_START, MOWER_DMG_END, mowerDmgAt,
   WEB_R,
@@ -47,17 +49,16 @@ import {
   MISSILE_INTERVAL, MISSILE_COUNT, MISSILE_R, MISSILE_DMG,
   ARTILLERY_INTERVAL, ARTILLERY_RADIUS, ARTILLERY_LEAD, ARTILLERY_ELITE_RADIUS, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
-  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
-  GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
+  ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
-  roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY,
+  roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
@@ -85,6 +86,8 @@ import {
   MAX_ALIVE, maxAliveFor,
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
+  // v6.8 Trash Tornado rework (Run AA.d)
+  DEBRIS_R,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, anomalyWeightFor, currentForce, buildReadout } from '../src/sim.js'
 
@@ -2577,6 +2580,77 @@ function testCrazyMods() {
     console.log(`PASS run O.12 (focus lens): early=${earlyDmg} late=${lateDmg}`)
   }
 
+  // 14. rainbow.prism (v6.7.6): the beam refracts off the nearest body it crosses, fanning
+  // sub-beams FORWARD from that body. The whole point is that a body standing OFF the arm gets hit,
+  // so that is what this pins — plus the ladder shape, the damage falloff, and the containment.
+  function testPrism() {
+    // The ladder is the mod: rare/epic split once into 2, legendary 3-then-2, mythic 4-then-3-then-2.
+    assert.deepStrictEqual(prismLadder(2), [2], 'rare/epic: one split into 2')
+    assert.deepStrictEqual(prismLadder(3), [3, 2], 'legendary: 3, and each of those into 2')
+    assert.deepStrictEqual(prismLadder(4), [4, 3, 2], 'mythic: 4, then 3, then 2')
+    assert.deepStrictEqual(prismLadder(0), [], 'no mod = no ladder, so the branch never opens')
+
+    // Geometry: the player at the origin, the arm along +x. `hub` sits on the arm and is what
+    // refracts. `off` sits well off the arm but squarely on the upper sub-beam, which leaves hub at
+    // +PRISM_SPREAD/2 — it is unreachable by the beam itself and can only be hit by a refraction.
+    const armLen = 400, armW = 60
+    const build = (withPrism) => {
+      const run = createRun(makeMeta(), { chapter: 'city' })
+      run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+      run.player.x = 0; run.player.y = 0; run.player.critChance = 0
+      run._laneAcc = 1e6
+      const hub = makeStatusEnemy(run, { x: 200, y: 0, hp: 1e9, speed: 0 })
+      const a = PRISM_SPREAD / 2
+      const off = makeStatusEnemy(run, { x: 200 + Math.cos(a) * 120, y: Math.sin(a) * 120, hp: 1e9, speed: 0 })
+      run.enemies.push(hub, off)
+      run.beams.push({ angle: 0, life: 1, duration: 1, dmg: 100, tick: 0.1, width: armW,
+        length: armLen, rotSpeed: 0, acc: 0, prism: withPrism ? prismLadder(2) : null })
+      return { run, hub, off }
+    }
+
+    // Control: no mod, so `off` is untouched — proving it really is outside the beam.
+    const plain = build(false)
+    for (let i = 0; i < Math.round(0.25 / dt); i++) stepSim(plain.run, { x: 0, y: 0 }, dt)
+    assert(plain.hub.hp < 1e9, 'sanity: the arm must hit the body standing on it')
+    assert.strictEqual(plain.off.hp, 1e9, 'a body off the arm takes nothing without the prism')
+
+    // With the mod: the same body is now reached by the refraction, for PRISM_DMG_MUL of the hit.
+    const split = build(true)
+    let hubDmg = 0, offDmg = 0
+    for (let i = 0; i < Math.round(0.25 / dt); i++) {
+      stepSim(split.run, { x: 0, y: 0 }, dt)
+      for (const e of split.run.events) {
+        if (e.type !== 'hit') continue
+        if (Math.abs(e.x - split.hub.x) < 1) hubDmg += e.dmg
+        else offDmg += e.dmg
+      }
+      split.run.events.length = 0
+    }
+    assert(offDmg > 0, 'expected the refraction to reach a body the beam itself cannot touch')
+    assert(Math.abs(offDmg / hubDmg - PRISM_DMG_MUL) < 0.02,
+      `expected a sub-beam at ${PRISM_DMG_MUL}x its parent, got ${(offDmg / hubDmg).toFixed(3)}x`)
+
+    // Containment: no body is damaged twice by one refraction, so a tick can never hit `off` more
+    // than once no matter how many rays point at it. Two ticks fired above, so two hits, not four.
+    const hits = []
+    const one = build(true)
+    one.run.beams[0].tick = 1e6      // park the tick clock...
+    one.run.beams[0].acc = 1e6       // ...then force exactly one tick
+    stepSim(one.run, { x: 0, y: 0 }, dt)
+    for (const e of one.run.events) if (e.type === 'hit') hits.push(e)
+    assert.strictEqual(hits.length, 2, `expected exactly 2 bodies hit by one tick, got ${hits.length}`)
+    // And the drawn segments are render-only: they exist, and they carry no damage of their own.
+    assert(one.run.prisms.length > 0, 'expected drawn refraction segments for the renderer')
+    // v6.7.7: every segment names its generation, which is what render tapers on. A ladder of
+    // [4,3,2] can legitimately stop early (a ray that hits nothing does not re-split), so this
+    // asserts the range rather than the exact set — but d=0 must always be present, or the fan
+    // would be drawn at uniform width and the splash goes back to looking like wireframe.
+    const gens = one.run.prisms.map((s) => s.d)
+    assert(gens.every((d) => Number.isInteger(d) && d >= 0 && d < 3), `bad prism generations: ${gens}`)
+    assert(gens.includes(0), 'expected at least one first-generation segment')
+    console.log(`PASS run O.14 (beam prism): ladders 2/[3,2]/[4,3,2], off-arm body took ${offDmg} (${(offDmg / hubDmg).toFixed(2)}x parent), ${one.run.prisms.length} segments across generations ${[...new Set(gens)].sort()}, no double hits`)
+  }
+
   // 13. rainbow.strobe: a strobed beam lands more hit events than an unmodded one over the same time.
   function testStrobe() {
     function totalHits(strobeBonus) {
@@ -2616,6 +2690,7 @@ function testCrazyMods() {
   testCrunch()
   testFocus()
   testStrobe()
+  testPrism()
 }
 
 // ---- Run P: star balance invariants (v4.4) ---------------------------------------
@@ -3172,7 +3247,9 @@ function testChapterBehaviors() {
 
     const children = run.enemies.filter((e) => e._splitChild)
     assert.strictEqual(children.length, SPLIT_CHILD_COUNT, `expected ${SPLIT_CHILD_COUNT} split children, got ${children.length}`)
-    const expectedHp = parent.maxHP * SPLIT_HP_FRAC
+    // v6.9.2: rounded, like every enemy HP assignment — a fractional maxHP leaves a sub-1 remainder
+    // that dealDamage's integer subtraction can never clear (see roundHP in sim.js).
+    const expectedHp = Math.max(1, Math.round(parent.maxHP * SPLIT_HP_FRAC))
     const expectedRadius = parent.radius * SPLIT_RADIUS_FRAC
     for (const c of children) {
       assert(Math.abs(c.maxHP - expectedHp) < 1e-6, `expected child maxHP ${expectedHp}, got ${c.maxHP}`)
@@ -4207,36 +4284,26 @@ function testV54Flags() {
     console.log(`PASS run Y.g (artillery): shell led ${lead.toFixed(1)}px ahead; elites shell wider; range gate + ${SHELL_MAX_LIVE}-shell cap hold`)
   }
 
-  // (h) blink: a blinker teleports toward the player — never landing closer than BLINK_MIN_DIST,
-  // and never inside an obstacle (it gives up rather than cheating through one).
+  // (h) flyover (v6.9, city's pigeon): buildings are not terrain to a bird. It is ONLY that — same
+  // speed, same seek — so the check is a matched pair walking the same line into the same wall.
+  // This replaces the `blink` scenario: that flag was retired after two attempts to make a
+  // crawl-then-burst mover read as anything but teleporting (see config.js's retirement note).
   {
-    // v5.18: these three use a FREE-ROAM chapter, not 'beyond'. Beyond is now a lane (its player
-    // auto-advances up-screen at LANE_SCROLL_SPEED), which moves the blink's target ~418px during
-    // the 2.2s interval and slides the walled case's blocking obstacles off the blink path. `blink`
-    // is chapter-agnostic vocabulary, so testing it in a chapter whose movement mode interferes was
-    // testing two things at once.
-    const { run, e } = flagRun('city', ['blink'], { at: 600, speed: 40 })
-    const x0 = e.x
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
-    const jumped = e.x - x0
-    assert(jumped > BLINK_DIST * 0.9, `expected a ~${BLINK_DIST}px blink toward the player, got ${jumped.toFixed(1)}px`)
-
-    // Clamp: from just outside BLINK_MIN_DIST it may only close the remaining gap, never overshoot.
-    const near = flagRun('city', ['blink'], { at: BLINK_MIN_DIST + 60, speed: 0 })
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(near.run, { x: 0, y: 0 }, dt)
-    const dist = Math.hypot(near.e.x - near.run.player.x, near.e.y - near.run.player.y)
-    assert(dist >= BLINK_MIN_DIST - 1e-6, `expected a blink never to land closer than ${BLINK_MIN_DIST}, got ${dist.toFixed(1)}`)
-
-    // Obstacle: block both the full-distance and the half-distance landing spots -> no blink at all.
-    const walled = flagRun('city', ['blink'], { at: 600, speed: 0 })
-    walled.run.obstacles = [
-      { x: -600 + BLINK_DIST, y: 0, r: 60 },
-      { x: -600 + BLINK_DIST / 2, y: 0, r: 60 },
-    ]
-    const wx0 = walled.e.x
-    for (let i = 0; i < Math.round((BLINK_INTERVAL + 0.05) / dt); i++) stepSim(walled.run, { x: 0, y: 0 }, dt)
-    assert(Math.abs(walled.e.x - wx0) < 1, `expected a blocked blink to be skipped entirely, moved ${(walled.e.x - wx0).toFixed(1)}px`)
-    console.log(`PASS run Y.h (blink): jumped ${jumped.toFixed(0)}px, clamped at ${dist.toFixed(0)}px, blocked by obstacles`)
+    const wall = { x: -300, y: 0, r: 70, _cell: 'test', kind: 'rock', rot: 0 }
+    function walkIntoWall(flags) {
+      const { run, e } = flagRun('city', flags, { at: 460, speed: 120 })
+      run.obstacles = [{ ...wall }]
+      run._obstacleSeed = null
+      for (let i = 0; i < Math.round(4 / dt); i++) {
+        run.obstacles = [{ ...wall }]   // streamObstacles would otherwise drop/rebuild the field
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return Math.hypot(e.x - run.player.x, e.y - run.player.y)
+    }
+    const bird = walkIntoWall(['flyover'])
+    const walker = walkIntoWall([])
+    assert(bird < walker - 20, `expected a flyover enemy to cross the obstacle a walker is held up by (bird ${bird.toFixed(0)}px vs walker ${walker.toFixed(0)}px from the player)`)
+    console.log(`PASS run Y.h (flyover): the bird crossed the building and closed to ${bird.toFixed(0)}px; the same enemy without the flag stalled at ${walker.toFixed(0)}px`)
   }
 
   // (i) phase: a ghosted flicker takes NO damage and deals none; a solid one is an ordinary enemy.
@@ -4272,7 +4339,7 @@ function testV54Flags() {
   // (j) pullBeam: a UFO's beam drags the player in and ticks dot damage — but at PULL_BEAM_FORCE
   // (< PLAYER.baseSpeed), so walking away still nets outward movement. That's the whole design.
   {
-    // v5.18: 'city', not 'beyond' — same reason as the blink cases above. Beyond is a lane now,
+    // v5.18: 'city', not 'beyond' — same reason as the flag cases above. Beyond is a lane now,
     // so its player advances up-screen every frame and cannot "stand still" for a drag test. The
     // lane's own y-axis rule for this beam (it drags sideways only there) is asserted in run CF.
     const { run, e } = flagRun('city', ['pullBeam'], { at: -200, speed: 0, elite: true }) // UFO at +200
@@ -4333,7 +4400,7 @@ function testV54Flags() {
     console.log(`PASS run Y.k (flashlightCone): enrages at ${(fast / plain).toFixed(2)}x speed, damages nothing`)
   }
 
-  console.log('PASS run Y (v5.4 behavior flags): pounce, aerialStrike, lineCharge, spawner, strafe, missileVolley, artillery, blink, phase, pullBeam, flashlightCone')
+  console.log('PASS run Y (v5.4 behavior flags): pounce, aerialStrike, lineCharge, spawner, strafe, missileVolley, artillery, flyover, phase, pullBeam, flashlightCone')
 }
 
 // ---- Run Z: v5.4 signature mechanics (predators/traffic/bombardment/gravity) --------------
@@ -4436,30 +4503,45 @@ function testV54Signatures() {
     assert(victim.x > 301, `expected the car to knock the enemy along the lane (+x), moved to ${victim.x.toFixed(1)}px`)
     assert.strictEqual(sweep.lanes.length, 0, 'expected the lane removed once the sweep ends')
 
-    // v5.6.14: a car ONE-SHOTS the light roster (TRAFFIC_SQUASH: non-elite ratDrone/pigeon die
-    // outright, far beyond TRAFFIC_DMG), while an ELITE of the same species just takes TRAFFIC_DMG.
-    const squash = laneRun()
-    const drone = makeStatusEnemy(squash, { x: 300, y: 0, hp: 1e6, speed: 0 })
-    drone.flags = []; drone.rosterId = 'ratDrone'; drone.elite = false
-    const eliteDrone = makeStatusEnemy(squash, { x: -300, y: 0, hp: 1e6, speed: 0 })
-    eliteDrone.flags = []; eliteDrone.rosterId = 'ratDrone'; eliteDrone.elite = true
-    squash.enemies.push(drone, eliteDrone)
-    for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(squash, { x: 0, y: 0 }, dt)
-    assert(drone._dead || drone.hp <= 0, `expected the car to ONE-SHOT a basic drone, hp=${drone.hp}`)
-    assert(eliteDrone.hp >= 1e6 - TRAFFIC_DMG * 2 && eliteDrone.hp < 1e6,
-      `expected the ELITE drone to take ordinary car damage, not a one-shot (hp=${eliteDrone.hp})`)
+    // v6.9.3 (owner: "car one shots drones. it should do 50% hp damage"). The TRAFFIC_SQUASH
+    // roadkill list is GONE: a drone takes the same share of its own max hp as anything else, and
+    // an elite of the same species takes it too. What this pins is that there is exactly ONE rule
+    // left — the thing the old list quietly made untrue for four rosterIds.
+    const frac = laneRun()
+    frac.lanes[0].enemyFrac = TRAFFIC_ENEMY_HP_FRAC
+    const mk = (x, rosterId, elite) => {
+      const e = makeStatusEnemy(frac, { x, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []; e.rosterId = rosterId; e.elite = elite; e.maxHP = 1e6
+      frac.enemies.push(e)
+      return e
+    }
+    const drone = mk(300, 'ratDrone', false)      // was one-shot by the squash list
+    const pigeon = mk(200, 'pigeon', false)       // ditto
+    const eliteDrone = mk(-300, 'ratDrone', true)
+    const tank = mk(-200, 'vacuum', false)        // never was on the list
+    for (let i = 0; i < Math.round((TRAFFIC_WARN + TRAFFIC_SWEEP + 0.1) / dt); i++) stepSim(frac, { x: 0, y: 0 }, dt)
+    for (const [name, e] of [['drone', drone], ['pigeon', pigeon], ['elite drone', eliteDrone], ['vacuum', tank]]) {
+      const took = 1e6 - e.hp
+      assert(Math.abs(took - 1e6 * TRAFFIC_ENEMY_HP_FRAC) < 1,
+        `expected the van to take ${TRAFFIC_ENEMY_HP_FRAC * 100}% of the ${name}'s max hp, took ${took}`)
+      assert(!e._dead, `expected the ${name} to SURVIVE one pass at full health — no roadkill list any more`)
+    }
 
     // The signature actually rolls lanes on its own in a city run (capped by signature.lanes).
     const auto = createRun(makeMeta(), { chapter: 'city' })
     auto.weapons = []; auto.mods.spawnMul = 0; auto.player.hp = 1e9; auto.player.maxHP = 1e9
     let maxAlive = 0
+    let rolled = null
     for (let i = 0; i < Math.round(12 / dt); i++) {
       stepSim(auto, { x: 0, y: 0 }, dt)
+      if (auto.lanes[0]) rolled = rolled ?? auto.lanes[0]
       maxAlive = Math.max(maxAlive, auto.lanes.length)
     }
     assert(maxAlive > 0, 'expected a city run to roll traffic lanes on its own')
     assert(maxAlive <= CHAPTERS.city.signature.lanes, `expected at most ${CHAPTERS.city.signature.lanes} lanes alive, saw ${maxAlive}`)
-    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, one-shots basics, spares elites, <= ${maxAlive} lane(s) live`)
+    assert.strictEqual(rolled.enemyFrac, TRAFFIC_ENEMY_HP_FRAC, 'a rolled taxi lane carries the enemy hp fraction')
+    assert.strictEqual(rolled.squash, undefined, 'and carries NO roadkill list — v6.9.3 retired it')
+    console.log(`PASS run Z.b (traffic): warn harmless, sweep flattens BOTH sides + knockback, ${(TRAFFIC_ENEMY_HP_FRAC * 100).toFixed(0)}% max-hp to EVERY enemy incl. drones and elites, <= ${maxAlive} lane(s) live`)
   }
 
   // (c) bombardment: telegraphed circles rain on the player's area continuously, and (being run.bombs)
@@ -4936,42 +5018,104 @@ function testV54Weapons() {
     console.log(`PASS run AA.c (chitterShriek): fears + inverts the seek at ${FEAR_SPEED_MUL}x, no contact damage, panicRout ${plainHit} -> ${routed}`)
   }
 
-  // (d) trashTornado: an always-on orbital rewritten into run.debris every frame (the run.orbs
-  // contract); suction drags foes in; flingDebris hurls chunks out as run.bullets tagged 'trash'.
+  // (d) trashTornado (v6.8): the funnels HUNT. Idle they orbit at `radius` (the pre-v6.8 look, now
+  // only the idle state); prey inside `hunt` px of the PLAYER pulls one off the ring; a kill sends
+  // it home. One funnel per foe — the claim in stepTornadoWeapon is load-bearing, not cosmetic: the
+  // damage cooldown is per ENEMY, so a pack piled on one target throws away all but one funnel's
+  // damage. sweepLoot reels gems/coins in; flingDebris hurls chunks out as run.bullets 'trash'.
   {
-    const run = weaponRun('city', 'trashTornado')
     const lvl = WEAPONS.trashTornado.levels[MAX_WEAPON_LEVEL - 1]
-    const victim = makeStatusEnemy(run, { x: lvl.radius, y: 0, hp: 1e6, speed: 0 })
-    run.enemies.push(victim)
-    stepQuiet(run, 1.0)
-    assert.strictEqual(run.debris.length, lvl.chunks, `expected ${lvl.chunks} chunks in run.debris, got ${run.debris.length}`)
-    for (const d of run.debris) {
-      assert(Math.abs(Math.hypot(d.x - run.player.x, d.y - run.player.y) - lvl.radius) < 1e-6, 'expected chunks on the orbit ring')
-    }
-    assert(victim.hp < 1e6, `expected the chunks to grind an enemy on the ring, hp=${victim.hp}`)
+    const onRing = (r, d) => Math.abs(Math.hypot(d.x - r.player.x, d.y - r.player.y) - lvl.radius) < 1e-6
 
-    // suction: a foe just inside the suction range is dragged toward the player.
-    function suctionDx(on) {
-      const r = weaponRun('city', 'trashTornado')
-      if (on) r.weaponMods.trashTornado.suction = 0.50
-      const e = makeStatusEnemy(r, { x: 200, y: 0, hp: 1e6, speed: 0 })
+    // idle: nothing to hunt, so the whole pack sits on the ring
+    const idle = weaponRun('city', 'trashTornado')
+    stepQuiet(idle, 1.0)
+    assert.strictEqual(idle.debris.length, lvl.chunks, `expected ${lvl.chunks} funnels, got ${idle.debris.length}`)
+    for (const d of idle.debris) assert(onRing(idle, d), 'expected an idle pack on the orbit ring')
+
+    // hunt: one foe inside the leash but far off the ring, so a funnel has to LEAVE to reach it
+    const run = weaponRun('city', 'trashTornado')
+    const victim = makeStatusEnemy(run, { x: lvl.hunt - 20, y: 0, hp: 1e6, speed: 0 })
+    victim.flags = []
+    run.enemies.push(victim)
+    stepQuiet(run, 2.0)
+    const caught = run.debris.filter((d) => Math.hypot(d.x - victim.x, d.y - victim.y) < DEBRIS_R)
+    assert.strictEqual(caught.length, 1, `expected exactly ONE funnel to claim a lone foe, got ${caught.length}`)
+    assert(victim.hp < 1e6, `expected the funnel that caught it to grind it, hp=${victim.hp}`)
+    const stayedHome = run.debris.filter((d) => onRing(run, d)).length
+    assert.strictEqual(stayedHome, lvl.chunks - 1, `expected ${lvl.chunks - 1} funnels still orbiting, got ${stayedHome}`)
+
+    // ...and when it dies the hunter spirals back home on its own
+    victim.hp = 1
+    stepQuiet(run, 3.0)
+    assert.strictEqual(run.enemies.length, 0, 'expected the victim dead')
+    for (const d of run.debris) assert(onRing(run, d), 'expected every funnel back on the ring after the kill')
+    // ...and the ring re-spaces itself (TORNADO_RESPACE), so two hunts running don't leave the pack
+    // bunched on one side. Gaps between neighbours should all be near 2pi/chunks.
+    const angles = run.debris.map((d) => Math.atan2(d.y - run.player.y, d.x - run.player.x)).sort((a, b) => a - b)
+    const want = (Math.PI * 2) / lvl.chunks
+    const gaps = angles.map((a, i) => (i === 0 ? angles[0] + Math.PI * 2 - angles.at(-1) : a - angles[i - 1]))
+    const worst = Math.max(...gaps.map((g) => Math.abs(g - want)))
+    assert(worst < want * 0.15, `expected the ring to re-space after a hunt, worst gap error ${worst.toFixed(3)} rad`)
+
+    // leash: a foe beyond `hunt` is invisible — the pack never wanders off after it
+    const far = weaponRun('city', 'trashTornado')
+    const ghost = makeStatusEnemy(far, { x: lvl.hunt + 120, y: 0, hp: 1e6, speed: 0 })
+    ghost.flags = []
+    far.enemies.push(ghost)
+    stepQuiet(far, 2.0)
+    assert.strictEqual(ghost.hp, 1e6, 'expected a foe outside the hunt radius to be ignored')
+    for (const d of far.debris) assert(onRing(far, d), 'expected the pack home while the only foe is out of leash')
+
+    // more prey than funnels: every funnel ends up on a DIFFERENT enemy
+    const many = weaponRun('city', 'trashTornado')
+    const flock = lvl.chunks + 2
+    for (let i = 0; i < flock; i++) {
+      const a = (i / flock) * Math.PI * 2
+      const e = makeStatusEnemy(many, { x: Math.cos(a) * 150, y: Math.sin(a) * 150, hp: 1e6, speed: 0 })
       e.flags = []
-      r.enemies.push(e)
-      stepQuiet(r, 0.3)
-      return e.x
+      many.enemies.push(e)
     }
-    assert(suctionDx(true) < suctionDx(false) - 1, 'expected suction to drag a nearby foe inward')
+    stepQuiet(many, 2.0)
+    const claimedFoes = new Set()
+    for (const d of many.debris) {
+      for (const e of many.enemies) {
+        if (Math.hypot(e.x - d.x, e.y - d.y) < DEBRIS_R) { claimedFoes.add(e); break }
+      }
+    }
+    assert.strictEqual(claimedFoes.size, lvl.chunks, `expected ${lvl.chunks} distinct targets, got ${claimedFoes.size}`)
+
+    // Street Sweeper (v6.9, replaces the enemy-pulling suction): a gem near a FUNNEL — not near the
+    // player, and well outside magnet range — is marked _vac and reels in. Without the mod it sits.
+    function sweptGem(on) {
+      const r = weaponRun('city', 'trashTornado')
+      if (on) r.weaponMods.trashTornado.sweepLoot = 1
+      r.player.magnet = 10           // so nothing here can be explained by the ordinary magnet
+      stepQuiet(r, 1.0)              // let the pack settle onto its idle ring
+      const t = r.debris[0]
+      const gem = { x: t.x + 20, y: t.y, r: 6, xp: 1 }
+      r.gems.push(gem)
+      const d0 = Math.hypot(gem.x - r.player.x, gem.y - r.player.y)
+      stepQuiet(r, 0.5)
+      return { vac: !!gem._vac, closed: d0 - Math.hypot(gem.x - r.player.x, gem.y - r.player.y) }
+    }
+    const swept = sweptGem(true), unswept = sweptGem(false)
+    assert(swept.vac, 'expected a gem beside a funnel to be marked _vac by Street Sweeper')
+    assert(!unswept.vac, 'expected no _vac marking without the mod')
+    assert(swept.closed > unswept.closed + 20,
+      `expected the swept gem to reel in past magnet range (closed ${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
 
     // flingDebris: chunks are hurled outward as bullets.
     const fling = weaponRun('city', 'trashTornado')
     fling.weaponMods.trashTornado.flingDebris = 2
     stepQuiet(fling, 2.0)
     assert(fling.bullets.some((b) => b.weapon === 'trash'), 'expected flingDebris to hurl chunks as weapon:trash bullets')
-    console.log(`PASS run AA.d (trashTornado): ${run.debris.length} orbiting chunks grind + suction + fling`)
+    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px) + fling`)
   }
 
-  // (e) sewerGeyser: telegraph (harmless) -> one eruption -> gone. Enemies only, never the player.
-  // launch flings and stuns; chainGeyser scatters follow-ups that never chain further.
+  // (e) sewerGeyser: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.
+  // Enemies only, never the player. Cap Blast flings and stuns; the turret hoses only the nearest
+  // `streams` foes, and a zone with no jetDur (a riftScar rift) still pops once and vanishes.
   {
     const run = weaponRun('city', 'sewerGeyser')
     const lvl = WEAPONS.sewerGeyser.levels[MAX_WEAPON_LEVEL - 1]
@@ -5013,20 +5157,72 @@ function testV54Weapons() {
     assert(caught.stunT > 0, `expected launch to stun what it catches, stunT=${caught.stunT}`)
     assert(caught.x > 40, `expected launch to fling the enemy outward, x=${caught.x.toFixed(1)}`)
 
-    // chainGeyser: follow-ups appear, flagged _chained, and never chain further.
-    const chain = weaponRun('city', 'sewerGeyser')
-    chain.weapons = []
-    chain.weaponMods.sewerGeyser.chainGeyser = 2
-    chain.geysers.push({ x: 0, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 50 })
-    stepQuiet(chain, 0.2)
-    assert.strictEqual(chain.geysers.length, 2, `expected 2 chained follow-ups, got ${chain.geysers.length}`)
-    for (const g of chain.geysers) {
-      assert.strictEqual(g._chained, true, 'expected follow-ups flagged _chained')
-      assert(Math.abs(g.r - 100 * GEYSER_CHAIN_FRAC) < 1e-6, `expected follow-up radius at GEYSER_CHAIN_FRAC, got ${g.r}`)
+    // v6.10 TURRET: an open hydrant hoses only the nearest `nStreams` foes in range. This is the
+    // property the whole rework turns on — r is a RANGE, not a damage area — so it is asserted
+    // against a line of foes at known distances rather than against a count.
+    const turret = weaponRun('city', 'sewerGeyser')
+    turret.weapons = []
+    const line = [60, 120, 180, 240].map((x) => {
+      const e = makeStatusEnemy(turret, { x, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      e.affixes = ['anchored']   // the streams shove what they hit; keep the distances fixed
+      turret.enemies.push(e)
+      return e
+    })
+    turret.geysers.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 2 })
+    // The ERUPTION is still radial — the cap blowing off is a blast, and it hits everything in r
+    // once. Only the SUSTAINED hosing is aimed, so the measurement window has to start after the
+    // eruption or it reads the blast and concludes the turret is a zone.
+    stepQuiet(turret, 0.1)
+    const hp0 = line.map((e) => e.hp)
+    for (let i = 0; i < 4; i++) assert(hp0[i] < 1e6, `expected the eruption blast to hit all four in r, foe ${i} untouched`)
+    stepQuiet(turret, 0.4)
+    assert(line[0].hp < hp0[0] && line[1].hp < hp0[1], 'expected the two NEAREST foes to keep being hosed')
+    assert.strictEqual(line[2].hp, hp0[2], 'expected the 3rd-nearest foe to take NOTHING after the blast with nStreams=2 (r is a range, not a damage area)')
+    assert.strictEqual(line[3].hp, hp0[3], 'expected the 4th-nearest foe to take nothing after the blast with nStreams=2')
+    // ...and it damages repeatedly over its life, not once.
+    const midHp = line[0].hp
+    stepQuiet(turret, 0.3)
+    assert(line[0].hp < midHp, 'expected an open hydrant to keep hosing its target, not fire once')
+    // ...then the main runs dry and the zone is gone.
+    stepQuiet(turret, 1.2)
+    assert.strictEqual(turret.geysers.length, 0, 'expected the hydrant to be removed once jetDur ran out')
+
+    // A wider nozzle reaches further down the same line: nStreams=4 hoses all four.
+    const wide = weaponRun('city', 'sewerGeyser')
+    wide.weapons = []
+    const line2 = [60, 120, 180, 240].map((x) => {
+      const e = makeStatusEnemy(wide, { x, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      e.affixes = ['anchored']
+      wide.enemies.push(e)
+      return e
+    })
+    wide.geysers.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 4 })
+    stepQuiet(wide, 0.1)
+    const hp2 = line2.map((e) => e.hp)      // after the blast, as above
+    stepQuiet(wide, 0.4)
+    for (let i = 0; i < 4; i++) assert(line2[i].hp < hp2[i], `expected nStreams=4 to hose foe ${i} after the blast, hp unchanged at ${line2[i].hp}`)
+
+    // ...and Split Nozzle is what raises it: the mod must reach the PLANTED zone, which snapshots
+    // stats.streams at cast time. Asserting on the zone rather than on a stats object keeps this
+    // honest about the whole path (WEAPON_STAT_MODS -> effectiveWeaponStats -> the cast site).
+    const nozzle = weaponRun('city', 'sewerGeyser')
+    nozzle.weaponMods.sewerGeyser.moreStreams = 2
+    const baseStreams = WEAPONS.sewerGeyser.levels[MAX_WEAPON_LEVEL - 1].streams
+    const foe = makeStatusEnemy(nozzle, { x: 200, y: 0, hp: 1e6, speed: 0 })
+    foe.flags = []
+    nozzle.enemies.push(foe)
+    let plantedN = null
+    for (let i = 0; i < Math.round(4 / dt) && !plantedN; i++) {
+      if (nozzle.phase === 'levelup') { declineLevelUp(nozzle); continue }
+      stepSim(nozzle, { x: 0, y: 0 }, dt)
+      plantedN = nozzle.geysers[0]
     }
-    stepQuiet(chain, 1.0)
-    assert.strictEqual(chain.geysers.length, 0, 'expected a _chained geyser to erupt and never chain further')
-    console.log('PASS run AA.e (sewerGeyser): telegraph -> erupt (enemies only) -> gone; launch stuns; chain never re-chains')
+    assert(plantedN, 'expected a hydrant to be planted with Split Nozzle held')
+    assert.strictEqual(plantedN.nStreams, baseStreams + 2,
+      `expected Split Nozzle x2 to fold into streams (${baseStreams} -> ${baseStreams + 2}), got ${plantedN.nStreams}`)
+    console.log(`PASS run AA.e (sewerGeyser): telegraph -> erupt (enemies only) -> turret hoses the nearest 2 of 4 in range -> dry; Cap Blast stuns; Split Nozzle ${baseStreams} -> ${plantedN.nStreams} streams`)
   }
 
   // (f) roar: a narrow sector sweep aimed at the NEAREST enemy that shoves; stagger stuns;
@@ -5195,7 +5391,7 @@ function testV54Weapons() {
       rifts = rift.geysers.slice()
     }
     assert(rifts.length > 0, 'expected riftScar to leave rifts at blink departure points')
-    for (const g of rifts) assert.strictEqual(g._chained, true, "expected rifts flagged _chained so sewerGeyser's chainGeyser can never fire off them")
+    for (const g of rifts) assert.strictEqual(g._chained, true, 'expected rifts flagged _chained (the "not a Sewer Geyser cast" marker)')
 
     // recursion: a shard that runs out of LIFE forks into _fork shards.
     const rec = weaponRun('beyond', 'realityShard')
@@ -5347,7 +5543,7 @@ function testV54Weapons() {
       city: [
         ['rainbow', (r) => { r.weaponMods.rainbow.wideBeam = 0.20; r.weaponMods.rainbow.longBeam = 0.20 }],
         ['trashTornado', (r) => { r.weaponMods.trashTornado.heavyTrash = 0.25; r.weaponMods.trashTornado.moreTrash = 1 }],
-        ['sewerGeyser', (r) => { r.weaponMods.sewerGeyser.pressure = 0.30; r.weaponMods.sewerGeyser.wideGeyser = 0.30 }],
+        ['sewerGeyser', (r) => { r.weaponMods.sewerGeyser.pressure = 0.30; r.weaponMods.sewerGeyser.longHose = 0.30 }],
       ],
       skies: [
         ['roar', (r) => { r.weaponMods.roar.bellow = 0.30; r.weaponMods.roar.wideRoar = 0.30 }],
@@ -5705,7 +5901,13 @@ function testSkiesKaiju() {
     Math.random = mulberry32(20260714)
     const seed = 424242
 
-    const runA = seededSkiesRun(seed, 111)
+    // v6.9.2: world seeds whose ORIGIN IS DOWNTOWN. Obstacle density is a function of the biome
+    // (BIOME_BUILD_DENSITY), so a seed that opens at sea streams a handful of piers and nothing
+    // else — 111 used to clear this "> 5" by one or two, and the v6.9.2 road widening shaved that
+    // margin away without anything actually being wrong. A downtown origin is both what this test
+    // is about and 10x clear of the threshold, so it measures the generator rather than the luck of
+    // where one seed's streaming disc landed.
+    const runA = seededSkiesRun(seed, 4321)
     stepSim(runA, { x: 0, y: 0 }, dt)
     const kindsA = Object.fromEntries(runA.obstacles.map((o) => [o._cell, o.kind]))
     assert(Object.keys(kindsA).length > 5, 'expected the forced seed to stream in a real set of obstacles')
@@ -5721,7 +5923,7 @@ function testSkiesKaiju() {
     // the playtest report was about: A CITY IS DENSER THAN OPEN COUNTRY. Measured directly on the
     // generator over equal-area samples rather than on a live run, so it can't be confounded by
     // where the streaming disc happens to sit.
-    const runB = seededSkiesRun(seed, 999999)
+    const runB = seededSkiesRun(seed, 5150)
     stepSim(runB, { x: 0, y: 0 }, dt)
     assert(runB.obstacles.length > 5, 'expected the second world seed to stream in a real set of obstacles too')
 
@@ -5904,7 +6106,14 @@ function testRoads() {
     }
     const frac = onCount / total
     assert(frac > 0.02 && frac < 0.5, `expected roadway to cover a modest slice of a long diagonal sweep, got ${(frac * 100).toFixed(1)}% (a degenerate roadAt reads as ~0% or ~100%)`)
-    assert(transitions > 20, `expected many road/non-road transitions along a long diagonal sweep, got ${transitions}`)
+    // The floor is derived from the GRID PITCH, not a magic number: this sweep crosses roughly
+    // 20000/BLOCK_U vertical streets and 7400/BLOCK_V horizontal ones where it happens to be inside
+    // a city, so the old hardcoded 20 silently encoded the pre-v6.9.2 300x380 blocks and failed the
+    // moment the grid was widened. What the assertion is actually for is catching a DEGENERATE
+    // roadAt (always-on or always-off), and any positive transition count well clear of zero does
+    // that; a quarter of the vertical crossings is a comfortable margin either way.
+    const floor = Math.max(6, Math.round(20000 / BLOCK_U / 4))
+    assert(transitions > floor, `expected many road/non-road transitions along a long diagonal sweep, got ${transitions} (floor ${floor})`)
     console.log(`PASS run DD.b (road geometry): ${(frac * 100).toFixed(1)}% of a diagonal sweep on-road across ${transitions} transitions (neither constantly on nor off)`)
   }
 
@@ -6561,8 +6770,8 @@ function testCityTerrainWiring() {
 
   // (c) v6.3 roster rework: weight/minT gate spawnEnemy's pool pick (still the same single
   // Math.random() draw), AERIAL_STRIKE_MAX_LIVE caps concurrent aerial enemies out of 'circle',
-  // and the retuned BLINK_* constants (now the city pigeon's, not the beyond's — see config.js)
-  // still respect their own contract.
+  // and (v6.9) the fast lane's post-blink shape: the pigeon carries `flyover` and both it and the
+  // rat took the owner's 15% speed cut.
   {
     Math.random = mulberry32(20260714)
     const dt = 1 / 60
@@ -6622,50 +6831,22 @@ function testCityTerrainWiring() {
     assert(outOfCircle <= AERIAL_STRIKE_MAX_LIVE,
       `expected at most AERIAL_STRIKE_MAX_LIVE=${AERIAL_STRIKE_MAX_LIVE} aerial enemies out of 'circle' in one frame, got ${outOfCircle}/${n}`)
 
-    // c3: blink retune (v6.3 — these constants are the city pigeon's now, not the beyond's).
-    // First, the retuned crawl in isolation: a throwaway enemy with real speed, stepped one frame
-    // (well short of BLINK_INTERVAL, so no blink fires in it) — pins that it advances at
-    // BLINK_CRAWL_SPEED_MUL of its own speed.
-    const cr = createRun(makeMeta(), { chapter: 'city' })
-    cr.weapons = []; cr.obstacles = []; cr._obstacleSeed = null; cr.mods.spawnMul = 0
-    cr.player.x = 0; cr.player.y = 0; cr.player.hp = cr.player.maxHP = 1e9
-    cr._laneAcc = 1e6
-    const crawler = makeStatusEnemy(cr, { x: -600, y: 0, hp: 1e6, speed: 90 })
-    crawler.flags = ['blink']
-    cr.enemies.push(crawler)
-    const crx0 = crawler.x
-    stepSim(cr, { x: 0, y: 0 }, dt)
-    const crawledPx = crawler.x - crx0
-    const expectedCrawlPx = crawler.speed * BLINK_CRAWL_SPEED_MUL * dt
-    assert(Math.abs(crawledPx - expectedCrawlPx) < 0.5,
-      `expected the between-blink crawl at BLINK_CRAWL_SPEED_MUL=${BLINK_CRAWL_SPEED_MUL} of its speed, got ${crawledPx.toFixed(3)}px vs expected ${expectedCrawlPx.toFixed(3)}px`)
-
-    // Then the blink JUMP contract itself, isolated from the (unclamped) crawl by pinning
-    // speed:0 — same isolation trick Y.h's own 'near' case uses. Never LANDS closer than
-    // BLINK_MIN_DIST (the crawl has no such floor — this is about the teleport specifically), and
-    // closes real ground purely via blinking — at least 200px over 3 intervals — against a
-    // stationary player at 600px.
-    const bl = createRun(makeMeta(), { chapter: 'city' })
-    bl.weapons = []; bl.obstacles = []; bl._obstacleSeed = null; bl.mods.spawnMul = 0
-    bl.player.x = 0; bl.player.y = 0; bl.player.hp = bl.player.maxHP = 1e9
-    bl._laneAcc = 1e6
-    const pigeon = makeStatusEnemy(bl, { x: -600, y: 0, hp: 1e6, speed: 0 })
-    pigeon.flags = ['blink']
-    bl.enemies.push(pigeon)
-    const dist0 = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
-
-    let minDistSeen = dist0
-    for (let i = 0; i < Math.round((BLINK_INTERVAL * 3 + 0.1) / dt); i++) {
-      stepSim(bl, { x: 0, y: 0 }, dt)
-      const d = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
-      if (d < minDistSeen) minDistSeen = d
+    // c3: v6.9 — the pigeon is an ordinary chaser with `flyover` now (blink retired, see the note
+    // in config.js), so what's worth pinning here is that the roster entry actually carries it and
+    // that both fast-lane speeds took the owner's 15% cut. The flag's BEHAVIOUR is run Y.h's job.
+    const fast = CHAPTERS.city.roster.filter((r) => r.archetype === 'fast')
+    const pigeonCfg = fast.find((r) => r.id === 'pigeon')
+    const ratCfg = fast.find((r) => r.id === 'rat')
+    assert(pigeonCfg && ratCfg, 'expected city to keep both fast-lane entries')
+    assert.deepStrictEqual(pigeonCfg.flags, ['flyover'], `expected the pigeon to carry only flyover, got ${JSON.stringify(pigeonCfg.flags)}`)
+    for (const r of CHAPTERS.city.roster) {
+      assert(!r.flags.includes('blink'), `expected no city roster entry to still carry the retired blink flag (${r.id})`)
     }
-    const distEnd = Math.hypot(pigeon.x - bl.player.x, pigeon.y - bl.player.y)
-    assert(minDistSeen >= BLINK_MIN_DIST - 1e-6, `expected a blink never to land closer than BLINK_MIN_DIST=${BLINK_MIN_DIST}, got ${minDistSeen.toFixed(1)}`)
-    const closed = dist0 - distEnd
-    assert(closed >= 200, `expected 3 blinks to close at least 200px, closed ${closed.toFixed(1)}px (${dist0.toFixed(0)} -> ${distEnd.toFixed(0)})`)
+    // x0.85 of the pre-v6.9 values (pigeon 1.2, rat 1.15), to 2dp.
+    assert(Math.abs(pigeonCfg.speedMul - 1.02) < 0.005, `pigeon speedMul ${pigeonCfg.speedMul}`)
+    assert(Math.abs(ratCfg.speedMul - 0.98) < 0.005, `rat speedMul ${ratCfg.speedMul}`)
 
-    console.log(`PASS run KK.c (roster v6.3): weight/minT (0 patrolDrone pre-t60 n=${early.length}, share ${patrolShare.toFixed(3)} at t=120 n=${late.length}), strike cap (${outOfCircle}/${n} out of 'circle', cap=${AERIAL_STRIKE_MAX_LIVE}), blink retune (min ${minDistSeen.toFixed(0)}px, closed ${closed.toFixed(0)}px/3 intervals)`)
+    console.log(`PASS run KK.c (roster v6.3): weight/minT (0 patrolDrone pre-t60 n=${early.length}, share ${patrolShare.toFixed(3)} at t=120 n=${late.length}), strike cap (${outOfCircle}/${n} out of 'circle', cap=${AERIAL_STRIKE_MAX_LIVE}), fast lane cut 15% (pigeon ${pigeonCfg.speedMul} flyover, rat ${ratCfg.speedMul})`)
   }
 }
 
@@ -6778,8 +6959,10 @@ function testTrafficLaneSnap() {
     const lane = run.lanes[0]
 
     assertPlayerInBand(run, lane, 'tier 2 (mid-block curb-jump)')
-    const angleErr = angleModDiff(lane.angle, spot.city.angle, Math.PI / 2)
-    assert(angleErr < 1e-6, `expected the lane's angle to align with the city grid mod pi/2, err=${angleErr}`)
+    // v6.9.2: the street grid is the WORLD's and axis-aligned, so "aligned with the grid" is now
+    // "aligned with the axes" — a city carries no rotation of its own to compare against.
+    const angleErr = angleModDiff(lane.angle, 0, Math.PI / 2)
+    assert(angleErr < 1e-6, `expected the lane's angle to align with the world grid mod pi/2, err=${angleErr}`)
     console.log(`PASS run KK.d.2 (traffic tier 2: mid-block curb-jump still crosses player): angle err=${angleErr.toExponential(2)}`)
   }
 
@@ -7004,6 +7187,11 @@ function testTrafficMainGeyser() {
       const laneSpot = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })   // in castRange AND in the band
       const clearSpot = makeStatusEnemy(run, { x: 100, y: 200, hp: 1e6, speed: 0 }) // in castRange, outside the band (perp=200 > w/2=65)
       laneSpot.flags = []; clearSpot.flags = []
+      // v6.10: an open jet shoves what stands in it outward every frame (GEYSER_JET_PUSH), so these
+      // speed-0 fixtures would drift off their marks and the placement this test is about would
+      // read as a miss. 'anchored' is the affix the push already exempts — this test is about WHERE
+      // a cast lands, not about the drift, which run AA.e.jet covers directly.
+      laneSpot.affixes = ['anchored']; clearSpot.affixes = ['anchored']
       run.enemies.push(laneSpot, clearSpot)
       const spots = []
       for (let i = 0; i < Math.round(11 / dt); i++) {
@@ -7020,9 +7208,20 @@ function testTrafficMainGeyser() {
       return spots
     }
 
+    // v6.10 leads the mark by how far the TARGET travels while the fuse burns (leadSpot: speed x
+    // fuse, toward the player). These fixtures are speed 0, so the lead is 0 and the mark lands on
+    // the enemy exactly as before — which is the point of a speed-scaled lead and is what makes the
+    // original coordinates still the right assertion here. Run AA.e.lead covers a moving target.
+    // The band is |y| <= TRAFFIC_W/2 = 65: the in-lane foe qualifies, the clear one (y=200) does
+    // not. In-lane placement is the property that matters, since trafficMain's damage bonus is
+    // resolved at the ZONE's position, not the target's.
+    const LANE_HALF = TRAFFIC_W / 2
     const biased = runCasts(true)
     assert(biased.length >= 3, `expected several geysers planted over the test window, got ${biased.length}`)
-    assert(biased.every((s) => s.x === 100 && s.y === 0), `expected every geyser to land on the in-lane enemy with trafficMain held, got ${JSON.stringify(biased)}`)
+    assert(biased.every((s) => Math.abs(s.y) <= LANE_HALF),
+      `expected every geyser to land INSIDE the band with trafficMain held (|y| <= ${LANE_HALF}), got ${JSON.stringify(biased)}`)
+    assert(biased.every((s) => s.x === 100 && s.y === 0),
+      `expected every geyser on the in-lane enemy (speed 0, so no lead), got ${JSON.stringify(biased)}`)
 
     const unbiased = runCasts(false)
     assert(unbiased.length >= 3, `expected several geysers planted over the test window, got ${unbiased.length}`)
@@ -8772,6 +8971,13 @@ function testChapterDensityCap() {
     Math.random = mulberry32(20260804)
     const run = createRun(makeMeta(), { chapter: id })
     run.weapons = []
+    // v6.9.2: stripping weapons is not enough to stop things dying in the CITY — its signature
+    // hazard kills on its own, and the taxi one-shots the light roster. That confound was invisible
+    // until roundHP landed, because a fractional maxHP meant the squash branch dealt round(hp) and
+    // left frac(maxHP) behind, so ~half of everything it hit survived and the field saturated
+    // anyway. With the taxi actually killing again, city peaks at ~211 of its 400 cap. Park the
+    // traffic signature for the measurement so this still tests the SPAWN cap and nothing else.
+    run.mods.trafficIntervalMul = 1e9
     run.player.hp = run.player.maxHP = 1e9
     const cap = maxAliveFor(run.mods)
     assert.strictEqual(cap, Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1)),
@@ -9531,6 +9737,9 @@ try {
   testStingerPierce()
   testRedundantMods()
   testUndergrowthRound()
+  testRoadOff()
+  testIntegerHP()
+  testDetonationScaling()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -9777,7 +9986,9 @@ function testMower() {
     lane.x = 0; lane.y = 0; lane.angle = 0
     run.player.x = 0; run.player.y = 4000      // out of the band; this scenario is about the enemies
     assert.strictEqual(lane.enemyFrac, MOWER_ENEMY_HP_FRAC, 'the lane carries the fraction')
-    assert.strictEqual(lane.squash, undefined, 'and no longer carries a squash list — the fraction replaced it')
+    // v6.9.3: the squash mechanism is gone entirely, so a mower lane simply has no such field and
+    // there is nothing left for it to fall back to.
+    assert.strictEqual(lane.squash, undefined, 'no lane carries a roadkill list any more')
 
     const ant = makeStatusEnemy(run, { x: 0, y: 0, hp: 4000, speed: 0 })
     ant.rosterId = 'ant'
@@ -11058,6 +11269,53 @@ function testUndergrowthRound() {
         `the leap heading moved by ${drift} mid-flight while the player orbited — a committed leap must not re-aim`)
       console.log(`PASS run UG.j5 (committed mid-air): heading held across ${framesAirborne} airborne frames against an orbiting player`)
     }
+
+    // (j6) v6.7.4. THE WIND-UP IS SPLIT and both halves have to be real. Locking the heading at the
+    // start of the crouch made the toad catch a standing player and nobody else; locking it at
+    // LAUNCH made it a homing toad, which the owner rejected by name. The shipped answer tracks for
+    // POUNCE_AIM_TRACK_T and then freezes, so BOTH properties are load-bearing and this asserts each
+    // one separately — a regression that dropped either would leave the other's assertion passing.
+    {
+      assert.ok(POUNCE_AIM_TRACK_T > 0 && POUNCE_AIM_TRACK_T < POUNCE_AIM_T,
+        `the tracking window (${POUNCE_AIM_TRACK_T}s) must be a strict fraction of the wind-up (${POUNCE_AIM_T}s): at 0 the leap aims where you were a whole crouch ago, at the full wind-up it aims at launch and the toad homes`)
+      Math.random = mulberry32(20260807)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth' })
+      run.weapons = []
+      run.obstacles = []; run._obstacleSeed = null; run.traps = []
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      run.mods.spawnMul = 0
+      run.enemies.length = 0
+      const toad = CHAPTERS.undergrowth.roster.find((r) => r.id === 'toad')
+      const e = makeStatusEnemy(run, { x: 120, y: 0, type: 'tank', speed: ENEMIES.tank.speed * toad.speedMul })
+      e.radius = ENEMIES.tank.radius
+      e.flags = ['pounce']
+      e.rosterId = 'toad'
+      run.enemies.push(e)
+      // The player ORBITS, so the bearing to it changes every frame: any frame that re-aims moves
+      // _pounceDir, and any frame that does not leaves it exactly where it was.
+      let trackMoves = 0, committedMoves = 0, committedFrames = 0, prev = null
+      for (let i = 0; i < 60 * 12; i++) {
+        run.player.hp = run.player.maxHP = 1e9
+        const a = i * 0.09
+        stepSim(run, { x: Math.cos(a), y: Math.sin(a) }, 1 / 60)
+        run.events.length = 0
+        if (e._pounceState !== 'aim') { prev = null; continue }
+        const now = [e._pounceDirX, e._pounceDirY]
+        const committed = e._pounceT <= POUNCE_AIM_T - POUNCE_AIM_TRACK_T
+        if (committed) committedFrames++
+        if (prev) {
+          const moved = Math.abs(now[0] - prev[0]) + Math.abs(now[1] - prev[1]) > 0
+          if (committed) { if (moved) committedMoves++ } else if (moved) trackMoves++
+        }
+        prev = now
+      }
+      assert.ok(trackMoves > 20,
+        `the first ${POUNCE_AIM_TRACK_T}s of the crouch must still line up on a moving player, but the heading changed on only ${trackMoves} frames — the toad is back to aiming where you stood a whole wind-up ago`)
+      assert.ok(committedFrames > 20, `UG.j6 needs real committed frames to mean anything, saw ${committedFrames}`)
+      assert.strictEqual(committedMoves, 0,
+        `the heading re-aimed on ${committedMoves} of ${committedFrames} COMMITTED frames — past POUNCE_AIM_TRACK_T the attack is locked, and a toad that keeps tracking to launch is the homing version the owner refused`)
+      console.log(`PASS run UG.j6 (split wind-up): tracks on ${trackMoves} frames of the first ${POUNCE_AIM_TRACK_T}s, then frozen across ${committedFrames} committed frames`)
+    }
   }
 
   // (k) v6.6.33. render.js is not headless-testable (Pixi + DOM), so this is a SOURCE tripwire for
@@ -11081,4 +11339,180 @@ function testUndergrowthRound() {
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
+}
+
+// ---- run VC (v6.9.1): roadAt's signed `off` ----------------------------------------------------
+// Both the carriageway renderer and the city's traffic-lane snap place geometry ON a street's
+// centreline, and until v6.9.1 both recovered which SIDE of the line they were on by re-querying
+// roadAt a few px to one side and checking whether `dist` shrank. That probe is wrong for every
+// query within the probe distance of the line — it steps across, `dist` does not shrink, and the
+// geometry is placed 2*dist the WRONG WAY. On a 30px street that is the staircase kerb the owner
+// reported, and for the lane snap it is a taxi lane laid off the road it snapped to.
+// `off` is the fix and is now load-bearing in two modules, so its convention gets asserted here.
+//
+// The test does NOT step the whole way to the centreline and re-query: a street is cut by water and
+// by the urban falloff, so the centreline point of a perfectly good on-road query can legitimately
+// answer onRoad:false (found the hard way — (-1876,-44) at seed 1 is a street on the near bank of a
+// river). It measures the DERIVATIVE instead, which no gate can perturb: step eps along the left
+// normal and `dist` must move to |off + eps|, not to |-off + eps|. Those two differ for every
+// sample with a non-zero offset, so a flipped sign cannot pass.
+function testRoadOff() {
+  const EPS = 0.5
+  const seeds = [1, 7, 12345, 998877]
+  let checked = 0, sawStreet = false, sawHighway = false
+  for (const seed of seeds) {
+    for (let k = 0; k < 6000 && checked < 900; k++) {
+      const x = (k * 977) % 9000 - 4500
+      const y = (k * 613) % 9000 - 4500
+      const r = roadAt(x, y, seed)
+      if (!r.onRoad) continue
+      assert.ok(Math.abs(Math.abs(r.off) - r.dist) < 1e-9,
+        `roadAt(${x},${y},${seed}).off ${r.off} must have magnitude dist ${r.dist}`)
+      if (Math.abs(r.off) < 1) continue           // the two predictions coincide near the line
+      const nx = -Math.sin(r.angle), ny = Math.cos(r.angle)
+      const q = roadAt(x + nx * EPS, y + ny * EPS, seed)
+      if (!q.onRoad || q.kind !== r.kind || Math.abs(q.angle - r.angle) > 1e-9) continue
+      checked++
+      if (r.kind === 'highway') sawHighway = true; else sawStreet = true
+      const right = Math.abs(q.dist - Math.abs(r.off + EPS))
+      const flipped = Math.abs(q.dist - Math.abs(-r.off + EPS))
+      assert.ok(right < flipped,
+        `off has the WRONG SIGN at (${x},${y},${seed}): off=${r.off}, stepping +${EPS} along the left normal gave dist ${q.dist} (|off+eps|=${Math.abs(r.off + EPS)}, |-off+eps|=${Math.abs(-r.off + EPS)})`)
+    }
+  }
+  assert.ok(checked > 200, `expected a few hundred usable on-road samples, got ${checked}`)
+  assert.ok(sawStreet && sawHighway, `wanted both kinds covered (street=${sawStreet} highway=${sawHighway})`)
+  console.log(`PASS run VC (roadAt.off): ${checked} on-road samples across 4 seeds, streets and highways, every one signed along the left normal`)
+}
+
+// ---- run VD (v6.9.2): enemy HP is an integer, and the taxi's one-shot actually kills ------------
+// Reported as "taxi damage is buggy — sometimes 0, sometimes 9, sometimes 14 for the same enemy".
+// Root cause: every factor feeding maxHP is fractional (hpScale, difficulty/mutator muls, roster
+// hpMul) but the ONLY thing that subtracts from hp is dealDamage, which rounds. So the fractional
+// part was immortal, and the city taxi's squash branch — which deals a light enemy EXACTLY its
+// remaining hp — dealt round(hp) and left frac(maxHP) behind. Half of everything it ran over got
+// up again, and once parked on a sub-0.5 sliver it was unkillable BY THE TAXI for the rest of the
+// run (round(0.0038) === 0, which is the literal "0" that was showing up).
+function testIntegerHP() {
+  // (a) the invariant, across chapters, difficulties and a long run: hp and maxHP stay integral.
+  for (const [chapter, difficulty] of [['city', 1], ['city', 5], ['undergrowth', 3], ['body', 1]]) {
+    Math.random = mulberry32(90210)
+    const run = createRun(makeMeta(), { chapter, difficulty })
+    run.player.hp = run.player.maxHP = 1e9
+    const dt = 1 / 60
+    for (let i = 0; i < Math.round(180 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: Math.sin(i / 130), y: Math.cos(i / 91) }, dt)
+      run.player.hp = run.player.maxHP
+    }
+    assert(run.enemies.length > 0, `expected a populated field in ${chapter} d${difficulty}`)
+    for (const e of run.enemies) {
+      assert(Number.isInteger(e.maxHP), `${chapter} d${difficulty}: ${e.rosterId} maxHP ${e.maxHP} is not an integer`)
+      assert(Number.isInteger(e.hp), `${chapter} d${difficulty}: ${e.rosterId} hp ${e.hp} is not an integer`)
+      assert(e.hp > 0, `${chapter} d${difficulty}: ${e.rosterId} is alive at hp ${e.hp}`)
+    }
+  }
+  console.log('PASS run VD.a (integer HP): hp and maxHP are whole numbers across 4 chapter/difficulty runs, no enemy alive on a sliver')
+
+  // (b) the number the player sees. v6.9.3 retired TRAFFIC_SQUASH, so there is ONE rule: every
+  // enemy takes TRAFFIC_ENEMY_HP_FRAC of its own max hp. What this pins is that the figure is a
+  // function of maxHP ALONE — not of how hurt the target already was, which is what made the same
+  // drone read 0, then 9, then 14 in the original report — and that it is never rounded to zero.
+  for (const startHP of [21, 12, 9, 3, 1]) {
+    Math.random = mulberry32(4242)
+    const run = createRun(makeMeta(), { chapter: 'city' })
+    run.player.hp = run.player.maxHP = 1e9
+    run.weapons = []
+    run.mods.trafficIntervalMul = 1e9      // no stray lanes; this test drives its own
+    const p = run.player
+    const victim = makeStatusEnemy(run, { x: p.x + 40, y: p.y, hp: startHP, speed: 0 })
+    victim.rosterId = 'ratDrone'           // was on the retired roadkill list
+    victim.maxHP = 40
+    victim.flags = []
+    run.enemies = [victim]
+    run.lanes = [{
+      x: p.x, y: p.y, angle: 0, len: 1100, w: 130,
+      phase: 'sweep', t: TRAFFIC_SWEEP, warnT: TRAFFIC_WARN, carT: 0,
+      dmg: TRAFFIC_DMG, sweep: TRAFFIC_SWEEP, deckLen: TRAFFIC_CAR_LEN, deckW: TRAFFIC_CAR_W,
+      kb: TRAFFIC_KB, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
+      look: 'car', cover: false, hitIds: new Set(),
+    }]
+    const dt = 1 / 60
+    const want = Math.round(40 * TRAFFIC_ENEMY_HP_FRAC)
+    let seen = null
+    for (let i = 0; i < Math.round((TRAFFIC_SWEEP + 0.2) / dt) && seen === null; i++) {
+      run.player.hp = run.player.maxHP
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const hit = run.events.find((e) => e.type === 'hit')
+      if (hit) seen = hit.dmg
+    }
+    assert.strictEqual(seen, want,
+      `a drone at ${startHP}/40 hp should be dealt ${want} (50% of MAX hp), got ${seen} — the number must not depend on how hurt it already was`)
+    assert(seen > 0, `the car dealt ZERO at ${startHP} hp`)
+  }
+  console.log(`PASS run VD.b (one rule): the car deals exactly 50% of MAX hp to a drone at every starting health, never 0 and never a one-shot`)
+}
+
+// ---- run VE: mod-gated detonations must scale with the player's damage multiplier ----------
+// v6.9.3 regression. Apoptosis Pop (wispPop), Big Crunch (holeCrunch) and Collapse (collapseFold)
+// used to call dealDamage on a RAW config stat, so each contributed a FLAT constant that ignored
+// damageMul / passives.damage / mods.playerDmgMul and never crit — Big Crunch went from ~42% of
+// the vortex's output at 1x damage to ~7% at 10x. Their correct siblings (orbitSupernova, tail
+// wrecking) derive from an applyDamage RETURN value, so they always scaled.
+//
+// Method: identical seed, enemies pinned immortal so the two runs stay in lockstep, sum every
+// 'hit' event over a fixed window at 100x vs 300x damage. 100x (not 1x) keeps applyDamage's
+// Math.round off the result — at the vortex's 9-dmg ticks, rounding alone costs ~9% and would
+// masquerade as a shortfall. A weapon whose damage is fully player-scaled lands on exactly 3.000.
+function testDetonationScaling() {
+  const detonationCases = [
+    ['homing',        { wispNova: 0.6 }, 'Apoptosis Pop'],
+    ['hole',          { crunch: 1.0 },   'Big Crunch'],
+    ['tesseractBeam', { collapse: 0.8 }, 'Collapse'],
+  ]
+
+  const damageOver = (weapon, mods, dmgMul) => {
+    Math.random = mulberry32(20260714)
+    const run = createRun(makeMeta(), { chapter: 'body' })
+    run.weapons = [{ id: weapon, level: 5 }]
+    run.weaponTimers = {}
+    const p = run.player
+    p.critChance = 0; p.damageMul = dmgMul; p.fireRateMul = 1
+    for (const k of Object.keys(run.passives)) run.passives[k] = 0
+    for (const [id, v] of Object.entries(mods)) run.weaponMods[weapon][id] = v
+
+    let total = 0
+    for (let i = 0; i < 20 * 60; i++) {
+      p.hp = 1e9; p.maxHP = 1e9; p.invuln = 1
+      for (const e of run.enemies) { e.hp = 1e9; e.maxHP = 1e9 }
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      for (const e of run.enemies) { e.hp = 1e9; e.maxHP = 1e9; e._dead = false }
+      p.xp = 0
+      run.gems.length = 0
+      // body's antibody has the latch flag: it self-destructs for e.hp (1e9). Not weapon damage.
+      for (const ev of run.events) if (ev.type === 'hit' && ev.dmg < 1e8) total += ev.dmg
+    }
+    return total
+  }
+
+  for (const [weapon, mods, label] of detonationCases) {
+    const lo = damageOver(weapon, mods, 100)
+    const hi = damageOver(weapon, mods, 300)
+    assert.ok(lo > 0, `${label}: probe dealt no damage at all — the setup is broken, not the sim`)
+    const ratio = hi / lo
+    // Solve total = perMul*mul + flat for the unscaled remainder. Assert on `flat`, not on the
+    // ratio: a detonation is a small slice of a weapon's total output, so the ratio barely
+    // twitches when it breaks (the pre-fix Big Crunch read 2.994x — a 2.99 threshold waves it
+    // through) while `flat` goes from 0 to thousands. Tolerance is 0.1% of the run's damage,
+    // which is pure float noise; every regression here lands 3-40x above it.
+    const perMul = (hi - lo) / 200
+    const flat = lo - perMul * 100
+    assert.ok(Math.abs(flat) < lo * 1e-3,
+      `${label} (${weapon}) must scale with the player's damage multiplier: ${Math.round(flat)} ` +
+      `damage/run is a flat constant that a 3x damage increase did not move (ratio ${ratio.toFixed(4)}x, want 3.0000). ` +
+      `Its detonation is dealing raw config damage — use applyDamage, not dealDamage.`)
+    console.log(`PASS run VE (${label}): scales ${ratio.toFixed(4)}x with a 3x damage multiplier, flat residue ${Math.round(flat)}`)
+  }
 }

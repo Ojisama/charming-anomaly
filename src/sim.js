@@ -77,7 +77,7 @@ import {
   DIVE_HOVER_SPEED_MUL, DIVE_SPEED_START, DIVE_SPEED_END, DIVE_RECOVER_SPEED_MUL, DIVE_HOVER_DEADZONE,
   WEB_INTERVAL, WEB_R, WEB_DUR, WEB_SLOW_MUL,
   // v5.4 undergrowth
-  POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
+  POUNCE_RANGE, POUNCE_HOLD_SPEED_MUL, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
   POUNCE_TRAP_HP_FRAC, AMBUSH_R,
   AERIAL_RADIUS, AERIAL_ORBIT_SPEED, AERIAL_CIRCLE_T, AERIAL_MARK_T, AERIAL_STRIKE_T,
   AERIAL_STRIKE_SPEED_MUL, AERIAL_CLIMB_T, AERIAL_STRIKE_MAX_LIVE,
@@ -94,13 +94,13 @@ import {
   LINE_CHARGE_SPEED_MUL, LINE_CHARGE_STALL_T,
   SPAWNER_INTERVAL, SPAWNER_COUNT, SPAWNER_ARCHETYPE, SPAWNER_SCATTER,
   TRAFFIC_INTERVAL, TRAFFIC_WARN, TRAFFIC_SWEEP, TRAFFIC_LEN, TRAFFIC_W, TRAFFIC_OFFSET, TRAFFIC_SNAP_R,
-  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_SQUASH, COVER_MIN_R,
+  TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_ENEMY_HP_FRAC, COVER_MIN_R,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
-  TORNADO_SUCTION_RANGE, TORNADO_SUCTION_PULL, TORNADO_SUCTION_RESIST,
-  GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
-  GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
+  TORNADO_SWEEP_R, TORNADO_RESPACE,
+  GEYSER_LAUNCH_KB, GEYSER_STUN,
+  GEYSER_SPRAY_FRAC, GEYSER_IDLE_FRAC, GEYSER_JET_PUSH, GEYSER_MAX_LIVE, GEYSER_STAGGER, GEYSER_STREAMS_FALLBACK, GEYSER_STREAMS_MAX,
   // v5.4 skies
   STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_TELEGRAPH_T, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
   MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_REACQUIRE_T, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
@@ -118,7 +118,6 @@ import {
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
   STRUCTURE_RADIUS,
   // v5.4 beyond
-  BLINK_INTERVAL, BLINK_DIST, BLINK_MIN_DIST, BLINK_CRAWL_SPEED_MUL, BLINK_FX_R,
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -129,6 +128,7 @@ import {
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
   SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
   TESSERACT_ARMS, TESSERACT_COLLAPSE_MUL, TESSERACT_COLLAPSE_PULL,
+  PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
   TESSERACT_FAN_ARC, TESSERACT_FAN_SWEEP, TESSERACT_FAN_RATE,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
@@ -544,7 +544,7 @@ function stepBossScript(run, dt) {
     // Through the normal spawn path (ring placement, this chapter's roster skin/flags), then the
     // pinned overrides: the antibody's stats are a fixed per-phase table, not the hpScale curve.
     const e = spawnBlankEnemy(run, block.boss, true)
-    e.hp = e.maxHP = BLANK_BOSS_HP[phase - 1] * run.mods.enemyHpMul
+    e.hp = e.maxHP = roundHP(BLANK_BOSS_HP[phase - 1] * run.mods.enemyHpMul)
     e.radius = BLANK_BOSS_R
     // v6.3.1: P1 gets its own (faster) speed — closes and circles the standoff band ~70% quicker.
     e.speed = phase === 3 ? BLANK_BOSS_SPEED_P3 : phase === 1 ? BLANK_BOSS_SPEED_P1 : BLANK_BOSS_SPEED
@@ -771,7 +771,7 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   // who most needs it not to. Blank fights routinely run past 300s, so leaving dmgScale live
   // would silently inflate late waves; the ladder-driven enemyDmgMul stays.
   const base = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
-  e.hp = e.maxHP = base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul
+  e.hp = e.maxHP = roundHP(base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul)
   e.speed = base.speed * (roster.speedMul ?? 1) * run.mods.enemySpeedMul
   e.dmg = base.dmg * run.mods.enemyDmgMul
   return e
@@ -991,6 +991,16 @@ function spawnEnemy(run, opts = {}) {
     }
   }
 
+  // v6.9.2 BUGFIX — enemy HP IS AN INTEGER. Every factor here is fractional (hpScale, the difficulty
+  // and mutator muls, roster hpMul), so maxHP used to come out at e.g. 21.00388888888889, while the
+  // ONLY thing that ever subtracts from hp is dealDamage, which rounds. The fractional part is
+  // therefore immortal: the enemy lands on hp = 0.0038, `hp <= 0` is false, and it lives on a
+  // sliver no amount of chip damage can clear.
+  // Harmless for most weapons (they deal their own number and overshoot), FATAL for the city taxi:
+  // its squash branch deals a light enemy EXACTLY its remaining hp, so 0.0038 rounds to 0, the van
+  // deals nothing, hitIds blocks a second try, and the pigeon strolls out from under it with a
+  // floating "0". Measured over 10 five-minute city runs: 1193 of 13515 taxi hits (8.8%) dealt zero.
+  // Rounding at every point hp is ASSIGNED keeps it integral forever, which kills the whole class.
   let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
   const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
   const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
@@ -998,6 +1008,8 @@ function spawnEnemy(run, opts = {}) {
 
   const affixes = isElite ? rollAffixes(run) : []
   if (isElite && affixes.includes('gilded')) hp *= GILDED_HP_MUL
+  hp = roundHP(hp)   // LAST, after every multiplier — gilded lands after the base roll and a x1.5
+                     // on an odd number puts the .5 straight back (caught by run VD.a)
 
   const flags = roster ? [...roster.flags] : []
   if (isElite) flags.push(...CHAPTERS[run.chapter].eliteFlags)
@@ -1063,7 +1075,7 @@ function spawnSplitChildren(run, parent, count) {
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2
     const d = Math.random() * 20
-    const hp = parent.maxHP * SPLIT_HP_FRAC
+    const hp = roundHP(parent.maxHP * SPLIT_HP_FRAC)
     run.enemies.push({
       id: run._nextId++,
       type: parent.type,
@@ -1213,8 +1225,6 @@ function stepEnemyMovement(run, dt) {
       stepStandoff(e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('march')) {
       stepMarch(e, tx, dt, slowMul, enrageMul)
-    } else if (e.flags && e.flags.includes('blink')) {
-      stepBlink(run, e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.elite && e.flags && e.flags.includes('pullBeam') && e._beamState === 'beam') {
       // pullBeam (v5.4 beyond's UFO elites): the UFO holds still while its beam is open. The beam
       // itself (drag + DoT) is stepPullBeams' business — this branch is only its movement.
@@ -1425,7 +1435,11 @@ function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
       e._pounceState = 'aim'; e._pounceT = POUNCE_AIM_T; e._pounceDirX = ux; e._pounceDirY = uy
     }
   } else if (e._pounceState === 'aim') {
-    // Dead stop, heading already snapshotted on entry — the telegraph the player reacts to.
+    // Dead stop. v6.7.4: the crouch has two halves. For the first POUNCE_AIM_TRACK_T it keeps
+    // lining up on you — moving during that window buys nothing, it just follows — and after that
+    // the heading is frozen and the attack is committed. The player's cue is the telegraph lane
+    // (drawn straight off _pounceDir) coming to a stop: from that instant the dodge is live.
+    if (e._pounceT > POUNCE_AIM_T - POUNCE_AIM_TRACK_T) { e._pounceDirX = ux; e._pounceDirY = uy }
     if (e._pounceT <= 0) { e._pounceState = 'leap'; e._pounceT = POUNCE_LEAP_T }
   } else if (e._pounceState === 'leap') {
     // v6.6.30: a fixed DISTANCE over a fixed time, not a multiple of the pouncer's own 44 px/s — see
@@ -1729,55 +1743,6 @@ function stepStandoff(e, tx, ty, dt, slowMul, spdMul) {
   }
 }
 
-// blink (v5.4 beyond's glitch blinkers): the blink IS its movement — it barely crawls between
-// jumps. State on _blinkT (s to the next blink). A jump is clamped so it never lands closer than
-// BLINK_MIN_DIST (no free contact hit) and never inside an obstacle: it retries the same heading at
-// half distance, then gives up on this blink entirely rather than cheating through a wall.
-function stepBlink(run, e, tx, ty, dt, slowMul, spdMul) {
-  const dx = tx - e.x, dy = ty - e.y
-  const d = Math.hypot(dx, dy)
-  if (d > 1e-6 && slowMul > 0) {
-    const spd = e.speed * spdMul * BLINK_CRAWL_SPEED_MUL
-    e.x += (dx / d) * spd * slowMul * dt
-    e.y += (dy / d) * spd * slowMul * dt
-  }
-
-  if (e._blinkT === undefined) e._blinkT = BLINK_INTERVAL
-  e._blinkT -= dt
-  if (e._blinkT > 0) return
-  e._blinkT += BLINK_INTERVAL
-
-  const ndx = tx - e.x, ndy = ty - e.y
-  const nd = Math.hypot(ndx, ndy)
-  if (nd <= BLINK_MIN_DIST) return // already close enough — nothing to close
-  const ux = ndx / nd, uy = ndy / nd
-  const tryJump = (want) => {
-    const dist = Math.min(want, nd - BLINK_MIN_DIST) // clamp: never overshoot into the player's lap
-    if (dist <= 0) return null
-    const x = e.x + ux * dist, y = e.y + uy * dist
-    return blockedByObstacle(run, x, y, e.radius) ? null : { x, y }
-  }
-  const spot = tryJump(BLINK_DIST) ?? tryJump(BLINK_DIST / 2)
-  if (!spot) return
-  run.events.push({ type: 'explode', x: e.x, y: e.y, radius: BLINK_FX_R })
-  e.x = spot.x
-  e.y = spot.y
-  run.events.push({ type: 'explode', x: e.x, y: e.y, radius: BLINK_FX_R })
-}
-
-// Would a body of radius `r` centered at (x,y) overlap one of this chapter's obstacles? Only the
-// blink teleport asks — every other mover is resolved by stepObstacles pushing it back out, which
-// a teleport can't rely on (it would let a blinker pop through a root and get shoved out the far side).
-function blockedByObstacle(run, x, y, r) {
-  if (!run.obstacles || run.obstacles.length === 0) return false
-  for (const o of run.obstacles) {
-    const dx = x - o.x, dy = y - o.y
-    const minSep = o.r + r
-    if (dx * dx + dy * dy < minSep * minSep) return true
-  }
-  return false
-}
-
 // phase (v5.4 beyond's flickers): alternates solid <-> ghosted forever on _phaseSolid/_phaseT,
 // starting solid with _phaseT randomised across PHASE_SOLID_T so a wave doesn't blink in unison.
 function stepPhaseWindow(e, dt) {
@@ -2077,6 +2042,10 @@ function streamObstacles(run) {
   const cfg = CHAPTERS[run.chapter].obstacles
   if (!cfg) return
   const roadsOn = !!CHAPTERS[run.chapter].roads // v5.9 skies, v6.3 city — see CHAPTERS.skies.roads' comment
+  // v6.9.5: city's grid repeats over the whole plane instead of ending at the urban falloff, so
+  // every roadAt/blockSnap call in this function has to be asked the same way the renderer asks it,
+  // or buildings would be placed by one map and drawn against another.
+  const endless = !!CHAPTERS[run.chapter].endlessGrid
   const p = run.player
   const cs = cfg.cell ?? OBSTACLE_CELL
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
@@ -2151,7 +2120,7 @@ function streamObstacles(run) {
       // for the full account, and note that this retires the standing ponytail here about a street
       // grid being unaware of the district it crosses. It is aware now, because a street only exists
       // where a city put it, and cities are placed by consulting the terrain.
-      if (roadsOn && roadAt(x, y, worldSeed).onRoad) continue
+      if (roadsOn && roadAt(x, y, worldSeed, endless).onRoad) continue
 
       // v5.11 DENSITY IS A PROPERTY OF THE PLACE. The base probability here works out to 1.06 at the
       // skies numbers, i.e. >= 1, so before this every single cell in the streamed disc built a
@@ -2203,8 +2172,8 @@ function streamObstacles(run) {
       // cannot use the real radius yet and uses cfg.maxR — the chapter's largest possible structure
       // — as a conservative stand-in, exactly as the cell jitter above already does.
       let rot = 0
-      if (worldSeed != null && (biome === 'downtown' || biome === 'suburbs')) {
-        const snapped = blockSnap(x, y, worldSeed, cfg.maxR + STRUCTURE_SETBACK)
+      if (worldSeed != null && (endless || biome === 'downtown' || biome === 'suburbs')) {
+        const snapped = blockSnap(x, y, worldSeed, cfg.maxR + STRUCTURE_SETBACK, endless)
         if (snapped) {
           // The snap clears the CITY GRID, which is the only geometry it knows about — a highway
           // running through the same city is a separate segment, and pushing a building off a side
@@ -2212,7 +2181,7 @@ function streamObstacles(run) {
           // Re-checking after the move is both the cheapest and the most honest fix: it is the same
           // predicate the pre-snap gate already used, so "no structure stands on roadway" holds for
           // every road class without blockSnap having to learn about highways at all.
-          if (roadsOn && roadAt(snapped.x, snapped.y, worldSeed).onRoad) continue
+          if (roadsOn && roadAt(snapped.x, snapped.y, worldSeed, endless).onRoad) continue
           x = snapped.x; y = snapped.y; rot = snapped.angle
           // v6.3: re-check the spawn-ring clearance too — blockSnap can shove a structure back into
           // the spawn clearing — city spawns downtown, so this is the common case (also fixes a
@@ -2492,6 +2461,10 @@ function stepObstacles(run) {
   for (const e of run.enemies) {
     if (e._dead) continue
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes straight through
+    // flyover (v6.9, city's pigeon): it is a BIRD — buildings are not terrain to it. This is the
+    // whole of the flag; it does not change speed, seek or contact damage, so a flyover enemy is an
+    // ordinary chaser that happens to take the straight line while everything else goes around.
+    if (e.flags && e.flags.includes('flyover')) continue
     for (const o of run.obstacles) {
       const dx = e.x - o.x, dy = e.y - o.y
       const minSep = o.r + e.radius
@@ -2759,28 +2732,30 @@ function rollTrafficLane(run, dt) {
       const dirRoll = Math.random()
       const offRoll = Math.random()
       const seed = run._districtSeed
-      const ra = seed != null ? roadAt(p.x, p.y, seed) : { onRoad: false }
+      const ra = seed != null ? roadAt(p.x, p.y, seed, !!CHAPTERS[run.chapter].endlessGrid) : { onRoad: false }
       let x, y, angle
       if (ra.onRoad && ra.dist <= TRAFFIC_SNAP_R) {
-        // Tier 1: on/near a road — snap the lane fully onto its centerline. roadAt's `dist` is
-        // UNSIGNED, so resolve which side of the player the centerline is on with one extra probe
-        // — the same sign-probe trick render.js's populateRoad uses (~6645-6654).
+        // Tier 1: on/near a road — snap the lane fully onto its centerline, using roadAt's SIGNED
+        // `off`. v6.9.1: this used to recover the sign by re-querying roadAt 8px to one side and
+        // seeing whether `dist` shrank, which is wrong for exactly the case the snap exists for —
+        // a player standing ON the line. Within 8px the probe crosses the centreline, `dist` does
+        // not shrink, the sign comes back negative, and the band is laid 2*dist off the road it was
+        // supposed to snap to. (Same bug, same fix, as render.js's carriageway.)
         const px = -Math.sin(ra.angle), py = Math.cos(ra.angle)
-        const probe = roadAt(p.x + px * 8, p.y + py * 8, seed)
-        const sgn = probe.onRoad && probe.dist < ra.dist ? 1 : -1
         // Perpendicular correction only — the along-axis coordinate stays exactly the player's, so
         // the band's length is centered on them (not merely overlapping): the always-crosses-the-
         // player invariant survives even a full snap onto the road.
-        x = p.x + px * sgn * ra.dist
-        y = p.y + py * sgn * ra.dist
+        x = p.x - px * ra.off
+        y = p.y - py * ra.off
         angle = ra.angle + (dirRoll < 0.5 ? 0 : Math.PI)
       } else {
         const near = seed != null ? nearestCity(p.x, p.y, seed) : null
         if (near) {
           // Tier 2: off-road but inside a city — angle snaps to the grid; the van jumps the curb
           // and still comes straight for the player via the ordinary crossing offset below.
-          const base = dirRoll < 0.25 ? 0 : dirRoll < 0.5 ? Math.PI : dirRoll < 0.75 ? Math.PI / 2 : -Math.PI / 2
-          angle = near.city.angle + base
+          // v6.9.2: the grid is the WORLD's and axis-aligned, so the four headings are simply the
+          // four axes — a city no longer carries a rotation to add them to.
+          angle = dirRoll < 0.25 ? 0 : dirRoll < 0.5 ? Math.PI : dirRoll < 0.75 ? Math.PI / 2 : -Math.PI / 2
         } else {
           // Tier 3: no world seed, or no city nearby — today's fully-random angle, unchanged.
           angle = dirRoll * Math.PI * 2
@@ -2797,7 +2772,8 @@ function rollTrafficLane(run, dt) {
         // second vehicle (the garden's mower) can ride the same stepper with its own dimensions
         // instead of the stepper reaching for TRAFFIC_* module constants behind its back.
         dmg: TRAFFIC_DMG, sweep: TRAFFIC_SWEEP, deckLen: TRAFFIC_CAR_LEN, deckW: TRAFFIC_CAR_W,
-        kb: TRAFFIC_KB, squash: TRAFFIC_SQUASH, look: 'car', cover: true,
+        kb: TRAFFIC_KB, enemyFrac: TRAFFIC_ENEMY_HP_FRAC,
+        look: 'car', cover: true,
         hitIds: new Set(),
       })
     }
@@ -2912,14 +2888,18 @@ function stepLanePasses(run, dt) {
       if (e._dead || lane.hitIds.has(e.id)) continue
       if (!inCar(e.x, e.y, e.radius)) continue
       lane.hitIds.add(e.id) // one hit per enemy per pass
-      // v5.6.14 (user): cars ONE-SHOT the light roster — a non-elite pigeon/drone dies outright
-      // under a car (dealt its remaining hp, so drops/death flow normally). Elites and everything
-      // not in TRAFFIC_SQUASH take the ordinary TRAFFIC_DMG.
-      // lane.enemyFrac (the mower) takes a share of the target's OWN max hp, so it keeps mattering
-      // as hpScale climbs; the taxi still one-shots its squash list and deals its flat number.
-      let toEnemy
-      if (lane.enemyFrac > 0) toEnemy = Math.max(1, e.maxHP * lane.enemyFrac)
-      else toEnemy = (!e.elite && (lane.squash ?? TRAFFIC_SQUASH).includes(e.rosterId)) ? e.hp : lane.dmg
+      // EVERY enemy takes lane.enemyFrac of its OWN max hp — drones, rats and elites alike — so a
+      // vehicle keeps mattering as hpScale climbs (see TRAFFIC_ENEMY_HP_FRAC / MOWER_ENEMY_HP_FRAC
+      // in config.js). Falls back to the flat lane.dmg only for a lane that declares no fraction at
+      // all, which is the hand-built lane literals in the test suite.
+      //
+      // v6.9.3 (owner: "car one shots drones. it should do 50% hp damage"). There used to be a
+      // TRAFFIC_SQUASH roadkill list — non-elite ratDrone/pigeon/rat/patrolDrone were dealt their
+      // REMAINING hp instead, i.e. one-shot — which is where both halves of the reported damage bug
+      // came from: the number on screen was "whatever was left", never 50%, and rounding it was what
+      // produced the 0s. The list is gone rather than tuned; one rule for the whole roster is also
+      // the only version anyone can predict from the card text.
+      const toEnemy = lane.enemyFrac > 0 ? Math.max(1, e.maxHP * lane.enemyFrac) : lane.dmg
       dealDamage(run, e, toEnemy, false)
       const kb = lane.kb ?? TRAFFIC_KB
       e.kb.x += cos * kb
@@ -3185,6 +3165,11 @@ function stepBombs(run, dt) {
   run.bombs = run.bombs.filter((b) => !b._dead)
   return playerDied
 }
+
+// Every enemy HP value in this file goes through here. See the doc at spawnEnemy's `hp` for why:
+// dealDamage subtracts integers, so a fractional maxHP leaves an unkillable sub-1 remainder.
+// Floor of 1 because an enemy that rounds to 0 hp would spawn already dead.
+function roundHP(v) { return Math.max(1, Math.round(v)) }
 
 // ---- Damage application (shared by all weapons) -----------------------------------
 
@@ -3565,7 +3550,8 @@ const WEAPON_STAT_MODS = {
   mines:     { minefield: ['maxAlive', 'flat'], bigBoom: ['radius', 'pct'], heavyCharge: ['dmg', 'pct'] },
   homing:    { extraWisp: ['count', 'flat'], longLife: ['life', 'pct'], agile: ['turnRate', 'pct'] },
   hole:      { biggerHole: ['radius', 'pct'], lasting: ['duration', 'pct'], denser: ['pull', 'pct'] },
-  rainbow:   { wideBeam: ['width', 'pct'], longBeam: ['length', 'pct'], sustain: ['duration', 'pct'] },
+  // v6.7.6: wideBeam moves BOTH width and length — Long Beam merged into it (see WEAPON_MODS).
+  rainbow:   { wideBeam: [['width', 'length'], 'pct'], sustain: ['duration', 'pct'] },
   // v5.0 pond natives: frenzy/quickCast (attack-speed mods) are NOT here — folding them into the
   // `rate` field would SLOW the weapon (rate is the interval); they divide the interval at the
   // fire site instead (see stepFlagellaWeapon/stepBloomWeapon), like the global fire rate.
@@ -3585,13 +3571,13 @@ const WEAPON_STAT_MODS = {
   clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
-  trashTornado:  { heavyTrash: ['dmg', 'pct'], wideTornado: ['radius', 'pct'], fasterSpin: ['rotSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
-  sewerGeyser:   { pressure: ['dmg', 'pct'], wideGeyser: ['r', 'pct'], moreGeysers: ['count', 'flat'] },
+  trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
+  sewerGeyser:   { pressure: ['dmg', 'pct'], longHose: ['r', 'pct'], moreStreams: ['streams', 'flat'], deepMain: ['jetDur', 'pct'] },
   roar:          { bellow: ['dmg', 'pct'], wideRoar: ['arc', 'pct'], farRoar: ['range', 'pct'] },
   tailSwipe:     { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'], broadSweep: ['arc', 'pct'] },
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
-  tesseractBeam: { wideFold: ['width', 'pct'], longFold: ['length', 'pct'], sustainFold: ['duration', 'pct'] },
+  tesseractBeam: { wideFold: [['width', 'length'], 'pct'], sustainFold: ['duration', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -3605,7 +3591,15 @@ function effectiveWeaponStats(run, w) {
     for (const [modId, [field, kind]] of Object.entries(modMap)) {
       const bonus = mods[modId] ?? 0
       if (bonus === 0) continue
-      stats[field] = kind === 'flat' ? Math.round(stats[field] + bonus) : stats[field] * (1 + bonus)
+      // v6.7.6: `field` may be an ARRAY, for a mod that honestly moves two numbers at once (the
+      // merged Big Beam / Big Fold). Everything else still passes a single string and behaves
+      // bit-identically. This is the same shape stinger.longNeedles and lure.bigBurst wanted and
+      // could not have — they are read at their fire site precisely because this loop only did one
+      // field. They are NOT moved here: doing so is a separate change with its own risk, and the
+      // comment above this table still describes where they live.
+      for (const f of Array.isArray(field) ? field : [field]) {
+        stats[f] = kind === 'flat' ? Math.round(stats[f] + bonus) : stats[f] * (1 + bonus)
+      }
     }
   }
   return stats
@@ -3635,7 +3629,12 @@ export function buildReadout(run) {
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
-    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'r', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // ORDERED, and ui.js slices to STAT_MAX_ROWS (5) after appending the cadence row `every` — so
+    // where a key sits decides what falls off the sheet. jetDur goes after 'r': the Sewer Geyser
+    // then emits dmg, count, r, jetDur + every = exactly 5. `streams` is deliberately NOT here — a
+    // sixth row would push `every` (the cadence) off, and Split Nozzle already shows up in the mod
+    // list below the table, the same way every behavioural mod does.
+    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -3669,7 +3668,9 @@ export function buildReadout(run) {
 function stepWeapons(run, dt) {
   const p = run.player
   run.orbs = []
-  run.debris = [] // rewritten every frame by the Trash Tornado, exactly like run.orbs
+  // run.debris is NOT cleared here. v6.8: a tornado carries its own position between frames
+  // because it leaves the ring to hunt, so stepTornadoWeapon resizes the list instead of
+  // rebuilding it. (run.orbs above is still the rewrite-every-frame contract.)
   const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate)
     * (run.rampageT > 0 ? RAMPAGE_FIRE_RATE_MUL : 1)   // v5.14, read-time only (see config)
 
@@ -4349,14 +4350,18 @@ function fireHoming(run, stats) {
 // Popping Wisps: on death (spent its last pierce on a hit, OR lifetime expiry) a wisp pops an
 // AoE splash = bonus × its own dmg in WISP_NOVA_RADIUS + explode event. Mini-wisps (Swarm) can
 // pop too — only re-triggering Swarm itself is disallowed (see the hit loop below).
+// v6.9.3: applyDamage, not dealDamage. h.dmg is the RAW config stat (fireHoming stores stats.dmg
+// unscaled; the wisp's own hit is what runs it through applyDamage), so dealing it directly made
+// the pop a flat constant that ignored damage passives/shop/mutators entirely — cf. orbitSupernova,
+// which is correct because it derives from an already-rolled applyDamage RETURN value.
 function wispPop(run, h, bonus) {
-  const dmg = Math.round(h.dmg * bonus)
+  const dmg = h.dmg * bonus
   if (dmg <= 0) return
   const radSq = WISP_NOVA_RADIUS * WISP_NOVA_RADIUS
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - h.x, dy = e.y - h.y
-    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+    if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
   }
   run.events.push({ type: 'explode', x: h.x, y: h.y, radius: WISP_NOVA_RADIUS })
 }
@@ -4490,14 +4495,15 @@ function fireHole(run, stats) {
 
 // Big Crunch: on expiry, a hole collapses in a detonation — damage = tick dmg × CRUNCH_DMG_MUL ×
 // (1 + bonus) to everything within its FINAL radius + explode event there.
+// v6.9.3: applyDamage, not dealDamage — h.dmg is the raw config tick stat (see wispPop's note).
 function holeCrunch(run, h, bonus) {
-  const dmg = Math.round(h.dmg * CRUNCH_DMG_MUL * (1 + bonus))
+  const dmg = h.dmg * CRUNCH_DMG_MUL * (1 + bonus)
   if (dmg <= 0) return
   const radSq = h.radius * h.radius
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - h.x, dy = e.y - h.y
-    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
+    if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
   }
   run.events.push({ type: 'explode', x: h.x, y: h.y, radius: h.radius })
 }
@@ -4617,24 +4623,84 @@ function fireBeam(run, stats) {
   const strobeBonus = run.weaponMods.rainbow?.strobe ?? 0
   const tick = stats.tick / (1 + strobeBonus)
   const focusBonus = run.weaponMods.rainbow?.focus ?? 0
+  // Beam Prism: snapshot the ladder at cast time, same rule as Strobe above — a mod picked mid-run
+  // must not retroactively re-cut a beam that is already in the air. A beam with no prism carries
+  // an empty ladder and stepBeams' refraction branch never opens (this is also what keeps the
+  // Tesseract out of it: run.beams is shared, and only fireBeam ever sets this).
+  const prismLadderCast = prismLadder(run.weaponMods.rainbow?.prism ?? 0)
   for (let i = 0; i < beamCount; i++) {
     run.beams.push({
       angle: baseAngle + i * angleStep, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
       tick, width: stats.width, length: stats.length,
       rotSpeed: stats.rotSpeed, acc: 0, focusBonus,
+      prism: prismLadderCast.length > 0 ? prismLadderCast : null,
     })
   }
   run.events.push({ type: 'beam' })
 }
 
-// Is an enemy inside the beam arm at `angle`? Shared by the tick loop and Collapse.
-function inBeamArm(run, b, e, angle) {
-  const p = run.player
+// How far along the ray from (ox,oy) heading `angle` does `e` sit, or -1 if it isn't on it?
+// The ray is `len` long and `width` wide; a body counts if its DISC touches the axis, which is why
+// e.radius pads the perpendicular test and not the along one.
+// v6.7.6: extracted from inBeamArm so the prism can cast the identical test from a refraction point
+// that is NOT the player. Returning the distance rather than a bool is what lets the prism pick the
+// NEAREST body on a ray — the one light would actually meet first.
+function alongRay(ox, oy, angle, len, width, e) {
   const cos = Math.cos(angle), sin = Math.sin(angle)
-  const dx = e.x - p.x, dy = e.y - p.y
+  const dx = e.x - ox, dy = e.y - oy
   const along = dx * cos + dy * sin           // distance projected onto the beam axis
   const perp = -dx * sin + dy * cos            // perpendicular distance from the axis
-  return along >= 0 && along <= b.length && Math.abs(perp) < b.width / 2 + e.radius
+  if (along < 0 || along > len || Math.abs(perp) >= width / 2 + e.radius) return -1
+  return along
+}
+
+// Is an enemy inside the beam arm at `angle`? Shared by the tick loop and Collapse. A beam arm is
+// just a ray anchored at the player.
+function inBeamArm(run, b, e, angle) {
+  return alongRay(run.player.x, run.player.y, angle, b.length, b.width, e) >= 0
+}
+
+// The nearest live body on a ray, skipping anything already struck by this refraction. Returns
+// null if the ray reaches its full length without meeting one.
+function firstOnRay(run, ox, oy, angle, len, width, hit) {
+  let best = null
+  let bestD = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || hit.has(e.id)) continue
+    const d = alongRay(ox, oy, angle, len, width, e)
+    if (d < 0 || d >= bestD) continue
+    bestD = d
+    best = e
+  }
+  return best
+}
+
+/**
+ * One refraction: throw `ladder[depth]` sub-beams forward from (ox,oy), fanned across PRISM_SPREAD
+ * and centred on `angle`. Each ray stops at the first body it meets, damages it, and — if the
+ * ladder goes deeper — refracts again from there at PRISM_DMG_MUL damage and PRISM_LEN_MUL reach.
+ * See the PRISM_* block in config.js for the ladder and for the three things bounding this tree.
+ * `hit` is shared across the WHOLE tree, so one cast can never damage a body twice and two rays
+ * can never bounce between the same pair.
+ */
+function castPrism(run, ox, oy, angle, dmg, len, width, depth, ladder, hit) {
+  const n = ladder[depth]
+  if (!n || len < 1 || dmg < 1) return
+  const step = PRISM_SPREAD / (n - 1) // n >= 2 always (prismLadder stops at 2)
+  for (let i = 0; i < n; i++) {
+    const a = angle - PRISM_SPREAD / 2 + i * step
+    const e = firstOnRay(run, ox, oy, a, len, width, hit)
+    // Drawn to where it actually ended: at the body it stopped on, or out to its full reach.
+    const reach = e ? Math.hypot(e.x - ox, e.y - oy) : len
+    // `d` is the generation (0 = straight off the beam), so render can taper each one thinner and
+    // dimmer than its parent — without it every ray in a 40-wide mythic tree draws identically and
+    // the fan reads as noise rather than as light losing energy at each surface.
+    run.prisms.push({ x: ox, y: oy, x2: ox + Math.cos(a) * reach, y2: oy + Math.sin(a) * reach, d: depth, life: PRISM_FLASH_T })
+    if (!e) continue
+    hit.add(e.id)
+    applyDamage(run, e, dmg)
+    castPrism(run, e.x, e.y, a, dmg * PRISM_DMG_MUL, len * PRISM_LEN_MUL, width, depth + 1, ladder, hit)
+  }
 }
 
 // A beam's arms: 1 for the Neon Beam, or `arms` evenly around the circle for a folded Tesseract
@@ -4658,9 +4724,10 @@ function beamArmAngles(b) {
 
 // Collapse (tesseractBeam): when the fold snaps shut, everything inside ANY arm is yanked toward
 // the player and takes a multiple of the beam's per-tick damage, plus one explode at the player.
+// v6.9.3: applyDamage, not dealDamage — b.dmg is the raw config tick stat (see wispPop's note).
 function collapseFold(run, b) {
   const p = run.player
-  const dmg = Math.round(b.dmg * TESSERACT_COLLAPSE_MUL * (1 + b.collapseBonus))
+  const dmg = b.dmg * TESSERACT_COLLAPSE_MUL * (1 + b.collapseBonus)
   const angles = beamArmAngles(b)
   for (const e of run.enemies) {
     if (e._dead) continue
@@ -4671,12 +4738,13 @@ function collapseFold(run, b) {
       e.kb.x += (dx / d) * TESSERACT_COLLAPSE_PULL
       e.kb.y += (dy / d) * TESSERACT_COLLAPSE_PULL
     }
-    if (dmg > 0) dealDamage(run, e, dmg, false)
+    if (dmg > 0) applyDamage(run, e, dmg)
   }
   run.events.push({ type: 'explode', x: p.x, y: p.y, radius: b.length })
 }
 
 function stepBeams(run, dt) {
+  const p = run.player
   for (const b of run.beams) {
     b.life -= dt
     if (b.life <= 0) {
@@ -4705,11 +4773,33 @@ function stepBeams(run, dt) {
           if (e._dead) continue
           if (inBeamArm(run, b, e, angle)) applyDamage(run, e, dmg)
         }
+        // Beam Prism (v6.7.6): the arm refracts off the NEAREST body it crosses — light bends at
+        // the first surface it meets, and refracting off every body in the arm would square a tree
+        // that is already 40 rays wide at mythic. The sub-beams take the arm's LIVE per-tick damage
+        // (so Focus Lens's ramp carries into them), and the body that bent the light is seeded into
+        // `hit` so the first sub-beam does not immediately strike it again.
+        if (b.prism) {
+          const src = firstOnRay(run, p.x, p.y, angle, b.length, b.width, EMPTY_HIT)
+          if (src) {
+            castPrism(run, src.x, src.y, angle, dmg * PRISM_DMG_MUL, b.length * PRISM_LEN_MUL,
+              b.width, 0, b.prism, new Set([src.id]))
+          }
+        }
       }
     }
   }
   run.beams = run.beams.filter((b) => b.life > 0)
+
+  // Refraction segments are render-only: no damage, no collision, they just linger PRISM_FLASH_T so
+  // a split cast on a tick frame is actually visible at 60fps instead of existing for 16ms.
+  if (run.prisms.length > 0) {
+    for (const s of run.prisms) s.life -= dt
+    run.prisms = run.prisms.filter((s) => s.life > 0)
+  }
 }
+// The prism's "already struck" set starts empty when we are only LOOKING for the refraction point
+// (nothing has been struck yet). Hoisted so the tick loop doesn't allocate one per arm per tick.
+const EMPTY_HIT = new Set()
 
 // -- Flagella Whip (v5.0 pond starter) --------------------------------------------------
 // A melee arc sweep: every `rate` seconds (frenzy divides that interval, like the global fire
@@ -5250,61 +5340,141 @@ function stepShriekEchoes(run, dt) {
   run._shriekEchoes = echoes.filter((ec) => !ec._done)
 }
 
-// -- Trash Tornado (v5.4 city) -------------------------------------------------------------
-// An always-on orbital, exactly orbit's shape: sim rewrites every chunk's position into run.debris
-// each frame and ticks damage to whatever they overlap, on a per-chunk-per-enemy cooldown
-// (e._debrisCd, the run.orbs/orbCd bookkeeping). flingDebris hurls chunks outward as run.bullets
-// tagged weapon:'trash'; suction drags nearby foes in (elites/tanks resist, like a black hole's).
+// -- Trash Tornado (v5.4 city; v6.8 hunters) ------------------------------------------------
+// A pack of funnels, not an orbital. run.debris entries PERSIST between frames ({x, y, r, tgt})
+// and this function moves them: each picks an enemy inside `hunt` px of the PLAYER, flies at it at
+// travelSpeed and parks on it; with nothing in reach it spirals back into a ring of `radius`
+// around the player and circles at rotSpeed — the pre-v6.8 look, now the idle state. Damage is
+// unchanged, ticking on the per-enemy cooldown orbit uses (e._debrisCd, the run.orbs/orbCd
+// bookkeeping). flingDebris hurls chunks outward as run.bullets tagged weapon:'trash'; sweepLoot
+// marks nearby gems/coins `_vac` so stepPickups reels them home past magnet range.
 function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   const p = run.player
   const mods = run.weaponMods.trashTornado
+  const list = run.debris
 
-  for (let i = 0; i < stats.chunks; i++) {
-    const angle = (i / stats.chunks) * Math.PI * 2 + run.time * stats.rotSpeed
-    const ox = p.x + Math.cos(angle) * stats.radius
-    const oy = p.y + Math.sin(angle) * stats.radius
-    run.debris.push({ x: ox, y: oy, r: DEBRIS_R })
+  // Resize to `chunks` (moreTrash). A newcomer is seeded on its evenly-spaced ring slot rather
+  // than on the player, so picking the card doesn't spit a funnel out of your own feet.
+  while (list.length > stats.chunks) list.pop()
+  while (list.length < stats.chunks) {
+    const a = (list.length / stats.chunks) * Math.PI * 2 + run.time * stats.rotSpeed
+    list.push({ x: p.x + Math.cos(a) * stats.radius, y: p.y + Math.sin(a) * stats.radius, r: DEBRIS_R, tgt: null })
+  }
+
+  const huntSq = stats.hunt * stats.hunt
+  const leashed = (e) => {
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= huntSq
+  }
+  // Targets are STICKY while alive and still inside the leash: re-picking from scratch every frame
+  // makes a funnel dither between two enemies that are near-equidistant and never reach either.
+  // A held target is checked against the LIVE list rather than just its `_dead` flag — today
+  // stepSim's filter is the only thing that ever removes an enemy, but a funnel that outlives its
+  // prey by any other route would otherwise sit on the corpse's last coordinates forever, and that
+  // failure mode is invisible until someone adds a despawn. One Set beats an includes() per funnel.
+  const live = new Set(run.enemies)
+  const claimed = new Set()
+  for (const t of list) {
+    if (t.tgt && (t.tgt._dead || !live.has(t.tgt) || !leashed(t.tgt))) t.tgt = null
+    if (t.tgt) claimed.add(t.tgt)
+  }
+  // Whoever is free takes the nearest UNCLAIMED enemy — nearest to itself, not to the player, so a
+  // ring of funnels fans out across a crowd. Without the claim they all pile onto the single
+  // closest enemy, which looks like one blob and wastes most of the damage: the tick cooldown is
+  // per ENEMY, so the second funnel on a target contributes nothing until the first one's expires.
+  for (const t of list) {
+    if (t.tgt) continue
+    let best = null, bestD = Infinity
+    for (const e of run.enemies) {
+      if (e._dead || claimed.has(e) || !leashed(e)) continue
+      const dx = e.x - t.x, dy = e.y - t.y
+      const d = dx * dx + dy * dy
+      if (d < bestD) { bestD = d; best = e }
+    }
+    if (best) { t.tgt = best; claimed.add(best) }
+  }
+
+  const step = stats.travelSpeed * dt
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i]
+    if (t.tgt) {
+      const dx = t.tgt.x - t.x, dy = t.tgt.y - t.y
+      const d = Math.hypot(dx, dy)
+      if (d > 0.5) {
+        const m = Math.min(step, d)
+        t.x += (dx / d) * m
+        t.y += (dy / d) * m
+      }
+    } else {
+      // Nothing to hunt: spiral home. Integrated in POLAR — the angle advances at rotSpeed and the
+      // radius closes on `radius` at travelSpeed — rather than flying at the funnel's rotating ring
+      // slot in cartesian, which never converges: that slot travels rotSpeed × radius px/s, on the
+      // order of the funnel's own top speed, so it would trail its own place around you forever.
+      const dx = t.x - p.x, dy = t.y - p.y
+      const cur = Math.hypot(dx, dy)
+      let a = (cur < 1 ? (i / list.length) * Math.PI * 2 : Math.atan2(dy, dx)) + stats.rotSpeed * dt
+      // ...and drift back toward this funnel's evenly-spaced slot while you're at it. Two hunts in
+      // a row otherwise leave the pack bunched wherever it broke off, and the idle state stops
+      // reading as an orbit at all — which is the half of this weapon that was already right.
+      // `slot` is the pre-v6.8 ring formula verbatim, so a pack left alone settles into exactly the
+      // spacing the orbital had.
+      const slot = (i / list.length) * Math.PI * 2 + run.time * stats.rotSpeed
+      let err = (slot - a) % (Math.PI * 2)
+      if (err > Math.PI) err -= Math.PI * 2
+      if (err < -Math.PI) err += Math.PI * 2
+      a += err * Math.min(1, TORNADO_RESPACE * dt)
+      const rad = cur + Math.max(-step, Math.min(step, stats.radius - cur))
+      t.x = p.x + Math.cos(a) * rad
+      t.y = p.y + Math.sin(a) * rad
+    }
+
     for (const e of run.enemies) {
       if (e._dead || (e._debrisCd || 0) > 0) continue
-      const dx = e.x - ox, dy = e.y - oy
-      const rad = DEBRIS_R + e.radius
+      const dx = e.x - t.x, dy = e.y - t.y
+      const rad = t.r + e.radius
       if (dx * dx + dy * dy > rad * rad) continue
       applyDamage(run, e, stats.dmg)
       e._debrisCd = stats.tick / fireRateMul
     }
   }
 
-  // suction: everything nearby is dragged toward the player (the tornado's eye). Elites/tanks are
-  // heavier — capped at TORNADO_SUCTION_RESIST of the pull, mirroring HOLE_RESIST_CAP.
-  const suction = mods?.suction ?? 0
-  if (suction > 0) {
-    const rangeSq = TORNADO_SUCTION_RANGE * TORNADO_SUCTION_RANGE
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      if (e.affixes && e.affixes.includes('anchored')) continue
-      const dx = p.x - e.x, dy = p.y - e.y
-      const dSq = dx * dx + dy * dy
-      if (dSq > rangeSq || dSq <= 1e-6) continue
-      const d = Math.sqrt(dSq)
-      let pull = TORNADO_SUCTION_PULL * suction
-      if (e.elite || e.type === 'tank') pull *= TORNADO_SUCTION_RESIST
-      const step = Math.min(d, pull * dt)
-      e.x += (dx / d) * step
-      e.y += (dy / d) * step
+  // Street Sweeper (v6.9, replaces the enemy-pulling `suction`): every gem and coin within
+  // TORNADO_SWEEP_R of ANY funnel is marked `_vac` — the same flag wave.undertow sets — and
+  // stepPickups then homes it to the player ignoring magnet range. Marking is one-way and sticky,
+  // so a funnel only has to touch a drop once for it to come home; nothing needs un-marking,
+  // because collection removes the item.
+  if (mods?.sweepLoot) {
+    const sweepSq = TORNADO_SWEEP_R * TORNADO_SWEEP_R
+    for (const t of list) {
+      for (const it of run.gems) {
+        if (it._vac) continue
+        const dx = it.x - t.x, dy = it.y - t.y
+        if (dx * dx + dy * dy <= sweepSq) it._vac = true
+      }
+      for (const it of run.coins) {
+        if (it._vac) continue
+        const dx = it.x - t.x, dy = it.y - t.y
+        if (dx * dx + dy * dy <= sweepSq) it._vac = true
+      }
     }
   }
 
   // flingDebris: every TORNADO_FLING_EVERY seconds, hurl <tier bonus> chunks straight outward.
+  // v6.8: thrown BY a funnel, from wherever that funnel currently is. It used to spawn chunks on a
+  // fixed circle around the player, which with the funnels off hunting reads as junk materialising
+  // out of empty street. Aimed away from the player so a fling still sprays outward rather than
+  // back through you; a second chunk from the same funnel is fanned off so they don't overlap.
   const fling = mods?.flingDebris ?? 0
-  if (fling > 0) {
+  if (fling > 0 && list.length > 0) {
     run._tornadoFlingAcc = (run._tornadoFlingAcc ?? 0) + dt
     while (run._tornadoFlingAcc >= TORNADO_FLING_EVERY) {
       run._tornadoFlingAcc -= TORNADO_FLING_EVERY
       for (let i = 0; i < fling; i++) {
-        const angle = (i / fling) * Math.PI * 2 + run.time * stats.rotSpeed
+        const src = list[i % list.length]
+        const angle = Math.atan2(src.y - p.y, src.x - p.x) + Math.floor(i / list.length) * 0.7
         run.bullets.push({
-          x: p.x + Math.cos(angle) * stats.radius,
-          y: p.y + Math.sin(angle) * stats.radius,
+          x: src.x,
+          y: src.y,
           vx: Math.cos(angle) * TORNADO_FLING_SPEED,
           vy: Math.sin(angle) * TORNADO_FLING_SPEED,
           dmg: stats.dmg * TORNADO_FLING_DMG_FRAC,
@@ -5342,16 +5512,22 @@ function pointInLane(run, x, y) {
 // -- Sewer Geyser (v5.4 city utility) ------------------------------------------------------
 // Plants telegraphed eruption zones (run.geysers) on/near random enemies within castRange; each
 // waits out its harmless fuse, then erupts ONCE against ENEMIES only. The utility native — slowest
-// clear in the pool on purpose. rapidGeyser divides the interval; launch flings and stuns what an
-// eruption catches; chainGeyser scatters weaker follow-ups off each eruption; trafficMain (v6.3)
-// biases placement onto lane-covered foes (below) and hits harder there (stepGeysers).
+// rapidGeyser divides the interval; launch flings and stuns what the eruption catches; trafficMain
+// (v6.3) biases placement onto lane-covered foes (below) and hits harder there (stepGeysers).
 function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.sewerGeyser?.rapidGeyser ?? 0
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
     for (let i = 0; i < stats.count; i++) {
-      const spot = pickGeyserSpot(run, stats.castRange)
-      run.geysers.push({ x: spot.x, y: spot.y, r: stats.r, fuse: stats.fuse, dur: stats.fuse, dmg: stats.dmg })
+      // Each zone in a cast waits a little longer than the last, and each leads by ITS OWN fuse —
+      // a mark that opens 1.2s out has to be planted further along the target's path than one
+      // opening at 0.6s, or the stagger just moves the whiff later.
+      const fuse = stats.fuse + i * GEYSER_STAGGER
+      const spot = pickGeyserSpot(run, stats.castRange, fuse)
+      run.geysers.push({
+        x: spot.x, y: spot.y, r: stats.r, fuse, dur: fuse, dmg: stats.dmg,
+        jetDur: stats.jetDur, tick: stats.tick, nStreams: stats.streams,
+      })
     }
     run.events.push({ type: 'geyser', x: p.x, y: p.y })
   })
@@ -5367,11 +5543,11 @@ function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
 // frame-stable stream; no seeded test asserts RNG-stream state across a geyser cast (checked against
 // every AA.e sewerGeyser assertion: they check geyser existence/damage/timing, never exact position
 // or a cross-run stream comparison).
-function pickGeyserSpot(run, castRange) {
+function pickGeyserSpot(run, castRange, fuse) {
+  const p = run.player
+  const rangeSq = castRange * castRange
   const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
   if (tm > 0) {
-    const p = run.player
-    const rangeSq = castRange * castRange
     const inLane = run.enemies.filter((e) => {
       if (e._dead) return false
       const dx = e.x - p.x, dy = e.y - p.y
@@ -5379,37 +5555,82 @@ function pickGeyserSpot(run, castRange) {
     })
     if (inLane.length > 0) {
       const e = inLane[Math.floor(Math.random() * inLane.length)]
-      return { x: e.x, y: e.y }
+      // Lead ONLY if the led point is still in a lane. Leading pulls the mark toward the player,
+      // who is usually off the carriageway — so an unguarded lead drags the zone out of the very
+      // band that earns trafficMain its (1+tm)x, i.e. the mod would sabotage itself. In-lane
+      // placement is worth more here than the lead: a lane is a moving hazard, so a foe standing in
+      // one is about to be shoved around regardless.
+      const led = leadSpot(run, e, fuse)
+      return pointInLane(run, led.x, led.y) ? led : { x: e.x, y: e.y }
     }
   }
-  return pickBloomSpot(run, castRange) // random enemy in range, else a random offset
+  // Deliberately NOT pickBloomSpot, though the RNG shape is identical to it (one draw to choose an
+  // enemy, two for the no-enemy fallback) so seeded streams are unchanged: the lead needs the ENEMY,
+  // not just its position, because how far to lead depends on how fast that particular thing moves.
+  const inRange = run.enemies.filter((e) => {
+    if (e._dead) return false
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= rangeSq
+  })
+  if (inRange.length > 0) return leadSpot(run, inRange[Math.floor(Math.random() * inRange.length)], fuse)
+  // Nothing in reach. Plant close to the player rather than anywhere in castRange — whatever arrives
+  // next is arriving HERE, so a mark out at the rim is a zone that expires in empty street.
+  const a = Math.random() * Math.PI * 2
+  const d = Math.random() * castRange * GEYSER_IDLE_FRAC
+  return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }
 }
 
-// Shared by the Sewer Geyser and the Reality Shard's riftScar (same telegraph -> erupt -> gone
-// contract, see run.geysers in state.js). Never touches the player.
+// Plant on the path, not on the target: the fuse resolves 0.6-0.7s after the cast, and pre-v6.10
+// 27% of eruptions caught nothing while standing still cut that by 2.4x — the weapon was marking
+// where the swarm had been.
+//
+// The lead is a DISTANCE (how far this enemy travels while the fuse burns), not a fraction of the
+// gap to the player. The fraction version was the first attempt and it overshoots badly: a foe 300px
+// out led 40% of the way moves the mark 120px, when a drone only covers 54px in a 0.6s fuse — the
+// mark lands ahead of the swarm instead of on it, and 37.7% of jets caught nothing over their whole
+// life. Scaling by e.speed self-tunes per archetype (wisp 99px, drone 54px, tank 33px) and is the
+// same quantity the whiff was made of in the first place.
+//
+// Direction is straight at the player. That is exactly right for an ordinary seeker and merely
+// approximate for the flagged movers (pastSeek, orbiters, divers) — they are the minority, and a
+// persistent jet's 3s life absorbs the error. Draws no randoms.
+function leadSpot(run, e, fuse) {
+  const p = run.player
+  const dx = p.x - e.x, dy = p.y - e.y
+  const dist = Math.hypot(dx, dy)
+  if (dist < 1e-6) return { x: e.x, y: e.y }
+  const lead = Math.min((e.speed ?? 0) * (fuse ?? 0), dist)
+  return { x: e.x + (dx / dist) * lead, y: e.y + (dy / dist) * lead }
+}
+
+
+// Shared by the Sewer Geyser and the Reality Shard's riftScar. Never touches the player.
+//
+// Two lifecycles, chosen by whether the zone carries a jetDur (see the run.geysers block in
+// config.js). A Sewer Geyser erupts and then STAYS OPEN, spraying on a per-(enemy, jet) cooldown; a
+// riftScar rift erupts once and is gone, exactly as before v6.10. The rift path is load-bearing —
+// making rifts persistent would silently rebalance a weapon in another chapter.
 function stepGeysers(run, dt) {
   if (!run.geysers || run.geysers.length === 0) return
   const launchBonus = run.weaponMods.sewerGeyser?.launch ?? 0
-  const chain = run.weaponMods.sewerGeyser?.chainGeyser ?? 0
-  const followUps = []
 
   for (const g of run.geysers) {
+    if (g.jet > 0) { stepOpenJet(run, g, dt); continue }   // already erupted, still spraying
+
     g.fuse -= dt
     if (g.fuse > 0) continue // telegraph — harmless
-    g._done = true
-    // trafficMain (v6.3): an eruption centered inside a live lane hits (1+tm)x harder. Resolved
-    // once per geyser (not per enemy hit) at its own (g.x, g.y) — panicRout's "multiply at the
-    // damage site" pattern, applied to the baseDmg fed into applyDamage. Chained follow-ups
-    // (pushed below) erupt on a later tick at their OWN spot, so they reroll pointInLane there.
-    const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
-    const dmg = tm > 0 && pointInLane(run, g.x, g.y) ? g.dmg * (1 + tm) : g.dmg
+
+    // ---- eruption ----
+    const dmg = geyserDmg(run, g)
     const rSq = g.r * g.r
     for (const e of run.enemies) {
       if (e._dead) continue
       const dx = e.x - g.x, dy = e.y - g.y
       if (dx * dx + dy * dy > rSq) continue
       applyDamage(run, e, dmg)
-      // launch: the jet throws them clear and leaves them stunned (see e.stunT in state.js).
+      // launch: the eruption throws them clear and leaves them stunned (see e.stunT in state.js).
+      // Eruption frame only — the gentle continuous drift of an open jet is baseline (stepOpenJet),
+      // and this stays the hard one-shot fling that the mod sells.
       if (launchBonus > 0 && !e._dead) {
         const d = Math.hypot(dx, dy)
         const ux = d > 1e-6 ? dx / d : 1
@@ -5422,22 +5643,94 @@ function stepGeysers(run, dt) {
       }
     }
     run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r })
-    // chainGeyser: scatter weaker follow-ups. _chained ones never chain further — and a riftScar
-    // rift arrives already flagged _chained, so this can never fire off another weapon's zone.
-    if (chain > 0 && !g._chained) {
-      for (let i = 0; i < chain; i++) {
-        const a = Math.random() * Math.PI * 2
-        const d = GEYSER_CHAIN_SCATTER_MIN + Math.random() * (GEYSER_CHAIN_SCATTER_MAX - GEYSER_CHAIN_SCATTER_MIN)
-        followUps.push({
-          x: g.x + Math.cos(a) * d, y: g.y + Math.sin(a) * d,
-          r: g.r * GEYSER_CHAIN_FRAC, fuse: GEYSER_CHAIN_FUSE, dur: GEYSER_CHAIN_FUSE,
-          dmg: g.dmg * GEYSER_CHAIN_FRAC, _chained: true,
-        })
-      }
+
+    if (g.jetDur > 0) {
+      g.jet = g.jetDur                   // the main is open; spray from here
+      g._cd = new Map()                  // per-(enemy, jet) tick cooldown, keyed by enemy id
+    } else {
+      g._done = true                     // riftScar: one pop, gone
     }
   }
-  for (const g of followUps) run.geysers.push(g)
   run.geysers = run.geysers.filter((g) => !g._done)
+  // The cap is a render/readability guard as much as a balance one (the rim is the hitbox now), so
+  // it drops the OLDEST zones: killing the newest would silently eat the cast the player just made.
+  if (run.geysers.length > GEYSER_MAX_LIVE) run.geysers = run.geysers.slice(-GEYSER_MAX_LIVE)
+}
+
+// trafficMain (v6.3): a zone centered inside a live lane hits (1+tm)x harder. Resolved at the zone's
+// own (g.x, g.y) — panicRout's "multiply at the damage site" pattern, applied to the baseDmg fed
+// into applyDamage. Re-resolved per tick on purpose: a lane sweeps past a live jet mid-life, and the
+// jet should start hitting harder when it does.
+function geyserDmg(run, g) {
+  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+  return tm > 0 && pointInLane(run, g.x, g.y) ? g.dmg * (1 + tm) : g.dmg
+}
+
+// An open hydrant: hose the nearest few foes, shove them along the stream, and damage each on its
+// own cooldown. The cooldown map belongs to THIS hydrant, so a foe caught in two overlapping
+// hydrants' streams takes both.
+function stepOpenJet(run, g, dt) {
+  g.jet -= dt
+  if (g.jet <= 0) { g._done = true; return }
+
+  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+  const spray = geyserDmg(run, g) * GEYSER_SPRAY_FRAC
+  const tick = g.tick > 0 ? g.tick : 0.4
+  const rSq = g.r * g.r
+
+  // TURRET, not a zone. The hydrant locks the nearest `g.streams` foes in range and hoses each
+  // one; nothing else in the radius is touched. A radial zone was the readable-ness problem the
+  // owner called out — a 128px circle of damage has to be drawn as a 128px circle of art, several
+  // overlap, and the screen turns to soup. Aimed streams put the damage exactly where the art is,
+  // so what is being hit is legible at a glance and the space between streams stays clear.
+  //
+  // Nearest-N by insertion, not by sorting the whole candidate list: this runs per hydrant per
+  // frame with up to GEYSER_MAX_LIVE hydrants live, and N is 3.
+  // Clamped to GEYSER_STREAMS_MAX: the render rig has that many stream sprites and no more.
+  const maxStreams = Math.min(GEYSER_STREAMS_MAX, Math.max(1, Math.round(g.nStreams ?? GEYSER_STREAMS_FALLBACK)))
+  const picks = []
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - g.x, dy = e.y - g.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > rSq) continue
+    if (picks.length < maxStreams) {
+      picks.push({ e, d2 })
+      picks.sort((a, b) => a.d2 - b.d2)          // at most 3 entries
+    } else if (d2 < picks[picks.length - 1].d2) {
+      picks[picks.length - 1] = { e, d2 }
+      picks.sort((a, b) => a.d2 - b.d2)
+    }
+  }
+
+  // Render reads this to draw one stream per target (see syncJets). Positions, not ids: the stream
+  // is drawn where the water is actually going, and an enemy that dies this frame should not leave
+  // render chasing a stale id.
+  g.streams = picks.map((p) => ({ x: p.e.x, y: p.e.y }))
+
+  for (const { e } of picks) {
+    // Shoved along the stream, away from the hydrant. Only what is actually being hosed gets
+    // pushed — the drift used to apply to everything in the radius, which no longer has meaning
+    // now that the radius is a range rather than a damage area.
+    if (!(e.affixes && e.affixes.includes('anchored'))) {
+      const dx = e.x - g.x, dy = e.y - g.y
+      const d = Math.hypot(dx, dy)
+      const ux = d > 1e-6 ? dx / d : 1
+      const uy = d > 1e-6 ? dy / d : 0
+      e.kb.x += ux * GEYSER_JET_PUSH * dt
+      e.kb.y += uy * GEYSER_JET_PUSH * dt
+    }
+    if ((g._cd.get(e.id) ?? -1) > run.time) continue
+    g._cd.set(e.id, run.time + tick)
+    applyDamage(run, e, spray)
+  }
+
+  // trafficMain also extends a street hydrant's life — it hits harder AND lasts longer. Applied
+  // once, when the jet first crosses mid-life, so it cannot compound frame over frame.
+  if (!g._midLife && g.jet <= g.jetDur * 0.5) {
+    g._midLife = true
+    if (tm > 0 && pointInLane(run, g.x, g.y)) g.jet += g.jetDur * tm
+  }
 }
 
 // -- Roar (v5.4 skies starter) -------------------------------------------------------------
@@ -5650,7 +5943,7 @@ function stepShardBlink(run, b, dt) {
   b.y += (b.vy / speed) * b._blinkDist
   run.events.push({ type: 'blink', x: fromX, y: fromY, tx: b.x, ty: b.y }) // v6.2: the skip is finally visible
   // riftScar: the departure point scars over and detonates. Rifts reuse run.geysers (the same
-  // "telegraph then erupt, enemies only" contract) flagged _chained so sewerGeyser's chainGeyser —
+  // "telegraph then erupt, enemies only" contract) flagged _chained (a rift marker; see config) —
   // a different weapon's mod — can never fire off them.
   const rift = run.weaponMods.realityShard?.riftScar ?? 0
   if (rift > 0) {
@@ -5916,6 +6209,19 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // roll above normal (the makePassiveCard idiom — returning null just means "not a candidate at
   // this tier"), and its card states the effect rather than a meaningless "+N".
   if (cfg.kind === 'switch' && rarity !== 'normal') return null
+  // v6.7.6: `values` on a weapon mod works exactly as it does on a passive (makePassiveCard, and
+  // its doc comment) — the mod rolls ONLY the rarities the table lists, at the exact amounts it
+  // lists, and returns null everywhere else, which the caller already treats as "no candidate at
+  // this tier" rather than as a bug. Beam Prism uses it to have no normal-rarity card at all: its
+  // whole design is that the rarity you rolled IS the stat, and there is no meaningful split
+  // smaller than into 2.
+  if (cfg.values) {
+    if (!(rarity in cfg.values)) return null
+    const bonus = cfg.values[rarity]
+    return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
+      desc: cfg.descFor ? cfg.descFor(bonus) : `+${bonus} ${cfg.desc}`,
+      tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
+  }
   const mult = RARITIES[rarity].mult
   let bonus
   if (cfg.kind === 'switch') bonus = 1

@@ -664,31 +664,51 @@ export const WEAPONS = {
   // See stepTornadoWeapon/stepGeyserWeapon in sim.js.
   trashTornado: {
     name: 'Trash Tornado',
-    desc: 'Whips up street trash to orbit and batter what it touches.',
+    desc: 'Whips up street trash into funnels that hunt down what comes near.',
     icon: '🌪️', rarity: 'rare',
-    // Always-on orbital, like orbit: sim recomputes every chunk's position each frame into
-    // run.debris ({x, y, r}) and ticks damage to whatever they overlap every `tick` seconds.
+    // v6.8: HUNTERS, not an orbital. Each funnel is a persistent run.debris entry the sim moves
+    // itself: with prey inside `hunt` px OF THE PLAYER it flies at that enemy at travelSpeed and
+    // parks on it; with nothing in reach it spirals back into a ring of `radius` around you and
+    // circles at rotSpeed. Damage still ticks on the per-enemy cooldown run.orbs uses. `hunt` is a
+    // leash around the PLAYER, not around the funnel — that is what keeps the weapon a bubble of
+    // threat you carry rather than a pack that wanders off and never comes home.
+    // Stat key order matters: the pause sheet shows the first five it recognises (buildReadout).
     levels: [
-      { dmg: 11, chunks: 3, radius: 90,  rotSpeed: 2.6, tick: 0.5 },
-      { dmg: 13, chunks: 3, radius: 98,  rotSpeed: 2.8, tick: 0.5 },
-      { dmg: 16, chunks: 4, radius: 108, rotSpeed: 3.1, tick: 0.45 },
-      { dmg: 20, chunks: 5, radius: 118, rotSpeed: 3.4, tick: 0.4 },
-      { dmg: 26, chunks: 6, radius: 130, rotSpeed: 3.8, tick: 0.35 },
+      { dmg: 11, chunks: 3, radius: 90,  hunt: 190, travelSpeed: 190, rotSpeed: 1.5, tick: 0.5 },
+      { dmg: 13, chunks: 3, radius: 98,  hunt: 205, travelSpeed: 205, rotSpeed: 1.6, tick: 0.5 },
+      { dmg: 16, chunks: 4, radius: 108, hunt: 225, travelSpeed: 220, rotSpeed: 1.8, tick: 0.45 },
+      { dmg: 20, chunks: 5, radius: 118, hunt: 245, travelSpeed: 240, rotSpeed: 2.0, tick: 0.4 },
+      { dmg: 26, chunks: 6, radius: 130, hunt: 270, travelSpeed: 260, rotSpeed: 2.2, tick: 0.35 },
     ],
   },
   sewerGeyser: {
-    name: 'Sewer Geyser',
-    desc: 'Cracks the street open; scalding jets erupt where foes stand.',
-    icon: '⛲', rarity: 'rare',
-    // The utility native (slowest clear on purpose): plants `count` telegraphed eruption zones
-    // (run.geysers) on/near random enemies within castRange; each waits `fuse` seconds (harmless
-    // telegraph), then erupts ONCE for dmg in r. Enemies only — never hurts the player.
+    // Display name renamed in v6.10 when the weapon became a hydrant turret; the ID stays
+    // `sewerGeyser` on purpose — it is threaded through WEAPON_MODS, WEAPON_STAT_MODS,
+    // WEAPON_RATE_MODS, the chapter pools and the sim, and none of that is improved by churn.
+    name: 'Burst Hydrant',
+    desc: 'Shears a hydrant open; it hoses down whatever comes near.',
+    icon: '🚒', rarity: 'rare',
+    // The area-denial native: plants `count` telegraphed zones (run.geysers) on the path between a
+    // foe and the player within castRange; each waits `fuse` seconds (harmless telegraph), erupts
+    // for `dmg`, then STAYS OPEN for `jetDur`, spraying every `tick`. Enemies only — never hurts
+    // the player.
+    //
+    // v6.10 reworked this from a one-shot pop. Measured with scripts/weapon-census.mjs, the pop
+    // threw away about half its damage budget: 27% of eruptions caught nothing (a wisp covers
+    // 107px during the 0.65s fuse and simply left the 128px circle), and 28% of what did land was
+    // overkill from one 93-damage hit on a 20-HP-base roster. Standing still cut the whiff rate by
+    // 2.4x, i.e. the weapon punished kiting. A jet that stays open recovers both: nothing has to be
+    // on the mark at one exact instant, and the damage arrives in tick-sized pieces.
+    //
+    // `dmg` is the ERUPTION punch; each spray tick is dmg * GEYSER_SPRAY_FRAC. A full soak at L5 is
+    // ~200, a clip-through ~70 — so slow things eat it and fast things do not, which makes this the
+    // chapter's anti-tank tool by construction.
     levels: [
-      { rate: 3.0, castRange: 260, fuse: 0.70, r: 90,  dmg: 34, count: 1 },
-      { rate: 2.8, castRange: 270, fuse: 0.70, r: 98,  dmg: 42, count: 1 },
-      { rate: 2.6, castRange: 285, fuse: 0.65, r: 106, dmg: 52, count: 2 },
-      { rate: 2.3, castRange: 300, fuse: 0.65, r: 116, dmg: 64, count: 2 },
-      { rate: 2.0, castRange: 320, fuse: 0.60, r: 128, dmg: 80, count: 3 },
+      { rate: 3.0, castRange: 260, fuse: 0.70, r: 90,  dmg: 22, count: 1, jetDur: 2.50, tick: 0.40, streams: 2 },
+      { rate: 2.8, castRange: 270, fuse: 0.70, r: 98,  dmg: 27, count: 1, jetDur: 2.60, tick: 0.40, streams: 2 },
+      { rate: 2.6, castRange: 285, fuse: 0.65, r: 106, dmg: 32, count: 2, jetDur: 2.70, tick: 0.40, streams: 3 },
+      { rate: 2.3, castRange: 300, fuse: 0.65, r: 116, dmg: 40, count: 2, jetDur: 2.85, tick: 0.40, streams: 3 },
+      { rate: 2.0, castRange: 320, fuse: 0.60, r: 128, dmg: 48, count: 3, jetDur: 3.00, tick: 0.40, streams: 4 },
     ],
   },
   // Skies chapter natives (v5.4). See stepRoarWeapon/stepTailWeapon/stepDebrisWeapon in sim.js.
@@ -881,6 +901,8 @@ export const MAX_PASSIVE_LEVEL = 5
 //   homing.wispNova:    when a wisp dies (spent its last pierce on a hit, or its lifetime
 //                       expired) it pops: AoE splash = bonus × the wisp's dmg in
 //                       WISP_NOVA_RADIUS + explode event. Mini-wisps (see swarm) can pop too.
+//                       v6.9.3: the splash goes through applyDamage, so it crits and takes the
+//                       player's damage multipliers — the wisp's stored dmg is a RAW config stat.
 //   homing.swarm:       when a (non-mini) wisp's hit KILLS an enemy, spawn <tier bonus> mini
 //                       wisps at the kill spot (SWARM_DMG_FRAC × dmg, SWARM_LIFE lifetime, same
 //                       speed/turn rate) flagged `_mini` — mini wisps never re-trigger swarm.
@@ -889,7 +911,8 @@ export const MAX_PASSIVE_LEVEL = 5
 //                       render already re-reads h.radius/coreRadius every frame.
 //   hole.crunch:        when a hole expires, it collapses in a detonation: damage = hole tick
 //                       dmg × CRUNCH_DMG_MUL × (1 + bonus) to everything within its final
-//                       radius + explode event there.
+//                       radius + explode event there. v6.9.3: through applyDamage, so it crits
+//                       and takes the player's damage multipliers (the tick dmg is raw config).
 //   rainbow.focus:      a beam's damage ramps linearly from 1× at cast to (1 + bonus)× at the
 //                       end of its duration (recomputed every tick from elapsed/duration).
 //   rainbow.strobe:     beam tick period divided by (1 + bonus), baked in at cast time (faster
@@ -921,6 +944,13 @@ export const PIERCE_MAX_PICKS = 2
 // 2 picks = 6 return trips at mythic, which is where the dps curve flattens (6 trips +18.3%,
 // 15 trips +17.8%).
 export const REBOUND_MAX_PICKS = 2
+// Beam Prism's two card phrases (WEAPON_MODS.rainbow.prism). Hoisted to consts rather than written
+// inline inside its `descFor` template so both stay COMPLETE QUOTED LITERALS in this file: run XX's
+// dead-key sweep matches fr.js keys as whole literals against src/*.js, and a phrase that only ever
+// exists as part of a template string reads to it as a translation nobody can produce. Its own
+// comment offers an exemption list for that case; a literal costs less and keeps the sweep honest.
+const PRISM_DESC = 'sub-beams where the beam lands'
+const PRISM_DESC_DEEP = 'sub-beams where the beam lands, each splitting again'
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
@@ -986,13 +1016,34 @@ export const WEAPON_MODS = {
     hungry:      { name: 'Hungry Hole', desc: 'vortex growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
     crunch:      { name: 'Big Crunch',  desc: 'vortex collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
   },
+  // v6.7.6 (owner: "merge beam length and beam width into one series"). Wide Beam and Long Beam
+  // were the same card twice — both +20% pct, both plain geometry, and between them plus Sustain
+  // the player met a "+20% beam something" card on one level-up in five (measured, v6.7.5). One
+  // card now moves both numbers by the same 20%, so the ceiling is unchanged (five picks still buy
+  // 2x width and 2x length, i.e. 4x the swept area) and it costs half the level-ups to reach.
+  // WEAPON_STAT_MODS.rainbow folds the pair; the name says both, per v6.6.13's rule that a card
+  // must name what changes on screen.
   rainbow: {
-    wideBeam:  { name: 'Wide Beam',       desc: 'beam width',             icon: '📡', base: 0.20, kind: 'pct' },
-    longBeam:  { name: 'Long Beam',       desc: 'beam length',            icon: '↔️', base: 0.20, kind: 'pct' },
+    wideBeam:  { name: 'Big Beam',        desc: 'beam width & length',    icon: '📡', base: 0.20, kind: 'pct' },
     sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
     prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier' },
     focus:     { name: 'Focus Lens', desc: 'beam damage ramp by the end of its duration', icon: '🔎', base: 0.80, kind: 'pct' },
     strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct' },
+    // v6.7.6 Beam Prism (owner spec). A `values` mod — the SAME idiom PASSIVES.armor/regen use:
+    // it rolls only the listed rarities at the listed exact amounts, and makeWeaponModCard returns
+    // null at any other tier, so no card is offered at normal at all. That is deliberate and it is
+    // the whole design: RARITY IS THE STAT here. The number below is how many sub-beams the FIRST
+    // refraction throws; each layer after it throws one fewer, down to 2, then stops (see
+    // prismLadder). maxPicks 1 because a second pick would have nothing to add — the ladder is
+    // fully determined by the rarity of the card you took.
+    // `descFor` (not a plain `desc`) because a rare prism and a mythic one are different mechanics,
+    // not different magnitudes of one — and a card that read identically at both tiers would be the
+    // v6.6.13 defect exactly: a number nobody can check. It returns the same "+N <phrase>" shape
+    // every other card uses, so ui.js's tCardDesc strips the number and translates the phrase with
+    // no special case, and fr.js needs the two phrases and nothing else.
+    prism:     { name: 'Beam Prism', desc: PRISM_DESC, icon: '🔺',
+                 kind: 'prism', maxPicks: 1, values: { rare: 2, epic: 2, legendary: 3, mythic: 4 },
+                 descFor: (n) => `+${n} ${n > 2 ? PRISM_DESC_DEEP : PRISM_DESC}` },
   },
   // Pond natives (v5.0 task 4). Percents match the contract exactly (base = the normal-rarity
   // headline; rarity scales it, like every pct mod). reach/wideArc/heavyLash fold into
@@ -1141,29 +1192,59 @@ export const WEAPON_MODS = {
     chitterSpines: { name: 'Chitter Spines', desc: 'quill(s) spat outward per shriek', icon: '🦔', kind: 'tier', perTier: 4 },
   },
   // ---- City natives (v5.4; Neon Beam rides the existing WEAPON_MODS.rainbow set above) ----
-  // heavyTrash/wideTornado/fasterSpin/moreTrash fold into trashTornado's levels[] via
-  // WEAPON_STAT_MODS. flingDebris/suction are behavioral (see stepTornadoWeapon in sim.js).
+  // heavyTrash/wideHunt/fastWinds/moreTrash fold into trashTornado's levels[] via WEAPON_STAT_MODS.
+  // flingDebris/sweepLoot are behavioral (see stepTornadoWeapon in sim.js).
+  // v6.8: the two cards that tuned the ORBIT are gone with the orbit's primacy — orbit radius
+  // (wideTornado) and spin speed (fasterSpin) now describe what the funnels do while idle, which
+  // is not a thing worth a level-up. They are replaced one for one by the two numbers that decide
+  // how the weapon actually kills: how far it hunts, and how fast it gets there.
   trashTornado: {
-    heavyTrash:  { name: 'Heavy Trash',   desc: 'debris damage',   icon: '🔨', base: 0.25, kind: 'pct' },
-    wideTornado: { name: 'Wide Tornado',  desc: 'orbit radius',    icon: '🪐', base: 0.25, kind: 'pct' },
-    fasterSpin:  { name: 'Faster Spin',   desc: 'spin speed',      icon: '🌀', base: 0.25, kind: 'pct' },
-    moreTrash:   { name: 'More Trash',    desc: 'debris chunks',   icon: '🗑️', base: 1,    kind: 'flat' },
+    heavyTrash:  { name: 'Heavy Trash',   desc: 'funnel damage',   icon: '🔨', base: 0.25, kind: 'pct' },
+    wideHunt:    { name: 'Wide Hunt',     desc: 'hunting radius',  icon: '🧭', base: 0.25, kind: 'pct' },
+    fastWinds:   { name: 'Fast Winds',    desc: 'travel speed',    icon: '💨', base: 0.25, kind: 'pct' },
+    moreTrash:   { name: 'More Tornadoes', desc: 'tornadoes',      icon: '🌪️', base: 1,    kind: 'flat' },
     flingDebris: { name: 'Fling Debris',  desc: 'chunk(s) hurled outward periodically', icon: '🎯', kind: 'tier' },
-    suction:     { name: 'Suction',       desc: 'inward pull on nearby foes',           icon: '🌬️', base: 0.50, kind: 'pct' },
+    // v6.9 (owner): the tornado used to pull ENEMIES inward. It now sweeps up LOOT instead — the
+    // same job wave.undertow (Chemotaxis) does one chapter over, marking gems and coins `_vac` so
+    // stepPickups reels them in past magnet range. A funnel that hunts across the street and drags
+    // the drops home is a better fit than one that hands the player a pile of foes at point blank.
+    //
+    // On/off, epic only, one pick. `values` (the Beam Prism idiom) rather than kind:'switch',
+    // because makeWeaponModCard refuses a switch above normal rarity and this one is meant to BE
+    // an epic. maxPicks 1: a second pick would have nothing to add.
+    sweepLoot: {
+      name: 'Street Sweeper', icon: '🧲', kind: 'flat', maxPicks: 1, values: { epic: 1 },
+      desc: 'funnels reel in gems and coins',
+      descFor: () => 'funnels reel in gems and coins',
+    },
   },
-  // pressure/wideGeyser/moreGeysers fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
-  // rapidGeyser (cast rate) is read at the cast site. launch/chainGeyser/trafficMain are
-  // behavioral (see stepGeysers/stepGeyserWeapon in sim.js).
+  // pressure/longHose/moreStreams/deepMain fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
+  // rapidGeyser (cast rate) is read at the cast site. launch/trafficMain are behavioral (see
+  // stepGeysers/stepGeyserWeapon in sim.js).
+  // v6.10: rebuilt around the turret. The old set described a one-shot radial pop — "eruption
+  // radius", "geysers per cast", "follow-up geyser(s) per eruption" — and half of it stopped
+  // describing what the weapon does once the hydrant started aiming at things.
+  //
+  // Two dropped, and both were measured or reasoned out rather than trimmed for space:
+  //   moreGeysers  planting MORE marks on the same crowd was the worst line in the whole census
+  //                (avg 1.48 foes caught per zone against 2.16 without it) — the extra hydrants
+  //                landed on foes the first one had already killed. "More streams" is the same
+  //                fantasy pointed somewhere that isn't already dead.
+  //   chainGeyser  scattering weak follow-ups at random offsets was coherent when placement was
+  //                random anyway. Against a turret that picks its targets, random extra turrets is
+  //                noise, and it was the only 'tier' mod on the weapon.
   sewerGeyser: {
-    pressure:    { name: 'High Pressure', desc: 'eruption damage', icon: '💥', base: 0.30, kind: 'pct' },
-    wideGeyser:  { name: 'Wide Geyser',   desc: 'eruption radius', icon: '📡', base: 0.30, kind: 'pct' },
-    rapidGeyser: { name: 'Burst Main',    desc: 'cast rate',       icon: '⏩', base: 0.25, kind: 'pct' },
-    moreGeysers: { name: 'Broken Mains',  desc: 'geysers per cast', icon: '⛲', base: 1,   kind: 'flat' },
-    launch:      { name: 'Launch',        desc: 'eruptions fling and stun what they catch', icon: '🚀', base: 1, kind: 'flat' },
-    chainGeyser: { name: 'Chain Burst',   desc: 'follow-up geyser(s) per eruption',         icon: '🎆', kind: 'tier' },
+    pressure:    { name: 'High Pressure', desc: 'stream damage', icon: '💥', base: 0.30, kind: 'pct' },
+    longHose:    { name: 'Long Hose',     desc: 'hydrant reach', icon: '📏', base: 0.30, kind: 'pct' },
+    rapidGeyser: { name: 'Burst Main',    desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
+    // The flagship turret mod: one more foe hosed at once. Reads instantly on screen because the
+    // streams ARE the damage now — an extra pick is an extra visible jet.
+    moreStreams: { name: 'Split Nozzle',  desc: 'foes hosed at once', icon: '🚿', base: 1, kind: 'flat' },
+    deepMain:    { name: 'Deep Main',     desc: 'how long a hydrant runs', icon: '⏳', base: 0.30, kind: 'pct' },
+    launch:      { name: 'Cap Blast',     desc: 'the blown cap flings and stuns what it catches', icon: '🚀', base: 1, kind: 'flat' },
     // v6.3: without the placement bias this mod's uptime is ~15-25% and uninfluencable — a trap
     // pick. The bias (stepGeyserWeapon's cast: prefer a lane-covered enemy) is the point.
-    trafficMain: { name: 'Traffic Main',  desc: 'eruptions inside a live lane hit far harder — and geysers seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
+    trafficMain: { name: 'Traffic Main',  desc: 'hydrants in a live lane hit far harder — and seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
   },
   // ---- Skies natives (v5.4) ----
   // bellow/wideRoar/farRoar fold into roar's levels[] via WEAPON_STAT_MODS; rapidRoar (attack
@@ -1210,12 +1291,16 @@ export const WEAPON_MODS = {
     riftScar:    { name: 'Rift Scar',    desc: 'each blink leaves a detonating rift', icon: '🌀', base: 0.50, kind: 'pct' },
     recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one expires',    icon: '♾️', kind: 'tier' },
   },
-  // wideFold/longFold/sustainFold fold into tesseractBeam's levels[] via WEAPON_STAT_MODS;
-  // rapidFold (cast rate) is read at the cast site. hyperfold/collapse are behavioral (see
-  // stepTesseractWeapon / the folded branch of stepBeams).
+  // wideFold/sustainFold fold into tesseractBeam's levels[] via WEAPON_STAT_MODS; rapidFold (cast
+  // rate) is read at the cast site. hyperfold/collapse are behavioral (see stepTesseractWeapon /
+  // the folded branch of stepBeams).
+  // v6.7.6: Long Fold merged into Wide Fold, for the reason spelled out on rainbow.wideBeam above —
+  // this weapon carried the identical redundant trio, and leaving it would fix the complaint in one
+  // chapter and leave it standing in another. The prism does NOT follow: the Tesseract's identity
+  // is the fold and its collapse, and a second splitting mechanic on a weapon whose arms already
+  // rake the full circle adds noise rather than a decision.
   tesseractBeam: {
-    wideFold:    { name: 'Wide Fold',    desc: 'beam width',    icon: '📡', base: 0.20, kind: 'pct' },
-    longFold:    { name: 'Long Fold',    desc: 'beam length',   icon: '↔️', base: 0.20, kind: 'pct' },
+    wideFold:    { name: 'Big Fold',     desc: 'beam width & length', icon: '📡', base: 0.20, kind: 'pct' },
     sustainFold: { name: 'Held Fold',    desc: 'beam duration', icon: '⌛', base: 0.20, kind: 'pct' },
     rapidFold:   { name: 'Quick Fold',   desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
     hyperfold:   { name: 'Hyperfold',    desc: 'extra fold arm(s) per cast',        icon: '🔷', kind: 'tier' },
@@ -1462,35 +1547,85 @@ export const SHRIEK_SPINE_RANGE_MUL = 1.6  // flight distance, as a multiple of 
 // at the fire site is exactly how a card ends up promising +1 and delivering 4.
 
 // ---- City weapons (v5.4: Trash Tornado + Sewer Geyser; Neon Beam = the rainbow re-theme) -------
-// Trash Tornado (city — see WEAPONS.trashTornado + stepTornadoWeapon in sim.js): chunks are evenly
-// spaced on a ring around the player, sim rewrites run.debris ({x, y, r}) every frame (same
-// contract as run.orbs), and each chunk damages enemies it overlaps every `tick` s (per-chunk,
-// per-enemy cooldown — same bookkeeping orbit uses).
-export const DEBRIS_R = 14            // px, base chunk hit radius (cf. ORB_R)
+// Trash Tornado (city — see WEAPONS.trashTornado + stepTornadoWeapon in sim.js). v6.8: run.debris
+// is PERSISTENT, not rewritten every frame — each entry is a funnel that hunts (see the levels[]
+// comment). Damage is unchanged: a funnel damages enemies it overlaps every `tick` s, on the
+// per-enemy cooldown orbit uses (e._debrisCd, the run.orbs/orbCd bookkeeping).
+export const DEBRIS_R = 20            // px, base funnel hit radius. Was 14 while these were single
+                                      // scraps of junk; a funnel has to read as one from a phone.
+// How hard an idle funnel is pulled back toward its evenly-spaced slot on the ring, in rad of
+// correction per second per rad of error (~0.8s to close most of a gap). Without it funnels rejoin
+// the ring wherever they happened to break off, two hunts running leaves them bunched, and the
+// idle state stops reading as an orbit at all — which is the half of the weapon that was already
+// right. Small on purpose: snapping them into place looks mechanical.
+export const TORNADO_RESPACE = 1.2
 // flingDebris (behavioral): every TORNADO_FLING_EVERY seconds the tornado hurls <tier bonus> chunks
 // straight outward as run.bullets tagged weapon:'trash', at TORNADO_FLING_DMG_FRAC of chunk damage.
 export const TORNADO_FLING_EVERY = 1.5
 export const TORNADO_FLING_DMG_FRAC = 0.8
 export const TORNADO_FLING_SPEED = 430 // px/s
 export const TORNADO_FLING_RANGE = 260 // px before a flung chunk expires (life = range/speed)
-// suction (behavioral): enemies within TORNADO_SUCTION_RANGE of the player are dragged inward at
-// TORNADO_SUCTION_PULL × bonus px/s (elites/tanks resist — capped at TORNADO_SUCTION_RESIST of it,
-// mirroring HOLE_RESIST_CAP so the tornado can't trivially hold a tank).
-export const TORNADO_SUCTION_RANGE = 220
-export const TORNADO_SUCTION_PULL = 120
-export const TORNADO_SUCTION_RESIST = 0.5
+// Street Sweeper (sweepLoot, behavioral — v6.9, replaces the enemy-pulling `suction`): every gem
+// and coin within this of ANY funnel is marked `_vac`, exactly as wave.undertow marks its own, and
+// stepPickups then homes it to the player ignoring magnet range. Radius is per FUNNEL, not per
+// player: the point of the mod is that a pack out hunting brings the drops back with it.
+// 120 is a little under the level-5 orbit ring (130), so an idle pack alone sweeps a ring roughly
+// twice the base magnet — generous but not "collect the whole screen", which would make the magnet
+// passive and Sticky Aura pointless in this chapter.
+export const TORNADO_SWEEP_R = 120
 
-// Sewer Geyser (city utility — see WEAPONS.sewerGeyser + stepGeyserWeapon/stepGeysers in sim.js).
-// run.geysers entries: { x, y, r, fuse, dur, dmg, _chained? } — fuse counts down (harmless
-// telegraph; dur is its starting value so render can grow a warning ring from fuse/dur), then the
-// geyser erupts ONCE (damaging ENEMIES only, never the player), emits {type:'explode', x, y,
-// radius:r}, and is removed. _chained marks a chainGeyser follow-up so it never chains further.
+// Sewer Geyser (city area denial — see WEAPONS.sewerGeyser + stepGeyserWeapon/stepGeysers in
+// sim.js). run.geysers entries: { x, y, r, fuse, dur, dmg, jetDur?, tick?, jet?, _cd?, _chained? }.
+// fuse counts down (harmless telegraph; dur is its starting value so render can grow a warning ring
+// from fuse/dur), then the zone erupts for dmg against ENEMIES only, never the player.
+//
+// What happens next depends on jetDur, and BOTH paths are live:
+//   jetDur > 0  — the Sewer Geyser. The jet stays open for jetDur, spraying every `tick`, then is
+//                 removed. `jet` counts the remaining open time; `_cd` is the per-(enemy, jet) tick
+//                 cooldown, keyed by enemy id — per JET, not per enemy, so overlapping jets stack.
+//   jetDur nil  — the Reality Shard's riftScar. One pop and gone, exactly as before v6.10. Rifts
+//                 must keep this: a jet field that quietly made rifts persistent would be a
+//                 cross-weapon balance change nothing in the shard's own tuning accounts for.
+// Both emit {type:'explode', x, y, radius:r} on eruption. _chained marks a rift; nothing reads it
+// since v6.10 dropped chainGeyser, but riftScar still sets it and it costs nothing to keep as the
+// "this zone is not a Sewer Geyser cast" marker.
 export const GEYSER_LAUNCH_KB = 260   // launch (behavioral): knockback applied to caught enemies
 export const GEYSER_STUN = 0.6        // launch: stun seconds × bonus (e.stunT — no seek, no contact damage)
-export const GEYSER_CHAIN_FRAC = 0.6  // chainGeyser: follow-up radius/damage, as a fraction of the parent's
-export const GEYSER_CHAIN_FUSE = 0.35 // s, follow-up telegraph (shorter than the parent's)
-export const GEYSER_CHAIN_SCATTER_MIN = 70  // px, min scatter from the parent eruption
-export const GEYSER_CHAIN_SCATTER_MAX = 150 // px, max scatter from the parent eruption
+// v6.10 jet constants.
+export const GEYSER_SPRAY_FRAC = 0.45 // each spray tick, as a fraction of the eruption punch (dmg)
+export const GEYSER_IDLE_FRAC = 0.35  // with nothing in castRange, plant within this fraction of it
+                                      // around the player — whatever arrives next arrives HERE, so a
+                                      // mark out at the rim just expires in empty street.
+export const GEYSER_JET_PUSH = 300    // px/s^2 outward on enemies inside a live jet. kb decays at
+                                      // KB_DECAY_RATE (6/s), so this settles at ~50px/s drift —
+                                      // well under a drone's 90px/s walk, so seekers wade back in
+                                      // and mill at the rim. A jet that ejected its own targets
+                                      // would defeat itself; this is a soft wall, not a repulsor.
+export const GEYSER_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
+                                      // otherwise carpet the street with live hydrants.
+// Hard ceiling on streams per hydrant. The render rig allocates this many stream sprites per
+// hydrant up front, so the sim MUST clamp to it — otherwise Split Nozzle stacks past the rig and
+// the extra targets take damage with no jet drawn, which is the worst possible failure for a
+// weapon whose whole readability rests on the art showing what is being hit.
+export const GEYSER_STREAMS_MAX = 8
+export const GEYSER_STREAMS_FALLBACK = 3 // foes an open hydrant hoses at once when its zone carries
+                                      // no nStreams — only riftScar-shaped zones, which never open a
+                                      // jet, so in practice this is a guard rather than a tuning
+                                      // number. The real value is WEAPONS.sewerGeyser.levels[].streams,
+                                      // which Split Nozzle adds to. The eruption is
+                                      // still radial (it blows the cap off); everything after it is
+                                      // aimed. A radial damage AREA is what made the effect
+                                      // unreadable — it has to be drawn at its own full radius, and
+                                      // several overlapping fill the screen. Streams put the damage
+                                      // where the art is.
+export const GEYSER_STAGGER = 0.28    // s of extra fuse per zone within one cast, so a cast rolls
+                                      // out instead of landing all at once. Measured: with three
+                                      // marks opening on the same frame, 39% of jets never caught
+                                      // anything — not because they missed, but because the first
+                                      // jet killed what the other two were planted on (one mark per
+                                      // cast at L1 is 2.6% dry). A stagger lets the crowd re-flow
+                                      // between openings, and reads as a main tearing open along
+                                      // its length rather than three unrelated pops.
 
 // ---- Skies weapons (v5.4: Roar + Tail Swipe + Debris Toss) ------------------------------------
 // Roar (skies starter — see WEAPONS.roar + stepRoarWeapon in sim.js): the same sector test
@@ -1526,8 +1661,8 @@ export const LOB_SHRAPNEL_R = 7            // px, splinter hit radius (run.bulle
 export const SHARD_R = 9                   // px, shard hit radius (added to enemy radius)
 // riftScar (behavioral): each blink leaves a rift at the shard's DEPARTURE point that detonates
 // after SHARD_RIFT_FUSE for SHARD_RIFT_FRAC × bonus × the shard's damage in SHARD_RIFT_R. Rifts
-// reuse run.geysers (same "telegraph then erupt, enemies only" contract) with _chained: true set
-// so chainGeyser — a sewerGeyser mod — can never fire off them.
+// reuse run.geysers (same "telegraph then erupt, enemies only" contract) with _chained: true set.
+// They carry no jetDur, so they take the one-pop path and never become hydrant turrets.
 export const SHARD_RIFT_FUSE = 0.30
 export const SHARD_RIFT_R = 55
 export const SHARD_RIFT_FRAC = 0.8
@@ -1561,8 +1696,48 @@ export const TESSERACT_FAN_RATE = 2.2             // rad/s of that sweep
 // collapse (behavioral): when a folded beam expires, everything currently inside ANY of its arms
 // is yanked toward the player at TESSERACT_COLLAPSE_PULL px/s and takes TESSERACT_COLLAPSE_MUL ×
 // (1 + bonus) × the beam's per-tick damage, plus an {type:'explode'} at the player.
+// v6.9.3: through applyDamage, so it crits and takes the player's damage multipliers — the
+// beam's stored per-tick dmg is a RAW config stat, not an already-rolled hit.
 export const TESSERACT_COLLAPSE_MUL = 8
 export const TESSERACT_COLLAPSE_PULL = 400
+
+// ---- Beam Prism (v6.7.6, rainbow.prism — behavioral, read in stepBeams) -----------------------
+// Owner spec: "when a beam touches an enemy, it splits into N sub-beams like a prism (each deal
+// 75% of initial beam and 50% length)". The refraction happens AT the body that was hit, fanning
+// forward around the parent's heading — a prism bends light onward, it does not seek targets.
+//
+// Rarity is the entire stat (see WEAPON_MODS.rainbow.prism's `values`): the card's number is how
+// many sub-beams the first refraction throws, and each layer below throws one fewer, down to 2,
+// then stops. That is prismLadder, and it reproduces the spec exactly:
+//   rare / epic  ->  [2]        split once into 2; a sub-beam that hits something just stops
+//   legendary    ->  [3, 2]     3 sub-beams; each that hits re-splits into 2 (i.e. into a rare)
+//   mythic       ->  [4, 3, 2]  4, then 3, then 2
+// The recursion is bounded three ways, and it needs all three — at mythic the tree is 4 + 12 + 24
+// = 40 rays per refraction:
+//   1. only the NEAREST body in the arm refracts per tick, not every body the arm crosses (light
+//      bends at the first surface it meets, and per-body would square the whole tree),
+//   2. a ray stops at the FIRST body it touches — that IS the spec's "it stops",
+//   3. one shared already-hit set per refraction, so no body is damaged twice by one cast and two
+//      sub-beams cannot ping-pong between the same pair forever.
+export const PRISM_DMG_MUL = 0.75    // each sub-beam's damage, as a share of the beam it came from
+export const PRISM_LEN_MUL = 0.50    // ...and its reach, as a share of that same parent
+// Total fan width of one refraction. Sub-beams spread evenly across it, centred on the parent's
+// heading — so an odd count keeps one ray going dead straight (the beam "carried on through"),
+// which is what makes the effect read as refraction rather than as a scatter.
+export const PRISM_SPREAD = 1.4      // rad, ~80deg corner to corner
+// How long a drawn sub-beam segment lingers (render-only, no damage). This MUST exceed the beam's
+// tick interval (0.13-0.15s, WEAPONS.rainbow.levels) or the splash blinks out between refractions
+// and reads as a flicker instead of a spray — v6.7.6 shipped it at 0.12 and that gap is most of
+// why the effect was invisible. At 0.26 consecutive refractions overlap, so a sweeping beam drags
+// a continuous fan behind whatever it is cutting through.
+export const PRISM_FLASH_T = 0.26
+
+/** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
+export const prismLadder = (first) => {
+  const out = []
+  for (let n = Math.round(first) || 0; n >= 2; n--) out.push(n)
+  return out
+}
 
 // ---- Elements (PoE2/Warframe-style elemental status + combos) ---------------------
 // Offered always (not gated behind a weapon), rolls a rarity like passives: applied
@@ -2197,8 +2372,13 @@ export const CHAPTERS = {
       // opening minute.
       { id: 'patrolDrone', archetype: 'normal', name: 'Patrol Drone', hpMul: 0.85, speedMul: 1.0, flags: ['aerialStrike'], weight: 0.3, minT: 60 },
       // Street Rat (v6.3): the fast PRESSURE lane (plain committed chaser). Pigeon is the lane's spice.
-      { id: 'rat',      archetype: 'fast',   name: 'Street Rat',     hpMul: 0.8,  speedMul: 1.15, flags: [] },
-      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.2,  flags: ['blink'] },
+      // v6.9 (owner: "pigeons are still dashing/teleporting. just make them move normally, but they
+      // can go through (fly over) obstacles. make them 15% slower and rats too"). The pigeon drops
+      // `blink` for `flyover`: v6.7.5 made the burst continuous rather than a teleport and it STILL
+      // read as one, because a 686 px/s hop between crawls is a discontinuity in speed even when it
+      // is not a discontinuity in position. Both speeds are the old ones x0.85.
+      { id: 'rat',      archetype: 'fast',   name: 'Street Rat',     hpMul: 0.8,  speedMul: 0.98, flags: [] },
+      { id: 'pigeon',   archetype: 'fast',   name: 'Pigeon',          hpMul: 0.7,  speedMul: 1.02, flags: ['flyover'] },
     ],
     eliteFlags: ['spawner'],              // exterminator-van elites periodically disgorge minions
     // Signature: traffic lanes (run.lanes) — a marked band is telegraphed, then a vehicle sweeps
@@ -2214,6 +2394,12 @@ export const CHAPTERS = {
     // hydrant/cone kind pool (perKindRadius stays keyed on render.districts, skies only) while
     // gaining road exclusion, blockSnap curb alignment and biome build-density.
     roads: true,
+    // v6.9.5 (owner: "why city ends? why not just repeating squares of roads?"). The street grid
+    // repeats over the whole plane here instead of ending at the urban falloff: this chapter IS
+    // downtown, and a player who walks far enough to find the edge of it has found the edge of the
+    // fiction. `skies` deliberately does NOT set this — it has farmland and parks that a street
+    // grid must not pave over. Read by sim.js and render.js, passed into roadAt/blockSnap.
+    endlessGrid: true,
     // v6.4.10 (owner directive): per-chapter enemy HP ladder — city +5%.
     balance: { enemyHpMul: 1.05 },
     obstacles: {
@@ -2865,8 +3051,8 @@ export const STORM_SHADOW_ALPHA_DARK = 0.16   // pairs with the above (STORM_VIS
 // and decals — works verbatim.
 export { roadAt } from './terrain.js'
 
-// Widths, re-exported under their historical names so render.js's bakes and ROAD_CELL keep
-// resolving. STREET_* are the terrain module's own names for the same quantities.
+// Widths, re-exported under their historical names so render.js's carriageway bakes keep resolving.
+// STREET_* are the terrain module's own names for the same quantities.
 export const ROAD_MINOR_WIDTH = STREET_MINOR_WIDTH
 export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 
@@ -2875,44 +3061,38 @@ export const ROAD_MAJOR_WIDTH = STREET_MAJOR_WIDTH
 export {
   nearestCity, cityAt, blockSnap, parcelAt, PARCEL, pickWorldSeed,
   terrainAt, elevationAt, urbanAt, riverAt, clumpAt, BIOME_BUILD_DENSITY, CITY_GRID,
-  STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH,
+  STREET_SPACING_MAJOR_EVERY, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V,
 } from './terrain.js'
 
 
 // ---- Road ART (v5.10 art direction, spec §4.2-§4.3) — render-only, skies-only -------------------
 // "A road is a dashed yellow line on grass. It reads as a wireframe, not a place." The fix is not
-// more lines, it is a MARKING FAMILY plus VARIATION ALONG THE STREET, split across three mechanisms
-// for one blunt geometric reason:
+// more lines, it is a MARKING FAMILY plus VARIATION ALONG THE STREET.
 //
-// T.roadMinor/T.roadMajor are stamped by populateRoad with a NON-UNIFORM scale
-// (`scale.set((cell*1.6)/ref, (half*2)/ref)` — x factor 0.48, y factor 0.34 minor / 0.62 major).
-// ANYTHING baked into the carriageway tile is stretched by a different factor on each axis AND by a
-// different factor per road class: circles come out as ovals, zebra bars come out at the wrong pitch,
-// and the pitch is wrong by a DIFFERENT amount on a minor street than on an avenue. So the tile only
-// ever carries shapes that survive that (bands and lines parallel to the axes, pre-compensated), and
-// everything with a shape — manholes, patches, arrows — becomes a separate, UNIFORMLY scaled decal.
+// v6.9.1: the carriageway is a TilingSprite laid along a whole street run, so the tile below is
+// baked at TRUE WORLD SIZE — `tilePitch` px along the street by the street's own width across it —
+// and never distorted. That deletes the old stretch pre-compensation (the tile used to be stamped
+// per 26px floor cell at x0.48 / y0.34-0.62, so every baked shape came out as a different oval on a
+// side street than on an avenue). Shapes that vary ALONG the street — manholes, patches, arrows —
+// are still separate, uniformly scaled decals: they are placed at random, and a tiling pattern is
+// by definition not random.
 export const ROAD_PAINT = {
-  // Baked INTO the carriageway tile (stretched; pre-compensate the pitch by the factors above).
+  tilePitch: 48,                                     // px along the street per repeat = the dash pitch
   asphaltMinor: 0x33383f, asphaltMajor: 0x2b2f36,   // unchanged from what ships today
   kerb: 0x4a515b, kerbW: 2,                          // both long edges — the single strongest "this
                                                      // is a built road, not a painted strip" cue
   sheen: 0x8fa8c4, sheenAlpha: 0.10,                 // wet crown reflection down the centreline: a
                                                      // STATIC overhead reflection of the storm sky.
                                                      // ponytail: no dynamic sheen sprite — the
-                                                     // full-field lightning flash already whitens it,
-                                                     // and a per-road-cell additive sheen would be
-                                                     // ~1000 extra sprites at ROAD_CELL = 30. Revisit
-                                                     // only if the road floor layer is ever coarsened.
+                                                     // full-field lightning flash already whitens it.
   polish: 0x22262c, polishAlpha: 0.25, polishAt: 0.45,  // two darker wheel-polish bands at ±0.45 of
                                                         // the half-width — where tyres actually run
-  centreline: 0xd8d4c8, centrelineAlpha: 0.55,       // minor streets: dashed white
+  centreline: 0xd8d4c8, centrelineAlpha: 0.55, dashLen: 22,       // minor streets: dashed white
   doubleYellow: 0xdccf86, doubleYellowGap: 4, doubleYellowW: 2,   // avenues: two lines, 4px apart
-  stretchX: 0.48, stretchYMinor: 0.34, stretchYMajor: 0.62,       // the known constant aspect to
-                                                                  // pre-compensate against (above)
 }
 
 // The decal layer: `{ name: 'roadDecal', cell: 160, chance: 1.00, populate: populateRoadDecal }`,
-// self-gating on roadAt + render.js's ROAD_VISIBLE_DISTRICTS exactly like populateRoad. ONE decal
+// self-gating on roadAt, the way the carriageway did before it became one strip per street. ONE decal
 // per cell, picked by cellHash(i, j, salt) from `kinds`. VARIATION ALONG A STREET IS WHAT STOPS A
 // ROAD READING AS A WIREFRAME; one stamped tile repeated forever is what got us here.
 export const ROAD_DECAL = {
@@ -2925,16 +3105,16 @@ export const ROAD_DECAL = {
   },
 }
 
-// Junctions (spec §4.3) — ENUMERATED, NOT STAMPED. ROAD_CELL is 30 and ROAD_SPACING is 480, so a
-// junction is ~16 road cells across on each axis: "stamp a crosswalk when onV && onH" lays a dozen
-// overlapping zebras on one junction. Instead render.js recovers the per-seed road grid origin ONCE
-// per run (roadAt's onV depends only on x and onH only on y, so <= `latchProbes` probes along each
-// axis at `latchStepPx` finds it), after which junction centres are exactly (ox + m*ROAD_SPACING,
-// oy + n*ROAD_SPACING) — <= 6 on a 1280x720 view. Each gets ONE composite sprite from a pool of
+// Junctions (spec §4.3) — ENUMERATED, NOT STAMPED. A junction is many floor cells across on each
+// axis, so "stamp a crosswalk wherever two streets cross" lays a dozen overlapping zebras on one
+// junction. render.js instead walks each visible city's own grid indices (updateJunctions, the same
+// enumeration updateStreets uses for the carriageway) — <= 6 on a 1280x720 view. Each gets ONE
+// composite sprite from a pool of
 // `pool`, drawn from four variants baked AT TRUE WORLD SIZE so they are never scaled at all (which
 // is what lets a junction carry circles and zebra pitch that the stretched carriageway tile cannot).
 export const ROAD_JUNCTION = {
-  latchStepPx: 6, latchProbes: 80, pool: 8,
+  pool: 8,   // latchStepPx/latchProbes lived here until v6.9.1: leftovers of the pre-v5.11 global
+             // grid-origin probe, read by nothing since the cities got their own frames.
   variants: ['minorMinor', 'minorMajor', 'majorMinor', 'majorMajor'],
   zebraBars: 7, zebraColor: 0xd8d4c8, zebraAlpha: 0.55, zebraWornAlpha: 0.30, zebraWornEvery: 3,
   stopBarW: 3, manholes: 2, arrowsOnMajor: true,
@@ -3620,10 +3800,12 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 // ---- Undergrowth chapter behavior flags (v5.4, see sim.js) ----------------------------------
 // pounce (undergrowth's toad, a cat until v6.6.32): a hold -> telegraph -> flat leap -> land/recover cycle, state on
 // e._pounceState ('hold'|'aim'|'leap'|'land') / _pounceT (s left in the phase) / _pounceDirX,
-// _pounceDirY (leap heading, LOCKED at the START of 'aim' so the leap is dodgeable) — same
+// _pounceDirY (leap heading, tracked for the first POUNCE_AIM_TRACK_T of 'aim' and LOCKED for the
+// rest of it, so the leap is committed before it launches and stays dodgeable) — same
 // bookkeeping idiom as diveBomb's _diveState/_diveT/_diveDirX/_diveDirY.
 //   hold:  seeks the player normally at POUNCE_HOLD_SPEED_MUL until within POUNCE_RANGE, then 'aim'
-//   aim:   STOPS dead for POUNCE_AIM_T (the telegraph; heading locks here — render draws the arc)
+//   aim:   STOPS dead for POUNCE_AIM_T (the telegraph). Two halves: it keeps LINING UP on you for
+//          the first POUNCE_AIM_TRACK_T, then the heading freezes and the attack is committed.
 //   leap:  POUNCE_LEAP_T of straight flight at POUNCE_LEAP_SPEED_MUL, ignoring the player's moves
 //          (it overshoots if you dodge). Contact damage is normal during the leap — no bonus.
 //   land:  POUNCE_LAND_T frozen (the punish window: it can't move or deal contact damage), then 'hold'
@@ -3674,7 +3856,26 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 export const POUNCE_RANGE = 140          // px, distance at which a holding toad commits to a leap
 export const POUNCE_LEAP_DIST = 188      // px the leap covers — must stay under a phone's 195px half-view
 export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of its OWN speed)
-export const POUNCE_AIM_T = 0.90         // s, telegraphed crouch (dead stop; heading locks at its start)
+// v6.7.4. Measured after v6.7.3: the toad was catching a player who STOOD STILL and essentially
+// nobody else — 0% of leaps connected against a player holding the stick, and the +33% speed /
+// +25% distance of v6.7.3 moved that number by nothing. The reason was never speed or reach: the
+// heading locked at the START of a 0.9s crouch, and 0.9s at 220 px/s is ~198px of player travel
+// against a 48px-wide hitbox, so it was aiming at where you had been almost a second earlier.
+// Locking at LAUNCH instead fixes the connect rate outright (100% against a player at half speed)
+// and the owner refused it as "a homing toad" — correctly, that is not an ambush predator, it is a
+// tracking missile. So the wind-up is SPLIT: it lines up on you for POUNCE_AIM_TRACK_T, then the
+// heading freezes for the rest and the attack is committed from that instant. The dodge window is
+// the committed remainder plus the flight — (POUNCE_AIM_T - POUNCE_AIM_TRACK_T) + POUNCE_LEAP_T,
+// i.e. 0.6s, about 132px of travel at full speed against a 48px hitbox. Escapable on purpose, but
+// it now demands a reaction rather than merely not standing still.
+// The telegraph deliberately SWEEPS during the tracking half (owner: "the telegraph can move during
+// the first 0.3s") — render.js draws the lane straight off _pounceDir, so the lane following you
+// and then stopping IS the commit signal, and no extra art was needed to say it.
+export const POUNCE_AIM_T = 0.60         // s, telegraphed crouch (dead stop). Was 0.90.
+export const POUNCE_AIM_TRACK_T = 0.30   // s of that crouch spent still tracking; the rest is committed.
+                                         // MUST stay < POUNCE_AIM_T or the leap re-aims to the last
+                                         // instant and the toad becomes the homing version, which was
+                                         // measured, rejected by name, and is what run UG.j6 guards.
 export const POUNCE_LEAP_T = 0.30        // s, leap phase (straight, no steering) — 627 px/s at 188px.
                                          // Short AND fast: a toad's leap is a snap, and holding the
                                          // old 0.42s over half the distance would have halved the
@@ -3687,9 +3888,18 @@ export const POUNCE_LAND_T = 0.50        // s frozen after a leap (the free-hits
 // the game, so a committed leap visibly steered even though the sim had locked its heading — the
 // body said one thing and the trajectory said another. Read by ROSTER_LOOKS.toad's faceDir/turnRate
 // hooks in render.js; every other creature keeps the old instant facing and is untouched.
-export const POUNCE_TURN_AIM = 7.0       // rad/s while winding up — it must finish aimed before launch
+export const POUNCE_TURN_AIM = 7.0       // rad/s while winding up — it must finish aimed before launch.
+                                         // Deliberately NOT lowered to the 180 deg/s below: this is
+                                         // the wind-up alignment, and it now has only
+                                         // POUNCE_AIM_TRACK_T to finish in. At 180 deg/s it could
+                                         // swing 54 deg in that window and would launch visibly
+                                         // off-line at anything approaching from the side.
 export const POUNCE_TURN_LEAP = 0        // rad/s mid-air. Zero. That is the whole rule.
-export const POUNCE_TURN_IDLE = 1.9      // rad/s landed/stalking — ~1.7s for a half turn, a slow heavy animal
+// v6.7.4 (owner: "the turning rate of the toad should be faster, like 180 deg per second"): 1.9 ->
+// PI rad/s, i.e. a half turn in 1.0s rather than 1.7s. v6.6.33 read "toads are slow and tanky [...]
+// they slowly turn towards the player" as slowly as the words allowed, and it overshot — a toad
+// that cannot come round inside its own recovery window just presents its back.
+export const POUNCE_TURN_IDLE = Math.PI  // rad/s landed/stalking — 180 deg/s
 // Fraction of the LANDING cat's own maxHP a slammed trap deals, floored by max(SNAP_TRAP_DMG*2, …):
 // a flat multiple of SNAP_TRAP_DMG dies against hpScale (the first cat ever to spawn, ~t=140, already
 // carries ~368 HP) — the trap needs to stay a real threat, not decoration, against that curve. The
@@ -3853,7 +4063,9 @@ export const SPAWNER_SCATTER = 70        // px, spawn scatter around the van
 // contactDmgTakenMul path, gated by player.invuln, once per pass is implicit via invuln) and every
 // enemy it touches (dealDamage, once each via hitIds) — plus TRAFFIC_KB knockback along `angle`.
 // The lane is removed when t hits 0 in 'sweep'.
-export const TRAFFIC_INTERVAL = 3.0   // s between lane rolls (while under signature.lanes alive)
+// v6.9.1 (owner: "cars should spawn 30% less often"). 3.0 -> 4.3 is a 0.7x rate, not a 0.7x gap:
+// the ask is about how often a car shows up, and the roll cadence is its reciprocal.
+export const TRAFFIC_INTERVAL = 4.3   // s between lane rolls (while under signature.lanes alive)
 export const TRAFFIC_WARN = 1.3       // s of harmless telegraph before the vehicle enters
 export const TRAFFIC_SWEEP = 1.1      // s for the vehicle to traverse the full lane length
 export const TRAFFIC_LEN = 1100       // px, lane length (comfortably longer than a screen)
@@ -3866,14 +4078,31 @@ export const TRAFFIC_SNAP_R = 150     // px: player within this of a road center
                                        // never itself push the player outside the band it just built.
 export const TRAFFIC_CAR_LEN = 150    // px, the vehicle's hitbox length (along `angle`)
 export const TRAFFIC_CAR_W = 110      // px, the vehicle's hitbox width (across `angle`)
-export const TRAFFIC_DMG = 34         // damage to the player AND to each enemy the vehicle hits
+// v6.9.1 (owner: "their telegraph should be like headlights, not a bland yellow rectangle — it
+// should move in front of the car, get brighter when the car is closer"). What it WAS: a static
+// 1100x130 amber slab with four chevrons on it, i.e. a diagram of the hazard rather than a sign of
+// it. Now the warning is the thing that actually warns you on a real street — a pair of headlights
+// coming up it. The lamps start TRAFFIC_APPROACH px BEHIND the lane's entry and slide forward so
+// they reach the entry exactly as the sweep begins, throwing TRAFFIC_BEAM px of light ahead of
+// themselves; the beam therefore washes over a player standing at the lane centre partway through
+// the telegraph and keeps brightening. The numbers are picked against each other and against a
+// phone screen (~460px of lane visible either side of the player): at the start of the fuse the
+// lamps are offscreen and only their far spill shows, by the end the beam is past the player.
+export const TRAFFIC_APPROACH = 520
+export const TRAFFIC_BEAM = 760
+export const TRAFFIC_DMG = 34         // damage to the PLAYER (and the pre-v6.7.5 enemy figure — see below)
 export const TRAFFIC_KB = 420         // knockback applied along the lane to struck enemies
-// v5.6.14 (user): a car ONE-SHOTS the light roster — a pigeon or a cardboard drone does not
-// survive being run over; only elites (and the vacuum, which is street furniture itself) take
-// TRAFFIC_DMG like everyone else. rosterIds, checked non-elite-only in stepTraffic.
-// v6.3: rat and patrolDrone join — street rats scurry, patrol drones circle at head height, both
-// as roadkill-able as the pigeon they joined.
-export const TRAFFIC_SQUASH = ['ratDrone', 'pigeon', 'rat', 'patrolDrone']
+// v6.7.5 (owner: "taxis should do as much dmg as lawnmowers"). Enemies now lose a FRACTION OF THEIR
+// OWN MAX HP under the van, exactly like the mower — and for the reason MOWER_ENEMY_HP_FRAC already
+// spells out: a flat 34 falls behind hpScale inside the first minute, after which the city's
+// signature hazard visibly bounces off everything it hits while the garden's flattens the field.
+// v6.9.3: this is now the WHOLE rule. It used to share the job with a TRAFFIC_SQUASH roadkill list
+// (v5.6.14) that one-shot non-elite ratDrone/pigeon/rat/patrolDrone by dealing them their remaining
+// hp — so the fraction below only ever applied to the heavy half of the roster, the damage number
+// a player saw over a drone was "whatever was left" rather than 50%, and rounding that remainder is
+// what produced the 0s in the v6.9.2 report. Owner: "car one shots drones. it should do 50% hp
+// damage". One rule, every enemy, elites included.
+export const TRAFFIC_ENEMY_HP_FRAC = 0.5
 // v6.3 Task 4 (cover): an obstacle must be at least this big to stop a car — cones don't block
 // traffic. Checked in sim.js's findCover (stepLanes' sweep branch): the FIRST obstacle >= this
 // radius standing on the car-center -> player segment takes the hit instead of the player, and is
@@ -4479,24 +4708,17 @@ export const SKIES_LIGHT = {
 }
 
 
-// ---- Blink behavior flag (v5.4; RETUNED v6.3 for the city pigeon, see below) ------------------
-// blink: teleports instead of closing distance. State on e._blinkT (s until the next blink).
-// Moves at BLINK_CRAWL_SPEED_MUL of its own speed between blinks (it barely walks — the blink IS
-// its movement). Every BLINK_INTERVAL s, if further than BLINK_MIN_DIST from the player, it jumps
-// BLINK_DIST px straight toward them (clamped so it never lands closer than BLINK_MIN_DIST, and
-// never inside an obstacle — retry along the same heading at BLINK_DIST/2, else skip this blink)
-// and emits {type:'explode', x, y, radius: BLINK_FX_R} at BOTH the departure and arrival points so
-// the pop reads.
-// Damages: the PLAYER only, via ordinary contact damage. No run.* array.
-// v6.3: the beyond roster no longer uses this flag (no roster entry carries it) — these constants
-// are retuned freely for their new and only owner, city's pigeon, as the fast lane's SPICE (not
-// its entirety): faster cadence, longer hop, lands one reaction beat outside contact, quicker
-// crawl. A startle-hop reads on a bird.
-export const BLINK_INTERVAL = 1.6
-export const BLINK_DIST = 240
-export const BLINK_MIN_DIST = 70        // px, it never blinks to closer than this — lands one reaction beat outside contact
-export const BLINK_CRAWL_SPEED_MUL = 0.55
-export const BLINK_FX_R = 30            // px, explode-event radius at the departure/arrival points (visual only)
+// ---- `blink` behavior flag: RETIRED v6.9 ------------------------------------------------------
+// It closed in bursts instead of walking: crawl at 0.55x, then cover 240px in 0.35s, every 1.6s.
+// v6.7.5 already tried to save it — the burst was a literal teleport, so it was made continuous at
+// 686 px/s — and the owner's verdict on that was "pigeons are still dashing/teleporting", which is
+// the correct read: a 12x speed step between crawl and burst is a discontinuity in VELOCITY, and
+// the eye reports that as teleporting whether or not the position is interpolated. Two attempts at
+// making a rhythm-mover legible is enough; city's pigeon (its last and only user) is now an
+// ordinary chaser with `flyover`, and the flag, its constants and stepBlink are gone rather than
+// left dead for the next session to re-apply. Its cousin `dashBurst` survives on pond's tadpole.
+// Nothing named blink* below this line belongs to it — realityShard's blinkEvery/blinkDist are a
+// bullet's own skip and share only the word.
 
 // phase (beyond's phase flickers): a windowed-vulnerability enemy. State on e._phaseSolid (bool) /
 // e._phaseT (s left in the current window). Alternates PHASE_SOLID_T solid <-> PHASE_GHOST_T

@@ -545,7 +545,7 @@ function generateWells(sig) {
  *                 ignores everything else); decays like the other three once outside.
  *               Sim-internal only (not a render contract, do not rely on these): _chillStack,
  *               _freezeImmuneT, _shockCd, _comboCd, _bleedAcc, _debrisCd (Trash Tornado's
- *               per-enemy chunk cooldown, the run.debris analogue of orbCd). }
+ *               per-enemy funnel cooldown, the run.debris analogue of orbCd). }
  * bullets[i]: { x, y, vx, vy, dmg, pierce, life, r, speed, hitIds:Set<enemyId>,
  *               _shard (true for Split Stars shards; they never re-split), _splitDone,
  *               _chainsLeft (Chain Stars jumps remaining), _ricochetsLeft (Ricochet Stars
@@ -628,6 +628,17 @@ function generateWells(sig) {
  *               (1 + focusBonus × elapsed/duration), recomputed fresh every tick (not baked).
  *               Strobe Ray (v4.3) instead bakes a faster `tick` period in at cast time (no new
  *               field — it's applied straight to `tick` above).
+ *               prism (v6.7.6, optional): Beam Prism's split ladder, e.g. [4,3,2] at mythic —
+ *               baked at cast time like Strobe, and null on any beam without the mod (which
+ *               includes every Tesseract Beam, since only fireBeam ever sets it). See the PRISM_*
+ *               block in config.js. Its sub-beams are NOT entries here — they resolve inside the
+ *               tick that cast them and leave only the render-only segments below.
+ * prisms[i]:    { x, y, x2, y2, d, life }  v6.7.6, RENDER-ONLY — one drawn refraction segment.
+ *               Damage is already resolved by the time one of these exists; they linger
+ *               PRISM_FLASH_T purely so a split cast on a tick frame is visible for longer than one
+ *               16ms frame. `d` is the generation (0 = straight off the beam, 1 = a sub-beam of a
+ *               sub-beam...), which render tapers on. Nothing collides with them, nothing reads
+ *               them but render.js. Stepped (aged and filtered) at the end of stepBeams.
  *
  * Extra events beyond v1: {type:'explode',x,y,radius} mine pop, star-blast explosion, Supernova
  * Sparks orb-kill splash, Popping Wisps death-pop, or Big Crunch hole-collapse (radius from
@@ -866,7 +877,10 @@ function generateWells(sig) {
  * 'flashlightCone' (exterminator elites), 'lineCharge' (city vacuum), 'spawner' (van elites),
  * 'strafe' (jet — bank -> telegraph -> run; fires {type:'strafeLock'} once per pass, see below),
  * 'missileVolley' (helicopter -> run.enemyShots), 'artillery' (tank columns AND AA
- * elites -> run.bombs), 'blink' (glitch blinker), 'phase' (phase flicker), 'pullBeam' (UFO elites).
+ * elites -> run.bombs), 'flyover' (city pigeon — passes straight through run.obstacles and nothing
+ * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites).
+ * RETIRED v6.9: 'blink' (a crawl punctuated by a burst — it read as teleporting through two
+ * rewrites; see the retirement note in config.js before reaching for that shape again).
  * Their phase state lives on sim-internal `_`-prefixed fields following the diveBomb idiom; the
  * two render.js may read are `e._phaseSolid` (bool, phase's alpha) and `e._coneAngle` (rad,
  * flashlightCone's sweep heading).
@@ -905,7 +919,7 @@ function generateWells(sig) {
  *   run.bullets, run.homingShots, run.lobs, run.enemyShots — and nothing else (bodies, beams,
  *   orbitals and zones are untouched). Speed is renormalised after the bend: curvature, not
  *   acceleration. See stepGravityWells in sim.js.
- * lanes[i]: { x, y, angle, len, w, phase, t, carT, dmg, sweep, deckLen, deckW, kb, squash, look,
+ * lanes[i]: { x, y, angle, len, w, phase, t, carT, dmg, sweep, deckLen, deckW, kb, enemyFrac, look,
  *   cover, dot?, hitIds:Set<enemyId> } — a vehicle pass. TWO sources since v6.6.14: the city's
  *   'traffic' signature (look:'car') and the garden's 'mower' elite flag (look:'mower'); empty in
  *   every other chapter. x,y = the band's CENTER, angle = its direction, len/w = its extent.
@@ -913,10 +927,10 @@ function generateWells(sig) {
  *   vehicle traverses the band: carT goes 0 -> 1 and the vehicle's center is
  *   (x, y) + dir × ((carT - 0.5) × len), dir = (cos angle, sin angle). A deckLen × deckW box on
  *   that center damages BOTH the player and every enemy it touches (dealDamage, once each —
- *   hitIds), plus `kb` knockback along `angle`. What an ENEMY takes depends on the lane: the taxi
- *   deals its flat `dmg` and one-shots any rosterId in `squash`; the mower carries `enemyFrac`
- *   instead and removes that share of the target's OWN maxHP, elites included, so hpScale can never
- *   outrun it. The PLAYER always takes `dmg`. EVERY ONE OF THOSE IS SNAPSHOTTED ON THE LANE — the stepper never
+ *   hitIds), plus `kb` knockback along `angle`. An ENEMY takes `enemyFrac` of its OWN maxHP —
+ *   every enemy, elites included, so hpScale can never outrun a vehicle. (v6.9.3 retired the taxi's
+ *   TRAFFIC_SQUASH roadkill list, which used to one-shot four light rosterIds by dealing them their
+ *   remaining hp instead; one rule for the whole roster.) The PLAYER always takes `dmg`. EVERY ONE OF THOSE IS SNAPSHOTTED ON THE LANE — the stepper never
  *   reads the TRAFFIC_ or MOWER_ constants itself, so the two vehicles can differ and a retune
  *   desync a live pass (fields absent => the city's values, which keeps hand-built test lanes
  *   meaning what they always meant). `cover:false` opts out of findCover (a grass stalk does not
@@ -942,15 +956,30 @@ function generateWells(sig) {
  *   PLAYER only (normal armor path, respects invuln) and emits {type:'explode', x, y, radius:
  *   MISSILE_BLAST}. Never damages enemies. Bent by run.wells like any other projectile. See
  *   stepEnemyShots in sim.js.
- * debris[i]: { x, y, r } — Trash Tornado chunks (city weapon). Exactly the run.orbs contract: sim
- *   REWRITES the whole array every frame from the player's position (render just draws them; r =
- *   DEBRIS_R × (1 + trashTornado.heavyTrash-independent constants) — see stepTornadoWeapon).
- * geysers[i]: { x, y, r, fuse, dur, dmg, _chained? } — telegraphed eruption zones (Sewer Geyser,
- *   city weapon; also reused by the Reality Shard's riftScar rifts). fuse counts down as a HARMLESS
- *   telegraph (dur is its starting value, so render can grow a warning ring from fuse/dur), then
- *   the zone erupts ONCE for dmg in r against ENEMIES only (never the player), emits
- *   {type:'explode', x, y, radius:r} and is removed. _chained marks a follow-up (chainGeyser's, or
- *   a riftScar rift) so chainGeyser can never fire off it. See stepGeysers in sim.js.
+ * debris[i]: { x, y, r, tgt } — Trash Tornado funnels (city weapon). v6.8: NOT the run.orbs
+ *   contract any more — these PERSIST between frames, because a funnel hunts and so carries its
+ *   own position. stepTornadoWeapon resizes the array to `chunks` and moves each entry: toward
+ *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and inside `hunt` px
+ *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
+ *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
+ * geysers[i]: { x, y, r, fuse, dur, dmg, jetDur?, tick?, nStreams?, jet?, streams?, _cd?, _chained? }
+ *   — telegraphed zones (Sewer Geyser, city weapon; also reused by the Reality Shard's riftScar
+ *   rifts). fuse counts down as a HARMLESS telegraph (dur is its starting value, so render can grow
+ *   a warning ring from fuse/dur), then the zone erupts for dmg in r against ENEMIES only (never
+ *   the player) and emits {type:'explode', x, y, radius:r}.
+ *
+ *   What happens after the eruption depends on jetDur, and BOTH paths are live:
+ *     jetDur > 0  a Sewer Geyser hydrant. It stays up for jetDur (`jet` counts the remaining time)
+ *                 as a TURRET: each step it locks the nearest `nStreams` foes within r and hoses
+ *                 them, damaging each on its own `tick` cooldown. Nothing else in r is touched —
+ *                 r is a RANGE, not a damage area. `_cd` is that cooldown map (enemy id -> next
+ *                 time), per HYDRANT, so a foe hosed by two hydrants takes both. `streams` is the
+ *                 current target POSITIONS ([{x,y}], sim-written, render-read) — positions and not
+ *                 ids so a target dying mid-frame cannot leave render chasing a stale entity.
+ *     jetDur nil  a riftScar rift: one pop and gone. Rifts must keep this — a jet field that
+ *                 quietly made rifts persistent would rebalance a weapon in another chapter.
+ *   _chained marks a rift. Nothing reads it since v6.10 dropped chainGeyser; it is kept as the
+ *   "not a Sewer Geyser cast" marker. See stepGeysers / stepOpenJet in sim.js.
  * lobs[i]: { x, y, fromX, fromY, tx, ty, t, flight, r, dmg } — Debris Toss chunks (skies weapon).
  *   t counts UP from 0 to flight; x/y are the straight (fromX,fromY)->(tx,ty) lerp at t/flight,
  *   and render adds the parabolic hop (sim only needs t/flight). On landing the chunk bursts ONCE
@@ -1253,6 +1282,7 @@ export function createRun(meta, opts = {}) {
     homingShots: [],
     holes: [],
     beams: [],
+    prisms: [],
     blooms: [],
     gems: [],
     coins: [],
@@ -1321,7 +1351,7 @@ export function createRun(meta, opts = {}) {
     // v5.4 chapter behavior (see doc block above). wells are permanent signature FURNITURE, seeded
     // once here from this chapter's signature (any other signature -> []); the rest are fed during
     // the run — lanes by the city's traffic signature, enemyShots by missileVolley helicopters,
-    // debris by the Trash Tornado (rewritten every frame, like orbs), geysers by the Sewer Geyser
+    // debris by the Trash Tornado (persistent since v6.8 — the funnels hunt), geysers by the Sewer Geyser
     // (and the Reality Shard's rifts), lobs by the Debris Toss.
     // v6.5: traps are no longer seeded here (generateTraps deleted) — sim.js's streamTraps
     // materializes them around the player the same way streamObstacles/streamEddies do, keyed off

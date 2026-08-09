@@ -6,8 +6,8 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, GEYSER_STREAMS_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -16,11 +16,15 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
-  ROAD_MAJOR_WIDTH, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
+  ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
+const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
+// The hydrant is drawn at this many px ACROSS-ish regardless of the zone's damage radius. It is an
+// object, not a zone: it must not grow when the weapon levels. See syncJets.
+const HYDRANT_PX = 36
 const MAX_PARTICLES = 200
 const MAX_DMG_TEXTS = 30
 
@@ -251,6 +255,7 @@ export function createRenderer(app) {
   // which is what chopped every street into 600px stubs. Roads are generated from cities now, so
   // there is nothing to hide and nothing to gate.
   let chapterHasRoads = false
+  let chapterEndlessGrid = false   // v6.9.5: city's grid repeats forever; skies' ends at its cities
   let roadSeed = 0
   // Active chapter's prop/obstacle biome (BIOMES, declared with the floor section below). Left null
   // here on purpose: BIOMES is a `const` further down, so reading it at construction time would be a
@@ -3810,18 +3815,13 @@ export function createRenderer(app) {
       g.ellipse(18, 20, 46, 28).fill({ color: lo, alpha: 0.18 }) // shaded downslope
       T.contour = bake(g)
     }
-    // ---- road strips (skies only, v5.9 top-down region overhaul) --------------------------------
-    // A plain asphalt bar baked at a REF=100 unit square, long axis along +x, pad=0 so the bake's
-    // bounds are EXACTLY the REF square (no stroke overhang to pad for) — that's what lets
-    // populateRoad below set scale.set(len/REF, width/REF) and land on an EXACT target length/width,
-    // same "bake at a reference measurement, scale to a live target" idiom as T.obFoot's footprint
-    // ring above. roadAt (config.js) returns angle 0 for an east-west street (runs along x), PI/2
-    // for north-south — matching this bar's own "long axis = +x, rotate by `angle`" convention.
-    // v5.10 art direction (spec §4.2): the two carriageway tiles are now baked by
-    // buildSkiesTextures() below — kerb lines, wet crown sheen, wheel-polish bands, a dashed
-    // centreline at a pitch pre-compensated for the tile's non-uniform stamp scale, double yellow
-    // on avenues — with everything that has a SHAPE (manholes, patches, arrows, crosswalks) split
-    // out onto uniformly-scaled decal/junction sprites. They are declared there and nowhere else.
+    // ---- road strips (skies only) ---------------------------------------------------------------
+    // The carriageway tiles (T.roadMinor/Major/Highway) are baked by buildSkiesTextures() below and
+    // declared there and nowhere else: one tile pitch long by the street's own width, at TRUE world
+    // size, laid along a whole street run by updateStreets as a TilingSprite. Long axis is +x, which
+    // matches roadAt's convention (angle 0 = a street running along x). Anything with a SHAPE —
+    // manholes, patches, arrows, crosswalks — is a separate decal or junction sprite, because those
+    // vary along the street and a repeating tile by definition cannot.
     {
       // obstacle footprint (v5.6.10): the collision contract, drawn HARD where every decor shadow is
       // soft. A subtly darkened packed-earth pad plus a crisp rim ring sitting on the collider edge,
@@ -4028,18 +4028,207 @@ export function createRenderer(app) {
       T.mower = bake(g)
     }
     {
-      // trash chunk (city, run.debris): an angular scrap of junk — hard facets, nothing rounded
-      const g = new Graphics()
-      const pts = []
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2
-        const rr = 11 * (0.62 + hash(i * 3.31 + 7.7) * 0.6)
-        pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+      // trash tornado (city, run.debris): the funnel's THROAT, seen from directly overhead — the
+      // mouth as a wide pale ring, then tighter rings stepping off-centre into a near-black core,
+      // so the shaft appears to lean away from you down a hole in the street.
+      //
+      // v6.8 first drew this as an upright side-elevation funnel (mouth at the top, tip dragging
+      // the ground) which is simply the wrong projection for this camera: every other entity here
+      // is seen from above. Owner picked this read from three top-down candidates shot on one
+      // identical in-game frame (spiral arms / this / a bodiless debris swarm) — see
+      // scripts/scenes/trash-tornado.js if it ever needs re-judging.
+      //
+      // The OFF-CENTRE step is what makes it work. Concentric rings drawn on a shared centre are
+      // rotationally symmetric, so spinning the sprite would animate nothing at all; stepping each
+      // ring sideways gives the column a direction, and the spin then reads as a throat wobbling
+      // as it turns. Origin (0,0) is the sim's hit centre and bake() anchors on the Graphics
+      // origin (not the bounds centre), so the mouth lands on run.debris[i].x/y.
+      // v6.8.2: ONE TEXTURE PER RING, not one texture for the whole throat. The rings turn at
+      // different speeds (see TORNADO_RING_SPIN / syncTornadoes) and a single baked sprite can only
+      // turn as a unit. Each ring is baked with its off-centre offset already in it and its
+      // Graphics origin left at (0,0) — bake() anchors on that origin, so spinning the sprite
+      // sweeps the offset circle around the hit centre, which IS the swirl.
+      const DUST = 0xb9a98f, LIGHT = 0xe0d4bc, DARK = 0x4a4034
+      // v6.9 (owner: "make tornadoes 30% more transparent") — ONE multiplier over every alpha in
+      // this bake rather than a re-tuned ramp, so the depth gradient the design is built on stays
+      // exactly as picked and only its overall weight moves. Applies to the scraps too: leaving
+      // them opaque over a body this faint makes the junk read as the entity and the funnel as a
+      // smudge behind it.
+      const A = 0.7
+      // ---- v6.10 Sewer Geyser jet textures ---------------------------------------------------
+      // Baked, not drawn per frame. The first pass at this effect was four variations of Graphics
+      // circles and every one of them read as a diagram rather than as water — the owner's verdict
+      // was "change completely the visual". Everything else in this game is a baked texture with an
+      // irregular silhouette; a perfect vector circle is what made it look like UI.
+      //
+      // Palette moves from the old flat sewer-green to WATER: white foam over a pale cyan-green
+      // body. The green is retained in the rim only, where it still has to do its safety-cue job of
+      // never being confusable with the red volatile-bomb telegraph that hurts the player.
+      //
+      // Plan view throughout: these are lobed rings seen from directly above, not a column.
+      const FOAM = 0xf2fffb, WATER = 0x9fe8d0, DEEP = 0x4fae90
+      // Ragged foam rings, counter-rotated at different speeds by the rig. The lobed outline is the
+      // whole trick — a circle turning looks static, a lobed ring turning reads as churn.
+      // ALL FOUR BAKE AT THE SAME R0. The first attempt shrank R0 per layer AND scaled it back up
+      // per layer at draw time, and the two fought: the composite landed at about half the jet's
+      // real radius, so the foam floated in the middle of its own rim. One baked radius means the
+      // rig's `k = gy.r / JET_BAKE_R` maps a texture straight onto the hitbox, and layer size is
+      // decided in exactly one place (the draw multipliers).
+      //
+      // Lobe count is high and wobble is shallow (11-17 lobes at ~0.09) because the first pass used
+      // 7 lobes at 0.20 and came out a flower — a starburst silhouette with petals, not foam. Foam
+      // wants a busy, barely-irregular edge.
+      // A SHEARED FIRE HYDRANT. The zone is not a painted area any more — it is a physical object
+      // on the street with its cap blown off, throwing water flat across the asphalt.
+      //
+      // Four earlier passes were all variations on "translucent coloured disc" (green vector
+      // circles, then white foam rings, then outlined splash blobs) and every one was rejected. The
+      // fault was never the drawing: a zone that IS its own hitbox has to be 128px of art, and
+      // 128px of translucent anything turns to wash. A recognisable object at the centre plus a
+      // thin quiet ring for the radius decouples the two, so the art can be small, opaque and
+      // high-contrast while the hitbox stays big.
+      //
+      // No green anywhere. Steel and white, with the hydrant's dull red as the only chroma — and
+      // that red lives on a 26px OBJECT, not on a translucent area, so it cannot be misread as the
+      // amber/red hazard language the traffic lanes and volatile bombs own.
+      const H_RED = 0xc9503f, H_STEEL = 0x8e98a0, H_DARK = 0x24282b, WHITE = 0xffffff, RINSE = 0xdfeef2
+      // Top-down hydrant. From directly overhead a hydrant is its bonnet: a chunky disc with the
+      // side nozzles poking out either side and the front nozzle facing you. Baked at ~13px radius
+      // and drawn at a FIXED pixel size (HYDRANT_PX) — a hydrant is a real object, so it must not
+      // scale with the damage radius the way every other zone visual in this game does.
+      const hydrant = (capped) => {
+        const g = new Graphics()
+        for (const a of [Math.PI / 2, -Math.PI / 2, 0]) {   // nozzles: two side, one front
+          g.circle(Math.cos(a) * 8.5, Math.sin(a) * 8.5, 3.6)
+            .fill({ color: H_STEEL }).stroke({ width: 1.5, color: H_DARK })
+        }
+        g.circle(0, 0, 10).fill({ color: H_RED }).stroke({ width: 1.8, color: H_DARK })     // barrel
+        if (capped) {
+          g.circle(0, 0, 5.4).fill({ color: H_STEEL }).stroke({ width: 1.5, color: H_DARK }) // bonnet
+          g.circle(0, 0, 1.8).fill({ color: H_DARK })
+        } else {
+          // Throat kept SMALL. At 36px on screen the only thing that reads is the colour block, so
+          // a wide dark opening just turns the hydrant into a dark blob with a red rim.
+          g.circle(0, 0, 4.2).fill({ color: 0x141719 })      // the open throat, cap gone
+          g.circle(0, 0, 2.8).fill({ color: RINSE, alpha: 0.95 })
+        }
+        return bake(g)
       }
-      g.poly(pts).fill(0xb9a98f).stroke({ width: 1.8, color: 0x5f5442 })
-      g.poly(pts.slice(0, 6)).fill({ color: 0xe0d4bc, alpha: 0.4 })
-      g.beginPath().moveTo(-6, -3).lineTo(4, 5).stroke({ width: 1.1, color: 0x5f5442, alpha: 0.5 })
-      T.trashChunk = bake(g)
+      T.hydrantCapped = hydrant(true)
+      T.hydrantOpen = hydrant(false)
+      // The blown cap, tumbling clear. One small dark disc is the cheapest possible cue that
+      // something just came apart, and it is unambiguously a plan view.
+      {
+        const g = new Graphics()
+        g.circle(0, 0, 5).fill({ color: H_STEEL }).stroke({ width: 1.5, color: H_DARK })
+        g.circle(0, 0, 1.8).fill({ color: H_DARK })
+        T.hydrantCap = bake(g)
+      }
+      // Water sheeting outward. Rings of white blobs, but CONCENTRATED near the hydrant (about half
+      // the zone radius) rather than out at the rim — water leaves a burst main fast and thick at
+      // the source and arrives at the edge as loose droplets, which the particles carry. Keeping
+      // the solid art off the rim is what stops the effect covering the fight.
+      // A STREAM: water hosed out sideways, seen from above. Baked pointing along +x with its
+      // origin at the nozzle, so the rig just rotates it at the target and scales x to the distance.
+      // Narrow and dense at the nozzle, widening and breaking into separate gouts further out —
+      // that spread is what makes it read as a jet of water rather than as a drawn line.
+      //
+      // JITTER THE ANGLE (kept from the abandoned radial version, because it is the lesson that
+      // took three passes): evenly spaced same-size circles read as a pattern — a flower, a cog, a
+      // donut — however much you vary radius and size. Here the equivalent is jittering each gout
+      // ALONG and ACROSS the stream, and mixing two size classes.
+      T.jetStream = []
+      for (let i = 0; i < 2; i++) {
+        const g = new Graphics()
+        const L = JET_BAKE_R * 2       // baked length; the rig scales x to reach the target
+        // Dense and fine at the nozzle, opening into fewer, bigger, more scattered gouts downrange.
+        // The first version used a uniform blob size along the axis and came out a STRING OF
+        // PEARLS — a jet of water is a size gradient, not a row of beads, so radius has to grow
+        // hard with t while the count stays high enough that the near end never separates.
+        for (let k = 0; k < 40; k++) {
+          const t = Math.pow((k + hash(k * 7.3 + i * 3.1) * 0.9) / 40, 0.85)
+          const spread = 0.9 + t * t * 8.5          // the cone opens with distance
+          const off = (hash(k * 4.9 + i * 6.7) - 0.5) * 2 * spread
+          const fat = hash(k * 2.7 + i * 1.9) > 0.78
+          const rad = (fat ? 1.8 + hash(k * 5.1) * 1.6 : 0.75 + hash(k * 3.3) * 0.85) * (0.55 + t * t * 4.2)
+          g.circle(t * L, off, rad)
+            .fill({ color: i === 0 ? WHITE : RINSE, alpha: (0.95 - t * 0.4) * (i === 0 ? 1 : 0.6) })
+        }
+        T.jetStream.push(bake(g))
+      }
+      // The leak at the source: a tight spatter right at the nozzle, so the hydrant is visibly
+      // losing water everywhere and not only along the streams.
+      {
+        const g = new Graphics()
+        for (let k = 0; k < 14; k++) {
+          const step = (Math.PI * 2) / 14
+          const a = k * step + (hash(k * 9.7) - 0.5) * step * 1.7
+          const rr = 4.5 + hash(k * 3.1) * 5
+          g.circle(Math.cos(a) * rr, Math.sin(a) * rr, 1.2 + hash(k * 5.3) * 1.8)
+            .fill({ color: k % 3 ? WHITE : RINSE, alpha: 0.8 })
+        }
+        T.jetSource = bake(g)
+      }
+      // Broken asphalt around the base — the hydrant did not come off politely. Kept dark and
+      // chunky so it grounds the object instead of glowing.
+      {
+        const g = new Graphics()
+        const hole = []
+        for (let k = 0; k < 13; k++) {
+          const a = (k / 13) * Math.PI * 2
+          const rr = 7.5 * (0.66 + hash(k * 3.3 + 1.7) * 0.62)
+          hole.push(Math.cos(a) * rr, Math.sin(a) * rr)
+        }
+        g.poly(hole).fill({ color: 0x1b1f22, alpha: 0.6 })
+        for (let k = 0; k < 7; k++) {   // slabs levered up around the rim
+          const a = hash(k * 4.1 + 0.4) * Math.PI * 2
+          const d = 11 + hash(k * 2.2 + 3.9) * 6
+          const cx = Math.cos(a) * d, cy = Math.sin(a) * d
+          const s = 3.4 + hash(k * 6.3) * 2.6
+          const slab = []
+          for (let j = 0; j < 5; j++) {
+            const ja = a + 1.1 + (j / 5) * Math.PI * 2
+            const rr = s * (0.6 + hash(j * 3.7 + k * 1.9) * 0.7)
+            slab.push(cx + Math.cos(ja) * rr, cy + Math.sin(ja) * rr)
+          }
+          g.poly(slab).fill({ color: 0x59626a, alpha: 1 }).stroke({ width: 1.6, color: 0x0f1214, alpha: 0.95 })
+        }
+        T.jetCrack = bake(g)
+      }
+      T.tornadoRings = []
+      for (let i = 0; i < 6; i++) {
+        const t = i / 5
+        const g = new Graphics()
+        // The ramp runs 0.12 -> 0.86 before A. v6.8.1's flat 0.2 outer read as a solid pale disc
+        // lying ON the street rather than as airborne dust. The stroke is tied to its own ring's
+        // fill at just over half, because a crisp dark outline on a near-invisible ring is exactly
+        // what made the mouth look like a drawn object.
+        const alpha = (0.12 + 0.148 * i) * A
+        g.circle(11 * t * t, 0, 30 - 24 * t)          // quadratic step: the lean grows with depth
+          .fill({ color: i % 2 ? LIGHT : DUST, alpha })
+          .stroke({ width: 1.3, color: DARK, alpha: alpha * 0.55 })
+        if (i === 5) g.circle(11, 0, 4.5).fill({ color: 0x241f19, alpha: 0.85 * A }) // core
+        // Caught scraps ride the MOUTH (the outermost ring), which is the one detail that says
+        // TRASH tornado and not a portal — and riding one ring means they now orbit at the mouth's
+        // own speed instead of being frozen relative to the throat. Same facet palette as the lone
+        // chunk this bake replaced in v6.8.
+        if (i === 0) {
+          for (let k = 0; k < 4; k++) {
+            const a = hash(k * 5.7 + 0.9) * Math.PI * 2
+            const r = 16 + hash(k * 2.4 + 5.5) * 12
+            const cx = Math.cos(a) * r, cy = Math.sin(a) * r
+            const s = 3.2 + hash(k * 7.1) * 2
+            const pts = []
+            for (let j = 0; j < 5; j++) {
+              const ja = a + (j / 5) * Math.PI * 2
+              const rr = s * (0.65 + hash(j * 2.9 + cx * 0.13 + 3.1) * 0.6)
+              pts.push(cx + Math.cos(ja) * rr, cy + Math.sin(ja) * rr)
+            }
+            g.poly(pts).fill({ color: DUST, alpha: A }).stroke({ width: 1, color: DARK, alpha: A })
+          }
+        }
+        T.tornadoRings.push(bake(g))
+      }
     }
     {
       // rock chunk (skies, run.lobs): the kaiju's thrown masonry — chunkier and colder than trash
@@ -5395,42 +5584,44 @@ export function createRenderer(app) {
     // so anything baked into it is stretched by a different factor on each axis AND per road class.
     // Only shapes that survive that go in here, pre-compensated; everything with a shape becomes a
     // separate, uniformly-scaled decal below.
+    // v6.9.1: baked at TRUE WORLD SIZE — RP.tilePitch px along the street by the street's own width
+    // across it — and consumed by a TilingSprite laid along a whole street run (updateStreets). No
+    // stretch, so no pre-compensation: what is drawn here is what lands on the ground. The tile
+    // MUST be seamless left-to-right (every band runs the full pitch) and its top and bottom rows
+    // are the kerb, which is where the repeat wraps — anything that bleeds across that edge shows
+    // up as a doubled kerb.
     {
       const RP = ROAD_PAINT
-      const REF = 100
-      function carriageway(major) {
+      function carriageway(width, major) {
         const g = new Graphics()
-        const sy = major ? RP.stretchYMajor : RP.stretchYMinor
-        const px = (v) => v / RP.stretchX      // world px -> REF units along the road
-        const py = (v) => v / sy               // world px -> REF units across the road
-        g.rect(-REF / 2, -REF / 2, REF, REF).fill(major ? RP.asphaltMajor : RP.asphaltMinor)
-        // wet crown sheen: a static overhead reflection of the storm sky down the centreline.
-        // ponytail (spec §11): no dynamic sheen sprite — the full-field lightning flash already
-        // whitens it, and a per-road-cell additive sheen would be ~1000 extra sprites at cell 30.
-        g.rect(-REF / 2, -py(6), REF, py(12)).fill({ color: RP.sheen, alpha: RP.sheenAlpha })
+        const L = RP.tilePitch, h = width / 2
+        g.rect(-L / 2, -h, L, width).fill(major ? RP.asphaltMajor : RP.asphaltMinor)
+        g.rect(-L / 2, -6, L, 12).fill({ color: RP.sheen, alpha: RP.sheenAlpha })   // wet crown sheen
         for (const s of [-1, 1]) {             // wheel-polish bands where tyres actually run
-          const c = s * REF / 2 * RP.polishAt
-          g.rect(-REF / 2, c - py(3.5), REF, py(7)).fill({ color: RP.polish, alpha: RP.polishAlpha })
+          g.rect(-L / 2, s * h * RP.polishAt - 3.5, L, 7).fill({ color: RP.polish, alpha: RP.polishAlpha })
         }
         for (const s of [-1, 1]) {             // kerb line, both long edges
-          g.rect(-REF / 2, s * (REF / 2 - py(RP.kerbW)) - (s < 0 ? 0 : py(RP.kerbW)) + (s < 0 ? 0 : 0), REF, py(RP.kerbW))
-            .fill(RP.kerb)
+          g.rect(-L / 2, s < 0 ? -h : h - RP.kerbW, L, RP.kerbW).fill(RP.kerb)
         }
         if (major) {
           for (const s of [-1, 1]) {           // double yellow
-            g.rect(-REF / 2, s * py(RP.doubleYellowGap / 2) - py(RP.doubleYellowW / 2), REF, py(RP.doubleYellowW))
+            g.rect(-L / 2, s * RP.doubleYellowGap / 2 - RP.doubleYellowW / 2, L, RP.doubleYellowW)
               .fill({ color: RP.doubleYellow, alpha: 0.9 })
           }
-        } else {
-          // ONE dash, centred. The tile is stamped every ROAD_CELL (30) world px and is 1.6 cells
-          // wide, so neighbouring stamps overlap — a baked dash PATTERN would double-print into
-          // mush. One dash per tile centre lands them at an exact 30px pitch along the street.
-          g.rect(-px(7), -py(1.4), px(14), py(2.8)).fill({ color: RP.centreline, alpha: RP.centrelineAlpha })
+        } else {                               // minor streets: one dash per pitch, centred
+          g.rect(-RP.dashLen / 2, -1.4, RP.dashLen, 2.8).fill({ color: RP.centreline, alpha: RP.centrelineAlpha })
         }
-        return { ...bake(g, 0), ref: REF }
+        // Left at the default clamp addressMode ON PURPOSE. Setting it to 'repeat' looks like the
+        // obvious thing and is what breaks the tiling: these bakes are 96x60 / 96x108 / 96x128
+        // render textures, i.e. non-power-of-two, so the GPU sampler clamps instead of wrapping and
+        // the strip draws ONE tile and then extends its last column for the rest of the street. The
+        // symptom is a road with a single dash at one end and none after it. Pixi's own tiling
+        // shader wraps in the fragment stage and does not care about POT — so leave it alone.
+        return { ...bake(g, 0), w: width }
       }
-      T.roadMinor = carriageway(false)
-      T.roadMajor = carriageway(true)
+      T.roadMinor = carriageway(ROAD_MINOR_WIDTH, false)
+      T.roadMajor = carriageway(ROAD_MAJOR_WIDTH, true)
+      T.roadHighway = carriageway(HIGHWAY_WIDTH, true)
     }
     T.rdManhole = (() => {
       const g = new Graphics()
@@ -5501,7 +5692,12 @@ export function createRenderer(app) {
       const vh = (vMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
       const hh = (hMajor ? ROAD_MAJOR_WIDTH : ROAD_MINOR_WIDTH) / 2
       const g = new Graphics()
-      const zebraDepth = 22
+      // v6.9.2: the crossing is sized OFF THE STREET, not fixed. The box and the bar spread already
+      // scaled with ROAD_*_WIDTH, but the depth of the crossing and the bar thickness were hard 22
+      // and 4 — fine on the old 30px lane, and a row of tick marks once a street became 130px wide.
+      const narrow = Math.min(vh, hh) * 2
+      const zebraDepth = Math.round(narrow * 0.28)
+      const barW = Math.max(4, Math.round(narrow * 0.055))
       g.rect(-vh, -hh, vh * 2, hh * 2).fill(vMajor || hMajor ? ROAD_PAINT.asphaltMajor : ROAD_PAINT.asphaltMinor)
       // four approach zebra crosswalks: 7 bars, every 3rd worn
       for (const [ax, ay] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
@@ -5511,8 +5707,8 @@ export function createRenderer(app) {
           const t = -along + 3 + (b * (along * 2 - 6)) / (J.zebraBars - 1)
           const worn = b % J.zebraWornEvery === 0
           const alpha = worn ? J.zebraWornAlpha : J.zebraAlpha
-          if (ax) g.rect(ax * outAt + (ax > 0 ? 3 : -3 - zebraDepth), t - 2, zebraDepth, 4).fill({ color: J.zebraColor, alpha })
-          else g.rect(t - 2, ay * outAt + (ay > 0 ? 3 : -3 - zebraDepth), 4, zebraDepth).fill({ color: J.zebraColor, alpha })
+          if (ax) g.rect(ax * outAt + (ax > 0 ? 3 : -3 - zebraDepth), t - barW / 2, zebraDepth, barW).fill({ color: J.zebraColor, alpha })
+          else g.rect(t - barW / 2, ay * outAt + (ay > 0 ? 3 : -3 - zebraDepth), barW, zebraDepth).fill({ color: J.zebraColor, alpha })
         }
         // stop bar behind each crossing
         if (ax) g.rect(ax * (outAt + zebraDepth + 5), -along, J.stopBarW, along * 2).fill({ color: J.zebraColor, alpha: 0.5 })
@@ -5833,7 +6029,21 @@ export function createRenderer(app) {
   let mownDirty = false            // only rebuild the geometry while a mower is actually driving
   const laneG = new Graphics()
   const hazardG = new Graphics()
+  // v6.10 open jets. A RIG pool (Container per jet, counter-rotating foam sprites inside), not a
+  // flat sprite pool — so reset() must hide .root, see the note there. Sits directly above hazardG
+  // because the telegraph and the jet it becomes have to stack in that order.
+  const jetLayer = new Container()
   const teleG = new Graphics()
+  // v6.7.6 Beam Prism (run.prisms): the refracted sub-beams. ADDITIVE and its own Graphics, because
+  // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
+  // already resolved damage by the time it is drawn (see the run.prisms note in state.js), so this
+  // draws a decaying segment and nothing else; the pooled beamPool sprites stay for the real arms.
+  // Two of them: prismBodyG paints NORMALLY so the fan holds its own red on any ground (additive
+  // red over a light floor barely moves the pixel), prismG stays additive for the white-hot core on
+  // top, where adding light is the correct model. See entitiesLayer.addChild for where they sit.
+  const prismBodyG = new Graphics()
+  const prismG = new Graphics()
+  prismG.blendMode = 'add'
   // v5.10 skies: the jet strafe's halogen landing-light pool is the one telegraph element that must
   // be ADDITIVE (a light on wet asphalt, not a painted band) — its own single-texture container, so
   // the blend-mode switch costs exactly one batch break. rampG carries the rampage rim-lights and
@@ -5891,12 +6101,17 @@ export function createRenderer(app) {
   entitiesLayer.addChild(
     mownG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
-    scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
+    scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
-    lobLayer, carLayer, smokeLayer, particleLayer, textLayer,
+    lobLayer, carLayer, smokeLayer, particleLayer,
+    // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
+    // damage numbers. A taxi crossing a split used to paint over it, which on the one layer whose
+    // whole job is to be noticed is the wrong trade. Still under textLayer: numbers stay readable.
+    prismBodyG, prismG,
+    textLayer,
   )
 
   // ---------------------------------------------------------- organic floor
@@ -6344,6 +6559,15 @@ export function createRenderer(app) {
     return chapterHasDistricts ? DISTRICT_BIOMES[districtAt(wx, wy, districtSeed)] : chapterBiome
   }
 
+  // v6.9.5 (owner: "no trash cans, fire hydrant etc sprites on roads, only inbetween"). The
+  // OBSTACLE streamer has rejected roadway since v5.9, but the four decorative floor layers never
+  // asked — so hydrants, cones, dumpsters and foliage were scattered across the carriageway. They
+  // are skipped rather than pushed aside: a decor cell that lands on tarmac simply has nothing in
+  // it, which is also what the gaps between props on a real street look like.
+  function onCarriageway(wx, wy) {
+    return chapterHasRoads && roadAt(wx, wy, roadSeed, chapterEndlessGrid).onRoad
+  }
+
   function populateBig(s, i, j, cell) {
     if (chapterIsVoid) { s.visible = false; return } // the blank: flat void, no props
     // 0.7 -> 0.94: at 0.7 a prop could only move +-35% of a cell, so the underlying cell pitch was
@@ -6353,6 +6577,7 @@ export function createRenderer(app) {
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = biomeAt(wx, wy).big
     const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
     s.position.set(pos.x, pos.y)
@@ -6423,6 +6648,7 @@ export function createRenderer(app) {
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = biomeAt(wx, wy).mid
     const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
     s.position.set(pos.x, pos.y)
@@ -6482,6 +6708,7 @@ export function createRenderer(app) {
     const jy = (cellHash(i, j, 6) - 0.5) * cell * 0.94
     const wx = (i + 0.5) * cell + jx
     const wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = biomeAt(wx, wy).detail
     const pos = applyPropKind(s, kinds[Math.floor(cellHash(i, j, 1) * kinds.length)], i, j, wx, wy)
     s.position.set(pos.x, pos.y)
@@ -6798,30 +7025,30 @@ export function createRenderer(app) {
   // neutral stand-in for a smashed steel bin, and it costs zero new art.
   const RUIN_FOR_KIND = { tower: 'tower', house: 'house', barn: 'barn', silo: 'silo', pier: 'pier', tree: 'tree', rock: 'tree' }
 
-  // ---- roads (skies only, v5.9 top-down region overhaul) --------------------------------------
-  // Draws config.js's roadAt() street grid as a floor decal — a pooled per-cell prop layer (below),
-  // NOT per-frame Graphics: FLOOR_LAYERS already runs one pass over every visible cell each frame
-  // (touchFloorCell), so this reuses that exact machinery with a deterministic PREDICATE (roadAt)
-  // standing in for the usual random `chance` roll, same as every other layer's populate callback.
+  // ---- roads (skies only) ----------------------------------------------------------------------
+  // A street is ONE STRIP, not a chain of stamps. Until v6.9.1 this was a per-cell FLOOR_LAYERS
+  // layer: every 26px floor cell whose centre landed on tarmac stamped a short rotated quad, sliding
+  // itself onto the centreline by asking roadAt again 4px to one side and seeing whether `dist` had
+  // shrunk. That probe is wrong for every cell within 4px of the centreline — the probe crosses the
+  // line, `dist` does not shrink, and the quad is placed 2*dist off. On a 30px street the result was
+  // a visible sideways jog every few stamps, a kerb that doubled and thinned along its own length,
+  // and a dash pattern whose pitch was whatever the square cell lattice happened to project onto an
+  // oblique street. That is the reported "roads are ugly, sometimes aliasing, not straight".
   //
-  // ROAD_CELL must be <= ROAD_MINOR_WIDTH: consecutive probe points are ROAD_CELL apart, so a
-  // street ROAD_MINOR_WIDTH px wide is GUARANTEED to contain at least one probe (pigeonhole) for
-  // ANY per-seed grid offset — render.js never learns that offset directly (config.js keeps it
-  // private), it only ever calls the exported roadAt. -4 is a safety margin.
-  const ROAD_CELL = ROAD_MINOR_WIDTH - 4
-  // roadAt's `angle` is 0 for an east-west street (runs along x) or PI/2 for north-south — the
-  // perpendicular unit vector (the direction `dist` is measured along) is (sin(angle), cos(angle)).
-  // The unit normal to a road running at heading `angle`. The heading vector is (cos, sin), so the
-  // normal is (-sin, cos).
+  // Now the geometry comes from the generator instead of being rediscovered from it: streets are
+  // enumerated in their own city's rotated frame (exactly as updateJunctions already does), highways
+  // straight off terrain.js's segment list, and each RUN of continuous carriageway gets a single
+  // TilingSprite of the true-world-size tile baked above. One sprite per street per view instead of
+  // several hundred quads, perfectly straight by construction, and the dash pattern is phase-locked
+  // to the city's own along-street coordinate so it never doubles or skips.
   //
-  // v5.12 BUGFIX — this returned (+sin, cos), the MIRROR of the normal. Its dot product with the
-  // heading is 2*sin*cos = sin(2*angle), which is zero only when the angle is a multiple of PI/2 —
-  // so on the v5.10 global axis-aligned lattice the bug was exactly invisible, and it became visible
-  // the moment v5.11 gave every city its own rotation. Every consumer resolves a road's centreline
-  // by stepping `dist` along this vector, so on an oblique street they all stepped off at the wrong
-  // angle: 74% of carriageway tiles landed off the centreline (median 3.8px, p90 8.5px on a 30px
-  // road), which is a serrated kerb and a snaking centre line. This is literally the reported
-  // "you can't even do oblique streets".
+  // The march is still needed, and is the only reason this is not just "draw the whole line": a
+  // street stops at the urban falloff and at water (roadAt owns both rules), so a run has to be cut
+  // where roadAt stops answering. STREET_MARCH is the sampling pitch of that cut — coarse enough to
+  // be cheap, fine enough that a kerb never overshoots a coastline by more than its own width.
+  const STREET_MARCH = ROAD_MINOR_WIDTH
+  // The unit normal to a road running at heading `angle`: the heading is (cos, sin), so the LEFT
+  // normal is (-sin, cos). roadAt's `off` is signed along exactly this vector.
   function roadPerp(angle) { return { x: -Math.sin(angle), y: Math.cos(angle) } }
 
   // ---- MAP MODE (v5.12, dev/debug) -------------------------------------------------------------
@@ -6841,96 +7068,173 @@ export function createRenderer(app) {
   const viewW = () => app.screen.width / mapZoom
   const viewH = () => app.screen.height / mapZoom
 
-  // ---- the city street FRAME (v5.11) ----------------------------------------------------------
-  // This replaces latchRoadOrigin, which recovered a single GLOBAL grid offset by probing roadAt
-  // along each axis. That worked only because the old grid was one infinite axis-aligned lattice
-  // shared by the whole world. Streets now belong to individual cities, each with its OWN origin,
-  // rotation and block size — so there is nothing global left to latch, and nothing needs latching:
-  // the city objects carry all three numbers directly (terrain.js cityAt), which is both exact and
-  // cheaper than the probe ever was.
-  //
-  // Everything that used to key off the latched origin — junctions, kerb lamps, parked-car
-  // alignment — now enumerates in the relevant city's frame instead.
-  function visibleCities(cx, cy, pad) {
-    const w = viewW(), h = viewH()
-    const x0 = -cx - pad, y0 = -cy - pad, x1 = -cx + w + pad, y1 = -cy + h + pad
-    const out = []
-    // +-1 lattice cell of slack: a city's centre can sit outside the view while its streets reach in.
-    const i0 = Math.floor(x0 / CITY_GRID) - 1, i1 = Math.floor(x1 / CITY_GRID) + 1
-    const j0 = Math.floor(y0 / CITY_GRID) - 1, j1 = Math.floor(y1 / CITY_GRID) + 1
-    for (let i = i0; i <= i1; i++) {
-      for (let j = j0; j <= j1; j++) {
-        const c = cityAt(i, j, districtSeed)
-        if (c) out.push(c)
-      }
-    }
-    return { cities: out, x0, y0, x1, y1 }
-  }
 
-  // The view rectangle expressed in one city's rotated frame, clamped to that city's own radius so
-  // a caller never enumerates grid nodes out in the countryside where the city has no streets.
-  function cityViewBounds(c, x0, y0, x1, y1) {
-    const cos = Math.cos(-c.angle), sin = Math.sin(-c.angle)
-    let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity
-    for (const [px, py] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
-      const dx = px - c.x, dy = py - c.y
-      const u = dx * cos - dy * sin
-      const v = dx * sin + dy * cos
-      if (u < uMin) uMin = u; if (u > uMax) uMax = u
-      if (v < vMin) vMin = v; if (v > vMax) vMax = v
-    }
-    return {
-      uMin: Math.max(uMin, -c.r), uMax: Math.min(uMax, c.r),
-      vMin: Math.max(vMin, -c.r), vMax: Math.min(vMax, c.r),
-    }
-  }
 
-  // (u, v) in a city's frame back to world space.
-  function cityToWorld(c, u, v) {
-    const cos = Math.cos(c.angle), sin = Math.sin(c.angle)
-    return { x: c.x + u * cos - v * sin, y: c.y + u * sin + v * cos }
-  }
 
   // Which way does the nearest street run at (wx, wy)? Used to align parked vehicles and painted
   // lots to the grid. Answers in the nearest city's frame; 0 outside any city, where there is no
   // grid to align to and the caller's own jitter is the whole answer.
   function nearestStreetAngle(wx, wy) {
     if (!chapterHasRoads) return 0
-    const ra = roadAt(wx, wy, roadSeed)
+    const ra = roadAt(wx, wy, roadSeed, chapterEndlessGrid)
     if (ra.onRoad) return ra.angle
-    const near = nearestCity(wx, wy, roadSeed)
-    return near ? near.city.angle : 0
+    return 0   // v6.9.2: off-road inside a city, the grid is the world's and runs on the axes
   }
 
-  function populateRoad(s, i, j, cell) {
-    if (!chapterHasRoads) { s.visible = false; return }
-    const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
-    const ra = roadAt(wx, wy, roadSeed)
-    if (!ra.onRoad) { s.visible = false; return }
-    // Resolve the EXACT centreline point: roadAt's `dist` is unsigned, so nudge along the
-    // perpendicular and see whether that grew or shrank it, then step the full `dist` the way that
-    // shrank it. One extra roadAt call, and exact (roadAt's distance math has no error to
-    // accumulate — only the sign was ambiguous), so segments from neighbouring cells land on the
-    // same line and read as one continuous strip instead of a cell-quantized staircase.
-    const perp = roadPerp(ra.angle)
-    const probe = roadAt(wx + perp.x * 4, wy + perp.y * 4, roadSeed)
-    const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
-    const cx = wx + perp.x * ra.dist * sign
-    const cy = wy + perp.y * ra.dist * sign
-    // v5.11: NO DISTRICT GATE. This is the line that produced "roads are 10 meters long" — a
-    // street was a continuous infinite line being drawn only where it crossed an urban district
-    // cell, so it appeared for a few hundred px and vanished. Every road roadAt now returns already
-    // belongs somewhere (a city's own grid, or a highway between two cities), so drawing all of it
-    // is correct: a highway crossing farmland SHOULD be drawn, and one crossing water reads as the
-    // causeway it is.
-    const look = ra.major ? T.roadMajor : T.roadMinor
-    s.texture = look.tex
-    s.anchor.set(look.ax, look.ay)
-    s.tint = 0xffffff
-    s.alpha = 1
-    s.rotation = ra.angle
-    s.scale.set((cell * 1.6) / look.ref, (ra.half * 2) / look.ref) // *1.6 overlaps neighbours so segments never gap
-    s.position.set(cx, cy)
+  // ---- street strips (v6.9.1) -------------------------------------------------------------------
+  // Rebuilt only when the camera leaves its 48px bucket: the strips are WORLD-space and the world
+  // container is what the camera moves, so a set built with STREET_PAD of slack stays correct for
+  // every frame in between. Without that gate this would re-march every visible street every frame,
+  // and the march is the only expensive part (roadAt samples elevation and river noise).
+  const STREET_PAD = 200
+  // Hard ceiling on strips per rebuild. Gameplay uses ~50; the cap only ever bites in MAP MODE,
+  // where the viewport is several thousand px across, and it bounds the MARCH as well as the pool
+  // (a full pool with an unbounded march would still burn every roadAt sample it was never going to
+  // draw). A truncated map view loses distant streets, which is the correct thing to lose.
+  const STREET_MAX = 220
+  const streetSprites = []
+  let streetKey = ''
+  function acquireStreet() {
+    const s = new TilingSprite({ texture: Texture.EMPTY, width: 1, height: 1 })
+    s.anchor.set(0, 0.5)   // origin at the run's START, mid-carriageway
+    roadLayer.addChild(s)
+    streetSprites.push(s)
+    return s
+  }
+
+  function updateStreets(cx, cy) {
+    const key = chapterHasRoads
+      ? roadSeed + '|' + mapZoom + '|' + Math.round(cx / 48) + '|' + Math.round(cy / 48)
+      : 'off'
+    if (key === streetKey) return
+    streetKey = key
+    let n = 0
+    // One strip for the stretch of `look`-class carriageway from along-coordinate a0 to a1 on the
+    // line through (ox, oy) heading `ang`. `phase` is the run start's along-coordinate in the road's
+    // OWN frame (the city's v/u axis, or distance from a highway's first endpoint), which is what
+    // keeps the dash pattern continuous across two runs split by a river.
+    const strip = (ox, oy, ang, a0, a1, phase, look, alpha = 1) => {
+      if (a1 - a0 < 1 || n >= STREET_MAX) return
+      const s = streetSprites[n] || acquireStreet()
+      n++
+      s.visible = true
+      s.alpha = alpha
+      s.texture = look.tex
+      s.width = a1 - a0
+      s.height = look.w
+      s.rotation = ang
+      s.position.set(ox + Math.cos(ang) * a0, oy + Math.sin(ang) * a0)
+      const p = ROAD_PAINT.tilePitch
+      s.tilePosition.set(-(((phase % p) + p) % p), 0)
+    }
+    // Two short strips of falling alpha running AWAY from a road's hard end, so the carriageway
+    // fades out instead of stopping square. dir is +1 past the far end, -1 before the near one.
+    const TAPER = [[90, 0.55], [90, 0.22]]
+    const taper = (ox, oy, ang, at, dir, look) => {
+      let edge = at
+      for (const [len, alpha] of TAPER) {
+        const lo = dir > 0 ? edge : edge - len
+        strip(ox, oy, ang, lo, lo + len, lo, look, alpha)
+        edge += dir * len
+      }
+    }
+
+    // March the line and cut it wherever roadAt stops answering `kind` — that is where the urban
+    // falloff or the water rule ends the street. Runs are extended half a step at each end so a
+    // kerb never visibly stops short of the last sample that was still on tarmac.
+    // The HEADING test survives from v6.9.1, when overlapping cities each had their own rotated grid
+    // and enumerating one city's lines while standing in another produced stray stubs. The world
+    // grid makes that impossible, but the test is still the cheap way to stop a street run from
+    // continuing through a stretch a WIDER road has taken over (a highway leg outranks a street).
+    const march = (ox, oy, ang, a0, a1, kind, look) => {
+      const dx = Math.cos(ang), dy = Math.sin(ang)
+      // softStart tracks whether the stretch BEFORE the current run was owned by a wider road
+      // (soft — no taper needed, that road draws it) or was nothing at all (hard). Starts true: the
+      // first sample sits at the view edge, and running out of view is not a road end.
+      let start = null, last = 0, softStart = true
+      const flush = (soft) => {
+        const s0 = start - STREET_MARCH / 2, s1 = last + STREET_MARCH / 2
+        strip(ox, oy, ang, s0, s1, s0, look)
+        // TAPER (v6.9.3, owner: "thats weird, road just stops"). A street ends where roadAt stops
+        // answering, which at the edge of a city is correct and deliberate — a grid that ran exactly
+        // to its own boundary would read as a stamped rectangle. What was wrong is HOW it ended: a
+        // 210px avenue stopping dead in open ground with a square butt. Two short strips of falling
+        // alpha past each hard end read as the paving petering out into a track, which is what
+        // leaving a town actually looks like.
+        // Only at a HARD end (no road there at all). An end where a highway took over is already
+        // covered by that highway's own strip, and fading into it would just dirty the join.
+        if (!soft) taper(ox, oy, ang, s1, 1, look)
+        if (!softStart) taper(ox, oy, ang, s0, -1, look)
+        start = null
+      }
+      for (let a = a0; a <= a1 + STREET_MARCH && n < STREET_MAX; a += STREET_MARCH) {
+        const r = a <= a1 ? roadAt(ox + dx * a, oy + dy * a, roadSeed, chapterEndlessGrid) : { onRoad: false }
+        if (r.onRoad && r.kind === kind && Math.abs(Math.cos(r.angle - ang)) > 0.999) {
+          if (start === null) start = a   // softStart already holds the previous sample's verdict
+          last = a
+        } else if (start !== null) {
+          flush(r.onRoad)   // r.onRoad here means a WIDER road owns this stretch, not "nothing"
+        } else {
+          softStart = r.onRoad
+        }
+      }
+      if (start !== null) flush(true)   // ran off the end of the view, not off the end of the road
+    }
+    if (chapterHasRoads) {
+      const w = viewW(), h = viewH()
+      const x0 = -cx - STREET_PAD, y0 = -cy - STREET_PAD
+      const x1 = -cx + w + STREET_PAD, y1 = -cy + h + STREET_PAD
+      const E = STREET_SPACING_MAJOR_EVERY
+      // v6.9.2: ONE world grid, axis-aligned — no city frames to enumerate in, so a street is just
+      // a line at x = ui*BLOCK_U or y = vi*BLOCK_V. These are the exact indices roadAt itself uses,
+      // so the line drawn IS the line the generator answers on.
+      // The along-range is passed in ABSOLUTE WORLD COORDINATES and snapped to STREET_MARCH, which
+      // is what stops the roads flickering (v6.9.3, owner: "roads flicker and sometimes disappear
+      // when i move near it"). march() samples every STREET_MARCH px from a0; when a0 was the view's
+      // own edge, the sample POSITIONS slid with the camera, so a run's ends jumped up to a full
+      // 130px march every time the camera crossed a rebuild bucket — and a run only one sample long
+      // blinked in and out entirely depending on where the samples happened to land. Snapping a0/a1
+      // to the world grid makes the sample set a property of the WORLD, so two rebuilds at different
+      // camera positions produce byte-identical strips.
+      const snapLo = (v) => Math.floor(v / STREET_MARCH) * STREET_MARCH
+      const snapHi = (v) => Math.ceil(v / STREET_MARCH) * STREET_MARCH
+      // A vertical street runs at PI/2, so from origin (X, 0) the along-coordinate IS the world y;
+      // a horizontal one runs at 0, so from (0, Y) it is the world x. That is what lets the snap
+      // above be expressed in world units at all.
+      for (let ui = Math.ceil(x0 / BLOCK_U); ui * BLOCK_U <= x1; ui++) {
+        const major = ((ui % E) + E) % E === 0
+        march(ui * BLOCK_U, 0, Math.PI / 2, snapLo(y0), snapHi(y1), 'street', major ? T.roadMajor : T.roadMinor)
+      }
+      for (let vi = Math.ceil(y0 / BLOCK_V); vi * BLOCK_V <= y1; vi++) {
+        const major = ((vi % E) + E) % E === 0
+        march(0, vi * BLOCK_V, 0, snapLo(x0), snapHi(x1), 'street', major ? T.roadMajor : T.roadMinor)
+      }
+      // Highways are straight segments between two city centres and are deliberately exempt from the
+      // water rule (a trunk road on a causeway is real), so they need no march at all — just the
+      // stretch of each segment the view can see. Enumerated from the view's corners as well as its
+      // centre because map mode's viewport is wider than one CITY_GRID cell.
+      const segs = new Map()
+      for (const [px, py] of [[(x0 + x1) / 2, (y0 + y1) / 2], [x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+        for (const s of highwaysNear(Math.floor(px / CITY_GRID), Math.floor(py / CITY_GRID), roadSeed)) {
+          segs.set(s.ax + ',' + s.ay + ',' + s.bx + ',' + s.by, s)
+        }
+      }
+      for (const s of segs.values()) {
+        const ang = Math.atan2(s.by - s.ay, s.bx - s.ax)
+        const len = Math.hypot(s.bx - s.ax, s.by - s.ay)
+        const dx = Math.cos(ang), dy = Math.sin(ang)
+        let a0 = Infinity, a1 = -Infinity
+        for (const [px, py] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) {
+          const a = (px - s.ax) * dx + (py - s.ay) * dy
+          if (a < a0) a0 = a
+          if (a > a1) a1 = a
+        }
+        a0 = Math.max(0, Math.floor((a0 - STREET_PAD) / STREET_MARCH) * STREET_MARCH)
+        a1 = Math.min(len, Math.ceil((a1 + STREET_PAD) / STREET_MARCH) * STREET_MARCH)
+        strip(s.ax, s.ay, ang, a0, a1, a0, T.roadHighway)
+      }
+    }
+    for (let i = n; i < streetSprites.length; i++) streetSprites[i].visible = false
   }
 
   // ---- road decals (v5.10, spec §4.2) ---------------------------------------------------------
@@ -6939,17 +7243,18 @@ export function createRenderer(app) {
   // tile — that tile is stamped at a non-uniform scale (x 0.48, y 0.34 minor / 0.62 major), so a
   // baked circle comes out an oval and by a DIFFERENT amount on an avenue than on a side street.
   // These are separate, uniformly-scaled sprites on their own 160px cell: one decal per cell,
-  // picked by cellHash, self-gating on roadAt exactly like populateRoad.
+  // picked by cellHash, self-gating on roadAt the way the carriageway layer used to before
+  // updateStreets replaced it.
   function populateRoadDecal(s, i, j, cell) {
     if (!chapterHasRoads) { s.visible = false; return }
     const wx = (i + 0.5) * cell, wy = (j + 0.5) * cell
-    const ra = roadAt(wx, wy, roadSeed)
+    const ra = roadAt(wx, wy, roadSeed, chapterEndlessGrid)
     if (!ra.onRoad) { s.visible = false; return }
+    // roadAt's `off` IS the signed distance along `perp`, so the centreline point is exact — no
+    // probe, and in particular no 8px misplacement for a decal that happens to land near the line.
     const perp = roadPerp(ra.angle)
-    const probe = roadAt(wx + perp.x * 4, wy + perp.y * 4, roadSeed)
-    const sign = (probe.onRoad && probe.dist < ra.dist) ? 1 : -1
-    const cx = wx + perp.x * ra.dist * sign
-    const cy = wy + perp.y * ra.dist * sign
+    const cx = wx - perp.x * ra.off
+    const cy = wy - perp.y * ra.off
     const along = { x: Math.cos(ra.angle), y: Math.sin(ra.angle) }
     const pick = ['manhole', 'patch', 'drain', 'arrow'][Math.floor(cellHash(i, j, 21) * 4)]
     const slide = (cellHash(i, j, 22) - 0.5) * cell * 0.7
@@ -6998,6 +7303,7 @@ export function createRenderer(app) {
     const jx = (cellHash(i, j, 12) - 0.5) * cell * 0.9
     const jy = (cellHash(i, j, 13) - 0.5) * cell * 0.9
     const wx = (i + 0.5) * cell + jx, wy = (j + 0.5) * cell + jy
+    if (onCarriageway(wx, wy)) { s.visible = false; return }
     const kinds = CLUTTER_BY_DISTRICT[districtAt(wx, wy, districtSeed)]
     if (!kinds) { s.visible = false; return }
     const kind = kinds[Math.floor(cellHash(i, j, 1) * kinds.length)]
@@ -7067,7 +7373,9 @@ export function createRenderer(app) {
     // cell is PARCEL so one cell is exactly one farm field; at ~280px a 1900x1000 view is about 50
     // sprites, cheaper than the 420px blotch layer it stands in for.
     { name: 'terrain', cell: PARCEL, chance: 1.00, parent: blotchLayer, populate: populateTerrain },
-    { name: 'road', cell: ROAD_CELL, chance: 1.00, parent: roadLayer, populate: populateRoad },
+    // v6.9.1: no 'road' layer here any more — the carriageway is enumerated per STREET by
+    // updateStreets, not stamped per cell. The DECALS stay per-cell: they are randomly picked and
+    // randomly placed, which is exactly what a tiling strip cannot be.
     { name: 'roadDecal', cell: ROAD_DECAL.cell, chance: ROAD_DECAL.chance, parent: roadDecalLayer, populate: populateRoadDecal },
     { name: 'big', cell: 460, chance: 0.35, parent: bigLayer, populate: populateBig, skiesKeep: SKIES_FLOOR_KEEP.big, clump: true },
     { name: 'mid', cell: 170, chance: 0.55, parent: midLayer, populate: populateMid, skiesKeep: SKIES_FLOOR_KEEP.mid, clump: true },
@@ -7737,17 +8045,16 @@ export function createRenderer(app) {
   function updateJunctions(cx, cy) {
     let n = 0
     if (chapterHasRoads && T.junction) {
-      const { cities, x0, y0, x1, y1 } = visibleCities(cx, cy, 90)
-      for (const c of cities) {
-        if (n >= junctionSprites.length) break
-        const b = cityViewBounds(c, x0, y0, x1, y1)
-        for (let ui = Math.ceil(b.uMin / c.blockU); ui * c.blockU <= b.uMax && n < junctionSprites.length; ui++) {
-          for (let vi = Math.ceil(b.vMin / c.blockV); vi * c.blockV <= b.vMax && n < junctionSprites.length; vi++) {
-            const p = cityToWorld(c, ui * c.blockU, vi * c.blockV)
+      const w = viewW(), h = viewH()
+      const x0 = -cx - 90, y0 = -cy - 90, x1 = -cx + w + 90, y1 = -cy + h + 90
+      {
+        for (let ui = Math.ceil(x0 / BLOCK_U); ui * BLOCK_U <= x1 && n < junctionSprites.length; ui++) {
+          for (let vi = Math.ceil(y0 / BLOCK_V); vi * BLOCK_V <= y1 && n < junctionSprites.length; vi++) {
+            const p = { x: ui * BLOCK_U, y: vi * BLOCK_V }
             // A grid node inside the radius can still fall outside the street area — the urban
             // falloff is noise-wobbled, so the outermost nodes have no pavement under them. Asking
-            // roadAt is the one check guaranteed to agree with what populateRoad actually drew.
-            if (!roadAt(p.x, p.y, roadSeed).onRoad) continue
+            // roadAt is the one check guaranteed to agree with the carriageway updateStreets drew.
+            if (!roadAt(p.x, p.y, roadSeed, chapterEndlessGrid).onRoad) continue
             // Class comes straight from the grid index, the same test roadAt itself uses — no probe.
             const E = STREET_SPACING_MAJOR_EVERY
             const uMajor = ((ui % E) + E) % E === 0
@@ -7759,8 +8066,7 @@ export function createRenderer(app) {
             s.anchor.set(look.ax, look.ay)
             s.tint = 0xffffff
             s.alpha = 1
-            // Baked axis-aligned, so it has to turn with the city it belongs to.
-            s.rotation = c.angle
+            s.rotation = 0   // baked axis-aligned, and the world grid is too
             s.scale.set(1)   // baked at TRUE world size
             s.position.set(p.x, p.y)
           }
@@ -8331,12 +8637,13 @@ export function createRenderer(app) {
   const holePool = []
   const beamPool = []
   const debrisPool = []
+  const jetPool = []          // v6.10 open-jet RIGS (see acquireJet); reset() must hide .root
   const shotPool = []
   const prevCount = {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
-    trap: 0, debris: 0, shot: 0,
+    trap: 0, debris: 0, shot: 0, jet: 0,
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -8438,6 +8745,65 @@ export function createRenderer(app) {
       }
     }
     return out
+  }
+
+  // Beam Prism refractions (run.prisms): each entry is a finished segment with a decaying `life`.
+  // The colour is the Neon Beam's own tip red (placeBeam's 0xff5a52 / 0xffd9d4), because a
+  // refraction has to read as THIS weapon's light bending, not as some second effect that happens
+  // to be near it.
+  const PRISM_GLOW = 0xff5a52
+  const PRISM_CORE = 0xffd9d4
+  const PRISM_BURST_F = 0.35   // share of a segment's life spent throwing itself out to full reach
+
+  // A tapered ray: fat where the light bent, pointed where it dies. Drawn as a triangle rather than
+  // a stroke because a constant-width stroke is exactly what made v6.7.6 read as a drawn line.
+  function prismWedge(g, x, y, ux, uy, halfW, len, color, alpha) {
+    const nx = -uy * halfW, ny = ux * halfW
+    g.poly([x + nx, y + ny, x - nx, y - ny, x + ux * len, y + uy * len])
+    g.fill({ color, alpha })
+  }
+
+  function redrawPrisms(run) {
+    prismG.clear()
+    prismBodyG.clear()
+    const list = run.prisms || []
+    if (list.length === 0) return
+    for (const s of list) {
+      const k = Math.max(0, Math.min(1, s.life / PRISM_FLASH_T)) // 1 at cast -> 0 as it fades
+      const fade = Math.pow(k, 0.7)
+      const gen = s.d ?? 0
+      const dx = s.x2 - s.x, dy = s.y2 - s.y
+      const full = Math.hypot(dx, dy)
+      if (full < 1) continue
+      const ux = dx / full, uy = dy / full
+      // Each generation is thinner than its parent — light losing energy at every surface. Without
+      // it a 40-ray mythic tree draws every ray identically and the fan reads as noise.
+      const w = Math.max(3, 11 - gen * 2.6) * (0.55 + 0.45 * fade)
+      // The ray throws itself out from the split point rather than appearing whole — the motion is
+      // what makes it read as a splash rather than as a shape that was already there.
+      const grow = Math.min(1, 0.18 + (1 - k) / PRISM_BURST_F)
+      const len = full * grow
+
+      // Three nested wedges, each shorter and hotter than the last. That IS the gradient — a ray
+      // that is uniformly bright for 200px reads as a drawn stroke no matter how it's tinted, which
+      // is what made v6.7.6's fan look like wireframe. Dense at the surface, dissolving outward.
+      prismWedge(prismBodyG, s.x, s.y, ux, uy, w * 1.25, len, PRISM_GLOW, 0.30 * fade)
+      prismWedge(prismG, s.x, s.y, ux, uy, w, len * 0.62, PRISM_GLOW, 0.55 * fade)
+      prismWedge(prismG, s.x, s.y, ux, uy, w * 0.45, len * 0.30, PRISM_CORE, 0.95 * fade)
+
+      // The bloom AT the split point is what actually says "it bent here" — every ray of one
+      // refraction stacks its own, so a wide split lights up brighter than a narrow one for free.
+      prismBodyG.circle(s.x, s.y, w * 1.9).fill({ color: PRISM_GLOW, alpha: 0.28 * fade })
+      prismG.circle(s.x, s.y, w * 0.85).fill({ color: PRISM_CORE, alpha: 0.7 * fade })
+
+      // The travelling front, alive only while the ray is still extending. Kept small on purpose:
+      // at any size where it reads as a disc it reads as a BULLET, i.e. as a separate projectile
+      // this weapon does not have — it has to stay a spark riding the leading edge.
+      if (grow < 1) {
+        prismG.circle(s.x + ux * len, s.y + uy * len, w * 0.22)
+        prismG.fill({ color: PRISM_CORE, alpha: 0.45 * fade })
+      }
+    }
   }
 
   function syncBeams(list) {
@@ -9114,11 +9480,10 @@ export function createRenderer(app) {
     s.alpha = alpha
   }
 
-  // Traffic lanes (city signature, run.lanes): 'warn' telegraphs a hazard-striped band (the
-  // redrawStrips idiom — a shared Graphics cleared and redrawn per frame), then 'sweep' runs a car
-  // down it. The band stays drawn (fainter) during the sweep so you can still see where the lane is
-  // while the car is in it. Chevrons point the way the car will come — a lane you can't read the
-  // direction of is a coin flip, and this thing hits for TRAFFIC_DMG.
+  // Traffic lanes (city signature, run.lanes): 'warn' telegraphs the approach, then 'sweep' runs a
+  // vehicle down the band. One shared Graphics cleared and redrawn per frame (the redrawStrips
+  // idiom). The two vehicles that ride run.lanes want opposite telegraphs and get them below: the
+  // garden's mower shows the stripe it is about to cut, the city's van shows its headlights.
   function redrawLanes(run) {
     laneG.clear()
     for (const ln of run.lanes || []) {
@@ -9142,9 +9507,11 @@ export function createRenderer(app) {
       // carried by the rim, not by inventing a second danger colour). Deliberately NOT green: the
       // floor is lawn, and the garden already spends amber on pheromone trails and green on webs.
       const mower = ln.look === 'mower'
-      laneG.poly(flat).fill({ color: mower ? 0xf2ecd0 : 0xffd24a, alpha: mower ? fillA * 1.6 : fillA })
-      laneG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
       if (mower) {
+        // The mower keeps its v6.6.14 volume EXACTLY — the owner named it (with the toad) as the
+        // level everything else should come down to, so it is the reference, not a target.
+        laneG.poly(flat).fill({ color: 0xf2ecd0, alpha: fillA * 1.6 })
+        laneG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: rimA })
         // mown rows ALONG the lane — the one pattern nothing else in this game draws
         for (let i = -1; i <= 1; i++) {
           const off = i * hy * 0.5
@@ -9153,21 +9520,25 @@ export function createRenderer(app) {
           laneG.stroke({ width: 2, color: 0xffffff, alpha: (warn ? 0.16 + urgency * 0.16 : 0.1) * (0.7 + 0.3 * pulse) })
         }
       } else {
-      // chevrons along the lane, pointing downstream — the "which way" cue
-      const n = 7
-      for (let i = 0; i < n; i++) {
-        const d = -hx + ((i + 0.5) / n) * ln.len
-        const cx = ln.x + d * cos
-        const cy = ln.y + d * sin
-        const tip = [cx + cos * hy * 0.5, cy + sin * hy * 0.5]
-        const back = hy * 0.45
-        laneG.beginPath()
+        // v6.9.1 (owner: "their telegraph should be like headlights, not a bland yellow rectangle —
+        // it should move in front of the car, get brighter when the car is closer"). The v6.7.5
+        // telegraph was a static amber slab plus four chevrons: a DIAGRAM of the hazard, drawn all
+        // at once, saying nothing about how far off it was. What warns you on a real street is the
+        // car's own headlights arriving before the car, so that is what this draws — and it draws
+        // them in syncCars, on the SAME rig that carries the van, not here. Two reasons:
+        //   - they are literally the same lights. The rig's glow sprite runs through the telegraph
+        //     and straight on into the sweep with nothing switching over, which is the whole read.
+        //   - a beam has no edge. Drawn as Graphics it needs a gradient Pixi's fills do not have;
+        //     the stacked-cone workaround came back with visible straight steps across the asphalt,
+        //     which is worse than the slab it replaced. The soft fx sprite is edgeless for free.
+        // What stays here is the two long lane edges as hairlines: the beam only lights the stretch
+        // it has reached, and "be outside these" has to hold for the whole band. No chevrons — a
+        // beam already points where it is going.
         for (const s of [-1, 1]) {
-          laneG.moveTo(tip[0] - cos * back - sin * s * hy * 0.55, tip[1] - sin * back + cos * s * hy * 0.55)
-          laneG.lineTo(tip[0], tip[1])
+          laneG.moveTo(ln.x - hx * cos - s * hy * sin, ln.y - hx * sin + s * hy * cos)
+          laneG.lineTo(ln.x + hx * cos - s * hy * sin, ln.y + hx * sin + s * hy * cos)
         }
-        laneG.stroke({ width: 3, color: 0xffe37a, alpha: (warn ? 0.3 + urgency * 0.3 : 0.16) * (0.7 + 0.3 * pulse) })
-      }
+        laneG.stroke({ width: 1.5, color: 0xffe37a, alpha: warn ? 0.18 + urgency * 0.26 + pulse * 0.12 : 0.16 })
       }
       // v6.3 Task 4: "this can shield you" — during the telegraph only, ring every obstacle big
       // enough to stop the car (o.r >= COVER_MIN_R, see its doc in config.js) whose center falls
@@ -9189,22 +9560,30 @@ export function createRenderer(app) {
     }
   }
 
-  // The car itself: one rig per live sweep — the baked car plus a headlight wash thrown ahead of it.
-  // Its centre is (x,y) + dir × ((carT - 0.5) × len), straight off the contract.
+  // The car itself: one rig per live lane — the baked vehicle plus the pair of headlight washes it
+  // throws down the street. Its centre is (x,y) + dir × ((carT - 0.5) × len), straight off the
+  // contract, EXCEPT during the city's telegraph, where the body is hidden and the rig is parked
+  // TRAFFIC_APPROACH px back up the lane, sliding forward so it arrives exactly as the sweep starts
+  // (v6.9.1 — see the redrawLanes branch and TRAFFIC_APPROACH's doc in config.js). One rig for both
+  // phases is the point: nothing switches over between the warning and the thing it warned about.
   const carPool = []
   let carCount = 0
   // v6.6.14: the pool holds BOTH vehicles, so a rig has one sprite per look and shows the one this
   // lane calls for. A single shared sprite would have put a taxi on the lawn.
   function acquireCar() {
     const root = new Container()
-    const glow = new Sprite(T.fx.light_02)
-    glow.anchor.set(0.5)
-    glow.tint = 0xfff3c4
+    const glows = [0, 1].map(() => {
+      const g = new Sprite(T.fx.light_02)
+      g.anchor.set(0.5)
+      g.tint = 0xfff3c4
+      root.addChild(g)
+      return g
+    })
     const body = spriteOf(T.car)
     const mower = spriteOf(T.mower)
-    root.addChild(glow, body, mower)
+    root.addChild(body, mower)
     carLayer.addChild(root)
-    return { root, glow, body, mower }
+    return { root, glows, body, mower }
   }
   // The cut lawn itself. Finished stripes never change, so the geometry is only rebuilt while a
   // mower is mid-pass (mownDirty) — every other frame this is a no-op and the Graphics just draws.
@@ -9242,28 +9621,45 @@ export function createRenderer(app) {
   }
 
   function syncCars(run) {
-    const lanes = (run.lanes || []).filter((l) => l.phase === 'sweep')
+    // A car lane gets its rig for the WHOLE lane, telegraph included (v6.9.1); a mower lane only
+    // once its deck is actually on the grass, because the mower's telegraph is the stripe it is
+    // about to cut and a machine hovering at the end of it would say the opposite.
+    const lanes = (run.lanes || []).filter((l) => l.phase === 'sweep' || l.look !== 'mower')
     while (carPool.length < lanes.length) carPool.push(acquireCar())
     for (let i = 0; i < lanes.length; i++) {
       const ln = lanes[i]
       const cv = carPool[i]
       const isMower = ln.look === 'mower'
+      const warn = ln.phase === 'warn'
+      // How lit the beams are, 0..1. During the telegraph this IS how close the car is; once it is
+      // on the lane it is simply full, so nothing dips at the handover.
+      const lit = warn ? 1 - ln.t / (ln.warnT ?? TRAFFIC_WARN) : 1
       cv.root.visible = true
-      const d = ((ln.carT ?? 0) - 0.5) * ln.len
+      // Telegraph: the lamps sit TRAFFIC_APPROACH px back up the lane and slide forward, reaching
+      // the lane's entry (carT 0, i.e. -len/2) exactly as the sweep begins.
+      const d = warn
+        ? -ln.len / 2 - (1 - lit) * TRAFFIC_APPROACH
+        : ((ln.carT ?? 0) - 0.5) * ln.len
       const cx = ln.x + Math.cos(ln.angle) * d
       const cy = ln.y + Math.sin(ln.angle) * d
       cv.root.position.set(cx, cy)
       cv.root.rotation = ln.angle
-      cv.body.visible = !isMower
-      cv.mower.visible = isMower
+      cv.body.visible = !isMower && !warn
+      cv.mower.visible = isMower && !warn
       cv.body.scale.set(1)
       cv.mower.scale.set(1)
-      // headlight wash: thrown forward along the lane, flickering just enough to feel driven. A
-      // mower on a sunlit lawn at noon has no headlights.
-      cv.glow.visible = !isMower
-      cv.glow.position.set(TRAFFIC_CAR_LEN * 0.75, 0)
-      cv.glow.scale.set(fxScale(T.fx.light_02, TRAFFIC_CAR_W * 2.4), fxScale(T.fx.light_02, TRAFFIC_CAR_W * 1.5))
-      cv.glow.alpha = 0.5 + 0.08 * Math.sin(animT * 22)
+      // The headlights: a PAIR of soft washes thrown well down the lane, flickering just enough to
+      // feel driven. Their length is TRAFFIC_BEAM, so during the telegraph the light reaches a
+      // player standing at the lane's centre long before the van does — which is the entire job of
+      // a telegraph, done by the object that is coming rather than by a rectangle drawn around it.
+      // A mower on a sunlit lawn at noon has no headlights.
+      for (let g = 0; g < 2; g++) {
+        const s = cv.glows[g]
+        s.visible = !isMower
+        s.position.set(TRAFFIC_BEAM * 0.42, (g ? 1 : -1) * TRAFFIC_CAR_W * 0.26)
+        s.scale.set(fxScale(T.fx.light_02, TRAFFIC_BEAM * 0.95), fxScale(T.fx.light_02, TRAFFIC_CAR_W * 1.15))
+        s.alpha = (0.16 + lit * 0.4) * (0.94 + 0.06 * Math.sin(animT * 22 + g))
+      }
       const backLen = (isMower ? MOWER_DECK_LEN : TRAFFIC_CAR_LEN) * 0.5
       // v6.6.22: grow this pass's cut. The stripe runs from the lane's tail to the deck's leading
       // edge, so grass goes short UNDER the mower rather than appearing once it has gone by. One
@@ -9286,7 +9682,7 @@ export function createRenderer(app) {
           mownDirty = true
         }
       }
-      if (frameDt > 0 && Math.random() < (isMower ? 0.9 : 0.5)) {
+      if (!warn && frameDt > 0 && Math.random() < (isMower ? 0.9 : 0.5)) {
         // the car throws exhaust and road spray; the mower throws CLIPPINGS — same particle, sprayed
         // sideways out of the deck rather than straight back, because that is where a chute points
         const side = isMower ? (Math.random() < 0.5 ? 1 : -1) : 0
@@ -9383,11 +9779,34 @@ export function createRenderer(app) {
   function redrawHazards(run) {
     hazardG.clear()
     for (const gy of run.geysers || []) {
+      // A Sewer Geyser zone (jetDur set) is drawn by the hydrant rig in syncJets. All that belongs
+      // here is its RADIUS, because the radius is the hitbox and nothing else on the rig carries
+      // it — the hydrant is a fixed-size object and the water sits well inside the edge. A thin
+      // cool ring, deliberately quiet: the player needs to be able to find it, not look at it, and
+      // a dozen of these can overlap. Cool white-blue, nowhere near the amber/red that means "this
+      // one hurts YOU".
+      if (gy.jetDur > 0) {
+        // The RANGE ring is drawn only while the hydrant is on its fuse — it is the telegraph, and
+        // that is the one moment the player needs to know how far this thing will reach before
+        // deciding where to stand. Once it is spraying, the streams show exactly what is being hit,
+        // so the ring is pure clutter: several live hydrants each drawing a 256px circle is what
+        // made the effect unreadable, and aimed streams are the whole reason it no longer has to.
+        if (gy.fuse > 0) {
+          const dur = Math.max(0.001, gy.dur || 1)
+          const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
+          hazardG.circle(gy.x, gy.y, gy.r).stroke({ width: 2, color: 0xbcd8e0, alpha: 0.16 + urgency * 0.26 })
+          hazardG.circle(gy.x, gy.y, gy.r * urgency).stroke({ width: 1.5, color: 0xdfeef2, alpha: 0.14 + urgency * 0.18 })
+        }
+        continue
+      }
       const dur = Math.max(0.001, gy.dur || 1)
       const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 18))
-      hazardG.circle(gy.x, gy.y, gy.r).fill({ color: 0x3fae7a, alpha: 0.1 + urgency * 0.14 + pulse * 0.04 })
-      hazardG.circle(gy.x, gy.y, gy.r).stroke({ width: 2.5 + urgency * 2, color: 0x6fe0a8, alpha: Math.min(1, 0.5 + urgency * 0.4) })
+      // v6.10: fill DOWN, rim UP. Up to GEYSER_MAX_LIVE zones can overlap now that jets persist,
+      // and a stack of translucent discs is soup — the rim is what has to survive the overlap,
+      // because with a live jet the rim IS the hitbox and the player routes around it.
+      hazardG.circle(gy.x, gy.y, gy.r).fill({ color: 0x3fae7a, alpha: 0.05 + urgency * 0.08 + pulse * 0.03 })
+      hazardG.circle(gy.x, gy.y, gy.r).stroke({ width: 2.5 + urgency * 2.5, color: 0x6fe0a8, alpha: Math.min(1, 0.55 + urgency * 0.4) })
       // the charge: an inner ring swelling toward the rim as the fuse burns down
       hazardG.circle(gy.x, gy.y, gy.r * urgency).stroke({ width: 2, color: 0xbfffe0, alpha: 0.35 + pulse * 0.2 })
       if (frameDt > 0 && Math.random() < 0.35) { // bubbles boiling up out of the grate
@@ -9402,6 +9821,155 @@ export function createRenderer(app) {
       hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: 0xffb37a, alpha: 0.25 + k * 0.45 })
       hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: 0xffb37a, alpha: 0.12 })
     }
+  }
+
+  // ---- v6.10 the burst hydrant --------------------------------------------------------------
+  // A rig per Sewer Geyser zone, live for BOTH phases of its life: the hydrant stands on the street
+  // rattling while the fuse burns, then its cap blows off and it sheets water until the main runs
+  // dry. The telegraph is therefore a physical object you can see coming, not a disc painted on the
+  // road — which is the whole reason four passes of translucent zone art got thrown away.
+  //
+  // The hydrant is drawn at a FIXED pixel size. Every other zone visual in this game scales with
+  // its radius; this one must not, because it is an object and objects do not grow when the weapon
+  // levels. The damage radius is carried by a thin ring in hazardG instead. Decoupling the art from
+  // the hitbox is what finally let the effect be small, opaque and high-contrast while the zone
+  // itself stays 128px wide.
+  //
+  // THE CAMERA LOOKS STRAIGHT DOWN. The hydrant is its bonnet seen from above, the water sheets
+  // flat across the asphalt, the cap tumbles along the ground. Nothing here is a side elevation —
+  // v6.8 shipped that mistake once with the Trash Tornado and it cost a version to undo.
+  function acquireJet() {
+    const root = new Container()
+    const crack = spriteOf(T.jetCrack)
+    const source = spriteOf(T.jetSource)
+    // Two sprites per stream (a dense white core and a looser rinse-coloured spread) so a stream
+    // has depth without a second bake per target. GEYSER_STREAMS_MAX is the ceiling the sim
+    // clamps to, so every target the sim picks always has a jet to be drawn with.
+    const streams = []
+    for (let i = 0; i < GEYSER_STREAMS_MAX; i++) {
+      streams.push(T.jetStream.map((look) => {
+        const sp = spriteOf(look)
+        root.addChild(sp)
+        return sp
+      }))
+    }
+    const body = spriteOf(T.hydrantCapped)
+    const cap = spriteOf(T.hydrantCap)
+    root.addChild(crack, source, body, cap)
+    jetLayer.addChild(root)
+    return { root, crack, source, streams, body, cap }
+  }
+
+  // `list` is every Sewer Geyser zone — fuse phase AND open phase. Zones without a jetDur are
+  // Reality Shard rifts, which keep their own green telegraph in redrawHazards and never get a
+  // hydrant; filtering them out is the caller's job.
+  function syncJets(list) {
+    const n = list.length
+    while (jetPool.length < n) jetPool.push(acquireJet())
+    for (let i = 0; i < n; i++) {
+      const rig = jetPool[i]
+      const gy = list[i]
+      rig.root.visible = true
+      rig.root.position.set(gy.x, gy.y)
+      const k = gy.r / JET_BAKE_R
+      // A hydrant is bolted to the street: fixed heading per zone, never spinning. Derived from the
+      // position so it is stable frame to frame without render having to store anything.
+      const face = ((gy.x * 0.013 + gy.y * 0.017) % 1) * Math.PI * 2
+
+      if (gy.jet > 0) {
+        // ---- open: the cap is off ----
+        const life = Math.max(0.001, gy.jetDur || 1)
+        const age = 1 - Math.max(0, Math.min(1, gy.jet / life))
+        const swell = age < 0.10 ? age / 0.10 : 1 - Math.max(0, (age - 0.7) / 0.3) * 0.65
+        const fade = 1 - Math.max(0, (age - 0.85) / 0.15)
+        rig.root.alpha = 1
+        rig.crack.visible = true
+        rig.crack.scale.set(HYDRANT_PX / JET_BAKE_R)   // scars the street at the BASE, not the rim
+        rig.crack.rotation = face
+        rig.crack.alpha = 1
+        if (rig.body.texture !== T.hydrantOpen.tex) {
+          rig.body.texture = T.hydrantOpen.tex
+          rig.body.anchor.set(T.hydrantOpen.ax, T.hydrantOpen.ay)
+        }
+        rig.body.scale.set(HYDRANT_PX / JET_BAKE_R)
+        rig.body.rotation = face
+        rig.body.alpha = 1
+        // The cap, thrown clear on eruption and skittering to a stop. Its whole travel happens in
+        // the first ~15% of the life; after that it just lies there.
+        const fly = Math.min(1, age / 0.15)
+        rig.cap.visible = true
+        rig.cap.scale.set(HYDRANT_PX / JET_BAKE_R)
+        rig.cap.position.set(Math.cos(face + 2.1) * 34 * fly, Math.sin(face + 2.1) * 34 * fly)
+        rig.cap.rotation = fly * 7
+        rig.cap.alpha = 0.9
+        rig.source.visible = true
+        rig.source.scale.set((HYDRANT_PX / JET_BAKE_R) * swell * (1 + 0.1 * Math.sin(animT * 13 + i)))
+        rig.source.rotation = animT * 1.6 + i
+        rig.source.alpha = 0.85 * fade
+        // One stream per target the sim locked this frame (g.streams, positions not ids). Local
+        // coordinates: the root is already at the hydrant, so a target is just its offset.
+        const targets = gy.streams || []
+        for (let t = 0; t < rig.streams.length; t++) {
+          const pair = rig.streams[t]
+          const tg = targets[t]
+          if (!tg) { for (const sp of pair) sp.visible = false; continue }
+          const dx = tg.x - gy.x, dy = tg.y - gy.y
+          const dist = Math.max(1, Math.hypot(dx, dy))
+          const ang = Math.atan2(dy, dx)
+          pair.forEach((sp, j) => {
+            sp.visible = true
+            sp.rotation = ang
+            // x scales to reach the target; y stays near 1 so the cone keeps its baked spread
+            // instead of getting fat on long shots. The wobble is what makes it look like water
+            // under pressure rather than a static wedge.
+            sp.scale.set(dist / (JET_BAKE_R * 2), (0.85 + j * 0.35) * (1 + 0.12 * Math.sin(animT * 17 + t * 2 + j)))
+            sp.alpha = (j === 0 ? 0.95 : 0.55) * fade * swell
+          })
+        }
+        if (frameDt > 0) jetSpray(gy, 1, 0xffffff)
+        continue
+      }
+
+      // ---- fuse: intact, and shaking ----
+      const dur = Math.max(0.001, gy.dur || 1)
+      const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
+      rig.root.alpha = 1
+      rig.crack.visible = false
+      rig.cap.visible = false
+      rig.source.visible = false
+      for (const pair of rig.streams) for (const sp of pair) sp.visible = false
+      if (rig.body.texture !== T.hydrantCapped.tex) {
+        rig.body.texture = T.hydrantCapped.tex
+        rig.body.anchor.set(T.hydrantCapped.ax, T.hydrantCapped.ay)
+      }
+      rig.body.scale.set((HYDRANT_PX / JET_BAKE_R) * (1 + urgency * 0.12))
+      rig.body.rotation = face
+      rig.body.alpha = 1
+      // The rattle: amplitude and frequency both climb as the fuse burns down, so how close the
+      // eruption is is readable from the object itself and not only from the ring around it.
+      const shake = urgency * urgency * 3.2
+      rig.body.position.set(Math.sin(animT * (26 + urgency * 40)) * shake,
+        Math.cos(animT * (31 + urgency * 44)) * shake * 0.7)
+      if (frameDt > 0 && Math.random() < urgency * 0.4) {   // water starting to weep out of the seams
+        const a = Math.random() * Math.PI * 2
+        spawnParticle(T.fx.circle_05, gy.x, gy.y, Math.cos(a) * 30, Math.sin(a) * 30,
+          0.28, 0.05, 0xdfeef2, -0.01, 3.0)
+      }
+    }
+    for (let i = n; i < prevCount.jet; i++) jetPool[i].root.visible = false
+    prevCount.jet = n
+  }
+
+  // Droplets thrown outward and dragged to a stop before the rim, so the water reads as landing
+  // inside the zone rather than escaping it. MAX_PARTICLES is 200 across the whole game and
+  // GEYSER_MAX_LIVE allows 12 jets, so this stays deliberately stingy per jet rather than
+  // budgeting for one beautiful hydrant in isolation.
+  function jetSpray(gy, rate, tint) {
+    if (Math.random() > 0.5 * rate) return
+    const a = Math.random() * Math.PI * 2
+    const sp = gy.r * (0.9 + Math.random() * 1.0)
+    spawnParticle(T.fx.circle_05, gy.x, gy.y, Math.cos(a) * sp, Math.sin(a) * sp,
+      0.34 + Math.random() * 0.18, 0.08, tint, -0.02, 3.6)
   }
 
   // ---- v5.4 roster attack telegraphs -------------------------------------------------------
@@ -9462,6 +10030,11 @@ export function createRenderer(app) {
       // on the ground IS the attack — it's the only part of it the player can see or act on. The
       // blot swells (the owl is getting closer to the ground) while the amber ring tightens onto the
       // locked point. The point never re-aims, so walking off the mark always beats it.
+      // v6.7.5: the third element is gone. A static amber ring at exactly the blot's own radius
+      // drew the same circle the shadow was already filling — the pounce rework's "duplicated the
+      // lane and was the loudest thing on it" defect, in a different shape. Shadow says WHERE (and
+      // swelling, that the owl is dropping); the tightening ring says WHEN. Nothing else is needed,
+      // and the ring itself comes down to the volume the toad's landing ring settled on.
       if (e._airState === 'mark') {
         const urgency = AERIAL_MARK_T > 0 ? 1 - Math.max(0, e._airT || 0) / AERIAL_MARK_T : 1
         const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
@@ -9470,8 +10043,7 @@ export function createRenderer(app) {
         const r = e.radius * 1.4
         teleG.circle(tx, ty, r * (0.4 + urgency * 0.6)).fill({ color: 0x2a2438, alpha: 0.16 + urgency * 0.26 })
         teleG.circle(tx, ty, r * (2.4 - urgency * 1.4))
-          .stroke({ width: 2 + urgency * 2.5, color: 0xffe37a, alpha: Math.min(1, 0.4 + urgency * 0.45 + pulse * 0.12) })
-        teleG.circle(tx, ty, r).stroke({ width: 1.6, color: 0xffd24a, alpha: 0.25 + pulse * 0.2 })
+          .stroke({ width: 1.5 + urgency * 1.5, color: 0xffe37a, alpha: Math.min(1, 0.22 + urgency * 0.36 + pulse * 0.08) })
       }
 
       // lineCharge 'lock' (city's robot vacuum): deliberately the SAME band-and-chevrons lane the
@@ -9479,6 +10051,11 @@ export function createRenderer(app) {
       // straight line, so they must read as one rule rather than two things to learn. Only the
       // anchoring differs: a traffic lane is centred on its band, this one starts at the vacuum and
       // runs LINE_CHARGE_LEN forward along the heading it just locked.
+      // v6.7.5: quietened in lockstep with redrawLanes — see the recipe there. Same reduction, same
+      // reasoning; the two MUST move together or "one rule, not two" stops being true. One thing
+      // does differ: this band keeps its full rectangle stroke rather than dropping to two long
+      // edges, because its far end is only LINE_CHARGE_LEN away and IS information — it says where
+      // the charge stops, which is the difference between backing off and standing still.
       if (e._chargeState === 'lock') {
         const urgency = LINE_CHARGE_LOCK_T > 0 ? 1 - Math.max(0, e._chargeT || 0) / LINE_CHARGE_LOCK_T : 1
         const pulse = 0.5 + 0.5 * Math.sin(animT * (6 + urgency * 16))
@@ -9489,10 +10066,10 @@ export function createRenderer(app) {
         for (const [lx, ly] of [[0, -hy], [LINE_CHARGE_LEN, -hy], [LINE_CHARGE_LEN, hy], [0, hy]]) {
           flat.push(e.x + lx * cos - ly * sin, e.y + lx * sin + ly * cos)
         }
-        teleG.poly(flat).fill({ color: 0xffd24a, alpha: 0.06 + urgency * 0.1 + pulse * 0.04 })
-        teleG.poly(flat).stroke({ width: 3, color: 0xffe37a, alpha: Math.min(1, 0.45 + urgency * 0.4 + pulse * 0.12) })
-        // chevrons pointing downstream — the redrawLanes "which way" cue, same geometry
-        const n = 6
+        teleG.poly(flat).fill({ color: 0xffd24a, alpha: 0.03 + urgency * 0.05 })
+        teleG.poly(flat).stroke({ width: 1.5, color: 0xffe37a, alpha: 0.22 + urgency * 0.34 + pulse * 0.06 })
+        // chevrons pointing downstream — the redrawLanes "which way" cue, same geometry, same count
+        const n = 4
         for (let i = 0; i < n; i++) {
           const d = ((i + 0.5) / n) * LINE_CHARGE_LEN
           const tipX = e.x + (d + hy * 0.5) * cos
@@ -9503,7 +10080,7 @@ export function createRenderer(app) {
             teleG.moveTo(tipX - cos * back - sin * s * hy * 0.55, tipY - sin * back + cos * s * hy * 0.55)
             teleG.lineTo(tipX, tipY)
           }
-          teleG.stroke({ width: 3, color: 0xffe37a, alpha: (0.3 + urgency * 0.3) * (0.7 + 0.3 * pulse) })
+          teleG.stroke({ width: 2, color: 0xffe37a, alpha: 0.16 + urgency * 0.2 })
         }
       }
 
@@ -10875,10 +11452,15 @@ export function createRenderer(app) {
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
-      boomerangPool, minePool, homingPool, trapPool, debrisPool, shotPool,
+      boomerangPool, minePool, homingPool, trapPool, shotPool,
     ]) {
       for (const s of pool) s.visible = false
     }
+    // debrisPool holds RIGS since v6.8.2 (a Container per funnel, one sprite per ring), so it must
+    // hide .root — left in the flat list above, `s.visible = false` would set a dead property on a
+    // plain object and quietly leave last run's funnels on screen.
+    for (const tv of debrisPool) tv.root.visible = false
+    for (const jv of jetPool) jv.root.visible = false        // rig pool: .root, not .visible
     for (const cv of carPool) cv.root.visible = false
     for (const lv of lobPool) lv.root.visible = false
     carCount = 0
@@ -10905,6 +11487,8 @@ export function createRenderer(app) {
     crushLedger.clear()
     for (const s of ruinSprites) s.visible = false
     for (const s of junctionSprites) s.visible = false
+    for (const s of streetSprites) s.visible = false
+    streetKey = ''
     prevSkiesShots = new Set()
     flashCooldown = 0
     jamSnapT = 0
@@ -11241,14 +11825,19 @@ export function createRenderer(app) {
       if (bombSrc(b) !== null) continue
       const urgency = b.duration > 0 ? 1 - b.fuse / b.duration : 1
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 16))
-      const fillA = Math.min(0.32, 0.12 + urgency * 0.14 + pulse * 0.04)
-      const rimA = Math.min(1, 0.55 + urgency * 0.35 + pulse * 0.1)
+      // v6.7.5: same pass as redrawLanes. Nothing is removed here — a fill and a rim is already the
+      // minimum that says "circle, and it is filling up" — so this is volume only: the rim was
+      // reaching a solid alpha 1.0 at width 5, the single loudest stroke left in the game once the
+      // lanes came down. It is not the thing the owner named, but leaving it at full blast while
+      // its neighbours halve would just make IT the new loudest telegraph.
+      const fillA = Math.min(0.2, 0.08 + urgency * 0.1 + pulse * 0.03)
+      const rimA = Math.min(0.8, 0.35 + urgency * 0.35 + pulse * 0.08)
       // v5.24 the blank (src:'trail' — the Antibody detonating your own recorded path): same
       // urgency ramp, but violet. The warm red above was tuned against dark floors and washes out
       // on the white void; the violet is the player's own hue — it IS your trail coming back.
       const color = b.src === 'trail' ? 0x8a5fe0 : 0xff6b81
       bombG.circle(b.x, b.y, b.radius).fill({ color, alpha: fillA })
-      bombG.circle(b.x, b.y, b.radius).stroke({ width: 3 + urgency * 2, color, alpha: rimA })
+      bombG.circle(b.x, b.y, b.radius).stroke({ width: 1.5 + urgency * 1.5, color, alpha: rimA })
     }
     if (chapterHasStorm) drawSkiesBombs(run)
     else clearSkiesBombs()
@@ -11594,6 +12183,7 @@ export function createRenderer(app) {
     // v5.10 skies ground enumeration (spec §4.3): junctions and crush ruins are placed
     // ANALYTICALLY from the road grid + the render-local crush ledger, not by an extra
     // FLOOR_LAYERS sweep. (v5.16: updateLamps went with the light layer.)
+    updateStreets(cx, cy)
     updateJunctions(cx, cy)
     updateRuins(cx, cy)
 
@@ -11632,6 +12222,10 @@ export function createRenderer(app) {
     redrawStrips(run)
     redrawLanes(run)
     redrawHazards(run)
+    // The hydrant rig owns BOTH phases of a Sewer Geyser zone — rattling on its fuse, then sheeting
+    // water — so unlike the old open-jet-only pass this takes the whole list. Zones with no jetDur
+    // are Reality Shard rifts, which keep the plain green telegraph redrawHazards draws above.
+    syncJets((run.geysers || []).filter((g) => g.jetDur > 0))
     redrawTelegraphs(run)
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {
@@ -11652,7 +12246,7 @@ export function createRenderer(app) {
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
     syncPool(minePool, mineLayer, run.mines, 'mine', T.mine, placeMine)
     syncPool(homingPool, homingLayer, run.homingShots, 'homing', T.homing, placeHoming)
-    syncPool(debrisPool, debrisLayer, run.debris || [], 'debris', T.trashChunk, placeDebris)
+    syncTornadoes(run.debris || [])
     syncPool(shotPool, shotLayer, run.enemyShots || [], 'shot', T.missile, placeShot)
     syncHoles(run.holes)
     // v5.22: expand a FOLDED beam into one drawn arm per damaging arm. syncBeams draws a single
@@ -11662,6 +12256,7 @@ export function createRenderer(app) {
     // The angle math mirrors sim.js's beamArmAngles. render can't import sim, and the beam entity
     // carries everything needed to derive it — but the two must stay in step, so change them together.
     syncBeams(expandBeamArms(run.beams))
+    redrawPrisms(run)
     updateArcs(dt)
     redrawArcs()
 
@@ -11759,13 +12354,47 @@ export function createRenderer(app) {
       s.scale.set(base * (1 + 0.1 * Math.sin(animT * 8 + (m.x + m.y) * 0.05))) // armed: faster pulse
     }
   }
-  // Trash Tornado chunks (run.debris): same contract as run.orbs — the sim rewrites the ring every
-  // frame. Each chunk spins on its own phase so the ring reads as tumbling junk, not a cog.
-  function placeDebris(s, d, i) {
-    s.position.set(d.x, d.y)
-    s.tint = 0xffffff
-    s.rotation = animT * 3.4 + i * 2.1
-    s.scale.set(((d.r ?? DEBRIS_R) / DEBRIS_R) * (1 + 0.08 * Math.sin(animT * 7 + i)))
+  // Trash Tornado funnels (run.debris): sim owns their positions outright (they hunt), so this only
+  // draws where they already are.
+  //
+  // v6.8.2 (owner: "rings should swirl at different speeds") — each ring is its own sprite turning
+  // at its own rate, mouth slowest and core fastest, the way a real vortex conserves angular
+  // momentum inward. That differential is the whole reason this is a rig and not one rotated
+  // texture: turning six rings in lockstep is indistinguishable from turning one disc, which is
+  // what v6.8.1 shipped. Values are rad/s, driven by animT so a frozen frame (dt=0 behind a modal)
+  // freezes the swirl too.
+  const TORNADO_RING_SPIN = [1.1, 1.5, 2.0, 2.7, 3.6, 4.8]
+
+  function acquireTornado() {
+    const root = new Container()
+    const rings = T.tornadoRings.map((look) => {
+      const s = spriteOf(look)
+      root.addChild(s)
+      return s
+    })
+    debrisLayer.addChild(root)
+    return { root, rings }
+  }
+
+  function syncTornadoes(list) {
+    const n = list.length
+    while (debrisPool.length < n) debrisPool.push(acquireTornado())
+    for (let i = 0; i < n; i++) {
+      const rig = debrisPool[i]
+      const d = list[i]
+      rig.root.visible = true
+      rig.root.position.set(d.x, d.y)
+      // The breathing pulse stays on the ROOT so every ring swells together — per-ring pulses read
+      // as the throat coming apart rather than as one thing turning.
+      rig.root.scale.set(((d.r ?? DEBRIS_R) / DEBRIS_R) * (1 + 0.06 * Math.sin(animT * 8 + i * 2.2)))
+      for (let k = 0; k < rig.rings.length; k++) {
+        // The + i * 1.3 offset is per FUNNEL, not per ring: without it a pack turns in unison and
+        // six funnels read as one object smeared across the street.
+        rig.rings[k].rotation = animT * TORNADO_RING_SPIN[k] + i * 1.3 + k * 0.9
+      }
+    }
+    for (let i = n; i < prevCount.debris; i++) debrisPool[i].root.visible = false
+    prevCount.debris = n
   }
   // Enemy missiles (run.enemyShots): aimed along velocity, trailing smoke. These are the only
   // things on screen shooting AT the player, so they get a trail — motion you can track and outrun.
@@ -11938,6 +12567,7 @@ export function createRenderer(app) {
     // the others above — it's sim-relevant (streamObstacles keeps buildings off streets) as well as
     // render-relevant, so it lives next to `crush`/`obstacles`, not inside the render-only block.
     chapterHasRoads = !!cfg?.roads
+    chapterEndlessGrid = !!cfg?.endlessGrid
     // v5.12 BUGFIX — this was `run?._obstacleSeed`, i.e. render drew the street network from a
     // DIFFERENT Math.random() draw than the one the terrain, cities and buildings come from
     // (state.js draws the two independently). v5.11 moved sim's own roadAt call to the world seed
@@ -11969,6 +12599,7 @@ export function createRenderer(app) {
       playerX = run.player.x
       playerY = run.player.y
       updateFloorLayer(cx, cy)
+      updateStreets(cx, cy)
       updateJunctions(cx, cy)
       syncPlayer(run.player, 0)
     } else {

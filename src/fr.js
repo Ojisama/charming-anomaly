@@ -10,11 +10,15 @@ const UI = {
   'Damage': 'Dégâts',
   'Projectiles': 'Projectiles',
   'Orbs': 'Orbes',
-  'Chunks': 'Morceaux',   // NOT 'Débris': that is the weapon's material name in-house
-                         // ('Jet de Débris'), and débris is a mass noun — you do not count 4 of them.
-                         // The mod copy already says 'morceaux de débris' / 'morceaux par lancer'.
+  // v6.8: the Trash Tornado counts TORNADOES now, not chunks — 'Morceaux' (and the note about
+  // débris being a mass noun) went with the orbital it labelled.
+  'Tornadoes': 'Tornades',
   'Max alive': 'Actifs max',
   'Radius': 'Rayon',
+  // 'Traque' alone, per the single-word rule above: it sits in the same table as 'Rayon' (the
+  // idle orbit ring) with a px value beside it, so the row reads as a distance without saying so.
+  'Hunt radius': 'Traque',
+  'Travel speed': 'Vitesse',
   'Range': 'Portée',
   'Length': 'Longueur',
   'Width': 'Largeur',
@@ -171,7 +175,6 @@ const UI = {
   'WAVE': 'VAGUE',
   'Lv': 'Niv',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
-  '📋 REPORTED — pest control dispatched': '📋 SIGNALÉ·E — la dératisation est en route',
 
   // level-up card composition parts (see tCardDesc/tCardTag in ui.js).
   // The stat-name half of a card line is deliberately NOT repeated here. Those keys ('damage',
@@ -308,9 +311,9 @@ const CONFIG = {
   'Chitter Shriek': 'Cri Strident',
   'A shrill scream that hurts, shoves, and panics the swarm.': 'Un cri perçant qui blesse, repousse et sème la panique dans l\'essaim.',
   'Trash Tornado': 'Tornade de Détritus',
-  'Whips up street trash to orbit and batter what it touches.': 'Soulève les détritus de la rue pour qu\'ils tournoient et frappent tout ce qu\'ils touchent.',
-  'Sewer Geyser': 'Geyser d\'Égout',
-  'Cracks the street open; scalding jets erupt where foes stand.': 'Fissure la rue ; des jets brûlants jaillissent sous les pieds des ennemis.',
+  'Whips up street trash into funnels that hunt down what comes near.': 'Soulève les détritus de la rue en tornades qui traquent tout ce qui approche.',
+  'Burst Hydrant': 'Bouche d\'Incendie Éclatée',
+  'Shears a hydrant open; it hoses down whatever comes near.': 'Arrache une bouche d\'incendie ; elle arrose tout ce qui approche.',
   'Roar': 'Rugissement',
   'A sonic cone that flattens everything in front of you.': 'Un cône sonique qui aplatit tout ce qui se trouve devant toi.',
   'Tail Swipe': 'Coup de Queue',
@@ -403,10 +406,11 @@ const CONFIG = {
   'vortex growth rate while alive': 'vitesse de croissance du vortex tant qu\'il est actif',
   'Big Crunch': 'Grand Effondrement',
   'vortex collapse detonation damage': 'dégâts de détonation à l\'effondrement du vortex',
-  'Wide Beam': 'Rayon Large',
-  'beam width': 'largeur du rayon',
-  'Long Beam': 'Rayon Long',
-  'beam length': 'longueur du rayon',
+  'Big Beam': 'Grand Rayon',
+  'beam width & length': 'largeur et longueur du rayon',
+  'Beam Prism': 'Prisme',
+  'sub-beams where the beam lands': 'sous-rayons là où le rayon frappe',
+  'sub-beams where the beam lands, each splitting again': 'sous-rayons là où le rayon frappe, se divisant à leur tour',
   'Sustain': 'Endurance',
   'beam duration': 'durée du rayon',
   'Prismatic Split': 'Division Prismatique',
@@ -506,30 +510,38 @@ const CONFIG = {
   'Chitter Spines': 'Cri Épineux',
   'quill(s) spat outward per shriek': 'piquant(s) craché(s) à chaque cri',
   'Heavy Trash': 'Détritus Lourds',
-  'debris damage': 'dégâts des débris',
-  'Wide Tornado': 'Tornade Large',
-  'orbit radius': 'rayon d\'orbite',
-  'Faster Spin': 'Rotation Rapide',
-  'spin speed': 'vitesse de rotation',
-  'More Trash': 'Plus de Détritus',
-  'debris chunks': 'morceaux de débris',
+  'funnel damage': 'dégâts des tornades',
+  // v6.8 replaced the two orbit cards ('Tornade Large' / 'Rotation Rapide') one for one — the
+  // orbit is only what the funnels do while there is nothing to hunt, so tuning it stopped being
+  // worth a level-up. 'Traque' is the verb the weapon's own description now uses.
+  'Wide Hunt': 'Traque Élargie',
+  'hunting radius': 'rayon de traque',
+  'Fast Winds': 'Vents Rapides',
+  'travel speed': 'vitesse de déplacement',
+  'More Tornadoes': 'Plus de Tornades',
+  'tornadoes': 'tornades',
   'Fling Debris': 'Projection de Débris',
   'chunk(s) hurled outward periodically': 'morceau(x) projeté(s) vers l\'extérieur périodiquement',
-  'Suction': 'Aspiration',
-  'inward pull on nearby foes': 'attraction vers l\'intérieur sur les ennemis proches',
+  // v6.9: the tornado stopped pulling ENEMIES and started sweeping LOOT, so 'Aspiration' /
+  // 'attraction ... sur les ennemis proches' went with the mechanic. 'Balayeuse' is the actual
+  // French word for a street-sweeping vehicle, which is exactly what the card depicts, and the
+  // effect line reuses this dictionary's established phrasing for the same job on wave.undertow
+  // ('les novas ramènent gemmes et pièces') so two cards doing one thing read as one thing.
+  'Street Sweeper': 'Balayeuse de Rue',
+  'funnels reel in gems and coins': 'les tornades ramènent gemmes et pièces',
   'High Pressure': 'Haute Pression',
-  'eruption damage': 'dégâts de l\'éruption',
-  'Wide Geyser': 'Geyser Large',
-  'eruption radius': 'rayon de l\'éruption',
+  'stream damage': 'dégâts du jet',
+  'Long Hose': 'Tuyau Long',
+  'hydrant reach': 'portée de la bouche d\'incendie',
   'Burst Main': 'Conduite Éclatée',
-  'Broken Mains': 'Conduites Brisées',
-  'geysers per cast': 'geysers par lancer',
-  'Launch': 'Éjection',
-  'eruptions fling and stun what they catch': 'les éruptions projettent et étourdissent ce qu\'elles atteignent',
-  'Chain Burst': 'Explosion en Chaîne',
-  'follow-up geyser(s) per eruption': 'geyser(s) supplémentaire(s) par éruption',
+  'Split Nozzle': 'Lance Multiple',
+  'foes hosed at once': 'ennemis arrosés à la fois',
+  'Deep Main': 'Conduite Profonde',
+  'how long a hydrant runs': 'durée de la bouche d\'incendie',
+  'Cap Blast': 'Bouchon Éjecté',
+  'the blown cap flings and stuns what it catches': 'le bouchon éjecté projette et étourdit ce qu\'il atteint',
   'Traffic Main': 'Conduite Principale',
-  'eruptions inside a live lane hit far harder — and geysers seek the street': 'les éruptions dans une voie active frappent bien plus fort — et les geysers cherchent la rue',
+  'hydrants in a live lane hit far harder — and seek the street': 'les bouches d\'incendie dans une voie active frappent bien plus fort — et cherchent la rue',
   'Bellow': 'Beuglement',
   'roar damage': 'dégâts du rugissement',
   'Wide Roar': 'Rugissement Large',
@@ -577,8 +589,7 @@ const CONFIG = {
   'each blink leaves a detonating rift': 'chaque saut laisse une faille qui détone',
   'Recursion': 'Récursion',
   'shard(s) forked when one expires': 'éclat(s) dédoublé(s) quand l\'un expire',
-  'Wide Fold': 'Pli Large',
-  'Long Fold': 'Pli Long',
+  'Big Fold': 'Grand Pli',
   'Held Fold': 'Pli Soutenu',
   'Quick Fold': 'Pli Rapide',
   'Hyperfold': 'Hyperpli',

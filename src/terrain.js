@@ -148,11 +148,9 @@ export const CITY_GRID = 3400
 const CITY_CHANCE = 0.78
 const CITY_R_MIN = 1350
 const CITY_R_MAX = 2450
-// Street grid angle range. A square grid is symmetric every 90 degrees, so rolling the angle over
-// [0, PI/2) covers every distinct orientation — a wider range would just repeat.
-const CITY_ANGLE_SPAN = Math.PI / 2
-const CITY_BLOCK_MIN = 300
-const CITY_BLOCK_MAX = 440
+// v6.9.2: a city no longer carries a street angle or a block pitch. Both moved to the ONE world
+// grid (see BLOCK_U/BLOCK_V under roads) — a city's whole remaining job is to say where pavement
+// is, through its radius and the urban falloff.
 // Cities are rejected on ground you could not build on. Both margins are generous on purpose: a
 // city centre sitting exactly at the waterline would put half its street grid in the sea.
 const CITY_MIN_ELEV = SEA_LEVEL + 0.05
@@ -187,9 +185,6 @@ export function cityAt(ci, cj, seed) {
     const home = {
       x: 0, y: 0,
       r: CITY_R_MAX,
-      angle: ihash(0, 0, (seed + 503) | 0) * CITY_ANGLE_SPAN,
-      blockU: CITY_BLOCK_MIN + ihash(0, 0, (seed + 601) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN),
-      blockV: CITY_BLOCK_MIN * 0.72 + ihash(0, 0, (seed + 683) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN) * 1.5,
       ci, cj,
     }
     cityCache.set(key, home)
@@ -209,14 +204,6 @@ export function cityAt(ci, cj, seed) {
       city = {
         x, y,
         r: CITY_R_MIN + rr * (CITY_R_MAX - CITY_R_MIN),
-        angle: ihash(ci, cj, (seed + 503) | 0) * CITY_ANGLE_SPAN,
-        // TWO pitches, not one. A single `block` used on both axes makes every city literal graph
-        // paper — an FFT of the road mask came back as exactly two dominant frequencies at the SAME
-        // 360px, 90 degrees apart. Real street grids are anisotropic: long blocks one way, short the
-        // other (Manhattan is 80m x 274m). Two hash salts, and the whole city stops reading as a
-        // sheet of squares.
-        blockU: CITY_BLOCK_MIN + ihash(ci, cj, (seed + 601) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN),
-        blockV: CITY_BLOCK_MIN * 0.72 + ihash(ci, cj, (seed + 683) | 0) * (CITY_BLOCK_MAX - CITY_BLOCK_MIN) * 1.5,
         ci, cj,
       }
     }
@@ -311,14 +298,72 @@ export const DOWNTOWN_URBAN = 0.42
 export const SUBURB_URBAN = 0.10
 
 // ---- roads ---------------------------------------------------------------------------------------
-// Two classes, both anchored to cities. Widths are in px; a "major" road is drawn wider by render.
-export const STREET_SPACING_MAJOR_EVERY = 4   // every Nth street in a city grid is an avenue
-export const STREET_MINOR_WIDTH = 30
-export const STREET_MAJOR_WIDTH = 54
-export const HIGHWAY_WIDTH = 64
+// v6.9.2 (owner: "roads are at 90 deg only, wider so that they adapt to car sprite design").
+//
+// THE STREET GRID IS A PROPERTY OF THE WORLD, NOT OF EACH CITY. Until now every city carried its
+// own rotation and its own two block pitches, and `roadAt` answered in whichever city was NEAREST.
+// Cities overlap heavily by construction — radius up to CITY_R_MAX 2450 on a CITY_GRID 3400 lattice
+// with +-1054 of jitter, so neighbouring centres can sit 1292 apart — which means a single phone
+// screen routinely straddles two or three Voronoi cells and shows two or three DIFFERENTLY ROTATED
+// grids meeting along an arbitrary line, with inter-city highways cutting across all of them at
+// their own angles. That is the reported screenshot: six roads radiating out of one intersection.
+//
+// One grid, axis-aligned, shared by every city, fixes it at the source and is less code than what
+// it replaces: streets run exactly north-south and east-west, they line up across a city boundary
+// instead of colliding with it, and highways are grid lines too (see highwaysNear's dogleg). Cities
+// now decide only WHERE there is pavement, via the urban falloff — which is the one question they
+// were ever really answering.
+export const STREET_SPACING_MAJOR_EVERY = 4   // every Nth street is an avenue
+// Widths are in px and are set BY THE TAXI, which is TRAFFIC_CAR_W (110) across and is the chapter's
+// signature threat: a street the car cannot fill is a street the hazard does not belong on, and the
+// old 30px lane put a 110px vehicle on something a quarter of its width. A minor street is now one
+// car plus a margin — so "the taxi owns the whole street, get off it" is legible from the geometry.
+export const STREET_MINOR_WIDTH = 130
+export const STREET_MAJOR_WIDTH = 210
+// v6.9.3: EXACTLY the avenue width, and highway legs snap to AVENUE grid lines (see highwaysNear).
+// Now that a highway is a grid line rather than a diagonal, any difference between the two widths
+// shows up as a step in the middle of a road — measured at the origin, a 250 trunk butting a 210
+// avenue on the same line, which is precisely the sort of seam the v6.9.1/2 work was removing. The
+// class still means something (markings, and it outranks a street in roadAt); it just no longer
+// means a different width.
+export const HIGHWAY_WIDTH = STREET_MAJOR_WIDTH
+// Block pitch, world-wide. Anisotropic on purpose (the v5.11 finding: one pitch on both axes makes
+// every city literal graph paper — an FFT of the road mask came back as two dominant frequencies at
+// the SAME 360px, 90 degrees apart). Sized off the widths above: a block has to keep a buildable
+// interior once the streets have taken their share, so these are ~5x a minor street, leaving
+// the block interior against the VIEWPORT, which is only ~390x844 world px. The first A/B tried
+// 860x1180 (a 28% road area, the Manhattan figure) and it was wrong for this camera: the block
+// interior came out larger than the screen, so most of the time you stood in a featureless grey
+// field with no street in sight and no way to read the city or where the taxi could come from.
+// 480x680 keeps a street on screen almost always. It costs a road area near 44%, which is far past
+// any real city — but a wide street the taxi fills is the thing that was asked for, and asphalt you
+// can see beats geography you cannot.
+export const BLOCK_U = 480    // spacing of the north-south streets (along x)
+export const BLOCK_V = 680    // spacing of the east-west streets (along y)
 // Streets stop before the very edge of the urban falloff so the outermost houses sit on unpaved
 // ground — a city whose grid runs exactly to its own boundary reads as a stamped rectangle.
 const STREET_MIN_URBAN = 0.15
+
+// How far past the kerb a facade stands. Small on purpose — buildings LINE the street.
+const STRUCTURE_KERB = 10
+
+// Half-width of the street at grid index `i` on either axis (they share the major rule).
+function streetHalf(i) {
+  const E = STREET_SPACING_MAJOR_EVERY
+  return (((i % E) + E) % E === 0 ? STREET_MAJOR_WIDTH : STREET_MINOR_WIDTH) / 2
+}
+
+// Nearest grid line index on each axis, and the signed distance to it. The grid is phase-locked to
+// the world origin, so (0,0) — where every run spawns — is a junction, which is the chapter's
+// opening image ("you are a kaiju standing downtown") for free.
+function gridIndex(v, pitch) { return Math.round(v / pitch) }
+
+// The nearest AVENUE line on an axis, in world px. Avenues are the grid indices divisible by
+// STREET_SPACING_MAJOR_EVERY, so this rounds to a multiple of that many pitches.
+function majorLine(v, pitch) {
+  const span = pitch * STREET_SPACING_MAJOR_EVERY
+  return Math.round(v / span) * span
+}
 
 // Highway segments passing near lattice cell (ci, cj), memoised. Each city links only to the sites
 // at (+1, 0) and (0, +1); every unordered pair is therefore generated exactly once, from its
@@ -326,7 +371,9 @@ const STREET_MIN_URBAN = 0.15
 const highwayCache = new Map()
 const HIGHWAY_CACHE_MAX = 2048
 
-function highwaysNear(ci, cj, seed) {
+// Exported (v6.9.1) so render.js can DRAW a highway as the single straight segment it is, instead
+// of rediscovering it one cell at a time. `ci, cj` is the CITY_GRID lattice cell of the query point.
+export function highwaysNear(ci, cj, seed) {
   const key = ci + ',' + cj + ',' + seed
   const hit = highwayCache.get(key)
   if (hit !== undefined) return hit
@@ -340,7 +387,25 @@ function highwaysNear(ci, cj, seed) {
       for (const [di, dj] of [[1, 0], [0, 1]]) {
         const b = cityAt(i + di, j + dj, seed)
         if (!b) continue
-        segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y })
+        // v6.9.2: a DOGLEG of two axis-aligned legs, not one oblique segment. A straight line
+        // between two city centres is the last source of roads at arbitrary angles, and it used to
+        // cut diagonally across the very grid it was joining. Both legs are snapped ONTO grid lines,
+        // so a highway is a street-grid line promoted to trunk width — which is also what makes it
+        // impossible for a highway to run parallel to a street a few px away and smear into it.
+        // Snapped to AVENUE lines, not just any grid line: a trunk road runs along the big streets,
+        // and it is the only way its width can match the line it lands on.
+        const ax = majorLine(a.x, BLOCK_U)
+        const bx = majorLine(b.x, BLOCK_U)
+        const ay = majorLine(a.y, BLOCK_V)
+        const by = majorLine(b.y, BLOCK_V)
+        // Which way round the corner goes is hashed off the PAIR, so both endpoints agree.
+        if (ihash(i * 31 + di, j * 31 + dj, (seed + 877) | 0) < 0.5) {
+          segs.push({ ax, ay, bx, by: ay })   // east-west leg first...
+          segs.push({ ax: bx, ay, bx, by })   // ...then north-south
+        } else {
+          segs.push({ ax, ay, bx: ax, by })
+          segs.push({ ax, ay: by, bx, by })
+        }
       }
     }
   }
@@ -349,39 +414,60 @@ function highwaysNear(ci, cj, seed) {
   return segs
 }
 
-// Perpendicular distance from a point to a segment, plus the segment's own heading.
+// Perpendicular distance from a point to a segment, plus the segment's own heading and which SIDE
+// of it the point is on (`s`, +1/-1 along the heading's left normal (-sin, cos)).
 function segDist(px, py, ax, ay, bx, by) {
   const vx = bx - ax, vy = by - ay
   const len2 = vx * vx + vy * vy
-  if (len2 === 0) return { d: Math.hypot(px - ax, py - ay), angle: 0 }
+  if (len2 === 0) return { d: Math.hypot(px - ax, py - ay), angle: 0, s: 1 }
   let t = ((px - ax) * vx + (py - ay) * vy) / len2
   t = t < 0 ? 0 : t > 1 ? 1 : t
-  return { d: Math.hypot(px - (ax + t * vx), py - (ay + t * vy)), angle: Math.atan2(vy, vx) }
+  const side = (py - ay) * vx - (px - ax) * vy      // >0 when the point is left of the heading
+  return {
+    d: Math.hypot(px - (ax + t * vx), py - (ay + t * vy)),
+    angle: Math.atan2(vy, vx),
+    s: side >= 0 ? 1 : -1,
+  }
 }
 
 // Is (x, y) roadway? Returns { onRoad: false }, or:
 //   angle  — the road's heading in world space (0 = runs along +x)
 //   dist   — px from the centreline (>= 0)
+//   off    — the SAME distance, SIGNED along the heading's left normal (-sin angle, cos angle), so
+//            the centreline point is exactly (x - off * -sin angle, y - off * cos angle) with no
+//            probing. v6.9.1: render.js used to recover this sign by re-querying roadAt 4px to one
+//            side and seeing whether `dist` shrank — which is simply wrong whenever the query point
+//            is within 4px of the centreline (the probe crosses it, `dist` does not shrink, and the
+//            stamp is placed 2*dist off the line). On a 30px street that put a visible sideways jog
+//            in every other carriageway stamp: the reported "roads are not straight".
 //   half   — this road's own half-width, so dist/half is "how far toward the kerb"
 //   major  — avenue or highway: render draws these wider and with different markings
 //   kind   — 'street' | 'highway'
 // Signature-compatible with the v5.9 roadAt it replaces, minus the global lattice: EVERY road
 // returned here belongs to a city, either inside one or running between two.
-export function roadAt(x, y, seed) {
+export function roadAt(x, y, seed, endless = false) {
   // Highways first — they outrank a city street where the two overlap, since a highway running into
   // a city becomes its main artery rather than stopping at the boundary.
   const ci = Math.floor(x / CITY_GRID), cj = Math.floor(y / CITY_GRID)
   const half = HIGHWAY_WIDTH / 2
-  let bestD = Infinity, bestAngle = 0
+  let bestD = Infinity, bestAngle = 0, bestSide = 1
   for (const s of highwaysNear(ci, cj, seed)) {
     const r = segDist(x, y, s.ax, s.ay, s.bx, s.by)
-    if (r.d < bestD) { bestD = r.d; bestAngle = r.angle }
+    if (r.d < bestD) { bestD = r.d; bestAngle = r.angle; bestSide = r.s }
   }
-  if (bestD <= half) return { onRoad: true, angle: bestAngle, dist: bestD, half, major: true, kind: 'highway' }
+  if (bestD <= half) return { onRoad: true, angle: bestAngle, dist: bestD, off: bestD * bestSide, half, major: true, kind: 'highway' }
 
   // City streets: laid out in the nearest city's OWN rotated frame, which is what makes one city one
   // continuous grid instead of a slice of an infinite global lattice.
-  const near = nearestCity(x, y, seed)
+  // v6.9.5 (owner: "why city ends? why not just repeating squares of roads?"). `endless` drops the
+  // two gates that make a street grid belong to a city — the nearest-city test and the urban
+  // falloff — leaving the grid to repeat over the whole plane. It is a PARAMETER rather than a new
+  // default because the two chapters that have roads want opposite things: `city` is downtown all
+  // the way out, `skies` is a built world with real farmland and parks that a street grid must not
+  // pave over. The WATER gate below is deliberately still enforced either way: an endless grid is
+  // still not a grid across the open sea, which is the exact artefact the v5.11 rewrite existed to
+  // remove.
+  const near = endless ? true : nearestCity(x, y, seed)
   if (!near) return { onRoad: false }
   // The EXTENT gate uses urbanAt (a max over every nearby city), the same function the ground colour
   // uses; the FRAME still comes from the nearest city, because a block belongs to exactly one grid.
@@ -389,18 +475,13 @@ export function roadAt(x, y, seed) {
   // disagree wherever two cities overlap — visibly, the grey of the city ended while its streets
   // carried on into open country. Two different answers to "is this place a city" is precisely the
   // kind of incoherence this rewrite is chasing out.
-  if (urbanAt(x, y, seed) < STREET_MIN_URBAN) return { onRoad: false }
+  if (!endless && urbanAt(x, y, seed) < STREET_MIN_URBAN) return { onRoad: false }
 
-  const c = near.city
-  const cos = Math.cos(-c.angle), sin = Math.sin(-c.angle)
-  const dx = x - c.x, dy = y - c.y
-  const u = dx * cos - dy * sin
-  const v = dx * sin + dy * cos
-
-  const ui = Math.round(u / c.blockU)
-  const vi = Math.round(v / c.blockV)
-  const uDist = Math.abs(u - ui * c.blockU)
-  const vDist = Math.abs(v - vi * c.blockV)
+  // v6.9.2: the WORLD grid, not the nearest city's own rotated frame. `u` is simply x and `v` is y.
+  const ui = gridIndex(x, BLOCK_U)
+  const vi = gridIndex(y, BLOCK_V)
+  const uDist = Math.abs(x - ui * BLOCK_U)
+  const vDist = Math.abs(y - vi * BLOCK_V)
   const uMajor = ((ui % STREET_SPACING_MAJOR_EVERY) + STREET_SPACING_MAJOR_EVERY) % STREET_SPACING_MAJOR_EVERY === 0
   const vMajor = ((vi % STREET_SPACING_MAJOR_EVERY) + STREET_SPACING_MAJOR_EVERY) % STREET_SPACING_MAJOR_EVERY === 0
   const uHalf = (uMajor ? STREET_MAJOR_WIDTH : STREET_MINOR_WIDTH) / 2
@@ -421,18 +502,29 @@ export function roadAt(x, y, seed) {
   // exactly what the wide-area captures showed. Highways still cross (they are checked above and
   // deliberately exempt): a trunk road spanning water on a causeway is real, a residential street
   // grid ignoring a river is not.
-  const elev = elevationAt(x, y, seed)
-  if (elev < SEA_LEVEL) return { onRoad: false }
-  if (elev < HILL_LEVEL) {
-    const lowness = (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)
-    if (riverAt(x, y, seed) < RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness) return { onRoad: false }
+  // v6.9.6: an ENDLESS grid skips the WATER GATES ENTIRELY, sea included. The sea test exists so a
+  // street is never drawn across a painted ocean (the v5.11 "roads in the sea" artefact) — but the
+  // city chapter has no `districts` in its render block, so it never paints sea, hills or farmland
+  // at all: its floor is flat asphalt everywhere. The elevation field is still there underneath,
+  // so the grid was stopping dead at a coastline the player cannot see, which is the "road just
+  // stops" report arriving by a second route. `skies` DOES paint its terrain and keeps both gates.
+  if (!endless) {
+    const elev = elevationAt(x, y, seed)
+    if (elev < SEA_LEVEL) return { onRoad: false }
+    if (elev < HILL_LEVEL) {
+      const lowness = (HILL_LEVEL - elev) / (HILL_LEVEL - SEA_LEVEL)
+      if (riverAt(x, y, seed) < RIVER_CORE + RIVER_MOUTH_GAIN * lowness * lowness) return { onRoad: false }
+    }
   }
   // At a junction the nearer centreline wins — that is the one anything distance-based should key
   // off (kerb fade, lane markings).
+  // `off` signs `dist` along the returned heading's left normal.
+  //   a north-south street (x = ui*BLOCK_U) runs at PI/2, left normal (-1, 0) -> off = -(x - ui*BU)
+  //   an east-west street  (y = vi*BLOCK_V) runs at 0,    left normal ( 0, 1) -> off =  (y - vi*BV)
   if (onU && (!onV || uDist <= vDist)) {
-    return { onRoad: true, angle: c.angle + Math.PI / 2, dist: uDist, half: uHalf, major: uMajor, kind: 'street' }
+    return { onRoad: true, angle: Math.PI / 2, dist: uDist, off: -(x - ui * BLOCK_U), half: uHalf, major: uMajor, kind: 'street' }
   }
-  return { onRoad: true, angle: c.angle, dist: vDist, half: vHalf, major: vMajor, kind: 'street' }
+  return { onRoad: true, angle: 0, dist: vDist, off: y - vi * BLOCK_V, half: vHalf, major: vMajor, kind: 'street' }
 }
 
 // ---- biome classification ------------------------------------------------------------------------
@@ -548,25 +640,23 @@ export const BIOME_BUILD_DENSITY = {
 // returns the position pushed to the nearest block interior plus the rotation that faces it onto the
 // street, or null when the point is not in a city (countryside keeps its free scatter).
 // `setback` is how far the facade sits from the street centreline.
-export function blockSnap(x, y, seed, setback) {
-  const near = nearestCity(x, y, seed)
-  if (!near) return null
-  const c = near.city
-  const cos = Math.cos(-c.angle), sin = Math.sin(-c.angle)
-  const dx = x - c.x, dy = y - c.y
-  let u = dx * cos - dy * sin
-  let v = dx * sin + dy * cos
-  // Distance from each axis' nearest street centreline, signed, so a building can be pushed to
-  // whichever side of the block it already sits on rather than always the same side.
-  const ui = Math.round(u / c.blockU), vi = Math.round(v / c.blockV)
-  const du = u - ui * c.blockU, dv = v - vi * c.blockV
-  if (Math.abs(du) < setback) u = ui * c.blockU + Math.sign(du || 1) * setback
-  if (Math.abs(dv) < setback) v = vi * c.blockV + Math.sign(dv || 1) * setback
-  // Rotate back into world space.
-  const bcos = Math.cos(c.angle), bsin = Math.sin(c.angle)
+export function blockSnap(x, y, seed, setback, endless = false) {
+  if (!endless && !nearestCity(x, y, seed)) return null
+  // v6.9.2: the world grid, so this is a push in x and y with no frame to rotate through. Signed,
+  // so a building is pushed to whichever side of the block it already sits on rather than always
+  // the same side. Buildings square to the world because the streets now do.
+  const ui = gridIndex(x, BLOCK_U), vi = gridIndex(y, BLOCK_V)
+  const du = x - ui * BLOCK_U, dv = y - vi * BLOCK_V
+  // The push has to clear the KERB, not just the caller's setback. The caller sizes `setback` off
+  // the structure (its radius plus a margin) and knows nothing about how wide this particular
+  // street is; since v6.9.2 a minor street is 130px and an avenue 210, so a setback smaller than
+  // the half-width would park the building in the middle of the carriageway — where sim.js's
+  // post-snap roadAt check then rejects it outright, and downtown comes out nearly empty.
+  const uPush = Math.max(setback, streetHalf(ui) + STRUCTURE_KERB)
+  const vPush = Math.max(setback, streetHalf(vi) + STRUCTURE_KERB)
   return {
-    x: c.x + (u * bcos - v * bsin),
-    y: c.y + (u * bsin + v * bcos),
-    angle: c.angle,
+    x: Math.abs(du) < uPush ? ui * BLOCK_U + Math.sign(du || 1) * uPush : x,
+    y: Math.abs(dv) < vPush ? vi * BLOCK_V + Math.sign(dv || 1) * vPush : y,
+    angle: 0,
   }
 }
