@@ -1004,14 +1004,24 @@ function generateWells(sig) {
  *   `run` is not saved — and never migrated for the same reason.
  * _eliteKills (v6.7.6): elites killed this run. Gates anomaly `when` predicates; run.kills counts
  *   every enemy and so cannot answer "has this player met an elite yet".
- * _screensSinceAnomaly (v6.7.8): anomaly pity. Level-up SCREENS shown since the last one on which
- *   the tier's roll fired, INCLUDING the screen currently being built — stepLevelUp advances it
- *   once per screen, before calling buildLevelUpChoices, so the count is 1 on a screen with no dry
- *   screens behind it and sim.js's weight term is (count - 1) * ANOMALY_PITY_PER_SCREEN. Advancing
- *   it in stepLevelUp rather than in the builder is what stops a REROLL pumping it (main.js's
- *   onReroll calls buildLevelUpChoices directly). Zeroed by rollAnomalyCard when the roll fires —
- *   on the ROLL, not on a card being produced — and capped in weight by ANOMALY_PITY_CAP, because
- *   the counter also advances through screens where the tier is ineligible. Never serialized.
+ * _screensSinceAnomaly (v6.7.8): anomaly pity. Level-up SCREENS the tier was ELIGIBLE on since the
+ *   last one its roll fired on, INCLUDING the screen currently being built — stepLevelUp advances
+ *   it once per screen, before calling buildLevelUpChoices, so the count is 1 on a screen with no
+ *   dry screens behind it and sim.js's weight term is (count - 1) * ANOMALY_PITY_PER_SCREEN (see
+ *   anomalyWeightFor). Advancing it in stepLevelUp rather than in the builder is what stops a
+ *   REROLL pumping it (main.js's onReroll calls buildLevelUpChoices directly). v6.7.9: a screen
+ *   the tier is ineligible for (level floor, `when` false, all cards taken) does NOT advance it —
+ *   credit is earned only where it can be spent, or the first Rupture of every run clusters on the
+ *   screens right after ANOMALY_MIN_LEVEL. Zeroed by rollAnomalyCard when the roll fires — when
+ *   the tier is OFFERED, not when the card is kept — and capped in weight by ANOMALY_PITY_CAP.
+ *   Never serialized.
+ * _screenAnomaly (v6.7.9): the CURRENT screen's answer to "does this screen carry an anomaly" —
+ *   `undefined` = not asked yet, `null` = asked, no, a card object = this screen's anomaly card.
+ *   buildLevelUpChoices fills it on first ask and reuses it afterwards; stepLevelUp clears it when
+ *   a new screen opens, and nothing else does. That is what makes a REROLL re-roll the ordinary
+ *   cards only: without it every reroll was an independent draw at the pitied weight (5 rerolls
+ *   measured 20.1% -> 75.5% anomaly-on-screen at a saturated counter), and a reroll of a screen
+ *   that HAD one both spent the pity and threw the card away. Never serialized.
  *
  * v4.5 gold sinks (see CONSUMABLES/REROLL_* in config.js):
  * consumables: run.consumables is the array of CONSUMABLES ids (opts.consumables passed to
@@ -1194,10 +1204,14 @@ export function createRun(meta, opts = {}) {
     // Elites killed this run. Gates anomaly predicates ("you have met an elite"), which run.kills
     // cannot answer. Incremented in dealDamage's elite death branch.
     _eliteKills: 0,
-    // v6.7.8 anomaly pity: level-up SCREENS shown since the last one that rolled an anomaly,
-    // counting the screen being built. Advanced by stepLevelUp (never by buildLevelUpChoices, or a
-    // reroll would pump it) and zeroed by the roll itself. See ANOMALY_PITY_PER_SCREEN in config.js.
+    // v6.7.8 anomaly pity: level-up SCREENS THE TIER WAS ELIGIBLE ON since the last one that rolled
+    // an anomaly, counting the screen being built. Advanced by stepLevelUp (never by
+    // buildLevelUpChoices, or a reroll would pump it) and zeroed by the roll itself. See
+    // ANOMALY_PITY_PER_SCREEN in config.js.
     _screensSinceAnomaly: 0,
+    // v6.7.9: this screen's anomaly decision — undefined (not asked), null (asked, none) or the
+    // card. Made once per screen so a reroll cannot draw the tier again, or spend the pity twice.
+    _screenAnomaly: undefined,
     enemies: [],
     bullets: [],
     novas: [],

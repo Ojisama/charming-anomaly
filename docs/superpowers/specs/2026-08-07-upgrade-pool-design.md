@@ -501,11 +501,29 @@ anomalyWeight = eligible.length === 0 ? 0 : Math.min(45, 8 + 2 * run._cardsSince
 > twice the accrual of a 2-slot one. The `- 1` is because the counter includes the screen being
 > built (`stepLevelUp` advances before the build), so a screen with no dry screens behind it rolls
 > at exactly the base weight. Measured, mortal body/2 d3 take-every-anomaly, shipped table ->
-> 18-card slate: 0.50 -> 0.80 without pity, 0.80 -> 1.20 with it.
+> 18-card slate: 0.50 -> 0.80 without pity, 0.75 -> 1.10 with it.
+>
+> **v6.7.9 amended two things after adversarial review**, both of which this section had wrong.
+> (1) The counter advances only on screens the tier is **eligible** on. Accruing through the
+> ineligible stretch banks credit on a fixed schedule — `ANOMALY_MIN_LEVEL` gates nearly every card
+> — and spends it the instant the gate opens. Measured over 400 immortal body runs that decline
+> every card, share of runs whose first offer lands within three screens of the gate: **37.0% →
+> 23.5%** with every card at the table floor of 8, 28.8% → 22.3% on the shipped table (its one card
+> floors at 3). It also meant the base weight was never in play: a mortal body/2 run opens ~15.7
+> screens of which only ~8.1 are tier-eligible, so runs reached eligibility with half a run of
+> credit banked.
+> (2) The tier's answer is decided **once per screen** and memoised on `run._screenAnomaly`, so a
+> reroll re-rolls the ordinary cards only — see B6, which this closes rather than defers.
 
-- Reset when the anomaly tier is **rolled**, not when a card is produced (F1).
-- Advance **once per level-up screen** in `stepLevelUp`, not per card and not on reroll (F5).
-- `MAX_ANOMALIES_PER_RUN = 4`, and **at most one anomaly per pool**.
+- Reset when the anomaly tier is **rolled**, not when a card is produced (F1). The credit therefore
+  buys the OFFER, not the pick: declining spends it. Resetting on the pick instead would put the
+  tier back on screen every ~5 level-ups until the player accepted, which turns declining a cost
+  card into a nag. It is spent exactly ONCE — a reroll cannot throw the card away (v6.7.9).
+- Advance **once per level-up screen** in `stepLevelUp`, not per card and not on reroll (F5), and
+  only on a screen the tier could actually have paid out on (v6.7.9).
+- `MAX_ANOMALIES_PER_RUN = 4`, and **at most one anomaly per pool**. *(Shipped as **2** — the
+  owner's "1-2 per run" call, taken after this was written. Raising it back is not a free knob: the
+  immortal cells in `config.js`'s rate table sit at the cap, so nothing above 2 has been measured.)*
 - **An anomaly may never occupy the last remaining slot** — always guarantee one non-anomaly card,
   so a forced pick can never be "take a curse or take a curse."
 
@@ -528,6 +546,16 @@ export const REROLL_RARITY_CAP = 3
 It deliberately **does not touch the anomaly weight** — rerolling buys bigger numbers, not more
 rule-changes. Without that separation reroll becomes a pity pump: 133 coins takes anomaly-on-screen
 from 21% to 65%.
+
+> **Not touching the weight was never enough, and v6.7.9 fixed the real mechanism.** The hazard is
+> repeated DRAWS, not an inflated weight: `onReroll` calls `buildLevelUpChoices` again, so every
+> reroll used to be a fresh independent draw at the current pitied weight. Measured on the shipped
+> pipeline, rerolling until the tier shows: at a saturated counter **20.1% at 0 rerolls -> 75.5% at
+> 5**, for 133 coins against ~370 earned in a body/2 run (6.8% -> 33.9% at base pity) — the spec's
+> own 21% -> 65% figure, arriving through the door this section was not watching. The tier is now decided once per SCREEN (`run._screenAnomaly`); a reroll
+> re-rolls the ordinary cards and leaves the Rupture question settled. Run PB3 asserts it both
+> exactly (same card back after each of 5 rerolls, counter unmoved) and in rate. Task 4 therefore
+> only owes the rarity decay below.
 
 No `main.js` change needed: `stepLevelUp` sets `run._screenRerolls = -1` before calling
 `buildLevelUpChoices`, which increments on entry. First call lands on 0; each reroll steps up; the
@@ -568,7 +596,7 @@ verified by hand against the code. Recorded so a future pass doesn't re-derive t
 | F2 | Bucket-first returns **fewer cards than `choiceSlots`** — `MAX_MODS_PER_WEAPON_PER_POOL = 1` caps the mod bucket at one card/pool, ~9% of body/2 screens. `test/sim-test.js:1669` asserts `length === slots` | B1: re-roll among remaining buckets per slot |
 | F3 | `pickWeighted({})` throws inside `app.ticker` — hard softlock | Track A / A4 |
 | F4 | `NEW_WEAPON_MIN_RATE` overwrites the **last** card slot unconditionally and would delete anomalies | Skip the swap if any card is `kind:'anomaly'`; move the pity reset after the final array |
-| F5 | Reroll is a pity pump *and* burns credit when you reroll past an unwanted anomaly | B5: advance once per screen in `stepLevelUp`; B6 keeps reroll on the rarity axis only |
+| F5 | Reroll is a pity pump *and* burns credit when you reroll past an unwanted anomaly | B5: advance once per screen in `stepLevelUp`; B6 keeps reroll on the rarity axis only. **Both clauses only closed at v6.7.9**: keeping the weight off reroll never addressed repeated DRAWS (measured 20.1% -> 75.5% over 5 rerolls at saturated pity), and the burn clause was untouched until the tier's answer became one decision per screen (`run._screenAnomaly`) |
 | F6 | Deleting mythic breaks `rainbow` (city starter), `WEAPON_MOD_TIER_BONUS`, three tests, and the jackpot | B3: mythic stays |
 | F7 | Buckets silently delete **weapon inherent-rarity gating**; adopted rarity on weapon cards is meaningless | B1: gate inside the bucket, keep `cfg.rarity` on the chip |
 | F8 | Deleting `ELEMENT_CARD_WEIGHT` strands `MUTATORS.unstable` (`elementWeightMul: 3`) — it becomes a pure −15% damage debuff while ui.js still advertises "infusion card chance ×3", on ~25% of Dailies | Fold into the bucket: `BUCKET_WEIGHTS.element * run.mods.elementWeightMul` before renormalizing |

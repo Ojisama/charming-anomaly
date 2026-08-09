@@ -5961,28 +5961,42 @@ function eligibleAnomalyIds(run) {
   })
 }
 
-// The anomaly tier's roll: ONCE PER SCREEN (see buildLevelUpChoices), against the ordinary
-// table's TOTAL rather than as an entry inside RARITY_WEIGHTS. Rolling against the total is what
-// makes it a parallel tier: its share reads directly as weight/(total + weight), it never
-// perturbs the rarity ladder, and a failed roll simply leaves the screen as rolled.
+// The weight the anomaly tier competes at on THIS screen, exported so the suite can pin the
+// arithmetic exactly rather than infer it from a rate (a 1-point weight step is a 0.9-point rate
+// step, which no affordable sample size can separate — v6.7.8 shipped the `- 1` below with the
+// whole suite still green when it was deleted).
+//   count - 1  because run._screensSinceAnomaly INCLUDES the screen being built: stepLevelUp
+//              advances it before calling the builder, so the DRY screens behind this one are
+//              count - 1. That is what makes the FIRST screen the tier is eligible on roll at
+//              exactly ANOMALY_BASE_WEIGHT, i.e. what keeps that constant's documented share a
+//              rate the game really rolls at. The clamp covers a caller that never went through
+//              stepLevelUp (the probe harness, a test fixture).
+//   no slots   the term must not read run.choiceSlots, directly or through the counter: pity that
+//              scales with slots is the meta-shop lottery the per-screen roll exists to close,
+//              arriving through the pity term instead of the base rate.
+export function anomalyWeightFor(run) {
+  const dryScreens = Math.max(0, (run._screensSinceAnomaly ?? 0) - 1)
+  return Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * dryScreens)
+}
+
+// The anomaly tier's roll: ONCE PER SCREEN (see buildLevelUpChoices, which memoises the outcome
+// on run._screenAnomaly so a reroll cannot draw again), against the ordinary table's TOTAL rather
+// than as an entry inside RARITY_WEIGHTS. Rolling against the total is what makes it a parallel
+// tier: its share reads directly as weight/(total + weight), it never perturbs the rarity ladder,
+// and a failed roll simply leaves the screen as rolled.
 function rollAnomalyCard(run) {
   const eligible = eligibleAnomalyIds(run)
   if (eligible.length === 0) return null
   const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
-  // v6.7.8 PITY. run._screensSinceAnomaly counts the screen being built (stepLevelUp advances
-  // before the build), so the DRY screens behind it are count - 1 — that is what makes a screen
-  // with nothing behind it roll at exactly ANOMALY_BASE_WEIGHT, and it clamps at 0 for a caller
-  // that never went through stepLevelUp at all (a reroll, the probe harness, a test fixture).
-  // The CAP is not decoration: the counter advances through screens where the tier is INELIGIBLE
-  // too — every `when` predicate false, every card already taken, the level floor not yet reached
-  // — so an uncapped term would let a long dry stretch detonate the tier on the first screen it
-  // qualifies for, handing out MAX_ANOMALIES_PER_RUN back to back (F1).
-  const dryScreens = Math.max(0, (run._screensSinceAnomaly ?? 0) - 1)
-  const anomalyWeight = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * dryScreens)
+  const anomalyWeight = anomalyWeightFor(run)
   if (Math.random() * (ordinaryTotal + anomalyWeight) >= anomalyWeight) return null
-  // RESET ON THE ROLL, not on a card being produced or kept. Resetting where the card is consumed
-  // would let a screen whose eligible list was empty pump the counter forever with nothing to
-  // spend it on; resetting here means the only thing that clears pity is the tier actually firing.
+  // RESET WHEN THE TIER IS OFFERED — the credit buys the screen carrying the card, not the card
+  // being kept. Resetting on the PICK instead would put the tier back on screen every ~5 level-ups
+  // until the player accepted it, which turns declining one of the slate's COST cards into a nag
+  // rather than a decision. Declining therefore does cost the credit, and it costs it ONCE: the
+  // screen's outcome is memoised, so a reroll neither re-draws the tier nor throws the card away
+  // (v6.7.9 — before it, rerolling past an unwanted anomaly spent the whole bank and handed back
+  // a screen at base weight, F5's second clause).
   // The other half of that contract lives downstream: the NEW_WEAPON_MIN_RATE swap is guarded on
   // !placedAnomaly precisely so a reset can never be followed by the card being overwritten (F4).
   run._screensSinceAnomaly = 0
@@ -6142,16 +6156,32 @@ function buildLevelUpChoices(run) {
   //     measured, same rig and seeds, 2.40 anomalies/run at 2 slots against 3.60 at 4 — 1.5x as
   //     much of the tier whose whole design licence is scarcity, for a player who had spent 60 of
   //     the 80 meta-shop levels buying slots. That is a lottery on shop spending, not on play, and
-  //     ANOMALY_BASE_WEIGHT now reads directly as "share of screens carrying an anomaly".
+  //     ANOMALY_BASE_WEIGHT now reads as the FLOOR of the per-screen rate — the rate on a screen
+  //     with no dry ones behind it. NOT the share of screens carrying one: pity is where the run
+  //     actually spends its screens, and config.js's rate block carries the measured share.
   //   - B5's "never a screen's ONLY offer" holds BY CONSTRUCTION (`cards.length > 1`, and a
   //     replacement cannot grow the anomaly count past one), instead of by a fallback that had to
   //     choose between deleting the tier's roll and shipping a curse-only screen.
   //   - the slot is uniform, so no shuffle is needed and no other pool's RNG stream moves.
   // An ineligible run costs zero Math.random calls (eligibleAnomalyIds is checked first), which is
   // why every seeded scenario that cannot see the tier is bit-identical.
+  // ONE DECISION PER SCREEN, not one per BUILD (v6.7.9). main.js's onReroll calls this function
+  // again on the same screen, so a roll made here was a fresh, independent draw at the current
+  // pitied weight every time the player paid: measured, a player who rerolls until the tier shows
+  // took anomaly-on-screen from 20.1% to 75.5% over 5 rerolls at a saturated counter, and from
+  // 6.8% to 33.9% at base pity — 133 coins against ~370 earned in a body/2 run. Coins buying the
+  // tier whose entire design licence is scarcity, which spec B6 says must not happen (it guarded
+  // the WEIGHT; the mechanism was repeated draws). run._screenAnomaly holds the screen's answer:
+  // `undefined` = not asked yet, `null` = asked, no anomaly, a card = this screen's anomaly.
+  // stepLevelUp clears it when a NEW screen opens; nothing else does, so a reroll re-rolls the
+  // ordinary cards and leaves the Rupture question settled — and cannot spend the pity twice.
+  // SAMPLER HAZARD, the same one _screenRerolls carries: a test loop that reuses one run and
+  // calls this directly is rerolling ONE screen, so it must reset _screenAnomaly per iteration or
+  // it samples a single frozen draw 4000 times.
   let placedAnomaly = false
   if (cards.length > 1) {
-    const anomaly = rollAnomalyCard(run)
+    if (run._screenAnomaly === undefined) run._screenAnomaly = rollAnomalyCard(run)
+    const anomaly = run._screenAnomaly
     if (anomaly) {
       cards[Math.floor(Math.random() * cards.length)] = anomaly
       placedAnomaly = true
@@ -6190,12 +6220,27 @@ function stepLevelUp(run) {
   p.xp -= p.xpNext
   p.level += 1
   p.xpNext = xpForLevel(p.level)
+  // A NEW SCREEN, so the tier's answer for the last one is discarded and asked again — this is the
+  // line that makes the memo in buildLevelUpChoices a per-SCREEN decision rather than a per-run
+  // one, and the only place it is cleared. A reroll goes through the builder, never through here.
+  run._screenAnomaly = undefined
   // Anomaly pity advances HERE, once per screen, and not inside buildLevelUpChoices — main.js's
   // onReroll calls the builder directly, so a counter kept there would let coins buy the rarest
   // tier (F5). The unit is the SCREEN, not the card: the tier is rolled once per screen, so a
   // per-card step would give a 4-slot player twice the accrual of a 2-slot one — the meta-shop
   // lottery v6.7.7 closed on the base rate, walked back in through pity.
-  run._screensSinceAnomaly = (run._screensSinceAnomaly ?? 0) + 1
+  // ONLY WHERE IT CAN BE SPENT (v6.7.9): a screen the tier is INELIGIBLE for banks nothing. It
+  // used to accrue through those too, and since ANOMALY_MIN_LEVEL gates almost every card, the
+  // ineligible stretch is the same fixed stretch in every run — so the credit was earned on a
+  // schedule and spent the instant the gate opened. Measured (400 immortal body runs, decline
+  // everything, first OFFER after the tier first becomes eligible), share landing within three
+  // screens of the gate: 37.0% -> 23.5% with every card at the table floor of 8, and 28.8% ->
+  // 22.3% on the shipped table whose one card floors at 3. A timing tell, not agency: the gate it
+  // clustered behind is a level floor, not something the player did. It also kept the base weight
+  // off the table — a mortal body/2 run opens ~15.7 screens of which only ~8.1 are tier-eligible,
+  // so a run used to reach eligibility with about half a run of credit already banked, and the
+  // rate ANOMALY_BASE_WEIGHT documents was never the rate any screen rolled at.
+  if (eligibleAnomalyIds(run).length > 0) run._screensSinceAnomaly = (run._screensSinceAnomaly ?? 0) + 1
   run.levelUpChoices = buildLevelUpChoices(run)
   run.phase = 'levelup'
   run.events.push({ type: 'levelup' })

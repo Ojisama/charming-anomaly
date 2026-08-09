@@ -27,7 +27,7 @@
 // against the tuning block below, so weights can be tuned before any src/ change. Once
 // Track B ships, delete `proposedChoices` and point the flag at the real function.
 import { createRun } from '../src/state.js'
-import { stepSim, applyChoice } from '../src/sim.js'
+import { stepSim, applyChoice, anomalyWeightFor } from '../src/sim.js'
 import * as C from '../src/config.js'
 
 // ─── TUNING: the Track B proposal. Edit these, re-run --compare, read the diff. ────────
@@ -365,11 +365,14 @@ function proposedChoices(run, st) {
   // and 4th choice slot. Two consequences worth stating for whoever tunes Task 3 from this
   // harness: (1) `cards.length > 1` is what enforces "never a screen's only offer", by
   // construction rather than by a fallback; (2) v6.7.8 settled the pity UNIT — st.since is
-  // advanced once per SCREEN by the caller, exactly like run._screensSinceAnomaly, so the numbers
-  // this harness prints are comparable with the shipped pipeline's. Kept per CARD (`+= SLOTS`, as
-  // it was) a 4-slot player accrued pity twice as fast, which is the meta-shop lottery the
-  // per-screen roll exists to close, arriving through the pity term instead of the base rate.
+  // advanced once per SCREEN, exactly like run._screensSinceAnomaly, so the numbers this harness
+  // prints are comparable with the shipped pipeline's. Kept per CARD (`+= SLOTS`, as it was) a
+  // 4-slot player accrued pity twice as fast, which is the meta-shop lottery the per-screen roll
+  // exists to close, arriving through the pity term instead of the base rate.
   // Eligibility is computed before the roll and an empty pool costs no draw, exactly as in sim.js.
+  // v6.7.9: it also gates the ADVANCE — the counter steps only on a screen the tier could have
+  // paid out on, which is why the step lives here and not in the caller. (The probe's bot never
+  // rerolls, so sim.js's per-screen memo of the outcome has no shim counterpart to write.)
   if (cards.length > 1) {
     const eligible = {}
     if (st.taken.size < MAX_ANOMALIES_PER_RUN) {
@@ -381,11 +384,15 @@ function proposedChoices(run, st) {
     }
     if (Object.keys(eligible).length > 0) {
       stats.anomalyRolls++
+      st.since += 1
       // st.since counts the screen being built, so the DRY screens behind it are st.since - 1 —
       // the same arithmetic sim.js does, so a screen with nothing behind it rolls at exactly
       // ANOMALY_BASE_WEIGHT in both implementations.
       const aw = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * Math.max(0, st.since - 1))
+      stats.anomalyWeightSum += aw
+      if (aw >= ANOMALY_PITY_CAP) stats.anomalyCapped++
       if (Math.random() * (ORDINARY_TOTAL + aw) < aw) {
+        stats.anomalyOffers++
         cards[(Math.random() * cards.length) | 0] = { kind: 'anomaly', id: pickW(eligible), rarity: 'anomaly' }
         st.since = 0
       }
@@ -477,6 +484,12 @@ function choose(cards) {
 
 function measure(mode) {
   stats.anomalyRolls = stats.emptyAnomalyPool = stats.shortPools = stats.pools = 0
+  // v6.7.9 pity diagnostics. anomalyRolls counts screens the tier was ELIGIBLE on (the only ones
+  // that roll, and now the only ones that accrue pity); Offers, those that came up anomaly;
+  // WeightSum/Capped, the weight actually in play. config.js's rate block used to claim
+  // ANOMALY_BASE_WEIGHT "reads directly as the share of screens carrying an anomaly" — these three
+  // counters are what makes that claim checkable instead of asserted.
+  stats.anomalyOffers = stats.anomalyWeightSum = stats.anomalyCapped = 0
   const kinds = {}, rarities = {}
   const levels = [], anomalies = [], weaponLv = [], deaths = []
   // Deliverability: can a player PURSUE a specific mod? Counts, per mod, how many runs offered it
@@ -529,6 +542,7 @@ function measure(mode) {
     // and is reset upward on fire, so a rising edge is exactly one fire. Covers every weapon —
     // only 7 of them emit a 'shoot' event (those are for SFX), and none of the city three do.
     let fires = 0, eliteKills = 0
+    let prevSince = 0   // last observed run._screensSinceAnomaly — see the pity diagnostics below
     const prevT = {}
     // Weapons arrive mid-run, so the grant is re-checked rather than applied once at setup.
     const spreadDone = new Set()
@@ -548,13 +562,25 @@ function measure(mode) {
     for (let f = 0; f < 305 * 60; f++) {
       if (run.phase === 'levelup') {
         let cards = run.levelUpChoices
+        // The SHIPPED pipeline's pity, read off the run rather than re-derived: the counter only
+        // moves on a screen the tier was ELIGIBLE on (v6.7.9), so "it moved, or an anomaly came
+        // up" IS eligibility, and in both cases the value the roll used was prevSince + 1 (a hit
+        // zeroes it afterwards). anomalyWeightFor is imported from sim.js so the harness cannot
+        // drift from the shipped formula — this file has shipped a stale copy of these constants
+        // before. Proposed mode keeps its own counters, inside proposedChoices.
+        if (mode !== 'proposed') {
+          const onScreen = cards.some((c) => c.kind === 'anomaly')
+          if (onScreen || run._screensSinceAnomaly !== prevSince) {
+            const w = anomalyWeightFor({ _screensSinceAnomaly: prevSince + 1 })
+            stats.anomalyRolls++
+            stats.anomalyWeightSum += w
+            if (w >= ANOMALY_PITY_CAP) stats.anomalyCapped++
+            if (onScreen) stats.anomalyOffers++
+          }
+          prevSince = run._screensSinceAnomaly
+        }
         if (mode === 'proposed') {
-          // Once per SCREEN (v6.7.8) — this used to be `+= SLOTS`, i.e. per card. It mirrors
-          // stepLevelUp's advance of run._screensSinceAnomaly, including the fact that it counts
-          // the screen being built (the roll subtracts 1) and that it advances through screens the
-          // tier is ineligible for.
-          st.since += 1
-          const shim = proposedChoices(run, st)
+          const shim = proposedChoices(run, st)   // advances st.since itself, only where eligible
           if (shim.length) cards = shim
         }
         stats.pools++
@@ -637,6 +663,13 @@ function measure(mode) {
     defShare,
     anomalies: avg(anomalies),
     weaponLv: avg(weaponLv),
+    // Pity, as it actually ran (see the counters in measure/proposedChoices). eligScreens is per
+    // run; offerRate and meanWeight are over ELIGIBLE screens, which is the denominator the tier's
+    // weight is defined against — offers/all-screens would be diluted by the ineligible stretch.
+    eligScreens: stats.anomalyRolls / RUNS,
+    offerRate: (100 * stats.anomalyOffers) / (stats.anomalyRolls || 1),
+    meanWeight: stats.anomalyWeightSum / (stats.anomalyRolls || 1),
+    cappedShare: (100 * stats.anomalyCapped) / (stats.anomalyRolls || 1),
     emptyPool: stats.emptyAnomalyPool / RUNS,
     absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
     modRuns,
@@ -664,6 +697,10 @@ function report(r) {
   // stand-ins — two different questions, and gating the line hid the shipped one entirely.
   console.log(`anomalies ${r.anomalies.toFixed(2)}/run (cap ${MAX_ANOMALIES_PER_RUN})` +
     (r.mode === 'proposed' ? `  empty-pool rolls ${f1(r.emptyPool)}/run  [18 stand-in cards, not the shipped table]` : `  [${Object.keys(C.ANOMALIES).length} card(s) in ANOMALIES]`))
+  // The pity line. Read offer rate against ANOMALY_BASE_WEIGHT's share (base/(ordinary+base)):
+  // equal means pity never got going, far above means the run spends its screens dry.
+  console.log(`pity  ${f1(r.eligScreens)} tier-eligible screens/run, ${f1(r.offerRate)}% of them offered one` +
+    `  (mean weight ${f1(r.meanWeight)} vs base ${ANOMALY_BASE_WEIGHT}, at the cap on ${f1(r.cappedShare)}%)`)
   if (r.mode === 'proposed') {
     console.log(`bucket absent ${Object.entries(r.absent).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}  <- the ONLY drift budget`)
   }
@@ -727,6 +764,11 @@ function survivalReport(a, b) {
   // policy but `random` the bot scores an anomaly at 1000 and always takes it, which is the
   // take-every-anomaly rig the rate table in config.js was measured on.
   row('anomalies/run', a.anomalies, b.anomalies, '')
+  // v6.7.9: and the three numbers behind that one, so a rate change can be attributed to the roll
+  // rather than to the run simply being longer. Denominator is TIER-ELIGIBLE screens.
+  row('elig screens/run', a.eligScreens, b.eligScreens, '')
+  row('offered/elig scr', a.offerRate, b.offerRate, '%')
+  row('mean pity weight', a.meanWeight, b.meanWeight, '')
   // Win rate alone is blind at 0% and 100% — a config the bot always loses (or always wins) can
   // still shift a lot. Read survival time there instead.
   const dw = b.winRate - a.winRate

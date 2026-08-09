@@ -138,26 +138,59 @@ export const WEAPON_UP_WEIGHT = 100
 // WHILE THE RATE WENT DOWN, which is not a contradiction: the number means something else now. It
 // used to be rolled once per SLOT, so the delivered rate was 1-(1-p)^slots and a 4-slot player
 // (60 of the 80 meta-shop levels, spent on the sacrifice ladder) got 1.5x as much of the run's
-// rarest tier for having bought slots. It is rolled once per SCREEN now, so ANOMALY_BASE_WEIGHT
-// reads directly as the share of level-up screens carrying an anomaly (12/183 = 6.6%), and the
-// residual 1.23 -> 1.63 spread across slot counts is ELIGIBILITY, not roll rate: more picks per
-// screen satisfy build-conditional `when` predicates sooner, which is the tier working as designed.
+// rarest tier for having bought slots. It is rolled once per SCREEN now, and once per screen in
+// the literal sense since v6.7.9 — the outcome is memoised on run._screenAnomaly, so paying for a
+// reroll re-rolls the ordinary cards and nothing else. The residual 1.23 -> 1.63 spread across
+// slot counts is ELIGIBILITY, not roll rate: more picks per screen satisfy build-conditional
+// `when` predicates sooner, which is the tier working as designed.
 //
-// RE-MEASURED WITH PITY ON (v6.7.8), which is what the note under ANOMALY_PITY_PER_SCREEN below
-// promised. Same take-every-anomaly bot, but through the harness rather than a transplant, so the
-// slate column is scripts/pool-probe.mjs's own 18 stand-ins and the shipped column is this table's
-// one card (which cannot exceed 1.00/run whatever the weight is) — `pool-probe body <slots> 40 dps
-// --compare`, 40 runs per cell, shipped -> slate:
+// WHAT ANOMALY_BASE_WEIGHT IS: the FLOOR of the per-screen rate, 12/(171+12) = 6.6% — the rate on
+// the first screen the tier is eligible on and on the screen right after it fires. It is NOT the
+// share of screens that carry one, which this block claimed until v6.7.9 and which measured 2x
+// off: pity is what the run actually spends most of its screens at. Measured share of TIER-
+// ELIGIBLE screens carrying an anomaly, and the mean weight in play, off the harness's own pity
+// line (`pool-probe body <slots> 40 dps [--survival --diff=3]`), 40 runs per cell:
+//                            offered/eligible screen    mean weight    at the cap
+//   body/2 d3 mortal                  9.3%                  20.6          0.9%
+//   body/4 d3 mortal (--shop=8)       9.8%                  23.1          3.2%
+//   body/2 d1 immortal               11.2%                  22.9          3.4%
+// Tune the FLOOR with this constant and the SLOPE with ANOMALY_PITY_PER_SCREEN; moving either one
+// moves the effective share by more than its own arithmetic suggests, so re-read that pity line
+// rather than the ratio above.
+//
+// RE-MEASURED WITH PITY ON (v6.7.8, and again at v6.7.9 after pity stopped accruing on screens the
+// tier is ineligible for). Same take-every-anomaly bot, through the harness rather than a
+// transplant, so the slate column is scripts/pool-probe.mjs's own 18 stand-ins and the shipped
+// column is this table's one card (which cannot exceed 1.00/run whatever the weight is) —
+// `pool-probe body <slots> 40 dps --compare [--survival --diff=3 --shop=8]`, 40 runs per cell,
+// shipped -> slate:
 //                                      pity off        pity on (shipped)
-//   body/2 d3 MORTAL   (to lv 17-20)  0.50 -> 0.80     0.80 -> 1.20
-//   body/2 d1 immortal (to lv 36)     0.95 -> 1.32     1.00 -> 1.95
-//   body/4 d1 immortal (to lv 36)     0.85 -> 1.50     1.00 -> 1.95
-// The MORTAL row is the one the rate is tuned on: an immortal run takes ~36 level-ups, twice a
-// real run's, and saturates MAX_ANOMALIES_PER_RUN at any weight — 1.95/2.00 says the cap is
-// working, not that the rate is right. Mortal 1.20/run on a slate-shaped table sits inside the
-// owner's 1-2, so pity buys the dry run its drift without moving the base weight. Note the
-// immortal pair also gets MORE slot-independent with pity on (1.32/1.50 -> 1.95/1.95): pity is
-// per screen, so it cannot re-open the gap the per-screen roll closed.
+//   body/2 d3 MORTAL   (to lv 17-20)  0.50 -> 0.80     0.75 -> 1.10
+//   body/4 d3 MORTAL   (--shop=8)     0.70 -> 0.80     0.93 -> 1.30
+//   body/2 d1 immortal (to lv 36)     0.95 -> 1.32     1.00 -> 1.93
+//   body/4 d1 immortal (to lv 36)     0.85 -> 1.50     1.00 -> 1.90
+// The MORTAL rows are the ones the rate is tuned on: an immortal run takes ~36 level-ups, twice a
+// real run's, and saturates MAX_ANOMALIES_PER_RUN at any weight — 1.93/2.00 says the cap is
+// working, not that the rate is right. Mortal 1.10/run on a slate-shaped table sits inside the
+// owner's 1-2, so pity buys the dry run its drift without moving the base weight.
+// SLOT DEPENDENCE IS READ OFF THE MORTAL ROWS, not the immortal ones (v6.7.9 correction): both
+// immortal cells sit at 97% of the hard cap of 2.00, and a pinned pair says nothing about slots.
+// Mortal, with the shop matched so only the slot count differs, the slate column is 1.10 at 2
+// slots against 1.30 at 4 — and the 4-slot run reaches level 22.7 against 20.4, i.e. 12.5
+// tier-eligible screens against 11.8, so most of the ~18% gap is simply more screens (per eligible
+// screen it is 9.3% against 10.6%). Pity does not widen it: the term is per screen and reads no
+// slot count (run PB3 asserts both the weight and the delivered rate at 2 and 4 slots).
+// "SLOT-INDEPENDENT" IS ABOUT FREQUENCY, NOT COST. The anomaly REPLACES a rolled card rather than
+// extending the screen (buildLevelUpChoices), so it eats half of a 2-slot screen and a quarter of
+// a 4-slot one — and pity has raised how often that happens from 6.6% to ~9-10% of eligible
+// screens. B5's "never the screen's only offer" still holds (`cards.length > 1`), but at 2 slots
+// that guarantee delivers exactly one alternative, so a slate COST card collapses a 2-slot screen
+// to a single real option. Whoever prices the cost cards owns that asymmetry; the fix, if it is
+// one, is to make the anomaly an EXTRA card at 2 slots rather than to touch the rate.
+// AND WHAT THE SHIPPED COLUMN MEANS TODAY: ANOMALIES holds ONE card, so until the slate lands the
+// player-visible effect of pity is "Unstable Cores, in 75-93% of runs instead of 50-70%", not
+// variety. The 1-2/run target is a slate-shaped number; do not read the shipped column as the
+// design landing.
 export const ANOMALY_BASE_WEIGHT = 12
 // PITY (v6.7.8, Task 3). A screen that shows no anomaly adds PER_SCREEN to the next screen's
 // weight, so a dry run drifts toward the tier instead of waiting on a flat coin flip.
@@ -167,15 +200,34 @@ export const ANOMALY_BASE_WEIGHT = 12
 // shop" defect the per-screen roll exists to close (v6.7.7 measured it as 2.40 anomalies/run at 2
 // slots against 3.60 at 4), reintroduced through the pity term instead of the base rate.
 // The counter it multiplies is run._screensSinceAnomaly, which INCLUDES the screen being built
-// (stepLevelUp advances before the build), so sim.js multiplies by count - 1: the weight on a
-// screen with no dry screens behind it is exactly ANOMALY_BASE_WEIGHT, which is what makes the
-// 6.6% above the floor of the range rather than a number the game never actually rolls at.
+// (stepLevelUp advances before the build), so sim.js multiplies by count - 1 (anomalyWeightFor):
+// the weight on a screen with no dry screens behind it is exactly ANOMALY_BASE_WEIGHT, which is
+// what makes the 6.6% above the floor of the range rather than a number the game never rolls at.
+// EARNED ONLY WHERE IT CAN BE SPENT (v6.7.9): a screen the tier is INELIGIBLE for banks nothing.
+// It used to bank one, and since ANOMALY_MIN_LEVEL gates the whole table the ineligible stretch is
+// the same stretch of every run — so the credit was earned on a fixed schedule and spent the
+// instant the gate opened. Measured over 400 immortal body runs that decline every card, the share
+// of runs whose first offer lands within three screens of the gate: 37.0% -> 23.5% with every card
+// at the table floor of 8, 28.8% -> 22.3% on the shipped table (whose one card floors at 3, so its
+// ineligible stretch is short). A timing tell, not agency — the gate it clustered behind is a
+// level floor, not something the player did. It also kept ANOMALY_BASE_WEIGHT entirely off the
+// table: a mortal body/2 run opens ~15.7 level-up screens of which only ~8.1 are tier-eligible, so
+// a run reached eligibility with about half a run of credit already banked and no screen ever
+// rolled at the documented floor.
 export const ANOMALY_PITY_PER_SCREEN = 2
-// At the cap the per-screen rate is 45/(171+45) = 20.8%, reached after 17 dry screens — more than
-// a whole immortal run's worth of level-ups. It exists for the run that spends 30 screens
-// INELIGIBLE (the tier's `when` predicates and minLevel gate the pool, not the roll, and the
-// counter advances through all of it): without a ceiling that run detonates the tier on the first
-// screen it qualifies, handing out MAX_ANOMALIES_PER_RUN back to back (F1).
+// At the cap the per-screen rate is 45/(171+45) = 20.8%, reached after 17 dry ELIGIBLE screens.
+// It is a real ceiling and not a formality: it binds on 0.9% (body/2 mortal) to 3.4% (body/2
+// immortal) of tier-eligible screens — measured, off the harness's pity line, NOT the "more than a
+// whole run's worth of level-ups" this comment claimed at v6.7.8, which was wrong twice over (a
+// mortal body run opens 8-9 tier-eligible screens but an immortal one reaches level 36).
+// It exists for the run that goes long without a hit — the tier's `when` predicates and minLevel
+// gate the pool, so a build that satisfies nothing for 20 screens still accrues on every screen
+// SOME card was eligible on. Without a ceiling that run detonates the tier the moment its luck
+// turns, handing out MAX_ANOMALIES_PER_RUN back to back (F1).
+// 20.8% IS ALSO THE CEILING A PLAYER CAN REACH, since v6.7.9: the screen's answer is decided once
+// (run._screenAnomaly), so rerolls no longer buy N independent draws at the pitied weight. Before
+// that, a player who rerolled until it showed measured 20.1% -> 75.5% over 5 rerolls (133 coins)
+// at a saturated counter, and 6.8% -> 33.9% at base pity.
 export const ANOMALY_PITY_CAP = 45
 // Two, per the same decision ("1-2 per run"), down from 4. With the rate above it is a real
 // ceiling rather than a formality — a 39-level city run measures 1.80/run against it — which is

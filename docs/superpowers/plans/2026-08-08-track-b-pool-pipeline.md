@@ -580,6 +580,37 @@ git commit -m "v6.7.1: anomalies join the pool as a sixth rarity tier, never a s
 > that is what keeps a screen with nothing behind it rolling at exactly `ANOMALY_BASE_WEIGHT`,
 > i.e. what keeps that constant's documented 6.6% true rather than an unreachable floor.
 
+> **v6.7.9 repaired v6.7.8 after a three-lens adversarial review.** Four things, all measured:
+> 1. **A reroll drew the tier again.** `onReroll` calls `buildLevelUpChoices` directly, so every
+>    reroll was an independent draw at the current pitied weight: measured, a player who rerolls
+>    until it shows went 20.1% -> 75.5% over 5 rerolls (133 coins) at a saturated counter and
+>    6.8% -> 33.9% at base pity, and a reroll of a screen that HAD one both spent the pity and
+>    deleted the card. The tier's answer is now decided once per screen and memoised on
+>    `run._screenAnomaly`; `stepLevelUp` clears it, nothing else does. This closes B6's separation
+>    at the mechanism (repeated draws) rather than at the weight, so **Task 4 now owes only the
+>    rarity decay** — its `_screensSinceAnomaly = 3` fixture lines are no longer load-bearing, but
+>    every sampling loop must now also reset `run._screenAnomaly = undefined` per iteration or it
+>    rerolls one screen 4000 times.
+> 2. **The `- 1` was untested** — deleting it left the whole suite green while the base rate
+>    silently became 7.6%. `anomalyWeightFor(run)` is now exported and PB3 pins it exactly at
+>    counts 0/1/2/6/saturated, at 2 and 4 slots. Rates cannot do this job: a 1-point weight step
+>    is a 0.9-point rate step.
+> 3. **PB3 measured the delivered rate at 2 slots only**, so a slot-scaled pity term passed green.
+>    It now runs `atPity` at both, and asserts the two agree.
+> 4. **Pity accrued while the tier was INELIGIBLE**, which banked credit on a fixed schedule
+>    (`ANOMALY_MIN_LEVEL` gates the table) and spent it the moment the gate opened: 37.0% -> 23.5%
+>    of runs saw their first offer within three screens of the gate (400 runs, every card at the
+>    table floor of 8; 28.8% -> 22.3% on the shipped table). The base weight was never in play
+>    either — only ~8.1 of a mortal body/2 run's ~15.7 screens are tier-eligible. It now advances
+>    only where it can be spent.
+>
+> **Not fixed, deliberately: the drift is still invisible to the player.** Nothing in `ui.js` reads
+> the counter, so pity is a hidden rule that changes a hidden weight, and "I am due" is not
+> something the screen lets you feel. The cheap honest fix is one tell on the level-up modal (a
+> teal hairline in the header that fills as the counter climbs, solid at the cap). It is not in
+> this commit because a look change goes to the owner as labelled shot variants on one identical
+> in-game frame, not as a unilateral edit — **do that before Track B is called done.**
+
 - [ ] **Step 1: Write the failing test**
 
 ```js
