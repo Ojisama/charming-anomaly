@@ -95,6 +95,8 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 ## Conventions
 
 - **Versioned commits.** Each release is a commit subject `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are visible — their events were silently dropped`). Chores use `chore: …`. Follow this format.
+- **WHATEVER IS AT HEAD WHEN YOU PUSH TO `main` MUST CARRY A `vX.Y.Z:` SUBJECT.** `buildStamp()` in `vite.config.js` regexes the version out of `git log -1 --pretty=%s` and falls back to the literal string `dev`, so a `chore:` commit at HEAD — *or a merge commit* — stamps the live page `dev` and destroys the one thing the stamp exists to answer ("is the code in front of me the code that was pushed?"). v6.10.1 shipped to fix the chore form; the **merge** form bit again on 2026-08-09, when merging a long-lived branch put `Merge remote-tracking branch…` at HEAD. Land the merge, then put a release commit on top of it. Verify after every deploy with `scripts/deploy-watch.sh "vX.Y.Z · <sha>"`.
+- **On a long-lived branch, `git fetch` and read `git log origin/main -1` BEFORE choosing a release number.** `main` moves. A branch that picked `v6.7.6`/`v6.7.7` offline while `main` shipped different changes under those same two labels leaves a permanent duplicate in the history — unfixable afterwards without rewriting published commits. (That is exactly what happened on 2026-08-09.)
 - **The release commit must be HEAD when you build and push.** `vite.config.js` derives
   `__BUILD_STAMP__` from `git log -1 --pretty=%s` at BUILD time and regexes a leading `vX.Y.Z` out
   of it — so a `chore:` commit sitting on top of the release ships a page stamped `dev · <sha>`,
