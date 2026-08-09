@@ -1,6 +1,6 @@
 # Track B — Upgrade pool redesign
 
-**Status: THE PIPELINE SHIPPED** (v6.7.4–v6.7.13, merged to main in v6.11.0). Buckets, the sixth
+**Status: THE PIPELINE SHIPPED** (built over v6.7.4–v6.7.13, released as **v7.0.0**). Buckets, the sixth
 rarity tier, pity and the reroll rarity nudge are all live in `sim.js`; the harness's `proposedChoices`
 shim that every number below was measured against has been deleted, because it was measuring a
 pipeline nobody ran.
