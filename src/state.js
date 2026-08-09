@@ -1036,6 +1036,23 @@ function generateWells(sig) {
  *   `run` is not saved — and never migrated for the same reason.
  * _eliteKills (v6.7.6): elites killed this run. Gates anomaly `when` predicates; run.kills counts
  *   every enemy and so cannot answer "has this player met an elite yet".
+ * _hitsTaken (v7.2): real hits taken this run — incremented in hurtPlayer's NON-dot branch only.
+ *   Gates BERSERK (>0) and MARTYR (>=3): both cards are about being hit, so neither should be
+ *   offered to a player the run has not yet hit. DoT is excluded on purpose — OVERLOAD's own drain
+ *   is self-inflicted and would otherwise open both gates on a timer rather than on play.
+ * _berserkT (v7.2): seconds left on BERSERK's damage window. Set to BERSERK_DURATION by every
+ *   non-dot hit (no cooldown, no threshold — owner ruling) and ticked down in stepAnomalies.
+ * _stillT (v7.2): seconds of continuous NO MOVEMENT INPUT, for STILLNESS's damage ramp. Reset by
+ *   stepPlayerMovement on any stick deflection at all. Reads INPUT, never velocity: pond's
+ *   currents shove the player every frame and the beyond lane advances them regardless, so a
+ *   velocity test would pin the ramp at zero in exactly two chapters and nowhere else.
+ * _bloodPact (v7.2): BLOOD PACT's accumulated damage bonus, as a fraction (0.15 = +15%). Grows by
+ *   BLOOD_PACT_PER_KILL on every kill and additionally by BLOOD_PACT_PER_ELITE on an elite.
+ *   Uncapped by design; read back through anomalyDamageMul.
+ * _overloadAcc (v7.2): the fractional HP OVERLOAD has drained but not yet spent. The cost is
+ *   0.75 HP/s and hurtPlayer's dot branch floors at 1 HP, so the fraction MUST be banked and paid
+ *   in whole points — handing it a per-frame 0.0125 would round to 0 and be floored back to 1,
+ *   costing 60 HP/s.
  * _screensSinceAnomaly (v6.7.8): anomaly pity. Level-up SCREENS the tier was ELIGIBLE on since the
  *   last one its roll fired on, INCLUDING the screen currently being built — stepLevelUp advances
  *   it once per screen, before calling buildLevelUpChoices, so the count is 1 on a screen with no
@@ -1263,6 +1280,14 @@ export function createRun(meta, opts = {}) {
     // Elites killed this run. Gates anomaly predicates ("you have met an elite"), which run.kills
     // cannot answer. Incremented in dealDamage's elite death branch.
     _eliteKills: 0,
+    // v7.2 anomaly slate state. All five are plain run scalars for the same reason `anomalies` is
+    // a flat map: an anomaly is a rule read at a trigger site, so its state is whatever that site
+    // needs and nothing more. See the doc block above for what each one gates.
+    _hitsTaken: 0,
+    _berserkT: 0,
+    _stillT: 0,
+    _bloodPact: 0,
+    _overloadAcc: 0,
     // v6.7.8 anomaly pity: level-up SCREENS THE TIER WAS ELIGIBLE ON since the last one that rolled
     // an anomaly, counting the screen being built. Advanced by stepLevelUp (never by
     // buildLevelUpChoices, or a reroll would pump it) and zeroed by the roll itself. See

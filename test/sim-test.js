@@ -11,7 +11,14 @@ import {
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
-  ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, hasWeaponAt,
+  ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
+  MAX_ANOMALIES_PER_RUN, hasWeaponAt,
+  // v7.2 anomaly slate constants — run PB7 asserts each card against the number it ships with,
+  // so a retune moves the test with the config instead of leaving a stale literal in here.
+  TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
+  OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
+  BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
+  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, COMBOS,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
@@ -90,7 +97,7 @@ import {
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, anomalyWeightFor, currentForce, buildReadout } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -355,6 +362,228 @@ function testChapterLateRate() {
     'exactly ONE hpScale call may take a rate (spawnEnemy). The snap-trap and core-blast sites are enemy-side damage: scaling those with the ladder buffs the player in late chapters.')
 
   console.log(`PASS run PB6 (chapter tail): body ${bodyEnd.toFixed(1)}x -> beyond ${beyondEnd.toFixed(1)}x at t=300, inert before ${HP_SCALE_LATE_START}s, wired at exactly one site`)
+}
+
+// ---- Run PB7: the v7.2 anomaly slate actually DOES something ------------------------
+// Every card here is a rule read at ONE trigger site, and deleting that read is a silent no-op:
+// the card still rolls, still shows on the screen, still lands in run.anomalies and still prints
+// on the pause build sheet. Nothing goes red. So each card gets a behavioural assertion that
+// fails if its site stops being read — that is the whole point of this scenario, and the reason
+// it asserts effects rather than the presence of a config key.
+function testAnomalySlate() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  // A run with the card ON, weapons stripped unless asked for, and the player parked at the
+  // origin. `take` goes through applyChoice so the on-take branch (BRITTLE/OVERLOAD/SOY MILK)
+  // runs exactly as it does in the game — setting run.anomalies directly would skip it and let a
+  // broken applyAnomalyOnTake pass.
+  const withCard = (id, mutate = () => {}) => {
+    Math.random = mulberry32(20260808)
+    const r = createRun(meta)
+    r.weapons = []
+    r.player.x = 0; r.player.y = 0
+    mutate(r)
+    if (id) {
+      r.levelUpChoices = [{ kind: 'anomaly', id }]
+      applyChoice(r, 0)
+    }
+    return r
+  }
+
+  // TIME DEBT — the clock, and the XP that pays for it.
+  {
+    const base = withCard(null), debt = withCard('timeDebt')
+    for (let i = 0; i < 60; i++) { stepSim(base, { x: 0, y: 0 }, dt); stepSim(debt, { x: 0, y: 0 }, dt) }
+    assert.ok(Math.abs(debt.time / base.time - TIME_DEBT_MUL) < 0.01,
+      `TIME DEBT advanced the clock x${(debt.time / base.time).toFixed(3)}, not x${TIME_DEBT_MUL}`)
+    // The XP half is a separate read in stepPickups and dies separately.
+    const gem = (r) => {
+      // xpNext out of reach, or stepLevelUp SUBTRACTS the threshold and player.xp is the remainder
+      // rather than the gain — which reads as x2.79 instead of x1.5 and looks like a broken card.
+      r.player.xpNext = 1e9
+      r.gems = [{ x: r.player.x, y: r.player.y, xp: 10 }]
+      const before = r.player.xp
+      stepSim(r, { x: 0, y: 0 }, dt)
+      return r.player.xp - before
+    }
+    const xpBase = gem(withCard(null)), xpDebt = gem(withCard('timeDebt'))
+    assert.ok(Math.abs(xpDebt / xpBase - TIME_DEBT_XP_MUL) < 0.01,
+      `TIME DEBT paid x${(xpDebt / xpBase).toFixed(3)} XP, not x${TIME_DEBT_XP_MUL} — the compensation is what makes it a pivot rather than a 3-level tax`)
+  }
+
+  // BRITTLE — both halves, plus the repair route the card must not leave open.
+  {
+    const r = withCard('brittle')
+    assert.strictEqual(r.player.maxHP, BRITTLE_MAX_HP, 'BRITTLE did not set maxHP')
+    assert.ok(r.player.hp <= BRITTLE_MAX_HP, 'BRITTLE left hp above the new ceiling — it is a damage buff until the next hit')
+    const dmgMul = r.player.damageMul / withCard(null).player.damageMul
+    assert.ok(Math.abs(dmgMul - BRITTLE_DMG_MUL) < 1e-9, `BRITTLE gave x${dmgMul} damage, not x${BRITTLE_DMG_MUL}`)
+    // Buying maxHP back would keep x4 damage and undo the whole cost — the card says BECOMES 1.
+    r.levelUpChoices = [{ kind: 'passive', id: 'maxHP', bonus: 20 }]
+    applyChoice(r, 0)
+    assert.strictEqual(r.player.maxHP, BRITTLE_MAX_HP,
+      'a maxHP pick repaired BRITTLE — the run-ender is refundable for five passive picks while keeping x4 damage')
+  }
+
+  // OVERLOAD — the cost is per SECOND, and this is the assertion that catches the floor bug.
+  // hurtPlayer's dot branch is Math.max(1, Math.round(raw)), so a naive per-frame call spends 1 HP
+  // EVERY FRAME: 60 HP/s instead of 0.75, an 80x overcharge that kills a full-health player in two
+  // seconds and would read as "the card is just very strong".
+  {
+    const r = withCard('overload', (x) => { x.player.hp = 500; x.player.maxHP = 500 })
+    const before = r.player.hp
+    for (let i = 0; i < 300; i++) stepSim(r, { x: 0, y: 0 }, dt)   // 5 seconds
+    const spent = before - r.player.hp
+    const want = OVERLOAD_HP_PER_SEC * 5
+    assert.ok(Math.abs(spent - want) <= 1.5,
+      `OVERLOAD drained ${spent.toFixed(1)} HP over 5s, want ~${want} — a per-frame hurtPlayer call is floored to 1 HP and costs 60 HP/s`)
+    const p = withCard(null).player
+    assert.ok(Math.abs(r.player.fireRateMul / p.fireRateMul - OVERLOAD_FIRE_MUL) < 1e-9, 'OVERLOAD did not multiply fire rate')
+    assert.ok(Math.abs(r.player.damageMul / p.damageMul - OVERLOAD_DMG_MUL) < 1e-9, 'OVERLOAD did not multiply damage')
+  }
+
+  // SOY MILK — paper-neutral by construction, so assert both halves or half the card can vanish.
+  {
+    const r = withCard('soyMilk'), p = withCard(null).player
+    assert.ok(Math.abs(r.player.fireRateMul / p.fireRateMul - SOY_MILK_FIRE_MUL) < 1e-9, 'SOY MILK did not multiply fire rate')
+    assert.ok(Math.abs(r.player.damageMul / p.damageMul - SOY_MILK_DMG_MUL) < 1e-9, 'SOY MILK did not divide damage')
+  }
+
+  // BLOOD PACT — the heal funnel AND the snowball. healPlayer is the funnel every heal now goes
+  // through; a future `p.hp = ...` written straight into the file makes this card a lie, and this
+  // is what says so.
+  {
+    const r = withCard('bloodPact', (x) => { x.player.maxHP = 200; x.player.hp = 50 })
+    r.passives.regen = 5
+    for (let i = 0; i < 60; i++) stepSim(r, { x: 0, y: 0 }, dt)
+    assert.ok(r.player.hp <= 50, `BLOOD PACT healed to ${r.player.hp} — regen is not going through healPlayer`)
+    r.levelUpChoices = [{ kind: 'heal' }]
+    applyChoice(r, 0)
+    assert.ok(r.player.hp <= 50, 'BLOOD PACT healed off the level-up heal card')
+    // An ELITE pays both clauses — it is a kill as well as an elite.
+    const snow = withCard('bloodPact')
+    snow._bloodPact = 0
+    snow.enemies = [makeStatusEnemy(snow, { x: 40, y: 0, hp: 1, elite: true })]
+    snow.weapons = [{ id: 'star', level: 5 }]
+    for (let i = 0; i < 240 && snow.enemies.length > 0; i++) stepSim(snow, { x: 0, y: 0 }, dt)
+    assert.ok(snow._bloodPact >= BLOOD_PACT_PER_KILL + BLOOD_PACT_PER_ELITE - 1e-9,
+      `an elite kill banked ${snow._bloodPact} — an elite must pay the per-kill clause too`)
+  }
+
+  // BLOOD MONEY — the currency swap, the floor, and the price the BUTTON is told to print.
+  {
+    const r = withCard('bloodMoney', (x) => { x.player.maxHP = 100; x.player.hp = 100; x.coinsEarned = 0 })
+    r.player.level = 12
+    r._eliteKills = 1
+    r._screenAnomaly = undefined
+    r.levelUpChoices = buildLevelUpChoices(r)
+    const price = rerollPrice(r)
+    assert.strictEqual(price.currency, 'hp', 'rerollPrice still says coins under BLOOD MONEY — the button will print the wrong wallet')
+    assert.strictEqual(price.cost, BLOOD_MONEY_HP, 'rerollPrice disagrees with what rerollLevelUpChoices charges')
+    assert.ok(rerollLevelUpChoices(r), 'BLOOD MONEY reroll failed with 100 HP and 0 coins — it is still charging coins')
+    assert.strictEqual(r.player.hp, 100 - BLOOD_MONEY_HP, `the reroll took ${100 - r.player.hp} HP, not ${BLOOD_MONEY_HP}`)
+    assert.strictEqual(r.coinsEarned, 0, 'the reroll also took coins')
+    // Floored, not fatal: at exactly the cost the button refuses rather than killing you on a modal.
+    r.player.hp = BLOOD_MONEY_HP
+    assert.ok(!rerollLevelUpChoices(r), 'a reroll at exactly the cost was allowed — that is death on a modal screen')
+    assert.strictEqual(r.player.hp, BLOOD_MONEY_HP, 'the refused reroll still charged')
+  }
+
+  // AVARICE — thins the drops at the SOURCE and converts a share of pickups to HP.
+  {
+    const heal = (id) => {
+      const r = withCard(id, (x) => { x.player.maxHP = 500; x.player.hp = 100 })
+      for (let i = 0; i < 200; i++) r.coins.push({ x: 0, y: 0, value: 1 })
+      stepSim(r, { x: 0, y: 0 }, dt)
+      return { hp: r.player.hp, coins: r.coinsEarned }
+    }
+    const plain = heal(null), greedy = heal('avarice')
+    assert.strictEqual(plain.hp, 100, 'the control run healed off coins — AVARICE is leaking into every run')
+    assert.ok(greedy.hp > 100, 'AVARICE healed nothing on 200 coins')
+    assert.ok(greedy.coins < plain.coins, 'AVARICE did not divert any coins from the payout')
+  }
+
+  // BERSERK — a window opened by a real hit and closed by time, read through anomalyDamageMul.
+  {
+    const r = withCard('berserk', (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+    r.enemies.push(makeStatusEnemy(r, { x: 0, y: 0 }))
+    stepSim(r, { x: 0, y: 0 }, dt)
+    assert.ok(r._hitsTaken > 0, 'the contact fixture never hit the player — BERSERK is untested here')
+    assert.strictEqual(r._berserkT, BERSERK_DURATION, 'a hit did not open the BERSERK window')
+    r.enemies = []
+    for (let i = 0; i < Math.ceil((BERSERK_DURATION + 1) * 60); i++) stepSim(r, { x: 0, y: 0 }, dt)
+    assert.strictEqual(r._berserkT, 0, 'the BERSERK window never closed — stepAnomalies is not ticking it')
+  }
+
+  // STILLNESS — INPUT, never velocity. The velocity version is the bug this asserts against: it
+  // would read as working everywhere except pond and the beyond lane, where the world moves you.
+  {
+    const r = withCard('stillness')
+    for (let i = 0; i < 180; i++) stepSim(r, { x: 0, y: 0 }, dt)
+    assert.ok(r._stillT >= STILLNESS_RAMP, `standing still for 3s banked only ${r._stillT.toFixed(2)}s of ramp`)
+    stepSim(r, { x: 1, y: 0 }, dt)
+    assert.strictEqual(r._stillT, 0, 'moving did not drop the STILLNESS ramp')
+    // A sub-unit stick deflection is still moving — the test is `len > 0`, not `len >= 1`.
+    for (let i = 0; i < 180; i++) stepSim(r, { x: 0, y: 0 }, dt)
+    stepSim(r, { x: 0.05, y: 0 }, dt)
+    assert.strictEqual(r._stillT, 0, 'a half-pushed stick did not count as moving')
+  }
+
+  // MARTYR — HP lost becomes damage around you, and it rides hpScale so it stays worth roughly the
+  // same number of enemies at t=30 and t=280 instead of decaying into confetti.
+  {
+    const hurt = (id, t) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+      r.time = t
+      const e = makeStatusEnemy(r, { x: 60, y: 0 })
+      r.enemies.push(e, makeStatusEnemy(r, { x: 0, y: 0 }))   // the second one does the hitting
+      const before = e.hp
+      stepSim(r, { x: 0, y: 0 }, dt)
+      return before - e.hp
+    }
+    assert.strictEqual(hurt(null, 100), 0, 'a bystander took damage with no MARTYR — something else is exploding')
+    const early = hurt('martyr', 30), late = hurt('martyr', 280)
+    assert.ok(early > 0, 'MARTYR did not detonate on a hit')
+    assert.ok(late > early * 2,
+      `MARTYR paid ${early.toFixed(0)} at t=30 and ${late.toFixed(0)} at t=280 — without hpScale the burst is a panic button early and confetti late`)
+  }
+
+  // CHAOS PACT — a repeating cycle, so assert the danger half fires and that it ends.
+  {
+    const spawned = (id, t) => {
+      const r = withCard(id, (x) => { x.time = t })
+      r.time = t
+      const n0 = r.enemies.length
+      for (let i = 0; i < 120; i++) stepSim(r, { x: 0, y: 0 }, dt)
+      return r.enemies.length - n0
+    }
+    const t0 = CHAOS_PACT_PERIOD * 2 + 1
+    assert.ok(spawned('chaosPact', t0) > spawned(null, t0),
+      'CHAOS PACT did not raise the spawn rate inside its surge window')
+    assert.ok(CHAOS_PACT_SURGE < CHAOS_PACT_PERIOD, 'the surge must be shorter than the cycle, or the payoff never arrives')
+  }
+
+  // ALIGNMENT — the combo cooldown, which is the only thing the card touches.
+  assert.strictEqual(ALIGNMENT_COMBO_CD, 0, 'ALIGNMENT must remove the combo cooldown, not shorten it')
+  assert.ok(COMBOS.comboCd > 0, 'there is no combo cooldown left for ALIGNMENT to remove')
+
+  // DEADFALL — immunity AND the re-arm. Immunity alone is "one fewer thing hurts you", a stat in a
+  // costume; the fast re-arm is what turns the field into a weapon.
+  {
+    const trapped = (id) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+      r.chapter = 'undergrowth'
+      r.traps = [{ x: 0, y: 0, r: 40, armed: true, rearmAt: 0 }]
+      r.player.invuln = 0
+      stepSim(r, { x: 0, y: 0 }, dt)
+      return r.traps[0]
+    }
+    assert.ok(!trapped(null).armed, 'the trap fixture did not spring on a plain run — it is not reaching its subject')
+    assert.ok(trapped('deadfall').armed, 'DEADFALL did not make the player invisible to traps')
+    assert.ok(DEADFALL_REARM_MUL < 1, 'DEADFALL must shorten the re-arm')
+  }
+
+  console.log(`PASS run PB7 (v7.2 slate): 13 cards, each asserted at its own trigger site — clock x${TIME_DEBT_MUL}, OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60), BRITTLE unrepairable, BLOOD PACT sealed, BLOOD MONEY on HP and floored, MARTYR scaled`)
 }
 
 function testPoolBuckets() {
@@ -687,7 +916,13 @@ function testAnomalyTier() {
 
   // The three gates, each asserted alone. Every one of them is a silent no-op if it stops firing:
   // the tier would simply be offered more often, which no share assertion above would catch.
-  const gated = (mutate) => {
+  // v7.2: `id` scopes the question to ONE card, and the two per-card gates below need it. While
+  // ANOMALIES held a single entry, "was any anomaly offered" and "was THIS card offered" were the
+  // same question; with a slate they are not, and the unscoped form silently stops testing what it
+  // names — an unconditional card (BRITTLE, TIME DEBT) is offered whatever unstableCores' elite
+  // gate says, so `!gated(kill the gate)` would go red for a reason that has nothing to do with
+  // the gate. Left unscoped where the assertion really is table-wide (the minLevel floors).
+  const gated = (mutate, id = null) => {
     Math.random = mulberry32(20260808)
     const r = createRun(meta)
     r.player.level = 12
@@ -696,7 +931,7 @@ function testAnomalyTier() {
     for (let i = 0; i < 400; i++) {
       r._screenRerolls = -1
       r._screenAnomaly = undefined   // a new screen each pass, not 400 rerolls of one (v6.7.9)
-      if (buildLevelUpChoices(r).some((c) => c.kind === 'anomaly')) return true
+      if (buildLevelUpChoices(r).some((c) => c.kind === 'anomaly' && (id === null || c.id === id))) return true
     }
     return false
   }
@@ -711,9 +946,9 @@ function testAnomalyTier() {
   assert.ok(seedFloor < ANOMALY_MIN_LEVEL, 'the seed card no longer exercises the per-card minLevel path')
   assert.ok(gated((r) => { r.player.level = seedFloor }),
     `a card declaring minLevel ${seedFloor} was not offered at level ${seedFloor} — the per-card floor is being ignored in favour of ANOMALY_MIN_LEVEL (${ANOMALY_MIN_LEVEL})`)
-  assert.ok(!gated((r) => { r._eliteKills = 0 }),
+  assert.ok(!gated((r) => { r._eliteKills = 0 }, 'unstableCores'),
     'an anomaly was offered while its `when` predicate was false — the hidden condition does nothing')
-  assert.ok(!gated((r) => { r.anomalies.unstableCores = true }),
+  assert.ok(!gated((r) => { r.anomalies.unstableCores = true }, 'unstableCores'),
     'an anomaly already taken this run was offered again — anomalies have no levels')
   assert.ok(gated(() => {}), 'the gate harness stopped reaching its subject — it offers nothing even ungated')
   // ...and the TABLE-WIDE floor a card inherits by NOT declaring one, which is what F10 is
@@ -990,7 +1225,19 @@ function testAnomalyPity() {
   const SCREENS = 6
   Math.random = mulberry32(20260808)
   const ineligible = createRun(meta)
-  ineligible.player.level = 12   // past the floor, but _eliteKills is 0, so `when` is false
+  // v7.2: made ineligible by the RUN CAP, not by a predicate. It used to sit at level 12 with
+  // _eliteKills 0, which was ineligible only while ANOMALIES held one elite-gated card — the slate
+  // has unconditional cards (BRITTLE, TIME DEBT, STILLNESS...) eligible at level 12 whatever the
+  // elite counter says, so the fixture stopped testing an ineligible stretch and started testing
+  // an eligible one under the old name.
+  // The level floor cannot be used either, and that is the subtle part: `drive` LEVELS THE PLAYER
+  // UP six times, so a fixture that starts one level below the floor is over it by screen two and
+  // the assertion fails for the right reason with the wrong cause. MAX_ANOMALIES_PER_RUN is the
+  // one gate that survives arbitrarily many level-ups and an arbitrarily large slate — it is the
+  // first line of eligibleAnomalyIds, before any level or predicate is read.
+  ineligible.player.level = 12
+  ineligible._eliteKills = 1
+  for (const id of Object.keys(ANOMALIES).slice(0, MAX_ANOMALIES_PER_RUN)) ineligible.anomalies[id] = true
   assert.strictEqual(drive(ineligible, SCREENS), 0, 'the ineligible fixture was offered an anomaly — it is not testing an ineligible stretch')
   assert.strictEqual(ineligible._screensSinceAnomaly, 0,
     `${SCREENS} screens the tier was INELIGIBLE on left pity at ${ineligible._screensSinceAnomaly} — credit must only be earned where it can be spent, or every run's first Rupture clusters on the screens right after ANOMALY_MIN_LEVEL`)
@@ -9101,7 +9348,12 @@ function testFrenchDictionary() {
   // Every player-visible string config.js owns must have an entry. This is what caught the two
   // City enemies added in v6.3 after the original translation pass.
   const missing = new Set()
-  const need = (s) => { if (typeof s === 'string' && s && !FR[s]) missing.add(s) }
+  // Every string the config TABLES actually hand to the translator at runtime. Collected here so
+  // check (d) below can tell a dead key from a COMPOSED one: v7.2's anomaly descs are template
+  // literals interpolating their own tuning constants (`x${BRITTLE_DMG_MUL} damage`), so the
+  // finished string exists only at runtime and never appears as a literal in any src/*.js.
+  const produced = new Set()
+  const need = (s) => { if (typeof s !== 'string' || !s) return; produced.add(s); if (!FR[s]) missing.add(s) }
   for (const id of CHAPTER_ORDER.concat(['blank'])) {
     const ch = CHAPTERS[id]
     if (!ch) continue
@@ -9150,7 +9402,13 @@ function testFrenchDictionary() {
     `"${k}"`,
     `\`${k}\``,
   ]
-  const dead = Object.keys(FR).filter((k) => !literals(k).some((lit) => blob.includes(lit)))
+  // `produced` is the second door, and it is NOT a loophole: a key that only matches through it is
+  // one config.js currently composes, so it is live by construction. It also keeps the pair of
+  // checks honest under a retune — change BRITTLE_DMG_MUL and the composed desc changes with it,
+  // which drops out of `produced`, lands in `missing`, and turns check (c) RED naming the new
+  // string. The alternative the comment above suggests (exempt each built key by name) would need
+  // that list re-edited on every balance change, and would go quietly stale instead.
+  const dead = Object.keys(FR).filter((k) => !produced.has(k) && !literals(k).some((lit) => blob.includes(lit)))
   assert.deepStrictEqual(dead, [], `fr.js keys no source string can produce — delete them: ${JSON.stringify(dead)}`)
 
   console.log(`PASS run XX (v6.6.8 French dictionary): ${keys.length} keys, no duplicates, none dead, no NBSP in keys, ${Object.values(FR).filter((v) => v.includes(NBSP)).length} values with French NBSP, full config.js coverage`)
@@ -9730,6 +9988,7 @@ try {
   testPoolBuckets()
   testAnomalyTier()
   testChapterLateRate()
+  testAnomalySlate()
   testAnomalyPity()
   testRerollRarity()
   testStarMods()

@@ -38,6 +38,16 @@ import {
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT, REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
+  // v7.2 anomaly slate. Every number these cards use lives in config.js (the standing rule); the
+  // trigger sites below read run.anomalies.<id> and reach for the constant, never a literal.
+  TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL,
+  BERSERK_DURATION, BERSERK_DMG_MUL,
+  OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC,
+  AVARICE_HEAL_CHANCE, AVARICE_HEAL_HP, AVARICE_COIN_DROP_MUL,
+  BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP,
+  STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
+  CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE, CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_MUL,
+  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -169,7 +179,13 @@ const HOMING_HIT_R = 10       // px, hit radius added to enemy radius
 
 /** Advance the simulation by dt seconds. input = {x, y} normalized move vector. */
 export function stepSim(run, input, dt) {
-  run.time += dt
+  // TIME DEBT (v7.2) is one line because every consumer already derives from run.time — hpScale,
+  // dmgScale, spawnRate, eliteEvery and the victory check below all read it, so inflating the
+  // advance compresses the WHOLE run rather than speeding one system up. CHAOS_PACT's cycle reads
+  // run.time too, which is why the two cards interact: the beats arrive 1.5x as often in real
+  // seconds. Intended, and said on the card.
+  if (run.anomalies?.timeDebt) run.time += dt * TIME_DEBT_MUL
+  else run.time += dt
   // v5.24: a scripted chapter (The Blank) has no timer victory at all — killing the script's last
   // boss IS the win (see stepBossScript), so the survival clock below never fires there.
   if (!CHAPTERS[run.chapter].scripted && run.time >= RUN_DURATION) {
@@ -178,6 +194,7 @@ export function stepSim(run, input, dt) {
     return
   }
 
+  if (stepAnomalies(run, dt)) return  // v7.2: OVERLOAD's drain can kill — phase is now 'dead'
   stepPlayerMovement(run, input, dt)
   stepRegen(run, dt)
   stepRepulse(run, input, dt) // v5.21 lane: the active shove (ticks its cooldown even when unused)
@@ -233,8 +250,17 @@ export function applyChoice(run, i) {
     run.passives[choice.id] = (run.passives[choice.id] ?? 0) + choice.bonus
     run.passivePicks[choice.id] = (run.passivePicks[choice.id] ?? 0) + 1
     if (choice.id === 'maxHP') {
-      p.maxHP += choice.bonus
-      p.hp = Math.min(p.maxHP, p.hp + choice.bonus)
+      // BRITTLE (v7.2) holds the ceiling for the whole run. Without this the card is repairable:
+      // take it for x4 damage, then buy maxHP back to ~110 over five passive picks and keep the
+      // multiplier. That is not the run-ender the rarity licence is paying for — the card reads
+      // "your max HP BECOMES 1", so it has to stay 1. The pick is not wasted silently: `maxHP` is
+      // still recorded in run.passives, so the build sheet shows what was spent.
+      if (!run.anomalies?.brittle) {
+        p.maxHP += choice.bonus
+        // BLOOD PACT blocks the top-up but never the ceiling: the pool grows, you just cannot fill
+        // it. That is the card working — "you can never heal again", not "you can never grow".
+        healPlayer(run, choice.bonus)
+      }
     }
   } else if (choice.kind === 'mod') {
     const mods = run.weaponMods[choice.weapon]
@@ -250,9 +276,109 @@ export function applyChoice(run, i) {
     // future pool (eligibleAnomalyIds). `??=` because a hand-built run — the probe harness, a
     // test fixture — may predate the field; a missing one must not throw inside the ticker.
     (run.anomalies ??= {})[choice.id] = true
+    applyAnomalyOnTake(run, choice.id)
   } else if (choice.kind === 'heal') {
-    p.hp = Math.min(p.maxHP, p.hp + 30)
+    healPlayer(run, 30)
   }
+}
+
+// ---- Anomalies (v7.2 slate) --------------------------------------------------------------
+// An anomaly is a RULE, not a stat, so almost all of them are read at a trigger site. The two
+// exceptions are here: a card whose whole effect is a PERMANENT multiplier is applied ONCE, when
+// it is taken, onto the same player fields the meta shop writes. Read-time would work too and is
+// strictly worse — it puts a branch in the hottest loops in the file to express a constant.
+//
+// The dividing line is whether the multiplier can change during the run. BRITTLE, OVERLOAD and
+// SOY MILK cannot; BERSERK, STILLNESS, CHAOS PACT and BLOOD PACT can, and live in
+// anomalyDamageMul below.
+function applyAnomalyOnTake(run, id) {
+  const p = run.player
+  if (id === 'brittle') {
+    // Order matters: clamp hp AFTER maxHP, or a player at full HP keeps their old pool and the
+    // card is a pure damage buff until the next hit.
+    p.maxHP = BRITTLE_MAX_HP
+    p.hp = Math.min(p.hp, p.maxHP)
+    p.damageMul *= BRITTLE_DMG_MUL
+  } else if (id === 'overload') {
+    p.fireRateMul *= OVERLOAD_FIRE_MUL
+    p.damageMul *= OVERLOAD_DMG_MUL
+  } else if (id === 'soyMilk') {
+    p.fireRateMul *= SOY_MILK_FIRE_MUL
+    p.damageMul *= SOY_MILK_DMG_MUL
+  }
+}
+
+// Every anomaly damage multiplier that can CHANGE during a run, folded into one number for
+// applyDamage. Kept as one function rather than four reads at the call site so the composition is
+// visible: these MULTIPLY, and a run holding two of them is meant to be extreme (the rarity
+// licence). MAX_ANOMALIES_PER_RUN = 2 is what bounds it.
+// The per-frame half of the slate: timers that tick and costs that are paid by the second.
+// Returns true when the player died paying one, exactly like the other stepX guards in stepSim.
+function stepAnomalies(run, dt) {
+  const a = run.anomalies
+  if (!a) return false
+  if (a.berserk && run._berserkT > 0) run._berserkT = Math.max(0, run._berserkT - dt)
+  if (a.overload) {
+    // PER SECOND, never per shot. Weapon cadence spans 0.5/s (a city beam) to 3.8/s (body) across
+    // chapters — a 7.6x lottery — and "per shot" is undefined for a beam at all, so a per-fire cost
+    // would price the card completely differently in every chapter. Measured, this is the same
+    // error the Ipecac count table exists to avoid.
+    // The `dot` path is deliberate: it skips invulnTime, HURT_CAP_FRAC and armor subtraction, so
+    // the cost cannot be turtled away. It is still suppressed by run.rampageT, which makes skies'
+    // rampage a free-fire window — a good emergent beat, not a bug.
+    //
+    // ACCUMULATE, then spend whole HP. hurtPlayer's dot branch is Math.max(1, Math.round(raw)), so
+    // handing it 0.75 * dt (0.0125 at 60fps) rounds to 0 and is FLOORED BACK UP TO 1 — the card
+    // would cost 60 HP/s instead of 0.75 and kill a full-health player in two seconds. Every
+    // per-second cost in this file has to bank the fraction; the floor exists so a real DoT tick
+    // can never do nothing, and it turns any sub-1 drain into a catastrophe.
+    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dt
+    if (run._overloadAcc >= 1) {
+      const spend = Math.floor(run._overloadAcc)
+      run._overloadAcc -= spend
+      if (hurtPlayer(run, spend, true)) return true
+    }
+  }
+  return false
+}
+
+function anomalyDamageMul(run) {
+  const a = run.anomalies
+  if (!a) return 1
+  let mul = 1
+  // BERSERK: a window, refreshed by every hit and ticked down in stepStatuses.
+  if (a.berserk && run._berserkT > 0) mul *= BERSERK_DMG_MUL
+  // STILLNESS: a ramp over run._stillT, which stepPlayerMovement resets on any INPUT (never on
+  // velocity — pond's currents shove the player, so a velocity test would hard-counter the card in
+  // exactly one chapter).
+  if (a.stillness) {
+    const ramp = Math.min(1, (run._stillT ?? 0) / STILLNESS_RAMP)
+    mul *= 1 + (STILLNESS_MAX_MUL - 1) * ramp
+  }
+  // CHAOS PACT: the payoff half of the cycle — everything after the spawn surge.
+  if (a.chaosPact && run.time % CHAOS_PACT_PERIOD >= CHAOS_PACT_SURGE) mul *= CHAOS_PACT_DMG_MUL
+  // BLOOD PACT: the snowball, accumulated in stepSim's kill accounting.
+  if (a.bloodPact) mul *= 1 + (run._bloodPact ?? 0)
+  return mul
+}
+
+// BLOOD PACT suppresses every heal in the run, and before v7.2 there was no funnel to put that in
+// — unlike damage, which has exactly one. This IS the funnel, and adding it is most of what makes
+// the card shippable. Four callers: the level-up heal card, the `maxHP` passive's top-up, stepRegen
+// and AVARICE. Avarice going through it is the correct reading of both cards — taking Blood Pact
+// after Avarice turns your coins back into nothing, and the player can see that coming.
+//
+// The REVIVE token is deliberately NOT routed here. It is a shop consumable with its own resource
+// and its own HP fraction (hurtPlayer, REVIVE_HP_FRAC); blocking it would make Blood Pact silently
+// void 150 coins the player spent before the run began — a cost paid outside the card's reading.
+//
+// If you add a heal, add it HERE. A direct `p.hp = ...` write compiles, runs, and quietly makes
+// Blood Pact a lie; grep for `p.hp =` before assuming there is another one (there are three writes
+// in this file: the BRITTLE clamp, this, and the revive).
+function healPlayer(run, amount) {
+  if (run.anomalies?.bloodPact) return
+  const p = run.player
+  p.hp = Math.min(p.maxHP, p.hp + amount)
 }
 
 // ---- Player -------------------------------------------------------------------
@@ -263,6 +389,16 @@ function stepPlayerMovement(run, input, dt) {
   let iy = input?.y || 0
   const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
+
+  // STILLNESS (v7.2) reads INPUT, deliberately, and this is the only place the raw stick is known.
+  // A velocity test would be wrong in exactly one chapter and invisibly so: pond's currents shove
+  // the player every frame (currentForceMul), the beyond lane advances you whether you ask or not,
+  // and both would hold the ramp at zero forever. `len` is pre-clamp, so a half-pushed analog stick
+  // still counts as moving. Ticked here rather than in stepAnomalies because that runs before this
+  // one and would read the previous frame's input.
+  if (run.anomalies?.stillness) {
+    run._stillT = len > 0 ? 0 : (run._stillT ?? 0) + dt
+  }
 
   // Move-speed debuffs: latch (v5.0) sets a timed player.slowT; web (v5.3 garden) slows while the
   // player stands in any run.webs patch; binding nodes (v5.24 blank P2) publish run._bindSlow from
@@ -322,7 +458,10 @@ function stepPlayerMovement(run, input, dt) {
 function stepRegen(run, dt) {
   const p = run.player
   if (run.passives.regen > 0) {
-    p.hp = Math.min(p.maxHP, p.hp + run.passives.regen * dt)
+    // Through healPlayer so BLOOD PACT reaches it. This is the site that makes that card a real
+    // trade rather than a flavour line — regen is the passive it forbids, and BLOOD MONEY's whole
+    // design argument is that it forces you to buy regen, which Blood Pact then makes worthless.
+    healPlayer(run, run.passives.regen * dt)
   }
 }
 
@@ -382,7 +521,13 @@ function stepSpawning(run, dt) {
   // same narrow corridor — the ordinary stream yields so the two together read as pressure rather
   // than a wall. See LANE_SPAWN_MUL.
   const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL : 1
-  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * laneMul * dt
+  // CHAOS PACT (v7.2): the danger half of the cycle. Read-time, never written into run.mods —
+  // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
+  // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
+  // read-time). The payoff half is the damage multiplier in anomalyDamageMul.
+  const chaosMul = run.anomalies?.chaosPact && run.time % CHAOS_PACT_PERIOD < CHAOS_PACT_SURGE
+    ? CHAOS_PACT_SPAWN_MUL : 1
+  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * laneMul * chaosMul * dt
   const cap = maxAliveFor(run.mods) // per-chapter density cap (v6.6.4) — see maxAliveFor
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
@@ -1811,6 +1956,30 @@ function hurtPlayer(run, rawDmg, dot = false) {
   p.hp -= dmg
   if (!dot) p.invuln = PLAYER.invulnTime
   run.events.push({ type: 'hurt', dmg, dot })
+  // v7.2 anomaly slate. This is the one funnel every player-damage path already goes through, so
+  // it is where "you got hit" means anything. The counter gates BERSERK and MARTYR's `when`
+  // predicates — both cards are about taking damage, so neither should be offered to a player the
+  // run has not yet hit. Counts real hits only: the OVERLOAD drain is self-inflicted and would
+  // otherwise open both gates on a timer instead of on play.
+  if (!dot) run._hitsTaken = (run._hitsTaken ?? 0) + 1
+  if (run.anomalies?.berserk && !dot) run._berserkT = BERSERK_DURATION
+  // MARTYR turns HP into ammunition: the damage that got through detonates around you. Rides
+  // hpScale for the reason UNSTABLE CORES' bombs had to — its input is PLAYER HP, which does not
+  // scale, while enemy HP climbs 7.6x-33.6x over a run, so a flat conversion is a panic button
+  // early and confetti late. dealDamage (not applyDamage) deliberately: this is not a weapon hit,
+  // so it must not re-roll crit, re-apply elements, or be multiplied by the damage passives a
+  // second time. Includes DoT damage — OVERLOAD's drain becoming a permanent aura is the intended
+  // combo, and it is the reason the two cards were designed together.
+  if (run.anomalies?.martyr && dmg > 0) {
+    const burst = dmg * MARTYR_DMG_MUL * hpScale(run.time)
+    const radSq = MARTYR_RADIUS * MARTYR_RADIUS
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - p.x, dy = e.y - p.y
+      if (dx * dx + dy * dy <= radSq) dealDamage(run, e, burst, false)
+    }
+    run.events.push({ type: 'explode', x: p.x, y: p.y, radius: MARTYR_RADIUS })
+  }
   // v5.4 reaction mods: taking damage (contact OR zone — every path routes through here) fires a
   // free Quill Burst / Tail Swipe off the weapon timer, each on its own internal cooldown. No-ops
   // unless the weapon is equipped AND the mod is picked.
@@ -2644,7 +2813,11 @@ function stepTraps(run, dt) {
     const rSq = tr.r * tr.r
     // The player trips it first when they're standing in it — but an invulnerable player walks over
     // a trap without springing it (it would otherwise be spent for free, on nothing).
-    if (p.invuln <= 0) {
+    // DEADFALL (v7.2) uses the same door: the traps stop noticing you entirely, so the field turns
+    // from something you route AROUND into furniture you kite enemies ACROSS. Skipping the branch
+    // (rather than zeroing the damage) is what keeps the trap armed for the pack behind you —
+    // springing it on the player would spend it on nothing, which is the case this guard exists for.
+    if (p.invuln <= 0 && !run.anomalies?.deadfall) {
       const dx = p.x - tr.x, dy = p.y - tr.y
       if (dx * dx + dy * dy <= rSq) {
         springTrap(run, tr)
@@ -2667,7 +2840,10 @@ function stepTraps(run, dt) {
 
 function springTrap(run, tr) {
   tr.armed = false
-  tr.rearmAt = run.time + SNAP_TRAP_REARM
+  // DEADFALL's second half: the field cycles ~5x faster, which is what makes it a weapon rather
+  // than merely a hazard you are immune to. Without this the card is "one fewer thing hurts you",
+  // which is a stat in a costume.
+  tr.rearmAt = run.time + SNAP_TRAP_REARM * (run.anomalies?.deadfall ? DEADFALL_REARM_MUL : 1)
   if (tr._cell != null) run._trapRearm.set(tr._cell, tr.rearmAt) // hand-placed test traps carry no _cell — stay ledger-free
   run.events.push({ type: 'explode', x: tr.x, y: tr.y, radius: tr.r })
 }
@@ -3223,6 +3399,19 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
     run.gems.push({ x: enemy.x, y: enemy.y, xp })
 
+    // BLOOD PACT (v7.2): the snowball, uncapped, read back through anomalyDamageMul. Two clauses
+    // because they do OPPOSITE jobs, and that is measured, not assumed: kills/run vary 3.3x across
+    // chapters (570 body to 1902 city) so the per-kill clause is a chapter lottery (+57% to +190%),
+    // while eliteEvery is a TIME cadence so elites land 8.6-10.6/run everywhere and the per-elite
+    // clause is chapter-fair. An elite pays BOTH clauses — it is a kill as well.
+    if (run.anomalies?.bloodPact) {
+      run._bloodPact = (run._bloodPact ?? 0) + BLOOD_PACT_PER_KILL
+        + (enemy.elite ? BLOOD_PACT_PER_ELITE : 0)
+    }
+    // AVARICE thins the drops themselves, not just the payout: the card has to be felt at the
+    // source or it is a wallet edit the player never sees. Rolled per coin so an elite's pile
+    // thins probabilistically rather than losing a fixed slice.
+    const coinDropMul = run.anomalies?.avarice ? AVARICE_COIN_DROP_MUL : 1
     if (enemy.elite) {
       // Anomaly predicates read this (ANOMALIES in config.js): "have you met an elite yet" is a
       // hidden condition a card can teach itself with, and run.kills cannot answer it.
@@ -3230,11 +3419,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
       const gilded = enemy.affixes && enemy.affixes.includes('gilded')
       const coinCount = gilded ? Math.round(ELITE.coins * GILDED_COIN_MUL) : ELITE.coins
       for (let i = 0; i < coinCount; i++) {
+        if (Math.random() >= coinDropMul) continue
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
         run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
       }
-    } else if (Math.random() < ENEMIES[enemy.type].coinChance) {
+    } else if (Math.random() < ENEMIES[enemy.type].coinChance * coinDropMul) {
       run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
     }
 
@@ -3297,7 +3487,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
 function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   if (damageImmune(enemy)) return 0 // v5.4 untouchable window: no crit roll, no elements either
   const p = run.player
-  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul
+  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
   let crit = false
   if (Math.random() < p.critChance + run.passives.critChance + critBonus) {
@@ -3320,8 +3510,13 @@ function comboReady(enemy, name) {
   return (enemy._comboCd[name] || 0) <= 0
 }
 
-function triggerCombo(enemy, name) {
-  enemy._comboCd[name] = COMBOS.comboCd
+// ALIGNMENT (v7.2) drops the cooldown to zero, so every qualifying hit triggers the combo instead
+// of one every COMBOS.comboCd (0.5s) per enemy per combo. That is the whole card: it makes the
+// INTERACTION the star rather than handing out a potency number in a costume, which is what the
+// first draft did and why it was redesigned. Passed `run` rather than read off a module flag so
+// the function stays pure in the enemy it mutates.
+function triggerCombo(run, enemy, name) {
+  enemy._comboCd[name] = run.anomalies?.alignment ? ALIGNMENT_COMBO_CD : COMBOS.comboCd
 }
 
 function applyIgnite(enemy, potency, dmgDealt) {
@@ -3366,7 +3561,7 @@ function applyVenomStack(enemy, stacks = 1) {
 // fire+cold Shatter: fire landing on a chilled/frozen enemy (or cold landing on an ignited
 // one) bursts AoE damage in COMBOS.shatterRadius, consuming the chill/freeze.
 function triggerShatter(run, enemy, dmgDealt) {
-  triggerCombo(enemy, 'shatter')
+  triggerCombo(run, enemy, 'shatter')
   const dmg = Math.round(dmgDealt * COMBOS.shatterMul)
   const radSq = COMBOS.shatterRadius * COMBOS.shatterRadius
   for (const e of run.enemies) {
@@ -3384,7 +3579,7 @@ function triggerShatter(run, enemy, dmgDealt) {
 // fire+lightning Overload: a shock arc landing on an ignited enemy detonates its remaining
 // ignite damage instantly as an AoE burst in COMBOS.overloadRadius, consuming the ignite.
 function triggerOverload(run, enemy) {
-  triggerCombo(enemy, 'overload')
+  triggerCombo(run, enemy, 'overload')
   const remaining = Math.round(enemy.igniteDps * enemy.ignite)
   enemy.ignite = 0
   enemy.igniteDps = 0
@@ -3442,10 +3637,10 @@ function applyShock(run, enemy, potency, dmgDealt) {
   // (source + every target) when their combo fires, so only fall back to the plain shockarc
   // visual when neither combo triggered this hit — otherwise the arc would double-render.
   if (frostPoints.length > 0) {
-    triggerCombo(enemy, 'frostarc')
+    triggerCombo(run, enemy, 'frostarc')
     run.events.push({ type: 'frostarc', points: [[enemy.x, enemy.y], ...frostPoints] })
   } else if (conductPoints.length > 0) {
-    triggerCombo(enemy, 'conduct')
+    triggerCombo(run, enemy, 'conduct')
     run.events.push({ type: 'conduct', points: [[enemy.x, enemy.y], ...conductPoints] })
   } else {
     run.events.push({ type: 'shockarc', points: [[enemy.x, enemy.y], ...targets.map((t) => [t.x, t.y])] })
@@ -4904,7 +5099,7 @@ function pickBloomSpot(run, castRange) {
 // player's damage passives/shop like every other weapon.
 function applyDotDamage(run, enemy, baseDmg) {
   const p = run.player
-  const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul
+  const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
   dealDamage(run, enemy, dmg, false, true)
 }
 
@@ -6065,11 +6260,27 @@ function stepPickups(run, dt) {
     return kept
   }
 
+  // TIME DEBT's compensation (v7.2). The clock costs you LEVELS, not survival — measured at 1.5x
+  // the run ends ~3 levels lower — so the card pays it back in the currency it took. Applied at
+  // pickup rather than to the level curve because xpForLevel is a module-level import that no
+  // per-run field can reach; this is the same lever the harness measured through (run.mods.xpMul).
+  const xpMul = run.anomalies?.timeDebt ? TIME_DEBT_XP_MUL : 1
   run.gems = collect(run.gems, (g) => {
-    p.xp += g.xp * GEM_VALUE * (1 + run.passives.xpGain) * run.mods.xpMul
+    p.xp += g.xp * GEM_VALUE * (1 + run.passives.xpGain) * run.mods.xpMul * xpMul
     run.events.push({ type: 'gem', x: g.x, y: g.y })
   })
   run.coins = collect(run.coins, (c) => {
+    // AVARICE (v7.2): a share of the coins you collect heal instead of paying out. Rolled at
+    // PICKUP, which is what makes the card immune to every coinMul mutator — every coin is
+    // value 1, so the pickup count is the quantity converted, measured at 593/run in city d2.
+    // Deliberately NOT gated by COIN_CAP_PER_RUN: the cap bounds the META payout, runs already
+    // measure 791/999 against it, and a card that silently switches off in the last minute of a
+    // long run is a card the player cannot reason about.
+    if (run.anomalies?.avarice && Math.random() < AVARICE_HEAL_CHANCE) {
+      healPlayer(run, AVARICE_HEAL_HP)
+      run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value, healed: true })
+      return
+    }
     // v6.4.2: clamp at COIN_CAP_PER_RUN (config.js) — pickups past the cap still sparkle
     // (the event still fires below), they just stop paying out.
     run.coinsEarned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + Math.round(c.value * p.coinGainMul * run.mods.coinMul))
@@ -6653,7 +6864,42 @@ export { buildLevelUpChoices }
 // city/2 rare 33.4%). See _screenRerolls in state.js.
 // Returns false and changes NOTHING when the run cannot afford it, so the caller's only job is to
 // decide whether it is allowed to ask.
+/**
+ * What the next reroll of THIS screen costs, and in what currency. Exported so the button can
+ * print the truth: BLOOD MONEY changes the wallet, and a footer still reading `🔄 Reroll (23🪙)`
+ * while the transaction below silently takes 10 HP is the worst kind of hidden rule — the player
+ * cannot make the trade the card is selling if the trade is not on screen.
+ * Lives here, next to the transaction it describes, for the reason v6.7.11 moved the purchase out
+ * of main.js: a price computed in the UI layer can drift from the one that is charged, and nothing
+ * would go red.
+ */
+export function rerollPrice(run) {
+  if (run.anomalies?.bloodMoney) return { cost: BLOOD_MONEY_HP, currency: 'hp' }
+  return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins' }
+}
+
 export function rerollLevelUpChoices(run) {
+  // BLOOD MONEY (v7.2) replaces the currency, not the transaction — everything below is unchanged,
+  // including both counters, so the rarity decay and the escalating-price ladder behave identically.
+  // FLAT, and the owner overruled a maxHP proposal to keep it so. The objection that flat HP does
+  // not bind ("~23 rerolls") priced it against regen AVERAGED across runs (0.41/s), and regen is
+  // bimodal — most runs never pick it, so the real budget is maxHP alone, about 11 rerolls. The
+  // card's actual cost is that it RE-PRICES THE PASSIVE POOL: it makes regen the enabler of an
+  // offensive strategy, which is opportunity cost paid in level-up picks, the currency this whole
+  // redesign is about.
+  // FLOORED, not fatal: below the cost the button simply refuses. Dying on a modal screen to a
+  // button press is not a trade the player agreed to. A max-regen build (2.5 HP/s = 750 HP/run)
+  // rerolling nearly every screen is the known ceiling — a legitimate build bought with 5 passive
+  // picks, and it should be a consequence someone can predict, not a discovery.
+  if (run.anomalies?.bloodMoney) {
+    const p = run.player
+    if (p.hp <= BLOOD_MONEY_HP) return false
+    p.hp -= BLOOD_MONEY_HP
+    run._rerolls = (run._rerolls ?? 0) + 1
+    run._screenRerolls = (run._screenRerolls ?? 0) + 1
+    run.levelUpChoices = buildLevelUpChoices(run)
+    return true
+  }
   const cost = rerollCost(run._rerolls ?? 0)
   // Rerolls spend the RUN's coins (the HUD counter), not the meta bank — spending mid-run shrinks
   // the end-of-run payout, and the number next to the button matches what the HUD shows (v5.1 fix;

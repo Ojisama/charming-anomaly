@@ -282,6 +282,7 @@ function measure() {
   // sub-beams) and not seeing any in the run" — this is the measurement of that complaint.
   const modRuns = new Map()
   const coinsEarned = [], killCounts = [], fireCounts = [], eliteKillCounts = []
+  const hurtCounts = [], hpLostCounts = []
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
   const defPicks = { armor: 0, regen: 0, maxHP: 0 }
   let offered = 0
@@ -326,7 +327,7 @@ function measure() {
     // Counting weapon FIRES without touching src/: weaponTimers[id] counts DOWN to the next shot
     // and is reset upward on fire, so a rising edge is exactly one fire. Covers every weapon —
     // only 7 of them emit a 'shoot' event (those are for SFX), and none of the city three do.
-    let fires = 0, eliteKills = 0
+    let fires = 0, eliteKills = 0, hurts = 0, hpLost = 0
     let prevSince = 0   // last observed run._screensSinceAnomaly — see the pity diagnostics below
     const prevT = {}
     // Weapons arrive mid-run, so the grant is re-checked rather than applied once at setup.
@@ -418,7 +419,14 @@ function measure() {
       if (OVERLOAD && SURVIVAL) run.player.hp -= OVERLOAD_COST * dt
       if (TIMESCALE !== 1) run.time += dt * (TIMESCALE - 1)
       // BLOOD PACT stacks per kill AND per elite kill, so both rates need their own denominator.
-      for (const ev of run.events) if (ev.type === 'kill' && ev.elite) eliteKills++
+      // MARTYR is priced on HP LOST, so both the count and the total matter: N x hp-lost is a
+      // per-hit burst, and hp-lost/run is the run-long damage budget it converts. Only meaningful
+      // under --survival (the offer probe refills to maxHP every frame, so `hurt` still fires but
+      // the player never actually spends anything).
+      for (const ev of run.events) {
+        if (ev.type === 'kill' && ev.elite) eliteKills++
+        else if (ev.type === 'hurt') { hurts++; hpLost += ev.dmg }
+      }
       run.events.length = 0
     }
     Math.random = REAL_RANDOM
@@ -428,6 +436,8 @@ function measure() {
     coinsEarned.push(run.coinsEarned ?? 0)
     killCounts.push(run.kills ?? 0)
     eliteKillCounts.push(eliteKills)
+    hurtCounts.push(hurts)
+    hpLostCounts.push(hpLost)
     fireCounts.push(fires)
     levels.push(run.player.level)
     anomalies.push(st.taken.size)
@@ -466,6 +476,8 @@ function measure() {
     coins: avg(coinsEarned),
     kills: avg(killCounts),
     eliteKills: avg(eliteKillCounts),
+    hurts: avg(hurtCounts),
+    hpLost: avg(hpLostCounts),
     fires: avg(fireCounts),
     liveT: avg(deaths.length ? deaths.map((d) => Math.min(d.t, C.RUN_DURATION)) : [C.RUN_DURATION]),
     winRate: deaths.length ? (100 * deaths.filter((d) => d.won).length) / deaths.length : 0,
@@ -546,6 +558,11 @@ function survivalReport(r) {
   row('deaths', r.deathT.length)
   row('level reached', r.level)
   row('weaponLvSum', r.weaponLv)
+  // MARTYR's denominator. hits/run is the burst COUNT, HP lost/run the budget it converts — an
+  // N x hp-lost detonation pays N * hpLost damage over the run, spread over `hurts` explosions.
+  row('hits taken/run', r.hurts)
+  row('HP lost/run', r.hpLost)
+  row('  HP per hit', r.hpLost / (r.hurts || 1))
   // The MORTAL anomaly rate is the one the tier is tuned against: an immortal 36-level probe run
   // saturates MAX_ANOMALIES_PER_RUN whatever the weight is. Taken, not offered — with any policy
   // but `random` the bot scores an anomaly at 1000 and always takes it.

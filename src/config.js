@@ -318,6 +318,108 @@ export const hasWeaponAt = (run, id, lv = 1) => {
   return !!w && w.level >= lv
 }
 
+// ---- Anomaly tuning (v7.2) ----------------------------------------------------------
+// One block per card that carries a number, so the slate's balance lives here and the trigger
+// sites in sim.js stay free of magic numbers (the standing rule). Each constant names the
+// measurement or the ruling it came from — several of these were set by the owner directly and
+// must not be "corrected" by eye.
+
+// TIME DEBT. run.time advances at this rate; every consumer already derives from it (hpScale,
+// dmgScale, spawnRate, eliteEvery, victory at RUN_DURATION), so the whole run compresses.
+// 1.5x (not 2x) is the owner's number. The XP compensation is NOT decoration: measured at 1.5x
+// with no upside the card cost ~3 levels over a run and bought nothing, which is a trade, not a
+// pivot. With it the card is roughly power-neutral and sells INTENSITY — the same run in 200
+// real seconds at 1.5x density.
+export const TIME_DEBT_MUL = 1.5
+export const TIME_DEBT_XP_MUL = 1.5
+// BRITTLE. The pure run-ender the rarity licence exists to permit. maxHP 1 does NOT accidentally
+// grant immortality through HURT_CAP_FRAC: Math.round(1 * 0.5) is 1 in JS (half rounds up) and
+// hurtPlayer's non-dot branch floors at 1 anyway. One hit, one death, as intended.
+export const BRITTLE_MAX_HP = 1
+export const BRITTLE_DMG_MUL = 4
+// BERSERK. No cooldown and no threshold, by owner ruling, and the v6.3.4 turtle objection does not
+// hold: `armor` measures 2.4-3.7 in real runs while dmgScale(300) = 2x puts late contact at 16-30
+// before difficulty, so armor blocks 10-20% of a hit rather than flooring it to nothing.
+// Sustaining the window therefore costs 16-30 HP every PLAYER.invulnTime (0.75s) — 21-40 dps
+// against ~150 maxHP, and it gets WORSE as dmgScale climbs. The cost is the damage.
+export const BERSERK_DURATION = 5
+export const BERSERK_DMG_MUL = 2
+// OVERLOAD. The cost is per SECOND, not per shot — measured: fires/s spans 0.5/s (city, a beam) to
+// 3.8/s (body) across chapters, a 7.6x lottery, and "per shot" is undefined for a beam entirely.
+// This is the same error the Ipecac count table exists to avoid. 2x (not 3x) is the owner's call:
+// "otherwise life would drain instantly".
+export const OVERLOAD_FIRE_MUL = 2
+export const OVERLOAD_DMG_MUL = 2
+export const OVERLOAD_HP_PER_SEC = 0.75
+// AVARICE. Measured against a real coin rate (city d2 dps, 12 runs): 593 coins/run today, and
+// every coin is value 1, so that is also the PICKUP count — the quantity this card converts.
+// At 20% conversion with drops at -30%, 415-554 coins survive and ~83-111 of them heal.
+// 5 HP is what makes it a card at all: at 1 HP it pays 0.28-0.37 HP/s against the `regen` passive's
+// 0.5 HP/s at its FIRST normal roll, i.e. less than one ordinary pick for 44% of the run's coins.
+// At 5 HP it pays 1.4-1.85 HP/s (~3 regen levels) but gated on kill rate, so it evaporates exactly
+// when you are overwhelmed and cannot clear — that gating is the pivot.
+export const AVARICE_HEAL_CHANCE = 0.2
+export const AVARICE_HEAL_HP = 5
+export const AVARICE_COIN_DROP_MUL = 0.7
+// A coin past COIN_CAP_PER_RUN still heals. The cap bounds the META payout; runs already measure
+// 791/999 against it, so without this the card would silently switch off late in exactly the runs
+// that need it. The healing is deliberately NOT capped by the coin cap.
+// BLOOD PACT. Owner's numbers. +1%/kill was the first draft and ends the run at x6.7 (body) to
+// x19.9 (city) — that is not "explodes", it is "the last two minutes have no threat left", which
+// the rarity licence does not cover. At these rates: body x1.68, city x2.99, beyond x2.77.
+// KNOWN AND FLAGGED, not a defect: the per-KILL clause is a chapter lottery (+57% to +190%, a 3.3x
+// spread) because kills/run vary 3.3x, while the per-ELITE clause is chapter-fair (+8.6% to
+// +10.6%) because eliteEvery is a TIME cadence. At these rates the fair clause is ~5% of the total,
+// i.e. very nearly decorative. Raising it to ~5%/elite and cutting per-kill to ~0.02% would make
+// the card reward hunting elites and stop varying 3x by chapter — an owner call, not a fix.
+export const BLOOD_PACT_PER_KILL = 0.001
+export const BLOOD_PACT_PER_ELITE = 0.01
+// BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
+// rerolls") was overstated because it priced against regen AVERAGED across runs (0.41/s) when
+// regen is bimodal — most runs never pick it, so the real budget is maxHP alone, ~11 rerolls.
+// The card's point is that it RE-PRICES THE PASSIVE POOL: it makes regen the enabler of an
+// offensive strategy. A max-regen build (2.5 HP/s = 750 HP/run) rerolling every screen is a
+// legitimate build bought with 5 passive picks, not an exploit — but it is a known consequence.
+// Floored, not fatal: the reroll is blocked below the cost rather than killing you on a modal.
+export const BLOOD_MONEY_HP = 10
+// STILLNESS. Keyed off INPUT, never velocity: pond's currents shove the player (currentForceMul),
+// so a velocity test would hard-counter the card in exactly one chapter and nowhere else.
+export const STILLNESS_RAMP = 2      // s of no input to reach the cap
+export const STILLNESS_MAX_MUL = 3   // damage multiplier at the cap
+// MARTYR. Priced on a MEASURED denominator (body/2 d3, kite-and-collect bot, 40 runs): 11.3 hits
+// taken/run, 207.4 HP lost/run, 18.4 HP per hit. So x3 is ~55 raw per detonation and ~620 over a
+// run — which against ~64 HP trash at mid-run is about one enemy per hit, i.e. nothing.
+// It rides hpScale for the same reason UNSTABLE CORES' bombs had to: a flat number derived from
+// player HP is scary early and cosmetic late, because player maxHP does not ride hpScale and enemy
+// HP rides it 7.6x-33.6x. Scaled, the burst stays worth ~3 trash kills at every t, which is what
+// makes it a panic button (it clears the crowd that just hit you) rather than a dps source.
+export const MARTYR_DMG_MUL = 3
+export const MARTYR_RADIUS = 140
+// CHAOS PACT. Owner's restructure from a one-shot into a repeating 60s cycle, and the numbers are
+// explicitly deferred to playtest: "number will be toyed with by playing."
+// Start the playtest from the right suspicion: the cycle is 25% danger and 75% payoff, and spawn
+// rate is the GENTLEST danger knob — a kiting player outruns density where enemy damage or HP
+// would bite. As written this may read as a near-permanent +50% damage with a siren. If it plays
+// as a gift, raise the danger window (spawn x2, or lend it enemyDmgMul) before shortening the
+// payoff: the long payoff is what makes the rhythm legible.
+export const CHAOS_PACT_PERIOD = 60
+export const CHAOS_PACT_SURGE = 15    // s of the cycle spent under the spawn surge
+export const CHAOS_PACT_SPAWN_MUL = 1.5
+export const CHAOS_PACT_DMG_MUL = 1.5
+// ALIGNMENT. COMBOS.comboCd is 0.5s per enemy per combo; this removes it, so shatter/overload/
+// acid-burn/brittle fire on EVERY qualifying hit. Makes the interaction the star instead of a
+// potency number — which is why it replaced a straight combo-damage bump.
+export const ALIGNMENT_COMBO_CD = 0
+// DEADFALL. The trap field is undergrowth's identity, so this is a chapter inversion: the hazard
+// stops being something you route around and becomes furniture you kite ACROSS.
+export const DEADFALL_REARM_MUL = 0.2
+// SOY MILK. Paper-neutral (x5 fire, x0.2 damage) and MEASURED neutral: +4.6% kills, inside the
+// noise floor. Its real upside is not in that number at all — element procs are counted PER HIT,
+// not per damage, so five times the hits is five times the ignite/chill/shock applications. The
+// probe does not read proc counts, so the card is stronger than the row that cleared it.
+export const SOY_MILK_FIRE_MUL = 5
+export const SOY_MILK_DMG_MUL = 0.2
+
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -336,6 +438,143 @@ export const ANOMALIES = {
     // deferred "at least one by level N" guarantee is for.
     kind: 'jackpot',
     minLevel: 3,
+  },
+
+  // ---- PIVOTS: no direct cost, but they change how the run is PLAYED ------------------
+  // A jackpot means no COST, not no DECISION. A card that changes nothing about how you play has
+  // failed regardless of its tier — which is the bar every row below is written against.
+
+  berserk: {
+    name: 'Berserk', icon: '😤',
+    from: 'something hit you, and you liked it',
+    desc: `Taking a hit doubles your damage for ${BERSERK_DURATION}s. No cooldown, no threshold.`,
+    // Inverts the core loop: you stop avoiding damage and start seeking it. The gate teaches the
+    // card — it is only offered to a player who has actually been hit.
+    when: (r) => (r._hitsTaken ?? 0) > 0,
+    weight: 6, chapter: null, kind: 'pivot',
+  },
+  stillness: {
+    name: 'Stillness', icon: '🧘',
+    from: 'you stopped, and the world kept moving',
+    desc: `Stand still and your damage climbs to x${STILLNESS_MAX_MUL} over ${STILLNESS_RAMP}s. Moving drops it instantly.`,
+    // Inverts the one rule the genre teaches for 300 seconds. Unconditional (weight 1): there is
+    // no build state that would make "you can stand still" a lesson the run has already taught.
+    when: () => true,
+    weight: 1, chapter: null, kind: 'pivot',
+  },
+  martyr: {
+    name: 'Martyr', icon: '🩸',
+    from: 'you bled, and the ground answered',
+    desc: 'Every point of HP you lose detonates around you.',
+    // The connective tissue for the four HP-cost cards: OVERLOAD's drain becomes a permanent
+    // damage aura, BERSERK already wants you hit, BLOOD MONEY turns a reroll into a bomb. It does
+    // NOT break BRITTLE — at 1 maxHP a hit removes 1 HP, so the detonation is worth MARTYR_DMG_MUL
+    // x hpScale (a few damage early, ~17 late in body) instead of the ~55 a normal run's 18.4-HP
+    // hit produces. The obvious degenerate pair is self-limiting.
+    when: (r) => (r._hitsTaken ?? 0) >= 3,
+    weight: 6, chapter: null, kind: 'pivot',
+  },
+  chaosPact: {
+    name: 'Chaos Pact', icon: '🌀',
+    from: 'you agreed to a rhythm you did not set',
+    desc: `Every minute: ${CHAOS_PACT_SURGE}s of +${Math.round((CHAOS_PACT_SPAWN_MUL - 1) * 100)}% enemies, then +${Math.round((CHAOS_PACT_DMG_MUL - 1) * 100)}% damage until the next one.`,
+    // Keys off run.time, which TIME DEBT inflates 1.5x — so under both cards the beats arrive half
+    // again as often in real seconds. Intended, and the card text says "every minute" rather than
+    // "every 60 seconds" partly because of it.
+    when: () => true,
+    weight: 1, chapter: null, kind: 'pivot',
+  },
+  deadfall: {
+    name: 'Deadfall', icon: '🪤',
+    from: 'the traps stopped caring about you',
+    desc: `Snap traps ignore you, and re-arm ${Math.round((1 - DEADFALL_REARM_MUL) * 100)}% faster.`,
+    // The chapter inversion (weight 2): undergrowth's signature hazard changes sides, so you kite
+    // ACROSS the trap field instead of away from it. KNOWN RISK, accepted: this may trivialise the
+    // chapter by turning its identity into a free weapon. It is gated to undergrowth and to lv 10
+    // so a player meets the hazard as a hazard first.
+    when: () => true,
+    weight: 2, chapter: 'undergrowth', kind: 'pivot',
+    minLevel: 10,
+  },
+
+  // ---- JACKPOTS: no cost at all -------------------------------------------------------
+
+  alignment: {
+    name: 'Alignment', icon: '⚗️',
+    from: 'two elements found the same beat',
+    desc: 'Element combos lose their cooldown — every qualifying hit triggers them.',
+    // Redesigned away from a potency bump: this makes the INTERACTION the star. Gated on owning
+    // two distinct elements, which is also the only state in which the card means anything.
+    when: (r) => Object.values(r.elementPicks ?? {}).filter((n) => n > 0).length >= 2,
+    weight: 6, chapter: null, kind: 'jackpot',
+  },
+
+  // ---- TRADES: a real cost, paid up front and read before you take it -----------------
+  // RARITY LICENSES EXTREMITY (owner): a card that can end a run is the payoff, not a balance
+  // failure, PROVIDED it is rare. The limit is opt-in, not survivability — the player reads the
+  // card first, so a self-inflicted catastrophe is a choice. These all sit at the table's default
+  // ANOMALY_MIN_LEVEL, deliberately (F10: a new player's first encounter with the tier must not be
+  // a pure downside).
+
+  timeDebt: {
+    name: 'Time Debt', icon: '⏳',
+    from: 'the clock started running against you',
+    desc: `The run clock advances x${TIME_DEBT_MUL}. Gems pay +${Math.round((TIME_DEBT_XP_MUL - 1) * 100)}% XP.`,
+    when: () => true,
+    weight: 1, chapter: null, kind: 'trade',
+  },
+  brittle: {
+    name: 'Brittle', icon: '🥚',
+    from: 'you traded every future hit for this one',
+    desc: `Your max HP becomes ${BRITTLE_MAX_HP}. Your damage is x${BRITTLE_DMG_MUL}.`,
+    when: () => true,
+    weight: 1, chapter: null, kind: 'trade',
+  },
+  overload: {
+    name: 'Overload', icon: '⚡',
+    from: 'you found the part of you that burns',
+    desc: `x${OVERLOAD_FIRE_MUL} fire rate and x${OVERLOAD_DMG_MUL} damage, for ${OVERLOAD_HP_PER_SEC} HP every second.`,
+    // The drain uses hurtPlayer's dot path, which skips invulnTime, HURT_CAP_FRAC and armor — so
+    // the cost cannot be turtled away, which is what makes it a real resource. It IS suppressed by
+    // run.rampageT (RAMPAGE = INVULNERABLE, the one guard covering every damage path), so skies'
+    // rampage becomes a free-fire window. Good emergent beat, not a bug.
+    when: () => true,
+    weight: 1, chapter: null, kind: 'trade',
+  },
+  bloodPact: {
+    name: 'Blood Pact', icon: '🫀',
+    from: 'you swore off healing',
+    desc: `You can never heal again. Every kill: +${(BLOOD_PACT_PER_KILL * 100).toFixed(1)}% damage. Every elite: +${Math.round(BLOOD_PACT_PER_ELITE * 100)}%.`,
+    when: () => true,
+    weight: 1, chapter: null, kind: 'trade',
+  },
+  bloodMoney: {
+    name: 'Blood Money', icon: '💉',
+    from: 'you rerolled once, and wondered what it was really worth',
+    desc: `Rerolls cost ${BLOOD_MONEY_HP} HP instead of coins.`,
+    // Gated on having actually paid for a reroll: the card is meaningless to a player who has
+    // never used the button, and this is the one gate on the slate the player can deliberately
+    // open. Anti-synergies stay legible and are meant to be read off the two cards: BRITTLE
+    // (maxHP 1) disables rerolls entirely, BLOOD PACT (no healing) makes every reroll permanent.
+    when: (r) => (r._rerolls ?? 0) > 0,
+    weight: 6, chapter: null, kind: 'trade',
+  },
+  avarice: {
+    name: 'Avarice', icon: '🩹',
+    from: 'the coins started tasting like medicine',
+    desc: `Coin drops -${Math.round((1 - AVARICE_COIN_DROP_MUL) * 100)}%, and ${Math.round(AVARICE_HEAL_CHANCE * 100)}% of the ones you collect heal ${AVARICE_HEAL_HP} HP instead of paying out.`,
+    // The cost is dual and it is the sharpest thing on the slate: run.coinsEarned is BOTH the
+    // end-of-run meta payout AND the in-run reroll wallet. Avarice trades level-up agency for
+    // survivability — agency being the exact complaint this redesign exists to answer.
+    when: (r) => (r.coinsEarned ?? 0) >= 50,
+    weight: 6, chapter: null, kind: 'trade',
+  },
+  soyMilk: {
+    name: 'Soy Milk', icon: '🥛',
+    from: 'your elements wanted more chances, not bigger ones',
+    desc: `x${SOY_MILK_FIRE_MUL} fire rate, x${SOY_MILK_DMG_MUL} damage. Elements proc per HIT.`,
+    when: (r) => Object.values(r.elementPicks ?? {}).some((n) => n > 0),
+    weight: 6, chapter: null, kind: 'trade',
   },
 }
 

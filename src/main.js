@@ -1,8 +1,8 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
-import { stepSim, applyChoice, rerollLevelUpChoices, buildReadout } from './sim.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
+import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
@@ -258,10 +258,15 @@ const ui = initUI({
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {
+  // v7.2: the price and its CURRENCY both come from sim.js (rerollPrice), because BLOOD MONEY
+  // moves rerolls onto HP and the button has to print what is actually charged.
+  const price = rerollPrice(run)
   return {
     choices: run.levelUpChoices,
-    rerollCost: rerollCost(run._rerolls ?? 0),
+    rerollCost: price.cost,
+    rerollCurrency: price.currency,
     coins: run.coinsEarned,  // run coins — rerolls spend these, see onReroll
+    hp: Math.floor(run.player.hp),
   }
 }
 

@@ -187,8 +187,11 @@ function formatShopBonus(id, levels) {
  *       when tapping an inactive slot row. main.js writes the slot pointer and reloads the page,
  *       same "nothing left to re-render" idiom as onReset — never fires for the already-active slot.
  *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
- *     - 'levelup' data: { choices, rerollCost, coins } — choices is run.levelUpChoices
- *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
+ *     - 'levelup' data: { choices, rerollCost, rerollCurrency, coins, hp } — choices is
+ *       run.levelUpChoices (run.choiceSlots cards, all shown); the rest drive the Reroll button.
+ *       rerollCurrency is 'coins' or (under the BLOOD MONEY anomaly, v7.2) 'hp', and it decides
+ *       both the label's icon and which wallet the disabled check reads. Both come from sim.js's
+ *       rerollPrice, never computed here — see that function for why.
  *     - 'pause' data: { mutators: string[], mode: string, build: object }
  *       mutators = run.mutators (omit/empty for classic runs); mode = the run mode chip;
  *       build = buildReadout(run) — the pause sheet's weapon/passive/element/Rupture sections,
@@ -1136,7 +1139,11 @@ export function initUI(hooks) {
   }
 
   function renderLevelup(data = {}) {
-    const { choices = [], rerollCost: rerollN = 0, coins = 0 } = data
+    // v7.2: `rerollCurrency` is 'coins' normally and 'hp' under the BLOOD MONEY anomaly, which
+    // replaces the reroll's wallet. The button prints whichever it will actually take — a footer
+    // reading 🪙 while sim.js charges HP is a hidden rule the player cannot trade against.
+    const { choices = [], rerollCost: rerollN = 0, rerollCurrency = 'coins', coins = 0, hp = 0 } = data
+    const onHP = rerollCurrency === 'hp'
     const cards = choices.map((c, i) => {
       const rarity = c.rarity ?? 'normal'
       // A card whose rarity is not a RARITIES key shows NO chip — that is how a weapon UPGRADE
@@ -1156,14 +1163,17 @@ export function initUI(hooks) {
         </span>
       </button>`
     }).join('')
-    const rerollDisabled = coins < rerollN
+    // On HP the gate is STRICT: paying your last 10 HP would kill you on a modal screen, which is
+    // not a trade the player agreed to when they took the card (sim.js rerollLevelUpChoices floors
+    // it the same way — this only stops the button lying about being available).
+    const rerollDisabled = onHP ? hp <= rerollN : coins < rerollN
     screens.levelup.innerHTML = `
       <div class="modal">
         <h2 class="modal-title">${t('LEVEL UP!')}</h2>
         <div class="lv-cards">${cards}</div>
         <p class="lv-hint">${tt('1-{n} · arrows · enter · R reroll', { n: choices.length })}</p>
         <div class="lv-footer">
-          <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 ${tt('Reroll ({n}🪙)', { n: rerollN })}</button>
+          <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 ${onHP ? tt('Reroll ({n}❤️)', { n: rerollN }) : tt('Reroll ({n}🪙)', { n: rerollN })}</button>
           <span class="lv-coins">🪙 ${coins}</span>
         </div>
       </div>
