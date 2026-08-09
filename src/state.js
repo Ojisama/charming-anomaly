@@ -1009,7 +1009,9 @@ function generateWells(sig) {
  *   it once per screen, before calling buildLevelUpChoices, so the count is 1 on a screen with no
  *   dry screens behind it and sim.js's weight term is (count - 1) * ANOMALY_PITY_PER_SCREEN (see
  *   anomalyWeightFor). Advancing it in stepLevelUp rather than in the builder is what stops a
- *   REROLL pumping it (main.js's onReroll calls buildLevelUpChoices directly). v6.7.9: a screen
+ *   REROLL pumping it: the reroll purchase (sim.js's rerollLevelUpChoices, see below) re-deals the
+ *   screen by calling the builder again, so a counter kept in the builder would step on every
+ *   re-deal and let coins buy the rarest tier. v6.7.9: a screen
  *   the tier is ineligible for (level floor, `when` false, all cards taken) does NOT advance it —
  *   credit is earned only where it can be spent, or the first Rupture of every run clusters on the
  *   screens right after ANOMALY_MIN_LEVEL. Zeroed by rollAnomalyCard when the roll fires — when

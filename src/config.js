@@ -16,12 +16,16 @@ export const RUN_DURATION = 300 // seconds; reaching it = victory
 // ---- Rarity ------------------------------------------------------------------
 // Hybrid model: passive cards ROLL a rarity that multiplies their bonus;
 // weapons have an INHERENT rarity that gates how often they appear in the pool.
+// v6.7.13: no `color` field. It had SIX values and ZERO readers — render.js does not even import
+// RARITIES, and every real consumer reads .name or .mult only. The tier colours the player actually
+// sees are declared independently in styles.css's .lv-card[data-rarity=...] rules, so the field was
+// a second source of truth that nothing consulted and nothing kept in sync.
 export const RARITIES = {
-  normal:    { name: 'Normal',    color: 0x9aa0a6, mult: 1.0 },
-  rare:      { name: 'Rare',      color: 0x4da3ff, mult: 1.6 },
-  epic:      { name: 'Epic',      color: 0xb06cf0, mult: 2.5 },
-  legendary: { name: 'Legendary', color: 0xff9d3c, mult: 4.0 },
-  mythic:    { name: 'Mythic',    color: 0xff4d6d, mult: 6.5 },
+  normal:    { name: 'Normal',    mult: 1.0 },
+  rare:      { name: 'Rare',      mult: 1.6 },
+  epic:      { name: 'Epic',      mult: 2.5 },
+  legendary: { name: 'Legendary', mult: 4.0 },
+  mythic:    { name: 'Mythic',    mult: 6.5 },
   // v6.7.6 (Track B): a SIXTH tier, not a replacement for mythic. mult 1.0 because an anomaly buys
   // no stat growth at all — it is a rule change (see ANOMALIES below), so there is nothing for a
   // multiplier to scale. The key is not decorative: every reader that walks RARITY_ORDER reads
@@ -32,10 +36,13 @@ export const RARITIES = {
   // the ENEMIES (MUTATORS.overtime.desc), and the player themselves (fr.js 'You': 'Ton
   // anomalie'). A teal card chipped ANOMALY therefore reads as a fourth mutator administered by
   // the difficulty ladder rather than a rule the player just chose — the one failure the design
-  // forbids. "Rupture" is unclaimed in both dictionaries and is a word in both. The internal key
-  // stays `anomaly` everywhere (RARITY_ORDER, ANOMALIES, run.anomalies, kind:'anomaly', the CSS
-  // data-rarity): renaming the id is a mechanical migration best done once, with the slate.
-  anomaly:   { name: 'Rupture',   color: 0x35e0c8, mult: 1.0 },
+  // forbids. "Rupture" is unclaimed in English. The FRENCH is deliberately a DIFFERENT word,
+  // 'Brèche' (fr.js, owner call 2026-08-09): 'rupture' in everyday French reads first as a breakup
+  // or a stock-out, and the chip carries no context to steer the reader toward the visceral sense
+  // the English word has. The internal key stays `anomaly` everywhere (RARITY_ORDER, ANOMALIES,
+  // run.anomalies, kind:'anomaly', the CSS data-rarity): renaming the id is a mechanical migration
+  // best done once, with the slate.
+  anomaly:   { name: 'Rupture',   mult: 1.0 },
 }
 // Replacing mythic (the original design) would give the mythic city starter `rainbow` a "Normal"
 // chip, silently cap all 15 kind:'tier' mods at +2 via WEAPON_MOD_TIER_BONUS, break three
@@ -3174,7 +3181,8 @@ export const OBSTACLE_FIELD_RADIUS = 900       // px, the density reference area
 export const OBSTACLE_CELL = 420               // px, streaming grid cell — at most one obstacle per cell
 export const OBSTACLE_STREAM_RADIUS = 1400     // px, cells within this of the player materialize (beyond any screen edge)
 export const OBSTACLE_DROP_RADIUS = 1900       // px, obstacles beyond this are dropped (hysteresis vs pop-in churn)
-export const OBSTACLE_MIN_GAP = 40             // px, min edge-to-edge gap (wells' scatterField spacing — v6.5: no longer traps, see signature.traps)
+// v6.7.13: OBSTACLE_MIN_GAP removed. Its only consumer was the wells' scatterField spacing, and v6.5
+// moved traps to streaming (see signature.traps) — it had been exported with no reader ever since.
 export const OBSTACLE_PLACEMENT_ATTEMPTS = 200 // rejection-sampling attempts per entry (traps/wells scatterField)
 // Per-chapter override of the streaming grid cell above (OBSTACLE_CELL) — absent everywhere except
 // skies (v5.8 kaiju redesign): see CHAPTERS.skies.obstacles.cell and sim.js's streamObstacles,

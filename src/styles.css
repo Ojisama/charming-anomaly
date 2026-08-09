@@ -704,8 +704,9 @@ body {
 .lv-card[data-rarity="mythic"]    { box-shadow: 0 4px 0 rgba(255, 77, 106, 0.4), 0 0 20px rgba(255, 77, 106, 0.5); }
 /* anomaly (v6.7.6): the sixth tier. Its own colour rather than a hotter mythic, because it is not
    a bigger number — it is a rule change, and it must not read as "mythic but more". Without this
-   rule the tier renders with no border, no chip background and no glow, and RARITIES.anomaly.color
-   is dead weight: ui.js reads only .name off the table. The resting values are here so the card
+   rule the tier renders with no border, no chip background and no glow. This file is the ONLY
+   declaration of the tier colours — config.js carries no `color` field (v6.7.13: it had six values
+   and zero readers; ui.js reads only .name). The resting values are here so the card
    still has a border with animations off; the motion that carries the tier is anomaly-breathe,
    below the mythic keyframes. */
 .lv-card[data-rarity="anomaly"]   { border-color: #35e0c8; box-shadow: 0 4px 0 rgba(53, 224, 200, 0.4), 0 0 22px rgba(53, 224, 200, 0.55); }

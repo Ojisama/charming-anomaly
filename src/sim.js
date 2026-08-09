@@ -5771,7 +5771,10 @@ function stepPickups(run, dt) {
 // ---- Level up -----------------------------------------------------------------------
 
 // Weapon candidates: new (unowned, only if under MAX_WEAPONS) + upgrades (below max level).
-// Each carries its inherent config rarity; passives are added per-card once a rarity is rolled.
+// A `New!` entry carries its weapon's inherent config rarity (that IS the jackpot moment); an
+// UPGRADE carries UPGRADE_RARITY, which is deliberately not a RARITIES key so ui.js prints no chip
+// — see the note at the push site below. Passives are not touched here at all: bucket-first picks
+// them in their own bucket, before any rarity is rolled.
 // Build-focus nudge (see NEW_WEAPON_FADE in config.js): arsenal investment = every pick
 // spent upgrading an owned weapon or buying a weapon mod. Derived from state, no counter.
 // v6.7 (Track B): the nudge is applied by rollCard as a WEIGHT on each `New!` entry, not here as
@@ -5836,9 +5839,12 @@ function shuffleInPlace(arr) {
 // — as { weapon, mod } pairs (a mod id alone isn't enough to look up its config once mods are
 // split per-weapon). Per-weapon fairness (v4.4, see MOD_CANDIDATES_PER_WEAPON): each weapon only
 // contributes up to MOD_CANDIDATES_PER_WEAPON of its eligible mods (randomly chosen) so the
-// starting/only weapon (star) can't flood every early pool with all 6 of its mods, and no single
+// starting/only weapon (star) can't flood every early pool with all 5 of its mods, and no single
 // weapon dominates once several are owned. If the combined list still exceeds MOD_POOL_MAX
-// (several weapons owned), uniformly sample MOD_POOL_MAX so mods don't crowd out weapon/passive/
+// (several weapons owned), uniformly sample MOD_POOL_MAX. NOTE what that sample does NOT do any
+// more: under bucket-first (v6.7.4) the mod bucket carries BUCKET_WEIGHTS.mod flat whenever it has
+// any candidate at all, so the sample decides WHICH mods are offered, never HOW OFTEN. It can no
+// longer crowd out weapon/passive/
 // element cards.
 function eligibleWeaponModCandidates(run) {
   const candidates = []
@@ -5878,7 +5884,9 @@ function eligibleElementIds(run) {
 // A passive card adopts whatever rarity was rolled for its slot — UNLESS it carries a `values`
 // table (armor/regen, v6.3.4): then it rolls only the listed rarities, at the listed exact
 // amounts, and returns null at any other rarity (epic/mythic) so the card just isn't offered at
-// that tier — the caller (rollCard) must treat a null return as "no candidate here", not a bug.
+// that tier, and never a bug. The caller (rollCard) does NOT drop the card: having already chosen
+// the passive bucket, it re-rolls the rarity across this passive's own `values` keys and offers the
+// card anyway — dropping it would silently convert a defensive roll into no card at all.
 function makePassiveCard(run, id, rarity) {
   const cfg = PASSIVES[id]
   let bonus
@@ -6279,9 +6287,10 @@ function stepLevelUp(run) {
   // at the undecayed table and only the replacements the player buys step up (rerollLevelUpChoices
   // does the stepping — see _screenRerolls in state.js for why the BUILDER must not).
   run._screenRerolls = 0
-  // Anomaly pity advances HERE, once per screen, and not inside buildLevelUpChoices — main.js's
-  // onReroll calls the builder directly, so a counter kept there would let coins buy the rarest
-  // tier (F5). The unit is the SCREEN, not the card: the tier is rolled once per screen, so a
+  // Anomaly pity advances HERE, once per screen, and not inside buildLevelUpChoices — the reroll
+  // purchase (rerollLevelUpChoices) re-deals a screen by calling the builder again, so a counter
+  // kept there would step on every re-deal and let coins buy the rarest tier (F5).
+  // The unit is the SCREEN, not the card: the tier is rolled once per screen, so a
   // per-card step would give a 4-slot player twice the accrual of a 2-slot one — the meta-shop
   // lottery v6.7.7 closed on the base rate, walked back in through pity.
   // ONLY WHERE IT CAN BE SPENT (v6.7.9): a screen the tier is INELIGIBLE for banks nothing. It
@@ -6301,8 +6310,9 @@ function stepLevelUp(run) {
   run.events.push({ type: 'levelup' })
 }
 
-// Exported for test/sim-test.js only (rarity distribution sanity checks); main.js does
-// not use this directly — it drives stepSim/applyChoice and rerollLevelUpChoices below.
+// Exported for the two out-of-band readers: test/sim-test.js (rarity distribution sanity checks)
+// and scripts/pool-probe.mjs (the balance harness). main.js does not use it directly — it drives
+// stepSim/applyChoice and rerollLevelUpChoices below.
 export { buildLevelUpChoices }
 
 // THE WHOLE REROLL PURCHASE, in sim.js rather than in main.js's onReroll (v6.7.11). It lives here

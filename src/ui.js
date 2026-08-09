@@ -192,7 +192,10 @@ function formatShopBonus(id, levels) {
  *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
  *     - 'levelup' data: { choices, rerollCost, coins } — choices is run.levelUpChoices
  *       (run.choiceSlots cards, all shown); rerollCost/coins drive the Reroll button.
- *     - 'pause' data: { mutators: string[] }   (run.mutators; omit/empty for classic runs)
+ *     - 'pause' data: { mutators: string[], mode: string, build: object }
+ *       mutators = run.mutators (omit/empty for classic runs); mode = the run mode chip;
+ *       build = buildReadout(run) — the pause sheet's weapon/passive/element/Rupture sections,
+ *       and `build.anomalies` is what the Rupture section reads. See main.js's pause hook.
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
  *       nextDifficulty?, unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter? }
  *       nextDifficulty (v6.4.4) is the difficulty a classic win just advanced the chapter's saved

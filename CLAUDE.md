@@ -34,7 +34,7 @@ node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-
 #     network goes anywhere — only exists at several thousand px. Judge layout in map mode.
 ```
 
-There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Only `sim.js` (+ its `config.js`/`state.js` deps) is testable this way** — it's the only module free of Pixi/DOM.
+There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
 
 Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
 
@@ -45,10 +45,10 @@ Every module has a hard rule about what it may touch. These rules are what make 
 | File | Role | May NOT touch |
 |------|------|---------------|
 | `terrain.js` | **The world generator** (v5.11). Pure fns of `(x, y, seed)`: elevation/moisture noise fields, rivers, cities (each owning its street grid), biome classification, road queries. Imports nothing; `config.js` re-exports its surface so sim/render keep one import source. | anything — no imports at all |
-| `config.js` (3.2k lines) | All balance numbers + `CHAPTERS`/`WEAPONS`/`WEAPON_MODS`/`ELEMENTS`/`MUTATORS` tables. Treated as **read-only ground truth** by every other module. | — (pure data + pure helper fns) |
+| `config.js` (4.9k lines) | All balance numbers + `CHAPTERS`/`WEAPONS`/`WEAPON_MODS`/`ELEMENTS`/`MUTATORS` tables. Treated as **read-only ground truth** by every other module. | — (pure data + pure helper fns) |
 | `state.js` | `run` shape (`createRun`) + persistent save (`loadMeta`/`saveMeta`, `localStorage`) + save migrations. | Pixi, DOM (localStorage only) |
-| `sim.js` (4k lines) | **Pure simulation.** `stepSim(run, input, dt)` advances the world and pushes to `run.events`. | Pixi, DOM, localStorage — nothing but `run` + `config` |
-| `render.js` (5.3k lines) | PixiJS renderer. Reads `run`, **never mutates it**. Bakes entity looks into textures once; per-frame work is sprite pools. | writing to `run` |
+| `sim.js` (6.3k lines) | **Pure simulation.** `stepSim(run, input, dt)` advances the world and pushes to `run.events`. | Pixi, DOM, localStorage — nothing but `run` + `config` |
+| `render.js` (12k lines) | PixiJS renderer. Reads `run`, **never mutates it**. Bakes entity looks into textures once; per-frame work is sprite pools. | writing to `run` |
 | `ui.js` | DOM overlay (`#ui`): title, shop, HUD, level-up, pause, summary screens. | Pixi |
 | `input.js` | Floating touch joystick + WASD/arrows → normalized move vector. | — |
 | `audio.js` | Procedural WebAudio SFX (no audio assets — every sound is synthesized). | — |
@@ -60,7 +60,7 @@ Every module has a hard rule about what it may touch. These rules are what make 
 
 ### The event contract
 
-`sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block at the top of `state.js` (lines ~150-530)** — read it before adding entities or events; keep it in sync when you change the `run` shape.
+`sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block in `state.js` (lines 438-1115)** — read it before adding entities or events; keep it in sync when you change the `run` shape.
 
 ### The chapter system (v5.0+)
 
@@ -70,9 +70,9 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 ## Non-obvious constraints (breaking these produces a blank page in prod)
 
-- **No top-level `await` in `main.js`.** Suspending module evaluation deadlocks Pixi v8's dynamically-imported environment code in the production bundle (hangs on a blank page). `boot()` is a plain async fn called at the bottom.
+- **No top-level `await` in `main.js`.** Suspending module evaluation deadlocks Pixi v8's dynamically-imported environment code in the production bundle (hangs on a blank page). `boot()` is a plain async fn, *called* at `main.js:14` and *declared* at 16 — hoisting makes that legal, and the point is that nothing awaits at module scope.
 - **`vite.config.js` sets `inlineDynamicImports: true`.** Pixi v8 auto-detects its environment via dynamic import; as a split chunk it never loads in prod. Don't remove this.
-- **Asset globs use `import.meta.glob('./props/*.png', { eager: true, query: '?url' })`** in render.js — resolves to URL strings at build time, no runtime dynamic-import graph (required by the constraints above). Add art to `src/props/` (foliage) or `src/fx/` (Kenney particle PNGs, tinted per-use); they're auto-discovered. `src/cast/*.png` (ui.js) is the same idiom, but those files are **generated**, not authored — `node scripts/bake-cast.mjs` re-bakes them from render.js's own creature textures. Nothing warns you if they go stale.
+- **Asset globs use `import.meta.glob('./props/*.png', { eager: true, query: '?url', import: 'default' })`** in render.js — resolves to URL strings at build time, no runtime dynamic-import graph (required by the constraints above). Add art to `src/props/` (foliage) or `src/fx/` (Kenney particle PNGs, tinted per-use); they're auto-discovered. `src/cast/*.png` (ui.js) is the same idiom, but those files are **generated**, not authored — `node scripts/bake-cast.mjs` re-bakes them from render.js's own creature textures. Nothing warns you if they go stale.
 - **`base: './'`** in vite config — the game ships to a GitHub Pages subpath, so all asset paths must stay relative.
 
 ## Conventions
@@ -80,7 +80,8 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - **Versioned commits.** Each release is a commit subject `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are visible — their events were silently dropped`). Chores use `chore: …`. Follow this format.
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
-- `.gitignore` excludes `/*.png` **and nothing else** — a PNG at the repo ROOT is ignored; a PNG in a subdirectory is not, and neither is any other scratch artifact. Verification work regularly produces `.json` dumps at the root and files staged under `public/` so the dev server can serve them to a browser probe; none of that is covered. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
+- `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
+- **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
 - **Editing `src/fr.js` by exact-string match fails on the NBSP.** French values carry U+00A0
   before `: ; ! ?` (`'Nouveau !'`, `'MONTÉE DE NIVEAU !'`, `'achat : 🪙 {n}'`), and it is
