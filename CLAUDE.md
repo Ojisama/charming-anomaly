@@ -126,6 +126,23 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   backlog is recounted every frame and dps reads ~2800× high).
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
+- **A red `sim-test` band is not proof your change caused it — several bands are eyeballed literals
+  under 3σ.** The suite seeds `Math.random` once per scenario, so ANY change that alters how many
+  randoms get drawn re-phases the whole stream and re-rolls every sampled statistic. Two bands were
+  measured sitting at 2.6–2.8σ: the anomaly slot-uniformity check (±0.06 on ~400 anomaly pools,
+  where 1σ = 2.2pts) and `mod > 24` in the partial-arsenal fixtures. v7.7 moved five bucket weights
+  and drew a false red on the first — slot 2 of 4 at 31.6% — for a placement that is
+  `Math.floor(random * cards.length)` and cannot read `BUCKET_WEIGHTS` at all. **Protocol:** before
+  attributing a red to your diff, ask whether the assertion's subject is even reachable from what
+  you changed, then re-run with a different seed. If it goes green, the band is under-powered — fix
+  it with a power calculation (state N, 1σ, and the size of the pathology it must still catch), and
+  mutation-prove the widened band still fails on that pathology. Do NOT retune your change to
+  satisfy a noisy test.
+- **Mutate a scratch copy, never the working tree.** Mutation-proofing an assertion means editing
+  `sim.js`, and `git checkout src/sim.js` to undo it silently discards any real edit you already had
+  in that file (v7.7 lost a comment fix this way and only caught it from `git status`). Either
+  extract a throwaway tree (`git archive <ref> | tar -x -C <tmp>`) and mutate there, or re-read
+  `git status --short` after every revert.
 - **A new weapon STAT has to be registered twice, and fails silently otherwise.** Adding a key to a
   weapon's `levels[]` is not enough for it to appear on the pause build sheet: `buildReadout`
   (sim.js) only copies keys on its own hardcoded whitelist array, and `STAT_LABEL` (ui.js) supplies

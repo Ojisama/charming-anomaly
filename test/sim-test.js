@@ -14,6 +14,9 @@ import {
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, hasWeaponAt,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_MUL,
+  SPECIALIST_MIN_MODS, SPECIALIST_EXTRA_PICKS, specialistSubjects, modPickCap,
+  BLIND_FAITH_FLOOR, BLIND_FAITH_NO_REROLL,
+  IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   // v7.2 anomaly slate constants — run PB7 asserts each card against the number it ships with,
   // so a retune moves the test with the config instead of leaving a stale literal in here.
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
@@ -769,7 +772,496 @@ function testAnomalySlate() {
       `DEADFALL re-armed in ${fastRearm.toFixed(1)}s against ${plainRearm.toFixed(1)}s — springTrap is not reading the multiplier`)
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 15 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
+  // SPECIALIST (v7.5) — the only card on the slate whose whole effect is on the level-up POOL, so
+  // it is the only one that cannot be asserted with the `withCard` fixture above.
+  // The first version of this scenario hand-wrote `r.anomalies.specialist = 'orbit'`, which meant
+  // rollAnomalyCard's subject list and applyChoice's banking were executed by NO test: an
+  // adversarial review mutated applyChoice to bank `true` instead of the weapon and the suite
+  // stayed green, with the card a complete no-op in the real game. Everything below therefore
+  // goes through the REAL path — roll a screen, find the card, applyChoice it.
+  {
+    const OWNED = ['star', 'orbit', 'wave', 'boomerang']
+    const armed = (focus) => {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      m.choiceSlots = MAX_CHOICE_SLOTS
+      const r = createRun(m, { chapter: 'body' })
+      r.weapons = OWNED.map((id) => ({ id, level: 3 }))
+      for (const id of OWNED) {
+        const first = Object.keys(WEAPON_MODS[id])[0]
+        r.weaponModPicks[id][first] = SPECIALIST_MIN_MODS   // past the gate, one mod still free
+      }
+      if (focus) {
+        // The real delivery path, end to end: build the card rollAnomalyCard would, hand it to
+        // applyChoice with the player's named weapon, and let applyChoice do the banking.
+        const subjects = specialistSubjects(r)
+        assert.deepStrictEqual(subjects.slice().sort(), OWNED.slice().sort(),
+          `specialistSubjects returned ${JSON.stringify(subjects)} — every owned weapon is past the gate, so the chooser should offer all four`)
+        r.levelUpChoices = [{ kind: 'anomaly', id: 'specialist', subjects }]
+        applyChoice(r, 0, focus)
+        assert.strictEqual(r.anomalies.specialist, focus,
+          `applyChoice banked ${JSON.stringify(r.anomalies.specialist)} for SPECIALIST, not the weapon the player named — a truthy non-string focuses nothing, silently`)
+      }
+      return r
+    }
+    // ...and an unnamed take must still land on a LEGAL weapon rather than `true`, because the
+    // probe harness and any UI path that skips the chooser go through exactly this branch.
+    {
+      const r = armed(null)
+      r.levelUpChoices = [{ kind: 'anomaly', id: 'specialist', subjects: specialistSubjects(r) }]
+      applyChoice(r, 0)
+      assert.ok(OWNED.includes(r.anomalies.specialist),
+        `a SPECIALIST taken with no subject banked ${JSON.stringify(r.anomalies.specialist)} — a caller that never opened the chooser must still get a working card`)
+    }
+
+    const screens = (focus) => {
+      const r = armed(focus)
+      const perWeapon = {}
+      let mods = 0, cards = 0
+      for (let i = 0; i < 3000; i++) {
+        r._screenRerolls = -1
+        r._screenAnomaly = undefined
+        for (const c of buildLevelUpChoices(r)) {
+          cards++
+          if (c.kind !== 'mod') continue
+          perWeapon[c.weapon] = (perWeapon[c.weapon] ?? 0) + 1
+          mods++
+        }
+      }
+      return { share: (id) => (perWeapon[id] ?? 0) / mods, mods, cards }
+    }
+    const off = screens(null), on = screens('orbit')
+    assert.ok(off.mods > 500 && on.mods > 500, 'the SPECIALIST fixture rolled almost no mod cards — it is not reaching its subject')
+    assert.ok(Math.abs(off.share('orbit') - 0.25) < 0.04,
+      `the unfocused control gave orbit ${(off.share('orbit') * 100).toFixed(1)}% of mod cards, not ~25% — the fixture is unbalanced and the comparison below would be meaningless`)
+    assert.ok(on.share('orbit') > off.share('orbit') * 1.5,
+      `SPECIALIST moved orbit's mod share ${(off.share('orbit') * 100).toFixed(1)}% -> ${(on.share('orbit') * 100).toFixed(1)}% — rollCard is not weighting the named weapon`)
+    // A REDISTRIBUTION, not a bucket buff. Measured as mod cards' share of ALL cards, which is the
+    // quantity the spec forbids the card from moving — an earlier version lifted the per-screen cap
+    // and MOD_POOL_MAX, which kept the mod bucket ALIVE on screens that would have dropped it and
+    // measured +17.8% mod share at two slots. Counting mods alone cannot see that; this can.
+    const modShare = (x) => x.mods / x.cards
+    assert.ok(Math.abs(modShare(on) / modShare(off) - 1) < 0.05,
+      `SPECIALIST moved mod cards' share of the whole pool ${(modShare(off) * 100).toFixed(1)}% -> ${(modShare(on) * 100).toFixed(1)}% — it is creating deliverability, not aiming it`)
+
+    // THE CEILING, which is the half a player actually feels: the focused weapon's mods stay
+    // eligible past MAX_WEAPON_MOD_PICKS, and nobody else's do.
+    {
+      const r = armed('orbit')
+      const modId = Object.keys(WEAPON_MODS.orbit).find((k) => WEAPON_MODS.orbit[k].kind !== 'switch' && WEAPON_MODS.orbit[k].maxPicks == null)
+      const otherId = Object.keys(WEAPON_MODS.star).find((k) => WEAPON_MODS.star[k].kind !== 'switch' && WEAPON_MODS.star[k].maxPicks == null)
+      assert.ok(modId && otherId, 'no uncapped mod found for the ceiling fixture')
+      r.weaponModPicks.orbit[modId] = MAX_WEAPON_MOD_PICKS
+      r.weaponModPicks.star[otherId] = MAX_WEAPON_MOD_PICKS
+      const offered = new Set()
+      for (let i = 0; i < 3000; i++) {
+        r._screenRerolls = -1
+        r._screenAnomaly = undefined
+        for (const c of buildLevelUpChoices(r)) if (c.kind === 'mod') offered.add(`${c.weapon}:${c.id}`)
+      }
+      assert.ok(offered.has(`orbit:${modId}`),
+        `a maxed mod on the FOCUSED weapon was never offered again — SPECIALIST_EXTRA_PICKS is not reaching modPickCap, and the card loses the only thing about it a player can feel`)
+      assert.ok(!offered.has(`star:${otherId}`),
+        `a maxed mod on an UNFOCUSED weapon was still offered — the raised ceiling is leaking to every weapon, which makes it a global cap change wearing a card's name`)
+    }
+  }
+
+  // BLIND FAITH (v7.5) — like SPECIALIST this one lives in the POOL, so it needs the screen fixture
+  // rather than `withCard`. Five separate promises, each read at a different site, each able to die
+  // without the others noticing. Two of these exist because an adversarial review found the holes:
+  // the shipped cost was a NO-OP at the default slot count, and the floor silently locked armor and
+  // regen to 100% legendary.
+  {
+    const screens = (blind, { slots = MAX_CHOICE_SLOTS, rerolls = -1 } = {}) => {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      m.choiceSlots = slots
+      const r = createRun(m, { chapter: 'body' })
+      // Weapons chosen for their SWITCH mods (stinger has two), because one assertion below is
+      // about the class of card the floor removes — a fixture without one proves nothing.
+      r.weapons = ['stinger', 'bloom', 'lure', 'clawRake'].map((id) => ({ id, level: 3 }))
+      if (blind) r.anomalies.blindFaith = true
+      const rarities = {}, valueTiers = {}
+      let cards = 0, switches = 0, dealt = 0
+      for (let i = 0; i < 2000; i++) {
+        r._screenRerolls = rerolls
+        r._screenAnomaly = undefined
+        const row = buildLevelUpChoices(r)
+        dealt++
+        for (const c of row) {
+          rarities[c.rarity] = (rarities[c.rarity] ?? 0) + 1
+          if (c.kind === 'mod' && WEAPON_MODS[c.weapon][c.id].kind === 'switch') switches++
+          if (c.kind === 'passive' && PASSIVES[c.id].values) {
+            valueTiers[c.id] = valueTiers[c.id] ?? {}
+            valueTiers[c.id][c.rarity] = (valueTiers[c.id][c.rarity] ?? 0) + 1
+          }
+          cards++
+        }
+      }
+      return { rarities, valueTiers, cards, switches, perScreen: cards / dealt }
+    }
+    const seeing = screens(false), blind = screens(true)
+
+    // 1. THE FLOOR. Every rarity string the screen produced is checked, NOT just the ones that
+    // happen to be on the ladder: filtering on RARITY_ORDER.includes() is how the first version of
+    // this assertion missed a whole class of card being restamped to a non-ladder value.
+    const floorIdx = RARITY_ORDER.indexOf(BLIND_FAITH_FLOOR)
+    const legal = new Set([...RARITY_ORDER.slice(floorIdx), UPGRADE_RARITY])
+    const below = Object.keys(blind.rarities).filter((k) => !legal.has(k))
+    assert.ok(seeing.rarities.normal > 0 && seeing.rarities.rare > 0,
+      'the sighted control dealt no normal/rare cards at all — the fixture is not reaching the rarity roll')
+    assert.deepStrictEqual(below, [],
+      `BLIND FAITH dealt tiers below ${BLIND_FAITH_FLOOR}: ${JSON.stringify(below.map((k) => [k, blind.rarities[k]]))} — the floor is not applied everywhere the table is rolled`)
+
+    // 2. THE FLOOR SURVIVES A REROLL. Both fixtures used to pin _screenRerolls at -1, so `rr` was
+    // always 0 and rarityTableFor could be deleted from the reroll branch with the suite green —
+    // the exact path BLOOD MONEY charges escalating HP for.
+    const blindRerolled = screens(true, { rerolls: REROLL_RARITY_CAP })
+    const belowRR = Object.keys(blindRerolled.rarities).filter((k) => !legal.has(k))
+    assert.deepStrictEqual(belowRR, [],
+      `after ${REROLL_RARITY_CAP} rerolls BLIND FAITH dealt ${JSON.stringify(belowRR)} — the decayed table is not being floored`)
+
+    // 3. THE COST IS PAID AT THE DEFAULT SLOT COUNT. This is the assertion that would have caught
+    // the shipped no-op: the cost was `Math.min(choiceSlots, 2)` and choiceSlots DEFAULTS to 2, so
+    // the default player paid nothing at all. Asserted on the price, not the card count, and at the
+    // default rather than the maximum.
+    {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      const plain = createRun(m, { chapter: 'body' })
+      assert.strictEqual(plain.choiceSlots, 2, 'the default choiceSlots moved — the cost assertion below is written against it being the DEFAULT, not a number')
+      assert.ok(rerollPrice(plain).available !== false, 'a plain run could not reroll — the comparison below is meaningless')
+      assert.ok(rerollLevelUpChoices(plain) !== false || true, 'sanity')
+      const bf = createRun(m, { chapter: 'body' })
+      bf.anomalies.blindFaith = true
+      bf.coinsEarned = 100000
+      bf.levelUpChoices = buildLevelUpChoices(bf)
+      assert.strictEqual(rerollPrice(bf).available, false,
+        'BLIND FAITH still offers a reroll — that purchase IS the card\'s entire price')
+      assert.strictEqual(rerollLevelUpChoices(bf), false,
+        'BLIND FAITH let a reroll through sim-side with 100000 coins in hand — a ui-only gate is a rule the console walks around')
+      // ...and the screen is NOT shortened, which was the cost that did not work. The reveal is the
+      // emotion this card was asked for and it needs cards to reveal.
+      const bf4 = createRun(makeMeta(), { chapter: 'body' })
+      bf4.choiceSlots = MAX_CHOICE_SLOTS
+      bf4.anomalies.blindFaith = true
+      assert.strictEqual(buildLevelUpChoices(bf4).length, MAX_CHOICE_SLOTS,
+        'BLIND FAITH shortened the screen — the slot cost was removed precisely because it was a no-op at the default and it ate the reveal')
+    }
+
+    // 4. THE FLOOR IS NOT A CEILING. armor/regen declare their OWN tier table ({normal, rare,
+    // legendary}); flooring it left exactly one surviving key, so every one of them dealt legendary
+    // — armor a flat 20 at max level, which is the number BERSERK's shipped safety argument is
+    // licensed against ("armor measures 2.4-3.7 in real runs"). BLIND FAITH + BERSERK is a legal
+    // pair. A rarity floor must never silently top out the two cards that block damage.
+    // The control must actually deal them, or the assertion below is vacuous.
+    assert.ok((seeing.valueTiers.armor?.normal ?? 0) > 0 && (seeing.valueTiers.regen?.normal ?? 0) > 0,
+      'the sighted control never dealt a normal armor/regen card — the values-passive assertion below proves nothing')
+    for (const id of Object.keys(blind.valueTiers)) {
+      const tiers = blind.valueTiers[id]
+      const total = Object.values(tiers).reduce((a, b) => a + b, 0)
+      const top = Math.max(...Object.values(tiers))
+      assert.ok(top < total,
+        `every ${id} card under BLIND FAITH came out ${Object.keys(tiers)[0]} (${total}/${total}) — the floor is acting as a CEILING on a values-passive, which is BERSERK's safety argument deleted`)
+    }
+    // ...and armor/regen specifically are the pair the floor reduces to ONE legal tier, so they
+    // must leave the pool rather than be dealt at a fixed tier forever.
+    for (const id of ['armor', 'regen']) {
+      const legalTiers = Object.keys(PASSIVES[id].values).filter((r) => RARITY_ORDER.indexOf(r) >= floorIdx)
+      assert.strictEqual(legalTiers.length, 1,
+        `${id} now declares ${legalTiers.length} tiers at or above ${BLIND_FAITH_FLOOR} — this assertion was written for the one-legal-tier case and needs rethinking, not deleting`)
+      assert.ok(!blind.valueTiers[id],
+        `${id} was still offered under BLIND FAITH with only ${JSON.stringify(legalTiers)} legal — it can only ever deal that one tier, so the border says the same word whatever was rolled and armor reaches a flat ${PASSIVES.armor.values.legendary * MAX_PASSIVE_LEVEL} at max level`)
+    }
+
+    // 5. THE SIDE EFFECT, pinned as a decision rather than an accident: a `switch` mod is offered
+    // only at normal rarity, so under the floor it could only reach a blind screen through
+    // rollCard's all-declined fallback — wearing a border the card forbade.
+    assert.ok(seeing.switches > 0, 'the sighted control was never offered a switch mod — the switch assertion below proves nothing')
+    assert.strictEqual(blind.switches, 0,
+      `BLIND FAITH still offered ${blind.switches} switch mods`)
+
+    // ...and the case that actually needs the explicit drop, which the sample above CANNOT reach:
+    // one weapon whose only surviving mod IS a switch, so EVERY candidate declines the floor. The
+    // 2000-screen sample stays green with the drop deleted (a four-weapon pool practically never
+    // rolls an all-switch bucket), so do not delete this as redundant — it is the whole point.
+    {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      m.choiceSlots = MAX_CHOICE_SLOTS
+      const r = createRun(m, { chapter: 'body' })
+      r.weapons = [{ id: 'clawRake', level: 3 }]
+      for (const [id, cfg] of Object.entries(WEAPON_MODS.clawRake)) {
+        if (cfg.kind !== 'switch') r.weaponModPicks.clawRake[id] = MAX_WEAPON_MOD_PICKS
+      }
+      r.anomalies.blindFaith = true
+      let sawSwitch = 0, illegal = 0, shortScreens = 0
+      for (let i = 0; i < 400; i++) {
+        r._screenRerolls = -1
+        r._screenAnomaly = undefined
+        const row = buildLevelUpChoices(r)
+        if (row.length < MAX_CHOICE_SLOTS) shortScreens++
+        for (const c of row) {
+          if (!legal.has(c.rarity)) illegal++
+          if (c.kind === 'mod' && WEAPON_MODS[c.weapon][c.id].kind === 'switch') sawSwitch++
+        }
+      }
+      assert.strictEqual(sawSwitch, 0,
+        `an all-switch mod bucket still dealt ${sawSwitch} switch cards under BLIND FAITH — eligibleWeaponModCandidates is not dropping them`)
+      assert.strictEqual(illegal, 0,
+        `an all-switch mod bucket dealt ${illegal} cards below ${BLIND_FAITH_FLOOR} — a fallback is printing a tier the floor forbade (the 'Snack Break' heal card was one of these)`)
+      assert.strictEqual(shortScreens, 0,
+        `${shortScreens}/400 blind screens came back short — a declining mod is propagating null out of rollCard and breaking the slot loop, which reads to a player as a missing card`)
+    }
+  }
+
+  // IPECAC (v7.5). Asserted against the failure that killed its FIRST version, not against a count:
+  // 1/2 fire rate for x3 DAMAGE measured +1.1% because overkill ate the whole multiplier. So the
+  // bar every assertion here is written to is "does the surplus land in DIFFERENT SPACE" — a x3
+  // that stacks onto one dying enemy is the old card wearing a new number, and it would pass any
+  // test that only counted projectiles.
+  {
+    // Three enemies at 120 degrees, all in range, all unkillable — so what is being measured is
+    // COVERAGE and never who died first.
+    const ring = (r, dist = 90) => [0, 1, 2].map((i) => {
+      const a = (i / 3) * Math.PI * 2
+      return makeStatusEnemy(r, { x: Math.cos(a) * dist, y: Math.sin(a) * dist, hp: 1e9, speed: 0 })
+    })
+    // ONE cast, not four seconds of them. A sector weapon re-aims per cast and knocks its target
+    // back, so over several casts it sweeps the whole ring on its own and a coverage assertion
+    // reads green with the card deleted — which is exactly what the first version of this fixture
+    // did. Step until damage first lands, take that frame's spread, stop.
+    const swing = (id, weaponId) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+      r.weapons = [{ id: weaponId, level: 3 }]
+      r.time = 5
+      const foes = ring(r)
+      for (const e of foes) r.enemies.push(e)
+      const before = foes.map((e) => e.hp)
+      for (let i = 0; i < 600; i++) {
+        stepSim(r, { x: 0, y: 0 }, dt)
+        const dealt = foes.map((e, n) => before[n] - e.hp)
+        if (dealt.some((d) => d > 0)) return dealt
+      }
+      return foes.map((e, n) => before[n] - e.hp)
+    }
+    // ROAR is a CONE: without the card it can only ever reach the one enemy it is aimed at.
+    const plainRoar = swing(null, 'roar'), ipecacRoar = swing('ipecac', 'roar')
+    assert.ok(plainRoar.filter((d) => d > 0).length === 1,
+      `a plain roar hit ${plainRoar.filter((d) => d > 0).length} of 3 ringed enemies — the fixture is not a cone test and the assertion below proves nothing`)
+    assert.strictEqual(ipecacRoar.filter((d) => d > 0).length, 3,
+      `IPECAC's roar hit ${ipecacRoar.filter((d) => d > 0).length} of 3 enemies at 120 degrees — the extra output is not landing in different space, which is exactly how the x3 DAMAGE version measured +1.1%`)
+    // ...and the surplus must be SPREAD, not stacked: the aimed enemy must not eat three cones.
+    const aimed = Math.max(...ipecacRoar), far = Math.min(...ipecacRoar)
+    assert.ok(aimed < far * 2,
+      `IPECAC's roar dealt ${aimed.toFixed(0)} to the nearest enemy against ${far.toFixed(0)} to the far one — the sectors are overlapping and one body is eating the x3, which is the overkill trap this card exists to avoid`)
+
+    // TAIL SWIPE is the dangerous row: its arc (126-169 degrees) is WIDER than the 120 degree
+    // spacing, so without de-duplication the three sweeps overlap and it silently becomes x3 damage.
+    const tail = swing('ipecac', 'tailSwipe')
+    const tailPlain = swing(null, 'tailSwipe')
+    assert.ok(tail.filter((d) => d > 0).length === 3,
+      `IPECAC's tail swipe reached ${tail.filter((d) => d > 0).length} of 3 enemies — it should sweep all the way around`)
+    assert.ok(Math.max(...tail) < Math.max(...tailPlain) * 2,
+      `IPECAC's tail swipe dealt ${Math.max(...tail).toFixed(0)} to one enemy against ${Math.max(...tailPlain).toFixed(0)} unmodified — its arc is wider than the sector spacing, so the same body is being hit by more than one sweep`)
+
+    // THE OVERLAP CASE, which is the one that actually needs the de-duplication and which the ring
+    // above CANNOT reach: three enemies at 120 degrees sit one per sector whatever the arc, so the
+    // dedup can be deleted with every assertion above still green (it was). tailSwipe's arc is
+    // 126-169 degrees — WIDER than the 120 degree spacing — so a body parked between two sectors is
+    // inside both, and without the shared `hit` set it eats the swipe twice. That is silently the
+    // x3 DAMAGE card again, on the one weapon whose geometry allows it.
+    {
+      // TWO enemies, and the geometry is the point. The weapon AIMS at the nearest, so that one is
+      // always dead-centre in sector 0 and can never be in a seam — the seam has to be created by a
+      // SECOND body. `bait` sits closest (so it takes the aim); `seam` sits 60 degrees off it,
+      // which is inside the half-arc of BOTH sector 0 and sector 120.
+      const pair = (id) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'tailSwipe', level: 3 }]
+        r.time = 5
+        const bait = makeStatusEnemy(r, { x: 50, y: 0, hp: 1e9, speed: 0 })
+        const a = (60 * Math.PI) / 180
+        const seam = makeStatusEnemy(r, { x: Math.cos(a) * 70, y: Math.sin(a) * 70, hp: 1e9, speed: 0 })
+        r.enemies.push(bait, seam)
+        const b0 = bait.hp, s0 = seam.hp
+        for (let i = 0; i < 600; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          if (b0 - bait.hp > 0 || s0 - seam.hp > 0) return { bait: b0 - bait.hp, seam: s0 - seam.hp }
+        }
+        return { bait: 0, seam: 0 }
+      }
+      const plain = pair(null), sick = pair('ipecac')
+      assert.ok(plain.bait > 0, 'the tailSwipe overlap fixture never connected — it is not reaching its subject')
+      assert.ok(sick.seam > 0,
+        'the seam enemy took nothing under IPECAC — the extra sectors are not sweeping, so this fixture is not testing what it claims')
+      // One swipe's worth is what the aimed enemy takes. The seam enemy must not take two.
+      assert.ok(sick.seam <= plain.bait * 1.5,
+        `an enemy in the seam between two IPECAC sectors took ${sick.seam.toFixed(0)} against ${plain.bait.toFixed(0)} for a single swipe — the sweeps overlap and one body is eating the x3, which is the overkill trap the whole card was rewritten to escape`)
+    }
+
+    // ...and roar's own de-duplication, which the ring above equally cannot reach: roar's cone is
+    // narrower than the 120 degree spacing, so its three sectors never overlap — EXCEPT on a
+    // `resonance` cast, where every one of them opens to a full circle and the same body sits in all
+    // three. Forced rather than waited for: resonance fires every ROAR_RESONANCE_EVERY casts.
+    {
+      const boom = (id) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'roar', level: 3 }]
+        r.weaponMods.roar = { resonance: 1 }
+        r.time = 5
+        r._roarCasts = ROAR_RESONANCE_EVERY - 1   // the next cast opens to 360 degrees
+        const e = makeStatusEnemy(r, { x: 60, y: 0, hp: 1e9, speed: 0 })
+        r.enemies.push(e)
+        const before = e.hp
+        for (let i = 0; i < 600; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          if (before - e.hp > 0) return before - e.hp
+        }
+        return 0
+      }
+      const once = boom(null), thrice = boom('ipecac')
+      assert.ok(once > 0, 'the roar resonance fixture never connected — it is not reaching its subject')
+      assert.ok(thrice <= once * 1.5,
+        `on a resonance cast IPECAC's roar dealt ${thrice.toFixed(0)} to one enemy against ${once.toFixed(0)} — every sector is a full circle there, so without the shared set the same body eats all three and the card is x3 DAMAGE again`)
+    }
+
+    // EVERY WEAPON, ENUMERATED. Written after the shipped card was found to do NOTHING AT ALL to
+    // three of the 22 (sewerGeyser, debrisToss, realityShard were simply never patched) and to
+    // stack orbit's ring three-deep on five points instead of spreading it over fifteen. Neither
+    // was visible to the hand-picked fixtures above, and the orbit one was caught BY EYE from a
+    // screenshot that looked unchanged — which is exactly what "15 orbs in 5 positions" looks like.
+    //
+    // So the assertion is DISTINCT POSITIONS, never a count. A count passes when three things are
+    // spawned on top of each other, and three things in one place is the x3 DAMAGE card this whole
+    // rewrite exists to escape. Weapons that spawn no entity at all (the melee sectors) are counted
+    // by their FX events instead — three sweeps push three events.
+    {
+      const LISTS = ['bullets', 'orbs', 'mines', 'geysers', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas']
+      const FX = ['whip', 'clawRake', 'roar', 'tail']
+      const spread = (id, weaponId) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: weaponId, level: 3 }]
+        r.time = 5
+        // A ring of unkillable enemies, so every weapon has something to aim at, place a zone on,
+        // or lock onto — and nothing dies to change the picture mid-cast.
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2
+          r.enemies.push(makeStatusEnemy(r, { x: Math.cos(a) * 140, y: Math.sin(a) * 140, hp: 1e9, speed: 0 }))
+        }
+        let best = 0
+        for (let i = 0; i < 900; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          const seen = new Set()
+          // Keyed by SHAPE, not position alone. Several weapons spawn everything at the player and
+          // differ only in heading (beams), in radius (novas — they spread by band, not by place)
+          // or in an arm COUNT carried on one entity (tesseractBeam). Position alone reads all of
+          // those as a single thing and would wave the card through for three of the 22 weapons.
+          for (const key of LISTS) {
+            for (const o of r[key] ?? []) {
+              // An ARM is a separate piece of output that happens to be stored as a field on one
+              // entity (tesseractBeam), so it is expanded rather than counted as one thing —
+              // otherwise a beam that folds into six creases reads identically to one that folds
+              // into two.
+              const arms = Math.max(1, o.arms ?? 1)
+              for (let k = 0; k < arms; k++) {
+                seen.add(`${key}:${Math.round(o.x)},${Math.round(o.y)},${(o.angle ?? 0).toFixed(2)},${Math.round(o.radius ?? o.r ?? 0)},arm${k}`)
+              }
+            }
+          }
+          for (const e of r.events) if (FX.includes(e.type)) seen.add(`fx:${e.type}:${(e.angle ?? 0).toFixed(3)}`)
+          best = Math.max(best, seen.size)
+        }
+        return best
+      }
+      const missed = []
+      for (const weaponId of Object.keys(WEAPONS)) {
+        const plain = spread(null, weaponId)
+        const sick = spread('ipecac', weaponId)
+        if (plain === 0) { missed.push(`${weaponId} (fixture spawned nothing — untestable here)`); continue }
+        if (sick <= plain) missed.push(`${weaponId} ${plain} -> ${sick}`)
+      }
+      assert.deepStrictEqual(missed, [],
+        `IPECAC did not widen these weapons' output: ${JSON.stringify(missed)} — either the fire site was never patched, or the count was tripled while the ANGLE/POSITION divisor was not, which stacks the extra output on top of the original and hands the whole x3 to overkill`)
+    }
+
+    // THE FIRE RATE, which is the entire cost and is applied once on take.
+    {
+      const base = withCard(null), sick = withCard('ipecac')
+      assert.ok(Math.abs(sick.player.fireRateMul / base.player.fireRateMul - IPECAC_FIRE_MUL) < 1e-9,
+        `IPECAC moved fireRateMul x${(sick.player.fireRateMul / base.player.fireRateMul).toFixed(2)}, not x${IPECAC_FIRE_MUL} — the card is pure upside without it`)
+    }
+
+    // A COUNT weapon: three projectiles per cast, not one.
+    {
+      const fired = (id) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'star', level: 3 }]
+        r.time = 5
+        r.enemies.push(makeStatusEnemy(r, { x: 200, y: 0, hp: 1e9, speed: 0 }))
+        // The FIRST volley only. Counting a peak over a window would compare four casts against
+        // two (the card halves the fire rate), which measures the cost and calls it the payoff.
+        for (let i = 0; i < 600; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          if (r.bullets.length > 0) return r.bullets.length
+        }
+        return 0
+      }
+      const one = fired(null), three = fired('ipecac')
+      assert.ok(one > 0, 'the star fixture never fired — it is not reaching its subject')
+      assert.ok(three >= one * IPECAC_COUNT_MUL,
+        `IPECAC's star put ${three} bullets up against ${one} — ipecacN is not reaching the fire site`)
+    }
+
+    // HOMING is the load-bearing row in the spec's own table: three seekers that all lock the
+    // nearest enemy is a x3 overkill eats whole. Asserted by where the DAMAGE lands, across two
+    // enemies far enough apart that a shared lock cannot reach both.
+    // The rule, in the owner's words: cover three different enemies if three exist; if there are
+    // fewer, fall back to the one or two closest. All three cases are asserted, because the
+    // interesting bug lives in the SECOND one — a claim set with no fallback leaves the surplus
+    // seeker with no target at all, which looks like "spreading" and is actually a dead projectile.
+    {
+      const seek = (id, n) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'homing', level: 3 }]
+        r.time = 5
+        // Evenly around the player, all identical, all unkillable: the only thing that can differ
+        // between arms is WHICH of them the seekers chose.
+        const foes = Array.from({ length: n }, (_, i) => {
+          const a = (i / n) * Math.PI * 2
+          return makeStatusEnemy(r, { x: Math.cos(a) * 150, y: Math.sin(a) * 150, hp: 1e9, speed: 0 })
+        })
+        for (const e of foes) r.enemies.push(e)
+        const before = foes.map((e) => e.hp)
+        for (let i = 0; i < 300; i++) stepSim(r, { x: 0, y: 0 }, dt)
+        return foes.map((e, i) => before[i] - e.hp)
+      }
+      // THREE OR MORE: three distinct enemies take damage.
+      const three = seek('ipecac', 3)
+      assert.strictEqual(three.filter((d) => d > 0).length, 3,
+        `IPECAC's seekers hit ${three.filter((d) => d > 0).length} of 3 available enemies — they are sharing a lock, and a x3 poured into one body is what overkill eats whole`)
+      const plainThree = seek(null, 3)
+      assert.ok(plainThree.filter((d) => d > 0).length < 3,
+        `an unmodified homing volley already hit ${plainThree.filter((d) => d > 0).length} of 3 — the control is not a shared-lock control and the assertion above proves nothing`)
+      // EXACTLY TWO: both are covered, and no seeker is left without a target.
+      const two = seek('ipecac', 2)
+      assert.strictEqual(two.filter((d) => d > 0).length, 2,
+        `with only 2 enemies IPECAC's seekers covered ${two.filter((d) => d > 0).length} — the fallback is not firing and a seeker with every enemy claimed is flying blind`)
+      // EXACTLY ONE: all three hunt it rather than stalling.
+      const one = seek('ipecac', 1)
+      assert.ok(one[0] > 0,
+        'with a single enemy IPECAC\'s seekers dealt no damage at all — every seeker found its only target claimed and gave up, which is the claim set without its fallback')
+      // Compared against IPECAC's OWN three-enemy arm, never against the unmodified weapon: the
+      // card halves the fire rate, so over a fixed window that comparison measures the cost and
+      // reads it as a targeting failure. Within the card, total damage should barely move — three
+      // seekers all landing on one body deal what three seekers landing on three bodies do.
+      const spread3 = three.reduce((a, b) => a + b, 0)
+      assert.ok(one[0] > spread3 * 0.5,
+        `against a lone straggler IPECAC dealt ${one[0].toFixed(0)} in total against ${spread3.toFixed(0)} spread over three — seekers are giving up when their only target is already claimed instead of doubling up on it`)
+    }
+  }
+
+  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {
@@ -916,7 +1408,18 @@ function testPoolBuckets() {
     seen[cfg.name] = s
     assert.ok(s.of('weapon') > declared('weapon') - 1.5 && s.of('weapon') < declared('weapon') + 1.5 + floorMax(cfg.slots),
       `${cfg.name}: weapon share ${s.of('weapon').toFixed(1)}% vs declared ${declared('weapon').toFixed(1)}% + a floor worth at most ${floorMax(cfg.slots).toFixed(1)}pts`)
-    assert.ok(s.of('mod') > 24, `${cfg.name}: mod share ${s.of('mod').toFixed(1)}% — a one-weapon mod bucket may thin, not collapse`)
+    // A FRACTION of declared, not a literal 24: thinning is PROPORTIONAL to the bucket's weight,
+    // so the hardcoded number was only ever the right band for the weights it was written against
+    // (0.8 * 30 = the 24 this line used to read) and became a near-equality the moment
+    // BUCKET_WEIGHTS.mod moved — v7.7 took mod to 25 and this went red at a measured 21.3%, which
+    // is the same healthy thinning it had always allowed, against a band that had stopped tracking
+    // its subject. 0.75 rather than 0.8 because 0.8 leaves beyond/2-starter-only just 1.2pts of
+    // headroom (2.6 sd on this sample) — the shipped 24 was itself only ~3.5 sd, i.e. a literal
+    // that was one re-phasing away from a false red. At 0.75 the thinnest fixture clears by 6 sd
+    // and a bucket that actually COLLAPSES (measured ~0-12% when it drops out of the roll) is
+    // still caught with room to spare.
+    assert.ok(s.of('mod') > declared('mod') * 0.75,
+      `${cfg.name}: mod share ${s.of('mod').toFixed(1)}% vs declared ${declared('mod').toFixed(1)}% — a one-weapon mod bucket may thin, not collapse`)
     ladder(cfg.name, s)
     collectTiers(s)
   }
@@ -1083,10 +1586,19 @@ function testAnomalyTier() {
   // needs no shuffle to hide one. What this catches is a hard positional rule — anything that
   // pins the tier out of a slot or into one (the plan's `i < slots - 1` gate would pin it out of
   // the last one, which at 2 slots means the anomaly is ALWAYS the left card).
+  // The band is 0.08, not the 0.06 first shipped, and the difference is a POWER calculation rather
+  // than a loosening. 6000 pools at the ~6.6% tier rate is only ~400 anomaly pools, on which a
+  // uniform 25% has 1 sd = sqrt(.25*.75/400) = 2.2pts — so 0.06 was 2.8 sd, and with six slot
+  // checks it false-positives on a few percent of ANY innocuous change that re-phases the seeded
+  // stream. v7.7 (bucket weights) drew that ticket: slot 2 of 4 measured 31.6%, and the same
+  // weights on a different seed measured uniform. Placement is `Math.floor(random * cards.length)`
+  // and cannot see BUCKET_WEIGHTS at all, so a weight-driven pin is not a thing that can exist.
+  // No detection is lost: the pathologies this guards are total, not marginal — the `i < slots - 1`
+  // gate named above puts slot 3 of 4 at 0% (25pts out) and slot 1 of 2 at 0% (50pts out).
   for (const [slots, s] of Object.entries(bySlots)) {
     for (let i = 0; i < Number(slots); i++) {
       const share = s.slotHits[i] / s.anomalyPools
-      assert.ok(Math.abs(share - 1 / Number(slots)) < 0.06,
+      assert.ok(Math.abs(share - 1 / Number(slots)) < 0.08,
         `anomalies landed in slot ${i} of ${slots} on ${(share * 100).toFixed(1)}% of their pools (want ~${(100 / Number(slots)).toFixed(0)}%) — the tier is pinned to a position`)
     }
   }
@@ -10132,10 +10644,22 @@ function testForwardCompatibleSave() {
   ordinary.chapters.body.maxDifficulty = 3
   ordinary.chapters.body.difficulty = 2
   ordinary.chapters.pond.unlocked = true
-  saveMeta(ordinary)
-  const beforeBlob = store.get(KEY)
-  saveMeta(loadMeta())
-  assert.strictEqual(store.get(KEY), beforeBlob, 'an ordinary save must round-trip byte-identical through loadMeta -> saveMeta')
+  // THE CLOCK IS PINNED ACROSS BOTH WRITES, and it has to be: saveMeta stamps `savedAt: Date.now()`,
+  // so the two blobs differ whenever the millisecond happens to tick between them. That is a ~1-in-N
+  // flake rather than a rare one — it failed a release gate on 2026-08-09, with the two strings
+  // differing in exactly one digit (…468666 against …468665), which reads at a glance like a real
+  // save-shape regression and costs a re-run to identify. The assertion is about the SHAPE surviving
+  // a load/save cycle; a timestamp that advances is not a shape change.
+  const realNow = Date.now
+  Date.now = () => 1786300000000
+  try {
+    saveMeta(ordinary)
+    const beforeBlob = store.get(KEY)
+    saveMeta(loadMeta())
+    assert.strictEqual(store.get(KEY), beforeBlob, 'an ordinary save must round-trip byte-identical through loadMeta -> saveMeta')
+  } finally {
+    Date.now = realNow
+  }
 
   for (const [label, entry] of Object.entries({
     absent: undefined,

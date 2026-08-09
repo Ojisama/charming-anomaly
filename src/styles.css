@@ -607,6 +607,18 @@ body {
 .tag--new { background: var(--pink); color: #fff; }
 .tag--lv { background: var(--mint); color: var(--ink); }
 
+/* v7.5 BLIND FAITH. A face-down card keeps its data-rarity, so the border colour and glow that
+   rule already paints ARE the one piece of information the card promises — nothing here may cover
+   them. The face itself goes flat and unreadable; the border stays loud. */
+.lv-card--blind .lv-card-icon { opacity: 0.55; filter: grayscale(1); }
+.lv-card--blind .lv-card-title,
+.lv-card--blind .lv-card-desc { color: var(--ink-soft); opacity: 0.6; letter-spacing: 0.02em; }
+/* The reveal (see chooseLvCard): the taken card stays lit, the passed ones dim and sink a little —
+   the whole point of the card is that you SEE what you walked away from. */
+.lv-card--taken { transform: scale(1.02); }
+.lv-card--passed { opacity: 0.5; transform: scale(0.97); }
+.lv-card--taken, .lv-card--passed { transition: opacity 220ms ease, transform 220ms ease; }
+
 /* keyboard-armed card (digit/arrow/WASD nav on the level-up screen) */
 .lv-card.card--focused {
   transform: scale(1.035);

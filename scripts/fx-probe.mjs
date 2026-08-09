@@ -18,6 +18,13 @@
 //   3. A scene that throws renders nothing, which looks identical to "the effect is invisible".
 //      Any throw is painted into the page, so the screenshot itself carries the error text.
 //
+// A FOURTH, added v7.6.0 after it cost a round: **H.weapon REPLACES run.weapons, it does not
+// append.** Calling it twice to stage two weapons together silently drops the first, and the
+// symptom is indistinguishable from trap 3 — the probe returns frames, the scene did not throw, and
+// the effect you came to photograph is simply absent (an Ipecac clutter shot came back with
+// `liveBullets: 0` twice before this was noticed). ONE WEAPON PER SCENE; shoot the second
+// separately and stack the frames afterwards.
+//
 // JUDGING A ROTATION OR A PULSE: those are driven by animT, which only advances when sync() gets a
 // non-zero dt. H.render() feeds it the sim time H.tick() has accumulated, so a scene that ticks
 // between captures animates; a scene that only rewinds a decay field (beam-prism.js) still renders

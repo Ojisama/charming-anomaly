@@ -23,6 +23,15 @@ const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨
 // why the cost of a wrong tap (a spent level-up you cannot undo) sets this number, not the CSS.
 // Input-guard timing, not sim balance, so it lives here rather than in config.js.
 const LEVELUP_GRACE_MS = 500
+// v7.5 BLIND FAITH: how long the row stays face UP after a blind pick, before the level-up is
+// actually spent. Pure chrome, so it lives here and not in config.js — it moves no balance number.
+// Long enough to read three cards, short enough not to become a loading screen every level.
+const BLIND_REVEAL_MS = 2200
+// ...but the hold is DISMISSIBLE after this, and that distinction is the whole design. An
+// unskippable 1.5s hold on every level-up from ~8 to ~24 is 15-24s of dead modal per 300s run:
+// frustration is a spike, boredom is a wait, and the card is selling the former. The short arm only
+// stops the tap that took the card from also dismissing the reveal it just opened.
+const BLIND_REVEAL_ARM_MS = 260
 
 // v5.17 build stamp: "vX.Y.Z · <short sha>", substituted by vite.config.js's `define` from the git
 // HEAD at BUILD time — so it identifies the bundle you are actually running, not what the source
@@ -166,7 +175,9 @@ function formatShopBonus(id, levels) {
  *       just-ended run used). 'daily' fires from the daily briefing screen's Start button.
  *       It carries no boosters: since v6.7 classic boosters are picked one screen later, on the
  *       pre-run summary, and arrive via onBriefStart. Boosters never applied to daily runs at all.
- *     - onChoose(i): a level-up card tap (or its digit/enter key). NOT fired for the first
+ *     - onChoose(i, subject): a level-up card tap (or its digit/enter key). `subject` is a WEAPON
+ *       ID and is only ever non-null for a SUBJECTED anomaly card (v7.5 SPECIALIST), which opens a
+ *       chooser before the pick is spent. NOT fired for the first
  *       LEVELUP_GRACE_MS after the modal renders — the modal lands under a thumb already reaching
  *       for the joystick, so an instant tap is a stray press, not a pick. Same gate on onReroll.
  *       Nothing tells main.js a tap was swallowed; the player simply taps again.
@@ -1120,6 +1131,18 @@ export function initUI(hooks) {
   // stays live throughout, so the modal never feels frozen.
   let lvArmAt = 0
   const lvArmed = () => performance.now() >= lvArmAt
+  // v7.5 BLIND FAITH state. `lvData` is kept so the reveal can repaint the same screen without a
+  // round-trip to main.js; `lvRevealing` locks every input path for the length of the reveal, and
+  // the timer id exists so leaving the screen mid-reveal cannot fire onChoose into a dead modal.
+  let lvData = {}
+  let lvBlind = false
+  let lvRevealing = false
+  let lvRevealTimer = 0
+  let lvRevealAt = 0      // when the reveal becomes dismissible
+  let lvRevealIdx = -1    // the card taken, held until the reveal resolves
+  // v7.5 SPECIALIST: while the weapon chooser is open, `lvChoosing` holds the card index whose pick
+  // is waiting on a subject. The level-up is NOT spent until a weapon is named.
+  let lvChoosing = -1
 
   // Level-up card descs/tags arrive COMPOSED from sim.js ('+6% damage', '+1 potency — …',
   // 'Lv 2', 'Star Shooter upgrade') — translate the parts, never the composite: the numeric
@@ -1138,42 +1161,89 @@ export function initUI(hooks) {
     return t(s)
   }
 
+  // v7.5 BLIND FAITH. The screen is painted TWICE under this card: face down while the player
+  // chooses, then face up for BLIND_REVEAL_MS so they see what they passed on — which is the whole
+  // emotion the card was asked for ("the ones you don't chose are revealed somehow to make you
+  // frustrated"). The data is kept so the second paint needs no round-trip to main.js.
   function renderLevelup(data = {}) {
-    // v7.2: `rerollCurrency` is 'coins' normally and 'hp' under the BLOOD MONEY anomaly, which
-    // replaces the reroll's wallet. The button prints whichever it will actually take — a footer
-    // reading 🪙 while sim.js charges HP is a hidden rule the player cannot trade against.
-    const { choices = [], rerollCost: rerollN = 0, rerollCurrency = 'coins', coins = 0, hp = 0 } = data
-    const onHP = rerollCurrency === 'hp'
-    const cards = choices.map((c, i) => {
-      const rarity = c.rarity ?? 'normal'
-      // A card whose rarity is not a RARITIES key shows NO chip — that is how a weapon UPGRADE
-      // card carries no tier (UPGRADE_RARITY in config.js). Do not fall back to 'Normal' here:
-      // printing a tier the roll never granted is exactly the promise the chip must not make.
-      const tier = RARITIES[rarity]
-      return `
-      <button class="card lv-card" data-choose="${i}" data-rarity="${rarity}" style="animation-delay:${i * 90}ms">
-        ${tier ? `<i class="rarity-chip">${t(tier.name)}</i>` : ''}
+    lvData = data
+    lvBlind = !!data.blind
+    lvRevealing = false
+    lvRevealIdx = -1
+    lvChoosing = -1
+    if (lvRevealTimer) { clearTimeout(lvRevealTimer); lvRevealTimer = 0 }
+    paintLevelup()
+  }
+
+  // The INSIDE of one level-up card. Extracted because the BLIND FAITH reveal swaps a card's
+  // contents in place (see revealLvRow) rather than re-rendering the row — two copies of this
+  // markup would drift, and the drift would only ever show on the reveal.
+  function cardFaceHtml(c, hidden) {
+    if (!c) return ''
+    const rarity = c.rarity ?? 'normal'
+    // A card whose rarity is not a RARITIES key shows NO chip — that is how a weapon UPGRADE card
+    // carries no tier (UPGRADE_RARITY in config.js). Do not fall back to 'Normal' here: printing a
+    // tier the roll never granted is exactly the promise the chip must not make.
+    const tier = RARITIES[rarity]
+    const chip = tier ? `<i class="rarity-chip">${t(tier.name)}</i>` : ''
+    if (hidden) {
+      return `${chip}
+        <span class="lv-card-icon">❓</span>
+        <span class="lv-card-body">
+          <span class="lv-card-title">${t('Face down')}</span>
+          <span class="lv-card-desc">${t('Take it on faith.')}</span>
+        </span>`
+    }
+    return `${chip}
         <span class="lv-card-icon">${c.icon ?? CHOICE_ICONS[c.kind] ?? '✨'}</span>
         <span class="lv-card-body">
           <span class="lv-card-title">${t(c.title)}
             ${c.tag ? `<i class="tag ${c.tag === 'New!' ? 'tag--new' : 'tag--lv'}">${tCardTag(c.tag)}</i>` : ''}
           </span>
-          <span class="lv-card-desc">${tCardDesc(c.desc)}</span>
+          <span class="lv-card-desc">${c.subject && WEAPONS[c.subject]
+            ? tt('{name} — {text}', { name: t(WEAPONS[c.subject].name), text: tCardDesc(c.desc) })
+            : tCardDesc(c.desc)}</span>
           ${c.from ? `<span class="lv-card-from">${t(c.from)}</span>` : ''}
-        </span>
-      </button>`
+        </span>`
+  }
+
+  // The face-down (or ordinary) deal. The face-UP state is not painted here — revealLvRow mutates
+  // the row in place, for the animation reasons documented there.
+  function paintLevelup() {
+    // v7.2: `rerollCurrency` is 'coins' normally and 'hp' under the BLOOD MONEY anomaly, which
+    // replaces the reroll's wallet. The button prints whichever it will actually take — a footer
+    // reading 🪙 while sim.js charges HP is a hidden rule the player cannot trade against.
+    const { choices = [], rerollCost: rerollN = 0, rerollCurrency = 'coins', coins = 0, hp = 0, canReroll = true } = lvData
+    const onHP = rerollCurrency === 'hp'
+    const facedown = lvBlind
+    const cards = choices.map((c, i) => {
+      const rarity = c.rarity ?? 'normal'
+      // An ANOMALY is never dealt face down, however blind the screen. The spec's own limit on the
+      // rarest tier is "the player reads the card before taking it… what stays forbidden is
+      // catastrophe the player could neither foresee nor act on", and MAX_ANOMALIES_PER_RUN allows
+      // a second card alongside BLIND FAITH — which would mean blind-drawing BRITTLE (maxHP -> 1).
+      // Its teal breathing border already identified it with 100% reliability anyway, so hiding the
+      // text bought no blindness and cost the one thing the tier promises.
+      const hidden = facedown && c.kind !== 'anomaly'
+      return `
+      <button class="card lv-card${hidden ? ' lv-card--blind' : ''}" data-choose="${i}" data-rarity="${rarity}" style="animation-delay:${i * 90}ms">${cardFaceHtml(c, hidden)}</button>`
     }).join('')
     // On HP the gate is STRICT: paying your last 10 HP would kill you on a modal screen, which is
     // not a trade the player agreed to when they took the card (sim.js rerollLevelUpChoices floors
     // it the same way — this only stops the button lying about being available).
-    const rerollDisabled = onHP ? hp <= rerollN : coins < rerollN
+    // v7.5: BLIND FAITH removes the purchase entirely (it is the card's whole price), so the button
+    // prints the reason rather than greying out an affordable-looking price the sim will refuse.
+    const rerollDisabled = !canReroll || (onHP ? hp <= rerollN : coins < rerollN)
+    const rerollLabel = !canReroll
+      ? t('No rerolls')
+      : onHP ? tt('Reroll ({n}❤️)', { n: rerollN }) : tt('Reroll ({n}🪙)', { n: rerollN })
     screens.levelup.innerHTML = `
       <div class="modal">
         <h2 class="modal-title">${t('LEVEL UP!')}</h2>
         <div class="lv-cards">${cards}</div>
         <p class="lv-hint">${tt('1-{n} · arrows · enter · R reroll', { n: choices.length })}</p>
         <div class="lv-footer">
-          <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 ${onHP ? tt('Reroll ({n}❤️)', { n: rerollN }) : tt('Reroll ({n}🪙)', { n: rerollN })}</button>
+          <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 ${rerollLabel}</button>
           <span class="lv-coins">${onHP ? `❤️ ${hp}` : `🪙 ${coins}`}</span>
         </div>
       </div>
@@ -1191,9 +1261,106 @@ export function initUI(hooks) {
   }
 
   function chooseLvCard(i) {
+    // During a reveal ANY press ends it rather than being eaten — the cards are disabled, so this
+    // is reached from the keyboard and from a tap on the modal.
+    if (lvRevealing) { if (performance.now() >= lvRevealAt) finishLvReveal(); return }
     if (i < 0 || i >= lvCards.length) return
     if (!lvArmed()) return
-    hooks.onChoose(i)
+    // BLIND FAITH: flip the whole row face up, mark what was taken and what was passed, and hold it
+    // there before spending the level-up. The pick is already made — this is the card's payoff, so
+    // it must not be skippable, which is why every input path checks lvRevealing above.
+    if (lvBlind) {
+      revealLvRow(i)
+      return
+    }
+    takeLvCard(i)
+  }
+
+  // Flip the row face up IN PLACE. paintLevelup would rewrite the container's innerHTML, which
+  // replaces every <button> — so `.lv-card--passed`'s opacity/transform transition has no start
+  // state and never runs, and `pop-in`'s `backwards` fill plus the inline per-card animation-delay
+  // makes the second card invisible for 90ms and then pop. The row visibly RE-DEALS itself instead
+  // of flipping, and for the first 300ms the replayed animation outranks the dim in the cascade.
+  // Swapping only each button's contents keeps the elements, so both animations behave.
+  function revealLvRow(taken) {
+    lvRevealing = true
+    lvRevealAt = performance.now() + BLIND_REVEAL_ARM_MS
+    lvRevealIdx = taken
+    const choices = lvData.choices ?? []
+    lvCards.forEach((el, i) => {
+      el.innerHTML = cardFaceHtml(choices[i], false)
+      el.disabled = true                       // no silent swallowing: the row is visibly inert
+      el.classList.remove('card--focused')
+    })
+    const reroll = screens.levelup.querySelector('.lv-reroll')
+    if (reroll) reroll.disabled = true
+    // Next frame, so the browser has painted the face-up state before the dim/sink transition
+    // starts from it. Same frame and there is no start value to interpolate away from.
+    requestAnimationFrame(() => {
+      lvCards.forEach((el, i) => el.classList.add(i === taken ? 'lv-card--taken' : 'lv-card--passed'))
+    })
+    lvRevealTimer = setTimeout(finishLvReveal, BLIND_REVEAL_MS)
+  }
+
+  // The reveal ends on its own, or on any input once armed — see BLIND_REVEAL_ARM_MS.
+  function finishLvReveal() {
+    if (!lvRevealing) return
+    if (lvRevealTimer) { clearTimeout(lvRevealTimer); lvRevealTimer = 0 }
+    lvRevealing = false
+    const i = lvRevealIdx
+    lvRevealIdx = -1
+    takeLvCard(i)
+  }
+
+  // Spend the pick — unless the card wants a SUBJECT first, in which case the chooser opens and the
+  // level-up stays unspent until a weapon is named. Placed after the BLIND FAITH reveal on purpose:
+  // under that card the row is face down, so choosing the weapon before the flip would mean naming
+  // a permanent weapon-specific rule for a card you had not been shown yet.
+  function takeLvCard(i) {
+    const card = (lvData.choices ?? [])[i]
+    if (card?.subjects?.length > 1) {
+      lvChoosing = i
+      paintSubjectChooser(card)
+      return
+    }
+    hooks.onChoose(i, card?.subjects?.[0] ?? null)
+  }
+
+  // One button per weapon the card may be pointed at. Reuses the level-up card grammar (and its
+  // keyboard nav) rather than inventing a second modal language.
+  function paintSubjectChooser(card) {
+    const rows = card.subjects.map((id, n) => `
+      <button class="card lv-card" data-subject="${id}" data-rarity="anomaly" style="animation-delay:${n * 90}ms">
+        <span class="lv-card-icon">${WEAPONS[id]?.icon ?? '✨'}</span>
+        <span class="lv-card-body">
+          <span class="lv-card-title">${t(WEAPONS[id]?.name ?? id)}</span>
+          <span class="lv-card-desc">${tt('{n} upgrades taken', { n: card.subjectPicks?.[id] ?? 0 })}</span>
+        </span>
+      </button>`).join('')
+    screens.levelup.innerHTML = `
+      <div class="modal">
+        <h2 class="modal-title">${t(card.title)}</h2>
+        <p class="lv-hint">${t('Which weapon?')}</p>
+        <div class="lv-cards">${rows}</div>
+      </div>
+    `
+    lvCards = Array.from(screens.levelup.querySelectorAll('.lv-card'))
+    lvArmAt = performance.now() + LEVELUP_GRACE_MS
+    setLvFocus(0)
+  }
+
+  // Keyboard picks arrive as an INDEX into the chooser's rows; taps arrive as a weapon id. One
+  // translation here keeps both on the single gated path below.
+  function pickSubjectAt(n) {
+    const subs = (lvData.choices ?? [])[lvChoosing]?.subjects ?? []
+    if (n >= 0 && n < subs.length) chooseLvSubject(subs[n])
+  }
+
+  function chooseLvSubject(id) {
+    if (lvChoosing < 0 || !lvArmed()) return
+    const i = lvChoosing
+    lvChoosing = -1
+    hooks.onChoose(i, id)
   }
 
   function onLevelupKeydown(e) {
@@ -1202,7 +1369,11 @@ export function initUI(hooks) {
     if (digit !== undefined) {
       e.preventDefault()
       e.stopPropagation()
-      chooseLvCard(digit)
+      // v7.5: while SPECIALIST's chooser is open the same keys pick a WEAPON, not a card. Routing
+      // them back to chooseLvCard would re-enter a pick that has already been made — and with the
+      // level-up unspent, that is a second card taken for one level.
+      if (lvChoosing >= 0) pickSubjectAt(digit)
+      else chooseLvCard(digit)
       return
     }
     switch (e.code) {
@@ -1216,11 +1387,15 @@ export function initUI(hooks) {
         break
       case 'Enter': case 'Space':
         e.preventDefault(); e.stopPropagation()
-        chooseLvCard(lvFocus)
+        if (lvChoosing >= 0) pickSubjectAt(lvFocus)
+        else chooseLvCard(lvFocus)
         break
       case 'KeyR':
         e.preventDefault(); e.stopPropagation()
-        if (lvArmed()) hooks.onReroll()
+        // No reroll once a card has been taken and only its subject is outstanding: the pick is
+        // already spent from the player's point of view, and rerolling would deal a fresh screen
+        // while `lvChoosing` still points at an index on the old one.
+        if (lvArmed() && !lvRevealing && lvChoosing < 0) hooks.onReroll()
         break
     }
   }
@@ -1488,8 +1663,13 @@ export function initUI(hooks) {
     // this section, taking the card and not taking it look identical from the pause screen.
     // Heading = RARITIES.anomaly.name so the sheet and the card's chip say the same word.
     if (build.anomalies?.length) {
-      const body = build.anomalies.map((a) => `<div class="bd-eff"><span class="bd-eff-i">${a.icon ?? '💠'}</span><span class="bd-eff-t"><b>${esc(t(a.name))} </b>${esc(t(a.desc))}</span></div>`).join('')
-      const head = build.anomalies.map((a) => t(a.name)).join(', ')
+      // v7.5: SPECIALIST carries a `subject` weapon, and its desc says "Its upgrades…" — so the
+      // weapon has to be named here or the row is unreadable.
+      const aName = (a) => a.subject && WEAPONS[a.subject]
+        ? tt('{name}: {sub}', { name: t(a.name), sub: t(WEAPONS[a.subject].name) })
+        : t(a.name)
+      const body = build.anomalies.map((a) => `<div class="bd-eff"><span class="bd-eff-i">${a.icon ?? '💠'}</span><span class="bd-eff-t"><b>${esc(aName(a))} </b>${esc(t(a.desc))}</span></div>`).join('')
+      const head = build.anomalies.map((a) => aName(a)).join(', ')
       secs.push(sectionHtml('anomalies', '💠', t(RARITIES.anomaly.name), head, body))
     }
     if (!secs.length) return ''
@@ -1583,6 +1763,10 @@ export function initUI(hooks) {
     // keyboard nav for the level-up cards is only live while that screen shows
     document.removeEventListener('keydown', onLevelupKeydown)
     if (name === 'levelup') document.addEventListener('keydown', onLevelupKeydown)
+    // v7.5: a BLIND FAITH reveal in flight must not land onChoose on a screen that is no longer the
+    // level-up (death mid-modal, a quit). Dropping the timer here is what makes leaving the screen
+    // authoritative over it.
+    else if (lvRevealTimer) { clearTimeout(lvRevealTimer); lvRevealTimer = 0; lvRevealing = false; lvRevealIdx = -1 }
     active = name
   }
 
@@ -1620,7 +1804,7 @@ export function initUI(hooks) {
 
   // ---- one delegated click handler for every screen ---------------------------
   root.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable]')
+    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject]')
     if (!el) return
     if (el.dataset.buy !== undefined) {
       if (hooks.onBuy(el.dataset.buy)) renderShop(el.dataset.buy)
@@ -1628,6 +1812,10 @@ export function initUI(hooks) {
     }
     if (el.dataset.choose !== undefined) {
       chooseLvCard(Number(el.dataset.choose))   // one gated path for taps and keys alike
+      return
+    }
+    if (el.dataset.subject !== undefined) {     // v7.5 SPECIALIST's weapon chooser
+      chooseLvSubject(el.dataset.subject)
       return
     }
     if (el.dataset.consumable !== undefined) {
@@ -1770,7 +1958,7 @@ export function initUI(hooks) {
       }
       case 'quit': playSfx('click'); hooks.onQuit(); break
       case 'skill': hooks.onSkill(); break
-      case 'reroll': if (lvArmed()) hooks.onReroll(); break
+      case 'reroll': if (lvArmed() && !lvRevealing) hooks.onReroll(); break
       case 'sacrifice-start':
         sacrificeOpen = true
         sacrificePicks = {}

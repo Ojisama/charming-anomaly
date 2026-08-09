@@ -159,6 +159,9 @@ const UI = {
   'Chapter': 'Chapitre',
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
+  // v7.5 SPECIALIST on the build sheet ("Spécialiste : Geyser d'Égout"). NBSP before the colon —
+  // the one piece of French this string carries, and the reason it needs an entry at all.
+  '{name}: {sub}': '{name} : {sub}',
 
   // HUD
   'WAVE': 'VAGUE',
@@ -175,6 +178,11 @@ const UI = {
   // itself invents up here.
   'potency': 'puissance',
   '{name} upgrade': 'amélioration : {name}',
+  // v7.5. Identical to the English on purpose, not an untranslated leftover: French sets the
+  // tiret cadratin with a space on each side exactly as the source does, and this string is pure
+  // punctuation around two placeholders. Kept as an entry so the composition is on the record as
+  // reviewed (same reason 'Projectiles' and 'Berserk' sit here as identities).
+  '{name} — {text}': '{name} — {text}',
 
   // rarities (RARITIES[..].name)
   'Normal': 'Normale',
@@ -201,6 +209,31 @@ const UI = {
   'Rupture': 'Brèche',
 
   'Reroll ({n}❤️)': 'Relancer ({n}❤️)',
+
+  // v7.5 BLIND FAITH — the face-down deal. 'Face cachée' is the French card-game term of art
+  // (poser une carte face cachée); 'Retournée' would name the reveal, which is the other state.
+  'Face down': 'Face cachée',
+  // Owner's line, verbatim, and NOT a translation of "Take it on faith": it is the Française des
+  // Jeux lottery slogan every French player has heard. The French card is a BETTING joke (see
+  // 'Tiercé gagnant' below) where the English one is a religious one — the 🙈 reads as a punter
+  // not looking at the ticket. No final period, because the slogan has none; no NBSP before the
+  // %, matching 'Les ennemis lâchent 30% de pièces en moins' in the CONFIG section.
+  'Take it on faith.': '100% des gagnants ont tenté leur chance',
+  // NOT 'Plus de relance': without the ne, 'plus de' reads as MORE on a button — the exact opposite
+  // of what it does. 'Pas de relance' cannot be misread. Singular after 'pas de', as French wants.
+  'No rerolls': 'Pas de relance',
+
+  // v7.5 SPECIALIST — the weapon chooser (paintSubjectChooser).
+  'Which weapon?': 'Quelle arme ?',
+  // THIS ONE HAS A TUNING DEPENDENCY. French takes the singular after zero ('0 amélioration') and
+  // after one, so a number-first phrase is only correct while {n} >= 2 — and it is: subjectPicks
+  // (sim.js) is built solely from specialistSubjects, which filters weaponModPickCount >=
+  // SPECIALIST_MIN_MODS, and that constant is 4 (config.js). The row cannot paint 0 or 1 today.
+  // A label:value dodge ('améliorations prises : {n}') would be correct at every value forever, but
+  // it is a stat line in a slot that holds card prose, so the phrase wins on the invariant.
+  // IF SPECIALIST_MIN_MODS EVER DROPS BELOW 2, come back here — nothing else will tell you, run XX
+  // asserts coverage and typography, not agreement.
+  '{n} upgrades taken': '{n} améliorations prises',
 
 
   // anomaly cards (ANOMALIES in config.js): name, desc, and the `from` line under it
@@ -314,7 +347,10 @@ const CONFIG = {
   'Avarice': 'Avarice',
   'Enemies drop 30% fewer coins, and 1 in 5 you pick up heals 5 HP instead of paying.': 'Les ennemis lâchent 30% de pièces en moins, et 1 sur 5 que tu ramasses te rend 5 PV au lieu de rapporter.',
   'the coins started tasting like medicine': 'les pièces ont pris un goût de médicament',
-  'Soy Milk': 'Lait de Soja',
+  // The card is a MACHINE GUN now (🔫), not soy milk. `Mitraillette` is the owner's word: strictly
+  // the submachine gun ('mitrailleuse' is the belt-fed one), which is the toy-loud register the
+  // ×5-shots-for-×0,2-damage spray asks for.
+  'Machine Gun': 'Mitraillette',
   '×5 fire rate, ×0.2 damage. Burn, chill and shock land 5 times as often.': 'Cadence de tir ×5, dégâts ×0,2. Brûlure, froid et foudre se déclenchent 5 fois plus souvent.',
   'your elements wanted more chances, not bigger ones': 'tes éléments voulaient plus de chances, pas plus de puissance',
   'Wildfire': 'Traînée de Feu',
@@ -323,6 +359,71 @@ const CONFIG = {
   'Minimes': 'Mini-Moi',
   'Copies of you peel off every 6s, pull the swarm away, and detonate.': "Des copies de toi se détachent toutes les 6s, attirent l'essaim au loin, puis explosent.",
   'there started being more of you than there was of you': "il s'est mis à y avoir plus de toi qu'il n'y avait de toi",
+  // ---- v7.5 upgrade-pool cards ------------------------------------------------------
+  // Same rules as the v7.2 slate above (composed keys — regenerate, never retype; French decimal
+  // comma; U+00A0 before : ; ! ? in VALUES only; vocabulary reused, never invented).
+  //
+  // 'Tiercé gagnant' is the owner's word, verbatim: a PMU horse-betting reference, so the FRENCH
+  // card is a gambling joke where the English one is a religious one. Nothing else in the entry
+  // needs to move — 'face cachée', 'sort' and 'relancer' are card-and-betting vocabulary already,
+  // and 'relancer' is literally the poker verb. Sentence case, unlike every other card name in
+  // this file: it is a slogan-shaped phrase, set the way French sets one, and it is the owner call.
+  // Kept from the pre-rename entry, because they govern the DESC below, which does not change:
+  // 'ne sort' and NOT 'n'est tiré' — this dictionary spends *tirer* on SHOOTING (cadence de tir,
+  // and 'Chaque arme envoie…' two cards down was itself written to dodge the verb), so a card
+  // reading "rien … n'est tiré" parses as NOTHING GETS FIRED; 'sortir' is the French draw verb,
+  // reused by Spécialiste below. Likewise 'tu n'en vois que la bordure' rather than 'seule sa
+  // bordure apparaît' — *apparaître* is spent on things that SPAWN ('apparitions ennemies', 'Les
+  // élites apparaissent'), and the border does not come into view, it is what never leaves it.
+  // 'Épique' must stay spelled exactly as the RARITIES entry — the English key interpolates
+  // RARITIES[BLIND_FAITH_FLOOR].name, so the two strings are one fact, and a French card naming a
+  // tier the chip does not is a rule the player cannot check.
+  'Blind Faith': 'Tiercé gagnant',
+  'you stopped needing to know': "tu n'as plus eu besoin de savoir",
+  'Every card is face down — only its border shows. Nothing below Epic is rolled, and you can never reroll.':
+    "Chaque carte est face cachée — tu n'en vois que la bordure. Rien en dessous d'Épique ne sort, et tu ne peux plus jamais relancer.",
+  // 'Bazooka' is the owner's word and is the same in both languages (it is in the Petit Robert).
+  // The entry exists so run XX's coverage check sees the name, not because anything is translated.
+  'Bazooka': 'Bazooka',
+  // Conditionnel passé, not 'n'allait jamais suffire': the futur proche in the past is a calque
+  // here — French wants a past anchor for it, and without one 'jamais' pulls toward a temporal
+  // reading ("never got round to being enough") instead of the fatalism the English carries.
+  'once was never going to be enough': "une seule fois n'aurait jamais suffi",
+  // 'envoie', NOT 'tire'. Intransitive *tirer* + *plus* defaults to FREQUENCY in French ("tire 3
+  // fois plus" = fires three times as often), which is the exact opposite of the clause that
+  // follows, and no amount of trailing context undoes a misparse the reader has already made.
+  // *envoyer* is quantitative — "envoyer plus" begs *plus de quoi* — it covers the orbs, beams and
+  // tornadoes the English's "as much" exists to cover, and it drops the tire/tir echo.
+  // 'dans 3 directions', not 'sur': *sur* goes with *réparti sur trois axes*; with *éventail* and
+  // *direction* it is a calque of "spread across".
+  // Words rather than 'cadence de tir ×0,5' (the Mitraillette / Surcharge idiom) because the
+  // English says "at half the fire rate" and prints no multiplier either. 'pour' is the price —
+  // 'contre' is the slate's other word for a cost, and either would do here.
+  'Every weapon fires 3 times as much, spread in 3 directions — at half the fire rate.':
+    'Chaque arme envoie 3 fois plus, en éventail dans 3 directions — pour une cadence de tir divisée par deux.',
+  'Specialist': 'Spécialiste',
+  // 'faire comme si' is the French for pretending; 'prétendre' is the false friend (it means to
+  // CLAIM) and would have read as a calque.
+  'you stopped pretending the rest of them were the plan': 'tu as arrêté de faire comme si les autres étaient le plan',
+  // 'sortent' (to come up in a draw) is the card verb, kept distinct from 'apparaissent', which
+  // this dictionary spends on things that SPAWN.
+  // NOT an imperative. The pre-rename English opened 'Pick a weapon:' and this line opened
+  // 'Choisis une arme :' — but the pause build sheet reprints the desc AFTER the weapon is locked
+  // in, as 'Spécialiste : Geyser d'Égout — <desc>', where an order to pick one arrives twenty
+  // minutes late. 'l'arme que tu désignes' is a generic present that is true in both places: on
+  // the level-up card the naming is still to come, on the sheet it says which weapon that was —
+  // exactly the load the English "the weapon you name" carries.
+  // 'les prendre chacune', not 'prendre chacune': bare *chacune* as a direct object is grammatical
+  // but stilted, and the clitic pins the antecedent to *les améliorations* (the sentence subject)
+  // rather than leaving it to hop back over 'l'arme'.
+  // '2 fois de plus' is safe here: it only collides with 'deux fois plus' (twice as many) inside a
+  // comparative, and the English's "than anyone else" is gone — there was no anyone else anyway.
+  // (Rendering it would have forced either that ambiguity or a 'plafond' the UI never prints —
+  // modLine shows a mod's accumulated bonus, never its pick count.)
+  // Last sentence spelled out rather than 'en proposent moins': the pronoun's antecedent is three
+  // clauses back, and 'proposent moins' alone can be read as offering less VALUE.
+  'Upgrades for the weapon you name come up far more often, and you may take 2 more of each. Every other weapon offers less.':
+    "Les améliorations de l'arme que tu désignes sortent bien plus souvent, et tu peux les prendre chacune 2 fois de plus. Toutes les autres armes proposent moins d'améliorations.",
   // v6.2 Remaster — per-chapter endings
   'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
   'Neutralized… 🩸': 'Neutralisé·e… 🩸',

@@ -32,9 +32,11 @@ import {
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
-  // RARITY_ORDER is deliberately NOT imported: it existed here only for the ladder walk the
-  // bucket-first roll deletes. Nothing in sim.js reads the tier ORDER any more.
-  RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
+  // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
+  // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
+  // measured 16.1% legendary in the shim's first draft (F1). The floor only ever REMOVES keys from
+  // a weight table and lets pickWeighted renormalise the survivors — it never redirects a roll.
+  RARITY_ORDER, RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT, REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
@@ -50,6 +52,9 @@ import {
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
   MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
+  SPECIALIST_FOCUS_MUL, SPECIALIST_OTHER_PENALTY, modPickCap, weaponModPickCount,
+  BLIND_FAITH_NO_REROLL, BLIND_FAITH_FLOOR,
+  IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -245,7 +250,10 @@ export function stepSim(run, input, dt) {
 }
 
 /** Apply run.levelUpChoices[i] to the run (weapon add/level, passive, heal). */
-export function applyChoice(run, i) {
+// `subject` (v7.5) is the weapon the player named on a SUBJECTED anomaly card — SPECIALIST is the
+// only one today. Optional, and VALIDATED here rather than trusted: ui.js is the caller, so an
+// unvalidated id would let a UI bug (or a console) focus a weapon the run does not own.
+export function applyChoice(run, i, subject = null) {
   const choice = run.levelUpChoices && run.levelUpChoices[i]
   run.levelUpChoices = null
   if (!choice) return
@@ -284,7 +292,18 @@ export function applyChoice(run, i) {
     // sim.js (unstableCores -> rollAffixes). Recording it is also what removes it from every
     // future pool (eligibleAnomalyIds). `??=` because a hand-built run — the probe harness, a
     // test fixture — may predate the field; a missing one must not throw inside the ticker.
-    (run.anomalies ??= {})[choice.id] = true
+    // v7.5: a SUBJECTED anomaly (SPECIALIST) banks the weapon id the player named instead of
+    // `true`. Still truthy, so every `run.anomalies?.x` read in this file keeps working unchanged;
+    // only the sites that care about WHICH weapon test for a string.
+    // The fallback is the FIRST legal subject, not `true`: a caller that forgets to pass one (the
+    // probe harness, a test, a UI path that never opened the chooser) must still get a working
+    // card rather than a silent no-op that reads as "focused on the weapon named true".
+    let banked = true
+    if (choice.subjects?.length) {
+      const legal = new Set(choice.subjects)
+      banked = subject && legal.has(subject) ? subject : choice.subjects[0]
+    }
+    ;(run.anomalies ??= {})[choice.id] = banked
     applyAnomalyOnTake(run, choice.id)
   } else if (choice.kind === 'heal') {
     healPlayer(run, 30)
@@ -311,10 +330,65 @@ function applyAnomalyOnTake(run, id) {
   } else if (id === 'overload') {
     p.fireRateMul *= OVERLOAD_FIRE_MUL
     p.damageMul *= OVERLOAD_DMG_MUL
+  } else if (id === 'ipecac') {
+    p.fireRateMul *= IPECAC_FIRE_MUL
   } else if (id === 'soyMilk') {
     p.fireRateMul *= SOY_MILK_FIRE_MUL
     p.damageMul *= SOY_MILK_DMG_MUL
   }
+}
+
+// SPECIALIST's named weapon, or null. It is the ONE anomaly that banks a weapon id where every
+// other banks `true`, so the string test is load-bearing: a plain truthiness read would compare
+// mod candidates against the boolean `true` and focus nothing, silently.
+// IPECAC (v7.5): a per-cast count, tripled. Every weapon that HAS a count routes through here, so
+// "how much is three of it" is answered in exactly one place. Rounded and floored at 1 so a
+// fractional or zero stat can never produce a nonsense loop bound.
+function ipecacN(run, n) {
+  return run.anomalies?.ipecac ? Math.max(1, Math.round(n * IPECAC_COUNT_MUL)) : n
+}
+
+// ...and the angles a MELEE SECTOR sweeps, for the weapons with no count to multiply. Evenly spaced
+// over the full circle, which is what makes this a genuine x3 of output rather than a x3 of damage
+// on one enemy: overkill eats surplus poured into something already dying and cannot touch a hit
+// that landed somewhere else. Callers de-duplicate per cast (one enemy, at most one sector) so a
+// weapon whose arc is wider than the spacing — tailSwipe is 126-169 degrees — cannot quietly become
+// the x3 damage card this one was written to replace.
+// The RADIAL equivalent of ipecacAngles, for the weapons that are already 360 degrees and so have
+// no angle left to spread across. Bands, not one thicker ring: an inner, the original, and an outer.
+function ipecacRadii(run, radius) {
+  if (!run.anomalies?.ipecac) return [radius]
+  return [radius * 0.55, radius, radius * 1.45]
+}
+
+function ipecacAngles(run, angle) {
+  if (!run.anomalies?.ipecac) return [angle]
+  const step = (Math.PI * 2) / IPECAC_COUNT_MUL
+  return Array.from({ length: IPECAC_COUNT_MUL }, (_, i) => angle + i * step)
+}
+
+function specialistFocus(run) {
+  const f = run.anomalies?.specialist
+  return typeof f === 'string' ? f : null
+}
+
+// BLIND FAITH (v7.5): the rarity table with every tier below BLIND_FAITH_FLOOR removed. Handed the
+// table the caller was ABOUT to roll on rather than RARITY_WEIGHTS, so the reroll decay and the
+// floor compose instead of one silently replacing the other. pickWeighted normalises over whatever
+// keys it gets, so removing entries renormalises the rest by construction.
+function rarityTableFor(run, base) {
+  if (!run.anomalies?.blindFaith) return base
+  const floor = RARITY_ORDER.indexOf(BLIND_FAITH_FLOOR)
+  const out = {}
+  for (const k of Object.keys(base)) if (RARITY_ORDER.indexOf(k) >= floor) out[k] = base[k]
+  return out
+}
+
+// How many cards this screen deals. BLIND FAITH used to cut this, and it was a no-op at the default
+// slot count (see config.js) — the card's price is the reroll now, so nothing reduces it and this
+// exists only so the two readers below cannot drift apart.
+export function effectiveSlots(run) {
+  return run.choiceSlots ?? 2
 }
 
 // Every anomaly damage multiplier that can CHANGE during a run, folded into one number for
@@ -3967,7 +4041,13 @@ export function buildReadout(run) {
   // line a player has no way at all to tell the card is on.
   const anomalies = Object.keys(run.anomalies ?? {})
     .filter((id) => ANOMALIES[id])
-    .map((id) => ({ id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, icon: ANOMALIES[id].icon }))
+    // `subject` is SPECIALIST's named weapon (v7.5). Without it the sheet would print "Specialist —
+    // Its upgrades come up ×2.5 as often" with no way at all to learn WHICH weapon "its" is, which
+    // is the same hidden-rule failure this whole section exists to close.
+    .map((id) => ({
+      id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, icon: ANOMALIES[id].icon,
+      subject: typeof run.anomalies[id] === 'string' ? run.anomalies[id] : null,
+    }))
   return { weapons, passives, elements, anomalies }
 }
 
@@ -4049,7 +4129,7 @@ function fireStar(run, stats) {
 
   // Multi Stars: more volleys widen the fan gracefully for free, since each extra star is
   // just another STAR_FAN-spaced slot in the same (count-1)/2-centered spread below.
-  const count = stats.count + (run.weaponMods.star?.multishot ?? 0)
+  const count = ipecacN(run, stats.count + (run.weaponMods.star?.multishot ?? 0))
   const pierce = stats.pierce + (run.weaponMods.star?.pierce ?? 0)
   const chainsLeft = run.weaponMods.star?.chain ?? 0
   const ricochetsLeft = run.weaponMods.star?.ricochet ?? 0
@@ -4299,8 +4379,9 @@ function stepOrbitWeapon(run, stats, fireRateMul) {
   const orbR = ORB_R * (1 + (mods?.bigOrbs ?? 0)) // bigOrbs scales ORB_R, a constant, not a levels[] field
   const supernovaBonus = mods?.supernova ?? 0
 
-  for (let i = 0; i < stats.orbs; i++) {
-    const angle = (i / stats.orbs) * Math.PI * 2 + run.time * stats.rotSpeed
+  const orbs = ipecacN(run, stats.orbs)
+  for (let i = 0; i < orbs; i++) {
+    const angle = (i / orbs) * Math.PI * 2 + run.time * stats.rotSpeed
     const ox = p.x + Math.cos(angle) * stats.radius
     const oy = p.y + Math.sin(angle) * stats.radius
     run.orbs.push({ x: ox, y: oy, r: orbR })
@@ -4340,7 +4421,7 @@ function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
     const radius = isTsunami ? stats.radius * (1 + tsunamiBonus) : stats.radius
     const dmg = isTsunami ? stats.dmg * (1 + tsunamiBonus) : stats.dmg
     const knockback = stats.knockback
-    spawnNova(run, p.x, p.y, radius, dmg, knockback)
+    for (const r of ipecacRadii(run, radius)) spawnNova(run, p.x, p.y, r, dmg, knockback)
     // Chemotaxis: main cast only — echoes re-cast at a stale spot and re-marking there would reel
     // loot toward a place the player left. `radius` is already tsunami-adjusted here (deliberate:
     // a monster wave reels wider too). Marked items home to the player in stepPickups regardless
@@ -4429,7 +4510,7 @@ function fireBoomerang(run, stats) {
     ? Math.atan2(target.y - p.y, target.x - p.x)
     : (p.facing >= 0 ? 0 : Math.PI)
 
-  const count = stats.count
+  const count = ipecacN(run, stats.count)
   const step = count > 1 ? (2 * BOOMERANG_FAN) / (count - 1) : 0
   // bigBlade scales BOOMERANG_HIT_R, a constant, not a levels[] field — read directly and
   // snapshotted per boomerang at throw time, like bigOrbs is for orbit.
@@ -4510,12 +4591,24 @@ function stepMinesWeapon(run, w, stats, fireRateMul, dt) {
     // maxAlive only gates the weapon's own deployment — Cluster Bombs bomblets (m.small) don't
     // count against it and can push the total mine count above maxAlive.
     const deployed = run.mines.reduce((n, m) => n + (m.small ? 0 : 1), 0)
-    if (deployed >= stats.maxAlive) return
+    // IPECAC (v7.5): three cysts per cast, scattered — and maxAlive tripled with them. Lifting the
+    // count without lifting the ceiling would deploy one and silently refuse the other two, which is
+    // the card paying its half-fire-rate cost for nothing.
+    if (deployed >= ipecacN(run, stats.maxAlive)) return
     const p = run.player
-    run.mines.push({
-      x: p.x - p.facing * 20, y: p.y,
-      arm: 0.4, dmg: stats.dmg, radius: stats.radius,
-    })
+    // SCATTERED, not stacked. Three cysts dropped on the same tile is one cyst with three times the
+    // damage — precisely the shape this card was rewritten to stop being. They go out on a ring
+    // behind the player, reusing the bomblet scatter distance so the spacing already matches
+    // something the player has seen.
+    const n = ipecacN(run, 1)
+    for (let i = 0; i < n; i++) {
+      const a = n > 1 ? (i / n) * Math.PI * 2 : 0
+      const d = n > 1 ? MINE_CLUSTER_SCATTER_MIN : 0
+      run.mines.push({
+        x: p.x - p.facing * 20 + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
+        arm: 0.4, dmg: stats.dmg, radius: stats.radius,
+      })
+    }
   })
 }
 
@@ -4636,7 +4729,7 @@ function fireHoming(run, stats) {
     ? Math.atan2(target.y - p.y, target.x - p.x)
     : (p.facing >= 0 ? 0 : Math.PI)
 
-  const count = stats.count
+  const count = ipecacN(run, stats.count)
   // Phantom Wisps: base pierce of 1 (dies on first hit, as before) + N per phantom pick.
   const pierce = 1 + (run.weaponMods.homing?.phantom ?? 0)
   for (let i = 0; i < count; i++) {
@@ -4693,6 +4786,19 @@ function spawnSwarmWisps(run, x, y, source, count) {
 function stepHomingShots(run, dt) {
   const wispNovaBonus = run.weaponMods.homing?.wispNova ?? 0
   const swarmBonus = run.weaponMods.homing?.swarm ?? 0
+  // IPECAC (v7.5): SEEKERS DO NOT SHARE A TARGET WHILE THERE IS ANOTHER ONE FREE. The rule, in the
+  // owner's words: cover three different enemies if three exist; if there are fewer, fall back to
+  // the one or two closest and double up on them.
+  // This is the load-bearing line of the whole card — the spec names it as such — because every
+  // seeker re-picks the nearest live enemy every frame, so three of them converge on the same body
+  // and the x3 is eaten whole by overkill. That is exactly the x3 DAMAGE card this one was
+  // rewritten to replace, arriving again through the back door.
+  // Claimed first-come per frame, borrowing trashTornado's idiom ("whoever is free takes the
+  // nearest UNCLAIMED enemy"), and gated on the card so an ordinary homing volley keeps its shipped
+  // behaviour bit for bit. Not capped at three: with two volleys in the air, six seekers spreading
+  // over six enemies is the same rule, not a different one.
+  const spread = !!run.anomalies?.ipecac
+  const claimed = spread ? new Set() : null
   for (const h of run.homingShots) {
     if (h.pierce <= 0) continue // already resolved (popped) when its last hit spent pierce
     h.life -= dt
@@ -4705,10 +4811,23 @@ function stepHomingShots(run, dt) {
     let bestSq = Infinity
     for (const e of run.enemies) {
       if (e._dead || h.hitIds.has(e.id)) continue
+      if (claimed?.has(e.id)) continue
       const dx = e.x - h.x, dy = e.y - h.y
       const dSq = dx * dx + dy * dy
       if (dSq < bestSq) { bestSq = dSq; target = e }
     }
+    // FEWER ENEMIES THAN SEEKERS: every live one is already spoken for, so this seeker takes the
+    // closest regardless of the claim. One straggler is hunted by all three; two are covered by two
+    // and the third doubles up on whichever is nearer. Never leave a seeker flying blind.
+    if (!target && claimed) {
+      for (const e of run.enemies) {
+        if (e._dead || h.hitIds.has(e.id)) continue
+        const dx = e.x - h.x, dy = e.y - h.y
+        const dSq = dx * dx + dy * dy
+        if (dSq < bestSq) { bestSq = dSq; target = e }
+      }
+    }
+    if (target && claimed) claimed.add(target.id)
     if (target) {
       const desired = Math.atan2(target.y - h.y, target.x - h.x)
       const cur = Math.atan2(h.vy, h.vx)
@@ -4784,7 +4903,9 @@ function fireHole(run, stats) {
 
   // Singularity: N extra vortexes per cast, at HOLE_SINGULARITY_FRAC radius/coreRadius/pull,
   // spawned on other random in-view enemies (falls back to a random offset, like the main cast).
-  const singularity = run.weaponMods.hole?.singularity ?? 0
+  // The main vortex is unconditional, so IPECAC's x3 is expressed as extras on top of it — one
+  // vortex becomes three, each landing on a DIFFERENT enemy via pickHoleSpot's exclusion set.
+  const singularity = ipecacN(run, 1 + (run.weaponMods.hole?.singularity ?? 0)) - 1
   for (let i = 0; i < singularity; i++) {
     const spot = pickHoleSpot(run, usedIds)
     if (spot.id != null) usedIds.add(spot.id)
@@ -4922,7 +5043,7 @@ function fireBeam(run, stats) {
   // v5.6.14 (user): the beam is DOUBLE-ENDED, Darth Maul style — the base cast is 2 arms 180°
   // apart, one aimed at the target and one out the back, rotating together as a staff. Prismatic
   // Split still adds arms on top (3 arms = 120°, ...), all evenly spread by the same machinery.
-  const beamCount = 2 + (run.weaponMods.rainbow?.prismatic ?? 0)
+  const beamCount = ipecacN(run, 2 + (run.weaponMods.rainbow?.prismatic ?? 0))
   const angleStep = (2 * Math.PI) / beamCount
   // Strobe Ray: bake the faster tick period in at cast time (mid-run picks shouldn't retroactively
   // speed up an already-live beam). Focus Lens's ramp is recomputed every tick instead (see below).
@@ -5137,20 +5258,29 @@ function fireFlagella(run, stats) {
   const half = arc / 2
   const barbedBonus = run.weaponMods.flagella?.barbed ?? 0
 
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    const dx = e.x - p.x, dy = e.y - p.y
-    if (dx * dx + dy * dy > stats.range * stats.range) continue // center within range
-    if (!fullCircle) {
-      const ea = Math.atan2(dy, dx)
-      const da = Math.atan2(Math.sin(ea - angle), Math.cos(ea - angle)) // signed angular offset
-      if (Math.abs(da) > half) continue
+  // IPECAC (v7.5): three lashes at 120 degrees instead of one. `struck` is what keeps that a x3 of
+  // AREA rather than a x3 of damage — an enemy is hit by at most one lash per swing, so surplus
+  // output can only ever land on something the first lash did not reach. Without it a cyclone swing
+  // (full circle) would hit the same body three times and the card degenerates into the x3 damage
+  // version that measured as a wash.
+  const struck = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || struck.has(e)) continue
+      const dx = e.x - p.x, dy = e.y - p.y
+      if (dx * dx + dy * dy > stats.range * stats.range) continue // center within range
+      if (!fullCircle) {
+        const ea = Math.atan2(dy, dx)
+        const da = Math.atan2(Math.sin(ea - swing), Math.cos(ea - swing)) // signed angular offset
+        if (Math.abs(da) > half) continue
+      }
+      struck.add(e)
+      const dealt = applyDamage(run, e, stats.dmg)
+      if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)
+      if (stats.knockback) shoveFromPlayer(run, e, stats.knockback) // v6.2 melee parity — roar's idiom
     }
-    const dealt = applyDamage(run, e, stats.dmg)
-    if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)
-    if (stats.knockback) shoveFromPlayer(run, e, stats.knockback) // v6.2 melee parity — roar's idiom
+    run.events.push({ type: 'whip', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
-  run.events.push({ type: 'whip', x: p.x, y: p.y, angle, range: stats.range, arc })
 }
 
 // barbed: refresh (replace, like ignite) a bleed whose total = dmgDealt × BARBED_DMG_MUL × bonus
@@ -5169,7 +5299,7 @@ function applyBleed(enemy, dmgDealt, bonus) {
 // player. Clouds live in run.blooms (see state.js) and are ticked by stepBlooms below.
 function stepBloomWeapon(run, w, stats, fireRateMul, dt) {
   const quickCast = run.weaponMods.bloom?.quickCast ?? 0
-  const cloudCount = 1 + (run.weaponMods.bloom?.twinBloom ?? 0) // twinBloom: +1 cloud per pick
+  const cloudCount = ipecacN(run, 1 + (run.weaponMods.bloom?.twinBloom ?? 0)) // twinBloom: +1 cloud per pick
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickCast)), dt, () => {
     for (let i = 0; i < cloudCount; i++) {
       const spot = pickBloomSpot(run, stats.castRange)
@@ -5293,7 +5423,7 @@ function fireStinger(run, stats) {
   const speed = stats.speed * longMul
   const range = stats.range * longMul
   const life = range / speed
-  const count = stats.count // volley (+needles) already folded in via effectiveWeaponStats
+  const count = ipecacN(run, stats.count) // volley (+needles) already folded in via effectiveWeaponStats
   const venomOn = (run.weaponMods.stinger?.venomTips ?? 0) > 0
 
   // hive: every STINGER_HIVE_EVERY-th volley opens from the tight cone to a full 360° spread.
@@ -5336,7 +5466,7 @@ function fireStinger(run, stats) {
 // longerLure fold into stats; bigBurst scales burst dmg/radius; stickyScent drops a slow zone.
 function stepLureWeapon(run, w, stats, fireRateMul, dt) {
   const fastLure = run.weaponMods.lure?.fastLure ?? 0
-  const decoyCount = 1 + (run.weaponMods.lure?.twinLure ?? 0) // twinLure: +1 decoy per pick
+  const decoyCount = ipecacN(run, 1 + (run.weaponMods.lure?.twinLure ?? 0)) // twinLure: +1 decoy per pick
   const burstMul = 1 + (run.weaponMods.lure?.bigBurst ?? 0)   // bigBurst: +dmg AND +radius
   const sticky = (run.weaponMods.lure?.stickyScent ?? 0) > 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + fastLure)), dt, () => {
@@ -5463,17 +5593,23 @@ function slashClaws(run, o) {
       if ((tr.x - p.x) ** 2 + (tr.y - p.y) ** 2 <= AMBUSH_R * AMBUSH_R) { ambushMul = 1 + ambush; break }
     }
   }
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (!inSector(p.x, p.y, angle, o.range, o.arc, e, false)) continue
-    // CLAW_BASE_CRIT (v6.6.28): the rake's own +10 points of crit chance, on top of whatever the
-    // build carries. The doubleSlash follow-up re-enters slashClaws, so it inherits this too.
-    const dealt = applyDamage(run, e, o.dmg * ambushMul, CLAW_BASE_CRIT)
-    // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
-    if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
-    if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom
+  // IPECAC: three rakes at 120 degrees, de-duplicated per slash — see fireFlagella for why the set
+  // is load-bearing rather than tidy.
+  const struck = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || struck.has(e)) continue
+      if (!inSector(p.x, p.y, swing, o.range, o.arc, e, false)) continue
+      struck.add(e)
+      // CLAW_BASE_CRIT (v6.6.28): the rake's own +10 points of crit chance, on top of whatever the
+      // build carries. The doubleSlash follow-up re-enters slashClaws, so it inherits this too.
+      const dealt = applyDamage(run, e, o.dmg * ambushMul, CLAW_BASE_CRIT)
+      // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
+      if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
+      if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom
+    }
+    run.events.push({ type: 'clawRake', x: p.x, y: p.y, angle: swing, range: o.range, arc: o.arc })
   }
-  run.events.push({ type: 'clawRake', x: p.x, y: p.y, angle, range: o.range, arc: o.arc })
   // doubleSlash: queue a second, weaker slash after a beat. The follow-up never chains further.
   if (o.chain) {
     run._clawChain = {
@@ -5502,7 +5638,7 @@ function stepClawSlashes(run, dt) {
 function stepQuillWeapon(run, w, stats, fireRateMul, dt) {
   if (run._quillRetalCd > 0) run._quillRetalCd = Math.max(0, run._quillRetalCd - dt)
   const rapid = run.weaponMods.quillBurst?.rapidQuills ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireQuills(run, stats, stats.count))
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireQuills(run, stats, ipecacN(run, stats.count)))
 }
 
 function fireQuills(run, stats, count) {
@@ -5554,7 +5690,7 @@ function tryQuillRetaliate(run) {
   if (!w) return
   run._quillRetalCd = QUILL_RETALIATE_CD
   const stats = effectiveWeaponStats(run, w)
-  fireQuills(run, stats, stats.count + bonus)
+  fireQuills(run, stats, ipecacN(run, stats.count + bonus))
 }
 
 // -- Chitter Shriek (v5.4 undergrowth utility) --------------------------------------------
@@ -5566,10 +5702,10 @@ function stepShriekWeapon(run, w, stats, fireRateMul, dt) {
   const mods = run.weaponMods.chitterShriek
   const rapid = mods?.rapidShriek ?? 0
   const echoCount = mods?.echoShriek ?? 0
-  const spineCount = mods?.chitterSpines ?? 0
+  const spineCount = ipecacN(run, mods?.chitterSpines ?? 0)
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
-    spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, stats.fear)
+    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, stats.fear)
     run.events.push({ type: 'shriek', x: p.x, y: p.y, radius: stats.radius }) // v6.2: own event — was a generic 'shoot' the render couldn't distinguish
     if (spineCount > 0) fireShriekSpines(run, stats, spineCount)
     run._shriekEchoes = run._shriekEchoes ?? []
@@ -5665,9 +5801,10 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
 
   // Resize to `chunks` (moreTrash). A newcomer is seeded on its evenly-spaced ring slot rather
   // than on the player, so picking the card doesn't spit a funnel out of your own feet.
-  while (list.length > stats.chunks) list.pop()
-  while (list.length < stats.chunks) {
-    const a = (list.length / stats.chunks) * Math.PI * 2 + run.time * stats.rotSpeed
+  const chunks = ipecacN(run, stats.chunks)
+  while (list.length > chunks) list.pop()
+  while (list.length < chunks) {
+    const a = (list.length / chunks) * Math.PI * 2 + run.time * stats.rotSpeed
     list.push({ x: p.x + Math.cos(a) * stats.radius, y: p.y + Math.sin(a) * stats.radius, r: DEBRIS_R, tgt: null })
   }
 
@@ -5827,8 +5964,9 @@ function pointInLane(run, x, y) {
 function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.sewerGeyser?.rapidGeyser ?? 0
   const p = run.player
+  const zones = ipecacN(run, stats.count)
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
-    for (let i = 0; i < stats.count; i++) {
+    for (let i = 0; i < zones; i++) {
       // Each zone in a cast arrives a little later than the last. The wait is a DELAY that holds the
       // zone dormant, NOT extra fuse: fuse is the hydrant's rattle-and-blow animation and every
       // hydrant should play the same one. Folding the stagger into the fuse (v6.10 did) gave the
@@ -6069,15 +6207,20 @@ function fireRoar(run, stats) {
   const arc = fullCircle ? Math.PI * 2 : stats.arc
   const staggerBonus = run.weaponMods.roar?.stagger ?? 0
 
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (!inSector(p.x, p.y, angle, stats.range, arc, e, fullCircle)) continue
-    applyDamage(run, e, stats.dmg)
-    if (e._dead) continue
-    shoveFromPlayer(run, e, stats.knockback)
-    if (staggerBonus > 0) e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus)
+  // IPECAC: front, left and right — the spec's own reading of "three of it" for a cone.
+  const struck = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || struck.has(e)) continue
+      if (!inSector(p.x, p.y, swing, stats.range, arc, e, fullCircle)) continue
+      struck.add(e)
+      applyDamage(run, e, stats.dmg)
+      if (e._dead) continue
+      shoveFromPlayer(run, e, stats.knockback)
+      if (staggerBonus > 0) e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus)
+    }
+    run.events.push({ type: 'roar', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
-  run.events.push({ type: 'roar', x: p.x, y: p.y, angle, range: stats.range, arc })
 }
 
 // Radial shove away from the player (the sector sweeps' knockback). Anchored elites take the
@@ -6109,13 +6252,21 @@ function fireTail(run, stats) {
   const wrecking = run.weaponMods.tailSwipe?.wreckingTail ?? 0
   const struck = []
 
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (!inSector(p.x, p.y, angle, stats.range, stats.arc, e, false)) continue
-    const dealt = applyDamage(run, e, stats.dmg)
-    if (e._dead) continue
-    shoveFromPlayer(run, e, stats.knockback)
-    struck.push({ e, dealt })
+  // IPECAC: three sweeps instead of one. tailSwipe's arc is 126-169 degrees — WIDER than the 120
+  // degree spacing — so without the `hit` set the sectors overlap and one body eats the swipe twice,
+  // which is the x3 DAMAGE card this one exists to replace. With it, the tail simply reaches all the
+  // way around.
+  const hit = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || hit.has(e)) continue
+      if (!inSector(p.x, p.y, swing, stats.range, stats.arc, e, false)) continue
+      hit.add(e)
+      const dealt = applyDamage(run, e, stats.dmg)
+      if (e._dead) continue
+      shoveFromPlayer(run, e, stats.knockback)
+      struck.push({ e, dealt })
+    }
   }
 
   // wreckingTail: resolved in a second pass, AFTER every knockback of this swipe is applied, so a
@@ -6136,7 +6287,12 @@ function fireTail(run, stats) {
       }
     }
   }
-  run.events.push({ type: 'tail', x: p.x, y: p.y, angle, range: stats.range, arc: stats.arc })
+  // One event PER SWEEP. The damage loop above already runs three sectors under IPECAC; emitting a
+  // single event here would apply three swipes and draw one, which is precisely the bug v5.6.16
+  // shipped ("roar and tail swipe are visible — their events were silently dropped") in reverse.
+  for (const swing of ipecacAngles(run, angle)) {
+    run.events.push({ type: 'tail', x: p.x, y: p.y, angle: swing, range: stats.range, arc: stats.arc })
+  }
 }
 
 // counterSwipe: getting hurt swings the tail for free, at most every TAIL_COUNTER_CD (cf. retaliate).
@@ -6158,8 +6314,9 @@ function stepDebrisWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = mods?.rapidToss ?? 0
   const castRange = stats.castRange * (1 + (mods?.longToss ?? 0))
   const p = run.player
+  const chunks = ipecacN(run, stats.count)
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
-    for (let i = 0; i < stats.count; i++) {
+    for (let i = 0; i < chunks; i++) {
       const spot = pickBloomSpot(run, castRange)
       run.lobs.push({
         x: p.x, y: p.y, fromX: p.x, fromY: p.y, tx: spot.x, ty: spot.y,
@@ -6228,8 +6385,11 @@ function fireShards(run, stats) {
   const p = run.player
   const baseAngle = aimAngle(run)
   const life = stats.range / stats.speed
-  for (let i = 0; i < stats.count; i++) {
-    const angle = baseAngle + (i - (stats.count - 1) / 2) * STAR_FAN
+  // Both the bound AND the fan's centring divisor — see the orbit bug above for what happens when
+  // only one of them moves.
+  const shards = ipecacN(run, stats.count)
+  for (let i = 0; i < shards; i++) {
+    const angle = baseAngle + (i - (shards - 1) / 2) * STAR_FAN
     run.bullets.push({
       x: p.x, y: p.y,
       vx: Math.cos(angle) * stats.speed,
@@ -6321,7 +6481,7 @@ function fireTesseract(run, stats) {
     tick: stats.tick, width: stats.width, length: stats.length,
     rotSpeed: stats.rotSpeed, acc: 0,
     folded: true,
-    arms: TESSERACT_ARMS + (mods?.hyperfold ?? 0),
+    arms: ipecacN(run, TESSERACT_ARMS + (mods?.hyperfold ?? 0)),
     collapseBonus: mods?.collapse ?? 0,
   })
   run.events.push({ type: 'beam' })
@@ -6442,7 +6602,8 @@ function weaponCandidates(run) {
     if (w.level < MAX_WEAPON_LEVEL) {
       const cfg = WEAPONS[w.id]
       // An upgrade shows NO tier (UPGRADE_RARITY, not a RARITIES key — see config.js). The weapon
-      // you already own is not a jackpot, and under bucket-first its card fires on 22% of rolls
+      // you already own is not a jackpot, and under bucket-first its card fires on
+      // BUCKET_WEIGHTS.weapon percent of rolls (22% when this was written, 17% since v7.7)
       // whatever the tier table says, so wearing cfg.rarity here put a Mythic border on 8.9% of
       // city's cards — every one of them a Neon Beam level.
       list.push({ kind: 'weapon', id: w.id, title: cfg.name, desc: cfg.desc, tag: `Lv ${w.level + 1}`, rarity: UPGRADE_RARITY, icon: cfg.icon })
@@ -6464,6 +6625,21 @@ function eligiblePassiveIds(run) {
   // guaranteed to do nothing, with no chip and no grey-out. Ending your run is what BRITTLE is
   // for; quietly voiding a sixth of your remaining level-ups is the "catastrophe the player could
   // neither foresee nor act on" the slate's own bar forbids.
+  // BLIND FAITH (v7.5): a `values` passive declares its own tier table, and the floor may leave it
+  // only ONE legal key — armor and regen both declare {normal, rare, legendary}, so under an epic
+  // floor every single one of them would deal LEGENDARY. Measured x2.80 on armor and x2.34 on
+  // regen per card, which puts armor at a flat 20 at MAX_PASSIVE_LEVEL. BERSERK's shipped safety
+  // argument is licensed word for word on "armor measures 2.4-3.7 in real runs… blocks 10-20% of a
+  // hit, not 100%", and BLIND FAITH + BERSERK is a legal pair under MAX_ANOMALIES_PER_RUN — so a
+  // rarity FLOOR would have become a rarity CEILING on the two cards that block damage, and taken
+  // another card's balance with it.
+  // A card with one legal tier is also not a ROLL any more: its border would say the same word
+  // every time regardless of what was rolled, which is a lie on the one screen where the border is
+  // all the player has. So it leaves the pool instead. That is the honest reading of the card's own
+  // text — you cannot pick carefully in the dark — and `maxHP` has no values table, so the defence
+  // bucket never empties.
+  const floored = run.anomalies?.blindFaith
+  const floorIdx = RARITY_ORDER.indexOf(BLIND_FAITH_FLOOR)
   const brittle = !!run.anomalies?.brittle
   // BLOOD PACT kills `regen` by the same argument and it is not a small slice: regen measures
   // 6.4% of every card offered, and under that card healPlayer refuses it outright. The card is
@@ -6473,7 +6649,9 @@ function eligiblePassiveIds(run) {
     (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
     && !(lane && id === 'magnet')
     && !(brittle && DEFENSIVE_PASSIVES.includes(id))
-    && !(noHeal && id === 'regen'))
+    && !(noHeal && id === 'regen')
+    && !(floored && PASSIVES[id].values
+      && Object.keys(PASSIVES[id].values).filter((r) => RARITY_ORDER.indexOf(r) >= floorIdx).length < 2))
 }
 
 // Fisher-Yates shuffle in place (used for per-weapon mod candidate fairness below).
@@ -6500,6 +6678,12 @@ function shuffleInPlace(arr) {
 // element cards.
 function eligibleWeaponModCandidates(run) {
   const candidates = []
+  // SPECIALIST (v7.5) widens its named weapon HERE as well as at the per-screen cap, and the pool
+  // ceiling with it. Lifting only the cap is inert: MOD_CANDIDATES_PER_WEAPON = 2 means a weapon
+  // never HAS a third distinct mod on the screen to place, and `pickedIds` forbids repeating one.
+  // The three numbers have to move together or the card is a rate the player cannot see.
+  const focus = specialistFocus(run)
+  const blind = !!run.anomalies?.blindFaith
   for (const w of run.weapons) {
     const modCfgs = WEAPON_MODS[w.id]
     if (!modCfgs) continue
@@ -6510,9 +6694,22 @@ function eligibleWeaponModCandidates(run) {
     // its own `maxPicks` when its marginal value collapses well before the global cap. Same defect
     // as the switch case, one step softer — a card that is still legal but no longer worth taking.
     const owned = Object.keys(modCfgs).filter((modId) =>
-      (picks?.[modId] ?? 0) < (modCfgs[modId].kind === 'switch' ? 1 : (modCfgs[modId].maxPicks ?? MAX_WEAPON_MOD_PICKS)))
+      // BLIND FAITH (v7.5): a `switch` is offered ONLY at normal rarity (makeWeaponModCard declines
+      // every tier above it), so under the epic floor it could only ever arrive through rollCard's
+      // all-declined fallback — printing a normal-bordered card on a screen that promised none.
+      // Drop the class outright instead. Losing rule-change mods is the honest price of the floor.
+      !(blind && modCfgs[modId].kind === 'switch')
+      // SPECIALIST (v7.5) is expressed ENTIRELY inside modPickCap: the focused weapon's mods stay
+      // eligible SPECIALIST_EXTRA_PICKS past the global ceiling. One function, so the pause sheet
+      // and the pool can never disagree about what a weapon's cap is.
+      && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus))
     shuffleInPlace(owned)
-    for (const modId of owned.slice(0, MOD_CANDIDATES_PER_WEAPON)) candidates.push({ weapon: w.id, mod: modId })
+    // SPECIALIST's price: every weapon that is NOT the focus puts one fewer mod in the pool. Only
+    // charged when a focus actually exists, and floored at 1 so a weapon is never silenced.
+    const per = focus && w.id !== focus
+      ? Math.max(1, MOD_CANDIDATES_PER_WEAPON - SPECIALIST_OTHER_PENALTY)
+      : MOD_CANDIDATES_PER_WEAPON
+    for (const modId of owned.slice(0, per)) candidates.push({ weapon: w.id, mod: modId })
   }
   if (candidates.length <= MOD_POOL_MAX) return candidates
 
@@ -6680,17 +6877,33 @@ function rollAnomalyCard(run) {
   // a screen at base weight, F5's second clause).
   // The other half of that contract lives downstream: the NEW_WEAPON_MIN_RATE swap is guarded on
   // !placedAnomaly precisely so a reset can never be followed by the card being overwritten (F4).
-  run._screensSinceAnomaly = 0
+  // v7.5: the assignment moved DOWN to the return, so that a card which bails after this point
+  // (the subject branch below) cannot spend the credit and hand back nothing — that is F5's first
+  // clause, arriving through a new door.
   const w = {}
   for (const id of eligible) w[id] = ANOMALIES[id].weight
   const id = pickWeighted(w)
   const a = ANOMALIES[id]
+  // A SUBJECTED card (SPECIALIST) carries the LIST of weapons it may be pointed at, and the PLAYER
+  // picks — ui.js opens a chooser when the card is taken. It is not weighted or auto-assigned here,
+  // because both auto-assignments that were tried measured as the same card: "first past the gate"
+  // and "most invested" both name the starter 86-94% of the time, and the spec's whole conclusion
+  // was that the choice is the product ("point it at the geyser you are building, not the rainbow
+  // you are not"). No Math.random is drawn for it, deliberately.
+  const subjects = a.subjects ? a.subjects(run) : null
+  // What the chooser needs to be a DECISION rather than a list of names: how much this run has
+  // already put into each candidate. Travels on the card so ui.js needs no second data channel and
+  // main.js stays glue.
+  const subjectPicks = subjects
+    ? Object.fromEntries(subjects.map((wid) => [wid, weaponModPickCount(run, wid)]))
+    : null
   // No `bonus` key at all: applyChoice's anomaly branch banks a rule, not a number, and a bonus
   // here would be silently ignored (or, worse, silently applied by a future branch). `from` is its
   // OWN field, not the `tag`: tag is a nowrap pill sized for "Lv 3"/"New!", and a sentence in it
   // overflows the card (the modal is min(92vw, 390px)). ui.js renders `from` as its own wrapping
   // line under the description.
-  return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon }
+  run._screensSinceAnomaly = 0
+  return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
 }
 
 // Roll ONE card: bucket first (BUCKET_WEIGHTS), then a rarity inside it. Never walks the rarity
@@ -6708,7 +6921,7 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   // Build each bucket's live option list ONCE, so "is this bucket empty" and "pick from it" can
   // never disagree.
   const buckets = {}
-  const modCap = maxModsPerWeaponPerPool(run.choiceSlots ?? 2)
+  const modCap = maxModsPerWeaponPerPool(effectiveSlots(run))
 
   // The weapon bucket's members are weighted here rather than at pick time, because the
   // build-focus fade has to be able to thin the RATE of `New!` cards and not just their share of
@@ -6749,8 +6962,16 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   if (defenseOpts.length > 0) buckets.defense = BUCKET_WEIGHTS.defense
   if (utilityOpts.length > 0) buckets.utility = BUCKET_WEIGHTS.utility
 
+  // SPECIALIST's focus is read here for the WEIGHT below only. It deliberately does NOT touch this
+  // filter, nor MOD_POOL_MAX: `modOpts.length > 0` is what decides whether the mod BUCKET exists at
+  // all, so lifting either lets the card keep the bucket alive on screens that would have dropped
+  // it — measured +17.8% mod share at two slots, i.e. the card CREATING deliverability, which is
+  // exactly what the spec forbids. Focus may decide which weapon wins a mod card; never whether one
+  // is dealt.
+  const focus = specialistFocus(run)
   const modOpts = modCandidates.filter((mc) =>
-    !pickedIds.has(mc.mod) && (modWeaponCounts.get(mc.weapon) ?? 0) < modCap)
+    !pickedIds.has(mc.mod)
+    && (modWeaponCounts.get(mc.weapon) ?? 0) < modCap)
   if (modOpts.length > 0) buckets.mod = BUCKET_WEIGHTS.mod
 
   const elementOpts = elementIds.filter((eid) => !pickedIds.has(eid))
@@ -6781,9 +7002,12 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   // Clamped both ways — below 0 because the shipped samplers pin it at -1 to mean "base rate",
   // above REROLL_RARITY_CAP because the decay is geometric.
   const rr = Math.min(REROLL_RARITY_CAP, Math.max(0, run._screenRerolls ?? 0))
-  const rarityWeights = rr === 0
+  // BLIND FAITH's floor is applied LAST, over the decayed table, so a blind player who also pays
+  // for a reroll gets the decay applied to a `normal` weight that is then removed — i.e. the two
+  // compose to "the floor wins", which is the promise the card printed.
+  const rarityWeights = rarityTableFor(run, rr === 0
     ? RARITY_WEIGHTS
-    : { ...RARITY_WEIGHTS, normal: RARITY_WEIGHTS.normal * Math.pow(REROLL_RARITY_DECAY, rr) }
+    : { ...RARITY_WEIGHTS, normal: RARITY_WEIGHTS.normal * Math.pow(REROLL_RARITY_DECAY, rr) })
   const rarity = pickWeighted(rarityWeights)
 
   if (bucket === 'weapon') {
@@ -6791,7 +7015,20 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // applyChoice's weapon branch never reads rarity, so an adopted colour would mean nothing.
     // weaponCandidates already gave UPGRADE entries UPGRADE_RARITY (no tier at all): the chip is
     // the acquisition jackpot, and re-firing it for a weapon you own spends it for nothing.
-    return weaponOpts[Number(pickWeighted(weaponW))]
+    const wc = weaponOpts[Number(pickWeighted(weaponW))]
+    // BLIND FAITH (v7.5): a weapon card's rarity is not a rolled tier at all — a `New!` card carries
+    // its WEAPON's inherent rarity (which can be below the floor) and an UPGRADE carries
+    // UPGRADE_RARITY, which is not a RARITIES key and so prints no chip.
+    // BOTH ARE TELLS, and the second is the worse one. Stamping every weapon card UPGRADE_RARITY
+    // was the first fix here and it made 23.5% of all blind cards a chipless beige border that
+    // identified its kind with 100% reliability — 40.9% of screens carried at least one. The floor
+    // was satisfied and blindness, which is the card's actual product, was not.
+    // So a weapon card adopts the screen's ROLLED (floor-legal) tier while blind. It means nothing
+    // — applyChoice's weapon branch never reads rarity, as the note above says — which is precisely
+    // what makes it safe to use as camouflage. The WEIGHT is untouched, so inherent rarity still
+    // decides WHICH weapon is offered; it just stops being broadcast.
+    if (run.anomalies?.blindFaith) return { ...wc, rarity }
+    return wc
   }
 
   if (bucket === 'defense' || bucket === 'utility') {
@@ -6809,8 +7046,14 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // it has to read the same table the roll it replaces did, or a reroll's promise quietly
     // evaporates for armor and regen — the two cards a player rerolling a bad screen is most often
     // hoping to improve, and at the cap the fall-through path takes 12.3% of them (8.8% at base).
+    // Renormalise the passive's OWN declared keys — never a fixed ladder walk. `rarityWeights`, not
+    // RARITY_WEIGHTS, so a reroll's promise reaches armor and regen too; and only keys that table
+    // still carries, because `?? 1` would hand a tier BLIND FAITH's floor removed a live weight.
+    // Under that floor a values-passive is guaranteed to have at least two surviving keys, because
+    // eligiblePassiveIds drops the ones that do not (see the note there — it is what stops the
+    // floor turning into a CEILING for the two passives that block damage).
     const w = {}
-    for (const r of Object.keys(PASSIVES[pid].values)) w[r] = rarityWeights[r] ?? 1
+    for (const r of Object.keys(PASSIVES[pid].values)) if (rarityWeights[r]) w[r] = rarityWeights[r]
     return makePassiveCard(run, pid, pickWeighted(w))
   }
 
@@ -6829,13 +7072,32 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // complaint is that it has too few of. Rolling candidacy at base holds the switch rate flat
     // (garden 9.01% -> 9.43%, inside a 0.45pt six-seed spread; run PB4 asserts the invariance)
     // while every numeric mod keeps the full nudge.
-    const candRarity = rr === 0 ? rarity : pickWeighted(RARITY_WEIGHTS)
+    const candRarity = rr === 0 ? rarity : pickWeighted(rarityTableFor(run, RARITY_WEIGHTS))
     const ok = modOpts.filter((mc) => makeWeaponModCard(run, mc.weapon, mc.mod, candRarity))
-    // Every candidate declined (an all-switch bucket): the bucket was counted as non-empty, so it
-    // owes a card. Offer one at normal rather than returning null and shortening the pool.
+    // Every candidate declined (an all-switch bucket): the bucket was counted non-empty, so it owes a card even if every candidate declined the
+    // rolled tier. Under BLIND FAITH that fallback tier must be the FLOOR, not 'normal' — and a
+    // `values` mod (trashTornado.sweepLoot declares {epic:1}) can decline BOTH, in which case
+    // makeWeaponModCard returns null, rollCard returns null and buildLevelUpChoices BREAKS out of
+    // the slot loop. Measured: 40% of such blind screens collapsed to a single card.
+    const floorTier = run.anomalies?.blindFaith ? BLIND_FAITH_FLOOR : 'normal'
     const from = ok.length > 0 ? ok : modOpts
-    const mc = from[Math.floor(Math.random() * from.length)]
-    if (ok.length === 0) return makeWeaponModCard(run, mc.weapon, mc.mod, 'normal')
+    // SPECIALIST's actual effect: the named weapon's candidates compete at SPECIALIST_FOCUS_MUL,
+    // everything else at 1. Strictly a REDISTRIBUTION — the mod bucket's own share is untouched, so
+    // the card cannot create deliverability, only aim it (which is exactly what the spec says it is
+    // and is not). The un-focused path keeps the original uniform expression VERBATIM rather than
+    // routing through pickWeighted with flat weights: both draw one random, but not the same
+    // mapping from it, and every seeded fixture in the suite would shift for a card nobody took.
+    const mc = focus
+      ? from[Number(pickWeighted(Object.fromEntries(
+        from.map((c, i) => [i, c.weapon === focus ? SPECIALIST_FOCUS_MUL : 1]))))]
+      : from[Math.floor(Math.random() * from.length)]
+    if (ok.length === 0) {
+      // ...and if even the floor declines it, hunt the whole surviving table before giving up, so a
+      // declining mod shortens nobody's screen.
+      const built = makeWeaponModCard(run, mc.weapon, mc.mod, floorTier)
+        ?? Object.keys(rarityWeights).map((r) => makeWeaponModCard(run, mc.weapon, mc.mod, r)).find(Boolean)
+      if (built) return built
+    }
     // A switch has no magnitude for a reroll to enlarge, so it is built at the only tier it accepts
     // — which is also the tier its candidacy roll came up at. Everything else takes the decayed one.
     const isSwitch = WEAPON_MODS[mc.weapon][mc.mod].kind === 'switch'
@@ -6846,6 +7108,14 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   return makeElementCard(run, eid, rarity)
 }
 
+// The pool-exhaustion card's tier. It is not a rolled tier at all, but it PRINTS one — and hard
+// -coding 'normal' put a grey chip literally reading "Normal" on a BLIND FAITH screen whose text
+// says nothing below the floor is rolled. Measured: with every pool exhausted, 100% of blind
+// screens were this card. The floor is the honest answer; it promises no more than the card gives.
+function healRarity(run) {
+  return run.anomalies?.blindFaith ? BLIND_FAITH_FLOOR : 'normal'
+}
+
 function buildLevelUpChoices(run) {
   const weaponPool = weaponCandidates(run)
   const passiveIds = eligiblePassiveIds(run)
@@ -6853,7 +7123,7 @@ function buildLevelUpChoices(run) {
   const elementIds = eligibleElementIds(run)
 
   if (weaponPool.length === 0 && passiveIds.length === 0 && modCandidates.length === 0 && elementIds.length === 0) {
-    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
+    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: healRarity(run), icon: '🍡' }]
   }
 
   const pickedIds = new Set()
@@ -6861,7 +7131,7 @@ function buildLevelUpChoices(run) {
   const cards = []
   // Roll exactly run.choiceSlots cards (2..4, permanently unlocked in the meta shop — see
   // choiceSlots in state.js and sacrificeCost in config.js).
-  const slots = run.choiceSlots ?? 2
+  const slots = effectiveSlots(run)
   for (let i = 0; i < slots; i++) {
     const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts)
     if (!card) break
@@ -6871,7 +7141,7 @@ function buildLevelUpChoices(run) {
   }
 
   if (cards.length === 0) {
-    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
+    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: healRarity(run), icon: '🍡' }]
   }
 
   // The anomaly tier: ONE roll per SCREEN, replacing a rolled card rather than extending the
@@ -6929,7 +7199,13 @@ function buildLevelUpChoices(run) {
     // Swap into the LAST slot — every rolled card is visible now (no purchasable extras), so
     // the guarantee just needs a slot that always exists.
     const slot = cards.length - 1
-    cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon }
+    // v7.5: this path builds a card BYPASSING rollCard, so BLIND FAITH's chip rule has to be
+    // applied here too — otherwise the discovery guarantee is the one hole through which a
+    // below-floor border reaches a face-down screen. Same reasoning as the weapon branch of
+    // rollCard: the tier is WHICH weapon, not how big, and under a blind deal the border is the
+    // only information there is.
+    const rarity = run.anomalies?.blindFaith ? UPGRADE_RARITY : cfg.rarity
+    cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity, icon: cfg.icon }
   }
 
   return cards
@@ -7006,14 +7282,19 @@ export { buildLevelUpChoices }
  * would go red.
  */
 export function rerollPrice(run) {
+  // BLIND FAITH (v7.5) is the card's whole price: you cannot reroll a screen you cannot read. It is
+  // checked BEFORE BLOOD MONEY so the pair cannot produce a purchasable HP price for a purchase
+  // that does not exist. `available: false` is what ui.js prints — the button says why rather than
+  // silently refusing, because a dead control with no explanation reads as a bug.
+  if (run.anomalies?.blindFaith && BLIND_FAITH_NO_REROLL) return { cost: 0, currency: 'coins', available: false }
   if (run.anomalies?.bloodMoney) {
     // Escalates on the RUN counter, exactly like rerollCost does for coins — see
     // BLOOD_MONEY_ESCALATION for the measurement that says a flat price deletes the ladder rather
     // than discounting it. Rounded so the button prints a whole number of HP.
     const n = run._rerolls ?? 0
-    return { cost: Math.round(BLOOD_MONEY_HP * Math.pow(BLOOD_MONEY_ESCALATION, n)), currency: 'hp' }
+    return { cost: Math.round(BLOOD_MONEY_HP * Math.pow(BLOOD_MONEY_ESCALATION, n)), currency: 'hp', available: true }
   }
-  return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins' }
+  return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins', available: true }
 }
 
 export function rerollLevelUpChoices(run) {
@@ -7031,6 +7312,10 @@ export function rerollLevelUpChoices(run) {
   // button press is not a trade the player agreed to. A max-regen build (2.5 HP/s = 750 HP/run)
   // rerolling nearly every screen is the known ceiling — a legitimate build bought with 5 passive
   // picks, and it should be a consequence someone can predict, not a discovery.
+  // BLIND FAITH (v7.5): the reroll is the card's price, so it is refused HERE and not only greyed
+  // out in ui.js. A UI-only gate is a rule the console can walk around, and this one is the whole
+  // cost of the strongest card on the slate.
+  if (!rerollPrice(run).available) return false
   if (run.anomalies?.bloodMoney) {
     const p = run.player
     const cost = rerollPrice(run).cost
