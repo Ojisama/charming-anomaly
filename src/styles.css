@@ -878,31 +878,7 @@ body {
 }
 .fx-chip--good { background: #d9f4e3; color: #1e7d4f; }
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
-/* v6.6.19 per-anomaly reroll: its own touch target at the card's right edge. The card itself is
-   not interactive, so nothing competes for the tap; 44px is the floor for a thumb. */
-.mut-reroll {
-  flex-shrink: 0;
-  align-self: center;
-  min-width: 44px;
-  min-height: 44px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  padding: 4px 6px;
-  border-radius: 10px;
-  border: 2px solid #8a5fd0;
-  background: #fff;
-  font-size: 1.05rem;
-  line-height: 1;
-  cursor: pointer;
-}
-.mut-reroll i { font-style: normal; font-weight: 800; font-size: 0.62rem; color: #5d3fa0; }
-.mut-reroll:disabled { opacity: 0.4; cursor: default; }
-.mut-reroll:active:not(:disabled) { transform: translateY(1px); }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
-.brief-coins { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
 
 /* ---- chapter carousel + diorama hero cards (v5.2 title centerpiece) ---- */
 /* Native CSS scroll-snap strip: one diorama card per chapter, prev/next PEEKING at both edges
@@ -1652,3 +1628,52 @@ body {
 .bd-eff-i { width: 15px; text-align: center; flex: 0 0 auto; }
 .bd-eff-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bd-eff-t b { color: var(--mint-dark); font-weight: 800; }
+
+/* ---- pre-run brief (v7.1): header row, two labelled sections, trade rows ---- */
+.brief { gap: 10px; padding: 16px 16px 14px; }
+.brief-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.brief-headtext { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.brief-title { margin: 0; font-size: 1.4rem; font-weight: 900; line-height: 1.1; text-align: left; }
+.brief-diff {
+  padding: 2px 10px; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  background: var(--cream-edge); color: var(--ink-soft);
+}
+.brief-diff b { color: var(--ink); }
+/* Section rules carry the section's one piece of chrome-level info at their right end: the reroll
+   price, and that boosters do not persist. Both used to be their own paragraph. */
+.brief-eyebrow {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin-top: 2px; padding-bottom: 2px; border-bottom: 2px solid var(--cream-edge);
+  font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-soft); text-align: left;
+}
+.brief-eyebrow i { font-style: normal; font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 0.72rem; }
+.brief-anoms { display: flex; flex-direction: column; gap: 8px; }
+.brief-anom {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 10px; border-radius: 12px; text-align: left;
+  background: var(--cream-soft); box-shadow: 0 1px 0 var(--cream-edge);
+}
+.brief-anom-icon { font-size: 1.35rem; line-height: 1; flex: 0 0 auto; }
+.brief-anom-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.brief-anom-name { font-weight: 800; font-size: 0.9rem; }
+.brief-anom-desc { font-weight: 600; font-size: 0.78rem; color: var(--ink-soft); }
+/* The ⇄ belongs to the GAIN group, so a wrap reads "…in exchange: +70%" rather than leaving a
+   dangling arrow at the end of the cost line. */
+.brief-trade { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.brief-tg { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.brief-vs { font-style: normal; font-weight: 900; color: #8a5fd0; font-size: 0.8rem; }
+/* Reroll: the shop-refresh idiom (two arrows chasing), drawn rather than an emoji so it inherits
+   the button's colour and its disabled/pressed states come free. 40px is the floor for a thumb. */
+.brief-rr {
+  flex: 0 0 auto; align-self: center; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 40px; min-height: 40px; padding: 0;
+  border: 0; border-radius: 999px; background: #fff;
+  box-shadow: inset 0 0 0 2px var(--cream-edge);
+  color: var(--ink-soft);
+}
+.brief-rr:disabled { opacity: 0.35; cursor: default; }
+.brief-rr:active:not(:disabled) { transform: translateY(1px); }
+.rr-ico { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }

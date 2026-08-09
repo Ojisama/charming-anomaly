@@ -124,35 +124,24 @@ const UI = {
   // briefings + anomalies
   'Daily Anomaly': 'Anomalie du jour',
   'Anomalies': 'Anomalies',
+  // 'reroll' stays English: it is the term French players use for this action (owner's call,
+  // v7.2.1), so the legend does not translate even though the aria-label below still says
+  // 'Relancer cette anomalie' — that one is prose read aloud, not a label on a control.
+  'reroll {n}': 'reroll {n}',
   'preview': 'aperçu',
   'Everyone gets the same anomaly today — new one at midnight.':
     'Tout le monde a la même anomalie aujourd\'hui — nouvelle à minuit.',
   'Start Daily Run': 'Lancer le défi du jour',
   'Start': 'Commencer',
-  'Anomalies bend the rules of this run — every difficulty level past the first adds one more.':
-    'Les anomalies tordent les règles de cette partie — chaque niveau de difficulté au-delà du premier en ajoute une.',
   'The Blank\'s ladder is fixed — each difficulty adds its named modifier.':
     'L\'échelle du Blanc est fixe — chaque difficulté ajoute son modificateur attitré.',
-  'you have {coins}': 'tu as {coins}',
-  // v6.6.19 per-anomaly reroll. BOTH are INFINITIVE, mirroring 'Relancer ({n}🪙)' above.
-  // The FR review argued the note should be imperative ('Relance'), since this file reserves the
-  // infinitive for controls and addresses the player directly in prose — cf. 'Emplacement {n} —
-  // laisse vide pour revenir au numéro'. The owner overruled it (v6.6.20) on the competing
-  // reading, which the review had itself flagged as defensible: the note is prefixed with the same
-  // 🎲 as the buttons, so it reads as a LEGEND for that affordance, and legends label like controls.
-  // NOT 'n'importe quelle anomalie': that means "whichever, no matter which" and buries the whole
-  // point — the free whole-set reroll already exists, the coins buy the CHOICE of which one.
-  // Definite 'l'anomalie', not 'une': the referent is the cards listed right above (same rule as
-  // 'Emplacement {n}'). 'de ton choix' is safe — 'choix' is only otherwise spent on '{n} picks'.
-  // NO 'chacune' (and the English no longer says "each" either): it is feminine, so its only
-  // possible antecedent is 'anomalie', which would price the offer per anomaly when main.js
-  // charges per PRESS — the same card rerolled twice costs 200. 'pièce' is likewise out: this
-  // dictionary spends *pièce* on 'coin', so "{n} 🪙 pièce" reads as "100 coins coin".
-  // The space before 🪙 below is a NBSP — the first non-punctuation one in this file, but it is
-  // the rule ui.js's fmtStat already applies to French units, and it stops "100" and "🪙"
-  // splitting across lines on a 320px phone.
+  // v6.6.19 per-anomaly reroll, both INFINITIVE. The FR review argued for the imperative
+  // ('Relance'), since this file reserves the infinitive for controls and addresses the player
+  // directly in prose. The owner overruled it (v6.6.20) on the competing reading, which the review
+  // had itself flagged as defensible: 'relancer {n}' labels the reroll buttons sitting under it,
+  // and a legend labels like the control it legends. v7.1 dropped the sentence-length version of
+  // that legend with the rest of the brief's prose — the price now sits on the ANOMALIES rule.
   'Reroll this anomaly ({n}🪙)': 'Relancer cette anomalie ({n}🪙)',
-  'Reroll one anomaly of your choice — {n} 🪙': 'Relancer l\'anomalie de ton choix — {n} 🪙',
 
   // pause + summary
   'Paused': 'Pause',
