@@ -7,13 +7,19 @@ import { execSync } from 'node:child_process'
 // question — is the code in front of me the code that was pushed?
 //   - the vX.Y.Z from the HEAD commit subject (this repo's release convention, see CLAUDE.md)
 //   - the short SHA, which is the part that cannot be duplicated or guessed
-// Falls back to 'dev' outside a git checkout so a tarball build still boots.
+// When HEAD is NOT a release commit — a chore, a docs-only push, a merge — the honest answer is the
+// most recent release in HEAD's ancestry, suffixed '+' to say there are commits after it. That
+// fallback used to be the literal 'dev', which threw away the version for anyone reading the live
+// page and twice made a successful deploy look like a failed one. Only a build with no git at all
+// (a tarball) still says 'dev'.
 function buildStamp() {
   try {
-    const subject = execSync('git log -1 --pretty=%s', { encoding: 'utf8' }).trim()
     const sha = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim()
-    const tag = subject.match(/^(v\d+\.\d+(?:\.\d+)?)/)?.[1] ?? 'dev'
-    return `${tag} · ${sha}`
+    const at = (s) => s.match(/^(v\d+\.\d+(?:\.\d+)?)(?=[:\s]|$)/)?.[1]
+    const head = at(execSync('git log -1 --pretty=%s', { encoding: 'utf8' }).trim())
+    if (head) return `${head} · ${sha}`
+    const last = at(execSync("git log -1 -E --grep='^v[0-9]+\\.[0-9]+' --pretty=%s", { encoding: 'utf8' }).trim())
+    return `${last ? last + '+' : 'dev'} · ${sha}`
   } catch {
     return 'dev'
   }

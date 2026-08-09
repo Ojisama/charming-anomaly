@@ -94,20 +94,29 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 ## Conventions
 
-- **Versioned commits.** Each release is a commit subject `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are visible — their events were silently dropped`). Chores use `chore: …`. Follow this format.
-- **WHATEVER IS AT HEAD WHEN YOU PUSH TO `main` MUST CARRY A `vX.Y.Z:` SUBJECT.** `buildStamp()` in `vite.config.js` regexes the version out of `git log -1 --pretty=%s` and falls back to the literal string `dev`, so a `chore:` commit at HEAD — *or a merge commit* — stamps the live page `dev` and destroys the one thing the stamp exists to answer ("is the code in front of me the code that was pushed?"). v6.10.1 shipped to fix the chore form; the **merge** form bit again on 2026-08-09, when merging a long-lived branch put `Merge remote-tracking branch…` at HEAD. Land the merge, then put a release commit on top of it. Verify after every deploy with `scripts/deploy-watch.sh "vX.Y.Z · <sha>"`.
-- **On a long-lived branch, `git fetch` and read `git log origin/main -1` BEFORE choosing a release number.** `main` moves. A branch that picked `v6.7.6`/`v6.7.7` offline while `main` shipped different changes under those same two labels leaves a permanent duplicate in the history — unfixable afterwards without rewriting published commits. (That is exactly what happened on 2026-08-09.)
-- **The release commit must be HEAD when you build and push.** `vite.config.js` derives
-  `__BUILD_STAMP__` from `git log -1 --pretty=%s` at BUILD time and regexes a leading `vX.Y.Z` out
-  of it — so a `chore:` commit sitting on top of the release ships a page stamped `dev · <sha>`,
-  and `scripts/deploy-watch.sh "vX.Y.Z · <sha>"` then reports 0 for a deploy that actually
-  succeeded. Land WIP chores first and put the `vX.Y.Z:` commit last (squashing the chores into it
-  is fine — the never-squash rule is about not merging two *releases* into one).
-  **This applies to docs-only commits too, and it bit the session that wrote this rule down, one
-  command after writing it:** a `chore:` touching only CLAUDE.md was pushed to main on top of
-  v6.10.0, the workflow rebuilt (it runs on every push to main, path-independent), and the live
-  page went from `v6.10.0 · 969a0e8` to `dev · 4f17cad`. Push docs-only commits to your BRANCH, or
-  accept that the next thing you land on main has to be a `vX.Y.Z:` commit to restore the stamp.
+- **Never choose a version number. `npm run ship` assigns it.** A release is still a commit subject
+  `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are
+  visible — their events were silently dropped`), but you write only the sentence:
+  `npm run ship "<that sentence>"` fetches `main`, takes the next free number, amends HEAD to carry
+  it, and pushes to `main`. With no argument it reuses HEAD's own subject. Flags need the bare form
+  (`node scripts/ship.mjs "…" --patch`): `--patch`/`--major` override the default minor bump,
+  `--dry-run` prints the version and subject and touches nothing. Chores use `chore: …` and stay on
+  your branch. Ship prints the exact `scripts/deploy-watch.sh "vX.Y.Z · <sha>"` to verify with.
+  Why it exists: an agent that picks a number when it STARTS work picks it hours before `main` is
+  next read, and on 2026-08-09 `v6.7.6` and `v6.7.7` each shipped twice — a published duplicate is
+  unfixable without rewriting history. ship closes that window to the seconds between fetch and
+  push, and if it loses even that race it unlabels the number it never published, merges what
+  landed, takes the number free at that moment, and retries — so neither a duplicate nor a gap can
+  reach the log. (`scripts/ship.mjs --selftest` asserts the numbering; the race path was proven
+  end-to-end against a throwaway remote.)
+- **The stamp no longer needs the release commit at HEAD.** `buildStamp()` (`vite.config.js`) reads
+  HEAD's subject, and when that isn't a release it falls back to the most recent `vX.Y.Z` in HEAD's
+  ancestry, marked `v7.7.0+ · <sha>` — the `+` meaning "there are commits after that release". A
+  `chore:`, a docs-only push or a merge commit at HEAD therefore stamps honestly instead of `dev`,
+  which is what killed the old land-the-chores-first choreography. It stamped `dev` twice for real:
+  v6.10.1 shipped to fix the chore form, and a CLAUDE.md-only push took the live page from
+  `v6.10.0 · 969a0e8` to `dev · 4f17cad` one command after that rule was written down. The sha is
+  still the part that cannot be duplicated or guessed.
 - **Measuring damage from `hit` events over-reports.** `{type:'hit', dmg}` carries the RAW swing,
   not HP removed, so it credits overkill in full and flatters exactly the weapons with the biggest
   per-hit numbers. In v6.10 that read the Sewer Geyser as the city's highest-damage weapon (531)
