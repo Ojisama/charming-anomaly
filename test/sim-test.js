@@ -470,6 +470,20 @@ function testAnomalySlate() {
     const want = OVERLOAD_HP_PER_SEC * 5
     assert.ok(Math.abs(spent - want) <= 1.5,
       `OVERLOAD drained ${spent.toFixed(1)} HP over 5s, want ~${want} — a per-frame hurtPlayer call is floored to 1 HP and costs 60 HP/s`)
+    // ...AND THE COST GROWS WITH dmgScale (v7.4). A flat drain made the card strictly better than
+    // not taking it: measured 90.0% win against a 25.0% control, because 4x dps prevented 170.8 HP
+    // of contact damage to pay 144.7 HP of drain — a NEGATIVE net cost. The contact damage it
+    // prevents rides dmgScale all run, so the price has to as well or the trade inverts.
+    const drainOver = (t0) => {
+      const r = withCard('overload', (x) => { x.player.hp = 1e6; x.player.maxHP = 1e6 })
+      r.time = t0
+      const before = r.player.hp
+      for (let i = 0; i < 600; i++) stepSim(r, { x: 0, y: 0 }, dt)   // 10s
+      return before - r.player.hp
+    }
+    const early = drainOver(0), late = drainOver(280)
+    assert.ok(late > early * 1.5,
+      `OVERLOAD drained ${early.toFixed(1)} HP at t=0 and ${late.toFixed(1)} at t=280 — a flat cost against a benefit that scales is what made this card a 90% win rate`)
     const p = withCard(null).player
     assert.ok(Math.abs(r.player.fireRateMul / p.fireRateMul - OVERLOAD_FIRE_MUL) < 1e-9, 'OVERLOAD did not multiply fire rate')
     assert.ok(Math.abs(r.player.damageMul / p.damageMul - OVERLOAD_DMG_MUL) < 1e-9, 'OVERLOAD did not multiply damage')
@@ -516,10 +530,17 @@ function testAnomalySlate() {
     assert.ok(rerollLevelUpChoices(r), 'BLOOD MONEY reroll failed with 100 HP and 0 coins — it is still charging coins')
     assert.strictEqual(r.player.hp, 100 - BLOOD_MONEY_HP, `the reroll took ${100 - r.player.hp} HP, not ${BLOOD_MONEY_HP}`)
     assert.strictEqual(r.coinsEarned, 0, 'the reroll also took coins')
-    // Floored, not fatal: at exactly the cost the button refuses rather than killing you on a modal.
-    r.player.hp = BLOOD_MONEY_HP
+    // AND IT ESCALATES (v7.4). A flat HP price does not discount the coin ladder, it DELETES it:
+    // rerollCost climbs 1.5^n over a run, so flat pricing bought 23.5 rerolls against coins' 6.1
+    // with an always-reroll bot. The second reroll must cost more than the first.
+    const second = rerollPrice(r)
+    assert.ok(second.cost > price.cost,
+      `the 2nd BLOOD MONEY reroll costs ${second.cost} against the 1st at ${price.cost} — the price ladder is flat, which is 3.9x the rerolls coins buy`)
+    assert.strictEqual(second.currency, 'hp', 'the escalated price changed wallet')
+    // Floored, not fatal: below the cost the button refuses rather than killing you on a modal.
+    r.player.hp = second.cost
     assert.ok(!rerollLevelUpChoices(r), 'a reroll at exactly the cost was allowed — that is death on a modal screen')
-    assert.strictEqual(r.player.hp, BLOOD_MONEY_HP, 'the refused reroll still charged')
+    assert.strictEqual(r.player.hp, second.cost, 'the refused reroll still charged')
   }
 
   // AVARICE — thins the drops at the SOURCE and converts a share of pickups to HP.
@@ -748,7 +769,7 @@ function testAnomalySlate() {
       `DEADFALL re-armed in ${fastRearm.toFixed(1)}s against ${plainRearm.toFixed(1)}s — springTrap is not reading the multiplier`)
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 15 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60), BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
+  console.log(`PASS run PB7 (v7.2 slate): 15 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {

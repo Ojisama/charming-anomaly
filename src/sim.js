@@ -44,7 +44,7 @@ import {
   BERSERK_DURATION, BERSERK_DMG_MUL,
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC,
   AVARICE_HEAL_CHANCE, AVARICE_HEAL_HP, AVARICE_COIN_DROP_MUL,
-  BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP,
+  BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, BLOOD_MONEY_ESCALATION,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE, CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_MUL,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
@@ -341,7 +341,8 @@ function stepAnomalies(run, dt) {
     // would cost 60 HP/s instead of 0.75 and kill a full-health player in two seconds. Every
     // per-second cost in this file has to bank the fraction; the floor exists so a real DoT tick
     // can never do nothing, and it turns any sub-1 drain into a catastrophe.
-    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dt
+    // x dmgScale: the cost tracks the damage the card is preventing. See OVERLOAD_HP_PER_SEC.
+    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dmgScale(run.time) * dt
     if (run._overloadAcc >= 1) {
       const spend = Math.floor(run._overloadAcc)
       run._overloadAcc -= spend
@@ -2059,7 +2060,11 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
     // off the player so they aren't instantly re-hit the next frame.
     if (run.revives > 0) {
       run.revives -= 1
-      p.hp = p.maxHP * REVIVE_HP_FRAC
+      // Floored at 1: under BRITTLE, maxHP is 1 and REVIVE_HP_FRAC 0.5 revives you on HALF a hit
+      // point, i.e. dead again on the next tick. The revive is a 150-coin shop consumable bought
+      // BEFORE the run, and healPlayer's doc block already explains why BLOOD PACT must not be
+      // allowed to void it — Brittle was voiding it anyway, through a different door.
+      p.hp = Math.max(1, p.maxHP * REVIVE_HP_FRAC)
       p.invuln = REVIVE_INVULN
       const radSq = REVIVE_SHOVE_RADIUS * REVIVE_SHOVE_RADIUS
       for (const e of run.enemies) {
@@ -7001,7 +7006,13 @@ export { buildLevelUpChoices }
  * would go red.
  */
 export function rerollPrice(run) {
-  if (run.anomalies?.bloodMoney) return { cost: BLOOD_MONEY_HP, currency: 'hp' }
+  if (run.anomalies?.bloodMoney) {
+    // Escalates on the RUN counter, exactly like rerollCost does for coins — see
+    // BLOOD_MONEY_ESCALATION for the measurement that says a flat price deletes the ladder rather
+    // than discounting it. Rounded so the button prints a whole number of HP.
+    const n = run._rerolls ?? 0
+    return { cost: Math.round(BLOOD_MONEY_HP * Math.pow(BLOOD_MONEY_ESCALATION, n)), currency: 'hp' }
+  }
   return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins' }
 }
 
@@ -7022,7 +7033,8 @@ export function rerollLevelUpChoices(run) {
   // picks, and it should be a consequence someone can predict, not a discovery.
   if (run.anomalies?.bloodMoney) {
     const p = run.player
-    if (p.hp <= BLOOD_MONEY_HP) return false
+    const cost = rerollPrice(run).cost
+    if (p.hp <= cost) return false
     // THROUGH hurtPlayer, not a bare `p.hp -=`. A raw subtraction made config.js's own MARTYR note
     // ("BLOOD MONEY turns a reroll into a bomb") a claim the code could not honour — measured with
     // both cards taken, the reroll dealt 0 damage and emitted no `hurt` event at all, so MARTYR saw
@@ -7031,7 +7043,7 @@ export function rerollLevelUpChoices(run) {
     // `dot` because the price is not an attack — it must skip armor and the invuln window, exactly
     // like OVERLOAD's drain. `src` keeps it out of the renderer's damped self-inflicted branch: a
     // reroll is one discrete deliberate purchase and SHOULD land with the full weight of a hit.
-    hurtPlayer(run, BLOOD_MONEY_HP, true, 'bloodMoney')
+    hurtPlayer(run, cost, true, 'bloodMoney')
     run._rerolls = (run._rerolls ?? 0) + 1
     run._screenRerolls = (run._screenRerolls ?? 0) + 1
     run.levelUpChoices = buildLevelUpChoices(run)

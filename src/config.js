@@ -350,14 +350,42 @@ export const BERSERK_DMG_MUL = 2
 // "otherwise life would drain instantly".
 export const OVERLOAD_FIRE_MUL = 2
 export const OVERLOAD_DMG_MUL = 2
+// THE COST RIDES dmgScale, and this is the v7.4 fix for the slate's one measured defect. A FLAT
+// drain made OVERLOAD strictly better than not taking it, which is the one thing the rarity
+// licence does not cover. Measured, body d3, 120 runs, kite-and-collect bot (a floor on player
+// skill, not a model of one), against a take-an-anomaly-and-skip control:
+//   win 90.0% vs 25.0% — +65 points, +75% kills, level 27.4 vs 17.0.
+// The HP ledger is why, and it is the whole argument: 4x dps clears the field before anything
+// reaches you, so the card LOSES 144.7 HP to its own drain but saves 170.8 HP of contact damage
+// (real hits/run 1.4 against 9.9). Net cost NEGATIVE — 176.0 HP spent against the control's 205.9.
+// The spec's "75% win, costs 25 points" was taken at d1 where the baseline was already 100% (it
+// says so: "saturated and blind") and with the drain emulated from t=0 rather than from the level
+// the card is actually offered at.
+// A flat cost cannot work here BY CONSTRUCTION: the contact damage the card prevents grows with
+// dmgScale all run, so the cost has to grow with it too or the trade inverts. 0.75 -> 1.5 HP/s
+// over 300s integrates to ~250 HP against the flat 145. Bracketed by measurement rather than
+// guessed — flat 1.5 measured 19.2% win and flat 2.0 measured 2.5%, so the ramp lands between the
+// shipped card and the one that is unplayable, which is where a licensed-extreme trade belongs.
+// RE-MEASURED AFTER THE CHANGE, same rig and seeds: win 90.0% -> 32.5%, which is +7.5 against the
+// skip control and exactly level with the do-not-take-any-anomaly baseline. It is still a big
+// power card — 1125.7 kills against the control's 752.9, level 25.0 against 17.0 — but it now
+// dies: 81 deaths in 120 runs, median 272.8s. A much stronger run that ends slightly more often
+// than not taking it IS the trade this card is supposed to be.
 export const OVERLOAD_HP_PER_SEC = 0.75
-// AVARICE. Measured against a real coin rate (city d2 dps, 12 runs): 593 coins/run today, and
-// every coin is value 1, so that is also the PICKUP count — the quantity this card converts.
-// At 20% conversion with drops at -30%, 415-554 coins survive and ~83-111 of them heal.
-// 5 HP is what makes it a card at all: at 1 HP it pays 0.28-0.37 HP/s against the `regen` passive's
-// 0.5 HP/s at its FIRST normal roll, i.e. less than one ordinary pick for 44% of the run's coins.
-// At 5 HP it pays 1.4-1.85 HP/s (~3 regen levels) but gated on kill rate, so it evaporates exactly
-// when you are overwhelmed and cannot clear — that gating is the pivot.
+// AVARICE. THE HEAL IS THE OPEN NUMBER ON THIS CARD, and the figure it was originally set against
+// was wrong twice over. The original pricing said "593 coins/run, and every coin is value 1, so
+// that is also the PICKUP count", concluding ~83-111 heals and setting 5 HP to reach 1.4-1.85 HP/s.
+// Both halves fail:
+//   1. coinsEarned is NOT the pickup count. It multiplies by p.coinGainMul * run.mods.coinMul
+//      (~2x at a realistic shop), so city d2 measures 740.5 coins from only 370.3 pickups. The
+//      denominator this card converts is about half what the pricing used.
+//   2. A MORTAL run picks up far fewer than an immortal probe: 99.7 (body) to 167.1 (beyond).
+// Measured at HEAD (body d3, 120 runs, kite-and-collect bot): 4.2 heals/run = 21 HP, against a
+// stated design target of 415-555 HP. One twentieth.
+// LEFT AT 5 PENDING THE OWNER'S CALL, deliberately, because the data says a flat number cannot fix
+// it: the card measures +2.5 points of win rate in body and +12.0 in beyond (20.7 heals/run there),
+// so raising the heal to reach body would make beyond's arm roughly three times stronger again.
+// This is a chapter-variance problem wearing a tuning problem's clothes.
 export const AVARICE_HEAL_CHANCE = 0.2
 export const AVARICE_HEAL_HP = 5
 export const AVARICE_COIN_DROP_MUL = 0.7
@@ -367,11 +395,17 @@ export const AVARICE_COIN_DROP_MUL = 0.7
 // BLOOD PACT. Owner's numbers. +1%/kill was the first draft and ends the run at x6.7 (body) to
 // x19.9 (city) — that is not "explodes", it is "the last two minutes have no threat left", which
 // the rarity licence does not cover. At these rates: body x1.68, city x2.99, beyond x2.77.
-// KNOWN AND FLAGGED, not a defect: the per-KILL clause is a chapter lottery (+57% to +190%, a 3.3x
-// spread) because kills/run vary 3.3x, while the per-ELITE clause is chapter-fair (+8.6% to
-// +10.6%) because eliteEvery is a TIME cadence. At these rates the fair clause is ~5% of the total,
-// i.e. very nearly decorative. Raising it to ~5%/elite and cutting per-kill to ~0.02% would make
-// the card reward hunting elites and stop varying 3x by chapter — an owner call, not a fix.
+// RE-MEASURED v7.4, AND THE PREMISE HAS MOVED. The two-clause design rests on "kills vary 3.3x
+// across chapters while elites are invariant", so the per-kill clause was the chapter lottery and
+// the per-elite clause the fair one. Re-run on the shipped pipeline (immortal probe, d2, 30 runs):
+//   kills/run   body 1411.9 / beyond 1636.4 / city 1968.4  -> a 1.39x spread, not 3.3x
+//   elites/run  body 10.63  / beyond 8.37   / city 10.30   -> still invariant, as claimed
+//   end state   body x2.39  / city x2.93    / beyond x2.66
+// The body row in the original table (x1.68, off 569.9 kills/run) does not reproduce at all; the
+// same rig now measures 2.5x the kills there. Most of that is v7.1.0's per-chapter hpScale tail,
+// which lengthened body runs. So the "3x chapter lottery" this card was flagged for is largely
+// gone — the end states sit in a x2.4-x2.9 band — and the argument for rebalancing the two clauses
+// toward elites is correspondingly weaker. Still an owner call; the numbers are the user's.
 export const BLOOD_PACT_PER_KILL = 0.001
 export const BLOOD_PACT_PER_ELITE = 0.01
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
@@ -382,6 +416,22 @@ export const BLOOD_PACT_PER_ELITE = 0.01
 // legitimate build bought with 5 passive picks, not an exploit — but it is a known consequence.
 // Floored, not fatal: the reroll is blocked below the cost rather than killing you on a modal.
 export const BLOOD_MONEY_HP = 10
+// AND IT ESCALATES, like the coin ladder it replaces. This was the real defect in the flat
+// version, and neither side of the original argument named it: `rerollCost` climbs
+// 10/15/23/34/51/76/114/171/257/385 over a run, so charging a flat HP price does not merely make
+// rerolls CHEAPER, it deletes the ladder. Measured with an always-reroll bot (body d3, 120 runs,
+// kite-and-collect — a floor on player skill):
+//   coins                                  6.08 rerolls/run
+//   Blood Money, spending down to the floor 23.47
+//   Blood Money, keeping 50% HP in reserve  12.79
+// 3.9x greedy, 2.1x played cautiously, against ~17 screens in a run — i.e. up to 1.4 rerolls per
+// screen. The overruled "that is 23 rerolls" objection was closer to right than the counter, and
+// the maxHP figure it was argued against (110-127) is itself low: the probe's own realistic
+// mid-game save measures 228.8.
+// Same 1.5^n curve as the coins, so the two wallets stay legible against each other and the card
+// keeps its actual design argument — it RE-PRICES the passive pool, making regen the enabler of an
+// offensive strategy rather than simply handing out free rerolls.
+export const BLOOD_MONEY_ESCALATION = 1.5
 // STILLNESS. Keyed off INPUT, never velocity: pond's currents shove the player (currentForceMul),
 // so a velocity test would hard-counter the card in exactly one chapter and nowhere else.
 export const STILLNESS_RAMP = 2      // s of no input to reach the cap
@@ -393,15 +443,43 @@ export const STILLNESS_MAX_MUL = 3   // damage multiplier at the cap
 // player HP is scary early and cosmetic late, because player maxHP does not ride hpScale and enemy
 // HP rides it 7.6x-33.6x. Scaled, the burst stays worth ~3 trash kills at every t, which is what
 // makes it a panic button (it clears the crowd that just hit you) rather than a dps source.
-export const MARTYR_DMG_MUL = 3
+// x10, RAISED FROM x3 ON MEASUREMENT. At x3 the card was inert and its own flagship pairings were
+// inert with it (body d3, 120 runs, kite-and-collect bot, against a take-and-skip control):
+//   solo               +3.6% kills, -2.5 points of win rate — 10.7 detonations a run, worth about
+//                      one trash enemy each, exactly as the x3 arithmetic predicted.
+//   MARTYR + OVERLOAD  86.7% against OVERLOAD alone at 90.0%. The pair the slate was designed
+//                      around — "OVERLOAD's drain becomes a permanent damage aura" — contributes
+//                      NOTHING, because the drain is spent in whole-HP chunks: ~190 detonations of
+//                      1 HP each, firecrackers rather than an aura.
+//   BERSERK + MARTYR   +0.0 against BERSERK alone.
+// A card holding 4.7% of the rarest tier's offers has to do something. x10 makes a detonation
+// worth ~3 trash kills at any t (it rides hpScale) and the drain-aura pair worth having, while
+// staying self-limiting on BRITTLE — at 1 maxHP a hit removes 1 HP, so the burst is 10 x hpScale
+// rather than the ~184 a normal run's 18.4 HP hit produces.
+// RE-MEASURED AFTER THE CHANGE, and the honest reading is that this card is partly unmeasurable
+// here: kills went +3.6% -> +6.5% but win rate stayed flat (24.2% against the control's 25.0%).
+// That is expected rather than damning. MARTYR is a PANIC BUTTON — its value is clearing the crowd
+// at the moment you are surrounded — and the harness bot flees at 170px instead of ever being
+// surrounded, so the exact situation the card exists for is the one situation it never enters.
+// It also fires only ~10.7 times a run by construction, because that is how often you are hit.
+// x10 is therefore set from the kill contribution and the pair arithmetic, not from a win rate.
+// Do not chase win rate with a bigger number here without a human playtest first.
+export const MARTYR_DMG_MUL = 10
 export const MARTYR_RADIUS = 140
 // CHAOS PACT. Owner's restructure from a one-shot into a repeating 60s cycle, and the numbers are
 // explicitly deferred to playtest: "number will be toyed with by playing."
-// Start the playtest from the right suspicion: the cycle is 25% danger and 75% payoff, and spawn
-// rate is the GENTLEST danger knob — a kiting player outruns density where enemy damage or HP
-// would bite. As written this may read as a near-permanent +50% damage with a siren. If it plays
-// as a gift, raise the danger window (spawn x2, or lend it enemyDmgMul) before shortening the
-// payoff: the long payoff is what makes the rhythm legible.
+// The suspicion recorded here before implementation — "the cycle is 25% danger and 75% payoff, and
+// spawn rate is the GENTLEST danger knob, so this may read as a near-permanent +50% damage with a
+// siren" — is now MEASURED, and it was right: +19.2 points of win rate and +32.8% kills against a
+// take-and-skip control (body d3, 120 runs, kite-and-collect bot). It plays as a gift.
+// UNCHANGED ON PURPOSE. The owner deferred these numbers to play, and this is exactly the card
+// where a harness reading is weakest: the bot outruns density mechanically, which is the whole
+// mechanism being measured. When it is tuned, raise the DANGER window (spawn x2, or lend it
+// enemyDmgMul) before shortening the payoff — the long payoff is what makes the rhythm legible.
+// Also measured, and it settles an open question: TIME DEBT does NOT amplify this card. The cycle
+// is `run.time % PERIOD >= SURGE`, so scaling time changes the beat FREQUENCY and leaves the 25/75
+// duty cycle exactly where it was. The pair reads 34.2% against chaosPact's own arm — no
+// interaction beyond the two cards separately.
 export const CHAOS_PACT_PERIOD = 60
 export const CHAOS_PACT_SURGE = 15    // s of the cycle spent under the spawn surge
 export const CHAOS_PACT_SPAWN_MUL = 1.5
@@ -413,10 +491,14 @@ export const ALIGNMENT_COMBO_CD = 0
 // DEADFALL. The trap field is undergrowth's identity, so this is a chapter inversion: the hazard
 // stops being something you route around and becomes furniture you kite ACROSS.
 export const DEADFALL_REARM_MUL = 0.2
-// SOY MILK. Paper-neutral (x5 fire, x0.2 damage) and MEASURED neutral: +4.6% kills, inside the
-// noise floor. Its real upside is not in that number at all — element procs are counted PER HIT,
-// not per damage, so five times the hits is five times the ignite/chill/shock applications. The
-// probe does not read proc counts, so the card is stronger than the row that cleared it.
+// SOY MILK. Shipped as "paper-neutral and measured neutral (+4.6% kills)", with a note that the
+// probe could not see its real upside because element procs are counted PER HIT. That note was
+// right, and v7.4 quantified it: against a take-and-skip control (body d3, 120 runs) the card is
+// +25.8 POINTS of win rate. The mechanism is DEFENSIVE, which is why a kills-based reading missed
+// it — five times the hits is five times the chill/freeze applications, and hits TAKEN drop 9.9 ->
+// 7.3 with HP lost 202 -> 144. Strong, but it is a real build pivot with a real cost, so it stays.
+// WORTH CHASING SEPARATELY: fireRateMul x5 delivers 3150 fires against 794, i.e. x3.97, not x5.
+// Something is clamping cadence at the top end and it is not this card's doing.
 export const SOY_MILK_FIRE_MUL = 5
 export const SOY_MILK_DMG_MUL = 0.2
 // WILDFIRE. Ignite jumps to the nearest enemy when a burning one dies, carrying the same dps.
@@ -652,7 +734,14 @@ export const ANOMALIES = {
     // The cost is dual and it is the sharpest thing on the slate: run.coinsEarned is BOTH the
     // end-of-run meta payout AND the in-run reroll wallet. Avarice trades level-up agency for
     // survivability — agency being the exact complaint this redesign exists to answer.
-    when: (r) => (r.coinsEarned ?? 0) >= 50,
+    // NEVER OFFERED ALONGSIDE BLOOD PACT. Measured (body d3, 120 runs): the pair wins 40.0%
+    // against BLOOD PACT alone at 50.0%, with coins down 347 -> 245. Blood Pact suppresses every
+    // heal, so Avarice's entire upside is zero while its -30% coin penalty applies in full — the
+    // player spends BOTH of a run's two rare slots to buy a strict penalty. The v7.3.0 `canHeal`
+    // guard stopped the coins being destroyed outright; it could not make the pair worth taking.
+    // A predicate is the right tool rather than a special case at the trigger site: this is the
+    // one combination on the slate with no upside at all in either direction.
+    when: (r) => (r.coinsEarned ?? 0) >= 50 && !r.anomalies?.bloodPact,
     weight: 2, chapter: null, kind: 'trade',
   },
   soyMilk: {
