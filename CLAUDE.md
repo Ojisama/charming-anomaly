@@ -96,6 +96,17 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 - **Versioned commits.** Each release is a commit subject `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are visible — their events were silently dropped`). Chores use `chore: …`. Follow this format.
 - **WHATEVER IS AT HEAD WHEN YOU PUSH TO `main` MUST CARRY A `vX.Y.Z:` SUBJECT.** `buildStamp()` in `vite.config.js` regexes the version out of `git log -1 --pretty=%s` and falls back to the literal string `dev`, so a `chore:` commit at HEAD — *or a merge commit* — stamps the live page `dev` and destroys the one thing the stamp exists to answer ("is the code in front of me the code that was pushed?"). v6.10.1 shipped to fix the chore form; the **merge** form bit again on 2026-08-09, when merging a long-lived branch put `Merge remote-tracking branch…` at HEAD. Land the merge, then put a release commit on top of it. Verify after every deploy with `scripts/deploy-watch.sh "vX.Y.Z · <sha>"`.
+- **A SUBAGENT DISPATCHED TO REVIEW UNCOMMITTED WORK MUST BE TOLD, IN ITS PROMPT, NOT TO MUTATE THE
+  TREE.** Spell out the allowed set (`git diff`, `git show`, `git log`, file reads) and the forbidden
+  set (`git stash` in any form, `git reset`, `git checkout`, `git restore`, `git clean`, `git add`,
+  `git commit`, and any edit). On 2026-08-09 an adversarial reviewer, asked to check whether a test
+  failure pre-existed, ran `git stash` — which reverted the entire uncommitted change it had been
+  asked to review, across five files. It is recoverable (`git stash list --format='%H %gs'`, then
+  `git stash apply <sha>`, then drop the entry), but only if you notice; the symptom is edits
+  "disappearing" from files you know you wrote. A reviewer has no reason to touch the tree, so say
+  so — the model will otherwise reach for stash the moment it wants a clean baseline. This compounds
+  with the shared stash stack across worktrees: an agent's stash lands on the same stack every other
+  session pops from.
 - **On a long-lived branch, `git fetch` and read `git log origin/main -1` BEFORE choosing a release number.** `main` moves. A branch that picked `v6.7.6`/`v6.7.7` offline while `main` shipped different changes under those same two labels leaves a permanent duplicate in the history — unfixable afterwards without rewriting published commits. (That is exactly what happened on 2026-08-09.)
 - **The release commit must be HEAD when you build and push.** `vite.config.js` derives
   `__BUILD_STAMP__` from `git log -1 --pretty=%s` at BUILD time and regexes a leading `vX.Y.Z` out
@@ -116,6 +127,17 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   other trap in the same breath (`run.events` must be drained every step, as main.js does, or the
   backlog is recounted every frame and dps reads ~2800× high).
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
+- **A PER-CAST COUNT IS USUALLY WRITTEN TWICE — as the loop bound AND as the divisor that spaces
+  what the loop spawns.** `for (i < stats.orbs)` with `angle = (i / stats.orbs) * 2pi`,
+  `(i - (count - 1) / 2) * STAR_FAN`, `(2 * BOOMERANG_FAN) / (count - 1)`, `i / count` in the quill
+  and shriek rings: eight sites across the weapons. Multiply ONE of them and the extra output stacks
+  on top of the original instead of spreading — and it **renders identically to no change at all**,
+  because three projectiles sharing a point look like one projectile. v7.6.0 shipped Ipecac tripling
+  orbit's loop bound to 15 while the divisor still read `stats.orbs` (5): fifteen phages in five
+  positions, three deep, which is the "same hit, bigger" shape that whole card was rewritten to
+  escape. It was caught by eye, from a screenshot that looked unchanged. Introduce ONE local for the
+  count and use it in both places, and assert **distinct positions** rather than a count — a count
+  passes happily when things spawn on top of each other (run PB7's every-weapon block does this).
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
 - **A red `sim-test` band is not proof your change caused it — several bands are eyeballed literals
   under 3σ.** The suite seeds `Math.random` once per scenario, so ANY change that alters how many
