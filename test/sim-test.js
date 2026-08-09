@@ -145,6 +145,18 @@ function pickNonElementIndex(run) {
 
 // Advances `run` by stepping stepSim, auto-resolving any levelup screens
 // (picks the first non-element choice) so the run keeps flowing like main.js would drive it.
+// v7.8: THIS HELPER DRAINS run.events EVERY STEP, exactly as main.js:404 does. It used not to, and
+// that cost the suite real time twice over: the backlog was RESCANNED in full on every step (so a
+// 305s run walked tens of thousands of events 18,300 times, quadratic), and the array itself grew
+// without bound (allocation and GC, which turned out to be the larger half — EE.d2 alone ran 9.2s
+// undrained against 2.2s drained). It is the same trap CLAUDE.md documents for weapon-census, "the
+// backlog is recounted every frame", living in the harness that is supposed to model main.js.
+//   SO: run.events IS EMPTY WHEN advance() RETURNS. That is the game's real behaviour, not a
+// harness quirk — nothing in the game ever observes an undrained backlog, and sim.js only ever
+// pushes to it (it never reads it, which is why draining cannot change what the sim does). All 22
+// call sites were enumerated before this changed; none read run.events afterwards. If you need the
+// events, use the returned Set of types, or run your own stepSim loop like the ~15 scenarios that
+// need per-event detail already do.
 function advance(run, seconds, dt, input) {
   const steps = Math.round(seconds / dt)
   const eventsSeen = new Set()
@@ -157,6 +169,7 @@ function advance(run, seconds, dt, input) {
     if (run.phase !== 'playing') break
     stepSim(run, input, dt)
     for (const e of run.events) eventsSeen.add(e.type)
+    run.events.length = 0
     assert(finite(run.player.x), `player.x not finite: ${run.player.x}`)
     assert(finite(run.player.y), `player.y not finite: ${run.player.y}`)
     assert(finite(run.player.hp), `player.hp not finite: ${run.player.hp}`)
@@ -9991,13 +10004,30 @@ function testChapterDensityCap() {
     const cap = maxAliveFor(run.mods)
     assert.strictEqual(cap, Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1)),
       `expected ${id} run cap to match its chapter multiplier`)
+    // v7.8: STOP SOON AFTER SATURATION rather than always running the full 300s. This one scenario
+    // was 58% of the suite's runtime (56.6s of 98s), and nearly all of it simulated a field that had
+    // already reached its cap — city saturates at t=131s and then sits at 400 alive for 170 more
+    // seconds, proving nothing it had not proved by t=146.
+    //   THE TAIL LENGTH IS THE ENTIRE SAFETY ARGUMENT, so it was measured against a mutant rather
+    // than guessed. With the cap gate deleted from stepSim's spawn loop, a 5s tail still PASSES on
+    // body, garden and city — they overshoot by only 4.4%, under the 5% split-children allowance
+    // below — so the obvious trim quietly guts the test while the peaks still look right. 10s is the
+    // first tail that fails all four chapters; 15s is used for margin, taking the tightest (body)
+    // from 9.4% over the threshold to 15.6%.
+    //   Given up knowingly: this no longer proves the cap HOLDS for the rest of the run — a leak
+    // starting after ~t=146 would now pass. Nothing time-varying feeds maxAliveFor today, so that is
+    // a cheap thing to stop paying 40s per suite run for. Note the loop must keep its 300s bound as
+    // the outer limit: garden does not saturate until t=266s, so a fixed shorter run fails outright.
+    const TAIL_FRAMES = Math.round(15 / dt)
     let peak = 0
-    for (let i = 0; i < Math.round(300 / dt); i++) {
+    let stopAt = Math.round(300 / dt)
+    for (let i = 0; i < stopAt; i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       if (run.phase !== 'playing') break
       stepSim(run, { x: 0, y: 0 }, dt)
       run.player.hp = run.player.maxHP
       if (run.enemies.length > peak) peak = run.enemies.length
+      if (peak >= cap) stopAt = Math.min(stopAt, i + TAIL_FRAMES)
     }
     peaks[id] = peak
   }
