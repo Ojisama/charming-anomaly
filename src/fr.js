@@ -191,19 +191,42 @@ const UI = {
   'Mythic': 'Mythique',
   'Legendary': 'Légendaire',
   // The other five are ADJECTIVES agreeing with a feminine 'rareté' ('Normale', 'Épique'); this
-  // one is a NOUN, because the tier is not a degree of rarity — it is a kind of card. It is the
-  // SAME WORD in both dictionaries, which is the entry's whole point: the tier used to be called
-  // 'Anomaly'/'Anomalie', and that word is already spent three times over on this screen and the
-  // ones either side of it — the Daily's mutators ('Anomalie du jour', 'Les anomalies tordent les
-  // règles de cette partie'), the enemies (MUTATORS.overtime) and the player themselves ('Ton
-  // anomalie', six lines up). See RARITIES in config.js.
-  'Rupture': 'Rupture',
+  // one is a NOUN, because the tier is not a degree of rarity — it is a kind of card.
+  //
+  // It does NOT match the English 'Rupture', deliberately (owner call, 2026-08-09). In everyday
+  // French 'rupture' reads first as a breakup or a stock-out; the English word is physically
+  // visceral and the chip carries no context to steer the reader toward that sense. 'Brèche' is
+  // unclaimed in both dictionaries, is established FR game vocabulary, and reads as "something got
+  // torn open" with no domestic sense.
+  //
+  // Why a fresh noun at all: the tier was called 'Anomaly'/'Anomalie', and 'anomalie' is already
+  // spent on ELEVEN user-facing FR strings — the Daily's mutators ('Anomalie du jour', 'Relancer
+  // cette anomalie', 'Les anomalies tordent les règles de cette partie'), MUTATORS.overtime and
+  // .jumbo, and the player themselves ('Ton anomalie', line 35). The two obvious alternatives are
+  // taken too: 'Faille' by riftScar and 'Singularité' by hole. And no ADJECTIVE can join the
+  // Normale/Épique/Mythique series, because 'Instable' is already used twice — including by this
+  // very card. A previously-unused noun was forced. See RARITIES in config.js.
+  'Rupture': 'Brèche',
 
   // anomaly cards (ANOMALIES in config.js): name, desc, and the `from` line under it
-  'Unstable Cores': 'Cœurs instables',
+  // Title Case: every other content name in this file is ('Kystes Toxiques', 'Noyau Chargé').
+  'Unstable Cores': 'Cœurs Instables',
+  // 'souffle', not 'explosion': it is masculine, so the 'il' can only resolve to souffle/cœur. With
+  // 'explosion' the pronoun was 'elle', whose nearest antecedent is 'la partie' three words earlier
+  // — it read as "whatever THE RUN kills". 'au fil de' is the collocation for "over the run";
+  // 'grandir avec' means growing alongside something. And souffle/explose keeps the blast/blows-up
+  // variation the English has, where explosion/explose echoed.
   'Every elite drops an unstable core. Its blast grows with the run, and whatever it kills blows up too.':
-    "Chaque élite lâche un cœur instable. Son explosion grandit avec la partie, et tout ce qu'elle tue explose à son tour.",
-  'you killed an elite and something went critical': 'tu as tué une élite et quelque chose est devenu critique',
+    "Chaque élite lâche un cœur instable. Son souffle grandit au fil de la partie, et tout ce qu'il tue explose à son tour.",
+  // 'un élite' (owner call): elliptical for 'un [ennemi] élite', which is the count-noun sense a
+  // player means. 'une élite' is dictionary-correct for the abstract noun but reads as an elite
+  // CORPS. This is the first place the game commits to a gender — everywhere else uses the neutral
+  // plural ('les élites').
+  // "s'est emballé", not 'est devenu critique': this dictionary already spends 'critique' on the
+  // crit stat ('chance de critique', 'dégâts critiques'), so on a level-up screen "quelque chose est
+  // devenu critique" can misparse as a crit proc. 's'emballer' is the FR idiom for a runaway
+  // reaction and keeps the reactor wink next to 'cœur'.
+  'you killed an elite and something went critical': "tu as tué un élite et quelque chose s'est emballé",
 
   // effect chip labels (EFFECT_LABELS in ui.js)
   'enemy spawns': 'apparitions ennemies',
