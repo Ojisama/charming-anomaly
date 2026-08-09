@@ -17,7 +17,16 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # fetch-depth: 0 is LOad-BEARING, not hygiene. actions/checkout defaults to a shallow
+      # depth-1 clone, and buildStamp() (vite.config.js) falls back to `git log -1 --grep=^vX.Y`
+      # over HEAD's ANCESTRY when HEAD's own subject is not a release. With one commit in the
+      # clone there is no ancestry to search, so that fallback found nothing and stamped the live
+      # page `dev` — which is the exact failure v7.8.0 added the fallback to prevent. It passed
+      # locally (full history) and failed only in CI; the first merge commit pushed after v7.8.0
+      # took the page to `dev · b42de29`.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
