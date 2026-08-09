@@ -19,6 +19,12 @@ node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]   # phone-viewp
 node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14
                                      # reproducible in-game frames of ONE effect, for A/B-ing a look
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
+node scripts/weapon-census.mjs       # what a weapon actually DOES over real runs, headless
+                                     #   --chapter city --level 5 --weapons sewerGeyser --mods launch=1
+                                     # raw vs EFFECTIVE dps, overkill waste, kills/min, hits/s, and a
+                                     # per-zone breakdown for run.geysers weapons. Run it before
+                                     # answering "is this weapon weak?" — this repo has guessed at
+                                     # that twice and been wrong both times.
 
 # Terrain, two dev views. Neither ships in the bundle.
 #  1. /terrain-preview.html?seed=1&span=14000&cx=0&cy=0  (npm run dev) — the GENERATOR alone: biome
@@ -87,6 +93,19 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 ## Conventions
 
 - **Versioned commits.** Each release is a commit subject `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are visible — their events were silently dropped`). Chores use `chore: …`. Follow this format.
+- **The release commit must be HEAD when you build and push.** `vite.config.js` derives
+  `__BUILD_STAMP__` from `git log -1 --pretty=%s` at BUILD time and regexes a leading `vX.Y.Z` out
+  of it — so a `chore:` commit sitting on top of the release ships a page stamped `dev · <sha>`,
+  and `scripts/deploy-watch.sh "vX.Y.Z · <sha>"` then reports 0 for a deploy that actually
+  succeeded. Land WIP chores first and put the `vX.Y.Z:` commit last (squashing the chores into it
+  is fine — the never-squash rule is about not merging two *releases* into one).
+- **Measuring damage from `hit` events over-reports.** `{type:'hit', dmg}` carries the RAW swing,
+  not HP removed, so it credits overkill in full and flatters exactly the weapons with the biggest
+  per-hit numbers. In v6.10 that read the Sewer Geyser as the city's highest-damage weapon (531)
+  when it was its lowest (383 effective, 28% wasted) and inverted the ranking of all three natives.
+  Diff enemy `hp` across the step instead — `scripts/weapon-census.mjs` does, and documents the
+  other trap in the same breath (`run.events` must be drained every step, as main.js does, or the
+  backlog is recounted every frame and dps reads ~2800× high).
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
 - **A new weapon STAT has to be registered twice, and fails silently otherwise.** Adding a key to a
