@@ -1,13 +1,25 @@
 # Track B — Upgrade pool redesign
 
-**Status: ACTIVE.** Design revised twice under adversarial review and validated in the harness.
-Distribution is **within ~2pts of declared on all three reference configs**, and the net power buff
-is **resolved** — offset with enemy HP ×1.8, measured to difficulty parity. The one remaining
-blocker is the **card list itself** — see [Open work](#open-work).
-**Blocks:** [Track A](./2026-08-07-dot-rework-and-sim-fixes-design.md), which is on hold until this
-design is final (user call, 2026-08-07 — A's DoT numbers are sized against today's 5.9% element
-share, which this design moves to 18%).
-**Verify with:** `node scripts/pool-probe.mjs <chapter> <slots> <runs> [policy] [--proposed|--compare]`.
+**Status: THE PIPELINE SHIPPED** (v6.7.4–v6.7.13, merged to main in v6.11.0). Buckets, the sixth
+rarity tier, pity and the reroll rarity nudge are all live in `sim.js`; the harness's `proposedChoices`
+shim that every number below was measured against has been deleted, because it was measuring a
+pipeline nobody ran.
+
+Measured against the SHIPPED pool (body/2, 20 runs) — the first time this table describes real code:
+`defense want 19.0 got 19.5 · utility 11.0/10.3 · mod 30.0/26.6 · weapon 22.0/23.9 · element 18.0/19.7`.
+The mod bucket is the one under-delivering.
+
+**Still open:** the card slate — `ANOMALIES` holds **one** card, so every rate constant below is
+sized against an 18-card table that does not exist yet. The power-gain offset (the per-chapter
+`hpScale` tail ladder) is **not** applied, so the pool is currently more generous than designed.
+**Track A is unblocked** by the element bucket shipping.
+
+**Verify with:** `node scripts/pool-probe.mjs <chapter> <slots> <runs> [policy]` — run it twice with
+the same seeds to A/B. (`--proposed`/`--compare` are gone with the shim.)
+
+> Sections below still describe the design as proposed, and several constants in them have since
+> been retuned (`elementWeightMul` 3 → 2, the anomaly cap, the pity formula). Read `config.js` and
+> `sim.js` as authoritative; read this as why.
 
 ## Harness validation (body, 2 slots, 30 runs)
 
