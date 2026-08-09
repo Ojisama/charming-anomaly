@@ -956,12 +956,24 @@ function generateWells(sig) {
  *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and inside `hunt` px
  *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
  *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
- * geysers[i]: { x, y, r, fuse, dur, dmg, _chained? } — telegraphed eruption zones (Sewer Geyser,
- *   city weapon; also reused by the Reality Shard's riftScar rifts). fuse counts down as a HARMLESS
- *   telegraph (dur is its starting value, so render can grow a warning ring from fuse/dur), then
- *   the zone erupts ONCE for dmg in r against ENEMIES only (never the player), emits
- *   {type:'explode', x, y, radius:r} and is removed. _chained marks a follow-up (chainGeyser's, or
- *   a riftScar rift) so chainGeyser can never fire off it. See stepGeysers in sim.js.
+ * geysers[i]: { x, y, r, fuse, dur, dmg, jetDur?, tick?, nStreams?, jet?, streams?, _cd?, _chained? }
+ *   — telegraphed zones (Sewer Geyser, city weapon; also reused by the Reality Shard's riftScar
+ *   rifts). fuse counts down as a HARMLESS telegraph (dur is its starting value, so render can grow
+ *   a warning ring from fuse/dur), then the zone erupts for dmg in r against ENEMIES only (never
+ *   the player) and emits {type:'explode', x, y, radius:r}.
+ *
+ *   What happens after the eruption depends on jetDur, and BOTH paths are live:
+ *     jetDur > 0  a Sewer Geyser hydrant. It stays up for jetDur (`jet` counts the remaining time)
+ *                 as a TURRET: each step it locks the nearest `nStreams` foes within r and hoses
+ *                 them, damaging each on its own `tick` cooldown. Nothing else in r is touched —
+ *                 r is a RANGE, not a damage area. `_cd` is that cooldown map (enemy id -> next
+ *                 time), per HYDRANT, so a foe hosed by two hydrants takes both. `streams` is the
+ *                 current target POSITIONS ([{x,y}], sim-written, render-read) — positions and not
+ *                 ids so a target dying mid-frame cannot leave render chasing a stale entity.
+ *     jetDur nil  a riftScar rift: one pop and gone. Rifts must keep this — a jet field that
+ *                 quietly made rifts persistent would rebalance a weapon in another chapter.
+ *   _chained marks a rift. Nothing reads it since v6.10 dropped chainGeyser; it is kept as the
+ *   "not a Sewer Geyser cast" marker. See stepGeysers / stepOpenJet in sim.js.
  * lobs[i]: { x, y, fromX, fromY, tx, ty, t, flight, r, dmg } — Debris Toss chunks (skies weapon).
  *   t counts UP from 0 to flight; x/y are the straight (fromX,fromY)->(tx,ty) lerp at t/flight,
  *   and render adds the parabolic hop (sim only needs t/flight). On landing the chunk bursts ONCE

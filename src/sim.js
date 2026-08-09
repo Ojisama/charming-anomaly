@@ -94,8 +94,8 @@ import {
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
   TORNADO_SWEEP_R, TORNADO_RESPACE,
-  GEYSER_LAUNCH_KB, GEYSER_STUN, GEYSER_CHAIN_FRAC, GEYSER_CHAIN_FUSE,
-  GEYSER_CHAIN_SCATTER_MIN, GEYSER_CHAIN_SCATTER_MAX,
+  GEYSER_LAUNCH_KB, GEYSER_STUN,
+  GEYSER_SPRAY_FRAC, GEYSER_IDLE_FRAC, GEYSER_JET_PUSH, GEYSER_MAX_LIVE, GEYSER_STAGGER, GEYSER_STREAMS_FALLBACK, GEYSER_STREAMS_MAX,
   // v5.4 skies
   STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_TELEGRAPH_T, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
   MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_REACQUIRE_T, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
@@ -3525,7 +3525,7 @@ const WEAPON_STAT_MODS = {
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
-  sewerGeyser:   { pressure: ['dmg', 'pct'], wideGeyser: ['r', 'pct'], moreGeysers: ['count', 'flat'] },
+  sewerGeyser:   { pressure: ['dmg', 'pct'], longHose: ['r', 'pct'], moreStreams: ['streams', 'flat'], deepMain: ['jetDur', 'pct'] },
   roar:          { bellow: ['dmg', 'pct'], wideRoar: ['arc', 'pct'], farRoar: ['range', 'pct'] },
   tailSwipe:     { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'], broadSweep: ['arc', 'pct'] },
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
@@ -3582,7 +3582,12 @@ export function buildReadout(run) {
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
-    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // ORDERED, and ui.js slices to STAT_MAX_ROWS (5) after appending the cadence row `every` — so
+    // where a key sits decides what falls off the sheet. jetDur goes after 'r': the Sewer Geyser
+    // then emits dmg, count, r, jetDur + every = exactly 5. `streams` is deliberately NOT here — a
+    // sixth row would push `every` (the cadence) off, and Split Nozzle already shows up in the mod
+    // list below the table, the same way every behavioural mod does.
+    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -5452,16 +5457,22 @@ function pointInLane(run, x, y) {
 // -- Sewer Geyser (v5.4 city utility) ------------------------------------------------------
 // Plants telegraphed eruption zones (run.geysers) on/near random enemies within castRange; each
 // waits out its harmless fuse, then erupts ONCE against ENEMIES only. The utility native — slowest
-// clear in the pool on purpose. rapidGeyser divides the interval; launch flings and stuns what an
-// eruption catches; chainGeyser scatters weaker follow-ups off each eruption; trafficMain (v6.3)
-// biases placement onto lane-covered foes (below) and hits harder there (stepGeysers).
+// rapidGeyser divides the interval; launch flings and stuns what the eruption catches; trafficMain
+// (v6.3) biases placement onto lane-covered foes (below) and hits harder there (stepGeysers).
 function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.sewerGeyser?.rapidGeyser ?? 0
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
     for (let i = 0; i < stats.count; i++) {
-      const spot = pickGeyserSpot(run, stats.castRange)
-      run.geysers.push({ x: spot.x, y: spot.y, r: stats.r, fuse: stats.fuse, dur: stats.fuse, dmg: stats.dmg })
+      // Each zone in a cast waits a little longer than the last, and each leads by ITS OWN fuse —
+      // a mark that opens 1.2s out has to be planted further along the target's path than one
+      // opening at 0.6s, or the stagger just moves the whiff later.
+      const fuse = stats.fuse + i * GEYSER_STAGGER
+      const spot = pickGeyserSpot(run, stats.castRange, fuse)
+      run.geysers.push({
+        x: spot.x, y: spot.y, r: stats.r, fuse, dur: fuse, dmg: stats.dmg,
+        jetDur: stats.jetDur, tick: stats.tick, nStreams: stats.streams,
+      })
     }
     run.events.push({ type: 'geyser', x: p.x, y: p.y })
   })
@@ -5477,11 +5488,11 @@ function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
 // frame-stable stream; no seeded test asserts RNG-stream state across a geyser cast (checked against
 // every AA.e sewerGeyser assertion: they check geyser existence/damage/timing, never exact position
 // or a cross-run stream comparison).
-function pickGeyserSpot(run, castRange) {
+function pickGeyserSpot(run, castRange, fuse) {
+  const p = run.player
+  const rangeSq = castRange * castRange
   const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
   if (tm > 0) {
-    const p = run.player
-    const rangeSq = castRange * castRange
     const inLane = run.enemies.filter((e) => {
       if (e._dead) return false
       const dx = e.x - p.x, dy = e.y - p.y
@@ -5489,37 +5500,82 @@ function pickGeyserSpot(run, castRange) {
     })
     if (inLane.length > 0) {
       const e = inLane[Math.floor(Math.random() * inLane.length)]
-      return { x: e.x, y: e.y }
+      // Lead ONLY if the led point is still in a lane. Leading pulls the mark toward the player,
+      // who is usually off the carriageway — so an unguarded lead drags the zone out of the very
+      // band that earns trafficMain its (1+tm)x, i.e. the mod would sabotage itself. In-lane
+      // placement is worth more here than the lead: a lane is a moving hazard, so a foe standing in
+      // one is about to be shoved around regardless.
+      const led = leadSpot(run, e, fuse)
+      return pointInLane(run, led.x, led.y) ? led : { x: e.x, y: e.y }
     }
   }
-  return pickBloomSpot(run, castRange) // random enemy in range, else a random offset
+  // Deliberately NOT pickBloomSpot, though the RNG shape is identical to it (one draw to choose an
+  // enemy, two for the no-enemy fallback) so seeded streams are unchanged: the lead needs the ENEMY,
+  // not just its position, because how far to lead depends on how fast that particular thing moves.
+  const inRange = run.enemies.filter((e) => {
+    if (e._dead) return false
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= rangeSq
+  })
+  if (inRange.length > 0) return leadSpot(run, inRange[Math.floor(Math.random() * inRange.length)], fuse)
+  // Nothing in reach. Plant close to the player rather than anywhere in castRange — whatever arrives
+  // next is arriving HERE, so a mark out at the rim is a zone that expires in empty street.
+  const a = Math.random() * Math.PI * 2
+  const d = Math.random() * castRange * GEYSER_IDLE_FRAC
+  return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }
 }
 
-// Shared by the Sewer Geyser and the Reality Shard's riftScar (same telegraph -> erupt -> gone
-// contract, see run.geysers in state.js). Never touches the player.
+// Plant on the path, not on the target: the fuse resolves 0.6-0.7s after the cast, and pre-v6.10
+// 27% of eruptions caught nothing while standing still cut that by 2.4x — the weapon was marking
+// where the swarm had been.
+//
+// The lead is a DISTANCE (how far this enemy travels while the fuse burns), not a fraction of the
+// gap to the player. The fraction version was the first attempt and it overshoots badly: a foe 300px
+// out led 40% of the way moves the mark 120px, when a drone only covers 54px in a 0.6s fuse — the
+// mark lands ahead of the swarm instead of on it, and 37.7% of jets caught nothing over their whole
+// life. Scaling by e.speed self-tunes per archetype (wisp 99px, drone 54px, tank 33px) and is the
+// same quantity the whiff was made of in the first place.
+//
+// Direction is straight at the player. That is exactly right for an ordinary seeker and merely
+// approximate for the flagged movers (pastSeek, orbiters, divers) — they are the minority, and a
+// persistent jet's 3s life absorbs the error. Draws no randoms.
+function leadSpot(run, e, fuse) {
+  const p = run.player
+  const dx = p.x - e.x, dy = p.y - e.y
+  const dist = Math.hypot(dx, dy)
+  if (dist < 1e-6) return { x: e.x, y: e.y }
+  const lead = Math.min((e.speed ?? 0) * (fuse ?? 0), dist)
+  return { x: e.x + (dx / dist) * lead, y: e.y + (dy / dist) * lead }
+}
+
+
+// Shared by the Sewer Geyser and the Reality Shard's riftScar. Never touches the player.
+//
+// Two lifecycles, chosen by whether the zone carries a jetDur (see the run.geysers block in
+// config.js). A Sewer Geyser erupts and then STAYS OPEN, spraying on a per-(enemy, jet) cooldown; a
+// riftScar rift erupts once and is gone, exactly as before v6.10. The rift path is load-bearing —
+// making rifts persistent would silently rebalance a weapon in another chapter.
 function stepGeysers(run, dt) {
   if (!run.geysers || run.geysers.length === 0) return
   const launchBonus = run.weaponMods.sewerGeyser?.launch ?? 0
-  const chain = run.weaponMods.sewerGeyser?.chainGeyser ?? 0
-  const followUps = []
 
   for (const g of run.geysers) {
+    if (g.jet > 0) { stepOpenJet(run, g, dt); continue }   // already erupted, still spraying
+
     g.fuse -= dt
     if (g.fuse > 0) continue // telegraph — harmless
-    g._done = true
-    // trafficMain (v6.3): an eruption centered inside a live lane hits (1+tm)x harder. Resolved
-    // once per geyser (not per enemy hit) at its own (g.x, g.y) — panicRout's "multiply at the
-    // damage site" pattern, applied to the baseDmg fed into applyDamage. Chained follow-ups
-    // (pushed below) erupt on a later tick at their OWN spot, so they reroll pointInLane there.
-    const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
-    const dmg = tm > 0 && pointInLane(run, g.x, g.y) ? g.dmg * (1 + tm) : g.dmg
+
+    // ---- eruption ----
+    const dmg = geyserDmg(run, g)
     const rSq = g.r * g.r
     for (const e of run.enemies) {
       if (e._dead) continue
       const dx = e.x - g.x, dy = e.y - g.y
       if (dx * dx + dy * dy > rSq) continue
       applyDamage(run, e, dmg)
-      // launch: the jet throws them clear and leaves them stunned (see e.stunT in state.js).
+      // launch: the eruption throws them clear and leaves them stunned (see e.stunT in state.js).
+      // Eruption frame only — the gentle continuous drift of an open jet is baseline (stepOpenJet),
+      // and this stays the hard one-shot fling that the mod sells.
       if (launchBonus > 0 && !e._dead) {
         const d = Math.hypot(dx, dy)
         const ux = d > 1e-6 ? dx / d : 1
@@ -5532,22 +5588,94 @@ function stepGeysers(run, dt) {
       }
     }
     run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r })
-    // chainGeyser: scatter weaker follow-ups. _chained ones never chain further — and a riftScar
-    // rift arrives already flagged _chained, so this can never fire off another weapon's zone.
-    if (chain > 0 && !g._chained) {
-      for (let i = 0; i < chain; i++) {
-        const a = Math.random() * Math.PI * 2
-        const d = GEYSER_CHAIN_SCATTER_MIN + Math.random() * (GEYSER_CHAIN_SCATTER_MAX - GEYSER_CHAIN_SCATTER_MIN)
-        followUps.push({
-          x: g.x + Math.cos(a) * d, y: g.y + Math.sin(a) * d,
-          r: g.r * GEYSER_CHAIN_FRAC, fuse: GEYSER_CHAIN_FUSE, dur: GEYSER_CHAIN_FUSE,
-          dmg: g.dmg * GEYSER_CHAIN_FRAC, _chained: true,
-        })
-      }
+
+    if (g.jetDur > 0) {
+      g.jet = g.jetDur                   // the main is open; spray from here
+      g._cd = new Map()                  // per-(enemy, jet) tick cooldown, keyed by enemy id
+    } else {
+      g._done = true                     // riftScar: one pop, gone
     }
   }
-  for (const g of followUps) run.geysers.push(g)
   run.geysers = run.geysers.filter((g) => !g._done)
+  // The cap is a render/readability guard as much as a balance one (the rim is the hitbox now), so
+  // it drops the OLDEST zones: killing the newest would silently eat the cast the player just made.
+  if (run.geysers.length > GEYSER_MAX_LIVE) run.geysers = run.geysers.slice(-GEYSER_MAX_LIVE)
+}
+
+// trafficMain (v6.3): a zone centered inside a live lane hits (1+tm)x harder. Resolved at the zone's
+// own (g.x, g.y) — panicRout's "multiply at the damage site" pattern, applied to the baseDmg fed
+// into applyDamage. Re-resolved per tick on purpose: a lane sweeps past a live jet mid-life, and the
+// jet should start hitting harder when it does.
+function geyserDmg(run, g) {
+  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+  return tm > 0 && pointInLane(run, g.x, g.y) ? g.dmg * (1 + tm) : g.dmg
+}
+
+// An open hydrant: hose the nearest few foes, shove them along the stream, and damage each on its
+// own cooldown. The cooldown map belongs to THIS hydrant, so a foe caught in two overlapping
+// hydrants' streams takes both.
+function stepOpenJet(run, g, dt) {
+  g.jet -= dt
+  if (g.jet <= 0) { g._done = true; return }
+
+  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+  const spray = geyserDmg(run, g) * GEYSER_SPRAY_FRAC
+  const tick = g.tick > 0 ? g.tick : 0.4
+  const rSq = g.r * g.r
+
+  // TURRET, not a zone. The hydrant locks the nearest `g.streams` foes in range and hoses each
+  // one; nothing else in the radius is touched. A radial zone was the readable-ness problem the
+  // owner called out — a 128px circle of damage has to be drawn as a 128px circle of art, several
+  // overlap, and the screen turns to soup. Aimed streams put the damage exactly where the art is,
+  // so what is being hit is legible at a glance and the space between streams stays clear.
+  //
+  // Nearest-N by insertion, not by sorting the whole candidate list: this runs per hydrant per
+  // frame with up to GEYSER_MAX_LIVE hydrants live, and N is 3.
+  // Clamped to GEYSER_STREAMS_MAX: the render rig has that many stream sprites and no more.
+  const maxStreams = Math.min(GEYSER_STREAMS_MAX, Math.max(1, Math.round(g.nStreams ?? GEYSER_STREAMS_FALLBACK)))
+  const picks = []
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - g.x, dy = e.y - g.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > rSq) continue
+    if (picks.length < maxStreams) {
+      picks.push({ e, d2 })
+      picks.sort((a, b) => a.d2 - b.d2)          // at most 3 entries
+    } else if (d2 < picks[picks.length - 1].d2) {
+      picks[picks.length - 1] = { e, d2 }
+      picks.sort((a, b) => a.d2 - b.d2)
+    }
+  }
+
+  // Render reads this to draw one stream per target (see syncJets). Positions, not ids: the stream
+  // is drawn where the water is actually going, and an enemy that dies this frame should not leave
+  // render chasing a stale id.
+  g.streams = picks.map((p) => ({ x: p.e.x, y: p.e.y }))
+
+  for (const { e } of picks) {
+    // Shoved along the stream, away from the hydrant. Only what is actually being hosed gets
+    // pushed — the drift used to apply to everything in the radius, which no longer has meaning
+    // now that the radius is a range rather than a damage area.
+    if (!(e.affixes && e.affixes.includes('anchored'))) {
+      const dx = e.x - g.x, dy = e.y - g.y
+      const d = Math.hypot(dx, dy)
+      const ux = d > 1e-6 ? dx / d : 1
+      const uy = d > 1e-6 ? dy / d : 0
+      e.kb.x += ux * GEYSER_JET_PUSH * dt
+      e.kb.y += uy * GEYSER_JET_PUSH * dt
+    }
+    if ((g._cd.get(e.id) ?? -1) > run.time) continue
+    g._cd.set(e.id, run.time + tick)
+    applyDamage(run, e, spray)
+  }
+
+  // trafficMain also extends a street hydrant's life — it hits harder AND lasts longer. Applied
+  // once, when the jet first crosses mid-life, so it cannot compound frame over frame.
+  if (!g._midLife && g.jet <= g.jetDur * 0.5) {
+    g._midLife = true
+    if (tm > 0 && pointInLane(run, g.x, g.y)) g.jet += g.jetDur * tm
+  }
 }
 
 // -- Roar (v5.4 skies starter) -------------------------------------------------------------
@@ -5760,7 +5888,7 @@ function stepShardBlink(run, b, dt) {
   b.y += (b.vy / speed) * b._blinkDist
   run.events.push({ type: 'blink', x: fromX, y: fromY, tx: b.x, ty: b.y }) // v6.2: the skip is finally visible
   // riftScar: the departure point scars over and detonates. Rifts reuse run.geysers (the same
-  // "telegraph then erupt, enemies only" contract) flagged _chained so sewerGeyser's chainGeyser —
+  // "telegraph then erupt, enemies only" contract) flagged _chained (a rift marker; see config) —
   // a different weapon's mod — can never fire off them.
   const rift = run.weaponMods.realityShard?.riftScar ?? 0
   if (rift > 0) {

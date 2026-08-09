@@ -371,18 +371,33 @@ export const WEAPONS = {
     ],
   },
   sewerGeyser: {
-    name: 'Sewer Geyser',
-    desc: 'Cracks the street open; scalding jets erupt where foes stand.',
-    icon: '⛲', rarity: 'rare',
-    // The utility native (slowest clear on purpose): plants `count` telegraphed eruption zones
-    // (run.geysers) on/near random enemies within castRange; each waits `fuse` seconds (harmless
-    // telegraph), then erupts ONCE for dmg in r. Enemies only — never hurts the player.
+    // Display name renamed in v6.10 when the weapon became a hydrant turret; the ID stays
+    // `sewerGeyser` on purpose — it is threaded through WEAPON_MODS, WEAPON_STAT_MODS,
+    // WEAPON_RATE_MODS, the chapter pools and the sim, and none of that is improved by churn.
+    name: 'Burst Hydrant',
+    desc: 'Shears a hydrant open; it hoses down whatever comes near.',
+    icon: '🚒', rarity: 'rare',
+    // The area-denial native: plants `count` telegraphed zones (run.geysers) on the path between a
+    // foe and the player within castRange; each waits `fuse` seconds (harmless telegraph), erupts
+    // for `dmg`, then STAYS OPEN for `jetDur`, spraying every `tick`. Enemies only — never hurts
+    // the player.
+    //
+    // v6.10 reworked this from a one-shot pop. Measured with scripts/weapon-census.mjs, the pop
+    // threw away about half its damage budget: 27% of eruptions caught nothing (a wisp covers
+    // 107px during the 0.65s fuse and simply left the 128px circle), and 28% of what did land was
+    // overkill from one 93-damage hit on a 20-HP-base roster. Standing still cut the whiff rate by
+    // 2.4x, i.e. the weapon punished kiting. A jet that stays open recovers both: nothing has to be
+    // on the mark at one exact instant, and the damage arrives in tick-sized pieces.
+    //
+    // `dmg` is the ERUPTION punch; each spray tick is dmg * GEYSER_SPRAY_FRAC. A full soak at L5 is
+    // ~200, a clip-through ~70 — so slow things eat it and fast things do not, which makes this the
+    // chapter's anti-tank tool by construction.
     levels: [
-      { rate: 3.0, castRange: 260, fuse: 0.70, r: 90,  dmg: 34, count: 1 },
-      { rate: 2.8, castRange: 270, fuse: 0.70, r: 98,  dmg: 42, count: 1 },
-      { rate: 2.6, castRange: 285, fuse: 0.65, r: 106, dmg: 52, count: 2 },
-      { rate: 2.3, castRange: 300, fuse: 0.65, r: 116, dmg: 64, count: 2 },
-      { rate: 2.0, castRange: 320, fuse: 0.60, r: 128, dmg: 80, count: 3 },
+      { rate: 3.0, castRange: 260, fuse: 0.70, r: 90,  dmg: 22, count: 1, jetDur: 2.50, tick: 0.40, streams: 2 },
+      { rate: 2.8, castRange: 270, fuse: 0.70, r: 98,  dmg: 27, count: 1, jetDur: 2.60, tick: 0.40, streams: 2 },
+      { rate: 2.6, castRange: 285, fuse: 0.65, r: 106, dmg: 32, count: 2, jetDur: 2.70, tick: 0.40, streams: 3 },
+      { rate: 2.3, castRange: 300, fuse: 0.65, r: 116, dmg: 40, count: 2, jetDur: 2.85, tick: 0.40, streams: 3 },
+      { rate: 2.0, castRange: 320, fuse: 0.60, r: 128, dmg: 48, count: 3, jetDur: 3.00, tick: 0.40, streams: 4 },
     ],
   },
   // Skies chapter natives (v5.4). See stepRoarWeapon/stepTailWeapon/stepDebrisWeapon in sim.js.
@@ -892,19 +907,33 @@ export const WEAPON_MODS = {
       descFor: () => 'funnels reel in gems and coins',
     },
   },
-  // pressure/wideGeyser/moreGeysers fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
-  // rapidGeyser (cast rate) is read at the cast site. launch/chainGeyser/trafficMain are
-  // behavioral (see stepGeysers/stepGeyserWeapon in sim.js).
+  // pressure/longHose/moreStreams/deepMain fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
+  // rapidGeyser (cast rate) is read at the cast site. launch/trafficMain are behavioral (see
+  // stepGeysers/stepGeyserWeapon in sim.js).
+  // v6.10: rebuilt around the turret. The old set described a one-shot radial pop — "eruption
+  // radius", "geysers per cast", "follow-up geyser(s) per eruption" — and half of it stopped
+  // describing what the weapon does once the hydrant started aiming at things.
+  //
+  // Two dropped, and both were measured or reasoned out rather than trimmed for space:
+  //   moreGeysers  planting MORE marks on the same crowd was the worst line in the whole census
+  //                (avg 1.48 foes caught per zone against 2.16 without it) — the extra hydrants
+  //                landed on foes the first one had already killed. "More streams" is the same
+  //                fantasy pointed somewhere that isn't already dead.
+  //   chainGeyser  scattering weak follow-ups at random offsets was coherent when placement was
+  //                random anyway. Against a turret that picks its targets, random extra turrets is
+  //                noise, and it was the only 'tier' mod on the weapon.
   sewerGeyser: {
-    pressure:    { name: 'High Pressure', desc: 'eruption damage', icon: '💥', base: 0.30, kind: 'pct' },
-    wideGeyser:  { name: 'Wide Geyser',   desc: 'eruption radius', icon: '📡', base: 0.30, kind: 'pct' },
-    rapidGeyser: { name: 'Burst Main',    desc: 'cast rate',       icon: '⏩', base: 0.25, kind: 'pct' },
-    moreGeysers: { name: 'Broken Mains',  desc: 'geysers per cast', icon: '⛲', base: 1,   kind: 'flat' },
-    launch:      { name: 'Launch',        desc: 'eruptions fling and stun what they catch', icon: '🚀', base: 1, kind: 'flat' },
-    chainGeyser: { name: 'Chain Burst',   desc: 'follow-up geyser(s) per eruption',         icon: '🎆', kind: 'tier' },
+    pressure:    { name: 'High Pressure', desc: 'stream damage', icon: '💥', base: 0.30, kind: 'pct' },
+    longHose:    { name: 'Long Hose',     desc: 'hydrant reach', icon: '📏', base: 0.30, kind: 'pct' },
+    rapidGeyser: { name: 'Burst Main',    desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
+    // The flagship turret mod: one more foe hosed at once. Reads instantly on screen because the
+    // streams ARE the damage now — an extra pick is an extra visible jet.
+    moreStreams: { name: 'Split Nozzle',  desc: 'foes hosed at once', icon: '🚿', base: 1, kind: 'flat' },
+    deepMain:    { name: 'Deep Main',     desc: 'how long a hydrant runs', icon: '⏳', base: 0.30, kind: 'pct' },
+    launch:      { name: 'Cap Blast',     desc: 'the blown cap flings and stuns what it catches', icon: '🚀', base: 1, kind: 'flat' },
     // v6.3: without the placement bias this mod's uptime is ~15-25% and uninfluencable — a trap
     // pick. The bias (stepGeyserWeapon's cast: prefer a lane-covered enemy) is the point.
-    trafficMain: { name: 'Traffic Main',  desc: 'eruptions inside a live lane hit far harder — and geysers seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
+    trafficMain: { name: 'Traffic Main',  desc: 'hydrants in a live lane hit far harder — and seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
   },
   // ---- Skies natives (v5.4) ----
   // bellow/wideRoar/farRoar fold into roar's levels[] via WEAPON_STAT_MODS; rapidRoar (attack
@@ -1225,17 +1254,58 @@ export const TORNADO_FLING_RANGE = 260 // px before a flung chunk expires (life 
 // passive and Sticky Aura pointless in this chapter.
 export const TORNADO_SWEEP_R = 120
 
-// Sewer Geyser (city utility — see WEAPONS.sewerGeyser + stepGeyserWeapon/stepGeysers in sim.js).
-// run.geysers entries: { x, y, r, fuse, dur, dmg, _chained? } — fuse counts down (harmless
-// telegraph; dur is its starting value so render can grow a warning ring from fuse/dur), then the
-// geyser erupts ONCE (damaging ENEMIES only, never the player), emits {type:'explode', x, y,
-// radius:r}, and is removed. _chained marks a chainGeyser follow-up so it never chains further.
+// Sewer Geyser (city area denial — see WEAPONS.sewerGeyser + stepGeyserWeapon/stepGeysers in
+// sim.js). run.geysers entries: { x, y, r, fuse, dur, dmg, jetDur?, tick?, jet?, _cd?, _chained? }.
+// fuse counts down (harmless telegraph; dur is its starting value so render can grow a warning ring
+// from fuse/dur), then the zone erupts for dmg against ENEMIES only, never the player.
+//
+// What happens next depends on jetDur, and BOTH paths are live:
+//   jetDur > 0  — the Sewer Geyser. The jet stays open for jetDur, spraying every `tick`, then is
+//                 removed. `jet` counts the remaining open time; `_cd` is the per-(enemy, jet) tick
+//                 cooldown, keyed by enemy id — per JET, not per enemy, so overlapping jets stack.
+//   jetDur nil  — the Reality Shard's riftScar. One pop and gone, exactly as before v6.10. Rifts
+//                 must keep this: a jet field that quietly made rifts persistent would be a
+//                 cross-weapon balance change nothing in the shard's own tuning accounts for.
+// Both emit {type:'explode', x, y, radius:r} on eruption. _chained marks a rift; nothing reads it
+// since v6.10 dropped chainGeyser, but riftScar still sets it and it costs nothing to keep as the
+// "this zone is not a Sewer Geyser cast" marker.
 export const GEYSER_LAUNCH_KB = 260   // launch (behavioral): knockback applied to caught enemies
 export const GEYSER_STUN = 0.6        // launch: stun seconds × bonus (e.stunT — no seek, no contact damage)
-export const GEYSER_CHAIN_FRAC = 0.6  // chainGeyser: follow-up radius/damage, as a fraction of the parent's
-export const GEYSER_CHAIN_FUSE = 0.35 // s, follow-up telegraph (shorter than the parent's)
-export const GEYSER_CHAIN_SCATTER_MIN = 70  // px, min scatter from the parent eruption
-export const GEYSER_CHAIN_SCATTER_MAX = 150 // px, max scatter from the parent eruption
+// v6.10 jet constants.
+export const GEYSER_SPRAY_FRAC = 0.45 // each spray tick, as a fraction of the eruption punch (dmg)
+export const GEYSER_IDLE_FRAC = 0.35  // with nothing in castRange, plant within this fraction of it
+                                      // around the player — whatever arrives next arrives HERE, so a
+                                      // mark out at the rim just expires in empty street.
+export const GEYSER_JET_PUSH = 300    // px/s^2 outward on enemies inside a live jet. kb decays at
+                                      // KB_DECAY_RATE (6/s), so this settles at ~50px/s drift —
+                                      // well under a drone's 90px/s walk, so seekers wade back in
+                                      // and mill at the rim. A jet that ejected its own targets
+                                      // would defeat itself; this is a soft wall, not a repulsor.
+export const GEYSER_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
+                                      // otherwise carpet the street with live hydrants.
+// Hard ceiling on streams per hydrant. The render rig allocates this many stream sprites per
+// hydrant up front, so the sim MUST clamp to it — otherwise Split Nozzle stacks past the rig and
+// the extra targets take damage with no jet drawn, which is the worst possible failure for a
+// weapon whose whole readability rests on the art showing what is being hit.
+export const GEYSER_STREAMS_MAX = 8
+export const GEYSER_STREAMS_FALLBACK = 3 // foes an open hydrant hoses at once when its zone carries
+                                      // no nStreams — only riftScar-shaped zones, which never open a
+                                      // jet, so in practice this is a guard rather than a tuning
+                                      // number. The real value is WEAPONS.sewerGeyser.levels[].streams,
+                                      // which Split Nozzle adds to. The eruption is
+                                      // still radial (it blows the cap off); everything after it is
+                                      // aimed. A radial damage AREA is what made the effect
+                                      // unreadable — it has to be drawn at its own full radius, and
+                                      // several overlapping fill the screen. Streams put the damage
+                                      // where the art is.
+export const GEYSER_STAGGER = 0.28    // s of extra fuse per zone within one cast, so a cast rolls
+                                      // out instead of landing all at once. Measured: with three
+                                      // marks opening on the same frame, 39% of jets never caught
+                                      // anything — not because they missed, but because the first
+                                      // jet killed what the other two were planted on (one mark per
+                                      // cast at L1 is 2.6% dry). A stagger lets the crowd re-flow
+                                      // between openings, and reads as a main tearing open along
+                                      // its length rather than three unrelated pops.
 
 // ---- Skies weapons (v5.4: Roar + Tail Swipe + Debris Toss) ------------------------------------
 // Roar (skies starter — see WEAPONS.roar + stepRoarWeapon in sim.js): the same sector test
@@ -1271,8 +1341,8 @@ export const LOB_SHRAPNEL_R = 7            // px, splinter hit radius (run.bulle
 export const SHARD_R = 9                   // px, shard hit radius (added to enemy radius)
 // riftScar (behavioral): each blink leaves a rift at the shard's DEPARTURE point that detonates
 // after SHARD_RIFT_FUSE for SHARD_RIFT_FRAC × bonus × the shard's damage in SHARD_RIFT_R. Rifts
-// reuse run.geysers (same "telegraph then erupt, enemies only" contract) with _chained: true set
-// so chainGeyser — a sewerGeyser mod — can never fire off them.
+// reuse run.geysers (same "telegraph then erupt, enemies only" contract) with _chained: true set.
+// They carry no jetDur, so they take the one-pop path and never become hydrant turrets.
 export const SHARD_RIFT_FUSE = 0.30
 export const SHARD_RIFT_R = 55
 export const SHARD_RIFT_FRAC = 0.8

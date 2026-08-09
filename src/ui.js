@@ -1346,7 +1346,7 @@ export function initUI(hooks) {
   const STAT_LABEL = {
     dmg: 'Damage', count: 'Projectiles', orbs: 'Orbs', chunks: 'Tornadoes', maxAlive: 'Max alive',
     radius: 'Radius', hunt: 'Hunt radius', travelSpeed: 'Travel speed',
-    r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length',
+    r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length', jetDur: 'Runs for',
     width: 'Width', pierce: 'Pierce', every: 'Every',
   }
   const STAT_MAX_ROWS = 5

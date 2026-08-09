@@ -49,7 +49,7 @@ import {
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
-  GEYSER_CHAIN_FRAC, ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
+  ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
@@ -4040,8 +4040,9 @@ function testV54Weapons() {
     console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px) + fling`)
   }
 
-  // (e) sewerGeyser: telegraph (harmless) -> one eruption -> gone. Enemies only, never the player.
-  // launch flings and stuns; chainGeyser scatters follow-ups that never chain further.
+  // (e) sewerGeyser: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.
+  // Enemies only, never the player. Cap Blast flings and stuns; the turret hoses only the nearest
+  // `streams` foes, and a zone with no jetDur (a riftScar rift) still pops once and vanishes.
   {
     const run = weaponRun('city', 'sewerGeyser')
     const lvl = WEAPONS.sewerGeyser.levels[MAX_WEAPON_LEVEL - 1]
@@ -4083,20 +4084,72 @@ function testV54Weapons() {
     assert(caught.stunT > 0, `expected launch to stun what it catches, stunT=${caught.stunT}`)
     assert(caught.x > 40, `expected launch to fling the enemy outward, x=${caught.x.toFixed(1)}`)
 
-    // chainGeyser: follow-ups appear, flagged _chained, and never chain further.
-    const chain = weaponRun('city', 'sewerGeyser')
-    chain.weapons = []
-    chain.weaponMods.sewerGeyser.chainGeyser = 2
-    chain.geysers.push({ x: 0, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 50 })
-    stepQuiet(chain, 0.2)
-    assert.strictEqual(chain.geysers.length, 2, `expected 2 chained follow-ups, got ${chain.geysers.length}`)
-    for (const g of chain.geysers) {
-      assert.strictEqual(g._chained, true, 'expected follow-ups flagged _chained')
-      assert(Math.abs(g.r - 100 * GEYSER_CHAIN_FRAC) < 1e-6, `expected follow-up radius at GEYSER_CHAIN_FRAC, got ${g.r}`)
+    // v6.10 TURRET: an open hydrant hoses only the nearest `nStreams` foes in range. This is the
+    // property the whole rework turns on — r is a RANGE, not a damage area — so it is asserted
+    // against a line of foes at known distances rather than against a count.
+    const turret = weaponRun('city', 'sewerGeyser')
+    turret.weapons = []
+    const line = [60, 120, 180, 240].map((x) => {
+      const e = makeStatusEnemy(turret, { x, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      e.affixes = ['anchored']   // the streams shove what they hit; keep the distances fixed
+      turret.enemies.push(e)
+      return e
+    })
+    turret.geysers.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 2 })
+    // The ERUPTION is still radial — the cap blowing off is a blast, and it hits everything in r
+    // once. Only the SUSTAINED hosing is aimed, so the measurement window has to start after the
+    // eruption or it reads the blast and concludes the turret is a zone.
+    stepQuiet(turret, 0.1)
+    const hp0 = line.map((e) => e.hp)
+    for (let i = 0; i < 4; i++) assert(hp0[i] < 1e6, `expected the eruption blast to hit all four in r, foe ${i} untouched`)
+    stepQuiet(turret, 0.4)
+    assert(line[0].hp < hp0[0] && line[1].hp < hp0[1], 'expected the two NEAREST foes to keep being hosed')
+    assert.strictEqual(line[2].hp, hp0[2], 'expected the 3rd-nearest foe to take NOTHING after the blast with nStreams=2 (r is a range, not a damage area)')
+    assert.strictEqual(line[3].hp, hp0[3], 'expected the 4th-nearest foe to take nothing after the blast with nStreams=2')
+    // ...and it damages repeatedly over its life, not once.
+    const midHp = line[0].hp
+    stepQuiet(turret, 0.3)
+    assert(line[0].hp < midHp, 'expected an open hydrant to keep hosing its target, not fire once')
+    // ...then the main runs dry and the zone is gone.
+    stepQuiet(turret, 1.2)
+    assert.strictEqual(turret.geysers.length, 0, 'expected the hydrant to be removed once jetDur ran out')
+
+    // A wider nozzle reaches further down the same line: nStreams=4 hoses all four.
+    const wide = weaponRun('city', 'sewerGeyser')
+    wide.weapons = []
+    const line2 = [60, 120, 180, 240].map((x) => {
+      const e = makeStatusEnemy(wide, { x, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      e.affixes = ['anchored']
+      wide.enemies.push(e)
+      return e
+    })
+    wide.geysers.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 4 })
+    stepQuiet(wide, 0.1)
+    const hp2 = line2.map((e) => e.hp)      // after the blast, as above
+    stepQuiet(wide, 0.4)
+    for (let i = 0; i < 4; i++) assert(line2[i].hp < hp2[i], `expected nStreams=4 to hose foe ${i} after the blast, hp unchanged at ${line2[i].hp}`)
+
+    // ...and Split Nozzle is what raises it: the mod must reach the PLANTED zone, which snapshots
+    // stats.streams at cast time. Asserting on the zone rather than on a stats object keeps this
+    // honest about the whole path (WEAPON_STAT_MODS -> effectiveWeaponStats -> the cast site).
+    const nozzle = weaponRun('city', 'sewerGeyser')
+    nozzle.weaponMods.sewerGeyser.moreStreams = 2
+    const baseStreams = WEAPONS.sewerGeyser.levels[MAX_WEAPON_LEVEL - 1].streams
+    const foe = makeStatusEnemy(nozzle, { x: 200, y: 0, hp: 1e6, speed: 0 })
+    foe.flags = []
+    nozzle.enemies.push(foe)
+    let plantedN = null
+    for (let i = 0; i < Math.round(4 / dt) && !plantedN; i++) {
+      if (nozzle.phase === 'levelup') { declineLevelUp(nozzle); continue }
+      stepSim(nozzle, { x: 0, y: 0 }, dt)
+      plantedN = nozzle.geysers[0]
     }
-    stepQuiet(chain, 1.0)
-    assert.strictEqual(chain.geysers.length, 0, 'expected a _chained geyser to erupt and never chain further')
-    console.log('PASS run AA.e (sewerGeyser): telegraph -> erupt (enemies only) -> gone; launch stuns; chain never re-chains')
+    assert(plantedN, 'expected a hydrant to be planted with Split Nozzle held')
+    assert.strictEqual(plantedN.nStreams, baseStreams + 2,
+      `expected Split Nozzle x2 to fold into streams (${baseStreams} -> ${baseStreams + 2}), got ${plantedN.nStreams}`)
+    console.log(`PASS run AA.e (sewerGeyser): telegraph -> erupt (enemies only) -> turret hoses the nearest 2 of 4 in range -> dry; Cap Blast stuns; Split Nozzle ${baseStreams} -> ${plantedN.nStreams} streams`)
   }
 
   // (f) roar: a narrow sector sweep aimed at the NEAREST enemy that shoves; stagger stuns;
@@ -4265,7 +4318,7 @@ function testV54Weapons() {
       rifts = rift.geysers.slice()
     }
     assert(rifts.length > 0, 'expected riftScar to leave rifts at blink departure points')
-    for (const g of rifts) assert.strictEqual(g._chained, true, "expected rifts flagged _chained so sewerGeyser's chainGeyser can never fire off them")
+    for (const g of rifts) assert.strictEqual(g._chained, true, 'expected rifts flagged _chained (the "not a Sewer Geyser cast" marker)')
 
     // recursion: a shard that runs out of LIFE forks into _fork shards.
     const rec = weaponRun('beyond', 'realityShard')
@@ -4417,7 +4470,7 @@ function testV54Weapons() {
       city: [
         ['rainbow', (r) => { r.weaponMods.rainbow.wideBeam = 0.20; r.weaponMods.rainbow.longBeam = 0.20 }],
         ['trashTornado', (r) => { r.weaponMods.trashTornado.heavyTrash = 0.25; r.weaponMods.trashTornado.moreTrash = 1 }],
-        ['sewerGeyser', (r) => { r.weaponMods.sewerGeyser.pressure = 0.30; r.weaponMods.sewerGeyser.wideGeyser = 0.30 }],
+        ['sewerGeyser', (r) => { r.weaponMods.sewerGeyser.pressure = 0.30; r.weaponMods.sewerGeyser.longHose = 0.30 }],
       ],
       skies: [
         ['roar', (r) => { r.weaponMods.roar.bellow = 0.30; r.weaponMods.roar.wideRoar = 0.30 }],
@@ -6061,6 +6114,11 @@ function testTrafficMainGeyser() {
       const laneSpot = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })   // in castRange AND in the band
       const clearSpot = makeStatusEnemy(run, { x: 100, y: 200, hp: 1e6, speed: 0 }) // in castRange, outside the band (perp=200 > w/2=65)
       laneSpot.flags = []; clearSpot.flags = []
+      // v6.10: an open jet shoves what stands in it outward every frame (GEYSER_JET_PUSH), so these
+      // speed-0 fixtures would drift off their marks and the placement this test is about would
+      // read as a miss. 'anchored' is the affix the push already exempts — this test is about WHERE
+      // a cast lands, not about the drift, which run AA.e.jet covers directly.
+      laneSpot.affixes = ['anchored']; clearSpot.affixes = ['anchored']
       run.enemies.push(laneSpot, clearSpot)
       const spots = []
       for (let i = 0; i < Math.round(11 / dt); i++) {
@@ -6077,9 +6135,20 @@ function testTrafficMainGeyser() {
       return spots
     }
 
+    // v6.10 leads the mark by how far the TARGET travels while the fuse burns (leadSpot: speed x
+    // fuse, toward the player). These fixtures are speed 0, so the lead is 0 and the mark lands on
+    // the enemy exactly as before — which is the point of a speed-scaled lead and is what makes the
+    // original coordinates still the right assertion here. Run AA.e.lead covers a moving target.
+    // The band is |y| <= TRAFFIC_W/2 = 65: the in-lane foe qualifies, the clear one (y=200) does
+    // not. In-lane placement is the property that matters, since trafficMain's damage bonus is
+    // resolved at the ZONE's position, not the target's.
+    const LANE_HALF = TRAFFIC_W / 2
     const biased = runCasts(true)
     assert(biased.length >= 3, `expected several geysers planted over the test window, got ${biased.length}`)
-    assert(biased.every((s) => s.x === 100 && s.y === 0), `expected every geyser to land on the in-lane enemy with trafficMain held, got ${JSON.stringify(biased)}`)
+    assert(biased.every((s) => Math.abs(s.y) <= LANE_HALF),
+      `expected every geyser to land INSIDE the band with trafficMain held (|y| <= ${LANE_HALF}), got ${JSON.stringify(biased)}`)
+    assert(biased.every((s) => s.x === 100 && s.y === 0),
+      `expected every geyser on the in-lane enemy (speed 0, so no lead), got ${JSON.stringify(biased)}`)
 
     const unbiased = runCasts(false)
     assert(unbiased.length >= 3, `expected several geysers planted over the test window, got ${unbiased.length}`)

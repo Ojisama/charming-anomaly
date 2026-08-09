@@ -222,8 +222,25 @@ const ws = new WebSocket(page.webSocketDebuggerUrl)   // global WebSocket: needs
 await new Promise((r) => { ws.onopen = r })
 let msgId = 0
 const pending = new Map()
+// Page-side errors, echoed to this terminal. Without these, a scene (or a renderer branch it
+// exercises) that THROWS produces exactly the same symptom as an effect that draws nothing: "scene
+// never became ready", and no clue which. That cost a debugging round on the v6.10 geyser A/B,
+// where one of four look variants threw and the other three were fine — indistinguishable from the
+// variant simply being invisible until the exception was surfaced.
+const pageErrors = []
 ws.onmessage = (e) => {
   const m = JSON.parse(e.data)
+  if (m.method === 'Runtime.exceptionThrown') {
+    const d = m.params?.exceptionDetails
+    const msg = d?.exception?.description || d?.text || 'unknown exception'
+    pageErrors.push(msg)
+    console.error('PAGE ERROR: ' + msg.split('\n').slice(0, 4).join('\n'))
+  }
+  if (m.method === 'Runtime.consoleAPICalled' && m.params?.type === 'error') {
+    const msg = (m.params.args || []).map((a) => a.description ?? a.value).join(' ')
+    pageErrors.push(msg)
+    console.error('PAGE CONSOLE ERROR: ' + msg)
+  }
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id) }
 }
 const send = (method, params = {}) => new Promise((res) => {
@@ -246,7 +263,12 @@ await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 'debu
 // ALWAYS kill the browser on the way out. A bail-out that leaves it running turns one failed run
 // into a permanent CPU tax: the next probe boots slower, times out, leaks another browser, and the
 // failures look like flaky scenes rather than the pile-up they are (8 orphans in one session).
-const die = (msg) => { console.error(msg); browser.kill(); process.exit(1) }
+const die = (msg) => {
+  console.error(msg)
+  if (pageErrors.length) console.error(`\n${pageErrors.length} page error(s) above are almost certainly the cause.`)
+  browser.kill()
+  process.exit(1)
+}
 let ready = false
 for (let i = 0; i < Math.ceil(waitMs / 500) + 40; i++) {
   if (await evaluate('window.__fxReady === true')) { ready = true; break }

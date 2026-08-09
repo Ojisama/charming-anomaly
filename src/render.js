@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, GEYSER_STREAMS_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -21,6 +21,10 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
 import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
+const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
+// The hydrant is drawn at this many px ACROSS-ish regardless of the zone's damage radius. It is an
+// object, not a zone: it must not grow when the weapon levels. See syncJets.
+const HYDRANT_PX = 36
 const MAX_PARTICLES = 200
 const MAX_DMG_TEXTS = 30
 
@@ -4051,6 +4055,146 @@ export function createRenderer(app) {
       // them opaque over a body this faint makes the junk read as the entity and the funnel as a
       // smudge behind it.
       const A = 0.7
+      // ---- v6.10 Sewer Geyser jet textures ---------------------------------------------------
+      // Baked, not drawn per frame. The first pass at this effect was four variations of Graphics
+      // circles and every one of them read as a diagram rather than as water — the owner's verdict
+      // was "change completely the visual". Everything else in this game is a baked texture with an
+      // irregular silhouette; a perfect vector circle is what made it look like UI.
+      //
+      // Palette moves from the old flat sewer-green to WATER: white foam over a pale cyan-green
+      // body. The green is retained in the rim only, where it still has to do its safety-cue job of
+      // never being confusable with the red volatile-bomb telegraph that hurts the player.
+      //
+      // Plan view throughout: these are lobed rings seen from directly above, not a column.
+      const FOAM = 0xf2fffb, WATER = 0x9fe8d0, DEEP = 0x4fae90
+      // Ragged foam rings, counter-rotated at different speeds by the rig. The lobed outline is the
+      // whole trick — a circle turning looks static, a lobed ring turning reads as churn.
+      // ALL FOUR BAKE AT THE SAME R0. The first attempt shrank R0 per layer AND scaled it back up
+      // per layer at draw time, and the two fought: the composite landed at about half the jet's
+      // real radius, so the foam floated in the middle of its own rim. One baked radius means the
+      // rig's `k = gy.r / JET_BAKE_R` maps a texture straight onto the hitbox, and layer size is
+      // decided in exactly one place (the draw multipliers).
+      //
+      // Lobe count is high and wobble is shallow (11-17 lobes at ~0.09) because the first pass used
+      // 7 lobes at 0.20 and came out a flower — a starburst silhouette with petals, not foam. Foam
+      // wants a busy, barely-irregular edge.
+      // A SHEARED FIRE HYDRANT. The zone is not a painted area any more — it is a physical object
+      // on the street with its cap blown off, throwing water flat across the asphalt.
+      //
+      // Four earlier passes were all variations on "translucent coloured disc" (green vector
+      // circles, then white foam rings, then outlined splash blobs) and every one was rejected. The
+      // fault was never the drawing: a zone that IS its own hitbox has to be 128px of art, and
+      // 128px of translucent anything turns to wash. A recognisable object at the centre plus a
+      // thin quiet ring for the radius decouples the two, so the art can be small, opaque and
+      // high-contrast while the hitbox stays big.
+      //
+      // No green anywhere. Steel and white, with the hydrant's dull red as the only chroma — and
+      // that red lives on a 26px OBJECT, not on a translucent area, so it cannot be misread as the
+      // amber/red hazard language the traffic lanes and volatile bombs own.
+      const H_RED = 0xc9503f, H_STEEL = 0x8e98a0, H_DARK = 0x24282b, WHITE = 0xffffff, RINSE = 0xdfeef2
+      // Top-down hydrant. From directly overhead a hydrant is its bonnet: a chunky disc with the
+      // side nozzles poking out either side and the front nozzle facing you. Baked at ~13px radius
+      // and drawn at a FIXED pixel size (HYDRANT_PX) — a hydrant is a real object, so it must not
+      // scale with the damage radius the way every other zone visual in this game does.
+      const hydrant = (capped) => {
+        const g = new Graphics()
+        for (const a of [Math.PI / 2, -Math.PI / 2, 0]) {   // nozzles: two side, one front
+          g.circle(Math.cos(a) * 8.5, Math.sin(a) * 8.5, 3.6)
+            .fill({ color: H_STEEL }).stroke({ width: 1.5, color: H_DARK })
+        }
+        g.circle(0, 0, 10).fill({ color: H_RED }).stroke({ width: 1.8, color: H_DARK })     // barrel
+        if (capped) {
+          g.circle(0, 0, 5.4).fill({ color: H_STEEL }).stroke({ width: 1.5, color: H_DARK }) // bonnet
+          g.circle(0, 0, 1.8).fill({ color: H_DARK })
+        } else {
+          // Throat kept SMALL. At 36px on screen the only thing that reads is the colour block, so
+          // a wide dark opening just turns the hydrant into a dark blob with a red rim.
+          g.circle(0, 0, 4.2).fill({ color: 0x141719 })      // the open throat, cap gone
+          g.circle(0, 0, 2.8).fill({ color: RINSE, alpha: 0.95 })
+        }
+        return bake(g)
+      }
+      T.hydrantCapped = hydrant(true)
+      T.hydrantOpen = hydrant(false)
+      // The blown cap, tumbling clear. One small dark disc is the cheapest possible cue that
+      // something just came apart, and it is unambiguously a plan view.
+      {
+        const g = new Graphics()
+        g.circle(0, 0, 5).fill({ color: H_STEEL }).stroke({ width: 1.5, color: H_DARK })
+        g.circle(0, 0, 1.8).fill({ color: H_DARK })
+        T.hydrantCap = bake(g)
+      }
+      // Water sheeting outward. Rings of white blobs, but CONCENTRATED near the hydrant (about half
+      // the zone radius) rather than out at the rim — water leaves a burst main fast and thick at
+      // the source and arrives at the edge as loose droplets, which the particles carry. Keeping
+      // the solid art off the rim is what stops the effect covering the fight.
+      // A STREAM: water hosed out sideways, seen from above. Baked pointing along +x with its
+      // origin at the nozzle, so the rig just rotates it at the target and scales x to the distance.
+      // Narrow and dense at the nozzle, widening and breaking into separate gouts further out —
+      // that spread is what makes it read as a jet of water rather than as a drawn line.
+      //
+      // JITTER THE ANGLE (kept from the abandoned radial version, because it is the lesson that
+      // took three passes): evenly spaced same-size circles read as a pattern — a flower, a cog, a
+      // donut — however much you vary radius and size. Here the equivalent is jittering each gout
+      // ALONG and ACROSS the stream, and mixing two size classes.
+      T.jetStream = []
+      for (let i = 0; i < 2; i++) {
+        const g = new Graphics()
+        const L = JET_BAKE_R * 2       // baked length; the rig scales x to reach the target
+        // Dense and fine at the nozzle, opening into fewer, bigger, more scattered gouts downrange.
+        // The first version used a uniform blob size along the axis and came out a STRING OF
+        // PEARLS — a jet of water is a size gradient, not a row of beads, so radius has to grow
+        // hard with t while the count stays high enough that the near end never separates.
+        for (let k = 0; k < 40; k++) {
+          const t = Math.pow((k + hash(k * 7.3 + i * 3.1) * 0.9) / 40, 0.85)
+          const spread = 0.9 + t * t * 8.5          // the cone opens with distance
+          const off = (hash(k * 4.9 + i * 6.7) - 0.5) * 2 * spread
+          const fat = hash(k * 2.7 + i * 1.9) > 0.78
+          const rad = (fat ? 1.8 + hash(k * 5.1) * 1.6 : 0.75 + hash(k * 3.3) * 0.85) * (0.55 + t * t * 4.2)
+          g.circle(t * L, off, rad)
+            .fill({ color: i === 0 ? WHITE : RINSE, alpha: (0.95 - t * 0.4) * (i === 0 ? 1 : 0.6) })
+        }
+        T.jetStream.push(bake(g))
+      }
+      // The leak at the source: a tight spatter right at the nozzle, so the hydrant is visibly
+      // losing water everywhere and not only along the streams.
+      {
+        const g = new Graphics()
+        for (let k = 0; k < 14; k++) {
+          const step = (Math.PI * 2) / 14
+          const a = k * step + (hash(k * 9.7) - 0.5) * step * 1.7
+          const rr = 4.5 + hash(k * 3.1) * 5
+          g.circle(Math.cos(a) * rr, Math.sin(a) * rr, 1.2 + hash(k * 5.3) * 1.8)
+            .fill({ color: k % 3 ? WHITE : RINSE, alpha: 0.8 })
+        }
+        T.jetSource = bake(g)
+      }
+      // Broken asphalt around the base — the hydrant did not come off politely. Kept dark and
+      // chunky so it grounds the object instead of glowing.
+      {
+        const g = new Graphics()
+        const hole = []
+        for (let k = 0; k < 13; k++) {
+          const a = (k / 13) * Math.PI * 2
+          const rr = 7.5 * (0.66 + hash(k * 3.3 + 1.7) * 0.62)
+          hole.push(Math.cos(a) * rr, Math.sin(a) * rr)
+        }
+        g.poly(hole).fill({ color: 0x1b1f22, alpha: 0.6 })
+        for (let k = 0; k < 7; k++) {   // slabs levered up around the rim
+          const a = hash(k * 4.1 + 0.4) * Math.PI * 2
+          const d = 11 + hash(k * 2.2 + 3.9) * 6
+          const cx = Math.cos(a) * d, cy = Math.sin(a) * d
+          const s = 3.4 + hash(k * 6.3) * 2.6
+          const slab = []
+          for (let j = 0; j < 5; j++) {
+            const ja = a + 1.1 + (j / 5) * Math.PI * 2
+            const rr = s * (0.6 + hash(j * 3.7 + k * 1.9) * 0.7)
+            slab.push(cx + Math.cos(ja) * rr, cy + Math.sin(ja) * rr)
+          }
+          g.poly(slab).fill({ color: 0x59626a, alpha: 1 }).stroke({ width: 1.6, color: 0x0f1214, alpha: 0.95 })
+        }
+        T.jetCrack = bake(g)
+      }
       T.tornadoRings = []
       for (let i = 0; i < 6; i++) {
         const t = i / 5
@@ -5885,6 +6029,10 @@ export function createRenderer(app) {
   let mownDirty = false            // only rebuild the geometry while a mower is actually driving
   const laneG = new Graphics()
   const hazardG = new Graphics()
+  // v6.10 open jets. A RIG pool (Container per jet, counter-rotating foam sprites inside), not a
+  // flat sprite pool — so reset() must hide .root, see the note there. Sits directly above hazardG
+  // because the telegraph and the jet it becomes have to stack in that order.
+  const jetLayer = new Container()
   const teleG = new Graphics()
   // v6.7.6 Beam Prism (run.prisms): the refracted sub-beams. ADDITIVE and its own Graphics, because
   // this is light — the same reason strafePoolLayer below is its own container. A sub-beam is
@@ -5953,7 +6101,7 @@ export function createRenderer(app) {
   entitiesLayer.addChild(
     mownG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
-    scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, teleG, strafePoolLayer, rampG, pacerG,
+    scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
@@ -8489,12 +8637,13 @@ export function createRenderer(app) {
   const holePool = []
   const beamPool = []
   const debrisPool = []
+  const jetPool = []          // v6.10 open-jet RIGS (see acquireJet); reset() must hide .root
   const shotPool = []
   const prevCount = {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
-    trap: 0, debris: 0, shot: 0,
+    trap: 0, debris: 0, shot: 0, jet: 0,
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -9630,11 +9779,34 @@ export function createRenderer(app) {
   function redrawHazards(run) {
     hazardG.clear()
     for (const gy of run.geysers || []) {
+      // A Sewer Geyser zone (jetDur set) is drawn by the hydrant rig in syncJets. All that belongs
+      // here is its RADIUS, because the radius is the hitbox and nothing else on the rig carries
+      // it — the hydrant is a fixed-size object and the water sits well inside the edge. A thin
+      // cool ring, deliberately quiet: the player needs to be able to find it, not look at it, and
+      // a dozen of these can overlap. Cool white-blue, nowhere near the amber/red that means "this
+      // one hurts YOU".
+      if (gy.jetDur > 0) {
+        // The RANGE ring is drawn only while the hydrant is on its fuse — it is the telegraph, and
+        // that is the one moment the player needs to know how far this thing will reach before
+        // deciding where to stand. Once it is spraying, the streams show exactly what is being hit,
+        // so the ring is pure clutter: several live hydrants each drawing a 256px circle is what
+        // made the effect unreadable, and aimed streams are the whole reason it no longer has to.
+        if (gy.fuse > 0) {
+          const dur = Math.max(0.001, gy.dur || 1)
+          const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
+          hazardG.circle(gy.x, gy.y, gy.r).stroke({ width: 2, color: 0xbcd8e0, alpha: 0.16 + urgency * 0.26 })
+          hazardG.circle(gy.x, gy.y, gy.r * urgency).stroke({ width: 1.5, color: 0xdfeef2, alpha: 0.14 + urgency * 0.18 })
+        }
+        continue
+      }
       const dur = Math.max(0.001, gy.dur || 1)
       const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 18))
-      hazardG.circle(gy.x, gy.y, gy.r).fill({ color: 0x3fae7a, alpha: 0.1 + urgency * 0.14 + pulse * 0.04 })
-      hazardG.circle(gy.x, gy.y, gy.r).stroke({ width: 2.5 + urgency * 2, color: 0x6fe0a8, alpha: Math.min(1, 0.5 + urgency * 0.4) })
+      // v6.10: fill DOWN, rim UP. Up to GEYSER_MAX_LIVE zones can overlap now that jets persist,
+      // and a stack of translucent discs is soup — the rim is what has to survive the overlap,
+      // because with a live jet the rim IS the hitbox and the player routes around it.
+      hazardG.circle(gy.x, gy.y, gy.r).fill({ color: 0x3fae7a, alpha: 0.05 + urgency * 0.08 + pulse * 0.03 })
+      hazardG.circle(gy.x, gy.y, gy.r).stroke({ width: 2.5 + urgency * 2.5, color: 0x6fe0a8, alpha: Math.min(1, 0.55 + urgency * 0.4) })
       // the charge: an inner ring swelling toward the rim as the fuse burns down
       hazardG.circle(gy.x, gy.y, gy.r * urgency).stroke({ width: 2, color: 0xbfffe0, alpha: 0.35 + pulse * 0.2 })
       if (frameDt > 0 && Math.random() < 0.35) { // bubbles boiling up out of the grate
@@ -9649,6 +9821,155 @@ export function createRenderer(app) {
       hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: 0xffb37a, alpha: 0.25 + k * 0.45 })
       hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: 0xffb37a, alpha: 0.12 })
     }
+  }
+
+  // ---- v6.10 the burst hydrant --------------------------------------------------------------
+  // A rig per Sewer Geyser zone, live for BOTH phases of its life: the hydrant stands on the street
+  // rattling while the fuse burns, then its cap blows off and it sheets water until the main runs
+  // dry. The telegraph is therefore a physical object you can see coming, not a disc painted on the
+  // road — which is the whole reason four passes of translucent zone art got thrown away.
+  //
+  // The hydrant is drawn at a FIXED pixel size. Every other zone visual in this game scales with
+  // its radius; this one must not, because it is an object and objects do not grow when the weapon
+  // levels. The damage radius is carried by a thin ring in hazardG instead. Decoupling the art from
+  // the hitbox is what finally let the effect be small, opaque and high-contrast while the zone
+  // itself stays 128px wide.
+  //
+  // THE CAMERA LOOKS STRAIGHT DOWN. The hydrant is its bonnet seen from above, the water sheets
+  // flat across the asphalt, the cap tumbles along the ground. Nothing here is a side elevation —
+  // v6.8 shipped that mistake once with the Trash Tornado and it cost a version to undo.
+  function acquireJet() {
+    const root = new Container()
+    const crack = spriteOf(T.jetCrack)
+    const source = spriteOf(T.jetSource)
+    // Two sprites per stream (a dense white core and a looser rinse-coloured spread) so a stream
+    // has depth without a second bake per target. GEYSER_STREAMS_MAX is the ceiling the sim
+    // clamps to, so every target the sim picks always has a jet to be drawn with.
+    const streams = []
+    for (let i = 0; i < GEYSER_STREAMS_MAX; i++) {
+      streams.push(T.jetStream.map((look) => {
+        const sp = spriteOf(look)
+        root.addChild(sp)
+        return sp
+      }))
+    }
+    const body = spriteOf(T.hydrantCapped)
+    const cap = spriteOf(T.hydrantCap)
+    root.addChild(crack, source, body, cap)
+    jetLayer.addChild(root)
+    return { root, crack, source, streams, body, cap }
+  }
+
+  // `list` is every Sewer Geyser zone — fuse phase AND open phase. Zones without a jetDur are
+  // Reality Shard rifts, which keep their own green telegraph in redrawHazards and never get a
+  // hydrant; filtering them out is the caller's job.
+  function syncJets(list) {
+    const n = list.length
+    while (jetPool.length < n) jetPool.push(acquireJet())
+    for (let i = 0; i < n; i++) {
+      const rig = jetPool[i]
+      const gy = list[i]
+      rig.root.visible = true
+      rig.root.position.set(gy.x, gy.y)
+      const k = gy.r / JET_BAKE_R
+      // A hydrant is bolted to the street: fixed heading per zone, never spinning. Derived from the
+      // position so it is stable frame to frame without render having to store anything.
+      const face = ((gy.x * 0.013 + gy.y * 0.017) % 1) * Math.PI * 2
+
+      if (gy.jet > 0) {
+        // ---- open: the cap is off ----
+        const life = Math.max(0.001, gy.jetDur || 1)
+        const age = 1 - Math.max(0, Math.min(1, gy.jet / life))
+        const swell = age < 0.10 ? age / 0.10 : 1 - Math.max(0, (age - 0.7) / 0.3) * 0.65
+        const fade = 1 - Math.max(0, (age - 0.85) / 0.15)
+        rig.root.alpha = 1
+        rig.crack.visible = true
+        rig.crack.scale.set(HYDRANT_PX / JET_BAKE_R)   // scars the street at the BASE, not the rim
+        rig.crack.rotation = face
+        rig.crack.alpha = 1
+        if (rig.body.texture !== T.hydrantOpen.tex) {
+          rig.body.texture = T.hydrantOpen.tex
+          rig.body.anchor.set(T.hydrantOpen.ax, T.hydrantOpen.ay)
+        }
+        rig.body.scale.set(HYDRANT_PX / JET_BAKE_R)
+        rig.body.rotation = face
+        rig.body.alpha = 1
+        // The cap, thrown clear on eruption and skittering to a stop. Its whole travel happens in
+        // the first ~15% of the life; after that it just lies there.
+        const fly = Math.min(1, age / 0.15)
+        rig.cap.visible = true
+        rig.cap.scale.set(HYDRANT_PX / JET_BAKE_R)
+        rig.cap.position.set(Math.cos(face + 2.1) * 34 * fly, Math.sin(face + 2.1) * 34 * fly)
+        rig.cap.rotation = fly * 7
+        rig.cap.alpha = 0.9
+        rig.source.visible = true
+        rig.source.scale.set((HYDRANT_PX / JET_BAKE_R) * swell * (1 + 0.1 * Math.sin(animT * 13 + i)))
+        rig.source.rotation = animT * 1.6 + i
+        rig.source.alpha = 0.85 * fade
+        // One stream per target the sim locked this frame (g.streams, positions not ids). Local
+        // coordinates: the root is already at the hydrant, so a target is just its offset.
+        const targets = gy.streams || []
+        for (let t = 0; t < rig.streams.length; t++) {
+          const pair = rig.streams[t]
+          const tg = targets[t]
+          if (!tg) { for (const sp of pair) sp.visible = false; continue }
+          const dx = tg.x - gy.x, dy = tg.y - gy.y
+          const dist = Math.max(1, Math.hypot(dx, dy))
+          const ang = Math.atan2(dy, dx)
+          pair.forEach((sp, j) => {
+            sp.visible = true
+            sp.rotation = ang
+            // x scales to reach the target; y stays near 1 so the cone keeps its baked spread
+            // instead of getting fat on long shots. The wobble is what makes it look like water
+            // under pressure rather than a static wedge.
+            sp.scale.set(dist / (JET_BAKE_R * 2), (0.85 + j * 0.35) * (1 + 0.12 * Math.sin(animT * 17 + t * 2 + j)))
+            sp.alpha = (j === 0 ? 0.95 : 0.55) * fade * swell
+          })
+        }
+        if (frameDt > 0) jetSpray(gy, 1, 0xffffff)
+        continue
+      }
+
+      // ---- fuse: intact, and shaking ----
+      const dur = Math.max(0.001, gy.dur || 1)
+      const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
+      rig.root.alpha = 1
+      rig.crack.visible = false
+      rig.cap.visible = false
+      rig.source.visible = false
+      for (const pair of rig.streams) for (const sp of pair) sp.visible = false
+      if (rig.body.texture !== T.hydrantCapped.tex) {
+        rig.body.texture = T.hydrantCapped.tex
+        rig.body.anchor.set(T.hydrantCapped.ax, T.hydrantCapped.ay)
+      }
+      rig.body.scale.set((HYDRANT_PX / JET_BAKE_R) * (1 + urgency * 0.12))
+      rig.body.rotation = face
+      rig.body.alpha = 1
+      // The rattle: amplitude and frequency both climb as the fuse burns down, so how close the
+      // eruption is is readable from the object itself and not only from the ring around it.
+      const shake = urgency * urgency * 3.2
+      rig.body.position.set(Math.sin(animT * (26 + urgency * 40)) * shake,
+        Math.cos(animT * (31 + urgency * 44)) * shake * 0.7)
+      if (frameDt > 0 && Math.random() < urgency * 0.4) {   // water starting to weep out of the seams
+        const a = Math.random() * Math.PI * 2
+        spawnParticle(T.fx.circle_05, gy.x, gy.y, Math.cos(a) * 30, Math.sin(a) * 30,
+          0.28, 0.05, 0xdfeef2, -0.01, 3.0)
+      }
+    }
+    for (let i = n; i < prevCount.jet; i++) jetPool[i].root.visible = false
+    prevCount.jet = n
+  }
+
+  // Droplets thrown outward and dragged to a stop before the rim, so the water reads as landing
+  // inside the zone rather than escaping it. MAX_PARTICLES is 200 across the whole game and
+  // GEYSER_MAX_LIVE allows 12 jets, so this stays deliberately stingy per jet rather than
+  // budgeting for one beautiful hydrant in isolation.
+  function jetSpray(gy, rate, tint) {
+    if (Math.random() > 0.5 * rate) return
+    const a = Math.random() * Math.PI * 2
+    const sp = gy.r * (0.9 + Math.random() * 1.0)
+    spawnParticle(T.fx.circle_05, gy.x, gy.y, Math.cos(a) * sp, Math.sin(a) * sp,
+      0.34 + Math.random() * 0.18, 0.08, tint, -0.02, 3.6)
   }
 
   // ---- v5.4 roster attack telegraphs -------------------------------------------------------
@@ -11139,6 +11460,7 @@ export function createRenderer(app) {
     // hide .root — left in the flat list above, `s.visible = false` would set a dead property on a
     // plain object and quietly leave last run's funnels on screen.
     for (const tv of debrisPool) tv.root.visible = false
+    for (const jv of jetPool) jv.root.visible = false        // rig pool: .root, not .visible
     for (const cv of carPool) cv.root.visible = false
     for (const lv of lobPool) lv.root.visible = false
     carCount = 0
@@ -11900,6 +12222,10 @@ export function createRenderer(app) {
     redrawStrips(run)
     redrawLanes(run)
     redrawHazards(run)
+    // The hydrant rig owns BOTH phases of a Sewer Geyser zone — rattling on its fuse, then sheeting
+    // water — so unlike the old open-jet-only pass this takes the whole list. Zones with no jetDur
+    // are Reality Shard rifts, which keep the plain green telegraph redrawHazards draws above.
+    syncJets((run.geysers || []).filter((g) => g.jetDur > 0))
     redrawTelegraphs(run)
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {
