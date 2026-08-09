@@ -4381,7 +4381,7 @@ function stepOrbitWeapon(run, stats, fireRateMul) {
 
   const orbs = ipecacN(run, stats.orbs)
   for (let i = 0; i < orbs; i++) {
-    const angle = (i / stats.orbs) * Math.PI * 2 + run.time * stats.rotSpeed
+    const angle = (i / orbs) * Math.PI * 2 + run.time * stats.rotSpeed
     const ox = p.x + Math.cos(angle) * stats.radius
     const oy = p.y + Math.sin(angle) * stats.radius
     run.orbs.push({ x: ox, y: oy, r: orbR })
@@ -5964,8 +5964,9 @@ function pointInLane(run, x, y) {
 function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.sewerGeyser?.rapidGeyser ?? 0
   const p = run.player
+  const zones = ipecacN(run, stats.count)
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
-    for (let i = 0; i < stats.count; i++) {
+    for (let i = 0; i < zones; i++) {
       // Each zone in a cast arrives a little later than the last. The wait is a DELAY that holds the
       // zone dormant, NOT extra fuse: fuse is the hydrant's rattle-and-blow animation and every
       // hydrant should play the same one. Folding the stagger into the fuse (v6.10 did) gave the
@@ -6286,7 +6287,12 @@ function fireTail(run, stats) {
       }
     }
   }
-  run.events.push({ type: 'tail', x: p.x, y: p.y, angle, range: stats.range, arc: stats.arc })
+  // One event PER SWEEP. The damage loop above already runs three sectors under IPECAC; emitting a
+  // single event here would apply three swipes and draw one, which is precisely the bug v5.6.16
+  // shipped ("roar and tail swipe are visible — their events were silently dropped") in reverse.
+  for (const swing of ipecacAngles(run, angle)) {
+    run.events.push({ type: 'tail', x: p.x, y: p.y, angle: swing, range: stats.range, arc: stats.arc })
+  }
 }
 
 // counterSwipe: getting hurt swings the tail for free, at most every TAIL_COUNTER_CD (cf. retaliate).
@@ -6308,8 +6314,9 @@ function stepDebrisWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = mods?.rapidToss ?? 0
   const castRange = stats.castRange * (1 + (mods?.longToss ?? 0))
   const p = run.player
+  const chunks = ipecacN(run, stats.count)
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
-    for (let i = 0; i < stats.count; i++) {
+    for (let i = 0; i < chunks; i++) {
       const spot = pickBloomSpot(run, castRange)
       run.lobs.push({
         x: p.x, y: p.y, fromX: p.x, fromY: p.y, tx: spot.x, ty: spot.y,
@@ -6378,8 +6385,11 @@ function fireShards(run, stats) {
   const p = run.player
   const baseAngle = aimAngle(run)
   const life = stats.range / stats.speed
-  for (let i = 0; i < stats.count; i++) {
-    const angle = baseAngle + (i - (stats.count - 1) / 2) * STAR_FAN
+  // Both the bound AND the fan's centring divisor — see the orbit bug above for what happens when
+  // only one of them moves.
+  const shards = ipecacN(run, stats.count)
+  for (let i = 0; i < shards; i++) {
+    const angle = baseAngle + (i - (shards - 1) / 2) * STAR_FAN
     run.bullets.push({
       x: p.x, y: p.y,
       vx: Math.cos(angle) * stats.speed,

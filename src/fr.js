@@ -170,6 +170,9 @@ const UI = {
   'Chapter': 'Chapitre',
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
+  // v7.5 SPECIALIST on the build sheet ("Spécialiste : Geyser d'Égout"). NBSP before the colon —
+  // the one piece of French this string carries, and the reason it needs an entry at all.
+  '{name}: {sub}': '{name} : {sub}',
 
   // HUD
   'WAVE': 'VAGUE',
@@ -186,6 +189,11 @@ const UI = {
   // itself invents up here.
   'potency': 'puissance',
   '{name} upgrade': 'amélioration : {name}',
+  // v7.5. Identical to the English on purpose, not an untranslated leftover: French sets the
+  // tiret cadratin with a space on each side exactly as the source does, and this string is pure
+  // punctuation around two placeholders. Kept as an entry so the composition is on the record as
+  // reviewed (same reason 'Projectiles' and 'Berserk' sit here as identities).
+  '{name} — {text}': '{name} — {text}',
 
   // rarities (RARITIES[..].name)
   'Normal': 'Normale',
@@ -212,6 +220,27 @@ const UI = {
   'Rupture': 'Brèche',
 
   'Reroll ({n}❤️)': 'Relancer ({n}❤️)',
+
+  // v7.5 BLIND FAITH — the face-down deal. 'Face cachée' is the French card-game term of art
+  // (poser une carte face cachée); 'Retournée' would name the reveal, which is the other state.
+  'Face down': 'Face cachée',
+  // 'les yeux fermés' is the French idiom for acting on trust without looking, so it renders both
+  // halves of "on faith" AND the 🙈 the card ships with. A literal 'sur la foi' is a calque with no
+  // life outside legal register ('sur la foi de témoignages'), and 'Aie la foi' is a sermon.
+  // The wry over-confidence of the idiom ("j'y vais les yeux fermés") is the joke the English makes.
+  'Take it on faith.': 'Prends-la les yeux fermés.',
+  // NOT 'Plus de relance': without the ne, 'plus de' reads as MORE on a button — the exact opposite
+  // of what it does. 'Pas de relance' cannot be misread. Singular after 'pas de', as French wants.
+  'No rerolls': 'Pas de relance',
+
+  // v7.5 SPECIALIST — the weapon chooser (paintSubjectChooser).
+  'Which weapon?': 'Quelle arme ?',
+  // Label:value, not '{n} améliorations prises', because {n} is 0 on a fresh weapon and 1 on a
+  // freshly-upgraded one — and French takes the SINGULAR after zero ('0 amélioration'), so no
+  // number-first wording is correct at every value this row prints. Same dodge as '{n} choix',
+  // whose noun happens to be invariable, and the same label:value shape as 'amélioration : {name}'
+  // two blocks up.
+  '{n} upgrades taken': 'améliorations prises : {n}',
 
 
   // anomaly cards (ANOMALIES in config.js): name, desc, and the `from` line under it
@@ -334,6 +363,41 @@ const CONFIG = {
   'Minimes': 'Mini-Moi',
   'Copies of you peel off every 6s, pull the swarm away, and detonate.': "Des copies de toi se détachent toutes les 6s, attirent l'essaim au loin, puis explosent.",
   'there started being more of you than there was of you': "il s'est mis à y avoir plus de toi qu'il n'y avait de toi",
+  // ---- v7.5 upgrade-pool cards ------------------------------------------------------
+  // Same rules as the v7.2 slate above (composed keys — regenerate, never retype; French decimal
+  // comma; U+00A0 before : ; ! ? in VALUES only; vocabulary reused, never invented).
+  //
+  // 'Foi Aveugle' keeps the religious sense the card is built on ('Take it on faith', the 🙈, the
+  // leap): 'Confiance Aveugle' is the commoner collocation but names trust in a PERSON, which is
+  // not what a face-down deck asks of you.
+  // 'Épique' below must stay spelled exactly as the RARITIES entry — the English key interpolates
+  // RARITIES[BLIND_FAITH_FLOOR].name, so the two strings are one fact, and a French card naming a
+  // tier the chip does not is a rule the player cannot check.
+  'Blind Faith': 'Foi Aveugle',
+  'you stopped needing to know': "tu n'as plus eu besoin de savoir",
+  'Every card is face down — only its border shows. Nothing below Epic is rolled, and you can never reroll.':
+    "Chaque carte est face cachée — seule sa bordure apparaît. Rien en dessous d'Épique n'est tiré, et tu ne peux plus jamais relancer.",
+  // 'Ipéca' is the French name of the emetic root (Larousse), so the wink survives translation the
+  // way 'Lait de Soja' did. Keeping 'Ipecac' would leave the one card on the slate whose name is
+  // neither French nor a recognised loan (Berserk is both).
+  'Ipecac': 'Ipéca',
+  'once was never going to be enough': "une seule fois n'allait jamais suffire",
+  // 'en éventail' carries "spread" AND pins the sense of '3 fois plus' to QUANTITY: bare 'tire 3
+  // fois plus' could be read as three times as OFTEN, which is the opposite of the second clause.
+  // 'pour une cadence de tir divisée par deux' rather than 'cadence de tir ×0,5' — 'pour' is the
+  // price, which is what makes this a trade card and not a buff.
+  'Every weapon fires 3 times as much, spread in 3 directions — at half the fire rate.':
+    'Chaque arme tire 3 fois plus, en éventail sur 3 directions — pour une cadence de tir divisée par deux.',
+  'Specialist': 'Spécialiste',
+  // 'faire comme si' is the French for pretending; 'prétendre' is the false friend (it means to
+  // CLAIM) and would have read as a calque.
+  'you stopped pretending the rest of them were the plan': 'tu as arrêté de faire comme si les autres étaient le plan',
+  // 'sortent' (to come up in a draw) is the card verb, kept distinct from 'apparaissent', which
+  // this dictionary spends on things that SPAWN. 'leur plafond monte de 2' rather than 'tu peux en
+  // prendre 2 de plus de chacune': French '2 fois de plus' is ambiguous against 'deux fois plus'
+  // (twice as many), and this card must not print a multiplier — see the config comment.
+  'Pick a weapon: its upgrades come up far more often, and you may take 2 more of each than anyone else. Every other weapon offers less.':
+    'Choisis une arme : ses améliorations sortent bien plus souvent, et leur plafond monte de 2 rien que pour toi. Toutes les autres armes en proposent moins.',
   // v6.2 Remaster — per-chapter endings
   'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
   'Neutralized… 🩸': 'Neutralisé·e… 🩸',

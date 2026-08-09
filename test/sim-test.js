@@ -1126,6 +1126,65 @@ function testAnomalySlate() {
         `on a resonance cast IPECAC's roar dealt ${thrice.toFixed(0)} to one enemy against ${once.toFixed(0)} — every sector is a full circle there, so without the shared set the same body eats all three and the card is x3 DAMAGE again`)
     }
 
+    // EVERY WEAPON, ENUMERATED. Written after the shipped card was found to do NOTHING AT ALL to
+    // three of the 22 (sewerGeyser, debrisToss, realityShard were simply never patched) and to
+    // stack orbit's ring three-deep on five points instead of spreading it over fifteen. Neither
+    // was visible to the hand-picked fixtures above, and the orbit one was caught BY EYE from a
+    // screenshot that looked unchanged — which is exactly what "15 orbs in 5 positions" looks like.
+    //
+    // So the assertion is DISTINCT POSITIONS, never a count. A count passes when three things are
+    // spawned on top of each other, and three things in one place is the x3 DAMAGE card this whole
+    // rewrite exists to escape. Weapons that spawn no entity at all (the melee sectors) are counted
+    // by their FX events instead — three sweeps push three events.
+    {
+      const LISTS = ['bullets', 'orbs', 'mines', 'geysers', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas']
+      const FX = ['whip', 'clawRake', 'roar', 'tail']
+      const spread = (id, weaponId) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: weaponId, level: 3 }]
+        r.time = 5
+        // A ring of unkillable enemies, so every weapon has something to aim at, place a zone on,
+        // or lock onto — and nothing dies to change the picture mid-cast.
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2
+          r.enemies.push(makeStatusEnemy(r, { x: Math.cos(a) * 140, y: Math.sin(a) * 140, hp: 1e9, speed: 0 }))
+        }
+        let best = 0
+        for (let i = 0; i < 900; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          const seen = new Set()
+          // Keyed by SHAPE, not position alone. Several weapons spawn everything at the player and
+          // differ only in heading (beams), in radius (novas — they spread by band, not by place)
+          // or in an arm COUNT carried on one entity (tesseractBeam). Position alone reads all of
+          // those as a single thing and would wave the card through for three of the 22 weapons.
+          for (const key of LISTS) {
+            for (const o of r[key] ?? []) {
+              // An ARM is a separate piece of output that happens to be stored as a field on one
+              // entity (tesseractBeam), so it is expanded rather than counted as one thing —
+              // otherwise a beam that folds into six creases reads identically to one that folds
+              // into two.
+              const arms = Math.max(1, o.arms ?? 1)
+              for (let k = 0; k < arms; k++) {
+                seen.add(`${key}:${Math.round(o.x)},${Math.round(o.y)},${(o.angle ?? 0).toFixed(2)},${Math.round(o.radius ?? o.r ?? 0)},arm${k}`)
+              }
+            }
+          }
+          for (const e of r.events) if (FX.includes(e.type)) seen.add(`fx:${e.type}:${(e.angle ?? 0).toFixed(3)}`)
+          best = Math.max(best, seen.size)
+        }
+        return best
+      }
+      const missed = []
+      for (const weaponId of Object.keys(WEAPONS)) {
+        const plain = spread(null, weaponId)
+        const sick = spread('ipecac', weaponId)
+        if (plain === 0) { missed.push(`${weaponId} (fixture spawned nothing — untestable here)`); continue }
+        if (sick <= plain) missed.push(`${weaponId} ${plain} -> ${sick}`)
+      }
+      assert.deepStrictEqual(missed, [],
+        `IPECAC did not widen these weapons' output: ${JSON.stringify(missed)} — either the fire site was never patched, or the count was tripled while the ANGLE/POSITION divisor was not, which stacks the extra output on top of the original and hands the whole x3 to overkill`)
+    }
+
     // THE FIRE RATE, which is the entire cost and is applied once on take.
     {
       const base = withCard(null), sick = withCard('ipecac')
