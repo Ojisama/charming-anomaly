@@ -863,7 +863,7 @@ export const ANOMALIES = {
     weight: 2, chapter: null, kind: 'trade',
   },
   soyMilk: {
-    name: 'Soy Milk', icon: '🥛',
+    name: 'Machine Gun', icon: '🔫',
     from: 'your elements wanted more chances, not bigger ones',
     desc: `×${SOY_MILK_FIRE_MUL} fire rate, ×${SOY_MILK_DMG_MUL} damage. Burn, chill and shock land ${SOY_MILK_FIRE_MUL} times as often.`,
     when: (r) => Object.values(r.elementPicks ?? {}).some((n) => n > 0),
@@ -881,7 +881,7 @@ export const ANOMALIES = {
     weight: 1, chapter: null, kind: 'trade',
   },
   ipecac: {
-    name: 'Ipecac', icon: '🤮',
+    name: 'Bazooka', icon: '🚀',
     from: 'once was never going to be enough',
     desc: `Every weapon fires ${IPECAC_COUNT_MUL} times as much, spread in ${IPECAC_COUNT_MUL} directions — at half the fire rate.`,
     // Unconditional: it re-reads every weapon in the game, so there is no build state that makes it
@@ -897,7 +897,7 @@ export const ANOMALIES = {
     // NO MULTIPLIER IN THE COPY. x2.5 is the odds ratio inside the candidate list, never the
     // frequency a player experiences: measured, it delivers 2.16x at four weapons, 1.54x at two and
     // exactly 1.00x at one. A card must not print a number it only sometimes pays.
-    desc: `Pick a weapon: its upgrades come up far more often, and you may take ${SPECIALIST_EXTRA_PICKS} more of each than anyone else. Every other weapon offers less.`,
+    desc: `Upgrades for the weapon you name come up far more often, and you may take ${SPECIALIST_EXTRA_PICKS} more of each. Every other weapon offers less.`,
     // The gate IS the fiction: you cannot specialise in something you have not been building.
     when: (r) => specialistSubjects(r).length > 0,
     // `subjects` is what makes this a card PER WEAPON rather than one auto-assigned rule — the only

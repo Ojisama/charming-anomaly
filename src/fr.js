@@ -213,11 +213,12 @@ const UI = {
   // v7.5 BLIND FAITH — the face-down deal. 'Face cachée' is the French card-game term of art
   // (poser une carte face cachée); 'Retournée' would name the reveal, which is the other state.
   'Face down': 'Face cachée',
-  // 'les yeux fermés' is the French idiom for acting on trust without looking, so it renders both
-  // halves of "on faith" AND the 🙈 the card ships with. A literal 'sur la foi' is a calque with no
-  // life outside legal register ('sur la foi de témoignages'), and 'Aie la foi' is a sermon.
-  // The wry over-confidence of the idiom ("j'y vais les yeux fermés") is the joke the English makes.
-  'Take it on faith.': 'Prends-la les yeux fermés.',
+  // Owner's line, verbatim, and NOT a translation of "Take it on faith": it is the Française des
+  // Jeux lottery slogan every French player has heard. The French card is a BETTING joke (see
+  // 'Tiercé gagnant' below) where the English one is a religious one — the 🙈 reads as a punter
+  // not looking at the ticket. No final period, because the slogan has none; no NBSP before the
+  // %, matching 'Les ennemis lâchent 30% de pièces en moins' in the CONFIG section.
+  'Take it on faith.': '100% des gagnants ont tenté leur chance',
   // NOT 'Plus de relance': without the ne, 'plus de' reads as MORE on a button — the exact opposite
   // of what it does. 'Pas de relance' cannot be misread. Singular after 'pas de', as French wants.
   'No rerolls': 'Pas de relance',
@@ -346,7 +347,10 @@ const CONFIG = {
   'Avarice': 'Avarice',
   'Enemies drop 30% fewer coins, and 1 in 5 you pick up heals 5 HP instead of paying.': 'Les ennemis lâchent 30% de pièces en moins, et 1 sur 5 que tu ramasses te rend 5 PV au lieu de rapporter.',
   'the coins started tasting like medicine': 'les pièces ont pris un goût de médicament',
-  'Soy Milk': 'Lait de Soja',
+  // The card is a MACHINE GUN now (🔫), not soy milk. `Mitraillette` is the owner's word: strictly
+  // the submachine gun ('mitrailleuse' is the belt-fed one), which is the toy-loud register the
+  // ×5-shots-for-×0,2-damage spray asks for.
+  'Machine Gun': 'Mitraillette',
   '×5 fire rate, ×0.2 damage. Burn, chill and shock land 5 times as often.': 'Cadence de tir ×5, dégâts ×0,2. Brûlure, froid et foudre se déclenchent 5 fois plus souvent.',
   'your elements wanted more chances, not bigger ones': 'tes éléments voulaient plus de chances, pas plus de puissance',
   'Wildfire': 'Traînée de Feu',
@@ -359,26 +363,28 @@ const CONFIG = {
   // Same rules as the v7.2 slate above (composed keys — regenerate, never retype; French decimal
   // comma; U+00A0 before : ; ! ? in VALUES only; vocabulary reused, never invented).
   //
-  // 'Foi Aveugle' keeps the religious sense the card is built on ('Take it on faith', the 🙈, the
-  // leap): 'Confiance Aveugle' is the commoner collocation but names trust in a PERSON, which is
-  // not what a face-down deck asks of you.
-  // 'ne sort' and NOT 'n'est tiré': this dictionary spends *tirer* on SHOOTING (cadence de tir,
+  // 'Tiercé gagnant' is the owner's word, verbatim: a PMU horse-betting reference, so the FRENCH
+  // card is a gambling joke where the English one is a religious one. Nothing else in the entry
+  // needs to move — 'face cachée', 'sort' and 'relancer' are card-and-betting vocabulary already,
+  // and 'relancer' is literally the poker verb. Sentence case, unlike every other card name in
+  // this file: it is a slogan-shaped phrase, set the way French sets one, and it is the owner call.
+  // Kept from the pre-rename entry, because they govern the DESC below, which does not change:
+  // 'ne sort' and NOT 'n'est tiré' — this dictionary spends *tirer* on SHOOTING (cadence de tir,
   // and 'Chaque arme envoie…' two cards down was itself written to dodge the verb), so a card
-  // reading "rien … n'est tiré" parses as NOTHING GETS FIRED. 'sortir' is the French draw verb and
-  // is reused by Spécialiste below. Likewise 'tu n'en vois que la bordure' rather than 'seule sa
+  // reading "rien … n'est tiré" parses as NOTHING GETS FIRED; 'sortir' is the French draw verb,
+  // reused by Spécialiste below. Likewise 'tu n'en vois que la bordure' rather than 'seule sa
   // bordure apparaît' — *apparaître* is spent on things that SPAWN ('apparitions ennemies', 'Les
   // élites apparaissent'), and the border does not come into view, it is what never leaves it.
-  // 'Épique' below must stay spelled exactly as the RARITIES entry — the English key interpolates
+  // 'Épique' must stay spelled exactly as the RARITIES entry — the English key interpolates
   // RARITIES[BLIND_FAITH_FLOOR].name, so the two strings are one fact, and a French card naming a
   // tier the chip does not is a rule the player cannot check.
-  'Blind Faith': 'Foi Aveugle',
+  'Blind Faith': 'Tiercé gagnant',
   'you stopped needing to know': "tu n'as plus eu besoin de savoir",
   'Every card is face down — only its border shows. Nothing below Epic is rolled, and you can never reroll.':
     "Chaque carte est face cachée — tu n'en vois que la bordure. Rien en dessous d'Épique ne sort, et tu ne peux plus jamais relancer.",
-  // 'Ipéca' is the French name of the emetic root (Larousse), so the wink survives translation the
-  // way 'Lait de Soja' did. Keeping 'Ipecac' would leave the one card on the slate whose name is
-  // neither French nor a recognised loan (Berserk is both).
-  'Ipecac': 'Ipéca',
+  // 'Bazooka' is the owner's word and is the same in both languages (it is in the Petit Robert).
+  // The entry exists so run XX's coverage check sees the name, not because anything is translated.
+  'Bazooka': 'Bazooka',
   // Conditionnel passé, not 'n'allait jamais suffire': the futur proche in the past is a calque
   // here — French wants a past anchor for it, and without one 'jamais' pulls toward a temporal
   // reading ("never got round to being enough") instead of the fatalism the English carries.
@@ -390,7 +396,7 @@ const CONFIG = {
   // tornadoes the English's "as much" exists to cover, and it drops the tire/tir echo.
   // 'dans 3 directions', not 'sur': *sur* goes with *réparti sur trois axes*; with *éventail* and
   // *direction* it is a calque of "spread across".
-  // Words rather than 'cadence de tir ×0,5' (the Lait de Soja / Surcharge idiom) because the
+  // Words rather than 'cadence de tir ×0,5' (the Mitraillette / Surcharge idiom) because the
   // English says "at half the fire rate" and prints no multiplier either. 'pour' is the price —
   // 'contre' is the slate's other word for a cost, and either would do here.
   'Every weapon fires 3 times as much, spread in 3 directions — at half the fire rate.':
@@ -401,16 +407,23 @@ const CONFIG = {
   'you stopped pretending the rest of them were the plan': 'tu as arrêté de faire comme si les autres étaient le plan',
   // 'sortent' (to come up in a draw) is the card verb, kept distinct from 'apparaissent', which
   // this dictionary spends on things that SPAWN.
-  // '2 fois de plus' is safe HERE and only here: it collides with 'deux fois plus' (twice as many)
-  // inside a comparative ('2 fois de plus QUE toi'), so the English's "than anyone else" is
-  // dropped rather than rendered. It was rhetoric, not information — there is no anyone else — and
-  // keeping it would have forced either the ambiguity or a 'plafond' the UI never prints (modLine
-  // shows a mod's accumulated bonus, never its pick count, so a ceiling names nothing the player
-  // can see). 'tu peux prendre chacune 2 fois de plus' is an act they perform instead.
+  // NOT an imperative. The pre-rename English opened 'Pick a weapon:' and this line opened
+  // 'Choisis une arme :' — but the pause build sheet reprints the desc AFTER the weapon is locked
+  // in, as 'Spécialiste : Geyser d'Égout — <desc>', where an order to pick one arrives twenty
+  // minutes late. 'l'arme que tu désignes' is a generic present that is true in both places: on
+  // the level-up card the naming is still to come, on the sheet it says which weapon that was —
+  // exactly the load the English "the weapon you name" carries.
+  // 'les prendre chacune', not 'prendre chacune': bare *chacune* as a direct object is grammatical
+  // but stilted, and the clitic pins the antecedent to *les améliorations* (the sentence subject)
+  // rather than leaving it to hop back over 'l'arme'.
+  // '2 fois de plus' is safe here: it only collides with 'deux fois plus' (twice as many) inside a
+  // comparative, and the English's "than anyone else" is gone — there was no anyone else anyway.
+  // (Rendering it would have forced either that ambiguity or a 'plafond' the UI never prints —
+  // modLine shows a mod's accumulated bonus, never its pick count.)
   // Last sentence spelled out rather than 'en proposent moins': the pronoun's antecedent is three
   // clauses back, and 'proposent moins' alone can be read as offering less VALUE.
-  'Pick a weapon: its upgrades come up far more often, and you may take 2 more of each than anyone else. Every other weapon offers less.':
-    'Choisis une arme : ses améliorations sortent bien plus souvent, et tu peux prendre chacune 2 fois de plus. Toutes les autres armes proposent moins d\'améliorations.',
+  'Upgrades for the weapon you name come up far more often, and you may take 2 more of each. Every other weapon offers less.':
+    "Les améliorations de l'arme que tu désignes sortent bien plus souvent, et tu peux les prendre chacune 2 fois de plus. Toutes les autres armes proposent moins d'améliorations.",
   // v6.2 Remaster — per-chapter endings
   'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
   'Neutralized… 🩸': 'Neutralisé·e… 🩸',
