@@ -150,12 +150,20 @@ export const REROLL_RARITY_CAP = 3       // rerolls of one screen past which the
 //     the 17.8% the shipped flat bag delivered, at every slot count. Do NOT rebase the PASSIVES
 //     numbers to compensate for the 62% -> 30% passive cut instead: a flat base scalar is
 //     regressive, measured -41% defensive picks at 2 slots against only -7% at 4.
-//   utility 11 — the other seven passives, 1.6% of cards each (measured 1.5-1.8%). That IS the
-//     cost of the passive cut, and it is stated here rather than falling out of a x4 weight:
-//     holding defence at parity inside a 30-point bucket means the seven interesting passives
-//     absorb the whole 32-point cut, ~0.27x their shipped offer rate. Variety is bought back by
-//     Track A (elements) and the anomaly slate, NOT by re-inflating stat bumps.
-export const BUCKET_WEIGHTS = { defense: 19, utility: 11, mod: 30, weapon: 22, element: 18 }
+//   utility 21 — the other seven passives (moveSpeed/magnet/fireRate/damage/crit x2/xpGain),
+//     3.0% of cards each. This was 11 (1.6% each) and is where v7.7's 10 freed points went; see
+//     the weapon/mod note below for why they were freed and why they landed HERE. Raising the
+//     BUCKET is not the thing the paragraph above forbids — that is rebasing the PASSIVES base
+//     VALUES, which is regressive across slot counts; a bucket weight is flat in slots.
+//   v7.7 — weapon 22 -> 17 and mod 30 -> 25, the owner's call after playing the shipped table:
+//     weapon + mod cards are the two kinds that both read as "a weapon roll" (every mod card is
+//     titled `<Weapon> upgrade`), so their COMBINED share is the number a player actually feels,
+//     and at 22+30 it was 52% — measured 49.9-51.7% of cards across all seven chapters at 4
+//     slots. It is now 42%. The 10 points went to utility rather than to defence (which is held
+//     at parity by the note above) or to element (which is the mutator `unstable`'s subject:
+//     element 18 -> 22 measured 35.3% elemental cards under unstable, against the 37% the plan
+//     names as the pathology, and would have forced elementWeightMul to be re-priced with it).
+export const BUCKET_WEIGHTS = { defense: 19, utility: 21, mod: 25, weapon: 17, element: 18 }
 export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP']
 // Inside the weapon bucket, an UPGRADE of an owned weapon competes at this flat weight while a
 // `New!` card competes at its weapon's inherent rarity weight (times newWeaponChance — see
