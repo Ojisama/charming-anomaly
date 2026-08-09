@@ -26,13 +26,29 @@ export const RARITIES = {
   // no stat growth at all — it is a rule change (see ANOMALIES below), so there is nothing for a
   // multiplier to scale. The key is not decorative: every reader that walks RARITY_ORDER reads
   // .mult (test run PT.a, scripts/pool-probe.mjs's card scorer), and a missing one reads NaN.
-  anomaly:   { name: 'Anomaly',   color: 0x35e0c8, mult: 1.0 },
+  // The NAME is not "Anomaly" (v6.7.7): the game already spends that word on three other things
+  // the same player reads in the same session — the pre-run MUTATORS ("Daily Anomaly", "Reroll
+  // this anomaly", and a briefing that literally reads "Anomalies bend the rules of this run"),
+  // the ENEMIES (MUTATORS.overtime.desc), and the player themselves (fr.js 'You': 'Ton
+  // anomalie'). A teal card chipped ANOMALY therefore reads as a fourth mutator administered by
+  // the difficulty ladder rather than a rule the player just chose — the one failure the design
+  // forbids. "Rupture" is unclaimed in both dictionaries and is a word in both. The internal key
+  // stays `anomaly` everywhere (RARITY_ORDER, ANOMALIES, run.anomalies, kind:'anomaly', the CSS
+  // data-rarity): renaming the id is a mechanical migration best done once, with the slate.
+  anomaly:   { name: 'Rupture',   color: 0x35e0c8, mult: 1.0 },
 }
 // Replacing mythic (the original design) would give the mythic city starter `rainbow` a "Normal"
 // chip, silently cap all 15 kind:'tier' mods at +2 via WEAPON_MOD_TIER_BONUS, break three
 // assertions in test/sim-test.js, and delete the pool's only jackpot at the same moment anomalies
 // stop producing stat growth. Hades precedent: legendary/duo boons stand APART from the rarity
 // scale rather than replacing its top rung.
+// 'anomaly' LAST IS A SLOT, NOT A FREQUENCY CLAIM. Every other entry is rarer than the one before
+// it; this one is a parallel tier with no RARITY_WEIGHTS entry, rolled once per screen against the
+// ordinary table's total, and it is measurably more common than mythic (run PB1's tier-eligible
+// fixture: 3.3% of cards at 2 slots against mythic's ~1.1%). Anything that reads RARITY_ORDER as
+// an ordering — a ladder
+// walk, an indexOf comparison, a --rarityfloor — must exclude it explicitly; test/sim-test.js's
+// ladder() and scripts/pool-probe.mjs's ROLL_WEIGHTS both do.
 export const RARITY_ORDER = ['normal', 'rare', 'epic', 'legendary', 'mythic', 'anomaly']
 // Fixed roll weights (user-tuned v4.7; no level scaling). Epic-or-better ≈ 12.3% per card,
 // so a screen shows at least one epic+ on ~23% (2 cards) / ~33% (3) / ~41% (4) of level-ups.
@@ -94,43 +110,81 @@ export const WEAPON_UP_WEIGHT = 100
 //
 // PREDICATE HAZARD: run.weaponMods / run.weaponModPicks are pre-populated for EVERY weapon, so
 // `r.weaponModPicks.star?.chain` is safe. But `r.weapons.find(w => w.id === 'orbit').level` THROWS
-// when the weapon is not owned — use sim.js's hasWeaponAt instead, always. eligibleAnomalyIds
-// catches a throwing predicate and drops that card rather than the whole screen, but a predicate
-// that throws is a card that never appears, which no test would report as a failure.
+// when the weapon is not owned — use hasWeaponAt (declared right below, in THIS file) instead,
+// always. eligibleAnomalyIds catches a throwing predicate and drops that card rather than the
+// whole screen, but a predicate that throws is a card that never appears, which no test would
+// report as a failure. v6.7.7: the helper used to live in sim.js, which a predicate authored here
+// cannot reach — config.js imports only terrain.js, and importing sim.js would be the one cycle
+// this file's header forbids. Following the note would have deleted the card it was protecting.
+// Run PB2 now calls every shipped predicate against a battery of run shapes so a throwing one is
+// a red test rather than a card nobody ever sees.
 //
-// NAMING COLLISION, UNRESOLVED: "Anomaly" is already the player-facing word for a Daily's/
-// difficulty's MUTATORS (ANOMALY_REROLL_COST, ui.js "Reroll this anomaly", fr.js "Anomalie du
-// jour") and the player is themselves called "Ton anomalie" in the readout. Two meanings now share
-// the word on screen. Deliberately shipped as-is pending the owner's call on the tier's name —
-// renaming is a copy decision, and the slate of 19 more cards is the moment to make it once.
-// The five constants below are the measurement SHIM's values (scripts/pool-probe.mjs), retained
-// deliberately. The owner's call is 1-2 anomalies per run, which they do not deliver — but
-// retuning them against a ONE-card table measures nothing, and the "at least one by level N"
-// guarantee that has to accompany a low rate is worse than useless with one card (it would hand
-// 100% of qualifying runs the same card at the same moment). Both move to the slate plan, with the
-// 19 other cards. Measured on the shipped table, 40 runs: an immortal probe reaching level 34-40
-// takes 0.88 (body/2) to 1.00 (beyond/4) per run, i.e. the one-card ceiling; a mortal one
-// (--survival) reaching level 17-19 takes 0.45 (body/2 d3) to 0.78 (beyond/4 d1).
-export const ANOMALY_BASE_WEIGHT = 8
-// PITY and PITY_CAP are read from v6.7.7 (Task 3), not yet — they are here so the tuning block is
-// one block rather than two.
+// TIER NAME: the player-facing word is "Rupture", not "anomaly" — see RARITIES.anomaly above for
+// why. `anomaly` remains the internal id everywhere.
+//
+// RATE (owner's call, spec decision #2: 1-2 per run, "each should be an event"). This is the
+// number that licenses the slate's run-enders — "rarity licenses extremity" is explicitly
+// conditioned on scarcity — so it is tuned against a SLATE-SHAPED table rather than against the
+// one card shipped today, which cannot deliver more than 1.00/run whatever the weight says.
+// Measured by transplanting 18 stand-ins carrying the shim's gate shapes into this table
+// (scripts/pool-probe.mjs ANOMALY_GATES: 4 unconditional w1, 6 easy w6, 5 hard w6, 3 chapter w2)
+// and driving the REAL pipeline with a take-every-anomaly bot, 30-40 runs per cell:
+//                                     per-slot roll (v6.7.6)   per-screen roll, weight 12
+//   body/2 d3 mortal   (to lv 17)              0.95                     0.78
+//   body/2 d1 immortal (to lv 36)              2.40                     1.23
+//   body/4 d1 immortal (to lv 34)              3.60                     1.63
+//   city/2 d1 immortal (to lv 39)                -                      1.80
+// The left column is the 2.25-3.25/run the spec named as the thing to reduce. THE WEIGHT WENT UP
+// WHILE THE RATE WENT DOWN, which is not a contradiction: the number means something else now. It
+// used to be rolled once per SLOT, so the delivered rate was 1-(1-p)^slots and a 4-slot player
+// (60 of the 80 meta-shop levels, spent on the sacrifice ladder) got 1.5x as much of the run's
+// rarest tier for having bought slots. It is rolled once per SCREEN now, so ANOMALY_BASE_WEIGHT
+// reads directly as the share of level-up screens carrying an anomaly (12/183 = 6.6%), and the
+// residual 1.23 -> 1.63 spread across slot counts is ELIGIBILITY, not roll rate: more picks per
+// screen satisfy build-conditional `when` predicates sooner, which is the tier working as designed.
+export const ANOMALY_BASE_WEIGHT = 12
+// PITY and PITY_CAP are read from v6.7.8 (Task 3), not yet — they are here so the tuning block is
+// one block rather than two. Task 3 must re-measure the table above: pity raises the effective
+// weight, and at PITY_CAP the per-screen rate is 45/(171+45) = 20.8%.
 export const ANOMALY_PITY_PER_CARD = 2
 export const ANOMALY_PITY_CAP = 45
-export const MAX_ANOMALIES_PER_RUN = 4
-// F10: the unconditional cards are eligible from level 1 and taken in ~100% of runs, so without a
-// floor a new player's first encounter with the rarest tier is a pure downside.
+// Two, per the same decision ("1-2 per run"), down from 4. With the rate above it is a real
+// ceiling rather than a formality — a 39-level city run measures 1.80/run against it — which is
+// the point: the cap is what stops the longest runs from turning the tier into a shopping list.
+export const MAX_ANOMALIES_PER_RUN = 2
+// F10: the unconditional COST cards are eligible from level 1 and taken in ~100% of runs, so
+// without a floor a new player's first encounter with the tier is a pure downside. This is the
+// DEFAULT floor; a card may lower it with its own `minLevel`, and a no-cost jackpot should —
+// F10's argument is about cost, and applying it wholesale measured the seed card first offered at
+// t=164s of a 253s run, i.e. after 65% of the run's elites were already dead.
 export const ANOMALY_MIN_LEVEL = 8
+
+// Safe ownership test for the predicates below. `r.weapons.find(w => w.id === 'orbit').level`
+// throws when the weapon is not owned, which is the single easiest way to write a card that never
+// appears (see PREDICATE HAZARD above). Pure function of `run`, so it belongs with the data.
+export const hasWeaponAt = (run, id, lv = 1) => {
+  const w = run.weapons.find((x) => x.id === id)
+  return !!w && w.level >= lv
+}
 
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
     from: 'you killed an elite and something went critical',
-    desc: 'Every elite dies volatile. Stand back when it drops.',
+    desc: 'Every elite drops an unstable core. Its blast grows with the run, and whatever it kills blows up too.',
     // The hidden gate: this card teaches itself only to a player who has met an elite. Reads the
     // run counter, never run.enemies — an elite alive on screen is not the lesson.
     when: (r) => (r._eliteKills ?? 0) > 0,
     weight: 1,      // unconditional 1 / conditional 6 / chapter inversion 2
     chapter: null,  // or a chapter id, to scope the card to one biome
+    // A jackpot with no cost but its own blast radius, so F10's level floor — an argument about
+    // COST cards — does not apply to it (see ANOMALY_MIN_LEVEL). Measured against the same card
+    // at the table default of 8, on the same pipeline and seeds, body/2 d3 x40: first offer moves
+    // t=174s (lv 12.2) -> t=146s (lv 10.4) of a ~250s run, and the share of runs that ever see it
+    // 17/40 -> 23/40. The rest of the delay is the base rate, not the floor, which is what the
+    // deferred "at least one by level N" guarantee is for.
+    kind: 'jackpot',
+    minLevel: 3,
   },
 }
 
@@ -4661,6 +4715,24 @@ export const SPLITTER_COUNT = 4      // splitter: wisps spawned around the corps
 export const VOLATILE_FUSE = 0.8     // s, volatile: delay between death and the bomb's detonation
 export const VOLATILE_RADIUS = 120   // px, volatile: bomb blast radius
 export const VOLATILE_DMG = 20       // volatile: damage dealt to the player (and enemies) caught in the blast
+// ANOMALIES.unstableCores (v6.7.7): the corpse bomb that anomaly grants is a CORE, and its
+// enemy-side damage is VOLATILE_DMG * hpScale(t) * this. The rolled `volatile` affix is untouched.
+// WHY THE ENEMY SIDE ALONE SCALES: one constant was doing two jobs against two different
+// denominators. The player side is priced against player maxHP, which does not follow hpScale
+// (~100 -> ~200 over a run, from maxHP picks only); the enemy side is priced against enemy HP,
+// which is base * hpScale and reaches 7.6x by t=300. A flat 20 therefore stops killing a
+// full-health drone at t=0 and a full-health wisp at t=90 — measured, with the card FORCED ON for
+// whole runs, at 1.70 blast kills of 933 = 0.18% of a run's kills, i.e. the tier's only card was
+// a non-event. Scaling the enemy side holds the blast at "clears the trash it catches" for the
+// whole run instead of only at t=0: 20 * 1.6 * hpScale against a drone's 20 * hpScale *
+// difficultyHpMul(d) kills a FULL-HEALTH drone outright up to d3 and a wisp at every difficulty,
+// at any t — which is what makes the chain below possible at all — while the player's own risk
+// stays the flat, foreseeable 20 the spec priced as the card's intrinsic cost. The spec names this exact constant as "the knob if it should stay dangerous".
+// CHAINS ARE UNCAPPED, on the owner's call ("that's the fun of crazy combos"). They are also the
+// only reason the card's headline fantasy exists: an elite has base.hp * 5 HP, so no blast of any
+// size derived from VOLATILE_DMG can ever detonate the next ELITE — the cascade has to propagate
+// through the trash the blast kills, and that is what stepBombs implements.
+export const CORE_BLAST_ENEMY_MUL = 1.6
 export const PACER_RADIUS = 160      // px, pacer: range within which other enemies get sped up
 export const PACER_SPEED_MUL = 1.3   // pacer: speed multiplier applied to enemies within PACER_RADIUS
 export const FRENZY_HP_FRAC = 0.3    // frenzied: speed boost kicks in once hp drops below this fraction of maxHP

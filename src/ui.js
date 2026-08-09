@@ -1454,6 +1454,17 @@ export function initUI(hooks) {
       const head = build.elements.map((el) => `${ELEMENTS[el.id]?.icon ?? '✨'}${fmtNum(el.potency)}`).join(' ')
       secs.push(sectionHtml('elements', '✨', t('Elements'), head, body))
     }
+    // v6.7.7: the sixth tier, in the one place a player can check what they are running. An
+    // anomaly is a RULE — it moves no stat, so no other row in this sheet can hint at it, and its
+    // effects are deliberately indistinguishable from things the base game already does (Unstable
+    // Cores' bomb is the same corpse bomb the `volatile` elite affix rolls on its own). Without
+    // this section, taking the card and not taking it look identical from the pause screen.
+    // Heading = RARITIES.anomaly.name so the sheet and the card's chip say the same word.
+    if (build.anomalies?.length) {
+      const body = build.anomalies.map((a) => `<div class="bd-eff"><span class="bd-eff-i">${a.icon ?? '💠'}</span><span class="bd-eff-t"><b>${esc(t(a.name))} </b>${esc(t(a.desc))}</span></div>`).join('')
+      const head = build.anomalies.map((a) => t(a.name)).join(', ')
+      secs.push(sectionHtml('anomalies', '💠', t(RARITIES.anomaly.name), head, body))
+    }
     if (!secs.length) return ''
     return `<div class="bd">${secs.join('')}</div>`
   }

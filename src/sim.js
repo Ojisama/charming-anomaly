@@ -59,7 +59,7 @@ import {
   SHOCK_ARC_FRAC, SHOCK_RANGE, SHOCK_CD,
   VENOM_MAX_STACKS, VENOM_DURATION, VENOM_DOT_PER_STACK, VENOM_AMP_PER_STACK,
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
-  VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, PACER_RADIUS, PACER_SPEED_MUL,
+  VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB, HURT_CAP_FRAC,
@@ -3131,29 +3131,54 @@ function stepPullBeams(run, dt) {
 
 // -- Volatile-elite death bombs (v4.0) ------------------------------------------------
 
+// A volatile corpse bomb. `core` marks the ones ANOMALIES.unstableCores grants (v6.7.7): those
+// scale their ENEMY-side damage with hpScale and chain off whatever they kill — see
+// CORE_BLAST_ENEMY_MUL in config.js for why only the enemy side scales. `src` stays 'volatile'
+// either way: render.js's bombSrc knows that value and nothing else, and an unknown src falls
+// through to the generic RED telegraph, which is exactly the v5.10.1 P0 this shape fixed.
+function volatileBomb(run, x, y) {
+  return {
+    x, y, radius: VOLATILE_RADIUS, fuse: VOLATILE_FUSE, duration: VOLATILE_FUSE,
+    dmg: VOLATILE_DMG, src: 'volatile', core: !!run.anomalies?.unstableCores,
+  }
+}
+
 /** @returns true if the player died this frame (phase set to 'dead'). */
 function stepBombs(run, dt) {
   const p = run.player
   let playerDied = false
+  // Chained cores are collected and pushed AFTER the loop: `for…of` over an array visits items
+  // appended during iteration, and a chained bomb would then burn a frame of its own fuse before
+  // the player has seen it arm.
+  const chained = []
   for (const b of run.bombs) {
     b.fuse -= dt
     if (b.fuse > 0) continue
 
     if (!playerDied && p.invuln <= 0) {
       const dx = p.x - b.x, dy = p.y - b.y
+      // The player side is FLAT, core or not (config.js CORE_BLAST_ENEMY_MUL): the card's cost is
+      // priced against player maxHP, which does not ride hpScale.
       if (dx * dx + dy * dy <= b.radius * b.radius && hurtPlayer(run, b.dmg)) playerDied = true
     }
 
     const radSq = b.radius * b.radius
+    const dmg = b.core ? b.dmg * hpScale(run.time) * CORE_BLAST_ENEMY_MUL : b.dmg
     for (const e of run.enemies) {
       if (e._dead) continue
       const dx = e.x - b.x, dy = e.y - b.y
-      if (dx * dx + dy * dy <= radSq) dealDamage(run, e, b.dmg, false)
+      if (dx * dx + dy * dy > radSq) continue
+      dealDamage(run, e, dmg, false)
+      // The cascade, uncapped (owner's call). A bomb can never kill an ELITE — elite HP is
+      // base * ELITE.hpMul * hpScale, so the blast is ~20-30% of it at every t — so without this
+      // the "packs chain-detonate" the card is sold on could not happen at all.
+      if (b.core && e._dead) chained.push(e)
     }
 
     run.events.push({ type: 'explode', x: b.x, y: b.y, radius: b.radius })
     b._dead = true
   }
+  for (const e of chained) run.bombs.push(volatileBomb(run, e.x, e.y))
   run.bombs = run.bombs.filter((b) => !b._dead)
   return playerDied
 }
@@ -3230,7 +3255,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
       // v5.10.1: `src: 'volatile'` lets skies tell this corpse-bomb apart from its own gun/sky bombs
       // (see render.js bombSrc) instead of both falling through the same "else" branch and detonating
       // as a fake lightning strike. Every other chapter's redrawBombs never reads `src` — inert there.
-      run.bombs.push({ x: enemy.x, y: enemy.y, radius: VOLATILE_RADIUS, fuse: VOLATILE_FUSE, duration: VOLATILE_FUSE, dmg: VOLATILE_DMG, src: 'volatile' })
+      run.bombs.push(volatileBomb(run, enemy.x, enemy.y))
     }
     // split flag (v5.0, e.g. pond's amoeba): generalized version of the splitter affix above —
     // spawns SPLIT_CHILD_COUNT smaller clones of THIS enemy (not fresh wisps). Guarded by
@@ -3627,7 +3652,15 @@ export function buildReadout(run) {
   const elements = Object.keys(run.elements)
     .filter((id) => (run.elementPicks[id] ?? 0) > 0)
     .map((id) => ({ id, potency: run.elements[id], picks: run.elementPicks[id] }))
-  return { weapons, passives, elements }
+  // v6.7.7: anomalies belong here for the same reason weapon mods do — this readout is the ONE
+  // place a player can check what they are actually running, and an anomaly is a rule with no
+  // number anywhere else in the HUD to betray it. Unstable Cores' bombs are visually the same
+  // corpse bomb the `volatile` elite affix already rolls on ~29% of late elites, so without this
+  // line a player has no way at all to tell the card is on.
+  const anomalies = Object.keys(run.anomalies ?? {})
+    .filter((id) => ANOMALIES[id])
+    .map((id) => ({ id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, icon: ANOMALIES[id].icon }))
+  return { weapons, passives, elements, anomalies }
 }
 
 function stepWeapons(run, dt) {
@@ -5907,28 +5940,45 @@ function makeElementCard(run, id, rarity) {
   return { kind: 'element', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
 }
 
-// Safe ownership test for anomaly predicates (ANOMALIES in config.js). Exported to nothing — it
-// exists so a predicate never writes `run.weapons.find(w => w.id === 'orbit').level`, which THROWS
-// when the weapon is not owned and is the single easiest way to write a card that crashes a
-// level-up. Unused by the seed card; kept because the slate's predicates will need it and the
-// hazard is worth a named answer rather than a comment.
-function hasWeaponAt(run, id, lv = 1) {
-  const w = run.weapons.find((x) => x.id === id)
-  return !!w && w.level >= lv
-}
-
-// Which anomaly cards may be offered right now. Computed BEFORE any rarity roll (see rollCard):
-// an empty eligible list means the tier simply does not roll, never that its weight deflects onto
-// legendary — deflection is what measured 16.1% legendary in the shim's first draft (F1).
+// Which anomaly cards may be offered right now. Computed BEFORE the tier's roll (see
+// rollAnomalyCard): an empty eligible list means the tier simply does not roll, never that its
+// weight deflects onto legendary — deflection is what measured 16.1% legendary in the shim's
+// first draft (F1) — and it costs zero Math.random calls, which is what keeps every seeded test
+// whose run cannot see the tier bit-identical.
 function eligibleAnomalyIds(run) {
-  if ((run.player.level ?? 1) < ANOMALY_MIN_LEVEL) return []
   if (Object.keys(run.anomalies ?? {}).length >= MAX_ANOMALIES_PER_RUN) return []
+  const level = run.player.level ?? 1
   return Object.keys(ANOMALIES).filter((id) => {
     if (run.anomalies?.[id]) return false   // no levels: taken once, gone from the pool
     const a = ANOMALIES[id]
+    // Per-card floor over the table default (config.js ANOMALY_MIN_LEVEL): F10's argument is
+    // about COST cards, and applying it to a no-cost jackpot only delays the card past the point
+    // where it can still change how the run is played.
+    if (level < (a.minLevel ?? ANOMALY_MIN_LEVEL)) return false
     if (a.chapter && a.chapter !== run.chapter) return false
     try { return a.when(run) } catch { return false }  // a bad predicate loses its card, not the screen
   })
+}
+
+// The anomaly tier's roll: ONCE PER SCREEN (see buildLevelUpChoices), against the ordinary
+// table's TOTAL rather than as an entry inside RARITY_WEIGHTS. Rolling against the total is what
+// makes it a parallel tier: its share reads directly as weight/(total + weight), it never
+// perturbs the rarity ladder, and a failed roll simply leaves the screen as rolled.
+function rollAnomalyCard(run) {
+  const eligible = eligibleAnomalyIds(run)
+  if (eligible.length === 0) return null
+  const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+  if (Math.random() * (ordinaryTotal + ANOMALY_BASE_WEIGHT) >= ANOMALY_BASE_WEIGHT) return null
+  const w = {}
+  for (const id of eligible) w[id] = ANOMALIES[id].weight
+  const id = pickWeighted(w)
+  const a = ANOMALIES[id]
+  // No `bonus` key at all: applyChoice's anomaly branch banks a rule, not a number, and a bonus
+  // here would be silently ignored (or, worse, silently applied by a future branch). `from` is its
+  // OWN field, not the `tag`: tag is a nowrap pill sized for "Lv 3"/"New!", and a sentence in it
+  // overflows the card (the modal is min(92vw, 390px)). ui.js renders `from` as its own wrapping
+  // line under the description.
+  return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon }
 }
 
 // Roll ONE card: bucket first (BUCKET_WEIGHTS), then a rarity inside it. Never walks the rarity
@@ -5938,33 +5988,11 @@ function eligibleAnomalyIds(run) {
 // first did: the weapon bucket vanished on every roll no available weapon happened to carry, and
 // its 22 points silently went to whatever was left (weapon share measured 9.6% against a declared
 // 22%, worst chapter 4.9%). Excludes ids already used by earlier cards this pool.
-// allowAnomaly is false once this pool has already placed one — at most one anomaly per screen.
-function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts, allowAnomaly = false) {
-  // The anomaly tier is rolled FIRST and against the whole ordinary table's total, so it is a
-  // parallel tier rather than an entry inside RARITY_WEIGHTS: it never perturbs the rarity ladder,
-  // its share reads directly as weight/(total + weight), and a failed roll falls through to an
-  // ordinary card instead of deflecting up the ladder (F1). Eligibility is computed before the
-  // roll, so an empty pool costs nothing — not even a Math.random call, which is what keeps every
-  // other test's seeded stream bit-identical while the tier is ineligible.
-  if (allowAnomaly) {
-    const eligible = eligibleAnomalyIds(run)
-    if (eligible.length > 0) {
-      const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
-      if (Math.random() * (ordinaryTotal + ANOMALY_BASE_WEIGHT) < ANOMALY_BASE_WEIGHT) {
-        const w = {}
-        for (const id of eligible) w[id] = ANOMALIES[id].weight
-        const id = pickWeighted(w)
-        const a = ANOMALIES[id]
-        // No `bonus` key at all: applyChoice's anomaly branch banks a rule, not a number, and a
-        // bonus here would be silently ignored (or, worse, silently applied by a future branch).
-        // `from` is its OWN field, not the `tag`: tag is a nowrap pill sized for "Lv 3"/"New!",
-        // and a sentence in it overflows the card (the modal is min(92vw, 390px)). ui.js renders
-        // `from` as its own wrapping line under the description.
-        return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon }
-      }
-    }
-  }
-
+// The anomaly tier is NOT rolled here — it is one roll per SCREEN in buildLevelUpChoices, which
+// is what keeps its rate independent of choiceSlots. Rolling it per slot delivered
+// 1-(1-p)^slots: measured 2.40 anomalies/run at 2 slots against 3.60 at 4, i.e. a lottery on
+// meta-shop spending.
+function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts) {
   // Build each bucket's live option list ONCE, so "is this bucket empty" and "pick from it" can
   // never disagree.
   const buckets = {}
@@ -6079,17 +6107,9 @@ function buildLevelUpChoices(run) {
   // Roll exactly run.choiceSlots cards (2..4, permanently unlocked in the meta shop — see
   // choiceSlots in state.js and sacrificeCost in config.js).
   const slots = run.choiceSlots ?? 2
-  // At most ONE anomaly per pool, and eligible on EVERY index rather than only the early ones:
-  // gating by index (i < slots - 1) would make the anomaly always the LEFT card at the default 2
-  // slots while NEW_WEAPON_MIN_RATE always swaps the right one — a positionally deterministic
-  // screen — and would hand 4-slot players 3x the per-screen rate of 2-slot players, i.e. a
-  // lottery on shop spending rather than on play. The "never alone" rule is enforced as an
-  // INVARIANT on the finished array below instead.
-  let placedAnomaly = false
   for (let i = 0; i < slots; i++) {
-    const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts, !placedAnomaly)
+    const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts)
     if (!card) break
-    if (card.kind === 'anomaly') placedAnomaly = true
     cards.push(card)
     pickedIds.add(card.id)
     if (card.kind === 'mod') modWeaponCounts.set(card.weapon, (modWeaponCounts.get(card.weapon) ?? 0) + 1)
@@ -6097,6 +6117,28 @@ function buildLevelUpChoices(run) {
 
   if (cards.length === 0) {
     return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
+  }
+
+  // The anomaly tier: ONE roll per SCREEN, replacing a rolled card rather than extending the
+  // screen. Three properties fall out of doing it here rather than inside rollCard:
+  //   - the rate does not scale with choiceSlots. Per-slot rolling delivered 1-(1-p)^slots:
+  //     measured, same rig and seeds, 2.40 anomalies/run at 2 slots against 3.60 at 4 — 1.5x as
+  //     much of the tier whose whole design licence is scarcity, for a player who had spent 60 of
+  //     the 80 meta-shop levels buying slots. That is a lottery on shop spending, not on play, and
+  //     ANOMALY_BASE_WEIGHT now reads directly as "share of screens carrying an anomaly".
+  //   - B5's "never a screen's ONLY offer" holds BY CONSTRUCTION (`cards.length > 1`, and a
+  //     replacement cannot grow the anomaly count past one), instead of by a fallback that had to
+  //     choose between deleting the tier's roll and shipping a curse-only screen.
+  //   - the slot is uniform, so no shuffle is needed and no other pool's RNG stream moves.
+  // An ineligible run costs zero Math.random calls (eligibleAnomalyIds is checked first), which is
+  // why every seeded scenario that cannot see the tier is bit-identical.
+  let placedAnomaly = false
+  if (cards.length > 1) {
+    const anomaly = rollAnomalyCard(run)
+    if (anomaly) {
+      cards[Math.floor(Math.random() * cards.length)] = anomaly
+      placedAnomaly = true
+    }
   }
 
   // Hard new-weapon apparition floor (see NEW_WEAPON_MIN_RATE in config.js): if the pool has
@@ -6107,7 +6149,7 @@ function buildLevelUpChoices(run) {
   const hasNewCard = cards.some((c) => c.kind === 'weapon' && c.tag === 'New!')
   // F4: the swap overwrites cards[length - 1] UNCONDITIONALLY, so without `!placedAnomaly` it
   // would delete the anomaly the roll had just placed — and (once pity lands) delete it AFTER the
-  // pity counter was already reset inside rollCard, i.e. spend the tier and hand back nothing.
+  // pity counter was already reset by the roll, i.e. spend the tier and hand back nothing.
   // The floor is a discovery guarantee for a screen that has no new weapon on it; a screen with an
   // anomaly on it is not a screen that needs rescuing.
   if (!hasNewCard && !placedAnomaly && unowned.length > 0 && run.weapons.length < MAX_WEAPONS && Math.random() < NEW_WEAPON_MIN_RATE) {
@@ -6119,22 +6161,6 @@ function buildLevelUpChoices(run) {
     cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon }
   }
 
-  if (placedAnomaly) {
-    // B5 as an INVARIANT, not a position: a forced pick may never be "take a curse or take a
-    // curse", so a pool must always offer at least one ordinary card. Reachable only if a later
-    // slot returned null (every bucket empty) after the first returned an anomaly — the ordinary
-    // pool having emptied AFTER slot 0 — in which case the Snack Break fallback is the honest
-    // screen, and it is the same one an empty pool already shows.
-    if (cards.every((c) => c.kind === 'anomaly')) {
-      return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
-    }
-    // Shuffle so the tier carries no positional tell: rollCard may only place an anomaly while no
-    // earlier slot did, so unshuffled the position is geometric — measured 35/33/32 across three
-    // slots at the base weight, which is nothing, but 41/33/26 once pity (Task 3) can drive the
-    // weight to its cap, and pity is highest exactly when the card is most likely. Shuffling ONLY
-    // the pools that contain an anomaly leaves every other pool's RNG stream untouched.
-    shuffleInPlace(cards)
-  }
   return cards
 }
 

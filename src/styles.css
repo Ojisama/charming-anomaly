@@ -705,7 +705,9 @@ body {
 /* anomaly (v6.7.6): the sixth tier. Its own colour rather than a hotter mythic, because it is not
    a bigger number — it is a rule change, and it must not read as "mythic but more". Without this
    rule the tier renders with no border, no chip background and no glow, and RARITIES.anomaly.color
-   is dead weight: ui.js reads only .name off the table. */
+   is dead weight: ui.js reads only .name off the table. The resting values are here so the card
+   still has a border with animations off; the motion that carries the tier is anomaly-breathe,
+   below the mythic keyframes. */
 .lv-card[data-rarity="anomaly"]   { border-color: #35e0c8; box-shadow: 0 4px 0 rgba(53, 224, 200, 0.4), 0 0 22px rgba(53, 224, 200, 0.55); }
 
 .lv-card[data-rarity="normal"] .rarity-chip    { background: #9aa0a6; }
@@ -727,6 +729,26 @@ body {
 @keyframes mythic-shift {
   0% { background-position: 0 0, 0% 0; }
   100% { background-position: 0 0, 300% 0; }
+}
+
+/* anomaly (v6.7.7): a different MOTION, not a hotter colour. Mythic's rainbow travels — it reads
+   as "the biggest number on the screen", which is what it is. This one BREATHES: the glow swells
+   and settles on a 2.2s cycle that never resolves, because the card is not a bigger number at all
+   and the two must not read as ranks of the same thing. Shipped flat (a border colour and a 22px
+   glow, i.e. a legendary with more blur) it was the quieter card on any screen that also held a
+   mythic — the one card per run that is a RULE was the one the eye skipped. The keyframes touch
+   box-shadow and border-color only: no transform, so nothing reflows, and the pop-in that every
+   other card plays on entry is preserved by listing it first. */
+.lv-card[data-rarity="anomaly"] {
+  animation: pop-in 0.3s ease-out backwards, anomaly-breathe 2.2s ease-in-out infinite;
+}
+@keyframes anomaly-breathe {
+  0%, 100% { border-color: #35e0c8; box-shadow: 0 4px 0 rgba(53, 224, 200, 0.4), 0 0 14px rgba(53, 224, 200, 0.35); }
+  50%      { border-color: #7dfff0; box-shadow: 0 4px 0 rgba(53, 224, 200, 0.4), 0 0 34px rgba(125, 255, 240, 0.85); }
+}
+/* Respect the OS setting: a permanently pulsing element is exactly what this query exists for. */
+@media (prefers-reduced-motion: reduce) {
+  .lv-card[data-rarity="anomaly"] { animation: pop-in 0.3s ease-out backwards; }
 }
 
 @keyframes pop-in {

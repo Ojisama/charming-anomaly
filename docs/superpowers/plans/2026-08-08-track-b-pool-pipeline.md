@@ -403,7 +403,8 @@ Then the table:
 //
 // PREDICATE HAZARD: run.weaponMods / run.weaponModPicks are pre-populated for EVERY weapon, so
 // `r.weaponModPicks.star?.chain` is safe. But `r.weapons.find(w => w.id === 'orbit').level` THROWS
-// when the weapon is not owned. Use hasWeaponAt (sim.js) instead, always.
+// when the weapon is not owned. Use hasWeaponAt (config.js — a predicate authored in config.js
+// cannot reach a helper in sim.js without the import cycle that file forbids) instead, always.
 //
 // NAMING: "Anomaly" is already the player-facing word for a Daily's mutators (ANOMALY_REROLL_COST,
 // ui.js "Reroll this anomaly"). Two meanings now share it. Resolve the copy before ship — this is
@@ -630,7 +631,16 @@ Expected: FAIL — `run._cardsSinceAnomaly` is `undefined` after `stepSim`, so `
 
 `src/state.js`'s `createRun`: add `_cardsSinceAnomaly: 0,`.
 
-In `rollCard`, replace the fixed weight:
+> **v6.7.7 changed where this lands.** The tier is no longer rolled inside `rollCard` at all: it
+> is ONE roll per SCREEN in `buildLevelUpChoices` (`rollAnomalyCard`), because a per-slot roll
+> delivered `1-(1-p)^slots` and measured 2.40 anomalies/run at 2 slots against 3.60 at 4 — the
+> rarest tier bought in the meta shop. Apply the snippet below to `rollAnomalyCard` instead, and
+> note that the pity UNIT is now open: `ANOMALY_PITY_PER_CARD` is named per CARD but the roll it
+> feeds happens once per screen, so decide (and name) whether pity advances per card or per screen
+> before tuning it. The rate table in `config.js` was measured at the per-screen roll and has to be
+> re-measured with pity on.
+
+In `rollAnomalyCard` (was `rollCard`), replace the fixed weight:
 
 ```js
       // Capped so a long ineligible stretch cannot detonate the tier the instant one becomes
@@ -653,7 +663,7 @@ Advancing here rather than inside `buildLevelUpChoices` is what stops a reroll p
 
 - [ ] **Step 4: Run the tests** — `npm test`, expect PASS.
 
-- [ ] **Step 5: Adversarial gate.** Correctness must confirm the F4 ordering: the pity reset happens inside `rollCard`, but the `NEW_WEAPON_MIN_RATE` swap runs afterward — verify Task 2's guard actually prevents a reset-then-deleted anomaly.
+- [ ] **Step 5: Adversarial gate.** Correctness must confirm the F4 ordering: the pity reset happens inside the anomaly roll, but the `NEW_WEAPON_MIN_RATE` swap runs afterward — verify Task 2's guard actually prevents a reset-then-deleted anomaly. (v6.7.7 made the anomaly a REPLACEMENT of an already-rolled slot rather than an extra card, so the all-anomaly fallback that used to be able to throw the roll away is gone by construction; the swap guard is still the live risk.)
 
 - [ ] **Step 6: Commit**
 
@@ -835,7 +845,7 @@ git commit -m "v6.7.4: the end of a run steepens per chapter, so the new pool's 
 
 ## Deferred, with reasons
 
-- **The anomaly rate (1–2/run) and the zero-run guarantee.** Both are meaningless against a one-card table: `MAX_ANOMALIES_PER_RUN = 2` is unreachable with one card, and a guarantee then hands 100% of qualifying runs the same card at the same level — strictly worse than no guarantee, which at least leaves variance in *when*. Ship with the slate. **Two measured traps for that plan:** (a) rolls per screen scale with `choiceSlots`, so a 4-slot player sees ~2.4× the per-screen rate — a lottery on shop spending, not on play; (b) after Task 5 the mean level reached is well under any level-gated guarantee in the chapters that need it most, so a level gate must be checked against *mortal* levels, not the immortal probe's.
+- **The zero-run guarantee** (the rate itself was tuned in v6.7.7 against a transplanted 19-card table — see `ANOMALY_BASE_WEIGHT` in config.js for the measurements). Still meaningless against a one-card table: `MAX_ANOMALIES_PER_RUN = 2` is unreachable with one card, and a guarantee then hands 100% of qualifying runs the same card at the same level — strictly worse than no guarantee, which at least leaves variance in *when*. Ship with the slate. **Two measured traps for that plan:** (a) ~~rolls per screen scale with `choiceSlots`, so a 4-slot player sees ~2.4× the per-screen rate — a lottery on shop spending, not on play~~ **fixed in v6.7.7**: one roll per screen, placed in a uniform slot, measured 6.6% of 2-slot screens against 6.3% of 4-slot ones and asserted at both counts in run PB2; (b) after Task 5 the mean level reached is well under any level-gated guarantee in the chapters that need it most, so a level gate must be checked against *mortal* levels, not the immortal probe's.
 - **The other 19 cards** and the per-kind (pivot/jackpot/trade) weighting.
 - **Ipecac's 22 per-weapon count shapes.** Note: per-cast counts are named `count`/`orbs`/`chunks`/`maxAlive` per weapon, and `WEAPON_COUNT_MODS` is a one-entry *readout patch*, not a registry.
 - **The three flatness complaints.** Stated plainly, because the adversarial fun review scored this plan **zero for three, with one amplified**: "cards are boring" is untouched (F14 — 70% of mods are numbers — stays Open); "dominant build per chapter" is untouched and *accelerated* by starter-mod deliverability going 62.5% → 95%; "you cannot pursue a mod" moves 42.9% → 51.7%, still absent from half of runs. This plan makes the pool *deliver what it promises*; it does not make the cards interesting. That is the slate plan's job, and it should be judged on it.

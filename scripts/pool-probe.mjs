@@ -49,10 +49,14 @@ const WEAPON_UP_WEIGHT = 100
 // shipped that as the slot-aware maxModsPerWeaponPerPool(slots), so the default is now null =
 // use config's value — otherwise --compare would be diffing two different mod caps.
 const MODS_PER_WEAPON_PER_POOL = null
-const ANOMALY_BASE_WEIGHT = 8
-const ANOMALY_PITY_PER_CARD = 2
-const ANOMALY_PITY_CAP = 45
-const MAX_ANOMALIES_PER_RUN = 4
+// v6.7.7: these DEFAULT to the shipped constants rather than duplicating them. The tier ships, so
+// a hand-kept copy that has drifted is a harness measuring a pipeline nobody runs — this file's
+// copies were still 8/4 after config.js was tuned to 12/2 against measured runs. Override a line
+// here to tune a value before touching config.js; that is what this block is for.
+const ANOMALY_BASE_WEIGHT = C.ANOMALY_BASE_WEIGHT
+const ANOMALY_PITY_PER_CARD = C.ANOMALY_PITY_PER_CARD
+const ANOMALY_PITY_CAP = C.ANOMALY_PITY_CAP
+const MAX_ANOMALIES_PER_RUN = C.MAX_ANOMALIES_PER_RUN
 // ──────────────────────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2)
@@ -143,15 +147,21 @@ const COUNT_MOD = {
 // would silently delete common weapons from the pool rather than upgrade the roll.
 const ROLL_WEIGHTS = (() => {
   if (!RARITY_FLOOR) return P_RARITY_WEIGHTS
-  const i = C.RARITY_ORDER.indexOf(RARITY_FLOOR)
-  if (i < 0) throw new Error(`--rarityfloor: unknown tier "${RARITY_FLOOR}" (${C.RARITY_ORDER.join('|')})`)
-  // v6.7.6: RARITY_ORDER ends in 'anomaly', which is a PARALLEL tier with no RARITY_WEIGHTS entry
-  // (it is rolled against the ordinary table's total, not inside it). Without this filter every
-  // --rarityfloor run would carry an `anomaly: undefined` weight into pickW and poison the sum
-  // with NaN — silently, since pickW's `r -= v` would just fall through to the first key.
-  return Object.fromEntries(C.RARITY_ORDER.slice(i)
-    .filter((r) => P_RARITY_WEIGHTS[r] != null)
-    .map((r) => [r, P_RARITY_WEIGHTS[r]]))
+  // The valid tiers are the ones with a ROLL WEIGHT, not the ones in RARITY_ORDER: 'anomaly' is
+  // last in that array but is a PARALLEL tier with no RARITY_WEIGHTS entry (it is rolled against
+  // the ordinary table's total, not inside it), so offering it here as a floor is offering a floor
+  // that deletes the table. Naming RARITY_ORDER in the error advertised exactly that.
+  const tiers = Object.keys(P_RARITY_WEIGHTS)
+  const i = tiers.indexOf(RARITY_FLOOR)
+  if (i < 0) throw new Error(`--rarityfloor: unknown tier "${RARITY_FLOOR}" (${tiers.join('|')})`)
+  // v6.7.6 filtered 'anomaly' out of the sliced table instead, which turned a loud throw into
+  // silent garbage: the filter left ROLL_WEIGHTS empty, pickW({}) returns null, and every
+  // passive/mod/element card was then built with `rarity: null` — measured as a rarity line
+  // summing to 28.3% of cards, the other 72% carrying no tier at all and scoring at rarityMult(1).
+  // Measuring BLIND FAITH (the card that removes the rarity floor) through that reads as a nerf.
+  const out = Object.fromEntries(tiers.slice(i).map((r) => [r, P_RARITY_WEIGHTS[r]]))
+  if (!Object.keys(out).length) throw new Error(`--rarityfloor: "${RARITY_FLOOR}" leaves no tier to roll`)
+  return out
 })()
 
 // Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
@@ -285,103 +295,98 @@ function proposedChoices(run, st) {
   const modWeaponCount = new Map()
   const cards = []
   const slots = run.choiceSlots ?? 2
-  let anomalyThisPool = false
 
   for (let s = 0; s < slots; s++) {
-    // Anomaly eligibility is computed BEFORE the rarity roll. If the pool is empty the tier
-    // gets weight 0 and we re-roll on the base table — it must NEVER deflect onto legendary,
-    // which measured 16.1% legendary (vs 3.5% shipped) in the first draft.
-    const isLastSlot = s === slots - 1
-    const eligible = {}
-    const capReached = st.taken.size >= MAX_ANOMALIES_PER_RUN
-    // An anomaly may never occupy the last remaining slot: a forced pick must always leave
-    // one ordinary card, so a screen can't be "take a curse or take a curse".
-    if (!anomalyThisPool && !capReached && !(isLastSlot && cards.length === 0)) {
-      for (const a of ANOMALIES) {
-        if (st.taken.has(a.id) || picked.has(a.id)) continue
-        if (!a.when(run)) continue
-        eligible[a.id] = a.weight
-      }
-    }
-    const nEligible = Object.keys(eligible).length
     let card = null
+    // BUCKET FIRST, THEN RARITY. Rolling rarity first deleted the weapon bucket on every
+    // roll whose rarity no available weapon happened to carry, redistributing its 22 points
+    // to whatever was left — measured up to 15pts of drift from the declared weights, and
+    // it varied per chapter AND per slot count. Rarity is a BONUS SCALAR; it must not
+    // decide the kind of card.
+    // Empty buckets are still dropped (nothing to offer), which is now the ONLY source of
+    // drift — counted in stats.absent so the budget is visible rather than inferred.
+    const passOk = passives.filter((p) => !picked.has(p))
+    const modCap = MODS_PER_WEAPON_PER_POOL ?? C.maxModsPerWeaponPerPool(run.choiceSlots ?? 2)
+    const modOk = mc.filter((m) => !picked.has(m.mod) && (modWeaponCount.get(m.weapon) ?? 0) < modCap)
+    const wOk = wp.filter((w) => !picked.has(w.id))
+    const eOk = elems.filter((e) => !picked.has(e))
+    const buckets = {}
+    stats.slots++
+    const defOk = passOk.filter((p) => DEFENSIVE.has(p))
+    const utilOk = passOk.filter((p) => !DEFENSIVE.has(p))
+    if (defOk.length) buckets.defense = BUCKET_WEIGHTS.defense; else stats.absent.defense++
+    if (utilOk.length) buckets.utility = BUCKET_WEIGHTS.utility; else stats.absent.utility++
+    if (modOk.length) buckets.mod = BUCKET_WEIGHTS.mod; else stats.absent.mod++
+    if (wOk.length) buckets.weapon = BUCKET_WEIGHTS.weapon; else stats.absent.weapon++
+    // MUTATORS.unstable's elementWeightMul must keep a reader once ELEMENT_CARD_WEIGHT dies.
+    if (eOk.length) buckets.element = BUCKET_WEIGHTS.element * (run.mods.elementWeightMul ?? 1)
+    else stats.absent.element++
 
-    // The anomaly tier is rolled against the WHOLE ordinary table, not as one entry inside
-    // it — so it never perturbs the rarity ladder and can never deflect onto legendary (the
-    // first draft measured 16.1% legendary vs 3.5% shipped by walking down the table).
-    if (nEligible > 0) {
-      stats.anomalyRolls++
-      const aw = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_CARD * st.since)
-      if (Math.random() * (ORDINARY_TOTAL + aw) < aw) {
-        card = { kind: 'anomaly', id: pickW(eligible), rarity: 'anomaly' }
-        st.since = 0
-        anomalyThisPool = true
-      }
-    } else {
-      stats.emptyAnomalyPool++
-    }
-
-    if (!card) {
-      // BUCKET FIRST, THEN RARITY. Rolling rarity first deleted the weapon bucket on every
-      // roll whose rarity no available weapon happened to carry, redistributing its 22 points
-      // to whatever was left — measured up to 15pts of drift from the declared weights, and
-      // it varied per chapter AND per slot count. Rarity is a BONUS SCALAR; it must not
-      // decide the kind of card.
-      // Empty buckets are still dropped (nothing to offer), which is now the ONLY source of
-      // drift — counted in stats.absent so the budget is visible rather than inferred.
-      const passOk = passives.filter((p) => !picked.has(p))
-      const modCap = MODS_PER_WEAPON_PER_POOL ?? C.maxModsPerWeaponPerPool(run.choiceSlots ?? 2)
-      const modOk = mc.filter((m) => !picked.has(m.mod) && (modWeaponCount.get(m.weapon) ?? 0) < modCap)
-      const wOk = wp.filter((w) => !picked.has(w.id))
-      const eOk = elems.filter((e) => !picked.has(e))
-      const buckets = {}
-      stats.slots++
-      const defOk = passOk.filter((p) => DEFENSIVE.has(p))
-      const utilOk = passOk.filter((p) => !DEFENSIVE.has(p))
-      if (defOk.length) buckets.defense = BUCKET_WEIGHTS.defense; else stats.absent.defense++
-      if (utilOk.length) buckets.utility = BUCKET_WEIGHTS.utility; else stats.absent.utility++
-      if (modOk.length) buckets.mod = BUCKET_WEIGHTS.mod; else stats.absent.mod++
-      if (wOk.length) buckets.weapon = BUCKET_WEIGHTS.weapon; else stats.absent.weapon++
-      // MUTATORS.unstable's elementWeightMul must keep a reader once ELEMENT_CARD_WEIGHT dies.
-      if (eOk.length) buckets.element = BUCKET_WEIGHTS.element * (run.mods.elementWeightMul ?? 1)
-      else stats.absent.element++
-
-      const b = pickW(buckets)
-      if (b === 'defense' || b === 'utility') {
-        const from = b === 'defense' ? defOk : utilOk
-        card = mkPassive(run, from[(Math.random() * from.length) | 0], pickW(ROLL_WEIGHTS))
-      } else if (b === 'mod') {
-        // --focus=<weapon>: the player-agency lever. Up-weights ONE weapon's mods inside the mod
-        // bucket, so "I am building the tornado" becomes a thing the pool can actually serve.
-        // Same shape as MUTATORS.unstable's existing elementWeightMul, generalised.
-        let m
-        const focusOn = st.focus ?? FOCUS
-        if (focusOn) {
-          const w = {}
-          for (let i = 0; i < modOk.length; i++) w[i] = modOk[i].weapon === focusOn ? FOCUS_MUL : 1
-          m = modOk[Number(pickW(w))]
-        } else m = modOk[(Math.random() * modOk.length) | 0]
-        card = mkMod(run, m.weapon, m.mod, pickW(ROLL_WEIGHTS))
-      } else if (b === 'weapon') {
-        // Inherent rarity is a WEIGHT inside the bucket, never a filter — that keeps hole
-        // (legendary) and rainbow (mythic) rare FINDS without letting a rarity roll delete
-        // the whole bucket. Applied to `New!` only; an upgrade competes as a common and
-        // shows no tier, so owning a mythic doesn't inflate the mythic rate all run.
+    const b = pickW(buckets)
+    if (b === 'defense' || b === 'utility') {
+      const from = b === 'defense' ? defOk : utilOk
+      card = mkPassive(run, from[(Math.random() * from.length) | 0], pickW(ROLL_WEIGHTS))
+    } else if (b === 'mod') {
+      // --focus=<weapon>: the player-agency lever. Up-weights ONE weapon's mods inside the mod
+      // bucket, so "I am building the tornado" becomes a thing the pool can actually serve.
+      // Same shape as MUTATORS.unstable's existing elementWeightMul, generalised.
+      let m
+      const focusOn = st.focus ?? FOCUS
+      if (focusOn) {
         const w = {}
-        for (let i = 0; i < wOk.length; i++) {
-          w[i] = wOk[i].tag === 'New!' ? (P_RARITY_WEIGHTS[wOk[i].rarity] ?? 1) : WEAPON_UP_WEIGHT
-        }
-        const c = wOk[Number(pickW(w))]
-        card = { kind: 'weapon', id: c.id, rarity: c.tag === 'New!' ? c.rarity : 'upgrade', tag: c.tag }
-      } else if (b === 'element') {
-        card = mkElement(run, eOk[(Math.random() * eOk.length) | 0], pickW(ROLL_WEIGHTS))
+        for (let i = 0; i < modOk.length; i++) w[i] = modOk[i].weapon === focusOn ? FOCUS_MUL : 1
+        m = modOk[Number(pickW(w))]
+      } else m = modOk[(Math.random() * modOk.length) | 0]
+      card = mkMod(run, m.weapon, m.mod, pickW(ROLL_WEIGHTS))
+    } else if (b === 'weapon') {
+      // Inherent rarity is a WEIGHT inside the bucket, never a filter — that keeps hole
+      // (legendary) and rainbow (mythic) rare FINDS without letting a rarity roll delete
+      // the whole bucket. Applied to `New!` only; an upgrade competes as a common and
+      // shows no tier, so owning a mythic doesn't inflate the mythic rate all run.
+      const w = {}
+      for (let i = 0; i < wOk.length; i++) {
+        w[i] = wOk[i].tag === 'New!' ? (P_RARITY_WEIGHTS[wOk[i].rarity] ?? 1) : WEAPON_UP_WEIGHT
       }
+      const c = wOk[Number(pickW(w))]
+      card = { kind: 'weapon', id: c.id, rarity: c.tag === 'New!' ? c.rarity : 'upgrade', tag: c.tag }
+    } else if (b === 'element') {
+      card = mkElement(run, eOk[(Math.random() * eOk.length) | 0], pickW(ROLL_WEIGHTS))
     }
 
     if (!card) break
     cards.push(card)
     picked.add(card.id)
     if (card.kind === 'mod') modWeaponCount.set(card.weapon, (modWeaponCount.get(card.weapon) ?? 0) + 1)
+  }
+
+  // The anomaly tier: ONE roll per SCREEN, replacing a uniformly chosen slot — the shape v6.7.7
+  // ships (sim.js buildLevelUpChoices). It used to be rolled once per slot here, which delivered
+  // 1-(1-p)^slots and made the rarest tier 1.5x more frequent for a player who had bought the 3rd
+  // and 4th choice slot. Two consequences worth stating for whoever tunes Task 3 from this
+  // harness: (1) `cards.length > 1` is what enforces "never a screen's only offer", by
+  // construction rather than by a fallback; (2) st.since is still advanced per CARD by the caller,
+  // so with a per-screen roll the pity UNIT is now the open question Task 3 has to settle — the
+  // saturation numbers this harness prints are only comparable across runs of the same unit.
+  // Eligibility is computed before the roll and an empty pool costs no draw, exactly as in sim.js.
+  if (cards.length > 1) {
+    const eligible = {}
+    if (st.taken.size < MAX_ANOMALIES_PER_RUN) {
+      for (const a of ANOMALIES) {
+        if (st.taken.has(a.id) || picked.has(a.id)) continue
+        if (!a.when(run)) continue
+        eligible[a.id] = a.weight
+      }
+    }
+    if (Object.keys(eligible).length > 0) {
+      stats.anomalyRolls++
+      const aw = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_CARD * st.since)
+      if (Math.random() * (ORDINARY_TOTAL + aw) < aw) {
+        cards[(Math.random() * cards.length) | 0] = { kind: 'anomaly', id: pickW(eligible), rarity: 'anomaly' }
+        st.since = 0
+      }
+    } else {
+      stats.emptyAnomalyPool++
+    }
   }
   return cards
 }

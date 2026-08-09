@@ -191,11 +191,19 @@ const UI = {
   'Mythic': 'Mythique',
   'Legendary': 'Légendaire',
   // The other five are ADJECTIVES agreeing with a feminine 'rareté' ('Normale', 'Épique'); this
-  // one is a NOUN, because the tier is not a degree of rarity — it is a kind of card. Same word
-  // the game already uses for a Daily's mutators ('Anomalie du jour') and for the player
-  // themselves ('Ton anomalie'), which is a live copy collision on both sides (see ANOMALIES in
-  // config.js) and needs the owner's call, not a French-only fix.
-  'Anomaly': 'Anomalie',
+  // one is a NOUN, because the tier is not a degree of rarity — it is a kind of card. It is the
+  // SAME WORD in both dictionaries, which is the entry's whole point: the tier used to be called
+  // 'Anomaly'/'Anomalie', and that word is already spent three times over on this screen and the
+  // ones either side of it — the Daily's mutators ('Anomalie du jour', 'Les anomalies tordent les
+  // règles de cette partie'), the enemies (MUTATORS.overtime) and the player themselves ('Ton
+  // anomalie', six lines up). See RARITIES in config.js.
+  'Rupture': 'Rupture',
+
+  // anomaly cards (ANOMALIES in config.js): name, desc, and the `from` line under it
+  'Unstable Cores': 'Cœurs instables',
+  'Every elite drops an unstable core. Its blast grows with the run, and whatever it kills blows up too.':
+    "Chaque élite lâche un cœur instable. Son explosion grandit avec la partie, et tout ce qu'elle tue explose à son tour.",
+  'you killed an elite and something went critical': 'tu as tué une élite et quelque chose est devenu critique',
 
   // effect chip labels (EFFECT_LABELS in ui.js)
   'enemy spawns': 'apparitions ennemies',

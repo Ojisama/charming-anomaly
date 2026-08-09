@@ -784,7 +784,7 @@ Notes on the two newest, both user-authored:
 
 | card | risk |
 |---|---|
-| UNSTABLE CORES | **Not a risk — INTENDED.** User call: "that's the fun of crazy combos, high risk high reward." Do NOT cap the chain or add falloff; stacking with Elite Convention (`eliteEveryMul: 0.55`) is the payoff, consistent with the standing rule that spiky elites are a feature. **Verified escapable**, which is the test that actually matters (a threat may be impossible to ignore, never impossible to escape): `VOLATILE_FUSE` 0.8s vs `VOLATILE_RADIUS` 120px at `baseSpeed` 220px/s — the player clears the blast in 0.55s, and each bomb in a chain carries its own fuse, so a cascade propagates at 0.8s steps *behind* a running player. Watch instead: `VOLATILE_DMG` is a flat 20 and does **not** scale with `hpScale`, so the cascade is scary early and cosmetic late — that is the knob if it should stay dangerous. |
+| UNSTABLE CORES | **Not a risk — INTENDED.** User call: "that's the fun of crazy combos, high risk high reward." Do NOT cap the chain or add falloff; stacking with Elite Convention (`eliteEveryMul: 0.55`) is the payoff, consistent with the standing rule that spiky elites are a feature. **Verified escapable**, which is the test that actually matters (a threat may be impossible to ignore, never impossible to escape): `VOLATILE_FUSE` 0.8s vs `VOLATILE_RADIUS` 120px at `baseSpeed` 220px/s — the player clears the blast in 0.55s, and each bomb in a chain carries its own fuse, so a cascade propagates at 0.8s steps *behind* a running player. Watch instead: `VOLATILE_DMG` is a flat 20 and does **not** scale with `hpScale`, so the cascade is scary early and cosmetic late — that is the knob if it should stay dangerous. **Taken, v6.7.7**, and the paragraph above was wrong about where the chain comes from. Measured with the card forced on for whole runs, flat 20 produced **1.70 blast kills of 933 = 0.18% of a run's kills** and **zero** chained detonations, because a blast can never kill an ELITE (elite HP is `base.hp * ELITE.hpMul * hpScale`, so any blast derived from `VOLATILE_DMG` is 20-30% of it at every `t`) — "each bomb in a chain detonates the next elite" describes a mechanic the code could not produce. Shipped fix: the anomaly's bombs carry `core`, whose **enemy-side** damage is `VOLATILE_DMG * hpScale(t) * CORE_BLAST_ENEMY_MUL`, and **whatever a core kills drops its own core**. The cascade therefore runs through the trash, uncapped, as ruled. The player side stays flat 20 (priced against player maxHP, which does not ride `hpScale`), so escapability is unchanged. Re-measured, same rig: **21.5 detonations/run of which 15.5 are chained, 28.9 blast kills = 3.55% of kills**, self-hits 1.5/run. |
 | WILDFIRE | Uncapped cascade — ignite jumping on every death in a 200-enemy field never stops. Needs a jump budget per application. |
 | MINIMES | If decoys hold aggro reliably they do not add pressure, they **delete** it. Cadence and duration are the entire balance. |
 | DEADFALL | May trivialise undergrowth by turning its signature hazard into a free weapon — that hazard is the chapter's identity. |
@@ -806,8 +806,10 @@ Notes on the two newest, both user-authored:
   a new dominant pair on the rest.
 
 Notes for authoring: **UNSTABLE CORES has an intrinsic cost** — bombs damage the player too
-(`hurtPlayer`, sim.js:3128) as well as every enemy in radius (3131–3135), and a bomb's kill can
-detonate the next elite, so packs chain over `VOLATILE_FUSE`.
+(`hurtPlayer`, sim.js) as well as every enemy in radius. **A bomb's kill cannot detonate the next
+ELITE and never could** (see the risk table above): the chain is carried by ordinary enemies the
+blast kills, each of which drops its own core, so packs chain over `VOLATILE_FUSE` from the trash
+outward rather than elite to elite.
 
 #### AVARICE — priced against a measured coin rate (2026-08-08)
 

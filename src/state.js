@@ -684,13 +684,19 @@ function generateWells(sig) {
  * once here and read wherever that key is consumed. Both are set once at createRun and never
  * mutated mid-run.
  *
- * bombs[i]: { x, y, radius, fuse, duration, dmg }  volatile-elite death bombs (v4.0). fuse
- *           counts down to 0 (duration is its starting value, kept so render can draw a
- *           growing warning telegraph from fuse/duration); when the fuse expires sim.js
+ * bombs[i]: { x, y, radius, fuse, duration, dmg, src?, core? }  volatile-elite death bombs
+ *           (v4.0). fuse counts down to 0 (duration is its starting value, kept so render can
+ *           draw a growing warning telegraph from fuse/duration); when the fuse expires sim.js
  *           removes the bomb, damages the player if inside radius (same armor/
  *           contactDmgTakenMul path as contact damage) and any enemies inside radius (via
  *           dealDamage), and emits {type:'explode', x, y, radius} (same event shape as a
  *           mine pop or star blast).
+ *           core (v6.7.7): this bomb came from ANOMALIES.unstableCores rather than from the
+ *           rolled `volatile` elite affix. Two differences, both enemy-side only: its damage to
+ *           ENEMIES is dmg * hpScale(run.time) * CORE_BLAST_ENEMY_MUL (the player still takes the
+ *           flat dmg), and every enemy it kills drops a core of its own — the cascade, uncapped.
+ *           `src` stays 'volatile' on both so render.js's bombSrc keeps its drawer; a new src
+ *           value falls through to the generic red telegraph (the v5.10.1 P0).
  *
  * v5.0 chapter behavior flags (see CHAPTERS in config.js and sim.js's spawnEnemy/dealDamage/
  * stepEnemyMovement/stepContactDamage/stepPools/stepCurrents/stepObstacles):
