@@ -10,6 +10,7 @@ import {
   SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
+  CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, hasWeaponAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
@@ -304,6 +305,58 @@ function testRaritySanity() {
 // The shipped roll picked a RARITY first and walked DOWN the ladder when that rarity had no
 // options, which deleted the weapon bucket on every roll no weapon happened to carry. Buckets
 // are now explicit and rolled first. See B1 in the Track B spec.
+// ---- Run PB6: the per-chapter hpScale tail (v7.1) -----------------------------------
+// Track B's pool is a net power buff, and the chosen lever is the END of the run per chapter
+// rather than a flat multiplier. Two properties are asserted here because both are load-bearing
+// and both are easy to break silently.
+function testChapterLateRate() {
+  // Every chapter in the ladder, and an unknown one falls back rather than throwing.
+  for (const [id, rate] of Object.entries(CHAPTER_LATE_RATE)) {
+    assert.strictEqual(lateRateFor(id), rate, `lateRateFor(${id}) must return its ladder value`)
+  }
+  assert.strictEqual(lateRateFor('blank'), HP_SCALE_LATE_RATE, 'an off-ladder chapter keeps the shipped curve')
+  assert.strictEqual(lateRateFor(undefined), HP_SCALE_LATE_RATE, 'no chapter keeps the shipped curve')
+
+  // The ladder is ordered: later chapters end harder.
+  const order = ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']
+  for (let i = 1; i < order.length; i++) {
+    assert.ok(CHAPTER_LATE_RATE[order[i]] > CHAPTER_LATE_RATE[order[i - 1]],
+      `${order[i]} must end harder than ${order[i - 1]}`)
+  }
+
+  // PROPERTY 1 — SELF-TARGETING. Before HP_SCALE_LATE_START the rate cannot matter at all, which
+  // is the entire argument for this lever over a flat multiplier: a run that dies early is never
+  // touched. Measured consequence, worth knowing before tuning: city's bot dies at ~132s, so
+  // raising city's number changes NOTHING about city. Only HP_SCALE_LATE_START could.
+  for (const t of [0, 60, HP_SCALE_LATE_START]) {
+    assert.strictEqual(hpScale(t, 0.045), hpScale(t, 0.005),
+      `at t=${t}s (<= HP_SCALE_LATE_START) the tail rate must be inert`)
+  }
+  assert.ok(hpScale(HP_SCALE_LATE_START + 1, 0.045) > hpScale(HP_SCALE_LATE_START + 1, 0.005),
+    'one second past the start the rate must bite')
+
+  // PROPERTY 2 — it actually separates the chapters at the end of a run.
+  const bodyEnd = hpScale(300, CHAPTER_LATE_RATE.body)
+  const beyondEnd = hpScale(300, CHAPTER_LATE_RATE.beyond)
+  assert.ok(beyondEnd > bodyEnd * 2.5,
+    `beyond should end far harder than body (body ${bodyEnd.toFixed(1)}x, beyond ${beyondEnd.toFixed(1)}x)`)
+
+  // The default argument is what keeps the two ENEMY-SIDE damage sites on the shipped curve.
+  assert.strictEqual(hpScale(300), hpScale(300, HP_SCALE_LATE_RATE),
+    'hpScale() with no rate must equal the shipped rate')
+
+  // SOURCE TRIPWIRE. The wiring is one argument at one call site, and dropping it is a silent
+  // no-op: every chapter would quietly fall back to 0.005 with no test failing and no error. The
+  // two enemy-side sites must NOT gain one, or a difficulty knob starts buffing the player.
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('hpScale(run.time, lateRateFor(run.chapter))'),
+    'spawnEnemy must pass the chapter tail rate — without it the ladder is inert everywhere')
+  assert.strictEqual((src.match(/hpScale\(run\.time, /g) ?? []).length, 1,
+    'exactly ONE hpScale call may take a rate (spawnEnemy). The snap-trap and core-blast sites are enemy-side damage: scaling those with the ladder buffs the player in late chapters.')
+
+  console.log(`PASS run PB6 (chapter tail): body ${bodyEnd.toFixed(1)}x -> beyond ${beyondEnd.toFixed(1)}x at t=300, inert before ${HP_SCALE_LATE_START}s, wired at exactly one site`)
+}
+
 function testPoolBuckets() {
   const sample = (chapter, slots, weapons, mods = null, tierEligible = false) => {
     Math.random = mulberry32(20260808)
@@ -9676,6 +9729,7 @@ try {
   testRaritySanity()
   testPoolBuckets()
   testAnomalyTier()
+  testChapterLateRate()
   testAnomalyPity()
   testRerollRarity()
   testStarMods()

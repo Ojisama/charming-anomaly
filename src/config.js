@@ -1970,10 +1970,42 @@ export const spawnRate = (t) => {
 // vs the old formula's flat 4.3x).
 export const HP_SCALE_LATE_START = 150
 export const HP_SCALE_LATE_RATE = 0.005
-export const hpScale = (t) => {
+// v7.1: the tail steepens PER CHAPTER — a LATE-GAME DIFFICULTY RAMP, not a clawback of Track B's
+// power gain. Do not describe it as an offset; two measurements say it cannot be one:
+//   - body is exempt BY DESIGN (0.005 is the shipped rate). Owner call 2026-08-09: chapter 1 keeps
+//     the full gift of the redesign. body/2 d3, 40 runs: 0.005 -> 25.0% win / level 17.5;
+//     0.022 -> 10.0% / 15.3; 0.045 -> 0.0% / 13.2. So an offset there would be ~0.022, and is
+//     deliberately not applied.
+//   - city is exempt BY ACCIDENT. Its bot dies at 132s and the tail starts at 150s, so rate 0.028
+//     measured byte-identical to 0.005. Any chapter dying before HP_SCALE_LATE_START is untouchable
+//     at any rate.
+// The lever was still the right choice over a flat enemy-HP multiplier, which reached the same
+// difficulty by deleting 10% of a run's level-ups — a level-up is a choice moment, and choice
+// moments are what the redesign exists to create.
+//
+// TWO PROPERTIES OF THIS LEVER, both measured, both worth knowing before tuning it:
+//   1. It is SELF-TARGETING, which is the argument for it: a run that dies before
+//      HP_SCALE_LATE_START is never touched at all. A struggling player is left alone by
+//      construction, where a flat multiplier punishes them hardest.
+//   2. The same property makes it INERT wherever runs end early. Measured: city at rate 0.028 is
+//      byte-identical to 0.005 (median death 132.3s, level 5.2, weaponLvSum 2.8) because its bot
+//      dies 18s before the tail begins. Raising a chapter's number here cannot make its EARLY game
+//      harder — only HP_SCALE_LATE_START can, and lowering that is the thing this lever exists to
+//      avoid.
+export const CHAPTER_LATE_RATE = {
+  body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
+  city: 0.028, skies: 0.036, beyond: 0.045,
+}
+// Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
+export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
+// `rate` defaults to the shipped constant so the two ENEMY-SIDE damage call sites (the snap trap's
+// damage TO enemies, and a core blast's) keep the old curve. Scaling those with the chapter ladder
+// would make a late beyond run's traps and Ruptures hit 6x harder than a body run's — a player BUFF
+// riding on a difficulty knob, which is the opposite of the intent.
+export const hpScale = (t, rate = HP_SCALE_LATE_RATE) => {
   const base = 1 + t / 90
   if (t <= HP_SCALE_LATE_START) return base
-  return base * (1 + HP_SCALE_LATE_RATE * (t - HP_SCALE_LATE_START))
+  return base * (1 + rate * (t - HP_SCALE_LATE_START))
 }
 // enemy contact damage scales with time too (v6.3.4 anti-turtle): linear ×2 at RUN_DURATION,
 // deliberately milder than hpScale's late-quad — spawn rate already accelerates after 120s and a

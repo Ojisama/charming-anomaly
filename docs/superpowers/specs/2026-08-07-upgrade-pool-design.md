@@ -9,9 +9,13 @@ Measured against the SHIPPED pool (body/2, 20 runs) — the first time this tabl
 `defense want 19.0 got 19.5 · utility 11.0/10.3 · mod 30.0/26.6 · weapon 22.0/23.9 · element 18.0/19.7`.
 The mod bucket is the one under-delivering.
 
+**The per-chapter `hpScale` tail ladder shipped in v7.1.0** — but read the box under its table before
+treating it as the power-gain offset. It is a late-game difficulty ramp for chapters that survive
+past 150s; body is exempt by design and city is exempt by accident, so **the pool's power gain is
+still un-clawed-back in practice**.
+
 **Still open:** the card slate — `ANOMALIES` holds **one** card, so every rate constant below is
-sized against an 18-card table that does not exist yet. The power-gain offset (the per-chapter
-`hpScale` tail ladder) is **not** applied, so the pool is currently more generous than designed.
+sized against an 18-card table that does not exist yet.
 **Track A is unblocked** by the element bucket shipping.
 
 **Verify with:** `node scripts/pool-probe.mjs <chapter> <slots> <runs> [policy]` — run it twice with
@@ -278,12 +282,37 @@ neutralise — but even there it holds level-ups *above* baseline (27.0 vs 21.3)
 | | body | pond | garden | undergrowth | city | skies | beyond |
 |---|---|---|---|---|---|---|---|
 | **RATE** | **0.005** | 0.010 | 0.015 | 0.020 | 0.028 | 0.036 | **0.045** |
-| hpScale(300) | 7.6× | 9.6× | 11.5× | 13.4× | 16.5× | 19.6× | 22.6× |
+| hpScale(300) | 7.6× | 10.8× | 14.1× | 17.3× | 22.5× | 27.7× | **33.6×** |
+
+> **The hpScale(300) row was WRONG in every column but body** and is corrected above (v7.1). It read
+> `7.6 / 9.6 / 11.5 / 13.4 / 16.5 / 19.6 / 22.6`, understating the steepest rung by **49%** — beyond
+> is 33.6×, not 22.6×. The formula is `(1 + t/90) × (1 + rate × (t − 150))`, i.e. `4.33 × 7.75` at
+> beyond's 0.045. It matters because the "before shipping" note below asked for beyond's number to be
+> played before locking it, and quoted the wrong one. Owner call, 2026-08-09: ship 0.045 anyway and
+> fix the figure — the measured effect under the bot is modest (median death 201 → 188s) because most
+> runs die long before the tail compounds.
 
 Chapter 1 keeps the shipped curve, so it keeps the full gift of the redesign — right for onboarding,
 and consistent with how heavily body is already eased. The end of the run then gets progressively
 more brutal per chapter, which is "difficulty that never plateaus" expressed on the axis where it
 costs no choice moments.
+
+> **So this ladder is NOT an offset, and calling it one is the mistake to avoid.** Measured post-ship
+> (body/2 d3, 40 runs, kite-and-collect bot — a floor on player skill, not a model of one):
+>
+> - **body is exempt by design** at 0.005, and body is precisely where the pool buff was measured. It
+>   wins 25.0% today against a pre-Track-B 7.5%. Offsetting it would need ~0.022 (measured: 10.0% win,
+>   level 15.3, weaponLvSum 6.0 against the old 3.2 — difficulty restored, composition kept). Owner
+>   call, 2026-08-09: **keep body exempt.** Onboarding stays generous and the buff there is accepted.
+> - **city is exempt by accident.** `HP_SCALE_LATE_START` is 150s and city's bot dies at 132s, so
+>   rate 0.028 measured *byte-identical* to 0.005 — same median death, same level, same weaponLvSum.
+>   Any chapter whose runs end before 150s is untouchable by this lever at any rate. Only lowering
+>   `HP_SCALE_LATE_START` reaches them, and not doing that is the whole argument for this lever.
+>
+> What the ladder actually is: **a late-game difficulty ramp for the chapters whose runs survive past
+> 150s.** That is worth having on its own terms. It is not a clawback of the pool's power gain, and
+> the pool remains more generous than pre-Track-B in every chapter that dies early — which is most
+> of them.
 
 **Before shipping:**
 

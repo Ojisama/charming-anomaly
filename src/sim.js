@@ -39,7 +39,7 @@ import {
   ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
   ENEMIES, ELITE, WAVE_TABLE,
-  spawnRate, hpScale, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
+  spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
@@ -1001,7 +1001,10 @@ function spawnEnemy(run, opts = {}) {
   // deals nothing, hitIds blocks a second try, and the pigeon strolls out from under it with a
   // floating "0". Measured over 10 five-minute city runs: 1193 of 13515 taxi hits (8.8%) dealt zero.
   // Rounding at every point hp is ASSIGNED keeps it integral forever, which kills the whole class.
-  let hp = base.hp * hpScale(run.time) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
+  // v7.1: the tail rate is PER CHAPTER (lateRateFor). This is the only site that passes one — the
+  // two enemy-side damage sites keep hpScale's default, since scaling those with a difficulty knob
+  // would buff the player. Read once at spawn, like the rest of this line.
+  let hp = base.hp * hpScale(run.time, lateRateFor(run.chapter)) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
   const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
   const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
   const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul * (roster?.radiusMul ?? 1)
