@@ -2,16 +2,20 @@
 // level-up screen actually OFFERS — the measurement behind every number in
 // docs/superpowers/specs/2026-08-07-upgrade-pool-design.md.
 //
-//   node scripts/pool-probe.mjs [chapter] [slots] [runs] [policy] [--proposed|--compare]
+//   node scripts/pool-probe.mjs [chapter] [slots] [runs] [policy] [flags]
 //
 //   chapter  body|pond|garden|undergrowth|city|skies|beyond   (default body)
 //   slots    2..4 level-up cards                              (default 2)
 //   runs     sims to average over                             (default 40)
 //   policy   random|defense|dps — which card the run picks     (default random)
-//   --proposed   run the Track B pipeline instead of the shipped one
-//   --compare    run both and print a side-by-side diff
+//   (v6.7.14: --proposed and --compare are GONE. They existed to diff the shipped pool against
+//   `proposedChoices`, a hand-written second implementation of buildLevelUpChoices that this file
+//   carried while Track B was unshipped. Track B shipped in v6.7.4-v6.7.11, so the shim was
+//   measuring a pipeline nobody runs — and because fidelity() was only ever called on it, the
+//   declared-vs-achieved bucket table described the DEAD pipeline and could not be pointed at the
+//   real one at all. To A/B now, run this TWICE with the same seeds and diff the rows.)
 //   --survival   mortal probe: kiting bot, no HP refill, no mega-magnet. Answers "is it still
-//                hard?" — pair with --compare. Everything else measures OFFERS, not difficulty.
+//                hard?" Everything else measures OFFERS, not difficulty.
 //   --diff=N     run difficulty 1..5 (default 1). d1 with a stocked shop is at the win ceiling;
 //                use d3+ to discriminate.
 //   --shop=N     permanent shop level 0..10 per upgrade. Defaults off the sacrifice ladder
@@ -19,7 +23,7 @@
 //   --offset=N   enemy HP xN, PROPOSED pipeline only — measures how much clawback neutralises
 //                the pool's power gain.
 //   --rerolls=N  measure the pool a player who PAID for N rerolls of every screen actually sees
-//                (v6.7.11). SHIPPED pipeline only — the proposed shim has no reroll model. Without
+//                (v6.7.11). Without
 //                it every row of this harness describes an unrerolled screen, which is not the
 //                screen the REROLL_RARITY_DECAY table in config.js is about:
 //                  node scripts/pool-probe.mjs body 3 40 random --rerolls=3
@@ -37,31 +41,35 @@
 // (it refills HP every frame) and vacuums gems with a huge magnet, so it is NOT valid
 // for survival, time-to-death, or difficulty questions. Those need a different rig.
 //
-// ponytail: the --proposed pipeline is a SHIM that re-implements buildLevelUpChoices
-// against the tuning block below, so weights can be tuned before any src/ change. Once
-// Track B ships, delete `proposedChoices` and point the flag at the real function.
+// The tuning block below is now a READOUT of config.js, not a parallel set of knobs: the pool it
+// measures is the shipped one. Override a line there to try a value before touching config.js.
 import { createRun } from '../src/state.js'
 import { stepSim, applyChoice, anomalyWeightFor, buildLevelUpChoices } from '../src/sim.js'
 import * as C from '../src/config.js'
 
-// ─── TUNING: the Track B proposal. Edit these, re-run --compare, read the diff. ────────
+// ─── TUNING: mirrors of the shipped config. Edit one, re-run, read the diff. ───────────
 // v6.7.5: defence and utility are two BUCKETS, matching config.js — a weight inside one passive
 // bucket left the seven non-defensive passives' share implicit (and untested). Weights sum to 100,
 // so each one reads as its declared share of the table.
-const BUCKET_WEIGHTS = { defense: 19, utility: 11, mod: 30, weapon: 22, element: 18 }
-const DEFENSIVE = new Set(['armor', 'regen', 'maxHP'])
+// v6.7.14: these ALIAS config rather than restating it. A hand-kept copy that has drifted is a
+// harness measuring a pool nobody plays, and this file has already sprung that trap once — its
+// anomaly constants were still 8/4 after config.js was tuned to 12/2. DEFENSIVE is the urgent one:
+// it is read on the live measurement path (defOffered), so a drifted copy corrupts the defence
+// share in every report, not just a dead column. Override a line here to try a value first.
+const BUCKET_WEIGHTS = C.BUCKET_WEIGHTS
+const DEFENSIVE = new Set(C.DEFENSIVE_PASSIVES)
 // Mythic is RETAINED: rainbow (the city starter) is mythic, WEAPON_MOD_TIER_BONUS has a
 // live mythic:3, and it is the only jackpot card left once anomalies produce no stats.
-const P_RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, mythic: 3 }
+const P_RARITY_WEIGHTS = C.RARITY_WEIGHTS
 // Weapon rarity gates ACQUISITION, not levelling. A `New!` card carries the weapon's rarity —
 // that IS the jackpot moment. An upgrade card carries none: weighting owned weapons by their
 // rarity too made beyond read 16.6% legendary weapon offers and city 4.2% mythic, because the
 // colour kept re-firing for a jackpot the player already had.
-const WEAPON_UP_WEIGHT = 100
+const WEAPON_UP_WEIGHT = C.WEAPON_UP_WEIGHT
 // Override for the per-pool per-weapon mod cap. A flat 1 starves the mod bucket at 4 slots
 // (measured absent 15.5% of rolls in beyond); a flat 2 floods a 2-slot star-only pool. v6.7
 // shipped that as the slot-aware maxModsPerWeaponPerPool(slots), so the default is now null =
-// use config's value — otherwise --compare would be diffing two different mod caps.
+// use config's value.
 const MODS_PER_WEAPON_PER_POOL = null
 // v6.7.7: these DEFAULT to the shipped constants rather than duplicating them. The tier ships, so
 // a hand-kept copy that has drifted is a harness measuring a pipeline nobody runs — this file's
@@ -90,21 +98,12 @@ const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1
 // screen from scratch.
 const REROLLS = Number(args.find((a) => a.startsWith('--rerolls='))?.slice(10) ?? 0)
 const XPMUL = Number(args.find((a) => a.startsWith('--xpmul='))?.slice(8) ?? 1)
-// How many of a weapon's mods are CANDIDATES each pool (shipped MOD_CANDIDATES_PER_WEAPON = 2).
-// The deliverability knob: it decides whether "aim for prismatic" is a strategy the pool can serve.
-// It does NOT widen a screen — MODS_PER_WEAPON_PER_POOL still caps how many reach the player — it
-// widens which mods are ELIGIBLE to be drawn.
-const MOD_CANDS = Number(args.find((a) => a.startsWith('--modcands='))?.slice(11) ?? C.MOD_CANDIDATES_PER_WEAPON)
-// --focus=<weaponId> [--focusmul=N]: model the player-directed weighting the user asked for
-// (2026-08-08) — trading roll chance between buckets/weapons for a cost. Applied to PROPOSED only.
-const FOCUS = args.find((a) => a.startsWith('--focus='))?.slice(8) ?? null
-const FOCUS_MUL = Number(args.find((a) => a.startsWith('--focusmul='))?.slice(11) ?? 3)
-// --specialist=N: the GATED focus. Unlike --focus (which biases a weapon from t=0 regardless of
-// whether it is owned), this fires only once a weapon has N mod picks — i.e. it models the
-// Specialist card actually being taken, on a weapon the player demonstrably owns and is building.
-// The distinction matters: the blanket version barely moved deliverability, and the suspected
-// reason was that late-acquired weapons have too few pools left, which a gate does not suffer.
-const SPECIALIST = Number(args.find((a) => a.startsWith('--specialist='))?.slice(13) ?? 0)
+// v6.7.14: --modcands, --focus/--focusmul and --specialist are GONE. All four biased the mod
+// bucket INSIDE proposedChoices, so with the shim deleted they had nothing left to act on:
+// --modcands in particular could never have worked against the shipped pool, because sim.js reads
+// MOD_CANDIDATES_PER_WEAPON from config directly. Leaving a flag that parses and then silently
+// changes nothing is worse than not having it — it reads as a measurement that was taken.
+// To ask those questions again, change the constant in config.js and run this twice.
 // --laterate / --latestart: reshape the TAIL of hpScale instead of multiplying it flat.
 // hpScale(t) = (1 + t/90) * (t <= START ? 1 : 1 + RATE*(t - START))   [config.js:1467]
 // hpScale is a module-level import sim.js cannot be made to re-read, but spawnEnemy multiplies
@@ -122,7 +121,8 @@ const RESHAPED = LATE_RATE !== C.HP_SCALE_LATE_RATE || LATE_START !== C.HP_SCALE
 const curveRatio = (t) =>
   curve(t, LATE_START, LATE_RATE) / curve(t, C.HP_SCALE_LATE_START, C.HP_SCALE_LATE_RATE)
 
-// ---- Anomaly-card emulation (proposed mode only). All three ride live `run` knobs, no src change.
+// ---- Card emulation. All of these ride live `run` knobs, so they need no src change — and they
+// were never shim-specific, despite having been gated to it until v6.7.14.
 // --timescale=N  TIME DEBT: the run CLOCK runs at N x while weapons, movement and regen stay on the
 //   real one. Everything that reads run.time (hpScale, dmgScale = 1 + t/300, spawnRate, eliteEvery,
 //   victory at RUN_DURATION) therefore arrives N x sooner, but your dps and sustain do not scale
@@ -143,11 +143,10 @@ const OVERLOAD_COST = Number(args.find((a) => a.startsWith('--overload='))?.slic
 //   Overload's per-second cost, carry no cadence hazard — they scale a beam and a shotgun alike.
 const FIRE_MUL = Number(args.find((a) => a.startsWith('--fire='))?.slice(7) ?? 1)
 const DMG_MUL = Number(args.find((a) => a.startsWith('--dmg='))?.slice(6) ?? 1)
-// --rarityfloor=<tier>  BLIND FAITH: drop every tier below <tier> from the rarity roll. Read only
-//   inside proposedChoices, so it is proposed-only by construction. Run it as proposed-vs-proposed
-//   (two --proposed invocations, same seeds) — comparing against the CURRENT pipeline would fold
-//   the redesign's own buff into the card's.
-const RARITY_FLOOR = args.find((a) => a.startsWith('--rarityfloor='))?.slice(14) ?? null
+// v6.7.14: --rarityfloor (the BLIND FAITH probe) is GONE with the shim it was read inside. The
+// card is still unbuilt and its measurement still matters — see the spec — but it must be re-added
+// against the shipped roll in sim.js, not re-implemented here. A second implementation of the
+// rarity roll is what this deletion was about.
 // --spread=N  IPECAC-as-COUNT (user 2026-08-08: "3x projectiles, or beam arms, or 3 claws in
 //   different directions" instead of 3x damage). Grants +N to every OWNED weapon's count mod, once
 //   per weapon, as it is acquired. Every weapon has such a mod — that is the whole reason this
@@ -162,27 +161,6 @@ const COUNT_MOD = {
   star: 'multishot', orbit: 'extraOrb', wave: 'echo', boomerang: 'extraRang', mines: 'minefield',
   homing: 'extraWisp', hole: 'singularity', rainbow: 'prismatic', bloom: 'twinBloom',
 }
-// The table the rarity ROLL draws from. Weapon inherent rarity (the `New!` acquisition gate) keeps
-// reading the unfiltered P_RARITY_WEIGHTS below — that is a different question and a floor there
-// would silently delete common weapons from the pool rather than upgrade the roll.
-const ROLL_WEIGHTS = (() => {
-  if (!RARITY_FLOOR) return P_RARITY_WEIGHTS
-  // The valid tiers are the ones with a ROLL WEIGHT, not the ones in RARITY_ORDER: 'anomaly' is
-  // last in that array but is a PARALLEL tier with no RARITY_WEIGHTS entry (it is rolled against
-  // the ordinary table's total, not inside it), so offering it here as a floor is offering a floor
-  // that deletes the table. Naming RARITY_ORDER in the error advertised exactly that.
-  const tiers = Object.keys(P_RARITY_WEIGHTS)
-  const i = tiers.indexOf(RARITY_FLOOR)
-  if (i < 0) throw new Error(`--rarityfloor: unknown tier "${RARITY_FLOOR}" (${tiers.join('|')})`)
-  // v6.7.6 filtered 'anomaly' out of the sliced table instead, which turned a loud throw into
-  // silent garbage: the filter left ROLL_WEIGHTS empty, pickW({}) returns null, and every
-  // passive/mod/element card was then built with `rarity: null` — measured as a rarity line
-  // summing to 28.3% of cards, the other 72% carrying no tier at all and scoring at rarityMult(1).
-  // Measuring BLIND FAITH (the card that removes the rarity floor) through that reads as a nerf.
-  const out = Object.fromEntries(tiers.slice(i).map((r) => [r, P_RARITY_WEIGHTS[r]]))
-  if (!Object.keys(out).length) throw new Error(`--rarityfloor: "${RARITY_FLOOR}" leaves no tier to roll`)
-  return out
-})()
 
 // Permanent shop progression, 0..10 per upgrade. Zero is only honest for a chapter-1 first run:
 // nobody reaches city (ch5) or buys a 4th slot without a stocked shop, and a survival number from
@@ -200,95 +178,7 @@ const makeMeta = () => ({
   choiceSlots: SLOTS,
 })
 
-// Anomaly stand-ins. The real card list is still open work (see the spec's "Open work"),
-// so these model the ELIGIBILITY SHAPE rather than specific cards — which is what drives
-// offer rate. Adjust the counts per gate to ask "if I write N easy-conditional cards,
-// what does the anomaly curve look like?".
-//   always   unconditional, but level-gated so a new player's first anomaly is not a curse
-//   easy     one thing invested twice
-//   hard     two named things at 3 picks each  (measured near-unreachable at 2 slots)
-//   chapter  chapter-scoped, gated behind surviving the signature hazard
-const el = (r, id) => r.elementPicks[id] ?? 0
-const pp = (r, id) => r.passivePicks[id] ?? 0
-const ANOMALY_GATES = {
-  always: { n: 4, weight: 1, when: (r) => r.player.level >= 8 },
-  easy: { n: 6, weight: 6, when: (r) => el(r, 'fire') >= 2 || pp(r, 'damage') >= 2 },
-  hard: { n: 5, weight: 6, when: (r) => pp(r, 'critChance') >= 3 && pp(r, 'critDamage') >= 3 },
-  chapter: { n: 3, weight: 2, when: (r) => r.player.level >= 10 },
-}
-const ANOMALIES = []
-for (const [gate, cfg] of Object.entries(ANOMALY_GATES)) {
-  for (let i = 0; i < cfg.n; i++) ANOMALIES.push({ id: `${gate}${i}`, gate, weight: cfg.weight, when: cfg.when })
-}
-
-const pickW = (obj) => {
-  let tot = 0
-  for (const v of Object.values(obj)) tot += v
-  if (tot <= 0) return null
-  let r = Math.random() * tot
-  for (const [k, v] of Object.entries(obj)) { r -= v; if (r <= 0) return k }
-  return Object.keys(obj)[0]
-}
-const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]] } return a }
 const rarityMult = (r) => C.RARITIES[r]?.mult ?? 1
-
-function arsenalInvestment(run) {
-  let n = 0
-  for (const w of run.weapons) n += w.level - 1
-  for (const mods of Object.values(run.weaponModPicks)) for (const p of Object.values(mods)) n += p
-  return n
-}
-
-// Weapons keep their INHERENT rarity gating inside the bucket — that filter is the only
-// thing making hole (legendary) and rainbow (mythic) rare finds, and a bucket that ignores
-// it silently doubles their appearance rate.
-function weaponCands(run) {
-  const owned = new Set(run.weapons.map((w) => w.id))
-  const list = []
-  if (run.weapons.length < C.MAX_WEAPONS) {
-    const pNew = C.newWeaponChance(arsenalInvestment(run))
-    for (const id of C.CHAPTERS[run.chapter].weapons) {
-      if (!owned.has(id) && Math.random() < pNew) list.push({ id, rarity: C.WEAPONS[id].rarity, tag: 'New!' })
-    }
-  }
-  for (const w of run.weapons) {
-    if (w.level < C.MAX_WEAPON_LEVEL) list.push({ id: w.id, rarity: C.WEAPONS[w.id].rarity, tag: 'up' })
-  }
-  return list
-}
-
-function modCands(run) {
-  const out = []
-  for (const w of run.weapons) {
-    const cfgs = C.WEAPON_MODS[w.id]
-    if (!cfgs) continue
-    const picks = run.weaponModPicks[w.id]
-    const avail = Object.keys(cfgs).filter((m) => (picks?.[m] ?? 0) < C.MAX_WEAPON_MOD_PICKS)
-    shuffle(avail)
-    // --modcands=N overrides MOD_CANDIDATES_PER_WEAPON (shipped 2). At 2, only 2 of a weapon's 6-7
-    // mods are candidates in a pool, which is why a NAMED mod appears in as few as 20% of runs.
-    for (const m of avail.slice(0, MOD_CANDS)) out.push({ weapon: w.id, mod: m })
-  }
-  return out
-}
-
-function mkPassive(run, id, rarity) {
-  const cfg = C.PASSIVES[id]
-  let bonus = cfg.base * rarityMult(rarity)
-  if (cfg.kind === 'flat') bonus = Math.round(bonus * 10) / 10
-  return { kind: 'passive', id, rarity, bonus }
-}
-function mkMod(run, w, m, rarity) {
-  const cfg = C.WEAPON_MODS[w][m]
-  let bonus
-  if (cfg.kind === 'tier') bonus = C.WEAPON_MOD_TIER_BONUS[rarity]
-  else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * rarityMult(rarity)))
-  else bonus = cfg.base * rarityMult(rarity)
-  return { kind: 'mod', id: m, weapon: w, rarity, bonus }
-}
-const mkElement = (run, id, rarity) => ({ kind: 'element', id, rarity, bonus: C.ELEMENTS[id].base * rarityMult(rarity) })
-
-const ORDINARY_TOTAL = Object.values(P_RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
 
 const stats = {
   anomalyRolls: 0, emptyAnomalyPool: 0, shortPools: 0, pools: 0,
@@ -298,136 +188,11 @@ const stats = {
   slots: 0, absent: { defense: 0, utility: 0, mod: 0, weapon: 0, element: 0 },
 }
 
-function proposedChoices(run, st) {
-  const wp = weaponCands(run)
-  const passives = Object.keys(C.PASSIVES).filter((id) => (run.passivePicks[id] ?? 0) < C.MAX_PASSIVE_LEVEL)
-  const mc = modCands(run)
-  const elems = Object.keys(C.ELEMENTS).filter((id) => (run.elementPicks[id] ?? 0) < C.MAX_ELEMENT_PICKS)
-  // Specialist gate: the first weapon to reach SPECIALIST mod picks becomes the focus for the rest
-  // of the run (models taking the card the moment it is offered — a best case, state it as such).
-  if (SPECIALIST && !st.focus) {
-    for (const w of run.weapons) {
-      const n = Object.values(run.weaponModPicks[w.id] ?? {}).reduce((a, b) => a + b, 0)
-      if (n >= SPECIALIST) { st.focus = w.id; break }
-    }
-  }
-  const picked = new Set()
-  const modWeaponCount = new Map()
-  const cards = []
-  const slots = run.choiceSlots ?? 2
-
-  for (let s = 0; s < slots; s++) {
-    let card = null
-    // BUCKET FIRST, THEN RARITY. Rolling rarity first deleted the weapon bucket on every
-    // roll whose rarity no available weapon happened to carry, redistributing its 22 points
-    // to whatever was left — measured up to 15pts of drift from the declared weights, and
-    // it varied per chapter AND per slot count. Rarity is a BONUS SCALAR; it must not
-    // decide the kind of card.
-    // Empty buckets are still dropped (nothing to offer), which is now the ONLY source of
-    // drift — counted in stats.absent so the budget is visible rather than inferred.
-    const passOk = passives.filter((p) => !picked.has(p))
-    const modCap = MODS_PER_WEAPON_PER_POOL ?? C.maxModsPerWeaponPerPool(run.choiceSlots ?? 2)
-    const modOk = mc.filter((m) => !picked.has(m.mod) && (modWeaponCount.get(m.weapon) ?? 0) < modCap)
-    const wOk = wp.filter((w) => !picked.has(w.id))
-    const eOk = elems.filter((e) => !picked.has(e))
-    const buckets = {}
-    stats.slots++
-    const defOk = passOk.filter((p) => DEFENSIVE.has(p))
-    const utilOk = passOk.filter((p) => !DEFENSIVE.has(p))
-    if (defOk.length) buckets.defense = BUCKET_WEIGHTS.defense; else stats.absent.defense++
-    if (utilOk.length) buckets.utility = BUCKET_WEIGHTS.utility; else stats.absent.utility++
-    if (modOk.length) buckets.mod = BUCKET_WEIGHTS.mod; else stats.absent.mod++
-    if (wOk.length) buckets.weapon = BUCKET_WEIGHTS.weapon; else stats.absent.weapon++
-    // MUTATORS.unstable's elementWeightMul must keep a reader once ELEMENT_CARD_WEIGHT dies.
-    if (eOk.length) buckets.element = BUCKET_WEIGHTS.element * (run.mods.elementWeightMul ?? 1)
-    else stats.absent.element++
-
-    const b = pickW(buckets)
-    if (b === 'defense' || b === 'utility') {
-      const from = b === 'defense' ? defOk : utilOk
-      card = mkPassive(run, from[(Math.random() * from.length) | 0], pickW(ROLL_WEIGHTS))
-    } else if (b === 'mod') {
-      // --focus=<weapon>: the player-agency lever. Up-weights ONE weapon's mods inside the mod
-      // bucket, so "I am building the tornado" becomes a thing the pool can actually serve.
-      // Same shape as MUTATORS.unstable's existing elementWeightMul, generalised.
-      let m
-      const focusOn = st.focus ?? FOCUS
-      if (focusOn) {
-        const w = {}
-        for (let i = 0; i < modOk.length; i++) w[i] = modOk[i].weapon === focusOn ? FOCUS_MUL : 1
-        m = modOk[Number(pickW(w))]
-      } else m = modOk[(Math.random() * modOk.length) | 0]
-      card = mkMod(run, m.weapon, m.mod, pickW(ROLL_WEIGHTS))
-    } else if (b === 'weapon') {
-      // Inherent rarity is a WEIGHT inside the bucket, never a filter — that keeps hole
-      // (legendary) and rainbow (mythic) rare FINDS without letting a rarity roll delete
-      // the whole bucket. Applied to `New!` only; an upgrade competes as a common and
-      // shows no tier, so owning a mythic doesn't inflate the mythic rate all run.
-      const w = {}
-      for (let i = 0; i < wOk.length; i++) {
-        w[i] = wOk[i].tag === 'New!' ? (P_RARITY_WEIGHTS[wOk[i].rarity] ?? 1) : WEAPON_UP_WEIGHT
-      }
-      const c = wOk[Number(pickW(w))]
-      card = { kind: 'weapon', id: c.id, rarity: c.tag === 'New!' ? c.rarity : 'upgrade', tag: c.tag }
-    } else if (b === 'element') {
-      card = mkElement(run, eOk[(Math.random() * eOk.length) | 0], pickW(ROLL_WEIGHTS))
-    }
-
-    if (!card) break
-    cards.push(card)
-    picked.add(card.id)
-    if (card.kind === 'mod') modWeaponCount.set(card.weapon, (modWeaponCount.get(card.weapon) ?? 0) + 1)
-  }
-
-  // The anomaly tier: ONE roll per SCREEN, replacing a uniformly chosen slot — the shape v6.7.7
-  // ships (sim.js buildLevelUpChoices). It used to be rolled once per slot here, which delivered
-  // 1-(1-p)^slots and made the rarest tier 1.5x more frequent for a player who had bought the 3rd
-  // and 4th choice slot. Two consequences worth stating for whoever tunes Task 3 from this
-  // harness: (1) `cards.length > 1` is what enforces "never a screen's only offer", by
-  // construction rather than by a fallback; (2) v6.7.8 settled the pity UNIT — st.since is
-  // advanced once per SCREEN, exactly like run._screensSinceAnomaly, so the numbers this harness
-  // prints are comparable with the shipped pipeline's. Kept per CARD (`+= SLOTS`, as it was) a
-  // 4-slot player accrued pity twice as fast, which is the meta-shop lottery the per-screen roll
-  // exists to close, arriving through the pity term instead of the base rate.
-  // Eligibility is computed before the roll and an empty pool costs no draw, exactly as in sim.js.
-  // v6.7.9: it also gates the ADVANCE — the counter steps only on a screen the tier could have
-  // paid out on, which is why the step lives here and not in the caller. (The probe's bot never
-  // rerolls, so sim.js's per-screen memo of the outcome has no shim counterpart to write.)
-  if (cards.length > 1) {
-    const eligible = {}
-    if (st.taken.size < MAX_ANOMALIES_PER_RUN) {
-      for (const a of ANOMALIES) {
-        if (st.taken.has(a.id) || picked.has(a.id)) continue
-        if (!a.when(run)) continue
-        eligible[a.id] = a.weight
-      }
-    }
-    if (Object.keys(eligible).length > 0) {
-      stats.anomalyRolls++
-      st.since += 1
-      // st.since counts the screen being built, so the DRY screens behind it are st.since - 1 —
-      // the same arithmetic sim.js does, so a screen with nothing behind it rolls at exactly
-      // ANOMALY_BASE_WEIGHT in both implementations.
-      const aw = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * Math.max(0, st.since - 1))
-      stats.anomalyWeightSum += aw
-      if (aw >= ANOMALY_PITY_CAP) stats.anomalyCapped++
-      if (Math.random() * (ORDINARY_TOTAL + aw) < aw) {
-        stats.anomalyOffers++
-        cards[(Math.random() * cards.length) | 0] = { kind: 'anomaly', id: pickW(eligible), rarity: 'anomaly' }
-        st.since = 0
-      }
-    } else {
-      stats.emptyAnomalyPool++
-    }
-  }
-  return cards
-}
-
 // ─── SURVIVAL MODE (--survival) ────────────────────────────────────────────────────────
 // The default probe is IMMORTAL and cannot answer "is the run still hard?". Survival mode
 // drops the HP refill and the 4000px magnet and drives a kiting bot, so death time and win
-// rate become measurable. It answers exactly one question: does the proposed pool make the
-// game materially easier than the shipped one?
+// rate become measurable. It answers exactly one question: is this configuration materially
+// easier or harder than the one you measured last?
 //
 // BOT POLICY (state it with every number — intake figures on this repo are
 // bot-policy-sensitive): **kite-and-collect**. Flees nearby enemies with 1/d weighting so the
@@ -473,7 +238,7 @@ function kiteInput(run) {
   return { x: x / m, y: y / m }
 }
 
-// Per-run seeded RNG so `current` and `proposed` start from the same world. The two
+// Per-run seeded RNG so two invocations start from the same world. The two
 // pipelines consume different numbers of draws and diverge within a level, so this is
 // variance reduction and reproducibility, NOT a paired comparison — the sample size still
 // has to carry the result.
@@ -502,7 +267,7 @@ function choose(cards) {
   return best
 }
 
-function measure(mode) {
+function measure() {
   stats.anomalyRolls = stats.emptyAnomalyPool = stats.shortPools = stats.pools = 0
   // v6.7.9 pity diagnostics. anomalyRolls counts screens the tier was ELIGIBLE on (the only ones
   // that roll, and now the only ones that accrue pity); Offers, those that came up anomaly;
@@ -539,22 +304,22 @@ function measure(mode) {
     // clawback neutralises the pool's power gain. enemyHpMul is a live per-spawn knob
     // (sim.js:975), so this needs no src/ change. It is a stand-in for whichever lever ships —
     // xpForLevel is a module-level import and cannot be shimmed from here.
-    if (mode === 'proposed' && OFFSET !== 1) run.mods.enemyHpMul *= OFFSET
+    if (OFFSET !== 1) run.mods.enemyHpMul *= OFFSET
     // --xpmul=N: the xpForLevel offset, measured through the one lever the harness CAN reach.
     // xpForLevel is a module-level import (config.js:1544, sim.js:40) so it cannot be shimmed;
     // run.mods.xpMul (sim.js:5705) scales gem xp at pickup, which moves total picks the same way.
     // CONVERSION: cumulative xp to level L is sum(5 + 4l) ~ 5L + 2L^2, so the quadratic term
     // dominates and cost scales ~linearly in the coefficient. xpMul = m is therefore worth
     // xpForLevel = 5 + level * (4 / m). Approximate — verify the real curve once it ships.
-    if (mode === 'proposed' && XPMUL !== 1) run.mods.xpMul *= XPMUL
+    if (XPMUL !== 1) run.mods.xpMul *= XPMUL
     const baseHpMul = run.mods.enemyHpMul
     if (!SURVIVAL) run.player.magnet = 4000
-    if (mode === 'proposed' && OVERLOAD) {
+    if (OVERLOAD) {
       run.player.fireRateMul *= 2
       run.player.damageMul *= 2   // user 2026-08-08: double damage, not +50%
     }
-    if (mode === 'proposed' && FIRE_MUL !== 1) run.player.fireRateMul *= FIRE_MUL
-    if (mode === 'proposed' && DMG_MUL !== 1) run.player.damageMul *= DMG_MUL
+    if (FIRE_MUL !== 1) run.player.fireRateMul *= FIRE_MUL
+    if (DMG_MUL !== 1) run.player.damageMul *= DMG_MUL
     const st = { since: 0, taken: new Set() }
     const seenMods = new Set()
     const dt = 1 / 60
@@ -567,7 +332,7 @@ function measure(mode) {
     // Weapons arrive mid-run, so the grant is re-checked rather than applied once at setup.
     const spreadDone = new Set()
     const grantSpread = () => {
-      if (!SPREAD || mode !== 'proposed') return
+      if (!SPREAD) return
       for (const w of run.weapons ?? []) {
         const mod = COUNT_MOD[w.id]
         if (!mod || spreadDone.has(w.id)) continue
@@ -587,7 +352,7 @@ function measure(mode) {
         // because the reroll IS the screen as far as every downstream count is concerned — the
         // v6.7.9 memo keeps the tier's answer identical across the re-deals, which is the property
         // that makes "rerolls do not buy Ruptures" visible in this harness's anomaly line.
-        if (REROLLS > 0 && mode !== 'proposed') {
+        if (REROLLS > 0) {
           for (let r = 0; r < REROLLS; r++) {
             run._screenRerolls = (run._screenRerolls ?? 0) + 1
             run.levelUpChoices = buildLevelUpChoices(run)
@@ -599,22 +364,16 @@ function measure(mode) {
         // up" IS eligibility, and in both cases the value the roll used was prevSince + 1 (a hit
         // zeroes it afterwards). anomalyWeightFor is imported from sim.js so the harness cannot
         // drift from the shipped formula — this file has shipped a stale copy of these constants
-        // before. Proposed mode keeps its own counters, inside proposedChoices.
-        if (mode !== 'proposed') {
-          const onScreen = cards.some((c) => c.kind === 'anomaly')
-          if (onScreen || run._screensSinceAnomaly !== prevSince) {
-            const w = anomalyWeightFor({ _screensSinceAnomaly: prevSince + 1 })
-            stats.anomalyRolls++
-            stats.anomalyWeightSum += w
-            if (w >= ANOMALY_PITY_CAP) stats.anomalyCapped++
-            if (onScreen) stats.anomalyOffers++
-          }
-          prevSince = run._screensSinceAnomaly
+        // before.
+        const onScreen = cards.some((c) => c.kind === 'anomaly')
+        if (onScreen || run._screensSinceAnomaly !== prevSince) {
+          const w = anomalyWeightFor({ _screensSinceAnomaly: prevSince + 1 })
+          stats.anomalyRolls++
+          stats.anomalyWeightSum += w
+          if (w >= ANOMALY_PITY_CAP) stats.anomalyCapped++
+          if (onScreen) stats.anomalyOffers++
         }
-        if (mode === 'proposed') {
-          const shim = proposedChoices(run, st)   // advances st.since itself, only where eligible
-          if (shim.length) cards = shim
-        }
+        prevSince = run._screensSinceAnomaly
         stats.pools++
         if (cards.length < SLOTS) stats.shortPools++
         for (const c of cards) {
@@ -640,7 +399,7 @@ function measure(mode) {
       }
       if (run.phase !== 'playing') break
       // Reshaped tail: re-derive the spawn-time HP multiplier from the curve ratio each frame.
-      if (RESHAPED && mode === 'proposed') run.mods.enemyHpMul = baseHpMul * curveRatio(run.time)
+      if (RESHAPED) run.mods.enemyHpMul = baseHpMul * curveRatio(run.time)
       let input
       if (SURVIVAL) {
         input = kiteInput(run)
@@ -656,8 +415,8 @@ function measure(mode) {
       }
       // Cost is per SECOND, not per fire — see the fires/s spread in the spec: 0.5/s (city, beam)
       // to 3.8/s (body) is a 7.6x chapter lottery, and "per shot" is undefined for beams entirely.
-      if (OVERLOAD && mode === 'proposed' && SURVIVAL) run.player.hp -= OVERLOAD_COST * dt
-      if (TIMESCALE !== 1 && mode === 'proposed') run.time += dt * (TIMESCALE - 1)
+      if (OVERLOAD && SURVIVAL) run.player.hp -= OVERLOAD_COST * dt
+      if (TIMESCALE !== 1) run.time += dt * (TIMESCALE - 1)
       // BLOOD PACT stacks per kill AND per elite kill, so both rates need their own denominator.
       for (const ev of run.events) if (ev.type === 'kill' && ev.elite) eliteKills++
       run.events.length = 0
@@ -683,7 +442,6 @@ function measure(mode) {
   const share = (o, k) => (100 * (o[k] ?? 0)) / offered
   const defShare = (defOffered / (offered || 1)) * 100
   return {
-    mode,
     level: avg(levels),
     cards: offered / RUNS,
     shortPools: stats.shortPools,
@@ -717,47 +475,45 @@ function measure(mode) {
 
 const f1 = (n) => n.toFixed(1)
 function report(r) {
-  console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY} mode=${r.mode}` +
-    (REROLLS > 0 ? `  rerolls=${REROLLS}/screen${r.mode === 'proposed' ? ' (IGNORED: shipped pipeline only)' : ` (decay ${C.REROLL_RARITY_DECAY}^min(${REROLLS},${C.REROLL_RARITY_CAP}) on \`normal\`)`}` : ''))
+  console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY}` +
+    (REROLLS > 0 ? `  rerolls=${REROLLS}/screen (decay ${C.REROLL_RARITY_DECAY}^min(${REROLLS},${C.REROLL_RARITY_CAP}) on \`normal\`)` : ''))
   console.log(`level ${f1(r.level)}  cards/run ${f1(r.cards)}  weaponLvSum ${f1(r.weaponLv)}  coins/run ${f1(r.coins)} (cap ${C.COIN_CAP_PER_RUN})`)
   console.log(`kills/run ${f1(r.kills)} (elites ${f1(r.eliteKills)})  fires/run ${f1(r.fires)} (${f1(r.fires / r.liveT)}/s over ${f1(r.liveT)}s alive)`)
   console.log(`short pools ${r.shortPools}/${r.pools}  (MUST be 0)`)
   console.log(`kind   ${Object.entries(r.kinds).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`rarity ${Object.entries(r.rarities).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}`)
   console.log(`defence ${f1(r.defShare)}% of cards, ${f1(r.defPicks)} picks/run — armor ${r.defTotals.armor.toFixed(2)} regen ${r.defTotals.regen.toFixed(2)} maxHP ${f1(r.defTotals.maxHP)}`)
-  // v6.7.6: the anomaly line is no longer proposed-only. The tier ships, so the `current` column
-  // measures the real ANOMALIES table (one card) while `proposed` measures the shim's 18
-  // stand-ins — two different questions, and gating the line hid the shipped one entirely.
   console.log(`anomalies ${r.anomalies.toFixed(2)}/run (cap ${MAX_ANOMALIES_PER_RUN})` +
-    (r.mode === 'proposed' ? `  empty-pool rolls ${f1(r.emptyPool)}/run  [18 stand-in cards, not the shipped table]` : `  [${Object.keys(C.ANOMALIES).length} card(s) in ANOMALIES]`))
+    `  [${Object.keys(C.ANOMALIES).length} card(s) in ANOMALIES]`)
   // The pity line. Read offer rate against ANOMALY_BASE_WEIGHT's share (base/(ordinary+base)):
   // equal means pity never got going, far above means the run spends its screens dry.
   console.log(`pity  ${f1(r.eligScreens)} tier-eligible screens/run, ${f1(r.offerRate)}% of them offered one` +
     `  (mean weight ${f1(r.meanWeight)} vs base ${ANOMALY_BASE_WEIGHT}, at the cap on ${f1(r.cappedShare)}%)`)
-  if (r.mode === 'proposed') {
-    console.log(`bucket absent ${Object.entries(r.absent).map(([k, v]) => `${k} ${f1(v)}%`).join('  ')}  <- the ONLY drift budget`)
-  }
 }
 
 // Can a player PURSUE a named mod? For every mod on every weapon in the chapter, the share of runs
 // that offered it AT LEAST ONCE. A low number means "aim for prismatic" is not a strategy the pool
 // supports — the card simply never shows up, which is the agency complaint, not a variety one.
-function deliverability(a, b) {
+function deliverability(r) {
   const ids = []
   for (const w of C.CHAPTERS[CHAPTER].weapons) {
     for (const m of Object.keys(C.WEAPON_MODS[w] ?? {})) ids.push(`${w}.${m}`)
   }
-  const pct = (r, k) => (100 * (r.modRuns.get(k) ?? 0)) / RUNS
-  const rows = ids.map((k) => ({ k, a: pct(a, k), b: pct(b, k) })).sort((x, y) => x.a - y.a)
+  const pct = (k) => (100 * (r.modRuns.get(k) ?? 0)) / RUNS
+  const rows = ids.map((k) => ({ k, v: pct(k) })).sort((x, y) => x.v - y.v)
   console.log(`\n== mod deliverability (${CHAPTER}) — % of runs offering this mod at least once`)
-  for (const r of rows) console.log(`  ${r.k.padEnd(24)} ${f1(r.a).padStart(5)}% -> ${f1(r.b).padStart(5)}%`)
-  const mean = (s) => rows.reduce((t, r) => t + r[s], 0) / rows.length
-  console.log(`  ${'MEAN'.padEnd(24)} ${f1(mean('a')).padStart(5)}% -> ${f1(mean('b')).padStart(5)}%` +
-    `   worst ${f1(rows[0].a)}% -> ${f1(rows[0].b)}%`)
+  for (const x of rows) console.log(`  ${x.k.padEnd(24)} ${f1(x.v).padStart(5)}%`)
+  const mean = rows.reduce((t, x) => t + x.v, 0) / rows.length
+  console.log(`  ${'MEAN'.padEnd(24)} ${f1(mean).padStart(5)}%   worst ${f1(rows[0].v)}% (${rows[0].k})`)
 }
 
-// Declared vs achieved, per bucket. A bucket absent A% of the time loses at most A% of its
-// weight; anything beyond that is a bug in the roll, not a capacity ceiling.
+// Declared vs achieved, per bucket, as a share of ORDINARY cards.
+// v6.7.14: the "absent N% of rolls" column is gone with the shim. It was computed inside
+// proposedChoices, which knew each bucket's candidate list because it BUILT it. The shipped
+// pipeline decides that inside sim.js, and the only way to report it here would be to
+// re-implement eligibility — exactly the duplicate this file just deleted. A bucket short of its
+// declared share is still visible as drift; what is no longer distinguishable is "the roll is
+// wrong" from "the bucket had nothing to offer".
 function fidelity(r) {
   const tot = Object.values(BUCKET_WEIGHTS).reduce((a, b) => a + b, 0)
   const ordinary = 100 - r.kinds.anomaly
@@ -768,11 +524,11 @@ function fidelity(r) {
     const want = (100 * BUCKET_WEIGHTS[k]) / tot
     const raw = k === 'defense' ? r.defShare : k === 'utility' ? r.kinds.passive - r.defShare : r.kinds[k]
     const got = (100 * raw) / ordinary
-    console.log(`  ${k.padEnd(8)} want ${f1(want).padStart(5)}%  got ${f1(got).padStart(5)}%  drift ${(got - want >= 0 ? '+' : '') + f1(got - want).padStart(5)}pts  (absent ${f1(r.absent[k])}% of rolls)`)
+    console.log(`  ${k.padEnd(8)} want ${f1(want).padStart(5)}%  got ${f1(got).padStart(5)}%  drift ${(got - want >= 0 ? '+' : '') + f1(got - want).padStart(5)}pts`)
   }
 }
 
-function survivalReport(a, b) {
+function survivalReport(r) {
   const med = (xs) => { if (!xs.length) return NaN; const s = [...xs].sort((x, y) => x - y); return s[s.length >> 1] }
   console.log(`\n== SURVIVAL (${CHAPTER} slots=${SLOTS} d${DIFF} shop=${SHOP_LV}/10 runs=${RUNS} picks=${POLICY}${OFFSET !== 1 ? ` enemyHP x${OFFSET}` : ''}${XPMUL !== 1 ? ` xpMul x${XPMUL} (= xpForLevel 5+level*${(4 / XPMUL).toFixed(2)})` : ''})`)
   if (RESHAPED) {
@@ -783,53 +539,36 @@ function survivalReport(a, b) {
   console.log(`   bot: kite-and-collect — flees enemies (1/d, 600px), else walks to nearest gem;`)
   console.log(`   pure flee inside ${PANIC_R}px. No projectile dodging, no cover, no obstacle pathing.`)
   console.log(`   A FLOOR on player skill, not a model of one. Quote the policy with the number.`)
-  const row = (l, x, y, u = '') => console.log(`  ${l.padEnd(20)} ${f1(x).padStart(6)}${u} -> ${f1(y).padStart(6)}${u}`)
-  row('win rate', a.winRate, b.winRate, '%')
-  row('median death t', med(a.deathT), med(b.deathT), 's')
-  row('mean death t', a.deathT.reduce((s, v) => s + v, 0) / (a.deathT.length || 1),
-    b.deathT.reduce((s, v) => s + v, 0) / (b.deathT.length || 1), 's')
-  row('deaths', a.deathT.length, b.deathT.length, '')
-  row('level reached', a.level, b.level, '')
-  row('weaponLvSum', a.weaponLv, b.weaponLv, '')
-  // v6.7.8: anomalies/run belongs here too. The offer report prints it, survival mode did not —
-  // and the MORTAL rate is the one the tier is tuned against, because an immortal 36-level probe
-  // run saturates MAX_ANOMALIES_PER_RUN whatever the weight is. Taken, not offered: with any
-  // policy but `random` the bot scores an anomaly at 1000 and always takes it, which is the
-  // take-every-anomaly rig the rate table in config.js was measured on.
-  row('anomalies/run', a.anomalies, b.anomalies, '')
-  // v6.7.9: and the three numbers behind that one, so a rate change can be attributed to the roll
-  // rather than to the run simply being longer. Denominator is TIER-ELIGIBLE screens.
-  row('elig screens/run', a.eligScreens, b.eligScreens, '')
-  row('offered/elig scr', a.offerRate, b.offerRate, '%')
-  row('mean pity weight', a.meanWeight, b.meanWeight, '')
-  // Win rate alone is blind at 0% and 100% — a config the bot always loses (or always wins) can
-  // still shift a lot. Read survival time there instead.
-  const dw = b.winRate - a.winRate
-  const ma = med(a.deathT), mb = med(b.deathT)
-  const dt = ma && mb ? (100 * (mb - ma)) / ma : 0
-  // Direction comes from the STRONGER signal, not from whichever is merely non-zero: one run in
-  // forty is 2.5pts of win rate and must not outvote a 58% survival-time shift.
-  const easier = Math.max(Math.abs(dw), Math.abs(dt)) >= 10
-  const dir = (Math.abs(dw) >= Math.abs(dt) ? dw : dt) > 0 ? 'EASIER' : 'HARDER'
-  console.log(`\n  VERDICT: win rate ${dw >= 0 ? '+' : ''}${f1(dw)}pts, median survival ${dt >= 0 ? '+' : ''}${f1(dt)}%.`)
-  console.log(`  ${easier ? `Proposed pool is MEASURABLY ${dir}.` : 'Within noise at this sample size.'}` +
-    (a.level < 8 ? `  CAVEAT: bot only reached level ${f1(a.level)} — too few level-ups for the pool to matter much here.` : ''))
+  const row = (l, x, u = '') => console.log(`  ${l.padEnd(20)} ${f1(x).padStart(6)}${u}`)
+  row('win rate', r.winRate, '%')
+  row('median death t', med(r.deathT), 's')
+  row('mean death t', r.deathT.reduce((s, v) => s + v, 0) / (r.deathT.length || 1), 's')
+  row('deaths', r.deathT.length)
+  row('level reached', r.level)
+  row('weaponLvSum', r.weaponLv)
+  // The MORTAL anomaly rate is the one the tier is tuned against: an immortal 36-level probe run
+  // saturates MAX_ANOMALIES_PER_RUN whatever the weight is. Taken, not offered — with any policy
+  // but `random` the bot scores an anomaly at 1000 and always takes it.
+  row('anomalies/run', r.anomalies)
+  // The three numbers behind that one, so a rate change can be attributed to the roll rather than
+  // to the run simply being longer. Denominator is TIER-ELIGIBLE screens.
+  row('elig screens/run', r.eligScreens)
+  row('offered/elig scr', r.offerRate, '%')
+  row('mean pity weight', r.meanWeight)
+  if (r.level < 8) {
+    console.log(`\n  CAVEAT: bot only reached level ${f1(r.level)} — too few level-ups for the pool to matter much here.`)
+  }
 }
 
-if (flags.has('--compare')) {
-  const a = measure('current')
-  const b = measure('proposed')
-  if (SURVIVAL) { survivalReport(a, b); process.exit(0) }
-  report(a); report(b); fidelity(b); deliverability(a, b)
-  const row = (label, x, y, unit = '%') => console.log(`  ${label.padEnd(22)} ${f1(x).padStart(6)}${unit} -> ${f1(y).padStart(6)}${unit}`)
-  console.log(`\n== diff (${CHAPTER} slots=${SLOTS})`)
-  for (const k of ['passive', 'mod', 'weapon', 'element']) row(`${k} share`, a.kinds[k], b.kinds[k])
-  row('defence share', a.defShare, b.defShare)
-  row('defence picks/run', a.defPicks, b.defPicks, '')
-  row('legendary share', a.rarities.legendary, b.rarities.legendary)
-  row('mythic share', a.rarities.mythic, b.rarities.mythic)
-  row('weapon level sum', a.weaponLv, b.weaponLv, '')
-  console.log(`\n  GUARDS: short pools ${b.shortPools} (want 0) | legendary ${f1(b.rarities.legendary)}% (want ~${f1(a.rarities.legendary)}%, NOT 9-16%) | anomalies ${b.anomalies.toFixed(2)}/run (want <=${MAX_ANOMALIES_PER_RUN})`)
+// v6.7.14: ONE pipeline. `--proposed`/`--compare` are gone with proposedChoices — there is no
+// second implementation left to compare against, and the A/B this file actually supports is the
+// one documented at the top: run it TWICE with the same seeds and diff the rows you care about.
+const r = measure()
+if (SURVIVAL) {
+  survivalReport(r)
 } else {
-  report(measure(flags.has('--proposed') ? 'proposed' : 'current'))
+  report(r)
+  fidelity(r)
+  deliverability(r)
+  console.log(`\n  GUARDS: short pools ${r.shortPools} (want 0) | legendary ${f1(r.rarities.legendary)}% (NOT 9-16%) | anomalies ${r.anomalies.toFixed(2)}/run (want <=${MAX_ANOMALIES_PER_RUN})`)
 }
