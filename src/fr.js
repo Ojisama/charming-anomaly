@@ -170,7 +170,7 @@ const UI = {
   'Chapter': 'Chapitre',
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
-  // v7.5 SPECIALIST on the build sheet ("Spécialiste : Geyser d'Égout"). NBSP before the colon —
+  // v7.5 SPECIALIST on the build sheet ("Spécialiste : Geyser d'Égout"). NBSP before the colon —
   // the one piece of French this string carries, and the reason it needs an entry at all.
   '{name}: {sub}': '{name} : {sub}',
 
@@ -235,12 +235,15 @@ const UI = {
 
   // v7.5 SPECIALIST — the weapon chooser (paintSubjectChooser).
   'Which weapon?': 'Quelle arme ?',
-  // Label:value, not '{n} améliorations prises', because {n} is 0 on a fresh weapon and 1 on a
-  // freshly-upgraded one — and French takes the SINGULAR after zero ('0 amélioration'), so no
-  // number-first wording is correct at every value this row prints. Same dodge as '{n} choix',
-  // whose noun happens to be invariable, and the same label:value shape as 'amélioration : {name}'
-  // two blocks up.
-  '{n} upgrades taken': 'améliorations prises : {n}',
+  // THIS ONE HAS A TUNING DEPENDENCY. French takes the singular after zero ('0 amélioration') and
+  // after one, so a number-first phrase is only correct while {n} >= 2 — and it is: subjectPicks
+  // (sim.js) is built solely from specialistSubjects, which filters weaponModPickCount >=
+  // SPECIALIST_MIN_MODS, and that constant is 4 (config.js). The row cannot paint 0 or 1 today.
+  // A label:value dodge ('améliorations prises : {n}') would be correct at every value forever, but
+  // it is a stat line in a slot that holds card prose, so the phrase wins on the invariant.
+  // IF SPECIALIST_MIN_MODS EVER DROPS BELOW 2, come back here — nothing else will tell you, run XX
+  // asserts coverage and typography, not agreement.
+  '{n} upgrades taken': '{n} améliorations prises',
 
 
   // anomaly cards (ANOMALIES in config.js): name, desc, and the `from` line under it
@@ -370,34 +373,55 @@ const CONFIG = {
   // 'Foi Aveugle' keeps the religious sense the card is built on ('Take it on faith', the 🙈, the
   // leap): 'Confiance Aveugle' is the commoner collocation but names trust in a PERSON, which is
   // not what a face-down deck asks of you.
+  // 'ne sort' and NOT 'n'est tiré': this dictionary spends *tirer* on SHOOTING (cadence de tir,
+  // and 'Chaque arme envoie…' two cards down was itself written to dodge the verb), so a card
+  // reading "rien … n'est tiré" parses as NOTHING GETS FIRED. 'sortir' is the French draw verb and
+  // is reused by Spécialiste below. Likewise 'tu n'en vois que la bordure' rather than 'seule sa
+  // bordure apparaît' — *apparaître* is spent on things that SPAWN ('apparitions ennemies', 'Les
+  // élites apparaissent'), and the border does not come into view, it is what never leaves it.
   // 'Épique' below must stay spelled exactly as the RARITIES entry — the English key interpolates
   // RARITIES[BLIND_FAITH_FLOOR].name, so the two strings are one fact, and a French card naming a
   // tier the chip does not is a rule the player cannot check.
   'Blind Faith': 'Foi Aveugle',
   'you stopped needing to know': "tu n'as plus eu besoin de savoir",
   'Every card is face down — only its border shows. Nothing below Epic is rolled, and you can never reroll.':
-    "Chaque carte est face cachée — seule sa bordure apparaît. Rien en dessous d'Épique n'est tiré, et tu ne peux plus jamais relancer.",
+    "Chaque carte est face cachée — tu n'en vois que la bordure. Rien en dessous d'Épique ne sort, et tu ne peux plus jamais relancer.",
   // 'Ipéca' is the French name of the emetic root (Larousse), so the wink survives translation the
   // way 'Lait de Soja' did. Keeping 'Ipecac' would leave the one card on the slate whose name is
   // neither French nor a recognised loan (Berserk is both).
   'Ipecac': 'Ipéca',
-  'once was never going to be enough': "une seule fois n'allait jamais suffire",
-  // 'en éventail' carries "spread" AND pins the sense of '3 fois plus' to QUANTITY: bare 'tire 3
-  // fois plus' could be read as three times as OFTEN, which is the opposite of the second clause.
-  // 'pour une cadence de tir divisée par deux' rather than 'cadence de tir ×0,5' — 'pour' is the
-  // price, which is what makes this a trade card and not a buff.
+  // Conditionnel passé, not 'n'allait jamais suffire': the futur proche in the past is a calque
+  // here — French wants a past anchor for it, and without one 'jamais' pulls toward a temporal
+  // reading ("never got round to being enough") instead of the fatalism the English carries.
+  'once was never going to be enough': "une seule fois n'aurait jamais suffi",
+  // 'envoie', NOT 'tire'. Intransitive *tirer* + *plus* defaults to FREQUENCY in French ("tire 3
+  // fois plus" = fires three times as often), which is the exact opposite of the clause that
+  // follows, and no amount of trailing context undoes a misparse the reader has already made.
+  // *envoyer* is quantitative — "envoyer plus" begs *plus de quoi* — it covers the orbs, beams and
+  // tornadoes the English's "as much" exists to cover, and it drops the tire/tir echo.
+  // 'dans 3 directions', not 'sur': *sur* goes with *réparti sur trois axes*; with *éventail* and
+  // *direction* it is a calque of "spread across".
+  // Words rather than 'cadence de tir ×0,5' (the Lait de Soja / Surcharge idiom) because the
+  // English says "at half the fire rate" and prints no multiplier either. 'pour' is the price —
+  // 'contre' is the slate's other word for a cost, and either would do here.
   'Every weapon fires 3 times as much, spread in 3 directions — at half the fire rate.':
-    'Chaque arme tire 3 fois plus, en éventail sur 3 directions — pour une cadence de tir divisée par deux.',
+    'Chaque arme envoie 3 fois plus, en éventail dans 3 directions — pour une cadence de tir divisée par deux.',
   'Specialist': 'Spécialiste',
   // 'faire comme si' is the French for pretending; 'prétendre' is the false friend (it means to
   // CLAIM) and would have read as a calque.
   'you stopped pretending the rest of them were the plan': 'tu as arrêté de faire comme si les autres étaient le plan',
   // 'sortent' (to come up in a draw) is the card verb, kept distinct from 'apparaissent', which
-  // this dictionary spends on things that SPAWN. 'leur plafond monte de 2' rather than 'tu peux en
-  // prendre 2 de plus de chacune': French '2 fois de plus' is ambiguous against 'deux fois plus'
-  // (twice as many), and this card must not print a multiplier — see the config comment.
+  // this dictionary spends on things that SPAWN.
+  // '2 fois de plus' is safe HERE and only here: it collides with 'deux fois plus' (twice as many)
+  // inside a comparative ('2 fois de plus QUE toi'), so the English's "than anyone else" is
+  // dropped rather than rendered. It was rhetoric, not information — there is no anyone else — and
+  // keeping it would have forced either the ambiguity or a 'plafond' the UI never prints (modLine
+  // shows a mod's accumulated bonus, never its pick count, so a ceiling names nothing the player
+  // can see). 'tu peux prendre chacune 2 fois de plus' is an act they perform instead.
+  // Last sentence spelled out rather than 'en proposent moins': the pronoun's antecedent is three
+  // clauses back, and 'proposent moins' alone can be read as offering less VALUE.
   'Pick a weapon: its upgrades come up far more often, and you may take 2 more of each than anyone else. Every other weapon offers less.':
-    'Choisis une arme : ses améliorations sortent bien plus souvent, et leur plafond monte de 2 rien que pour toi. Toutes les autres armes en proposent moins.',
+    'Choisis une arme : ses améliorations sortent bien plus souvent, et tu peux prendre chacune 2 fois de plus. Toutes les autres armes proposent moins d\'améliorations.',
   // v6.2 Remaster — per-chapter endings
   'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
   'Neutralized… 🩸': 'Neutralisé·e… 🩸',
