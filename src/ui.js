@@ -1242,28 +1242,26 @@ export function initUI(hooks) {
     acidPotencyMul: ['acid pool burn', false],
   }
 
-  function effectChips(effects) {
+  // One chip per effect key, tagged with whether it helps the player — the brief screen needs the
+  // split (costs on one side of the trade, gains on the other), everything else just joins it.
+  function effectChipList(effects) {
     return Object.entries(effects).map(([key, v]) => {
       const [label, goodUp] = EFFECT_LABELS[key] ?? [key, true]
       const pct = Math.round((v - 1) * 100)
       const good = (pct > 0) === goodUp
-      return `<span class="fx-chip ${good ? 'fx-chip--good' : 'fx-chip--bad'}">${pct > 0 ? '+' : ''}${pct}% ${t(label)}</span>`
-    }).join('')
+      return { good, html: `<span class="fx-chip ${good ? 'fx-chip--good' : 'fx-chip--bad'}">${pct > 0 ? '+' : ''}${pct}% ${t(label)}</span>` }
+    })
   }
 
-  // One anomaly explainer card (icon + name + desc + effect chips) — shared by the daily
-  // briefing and the classic pre-run briefing (v6.0.2). `reroll` (v6.6.19) is { index, afford } on
-  // the classic briefing only and adds this card's own 🎲 button; the daily passes nothing (one
-  // shared seed for everyone — a paid swap would break the whole premise).
-  // NEVER call this as `ids.map(mutatorCardHtml)`: map hands the callback the INDEX as its second
-  // argument, which would light the reroll button up on every card but the first, on every screen.
-  function mutatorCardHtml(id, reroll) {
+  function effectChips(effects) {
+    return effectChipList(effects).map((c) => c.html).join('')
+  }
+
+  // One anomaly explainer card (icon + name + desc + effect chips) — the daily briefing's own
+  // card. The daily never offers a reroll (one shared seed for everyone; a paid swap would break
+  // the whole premise), and the classic brief draws its own compact row — see briefAnomHtml.
+  function mutatorCardHtml(id) {
     const m = MUTATORS[id]
-    // The price lives in the label, not just the chip: an aria-label REPLACES the button's content
-    // for a screen reader, so a bare "Reroll this anomaly" would announce a purchase without ever
-    // saying what it costs. esc() because it lands in an attribute and French copy carries
-    // apostrophes. (Raised by the FR review of this screen.)
-    const label = esc(tt('Reroll this anomaly ({n}🪙)', { n: ANOMALY_REROLL_COST }))
     return `
       <div class="daily-mutator">
         <span class="daily-mutator-icon">${m?.icon ?? '❔'}</span>
@@ -1272,7 +1270,6 @@ export function initUI(hooks) {
           <span class="daily-mutator-desc">${t(m?.desc ?? '')}</span>
           <span class="daily-mutator-fx">${m ? effectChips(m.effects ?? {}) : ''}</span>
         </span>
-        ${reroll ? `<button class="mut-reroll" data-act="brief-reroll" data-i="${reroll.index}" ${reroll.afford ? '' : 'disabled'} aria-label="${label}" title="${label}">🎲<i>${ANOMALY_REROLL_COST}</i></button>` : ''}
       </div>`
   }
 
@@ -1309,31 +1306,55 @@ export function initUI(hooks) {
   // lastBriefData mirrors the data showScreen was called with, so a booster tap can re-render this
   // screen in place (the sheet lives here now, and re-rendering needs the same chapter/anomalies).
   let lastBriefData = null
+
+  // One anomaly, as the trade it actually is: what it costs you on the left, what it pays back on
+  // the right. Every MUTATORS entry mixes costs and gains (see the table), so the split is a fact
+  // about the data, not decoration — and it is the judgement the reroll button is asking for.
+  // The Blank's ladder modifiers carry no effects at all; they fall back to their sentence, which
+  // is the only thing that explains them.
+  // The reroll price lives once, in the ANOMALIES rule — repeating it on every row said the same
+  // number three times on one screen.
+  const ICO_REROLL = '<svg class="rr-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9.6A7.6 7.6 0 0 0 5.6 8.5"/><path d="M5 14.4A7.6 7.6 0 0 0 18.4 15.5"/><path d="M19.6 4.6 19 9.9l-5.2-.7"/><path d="m4.4 19.4.6-5.3 5.2.7"/></svg>'
+  function briefAnomHtml(id, i, reroll) {
+    const m = MUTATORS[id]
+    const chips = effectChipList(m?.effects ?? {})
+    const cost = chips.filter((c) => !c.good).map((c) => c.html).join('')
+    const gain = chips.filter((c) => c.good).map((c) => c.html).join('')
+    const label = esc(tt('Reroll this anomaly ({n}🪙)', { n: ANOMALY_REROLL_COST }))
+    return `
+      <div class="brief-anom">
+        <span class="brief-anom-icon">${m?.icon ?? '❔'}</span>
+        <span class="brief-anom-body">
+          <span class="brief-anom-name">${t(m?.name ?? id)}</span>
+          ${chips.length
+            ? `<span class="brief-trade"><span class="brief-tg">${cost}</span><span class="brief-tg"><i class="brief-vs">⇄</i>${gain}</span></span>`
+            : `<span class="brief-anom-desc">${t(m?.desc ?? '')}</span>`}
+        </span>
+        ${reroll ? `<button class="brief-rr" data-act="brief-reroll" data-i="${i}" ${reroll.afford ? '' : 'disabled'} aria-label="${label}" title="${label}">${ICO_REROLL}</button>` : ''}
+      </div>`
+  }
+
   function renderBrief(d) {
     lastBriefData = d
     const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
     const ids = d.mutators ?? []
-    // Level 1 rolls nothing, and its line is the same one the title's difficulty hint uses — same
-    // words for the same fact, and no new copy for the FR dictionary to have to earn.
-    const note = ids.length === 0
-      ? t('the base game')
-      : d.chapterId === 'blank'
-        ? t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')
-        : t('Anomalies bend the rules of this run — every difficulty level past the first adds one more.')
+    const reroll = d.reroll && ids.length ? { afford: meta.coins >= ANOMALY_REROLL_COST } : null
+    const eyebrow = (txt, note) => `<div class="brief-eyebrow">${t(txt)}${note ? `<i>${note}</i>` : ''}</div>`
     screens.brief.innerHTML = `
-      <div class="modal daily-brief">
-        <div class="coins-badge coins-badge--inline">🪙 <b>${meta.coins}</b></div>
-        <h2 class="modal-title">${chapter.icon} ${t(chapter.name)}</h2>
-        <div class="daily-chapter">
-          <span class="daily-chapter-name">${t('difficulty')} ${d.difficulty ?? 1}</span>
+      <div class="modal daily-brief brief">
+        <div class="brief-head">
+          <div class="brief-headtext">
+            <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
+            <div class="brief-diff">${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
+          </div>
+          <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
         </div>
-        <p class="daily-note">${note}</p>
-        ${ids.map((id, i) => mutatorCardHtml(id, d.reroll ? { index: i, afford: meta.coins >= ANOMALY_REROLL_COST } : null)).join('')}
-        ${d.reroll && ids.length ? `
-        <p class="daily-note">🎲 ${tt('Reroll one anomaly of your choice — {n} 🪙', { n: ANOMALY_REROLL_COST })}
-          <span class="brief-coins">(${tt('you have {coins}', { coins: meta.coins })})</span>
-        </p>` : ''}
-        <h3 class="sheet-title">${t('Boosters')} <span class="sheet-note">${t('this run only')}</span></h3>
+        ${ids.length ? `
+          ${eyebrow('Anomalies', reroll ? tt('reroll {n}', { n: ANOMALY_REROLL_COST }) : '')}
+          <div class="brief-anoms">${ids.map((id, i) => briefAnomHtml(id, i, reroll)).join('')}</div>
+          ${d.chapterId === 'blank' ? `<p class="daily-note">${t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')}</p>` : ''}
+        ` : `<p class="daily-note">${t('the base game')}</p>`}
+        ${eyebrow('Boosters', t('this run only'))}
         ${boosterSlotsHtml()}
         <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
       </div>
@@ -1341,6 +1362,7 @@ export function initUI(hooks) {
       ${boosterSheetHtml()}
     `
   }
+
 
   // ---- pause modal -------------------------------------------------------
   // ---- pause: the build readout -------------------------------------------------------------
