@@ -54,6 +54,7 @@ import {
   MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
   SPECIALIST_FOCUS_MUL, SPECIALIST_OTHER_PENALTY, modPickCap, weaponModPickCount,
   BLIND_FAITH_NO_REROLL, BLIND_FAITH_FLOOR,
+  IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -329,6 +330,8 @@ function applyAnomalyOnTake(run, id) {
   } else if (id === 'overload') {
     p.fireRateMul *= OVERLOAD_FIRE_MUL
     p.damageMul *= OVERLOAD_DMG_MUL
+  } else if (id === 'ipecac') {
+    p.fireRateMul *= IPECAC_FIRE_MUL
   } else if (id === 'soyMilk') {
     p.fireRateMul *= SOY_MILK_FIRE_MUL
     p.damageMul *= SOY_MILK_DMG_MUL
@@ -338,6 +341,32 @@ function applyAnomalyOnTake(run, id) {
 // SPECIALIST's named weapon, or null. It is the ONE anomaly that banks a weapon id where every
 // other banks `true`, so the string test is load-bearing: a plain truthiness read would compare
 // mod candidates against the boolean `true` and focus nothing, silently.
+// IPECAC (v7.5): a per-cast count, tripled. Every weapon that HAS a count routes through here, so
+// "how much is three of it" is answered in exactly one place. Rounded and floored at 1 so a
+// fractional or zero stat can never produce a nonsense loop bound.
+function ipecacN(run, n) {
+  return run.anomalies?.ipecac ? Math.max(1, Math.round(n * IPECAC_COUNT_MUL)) : n
+}
+
+// ...and the angles a MELEE SECTOR sweeps, for the weapons with no count to multiply. Evenly spaced
+// over the full circle, which is what makes this a genuine x3 of output rather than a x3 of damage
+// on one enemy: overkill eats surplus poured into something already dying and cannot touch a hit
+// that landed somewhere else. Callers de-duplicate per cast (one enemy, at most one sector) so a
+// weapon whose arc is wider than the spacing — tailSwipe is 126-169 degrees — cannot quietly become
+// the x3 damage card this one was written to replace.
+// The RADIAL equivalent of ipecacAngles, for the weapons that are already 360 degrees and so have
+// no angle left to spread across. Bands, not one thicker ring: an inner, the original, and an outer.
+function ipecacRadii(run, radius) {
+  if (!run.anomalies?.ipecac) return [radius]
+  return [radius * 0.55, radius, radius * 1.45]
+}
+
+function ipecacAngles(run, angle) {
+  if (!run.anomalies?.ipecac) return [angle]
+  const step = (Math.PI * 2) / IPECAC_COUNT_MUL
+  return Array.from({ length: IPECAC_COUNT_MUL }, (_, i) => angle + i * step)
+}
+
 function specialistFocus(run) {
   const f = run.anomalies?.specialist
   return typeof f === 'string' ? f : null
@@ -4100,7 +4129,7 @@ function fireStar(run, stats) {
 
   // Multi Stars: more volleys widen the fan gracefully for free, since each extra star is
   // just another STAR_FAN-spaced slot in the same (count-1)/2-centered spread below.
-  const count = stats.count + (run.weaponMods.star?.multishot ?? 0)
+  const count = ipecacN(run, stats.count + (run.weaponMods.star?.multishot ?? 0))
   const pierce = stats.pierce + (run.weaponMods.star?.pierce ?? 0)
   const chainsLeft = run.weaponMods.star?.chain ?? 0
   const ricochetsLeft = run.weaponMods.star?.ricochet ?? 0
@@ -4350,7 +4379,8 @@ function stepOrbitWeapon(run, stats, fireRateMul) {
   const orbR = ORB_R * (1 + (mods?.bigOrbs ?? 0)) // bigOrbs scales ORB_R, a constant, not a levels[] field
   const supernovaBonus = mods?.supernova ?? 0
 
-  for (let i = 0; i < stats.orbs; i++) {
+  const orbs = ipecacN(run, stats.orbs)
+  for (let i = 0; i < orbs; i++) {
     const angle = (i / stats.orbs) * Math.PI * 2 + run.time * stats.rotSpeed
     const ox = p.x + Math.cos(angle) * stats.radius
     const oy = p.y + Math.sin(angle) * stats.radius
@@ -4391,7 +4421,7 @@ function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
     const radius = isTsunami ? stats.radius * (1 + tsunamiBonus) : stats.radius
     const dmg = isTsunami ? stats.dmg * (1 + tsunamiBonus) : stats.dmg
     const knockback = stats.knockback
-    spawnNova(run, p.x, p.y, radius, dmg, knockback)
+    for (const r of ipecacRadii(run, radius)) spawnNova(run, p.x, p.y, r, dmg, knockback)
     // Chemotaxis: main cast only — echoes re-cast at a stale spot and re-marking there would reel
     // loot toward a place the player left. `radius` is already tsunami-adjusted here (deliberate:
     // a monster wave reels wider too). Marked items home to the player in stepPickups regardless
@@ -4480,7 +4510,7 @@ function fireBoomerang(run, stats) {
     ? Math.atan2(target.y - p.y, target.x - p.x)
     : (p.facing >= 0 ? 0 : Math.PI)
 
-  const count = stats.count
+  const count = ipecacN(run, stats.count)
   const step = count > 1 ? (2 * BOOMERANG_FAN) / (count - 1) : 0
   // bigBlade scales BOOMERANG_HIT_R, a constant, not a levels[] field — read directly and
   // snapshotted per boomerang at throw time, like bigOrbs is for orbit.
@@ -4561,12 +4591,24 @@ function stepMinesWeapon(run, w, stats, fireRateMul, dt) {
     // maxAlive only gates the weapon's own deployment — Cluster Bombs bomblets (m.small) don't
     // count against it and can push the total mine count above maxAlive.
     const deployed = run.mines.reduce((n, m) => n + (m.small ? 0 : 1), 0)
-    if (deployed >= stats.maxAlive) return
+    // IPECAC (v7.5): three cysts per cast, scattered — and maxAlive tripled with them. Lifting the
+    // count without lifting the ceiling would deploy one and silently refuse the other two, which is
+    // the card paying its half-fire-rate cost for nothing.
+    if (deployed >= ipecacN(run, stats.maxAlive)) return
     const p = run.player
-    run.mines.push({
-      x: p.x - p.facing * 20, y: p.y,
-      arm: 0.4, dmg: stats.dmg, radius: stats.radius,
-    })
+    // SCATTERED, not stacked. Three cysts dropped on the same tile is one cyst with three times the
+    // damage — precisely the shape this card was rewritten to stop being. They go out on a ring
+    // behind the player, reusing the bomblet scatter distance so the spacing already matches
+    // something the player has seen.
+    const n = ipecacN(run, 1)
+    for (let i = 0; i < n; i++) {
+      const a = n > 1 ? (i / n) * Math.PI * 2 : 0
+      const d = n > 1 ? MINE_CLUSTER_SCATTER_MIN : 0
+      run.mines.push({
+        x: p.x - p.facing * 20 + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
+        arm: 0.4, dmg: stats.dmg, radius: stats.radius,
+      })
+    }
   })
 }
 
@@ -4687,7 +4729,7 @@ function fireHoming(run, stats) {
     ? Math.atan2(target.y - p.y, target.x - p.x)
     : (p.facing >= 0 ? 0 : Math.PI)
 
-  const count = stats.count
+  const count = ipecacN(run, stats.count)
   // Phantom Wisps: base pierce of 1 (dies on first hit, as before) + N per phantom pick.
   const pierce = 1 + (run.weaponMods.homing?.phantom ?? 0)
   for (let i = 0; i < count; i++) {
@@ -4744,6 +4786,19 @@ function spawnSwarmWisps(run, x, y, source, count) {
 function stepHomingShots(run, dt) {
   const wispNovaBonus = run.weaponMods.homing?.wispNova ?? 0
   const swarmBonus = run.weaponMods.homing?.swarm ?? 0
+  // IPECAC (v7.5): SEEKERS DO NOT SHARE A TARGET WHILE THERE IS ANOTHER ONE FREE. The rule, in the
+  // owner's words: cover three different enemies if three exist; if there are fewer, fall back to
+  // the one or two closest and double up on them.
+  // This is the load-bearing line of the whole card — the spec names it as such — because every
+  // seeker re-picks the nearest live enemy every frame, so three of them converge on the same body
+  // and the x3 is eaten whole by overkill. That is exactly the x3 DAMAGE card this one was
+  // rewritten to replace, arriving again through the back door.
+  // Claimed first-come per frame, borrowing trashTornado's idiom ("whoever is free takes the
+  // nearest UNCLAIMED enemy"), and gated on the card so an ordinary homing volley keeps its shipped
+  // behaviour bit for bit. Not capped at three: with two volleys in the air, six seekers spreading
+  // over six enemies is the same rule, not a different one.
+  const spread = !!run.anomalies?.ipecac
+  const claimed = spread ? new Set() : null
   for (const h of run.homingShots) {
     if (h.pierce <= 0) continue // already resolved (popped) when its last hit spent pierce
     h.life -= dt
@@ -4756,10 +4811,23 @@ function stepHomingShots(run, dt) {
     let bestSq = Infinity
     for (const e of run.enemies) {
       if (e._dead || h.hitIds.has(e.id)) continue
+      if (claimed?.has(e.id)) continue
       const dx = e.x - h.x, dy = e.y - h.y
       const dSq = dx * dx + dy * dy
       if (dSq < bestSq) { bestSq = dSq; target = e }
     }
+    // FEWER ENEMIES THAN SEEKERS: every live one is already spoken for, so this seeker takes the
+    // closest regardless of the claim. One straggler is hunted by all three; two are covered by two
+    // and the third doubles up on whichever is nearer. Never leave a seeker flying blind.
+    if (!target && claimed) {
+      for (const e of run.enemies) {
+        if (e._dead || h.hitIds.has(e.id)) continue
+        const dx = e.x - h.x, dy = e.y - h.y
+        const dSq = dx * dx + dy * dy
+        if (dSq < bestSq) { bestSq = dSq; target = e }
+      }
+    }
+    if (target && claimed) claimed.add(target.id)
     if (target) {
       const desired = Math.atan2(target.y - h.y, target.x - h.x)
       const cur = Math.atan2(h.vy, h.vx)
@@ -4835,7 +4903,9 @@ function fireHole(run, stats) {
 
   // Singularity: N extra vortexes per cast, at HOLE_SINGULARITY_FRAC radius/coreRadius/pull,
   // spawned on other random in-view enemies (falls back to a random offset, like the main cast).
-  const singularity = run.weaponMods.hole?.singularity ?? 0
+  // The main vortex is unconditional, so IPECAC's x3 is expressed as extras on top of it — one
+  // vortex becomes three, each landing on a DIFFERENT enemy via pickHoleSpot's exclusion set.
+  const singularity = ipecacN(run, 1 + (run.weaponMods.hole?.singularity ?? 0)) - 1
   for (let i = 0; i < singularity; i++) {
     const spot = pickHoleSpot(run, usedIds)
     if (spot.id != null) usedIds.add(spot.id)
@@ -4973,7 +5043,7 @@ function fireBeam(run, stats) {
   // v5.6.14 (user): the beam is DOUBLE-ENDED, Darth Maul style — the base cast is 2 arms 180°
   // apart, one aimed at the target and one out the back, rotating together as a staff. Prismatic
   // Split still adds arms on top (3 arms = 120°, ...), all evenly spread by the same machinery.
-  const beamCount = 2 + (run.weaponMods.rainbow?.prismatic ?? 0)
+  const beamCount = ipecacN(run, 2 + (run.weaponMods.rainbow?.prismatic ?? 0))
   const angleStep = (2 * Math.PI) / beamCount
   // Strobe Ray: bake the faster tick period in at cast time (mid-run picks shouldn't retroactively
   // speed up an already-live beam). Focus Lens's ramp is recomputed every tick instead (see below).
@@ -5188,20 +5258,29 @@ function fireFlagella(run, stats) {
   const half = arc / 2
   const barbedBonus = run.weaponMods.flagella?.barbed ?? 0
 
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    const dx = e.x - p.x, dy = e.y - p.y
-    if (dx * dx + dy * dy > stats.range * stats.range) continue // center within range
-    if (!fullCircle) {
-      const ea = Math.atan2(dy, dx)
-      const da = Math.atan2(Math.sin(ea - angle), Math.cos(ea - angle)) // signed angular offset
-      if (Math.abs(da) > half) continue
+  // IPECAC (v7.5): three lashes at 120 degrees instead of one. `struck` is what keeps that a x3 of
+  // AREA rather than a x3 of damage — an enemy is hit by at most one lash per swing, so surplus
+  // output can only ever land on something the first lash did not reach. Without it a cyclone swing
+  // (full circle) would hit the same body three times and the card degenerates into the x3 damage
+  // version that measured as a wash.
+  const struck = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || struck.has(e)) continue
+      const dx = e.x - p.x, dy = e.y - p.y
+      if (dx * dx + dy * dy > stats.range * stats.range) continue // center within range
+      if (!fullCircle) {
+        const ea = Math.atan2(dy, dx)
+        const da = Math.atan2(Math.sin(ea - swing), Math.cos(ea - swing)) // signed angular offset
+        if (Math.abs(da) > half) continue
+      }
+      struck.add(e)
+      const dealt = applyDamage(run, e, stats.dmg)
+      if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)
+      if (stats.knockback) shoveFromPlayer(run, e, stats.knockback) // v6.2 melee parity — roar's idiom
     }
-    const dealt = applyDamage(run, e, stats.dmg)
-    if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)
-    if (stats.knockback) shoveFromPlayer(run, e, stats.knockback) // v6.2 melee parity — roar's idiom
+    run.events.push({ type: 'whip', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
-  run.events.push({ type: 'whip', x: p.x, y: p.y, angle, range: stats.range, arc })
 }
 
 // barbed: refresh (replace, like ignite) a bleed whose total = dmgDealt × BARBED_DMG_MUL × bonus
@@ -5220,7 +5299,7 @@ function applyBleed(enemy, dmgDealt, bonus) {
 // player. Clouds live in run.blooms (see state.js) and are ticked by stepBlooms below.
 function stepBloomWeapon(run, w, stats, fireRateMul, dt) {
   const quickCast = run.weaponMods.bloom?.quickCast ?? 0
-  const cloudCount = 1 + (run.weaponMods.bloom?.twinBloom ?? 0) // twinBloom: +1 cloud per pick
+  const cloudCount = ipecacN(run, 1 + (run.weaponMods.bloom?.twinBloom ?? 0)) // twinBloom: +1 cloud per pick
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickCast)), dt, () => {
     for (let i = 0; i < cloudCount; i++) {
       const spot = pickBloomSpot(run, stats.castRange)
@@ -5344,7 +5423,7 @@ function fireStinger(run, stats) {
   const speed = stats.speed * longMul
   const range = stats.range * longMul
   const life = range / speed
-  const count = stats.count // volley (+needles) already folded in via effectiveWeaponStats
+  const count = ipecacN(run, stats.count) // volley (+needles) already folded in via effectiveWeaponStats
   const venomOn = (run.weaponMods.stinger?.venomTips ?? 0) > 0
 
   // hive: every STINGER_HIVE_EVERY-th volley opens from the tight cone to a full 360° spread.
@@ -5387,7 +5466,7 @@ function fireStinger(run, stats) {
 // longerLure fold into stats; bigBurst scales burst dmg/radius; stickyScent drops a slow zone.
 function stepLureWeapon(run, w, stats, fireRateMul, dt) {
   const fastLure = run.weaponMods.lure?.fastLure ?? 0
-  const decoyCount = 1 + (run.weaponMods.lure?.twinLure ?? 0) // twinLure: +1 decoy per pick
+  const decoyCount = ipecacN(run, 1 + (run.weaponMods.lure?.twinLure ?? 0)) // twinLure: +1 decoy per pick
   const burstMul = 1 + (run.weaponMods.lure?.bigBurst ?? 0)   // bigBurst: +dmg AND +radius
   const sticky = (run.weaponMods.lure?.stickyScent ?? 0) > 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + fastLure)), dt, () => {
@@ -5514,17 +5593,23 @@ function slashClaws(run, o) {
       if ((tr.x - p.x) ** 2 + (tr.y - p.y) ** 2 <= AMBUSH_R * AMBUSH_R) { ambushMul = 1 + ambush; break }
     }
   }
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (!inSector(p.x, p.y, angle, o.range, o.arc, e, false)) continue
-    // CLAW_BASE_CRIT (v6.6.28): the rake's own +10 points of crit chance, on top of whatever the
-    // build carries. The doubleSlash follow-up re-enters slashClaws, so it inherits this too.
-    const dealt = applyDamage(run, e, o.dmg * ambushMul, CLAW_BASE_CRIT)
-    // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
-    if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
-    if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom
+  // IPECAC: three rakes at 120 degrees, de-duplicated per slash — see fireFlagella for why the set
+  // is load-bearing rather than tidy.
+  const struck = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || struck.has(e)) continue
+      if (!inSector(p.x, p.y, swing, o.range, o.arc, e, false)) continue
+      struck.add(e)
+      // CLAW_BASE_CRIT (v6.6.28): the rake's own +10 points of crit chance, on top of whatever the
+      // build carries. The doubleSlash follow-up re-enters slashClaws, so it inherits this too.
+      const dealt = applyDamage(run, e, o.dmg * ambushMul, CLAW_BASE_CRIT)
+      // bleedClaws: flagella's barbed bleed, verbatim (same DoT, re-themed as claw wounds).
+      if (bleedBonus > 0 && !e._dead) applyBleed(e, dealt, bleedBonus)
+      if (o.knockback) shoveFromPlayer(run, e, o.knockback) // v6.2 melee parity — roar's idiom
+    }
+    run.events.push({ type: 'clawRake', x: p.x, y: p.y, angle: swing, range: o.range, arc: o.arc })
   }
-  run.events.push({ type: 'clawRake', x: p.x, y: p.y, angle, range: o.range, arc: o.arc })
   // doubleSlash: queue a second, weaker slash after a beat. The follow-up never chains further.
   if (o.chain) {
     run._clawChain = {
@@ -5553,7 +5638,7 @@ function stepClawSlashes(run, dt) {
 function stepQuillWeapon(run, w, stats, fireRateMul, dt) {
   if (run._quillRetalCd > 0) run._quillRetalCd = Math.max(0, run._quillRetalCd - dt)
   const rapid = run.weaponMods.quillBurst?.rapidQuills ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireQuills(run, stats, stats.count))
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireQuills(run, stats, ipecacN(run, stats.count)))
 }
 
 function fireQuills(run, stats, count) {
@@ -5605,7 +5690,7 @@ function tryQuillRetaliate(run) {
   if (!w) return
   run._quillRetalCd = QUILL_RETALIATE_CD
   const stats = effectiveWeaponStats(run, w)
-  fireQuills(run, stats, stats.count + bonus)
+  fireQuills(run, stats, ipecacN(run, stats.count + bonus))
 }
 
 // -- Chitter Shriek (v5.4 undergrowth utility) --------------------------------------------
@@ -5617,10 +5702,10 @@ function stepShriekWeapon(run, w, stats, fireRateMul, dt) {
   const mods = run.weaponMods.chitterShriek
   const rapid = mods?.rapidShriek ?? 0
   const echoCount = mods?.echoShriek ?? 0
-  const spineCount = mods?.chitterSpines ?? 0
+  const spineCount = ipecacN(run, mods?.chitterSpines ?? 0)
   const p = run.player
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
-    spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, stats.fear)
+    for (const r of ipecacRadii(run, stats.radius)) spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, stats.fear)
     run.events.push({ type: 'shriek', x: p.x, y: p.y, radius: stats.radius }) // v6.2: own event — was a generic 'shoot' the render couldn't distinguish
     if (spineCount > 0) fireShriekSpines(run, stats, spineCount)
     run._shriekEchoes = run._shriekEchoes ?? []
@@ -5716,9 +5801,10 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
 
   // Resize to `chunks` (moreTrash). A newcomer is seeded on its evenly-spaced ring slot rather
   // than on the player, so picking the card doesn't spit a funnel out of your own feet.
-  while (list.length > stats.chunks) list.pop()
-  while (list.length < stats.chunks) {
-    const a = (list.length / stats.chunks) * Math.PI * 2 + run.time * stats.rotSpeed
+  const chunks = ipecacN(run, stats.chunks)
+  while (list.length > chunks) list.pop()
+  while (list.length < chunks) {
+    const a = (list.length / chunks) * Math.PI * 2 + run.time * stats.rotSpeed
     list.push({ x: p.x + Math.cos(a) * stats.radius, y: p.y + Math.sin(a) * stats.radius, r: DEBRIS_R, tgt: null })
   }
 
@@ -6120,15 +6206,20 @@ function fireRoar(run, stats) {
   const arc = fullCircle ? Math.PI * 2 : stats.arc
   const staggerBonus = run.weaponMods.roar?.stagger ?? 0
 
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (!inSector(p.x, p.y, angle, stats.range, arc, e, fullCircle)) continue
-    applyDamage(run, e, stats.dmg)
-    if (e._dead) continue
-    shoveFromPlayer(run, e, stats.knockback)
-    if (staggerBonus > 0) e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus)
+  // IPECAC: front, left and right — the spec's own reading of "three of it" for a cone.
+  const struck = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || struck.has(e)) continue
+      if (!inSector(p.x, p.y, swing, stats.range, arc, e, fullCircle)) continue
+      struck.add(e)
+      applyDamage(run, e, stats.dmg)
+      if (e._dead) continue
+      shoveFromPlayer(run, e, stats.knockback)
+      if (staggerBonus > 0) e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus)
+    }
+    run.events.push({ type: 'roar', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
-  run.events.push({ type: 'roar', x: p.x, y: p.y, angle, range: stats.range, arc })
 }
 
 // Radial shove away from the player (the sector sweeps' knockback). Anchored elites take the
@@ -6160,13 +6251,21 @@ function fireTail(run, stats) {
   const wrecking = run.weaponMods.tailSwipe?.wreckingTail ?? 0
   const struck = []
 
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (!inSector(p.x, p.y, angle, stats.range, stats.arc, e, false)) continue
-    const dealt = applyDamage(run, e, stats.dmg)
-    if (e._dead) continue
-    shoveFromPlayer(run, e, stats.knockback)
-    struck.push({ e, dealt })
+  // IPECAC: three sweeps instead of one. tailSwipe's arc is 126-169 degrees — WIDER than the 120
+  // degree spacing — so without the `hit` set the sectors overlap and one body eats the swipe twice,
+  // which is the x3 DAMAGE card this one exists to replace. With it, the tail simply reaches all the
+  // way around.
+  const hit = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || hit.has(e)) continue
+      if (!inSector(p.x, p.y, swing, stats.range, stats.arc, e, false)) continue
+      hit.add(e)
+      const dealt = applyDamage(run, e, stats.dmg)
+      if (e._dead) continue
+      shoveFromPlayer(run, e, stats.knockback)
+      struck.push({ e, dealt })
+    }
   }
 
   // wreckingTail: resolved in a second pass, AFTER every knockback of this swipe is applied, so a
@@ -6372,7 +6471,7 @@ function fireTesseract(run, stats) {
     tick: stats.tick, width: stats.width, length: stats.length,
     rotSpeed: stats.rotSpeed, acc: 0,
     folded: true,
-    arms: TESSERACT_ARMS + (mods?.hyperfold ?? 0),
+    arms: ipecacN(run, TESSERACT_ARMS + (mods?.hyperfold ?? 0)),
     collapseBonus: mods?.collapse ?? 0,
   })
   run.events.push({ type: 'beam' })

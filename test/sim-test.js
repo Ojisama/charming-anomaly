@@ -16,6 +16,7 @@ import {
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_MUL,
   SPECIALIST_MIN_MODS, SPECIALIST_EXTRA_PICKS, specialistSubjects, modPickCap,
   BLIND_FAITH_FLOOR, BLIND_FAITH_NO_REROLL,
+  IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   // v7.2 anomaly slate constants — run PB7 asserts each card against the number it ships with,
   // so a retune moves the test with the config instead of leaving a stale literal in here.
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
@@ -1014,7 +1015,194 @@ function testAnomalySlate() {
     }
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 17 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
+  // IPECAC (v7.5). Asserted against the failure that killed its FIRST version, not against a count:
+  // 1/2 fire rate for x3 DAMAGE measured +1.1% because overkill ate the whole multiplier. So the
+  // bar every assertion here is written to is "does the surplus land in DIFFERENT SPACE" — a x3
+  // that stacks onto one dying enemy is the old card wearing a new number, and it would pass any
+  // test that only counted projectiles.
+  {
+    // Three enemies at 120 degrees, all in range, all unkillable — so what is being measured is
+    // COVERAGE and never who died first.
+    const ring = (r, dist = 90) => [0, 1, 2].map((i) => {
+      const a = (i / 3) * Math.PI * 2
+      return makeStatusEnemy(r, { x: Math.cos(a) * dist, y: Math.sin(a) * dist, hp: 1e9, speed: 0 })
+    })
+    // ONE cast, not four seconds of them. A sector weapon re-aims per cast and knocks its target
+    // back, so over several casts it sweeps the whole ring on its own and a coverage assertion
+    // reads green with the card deleted — which is exactly what the first version of this fixture
+    // did. Step until damage first lands, take that frame's spread, stop.
+    const swing = (id, weaponId) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+      r.weapons = [{ id: weaponId, level: 3 }]
+      r.time = 5
+      const foes = ring(r)
+      for (const e of foes) r.enemies.push(e)
+      const before = foes.map((e) => e.hp)
+      for (let i = 0; i < 600; i++) {
+        stepSim(r, { x: 0, y: 0 }, dt)
+        const dealt = foes.map((e, n) => before[n] - e.hp)
+        if (dealt.some((d) => d > 0)) return dealt
+      }
+      return foes.map((e, n) => before[n] - e.hp)
+    }
+    // ROAR is a CONE: without the card it can only ever reach the one enemy it is aimed at.
+    const plainRoar = swing(null, 'roar'), ipecacRoar = swing('ipecac', 'roar')
+    assert.ok(plainRoar.filter((d) => d > 0).length === 1,
+      `a plain roar hit ${plainRoar.filter((d) => d > 0).length} of 3 ringed enemies — the fixture is not a cone test and the assertion below proves nothing`)
+    assert.strictEqual(ipecacRoar.filter((d) => d > 0).length, 3,
+      `IPECAC's roar hit ${ipecacRoar.filter((d) => d > 0).length} of 3 enemies at 120 degrees — the extra output is not landing in different space, which is exactly how the x3 DAMAGE version measured +1.1%`)
+    // ...and the surplus must be SPREAD, not stacked: the aimed enemy must not eat three cones.
+    const aimed = Math.max(...ipecacRoar), far = Math.min(...ipecacRoar)
+    assert.ok(aimed < far * 2,
+      `IPECAC's roar dealt ${aimed.toFixed(0)} to the nearest enemy against ${far.toFixed(0)} to the far one — the sectors are overlapping and one body is eating the x3, which is the overkill trap this card exists to avoid`)
+
+    // TAIL SWIPE is the dangerous row: its arc (126-169 degrees) is WIDER than the 120 degree
+    // spacing, so without de-duplication the three sweeps overlap and it silently becomes x3 damage.
+    const tail = swing('ipecac', 'tailSwipe')
+    const tailPlain = swing(null, 'tailSwipe')
+    assert.ok(tail.filter((d) => d > 0).length === 3,
+      `IPECAC's tail swipe reached ${tail.filter((d) => d > 0).length} of 3 enemies — it should sweep all the way around`)
+    assert.ok(Math.max(...tail) < Math.max(...tailPlain) * 2,
+      `IPECAC's tail swipe dealt ${Math.max(...tail).toFixed(0)} to one enemy against ${Math.max(...tailPlain).toFixed(0)} unmodified — its arc is wider than the sector spacing, so the same body is being hit by more than one sweep`)
+
+    // THE OVERLAP CASE, which is the one that actually needs the de-duplication and which the ring
+    // above CANNOT reach: three enemies at 120 degrees sit one per sector whatever the arc, so the
+    // dedup can be deleted with every assertion above still green (it was). tailSwipe's arc is
+    // 126-169 degrees — WIDER than the 120 degree spacing — so a body parked between two sectors is
+    // inside both, and without the shared `hit` set it eats the swipe twice. That is silently the
+    // x3 DAMAGE card again, on the one weapon whose geometry allows it.
+    {
+      // TWO enemies, and the geometry is the point. The weapon AIMS at the nearest, so that one is
+      // always dead-centre in sector 0 and can never be in a seam — the seam has to be created by a
+      // SECOND body. `bait` sits closest (so it takes the aim); `seam` sits 60 degrees off it,
+      // which is inside the half-arc of BOTH sector 0 and sector 120.
+      const pair = (id) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'tailSwipe', level: 3 }]
+        r.time = 5
+        const bait = makeStatusEnemy(r, { x: 50, y: 0, hp: 1e9, speed: 0 })
+        const a = (60 * Math.PI) / 180
+        const seam = makeStatusEnemy(r, { x: Math.cos(a) * 70, y: Math.sin(a) * 70, hp: 1e9, speed: 0 })
+        r.enemies.push(bait, seam)
+        const b0 = bait.hp, s0 = seam.hp
+        for (let i = 0; i < 600; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          if (b0 - bait.hp > 0 || s0 - seam.hp > 0) return { bait: b0 - bait.hp, seam: s0 - seam.hp }
+        }
+        return { bait: 0, seam: 0 }
+      }
+      const plain = pair(null), sick = pair('ipecac')
+      assert.ok(plain.bait > 0, 'the tailSwipe overlap fixture never connected — it is not reaching its subject')
+      assert.ok(sick.seam > 0,
+        'the seam enemy took nothing under IPECAC — the extra sectors are not sweeping, so this fixture is not testing what it claims')
+      // One swipe's worth is what the aimed enemy takes. The seam enemy must not take two.
+      assert.ok(sick.seam <= plain.bait * 1.5,
+        `an enemy in the seam between two IPECAC sectors took ${sick.seam.toFixed(0)} against ${plain.bait.toFixed(0)} for a single swipe — the sweeps overlap and one body is eating the x3, which is the overkill trap the whole card was rewritten to escape`)
+    }
+
+    // ...and roar's own de-duplication, which the ring above equally cannot reach: roar's cone is
+    // narrower than the 120 degree spacing, so its three sectors never overlap — EXCEPT on a
+    // `resonance` cast, where every one of them opens to a full circle and the same body sits in all
+    // three. Forced rather than waited for: resonance fires every ROAR_RESONANCE_EVERY casts.
+    {
+      const boom = (id) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'roar', level: 3 }]
+        r.weaponMods.roar = { resonance: 1 }
+        r.time = 5
+        r._roarCasts = ROAR_RESONANCE_EVERY - 1   // the next cast opens to 360 degrees
+        const e = makeStatusEnemy(r, { x: 60, y: 0, hp: 1e9, speed: 0 })
+        r.enemies.push(e)
+        const before = e.hp
+        for (let i = 0; i < 600; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          if (before - e.hp > 0) return before - e.hp
+        }
+        return 0
+      }
+      const once = boom(null), thrice = boom('ipecac')
+      assert.ok(once > 0, 'the roar resonance fixture never connected — it is not reaching its subject')
+      assert.ok(thrice <= once * 1.5,
+        `on a resonance cast IPECAC's roar dealt ${thrice.toFixed(0)} to one enemy against ${once.toFixed(0)} — every sector is a full circle there, so without the shared set the same body eats all three and the card is x3 DAMAGE again`)
+    }
+
+    // THE FIRE RATE, which is the entire cost and is applied once on take.
+    {
+      const base = withCard(null), sick = withCard('ipecac')
+      assert.ok(Math.abs(sick.player.fireRateMul / base.player.fireRateMul - IPECAC_FIRE_MUL) < 1e-9,
+        `IPECAC moved fireRateMul x${(sick.player.fireRateMul / base.player.fireRateMul).toFixed(2)}, not x${IPECAC_FIRE_MUL} — the card is pure upside without it`)
+    }
+
+    // A COUNT weapon: three projectiles per cast, not one.
+    {
+      const fired = (id) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'star', level: 3 }]
+        r.time = 5
+        r.enemies.push(makeStatusEnemy(r, { x: 200, y: 0, hp: 1e9, speed: 0 }))
+        // The FIRST volley only. Counting a peak over a window would compare four casts against
+        // two (the card halves the fire rate), which measures the cost and calls it the payoff.
+        for (let i = 0; i < 600; i++) {
+          stepSim(r, { x: 0, y: 0 }, dt)
+          if (r.bullets.length > 0) return r.bullets.length
+        }
+        return 0
+      }
+      const one = fired(null), three = fired('ipecac')
+      assert.ok(one > 0, 'the star fixture never fired — it is not reaching its subject')
+      assert.ok(three >= one * IPECAC_COUNT_MUL,
+        `IPECAC's star put ${three} bullets up against ${one} — ipecacN is not reaching the fire site`)
+    }
+
+    // HOMING is the load-bearing row in the spec's own table: three seekers that all lock the
+    // nearest enemy is a x3 overkill eats whole. Asserted by where the DAMAGE lands, across two
+    // enemies far enough apart that a shared lock cannot reach both.
+    // The rule, in the owner's words: cover three different enemies if three exist; if there are
+    // fewer, fall back to the one or two closest. All three cases are asserted, because the
+    // interesting bug lives in the SECOND one — a claim set with no fallback leaves the surplus
+    // seeker with no target at all, which looks like "spreading" and is actually a dead projectile.
+    {
+      const seek = (id, n) => {
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        r.weapons = [{ id: 'homing', level: 3 }]
+        r.time = 5
+        // Evenly around the player, all identical, all unkillable: the only thing that can differ
+        // between arms is WHICH of them the seekers chose.
+        const foes = Array.from({ length: n }, (_, i) => {
+          const a = (i / n) * Math.PI * 2
+          return makeStatusEnemy(r, { x: Math.cos(a) * 150, y: Math.sin(a) * 150, hp: 1e9, speed: 0 })
+        })
+        for (const e of foes) r.enemies.push(e)
+        const before = foes.map((e) => e.hp)
+        for (let i = 0; i < 300; i++) stepSim(r, { x: 0, y: 0 }, dt)
+        return foes.map((e, i) => before[i] - e.hp)
+      }
+      // THREE OR MORE: three distinct enemies take damage.
+      const three = seek('ipecac', 3)
+      assert.strictEqual(three.filter((d) => d > 0).length, 3,
+        `IPECAC's seekers hit ${three.filter((d) => d > 0).length} of 3 available enemies — they are sharing a lock, and a x3 poured into one body is what overkill eats whole`)
+      const plainThree = seek(null, 3)
+      assert.ok(plainThree.filter((d) => d > 0).length < 3,
+        `an unmodified homing volley already hit ${plainThree.filter((d) => d > 0).length} of 3 — the control is not a shared-lock control and the assertion above proves nothing`)
+      // EXACTLY TWO: both are covered, and no seeker is left without a target.
+      const two = seek('ipecac', 2)
+      assert.strictEqual(two.filter((d) => d > 0).length, 2,
+        `with only 2 enemies IPECAC's seekers covered ${two.filter((d) => d > 0).length} — the fallback is not firing and a seeker with every enemy claimed is flying blind`)
+      // EXACTLY ONE: all three hunt it rather than stalling.
+      const one = seek('ipecac', 1)
+      assert.ok(one[0] > 0,
+        'with a single enemy IPECAC\'s seekers dealt no damage at all — every seeker found its only target claimed and gave up, which is the claim set without its fallback')
+      // Compared against IPECAC's OWN three-enemy arm, never against the unmodified weapon: the
+      // card halves the fire rate, so over a fixed window that comparison measures the cost and
+      // reads it as a targeting failure. Within the card, total damage should barely move — three
+      // seekers all landing on one body deal what three seekers landing on three bodies do.
+      const spread3 = three.reduce((a, b) => a + b, 0)
+      assert.ok(one[0] > spread3 * 0.5,
+        `against a lone straggler IPECAC dealt ${one[0].toFixed(0)} in total against ${spread3.toFixed(0)} spread over three — seekers are giving up when their only target is already claimed instead of doubling up on it`)
+    }
+  }
+
+  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {

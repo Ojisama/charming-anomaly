@@ -600,6 +600,33 @@ export const BLIND_FAITH_FLOOR = 'epic'  // the lowest rarity a blind screen may
 // correctness reason only — they are offered at normal rarity by construction, so they could only
 // ever reach a blind screen through the all-declined fallback, wearing a border the card forbade.
 
+// IPECAC (v7.5). The owner's revision of a card that had already failed once, and the failure is
+// the whole reason this version is shaped the way it is.
+// V1 WAS 1/2 FIRE RATE FOR x3 DAMAGE. On paper +50% dps; MEASURED +1.1%, inside the noise. The
+// entire multiplier was eaten by OVERKILL WASTE — tripling per-hit damage against enemies that were
+// already dying pays nothing, while halving the fire rate pays its cost in full.
+// V2 IS x3 COUNT, and the owner named the fix: "instead of 3x damage, can we do 3x projectiles, or
+// beam arms, or 3 claws in different directions around you". Three things in DIFFERENT SPACE cannot
+// overkill the same enemy, so the surplus lands on targets that were not already dead. That is the
+// rule every weapon's reading is written against, and any row that resolves to "the same hit,
+// bigger" has failed and needs re-authoring.
+// WHY IT IS PER WEAPON: "+N count" is not commensurable across weapons. A generic +2 measured x1.35,
+// not x3 — star.multishot +2 on a 1-projectile volley genuinely is x3, wave.echo +2 adds echoes at a
+// FRACTION of damage, and orbit.extraOrb +2 adds to a persistent ring that never "fires" at all.
+// Nine of the 22 weapons have no count axis whatsoever (mines, flagella, clawRake, roar, tailSwipe,
+// wave, hole, chitterShriek, tesseractBeam), so for those "three of it" is authored rather than
+// multiplied — three sectors at 120 degrees, three novas at different radii, three scattered cysts.
+// THE HALVED FIRE RATE STAYS. It was only ever in doubt because the measured +2 grant was worth
+// x1.35; authored properly every row is a true x3 of output, so the paper trade returns to x1.5 —
+// and unlike the damage version, spread output is the kind overkill cannot reclaim.
+export const IPECAC_COUNT_MUL = 3
+export const IPECAC_FIRE_MUL = 0.5
+// CLUTTER IS THE KNOWN RISK, and it is a real one rather than a theoretical one: REBOUND_MAX_PICKS'
+// note already records live quill counts going 11 -> 47 and being "the one making the screen
+// unreadable" on a 390x844 phone. This card does that to four equipped weapons at once, by design —
+// the owner chose density everywhere over a gentler reading for the radial weapons. Whatever ships
+// needs looking at ON A PHONE, not just in a kill count.
+
 export const SPECIALIST_MIN_MODS = 4   // mod picks on ONE weapon before the card is offered
 
 // Total mod picks a run has spent on one weapon — the gate's "have you committed to something yet".
@@ -852,6 +879,15 @@ export const ANOMALIES = {
     // The rarest weight on the slate. It is the single most powerful card here by a wide margin
     // (x2.36 on the magnitude of every remaining pick), and the licence for that is scarcity.
     weight: 1, chapter: null, kind: 'trade',
+  },
+  ipecac: {
+    name: 'Ipecac', icon: '🤮',
+    from: 'once was never going to be enough',
+    desc: `Every weapon fires ${IPECAC_COUNT_MUL} times as much, spread in ${IPECAC_COUNT_MUL} directions — at half the fire rate.`,
+    // Unconditional: it re-reads every weapon in the game, so there is no build state that makes it
+    // a lesson the run has already taught.
+    when: () => true,
+    weight: 2, chapter: null, kind: 'trade',
   },
   specialist: {
     name: 'Specialist', icon: '🎯',
