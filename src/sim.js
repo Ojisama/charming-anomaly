@@ -6602,7 +6602,8 @@ function weaponCandidates(run) {
     if (w.level < MAX_WEAPON_LEVEL) {
       const cfg = WEAPONS[w.id]
       // An upgrade shows NO tier (UPGRADE_RARITY, not a RARITIES key — see config.js). The weapon
-      // you already own is not a jackpot, and under bucket-first its card fires on 22% of rolls
+      // you already own is not a jackpot, and under bucket-first its card fires on
+      // BUCKET_WEIGHTS.weapon percent of rolls (22% when this was written, 17% since v7.7)
       // whatever the tier table says, so wearing cfg.rarity here put a Mythic border on 8.9% of
       // city's cards — every one of them a Neon Beam level.
       list.push({ kind: 'weapon', id: w.id, title: cfg.name, desc: cfg.desc, tag: `Lv ${w.level + 1}`, rarity: UPGRADE_RARITY, icon: cfg.icon })
