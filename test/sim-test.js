@@ -10644,10 +10644,22 @@ function testForwardCompatibleSave() {
   ordinary.chapters.body.maxDifficulty = 3
   ordinary.chapters.body.difficulty = 2
   ordinary.chapters.pond.unlocked = true
-  saveMeta(ordinary)
-  const beforeBlob = store.get(KEY)
-  saveMeta(loadMeta())
-  assert.strictEqual(store.get(KEY), beforeBlob, 'an ordinary save must round-trip byte-identical through loadMeta -> saveMeta')
+  // THE CLOCK IS PINNED ACROSS BOTH WRITES, and it has to be: saveMeta stamps `savedAt: Date.now()`,
+  // so the two blobs differ whenever the millisecond happens to tick between them. That is a ~1-in-N
+  // flake rather than a rare one — it failed a release gate on 2026-08-09, with the two strings
+  // differing in exactly one digit (…468666 against …468665), which reads at a glance like a real
+  // save-shape regression and costs a re-run to identify. The assertion is about the SHAPE surviving
+  // a load/save cycle; a timestamp that advances is not a shape change.
+  const realNow = Date.now
+  Date.now = () => 1786300000000
+  try {
+    saveMeta(ordinary)
+    const beforeBlob = store.get(KEY)
+    saveMeta(loadMeta())
+    assert.strictEqual(store.get(KEY), beforeBlob, 'an ordinary save must round-trip byte-identical through loadMeta -> saveMeta')
+  } finally {
+    Date.now = realNow
+  }
 
   for (const [label, entry] of Object.entries({
     absent: undefined,
