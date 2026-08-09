@@ -35,7 +35,7 @@ import {
   // RARITY_ORDER is deliberately NOT imported: it existed here only for the ladder walk the
   // bucket-first roll deletes. Nothing in sim.js reads the tier ORDER any more.
   RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
-  BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT,
+  BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT, REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
   ENEMIES, ELITE, WAVE_TABLE,
@@ -5987,6 +5987,12 @@ export function anomalyWeightFor(run) {
 function rollAnomalyCard(run) {
   const eligible = eligibleAnomalyIds(run)
   if (eligible.length === 0) return null
+  // RARITY_WEIGHTS, UNDECAYED — never the reroll-decayed table rollCard builds. Summing the
+  // decayed one would shrink the denominator the tier competes against every time the player paid
+  // for a reroll: 8.6% -> 11.6% of screens at REROLL_RARITY_CAP, +35% relative, i.e. coins buying
+  // the rarest tier through the back door after v6.7.9 closed the front one (spec B6). Run PB4
+  // pins this exactly rather than statistically, because the per-screen memo below settles the
+  // tier at reroll 0 and would hide the leak from any sampled measurement.
   const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
   const anomalyWeight = anomalyWeightFor(run)
   if (Math.random() * (ordinaryTotal + anomalyWeight) >= anomalyWeight) return null
@@ -6049,6 +6055,10 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     for (let i = 0; i < weaponOpts.length; i++) {
       const isNew = weaponOpts[i].tag === 'New!'
       if (!isNew) hasUpgrade = true
+      // RARITY_WEIGHTS here, never the reroll-decayed table: this weight decides WHICH weapon is
+      // offered, not how big a card is, and rerolling is a promise about size. Decaying it would
+      // quietly turn coins into rarer *acquisitions* — a discovery lever nobody named, stacked on
+      // top of the fade this same line already applies.
       weaponW[i] = isNew ? (RARITY_WEIGHTS[weaponOpts[i].rarity] ?? 1) * pNew : WEAPON_UP_WEIGHT
     }
     buckets.weapon = BUCKET_WEIGHTS.weapon * (hasUpgrade ? 1 : pNew)
@@ -6079,7 +6089,19 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   if (Object.keys(buckets).length === 0) return null
 
   const bucket = pickWeighted(buckets)
-  const rarity = pickWeighted(RARITY_WEIGHTS)
+  // Rerolling THIS screen decays the `normal` weight and nothing else, so every other tier's share
+  // rises proportionally without a second knob (config.js REROLL_RARITY_DECAY/CAP). Rerolling buys
+  // BIGGER NUMBERS — never a different KIND of card (the bucket roll above is untouched: a reroll
+  // that also reshaped the buckets would be a different screen, not a better one) and never more
+  // of the sixth tier, which rolls against the UNDECAYED total in rollAnomalyCard.
+  // The counter is main.js's (see _screenRerolls in state.js): it counts rerolls PAID FOR on the
+  // open screen, never builds. Clamped both ways — below 0 because the shipped samplers pin it at
+  // -1 to mean "base rate", above REROLL_RARITY_CAP because the decay is geometric.
+  const rr = Math.min(REROLL_RARITY_CAP, Math.max(0, run._screenRerolls ?? 0))
+  const rarityWeights = rr === 0
+    ? RARITY_WEIGHTS
+    : { ...RARITY_WEIGHTS, normal: RARITY_WEIGHTS.normal * Math.pow(REROLL_RARITY_DECAY, rr) }
+  const rarity = pickWeighted(rarityWeights)
 
   if (bucket === 'weapon') {
     // A weapon card keeps its inherent rarity for its chip rather than adopting the rolled one —
@@ -6100,8 +6122,12 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // tier, measured 12.2% legendary armor against a declared 3.5% and +15% mean armor per card;
     // walking down to 'normal' is the same unnamed change in the other direction. Renormalising
     // the passive's own keys is neutral by construction (normal 64.1 / rare 32.1 / legendary 3.9).
+    // It renormalises rarityWeights, not RARITY_WEIGHTS: this IS the rarity roll for this card, so
+    // it has to read the same table the roll it replaces did, or a reroll's promise quietly
+    // evaporates for armor and regen — the two cards a player rerolling a bad screen is most often
+    // hoping to improve, and at the cap the fall-through path takes 12.3% of them (8.8% at base).
     const w = {}
-    for (const r of Object.keys(PASSIVES[pid].values)) w[r] = RARITY_WEIGHTS[r] ?? 1
+    for (const r of Object.keys(PASSIVES[pid].values)) w[r] = rarityWeights[r] ?? 1
     return makePassiveCard(run, pid, pickWeighted(w))
   }
 
@@ -6224,6 +6250,10 @@ function stepLevelUp(run) {
   // line that makes the memo in buildLevelUpChoices a per-SCREEN decision rather than a per-run
   // one, and the only place it is cleared. A reroll goes through the builder, never through here.
   run._screenAnomaly = undefined
+  // Same reason, for the rarity decay: this screen has been paid for exactly once, so it is dealt
+  // at the undecayed table and only the replacements the player buys step up (main.js's onReroll
+  // does the stepping — see _screenRerolls in state.js for why the BUILDER must not).
+  run._screenRerolls = 0
   // Anomaly pity advances HERE, once per screen, and not inside buildLevelUpChoices — main.js's
   // onReroll calls the builder directly, so a counter kept there would let coins buy the rarest
   // tier (F5). The unit is the SCREEN, not the card: the tier is rolled once per screen, so a

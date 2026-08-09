@@ -824,6 +824,46 @@ git add src/config.js src/sim.js src/state.js test/sim-test.js package.json
 git commit -m "v6.7.3: rerolling a level-up nudges rarity upward but never buys anomalies"
 ```
 
+> **Shipped as v6.7.10 — two things above are wrong, both load-bearing.**
+> 1. **The counter counts PURCHASES, not builds.** Step 3's "increment on entry in
+>    `buildLevelUpChoices`, no `main.js` change needed" is the defect: ~15 sampling loops in
+>    `test/sim-test.js` reuse one `run` across thousands of builds, so each saturates at
+>    `REROLL_RARITY_CAP` after three iterations and then measures the 3-reroll distribution while
+>    reporting it as the base rate. Measured, not argued: forcing that state on turns **run PB1
+>    red** (city/2 rare 33.4%). The plan's own answer to this — a standing "every sampling loop
+>    must reset it per iteration" warning, plus the claim that Tasks 1–4's tests already do — is
+>    false (three of the ~18 call sites do) and makes the unsafe thing the default forever.
+>    Shipped: `stepLevelUp` zeroes `run._screenRerolls`, `main.js`'s `onReroll` steps it beside the
+>    `_rerolls` bump that already prices the reroll, and the builder never touches it. PB4 asserts
+>    all three, including that four consecutive builds leave it unmoved.
+> 2. **Step 1's PB4 is vacuous as written** against v6.7.9's per-screen memo. It never clears
+>    `run._screenAnomaly`, so the first iteration's draw freezes for all 4000 screens and the drift
+>    assertion compares 0% against 0% (or 100% against 100%) and passes. Worse, the property it
+>    aims at is *unobservable* through the shipped flow at all: the tier is decided at reroll 0, so
+>    no reroll-count sampling can ever reach a decayed denominator. PB4 now pins it exactly — a
+>    constant `Math.random` at a threshold strictly between the correct and leaking firing points,
+>    so the correct implementation declines the tier where the leaking one offers it — and keeps
+>    the Monte Carlo behind it at 20000 screens/arm (relative sd ~3.3%, so the 10% tolerance is
+>    ~3 sigma) with the memo cleared per screen. Mutation-proven both ways.
+>
+> Also shipped beyond the letter of Step 3: the values-passive fall-through re-roll
+> (`rollCard`'s `armor`/`regen` branch) renormalises **`rarityWeights`**, not `RARITY_WEIGHTS` —
+> it *is* the rarity roll for that card, and leaving it undecayed silently exempts the two cards a
+> player rerolling a bad screen most wants bigger (12.3% of them take that path at the cap). The
+> weapon bucket's `New!` weights stay undecayed on purpose: they choose WHICH weapon, and a reroll
+> promises size, not rarer discoveries.
+>
+> **Measured** (body/3, tier-eligible, 8000 screens/row): mean rarity multiplier 1.432 -> 1.583
+> over 3 rerolls (+10.5%), epic+ 10.4% -> 14.2%, normal 59.0% -> 45.8% of tiered cards, and rr=4
+> identical to rr=3 (the cap is exact). Anomaly rate 8.63% -> 8.58% (1% relative). Inert at zero:
+> `node scripts/pool-probe.mjs body 2 40 random --compare` is **byte-identical** before and after
+> (same md5), as is the mortal rig `body 2 40 dps --survival --diff=3 --compare`.
+>
+> **Owed, not fixed here (same standing item v6.7.9 logged for pity):** the decay is invisible.
+> Nothing in `ui.js` tells the player that a reroll is also buying rarity, so a hidden rule moves a
+> hidden weight. A look change goes to the owner as labelled shot variants on one identical
+> in-game frame, never as a unilateral edit — do it with the pity tell, before Track B is done.
+
 ---
 
 ### Task 5: Offset the power gain — the hpScale tail, per chapter

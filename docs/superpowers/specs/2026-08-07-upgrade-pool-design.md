@@ -557,9 +557,40 @@ from 21% to 65%.
 > exactly (same card back after each of 5 rerolls, counter unmoved) and in rate. Task 4 therefore
 > only owes the rarity decay below.
 
-No `main.js` change needed: `stepLevelUp` sets `run._screenRerolls = -1` before calling
+~~No `main.js` change needed: `stepLevelUp` sets `run._screenRerolls = -1` before calling
 `buildLevelUpChoices`, which increments on entry. First call lands on 0; each reroll steps up; the
-next level-up resets. Keeps the "rerolling is just calling it again" contract in state.js:529.
+next level-up resets. Keeps the "rerolling is just calling it again" contract in state.js:529.~~
+
+> **Shipped as v6.7.10, and the counter counts PURCHASES, not builds.** Incrementing inside
+> `buildLevelUpChoices` reads identically on the shipped path and is wrong everywhere else: ~15
+> sampling loops in `test/sim-test.js` and the survival rig in `scripts/pool-probe.mjs` reuse one
+> `run` across thousands of builds, so each would saturate at `REROLL_RARITY_CAP` after three
+> iterations and then measure the 3-reroll distribution while reporting it as the base rate. Not
+> hypothetical — forcing that state on turns **run PB1 red** (city/2 rare 33.4%, overtaking the tier
+> below it). It also makes the *unsafe* thing the default for every future sampler, which is why the
+> plan had to carry a standing "reset it per iteration" warning; the shipped shape needs none.
+> So: `stepLevelUp` zeroes it, **`main.js`'s `onReroll` steps it** beside the `_rerolls` bump that
+> already prices the next reroll (one line, the same bookkeeping class), and the builder never
+> touches it. Run PB4 asserts all three, including that four consecutive builds leave it unmoved.
+>
+> **Delivered, measured on the shipped pipeline** (body/3, tier-eligible, 8000 screens per row) —
+> the table above came from the shim and holds:
+>
+> | rerolls | normal (of tiered cards) | epic+ | mean rarity mult |
+> |---|---|---|---|
+> | 0 | 59.0% | 10.4% | 1.432 |
+> | 1 | — | 11.8% | 1.481 |
+> | 2 | — | 13.0% | 1.532 |
+> | 3 | 45.8% | 14.2% | 1.583 |
+> | 4 | — | 14.2% | 1.583 (cap exact) |
+>
+> The anomaly denominator stayed on the undecayed table and the tier did not move: 8.63% -> 8.58%
+> of screens over 20000 screens per arm (1% relative). Because v6.7.9 settles the tier at reroll 0,
+> a sampled measurement through the shipped screen flow **cannot** see a decayed denominator — so
+> PB4 pins it with exact arithmetic (a constant `Math.random` at a threshold strictly between the
+> two implementations' firing points) instead of trusting the Monte Carlo. Mutation-proven: leaking
+> the decay into `ordinaryTotal` fires that assertion, and the zero-reroll probe output is
+> byte-identical (`pool-probe body 2 40 random --compare`, same md5 before and after).
 
 ### B7. New run fields
 

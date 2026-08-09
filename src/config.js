@@ -68,6 +68,39 @@ export const RARITY_WEIGHTS = { normal: 100, rare: 50, epic: 12, legendary: 6, m
 // no border, and applyChoice's weapon branch never reads rarity, so it promised nothing.
 export const UPGRADE_RARITY = 'upgrade'
 
+// Rerolling a level-up screen carries a small rarity pity: it buys BIGGER NUMBERS. Only the
+// `normal` weight decays, so every other tier's share rises proportionally without needing a knob
+// of its own — at the cap the ordinary table reads 51.2/50/12/6/3.
+// DELIVERED, measured on the shipped roll (body/3, tier-eligible, 8000 screens per row; run PB4
+// asserts the ends of it). "normal" is the share of TIERED cards, i.e. excluding weapon upgrades,
+// which carry UPGRADE_RARITY and no tier at all:
+//     rerolls   normal   epic+   mean rarity mult   cumulative coins (rerollCost)
+//        0      59.0%    10.4%        1.432               —
+//        1        —      11.8%        1.481              10
+//        2        —      13.0%        1.532              25
+//        3      45.8%    14.2%        1.583              48
+//        4        —      14.2%        1.583              82  (identical: the cap is exact)
+// So three rerolls are worth +10.5% on the average card and +37% relative on epic-or-better. A
+// nudge, deliberately: the reroll's real product is a different SET of cards, and this is the
+// consolation for the one you buy and still don't like.
+// It deliberately does NOT touch the anomaly tier. The tier rolls against the sum of the
+// UNDECAYED table (see rollAnomalyCard), so a reroll cannot shrink the denominator it competes
+// against; summing the decayed table instead measures 8.6% -> 11.6% of screens at the cap, +35%
+// relative. Rerolling would then be the way to FARM the rarest tier rather than a way to fix a bad
+// screen — the second half of spec B6, whose first half (repeated independent draws) v6.7.9 closed
+// by deciding the tier once per screen. Measured at 8.63% -> 8.58%, 1% relative.
+// The one thing it touches that is NOT a number: a `switch` mod declines every rarity above normal
+// (see WEAPON_MODS), so thinning `normal` thins the behavioural mods too — measured on undergrowth
+// at 2.65% -> 2.15% of mod cards, 0.8% -> 0.6% of all cards. Accepted at that size and bounded by
+// run PB4, because "buys bigger numbers, not more rule-changes" is not a licence to buy FEWER of
+// them. A steeper decay would have to answer for that first.
+// The CAP exists because the decay is geometric: uncapped, six rerolls take normal to 33.0% of
+// tiered cards (measured) and every screen past the fourth is a pool nothing was balanced on.
+// Three is where rerollCost has already reached 34 coins for the NEXT one (REROLL_BASE_COST 10,
+// x1.5 each — 48 spent to get here) against ~370 earned in a whole body/2 run.
+export const REROLL_RARITY_DECAY = 0.8   // `normal` weight multiplier per reroll of THIS screen
+export const REROLL_RARITY_CAP = 3       // rerolls of one screen past which the decay stops
+
 // ---- Level-up buckets (v6.7, Track B) -----------------------------------------------
 // The pool rolls a BUCKET first, then a rarity inside it. The shipped order was the reverse,
 // which deleted a bucket entirely on every roll whose rarity no member happened to carry —

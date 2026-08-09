@@ -8,6 +8,7 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 import { FR } from '../src/fr.js'
 import {
   SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
+  REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, hasWeaponAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
@@ -1042,6 +1043,184 @@ function testAnomalyPity() {
     `${REROLLS} rerolls took anomaly-on-screen ${sat0.toFixed(1)}% -> ${sat5.toFixed(1)}% at a saturated counter — rerolling buys BIGGER NUMBERS, never more anomalies (spec B6)`)
 
   console.log(`PASS run PB3 (anomaly pity): weight ${w(1)}/${w(2)}/${w(10000)} at 1/2/saturated screens and identical at 4 slots; one screen = one step, ${SCREENS} ineligible screens bank nothing; rate ${rateFor(0).toFixed(1)}% -> ${mid.toFixed(1)}%/${mid4.toFixed(1)}% (2/4 slots) at ${midScreens - 1} dry screens -> ${saturated.toFixed(1)}% saturated against a ceiling of ${ceiling.toFixed(1)}%; ${REROLLS} rerolls hold it at ${sat0.toFixed(1)}% -> ${sat5.toFixed(1)}%; every reset kept its card`)
+}
+
+// ---- Run PB4: reroll nudges rarity, never the anomaly tier --------------------------
+// Rerolling a level-up screen buys BIGGER NUMBERS. Only the `normal` weight decays
+// (REROLL_RARITY_DECAY, capped at REROLL_RARITY_CAP rerolls of the same screen), so every other
+// tier's share rises without a knob of its own. What a reroll must NOT buy is the sixth tier —
+// spec B6. Two independent mechanisms keep those apart and both are pinned here:
+//   MEMO   the screen's anomaly answer is decided once and reused (v6.7.9; run PB3's STICKY block
+//          is the test of that half).
+//   DENOM  the anomaly roll competes against the sum of the UNDECAYED table. Summing the decayed
+//          one shrinks the denominator and inflates the tier ~35% relative — and because the memo
+//          settles the question at reroll 0, no Monte Carlo through the shipped screen flow can
+//          see that. The pin below is exact arithmetic, not a sample.
+function testRerollRarity() {
+  const meta = makeMeta()
+  meta.choiceSlots = 3
+  const fixture = () => {
+    const run = createRun(meta)
+    run.player.level = 12
+    run._eliteKills = 1   // the seed anomaly's own gate — without it the tier is INELIGIBLE
+    return run
+  }
+  // A reroll exactly as main.js's onReroll performs one: pay, step both counters, rebuild the SAME
+  // screen. Driving it any other way would be testing this file's own bookkeeping.
+  const reroll = (run) => {
+    run._rerolls = (run._rerolls ?? 0) + 1
+    run._screenRerolls = (run._screenRerolls ?? 0) + 1
+    return buildLevelUpChoices(run)
+  }
+
+  // WIRED. The counter belongs to the SCREEN, and it counts PURCHASES.
+  Math.random = mulberry32(20260808)
+  const wired = fixture()
+  const openScreen = (run) => {
+    run.phase = 'playing'
+    run.player.xp = run.player.xpNext
+    stepSim(run, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(run.phase, 'levelup', 'the fixture never opened a level-up screen')
+  }
+  openScreen(wired)
+  assert.strictEqual(wired._screenRerolls, 0,
+    `a freshly dealt screen sits at ${wired._screenRerolls} rerolls — the decay must be inert on a screen nobody paid for`)
+  reroll(wired)
+  reroll(wired)
+  assert.strictEqual(wired._screenRerolls, 2, 'a paid reroll must step the counter')
+  openScreen(wired)
+  assert.strictEqual(wired._screenRerolls, 0,
+    'a new screen did not re-arm the counter — one expensive screen would tax every screen after it for the rest of the run')
+  // ...and the BUILDER must not step it. This is the whole reason the counter is not kept inside
+  // buildLevelUpChoices: ~15 sampling loops in this file (and the survival rig in
+  // scripts/pool-probe.mjs) reuse one run across thousands of builds, so a build-counting field
+  // would saturate at REROLL_RARITY_CAP after three iterations and then report the 3-reroll
+  // distribution as the base rate. Forcing that state on turns run PB1 red (city/2 rare 33.4%),
+  // so it is a live regression, not a hypothetical one.
+  const before = wired._screenRerolls
+  for (let i = 0; i < 4; i++) buildLevelUpChoices(wired)
+  assert.strictEqual(wired._screenRerolls, before,
+    'buildLevelUpChoices stepped the reroll counter by itself — it must count purchases, not builds')
+
+  // RARITY. Share of TIERED cards that come up `normal`; weapon upgrades carry UPGRADE_RARITY (no
+  // tier at all, v6.7.5) and anomalies carry their own, so neither is something a reroll can raise.
+  const sample = (rerolls, SCREENS = 3000) => {
+    Math.random = mulberry32(20260808)
+    const run = fixture()
+    let normal = 0, total = 0
+    for (let i = 0; i < SCREENS; i++) {
+      run._screenRerolls = 0
+      run._screenAnomaly = undefined     // each iteration is a NEW screen (v6.7.9 memo)...
+      run._screensSinceAnomaly = 3       // ...with pity pinned, so it confounds nothing
+      let cards = buildLevelUpChoices(run)
+      for (let r = 0; r < rerolls; r++) {
+        run._screenRerolls++             // ...and these are rerolls OF that screen
+        run._screensSinceAnomaly = 3
+        cards = buildLevelUpChoices(run)
+      }
+      for (const c of cards) {
+        if (c.kind === 'anomaly' || c.rarity === UPGRADE_RARITY) continue
+        if (c.rarity === 'normal') normal++
+        total++
+      }
+    }
+    return (100 * normal) / total
+  }
+  const zero = sample(0)
+  const capped = sample(REROLL_RARITY_CAP)
+  assert.ok(capped < zero - 5,
+    `rerolling must raise average rarity — normal ${zero.toFixed(1)}% -> ${capped.toFixed(1)}% of tiered cards over ${REROLL_RARITY_CAP} rerolls`)
+  // The CAP bites. Geometric decay is unbounded: at 6 rerolls normal's share of a rarity roll is
+  // 27% against 41.9% at the cap, i.e. a player who can afford them plays a pool nothing was
+  // balanced on. Without this the clamp can be deleted with every other assertion still green.
+  const past = sample(REROLL_RARITY_CAP + 3)
+  assert.ok(Math.abs(past - capped) < 2.5,
+    `${REROLL_RARITY_CAP + 3} rerolls gave normal ${past.toFixed(1)}% against ${capped.toFixed(1)}% at the cap of ${REROLL_RARITY_CAP} — the decay is uncapped`)
+
+  // RULE-CHANGES SURVIVE IT. The one place the decay can touch card KIND rather than card size: a
+  // `switch` mod (Cyclone, Hive Mind, Double Slash — the behavioural ones) declines every rarity
+  // above normal, so it is only a candidate on a normal roll, and thinning `normal` thins them.
+  // Measured on undergrowth (the chapter with the most switch mods), 8000 screens per arm: 2.88%
+  // -> 2.10% of mod cards, 0.82% -> 0.61% of all cards. Accepted at that size and bounded here,
+  // because "rerolling buys bigger numbers, NOT more rule-changes" (B6) is not a licence to buy
+  // FEWER of them — this game's standing complaint is that cards are boring. If a future decay
+  // tuning wants to go steeper, this is the assertion that has to be argued with.
+  const switchShare = (rerolls, SCREENS = 8000) => {
+    Math.random = mulberry32(20260808)
+    const ugMeta = makeMeta()
+    ugMeta.choiceSlots = 3
+    ugMeta.chapter = 'undergrowth'
+    const run = createRun(ugMeta)
+    run.player.level = 12
+    run.weapons = CHAPTERS.undergrowth.weapons.slice(0, 3).map((id) => ({ id, level: 3 }))
+    let mods = 0, switches = 0
+    for (let i = 0; i < SCREENS; i++) {
+      run._screenRerolls = rerolls
+      run._screenAnomaly = undefined
+      for (const c of buildLevelUpChoices(run)) {
+        if (c.kind !== 'mod') continue
+        mods++
+        if (WEAPON_MODS[c.weapon]?.[c.id]?.kind === 'switch') switches++
+      }
+    }
+    assert.ok(switches > 30, `the switch-mod fixture saw ${switches} of them — it is not measuring anything`)
+    return (100 * switches) / mods
+  }
+  const sw0 = switchShare(0)
+  const swCap = switchShare(REROLL_RARITY_CAP)
+  assert.ok(swCap > sw0 * 0.5,
+    `${REROLL_RARITY_CAP} rerolls took behavioural (switch) mods from ${sw0.toFixed(2)}% to ${swCap.toFixed(2)}% of mod cards — the rarity decay is deleting rule-change cards, not enlarging number cards`)
+
+  // DENOM, exact. A constant Math.random makes the anomaly roll a comparison rather than a sample:
+  // pick a threshold strictly between what the two implementations would need, and the correct one
+  // declines the tier where the leaking one offers it.
+  const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+  const decayedTotal = ordinaryTotal - RARITY_WEIGHTS.normal
+    + RARITY_WEIGHTS.normal * Math.pow(REROLL_RARITY_DECAY, REROLL_RARITY_CAP)
+  const aw = anomalyWeightFor({ _screensSinceAnomaly: 3 })
+  const pTrue = aw / (ordinaryTotal + aw)
+  const pLeak = aw / (decayedTotal + aw)
+  assert.ok(pLeak > pTrue * 1.05, 'the pin cannot discriminate — REROLL_RARITY_DECAY must be below 1')
+  const firesAt = (p, rerolls) => {
+    Math.random = () => p
+    const run = fixture()
+    run._screensSinceAnomaly = 3
+    run._screenRerolls = rerolls
+    const cards = buildLevelUpChoices(run)
+    assert.ok(cards.length > 1, 'the pinned fixture built a 1-card screen — the tier is never rolled there')
+    return cards.some((c) => c.kind === 'anomaly')
+  }
+  assert.strictEqual(firesAt(pTrue * 0.5, REROLL_RARITY_CAP), true,
+    'the pinned fixture produces no anomaly at ANY threshold — it is not testing the denominator')
+  assert.strictEqual(firesAt((pTrue + pLeak) / 2, REROLL_RARITY_CAP), false,
+    `at ${REROLL_RARITY_CAP} rerolls the tier fired at a threshold only a DECAYED denominator can reach (${(pTrue * 100).toFixed(2)}% correct vs ${(pLeak * 100).toFixed(2)}% leaking) — rollAnomalyCard must keep summing the undecayed RARITY_WEIGHTS`)
+  assert.strictEqual(firesAt((pTrue + pLeak) / 2, 0), false, 'control: the same threshold must decline at zero rerolls too')
+
+  // ...and the same separation end to end, which would catch any OTHER route from rerolls to the
+  // tier. Measured with the memo cleared per screen, so the roll really happens AT the reroll count
+  // under test. 20000 screens puts the relative sd of the gap at ~3.3%, so 10% is ~3 sigma; a
+  // decayed denominator moves it 35%.
+  const anomalyRateAt = (rerolls, N) => {
+    Math.random = mulberry32(20260811)
+    const run = fixture()
+    let hits = 0
+    for (let i = 0; i < N; i++) {
+      run._screenRerolls = rerolls
+      run._screenAnomaly = undefined
+      run._screensSinceAnomaly = 3
+      if (buildLevelUpChoices(run).some((c) => c.kind === 'anomaly')) hits++
+    }
+    return (100 * hits) / N
+  }
+  const N = 20000
+  const a0 = anomalyRateAt(0, N)
+  const aCap = anomalyRateAt(REROLL_RARITY_CAP, N)
+  assert.ok(a0 > 0, 'the tier never rolled in the anomaly-rate fixture at all')
+  const drift = Math.abs(aCap - a0) / a0
+  assert.ok(drift < 0.10,
+    `${REROLL_RARITY_CAP} rerolls moved the anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (${(drift * 100).toFixed(0)}% relative) — reroll is buying anomalies (B6)`)
+
+  console.log(`PASS run PB4 (reroll rarity): normal ${zero.toFixed(1)}% -> ${capped.toFixed(1)}% of tiered cards over ${REROLL_RARITY_CAP} rerolls and ${past.toFixed(1)}% at ${REROLL_RARITY_CAP + 3} (capped); switch mods ${sw0.toFixed(2)}% -> ${swCap.toFixed(2)}% of mod cards; anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (${(drift * 100).toFixed(0)}% drift), denominator pinned undecayed`)
 }
 
 // Declines every level-up screen (still banks the xp/level, per stepLevelUp, but grants no
@@ -9163,6 +9342,7 @@ try {
   testPoolBuckets()
   testAnomalyTier()
   testAnomalyPity()
+  testRerollRarity()
   testStarMods()
   testAdvancedStarMods()
   testElements()

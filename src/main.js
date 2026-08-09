@@ -204,6 +204,11 @@ const ui = initUI({
     if ((run.coinsEarned ?? 0) < cost) return
     run.coinsEarned -= cost
     run._rerolls = (run._rerolls ?? 0) + 1
+    // ...and the same purchase again, scoped to THIS screen: sim.js decays the `normal` rarity
+    // weight by it (REROLL_RARITY_DECAY), and stepLevelUp zeroes it when the next screen opens.
+    // Counted here rather than inside buildLevelUpChoices because the builder is called by
+    // harnesses too, and a build is not a purchase — see _screenRerolls in state.js.
+    run._screenRerolls = (run._screenRerolls ?? 0) + 1
     run.levelUpChoices = buildLevelUpChoices(run)
     playSfx('buy')
     ui.showScreen('levelup', levelupData())
