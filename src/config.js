@@ -700,15 +700,18 @@ export const WEAPONS = {
     // 2.4x, i.e. the weapon punished kiting. A jet that stays open recovers both: nothing has to be
     // on the mark at one exact instant, and the damage arrives in tick-sized pieces.
     //
-    // `dmg` is the ERUPTION punch; each spray tick is dmg * GEYSER_SPRAY_FRAC. A full soak at L5 is
-    // ~200, a clip-through ~70 — so slow things eat it and fast things do not, which makes this the
-    // chapter's anti-tank tool by construction.
+    // `dmg` is the ERUPTION punch; each spray tick is dmg * GEYSER_SPRAY_FRAC.
+    //
+    // v6.10.2 (owner): r and jetDur both +35% over the v6.10 ladder. `r` is the turret's RANGE, not
+    // a damage area — widening it costs no screen clutter now that the only radial art is the
+    // fuse-phase ring, and it buys the hydrant more time hosing before the swarm walks out the far
+    // side. Longer jetDur means more hydrants alive at once; GEYSER_MAX_LIVE is the backstop.
     levels: [
-      { rate: 3.0, castRange: 260, fuse: 0.70, r: 90,  dmg: 22, count: 1, jetDur: 2.50, tick: 0.40, streams: 2 },
-      { rate: 2.8, castRange: 270, fuse: 0.70, r: 98,  dmg: 27, count: 1, jetDur: 2.60, tick: 0.40, streams: 2 },
-      { rate: 2.6, castRange: 285, fuse: 0.65, r: 106, dmg: 32, count: 2, jetDur: 2.70, tick: 0.40, streams: 3 },
-      { rate: 2.3, castRange: 300, fuse: 0.65, r: 116, dmg: 40, count: 2, jetDur: 2.85, tick: 0.40, streams: 3 },
-      { rate: 2.0, castRange: 320, fuse: 0.60, r: 128, dmg: 48, count: 3, jetDur: 3.00, tick: 0.40, streams: 4 },
+      { rate: 3.0, castRange: 260, fuse: 0.70, r: 122, dmg: 22, count: 1, jetDur: 3.40, tick: 0.40, streams: 2 },
+      { rate: 2.8, castRange: 270, fuse: 0.70, r: 132, dmg: 27, count: 1, jetDur: 3.50, tick: 0.40, streams: 2 },
+      { rate: 2.6, castRange: 285, fuse: 0.65, r: 143, dmg: 32, count: 2, jetDur: 3.65, tick: 0.40, streams: 3 },
+      { rate: 2.3, castRange: 300, fuse: 0.65, r: 157, dmg: 40, count: 2, jetDur: 3.85, tick: 0.40, streams: 3 },
+      { rate: 2.0, castRange: 320, fuse: 0.60, r: 173, dmg: 48, count: 3, jetDur: 4.05, tick: 0.40, streams: 4 },
     ],
   },
   // Skies chapter natives (v5.4). See stepRoarWeapon/stepTailWeapon/stepDebrisWeapon in sim.js.
