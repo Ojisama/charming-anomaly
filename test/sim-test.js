@@ -9,7 +9,7 @@ import { FR } from '../src/fr.js'
 import {
   SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
-  ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, hasWeaponAt,
+  ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, hasWeaponAt,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
@@ -834,6 +834,119 @@ function testAnomalyTier() {
   }
 
   console.log(`PASS run PB2 (anomaly tier): ${gotRate.toFixed(1)}% of 2-slot and ${bySlots[4].rate.toFixed(1)}% of 4-slot screens offered one vs a declared ${wantRate.toFixed(1)}% — never alone, never twice, unpinned, slot-count-independent, gated on level/predicate/already-taken; every shipped predicate is throw-free on four run shapes; and a held core kills what it catches and chains off it`)
+}
+
+// ---- Run PB3: anomaly pity ---------------------------------------------------------
+// A dry run must drift toward the tier instead of waiting on a flat coin flip — but pity is the
+// easiest thing in this pipeline to get wrong in a way no share assertion sees. Four properties,
+// each of which fails differently:
+//   UNIT  it advances once per SCREEN, not once per CARD. The roll is per screen (v6.7.7), so a
+//         per-card counter would hand a 4-slot player twice the pity accrual of a 2-slot one —
+//         the meta-shop lottery the per-screen roll exists to close, walked straight back in
+//         through the pity term.
+//   SITE  it advances in stepLevelUp, never in buildLevelUpChoices, or main.js's onReroll (which
+//         calls buildLevelUpChoices directly) turns coins into anomalies (F5).
+//   RESET on the ROLL, not on a card surviving into the pool — and, in the other direction, never
+//         without one: a reset whose card is then overwritten spends the tier and hands back
+//         nothing (F4, the NEW_WEAPON_MIN_RATE swap).
+//   CAP   an ineligible stretch pumps the counter for as long as it lasts, so without a ceiling
+//         the tier detonates the instant one becomes eligible (F1).
+function testAnomalyPity() {
+  const meta = makeMeta()
+  const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+  const rateFor = (dryScreens) => {
+    const w = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * dryScreens)
+    return (100 * w) / (ordinaryTotal + w)
+  }
+
+  // One level-up screen, driven through stepSim so the assertion is about the SHIPPED path:
+  // main.js never calls buildLevelUpChoices to open a screen, stepLevelUp does.
+  // The tier is deliberately INELIGIBLE here (_eliteKills 0), which isolates the advance from the
+  // reset — otherwise this reads 1 or 0 depending on whether the seed happened to roll a hit.
+  const oneScreen = (slots) => {
+    Math.random = mulberry32(20260808)
+    meta.choiceSlots = slots
+    const run = createRun(meta)
+    run.player.level = 12
+    run.player.xp = run.player.xpNext
+    stepSim(run, { x: 0, y: 0 }, 1 / 60)
+    assert.strictEqual(run.phase, 'levelup', `the ${slots}-slot fixture never opened a screen — it is not reaching stepLevelUp at all`)
+    return run
+  }
+  for (const slots of [2, 4]) {
+    const got = oneScreen(slots)._screensSinceAnomaly
+    assert.strictEqual(got, 1,
+      `a ${slots}-slot screen advanced pity to ${got}, not 1 — the unit must be the SCREEN, or buying choice slots buys pity`)
+  }
+
+  // ...and a REROLL of that same screen must not advance it (F5). main.js's onReroll calls
+  // buildLevelUpChoices directly, so a counter advanced inside the builder is a counter the player
+  // can pump with coins.
+  const rerolled = oneScreen(2)
+  const before = rerolled._screensSinceAnomaly
+  for (let i = 0; i < 5; i++) buildLevelUpChoices(rerolled)
+  assert.strictEqual(rerolled._screensSinceAnomaly, before,
+    'five rerolls advanced pity — reroll is a pity pump (F5), and coins are buying the rarest tier')
+
+  // An INELIGIBLE stretch still accrues: that is F1's premise, and the cap below is what makes it
+  // safe. (Nothing resets here — the tier is never rolled, because eligibleAnomalyIds is empty.)
+  meta.choiceSlots = 2
+  Math.random = mulberry32(20260808)
+  const dry = createRun(meta)
+  dry.player.level = 12
+  const SCREENS = 6
+  for (let i = 0; i < SCREENS; i++) {
+    dry.phase = 'playing'
+    dry.player.xp = dry.player.xpNext
+    stepSim(dry, { x: 0, y: 0 }, 1 / 60)
+  }
+  assert.strictEqual(dry._screensSinceAnomaly, SCREENS,
+    `${SCREENS} screens with the tier ineligible left pity at ${dry._screensSinceAnomaly} — an ineligible pool must still accrue, or the counter is being reset by something other than the roll`)
+
+  // The rate AT a given pity, and the reset invariant, measured together. Each iteration re-arms
+  // the counter: the roll ZEROES it on a hit, so a loop that does not would sample a moving weight
+  // and report it as one number (the plan's first draft measured 399 pools at base weight while
+  // claiming saturation, and its assertion passed with the bug present).
+  const atPity = (screensSince, iters) => {
+    Math.random = mulberry32(20260808)
+    const run = createRun(meta)
+    run.player.level = 12
+    run._eliteKills = 1
+    let hits = 0
+    for (let i = 0; i < iters; i++) {
+      run._screenRerolls = -1
+      run._screensSinceAnomaly = screensSince
+      const cards = buildLevelUpChoices(run)
+      const hit = cards.some((c) => c.kind === 'anomaly')
+      if (hit) hits++
+      // Both directions, on every pool. `reset && !hit` is F4: the roll fired, the counter was
+      // spent, and something downstream (the NEW_WEAPON_MIN_RATE swap) overwrote the card — the
+      // player pays the pity and gets nothing. `hit && !reset` is a tier that never comes down
+      // again once it starts.
+      assert.strictEqual(run._screensSinceAnomaly === 0, hit,
+        `a pool ${hit ? 'offered an anomaly without resetting pity' : 'reset pity without offering an anomaly'} — the reset must happen on the ROLL and only reach a screen that keeps the card`)
+    }
+    return (100 * hits) / iters
+  }
+
+  // MID: pity is live and PER_SCREEN is worth what config says. Without this the cap assertion
+  // below passes with pity deleted entirely (base rate is comfortably under the ceiling).
+  // 4000 draws puts the binomial sd at ~0.5pt, so 2pt is ~4 sigma.
+  const midScreens = 7
+  const mid = atPity(midScreens, 4000)
+  assert.ok(Math.abs(mid - rateFor(midScreens - 1)) < 2,
+    `after ${midScreens - 1} dry screens the tier rolled on ${mid.toFixed(1)}% of pools against a declared ${rateFor(midScreens - 1).toFixed(1)}% (base ${ANOMALY_BASE_WEIGHT} + ${ANOMALY_PITY_PER_SCREEN}/screen over an ordinary total of ${ordinaryTotal})`)
+  assert.ok(mid > rateFor(0) + 2, `pity moved the rate ${rateFor(0).toFixed(1)}% -> ${mid.toFixed(1)}% — it is doing nothing`)
+
+  // CAP: an arbitrarily long ineligible stretch may not make the tier certain. Two-sided on
+  // purpose — the ceiling is the cap's exact prediction, so this fails at 99% (uncapped) AND at
+  // 6.6% (pity never applied), where a one-sided `< ceiling * 1.6` passes on the second.
+  const ceiling = rateFor(1e9)
+  const saturated = atPity(10000, 4000)
+  assert.ok(Math.abs(saturated - ceiling) < 2.5,
+    `a saturated run offered the tier on ${saturated.toFixed(1)}% of pools against the capped ceiling ${ceiling.toFixed(1)}% (ANOMALY_PITY_CAP ${ANOMALY_PITY_CAP}) — pity is uncapped, or it is not being applied at all`)
+
+  console.log(`PASS run PB3 (anomaly pity): one screen = one step at 2 and 4 slots, flat over 5 rerolls, ${SCREENS} ineligible screens still accrue; rate ${rateFor(0).toFixed(1)}% -> ${mid.toFixed(1)}% at ${midScreens - 1} dry screens -> ${saturated.toFixed(1)}% saturated against a ceiling of ${ceiling.toFixed(1)}%; every reset kept its card`)
 }
 
 // Declines every level-up screen (still banks the xp/level, per stepLevelUp, but grants no
@@ -8954,6 +9067,7 @@ try {
   testRaritySanity()
   testPoolBuckets()
   testAnomalyTier()
+  testAnomalyPity()
   testStarMods()
   testAdvancedStarMods()
   testElements()

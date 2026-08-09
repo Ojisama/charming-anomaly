@@ -494,6 +494,15 @@ shared `hasWeaponAt(r, id, lv)` helper and use it everywhere.
 anomalyWeight = eligible.length === 0 ? 0 : Math.min(45, 8 + 2 * run._cardsSinceAnomaly)
 ```
 
+> **Shipped v6.7.8 as** `Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN
+> * Math.max(0, run._screensSinceAnomaly - 1))`, base 12 not 8 (retuned in v6.7.7 when the roll
+> moved from per-slot to per-screen). Both names carry the UNIT, because this section's own second
+> bullet settles it and the old ones said "card": a per-card counter would give a 4-slot player
+> twice the accrual of a 2-slot one. The `- 1` is because the counter includes the screen being
+> built (`stepLevelUp` advances before the build), so a screen with no dry screens behind it rolls
+> at exactly the base weight. Measured, mortal body/2 d3 take-every-anomaly, shipped table ->
+> 18-card slate: 0.50 -> 0.80 without pity, 0.80 -> 1.20 with it.
+
 - Reset when the anomaly tier is **rolled**, not when a card is produced (F1).
 - Advance **once per level-up screen** in `stepLevelUp`, not per card and not on reroll (F5).
 - `MAX_ANOMALIES_PER_RUN = 4`, and **at most one anomaly per pool**.
@@ -526,7 +535,8 @@ next level-up resets. Keeps the "rerolling is just calling it again" contract in
 
 ### B7. New run fields
 
-`createRun` gains `anomalies: {}`, `_cardsSinceAnomaly: 0`, `_screenRerolls: 0`.
+`createRun` gains `anomalies: {}`, `_cardsSinceAnomaly: 0` (shipped as `_screensSinceAnomaly` —
+see B5), `_screenRerolls: 0`.
 `applyChoice` gains an `else if (choice.kind === 'anomaly')` branch — today the chain is closed over
 `weapon|passive|mod|element|heal` and an anomaly card would be **silently consumed with no effect**.
 Update the `run` doc block in state.js (CLAUDE.md makes it normative) with the new fields and the

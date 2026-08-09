@@ -1004,6 +1004,14 @@ function generateWells(sig) {
  *   `run` is not saved — and never migrated for the same reason.
  * _eliteKills (v6.7.6): elites killed this run. Gates anomaly `when` predicates; run.kills counts
  *   every enemy and so cannot answer "has this player met an elite yet".
+ * _screensSinceAnomaly (v6.7.8): anomaly pity. Level-up SCREENS shown since the last one on which
+ *   the tier's roll fired, INCLUDING the screen currently being built — stepLevelUp advances it
+ *   once per screen, before calling buildLevelUpChoices, so the count is 1 on a screen with no dry
+ *   screens behind it and sim.js's weight term is (count - 1) * ANOMALY_PITY_PER_SCREEN. Advancing
+ *   it in stepLevelUp rather than in the builder is what stops a REROLL pumping it (main.js's
+ *   onReroll calls buildLevelUpChoices directly). Zeroed by rollAnomalyCard when the roll fires —
+ *   on the ROLL, not on a card being produced — and capped in weight by ANOMALY_PITY_CAP, because
+ *   the counter also advances through screens where the tier is ineligible. Never serialized.
  *
  * v4.5 gold sinks (see CONSUMABLES/REROLL_* in config.js):
  * consumables: run.consumables is the array of CONSUMABLES ids (opts.consumables passed to
@@ -1186,6 +1194,10 @@ export function createRun(meta, opts = {}) {
     // Elites killed this run. Gates anomaly predicates ("you have met an elite"), which run.kills
     // cannot answer. Incremented in dealDamage's elite death branch.
     _eliteKills: 0,
+    // v6.7.8 anomaly pity: level-up SCREENS shown since the last one that rolled an anomaly,
+    // counting the screen being built. Advanced by stepLevelUp (never by buildLevelUpChoices, or a
+    // reroll would pump it) and zeroed by the roll itself. See ANOMALY_PITY_PER_SCREEN in config.js.
+    _screensSinceAnomaly: 0,
     enemies: [],
     bullets: [],
     novas: [],

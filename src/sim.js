@@ -36,7 +36,8 @@ import {
   // bucket-first roll deletes. Nothing in sim.js reads the tier ORDER any more.
   RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT,
-  ANOMALIES, ANOMALY_BASE_WEIGHT, MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
+  ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
+  MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -5968,7 +5969,23 @@ function rollAnomalyCard(run) {
   const eligible = eligibleAnomalyIds(run)
   if (eligible.length === 0) return null
   const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
-  if (Math.random() * (ordinaryTotal + ANOMALY_BASE_WEIGHT) >= ANOMALY_BASE_WEIGHT) return null
+  // v6.7.8 PITY. run._screensSinceAnomaly counts the screen being built (stepLevelUp advances
+  // before the build), so the DRY screens behind it are count - 1 — that is what makes a screen
+  // with nothing behind it roll at exactly ANOMALY_BASE_WEIGHT, and it clamps at 0 for a caller
+  // that never went through stepLevelUp at all (a reroll, the probe harness, a test fixture).
+  // The CAP is not decoration: the counter advances through screens where the tier is INELIGIBLE
+  // too — every `when` predicate false, every card already taken, the level floor not yet reached
+  // — so an uncapped term would let a long dry stretch detonate the tier on the first screen it
+  // qualifies for, handing out MAX_ANOMALIES_PER_RUN back to back (F1).
+  const dryScreens = Math.max(0, (run._screensSinceAnomaly ?? 0) - 1)
+  const anomalyWeight = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * dryScreens)
+  if (Math.random() * (ordinaryTotal + anomalyWeight) >= anomalyWeight) return null
+  // RESET ON THE ROLL, not on a card being produced or kept. Resetting where the card is consumed
+  // would let a screen whose eligible list was empty pump the counter forever with nothing to
+  // spend it on; resetting here means the only thing that clears pity is the tier actually firing.
+  // The other half of that contract lives downstream: the NEW_WEAPON_MIN_RATE swap is guarded on
+  // !placedAnomaly precisely so a reset can never be followed by the card being overwritten (F4).
+  run._screensSinceAnomaly = 0
   const w = {}
   for (const id of eligible) w[id] = ANOMALIES[id].weight
   const id = pickWeighted(w)
@@ -6173,6 +6190,12 @@ function stepLevelUp(run) {
   p.xp -= p.xpNext
   p.level += 1
   p.xpNext = xpForLevel(p.level)
+  // Anomaly pity advances HERE, once per screen, and not inside buildLevelUpChoices — main.js's
+  // onReroll calls the builder directly, so a counter kept there would let coins buy the rarest
+  // tier (F5). The unit is the SCREEN, not the card: the tier is rolled once per screen, so a
+  // per-card step would give a 4-slot player twice the accrual of a 2-slot one — the meta-shop
+  // lottery v6.7.7 closed on the base rate, walked back in through pity.
+  run._screensSinceAnomaly = (run._screensSinceAnomaly ?? 0) + 1
   run.levelUpChoices = buildLevelUpChoices(run)
   run.phase = 'levelup'
   run.events.push({ type: 'levelup' })

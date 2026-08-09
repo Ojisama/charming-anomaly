@@ -142,11 +142,40 @@ export const WEAPON_UP_WEIGHT = 100
 // reads directly as the share of level-up screens carrying an anomaly (12/183 = 6.6%), and the
 // residual 1.23 -> 1.63 spread across slot counts is ELIGIBILITY, not roll rate: more picks per
 // screen satisfy build-conditional `when` predicates sooner, which is the tier working as designed.
+//
+// RE-MEASURED WITH PITY ON (v6.7.8), which is what the note under ANOMALY_PITY_PER_SCREEN below
+// promised. Same take-every-anomaly bot, but through the harness rather than a transplant, so the
+// slate column is scripts/pool-probe.mjs's own 18 stand-ins and the shipped column is this table's
+// one card (which cannot exceed 1.00/run whatever the weight is) — `pool-probe body <slots> 40 dps
+// --compare`, 40 runs per cell, shipped -> slate:
+//                                      pity off        pity on (shipped)
+//   body/2 d3 MORTAL   (to lv 17-20)  0.50 -> 0.80     0.80 -> 1.20
+//   body/2 d1 immortal (to lv 36)     0.95 -> 1.32     1.00 -> 1.95
+//   body/4 d1 immortal (to lv 36)     0.85 -> 1.50     1.00 -> 1.95
+// The MORTAL row is the one the rate is tuned on: an immortal run takes ~36 level-ups, twice a
+// real run's, and saturates MAX_ANOMALIES_PER_RUN at any weight — 1.95/2.00 says the cap is
+// working, not that the rate is right. Mortal 1.20/run on a slate-shaped table sits inside the
+// owner's 1-2, so pity buys the dry run its drift without moving the base weight. Note the
+// immortal pair also gets MORE slot-independent with pity on (1.32/1.50 -> 1.95/1.95): pity is
+// per screen, so it cannot re-open the gap the per-screen roll closed.
 export const ANOMALY_BASE_WEIGHT = 12
-// PITY and PITY_CAP are read from v6.7.8 (Task 3), not yet — they are here so the tuning block is
-// one block rather than two. Task 3 must re-measure the table above: pity raises the effective
-// weight, and at PITY_CAP the per-screen rate is 45/(171+45) = 20.8%.
-export const ANOMALY_PITY_PER_CARD = 2
+// PITY (v6.7.8, Task 3). A screen that shows no anomaly adds PER_SCREEN to the next screen's
+// weight, so a dry run drifts toward the tier instead of waiting on a flat coin flip.
+// THE UNIT IS THE SCREEN, and the name says so: it was ANOMALY_PITY_PER_CARD, which is what the
+// spec wrote while the tier was still rolled once per SLOT. Kept per card, a 4-slot player would
+// accrue pity twice as fast as a 2-slot one — the same "you bought the rarest tier in the meta
+// shop" defect the per-screen roll exists to close (v6.7.7 measured it as 2.40 anomalies/run at 2
+// slots against 3.60 at 4), reintroduced through the pity term instead of the base rate.
+// The counter it multiplies is run._screensSinceAnomaly, which INCLUDES the screen being built
+// (stepLevelUp advances before the build), so sim.js multiplies by count - 1: the weight on a
+// screen with no dry screens behind it is exactly ANOMALY_BASE_WEIGHT, which is what makes the
+// 6.6% above the floor of the range rather than a number the game never actually rolls at.
+export const ANOMALY_PITY_PER_SCREEN = 2
+// At the cap the per-screen rate is 45/(171+45) = 20.8%, reached after 17 dry screens — more than
+// a whole immortal run's worth of level-ups. It exists for the run that spends 30 screens
+// INELIGIBLE (the tier's `when` predicates and minLevel gate the pool, not the roll, and the
+// counter advances through all of it): without a ceiling that run detonates the tier on the first
+// screen it qualifies, handing out MAX_ANOMALIES_PER_RUN back to back (F1).
 export const ANOMALY_PITY_CAP = 45
 // Two, per the same decision ("1-2 per run"), down from 4. With the rate above it is a real
 // ceiling rather than a formality — a 39-level city run measures 1.80/run against it — which is

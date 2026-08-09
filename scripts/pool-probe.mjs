@@ -54,7 +54,7 @@ const MODS_PER_WEAPON_PER_POOL = null
 // copies were still 8/4 after config.js was tuned to 12/2 against measured runs. Override a line
 // here to tune a value before touching config.js; that is what this block is for.
 const ANOMALY_BASE_WEIGHT = C.ANOMALY_BASE_WEIGHT
-const ANOMALY_PITY_PER_CARD = C.ANOMALY_PITY_PER_CARD
+const ANOMALY_PITY_PER_SCREEN = C.ANOMALY_PITY_PER_SCREEN
 const ANOMALY_PITY_CAP = C.ANOMALY_PITY_CAP
 const MAX_ANOMALIES_PER_RUN = C.MAX_ANOMALIES_PER_RUN
 // ──────────────────────────────────────────────────────────────────────────────────────
@@ -364,9 +364,11 @@ function proposedChoices(run, st) {
   // 1-(1-p)^slots and made the rarest tier 1.5x more frequent for a player who had bought the 3rd
   // and 4th choice slot. Two consequences worth stating for whoever tunes Task 3 from this
   // harness: (1) `cards.length > 1` is what enforces "never a screen's only offer", by
-  // construction rather than by a fallback; (2) st.since is still advanced per CARD by the caller,
-  // so with a per-screen roll the pity UNIT is now the open question Task 3 has to settle — the
-  // saturation numbers this harness prints are only comparable across runs of the same unit.
+  // construction rather than by a fallback; (2) v6.7.8 settled the pity UNIT — st.since is
+  // advanced once per SCREEN by the caller, exactly like run._screensSinceAnomaly, so the numbers
+  // this harness prints are comparable with the shipped pipeline's. Kept per CARD (`+= SLOTS`, as
+  // it was) a 4-slot player accrued pity twice as fast, which is the meta-shop lottery the
+  // per-screen roll exists to close, arriving through the pity term instead of the base rate.
   // Eligibility is computed before the roll and an empty pool costs no draw, exactly as in sim.js.
   if (cards.length > 1) {
     const eligible = {}
@@ -379,7 +381,10 @@ function proposedChoices(run, st) {
     }
     if (Object.keys(eligible).length > 0) {
       stats.anomalyRolls++
-      const aw = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_CARD * st.since)
+      // st.since counts the screen being built, so the DRY screens behind it are st.since - 1 —
+      // the same arithmetic sim.js does, so a screen with nothing behind it rolls at exactly
+      // ANOMALY_BASE_WEIGHT in both implementations.
+      const aw = Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * Math.max(0, st.since - 1))
       if (Math.random() * (ORDINARY_TOTAL + aw) < aw) {
         cards[(Math.random() * cards.length) | 0] = { kind: 'anomaly', id: pickW(eligible), rarity: 'anomaly' }
         st.since = 0
@@ -544,7 +549,11 @@ function measure(mode) {
       if (run.phase === 'levelup') {
         let cards = run.levelUpChoices
         if (mode === 'proposed') {
-          st.since += SLOTS
+          // Once per SCREEN (v6.7.8) — this used to be `+= SLOTS`, i.e. per card. It mirrors
+          // stepLevelUp's advance of run._screensSinceAnomaly, including the fact that it counts
+          // the screen being built (the roll subtracts 1) and that it advances through screens the
+          // tier is ineligible for.
+          st.since += 1
           const shim = proposedChoices(run, st)
           if (shim.length) cards = shim
         }
@@ -712,6 +721,12 @@ function survivalReport(a, b) {
   row('deaths', a.deathT.length, b.deathT.length, '')
   row('level reached', a.level, b.level, '')
   row('weaponLvSum', a.weaponLv, b.weaponLv, '')
+  // v6.7.8: anomalies/run belongs here too. The offer report prints it, survival mode did not —
+  // and the MORTAL rate is the one the tier is tuned against, because an immortal 36-level probe
+  // run saturates MAX_ANOMALIES_PER_RUN whatever the weight is. Taken, not offered: with any
+  // policy but `random` the bot scores an anomaly at 1000 and always takes it, which is the
+  // take-every-anomaly rig the rate table in config.js was measured on.
+  row('anomalies/run', a.anomalies, b.anomalies, '')
   // Win rate alone is blind at 0% and 100% — a config the bot always loses (or always wins) can
   // still shift a lot. Read survival time there instead.
   const dw = b.winRate - a.winRate

@@ -569,6 +569,17 @@ git commit -m "v6.7.1: anomalies join the pool as a sixth rarity tier, never a s
 
 **Interfaces:** Consumes Task 2's tier. Produces `run._cardsSinceAnomaly: number`.
 
+> **Shipped as v6.7.8 — the field and the constant are named for the SCREEN.** This task's own
+> revision note (below) left the pity UNIT open; it is now settled, and the names moved with it:
+> `run._cardsSinceAnomaly` → **`run._screensSinceAnomaly`**, `ANOMALY_PITY_PER_CARD` →
+> **`ANOMALY_PITY_PER_SCREEN`**. Per card, a 4-slot player accrues pity twice as fast as a 2-slot
+> one — the meta-shop lottery v6.7.7 closed on the base rate, walked back in through the pity term.
+> Task 4's test snippet still says `_cardsSinceAnomaly`; read it as the new name (setting the old
+> one writes a dead field, and the sampler it is meant to hold flat silently drifts).
+> The counter INCLUDES the screen being built, so the weight term is `count - 1` clamped at 0 —
+> that is what keeps a screen with nothing behind it rolling at exactly `ANOMALY_BASE_WEIGHT`,
+> i.e. what keeps that constant's documented 6.6% true rather than an unreachable floor.
+
 - [ ] **Step 1: Write the failing test**
 
 ```js
@@ -665,6 +676,18 @@ Advancing here rather than inside `buildLevelUpChoices` is what stops a reroll p
 
 - [ ] **Step 5: Adversarial gate.** Correctness must confirm the F4 ordering: the pity reset happens inside the anomaly roll, but the `NEW_WEAPON_MIN_RATE` swap runs afterward — verify Task 2's guard actually prevents a reset-then-deleted anomaly. (v6.7.7 made the anomaly a REPLACEMENT of an already-rolled slot rather than an extra card, so the all-anomaly fallback that used to be able to throw the roll away is gone by construction; the swap guard is still the live risk.)
 
+> **v6.7.8 put that ordering under test rather than under review.** Run PB3 asserts, on every
+> sampled pool, that `_screensSinceAnomaly === 0` **iff** the pool contains an anomaly — so a reset
+> whose card is then overwritten is a red test. Mutation-proven: deleting the `!placedAnomaly`
+> guard fails with "a pool reset pity without offering an anomaly".
+>
+> **Measured, same command before and after (`body 2 40 dps --survival --diff=3 --compare`, the
+> mortal rig — an immortal probe reaches level 36 and saturates `MAX_ANOMALIES_PER_RUN` whatever
+> the weight is, so it cannot see this):** anomalies/run 0.5 → 0.8 on the shipped one-card table
+> and 0.8 → 1.2 on the 18-card slate stand-ins. Pity is worth ~+50% relative and lands the slate
+> inside the owner's 1–2/run. `survivalReport` now prints that row; it did not, which is why the
+> number this task is tuned on was previously unreadable from the harness.
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -698,9 +721,9 @@ function testRerollRarity() {
     const SCREENS = 4000
     for (let i = 0; i < SCREENS; i++) {
       run._screenRerolls = -1
-      run._cardsSinceAnomaly = 3              // held FLAT so pity cannot confound the comparison
-      let cards = buildLevelUpChoices(run)
-      for (let r = 0; r < rerolls; r++) { run._cardsSinceAnomaly = 3; cards = buildLevelUpChoices(run) }
+      run._screensSinceAnomaly = 3            // held FLAT so pity cannot confound the comparison
+      let cards = buildLevelUpChoices(run)    // (v6.7.8 name — the roll ZEROES it on a hit)
+      for (let r = 0; r < rerolls; r++) { run._screensSinceAnomaly = 3; cards = buildLevelUpChoices(run) }
       if (cards.some((c) => c.kind === 'anomaly')) anomalyScreens++
       for (const c of cards) {
         if (c.kind === 'anomaly') continue
