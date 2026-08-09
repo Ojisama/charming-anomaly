@@ -5230,8 +5230,12 @@ const EMPTY_HIT = new Set()
 
 // -- Flagella Whip (v5.0 pond starter) --------------------------------------------------
 // A melee arc sweep: every `rate` seconds (frenzy divides that interval, like the global fire
-// rate) it damages every enemy whose CENTER falls in the sector (arc rad, range px) centered on
-// the nearest enemy. cyclone opens every 3rd swing to a full circle; barbed adds a bleed DoT.
+// rate) it damages every enemy whose BODY falls in the sector (arc rad, range px) centered on
+// the nearest enemy — inSector, the same test clawRake/roar/tailSwipe use. It was a centre-only
+// test until the swing's DRAWING was fixed to cover the sector it damages, at which point the
+// boundary disagreement it had always had became visible: a foe the fan plainly swept, whose
+// centre sat a few px past the edge, took nothing. cyclone opens every 3rd swing to a full
+// circle; barbed adds a bleed DoT.
 // Emits one {type:'whip', x, y, angle, range, arc} event per swing (render draws the sweep) plus
 // the usual per-enemy {type:'hit'} from applyDamage.
 function stepFlagellaWeapon(run, w, stats, fireRateMul, dt) {
@@ -5255,7 +5259,6 @@ function fireFlagella(run, stats) {
   run._flagellaSwings = (run._flagellaSwings ?? 0) + 1
   const fullCircle = cycloneOn && run._flagellaSwings % FLAGELLA_CYCLONE_EVERY === 0
   const arc = fullCircle ? Math.PI * 2 : stats.arc
-  const half = arc / 2
   const barbedBonus = run.weaponMods.flagella?.barbed ?? 0
 
   // IPECAC (v7.5): three lashes at 120 degrees instead of one. `struck` is what keeps that a x3 of
@@ -5267,13 +5270,7 @@ function fireFlagella(run, stats) {
   for (const swing of ipecacAngles(run, angle)) {
     for (const e of run.enemies) {
       if (e._dead || struck.has(e)) continue
-      const dx = e.x - p.x, dy = e.y - p.y
-      if (dx * dx + dy * dy > stats.range * stats.range) continue // center within range
-      if (!fullCircle) {
-        const ea = Math.atan2(dy, dx)
-        const da = Math.atan2(Math.sin(ea - swing), Math.cos(ea - swing)) // signed angular offset
-        if (Math.abs(da) > half) continue
-      }
+      if (!inSector(p.x, p.y, swing, stats.range, arc, e, fullCircle)) continue
       struck.add(e)
       const dealt = applyDamage(run, e, stats.dmg)
       if (barbedBonus > 0 && !e._dead) applyBleed(e, dealt, barbedBonus)

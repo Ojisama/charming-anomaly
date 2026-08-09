@@ -4556,6 +4556,34 @@ function testPondWeapons() {
     console.log('PASS run W.a/b (whip aims at nearest; out-of-range foe untouched + whip event)')
   }
 
+  // (a1) the sector test is against the enemy's BODY, not its centre — inSector, the same test
+  // clawRake/roar/tailSwipe already used. A foe the fan plainly sweeps, whose CENTRE sits a few px
+  // past `range`, used to take nothing; that disagreement between the drawing and the damage is the
+  // whole bug this weapon was reported for. Asserted as an EFFECT (hp fell) on a foe placed inside
+  // reach but outside a centre test, with a control past reach that must still take nothing — so
+  // reverting inSector fails the first assert and widening it without limit fails the second.
+  {
+    const R = WEAPONS.flagella.levels[MAX_WEAPON_LEVEL - 1].range
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'flagella', level: MAX_WEAPON_LEVEL }]
+    run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    // radius 16 (makeStatusEnemy): clipped is 8px past range and so 8px INSIDE reach; control is
+    // 24px past range, clear of reach by 8px. Both dead ahead, so only the radial test separates them.
+    const clipped = makeStatusEnemy(run, { x: R + 8, y: 0, hp: 1e6, speed: 0 })
+    const control = makeStatusEnemy(run, { x: R + 24, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(clipped, control)
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      clipped.x = R + 8; control.x = R + 24   // re-pin: the whip knocks back what it hits
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert(clipped.hp < 1e6, `expected a foe clipped by the sector edge to be hit (centre ${R + 8} vs range ${R}, radius 16), hp=${clipped.hp}`)
+    assert.strictEqual(control.hp, 1e6, `expected a foe past range+radius to stay untouched, hp=${control.hp}`)
+    console.log(`PASS run W.a1 (sector tests the BODY): centre ${R + 8}px hit through a ${R}px reach, ${R + 24}px still untouched`)
+  }
+
   // (a2) THE FIX: a lone enemy directly BEHIND a player who moved forward is now HIT, because the
   // whip aims at the nearest enemy rather than the move direction (which would swing the arc away).
   {
