@@ -530,6 +530,97 @@ export const MINIME_SPEED = 190       // px/s outward — slower than the player
 export const MINIME_AGGRO = 230
 export const MINIME_BURST_R = 126
 export const MINIME_BURST_DMG = 42
+// SPECIALIST (v7.5). "I commit to one weapon and the game commits back." The spec is emphatic that
+// the deliverability half is a TARGETING tool and not a deliverability FIX — focus redistributes
+// where mod cards land, it cannot create them.
+// THE FIRST VERSION OF THIS CARD WAS MEASURED WORTHLESS, TWICE, AND BOTH FAILURES ARE DESIGNED
+// AGAINST HERE:
+//  1. AUTO-ASSIGNMENT. The harness pointed focus at the first weapon past the gate — always the
+//     starter, already at 82-97% deliverability with no headroom — and starved the weapons that
+//     were the actual problem: mean 60.3% -> 57.2%, a card that made the run WORSE. Weighting the
+//     subject by investment instead of order does NOT fix this: measured over 300 runs it named the
+//     starter 86-94% of the time, i.e. the same weapon by a longer route. So the subject is
+//     PLAYER-CHOSEN. Taking the card opens a chooser (ui.js) listing every qualifying weapon, which
+//     is what the spec asked for in the first place — "point it at the geyser you are building, not
+//     the rainbow you are not".
+//  2. A NUDGE INSIDE A BUCKET IS NOT A CARD. Measured over 400 seeded runs, the x2.5 weighting on
+//     its own is worth +0.56 mod picks for the rest of the run — for one of the run's TWO anomaly
+//     slots, on a slate whose neighbours make every elite explode. A player who QUALIFIES for this
+//     card (4 picks on one weapon) already takes that weapon's mods whenever they appear, so focus
+//     can only convert the screens that offered none. Half a pick is not a rarest-tier card.
+// So the card has TWO mechanisms, and the second is the one you feel:
+export const SPECIALIST_FOCUS_MUL = 2.5   // the named weapon's mods win the mod bucket's pick
+// A CEILING ONLY A SPECIALIST HAS. The focused weapon's mods may be taken SPECIALIST_EXTRA_PICKS
+// past MAX_WEAPON_MOD_PICKS — a rule change no other card grants, visible the first time you take a
+// 6th pick of something the game had stopped offering. It also inverts the card's worst case into
+// its best: an EXHAUSTED weapon used to be a dead subject (and, weighted by pick count, the most
+// likely one — measured 84.6%), and is now precisely the weapon this card rescues.
+// Per-mod `maxPicks` overrides are NOT lifted: a mod that declares its own ceiling declared it
+// because its marginal value collapses there (PIERCE_MAX_PICKS, REBOUND_MAX_PICKS), and that is a
+// statement about the mod, not about the global cap.
+export const SPECIALIST_EXTRA_PICKS = 2
+// ...and the price, which is what keeps the whole card a redistribution rather than a buff: every
+// OTHER weapon puts one fewer mod into the candidate pool. You gave up breadth for a ceiling.
+export const SPECIALIST_OTHER_PENALTY = 1
+// BLIND FAITH (v7.5). The user's ruling, verbatim: "you can't roll normal or rare anymore, but all
+// picks are hidden (just the border visible, and the ones you don't chose are revealed somehow to
+// make you frustrated)". It is Isaac's Curse of the Blind with a rarity floor bolted on.
+// THE FLOOR IS ENORMOUS AND THAT IS THE POINT. Average RARITIES.mult per roll is
+// Sum(weight x mult)/Sum(weight): 1.48 on the shipped table, 3.50 with normal and rare removed —
+// so every stat pick for the rest of the run is x2.36, and tier mods go x1.88
+// (WEAPON_MOD_TIER_BONUS 1.14 -> 2.14). Measured before implementation (40 runs, body/2 d3, a
+// random-picking bot): picking blind costs -27.5% kills, the floor pays +83%, net +32% kills and
+// +26s alive against a bot that picks WELL at normal rarities. And that is a FLOOR on the card's
+// strength, not an estimate: the probe ignored the border, where a real player reads it.
+// SO IT NEEDS A COST, and the slate has one pure-upside card too many already. The spec offered
+// two. THE FIRST ONE WAS TRIED AND IT WAS A NO-OP — recorded because it looked obviously right:
+// "drop to 2 cards while blind" fits the fiction perfectly, and `choiceSlots` DEFAULTS TO 2
+// (state.js). So Math.min(2, 2) charged the default player exactly nothing, and the 3rd/4th slot is
+// a 60-shop-level meta purchase — meaning the only players who paid anything were the most invested
+// ones, and the game's most expensive permanent unlock made its strongest card worse for them.
+// Worse still: the +32% measurement that proved a cost was NEEDED was itself taken at 2 slots
+// (pool-probe's default), so the price was definitionally zero against the number that motivated
+// it. A cost has to be checked against the DEFAULT configuration, not the maximal one.
+// So it is the spec's option 2 instead, which charges the same at every slot count:
+export const BLIND_FAITH_NO_REROLL = true   // you cannot reroll a screen you cannot read
+// It also happens to be the honest one. Under the floor a reroll ALREADY buys nothing but a
+// different screen: REROLL_RARITY_DECAY only ever multiplies the `normal` weight, and the floor has
+// deleted `normal`, so the rarity table is byte-identical at 0 rerolls and at REROLL_RARITY_CAP.
+// Charging coins (or, under BLOOD MONEY, escalating HP) for a purchase that quietly lost its
+// advertised effect is worse than not selling it.
+// AND IT KEEPS THE REVEAL WHOLE, which the slot cost was fighting: the emotion the owner asked for
+// is "the ones you don't chose are revealed to make you frustrated", and at 2 cards that reveal
+// showed exactly one passed card.
+export const BLIND_FAITH_FLOOR = 'epic'  // the lowest rarity a blind screen may roll
+// A NOTE ON THE SWITCH-MOD SIDE EFFECT, corrected. An earlier version of this comment called losing
+// rule-change mods "a real price for x2.36" and "the most interesting thing about the trade". It is
+// neither, in half the game: switches per chapter weapon pool are body 0/23, city 0/19, beyond
+// 0/17, undergrowth 1/19, pond 2/19, skies 2/18, garden 3/19. Three of seven chapters pay nothing,
+// INCLUDING the one the card was measured in. sim.js still drops them under the floor, but for the
+// correctness reason only — they are offered at normal rarity by construction, so they could only
+// ever reach a blind screen through the all-declined fallback, wearing a border the card forbade.
+
+export const SPECIALIST_MIN_MODS = 4   // mod picks on ONE weapon before the card is offered
+
+// Total mod picks a run has spent on one weapon — the gate's "have you committed to something yet".
+export const weaponModPickCount = (run, id) =>
+  Object.values(run.weaponModPicks?.[id] ?? {}).reduce((a, b) => a + b, 0)
+// The per-mod ceiling for one weapon, which is the ONLY place the extra-picks rule is expressed.
+// `focused` is the weapon SPECIALIST named, or null.
+export const modPickCap = (weaponId, modId, focused) => {
+  const cfg = WEAPON_MODS[weaponId]?.[modId]
+  if (!cfg) return 0
+  if (cfg.kind === 'switch') return 1
+  if (cfg.maxPicks != null) return cfg.maxPicks   // a mod's own ceiling is never lifted — see above
+  return MAX_WEAPON_MOD_PICKS + (weaponId === focused ? SPECIALIST_EXTRA_PICKS : 0)
+}
+// Which of the player's weapons SPECIALIST may name. Reads run.weapons rather than the picks map so
+// a weapon that somehow left the loadout can never be offered as a focus.
+// NOTE it does NOT require remaining headroom: under the extra-picks rule an exhausted weapon is
+// the single best thing this card can be pointed at, because the card is what un-exhausts it.
+export const specialistSubjects = (run) => (run.weapons ?? [])
+  .map((w) => w.id)
+  .filter((id) => weaponModPickCount(run, id) >= SPECIALIST_MIN_MODS)
 
 // WEIGHTS (v7.2). The old note read "unconditional 1 / conditional 6 / chapter inversion 2", and
 // it inverted the tier the moment the slate grew past one card. It assumed a GATED card is a RARE
@@ -749,6 +840,35 @@ export const ANOMALIES = {
     from: 'your elements wanted more chances, not bigger ones',
     desc: `×${SOY_MILK_FIRE_MUL} fire rate, ×${SOY_MILK_DMG_MUL} damage. Burn, chill and shock land ${SOY_MILK_FIRE_MUL} times as often.`,
     when: (r) => Object.values(r.elementPicks ?? {}).some((n) => n > 0),
+    weight: 2, chapter: null, kind: 'trade',
+  },
+  blindFaith: {
+    name: 'Blind Faith', icon: '🙈',
+    from: 'you stopped needing to know',
+    desc: `Every card is face down — only its border shows. Nothing below ${RARITIES[BLIND_FAITH_FLOOR].name} is rolled, and you can never reroll.`,
+    // Unconditional: there is no build state that makes "you could pick without looking" a lesson
+    // the run has already taught, and gating it would only delay the run it reshapes.
+    when: () => true,
+    // The rarest weight on the slate. It is the single most powerful card here by a wide margin
+    // (x2.36 on the magnitude of every remaining pick), and the licence for that is scarcity.
+    weight: 1, chapter: null, kind: 'trade',
+  },
+  specialist: {
+    name: 'Specialist', icon: '🎯',
+    // Not "the other three": six of the seven chapters ship exactly 3 weapons against MAX_WEAPONS 4,
+    // so the player owns at most three in total and the line was wrong nearly everywhere.
+    from: 'you stopped pretending the rest of them were the plan',
+    // NO MULTIPLIER IN THE COPY. x2.5 is the odds ratio inside the candidate list, never the
+    // frequency a player experiences: measured, it delivers 2.16x at four weapons, 1.54x at two and
+    // exactly 1.00x at one. A card must not print a number it only sometimes pays.
+    desc: `Pick a weapon: its upgrades come up far more often, and you may take ${SPECIALIST_EXTRA_PICKS} more of each than anyone else. Every other weapon offers less.`,
+    // The gate IS the fiction: you cannot specialise in something you have not been building.
+    when: (r) => specialistSubjects(r).length > 0,
+    // `subjects` is what makes this a card PER WEAPON rather than one auto-assigned rule — the only
+    // anomaly that carries one. rollAnomalyCard picks among these, weighted by investment, and
+    // applyChoice banks the weapon id instead of `true` (still truthy, so every `?.specialist`
+    // read keeps working).
+    subjects: specialistSubjects,
     weight: 2, chapter: null, kind: 'trade',
   },
 }

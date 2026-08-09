@@ -32,9 +32,11 @@ import {
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
-  // RARITY_ORDER is deliberately NOT imported: it existed here only for the ladder walk the
-  // bucket-first roll deletes. Nothing in sim.js reads the tier ORDER any more.
-  RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
+  // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
+  // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
+  // measured 16.1% legendary in the shim's first draft (F1). The floor only ever REMOVES keys from
+  // a weight table and lets pickWeighted renormalise the survivors — it never redirects a roll.
+  RARITY_ORDER, RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT, REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
@@ -50,6 +52,8 @@ import {
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
   MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
+  SPECIALIST_FOCUS_MUL, SPECIALIST_OTHER_PENALTY, modPickCap, weaponModPickCount,
+  BLIND_FAITH_NO_REROLL, BLIND_FAITH_FLOOR,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -245,7 +249,10 @@ export function stepSim(run, input, dt) {
 }
 
 /** Apply run.levelUpChoices[i] to the run (weapon add/level, passive, heal). */
-export function applyChoice(run, i) {
+// `subject` (v7.5) is the weapon the player named on a SUBJECTED anomaly card — SPECIALIST is the
+// only one today. Optional, and VALIDATED here rather than trusted: ui.js is the caller, so an
+// unvalidated id would let a UI bug (or a console) focus a weapon the run does not own.
+export function applyChoice(run, i, subject = null) {
   const choice = run.levelUpChoices && run.levelUpChoices[i]
   run.levelUpChoices = null
   if (!choice) return
@@ -284,7 +291,18 @@ export function applyChoice(run, i) {
     // sim.js (unstableCores -> rollAffixes). Recording it is also what removes it from every
     // future pool (eligibleAnomalyIds). `??=` because a hand-built run — the probe harness, a
     // test fixture — may predate the field; a missing one must not throw inside the ticker.
-    (run.anomalies ??= {})[choice.id] = true
+    // v7.5: a SUBJECTED anomaly (SPECIALIST) banks the weapon id the player named instead of
+    // `true`. Still truthy, so every `run.anomalies?.x` read in this file keeps working unchanged;
+    // only the sites that care about WHICH weapon test for a string.
+    // The fallback is the FIRST legal subject, not `true`: a caller that forgets to pass one (the
+    // probe harness, a test, a UI path that never opened the chooser) must still get a working
+    // card rather than a silent no-op that reads as "focused on the weapon named true".
+    let banked = true
+    if (choice.subjects?.length) {
+      const legal = new Set(choice.subjects)
+      banked = subject && legal.has(subject) ? subject : choice.subjects[0]
+    }
+    ;(run.anomalies ??= {})[choice.id] = banked
     applyAnomalyOnTake(run, choice.id)
   } else if (choice.kind === 'heal') {
     healPlayer(run, 30)
@@ -315,6 +333,33 @@ function applyAnomalyOnTake(run, id) {
     p.fireRateMul *= SOY_MILK_FIRE_MUL
     p.damageMul *= SOY_MILK_DMG_MUL
   }
+}
+
+// SPECIALIST's named weapon, or null. It is the ONE anomaly that banks a weapon id where every
+// other banks `true`, so the string test is load-bearing: a plain truthiness read would compare
+// mod candidates against the boolean `true` and focus nothing, silently.
+function specialistFocus(run) {
+  const f = run.anomalies?.specialist
+  return typeof f === 'string' ? f : null
+}
+
+// BLIND FAITH (v7.5): the rarity table with every tier below BLIND_FAITH_FLOOR removed. Handed the
+// table the caller was ABOUT to roll on rather than RARITY_WEIGHTS, so the reroll decay and the
+// floor compose instead of one silently replacing the other. pickWeighted normalises over whatever
+// keys it gets, so removing entries renormalises the rest by construction.
+function rarityTableFor(run, base) {
+  if (!run.anomalies?.blindFaith) return base
+  const floor = RARITY_ORDER.indexOf(BLIND_FAITH_FLOOR)
+  const out = {}
+  for (const k of Object.keys(base)) if (RARITY_ORDER.indexOf(k) >= floor) out[k] = base[k]
+  return out
+}
+
+// How many cards this screen deals. BLIND FAITH used to cut this, and it was a no-op at the default
+// slot count (see config.js) — the card's price is the reroll now, so nothing reduces it and this
+// exists only so the two readers below cannot drift apart.
+export function effectiveSlots(run) {
+  return run.choiceSlots ?? 2
 }
 
 // Every anomaly damage multiplier that can CHANGE during a run, folded into one number for
@@ -3967,7 +4012,13 @@ export function buildReadout(run) {
   // line a player has no way at all to tell the card is on.
   const anomalies = Object.keys(run.anomalies ?? {})
     .filter((id) => ANOMALIES[id])
-    .map((id) => ({ id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, icon: ANOMALIES[id].icon }))
+    // `subject` is SPECIALIST's named weapon (v7.5). Without it the sheet would print "Specialist —
+    // Its upgrades come up ×2.5 as often" with no way at all to learn WHICH weapon "its" is, which
+    // is the same hidden-rule failure this whole section exists to close.
+    .map((id) => ({
+      id, name: ANOMALIES[id].name, desc: ANOMALIES[id].desc, icon: ANOMALIES[id].icon,
+      subject: typeof run.anomalies[id] === 'string' ? run.anomalies[id] : null,
+    }))
   return { weapons, passives, elements, anomalies }
 }
 
@@ -6464,6 +6515,21 @@ function eligiblePassiveIds(run) {
   // guaranteed to do nothing, with no chip and no grey-out. Ending your run is what BRITTLE is
   // for; quietly voiding a sixth of your remaining level-ups is the "catastrophe the player could
   // neither foresee nor act on" the slate's own bar forbids.
+  // BLIND FAITH (v7.5): a `values` passive declares its own tier table, and the floor may leave it
+  // only ONE legal key — armor and regen both declare {normal, rare, legendary}, so under an epic
+  // floor every single one of them would deal LEGENDARY. Measured x2.80 on armor and x2.34 on
+  // regen per card, which puts armor at a flat 20 at MAX_PASSIVE_LEVEL. BERSERK's shipped safety
+  // argument is licensed word for word on "armor measures 2.4-3.7 in real runs… blocks 10-20% of a
+  // hit, not 100%", and BLIND FAITH + BERSERK is a legal pair under MAX_ANOMALIES_PER_RUN — so a
+  // rarity FLOOR would have become a rarity CEILING on the two cards that block damage, and taken
+  // another card's balance with it.
+  // A card with one legal tier is also not a ROLL any more: its border would say the same word
+  // every time regardless of what was rolled, which is a lie on the one screen where the border is
+  // all the player has. So it leaves the pool instead. That is the honest reading of the card's own
+  // text — you cannot pick carefully in the dark — and `maxHP` has no values table, so the defence
+  // bucket never empties.
+  const floored = run.anomalies?.blindFaith
+  const floorIdx = RARITY_ORDER.indexOf(BLIND_FAITH_FLOOR)
   const brittle = !!run.anomalies?.brittle
   // BLOOD PACT kills `regen` by the same argument and it is not a small slice: regen measures
   // 6.4% of every card offered, and under that card healPlayer refuses it outright. The card is
@@ -6473,7 +6539,9 @@ function eligiblePassiveIds(run) {
     (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
     && !(lane && id === 'magnet')
     && !(brittle && DEFENSIVE_PASSIVES.includes(id))
-    && !(noHeal && id === 'regen'))
+    && !(noHeal && id === 'regen')
+    && !(floored && PASSIVES[id].values
+      && Object.keys(PASSIVES[id].values).filter((r) => RARITY_ORDER.indexOf(r) >= floorIdx).length < 2))
 }
 
 // Fisher-Yates shuffle in place (used for per-weapon mod candidate fairness below).
@@ -6500,6 +6568,12 @@ function shuffleInPlace(arr) {
 // element cards.
 function eligibleWeaponModCandidates(run) {
   const candidates = []
+  // SPECIALIST (v7.5) widens its named weapon HERE as well as at the per-screen cap, and the pool
+  // ceiling with it. Lifting only the cap is inert: MOD_CANDIDATES_PER_WEAPON = 2 means a weapon
+  // never HAS a third distinct mod on the screen to place, and `pickedIds` forbids repeating one.
+  // The three numbers have to move together or the card is a rate the player cannot see.
+  const focus = specialistFocus(run)
+  const blind = !!run.anomalies?.blindFaith
   for (const w of run.weapons) {
     const modCfgs = WEAPON_MODS[w.id]
     if (!modCfgs) continue
@@ -6510,9 +6584,22 @@ function eligibleWeaponModCandidates(run) {
     // its own `maxPicks` when its marginal value collapses well before the global cap. Same defect
     // as the switch case, one step softer — a card that is still legal but no longer worth taking.
     const owned = Object.keys(modCfgs).filter((modId) =>
-      (picks?.[modId] ?? 0) < (modCfgs[modId].kind === 'switch' ? 1 : (modCfgs[modId].maxPicks ?? MAX_WEAPON_MOD_PICKS)))
+      // BLIND FAITH (v7.5): a `switch` is offered ONLY at normal rarity (makeWeaponModCard declines
+      // every tier above it), so under the epic floor it could only ever arrive through rollCard's
+      // all-declined fallback — printing a normal-bordered card on a screen that promised none.
+      // Drop the class outright instead. Losing rule-change mods is the honest price of the floor.
+      !(blind && modCfgs[modId].kind === 'switch')
+      // SPECIALIST (v7.5) is expressed ENTIRELY inside modPickCap: the focused weapon's mods stay
+      // eligible SPECIALIST_EXTRA_PICKS past the global ceiling. One function, so the pause sheet
+      // and the pool can never disagree about what a weapon's cap is.
+      && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus))
     shuffleInPlace(owned)
-    for (const modId of owned.slice(0, MOD_CANDIDATES_PER_WEAPON)) candidates.push({ weapon: w.id, mod: modId })
+    // SPECIALIST's price: every weapon that is NOT the focus puts one fewer mod in the pool. Only
+    // charged when a focus actually exists, and floored at 1 so a weapon is never silenced.
+    const per = focus && w.id !== focus
+      ? Math.max(1, MOD_CANDIDATES_PER_WEAPON - SPECIALIST_OTHER_PENALTY)
+      : MOD_CANDIDATES_PER_WEAPON
+    for (const modId of owned.slice(0, per)) candidates.push({ weapon: w.id, mod: modId })
   }
   if (candidates.length <= MOD_POOL_MAX) return candidates
 
@@ -6680,17 +6767,33 @@ function rollAnomalyCard(run) {
   // a screen at base weight, F5's second clause).
   // The other half of that contract lives downstream: the NEW_WEAPON_MIN_RATE swap is guarded on
   // !placedAnomaly precisely so a reset can never be followed by the card being overwritten (F4).
-  run._screensSinceAnomaly = 0
+  // v7.5: the assignment moved DOWN to the return, so that a card which bails after this point
+  // (the subject branch below) cannot spend the credit and hand back nothing — that is F5's first
+  // clause, arriving through a new door.
   const w = {}
   for (const id of eligible) w[id] = ANOMALIES[id].weight
   const id = pickWeighted(w)
   const a = ANOMALIES[id]
+  // A SUBJECTED card (SPECIALIST) carries the LIST of weapons it may be pointed at, and the PLAYER
+  // picks — ui.js opens a chooser when the card is taken. It is not weighted or auto-assigned here,
+  // because both auto-assignments that were tried measured as the same card: "first past the gate"
+  // and "most invested" both name the starter 86-94% of the time, and the spec's whole conclusion
+  // was that the choice is the product ("point it at the geyser you are building, not the rainbow
+  // you are not"). No Math.random is drawn for it, deliberately.
+  const subjects = a.subjects ? a.subjects(run) : null
+  // What the chooser needs to be a DECISION rather than a list of names: how much this run has
+  // already put into each candidate. Travels on the card so ui.js needs no second data channel and
+  // main.js stays glue.
+  const subjectPicks = subjects
+    ? Object.fromEntries(subjects.map((wid) => [wid, weaponModPickCount(run, wid)]))
+    : null
   // No `bonus` key at all: applyChoice's anomaly branch banks a rule, not a number, and a bonus
   // here would be silently ignored (or, worse, silently applied by a future branch). `from` is its
   // OWN field, not the `tag`: tag is a nowrap pill sized for "Lv 3"/"New!", and a sentence in it
   // overflows the card (the modal is min(92vw, 390px)). ui.js renders `from` as its own wrapping
   // line under the description.
-  return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon }
+  run._screensSinceAnomaly = 0
+  return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
 }
 
 // Roll ONE card: bucket first (BUCKET_WEIGHTS), then a rarity inside it. Never walks the rarity
@@ -6708,7 +6811,7 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   // Build each bucket's live option list ONCE, so "is this bucket empty" and "pick from it" can
   // never disagree.
   const buckets = {}
-  const modCap = maxModsPerWeaponPerPool(run.choiceSlots ?? 2)
+  const modCap = maxModsPerWeaponPerPool(effectiveSlots(run))
 
   // The weapon bucket's members are weighted here rather than at pick time, because the
   // build-focus fade has to be able to thin the RATE of `New!` cards and not just their share of
@@ -6749,8 +6852,16 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   if (defenseOpts.length > 0) buckets.defense = BUCKET_WEIGHTS.defense
   if (utilityOpts.length > 0) buckets.utility = BUCKET_WEIGHTS.utility
 
+  // SPECIALIST's focus is read here for the WEIGHT below only. It deliberately does NOT touch this
+  // filter, nor MOD_POOL_MAX: `modOpts.length > 0` is what decides whether the mod BUCKET exists at
+  // all, so lifting either lets the card keep the bucket alive on screens that would have dropped
+  // it — measured +17.8% mod share at two slots, i.e. the card CREATING deliverability, which is
+  // exactly what the spec forbids. Focus may decide which weapon wins a mod card; never whether one
+  // is dealt.
+  const focus = specialistFocus(run)
   const modOpts = modCandidates.filter((mc) =>
-    !pickedIds.has(mc.mod) && (modWeaponCounts.get(mc.weapon) ?? 0) < modCap)
+    !pickedIds.has(mc.mod)
+    && (modWeaponCounts.get(mc.weapon) ?? 0) < modCap)
   if (modOpts.length > 0) buckets.mod = BUCKET_WEIGHTS.mod
 
   const elementOpts = elementIds.filter((eid) => !pickedIds.has(eid))
@@ -6781,9 +6892,12 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   // Clamped both ways — below 0 because the shipped samplers pin it at -1 to mean "base rate",
   // above REROLL_RARITY_CAP because the decay is geometric.
   const rr = Math.min(REROLL_RARITY_CAP, Math.max(0, run._screenRerolls ?? 0))
-  const rarityWeights = rr === 0
+  // BLIND FAITH's floor is applied LAST, over the decayed table, so a blind player who also pays
+  // for a reroll gets the decay applied to a `normal` weight that is then removed — i.e. the two
+  // compose to "the floor wins", which is the promise the card printed.
+  const rarityWeights = rarityTableFor(run, rr === 0
     ? RARITY_WEIGHTS
-    : { ...RARITY_WEIGHTS, normal: RARITY_WEIGHTS.normal * Math.pow(REROLL_RARITY_DECAY, rr) }
+    : { ...RARITY_WEIGHTS, normal: RARITY_WEIGHTS.normal * Math.pow(REROLL_RARITY_DECAY, rr) })
   const rarity = pickWeighted(rarityWeights)
 
   if (bucket === 'weapon') {
@@ -6791,7 +6905,20 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // applyChoice's weapon branch never reads rarity, so an adopted colour would mean nothing.
     // weaponCandidates already gave UPGRADE entries UPGRADE_RARITY (no tier at all): the chip is
     // the acquisition jackpot, and re-firing it for a weapon you own spends it for nothing.
-    return weaponOpts[Number(pickWeighted(weaponW))]
+    const wc = weaponOpts[Number(pickWeighted(weaponW))]
+    // BLIND FAITH (v7.5): a weapon card's rarity is not a rolled tier at all — a `New!` card carries
+    // its WEAPON's inherent rarity (which can be below the floor) and an UPGRADE carries
+    // UPGRADE_RARITY, which is not a RARITIES key and so prints no chip.
+    // BOTH ARE TELLS, and the second is the worse one. Stamping every weapon card UPGRADE_RARITY
+    // was the first fix here and it made 23.5% of all blind cards a chipless beige border that
+    // identified its kind with 100% reliability — 40.9% of screens carried at least one. The floor
+    // was satisfied and blindness, which is the card's actual product, was not.
+    // So a weapon card adopts the screen's ROLLED (floor-legal) tier while blind. It means nothing
+    // — applyChoice's weapon branch never reads rarity, as the note above says — which is precisely
+    // what makes it safe to use as camouflage. The WEIGHT is untouched, so inherent rarity still
+    // decides WHICH weapon is offered; it just stops being broadcast.
+    if (run.anomalies?.blindFaith) return { ...wc, rarity }
+    return wc
   }
 
   if (bucket === 'defense' || bucket === 'utility') {
@@ -6809,8 +6936,14 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // it has to read the same table the roll it replaces did, or a reroll's promise quietly
     // evaporates for armor and regen — the two cards a player rerolling a bad screen is most often
     // hoping to improve, and at the cap the fall-through path takes 12.3% of them (8.8% at base).
+    // Renormalise the passive's OWN declared keys — never a fixed ladder walk. `rarityWeights`, not
+    // RARITY_WEIGHTS, so a reroll's promise reaches armor and regen too; and only keys that table
+    // still carries, because `?? 1` would hand a tier BLIND FAITH's floor removed a live weight.
+    // Under that floor a values-passive is guaranteed to have at least two surviving keys, because
+    // eligiblePassiveIds drops the ones that do not (see the note there — it is what stops the
+    // floor turning into a CEILING for the two passives that block damage).
     const w = {}
-    for (const r of Object.keys(PASSIVES[pid].values)) w[r] = rarityWeights[r] ?? 1
+    for (const r of Object.keys(PASSIVES[pid].values)) if (rarityWeights[r]) w[r] = rarityWeights[r]
     return makePassiveCard(run, pid, pickWeighted(w))
   }
 
@@ -6829,13 +6962,32 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // complaint is that it has too few of. Rolling candidacy at base holds the switch rate flat
     // (garden 9.01% -> 9.43%, inside a 0.45pt six-seed spread; run PB4 asserts the invariance)
     // while every numeric mod keeps the full nudge.
-    const candRarity = rr === 0 ? rarity : pickWeighted(RARITY_WEIGHTS)
+    const candRarity = rr === 0 ? rarity : pickWeighted(rarityTableFor(run, RARITY_WEIGHTS))
     const ok = modOpts.filter((mc) => makeWeaponModCard(run, mc.weapon, mc.mod, candRarity))
-    // Every candidate declined (an all-switch bucket): the bucket was counted as non-empty, so it
-    // owes a card. Offer one at normal rather than returning null and shortening the pool.
+    // Every candidate declined (an all-switch bucket): the bucket was counted non-empty, so it owes a card even if every candidate declined the
+    // rolled tier. Under BLIND FAITH that fallback tier must be the FLOOR, not 'normal' — and a
+    // `values` mod (trashTornado.sweepLoot declares {epic:1}) can decline BOTH, in which case
+    // makeWeaponModCard returns null, rollCard returns null and buildLevelUpChoices BREAKS out of
+    // the slot loop. Measured: 40% of such blind screens collapsed to a single card.
+    const floorTier = run.anomalies?.blindFaith ? BLIND_FAITH_FLOOR : 'normal'
     const from = ok.length > 0 ? ok : modOpts
-    const mc = from[Math.floor(Math.random() * from.length)]
-    if (ok.length === 0) return makeWeaponModCard(run, mc.weapon, mc.mod, 'normal')
+    // SPECIALIST's actual effect: the named weapon's candidates compete at SPECIALIST_FOCUS_MUL,
+    // everything else at 1. Strictly a REDISTRIBUTION — the mod bucket's own share is untouched, so
+    // the card cannot create deliverability, only aim it (which is exactly what the spec says it is
+    // and is not). The un-focused path keeps the original uniform expression VERBATIM rather than
+    // routing through pickWeighted with flat weights: both draw one random, but not the same
+    // mapping from it, and every seeded fixture in the suite would shift for a card nobody took.
+    const mc = focus
+      ? from[Number(pickWeighted(Object.fromEntries(
+        from.map((c, i) => [i, c.weapon === focus ? SPECIALIST_FOCUS_MUL : 1]))))]
+      : from[Math.floor(Math.random() * from.length)]
+    if (ok.length === 0) {
+      // ...and if even the floor declines it, hunt the whole surviving table before giving up, so a
+      // declining mod shortens nobody's screen.
+      const built = makeWeaponModCard(run, mc.weapon, mc.mod, floorTier)
+        ?? Object.keys(rarityWeights).map((r) => makeWeaponModCard(run, mc.weapon, mc.mod, r)).find(Boolean)
+      if (built) return built
+    }
     // A switch has no magnitude for a reroll to enlarge, so it is built at the only tier it accepts
     // — which is also the tier its candidacy roll came up at. Everything else takes the decayed one.
     const isSwitch = WEAPON_MODS[mc.weapon][mc.mod].kind === 'switch'
@@ -6846,6 +6998,14 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   return makeElementCard(run, eid, rarity)
 }
 
+// The pool-exhaustion card's tier. It is not a rolled tier at all, but it PRINTS one — and hard
+// -coding 'normal' put a grey chip literally reading "Normal" on a BLIND FAITH screen whose text
+// says nothing below the floor is rolled. Measured: with every pool exhausted, 100% of blind
+// screens were this card. The floor is the honest answer; it promises no more than the card gives.
+function healRarity(run) {
+  return run.anomalies?.blindFaith ? BLIND_FAITH_FLOOR : 'normal'
+}
+
 function buildLevelUpChoices(run) {
   const weaponPool = weaponCandidates(run)
   const passiveIds = eligiblePassiveIds(run)
@@ -6853,7 +7013,7 @@ function buildLevelUpChoices(run) {
   const elementIds = eligibleElementIds(run)
 
   if (weaponPool.length === 0 && passiveIds.length === 0 && modCandidates.length === 0 && elementIds.length === 0) {
-    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
+    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: healRarity(run), icon: '🍡' }]
   }
 
   const pickedIds = new Set()
@@ -6861,7 +7021,7 @@ function buildLevelUpChoices(run) {
   const cards = []
   // Roll exactly run.choiceSlots cards (2..4, permanently unlocked in the meta shop — see
   // choiceSlots in state.js and sacrificeCost in config.js).
-  const slots = run.choiceSlots ?? 2
+  const slots = effectiveSlots(run)
   for (let i = 0; i < slots; i++) {
     const card = rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, pickedIds, modWeaponCounts)
     if (!card) break
@@ -6871,7 +7031,7 @@ function buildLevelUpChoices(run) {
   }
 
   if (cards.length === 0) {
-    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: 'normal', icon: '🍡' }]
+    return [{ kind: 'heal', title: 'Snack Break', desc: 'Heal 30 HP', tag: '', rarity: healRarity(run), icon: '🍡' }]
   }
 
   // The anomaly tier: ONE roll per SCREEN, replacing a rolled card rather than extending the
@@ -6929,7 +7089,13 @@ function buildLevelUpChoices(run) {
     // Swap into the LAST slot — every rolled card is visible now (no purchasable extras), so
     // the guarantee just needs a slot that always exists.
     const slot = cards.length - 1
-    cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity: cfg.rarity, icon: cfg.icon }
+    // v7.5: this path builds a card BYPASSING rollCard, so BLIND FAITH's chip rule has to be
+    // applied here too — otherwise the discovery guarantee is the one hole through which a
+    // below-floor border reaches a face-down screen. Same reasoning as the weapon branch of
+    // rollCard: the tier is WHICH weapon, not how big, and under a blind deal the border is the
+    // only information there is.
+    const rarity = run.anomalies?.blindFaith ? UPGRADE_RARITY : cfg.rarity
+    cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity, icon: cfg.icon }
   }
 
   return cards
@@ -7006,14 +7172,19 @@ export { buildLevelUpChoices }
  * would go red.
  */
 export function rerollPrice(run) {
+  // BLIND FAITH (v7.5) is the card's whole price: you cannot reroll a screen you cannot read. It is
+  // checked BEFORE BLOOD MONEY so the pair cannot produce a purchasable HP price for a purchase
+  // that does not exist. `available: false` is what ui.js prints — the button says why rather than
+  // silently refusing, because a dead control with no explanation reads as a bug.
+  if (run.anomalies?.blindFaith && BLIND_FAITH_NO_REROLL) return { cost: 0, currency: 'coins', available: false }
   if (run.anomalies?.bloodMoney) {
     // Escalates on the RUN counter, exactly like rerollCost does for coins — see
     // BLOOD_MONEY_ESCALATION for the measurement that says a flat price deletes the ladder rather
     // than discounting it. Rounded so the button prints a whole number of HP.
     const n = run._rerolls ?? 0
-    return { cost: Math.round(BLOOD_MONEY_HP * Math.pow(BLOOD_MONEY_ESCALATION, n)), currency: 'hp' }
+    return { cost: Math.round(BLOOD_MONEY_HP * Math.pow(BLOOD_MONEY_ESCALATION, n)), currency: 'hp', available: true }
   }
-  return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins' }
+  return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins', available: true }
 }
 
 export function rerollLevelUpChoices(run) {
@@ -7031,6 +7202,10 @@ export function rerollLevelUpChoices(run) {
   // button press is not a trade the player agreed to. A max-regen build (2.5 HP/s = 750 HP/run)
   // rerolling nearly every screen is the known ceiling — a legitimate build bought with 5 passive
   // picks, and it should be a consequence someone can predict, not a discovery.
+  // BLIND FAITH (v7.5): the reroll is the card's price, so it is refused HERE and not only greyed
+  // out in ui.js. A UI-only gate is a rule the console can walk around, and this one is the whole
+  // cost of the strongest card on the slate.
+  if (!rerollPrice(run).available) return false
   if (run.anomalies?.bloodMoney) {
     const p = run.player
     const cost = rerollPrice(run).cost

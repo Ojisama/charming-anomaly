@@ -157,9 +157,11 @@ const ui = initUI({
     playSfx('buy')
     return true
   },
-  onChoose(i) {
+  // v7.5: `subject` is the weapon the player named on a SUBJECTED anomaly card (SPECIALIST). ui.js
+  // passes it after its chooser; sim.js validates it against the run, so this stays glue.
+  onChoose(i, subject = null) {
     if (!run || run.phase !== 'levelup') return
-    applyChoice(run, i)
+    applyChoice(run, i, subject)
     run.phase = 'playing'
     ui.showScreen('hud')
     playSfx('click')
@@ -265,8 +267,14 @@ function levelupData() {
     choices: run.levelUpChoices,
     rerollCost: price.cost,
     rerollCurrency: price.currency,
+    // v7.5: false under BLIND FAITH, whose whole price is that the reroll is not for sale. sim.js
+    // refuses it too — this only stops the button offering a purchase that cannot happen.
+    canReroll: price.available !== false,
     coins: run.coinsEarned,  // run coins — rerolls spend these, see onReroll
     hp: Math.floor(run.player.hp),
+    // v7.5: BLIND FAITH deals the screen face down. The RULE (which rarities are dealt, how many
+    // cards) is entirely sim-side; this flag only tells ui.js how to paint what it was handed.
+    blind: !!run.anomalies?.blindFaith,
   }
 }
 

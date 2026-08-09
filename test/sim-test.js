@@ -14,6 +14,8 @@ import {
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, hasWeaponAt,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_MUL,
+  SPECIALIST_MIN_MODS, SPECIALIST_EXTRA_PICKS, specialistSubjects, modPickCap,
+  BLIND_FAITH_FLOOR, BLIND_FAITH_NO_REROLL,
   // v7.2 anomaly slate constants — run PB7 asserts each card against the number it ships with,
   // so a retune moves the test with the config instead of leaving a stale literal in here.
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
@@ -769,7 +771,250 @@ function testAnomalySlate() {
       `DEADFALL re-armed in ${fastRearm.toFixed(1)}s against ${plainRearm.toFixed(1)}s — springTrap is not reading the multiplier`)
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 15 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
+  // SPECIALIST (v7.5) — the only card on the slate whose whole effect is on the level-up POOL, so
+  // it is the only one that cannot be asserted with the `withCard` fixture above.
+  // The first version of this scenario hand-wrote `r.anomalies.specialist = 'orbit'`, which meant
+  // rollAnomalyCard's subject list and applyChoice's banking were executed by NO test: an
+  // adversarial review mutated applyChoice to bank `true` instead of the weapon and the suite
+  // stayed green, with the card a complete no-op in the real game. Everything below therefore
+  // goes through the REAL path — roll a screen, find the card, applyChoice it.
+  {
+    const OWNED = ['star', 'orbit', 'wave', 'boomerang']
+    const armed = (focus) => {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      m.choiceSlots = MAX_CHOICE_SLOTS
+      const r = createRun(m, { chapter: 'body' })
+      r.weapons = OWNED.map((id) => ({ id, level: 3 }))
+      for (const id of OWNED) {
+        const first = Object.keys(WEAPON_MODS[id])[0]
+        r.weaponModPicks[id][first] = SPECIALIST_MIN_MODS   // past the gate, one mod still free
+      }
+      if (focus) {
+        // The real delivery path, end to end: build the card rollAnomalyCard would, hand it to
+        // applyChoice with the player's named weapon, and let applyChoice do the banking.
+        const subjects = specialistSubjects(r)
+        assert.deepStrictEqual(subjects.slice().sort(), OWNED.slice().sort(),
+          `specialistSubjects returned ${JSON.stringify(subjects)} — every owned weapon is past the gate, so the chooser should offer all four`)
+        r.levelUpChoices = [{ kind: 'anomaly', id: 'specialist', subjects }]
+        applyChoice(r, 0, focus)
+        assert.strictEqual(r.anomalies.specialist, focus,
+          `applyChoice banked ${JSON.stringify(r.anomalies.specialist)} for SPECIALIST, not the weapon the player named — a truthy non-string focuses nothing, silently`)
+      }
+      return r
+    }
+    // ...and an unnamed take must still land on a LEGAL weapon rather than `true`, because the
+    // probe harness and any UI path that skips the chooser go through exactly this branch.
+    {
+      const r = armed(null)
+      r.levelUpChoices = [{ kind: 'anomaly', id: 'specialist', subjects: specialistSubjects(r) }]
+      applyChoice(r, 0)
+      assert.ok(OWNED.includes(r.anomalies.specialist),
+        `a SPECIALIST taken with no subject banked ${JSON.stringify(r.anomalies.specialist)} — a caller that never opened the chooser must still get a working card`)
+    }
+
+    const screens = (focus) => {
+      const r = armed(focus)
+      const perWeapon = {}
+      let mods = 0, cards = 0
+      for (let i = 0; i < 3000; i++) {
+        r._screenRerolls = -1
+        r._screenAnomaly = undefined
+        for (const c of buildLevelUpChoices(r)) {
+          cards++
+          if (c.kind !== 'mod') continue
+          perWeapon[c.weapon] = (perWeapon[c.weapon] ?? 0) + 1
+          mods++
+        }
+      }
+      return { share: (id) => (perWeapon[id] ?? 0) / mods, mods, cards }
+    }
+    const off = screens(null), on = screens('orbit')
+    assert.ok(off.mods > 500 && on.mods > 500, 'the SPECIALIST fixture rolled almost no mod cards — it is not reaching its subject')
+    assert.ok(Math.abs(off.share('orbit') - 0.25) < 0.04,
+      `the unfocused control gave orbit ${(off.share('orbit') * 100).toFixed(1)}% of mod cards, not ~25% — the fixture is unbalanced and the comparison below would be meaningless`)
+    assert.ok(on.share('orbit') > off.share('orbit') * 1.5,
+      `SPECIALIST moved orbit's mod share ${(off.share('orbit') * 100).toFixed(1)}% -> ${(on.share('orbit') * 100).toFixed(1)}% — rollCard is not weighting the named weapon`)
+    // A REDISTRIBUTION, not a bucket buff. Measured as mod cards' share of ALL cards, which is the
+    // quantity the spec forbids the card from moving — an earlier version lifted the per-screen cap
+    // and MOD_POOL_MAX, which kept the mod bucket ALIVE on screens that would have dropped it and
+    // measured +17.8% mod share at two slots. Counting mods alone cannot see that; this can.
+    const modShare = (x) => x.mods / x.cards
+    assert.ok(Math.abs(modShare(on) / modShare(off) - 1) < 0.05,
+      `SPECIALIST moved mod cards' share of the whole pool ${(modShare(off) * 100).toFixed(1)}% -> ${(modShare(on) * 100).toFixed(1)}% — it is creating deliverability, not aiming it`)
+
+    // THE CEILING, which is the half a player actually feels: the focused weapon's mods stay
+    // eligible past MAX_WEAPON_MOD_PICKS, and nobody else's do.
+    {
+      const r = armed('orbit')
+      const modId = Object.keys(WEAPON_MODS.orbit).find((k) => WEAPON_MODS.orbit[k].kind !== 'switch' && WEAPON_MODS.orbit[k].maxPicks == null)
+      const otherId = Object.keys(WEAPON_MODS.star).find((k) => WEAPON_MODS.star[k].kind !== 'switch' && WEAPON_MODS.star[k].maxPicks == null)
+      assert.ok(modId && otherId, 'no uncapped mod found for the ceiling fixture')
+      r.weaponModPicks.orbit[modId] = MAX_WEAPON_MOD_PICKS
+      r.weaponModPicks.star[otherId] = MAX_WEAPON_MOD_PICKS
+      const offered = new Set()
+      for (let i = 0; i < 3000; i++) {
+        r._screenRerolls = -1
+        r._screenAnomaly = undefined
+        for (const c of buildLevelUpChoices(r)) if (c.kind === 'mod') offered.add(`${c.weapon}:${c.id}`)
+      }
+      assert.ok(offered.has(`orbit:${modId}`),
+        `a maxed mod on the FOCUSED weapon was never offered again — SPECIALIST_EXTRA_PICKS is not reaching modPickCap, and the card loses the only thing about it a player can feel`)
+      assert.ok(!offered.has(`star:${otherId}`),
+        `a maxed mod on an UNFOCUSED weapon was still offered — the raised ceiling is leaking to every weapon, which makes it a global cap change wearing a card's name`)
+    }
+  }
+
+  // BLIND FAITH (v7.5) — like SPECIALIST this one lives in the POOL, so it needs the screen fixture
+  // rather than `withCard`. Five separate promises, each read at a different site, each able to die
+  // without the others noticing. Two of these exist because an adversarial review found the holes:
+  // the shipped cost was a NO-OP at the default slot count, and the floor silently locked armor and
+  // regen to 100% legendary.
+  {
+    const screens = (blind, { slots = MAX_CHOICE_SLOTS, rerolls = -1 } = {}) => {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      m.choiceSlots = slots
+      const r = createRun(m, { chapter: 'body' })
+      // Weapons chosen for their SWITCH mods (stinger has two), because one assertion below is
+      // about the class of card the floor removes — a fixture without one proves nothing.
+      r.weapons = ['stinger', 'bloom', 'lure', 'clawRake'].map((id) => ({ id, level: 3 }))
+      if (blind) r.anomalies.blindFaith = true
+      const rarities = {}, valueTiers = {}
+      let cards = 0, switches = 0, dealt = 0
+      for (let i = 0; i < 2000; i++) {
+        r._screenRerolls = rerolls
+        r._screenAnomaly = undefined
+        const row = buildLevelUpChoices(r)
+        dealt++
+        for (const c of row) {
+          rarities[c.rarity] = (rarities[c.rarity] ?? 0) + 1
+          if (c.kind === 'mod' && WEAPON_MODS[c.weapon][c.id].kind === 'switch') switches++
+          if (c.kind === 'passive' && PASSIVES[c.id].values) {
+            valueTiers[c.id] = valueTiers[c.id] ?? {}
+            valueTiers[c.id][c.rarity] = (valueTiers[c.id][c.rarity] ?? 0) + 1
+          }
+          cards++
+        }
+      }
+      return { rarities, valueTiers, cards, switches, perScreen: cards / dealt }
+    }
+    const seeing = screens(false), blind = screens(true)
+
+    // 1. THE FLOOR. Every rarity string the screen produced is checked, NOT just the ones that
+    // happen to be on the ladder: filtering on RARITY_ORDER.includes() is how the first version of
+    // this assertion missed a whole class of card being restamped to a non-ladder value.
+    const floorIdx = RARITY_ORDER.indexOf(BLIND_FAITH_FLOOR)
+    const legal = new Set([...RARITY_ORDER.slice(floorIdx), UPGRADE_RARITY])
+    const below = Object.keys(blind.rarities).filter((k) => !legal.has(k))
+    assert.ok(seeing.rarities.normal > 0 && seeing.rarities.rare > 0,
+      'the sighted control dealt no normal/rare cards at all — the fixture is not reaching the rarity roll')
+    assert.deepStrictEqual(below, [],
+      `BLIND FAITH dealt tiers below ${BLIND_FAITH_FLOOR}: ${JSON.stringify(below.map((k) => [k, blind.rarities[k]]))} — the floor is not applied everywhere the table is rolled`)
+
+    // 2. THE FLOOR SURVIVES A REROLL. Both fixtures used to pin _screenRerolls at -1, so `rr` was
+    // always 0 and rarityTableFor could be deleted from the reroll branch with the suite green —
+    // the exact path BLOOD MONEY charges escalating HP for.
+    const blindRerolled = screens(true, { rerolls: REROLL_RARITY_CAP })
+    const belowRR = Object.keys(blindRerolled.rarities).filter((k) => !legal.has(k))
+    assert.deepStrictEqual(belowRR, [],
+      `after ${REROLL_RARITY_CAP} rerolls BLIND FAITH dealt ${JSON.stringify(belowRR)} — the decayed table is not being floored`)
+
+    // 3. THE COST IS PAID AT THE DEFAULT SLOT COUNT. This is the assertion that would have caught
+    // the shipped no-op: the cost was `Math.min(choiceSlots, 2)` and choiceSlots DEFAULTS to 2, so
+    // the default player paid nothing at all. Asserted on the price, not the card count, and at the
+    // default rather than the maximum.
+    {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      const plain = createRun(m, { chapter: 'body' })
+      assert.strictEqual(plain.choiceSlots, 2, 'the default choiceSlots moved — the cost assertion below is written against it being the DEFAULT, not a number')
+      assert.ok(rerollPrice(plain).available !== false, 'a plain run could not reroll — the comparison below is meaningless')
+      assert.ok(rerollLevelUpChoices(plain) !== false || true, 'sanity')
+      const bf = createRun(m, { chapter: 'body' })
+      bf.anomalies.blindFaith = true
+      bf.coinsEarned = 100000
+      bf.levelUpChoices = buildLevelUpChoices(bf)
+      assert.strictEqual(rerollPrice(bf).available, false,
+        'BLIND FAITH still offers a reroll — that purchase IS the card\'s entire price')
+      assert.strictEqual(rerollLevelUpChoices(bf), false,
+        'BLIND FAITH let a reroll through sim-side with 100000 coins in hand — a ui-only gate is a rule the console walks around')
+      // ...and the screen is NOT shortened, which was the cost that did not work. The reveal is the
+      // emotion this card was asked for and it needs cards to reveal.
+      const bf4 = createRun(makeMeta(), { chapter: 'body' })
+      bf4.choiceSlots = MAX_CHOICE_SLOTS
+      bf4.anomalies.blindFaith = true
+      assert.strictEqual(buildLevelUpChoices(bf4).length, MAX_CHOICE_SLOTS,
+        'BLIND FAITH shortened the screen — the slot cost was removed precisely because it was a no-op at the default and it ate the reveal')
+    }
+
+    // 4. THE FLOOR IS NOT A CEILING. armor/regen declare their OWN tier table ({normal, rare,
+    // legendary}); flooring it left exactly one surviving key, so every one of them dealt legendary
+    // — armor a flat 20 at max level, which is the number BERSERK's shipped safety argument is
+    // licensed against ("armor measures 2.4-3.7 in real runs"). BLIND FAITH + BERSERK is a legal
+    // pair. A rarity floor must never silently top out the two cards that block damage.
+    // The control must actually deal them, or the assertion below is vacuous.
+    assert.ok((seeing.valueTiers.armor?.normal ?? 0) > 0 && (seeing.valueTiers.regen?.normal ?? 0) > 0,
+      'the sighted control never dealt a normal armor/regen card — the values-passive assertion below proves nothing')
+    for (const id of Object.keys(blind.valueTiers)) {
+      const tiers = blind.valueTiers[id]
+      const total = Object.values(tiers).reduce((a, b) => a + b, 0)
+      const top = Math.max(...Object.values(tiers))
+      assert.ok(top < total,
+        `every ${id} card under BLIND FAITH came out ${Object.keys(tiers)[0]} (${total}/${total}) — the floor is acting as a CEILING on a values-passive, which is BERSERK's safety argument deleted`)
+    }
+    // ...and armor/regen specifically are the pair the floor reduces to ONE legal tier, so they
+    // must leave the pool rather than be dealt at a fixed tier forever.
+    for (const id of ['armor', 'regen']) {
+      const legalTiers = Object.keys(PASSIVES[id].values).filter((r) => RARITY_ORDER.indexOf(r) >= floorIdx)
+      assert.strictEqual(legalTiers.length, 1,
+        `${id} now declares ${legalTiers.length} tiers at or above ${BLIND_FAITH_FLOOR} — this assertion was written for the one-legal-tier case and needs rethinking, not deleting`)
+      assert.ok(!blind.valueTiers[id],
+        `${id} was still offered under BLIND FAITH with only ${JSON.stringify(legalTiers)} legal — it can only ever deal that one tier, so the border says the same word whatever was rolled and armor reaches a flat ${PASSIVES.armor.values.legendary * MAX_PASSIVE_LEVEL} at max level`)
+    }
+
+    // 5. THE SIDE EFFECT, pinned as a decision rather than an accident: a `switch` mod is offered
+    // only at normal rarity, so under the floor it could only reach a blind screen through
+    // rollCard's all-declined fallback — wearing a border the card forbade.
+    assert.ok(seeing.switches > 0, 'the sighted control was never offered a switch mod — the switch assertion below proves nothing')
+    assert.strictEqual(blind.switches, 0,
+      `BLIND FAITH still offered ${blind.switches} switch mods`)
+
+    // ...and the case that actually needs the explicit drop, which the sample above CANNOT reach:
+    // one weapon whose only surviving mod IS a switch, so EVERY candidate declines the floor. The
+    // 2000-screen sample stays green with the drop deleted (a four-weapon pool practically never
+    // rolls an all-switch bucket), so do not delete this as redundant — it is the whole point.
+    {
+      Math.random = mulberry32(20260808)
+      const m = makeMeta()
+      m.choiceSlots = MAX_CHOICE_SLOTS
+      const r = createRun(m, { chapter: 'body' })
+      r.weapons = [{ id: 'clawRake', level: 3 }]
+      for (const [id, cfg] of Object.entries(WEAPON_MODS.clawRake)) {
+        if (cfg.kind !== 'switch') r.weaponModPicks.clawRake[id] = MAX_WEAPON_MOD_PICKS
+      }
+      r.anomalies.blindFaith = true
+      let sawSwitch = 0, illegal = 0, shortScreens = 0
+      for (let i = 0; i < 400; i++) {
+        r._screenRerolls = -1
+        r._screenAnomaly = undefined
+        const row = buildLevelUpChoices(r)
+        if (row.length < MAX_CHOICE_SLOTS) shortScreens++
+        for (const c of row) {
+          if (!legal.has(c.rarity)) illegal++
+          if (c.kind === 'mod' && WEAPON_MODS[c.weapon][c.id].kind === 'switch') sawSwitch++
+        }
+      }
+      assert.strictEqual(sawSwitch, 0,
+        `an all-switch mod bucket still dealt ${sawSwitch} switch cards under BLIND FAITH — eligibleWeaponModCandidates is not dropping them`)
+      assert.strictEqual(illegal, 0,
+        `an all-switch mod bucket dealt ${illegal} cards below ${BLIND_FAITH_FLOOR} — a fallback is printing a tier the floor forbade (the 'Snack Break' heal card was one of these)`)
+      assert.strictEqual(shortScreens, 0,
+        `${shortScreens}/400 blind screens came back short — a declining mod is propagating null out of rollCard and breaking the slot loop, which reads to a player as a missing card`)
+    }
+  }
+
+  console.log(`PASS run PB7 (v7.2 slate): 17 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {

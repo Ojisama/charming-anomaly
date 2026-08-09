@@ -1043,6 +1043,9 @@ function generateWells(sig) {
  * anomalies (v6.7.6): {id: true} for each anomaly taken this run, read at trigger sites in sim.js
  *   (unstableCores -> rollAffixes gives every elite the `volatile` affix). Never serialized —
  *   `run` is not saved — and never migrated for the same reason.
+ *   v7.5: the value is `true` for every card EXCEPT `specialist`, which stores the WEAPON ID it
+ *   named (a string). Both are truthy, so `run.anomalies?.x` reads are unaffected; anything that
+ *   needs the weapon tests `typeof === 'string'` (sim.js specialistFocus).
  * _eliteKills (v6.7.6): elites killed this run. Gates anomaly `when` predicates; run.kills counts
  *   every enemy and so cannot answer "has this player met an elite yet".
  * _hitsTaken (v7.2): real hits taken this run — incremented in hurtPlayer's NON-dot branch only.
