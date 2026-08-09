@@ -304,11 +304,11 @@ function endRun(victory) {
   meta.runs += 1
   // meta.best: all-time aggregate across every chapter (see state.js doc block), kept
   // unconditionally alongside the per-chapter best below.
-  meta.best.time = Math.max(meta.best.time, Math.floor(run.time))
+  meta.best.time = Math.max(meta.best.time, Math.floor(run._realTime ?? run.time))
   meta.best.kills = Math.max(meta.best.kills, run.kills)
 
   const chMeta = ensureChapterMeta(meta, run.chapter)
-  chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run.time))
+  chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run._realTime ?? run.time))
   chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
 
   // Difficulty unlock (v4.10, now per-chapter): winning a classic run at the run's chapter's

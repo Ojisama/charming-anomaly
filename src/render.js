@@ -10953,8 +10953,14 @@ export function createRenderer(app) {
     spawnParticle(T.dot.tex, x, y, 0, -8, 0.32, 1.3, 0xfffdf5, 3.2, 0)
   }
 
-  function pickupSparkle(x, y, coin) {
-    const tint = coin ? 0xffcf4d : 0xffd93d
+  // `healed` (v7.2): the AVARICE anomaly converts a share of collected coins into HP instead of
+  // paying out. sim.js has always flagged the event; nothing read it, so the conversion looked and
+  // sounded exactly like a normal pickup while the coin counter silently failed to move — the one
+  // moment the card is actually doing its thing, and it was invisible. Reuses the revive's
+  // heart-pink rather than introducing a colour: that is already this game's "you got health back"
+  // vocabulary, so it reads without being taught.
+  function pickupSparkle(x, y, coin, healed = false) {
+    const tint = healed ? 0xff8fb1 : coin ? 0xffcf4d : 0xffd93d
     for (let i = 0; i < 3; i++) {
       const a = Math.random() * Math.PI * 2
       spawnParticle(T.sparkle.tex, x, y, Math.cos(a) * 35, Math.sin(a) * 35 - 45,
@@ -11212,6 +11218,16 @@ export function createRenderer(app) {
           // how big the hit was relative to maxHP (a hit >= 20% of maxHP keeps full feedback).
           const frac = Math.min(1, (e.dmg / Math.max(1, run.player.maxHP)) * 5)
           const hurtMul = 0.4 + 0.6 * frac
+          // v7.2: a hit you did to YOURSELF, on purpose, on a schedule, is not an attack. OVERLOAD
+          // spends 0.75 HP/s in whole points, so it emits ~150 `hurt` events over a run — at full
+          // reaction that is a shake-and-red pulse every 1.33 seconds for the rest of the game,
+          // which reads as a malfunction rather than as a cost. Damped to a faint vignette with no
+          // shake and no flash: still legible as "you are burning", never mistaken for damage
+          // taken. `src` is set only by the anomaly, so every other DoT in the game is untouched.
+          if (e.src === 'overload') {
+            vignetteA = Math.max(vignetteA, 0.12)
+            break
+          }
           addShake(6 * hurtMul, 0.25)
           vignetteA = 0.6 * hurtMul
           flashT = 0.28 * hurtMul
@@ -11242,7 +11258,7 @@ export function createRenderer(app) {
           pickupSparkle(e.x, e.y, false)
           break
         case 'coin':
-          pickupSparkle(e.x, e.y, true)
+          pickupSparkle(e.x, e.y, true, !!e.healed)
           break
         case 'shoot':
           if (e.weapon === 'wave') {

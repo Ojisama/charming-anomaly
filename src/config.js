@@ -419,7 +419,56 @@ export const DEADFALL_REARM_MUL = 0.2
 // probe does not read proc counts, so the card is stronger than the row that cleared it.
 export const SOY_MILK_FIRE_MUL = 5
 export const SOY_MILK_DMG_MUL = 0.2
+// WILDFIRE. Ignite jumps to the nearest enemy when a burning one dies, carrying the same dps.
+// THE BUDGET IS THE WHOLE BALANCE, and it is the risk the spec named before implementation:
+// "ignite jumping on every death in a 200-enemy field never stops". The budget rides on the ENEMY
+// (_fireJumps), is set when a weapon hit applies ignite, and decrements on each jump — so one
+// application can travel WILDFIRE_JUMPS enemies deep and no further, however dense the crowd.
+// A fresh weapon hit re-arms it, which is what keeps the card about ENGAGING the pack rather than
+// lighting one straggler and walking away.
+export const WILDFIRE_JUMPS = 3
+export const WILDFIRE_JUMP_R = 160   // px, how far a jump reaches — about two body-lengths
+// MINIMES. Decoys that flee outward and detonate. The decoy SYSTEM already ships as the `lure`
+// weapon (run.lures: enemies inside `aggro` path to the decoy instead of the player, and it bursts
+// for AoE at expiry), so this card is a cadence, a velocity and a set of numbers rather than a new
+// entity — the three things the lure does not have.
+// ANCHORED TO THE SHIPPED WEAPON, not invented: WEAPONS.lure level 3 is dur 3.4, aggro 230,
+// burstR 126, burstDmg 42. Minimes sit near there deliberately, so the card reads as "a lure you
+// did not have to equip" rather than as a second, differently-tuned decoy. The burst goes through
+// applyDamage like the lure's, which is what makes it scale off PLAYER stats (the spec's
+// requirement) rather than off a weapon's levels[] the card does not own.
+// OPEN, and flagged as such: the cadence is the entire balance here. The spec's risk note is
+// "if decoys hold aggro reliably they do not add pressure, they DELETE it". 6s between spawns
+// against a 4s life means the field is empty a third of the time, which is the conservative end.
+// Shorten the interval before lengthening the life if it plays as too weak — a permanent decoy is
+// exactly the failure mode above.
+export const MINIME_INTERVAL = 6      // s between spawns
+export const MINIME_LIFE = 4          // s before it detonates
+export const MINIME_SPEED = 190       // px/s outward — slower than the player, so you can outrun it
+export const MINIME_AGGRO = 230
+export const MINIME_BURST_R = 126
+export const MINIME_BURST_DMG = 42
 
+// WEIGHTS (v7.2). The old note read "unconditional 1 / conditional 6 / chapter inversion 2", and
+// it inverted the tier the moment the slate grew past one card. It assumed a GATED card is a RARE
+// card — but these gates are not rare: `_hitsTaken > 0`, `coinsEarned >= 50`, `_rerolls > 0` and
+// "owns any element" are all near-universal by ANOMALY_MIN_LEVEL. So the three near-unconditional
+// TRADES took 42% of the tier's weight between them, while the four cards the rarity licence was
+// written to permit (BRITTLE, TIME DEBT, OVERLOAD, BLOOD PACT) sat at 9% combined — about one
+// sighting every eight runs. Measured mix before: 33% pivot / 16% jackpot / 51% trade, against a
+// stated design target of roughly 56 / 25 / 19. At ~1.3 anomalies per run that made the modal
+// experience of the game's rarest tier a COST card.
+// So weight now answers two questions, in this order:
+//   1. How much of the tier should this KIND own? Pivots are the point (the tier exists to change
+//      how you play); jackpots are the feeling; trades are meant to be rare, because scarcity is
+//      exactly what buys the licence to be extreme.
+//   2. How rare is this card's GATE, really? A near-universal gate needs no compensation. Only a
+//      genuinely narrow one does (ALIGNMENT wants two distinct elements; DEADFALL wants a chapter).
+// Shipped mix, non-chapter-scoped: 50% pivot / 25% jackpot / 25% trade.
+// STILL OWED, and deliberately not done here: the spec's Decision #1 asks for per-KIND weighting
+// (roll the kind, then the card) rather than one flat list. `kind` is descriptive today — nothing
+// reads it. Hand-tuned weights hit the same mix for THIS slate and will drift as the remaining six
+// cards land, which is the right time to build the real thing.
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -428,7 +477,10 @@ export const ANOMALIES = {
     // The hidden gate: this card teaches itself only to a player who has met an elite. Reads the
     // run counter, never run.enemies — an elite alive on screen is not the lesson.
     when: (r) => (r._eliteKills ?? 0) > 0,
-    weight: 1,      // unconditional 1 / conditional 6 / chapter inversion 2
+    // WEIGHT IS ABOUT HOW RARE THE GATE IS, AND HOW MUCH OF THE TIER THIS KIND SHOULD OWN — see
+    // the block above ANOMALIES for the whole scheme. A jackpot is the kind the tier should feel
+    // like, so this one carries a real share rather than the 1 it had while it was the only card.
+    weight: 4,
     chapter: null,  // or a chapter id, to scope the card to one biome
     // A jackpot with no cost but its own blast radius, so F10's level floor — an argument about
     // COST cards — does not apply to it (see ANOMALY_MIN_LEVEL). Measured against the same card
@@ -455,17 +507,17 @@ export const ANOMALIES = {
   },
   stillness: {
     name: 'Stillness', icon: '🧘',
-    from: 'you stopped, and the world kept moving',
-    desc: `Stand still and your damage climbs to x${STILLNESS_MAX_MUL} over ${STILLNESS_RAMP}s. Moving drops it instantly.`,
+    from: 'the world learned to wait for you',
+    desc: `Stand still and your damage climbs to ×${STILLNESS_MAX_MUL} over ${STILLNESS_RAMP}s. Moving drops it instantly.`,
     // Inverts the one rule the genre teaches for 300 seconds. Unconditional (weight 1): there is
     // no build state that would make "you can stand still" a lesson the run has already taught.
     when: () => true,
-    weight: 1, chapter: null, kind: 'pivot',
+    weight: 4, chapter: null, kind: 'pivot',
   },
   martyr: {
     name: 'Martyr', icon: '🩸',
     from: 'you bled, and the ground answered',
-    desc: 'Every point of HP you lose detonates around you.',
+    desc: 'Every point of HP you lose detonates around you, harder as the run goes on.',
     // The connective tissue for the four HP-cost cards: OVERLOAD's drain becomes a permanent
     // damage aura, BERSERK already wants you hit, BLOOD MONEY turns a reroll into a bomb. It does
     // NOT break BRITTLE — at 1 maxHP a hit removes 1 HP, so the detonation is worth MARTYR_DMG_MUL
@@ -482,12 +534,38 @@ export const ANOMALIES = {
     // again as often in real seconds. Intended, and the card text says "every minute" rather than
     // "every 60 seconds" partly because of it.
     when: () => true,
-    weight: 1, chapter: null, kind: 'pivot',
+    weight: 4, chapter: null, kind: 'pivot',
+  },
+  wildfire: {
+    name: 'Wildfire', icon: '🔥',
+    from: 'your fire found something worth spreading to',
+    desc: `When a burning enemy dies, the fire jumps to the nearest one — up to ${WILDFIRE_JUMPS} times.`,
+    // Rewards ENGAGING a crowd instead of picking off stragglers: light the front rank and let it
+    // propagate. Gated on two fire picks, which is both the condition that makes it mean anything
+    // and a real narrowing — it is the reason this card carries more weight than an ungated pivot.
+    when: (r) => (r.elementPicks?.fire ?? 0) >= 2,
+    weight: 6, chapter: null, kind: 'pivot',
+  },
+  minimes: {
+    name: 'Minimes', icon: '👥',
+    from: 'there started being more of you than there was of you',
+    desc: `Copies of you peel off every ${MINIME_INTERVAL}s, pull the swarm away, and detonate.`,
+    // SPLITS THE SWARM — positioning stops being about where YOU are and becomes about where your
+    // decoys will be. Pairs with STILLNESS without either card mentioning the other (the decoys buy
+    // you the standing time), which is the good kind of synergy.
+    // minLevel 12 over the table's 8: this is a no-cost pivot, and a swarm that is already being
+    // split is not a swarm the player has learned to read yet.
+    when: () => true,
+    weight: 4, chapter: null, kind: 'pivot',
+    minLevel: 12,
   },
   deadfall: {
     name: 'Deadfall', icon: '🪤',
     from: 'the traps stopped caring about you',
-    desc: `Snap traps ignore you, and re-arm ${Math.round((1 - DEADFALL_REARM_MUL) * 100)}% faster.`,
+    // "80% faster" was WRONG, not just weak: REARM_MUL 0.2 makes the re-arm TIME 20% of normal,
+    // which is five times faster — "80% faster" would be time / 1.8. It also undersold the card
+    // badly, which is the tell that the wording was doing arithmetic nobody checked.
+    desc: `Snap traps ignore you, and re-arm ${Math.round(1 / DEADFALL_REARM_MUL)} times faster.`,
     // The chapter inversion (weight 2): undergrowth's signature hazard changes sides, so you kite
     // ACROSS the trap field instead of away from it. KNOWN RISK, accepted: this may trivialise the
     // chapter by turning its identity into a free weapon. It is gated to undergrowth and to lv 10
@@ -502,7 +580,7 @@ export const ANOMALIES = {
   alignment: {
     name: 'Alignment', icon: '⚗️',
     from: 'two elements found the same beat',
-    desc: 'Element combos lose their cooldown — every qualifying hit triggers them.',
+    desc: 'Element combos have no cooldown. Every hit that can trigger one, does.',
     // Redesigned away from a potency bump: this makes the INTERACTION the star. Gated on owning
     // two distinct elements, which is also the only state in which the card means anything.
     when: (r) => Object.values(r.elementPicks ?? {}).filter((n) => n > 0).length >= 2,
@@ -519,21 +597,25 @@ export const ANOMALIES = {
   timeDebt: {
     name: 'Time Debt', icon: '⏳',
     from: 'the clock started running against you',
-    desc: `The run clock advances x${TIME_DEBT_MUL}. Gems pay +${Math.round((TIME_DEBT_XP_MUL - 1) * 100)}% XP.`,
+    // MIS-SIGNED IN ITS FIRST WORDING. It led with the run clock and the XP in one breath, which
+    // reads cold as "shorter run AND more XP" — pure upside — when the actual bargain is that hpScale,
+    // dmgScale, spawnRate and eliteEvery ALL accelerate with the clock, and you have a third less
+    // real time to walk to your gems. Name the thing the player will feel, not the variable.
+    desc: `Everything arrives ${Math.round((TIME_DEBT_MUL - 1) * 100)}% sooner — enemies, elites, the ending. Gems pay +${Math.round((TIME_DEBT_XP_MUL - 1) * 100)}% XP.`,
     when: () => true,
     weight: 1, chapter: null, kind: 'trade',
   },
   brittle: {
     name: 'Brittle', icon: '🥚',
     from: 'you traded every future hit for this one',
-    desc: `Your max HP becomes ${BRITTLE_MAX_HP}. Your damage is x${BRITTLE_DMG_MUL}.`,
+    desc: `Your max HP becomes ${BRITTLE_MAX_HP}. Your damage is ×${BRITTLE_DMG_MUL}.`,
     when: () => true,
     weight: 1, chapter: null, kind: 'trade',
   },
   overload: {
     name: 'Overload', icon: '⚡',
     from: 'you found the part of you that burns',
-    desc: `x${OVERLOAD_FIRE_MUL} fire rate and x${OVERLOAD_DMG_MUL} damage, for ${OVERLOAD_HP_PER_SEC} HP every second.`,
+    desc: `×${OVERLOAD_FIRE_MUL} fire rate and ×${OVERLOAD_DMG_MUL} damage, for ${OVERLOAD_HP_PER_SEC} HP every second.`,
     // The drain uses hurtPlayer's dot path, which skips invulnTime, HURT_CAP_FRAC and armor — so
     // the cost cannot be turtled away, which is what makes it a real resource. It IS suppressed by
     // run.rampageT (RAMPAGE = INVULNERABLE, the one guard covering every damage path), so skies'
@@ -544,7 +626,11 @@ export const ANOMALIES = {
   bloodPact: {
     name: 'Blood Pact', icon: '🫀',
     from: 'you swore off healing',
-    desc: `You can never heal again. Every kill: +${(BLOOD_PACT_PER_KILL * 100).toFixed(1)}% damage. Every elite: +${Math.round(BLOOD_PACT_PER_ELITE * 100)}%.`,
+    // Print the DESTINATION, not the increment. "+0.1% damage" reads as an insult next to "never
+    // heal again", and no player on a phone integrates it over the 570-1900 kills a run actually
+    // produces. The end state is x1.68 (body) to x2.99 (city) — "around x2" is the honest middle
+    // and is the number that makes the trade legible in the second the player has to read it.
+    desc: 'You can never heal again. Every kill makes you permanently stronger — around ×2 by the end.',
     when: () => true,
     weight: 1, chapter: null, kind: 'trade',
   },
@@ -557,24 +643,24 @@ export const ANOMALIES = {
     // open. Anti-synergies stay legible and are meant to be read off the two cards: BRITTLE
     // (maxHP 1) disables rerolls entirely, BLOOD PACT (no healing) makes every reroll permanent.
     when: (r) => (r._rerolls ?? 0) > 0,
-    weight: 6, chapter: null, kind: 'trade',
+    weight: 2, chapter: null, kind: 'trade',
   },
   avarice: {
     name: 'Avarice', icon: '🩹',
     from: 'the coins started tasting like medicine',
-    desc: `Coin drops -${Math.round((1 - AVARICE_COIN_DROP_MUL) * 100)}%, and ${Math.round(AVARICE_HEAL_CHANCE * 100)}% of the ones you collect heal ${AVARICE_HEAL_HP} HP instead of paying out.`,
+    desc: `Enemies drop ${Math.round((1 - AVARICE_COIN_DROP_MUL) * 100)}% fewer coins, and 1 in ${Math.round(1 / AVARICE_HEAL_CHANCE)} you pick up heals ${AVARICE_HEAL_HP} HP instead of paying.`,
     // The cost is dual and it is the sharpest thing on the slate: run.coinsEarned is BOTH the
     // end-of-run meta payout AND the in-run reroll wallet. Avarice trades level-up agency for
     // survivability — agency being the exact complaint this redesign exists to answer.
     when: (r) => (r.coinsEarned ?? 0) >= 50,
-    weight: 6, chapter: null, kind: 'trade',
+    weight: 2, chapter: null, kind: 'trade',
   },
   soyMilk: {
     name: 'Soy Milk', icon: '🥛',
     from: 'your elements wanted more chances, not bigger ones',
-    desc: `x${SOY_MILK_FIRE_MUL} fire rate, x${SOY_MILK_DMG_MUL} damage. Elements proc per HIT.`,
+    desc: `×${SOY_MILK_FIRE_MUL} fire rate, ×${SOY_MILK_DMG_MUL} damage. Burn, chill and shock land ${SOY_MILK_FIRE_MUL} times as often.`,
     when: (r) => Object.values(r.elementPicks ?? {}).some((n) => n > 0),
-    weight: 6, chapter: null, kind: 'trade',
+    weight: 2, chapter: null, kind: 'trade',
   },
 }
 

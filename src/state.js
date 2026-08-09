@@ -451,11 +451,20 @@ function generateWells(sig) {
  *   { type:'kill', x, y, elite, etype }      enemy died
  *   { type:'shoot', weapon }                 weapon fired ('star' | 'wave'; orbit is continuous)
  *   { type:'gem', x, y }                     xp gem collected
- *   { type:'coin', x, y, value }             coin collected
+ *   { type:'coin', x, y, value, healed? }    coin collected (healed=true when the AVARICE
+ *                                            anomaly converted it to HP instead of paying —
+ *                                            render tints the sparkle, see pickupSparkle)
  *   { type:'levelup' }                       player leveled (run.levelUpChoices is set, phase='levelup')
- *   { type:'hurt', dmg, dot? }                player took damage (dot=true for pool/DoT ticks —
+ *   { type:'hurt', dmg, dot?, src? }         player took damage (dot=true for pool/DoT ticks —
  *                                            see run.pools below and hurtPlayer in sim.js; absent/
- *                                            false for ordinary contact damage and bomb blasts)
+ *                                            false for ordinary contact damage and bomb blasts).
+ *                                            src (v7.2) names a SELF-INFLICTED cost and is read by
+ *                                            the renderer only, never by the sim: 'overload' is a
+ *                                            scheduled drain ~150x a run, so render damps it to a
+ *                                            faint vignette instead of the full shake-and-flash,
+ *                                            which would otherwise strobe for the whole run.
+ *                                            'bloodMoney' is a reroll purchase and is NOT damped —
+ *                                            one deliberate press should land like a hit.
  *   { type:'revive', x, y }                  player death was prevented (see hurtPlayer in
  *                                            sim.js and run.revives below) — render draws a
  *                                            burst at (x,y), main.js plays a sfx
@@ -1288,6 +1297,18 @@ export function createRun(meta, opts = {}) {
     _stillT: 0,
     _bloodPact: 0,
     _overloadAcc: 0,
+    // Real seconds elapsed. Identical to run.time in every run EXCEPT under TIME DEBT, whose whole
+    // effect is to advance run.time faster — so the persistent best-time record reads this instead
+    // (main.js endRun), or the card banks a 300s survival for 200 real seconds of play. Gameplay
+    // deliberately keeps reading run.time: accelerating the world IS the card.
+    _realTime: 0,
+    // MARTYR's pending detonations, queued by hurtPlayer and drained by stepMartyr in the same
+    // frame. A queue rather than an inline blast because hurtPlayer runs INSIDE other functions'
+    // array walks (stepBombs' `for (const b of run.bombs)`) and dealDamage appends to run.enemies.
+    _martyrBursts: [],
+    // MINIMES' spawn countdown, and WILDFIRE's per-enemy jump budget lives on the enemy
+    // (_fireJumps), re-armed by applyIgnite on every real weapon hit.
+    _minimeT: 0,
     // v6.7.8 anomaly pity: level-up SCREENS THE TIER WAS ELIGIBLE ON since the last one that rolled
     // an anomaly, counting the screen being built. Advanced by stepLevelUp (never by
     // buildLevelUpChoices, or a reroll would pump it) and zeroed by the roll itself. See

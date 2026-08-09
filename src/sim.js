@@ -48,6 +48,8 @@ import {
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE, CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_MUL,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
+  WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
+  MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
   ENEMIES, ELITE, WAVE_TABLE,
   spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
@@ -186,6 +188,12 @@ export function stepSim(run, input, dt) {
   // seconds. Intended, and said on the card.
   if (run.anomalies?.timeDebt) run.time += dt * TIME_DEBT_MUL
   else run.time += dt
+  // REAL seconds elapsed, which under TIME DEBT is not run.time. The persistent best-time record
+  // reads this: banking run.time let the card claim a 300s survival for 200 real seconds of play,
+  // and a death at 200 real seconds recorded as a full run. Every gameplay system deliberately
+  // keeps reading run.time — accelerating the whole world IS the card — but a record kept across
+  // runs has to be in a unit that means the same thing in all of them.
+  run._realTime = (run._realTime ?? 0) + dt
   // v5.24: a scripted chapter (The Blank) has no timer victory at all — killing the script's last
   // boss IS the win (see stepBossScript), so the survival clock below never fires there.
   if (!CHAPTERS[run.chapter].scripted && run.time >= RUN_DURATION) {
@@ -228,6 +236,7 @@ export function stepSim(run, input, dt) {
   if (stepEnemyShots(run, dt)) return // phase is now 'dead' (helicopter missile — v5.4)
   if (stepPullBeams(run, dt)) return // phase is now 'dead' (UFO abduction beam DoT — v5.4)
 
+  stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
   stepWeapons(run, dt)
   stepStatuses(run, dt)
@@ -336,17 +345,63 @@ function stepAnomalies(run, dt) {
     if (run._overloadAcc >= 1) {
       const spend = Math.floor(run._overloadAcc)
       run._overloadAcc -= spend
-      if (hurtPlayer(run, spend, true)) return true
+      if (hurtPlayer(run, spend, true, 'overload')) return true
+    }
+  }
+  // MINIMES: one decoy every MINIME_INTERVAL, launched outward on a random heading. Reuses the
+  // `lure` weapon's entity wholesale (run.lures) — enemies inside `aggro` already path to a lure
+  // instead of the player, and stepLures already bursts it for player-scaled AoE at expiry. What
+  // the lure does NOT have is movement, so these carry vx/vy and stepLures moves anything that
+  // does; a lure with no velocity behaves exactly as before.
+  if (a.minimes) {
+    run._minimeT = (run._minimeT ?? MINIME_INTERVAL) - dt
+    if (run._minimeT <= 0) {
+      run._minimeT += MINIME_INTERVAL
+      const ang = Math.random() * Math.PI * 2
+      run.lures.push({
+        x: run.player.x, y: run.player.y,
+        vx: Math.cos(ang) * MINIME_SPEED, vy: Math.sin(ang) * MINIME_SPEED,
+        t: 0, dur: MINIME_LIFE, aggro: MINIME_AGGRO,
+        burstR: MINIME_BURST_R, burstDmg: MINIME_BURST_DMG,
+        sticky: false, minime: true,
+      })
+      run.events.push({ type: 'lure', x: run.player.x, y: run.player.y })
     }
   }
   return false
+}
+
+// MARTYR's detonations, resolved. Called from stepSim AFTER every path that can call hurtPlayer
+// (contact, bombs, pools, strips, traps, lanes, enemy shots, pull beams) and BEFORE stepWeapons,
+// so it is same-frame — the blast still lands the instant you are hit — while sitting outside
+// every one of those functions' array walks. See the queue site in hurtPlayer for the two bugs
+// that bought this indirection.
+// The target list is SNAPSHOT before any damage is dealt, so children spawned by a splitter or a
+// `split` enemy inside this loop are not eligible for the burst that created them.
+function stepMartyr(run) {
+  const q = run._martyrBursts
+  if (!q || q.length === 0) return
+  const radSq = MARTYR_RADIUS * MARTYR_RADIUS
+  for (const b of q) {
+    const targets = []
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const dx = e.x - b.x, dy = e.y - b.y
+      if (dx * dx + dy * dy <= radSq) targets.push(e)
+    }
+    // dealDamage, not applyDamage: this is not a weapon hit, so it must not re-roll crit,
+    // re-apply elements, or take the damage passives a second time (they are already in `dmg`).
+    for (const e of targets) if (!e._dead) dealDamage(run, e, b.dmg, false)
+    run.events.push({ type: 'explode', x: b.x, y: b.y, radius: MARTYR_RADIUS })
+  }
+  q.length = 0
 }
 
 function anomalyDamageMul(run) {
   const a = run.anomalies
   if (!a) return 1
   let mul = 1
-  // BERSERK: a window, refreshed by every hit and ticked down in stepStatuses.
+  // BERSERK: a window, refreshed by every non-dot hit (hurtPlayer) and ticked down in stepAnomalies.
   if (a.berserk && run._berserkT > 0) mul *= BERSERK_DMG_MUL
   // STILLNESS: a ramp over run._stillT, which stepPlayerMovement resets on any INPUT (never on
   // velocity — pond's currents shove the player, so a velocity test would hard-counter the card in
@@ -1940,7 +1995,13 @@ function stepFlashlightCones(run, dt) {
 // contactDmgTakenMul (like enemy ignite/venom skip enemy mitigation) and don't grant/require
 // invuln — standing in a pool keeps ticking every STATUS_TICK regardless of the contact-damage
 // invuln window. @returns true if the player died (phase now 'dead').
-function hurtPlayer(run, rawDmg, dot = false) {
+// `src` (v7.2) names WHO did this, for the renderer only — the sim never branches on it. It exists
+// because OVERLOAD's drain is a `hurt` every 1.33s for the whole run (~150 of them), and the
+// renderer's hurt reaction is a screen shake, a red vignette and a white flash. Unlabelled, a
+// self-inflicted running cost is indistinguishable from being hit, and the card turns the last
+// three minutes of a run into a strobe. Only the anomaly passes one; every existing caller keeps
+// `src: undefined` and behaves exactly as before.
+function hurtPlayer(run, rawDmg, dot = false, src = null) {
   const p = run.player
   // v5.14: RAMPAGE = INVULNERABLE. Every player-damage path in this file funnels through here
   // (contact, pools, spray strips, snap traps, traffic lanes, enemy shots, pull beams, bombs), so
@@ -1955,7 +2016,7 @@ function hurtPlayer(run, rawDmg, dot = false) {
     : Math.min(Math.round(p.maxHP * HURT_CAP_FRAC), Math.max(1, Math.round((rawDmg - run.passives.armor) * run.mods.contactDmgTakenMul)))
   p.hp -= dmg
   if (!dot) p.invuln = PLAYER.invulnTime
-  run.events.push({ type: 'hurt', dmg, dot })
+  run.events.push({ type: 'hurt', dmg, dot, src })
   // v7.2 anomaly slate. This is the one funnel every player-damage path already goes through, so
   // it is where "you got hit" means anything. The counter gates BERSERK and MARTYR's `when`
   // predicates — both cards are about taking damage, so neither should be offered to a player the
@@ -1970,15 +2031,22 @@ function hurtPlayer(run, rawDmg, dot = false) {
   // so it must not re-roll crit, re-apply elements, or be multiplied by the damage passives a
   // second time. Includes DoT damage — OVERLOAD's drain becoming a permanent aura is the intended
   // combo, and it is the reason the two cards were designed together.
+  // QUEUED, NOT RESOLVED HERE. Detonating inline was wrong twice over, and both were measured:
+  //   1. It iterated run.enemies while dealDamage APPENDED to it. A `splitter` elite or a `split`
+  //      enemy killed by the burst spawns its children mid-loop, and for…of visits them — so the
+  //      children took the blast they were born into (measured: 4 wisps at 10/16 hp, and 2 split
+  //      children at 2244/2250, against full HP for the same kill delivered by a weapon). Under a
+  //      real mid-run burst they die on arrival, silently deleting the splitter affix and the
+  //      `split` behaviour flag for as long as MARTYR is up.
+  //   2. hurtPlayer is itself called from inside `for (const b of run.bombs)` (stepBombs), so a
+  //      volatile elite killed by the burst pushed its corpse-bomb into the very array being
+  //      walked — measured coming out at fuse 0.7833 against VOLATILE_FUSE 0.8, having burned a
+  //      frame of its own telegraph inside the loop that created it.
+  // stepBombs already solved exactly this with its `chained` buffer, and says why in a comment.
+  // Same idea, one level up: bank the burst and resolve it in stepMartyr, which runs after every
+  // hurtPlayer caller in the frame and so cannot be inside anyone's iteration.
   if (run.anomalies?.martyr && dmg > 0) {
-    const burst = dmg * MARTYR_DMG_MUL * hpScale(run.time)
-    const radSq = MARTYR_RADIUS * MARTYR_RADIUS
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      const dx = e.x - p.x, dy = e.y - p.y
-      if (dx * dx + dy * dy <= radSq) dealDamage(run, e, burst, false)
-    }
-    run.events.push({ type: 'explode', x: p.x, y: p.y, radius: MARTYR_RADIUS })
+    (run._martyrBursts ??= []).push({ x: p.x, y: p.y, dmg: dmg * MARTYR_DMG_MUL * hpScale(run.time) })
   }
   // v5.4 reaction mods: taking damage (contact OR zone — every path routes through here) fires a
   // free Quill Burst / Tail Swipe off the weapon timer, each on its own internal cooldown. No-ops
@@ -3399,6 +3467,30 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
     run.gems.push({ x: enemy.x, y: enemy.y, xp })
 
+    // WILDFIRE (v7.2): a burning enemy passes its fire on when it dies. The BUDGET is what stops
+    // the cascade the spec warned about — in a 200-enemy field an unbudgeted jump-on-every-death
+    // never terminates. It rides on the ENEMY, so one weapon application travels WILDFIRE_JUMPS
+    // deep and no further however dense the crowd, and a fresh hit re-arms it (see applyIgnite).
+    // Carries the same igniteDps rather than re-deriving one: the jump is the SAME fire moving,
+    // which is also why it cannot be used to launder a bigger number out of a small hit.
+    if (run.anomalies?.wildfire && enemy.ignite > 0) {
+      const budget = enemy._fireJumps ?? 0
+      if (budget > 0) {
+        let best = null, bestSq = WILDFIRE_JUMP_R * WILDFIRE_JUMP_R
+        for (const e of run.enemies) {
+          if (e._dead || e === enemy || e.ignite > 0) continue   // already lit: spend the jump on new ground
+          const dx = e.x - enemy.x, dy = e.y - enemy.y
+          const dSq = dx * dx + dy * dy
+          if (dSq < bestSq) { bestSq = dSq; best = e }
+        }
+        if (best) {
+          best.ignite = IGNITE_DURATION
+          best.igniteDps = enemy.igniteDps
+          best._fireJumps = budget - 1
+          run.events.push({ type: 'ignitejump', x: enemy.x, y: enemy.y, tx: best.x, ty: best.y })
+        }
+      }
+    }
     // BLOOD PACT (v7.2): the snowball, uncapped, read back through anomalyDamageMul. Two clauses
     // because they do OPPOSITE jobs, and that is measured, not assumed: kills/run vary 3.3x across
     // chapters (570 body to 1902 city) so the per-kill clause is a chapter lottery (+57% to +190%),
@@ -3522,6 +3614,12 @@ function triggerCombo(run, enemy, name) {
 function applyIgnite(enemy, potency, dmgDealt) {
   enemy.ignite = IGNITE_DURATION
   enemy.igniteDps = (IGNITE_DOT_FRAC * potency * dmgDealt) / IGNITE_DURATION
+  // WILDFIRE's jump budget is re-armed by a real weapon hit, and only here. That is the whole
+  // difference between "engage the pack and let it propagate" and an eternal chain: a fire that
+  // has spent its jumps keeps burning and keeps killing, it just stops travelling until you light
+  // something yourself. Set unconditionally (not behind the anomaly) so the field is already
+  // correct on every enemy alive when the card is taken mid-run.
+  enemy._fireJumps = WILDFIRE_JUMPS
 }
 
 // Shared by the primary hit and Frost Arc's arc targets.
@@ -5258,6 +5356,10 @@ function stepLures(run, dt) {
   if (!run.lures || run.lures.length === 0) return
   for (const lu of run.lures) {
     lu.t += dt
+    // v7.2: a MINIME flees outward; a planted Pheromone Lure has no vx/vy and does not move, so
+    // this is a no-op for the weapon. Fleeing is what makes the card about SPACE — the decoy drags
+    // its share of the swarm away from where you are standing, rather than parking it next to you.
+    if (lu.vx || lu.vy) { lu.x += lu.vx * dt; lu.y += lu.vy * dt }
     if (lu.t < lu.dur) continue
     lu._burst = true
     const radSq = lu.burstR * lu.burstR
@@ -6276,7 +6378,15 @@ function stepPickups(run, dt) {
     // Deliberately NOT gated by COIN_CAP_PER_RUN: the cap bounds the META payout, runs already
     // measure 791/999 against it, and a card that silently switches off in the last minute of a
     // long run is a card the player cannot reason about.
-    if (run.anomalies?.avarice && Math.random() < AVARICE_HEAL_CHANCE) {
+    // CONVERTS ONLY WHEN THE HEAL CAN LAND. `healPlayer` clamps to maxHP and returns early under
+    // BLOOD PACT, so converting unconditionally CONSUMED the coin for nothing in two reachable
+    // cases: at full HP (the card is then a pure coin tax, and it gets worse the better you play —
+    // a perverse incentive nobody can read off the text) and under BLOOD PACT (which suppresses
+    // every heal, so the pair destroyed 20% of the run's coins outright). Both are invisible: the
+    // card says "heal 5 HP INSTEAD OF paying out", from which every player infers that a coin
+    // which cannot heal still pays. It does now.
+    const canHeal = run.player.hp < run.player.maxHP && !run.anomalies?.bloodPact
+    if (run.anomalies?.avarice && canHeal && Math.random() < AVARICE_HEAL_CHANCE) {
       healPlayer(run, AVARICE_HEAL_HP)
       run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value, healed: true })
       return
@@ -6340,8 +6450,25 @@ function eligiblePassiveIds(run) {
   // The lane's magnet is already Infinity (see stepPickups) — offering 'Sticky Aura' there is a
   // dead pick that burns a level-up slot doing nothing.
   const lane = CHAPTERS[run.chapter].lane
+  // BRITTLE (v7.2) does the same thing to the whole DEFENSIVE bucket, and at far greater cost.
+  // At maxHP 1 all three defensive passives are exactly dead: `maxHP` is skipped by applyChoice
+  // (the ceiling has to hold, or the run-ender is refundable), `regen` heals up to a ceiling of 1,
+  // and `armor` cannot save a hit that hurtPlayer floors at 1 damage against 1 HP. Left in the
+  // pool they are not a curiosity — DEFENSIVE_PASSIVES is all three of them and B2 weights them 4
+  // against the other passives' 1, so ~17% of every card offered for the rest of the run would be
+  // guaranteed to do nothing, with no chip and no grey-out. Ending your run is what BRITTLE is
+  // for; quietly voiding a sixth of your remaining level-ups is the "catastrophe the player could
+  // neither foresee nor act on" the slate's own bar forbids.
+  const brittle = !!run.anomalies?.brittle
+  // BLOOD PACT kills `regen` by the same argument and it is not a small slice: regen measures
+  // 6.4% of every card offered, and under that card healPlayer refuses it outright. The card is
+  // supposed to RE-PRICE the passive pool, not quietly keep selling you the one pick it voided.
+  const noHeal = !!run.anomalies?.bloodPact
   return Object.keys(PASSIVES).filter((id) =>
-    (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL && !(lane && id === 'magnet'))
+    (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
+    && !(lane && id === 'magnet')
+    && !(brittle && DEFENSIVE_PASSIVES.includes(id))
+    && !(noHeal && id === 'regen'))
 }
 
 // Fisher-Yates shuffle in place (used for per-weapon mod candidate fairness below).
@@ -6879,8 +7006,10 @@ export function rerollPrice(run) {
 }
 
 export function rerollLevelUpChoices(run) {
-  // BLOOD MONEY (v7.2) replaces the currency, not the transaction — everything below is unchanged,
-  // including both counters, so the rarity decay and the escalating-price ladder behave identically.
+  // BLOOD MONEY (v7.2) replaces the currency. Both counters still step, so the per-screen rarity
+  // decay is unchanged — but the PRICE LADDER is not: rerollCost escalates 10/15/23/34/... over the
+  // run, and the HP price is FLAT at every reroll. That is the card's whole shape (the budget is
+  // your health bar, not an escalating toll), and it is why the two branches cannot share a line.
   // FLAT, and the owner overruled a maxHP proposal to keep it so. The objection that flat HP does
   // not bind ("~23 rerolls") priced it against regen AVERAGED across runs (0.41/s), and regen is
   // bimodal — most runs never pick it, so the real budget is maxHP alone, about 11 rerolls. The
@@ -6894,7 +7023,15 @@ export function rerollLevelUpChoices(run) {
   if (run.anomalies?.bloodMoney) {
     const p = run.player
     if (p.hp <= BLOOD_MONEY_HP) return false
-    p.hp -= BLOOD_MONEY_HP
+    // THROUGH hurtPlayer, not a bare `p.hp -=`. A raw subtraction made config.js's own MARTYR note
+    // ("BLOOD MONEY turns a reroll into a bomb") a claim the code could not honour — measured with
+    // both cards taken, the reroll dealt 0 damage and emitted no `hurt` event at all, so MARTYR saw
+    // nothing and BERSERK's window never opened. Routing it here makes both documented combos real
+    // and costs nothing: the guard above means it can never be the hit that kills you.
+    // `dot` because the price is not an attack — it must skip armor and the invuln window, exactly
+    // like OVERLOAD's drain. `src` keeps it out of the renderer's damped self-inflicted branch: a
+    // reroll is one discrete deliberate purchase and SHOULD land with the full weight of a hit.
+    hurtPlayer(run, BLOOD_MONEY_HP, true, 'bloodMoney')
     run._rerolls = (run._rerolls ?? 0) + 1
     run._screenRerolls = (run._screenRerolls ?? 0) + 1
     run.levelUpChoices = buildLevelUpChoices(run)

@@ -211,56 +211,6 @@ const UI = {
   // very card. A previously-unused noun was forced. See RARITIES in config.js.
   'Rupture': 'Brèche',
 
-  // ---- v7.2 anomaly slate (13 cards) ------------------------------------------------
-  // Vocabulary is REUSED from this dictionary, not invented: `être touché` (Retaliation/Counter
-  // Swipe), `pieges à mâchoires` (Trap Season), `cadence de tir`, `gemmes`/`pieces`/`PV`/`XP`,
-  // `un élite`, `lâcher` for drops, `relance`/`Relancer`, `victimes` for kills, `combos`
-  // + `élémentaire`, `puissance` for potency, `soigner`/`soins`.
-  // Decimals use the French COMMA, which matches what the player already sees: ui.js's `dec()`
-  // renders every number on the pause build sheet as `0,55` when the language is French, so a card
-  // reading `x0.2` beside it would be the only dot on screen.
-  // Durations are written `5s` with no space, following this dictionary's own precedent
-  // ('sur 3s', Barbed Lash / Bleeding Claws). Note ui.js's `fmtStat` uses a NBSP + `s` for the
-  // build sheet's cadence row instead; the two have disagreed since before this block.
-  'Berserk': 'Berserk',
-  'Taking a hit doubles your damage for 5s. No cooldown, no threshold.': 'Être touché double tes dégâts pendant 5s. Sans recharge, sans seuil.',
-  'something hit you, and you liked it': "quelque chose t'a frappé, et ça t'a plu",
-  'Stillness': 'Immobilité',
-  'Stand still and your damage climbs to x3 over 2s. Moving drops it instantly.': "Reste immobile et tes dégâts montent jusqu'à x3 en 2s. Bouger les fait retomber aussitôt.",
-  'you stopped, and the world kept moving': "tu t'es arrêté·e, et le monde, lui, a continué",
-  'Martyr': 'Martyr',
-  'Every point of HP you lose detonates around you.': 'Chaque point de PV que tu perds détone autour de toi.',
-  'you bled, and the ground answered': 'tu as saigné, et le sol a répondu',
-  'Chaos Pact': 'Pacte du Chaos',
-  'Every minute: 15s of +50% enemies, then +50% damage until the next one.': "Chaque minute : 15s de +50% d'ennemis, puis +50% de dégâts jusqu'à la suivante.",
-  'you agreed to a rhythm you did not set': "tu as accepté un rythme que tu n'as pas choisi",
-  'Deadfall': 'Traquenard',
-  'Snap traps ignore you, and re-arm 80% faster.': "Les pièges à mâchoires t'ignorent et se réarment 80% plus vite.",
-  'the traps stopped caring about you': 'les pièges se sont désintéressés de toi',
-  'Alignment': 'Alignement',
-  'Element combos lose their cooldown — every qualifying hit triggers them.': "Les combos élémentaires n'ont plus de recharge — chaque coup qui s'y prête les déclenche.",
-  'two elements found the same beat': 'deux éléments ont trouvé le même tempo',
-  'Time Debt': 'Dette Temporelle',
-  'The run clock advances x1.5. Gems pay +50% XP.': "L'horloge de la partie avance x1,5. Les gemmes rapportent +50% d'XP.",
-  'the clock started running against you': "l'horloge s'est mise à tourner contre toi",
-  'Brittle': 'Fragile',
-  'Your max HP becomes 1. Your damage is x4.': 'Tes PV max tombent à 1. Tes dégâts passent à x4.',
-  'you traded every future hit for this one': 'tu as troqué tous les coups à venir contre celui-ci',
-  'Overload': 'Surcharge',
-  'x2 fire rate and x2 damage, for 0.75 HP every second.': 'Cadence de tir x2 et dégâts x2, contre 0,75 PV par seconde.',
-  'you found the part of you that burns': 'tu as trouvé la part de toi qui brûle',
-  'Blood Pact': 'Pacte de Sang',
-  'You can never heal again. Every kill: +0.1% damage. Every elite: +1%.': 'Tu ne peux plus jamais te soigner. Chaque victime : +0,1% dégâts. Chaque élite : +1%.',
-  'you swore off healing': 'tu as renoncé aux soins',
-  'Blood Money': 'Prix du Sang',
-  'Rerolls cost 10 HP instead of coins.': 'Les relances coûtent 10 PV au lieu de pièces.',
-  'you rerolled once, and wondered what it was really worth': "tu as relancé une fois, et tu t'es demandé ce que ça valait vraiment",
-  'Avarice': 'Avarice',
-  'Coin drops -30%, and 20% of the ones you collect heal 5 HP instead of paying out.': 'Pièces lâchées -30%, et 20% de celles que tu ramasses te rendent 5 PV au lieu de rapporter.',
-  'the coins started tasting like medicine': 'les pièces ont pris un goût de médicament',
-  'Soy Milk': 'Lait de Soja',
-  'x5 fire rate, x0.2 damage. Elements proc per HIT.': 'Cadence de tir x5, dégâts x0,2. Les éléments se déclenchent à chaque IMPACT.',
-  'your elements wanted more chances, not bigger ones': 'tes éléments voulaient plus de chances, pas plus de puissance',
   'Reroll ({n}❤️)': 'Relancer ({n}❤️)',
 
 
@@ -307,6 +257,83 @@ const UI = {
 
 // config.js content strings — filled by the translation pass (see fr-config section below).
 const CONFIG = {
+  // ---- v7.2 anomaly slate ------------------------------------------------------------
+  // These are config.js CONTENT strings, so they live in CONFIG and not in UI — FR spreads
+  // { ...UI, ...CONFIG } and CONFIG silently wins, which is how ten keys drifted in v6.6.8. The
+  // Unstable Cores block above set the wrong precedent by sitting in UI; do not follow it.
+  //
+  // KEYS ARE COMPOSED AT RUNTIME. Every desc is a template literal interpolating its own tuning
+  // constant, so the key is not a literal anywhere in src/ and cannot be hand-typed safely: one
+  // ASCII 'x' where the source has U+00D7 and the lookup can never hit. Regenerate rather than
+  // retype. Retuning a constant is caught loudly — run XX's coverage check goes red naming the new
+  // English string (mutation-proven: BERSERK_DURATION 5 -> 4 fires it).
+  //
+  // CONVENTIONS, all checked against this dictionary rather than assumed: French decimal COMMA
+  // (ui.js's dec() already renders every build-sheet number that way, so a card reading x0.2 would
+  // be the only dot on screen); durations without a space ('5s', following 'sur 3s' in the whip
+  // mods); U+00A0 before : ; ! ? in VALUES only; the inclusive '·e' where a past participle agrees
+  // with the player. Vocabulary is REUSED, never invented: cadence de tir, PV, XP, gemmes, pièces,
+  // élite, pièges à mâchoires, combos/élémentaire, soigner/soins, relance, victimes for kills.
+  //
+  // Three names are deliberate departures from the literal, each fixing a collision the literal
+  // would have caused:
+  //   Minimes  -> 'Mini-Moi'. FRENCH FALSE FRIEND: 'minime' means minimal/trivial (and is a youth
+  //              sports bracket), so the literal names the card "the negligible ones" and says
+  //              nothing about copies of you. Mini-Moi is the French dub's Mini-Me and is invariable.
+  //   Wildfire -> 'Traînée de Feu'. 'Incendie' collides with Bouche d'Incendie Éclatée (the city's
+  //              Burst Hydrant).
+  //   Deadfall -> 'Chausse-Trappe'. 'Traquenard' shares its stem with ~10 existing entries that all
+  //              mean HUNT/SEEK (Cellule Traqueuse, traqueurs, Traque, Traque Élargie, rayon de
+  //              traque), so the card reads as a seeker card until the desc corrects you.
+  //
+  // Two that look like errors and are not: 'Martyr' takes no '·e' (the feminine 'martyre' is a
+  // homograph of 'le martyre' = martyrdom), and "tu t'es demandé" takes no agreement either
+  // (se demander puts the reflexive in the indirect object, so the participle does not agree).
+  'Berserk': 'Berserk',
+  'Taking a hit doubles your damage for 5s. No cooldown, no threshold.': 'Être touché double tes dégâts pendant 5s. Sans recharge, sans seuil.',
+  'something hit you, and you liked it': "quelque chose t'a frappé, et ça t'a plu",
+  'Stillness': 'Immobilité',
+  'Stand still and your damage climbs to ×3 over 2s. Moving drops it instantly.': "Reste immobile et tes dégâts montent jusqu'à ×3 en 2s. Bouger les fait retomber aussitôt.",
+  'the world learned to wait for you': "le monde a appris à t'attendre",
+  'Martyr': 'Martyr',
+  'Every point of HP you lose detonates around you, harder as the run goes on.': 'Chaque point de PV que tu perds détone autour de toi, de plus en plus fort au fil de la partie.',
+  'you bled, and the ground answered': 'tu as saigné, et le sol a répondu',
+  'Chaos Pact': 'Pacte du Chaos',
+  'Every minute: 15s of +50% enemies, then +50% damage until the next one.': "Chaque minute : 15s avec +50% d'ennemis, puis +50% de dégâts jusqu'à la suivante.",
+  'you agreed to a rhythm you did not set': "tu as accepté un rythme que tu n'as pas choisi",
+  'Deadfall': 'Chausse-Trappe',
+  'Snap traps ignore you, and re-arm 5 times faster.': "Les pièges à mâchoires t'ignorent et se réarment 5 fois plus vite.",
+  'the traps stopped caring about you': 'les pièges se sont désintéressés de toi',
+  'Alignment': 'Alignement',
+  'Element combos have no cooldown. Every hit that can trigger one, does.': "Les combos élémentaires n'ont plus de recharge. Chaque coup qui peut en déclencher un le fait.",
+  'two elements found the same beat': 'deux éléments ont trouvé le même tempo',
+  'Time Debt': 'Dette Temporelle',
+  'Everything arrives 50% sooner — enemies, elites, the ending. Gems pay +50% XP.': "Tout arrive 50% plus tôt — ennemis, élites, la fin. Les gemmes rapportent +50% d'XP.",
+  'the clock started running against you': "l'horloge s'est mise à tourner contre toi",
+  'Brittle': 'Fragile',
+  'Your max HP becomes 1. Your damage is ×4.': 'Tes PV max tombent à 1. Tes dégâts passent à ×4.',
+  'you traded every future hit for this one': 'tu as troqué tous les coups à venir contre celui-ci',
+  'Overload': 'Surcharge',
+  '×2 fire rate and ×2 damage, for 0.75 HP every second.': 'Cadence de tir ×2 et dégâts ×2, contre 0,75 PV par seconde.',
+  'you found the part of you that burns': 'tu as trouvé la part de toi qui brûle',
+  'Blood Pact': 'Pacte de Sang',
+  'You can never heal again. Every kill makes you permanently stronger — around ×2 by the end.': 'Tu ne peux plus jamais te soigner. Chaque victime te renforce définitivement — environ ×2 en fin de partie.',
+  'you swore off healing': 'tu as renoncé aux soins',
+  'Blood Money': 'Prix du Sang',
+  'Rerolls cost 10 HP instead of coins.': 'Les relances coûtent 10 PV au lieu de pièces.',
+  'you rerolled once, and wondered what it was really worth': "tu as relancé une fois, et tu t'es demandé ce que ça valait vraiment",
+  'Avarice': 'Avarice',
+  'Enemies drop 30% fewer coins, and 1 in 5 you pick up heals 5 HP instead of paying.': 'Les ennemis lâchent 30% de pièces en moins, et 1 sur 5 que tu ramasses te rend 5 PV au lieu de rapporter.',
+  'the coins started tasting like medicine': 'les pièces ont pris un goût de médicament',
+  'Soy Milk': 'Lait de Soja',
+  '×5 fire rate, ×0.2 damage. Burn, chill and shock land 5 times as often.': 'Cadence de tir ×5, dégâts ×0,2. Brûlure, froid et foudre se déclenchent 5 fois plus souvent.',
+  'your elements wanted more chances, not bigger ones': 'tes éléments voulaient plus de chances, pas plus de puissance',
+  'Wildfire': 'Traînée de Feu',
+  'When a burning enemy dies, the fire jumps to the nearest one — up to 3 times.': "Quand un ennemi qui brûle meurt, le feu saute sur le plus proche — jusqu'à 3 fois.",
+  'your fire found something worth spreading to': 'ton feu a trouvé vers quoi se propager',
+  'Minimes': 'Mini-Moi',
+  'Copies of you peel off every 6s, pull the swarm away, and detonate.': "Des copies de toi se détachent toutes les 6s, attirent l'essaim au loin, puis explosent.",
+  'there started being more of you than there was of you': "il s'est mis à y avoir plus de toi qu'il n'y avait de toi",
   // v6.2 Remaster — per-chapter endings
   'You slipped past the immune system! 🎉': 'Tu as déjoué le système immunitaire ! 🎉',
   'Neutralized… 🩸': 'Neutralisé·e… 🩸',

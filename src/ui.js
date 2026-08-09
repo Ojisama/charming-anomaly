@@ -1174,7 +1174,7 @@ export function initUI(hooks) {
         <p class="lv-hint">${tt('1-{n} · arrows · enter · R reroll', { n: choices.length })}</p>
         <div class="lv-footer">
           <button class="btn btn--soft btn--small lv-reroll" data-act="reroll" ${rerollDisabled ? 'disabled' : ''}>🔄 ${onHP ? tt('Reroll ({n}❤️)', { n: rerollN }) : tt('Reroll ({n}🪙)', { n: rerollN })}</button>
-          <span class="lv-coins">🪙 ${coins}</span>
+          <span class="lv-coins">${onHP ? `❤️ ${hp}` : `🪙 ${coins}`}</span>
         </div>
       </div>
     `

@@ -13,6 +13,7 @@ import {
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, hasWeaponAt,
+  WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_MUL,
   // v7.2 anomaly slate constants — run PB7 asserts each card against the number it ships with,
   // so a retune moves the test with the config instead of leaving a stale literal in here.
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
@@ -423,6 +424,38 @@ function testAnomalySlate() {
     applyChoice(r, 0)
     assert.strictEqual(r.player.maxHP, BRITTLE_MAX_HP,
       'a maxHP pick repaired BRITTLE — the run-ender is refundable for five passive picks while keeping x4 damage')
+    // ...and because the ceiling holds, all three DEFENSIVE passives are now exactly dead: maxHP is
+    // skipped, regen heals up to 1, and armor cannot save a hit hurtPlayer floors at 1 damage.
+    // They must leave the POOL too. DEFENSIVE_PASSIVES is all three and B2 weights them 4 against
+    // the other passives' 1, so leaving them in makes ~17% of every remaining card a guaranteed
+    // no-op with no chip and no grey-out — the "catastrophe the player could neither foresee nor
+    // act on" the slate's own bar forbids. Ending the run is the payoff; voiding a sixth of the
+    // level-ups silently is not.
+    {
+      const b = withCard('brittle')
+      b.player.level = 12
+      let seen = 0
+      for (let i = 0; i < 300; i++) {
+        b._screenRerolls = -1
+        b._screenAnomaly = undefined
+        for (const c of buildLevelUpChoices(b)) {
+          if (c.kind === 'passive' && DEFENSIVE_PASSIVES.includes(c.id)) seen++
+        }
+      }
+      assert.strictEqual(seen, 0, `BRITTLE still offered ${seen} defensive passive cards over 300 screens — every one of them does nothing at maxHP 1`)
+      // The control: they ARE offered without the card, or the assertion above passes for free.
+      const n = withCard(null)
+      n.player.level = 12
+      let ctrl = 0
+      for (let i = 0; i < 300; i++) {
+        n._screenRerolls = -1
+        n._screenAnomaly = undefined
+        for (const c of buildLevelUpChoices(n)) {
+          if (c.kind === 'passive' && DEFENSIVE_PASSIVES.includes(c.id)) ctrl++
+        }
+      }
+      assert.ok(ctrl > 0, 'the defensive-passive harness saw none even without BRITTLE — it is not reaching its subject')
+    }
   }
 
   // OVERLOAD — the cost is per SECOND, and this is the assertion that catches the floor bug.
@@ -501,6 +534,24 @@ function testAnomalySlate() {
     assert.strictEqual(plain.hp, 100, 'the control run healed off coins — AVARICE is leaking into every run')
     assert.ok(greedy.hp > 100, 'AVARICE healed nothing on 200 coins')
     assert.ok(greedy.coins < plain.coins, 'AVARICE did not divert any coins from the payout')
+    // A COIN THAT CANNOT HEAL MUST STILL PAY. healPlayer clamps to maxHP and returns early under
+    // BLOOD PACT, so an unconditional conversion consumed the coin for NOTHING in two reachable
+    // cases — and the card says "heal 5 HP INSTEAD OF paying out", from which every player infers
+    // that a coin which cannot heal still pays.
+    const full = (mutate) => {
+      const r = withCard('avarice', mutate)
+      for (let i = 0; i < 200; i++) r.coins.push({ x: 0, y: 0, value: 1 })
+      stepSim(r, { x: 0, y: 0 }, dt)
+      return r.coinsEarned
+    }
+    // At full HP the card was a pure coin tax, and it got WORSE the better you played.
+    assert.strictEqual(full((x) => { x.player.maxHP = 500; x.player.hp = 500 }), 200,
+      'AVARICE ate coins at full HP — the heal is a no-op there, so the coin must pay out')
+    // Paired with BLOOD PACT it destroyed 20% of the run's coins outright, invisibly: seeing it
+    // coming needs BOTH "the heal is suppressed" (fair, both cards say so) AND "the coin does not
+    // fall back to paying" (nowhere on either card).
+    assert.strictEqual(full((x) => { x.player.maxHP = 500; x.player.hp = 100; x.anomalies = { bloodPact: true } }), 200,
+      'AVARICE + BLOOD PACT destroyed coins — no heal, no payout, and nothing on either card says so')
   }
 
   // BERSERK — a window opened by a real hit and closed by time, read through anomalyDamageMul.
@@ -563,9 +614,107 @@ function testAnomalySlate() {
     assert.ok(CHAOS_PACT_SURGE < CHAOS_PACT_PERIOD, 'the surge must be shorter than the cycle, or the payoff never arrives')
   }
 
-  // ALIGNMENT — the combo cooldown, which is the only thing the card touches.
-  assert.strictEqual(ALIGNMENT_COMBO_CD, 0, 'ALIGNMENT must remove the combo cooldown, not shorten it')
-  assert.ok(COMBOS.comboCd > 0, 'there is no combo cooldown left for ALIGNMENT to remove')
+  // ALIGNMENT — asserted through the COMBO RATE, not through its constant. `ALIGNMENT_COMBO_CD === 0`
+  // is two config reads that touch no sim code: deleting the anomaly's ternary in triggerCombo left
+  // it green. This runs the real thing — fire + cold on a packed field, count the shatters.
+  {
+    assert.strictEqual(ALIGNMENT_COMBO_CD, 0, 'ALIGNMENT must remove the combo cooldown, not shorten it')
+    assert.ok(COMBOS.comboCd > 0, 'there is no combo cooldown left for ALIGNMENT to remove')
+    const shatters = (id) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+      r.weapons = [{ id: 'star', level: 5 }]
+      setElements(r, { fire: 4, cold: 4 })
+      for (let i = 0; i < 24; i++) r.enemies.push(makeStatusEnemy(r, { x: 90 + (i % 6) * 22, y: (i / 6 | 0) * 22 - 30, hp: 1e6 }))
+      let n = 0
+      for (let f = 0; f < 90 * 6; f++) {
+        stepSim(r, { x: 0, y: 0 }, dt)
+        for (const ev of r.events) if (ev.type === 'shatter') n++
+        r.events.length = 0
+      }
+      return n
+    }
+    const plain = shatters(null), aligned = shatters('alignment')
+    assert.ok(aligned > plain,
+      `ALIGNMENT produced ${aligned} shatters against ${plain} without it — the cooldown is not being read at triggerCombo`)
+  }
+
+  // THE FOUR VARIABLE DAMAGE MULTIPLIERS, asserted as DAMAGE. Between them these are the payoff of
+  // four cards, and they all arrive through one term in applyDamage — so deleting that single term
+  // silently removes all four at once. State assertions cannot see it: the timer still ticks, the
+  // counter still grows, the ramp still fills. Only the damage moves.
+  {
+    const dealt = (id, mutate = () => {}) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+      r.weapons = [{ id: 'star', level: 5 }]
+      const e = makeStatusEnemy(r, { x: 120, y: 0, hp: 1e9, speed: 0 })
+      r.enemies.push(e)
+      mutate(r)
+      const before = e.hp
+      for (let f = 0; f < 180; f++) stepSim(r, { x: 0, y: 0 }, dt)
+      return before - e.hp
+    }
+    const base = dealt(null)
+    assert.ok(base > 0, 'the damage harness dealt nothing — it is not reaching its subject')
+
+    // BERSERK: the window has to be open, and it is opened by a hit.
+    const zerk = dealt('berserk', (r) => { r._berserkT = BERSERK_DURATION * 100 })
+    assert.ok(zerk > base * 1.5, `BERSERK dealt ${zerk} against a baseline ${base} — its multiplier never reaches applyDamage`)
+
+    // STILLNESS: the ramp fills on its own, since the harness gives no input.
+    const still = dealt('stillness', (r) => { r._stillT = STILLNESS_RAMP * 10 })
+    assert.ok(still > base * 1.5, `STILLNESS dealt ${still} against a baseline ${base} — the ramp is banked but never read`)
+
+    // CHAOS PACT: past the surge window is the payoff half.
+    const pact = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + CHAOS_PACT_SURGE + 1 })
+    assert.ok(pact > base * 1.2, `CHAOS PACT dealt ${pact} against a baseline ${base} — the payoff half of the cycle is inert`)
+    // ...and the surge half must NOT carry it, or the card is a flat buff with a siren.
+    const surge = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + 1 })
+    assert.ok(surge < pact * 0.95, `CHAOS PACT dealt ${surge} inside its spawn surge and ${pact} outside — the two halves must differ`)
+
+    // BLOOD PACT: the snowball, forced to a readable size.
+    const blood = dealt('bloodPact', (r) => { r._bloodPact = 1 })
+    assert.ok(blood > base * 1.5, `BLOOD PACT dealt ${blood} at +100% against a baseline ${base} — the accumulator is never read`)
+  }
+
+  // WILDFIRE — the jump, and the BUDGET that stops it being an unkillable cascade.
+  {
+    const r = withCard('wildfire', (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+    const dying = makeStatusEnemy(r, { x: 200, y: 0, hp: 1, speed: 0 })
+    dying.ignite = 1; dying.igniteDps = 50; dying._fireJumps = WILDFIRE_JUMPS
+    const near = makeStatusEnemy(r, { x: 200 + WILDFIRE_JUMP_R * 0.5, y: 0, hp: 1e6, speed: 0 })
+    const far = makeStatusEnemy(r, { x: 200 + WILDFIRE_JUMP_R * 2, y: 0, hp: 1e6, speed: 0 })
+    r.enemies.push(dying, near, far)
+    r.weapons = []
+    for (let f = 0; f < 240 && !dying._dead; f++) stepSim(r, { x: 0, y: 0 }, dt)
+    assert.ok(dying._dead, 'the WILDFIRE fixture never killed its burning enemy')
+    assert.ok(near.ignite > 0, 'WILDFIRE did not jump to the enemy in range')
+    assert.strictEqual(far.ignite, 0, 'WILDFIRE jumped past WILDFIRE_JUMP_R')
+    assert.strictEqual(near._fireJumps, WILDFIRE_JUMPS - 1,
+      'the WILDFIRE jump did not spend a budget point — an unbudgeted jump-on-every-death never terminates in a 200-enemy field')
+  }
+
+  // MINIMES — the cadence, the flight, and the fact that it reuses the lure entity rather than
+  // inventing one (so the taunt and the burst come for free, already tested by the lure weapon).
+  {
+    const r = withCard('minimes')
+    r.lures = []
+    for (let f = 0; f < Math.ceil(MINIME_INTERVAL * 60) + 2; f++) stepSim(r, { x: 0, y: 0 }, dt)
+    assert.ok(r.lures.length > 0, `MINIMES spawned nothing in ${MINIME_INTERVAL}s`)
+    const m = r.lures[0]
+    assert.ok(m.minime, 'the spawned decoy is not flagged as a minime')
+    const d0 = Math.hypot(m.x - r.player.x, m.y - r.player.y)
+    for (let f = 0; f < 30; f++) stepSim(r, { x: 0, y: 0 }, dt)
+    const still = r.lures.find((l) => l === m)
+    if (still) {
+      assert.ok(Math.hypot(still.x - r.player.x, still.y - r.player.y) > d0,
+        'a MINIME did not flee — without movement it parks the swarm next to you instead of pulling it away')
+    }
+    // A plain planted lure must still be motionless, or this broke the weapon.
+    const w = withCard(null)
+    w.lures = [{ x: 0, y: 0, t: 0, dur: 99, aggro: 100, burstR: 10, burstDmg: 1, sticky: false }]
+    for (let f = 0; f < 30; f++) stepSim(w, { x: 0, y: 0 }, dt)
+    assert.strictEqual(w.lures[0].x, 0, 'a Pheromone Lure moved — MINIMES broke the weapon it borrows')
+  }
 
   // DEADFALL — immunity AND the re-arm. Immunity alone is "one fewer thing hurts you", a stat in a
   // costume; the fast re-arm is what turns the field into a weapon.
@@ -580,10 +729,26 @@ function testAnomalySlate() {
     }
     assert.ok(!trapped(null).armed, 'the trap fixture did not spring on a plain run — it is not reaching its subject')
     assert.ok(trapped('deadfall').armed, 'DEADFALL did not make the player invisible to traps')
-    assert.ok(DEADFALL_REARM_MUL < 1, 'DEADFALL must shorten the re-arm')
+    // The re-arm through the TRAP, not through the constant — `DEADFALL_REARM_MUL < 1` is a config
+    // read that stays green with the multiplier deleted from springTrap. Immunity alone is "one
+    // fewer thing hurts you", a stat in a costume; the fast cycle is what makes the field a weapon.
+    const rearm = (id) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+      r.chapter = 'undergrowth'
+      r.time = 10
+      const tr = { x: 300, y: 0, r: 40, armed: true, rearmAt: 0 }
+      r.traps = [tr]
+      r.enemies.push(makeStatusEnemy(r, { x: 300, y: 0, hp: 1e6, speed: 0 }))
+      stepSim(r, { x: 0, y: 0 }, dt)
+      assert.ok(!tr.armed, 'the re-arm fixture never sprang the trap')
+      return tr.rearmAt - r.time
+    }
+    const plainRearm = rearm(null), fastRearm = rearm('deadfall')
+    assert.ok(fastRearm < plainRearm * 0.5,
+      `DEADFALL re-armed in ${fastRearm.toFixed(1)}s against ${plainRearm.toFixed(1)}s — springTrap is not reading the multiplier`)
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 13 cards, each asserted at its own trigger site — clock x${TIME_DEBT_MUL}, OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60), BRITTLE unrepairable, BLOOD PACT sealed, BLOOD MONEY on HP and floored, MARTYR scaled`)
+  console.log(`PASS run PB7 (v7.2 slate): 15 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60), BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {
