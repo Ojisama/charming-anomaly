@@ -569,28 +569,87 @@ next level-up resets. Keeps the "rerolling is just calling it again" contract in
 > hypothetical — forcing that state on turns **run PB1 red** (city/2 rare 33.4%, overtaking the tier
 > below it). It also makes the *unsafe* thing the default for every future sampler, which is why the
 > plan had to carry a standing "reset it per iteration" warning; the shipped shape needs none.
-> So: `stepLevelUp` zeroes it, **`main.js`'s `onReroll` steps it** beside the `_rerolls` bump that
-> already prices the next reroll (one line, the same bookkeeping class), and the builder never
-> touches it. Run PB4 asserts all three, including that four consecutive builds leave it unmoved.
+> So: `stepLevelUp` zeroes it, **the reroll PURCHASE steps it** beside the `_rerolls` bump that
+> already prices the next reroll, and the builder never touches it. Run PB4 asserts all three,
+> including that four consecutive builds leave it unmoved.
 >
-> **Delivered, measured on the shipped pipeline** (body/3, tier-eligible, 8000 screens per row) —
-> the table above came from the shim and holds:
+> **v6.7.11: the purchase lives in `sim.js`, not in `main.js`.** `rerollLevelUpChoices(run)` now
+> owns the whole transaction — price, pay from `run.coinsEarned`, step both counters, re-deal —
+> and `onReroll` is glue around it (phase guard, sfx, re-show). The v6.7.10 shape put the
+> `_screenRerolls` bump in `main.js`, which `test/sim-test.js` never imports: deleting that one
+> line left **the entire suite green**, PB4 included (it supplied the increment itself), while
+> every reroll in the shipped game rolled at the undecayed table. A feature that can die without a
+> red assertion is not shipped, it is hoped for. PB4 drives the real function now, and also checks
+> textually that `onReroll` still calls it.
 >
-> | rerolls | normal (of tiered cards) | epic+ | mean rarity mult |
-> |---|---|---|---|
-> | 0 | 59.0% | 10.4% | 1.432 |
-> | 1 | — | 11.8% | 1.481 |
-> | 2 | — | 13.0% | 1.532 |
-> | 3 | 45.8% | 14.2% | 1.583 |
-> | 4 | — | 14.2% | 1.583 (cap exact) |
+> **Delivered, measured on the shipped pipeline** (body/3, tier-eligible, 20000 screens per row;
+> `node scripts/pool-probe.mjs body 3 40 random --rerolls=N` regenerates it, and run PB4 asserts
+> every row against these literals):
 >
-> The anomaly denominator stayed on the undecayed table and the tier did not move: 8.63% -> 8.58%
+> | rerolls | normal (of tiered cards) | epic+ | mean rarity mult | cost, run's FIRST rerolled screen |
+> |---|---|---|---|---|
+> | 0 | 58.9% | 10.5% | 1.432 | — |
+> | 1 | 54.4% | 11.9% | 1.484 | 10 |
+> | 2 | 50.6% | 12.8% | 1.525 | 25 |
+> | 3 | 45.8% | 13.9% | 1.574 | 48 |
+> | 4 | 46.0% | 14.2% | 1.580 (cap exact) | 82 |
+>
+> **That cost column is a first-screen price, and the cap is not in the same unit as it.**
+> `rerollCost` escalates on `run._rerolls` (per RUN); the decay reads `run._screenRerolls` (per
+> SCREEN, zeroed every level-up). Reaching the cap therefore costs 48 coins on the run's first
+> rerolled screen, **161** after three prior rerolls and **542** after six — against 251 coins
+> earned in a whole mortal run (`pool-probe body 2 40 dps --survival --diff=3`) and 347 immortal.
+> Two consequences, accepted here and logged as open below: concentrating rerolls on one screen is
+> strictly better than spreading them at the same price, and the nudge is cheapest exactly where
+> the cards are smallest.
+>
+> The anomaly denominator stayed on the undecayed table and the tier did not move: 8.63% -> 8.56%
 > of screens over 20000 screens per arm (1% relative). Because v6.7.9 settles the tier at reroll 0,
 > a sampled measurement through the shipped screen flow **cannot** see a decayed denominator — so
 > PB4 pins it with exact arithmetic (a constant `Math.random` at a threshold strictly between the
 > two implementations' firing points) instead of trusting the Monte Carlo. Mutation-proven: leaking
 > the decay into `ordinaryTotal` fires that assertion, and the zero-reroll probe output is
 > byte-identical (`pool-probe body 2 40 random --compare`, same md5 before and after).
+>
+> **The nudge must not be funded out of the rule-change share (v6.7.11).** A `switch` mod has no
+> magnitude, so it declines every rarity above `normal` and is only a CANDIDATE on a normal roll.
+> While the mod bucket picked its candidate off the decayed table, paying for a reroll *deleted*
+> rule-change offers to pay for bigger numbers — measured at the cap, 20000 screens per arm, 3
+> weapons at lv3: garden **9.11% -> 6.61%** of mod cards, pond 6.04% -> 4.25%, skies 6.65% ->
+> 4.50%, undergrowth 2.78% -> 1.94%. A 27-32% relative cut on the card class F14 already flags as
+> this pool's scarcest, sold to the player as an upgrade. `rollCard` now rolls mod **candidacy** on
+> the undecayed table and only the **magnitude** on the decayed one: the switch rate is flat
+> (garden 9.01% -> 9.43%, inside a 0.45pt six-seed spread) and numeric mods keep the full nudge.
+> PB4 asserts the invariance rather than a bounded loss, on **garden** — three switch mods, the
+> most of any chapter; body, city and beyond have none at all, and the v6.7.10 test measured
+> "undergrowth" through `createRun(meta)`, which ignores `meta.chapter` and had been sampling a
+> **body** run wearing undergrowth's weapons.
+>
+> **OPEN, for the owner — three design calls this task deliberately did not take.** All three came
+> out of the adversarial gate; none is a defect in what shipped, and each changes what the reroll
+> *is*:
+> 1. **The reroll is a magnitude lever, not a KIND lever.** The bucket roll is untouched by design,
+>    so no amount of paying moves you toward a mod or a weapon — which is complaint #3 ("you cannot
+>    pursue a mod") left unanswered. The alternative is a foreseeable per-screen FLOOR the button
+>    can advertise: *the Nth reroll of a screen guarantees one card from a bucket you have not been
+>    offered this screen*. That is a decision ("burn to the guarantee or take this now?") instead of
+>    a hidden weight, and it is printable.
+> 2. **Ruptures are sealed off from the one lever the player has.** Correct per this section, and
+>    the memo plus the undecayed denominator make it airtight — but a screen with no teal card can
+>    never grow one, at any price, and players learn that. A middle ground exists: let a paid reroll
+>    advance anomaly pity toward a LATER screen (`_screensSinceAnomaly += rerolls` at
+>    `stepLevelUp`), which keeps "coins cannot buy THIS screen's Rupture" while giving the button a
+>    relationship to the tier at all.
+> 3. **Price the reroll per screen?** Resetting `rerollCost`'s counter with `_screenRerolls` would
+>    put the cap and its price in the same unit, make "reroll to three" cost the same everywhere,
+>    and delete the concentration incentive. It also re-tunes a gold sink shipped since v4.5, which
+>    is an owner call, not a remediation.
+>
+> **Still owed (same standing item v6.7.9 logged for pity): the decay is invisible.** `ui.js`
+> renders the button as `🔄 Reroll ({n}🪙)` and nothing else — no counter, no state, no copy. A
+> hidden rule moving a hidden weight cannot produce a decision, because the player has nothing to
+> decide with. Goes to the owner as labelled shot variants on one identical in-game frame (with the
+> French rendering reviewed adversarially), never as a unilateral edit.
 
 ### B7. New run fields
 

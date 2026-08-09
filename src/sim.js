@@ -153,6 +153,8 @@ import {
   SPAWN_OPENING_CREDIT,
   // v6.5.1 (owner directive): enemy separation — no more 100% stacks
   ENEMY_SEP_FRAC, ENEMY_SEP_RESOLVE, ENEMY_SEP_CELL,
+  // v6.7.11: the level-up reroll's price ladder — rerollLevelUpChoices owns the whole purchase
+  rerollCost,
 } from './config.js'
 
 const KB_DECAY_RATE = 6 // per-second exponential-ish decay factor for enemy knockback
@@ -6091,12 +6093,20 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   const bucket = pickWeighted(buckets)
   // Rerolling THIS screen decays the `normal` weight and nothing else, so every other tier's share
   // rises proportionally without a second knob (config.js REROLL_RARITY_DECAY/CAP). Rerolling buys
-  // BIGGER NUMBERS — never a different KIND of card (the bucket roll above is untouched: a reroll
-  // that also reshaped the buckets would be a different screen, not a better one) and never more
-  // of the sixth tier, which rolls against the UNDECAYED total in rollAnomalyCard.
-  // The counter is main.js's (see _screenRerolls in state.js): it counts rerolls PAID FOR on the
-  // open screen, never builds. Clamped both ways — below 0 because the shipped samplers pin it at
-  // -1 to mean "base rate", above REROLL_RARITY_CAP because the decay is geometric.
+  // BIGGER NUMBERS — never a different KIND of card. Three separate places enforce that half, and
+  // each has its own assertion in run PB4, because "size, not kind" is what makes the purchase
+  // honest rather than a lever on the pool's composition:
+  //   - the BUCKET roll above is untouched (a reroll that reshaped the buckets would be a
+  //     different screen, not a better one),
+  //   - the weapon bucket's `New!` weights stay on RARITY_WEIGHTS (which weapon, not how big),
+  //   - the mod bucket rolls CANDIDACY on RARITY_WEIGHTS too, because `normal` is the only tier a
+  //     rule-change mod is offered at — see the mod branch below.
+  // ...and never more of the sixth tier, which rolls against the UNDECAYED total in
+  // rollAnomalyCard.
+  // The counter is the reroll PURCHASE's (rerollLevelUpChoices at the bottom of this file; see
+  // _screenRerolls in state.js): it counts rerolls paid for on the open screen, never builds.
+  // Clamped both ways — below 0 because the shipped samplers pin it at -1 to mean "base rate",
+  // above REROLL_RARITY_CAP because the decay is geometric.
   const rr = Math.min(REROLL_RARITY_CAP, Math.max(0, run._screenRerolls ?? 0))
   const rarityWeights = rr === 0
     ? RARITY_WEIGHTS
@@ -6136,12 +6146,27 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // only a CANDIDATE on a normal roll — restricting the pick preserves that. Picking first and
     // coercing the rarity down instead let a switch win its pick at any tier: measured 1.72x the
     // shipped offer rate, against config.js's own "offered AT MOST ONCE, only at normal rarity".
-    const ok = modOpts.filter((mc) => makeWeaponModCard(run, mc.weapon, mc.mod, rarity))
+    // CANDIDACY IS ROLLED ON THE UNDECAYED TABLE, SIZE ON THE DECAYED ONE (v6.7.11). They are the
+    // same roll at zero rerolls (`rr === 0` reuses it, so nothing about an unrerolled screen moves
+    // and no extra random is drawn) and they must NOT be the same roll at any other count: `normal`
+    // is the only tier a rule-change card is offered at, so decaying it to buy bigger numbers was
+    // measured DELETING rule-change cards — pond 6.04% -> 4.25% of mod cards, garden 9.11% ->
+    // 6.61%, skies 6.65% -> 4.50%, undergrowth 2.78% -> 1.94% at REROLL_RARITY_CAP (20000 screens
+    // per arm, 3 weapons at lv3), a 27-32% relative cut on the one card class this game's standing
+    // complaint is that it has too few of. Rolling candidacy at base holds the switch rate flat
+    // (garden 9.01% -> 9.43%, inside a 0.45pt six-seed spread; run PB4 asserts the invariance)
+    // while every numeric mod keeps the full nudge.
+    const candRarity = rr === 0 ? rarity : pickWeighted(RARITY_WEIGHTS)
+    const ok = modOpts.filter((mc) => makeWeaponModCard(run, mc.weapon, mc.mod, candRarity))
     // Every candidate declined (an all-switch bucket): the bucket was counted as non-empty, so it
     // owes a card. Offer one at normal rather than returning null and shortening the pool.
     const from = ok.length > 0 ? ok : modOpts
     const mc = from[Math.floor(Math.random() * from.length)]
-    return makeWeaponModCard(run, mc.weapon, mc.mod, ok.length > 0 ? rarity : 'normal')
+    if (ok.length === 0) return makeWeaponModCard(run, mc.weapon, mc.mod, 'normal')
+    // A switch has no magnitude for a reroll to enlarge, so it is built at the only tier it accepts
+    // — which is also the tier its candidacy roll came up at. Everything else takes the decayed one.
+    const isSwitch = WEAPON_MODS[mc.weapon][mc.mod].kind === 'switch'
+    return makeWeaponModCard(run, mc.weapon, mc.mod, isSwitch ? 'normal' : rarity)
   }
 
   const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]
@@ -6251,7 +6276,7 @@ function stepLevelUp(run) {
   // one, and the only place it is cleared. A reroll goes through the builder, never through here.
   run._screenAnomaly = undefined
   // Same reason, for the rarity decay: this screen has been paid for exactly once, so it is dealt
-  // at the undecayed table and only the replacements the player buys step up (main.js's onReroll
+  // at the undecayed table and only the replacements the player buys step up (rerollLevelUpChoices
   // does the stepping — see _screenRerolls in state.js for why the BUILDER must not).
   run._screenRerolls = 0
   // Anomaly pity advances HERE, once per screen, and not inside buildLevelUpChoices — main.js's
@@ -6277,5 +6302,37 @@ function stepLevelUp(run) {
 }
 
 // Exported for test/sim-test.js only (rarity distribution sanity checks); main.js does
-// not use this directly — it just drives stepSim/applyChoice.
+// not use this directly — it drives stepSim/applyChoice and rerollLevelUpChoices below.
 export { buildLevelUpChoices }
+
+// THE WHOLE REROLL PURCHASE, in sim.js rather than in main.js's onReroll (v6.7.11). It lives here
+// because it is state, not glue: it prices the reroll, spends the RUN's coins, steps both counters
+// and re-deals the screen. main.js keeps only what is genuinely glue — the phase guard it shares
+// with every other UI hook, the sfx, and re-showing the screen.
+// The move is what makes the feature TESTABLE. While the counter bump lived in main.js it was the
+// one production write to run._screenRerolls, and test/sim-test.js never imports main.js — so
+// deleting that line left the entire suite green (PB4 included, since PB4 supplied the increment
+// itself) while every reroll in the shipped game silently rolled at the undecayed table. Run PB4
+// drives THIS function now, so the feature dies red.
+// It counts PURCHASES, not builds: buildLevelUpChoices stays reroll-agnostic because ~15 sampling
+// loops in test/sim-test.js and the survival rig in scripts/pool-probe.mjs reuse one run across
+// thousands of builds, and a build-counting field would saturate at REROLL_RARITY_CAP after three
+// iterations and then report the 3-reroll distribution as the base rate (it turns run PB1 red —
+// city/2 rare 33.4%). See _screenRerolls in state.js.
+// Returns false and changes NOTHING when the run cannot afford it, so the caller's only job is to
+// decide whether it is allowed to ask.
+export function rerollLevelUpChoices(run) {
+  const cost = rerollCost(run._rerolls ?? 0)
+  // Rerolls spend the RUN's coins (the HUD counter), not the meta bank — spending mid-run shrinks
+  // the end-of-run payout, and the number next to the button matches what the HUD shows (v5.1 fix;
+  // players read the two same-icon wallets as one).
+  if ((run.coinsEarned ?? 0) < cost) return false
+  run.coinsEarned -= cost
+  // The RUN counter prices the NEXT reroll (rerollCost escalates over the whole run)...
+  run._rerolls = (run._rerolls ?? 0) + 1
+  // ...and the SCREEN counter is the same purchase scoped to the open screen: rollCard decays the
+  // `normal` rarity weight by REROLL_RARITY_DECAY ^ it, and stepLevelUp zeroes it on the next one.
+  run._screenRerolls = (run._screenRerolls ?? 0) + 1
+  run.levelUpChoices = buildLevelUpChoices(run)
+  return true
+}

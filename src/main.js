@@ -2,7 +2,7 @@
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
 import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, rerollCost, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, buildReadout } from './sim.js'
+import { stepSim, applyChoice, rerollLevelUpChoices, buildReadout } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
@@ -197,19 +197,13 @@ const ui = initUI({
   },
   onReroll() {
     if (!run || run.phase !== 'levelup') return
-    const cost = rerollCost(run._rerolls ?? 0)
-    // Rerolls spend the RUN's coins (the HUD counter), not the meta bank — spending mid-run
-    // shrinks the end-of-run payout, and the number next to the button matches what you see
-    // in the HUD (v5.1 fix; players read the two same-icon wallets as one).
-    if ((run.coinsEarned ?? 0) < cost) return
-    run.coinsEarned -= cost
-    run._rerolls = (run._rerolls ?? 0) + 1
-    // ...and the same purchase again, scoped to THIS screen: sim.js decays the `normal` rarity
-    // weight by it (REROLL_RARITY_DECAY), and stepLevelUp zeroes it when the next screen opens.
-    // Counted here rather than inside buildLevelUpChoices because the builder is called by
-    // harnesses too, and a build is not a purchase — see _screenRerolls in state.js.
-    run._screenRerolls = (run._screenRerolls ?? 0) + 1
-    run.levelUpChoices = buildLevelUpChoices(run)
+    // The purchase itself is sim.js's (rerollLevelUpChoices): price, spend the RUN's coins, step
+    // both reroll counters, re-deal the screen. Keeping it there rather than here is what puts it
+    // under test at all — test/sim-test.js never imports main.js, so while the _screenRerolls bump
+    // lived in this file the whole rarity-decay feature could be deleted with the suite still
+    // green. Glue keeps the guard, the sfx and the re-show; it returns false when the run cannot
+    // afford it, having changed nothing.
+    if (!rerollLevelUpChoices(run)) return
     playSfx('buy')
     ui.showScreen('levelup', levelupData())
   },

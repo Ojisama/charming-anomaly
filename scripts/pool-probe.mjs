@@ -18,6 +18,20 @@
 //                (4 slots costs 60 of 80 levels, so slots=4 -> 2, slots=3 -> 6, slots=2 -> 8).
 //   --offset=N   enemy HP xN, PROPOSED pipeline only — measures how much clawback neutralises
 //                the pool's power gain.
+//   --rerolls=N  measure the pool a player who PAID for N rerolls of every screen actually sees
+//                (v6.7.11). SHIPPED pipeline only — the proposed shim has no reroll model. Without
+//                it every row of this harness describes an unrerolled screen, which is not the
+//                screen the REROLL_RARITY_DECAY table in config.js is about:
+//                  node scripts/pool-probe.mjs body 3 40 random --rerolls=3
+//                regenerates that table's rows (rarity line) off the real pipeline. It does NOT
+//                charge coins — it answers "what does this pool look like at N rerolls", not "can
+//                the player afford it"; the coins/run line above is the other half of that
+//                question, and rerollCost(0..7) is 10/15/23/34/51/76/114/171 CUMULATIVE
+//                10/25/48/82/133/209/323 over a RUN, not over a screen.
+//                READ THE RARITY LINE, NOT THE REST. This is a whole-run probe: at N>0 the run
+//                keeps DIFFERENT cards, so it diverges — level, anomalies/run and the pity line
+//                are two different runs, not an A/B. Run it as shipped-vs-shipped (two
+//                invocations, same seeds) and quote the `rarity` row.
 //
 // WHAT THIS MEASURES: offer distribution and pick throughput. The probe is IMMORTAL
 // (it refills HP every frame) and vacuums gems with a huge magnet, so it is NOT valid
@@ -27,7 +41,7 @@
 // against the tuning block below, so weights can be tuned before any src/ change. Once
 // Track B ships, delete `proposedChoices` and point the flag at the real function.
 import { createRun } from '../src/state.js'
-import { stepSim, applyChoice, anomalyWeightFor } from '../src/sim.js'
+import { stepSim, applyChoice, anomalyWeightFor, buildLevelUpChoices } from '../src/sim.js'
 import * as C from '../src/config.js'
 
 // ─── TUNING: the Track B proposal. Edit these, re-run --compare, read the diff. ────────
@@ -69,6 +83,12 @@ const POLICY = pos[3] ?? 'random'
 const SURVIVAL = flags.has('--survival')
 const DIFF = Number(args.find((a) => a.startsWith('--diff='))?.slice(7) ?? 1)
 const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1)
+// --rerolls=N: re-deal every screen N times before measuring it, exactly as a paying player would
+// (see the header). Shipped pipeline only. Drives buildLevelUpChoices through the same field
+// main.js's reroll purchase steps, so the anomaly memo (run._screenAnomaly) survives the re-deal
+// and the tier stays decided once per screen — the reason this cannot be faked by rebuilding the
+// screen from scratch.
+const REROLLS = Number(args.find((a) => a.startsWith('--rerolls='))?.slice(10) ?? 0)
 const XPMUL = Number(args.find((a) => a.startsWith('--xpmul='))?.slice(8) ?? 1)
 // How many of a weapon's mods are CANDIDATES each pool (shipped MOD_CANDIDATES_PER_WEAPON = 2).
 // The deliverability knob: it decides whether "aim for prismatic" is a strategy the pool can serve.
@@ -561,6 +581,18 @@ function measure(mode) {
     // 305s: RUN_DURATION is 300 and victory flips ON the boundary, so the loop must cross it.
     for (let f = 0; f < 305 * 60; f++) {
       if (run.phase === 'levelup') {
+        // --rerolls=N: the screen a PAYING player ends up looking at. Stepping run._screenRerolls
+        // is exactly what the purchase does (sim.js rerollLevelUpChoices), so this measures the
+        // decayed rarity table without re-implementing it here. Before the pity read below,
+        // because the reroll IS the screen as far as every downstream count is concerned — the
+        // v6.7.9 memo keeps the tier's answer identical across the re-deals, which is the property
+        // that makes "rerolls do not buy Ruptures" visible in this harness's anomaly line.
+        if (REROLLS > 0 && mode !== 'proposed') {
+          for (let r = 0; r < REROLLS; r++) {
+            run._screenRerolls = (run._screenRerolls ?? 0) + 1
+            run.levelUpChoices = buildLevelUpChoices(run)
+          }
+        }
         let cards = run.levelUpChoices
         // The SHIPPED pipeline's pity, read off the run rather than re-derived: the counter only
         // moves on a screen the tier was ELIGIBLE on (v6.7.9), so "it moved, or an anomaly came
@@ -685,7 +717,8 @@ function measure(mode) {
 
 const f1 = (n) => n.toFixed(1)
 function report(r) {
-  console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY} mode=${r.mode}`)
+  console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY} mode=${r.mode}` +
+    (REROLLS > 0 ? `  rerolls=${REROLLS}/screen${r.mode === 'proposed' ? ' (IGNORED: shipped pipeline only)' : ` (decay ${C.REROLL_RARITY_DECAY}^min(${REROLLS},${C.REROLL_RARITY_CAP}) on \`normal\`)`}` : ''))
   console.log(`level ${f1(r.level)}  cards/run ${f1(r.cards)}  weaponLvSum ${f1(r.weaponLv)}  coins/run ${f1(r.coins)} (cap ${C.COIN_CAP_PER_RUN})`)
   console.log(`kills/run ${f1(r.kills)} (elites ${f1(r.eliteKills)})  fires/run ${f1(r.fires)} (${f1(r.fires / r.liveT)}/s over ${f1(r.liveT)}s alive)`)
   console.log(`short pools ${r.shortPools}/${r.pools}  (MUST be 0)`)

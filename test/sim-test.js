@@ -86,7 +86,7 @@ import {
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, anomalyWeightFor, currentForce, buildReadout } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, anomalyWeightFor, currentForce, buildReadout } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -1048,8 +1048,11 @@ function testAnomalyPity() {
 // ---- Run PB4: reroll nudges rarity, never the anomaly tier --------------------------
 // Rerolling a level-up screen buys BIGGER NUMBERS. Only the `normal` weight decays
 // (REROLL_RARITY_DECAY, capped at REROLL_RARITY_CAP rerolls of the same screen), so every other
-// tier's share rises without a knob of its own. What a reroll must NOT buy is the sixth tier —
-// spec B6. Two independent mechanisms keep those apart and both are pinned here:
+// tier's share rises without a knob of its own. Three things it must NOT buy, each with its own
+// block below: rule-change (`switch`) mod offers, rarer weapon DISCOVERIES, and the sixth tier.
+// The first two are invariance tests — the numbers must not move at all — because both are card
+// KIND, and the reroll's promise is card SIZE.
+// The sixth tier is spec B6. Two independent mechanisms keep it apart and both are pinned here:
 //   MEMO   the screen's anomaly answer is decided once and reused (v6.7.9; run PB3's STICKY block
 //          is the test of that half).
 //   DENOM  the anomaly roll competes against the sum of the UNDECAYED table. Summing the decayed
@@ -1065,15 +1068,15 @@ function testRerollRarity() {
     run._eliteKills = 1   // the seed anomaly's own gate — without it the tier is INELIGIBLE
     return run
   }
-  // A reroll exactly as main.js's onReroll performs one: pay, step both counters, rebuild the SAME
-  // screen. Driving it any other way would be testing this file's own bookkeeping.
-  const reroll = (run) => {
-    run._rerolls = (run._rerolls ?? 0) + 1
-    run._screenRerolls = (run._screenRerolls ?? 0) + 1
-    return buildLevelUpChoices(run)
-  }
 
-  // WIRED. The counter belongs to the SCREEN, and it counts PURCHASES.
+  // WIRED — through the PRODUCTION path. `reroll` here is sim.js's rerollLevelUpChoices, the same
+  // call main.js's onReroll makes, so this block exercises the price, the payment and both
+  // counters rather than a local imitation of them.
+  // That is not a style preference. While the _screenRerolls bump lived in main.js it was the ONLY
+  // production write to the field, and this file never imports main.js — so deleting that one line
+  // left the whole suite green (this run included, because it supplied the increment itself) while
+  // every reroll in the shipped game silently rolled at the undecayed table. The feature could die
+  // without a single red assertion. Now it cannot: the counter and the re-deal are the same call.
   Math.random = mulberry32(20260808)
   const wired = fixture()
   const openScreen = (run) => {
@@ -1085,9 +1088,26 @@ function testRerollRarity() {
   openScreen(wired)
   assert.strictEqual(wired._screenRerolls, 0,
     `a freshly dealt screen sits at ${wired._screenRerolls} rerolls — the decay must be inert on a screen nobody paid for`)
-  reroll(wired)
-  reroll(wired)
-  assert.strictEqual(wired._screenRerolls, 2, 'a paid reroll must step the counter')
+  // Broke: it must refuse and change NOTHING. rerollCost(0) is REROLL_BASE_COST, so one coin short
+  // is enough to prove the guard is the price and not an afterthought.
+  wired.coinsEarned = rerollCost(0) - 1
+  const dealt = wired.levelUpChoices
+  assert.strictEqual(rerollLevelUpChoices(wired), false, 'a reroll the run cannot afford must be refused')
+  assert.strictEqual(wired.levelUpChoices, dealt, 'a refused reroll re-dealt the screen anyway')
+  assert.strictEqual(wired._screenRerolls, 0, 'a refused reroll stepped the screen counter')
+  assert.strictEqual(wired._rerolls ?? 0, 0, 'a refused reroll stepped the run counter (and so raised the next price)')
+  assert.strictEqual(wired.coinsEarned, rerollCost(0) - 1, 'a refused reroll spent coins')
+  // Paid: the price comes off the RUN's purse, both counters step, the screen is re-dealt.
+  wired.coinsEarned = 1000
+  const price = rerollCost(0)
+  assert.strictEqual(rerollLevelUpChoices(wired), true, 'an affordable reroll must go through')
+  assert.strictEqual(wired.coinsEarned, 1000 - price, `a reroll must cost rerollCost(0) = ${price}`)
+  assert.strictEqual(wired._rerolls, 1, 'a paid reroll must step the RUN counter that prices the next one')
+  assert.strictEqual(wired._screenRerolls, 1, 'a paid reroll must step the SCREEN counter the decay reads')
+  assert.notStrictEqual(wired.levelUpChoices, dealt, 'a paid reroll must re-deal the screen')
+  rerollLevelUpChoices(wired)
+  assert.strictEqual(wired._screenRerolls, 2, 'a second paid reroll must step the counter again')
+  assert.strictEqual(wired.coinsEarned, 1000 - rerollCost(0) - rerollCost(1), 'the second reroll must be priced off the stepped RUN counter')
   openScreen(wired)
   assert.strictEqual(wired._screenRerolls, 0,
     'a new screen did not re-arm the counter — one expensive screen would tax every screen after it for the rest of the run')
@@ -1101,13 +1121,30 @@ function testRerollRarity() {
   for (let i = 0; i < 4; i++) buildLevelUpChoices(wired)
   assert.strictEqual(wired._screenRerolls, before,
     'buildLevelUpChoices stepped the reroll counter by itself — it must count purchases, not builds')
+  // Belt and braces on the one seam this file still cannot execute: main.js is glue and is never
+  // imported here, so the check that the button reaches the function is textual (the idiom run
+  // BR.f and run UG.g already use on sim.js). If onReroll ever re-implements the purchase inline
+  // again, the counter goes back out of test reach — that is the failure this catches.
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const at = mainSrc.indexOf('onReroll()')
+    assert.ok(at > 0, 'main.js has no onReroll hook — the reroll button is not wired at all')
+    const body = mainSrc.slice(at, mainSrc.indexOf('\n  },', at))
+    assert.ok(/rerollLevelUpChoices\(run\)/.test(body),
+      "main.js's onReroll no longer calls sim.js's rerollLevelUpChoices — the purchase is back in glue, where no test can see it")
+    assert.ok(!/_(?:screenR|r)erolls\s*=/.test(body),
+      "main.js's onReroll writes the reroll counters itself — that bookkeeping belongs to sim.js's rerollLevelUpChoices, which is the only copy under test")
+  }
 
   // RARITY. Share of TIERED cards that come up `normal`; weapon upgrades carry UPGRADE_RARITY (no
   // tier at all, v6.7.5) and anomalies carry their own, so neither is something a reroll can raise.
-  const sample = (rerolls, SCREENS = 3000) => {
+  // ELEMENT cards are counted separately because they are the one bucket that adopts the rolled
+  // rarity with nothing in between (makeElementCard) — their histogram IS the rarity roll, which
+  // is what makes the analytic pin below exact rather than a band.
+  const sample = (rerolls, SCREENS = 6000) => {
     Math.random = mulberry32(20260808)
     const run = fixture()
-    let normal = 0, total = 0
+    let normal = 0, total = 0, epicPlus = 0, multSum = 0, elem = 0, elemNormal = 0
     for (let i = 0; i < SCREENS; i++) {
       run._screenRerolls = 0
       run._screenAnomaly = undefined     // each iteration is a NEW screen (v6.7.9 memo)...
@@ -1119,40 +1156,83 @@ function testRerollRarity() {
         cards = buildLevelUpChoices(run)
       }
       for (const c of cards) {
+        if (c.kind === 'element') { elem++; if (c.rarity === 'normal') elemNormal++ }
         if (c.kind === 'anomaly' || c.rarity === UPGRADE_RARITY) continue
         if (c.rarity === 'normal') normal++
+        if (c.rarity === 'epic' || c.rarity === 'legendary' || c.rarity === 'mythic') epicPlus++
+        multSum += RARITIES[c.rarity].mult
         total++
       }
     }
-    return (100 * normal) / total
+    return {
+      normal: (100 * normal) / total,
+      epicPlus: (100 * epicPlus) / total,
+      mult: multSum / total,
+      elemNormal: (100 * elemNormal) / elem,
+    }
   }
-  const zero = sample(0)
-  const capped = sample(REROLL_RARITY_CAP)
-  assert.ok(capped < zero - 5,
-    `rerolling must raise average rarity — normal ${zero.toFixed(1)}% -> ${capped.toFixed(1)}% of tiered cards over ${REROLL_RARITY_CAP} rerolls`)
+  // (…and NOT `.map(sample)`: map passes the index as the second argument, which is `SCREENS`.)
+  const rows = [0, 1, 2, REROLL_RARITY_CAP].map((rr) => sample(rr))
+  const [zero, , , capped] = rows
+  assert.ok(capped.normal < zero.normal - 5,
+    `rerolling must raise average rarity — normal ${zero.normal.toFixed(1)}% -> ${capped.normal.toFixed(1)}% of tiered cards over ${REROLL_RARITY_CAP} rerolls`)
+
+  // EXACT, and independent of this fixture: the rarity roll's own `normal` share is
+  // w/(others + w) with w = 100 * decay^rerolls, and element cards report it verbatim. This is
+  // what catches an implementation that decays the wrong key, applies the decay twice, or forgets
+  // to renormalise — none of which the band above can see.
+  const otherWeights = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0) - RARITY_WEIGHTS.normal
+  const rollNormal = (rr) => {
+    const w = RARITY_WEIGHTS.normal * Math.pow(REROLL_RARITY_DECAY, Math.min(rr, REROLL_RARITY_CAP))
+    return (100 * w) / (otherWeights + w)
+  }
+  for (const [rr, row] of [[0, zero], [REROLL_RARITY_CAP, capped]]) {
+    assert.ok(Math.abs(row.elemNormal - rollNormal(rr)) < 2,
+      `at ${rr} rerolls the rarity roll delivered normal ${row.elemNormal.toFixed(2)}% of element cards against the ${rollNormal(rr).toFixed(2)}% its own weights declare — the decayed table is not the table being rolled`)
+  }
+  // ...and the LITERALS the design is documented in (config.js's REROLL_RARITY_DECAY block, spec
+  // B6, the plan's Task 4 table). The pin above is derived from the constants, so it stays green
+  // at any decay; these do not. Retuning REROLL_RARITY_DECAY to 0.9 reads 52.9% here — half the
+  // shipped nudge — and used to pass the entire suite while three documents kept advertising the
+  // 0.8 table. If a retune is wanted, re-measure and rewrite those three places WITH this line.
+  const DOC = { base: { normal: 58.9, epicPlus: 10.5, mult: 1.432 }, cap: { normal: 45.8, epicPlus: 13.9, mult: 1.574 } }
+  for (const [name, row, want] of [['0 rerolls', zero, DOC.base], [`${REROLL_RARITY_CAP} rerolls`, capped, DOC.cap]]) {
+    assert.ok(Math.abs(row.normal - want.normal) < 1.5,
+      `at ${name} the pool delivered normal ${row.normal.toFixed(1)}% of tiered cards against the ${want.normal}% config.js and spec B6 document`)
+    assert.ok(Math.abs(row.epicPlus - want.epicPlus) < 1.2,
+      `at ${name} the pool delivered epic-or-better ${row.epicPlus.toFixed(1)}% against the documented ${want.epicPlus}%`)
+    assert.ok(Math.abs(row.mult - want.mult) < 0.035,
+      `at ${name} the mean rarity multiplier is ${row.mult.toFixed(3)} against the documented ${want.mult}`)
+  }
+
   // The CAP bites. Geometric decay is unbounded: at 6 rerolls normal's share of a rarity roll is
   // 27% against 41.9% at the cap, i.e. a player who can afford them plays a pool nothing was
   // balanced on. Without this the clamp can be deleted with every other assertion still green.
   const past = sample(REROLL_RARITY_CAP + 3)
-  assert.ok(Math.abs(past - capped) < 2.5,
-    `${REROLL_RARITY_CAP + 3} rerolls gave normal ${past.toFixed(1)}% against ${capped.toFixed(1)}% at the cap of ${REROLL_RARITY_CAP} — the decay is uncapped`)
+  assert.ok(Math.abs(past.normal - capped.normal) < 2.5,
+    `${REROLL_RARITY_CAP + 3} rerolls gave normal ${past.normal.toFixed(1)}% against ${capped.normal.toFixed(1)}% at the cap of ${REROLL_RARITY_CAP} — the decay is uncapped`)
 
-  // RULE-CHANGES SURVIVE IT. The one place the decay can touch card KIND rather than card size: a
-  // `switch` mod (Cyclone, Hive Mind, Double Slash — the behavioural ones) declines every rarity
-  // above normal, so it is only a candidate on a normal roll, and thinning `normal` thins them.
-  // Measured on undergrowth (the chapter with the most switch mods), 8000 screens per arm: 2.88%
-  // -> 2.10% of mod cards, 0.82% -> 0.61% of all cards. Accepted at that size and bounded here,
-  // because "rerolling buys bigger numbers, NOT more rule-changes" (B6) is not a licence to buy
-  // FEWER of them — this game's standing complaint is that cards are boring. If a future decay
-  // tuning wants to go steeper, this is the assertion that has to be argued with.
-  const switchShare = (rerolls, SCREENS = 8000) => {
+  // RULE-CHANGES DO NOT MOVE AT ALL. The one place the rarity roll can touch card KIND rather than
+  // card size: a `switch` mod (Hive Mind, Sticky Scent, Cyclone, Double Slash — the behavioural
+  // ones) declines every rarity above normal, so it is only a candidate on a normal roll. While
+  // the mod bucket's candidacy rolled on the DECAYED table, paying for a reroll therefore DELETED
+  // rule-change offers to pay for bigger numbers — measured 9.11% -> 6.61% of garden's mod cards
+  // at the cap, and 27-32% relative on every chapter that has one. rollCard now rolls mod
+  // candidacy on the undecayed table and only the magnitude on the decayed one, so this is an
+  // INVARIANCE test, not a bounded-loss one: the whole point is that the number does not move.
+  // Measured on GARDEN, which has three switch mods (stinger.venomTips, stinger.hive,
+  // lure.stickyScent) — the most of any chapter, and 3x undergrowth's sample. body, city and
+  // beyond have none at all, so they cannot host this test.
+  const switchShare = (rerolls, SCREENS = 16000) => {
     Math.random = mulberry32(20260808)
-    const ugMeta = makeMeta()
-    ugMeta.choiceSlots = 3
-    ugMeta.chapter = 'undergrowth'
-    const run = createRun(ugMeta)
+    const gMeta = makeMeta()
+    gMeta.choiceSlots = 3
+    // The chapter comes from OPTS, never from meta.chapter — createRun ignores that field, so
+    // `createRun(meta)` with meta.chapter set is a BODY run wearing another chapter's weapons.
+    const run = createRun(gMeta, { chapter: 'garden' })
+    assert.strictEqual(run.chapter, 'garden', 'the switch-mod fixture is not a garden run')
     run.player.level = 12
-    run.weapons = CHAPTERS.undergrowth.weapons.slice(0, 3).map((id) => ({ id, level: 3 }))
+    run.weapons = CHAPTERS.garden.weapons.slice(0, 3).map((id) => ({ id, level: 3 }))
     let mods = 0, switches = 0
     for (let i = 0; i < SCREENS; i++) {
       run._screenRerolls = rerolls
@@ -1163,13 +1243,47 @@ function testRerollRarity() {
         if (WEAPON_MODS[c.weapon]?.[c.id]?.kind === 'switch') switches++
       }
     }
-    assert.ok(switches > 30, `the switch-mod fixture saw ${switches} of them — it is not measuring anything`)
+    assert.ok(switches > 300, `the switch-mod fixture saw ${switches} of them — it is not measuring anything`)
     return (100 * switches) / mods
   }
   const sw0 = switchShare(0)
   const swCap = switchShare(REROLL_RARITY_CAP)
-  assert.ok(swCap > sw0 * 0.5,
-    `${REROLL_RARITY_CAP} rerolls took behavioural (switch) mods from ${sw0.toFixed(2)}% to ${swCap.toFixed(2)}% of mod cards — the rarity decay is deleting rule-change cards, not enlarging number cards`)
+  // 1.5 points against a ~9% share: the spread over six seeds is 1.04 points at half this sample
+  // and ~0.7 at this one, while the defect this replaces was a 2.5-point FALL. One-sided would be
+  // wrong — a reroll must not buy MORE rule-changes either, or coins would be buying the rarest
+  // card class again through the other door.
+  assert.ok(Math.abs(swCap - sw0) < 1.5,
+    `${REROLL_RARITY_CAP} rerolls moved behavioural (switch) mods from ${sw0.toFixed(2)}% to ${swCap.toFixed(2)}% of garden's mod cards — the reroll is trading rule-change cards for bigger numbers (spec F14: they are the class this game has too few of)`)
+
+  // NEITHER DOES DISCOVERY. The weapon bucket weights its `New!` entries by the weapon's inherent
+  // rarity, and that weight decides WHICH weapon is offered, not how big a card is — so it stays
+  // on the undecayed table on purpose: a reroll promises size, never rarer acquisitions (the
+  // jackpot v6.7.4/v6.7.5 spent two releases protecting). Folding the decay into `weaponW` is a
+  // one-word edit on that line and moves the `New!` histogram from 57.7/32.8/9.6 to 45.2/42.8/12.0
+  // — invisible to every bucket-share test, because the bucket's TOTAL share does not change.
+  const newWeaponMix = (rerolls, SCREENS = 6000) => {
+    Math.random = mulberry32(20260808)
+    const run = fixture()
+    const mix = {}
+    let n = 0
+    for (let i = 0; i < SCREENS; i++) {
+      run._screenRerolls = rerolls
+      run._screenAnomaly = undefined
+      for (const c of buildLevelUpChoices(run)) {
+        if (c.kind !== 'weapon' || c.tag !== 'New!') continue
+        n++
+        mix[c.rarity] = (mix[c.rarity] ?? 0) + 1
+      }
+    }
+    assert.ok(n > 1000, `the New!-weapon fixture saw ${n} of them — it is not measuring anything`)
+    return Object.fromEntries(Object.entries(mix).map(([r, c]) => [r, (100 * c) / n]))
+  }
+  const new0 = newWeaponMix(0)
+  const newCap = newWeaponMix(REROLL_RARITY_CAP)
+  for (const r of new Set([...Object.keys(new0), ...Object.keys(newCap)])) {
+    assert.ok(Math.abs((newCap[r] ?? 0) - (new0[r] ?? 0)) < 2.5,
+      `${REROLL_RARITY_CAP} rerolls moved ${r} from ${(new0[r] ?? 0).toFixed(1)}% to ${(newCap[r] ?? 0).toFixed(1)}% of New! weapon cards — rerolling is buying rarer DISCOVERIES, which it must not`)
+  }
 
   // DENOM, exact. A constant Math.random makes the anomaly roll a comparison rather than a sample:
   // pick a threshold strictly between what the two implementations would need, and the correct one
@@ -1220,7 +1334,11 @@ function testRerollRarity() {
   assert.ok(drift < 0.10,
     `${REROLL_RARITY_CAP} rerolls moved the anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (${(drift * 100).toFixed(0)}% relative) — reroll is buying anomalies (B6)`)
 
-  console.log(`PASS run PB4 (reroll rarity): normal ${zero.toFixed(1)}% -> ${capped.toFixed(1)}% of tiered cards over ${REROLL_RARITY_CAP} rerolls and ${past.toFixed(1)}% at ${REROLL_RARITY_CAP + 3} (capped); switch mods ${sw0.toFixed(2)}% -> ${swCap.toFixed(2)}% of mod cards; anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (${(drift * 100).toFixed(0)}% drift), denominator pinned undecayed`)
+  // The whole table config.js documents, printed rather than described — the rows a reader would
+  // otherwise have to take on trust. `node scripts/pool-probe.mjs body 3 40 random --rerolls=N`
+  // regenerates them off the shipped pipeline.
+  const table = rows.map((r, i) => `${i === 3 ? REROLL_RARITY_CAP : i}:${r.normal.toFixed(1)}/${r.epicPlus.toFixed(1)}/${r.mult.toFixed(3)}`).join(' ')
+  console.log(`PASS run PB4 (reroll rarity): rerolls normal%/epic+%/mult ${table} and ${past.normal.toFixed(1)}% normal at ${REROLL_RARITY_CAP + 3} (capped); garden switch mods ${sw0.toFixed(2)}% -> ${swCap.toFixed(2)}% of mod cards and New! discovery unmoved; anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (${(drift * 100).toFixed(0)}% drift), denominator pinned undecayed`)
 }
 
 // Declines every level-up screen (still banks the xp/level, per stepLevelUp, but grants no

@@ -1024,17 +1024,26 @@ function generateWells(sig) {
  *   that HAD one both spent the pity and threw the card away. Never serialized.
  * _screenRerolls (v6.7.10): rerolls PAID FOR on the screen currently open. rollCard multiplies the
  *   `normal` rarity weight by REROLL_RARITY_DECAY ^ min(this, REROLL_RARITY_CAP), so rerolling
- *   buys bigger numbers; it never reaches the anomaly tier, which rolls against the sum of the
- *   UNDECAYED table (see rollAnomalyCard). Zeroed by stepLevelUp when a screen opens, stepped by
- *   main.js's onReroll beside the _rerolls bump. Never serialized.
+ *   buys bigger numbers; it never reaches the anomaly tier (which rolls against the sum of the
+ *   UNDECAYED table — see rollAnomalyCard), the weapon bucket's `New!` weights, or a `switch`
+ *   mod's offer rate. Zeroed by stepLevelUp when a screen opens, stepped by sim.js's
+ *   rerollLevelUpChoices — the whole reroll purchase, which main.js's onReroll calls and which owns
+ *   the _rerolls bump beside it (v6.7.11: while that bump lived in main.js it was the one
+ *   production write to this field, and since test/sim-test.js never imports main.js the entire
+ *   feature could be deleted with the suite green). Never serialized.
  *   IT COUNTS PURCHASES, NOT BUILDS — deliberately, and this is the field's whole hazard. Counting
  *   builds (incrementing inside buildLevelUpChoices) reads identically on the shipped path and is
  *   wrong everywhere else: ~15 sampling loops in test/sim-test.js and the survival rig in
  *   scripts/pool-probe.mjs reuse one run across thousands of builds, so each would saturate at
  *   REROLL_RARITY_CAP after three iterations and then measure the 3-reroll distribution while
  *   reporting it as the base rate. That is not hypothetical: forcing the cap on turns run PB1 red
- *   (city/2 rare 33.4% overtaking normal-tier share). So a test that wants the decayed pool must
- *   set this field (or drive main.js's path), and a test that wants the base rate need do nothing.
+ *   (city/2 rare 33.4% overtaking normal-tier share). So a test or harness that wants the decayed
+ *   pool sets this field (scripts/pool-probe.mjs --rerolls=N does exactly that) or calls
+ *   rerollLevelUpChoices; one that wants the base rate need do nothing.
+ *   ITS UNIT IS THE SCREEN AND THE PRICE'S UNIT IS THE RUN. rerollCost escalates on _rerolls, so
+ *   reaching REROLL_RARITY_CAP costs 48 coins on a run's first rerolled screen, 161 after three
+ *   prior rerolls and 542 after six, against ~251 coins earned in a whole mortal body/2 d3 run.
+ *   The mismatch is deliberate-but-open — see the REROLL_RARITY_DECAY block in config.js.
  *
  * v4.5 gold sinks (see CONSUMABLES/REROLL_* in config.js):
  * consumables: run.consumables is the array of CONSUMABLES ids (opts.consumables passed to
@@ -1048,13 +1057,14 @@ function generateWells(sig) {
  *   by hurtPlayer (sim.js): instead of dying, the player is restored to maxHP *
  *   REVIVE_HP_FRAC, granted REVIVE_INVULN invulnerability, and every enemy within
  *   REVIVE_SHOVE_RADIUS is knocked back (a {type:'revive', x, y} event fires — see above).
- * _rerolls: count of level-up rerolls used so far this run (main.js increments this and
- *   recomputes the next reroll's price via rerollCost(run._rerolls) — see config.js).
+ * _rerolls: count of level-up rerolls used so far this run (sim.js's rerollLevelUpChoices steps it
+ *   and prices the next reroll off it via rerollCost(run._rerolls) — see config.js; main.js only
+ *   reads it back to label the button).
  *   Rerolls are paid from run.coinsEarned (this run's coins), never the meta bank (v5.1).
  *   coinsEarned is clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) on every pickup — see
  *   coinsEarned's own field doc below.
  *   Rerolling is just calling buildLevelUpChoices again — with one thing carried across the call:
- *   onReroll also steps _screenRerolls (above), which is the only state that makes the rebuilt
+ *   the purchase also steps _screenRerolls (above), which is the only state that makes the rebuilt
  *   screen differ in distribution from the one it replaced.
  * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
  *   snapshotted from meta.choiceSlots at createRun and clamped THERE into [2, MAX_CHOICE_SLOTS]
@@ -1229,8 +1239,8 @@ export function createRun(meta, opts = {}) {
     _screenAnomaly: undefined,
     // v6.7.10: rerolls PAID FOR on the screen currently open — they decay the `normal` rarity
     // weight (REROLL_RARITY_DECAY in config.js). Zeroed by stepLevelUp when a screen opens and
-    // stepped by main.js's onReroll, beside the _rerolls bump that prices the next one. It counts
-    // PURCHASES, never builds: see the note on the field in the doc block above.
+    // stepped by sim.js's rerollLevelUpChoices, beside the _rerolls bump that prices the next one.
+    // It counts PURCHASES, never builds: see the note on the field in the doc block above.
     _screenRerolls: 0,
     enemies: [],
     bullets: [],

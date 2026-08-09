@@ -833,9 +833,16 @@ git commit -m "v6.7.3: rerolling a level-up nudges rarity upward but never buys 
 >    red** (city/2 rare 33.4%). The plan's own answer to this — a standing "every sampling loop
 >    must reset it per iteration" warning, plus the claim that Tasks 1–4's tests already do — is
 >    false (three of the ~18 call sites do) and makes the unsafe thing the default forever.
->    Shipped: `stepLevelUp` zeroes `run._screenRerolls`, `main.js`'s `onReroll` steps it beside the
+>    Shipped: `stepLevelUp` zeroes `run._screenRerolls`, the reroll PURCHASE steps it beside the
 >    `_rerolls` bump that already prices the reroll, and the builder never touches it. PB4 asserts
 >    all three, including that four consecutive builds leave it unmoved.
+>    **v6.7.11 moved that purchase out of `main.js` into `sim.js`** (`rerollLevelUpChoices(run)` —
+>    price, pay, step both counters, re-deal; `onReroll` keeps only the phase guard, the sfx and the
+>    re-show). While the bump lived in glue it was the ONLY production write to the field and
+>    `test/sim-test.js` never imports `main.js`, so deleting that one line left the whole suite
+>    green — PB4 included, because PB4 supplied the increment itself — while every shipped reroll
+>    rolled at the undecayed table. PB4 now drives the real function and also checks textually that
+>    `onReroll` still calls it.
 > 2. **Step 1's PB4 is vacuous as written** against v6.7.9's per-screen memo. It never clears
 >    `run._screenAnomaly`, so the first iteration's draw freezes for all 4000 screens and the drift
 >    assertion compares 0% against 0% (or 100% against 100%) and passes. Worse, the property it
@@ -851,18 +858,48 @@ git commit -m "v6.7.3: rerolling a level-up nudges rarity upward but never buys 
 > it *is* the rarity roll for that card, and leaving it undecayed silently exempts the two cards a
 > player rerolling a bad screen most wants bigger (12.3% of them take that path at the cap). The
 > weapon bucket's `New!` weights stay undecayed on purpose: they choose WHICH weapon, and a reroll
-> promises size, not rarer discoveries.
+> promises size, not rarer discoveries (PB4 pins the `New!` rarity histogram as unmoved — folding
+> the decay into `weaponW` is a one-word edit that moves it 57.7/32.8/9.6 -> 45.2/42.8/12.0 while
+> every bucket-share test stays green, because the bucket's TOTAL share does not change).
 >
-> **Measured** (body/3, tier-eligible, 8000 screens/row): mean rarity multiplier 1.432 -> 1.583
-> over 3 rerolls (+10.5%), epic+ 10.4% -> 14.2%, normal 59.0% -> 45.8% of tiered cards, and rr=4
-> identical to rr=3 (the cap is exact). Anomaly rate 8.63% -> 8.58% (1% relative). Inert at zero:
+> **3. The nudge must not be funded out of the rule-change share (v6.7.11).** A `switch` mod
+> declines every rarity above `normal`, so it is only a CANDIDATE on a normal roll — and decaying
+> `normal` for the mod bucket therefore *deleted* rule-change offers to pay for bigger numbers:
+> garden **9.11% -> 6.61%** of mod cards at the cap, pond 6.04% -> 4.25%, skies 6.65% -> 4.50%,
+> undergrowth 2.78% -> 1.94% (20000 screens/arm). A 27-32% relative cut on the class the spec's own
+> F14 flags as this pool's scarcest — the owner's #1 complaint sold back as a purchasable upgrade.
+> `rollCard` now rolls mod CANDIDACY on the undecayed table and only MAGNITUDE on the decayed one:
+> the switch rate is flat (garden 9.01% -> 9.43%, inside a 0.45pt six-seed spread) and numeric mods
+> keep the full nudge. PB4 asserts INVARIANCE, on **garden** (3 switch mods, the most of any
+> chapter) — the v6.7.10 version measured "undergrowth" via `createRun(meta)`, which ignores
+> `meta.chapter`, so it had been sampling a body run wearing undergrowth's weapons.
+>
+> **Measured** (body/3, tier-eligible, 20000 screens/row; PB4 asserts these literals and
+> `node scripts/pool-probe.mjs body 3 40 random --rerolls=N` regenerates them off the shipped
+> pipeline — v6.7.11 added that flag, because before it nothing checked in could measure the pool a
+> rerolling player actually plays): mean rarity multiplier 1.432 -> 1.574 over 3 rerolls (+9.9%),
+> epic+ 10.5% -> 13.9%, normal 58.9% -> 45.8% of tiered cards, and rr=4 identical to rr=3 (the cap
+> is exact). Anomaly rate 8.63% -> 8.56% (1% relative). Inert at zero:
 > `node scripts/pool-probe.mjs body 2 40 random --compare` is **byte-identical** before and after
 > (same md5), as is the mortal rig `body 2 40 dps --survival --diff=3 --compare`.
 >
-> **Owed, not fixed here (same standing item v6.7.9 logged for pity):** the decay is invisible.
-> Nothing in `ui.js` tells the player that a reroll is also buying rarity, so a hidden rule moves a
-> hidden weight. A look change goes to the owner as labelled shot variants on one identical
-> in-game frame, never as a unilateral edit — do it with the pity tell, before Track B is done.
+> **The cost table is a FIRST-SCREEN price.** `rerollCost` escalates per RUN while the decay counts
+> per SCREEN, so the cap costs 48 coins on a run's first rerolled screen, 161 after three prior
+> rerolls and 542 after six — against 251 coins/run measured mortal (`body 2 40 dps --survival
+> --diff=3`) and 347 immortal. Consequences accepted and written into `config.js` rather than
+> discovered later: concentrating rerolls beats spreading them at identical cost, and the nudge is
+> cheapest where the cards are smallest.
+>
+> **Owed / open — see spec B6's three OPEN items**, all raised by the adversarial gate and none of
+> them a defect in what shipped: (1) the reroll is a magnitude lever, never a KIND lever, so
+> complaint #3 stands — the alternative is a foreseeable per-screen bucket FLOOR the button can
+> advertise; (2) Ruptures are sealed off from the only lever the player has, where letting a reroll
+> advance pity toward a LATER screen would keep B6 intact and still connect them; (3) pricing the
+> reroll per screen would put the cap and its cost in one unit. All three are owner calls.
+> **And the standing item v6.7.9 logged for pity:** the decay is invisible. Nothing in `ui.js` tells
+> the player a reroll is also buying rarity, so a hidden rule moves a hidden weight. A look change
+> goes to the owner as labelled shot variants on one identical in-game frame, never as a unilateral
+> edit — do it with the pity tell, before Track B is done.
 
 ---
 

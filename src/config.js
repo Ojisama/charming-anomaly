@@ -70,34 +70,64 @@ export const UPGRADE_RARITY = 'upgrade'
 
 // Rerolling a level-up screen carries a small rarity pity: it buys BIGGER NUMBERS. Only the
 // `normal` weight decays, so every other tier's share rises proportionally without needing a knob
-// of its own — at the cap the ordinary table reads 51.2/50/12/6/3.
-// DELIVERED, measured on the shipped roll (body/3, tier-eligible, 8000 screens per row; run PB4
-// asserts the ends of it). "normal" is the share of TIERED cards, i.e. excluding weapon upgrades,
-// which carry UPGRADE_RARITY and no tier at all:
-//     rerolls   normal   epic+   mean rarity mult   cumulative coins (rerollCost)
-//        0      59.0%    10.4%        1.432               —
-//        1        —      11.8%        1.481              10
-//        2        —      13.0%        1.532              25
-//        3      45.8%    14.2%        1.583              48
-//        4        —      14.2%        1.583              82  (identical: the cap is exact)
-// So three rerolls are worth +10.5% on the average card and +37% relative on epic-or-better. A
+// of its own — at the cap the ordinary table reads 51.2/50/12/6/3, i.e. the rarity roll comes up
+// `normal` 41.90% of the time against 58.48% at base (exact, and run PB4 pins it against the
+// element bucket, which adopts the rolled tier verbatim).
+// DELIVERED, measured on the shipped roll (body/3, tier-eligible, 20000 screens per row; run PB4
+// asserts every row and `pool-probe body 3 40 random --rerolls=N` regenerates them off the real
+// pipeline). "normal" is the share of TIERED cards, i.e. excluding weapon upgrades, which carry
+// UPGRADE_RARITY and no tier at all:
+//     rerolls   normal   epic+   mean rarity mult
+//        0      58.9%    10.5%        1.432
+//        1      54.4%    11.9%        1.484
+//        2      50.6%    12.8%        1.525
+//        3      45.8%    13.9%        1.574
+//        4      46.0%    14.2%        1.580   (identical to 3: the cap is exact)
+// So three rerolls are worth +9.9% on the average card and +32% relative on epic-or-better. A
 // nudge, deliberately: the reroll's real product is a different SET of cards, and this is the
 // consolation for the one you buy and still don't like.
+// WHAT IT COSTS IS A RUN NUMBER, WHICH THE CAP IS NOT. rerollCost escalates on run._rerolls (the
+// whole run), while the decay reads run._screenRerolls (this screen, zeroed by stepLevelUp), so
+// the price of reaching the cap depends on WHEN in the run you do it: 10+15+23 = 48 coins on the
+// run's first rerolled screen, 34+51+76 = 161 after three prior rerolls, 114+171+257 = 542 after
+// six. Measured income for comparison: 251 coins/run mortal (body/2 d3, `--survival`, the rig that
+// answers "what does a player actually have"), 347 immortal. So the documented 48-coin row is the
+// FIRST-SCREEN price and the cap is reachable at its advertised cost roughly once per run; by the
+// time a player has spent five rerolls it is unaffordable. Two consequences the design accepts and
+// does not hide: concentrating rerolls on one screen is worth strictly more than spreading them at
+// the same price ("when you reroll, reroll to three"), and the nudge is cheapest exactly where the
+// cards are smallest. Repricing the reroll per SCREEN would close both; it is an owner call about
+// a gold sink shipped since v4.5, logged as open in spec B6 rather than taken here.
 // It deliberately does NOT touch the anomaly tier. The tier rolls against the sum of the
 // UNDECAYED table (see rollAnomalyCard), so a reroll cannot shrink the denominator it competes
 // against; summing the decayed table instead measures 8.6% -> 11.6% of screens at the cap, +35%
 // relative. Rerolling would then be the way to FARM the rarest tier rather than a way to fix a bad
 // screen — the second half of spec B6, whose first half (repeated independent draws) v6.7.9 closed
-// by deciding the tier once per screen. Measured at 8.63% -> 8.58%, 1% relative.
-// The one thing it touches that is NOT a number: a `switch` mod declines every rarity above normal
-// (see WEAPON_MODS), so thinning `normal` thins the behavioural mods too — measured on undergrowth
-// at 2.65% -> 2.15% of mod cards, 0.8% -> 0.6% of all cards. Accepted at that size and bounded by
-// run PB4, because "buys bigger numbers, not more rule-changes" is not a licence to buy FEWER of
-// them. A steeper decay would have to answer for that first.
-// The CAP exists because the decay is geometric: uncapped, six rerolls take normal to 33.0% of
-// tiered cards (measured) and every screen past the fourth is a pool nothing was balanced on.
-// Three is where rerollCost has already reached 34 coins for the NEXT one (REROLL_BASE_COST 10,
-// x1.5 each — 48 spent to get here) against ~370 earned in a whole body/2 run.
+// by deciding the tier once per screen. Measured at 8.63% -> 8.56%, 1% relative.
+// NOR ANY OTHER CARD *KIND* — this is a promise about SIZE, and v6.7.11 is where that stopped
+// being approximately true. A `switch` mod (Hive Mind, Sticky Scent, Cyclone, Double Slash) has no
+// magnitude, so it declines every rarity above normal (see WEAPON_MODS) and is only a CANDIDATE on
+// a normal roll. While the mod bucket picked its candidate off the decayed table, paying for a
+// reroll therefore deleted rule-change offers to pay for bigger numbers: measured -27% to -32%
+// relative at the cap on every chapter that has one (garden 9.11% -> 6.61% of mod cards, pond
+// 6.04% -> 4.25%, skies 6.65% -> 4.50%, undergrowth 2.78% -> 1.94%), which is the game's #1
+// standing complaint sold back to the player as an upgrade. rollCard now rolls mod CANDIDACY on
+// the undecayed table and only the MAGNITUDE on the decayed one, so the switch rate is flat
+// (garden 9.01% -> 9.43%, within a 0.45pt seed spread) while numeric mods keep the full nudge; run
+// PB4 asserts the invariance, not a bounded loss. Same reasoning already keeps the weapon bucket's
+// `New!` weights undecayed: they choose WHICH weapon, and a reroll must not buy rarer discoveries.
+// HOW MUCH OF A SCREEN THE NUDGE CANNOT REACH, measured rather than waved at: a weapon card has no
+// magnitude for rarity to scale (applyChoice's weapon branch never reads it — the chip is the
+// acquisition jackpot) and an anomaly has no multiplier at all, so those cards are exempt by
+// construction. On body/lv12, 20000 screens: 28.3% of cards at 2 slots (27.2% at 3, 24.8% at 4),
+// and at the DEFAULT 2 slots 6.7% of screens hold nothing the nudge can move while another 43.4%
+// hold exactly one. That is the honest size of the product being sold, and the reason the UI tell
+// this feature still owes is not a polish item: a hidden +10% on part of a screen the player
+// cannot identify is not a decision.
+// The CAP exists because the decay is geometric: uncapped, six rerolls take the rarity roll's
+// normal share to 27.0% against 41.9% at the cap, and every screen past the fourth is a pool
+// nothing was balanced on. Three is where rerollCost has already reached 34 coins for the NEXT one
+// on a first-screen ladder (REROLL_BASE_COST 10, x1.5 each).
 export const REROLL_RARITY_DECAY = 0.8   // `normal` weight multiplier per reroll of THIS screen
 export const REROLL_RARITY_CAP = 3       // rerolls of one screen past which the decay stops
 

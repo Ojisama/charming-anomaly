@@ -174,9 +174,11 @@ function formatShopBonus(id, levels) {
  *       for the joystick, so an instant tap is a stray press, not a pick. Same gate on onReroll.
  *       Nothing tells main.js a tap was swallowed; the player simply taps again.
  *     - onReroll(): level-up screen's Reroll button (or the 'R' key). main.js is expected to
- *       no-op silently if unaffordable/wrong phase, otherwise deduct RUN coins (run.coinsEarned,
- *       the HUD counter — not the meta bank), bump run._rerolls,
- *       rebuild run.levelUpChoices, and call showScreen('levelup', ...) again with fresh data.
+ *       no-op silently on the wrong phase and otherwise hand the whole purchase to sim.js's
+ *       rerollLevelUpChoices — which deducts RUN coins (run.coinsEarned, the HUD counter, not the
+ *       meta bank), steps run._rerolls and run._screenRerolls, rebuilds run.levelUpChoices, and
+ *       returns false unchanged when it is unaffordable — then call showScreen('levelup', ...)
+ *       again with fresh data.
  *     - onSacrifice(picks): fired by the sacrifice modal's "Confirm sacrifice" button. picks is
  *       { [statId]: count }, the shop levels offered per stat (sum === sacrificeCost(meta.choiceSlots)).
  *       Returns true/false; the UI closes the modal and re-renders the shop either way (main.js
