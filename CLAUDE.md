@@ -99,6 +99,11 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   and `scripts/deploy-watch.sh "vX.Y.Z · <sha>"` then reports 0 for a deploy that actually
   succeeded. Land WIP chores first and put the `vX.Y.Z:` commit last (squashing the chores into it
   is fine — the never-squash rule is about not merging two *releases* into one).
+  **This applies to docs-only commits too, and it bit the session that wrote this rule down, one
+  command after writing it:** a `chore:` touching only CLAUDE.md was pushed to main on top of
+  v6.10.0, the workflow rebuilt (it runs on every push to main, path-independent), and the live
+  page went from `v6.10.0 · 969a0e8` to `dev · 4f17cad`. Push docs-only commits to your BRANCH, or
+  accept that the next thing you land on main has to be a `vX.Y.Z:` commit to restore the stamp.
 - **Measuring damage from `hit` events over-reports.** `{type:'hit', dmg}` carries the RAW swing,
   not HP removed, so it credits overkill in full and flatters exactly the weapons with the biggest
   per-hit numbers. In v6.10 that read the Sewer Geyser as the city's highest-damage weapon (531)
