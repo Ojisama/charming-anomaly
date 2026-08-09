@@ -232,7 +232,7 @@ export function loadMeta() {
       const m = JSON.parse(raw)
       // v6.6.10: coerce every numeric that reaches innerHTML. slotSummary hardened `coins` in
       // v6.4.7 (test SS.g) but loadMeta never did — and loadMeta is what feeds the title coins
-      // badge (ui.js:491), the shop balance (:717) and the reroll button (:1132), so a tampered
+      // badge (ui.js), the shop balance (:717) and the reroll button (:1132), so a tampered
       // localStorage value arrived at all three as a raw string. Number()||0 also subsumes the
       // `??= 0` this replaces on shop levels, whose sum is interpolated by shopFootHtml (:560).
       m.coins = Number(m.coins) || 0

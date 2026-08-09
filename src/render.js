@@ -2866,7 +2866,7 @@ export function createRenderer(app) {
       // lilypad (pond, v6.4 — BIOME_POND below): a flat top-down pad. Irregular lobed rim
       // (radialOutline-style cosine perturbation, the same trick T.asteroid uses below) plus the
       // classic wedge notch cut to the centre, radial veins fanned across the rim the notch didn't
-      // cut, a darker rim edge and a subtle off-centre sheen. NEVER a smooth disc — render.js:4397's
+      // cut, a darker rim edge and a subtle off-centre sheen. NEVER a smooth disc — render.js's
       // own rule: a plain green circle is the single most "programmer art" shape on offer. Flat and
       // top-down (no `upright` — spins freely, same as puddle/asteroid). Murky green family, tuned
       // into BIOME_POND's decor luminance band — see that block's own comment for the measured
@@ -7826,7 +7826,7 @@ export function createRenderer(app) {
     return b.src === 'gun' || b.src === 'sky' || b.src === 'volatile' ? b.src : null
   }
   // Artillery's trajectory ghost now reads `b.ox`/`b.oy` — the firing tank's own position, set by sim
-  // the instant the shell is pushed (sim.js:570). This used to be a render-side heuristic
+  // the instant the shell is pushed (sim.js). This used to be a render-side heuristic
   // (`latchBombOrigin`, scanning every artillery enemy for whichever currently held the globally
   // highest `e._shellT`) that a reviewer caught attaching the trajectory ghost + muzzle flash to the
   // wrong, sometimes off-screen, tank whenever an idle tank's timer simply outranked the one that had
@@ -11229,7 +11229,7 @@ export function createRenderer(app) {
   // v5.10 (kill list §8.3): this drew artillery and sky bombardment IDENTICALLY, because run.bombs
   // carried no discriminator — one drawer, one colour, two completely different threats.
   // v5.10.1: they now go through three SEPARATE drawers (drawSkiesBombs above), and the source is
-  // an explicit `b.src` stamped by sim at the push site (sim.js:581/1589/1826), NOT inferred from
+  // an explicit `b.src` stamped by sim at the push site (sim.js/1589/1826), NOT inferred from
   // `duration` as the first pass did. That inference is why volatile-elite corpses used to fall
   // through to the red circle below AND detonate as the sky's signature bolt — an elite's death was
   // indistinguishable from a lightning strike, in the one chapter built around telling the sky apart

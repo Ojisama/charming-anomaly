@@ -36,10 +36,10 @@ Grafted on, because the spine is thin exactly where the runners-up are strong:
 Everything Aftermath's fire/plume/emergency-vehicle half proposed is cut. §14 says why.
 
 This document is the art brief *and* the implementation contract. It is written against the code as it is
-today: `bake(g, pad)` at `resolution: 2` returning `{tex, ax, ay}` (render.js:111), `Texture.from(canvas)`
-for gradients (render.js:1865-1941, 2665), the `FLOOR_LAYERS` per-cell pooled populate machinery
-(render.js:3596), `syncObstacles`' `ring + clumpA + clumpB` rig (render.js:4140), the global 200-slot
-particle ring buffer (render.js:14), and `roadAt`/`districtAt` as the only shared sim/render geometry
+today: `bake(g, pad)` at `resolution: 2` returning `{tex, ax, ay}` (render.js), `Texture.from(canvas)`
+for gradients (render.js, 2665), the `FLOOR_LAYERS` per-cell pooled populate machinery
+(render.js), `syncObstacles`' `ring + clumpA + clumpB` rig (render.js), the global 200-slot
+particle ring buffer (render.js), and `roadAt`/`districtAt` as the only shared sim/render geometry
 (config.js).
 
 ---
@@ -48,22 +48,22 @@ particle ring buffer (render.js:14), and `roadAt`/`districtAt` as the only share
 
 ### 1.1 The bombs discriminator (crosses into sim.js — plan it, do not smuggle it)
 
-`sim.js:570` (tank artillery) and `sim.js:1579` (sky bombardment) push **structurally identical**
-`run.bombs` entries: `{x, y, radius, fuse, duration, dmg}`. `render.js`'s `redrawBombs` (render.js:6103)
+`sim.js` (tank artillery) and `sim.js` (sky bombardment) push **structurally identical**
+`run.bombs` entries: `{x, y, radius, fuse, duration, dmg}`. `render.js`'s `redrawBombs` (render.js)
 therefore *cannot* tell a tank shell from a lightning strike. That is the literal, verified root cause of
 "the storm hit and the tank hit look the same". No amount of art fixes it.
 
 ```js
-// sim.js:570 — artillery
+// sim.js — artillery
 run.bombs.push({ x, y, radius, fuse: ARTILLERY_FUSE, duration: ARTILLERY_FUSE, dmg,
                  src: 'gun', ox: e.x, oy: e.y })     // ox/oy = the firing tank, for the trajectory ghost
-// sim.js:1579 — bombardment
+// sim.js — bombardment
 run.bombs.push({ x, y, radius: BOMBARDMENT_RADIUS, fuse: BOMBARDMENT_FUSE,
                  duration: BOMBARDMENT_FUSE, dmg: BOMBARDMENT_DMG, src: 'sky' })
-// sim.js:1816 — volatile elites (every other chapter): src stays undefined. Untouched.
+// sim.js — volatile elites (every other chapter): src stays undefined. Untouched.
 ```
 
-`stepBombs`' detonation event (`sim.js:1743`) mirrors it:
+`stepBombs`' detonation event (`sim.js`) mirrors it:
 `run.events.push({ type: 'explode', x: b.x, y: b.y, radius: b.radius, src: b.src, ox: b.ox, oy: b.oy })`.
 
 Document the three new fields in `state.js`'s doc block (the `run.bombs` entry and the `explode` event
@@ -71,7 +71,7 @@ shape). The fields are purely additive; `test/sim-test.js` needs no change, but 
 
 ### 1.2 Split the particle pool
 
-`MAX_PARTICLES = 200` is **one global ring buffer** (render.js:14, `particleCursor` wraps silently). This
+`MAX_PARTICLES = 200` is **one global ring buffer** (render.js, `particleCursor` wraps silently). This
 spec adds persistent missile smoke, crush dust and artillery clods. At naive rates those would evict every
 hit/kill/pickup particle in the game with no error.
 
@@ -533,24 +533,24 @@ black corridor through a lit grid**; (3) the searchlight anchor invalidation.
 Each of these is a concrete, currently-shipping reuse that the user called out. Removing them is not
 optional.
 
-1. **`updateStrafeLocks` uses `LIGHTNING.telegraph` for the jet lane** (render.js:4873) — the strafe lane is
+1. **`updateStrafeLocks` uses `LIGHTNING.telegraph` for the jet lane** (render.js) — the strafe lane is
    drawn in the *same electric blue as the bomb telegraph*. This is the literal bug in the report. The jet
    loses blue entirely (§3, jet row).
-2. **The strafe telegraph reuses `lineCharge`'s band-and-chevrons shape** (render.js:4853 comment says so).
+2. **The strafe telegraph reuses `lineCharge`'s band-and-chevrons shape** (render.js comment says so).
    Kill the filled band, kill the chevrons. Rails + travelling light pool.
 3. **`redrawBombs` draws artillery and bombardment identically** because `run.bombs` has no discriminator
-   (render.js:6103). Fixed by §1.1; the two must then draw through **separate drawers**, not one drawer with
+   (render.js). Fixed by §1.1; the two must then draw through **separate drawers**, not one drawer with
    a colour swap.
-4. **`crushBurst` reuses `T.fx.circle_05` + `T.fx.scorch_01` + `T.dot`** (render.js:5522) — the same two
+4. **`crushBurst` reuses `T.fx.circle_05` + `T.fx.scorch_01` + `T.dot`** (render.js) — the same two
    Kenney textures `explosionBurst` uses, just tinted grey, and the same soft dot as kill-poofs and pickup
    sparkles. Replace with **baked angular shards** (slab / roof-tile / plank quads with visible edges) and a
    baked low dust-skirt ellipse. Soft round particles are what makes a collapsing building read as a puff.
 5. **Missile impact currently routes through `explosionBurst`'s orange `spark_04` fire burst.** Magenta star
    + black smoke ring instead, on the smoke pool.
-6. **`T.foam = T.fx.trace_05`** (render.js:2815) — the sea district's breaking-wave prop *is the pond's
+6. **`T.foam = T.fx.trace_05`** (render.js) — the sea district's breaking-wave prop *is the pond's
    current-streak sprite*, and `populateEdge` reuses it again for coastlines. Bake a real wave-crest
    (2 parallel crest arcs + a foam speckle band).
-7. **`STRUCTURE_SKINS.rock = ['voxelRockA','voxelRockB','voxelRockC']`** (render.js:3468) — hills'
+7. **`STRUCTURE_SKINS.rock = ['voxelRockA','voxelRockB','voxelRockC']`** (render.js) — hills'
    *crushable structures* are the hills *floor-decor* boulders at a bigger scale. Give them the dedicated
    `outcrop` bake (§5.8).
 8. **`STRUCTURE_SKINS.tower = ['rubble','rubble']`** — downtown's landmark building is literally the generic

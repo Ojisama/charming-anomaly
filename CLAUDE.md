@@ -70,7 +70,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 ## Non-obvious constraints (breaking these produces a blank page in prod)
 
-- **No top-level `await` in `main.js`.** Suspending module evaluation deadlocks Pixi v8's dynamically-imported environment code in the production bundle (hangs on a blank page). `boot()` is a plain async fn, *called* at `main.js:14` and *declared* at 16 — hoisting makes that legal, and the point is that nothing awaits at module scope.
+- **No top-level `await` in `main.js`.** Suspending module evaluation deadlocks Pixi v8's dynamically-imported environment code in the production bundle (hangs on a blank page). `boot()` is a plain async fn, *called* near the top of `main.js` and *declared* just below it — hoisting makes that legal, and the point is that nothing awaits at module scope.
 - **`vite.config.js` sets `inlineDynamicImports: true`.** Pixi v8 auto-detects its environment via dynamic import; as a split chunk it never loads in prod. Don't remove this.
 - **Asset globs use `import.meta.glob('./props/*.png', { eager: true, query: '?url', import: 'default' })`** in render.js — resolves to URL strings at build time, no runtime dynamic-import graph (required by the constraints above). Add art to `src/props/` (foliage) or `src/fx/` (Kenney particle PNGs, tinted per-use); they're auto-discovered. `src/cast/*.png` (ui.js) is the same idiom, but those files are **generated**, not authored — `node scripts/bake-cast.mjs` re-bakes them from render.js's own creature textures. Nothing warns you if they go stale.
 - **`base: './'`** in vite config — the game ships to a GitHub Pages subpath, so all asset paths must stay relative.

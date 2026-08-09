@@ -57,7 +57,7 @@ small enough that the hole never swallows the spawn ring. Tune against `viewRadi
 
 ### A2. Enemy contact damage never scales
 
-`spawnEnemy`, sim.js:332:
+`spawnEnemy`, sim.js:
 
 ```js
 const dmg = base.dmg * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul

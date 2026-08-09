@@ -16,7 +16,7 @@ cannot be a render change.
 Verified against the code:
 
 1. **You are smaller than the debris, and it blocks you.** `PLAYER.radius` is 22
-   (config.js:26); skies obstacles are radius 30–60. `stepObstacles` (sim.js:1171)
+   (config.js); skies obstacles are radius 30–60. `stepObstacles` (sim.js)
    hard-shoves the player out of every one. A 60-metre monster is stopped by a
    pile of concrete.
 2. **The city is already destroyed when you arrive.** Floor, props and obstacles
@@ -24,7 +24,7 @@ Verified against the code:
    after picture.
 3. **Nothing gives way underfoot.** No destructible anything exists
    (`grep -n "crush\|stomp\|destructib" src/*.js` → only two colour-channel
-   comments, render.js:480 and :1520).
+   comments, render.js and :1520).
 
 The three skies weapons (roar, tail swipe, debris toss) are right and are not
 touched. The missing weapon is the one a kaiju uses most: its feet.
@@ -49,20 +49,20 @@ over-engineering. Both passes hit the same section. The corrections are load-
 bearing enough to state up front:
 
 - **The density change in rev. 1 did nothing.** `streamObstacles` computes
-  `prob = count · cs² / (π·OBSTACLE_FIELD_RADIUS²)` (sim.js:1147) — obstacle
+  `prob = count · cs² / (π·OBSTACLE_FIELD_RADIUS²)` (sim.js) — obstacle
   count is *invariant under cell size by construction*. Changing `cell` 420→160
   and leaving `count` at 13 yields 58 live obstacles before and 58 after. Both
   numbers must move. See §1.
 - **`enemyScale` was a sim knob bought for a visual read**, and it silently
   rebalanced the chapter. `e.radius` is an addend in ~12 hit tests, including
-  all three body tests inside `inSector` (sim.js:3172, :3179, :3184) — added
+  all three body tests inside `inSector` (sim.js, :3179, :3184) — added
   deliberately in v5.6.3 (*"sector sweeps test the enemy's BODY, not its
   centre"*). Cut; render scales sprites instead.
-- **`districtAt` already exists**, in config.js:1583, already exported, already
-  imported and tested by `test/sim-test.js:39`. Rev. 1's "it lives in render.js
+- **`districtAt` already exists**, in config.js, already exported, already
+  imported and tested by `test/sim-test.js`. Rev. 1's "it lives in render.js
   and must become shared" was wrong on all three counts. More importantly, sim
   reading `run._districtSeed` would violate a documented boundary
-  (state.js:399-403, :621-623, config.js:1497-1500: *render-only, not a sim
+  (state.js, :621-623, config.js: *render-only, not a sim
   contract*, and drawn from the shared `Math.random` stream). §2 now derives
   structure kind from `obstacleCellHash` instead, so **sim never learns what a
   district is.**
@@ -99,7 +99,7 @@ Structures get smaller and genuinely denser — which takes **two** numbers:
 | `obstacles.minR / maxR` | 30 / 60 | **10 / 28** |
 | live obstacles in drop radius | ~58 | **~150** |
 
-`count` is a *density reference over a 900px-radius disc* (config.js:1665), not a
+`count` is a *density reference over a 900px-radius disc* (config.js), not a
 live count — hence 34, not 150. At `cell: 420` the one-obstacle-per-cell rule
 caps the field at ~64 live no matter what `count` says, so the cell **must**
 shrink to reach 150; 260 is the largest cell that gets there, which keeps the
@@ -109,7 +109,7 @@ would have cost.
 New config surface: `CHAPTERS[x].obstacles.cell`, defaulting to `OBSTACLE_CELL`
 when absent. Skies alone sets it; no other chapter's field moves a pixel.
 
-**Jitter check:** in-cell slack is `Math.max(0, cs/2 - r - 20)` (sim.js:1158). At
+**Jitter check:** in-cell slack is `Math.max(0, cs/2 - r - 20)` (sim.js). At
 `cs: 260, maxR: 28` that is 82px — comfortably positive, so structures still
 jitter rather than snapping to a visible lattice.
 
@@ -143,16 +143,16 @@ guard asserts this band.
 3.3× the obstacles hits three loops that have no spatial index (there is none
 anywhere in sim.js — checked):
 
-- **`stepObstacles`** (sim.js:1171-1197) is `enemies × obstacles`. At `MAX_ALIVE
+- **`stepObstacles`** (sim.js) is `enemies × obstacles`. At `MAX_ALIVE
   400` that goes 23k → 60k distance checks per frame. **Required mitigation:**
   both loops call `Math.hypot(dx, dy)` and compare against `minSep`; replace with
   `dx*dx + dy*dy < minSep*minSep` and only take the square root on the rare
   overlap branch. ~3× cheaper, and it is a strictly smaller diff than the code it
   replaces. This ships to phones; do not skip it.
-- **`syncObstacles`** (render.js:3441-3496) rebuilds *every* obstacle whenever
+- **`syncObstacles`** (render.js) rebuilds *every* obstacle whenever
   `run._obstacleRev` bumps, and calls `districtAt` + `districtTintAt` per
   obstacle — ~72 `hash01` calls each, every one of which does a `parts.join(',')`
-  string allocation. config.js:1525 states the constraint outright: *"nowhere
+  string allocation. config.js states the constraint outright: *"nowhere
   near a hot per-frame loop."* Crushing bumps `_obstacleRev` **every frame you
   are crushing**. **Required mitigation:** cache the district and tint on the
   obstacle the first time it is drawn (`o._skin`), so a rebuild reads a field.
@@ -171,9 +171,9 @@ Structures are the existing streamed obstacle entries plus one field:
 ```
 
 `kind` comes from **`obstacleCellHash(i, j, seed, 4)`** — a fifth salt on the
-hash already used for position and radius (sim.js:1123). Pure, deterministic,
+hash already used for position and radius (sim.js). Pure, deterministic,
 consumes nothing from `Math.random` at step time, and **sim never reads
-`run._districtSeed`**, so the render-only boundary documented at state.js:399-403
+`run._districtSeed`**, so the render-only boundary documented at state.js
 stays intact. Render maps `kind` × district to a sprite; sim does not know what a
 district is.
 
@@ -182,10 +182,10 @@ district is.
 Any structure overlapping the player is **destroyed immediately**:
 
 - splice it from `run.obstacles` and bump `run._obstacleRev` (without the bump,
-  render keeps drawing it until the next cell crossing — render.js:3444)
+  render keeps drawing it until the next cell crossing — render.js)
 - push `{ type: 'crush', x, y, kind }`; render draws collapse + dust, and
   `SFX_FOR_EVENT` maps it to a new `crush` sound
-- drop XP via the existing `run.gems.push({x, y, xp})` path (sim.js:1599)
+- drop XP via the existing `run.gems.push({x, y, xp})` path (sim.js)
 - add to the rampage meter (§3)
 
 No HP, no `CRUSH_DPS`, no per-district HP table, no partial-damage state.
@@ -200,13 +200,13 @@ No HP, no `CRUSH_DPS`, no per-district HP table, no partial-damage state.
 
 ### Two hazards this creates
 
-- **XP flooding.** `stepLevelUp` (sim.js:3988-3999) fires **one level per frame**
+- **XP flooding.** `stepLevelUp` (sim.js) fires **one level per frame**
   and hands control to a modal; leftover XP carries to the next playing frame.
   Crushing hundreds of structures during a rampage will queue back-to-back
   level-up screens at exactly the moment the design wants uninterrupted momentum.
   Structure XP must be small, and worth capping gem drops to every Nth crush.
-- **Audio machine-gunning.** `main.js:242` plays one SFX per event with no dedup;
-  `audio.js:8` throttles only `shoot`/`hit`/`zap`. `crush` must be added to that
+- **Audio machine-gunning.** `main.js` plays one SFX per event with no dedup;
+  `audio.js` throttles only `shoot`/`hit`/`zap`. `crush` must be added to that
   throttle set, and `gem` probably too.
 
 ---
@@ -225,14 +225,14 @@ without touching it. The meter drains across the duration, then resets.
 
 That is the entire buff. Rev. 1 also granted speed and damage multipliers; both
 are cut. `p.speed` and `p.damageMul` are never assigned anywhere in sim.js —
-they are set once in `createRun` and read through multipliers (sim.js:208, :1649,
+they are set once in `createRun` and read through multipliers (sim.js, :1649,
 :3003), so mutating them in place leaks permanently on re-trigger or on death
 mid-buff. A widening crush radius is one number, cannot leak, and is the more
 legible power fantasy anyway.
 
 **HUD:** a bar under the HP bar. Note `screens.hud.innerHTML` is built **once in
-`initUI`** (ui.js:610), before any chapter is chosen — so the bar's markup always
-exists and only its visibility is chapter-gated. `updateHUD` (ui.js:639) is
+`initUI`** (ui.js), before any chapter is chosen — so the bar's markup always
+exists and only its visibility is chapter-gated. `updateHUD` (ui.js) is
 dirty-checked against a `last.*` cache; the new bar must follow that pattern, not
 write every frame.
 
@@ -288,7 +288,7 @@ state: from wrecked to intact.
 - **sea** — water; **gains crushable piers, boats and buoys** → `pier`
 
 Sea is not a dead zone, and this is deliberate. Sea is **42% of the world** —
-computed from the shipped weights at config.js:1504-1527: base weight 2/10, but
+computed from the shipped weights at config.js: base weight 2/10, but
 `DISTRICT_SEA_REGION_CHANCE = 0.32` of blocks apply `DISTRICT_SEA_BOOST = 6` for
 90% sea inside them, giving `0.32×0.90 + 0.68×0.20 = 42.4%`. Sea is also
 walkable. Left empty it would be a 42% rampage dead zone that doubles as the
@@ -310,13 +310,13 @@ problem, and both retunes proposed in rev. 1 were traps:
 
 - **Helicopters — do not touch `MISSILE_STANDOFF` (180).** v5.6.15 lowered it
   from 300 *because* 300 sat outside every skies weapon's reach (roar L1 ≈ 216
-  including body, tailSwipe 200 — config.js:1882), making the entire air wing
+  including body, tailSwipe 200 — config.js), making the entire air wing
   unkillable. The user called the chapter impossible and was right.
 - **Jets — no flights of 2–3.** It is not the spawn-side change rev. 1 claimed:
-  `_strafeBearing` is lazily initialised inside `stepStrafe` (sim.js:769), so
+  `_strafeBearing` is lazily initialised inside `stepStrafe` (sim.js), so
   sharing a bearing means changing that contract. And `jet` is `archetype:
   'fast'` → `wisp`, which is **55% of spawns** at t=260 (`WAVE_TABLE`,
-  config.js:1104). Multiplying the dominant late spawn 2–3× is a difficulty
+  config.js). Multiplying the dominant late spawn 2–3× is a difficulty
   rewrite, and it re-attacks the exact v5.6.15 failure from the other side.
 
 The chapter gets its new shape from the ground, not from the roster. Civilians
@@ -342,23 +342,23 @@ obstacle push. It is genuinely out of scope here, but it will surface the moment
 Everything added lives in sim.js / config.js / state.js, so all of it is
 reachable by `test/sim-test.js`. Nothing added may consume from the shared
 `Math.random` stream at step time — pure hashes only, the rule `streamObstacles`
-already follows. This has bitten the project twice (sim.js:1112).
+already follows. This has bitten the project twice (sim.js).
 
 **The "existing tests pass unchanged" guarantee is nearly vacuous, and pretending
 otherwise is how this regresses.** The suite cannot see this chapter:
 
-- `test/sim-test.js:3860` — the per-chapter balance band, *including the skies
+- `test/sim-test.js` — the per-chapter balance band, *including the skies
   band*, runs `createRun(makeMeta())`, i.e. **the body chapter** (`// body
   chapter: no signature/obstacles skewing the clear`).
-- `test/sim-test.js:260` — `makeStatusEnemy` hardcodes `radius: 16` and bypasses
+- `test/sim-test.js` — `makeStatusEnemy` hardcodes `radius: 16` and bypasses
   `spawnEnemy` entirely. Every skies flag test uses it.
-- `test/sim-test.js:2730` — `flagRun` sets `run.obstacles = []; run._obstacleSeed
+- `test/sim-test.js` — `flagRun` sets `run.obstacles = []; run._obstacleSeed
   = null`. Every skies behaviour test blanks the obstacle field, so the density
   change is invisible to all of them.
-- `test/sim-test.js:2918` — the v5.6.15 invariant asserts `MISSILE_STANDOFF <
+- `test/sim-test.js` — the v5.6.15 invariant asserts `MISSILE_STANDOFF <
   WEAPONS.roar.levels[0].range`, comparing against `range` alone, not `range +
   e.radius`. It would have kept passing while `enemyScale` ate the body margin
-  config.js:1882 calls load-bearing.
+  config.js calls load-bearing.
 
 New scenarios must therefore build a **real skies run with a live obstacle
 field**, not `flagRun`:

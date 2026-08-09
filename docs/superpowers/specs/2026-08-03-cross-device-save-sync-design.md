@@ -76,7 +76,7 @@ on every save the suite performs. A test suite that quietly talks to the interne
 that fails.
 
 Correcting an earlier draft, which said that stub appears "exactly once, in `testSaveSlots`": it is
-installed at **five** sites (`sim-test.js:1763`, `1826`, `1878`, `1941`, `7105-7110`), and the one at
+installed at **five** sites (`sim-test.js`, `1826`, `1878`, `1941`, `7105-7110`), and the one at
 `1941` is `{ getItem: () => …, setItem: () => {} }` — a **no-op `setItem` that reports success**.
 Under §3.2's `saveMeta` that sets `ok = true`, so the hook would fire there too. The conclusion
 still holds — nothing in the suite calls `setSaveHook`, so `saveHook` stays `null` and no request is
@@ -85,7 +85,7 @@ risk is real: five scenarios call `saveMeta` against a succeeding `setItem`, so 
 installs a hook at module scope, the suite starts firing it. §11 adds a guard asserting `saveHook`
 is null after a full run.
 
-Second reason: `loadMeta()` is synchronous and is the first statement of `boot()` (`main.js:17`).
+Second reason: `loadMeta()` is synchronous and is the first statement of `boot()` (`main.js`).
 Sync cannot be part of it. `main.js` may not use top-level `await` (the Pixi v8 blank-page
 constraint), and sync must never block boot regardless — a player on a train opening the PWA must
 get the title screen at the same speed as always.
@@ -99,7 +99,7 @@ So the table gains one row:
 Two clauses of that row would otherwise be violated by this very design, so `main.js` owns them:
 
 - **`run === null` is the safety invariant behind §3.3, and `sync.js` cannot read it.** `run` is a
-  `let` local inside `boot()` (`main.js:19`) — not exported, not reachable from another module. So
+  `let` local inside `boot()` (`main.js`) — not exported, not reachable from another module. So
   `main.js` passes an **`isIdle()` predicate** into `sync.js` at wiring time, and `sync.js` calls it
   before any adopt. Without this the invariant is prose with no implementation.
 - **`visibilitychange` / `pagehide` are DOM registrations.** §6.3 needs them for both pull and push.
@@ -110,7 +110,7 @@ The "save-slot localStorage keys *directly*" wording is deliberate: `sync.js` re
 through `state.js`'s `exportSlot`/`importSlot`, and never constructs a key.
 
 `sync.js` must keep its module scope free of browser globals — `fetch` and `localStorage` only
-inside function bodies, and `__SYNC_URL__` behind the same `typeof` guard `ui.js:18` already uses
+inside function bodies, and `__SYNC_URL__` behind the same `typeof` guard `ui.js` already uses
 for `__BUILD_STAMP__`. That discipline is what keeps it importable from plain node, which in turn
 is what makes its decision logic unit-testable in `npm test` (§11). Write that constraint into the
 module's header comment, because it is one careless import away from being lost.
@@ -165,8 +165,8 @@ Three details matter, and the middle one is a correction to an earlier draft of 
 
 **The hook is wrapped.** An earlier draft fired it outside any catch, reasoning that *"a throwing
 hook surfaces as a real error instead of being mistaken for private mode."* That reasoning is wrong
-about where the throw lands. `saveMeta` is called by `endRun` (`main.js:329`), which is called from
-inside the Pixi ticker callback (`main.js:357-358`), and PixiJS does not catch listener exceptions —
+about where the throw lands. `saveMeta` is called by `endRun` (`main.js`), which is called from
+inside the Pixi ticker callback (`main.js`), and PixiJS does not catch listener exceptions —
 so a throwing hook takes down the frame loop, in the one code path that has just banked a run's
 coins. §8's rule ("every sync failure resolves to do-nothing-and-retry") wins over the diagnostic
 convenience, and the separate try/catch keeps both properties anyway: a localStorage failure is
@@ -180,7 +180,7 @@ then leaving live event handlers able to write over it before the reload commits
 this codebase has no unload handler that would have caught it.
 
 The hook receives a **slot number**, not a key: `state.js` keeps a module-level `boundSlot`
-alongside the existing `boundKey` (both set on the same line of `loadMeta`, `state.js:107`), so key
+alongside the existing `boundKey` (both set on the same line of `loadMeta`, `state.js`), so key
 construction stays entirely inside `state.js` and `sync.js` never learns the shape of a save key.
 `sync.js` compares the slot number against the one it syncs and ignores everything else.
 
@@ -200,7 +200,7 @@ does raw-read-without-migrating):
 That second point is a correction to an earlier draft, which said only *"parses first, refuses to
 write if it does not parse."* A parse check does not prevent the wipe it was written to prevent.
 `loadMeta` recovers to a **fresh save** — silently, via its `catch { /* corrupted save -> fresh */ }`
-at `state.js:145` — for any blob whose shape it does not expect, and all of the following are
+at `state.js` — for any blob whose shape it does not expect, and all of the following are
 perfectly valid JSON. Verified by executing the real `loadMeta`:
 
 | blob | `loadMeta` result |
@@ -230,12 +230,12 @@ and refuses on any failure. A refused import is reported to the player, never si
 
 ### 3.3 Adopting a cloud save = write + reload
 
-`main.js` creates one `meta` object at boot (`main.js:17`) and passes it by reference into
-`initUI({ meta })`, which destructures and closes over it forever (`ui.js:180`). You cannot swap
+`main.js` creates one `meta` object at boot (`main.js`) and passes it by reference into
+`initUI({ meta })`, which destructures and closes over it forever (`ui.js`). You cannot swap
 that object out; `ui.js` would keep rendering the old one.
 
-The codebase already has the answer, twice. `onReset` (`main.js:218`) and `onSlot` (`main.js:224`)
-both mutate localStorage and call `location.reload()`, and `state.js:36-37` states the rule
+The codebase already has the answer, twice. `onReset` (`main.js`) and `onSlot` (`main.js`)
+both mutate localStorage and call `location.reload()`, and `state.js` states the rule
 outright: *"The caller … reloads the page right after, so every module re-reads `loadMeta()`
 against the new slot rather than reconciling in-memory state."*
 
@@ -252,9 +252,9 @@ across `src/`, `public/` and `index.html`), so the hazard is not an unload race 
 event handlers keep firing until the navigation commits**, tens to hundreds of milliseconds later,
 longer with a request in flight. Any of them calls `saveMeta` with the *stale in-memory* `meta`:
 
-- the chapter carousel's `settle`, from its own 130 ms `setTimeout` (`ui.js:471-476` →
-  `main.js:171-176`) — no new tap required, a scroll already in progress is enough;
-- a difficulty pip (`main.js:165`), the 🌐 toggle (`main.js:134`), a shop purchase (`main.js:144`).
+- the chapter carousel's `settle`, from its own 130 ms `setTimeout` (`ui.js` →
+  `main.js`) — no new tap required, a scroll already in progress is enough;
+- a difficulty pip (`main.js`), the 🌐 toggle (`main.js`), a shop purchase (`main.js`).
 
 That alone overwrites the freshly adopted blob with the pre-adopt save. What makes it a *sync* bug
 rather than a local one is what happens next: that same `saveMeta` fires the §3.2 hook, and the
@@ -273,7 +273,7 @@ until the reload clears it with the whole JS context. Belt and braces, `setSaveH
 
 The consequence is a real constraint: a reload destroys an in-progress run, so **sync only adopts
 when `run === null`**. See §6.3 for the trigger list and §3.1/§12 for how `sync.js` learns that,
-given `run` is a `let` local inside `boot()` (`main.js:19`) and is not reachable from another
+given `run` is a `let` local inside `boot()` (`main.js`) and is not reachable from another
 module at all.
 
 ### 3.4 The Worker never parses the save
@@ -295,8 +295,8 @@ changing a line of server code (§10).
 where its reasoning lives: it is the only defence against a stale build pushing an older blob at a
 valid `baseGen`, which the generation counter cannot catch because it orders writes, not versions).
 All repaired on load with the `??=` idiom `loadMeta` already uses for `m.chapter`,
-`m.choiceSlots` and `m.lang` (`state.js:130-142`) — the same repair-on-load discipline as
-`ensureChapterMeta` (`state.js:93-104`), which is why no migration branch is needed.
+`m.choiceSlots` and `m.lang` (`state.js`) — the same repair-on-load discipline as
+`ensureChapterMeta` (`state.js`), which is why no migration branch is needed.
 
 **`meta.name`** — the save's display name (owner requirement 2). Default `m.name ??= ''`.
 
@@ -308,7 +308,7 @@ other device forever. An empty string has no language.
 
 `meta.name` is the **first player-authored free text in this codebase**, it is interpolated into
 `innerHTML` (the title screen, the slot modal, the conflict prompt), and — uniquely — it arrives
-**from the network**. `state.js:54-55` already documents the shape of this hazard for a value that
+**from the network**. `state.js` already documents the shape of this hazard for a value that
 merely came from localStorage:
 
 > *"`Number()` both normalizes odd shapes and defuses a tampered string coins (`"<img onerror=…>"`)
@@ -320,7 +320,7 @@ number or a trusted config/i18n string, so the templating style has never needed
 **`name` is not the dangerous field, and an earlier draft of this section got that wrong.** It
 specified `esc()` "applied to `meta.name` at every render site" and left every other field alone,
 having just quoted the comment that explains why `coins` is dangerous. But that `Number()` hardening
-lives in `slotSummary` (`state.js:54-55`, covered by test `SS.g`), **not in `loadMeta`** — `loadMeta`
+lives in `slotSummary` (`state.js`, covered by test `SS.g`), **not in `loadMeta`** — `loadMeta`
 never touches `coins` or `runs` at all. Until now that was fine, because nothing arrived from
 outside the device. Verified by executing the real `loadMeta` against a tampered blob:
 
@@ -330,8 +330,8 @@ outside the device. Verified by executing the real `loadMeta` against a tampered
 | `"runs": "<svg onload=alert(2)>"` | `"<svg onload=alert(2)>"` — **untouched** |
 | `"shop": {"hp": "<b>X</b>"}` | §4.2's `upgrades` reduction returns `"0<b>X</b>00000000"` |
 
-and `${meta.coins}` is interpolated raw into `innerHTML` at **three** live sites — `ui.js:491`
-(the title coins badge), `ui.js:717` (the shop balance) and `ui.js:1132` (the reroll button). Since
+and `${meta.coins}` is interpolated raw into `innerHTML` at **three** live sites — `ui.js`
+(the title coins badge), `ui.js` (the shop balance) and `ui.js` (the reroll button). Since
 §3.4 has the Worker storing an opaque blob it never parses, **every field is attacker-controlled**
 for anyone holding a pairing code, and §10 concedes the code is an unrevocable bearer token. There
 are two sinks, and the first one fires *before* the player decides anything: the conflict prompt
@@ -389,13 +389,13 @@ Rendering rules, which §7.2 must implement and an earlier draft left contradict
 Note also that `loadMeta`'s repairs are **in-memory only and never written back**, so a save that
 has not been re-saved since the upgrade has no `savedAt` key *on disk* — and §3.2 pushes
 `exportSlot`, "exactly what is on disk". The defaults must therefore also be added to `loadMeta`'s
-`fresh` object literal (`state.js:146-155`), which has neither field today, and `saveSummary` must
+`fresh` object literal (`state.js`), which has neither field today, and `saveSummary` must
 tolerate both being absent (§4.2).
 
 All three fields are additive, and `loadMeta` returns the parsed object wholesale after patching, so
 unknown keys survive a round-trip: a save written by the new build still loads correctly in the old
 build, and a save that visits an old build and comes back keeps its new fields. (One exception, for
-accuracy: the v4→v5 migration `delete`s `m.difficulty`/`m.maxDifficulty` at `state.js:127-128`.)
+accuracy: the v4→v5 migration `delete`s `m.difficulty`/`m.maxDifficulty` at `state.js`.)
 The rollout cannot corrupt anything mid-flight.
 
 ### 4.2 The save summary
@@ -415,7 +415,7 @@ client-side. An earlier draft wrote it as a set of direct property accesses, eac
 a realistic blob:
 
 - `chapters[chapterId].maxDifficulty` — `furthestUnlockedChapterId` defaults to `CHAPTER_ORDER[0]`
-  when nothing is unlocked (`ui.js:73-79`), so a blob with `chapters: {}` (a legitimately fresh
+  when nothing is unlocked (`ui.js`), so a blob with `chapters: {}` (a legitimately fresh
   save) gives `chapters['body'] === undefined` → **TypeError**.
 - `Object.values(meta.shop)` → **TypeError** on any blob missing `shop`, which §3.2's table shows is
   reachable without an attacker.
@@ -438,13 +438,13 @@ whole render in a try/catch that falls back to a "this save could not be read �
   than coins, which §7.1 proves runs *backwards* (the more advanced save often shows fewer coins,
   because coins get spent).
 - **chapterId** — the last `CHAPTER_ORDER` id whose `chapters[id].unlocked` is true, which is
-  exactly `furthestUnlockedChapterId` (`ui.js:73-79`), **then overridden by `'blank'` when
+  exactly `furthestUnlockedChapterId` (`ui.js`), **then overridden by `'blank'` when
   `meta.chapters.blank?.unlocked`**. The Blank lives outside `CHAPTER_ORDER` by design (see
-  `ui.js:43-47`), so the walk cannot see it, yet it is unambiguously the furthest a save can get.
+  `ui.js`), so the walk cannot see it, yet it is unambiguously the furthest a save can get.
 - **beaten** — `Math.max(0, chapters[chapterId].maxDifficulty - 1)`, which is the semantics the
-  title card's star row already encodes and documents at `ui.js:250-253`: *"maxDifficulty is the
+  title card's star row already encodes and documents at `ui.js`: *"maxDifficulty is the
   highest UNLOCKED level, so levels actually BEATEN = maxDifficulty - 1"*. With the same documented
-  exception at `ui.js:258`: for `beyond`, `chapters.blank.unlocked` is the save's one genuine
+  exception at `ui.js`: for `beyond`, `chapters.blank.unlocked` is the save's one genuine
   "won at 5" fact, so `beaten` is 5 when it is set. Using the identical rule means the card and the
   prompt never tell the player two different numbers.
 - **savedAt / name** — straight through.
@@ -561,7 +561,7 @@ Putting any of this inside `meta` would be wrong in three distinct ways, and the
    1). Which slot that is, is a property of *this device* — the phone might sync slot 1 and the
    laptop slot 3. A field inside a slot's blob cannot express that, and switching slots would
    switch identity.
-3. **`resetSave()` would destroy it.** `state.js:166-168` does `localStorage.removeItem(boundKey)` —
+3. **`resetSave()` would destroy it.** `state.js` does `localStorage.removeItem(boundKey)` —
    the whole blob. A credential inside the blob is erased by the shop's "Erase everything" button,
    orphaning the cloud row with no code left to reach it. The player would have locked themselves
    out of their own cloud save by resetting a local one.
@@ -613,7 +613,7 @@ obvious repair of "just push a bit harder."
 
 **Why the push-based mechanism fails**, three independent ways:
 
-1. **There is nothing to push.** `resetSave()` (`state.js:166-168`) is a bare
+1. **There is nothing to push.** `resetSave()` (`state.js`) is a bare
    `localStorage.removeItem(boundKey)` — the key is *gone*, and `exportSlot(n)` returns `null`. The
    "fresh save" exists only in memory, and only after a reload. Pushing `null` or `""` either gets
    refused by §3.2's hardened `importSlot` or, without it, wipes the other device via `loadMeta`'s
@@ -827,7 +827,7 @@ Nothing in this table consults a timestamp. That is the point, and §6.4 no long
 
 - on boot, after the title screen has rendered;
 - on `visibilitychange` → visible, when `Math.abs(Date.now() - pulledAt)` is more than 10 seconds;
-- **when `run` transitions to `null`** — i.e. `onQuit` (`main.js:211-215`), returning to the title
+- **when `run` transitions to `null`** — i.e. `onQuit` (`main.js`), returning to the title
   from the pause or summary screen.
 
 A pull may be issued at any time (a GET is harmless), but an *adopt* only happens when `isIdle()`
@@ -835,7 +835,7 @@ A pull may be issued at any time (a GET is harmless), but an *adopt* only happen
 
 **The third trigger and the `Math.abs` are both corrections, and the first one rescues the owner's
 own use case.** An earlier draft listed only boot and `visible`, and gated the `visible` pull on
-`run === null`. But `run` is set to `null` in exactly one place — `onQuit`, `main.js:212` — so
+`run === null`. But `run` is set to `null` in exactly one place — `onQuit`, `main.js` — so
 **the summary screen and the pause screen both have `run !== null`**. Walk the return leg of the
 stated use case:
 
@@ -859,7 +859,7 @@ on a stale save and accumulates divergence.
 
 **Push** — three triggers, in owner-estimated order of importance:
 
-1. run end (`endRun`'s `saveMeta`, `main.js:329`) — the one that carries a session's progress;
+1. run end (`endRun`'s `saveMeta`, `main.js`) — the one that carries a session's progress;
 2. `visibilitychange` → hidden, and `pagehide`, while dirty — pocketing the phone;
 3. a 10-second trailing debounce after any save on the synced slot, so a tab closed without ever
    being hidden loses at most ten seconds of menu shopping;
@@ -884,9 +884,9 @@ its own changes, its hash differs, and the table above routes to the prompt.
 One verified detail, which mattered more when `dirty` was a flag but is still worth recording:
 nothing calls `saveMeta` at boot without a user action. In particular the chapter carousel does not
 — `positionCarousel` scrolls programmatically and fires `scroll`, but `settle` early-returns when
-the centred card already matches `browseChapterId` (`ui.js:471`, plus a second guard at `:474` on
+the centred card already matches `browseChapterId` (`ui.js`, plus a second guard at `:474` on
 `browseChapterId !== meta.chapter`), and `browseChapterId` is initialised from `meta.chapter`
-(`ui.js:204`), which is the card `positionCarousel` centres. No spurious save on a freshly adopted
+(`ui.js`), which is the card `positionCarousel` centres. No spurious save on a freshly adopted
 device, so no spurious conflict prompt.
 
 ### 6.4 The lost-ACK case
@@ -932,8 +932,8 @@ The tempting rule is "take the larger number per field". It is wrong, and specif
 because **coins get spent**. A player with 900 coins who buys a 600-coin upgrade on the laptop has
 300 coins and one more shop level; the phone still shows 900 and no upgrade. Field-wise maximum
 yields 900 coins *and* the upgrade — the purchase, refunded. Repeat across `meta.shop`,
-`meta.choiceSlots` (bought with sacrificed levels, `main.js:193-209`) and pre-run booster spending
-(`main.js:38`), and "merge" is a slow-motion duplication exploit rather than a convenience.
+`meta.choiceSlots` (bought with sacrificed levels, `main.js`) and pre-run booster spending
+(`main.js`), and "merge" is a slow-motion duplication exploit rather than a convenience.
 
 The honest answer is **last-write-wins with an explicit user choice**. The machine detects
 divergence exactly (§6.2); the human decides which session survives, because only the human knows
@@ -942,8 +942,8 @@ which one they care about.
 ### 7.2 The prompt
 
 Rendered as a modal over the title screen, reusing the existing `.modal-backdrop` /
-`.confirm-sheet` idiom (`styles.css:1198`, `1307`) that the slot picker and the reset confirm
-already share — same backdrop-tap-to-cancel guard as `slots-cancel` (`ui.js:1311-1316`). It can
+`.confirm-sheet` idiom (`styles.css`, `1307`) that the slot picker and the reset confirm
+already share — same backdrop-tap-to-cancel guard as `slots-cancel` (`ui.js`). It can
 only appear while `run === null`.
 
 It has exactly two entry contexts, and one component serves both:
@@ -1001,8 +1001,8 @@ Four things changed in the content, all of them corrections:
    which invites the player to pick the save that is behind. The document identified that exact
    trap in §7.1 and then rendered it in §7.2.
 4. **`beat 3` is replaced by the ★ row.** "beat N" is vocabulary this game has never used; progress
-   is shown as numbered difficulty pips (`ui.js:404-408`) or the hero card's gold ★ row
-   (`ui.js:250-258`, `:279`). Reusing the ★ row costs no horizontal pixels, is language-neutral,
+   is shown as numbered difficulty pips (`ui.js`) or the hero card's gold ★ row
+   (`ui.js`, `:279`). Reusing the ★ row costs no horizontal pixels, is language-neutral,
    and means the card and the prompt can never state two different numbers. Introducing a third
    phrasing on the one screen where the player makes an irreversible choice is the worst place for
    it.
@@ -1038,9 +1038,9 @@ never dismissibility, it was an accidental dismissal being indistinguishable fro
 **Guarding against mis-taps.** This modal appears unbidden over the title screen while the thumb
 may already be travelling toward `.btn--play`, and two of its three buttons destroy a save. So: a 400 ms
 tap shield after the sheet animates in (no such pattern exists in the codebase today, and note that
-`pop-in` is disabled under `prefers-reduced-motion` at `styles.css:809`, which renders both buttons
+`pop-in` is disabled under `prefers-reduced-motion` at `styles.css`, which renders both buttons
 *instantly*), and `Play` plus the nav are disabled while a conflict is pending. That last part is
-load-bearing: `ui.js:1272` documents that keyboard focus can already reach Play behind a modal
+load-bearing: `ui.js` documents that keyboard focus can already reach Play behind a modal
 backdrop, and the existing workaround (`case 'play'` force-closes `slotsOpen`) is unavailable to a
 modal that must not be dismissible. Without it, Tab-then-Enter starts a run under the prompt, whose
 held `cloudBlob`/`gen` are then stale — so the prompt must always re-derive from the current 409
@@ -1131,7 +1131,7 @@ Status copy is **evidence, not intent** — see H3 in §9. Character counts are 
   There is no toast component today; the `.build-stamp` slot proves a small non-interactive
   title-screen line is cheap.
 - **Service worker** — a non-issue for this deployment, and an earlier draft over-argued it.
-  `public/sw.js:28` early-returns on `req.method !== 'GET' || !req.url.startsWith(self.location.origin)`,
+  `public/sw.js` early-returns on `req.method !== 'GET' || !req.url.startsWith(self.location.origin)`,
   and the Worker is *necessarily* cross-origin: GitHub Pages cannot host a Cloudflare Worker route
   on `github.io`, so the same-origin configuration the draft worried about is unreachable rather
   than merely unchosen. Add `if (new URL(req.url).pathname.startsWith('/v1/')) return` anyway — one
@@ -1146,7 +1146,7 @@ Status copy is **evidence, not intent** — see H3 in §9. Character counts are 
 ## 9. UI surface
 
 **Owner decision (2026-08-04): sync lives inside the existing 💾 slots sheet. The title screen
-gains nothing.** It already carries 🌐 (`ui.js:489`), 💾 n/3 (`ui.js:490`) and a coins badge, and a
+gains nothing.** It already carries 🌐 (`ui.js`), 💾 n/3 (`ui.js`) and a coins badge, and a
 fourth control competes for the top edge of a 320px phone. Sync and slots are one mental category —
 "which of my saves, and where does it live" — so the sheet the player already opens to switch saves
 is also where they will look to link them. The cost of this choice is one extra tap to reach sync;
@@ -1155,7 +1155,7 @@ most often seen on.
 
 ### 9.1 One row in the slots sheet, one dedicated sync sheet behind it
 
-An earlier draft put a whole sync *section* inside `slotsModalHtml` (`ui.js:508-533`). It does not
+An earlier draft put a whole sync *section* inside `slotsModalHtml` (`ui.js`). It does not
 fit. Counting the linked state at 320×568, where `.confirm-sheet` gives 235.6px of content width and
 `max-height: calc(100dvh - 32px)` gives a **536px** budget:
 
@@ -1172,7 +1172,7 @@ fit. Counting the linked state at 320×568, where `.confirm-sheet` gives 235.6px
 English lands ~550. Even the most generous variant — rows stay 56px, no divider, warning at 2 lines
 — is 510px, inside 536 by 26px, with nothing left for a notch, for iOS `dvh` behaviour, or for the
 *pairing* state which adds an input and a soft keyboard. At 568×320 landscape it is roughly 2× the
-288px budget. And `.confirm-sheet`'s `overflow-y: auto` is not headroom to spend: `styles.css:1309`
+288px budget. And `.confirm-sheet`'s `overflow-y: auto` is not headroom to spend: `styles.css`
 says it exists because *"The slot picker (v6.4.6) is tall enough to clip in short landscape"* — it
 is a documented failure fallback that this feature would be leaning on from day one.
 
@@ -1259,8 +1259,8 @@ stands — re-pointing is allowed, behind a confirm — but the earlier draft's 
 marker on another row) cannot be built:
 
 1. **Buttons cannot nest.** The row is `<button class="btn btn--soft slot-row" data-act="slot-pick" …>`
-   (`ui.js:518`), so a tappable ☁️ inside it is invalid HTML. The codebase already hit this and
-   documented the fix at `ui.js:624`: *"A div, not a button: the row holds two real buttons now and
+   (`ui.js`), so a tappable ☁️ inside it is invalid HTML. The codebase already hit this and
+   documented the fix at `ui.js`: *"A div, not a button: the row holds two real buttons now and
    buttons cannot nest."* Converting the row changes its markup, hit target and semantics — so
    §5.3's claim that the picker "keeps working the way it already does" would have been false.
 2. **The active slot's row is `disabled`**, so clicks on it and its descendants never fire. You
@@ -1295,15 +1295,15 @@ into §9.1's budget. Add both, cap at 14, and move rename out of the row into th
 the earlier draft did not mention while calling the work "reusing existing components":
 
 1. **The re-render model destroys them.** `renderTitle()` replaces `screens.title.innerHTML`
-   wholesale and the slots sheet is inside that template (`ui.js:498`). Any re-render — the 🌐
-   toggle (`ui.js:1300`), a booster tap (`ui.js:1263`), `slots-cancel` — wipes a half-typed code and
+   wholesale and the slots sheet is inside that template (`ui.js`). Any re-render — the 🌐
+   toggle (`ui.js`), a booster tap (`ui.js`), `slots-cancel` — wipes a half-typed code and
    drops focus. The pairing input must hold its value in a module-level variable and restore value
    *and* caret after every render, or live outside the template.
 2. **iOS keyboard occlusion.** The sheet is centred in a `position: fixed; inset: 0` backdrop; iOS
    shrinks the visual viewport but not the layout viewport, so the sheet does not move and a field
    in its lower half is covered. Switch to `align-items: flex-start` with a top offset while an
    input is focused, or track `visualViewport.resize`.
-3. **Global CSS blocks it.** `body { user-select: none }` (`styles.css:32-34`) and
+3. **Global CSS blocks it.** `body { user-select: none }` (`styles.css`) and
    `html, body { touch-action: none }` (`:4`) need per-input overrides or the caret and selection
    handles misbehave.
 4. **Input attributes** for a 16-char uppercase base32 field: `inputmode="text"`,
@@ -1311,19 +1311,19 @@ the earlier draft did not mention while calling the work "reusing existing compo
    `enterkeyhint="go"`, `maxlength="19"`, and auto-inserted hyphens. Without `autocapitalize`, every
    character needs a manual shift.
 5. **Tab switches discard the flow.** `switchTab` sets `slotsOpen = false` when leaving the title
-   (`ui.js:1241`), as does `case 'play'` (`:1272`). A player who checks the shop mid-pairing loses
+   (`ui.js`), as does `case 'play'` (`:1272`). A player who checks the shop mid-pairing loses
    the sheet and the typed code. The code is recoverable from localStorage — so the sync sheet must
    offer to show it again rather than restarting the flow.
 
 ### 9.6 Reset copy is conditional, and "slots" is overloaded
 
-Today's body is `Coins, upgrades, slots and best scores will be permanently erased.` (`ui.js:661`).
+Today's body is `Coins, upgrades, slots and best scores will be permanently erased.` (`ui.js`).
 An earlier draft simply appended the propagation clause. Three problems:
 
 1. **It is static.** `resetModalHtml()` renders one string; the propagation sentence is only true
    when the reset targets the synced slot. Appending it unconditionally alarms players resetting an
    unsynced one.
-2. **No slot context.** `reset-start` fires from `shopFootHtml`'s 🗑 (`ui.js:583`) on the **shop**
+2. **No slot context.** `reset-start` fires from `shopFootHtml`'s 🗑 (`ui.js`) on the **shop**
    screen, which shows no slot indicator. With three named saves and one of them synced, "which save
    am I erasing" has to be on screen.
 3. **"slots" now means three things.** In that sentence it means *upgrade choice slots*
@@ -1484,12 +1484,12 @@ dependencies are testable that way, because everything else needs Pixi or the DO
 
 **Headless (`npm test`)** — a new scenario function appended at the *end* of `test/sim-test.js`,
 following `testSaveSlots`'s pattern of stubbing `globalThis.localStorage` with a `Map`
-(the stub literal is `sim-test.js:7105-7110`) and registered in the call list at the bottom.
+(the stub literal is `sim-test.js`) and registered in the call list at the bottom.
 Appending at the end is not cosmetic: the suite seeds `Math.random` and scenario order is part of
 its determinism contract.
 
 - `meta.name` and `meta.savedAt` defaults, on a fresh save **and** on an old save missing both —
-  including the `fresh` object literal (`state.js:146-155`), which has neither field today (§4.1).
+  including the `fresh` object literal (`state.js`), which has neither field today (§4.1).
 - `saveMeta` stamps `savedAt`; a later save stamps a later value.
 - The save hook fires with the bound slot number on a successful write, does **not** fire when the
   write throws (stub a `setItem` that throws), and **a throwing hook does not propagate** (§3.2) —
@@ -1550,8 +1550,8 @@ its determinism contract.
   and bumps the cloud generation.
 - Put `<img src=x onerror=…>` in the cloud blob's **`coins`** as well as its `name`, and assert both
   render as text. `coins` is the field that is actually unguarded today (§4.1) and it reaches
-  `innerHTML` at `ui.js:491`, `:717` and `:1132`. This is the `SS.g` scenario's lesson
-  (`sim-test.js:7154-7160`) applied to fields that now arrive over the network.
+  `innerHTML` at `ui.js`, `:717` and `:1132`. This is the `SS.g` scenario's lesson
+  (`sim-test.js`) applied to fields that now arrive over the network.
 - **The adopt-then-reload race** (§3.3): with a pull adopting, fire a `saveMeta`-producing
   interaction in the same tick and assert the adopted blob survives — this is the freeze latch
   proving itself against live handlers, since there is no unload handler in this repo to catch it.
@@ -1604,7 +1604,7 @@ Three releases, each shippable and useful alone:
 
 **Worker URL configuration.** `vite.config.js` already uses `define` for `__BUILD_STAMP__`; add
 `__SYNC_URL__: JSON.stringify(process.env.SYNC_URL ?? '')` beside it, read through the same
-`typeof` guard as `ui.js:18` so the module stays importable outside a Vite build. The Actions
+`typeof` guard as `ui.js` so the module stays importable outside a Vite build. The Actions
 workflow supplies `SYNC_URL` from a repository **variable**, not a secret — the URL is public the
 moment the bundle ships, and pretending otherwise would just make it harder to debug. An empty
 value disables sync entirely, which is what a fork, a local `node` import and `npm test` all see.
@@ -1715,9 +1715,9 @@ executing `state.js` before being applied; the corrections are folded into the s
 - The codebase contains **zero** `<input>` elements; this feature adds two, with everything that
   costs (§9.5).
 
-Line-reference corrections: `state.js:54-55` (not `:55-56`); **six** swallow-and-continue sites in
+Line-reference corrections: `state.js` (not `:55-56`); **six** swallow-and-continue sites in
 `state.js` (not five); `sim-test.js` line **4** (not 3); the localStorage stub appears at **five**
-sites (not once, in `testSaveSlots`); `SS.g` is `sim-test.js:7154-7160`; SHA-256 is **64** hex
+sites (not once, in `testSaveSlots`); `SS.g` is `sim-test.js`; SHA-256 is **64** hex
 digits (not 128).
 
 ### 14.4 Settled by the owner after review, 2026-08-04

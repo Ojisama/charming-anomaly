@@ -105,9 +105,9 @@ const XPMUL = Number(args.find((a) => a.startsWith('--xpmul='))?.slice(8) ?? 1)
 // changes nothing is worse than not having it — it reads as a measurement that was taken.
 // To ask those questions again, change the constant in config.js and run this twice.
 // --laterate / --latestart: reshape the TAIL of hpScale instead of multiplying it flat.
-// hpScale(t) = (1 + t/90) * (t <= START ? 1 : 1 + RATE*(t - START))   [config.js:1467]
+// hpScale(t) = (1 + t/90) * (t <= START ? 1 : 1 + RATE*(t - START))   [config.js]
 // hpScale is a module-level import sim.js cannot be made to re-read, but spawnEnemy multiplies
-// base.hp * hpScale(run.time) * run.mods.enemyHpMul (sim.js:975) — so driving enemyHpMul by the
+// base.hp * hpScale(run.time) * run.mods.enemyHpMul (sim.js) — so driving enemyHpMul by the
 // RATIO of the new curve to the shipped one reproduces the reshaped curve exactly, for every
 // enemy spawned after the change. Already-alive enemies keep their HP, which is also how the
 // real hpScale behaves (it is read once, at spawn).
@@ -129,7 +129,7 @@ const curveRatio = (t) =>
 //   with it. Emulated by adding the surplus to run.time after each step.
 const TIMESCALE = Number(args.find((a) => a.startsWith('--timescale='))?.slice(12) ?? 1)
 // --overload=N   OVERLOAD: 2x fire rate, 2x damage, N HP per SECOND. player.fireRateMul and
-//   player.damageMul are per-player knobs (state.js:1134-1135); the HP cost is applied raw rather
+//   player.damageMul are per-player knobs (state.js); the HP cost is applied raw rather
 //   than through hurtPlayer (not exported) — fine for pricing, it only skips the hurt event and the
 //   retaliate mods. Per-second, NOT per-shot: fires/s spans 0.5 (city, beam) to 3.8 (body), a 7.6x
 //   chapter lottery, and a beam has no "shot" to charge for at all.
@@ -302,12 +302,12 @@ function measure() {
     run.choiceSlots = SLOTS
     // --offset=N: enemy HP multiplier applied to the PROPOSED pipeline only, to measure how much
     // clawback neutralises the pool's power gain. enemyHpMul is a live per-spawn knob
-    // (sim.js:975), so this needs no src/ change. It is a stand-in for whichever lever ships —
+    // (sim.js), so this needs no src/ change. It is a stand-in for whichever lever ships —
     // xpForLevel is a module-level import and cannot be shimmed from here.
     if (OFFSET !== 1) run.mods.enemyHpMul *= OFFSET
     // --xpmul=N: the xpForLevel offset, measured through the one lever the harness CAN reach.
-    // xpForLevel is a module-level import (config.js:1544, sim.js:40) so it cannot be shimmed;
-    // run.mods.xpMul (sim.js:5705) scales gem xp at pickup, which moves total picks the same way.
+    // xpForLevel is a module-level import (config.js, sim.js) so it cannot be shimmed;
+    // run.mods.xpMul (sim.js) scales gem xp at pickup, which moves total picks the same way.
     // CONVERSION: cumulative xp to level L is sum(5 + 4l) ~ 5L + 2L^2, so the quadratic term
     // dominates and cost scales ~linearly in the coefficient. xpMul = m is therefore worth
     // xpForLevel = 5 + level * (4 / m). Approximate — verify the real curve once it ships.

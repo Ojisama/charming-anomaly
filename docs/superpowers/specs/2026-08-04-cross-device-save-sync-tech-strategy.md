@@ -29,7 +29,7 @@ every future release is written, sync or no sync.
 
 Today one device runs one build. A save moves forward through builds and never backward, so only
 **backward compatibility** matters: a new build reading an old save. `loadMeta` handles that well —
-`ensureChapterMeta` (`state.js:93-104`) creates missing per-chapter entries on every load, the `??=`
+`ensureChapterMeta` (`state.js`) creates missing per-chapter entries on every load, the `??=`
 idiom fills new scalar fields, and the v4→v5 migration shows the pattern for a structural change.
 
 Sync introduces **forward compatibility**, which the codebase has never needed: an *old* build
@@ -57,14 +57,14 @@ that "data added by a future build is not destroyed by an older one."
 **Unknown keys survive a full round-trip** — an unknown chapter entry in `meta.chapters`, an unknown
 top-level currency, an unknown shop upgrade id, all intact after an old build loads *and saves*.
 The mechanism is that `loadMeta` patches in place and returns the parsed object wholesale
-(`state.js:143`), and `saveMeta` stringifies that same object.
+(`state.js`), and `saveMeta` stringifies that same object.
 
 **Known keys are clamped to the running build's ranges and written back to disk:**
 
 | a save from a build that raised… | after an old build's `loadMeta` → `saveMeta` |
 |---|---|
-| `MAX_DIFFICULTY`, so `chapters.body.maxDifficulty = 7` | **`5`** — clamped at `state.js:97`, persisted |
-| the choice-slot ceiling, so `choiceSlots = 6` | **`4`** — clamped at `state.js:141`, persisted |
+| `MAX_DIFFICULTY`, so `chapters.body.maxDifficulty = 7` | **`5`** — clamped at `state.js`, persisted |
+| the choice-slot ceiling, so `choiceSlots = 6` | **`4`** — clamped at `state.js`, persisted |
 
 That is silent, permanent progression loss, and with sync it propagates back to the updated device
 on the next push. It is also the *most likely* breaking release this game will ship — raising the
@@ -72,22 +72,22 @@ difficulty ladder is a routine content change, not an exotic migration — and n
 accompany it.
 
 **A malformed blob wipes the slot.** Sync makes this a network-reachable input, so it belongs here
-and not only in the design's §3.2: a blob merely **missing `shop`** makes `state.js:119`'s
+and not only in the design's §3.2: a blob merely **missing `shop`** makes `state.js`'s
 `Object.keys(SHOP)` loop throw, the `catch` at `:145` swallows it, and `loadMeta` returns `fresh` —
 coins 500 → 0. (This predates v6.6.10: the `??= 0` it replaced threw identically on an undefined
 `shop`. Verified, so nobody spends time reverting a non-regression.)
 
-**Save slots.** There are three (`SAVE_SLOTS`, `state.js:14-65`), and everything above is per-slot.
+**Save slots.** There are three (`SAVE_SLOTS`, `state.js`), and everything above is per-slot.
 Only one syncs. Every rule below is about the synced slot; the other two are untouched by any of it.
 
 ### 2.3 The crash — verified, and smaller than it looks
 
 `meta.chapter` is a **pointer into a table**, not data. `loadMeta` only defaults it when missing
-(`m.chapter ??= 'body'`, `state.js:130`), so a value naming a chapter the running build does not
+(`m.chapter ??= 'body'`, `state.js`), so a value naming a chapter the running build does not
 have passes straight through to:
 
 ```
-state.js:817   const bal = CHAPTERS[opts.chapter ?? 'body'].balance
+state.js   const bal = CHAPTERS[opts.chapter ?? 'body'].balance
   ->  TypeError: Cannot read properties of undefined (reading 'balance')
 ```
 
@@ -95,7 +95,7 @@ state.js:817   const bal = CHAPTERS[opts.chapter ?? 'body'].balance
 `meta.chapters?.[…]`, `chapterMaxDifficulty` returns a default for an unknown id rather than
 throwing, and `positionCarousel` early-returns on the missing card. The title screen renders fine.
 Only **Play** throws, out of a click handler, non-fatally — and it self-heals on the first carousel
-swipe, because `settle()` (`ui.js:472-475`) reassigns `browseChapterId` and calls `hooks.onChapter`.
+swipe, because `settle()` (`ui.js`) reassigns `browseChapterId` and calls `hooks.onChapter`.
 The honest symptom is *"Play does nothing until you swipe once."* An earlier draft of §7 called it
 "the game is unopenable", which is false and inflated the fix's urgency.
 
@@ -104,18 +104,18 @@ The honest symptom is *"Play does nothing until you swipe once."* An earlier dra
 **R1 — Validate table-backed pointers at the consumer, never destructively on load.**
 
 `meta.chapter` is not the only pointer; `meta.lang` is one too, and the codebase already handles it
-correctly — `setLang` does `(l === 'en' || DICTS[l]) ? l : 'en'` (`i18n.js:14`), and `ui.js` does
+correctly — `setLang` does `(l === 'en' || DICTS[l]) ? l : 'en'` (`i18n.js`), and `ui.js` does
 `CHAPTERS[x] ?? CHAPTERS.body` twice (`:1116`, `:1174`). Three existing precedents, all at the
 consumer, all non-destructive. So:
 
 ```js
-// state.js:817, replacing the existing `opts.chapter ?? 'body'`
+// state.js, replacing the existing `opts.chapter ?? 'body'`
 const bal = CHAPTERS[CHAPTERS[opts.chapter] ? opts.chapter : CHAPTER_ORDER[0]].balance
 ```
 
 An earlier draft instead proposed repairing `m.chapter` inside `loadMeta`, arguing the damage was
 limited because "`loadMeta`'s repairs are in-memory and never written back". That reasoning does not
-survive contact with the code: old builds save constantly — `onChapter` (`main.js:173`), every run
+survive contact with the code: old builds save constantly — `onChapter` (`main.js`), every run
 end, every purchase — so the collapse to `body` is immediate, not conditional, and with sync it
 propagates to the updated device. It was a **destructive** repair sold as a benign one, it invented
 a new rule where the codebase already had an idiom, and it protected only `createRun` while missing
@@ -130,14 +130,14 @@ This is the rule §2.2's second table demands, and an earlier draft had it exact
 listed "new difficulty level → nothing to do", citing the very clamp that eats the newer save.
 
 ```js
-// state.js:97-98 — preserve what is stored; clamp only what is played
+// state.js — preserve what is stored; clamp only what is played
 entry.maxDifficulty = Math.max(1, entry.maxDifficulty ?? 1)
 entry.difficulty = Math.max(1, Math.min(Math.min(chapterMaxDifficulty(id), entry.maxDifficulty), entry.difficulty ?? 1))
 ```
 
-Storing a `maxDifficulty` above what this build offers is harmless — `main.js:164` already caps the
+Storing a `maxDifficulty` above what this build offers is harmless — `main.js` already caps the
 selectable difficulty with `chapterMaxDifficulty` — while *lowering* it is unrecoverable. Same
-shape for `choiceSlots` (`state.js:141`): keep the stored value, clamp at the consumer.
+shape for `choiceSlots` (`state.js`): keep the stored value, clamp at the consumer.
 
 | change | safe because | to do |
 |---|---|---|
@@ -197,9 +197,9 @@ Everything that improves the *shipped* game, extracted so it can ship immediatel
 its own. Every item here is worth doing even if sync is abandoned:
 
 - `loadMeta` coerces `coins`/`runs`/shop levels — **done, v6.6.10 (`c90c1cc`)**.
-- **R3's clamp-on-use** (`state.js:97-98`, `:141`) plus its range-preservation test. This is the
+- **R3's clamp-on-use** (`state.js`, `:141`) plus its range-preservation test. This is the
   one that silently eats a newer save's progression, so it is the highest-value item in the slice.
-- **R1's consumer-side pointer guard** (`state.js:817`) plus its test.
+- **R1's consumer-side pointer guard** (`state.js`) plus its test.
 - **R4's `schema` comparison.** It ships here and nowhere later, for the reason §2.4 gives: a build
   released without the check can never be taught to refuse. The `sync.js` side that *uses* it lands
   in slice 2; the field and the constant land now.
@@ -266,8 +266,8 @@ decision, not a config tweak.
 - **There are no secrets here.** `database_id` in `wrangler.toml` is an identifier, useless without
   an account-scoped API token; the only credential is the operator's local `wrangler` login. Stated
   explicitly because a public repo will keep raising the question.
-- **`SYNC_URL` is a build-time `define`**, alongside `__BUILD_STAMP__` (`vite.config.js:24`), read
-  through the same `typeof` guard `ui.js:18` uses. It ships in a public bundle, which is fine: the
+- **`SYNC_URL` is a build-time `define`**, alongside `__BUILD_STAMP__` (`vite.config.js`), read
+  through the same `typeof` guard `ui.js` uses. It ships in a public bundle, which is fine: the
   only capability it grants is burning the shared request budget, and that is unprotectable anyway
   (§6) — hiding a URL does not fix it. The player's pairing code is the actual secret and never
   leaves their devices in plaintext.
@@ -281,7 +281,7 @@ decision, not a config tweak.
 - A fork building without `SYNC_URL` gets sync disabled at the module level — the correct default,
   and now a stated intention.
 
-**Service worker.** `sw.js:28` already early-returns on non-GET and cross-origin, and the Worker is
+**Service worker.** `sw.js` already early-returns on non-GET and cross-origin, and the Worker is
 *necessarily* cross-origin: GitHub Pages cannot host a Cloudflare Worker route on `github.io`, so
 the same-origin hazard design §8 defends against is unreachable for this deployment. Keep the
 one-line pathname guard — it is free and it survives a future custom-domain move — and drop the

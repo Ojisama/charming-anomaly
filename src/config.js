@@ -4076,7 +4076,7 @@ export const BOMBARDMENT_DMG = 18
 // exploit by removing the structure (see the design doc §2).
 //
 // CRUSH_XP: xp awarded per crushed structure, via the same run.gems.push({x,y,xp}) path a kill
-// uses (dealDamage, sim.js:1599) — so it rides every existing xp multiplier (passives.xpGain,
+// uses (dealDamage, sim.js) — so it rides every existing xp multiplier (passives.xpGain,
 // mods.xpMul, GEM_VALUE=1) for free. MUST stay small: stepLevelUp (sim.js) fires at most one
 // level per FRAME and hands control to a blocking modal, so crushing a dense run of structures in
 // a single rampage would otherwise queue back-to-back level-up screens at exactly the moment the

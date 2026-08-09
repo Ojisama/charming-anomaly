@@ -84,7 +84,7 @@ CHAPTERS.blank = {
 }
 ```
 
-New exports (single tuning block, flag-comment style of blink/pullBeam ~config.js:3290):
+New exports (single tuning block, flag-comment style of blink/pullBeam ~config.js):
 
 ```js
 export const chapterMaxDifficulty = (id) => CHAPTERS[id]?.maxDifficultyCap ?? MAX_DIFFICULTY

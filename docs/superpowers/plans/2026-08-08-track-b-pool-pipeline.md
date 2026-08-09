@@ -32,7 +32,7 @@ Every task's requirements implicitly include this section.
 - **Module boundaries are the design — do not cross them.** `sim.js` may touch nothing but `run` and `config` (no Pixi, no DOM, no localStorage). `render.js` reads `run` and **never mutates it**. `config.js` is read-only ground truth. `main.js` is glue only.
 - **`npm test` is the gate for every task in this plan.** Run it after every step that touches `src/`.
 - **The pool-reading test scenarios are:** `testRaritySanity`, `testStarBalance`, `testChoiceSlots`, `testFocusNudge`, `testWeaponModParity`, `testCrazyMods`, `testFrenchDictionary` (run XX), `testPlaytestSweepAndBlades` (run PT.a). **All eight** must be checked after any change here — the first draft named three and was broken by two of the five it missed.
-- **There is no test framework and no single-test runner.** Add scenarios as plain functions in the existing style and register them in the `try { … }` block at `test/sim-test.js:8376`.
+- **There is no test framework and no single-test runner.** Add scenarios as plain functions in the existing style and register them in the `try { … }` block at `test/sim-test.js`.
 - **Every new config export must be added to the import block in `src/sim.js` (line ~33) AND `test/sim-test.js` (lines 10–84).** The first draft omitted nine and would have thrown `ReferenceError` on the first level-up.
 - **No top-level `await` in `main.js`** — it deadlocks Pixi v8's dynamic environment import in the production bundle (blank page).
 - **Do not edit `src/fr.js` by exact-string match.** French values carry U+00A0 before `: ; ! ?`. Anchor on a line with no French punctuation, or edit with node.
@@ -187,7 +187,7 @@ Update the two existing consumers of `MAX_MODS_PER_WEAPON_PER_POOL` (`src/sim.js
 
 - [ ] **Step 4: Rewrite `rollCard`**
 
-Replace the doc block at `src/sim.js:5887-5890` (it describes the old ladder-walk and would sit directly above code doing the opposite) and the function at `5891-5922`:
+Replace the doc block at `src/sim.js` (it describes the old ladder-walk and would sit directly above code doing the opposite) and the function at `5891-5922`:
 
 ```js
 // Roll ONE card: bucket first, then rarity inside it. Never walks the rarity ladder — an empty
@@ -260,7 +260,7 @@ In `eligibleElementIds` (~5812), delete the `Math.random() < ELEMENT_CARD_WEIGHT
 
 In `weaponCandidates` (~5735), stop pre-filtering `New!` entries by `newWeaponChance` and instead attach the probability as a weight the weapon bucket applies, so the focus nudge survives bucket-first. Multiply each `New!` entry's weight above by `newWeaponChance(run)`. Without this, `testFocusNudge` fails on 6 of 10 seeds — bucket-first hands the weapon bucket a fixed 22% whenever it is non-empty, so thinning the *count* of `New!` entries no longer thins their *rate*.
 
-Add `BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, DEFENSIVE_PASSIVE_WEIGHT, WEAPON_UP_WEIGHT, maxModsPerWeaponPerPool` to the `config.js` import block at `src/sim.js:33`, and remove `ELEMENT_CARD_WEIGHT` and `MAX_MODS_PER_WEAPON_PER_POOL`.
+Add `BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, DEFENSIVE_PASSIVE_WEIGHT, WEAPON_UP_WEIGHT, maxModsPerWeaponPerPool` to the `config.js` import block at `src/sim.js`, and remove `ELEMENT_CARD_WEIGHT` and `MAX_MODS_PER_WEAPON_PER_POOL`.
 
 - [ ] **Step 5: Run the tests**
 
@@ -505,7 +505,7 @@ In `buildLevelUpChoices`, add `let placedAnomaly = false` beside `pickedIds`, an
 
 **F4, which the first draft dropped:** guard the `NEW_WEAPON_MIN_RATE` swap so it cannot delete an anomaly. Change its condition to also require `!cards.some((c) => c.kind === 'anomaly')`. Without this the swap overwrites `cards[cards.length - 1]` unconditionally — deleting the anomaly *after* the pity counter was already reset inside `rollCard`.
 
-In `applyChoice` (`src/sim.js:215-241`), add a branch to the chain that currently ends at `else if (choice.kind === 'heal')`:
+In `applyChoice` (`src/sim.js`), add a branch to the chain that currently ends at `else if (choice.kind === 'heal')`:
 
 ```js
   } else if (choice.kind === 'anomaly') {
@@ -525,17 +525,17 @@ In `src/state.js`'s `createRun`, add `anomalies: {},` and `_eliteKills: 0,`. Add
 
 and add `anomaly` to the doc block's list of `levelUpChoices[i].kind` values.
 
-**`volatile` is an elite AFFIX, not a boolean.** It is produced by `rollAffixes(run)` (`src/sim.js:980`, stored as `affixes` at `:995`) and read **only** as `enemy.affixes.includes('volatile')` (`src/sim.js:3210`). Writing `enemy.volatile = true` is a dead write that nothing reads and no test catches. Instead, in `rollAffixes`, push `'volatile'` onto the affix array for every elite when the anomaly is held:
+**`volatile` is an elite AFFIX, not a boolean.** It is produced by `rollAffixes(run)` (`src/sim.js`, stored as `affixes` at `:995`) and read **only** as `enemy.affixes.includes('volatile')` (`src/sim.js`). Writing `enemy.volatile = true` is a dead write that nothing reads and no test catches. Instead, in `rollAffixes`, push `'volatile'` onto the affix array for every elite when the anomaly is held:
 
 ```js
   if (run.anomalies?.unstableCores && !affixes.includes('volatile')) affixes.push('volatile')
 ```
 
-Increment `run._eliteKills` at the kill site that already emits `{ type: 'kill', …, elite: enemy.elite }` (`src/sim.js:3184`).
+Increment `run._eliteKills` at the kill site that already emits `{ type: 'kill', …, elite: enemy.elite }` (`src/sim.js`).
 
 - [ ] **Step 6: UI and copy**
 
-Add `.lv-card[data-rarity="anomaly"]` to `src/styles.css` beside the five existing tier rules (~693-707) — without it the new tier renders with no border, no chip background and no glow, and `RARITIES.anomaly.color` is dead since `ui.js:1156` reads only `.name`.
+Add `.lv-card[data-rarity="anomaly"]` to `src/styles.css` beside the five existing tier rules (~693-707) — without it the new tier renders with no border, no chip background and no glow, and `RARITIES.anomaly.color` is dead since `ui.js` reads only `.name`.
 
 Add the French entry for `'Anomaly'` to `src/fr.js`. **Run XX (`testFrenchDictionary`) walks `RARITIES` and fails on any `.name` with no `FR` entry**, so this is not optional. Per standing rule, get the rendering adversarially reviewed rather than writing it directly — and note the collision: the player already sees "anomaly" for a Daily's mutators.
 
@@ -951,11 +951,11 @@ export const CHAPTER_LATE_RATE = {
 
 Verified call sites — the implementation must not disturb the second or forget the third:
 
-- `sim.js:975` `spawnEnemy` — normals **and** elites (`ELITE.hpMul` multiplies the same product); split children inherit via `parent.maxHP * SPLIT_HP_FRAC` (1040). Both intended.
-- `sim.js:2666` `stepTraps` — `SNAP_TRAP_DMG * hpScale(run.time)` is the snap trap's **enemy-side** damage. Scaling it makes undergrowth's signature mechanic hit enemies harder while the player side stays flat: a **player buff** that partially cancels the offset in exactly one chapter. Leave this site on the shipped curve.
+- `sim.js` `spawnEnemy` — normals **and** elites (`ELITE.hpMul` multiplies the same product); split children inherit via `parent.maxHP * SPLIT_HP_FRAC` (1040). Both intended.
+- `sim.js` `stepTraps` — `SNAP_TRAP_DMG * hpScale(run.time)` is the snap trap's **enemy-side** damage. Scaling it makes undergrowth's signature mechanic hit enemies harder while the player side stays flat: a **player buff** that partially cancels the offset in exactly one chapter. Leave this site on the shipped curve.
 - `CHAPTERS.blank` — `spawnBlankEnemy` (755) re-pins `e.hp` **without** `hpScale`, and the boss uses the fixed `BLANK_BOSS_HP` table. The Blank therefore absorbs **zero** clawback while keeping the full pool buff, and `pool-probe.mjs` cannot measure it (no `blank` chapter). Decide explicitly whether the Blank needs its own number; do not leave it unstated.
 
-Also update the two stale docs that quote the old curve: `config.js:1463` and `:3443-3445` both say "hpScale(300) ≈ 7.6×".
+Also update the two stale docs that quote the old curve: `config.js` and `:3443-3445` both say "hpScale(300) ≈ 7.6×".
 
 - [ ] **Step 4: Run the tests** — `npm test`. Scenarios asserting enemy HP or time-to-kill may need updated expectations; each change gets a comment naming this task.
 

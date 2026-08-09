@@ -102,8 +102,8 @@ Decision (user, 2026-08-08): **offset rather than accept**. The lever was initia
 `xpForLevel`, on the reasoning that it attacks the compounding faster-clears → more-levels loop
 while leaving time-to-kill feel intact. **Measurement reversed that.**
 
-`xpForLevel` is a module-level import (config.js:1544) the harness cannot shim, so the sweep used
-`run.mods.xpMul` (sim.js:5705), which scales gem xp at pickup and moves total picks the same way.
+`xpForLevel` is a module-level import (config.js) the harness cannot shim, so the sweep used
+`run.mods.xpMul` (sim.js), which scales gem xp at pickup and moves total picks the same way.
 Cumulative xp to level L is `sum(5 + 4l) ≈ 5L + 2L²`, so the quadratic term dominates and cost
 scales ~linearly in the coefficient: **`xpMul = m` ≈ `xpForLevel = 5 + level * (4/m)`**.
 
@@ -167,7 +167,7 @@ Kept for the ×3 measurement, which still stands. The ladder itself is supersede
 
 ### Per-chapter ladder (user, 2026-08-08): "no change in ch1, up to ×3 in the last"
 
-**The channel already exists** — `CHAPTERS[id].balance.enemyHpMul`, folded at state.js:1098. This is a
+**The channel already exists** — `CHAPTERS[id].balance.enemyHpMul`, folded at state.js. This is a
 table edit, not new machinery. Current ladder:
 
 | body | pond | garden | undergrowth | city | skies | beyond |
@@ -230,7 +230,7 @@ matching the shape v6.6.7 established for the `maxAliveMul` ladder.
 User, 2026-08-08: *"rather than flat hp multiply, increase the top end of hp curve at the end of a
 5min run."* **Measured better than the flat multiplier on the metric that matters, and adopted.**
 
-The knob already exists and is already isolated (config.js:1467):
+The knob already exists and is already isolated (config.js):
 
 ```js
 hpScale(t) = (1 + t/90) * (t <= HP_SCALE_LATE_START ? 1 : 1 + HP_SCALE_LATE_RATE * (t - START))
@@ -559,7 +559,7 @@ from 21% to 65%.
 
 ~~No `main.js` change needed: `stepLevelUp` sets `run._screenRerolls = -1` before calling
 `buildLevelUpChoices`, which increments on entry. First call lands on 0; each reroll steps up; the
-next level-up resets. Keeps the "rerolling is just calling it again" contract in state.js:529.~~
+next level-up resets. Keeps the "rerolling is just calling it again" contract in state.js.~~
 
 > **Shipped as v6.7.10, and the counter counts PURCHASES, not builds.** Incrementing inside
 > `buildLevelUpChoices` reads identically on the shipped path and is wrong everywhere else: ~15
@@ -683,7 +683,7 @@ verified by hand against the code. Recorded so a future pass doesn't re-derive t
 | # | Finding | Resolution |
 |---|---|---|
 | F1 | Pity deflects onto **legendary** when the anomaly pool is dry — measured **16.1%** legendary in beyond/4 vs 3.5% today, and the counter deadlocks at cap | B5: eligibility computed first, weight 0, re-roll on the base table; reset on tier rolled |
-| F2 | Bucket-first returns **fewer cards than `choiceSlots`** — `MAX_MODS_PER_WEAPON_PER_POOL = 1` caps the mod bucket at one card/pool, ~9% of body/2 screens. `test/sim-test.js:1669` asserts `length === slots` | B1: re-roll among remaining buckets per slot |
+| F2 | Bucket-first returns **fewer cards than `choiceSlots`** — `MAX_MODS_PER_WEAPON_PER_POOL = 1` caps the mod bucket at one card/pool, ~9% of body/2 screens. `test/sim-test.js` asserts `length === slots` | B1: re-roll among remaining buckets per slot |
 | F3 | `pickWeighted({})` throws inside `app.ticker` — hard softlock | Track A / A4 |
 | F4 | `NEW_WEAPON_MIN_RATE` overwrites the **last** card slot unconditionally and would delete anomalies | Skip the swap if any card is `kind:'anomaly'`; move the pity reset after the final array |
 | F5 | Reroll is a pity pump *and* burns credit when you reroll past an unwanted anomaly | B5: advance once per screen in `stepLevelUp`; B6 keeps reroll on the rarity axis only. **Both clauses only closed at v6.7.9**: keeping the weight off reroll never addressed repeated DRAWS (measured 20.1% -> 75.5% over 5 rerolls at saturated pity), and the burn clause was untouched until the tier's answer became one decision per screen (`run._screenAnomaly`) |
@@ -780,7 +780,7 @@ Generalise to one mod key per bucket: `passiveWeightMul` / `modWeightMul` / `wea
 
 Design rules: every tilt carries a **cost** (that is what makes `unstable` fun rather than free);
 tilts are multipliers on the declared weights so the capacity ceilings and fidelity guards still
-hold; and a tilt must never zero a bucket (`pickWeighted` throws on an empty object, sim.js:246 —
+hold; and a tilt must never zero a bucket (`pickWeighted` throws on an empty object, sim.js —
 and a zeroed bucket also reintroduces short pools, which `test/sim-test.js` asserts against).
 
 "Decrease the chance of rolling certain weapon mods" is the same lever pointed at one id — a
@@ -809,7 +809,7 @@ Consequences:
 1. **A card built on these knobs is a mutator with extra steps, and it STACKS with one.** Riptide
    mutator + a Riptide card = `currentForceMul` 4 on a chapter tuned for 2.
 2. **Correction to the audit below: "Riptide is revived" was WRONG.** `MUTATORS.riptide` already
-   ships (`currentForceMul: 2`, pond). The sim.js:1975 comment *"riptide anomaly turns the field
+   ships (`currentForceMul: 2`, pond). The sim.js comment *"riptide anomaly turns the field
    up"* names that mutator, not a planned card. The hook is occupied, not free.
 3. The "free hooks, zero sim code" route is therefore closed for pivots. The cheap cards are taken.
 
@@ -902,8 +902,8 @@ Notes on the two newest, both user-authored:
   **The cost IS the damage, and it scales with `dmgScale`** — the card gets more dangerous the longer
   the run runs, which is exactly the fantasy. No guard needed.
 - **MINIMES**: the decoy system already ships as the `lure` weapon — `run.lures`, enemies inside the
-  aggro radius path to the decoy instead of the player (sim.js:1103-1107, machines take the seek
-  target too), and it bursts for AoE at expiry (sim.js:4883-4884). New: auto-spawn cadence, fleeing
+  aggro radius path to the decoy instead of the player (sim.js, machines take the seek
+  target too), and it bursts for AoE at expiry (sim.js). New: auto-spawn cadence, fleeing
   movement (lures are static), and reading player stats rather than weapon `levels[]`. This also
   refines the Pack Leader kill below — allies that *fight* still do not exist, but decoys that taunt
   and detonate are fully supported.
@@ -949,7 +949,7 @@ The heal was going to be fixed at 1 HP by eye. Measured instead — city, diffic
 | current | **593.0** | 999 |
 | proposed | **790.7** | 999 |
 
-Every coin is `value: 1` (sim.js:3195/3198), so that is also the **pickup count** — the quantity
+Every coin is `value: 1` (sim.js/3198), so that is also the **pickup count** — the quantity
 Avarice actually converts, since it heals per pickup and is therefore immune to every `coinMul`
 mutator.
 
@@ -966,7 +966,7 @@ gating is what makes it a pivot rather than a stat: sustain becomes something yo
 and disengaging to survive stops working.
 
 The cost is real and dual: `run.coinsEarned` is **both** the end-of-run meta payout **and** the
-in-run reroll wallet (main.js:203-205). At `rerollCost` 10 × 1.5^n the ladder is 10/15/23/34/51/76/
+in-run reroll wallet (main.js). At `rerollCost` 10 × 1.5^n the ladder is 10/15/23/34/51/76/
 114/171/256/385, so 593 coins buys ~8 rerolls and 332 buys ~6. **Avarice trades level-up agency for
 survivability** — which is the sharpest thing on the slate, because agency is the exact complaint
 the redesign exists to answer.
@@ -1483,7 +1483,7 @@ different axis** — the failure mode to avoid is five cards that are all "big n
 Coherence checks done at authoring time (the failure mode that killed half the first list was naming
 systems that do not exist):
 
-- **OVERLOAD's self-damage works as written.** `hurtPlayer(run, dmg, dot = true)` (sim.js:1819)
+- **OVERLOAD's self-damage works as written.** `hurtPlayer(run, dmg, dot = true)` (sim.js)
   skips the `invulnTime` window, skips `HURT_CAP_FRAC`, **and skips armor subtraction** — so the cost
   cannot be turtled away, which is what makes it a real resource. Note it *is* suppressed by
   `run.rampageT > 0` (RAMPAGE = INVULNERABLE, the one guard covering every damage path), so rampage
@@ -1493,9 +1493,9 @@ systems that do not exist):
   non-dot branch is `Math.min(1, Math.max(1, …))` = 1. One hit, one death — as intended, no bypass
   needed.
 - **EVENT HORIZON is new, not a re-skin.** The beyond's gravity wells bend **projectiles** only
-  (config.js:4211), and `pullBeam` drags the **player** (config.js:4197). Dragging *enemies* toward
+  (config.js), and `pullBeam` drags the **player** (config.js). Dragging *enemies* toward
   the player exists nowhere and is the inverse of the UFO beam.
-- **BLOOD PACT has three heal sites to suppress**, not one: sim.js:230 (level-up bonus), 241 (pickup
+- **BLOOD PACT has three heal sites to suppress**, not one: sim.js (level-up bonus), 241 (pickup
   +30), 312 (`passives.regen`). There is no `healPlayer` funnel — unlike damage, which has exactly
   one. Worth adding the funnel if this ships.
 - **TIME DEBT** touches only `run.time`'s advance, and every consumer already derives from it
@@ -1540,17 +1540,17 @@ so two cards come back.
 
 | Claim | Status | Evidence |
 |---|---|---|
-| `run.traps` scatters once and dies past the origin | **FALSE — stale** | v6.5 moved traps to `streamTraps` (cell-hash, salts 15–17): permanent streamed field furniture. state.js:875–886. **Trapper is revived.** |
-| Riptide cannot gate on `wave` (pond lacks it) | TRUE — **and the card is dead for a second reason** | `CHAPTERS.pond.weapons = ['flagella','mines','bloom']` (config.js:1638). An earlier revision of this row claimed the effect hook was free and the card revivable; that was **wrong** — `MUTATORS.riptide` already ships `currentForceMul: 2`, and the sim.js:1975 comment names that mutator. See the mod-key section above. |
-| `run.wells` scatters once and dies past the origin | TRUE, and deliberate | `generateWells` → `scatterField`, within `OBSTACLE_FIELD_RADIUS` of the origin. state.js:405–414, 430–436: *"a signature field is the arena's opening hand, not terrain."* Local Physics stays dead unless that call is reopened. |
-| Elementalist re-triggers elemental application | TRUE | sim.js:3276–3277 — DoT ticks use `dealDamage` *specifically* so they don't recursively re-trigger it. The guard is documented by name. |
-| Overtuned has no per-pick rarity to promote | TRUE | `mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus`, sim.js:235 — one accumulated float. |
-| Hunger's `collect()` serves gems **and** coins | TRUE | one closure `collect(list, onPickup)` over a shared `pickupSq`, sim.js:5683–5690. Radius 0 ends XP *and* the reroll economy. |
-| Slipstream: there is no "caught in a current" state | TRUE | `currentForce` is a sum of four sines over (x, y, t), nonzero wherever the signature is `currents`. sim.js:1966–1976. |
-| Counter-Scent: nothing follows the player | TRUE | pheromone nodes are dropped by *dying ants* and followed by other ants. sim.js:3227–3229. |
+| `run.traps` scatters once and dies past the origin | **FALSE — stale** | v6.5 moved traps to `streamTraps` (cell-hash, salts 15–17): permanent streamed field furniture. state.js–886. **Trapper is revived.** |
+| Riptide cannot gate on `wave` (pond lacks it) | TRUE — **and the card is dead for a second reason** | `CHAPTERS.pond.weapons = ['flagella','mines','bloom']` (config.js). An earlier revision of this row claimed the effect hook was free and the card revivable; that was **wrong** — `MUTATORS.riptide` already ships `currentForceMul: 2`, and the sim.js comment names that mutator. See the mod-key section above. |
+| `run.wells` scatters once and dies past the origin | TRUE, and deliberate | `generateWells` → `scatterField`, within `OBSTACLE_FIELD_RADIUS` of the origin. state.js–414, 430–436: *"a signature field is the arena's opening hand, not terrain."* Local Physics stays dead unless that call is reopened. |
+| Elementalist re-triggers elemental application | TRUE | sim.js–3277 — DoT ticks use `dealDamage` *specifically* so they don't recursively re-trigger it. The guard is documented by name. |
+| Overtuned has no per-pick rarity to promote | TRUE | `mods[choice.id] = (mods[choice.id] ?? 0) + choice.bonus`, sim.js — one accumulated float. |
+| Hunger's `collect()` serves gems **and** coins | TRUE | one closure `collect(list, onPickup)` over a shared `pickupSq`, sim.js–5690. Radius 0 ends XP *and* the reroll economy. |
+| Slipstream: there is no "caught in a current" state | TRUE | `currentForce` is a sum of four sines over (x, y, t), nonzero wherever the signature is `currents`. sim.js–1976. |
+| Counter-Scent: nothing follows the player | TRUE | pheromone nodes are dropped by *dying ants* and followed by other ants. sim.js–3229. |
 | Flak: `run.bombs` is shared | TRUE | four producers — blank boss trail (738), artillery (1299, 2969), volatile elite (3214). Gating it neuters all of them. |
-| Sonic Boom: no input sequences roar/tailSwipe | TRUE | both are **weapons** stepped in the auto-fire loop (sim.js:3640–3641). |
-| Debris Field: `run.debris` is rewritten every frame | TRUE | `run.debris = []` each frame, *"exactly like run.orbs"*. sim.js:3617, 5199–5211. |
+| Sonic Boom: no input sequences roar/tailSwipe | TRUE | both are **weapons** stepped in the auto-fire loop (sim.js–3641). |
+| Debris Field: `run.debris` is rewritten every frame | TRUE | `run.debris = []` each frame, *"exactly like run.orbs"*. sim.js, 5199–5211. |
 | Pack Leader needs allied units | TRUE | no `run.allies`, no allied/friendly entity anywhere in sim.js or state.js. |
 
 **Net: Trapper and Riptide return to the card list.** The rest stay dead as written — but note the
@@ -1563,7 +1563,7 @@ Dead as written, with reasons worth keeping:
 | Card | Why |
 |---|---|
 | Riptide | Gated on `wave`, which pond doesn't have (`['flagella','mines','bloom']`) |
-| Elementalist | Routing all damage through `applyElements` re-applies ignite from ignite ticks. Measured: DoT ticks 2,015 → 143,619, combo cascade depth 0 → 176, 4× frame cost. sim.js:1662 documents the guard by name |
+| Elementalist | Routing all damage through `applyElements` re-applies ignite from ignite ticks. Measured: DoT ticks 2,015 → 143,619, combo cascade depth 0 → 176, 4× frame cost. sim.js documents the guard by name |
 | Overtuned | `applyChoice` stores `mods[id] += bonus` as one accumulated float — **per-pick rarity is never retained**, so there is no tier to promote. Redefine as a flat read-time multiplier |
 | Hunger | `collect()` is one closure serving gems **and** coins off the same `pickupSq`; radius 0 requires exact float equality, so nothing is ever collected again — it ends XP *and* the reroll economy |
 | Monoculture | "Exactly 1 weapon" is unenforceable with no skip, and `NEW_WEAPON_MIN_RATE` force-injects weapons |

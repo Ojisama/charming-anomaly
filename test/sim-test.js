@@ -5782,7 +5782,7 @@ function testSkiesKaiju() {
 
   // (e) density guard: THIS specific test exists because rev.1 of this redesign silently did
   // nothing — streamObstacles' per-cell probability is `prob = count*cs^2 /
-  // (pi*OBSTACLE_FIELD_RADIUS^2)` (sim.js:1147/1157), which is INVARIANT under cell size alone.
+  // (pi*OBSTACLE_FIELD_RADIUS^2)` (sim.js/1157), which is INVARIANT under cell size alone.
   // Shrinking `cell` 420->260 while leaving `count` at the old 13 would have produced the exact
   // same density wearing a finer grid. Both numbers had to move together (config.js: count
   // 13->34, cell 420->260) to actually reach the intended ~150-obstacle density. Drive an ACTUAL
@@ -8288,7 +8288,7 @@ function testSaveSlots() {
   console.log('PASS run SS.g (coins coercion): tampered string coins summarize as 0, never raw into innerHTML')
 
   // (h) v6.6.10: the SAME hardening on loadMeta, which SS.g never covered. slotSummary feeds only
-  // the slot modal; loadMeta feeds the title coins badge (ui.js:491), the shop balance (:717), the
+  // the slot modal; loadMeta feeds the title coins badge (ui.js), the shop balance (:717), the
   // reroll button (:1132) and shopFootHtml's `owned` sum (:560) — all interpolated into innerHTML.
   // Every value below survived loadMeta verbatim before this fix.
   setActiveSlot(1)
