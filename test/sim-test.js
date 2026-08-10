@@ -22,7 +22,7 @@ import {
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
-  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, COMBOS,
+  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
@@ -6166,12 +6166,15 @@ function testV54Weapons() {
       }
       const first = shove(1, false), fifth = shove(5, false)
       assert.ok(first > 250, `the FIRST shove imparted ${first.toFixed(0)}, want ~300 — DR must tax cadence, not weapons`)
-      assert.ok(fifth < first * 0.3,
+      // Band, not a point: CC_DR_STEP is a tuning knob (0.5 -> 0.7 from play), so pinning the exact
+      // ratio would make every retune a red test. What must hold is that stacked applications are
+      // worth a fraction of the first — the no-DR mutant reads 1.00.
+      assert.ok(fifth < first * 0.5,
         `the 5th shove in 5 frames imparted ${fifth.toFixed(0)} against the first's ${first.toFixed(0)} — without diminishing returns any fire rate buys unlimited control`)
       // B: the same FIRST hit, under MACHINE GUN, priced at x0.2.
       const firstGun = shove(1, true)
-      assert.ok(Math.abs(firstGun / first - SOY_MILK_DMG_MUL) < 0.02,
-        `MACHINE GUN's first shove was x${(firstGun / first).toFixed(2)} of baseline, want x${SOY_MILK_DMG_MUL} — its x5 rate is free control otherwise`)
+      assert.ok(Math.abs(firstGun / first - SOY_MILK_CC_MUL) < 0.02,
+        `MACHINE GUN's first shove was x${(firstGun / first).toFixed(2)} of baseline, want x${SOY_MILK_CC_MUL} — its x5 rate is free control otherwise`)
     }
 
     // ...and the CHILL SLOW is priced too (owner's call). It is what stops the crowd closing the
@@ -6200,7 +6203,9 @@ function testV54Weapons() {
       const burst = slowAfter(90)
       assert.ok(burst.peak > 0.2,
         `the first chill slowed by ${burst.peak.toFixed(2)}, want the full value — DR must never tax the first hit`)
-      assert.ok(burst.end < burst.peak * 0.7,
+      // Band, not a point, for the same reason as the shove above: CC_DR_STEP/FLOOR are tuning
+      // knobs. The unscaled-chill mutant reads a ratio of exactly 1.00, so this still catches it.
+      assert.ok(burst.end < burst.peak * 0.85,
         `chill slow held at ${burst.end.toFixed(2)} against a first hit's ${burst.peak.toFixed(2)} under sustained fire — an undiminished slow rebuilds the wall on its own, whatever the knockback does`)
     }
 

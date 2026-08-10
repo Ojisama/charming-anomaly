@@ -51,7 +51,7 @@ import {
   SUBMISSION_STRIP_FLAGS,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_PER_WAVE, chaosSurgeActive, chaosWavesSurvived,
-  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
+  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
   MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
   SPECIALIST_FOCUS_MUL, SPECIALIST_OTHER_PENALTY, modPickCap, weaponModPickCount,
@@ -343,7 +343,7 @@ function applyAnomalyOnTake(run, id) {
     // five times the knockback, fear, chill and stun for free — measured as a 112px ring nothing
     // crosses (see the CC_DR_* block in config.js). x0.2 here means the trade is honest in control
     // as well as in dps: five times as many applications, each worth a fifth.
-    p.ccMul = (p.ccMul ?? 1) * SOY_MILK_DMG_MUL
+    p.ccMul = (p.ccMul ?? 1) * SOY_MILK_CC_MUL
   }
 }
 

@@ -619,6 +619,11 @@ export const DEADFALL_REARM_MUL = 0.2
 // Something is clamping cadence at the top end and it is not this card's doing.
 export const SOY_MILK_FIRE_MUL = 5
 export const SOY_MILK_DMG_MUL = 0.2
+// The card's CROWD-CONTROL price, deliberately NOT the same number as its damage price. Charging
+// x0.2 for control as well made the card strictly worse than skipping it (see CC_DR_* below); this
+// is the tuned value, and having it separate is the point — the rate/damage trade and the
+// rate/control trade do not have to balance at the same ratio.
+export const SOY_MILK_CC_MUL = 0.45
 // WILDFIRE. Ignite jumps to the nearest enemy when a burning one dies, carrying the same dps.
 // THE BUDGET IS THE WHOLE BALANCE, and it is the risk the spec named before implementation:
 // "ignite jumping on every death in a 200-enemy field never stops". The budget rides on the ENEMY
@@ -2322,9 +2327,16 @@ export const FEAR_REFRACTORY = 2      // s an enemy is fear-proof after its own 
 //
 // Chapter hazards (traffic, hydrant jets, the lane's repulse) are NOT scaled — they are not bought
 // with a card and cannot be stacked by fire rate. Same scoping as `unshakeable` above.
-export const CC_DR_STEP = 0.5       // each application halves what the next one is worth
+// v7.17.x, RETUNED FROM PLAY ("a bit too weak now"). The first pass was a genuine over-correction:
+// it left the reported build taking MORE contact hits with MACHINE GUN (128.5) than without it
+// (104.5), i.e. the card was a straight downgrade. Measured across a knob grid, same seeds — the
+// NO-CARD row does not move at all across the whole grid (104.5 to 105.5), which is the useful
+// finding: these constants only bite on stacked cadence, so they can be loosened without touching
+// ordinary builds. 0.7/0.25 with SOY_MILK_CC_MUL 0.45 lands the card at 83.5 hits against a 104.5
+// baseline — about 20% safer than not taking it, against 4.0 hits (invincible) before any of this.
+export const CC_DR_STEP = 0.7       // each application is worth this much of the last
 export const CC_DR_RECOVER = 2.5    // s of no control to climb back from the floor to full
-export const CC_DR_FLOOR = 0.08     // never quite zero: a hit should always do SOMETHING
+export const CC_DR_FLOOR = 0.25     // never near zero: a hit should always do something REAL
 export const SHRIEK_ECHO_DELAY = 0.22 // s between an echoShriek cast and the next (cf. WAVE_ECHO_DELAY)
 export const SHRIEK_ECHO_DMG_FRAC = 0.6 // each echo's damage/fear, as a fraction of the original cast's
 // panicRout (behavioral): a FLEEING enemy (fearT > 0) takes (1 + bonus) × damage from EVERY source
