@@ -419,7 +419,17 @@ function stepAnomalies(run, dt) {
     // per-second cost in this file has to bank the fraction; the floor exists so a real DoT tick
     // can never do nothing, and it turns any sub-1 drain into a catastrophe.
     // x dmgScale: the cost tracks the damage the card is preventing. See OVERLOAD_HP_PER_SEC.
-    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dmgScale(run.time) * dt
+    //
+    // AND x TIME_DEBT_MUL, on the RUN clock rather than the real one (v7.15). Without this the two
+    // cards anti-combo: TIME DEBT ends the run in 200 real seconds instead of 300, so a drain
+    // charged per REAL second collects only two thirds of the HP it would over a full run — the
+    // pair was a DISCOUNT on the card whose whole point is a cost. Charging per run-second makes
+    // the total identical to an undebted run and the per-real-second bite 1.5x, which is what
+    // "everything arrives 50% sooner" says on the TIME DEBT card. BERSERK's window above is
+    // deliberately NOT scaled: it is a 5s reward for being hit, not a cost, and shortening it is a
+    // nerf nobody asked for.
+    const clockDt = a.timeDebt ? dt * TIME_DEBT_MUL : dt
+    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dmgScale(run.time) * clockDt
     if (run._overloadAcc >= 1) {
       const spend = Math.floor(run._overloadAcc)
       run._overloadAcc -= spend
@@ -6730,8 +6740,13 @@ function stepPickups(run, dt) {
     // which cannot heal still pays. It does now.
     const canHeal = run.player.hp < run.player.maxHP && !run.anomalies?.bloodPact
     if (run.anomalies?.avarice && canHeal && Math.random() < AVARICE_HEAL_CHANCE) {
+      // Carry the HP that ACTUALLY LANDED, not AVARICE_HEAL_HP. healPlayer clamps to maxHP, so a
+      // pickup at maxHP-2 heals 2 — and the renderer prints this number. Sending the nominal 5
+      // would put a figure on screen that the HP bar visibly contradicts, which is worse than the
+      // silence it replaces.
+      const before = run.player.hp
       healPlayer(run, AVARICE_HEAL_HP)
-      run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value, healed: true })
+      run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value, healed: true, heal: Math.round(run.player.hp - before) })
       return
     }
     // v6.4.2: clamp at COIN_CAP_PER_RUN (config.js) — pickups past the cap still sparkle

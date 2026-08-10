@@ -10939,7 +10939,7 @@ export function createRenderer(app) {
 
   // damage numbers: pooled Text objects, reuse the oldest when full
   const dmgTexts = []
-  function spawnDamage(x, y, dmg, crit, dot) {
+  function spawnDamage(x, y, dmg, crit, dot, label = null) {
     let d = dmgTexts.find((t) => !t.live)
     if (!d && dmgTexts.length < MAX_DMG_TEXTS) {
       const t = new Text({
@@ -10965,15 +10965,15 @@ export function createRenderer(app) {
     d.age = 0
     d.x = x + (Math.random() * 10 - 5)
     d.y = y - 10
-    d.t.text = String(Math.round(dmg))
+    d.t.text = label ? label.text : String(Math.round(dmg))
     // DoT ticks read as small muted numbers so a status-covered crowd doesn't flood the screen.
     // v5.24: chapterRender.ink (the blank) replaces the white base fill — white numbers vanish on
     // the white void — and pulls the muted DoT grey toward itself for the same reason. The crit
     // orange and the stroke survive on white as-is.
     const ink = chapterRender.ink ?? 0xffffff
-    d.t.tint = crit ? 0xff8c42 : dot ? (ink === 0xffffff ? 0xd8cbbd : mix(ink, 0xffffff, 0.45)) : ink
+    d.t.tint = label ? label.tint : crit ? 0xff8c42 : dot ? (ink === 0xffffff ? 0xd8cbbd : mix(ink, 0xffffff, 0.45)) : ink
     d.t.visible = true
-    d._base = crit ? 1.25 : dot ? 0.6 : 0.85
+    d._base = label ? 0.95 : crit ? 1.25 : dot ? 0.6 : 0.85
   }
 
   function updateDamage(dt) {
@@ -11383,6 +11383,12 @@ export function createRenderer(app) {
           break
         case 'coin':
           pickupSparkle(e.x, e.y, true, !!e.healed)
+          // AVARICE's conversion gets a NUMBER (v7.15). The pink sparkle alone was not enough to
+          // read in play — reported as "coins just give gold, it never heals" — because the coin
+          // that heals looks like every other coin except for a 0.3s tint, the coin counter's
+          // failure to move is invisible mid-fight, and +5 on a 150 HP bar is a couple of pixels.
+          // Heart-pink to match the sparkle and the revive, so the whole vocabulary is one colour.
+          if (e.healed && e.heal > 0) spawnDamage(e.x, e.y, 0, false, false, { text: `+${e.heal}`, tint: 0xff8fb1 })
           break
         case 'shoot':
           if (e.weapon === 'wave') {

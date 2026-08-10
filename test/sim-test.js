@@ -503,6 +503,26 @@ function testAnomalySlate() {
     const p = withCard(null).player
     assert.ok(Math.abs(r.player.fireRateMul / p.fireRateMul - OVERLOAD_FIRE_MUL) < 1e-9, 'OVERLOAD did not multiply fire rate')
     assert.ok(Math.abs(r.player.damageMul / p.damageMul - OVERLOAD_DMG_MUL) < 1e-9, 'OVERLOAD did not multiply damage')
+    // ...AND THE DRAIN RIDES THE RUN CLOCK, NOT THE REAL ONE (v7.15). TIME DEBT ends the run in 200
+    // real seconds instead of 300, so a cost charged per REAL second collects two thirds of the HP
+    // — the two cards anti-comboed, and TIME DEBT was a quiet DISCOUNT on the one card whose whole
+    // point is a price. Measured over the same real window from the same run.time, the debted drain
+    // has to be TIME_DEBT_MUL times the undebted one. Asserted as a RATIO of HP actually removed,
+    // so deleting the clockDt term fails it; a state check on run.anomalies would not.
+    const drainReal = (debt) => {
+      const x = withCard('overload', (y) => { y.player.hp = 1e6; y.player.maxHP = 1e6 })
+      if (debt) { x.levelUpChoices = [{ kind: 'anomaly', id: 'timeDebt' }]; applyChoice(x, 0) }
+      const b = x.player.hp
+      for (let i = 0; i < 120; i++) stepSim(x, { x: 0, y: 0 }, dt)   // 2 REAL seconds either way
+      return b - x.player.hp
+    }
+    const plain = drainReal(false), debted = drainReal(true)
+    const ratio = debted / plain
+    // Band, not equality: under debt run.time also advances faster, so dmgScale(run.time) climbs a
+    // little within the window and the ratio sits just above TIME_DEBT_MUL. 1.4..1.75 excludes both
+    // the bug (1.0, the term deleted) and a double-application (2.25).
+    assert.ok(ratio > 1.4 && ratio < 1.75,
+      `OVERLOAD+TIME DEBT drained x${ratio.toFixed(3)} per real second, want ~x${TIME_DEBT_MUL} — at x1 the drain is charged per real second and TIME DEBT is a 33% DISCOUNT on the card's whole cost`)
   }
 
   // SOY MILK — paper-neutral by construction, so assert both halves or half the card can vanish.
@@ -589,6 +609,22 @@ function testAnomalySlate() {
     // fall back to paying" (nowhere on either card).
     assert.strictEqual(full((x) => { x.player.maxHP = 500; x.player.hp = 100; x.anomalies = { bloodPact: true } }), 200,
       'AVARICE + BLOOD PACT destroyed coins — no heal, no payout, and nothing on either card says so')
+    // ...AND THE NUMBER ON SCREEN IS THE HP THAT LANDED (v7.15). The conversion now prints `+N`,
+    // and healPlayer clamps to maxHP — so a pickup 2 HP below full heals 2, not AVARICE_HEAL_HP.
+    // Asserted against the HP actually gained rather than against the constant: a renderer fed the
+    // nominal 5 would put a figure on screen the HP bar visibly contradicts.
+    {
+      const r = withCard('avarice', (x) => { x.player.maxHP = 500; x.player.hp = 498 })
+      for (let i = 0; i < 200; i++) r.coins.push({ x: 0, y: 0, value: 1 })
+      const before = r.player.hp
+      stepSim(r, { x: 0, y: 0 }, dt)
+      const healEvents = r.events.filter((e) => e.type === 'coin' && e.healed)
+      assert.ok(healEvents.length > 0, 'AVARICE converted nothing 2 HP below full — the heal can still land there')
+      const shown = healEvents.reduce((n, e) => n + e.heal, 0)
+      assert.strictEqual(shown, r.player.hp - before,
+        `AVARICE's coin events promised +${shown} HP but the player gained ${r.player.hp - before} — the floating number would be lying about a clamped heal`)
+      assert.ok(healEvents[0].heal <= 2, `first conversion 2 HP below full reported +${healEvents[0].heal}, want <= 2 (clamped)`)
+    }
   }
 
   // BERSERK — a window opened by a real hit and closed by time, read through anomalyDamageMul.

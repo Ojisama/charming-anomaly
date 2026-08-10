@@ -1080,6 +1080,17 @@ export function initUI(hooks) {
     // above — a per-chapter constant, not something that flips mid-run.
     const scriptedChapter = CHAPTERS[run.chapter].scripted === true
     if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
+    // TIME DEBT marks the clock it is accelerating (v7.15). The card changes the RATE, never the
+    // number, so at the instant you take it the timer reads exactly what it read before — measured,
+    // 4:01 either way — and one real second later both still read 3:59. It works (run.time advances
+    // x1.5 and every system downstream of it comes along), but nothing on screen said so and it
+    // read as a dead card in play. COLOUR, not a glyph: a '⏳' inside the pill widens it enough to
+    // wrap the coin badge onto a second line at 390px, which the harness shot caught.
+    const debtOn = !!run.anomalies?.timeDebt
+    if (debtOn !== last.debtOn) {
+      last.debtOn = debtOn
+      hud.timer.classList.toggle('hud-timer--debt', debtOn)
+    }
     if (scriptedChapter) {
       const script = run.script
       const label = script.stage % 2 === 0 ? `${t('WAVE')} ${script.waveIdx + 1}` : ''
@@ -1354,6 +1365,12 @@ export function initUI(hooks) {
     const choices = lvData.choices ?? []
     lvCards.forEach((el, i) => {
       el.innerHTML = cardFaceHtml(choices[i], false)
+      // ...AND DROP THE FACE-DOWN CLASS. The contents flip face up, but `.lv-card--blind` lives on
+      // the BUTTON, and swapping innerHTML cannot reach it — so every revealed card kept
+      // `grayscale(1)` on its icon and `--ink-soft` on its text. The card you took stayed grey at
+      // the exact moment it is supposed to be the one thing in colour, which is the whole payoff of
+      // the reveal. Reported from play; shipped greyed since v7.5.
+      el.classList.remove('lv-card--blind')
       el.disabled = true                       // no silent swallowing: the row is visibly inert
       el.classList.remove('card--focused')
     })

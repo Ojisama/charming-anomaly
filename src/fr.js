@@ -341,7 +341,7 @@ const CONFIG = {
   'Your max HP becomes 1. Your damage is ×4.': 'Tes PV max tombent à 1. Tes dégâts passent à ×4.',
   'you traded every future hit for this one': 'tu as troqué tous les coups à venir contre celui-ci',
   'Overload': 'Surcharge',
-  '×2 fire rate and ×2 damage, for 0.75 HP every second.': 'Cadence de tir ×2 et dégâts ×2, contre 0,75 PV par seconde.',
+  '×2 fire rate and ×2 damage, for 1 HP every second.': 'Cadence de tir ×2 et dégâts ×2, contre 1 PV par seconde.',
   'you found the part of you that burns': 'tu as trouvé la part de toi qui brûle',
   'Blood Pact': 'Pacte de Sang',
   'You can never heal again. Every kill makes you permanently stronger — around ×2 by the end.': 'Tu ne peux plus jamais te soigner. Chaque victime te renforce définitivement — environ ×2 en fin de partie.',

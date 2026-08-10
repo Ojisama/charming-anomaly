@@ -432,6 +432,18 @@ body {
   background: rgba(244, 239, 230, 0.85);
   border: 2px solid rgba(53, 53, 74, 0.2);
 }
+/* TIME DEBT is running the clock at x1.5. Colour only — no glyph, no extra padding, no font
+   change: this pill sits in a fixed-width grid slot next to the coin badge, and anything that
+   widens it wraps the badge onto a second line at 390px. Amber against the default bone so the
+   change is unmissable at the instant the card is taken, which is the moment it has to read.
+   VERMILLION, not amber: amber sits directly beside the gold coin badge and the two read as one
+   yellow group (shot side by side in the harness); violet is already the chaos rail's "surge
+   incoming". This hue is spoken for by nothing else on the HUD. */
+.hud-timer--debt {
+  background: rgba(214, 84, 44, 0.95);
+  border-color: rgba(90, 30, 10, 0.5);
+  color: #fff3ea;
+}
 .hud-right { justify-self: end; display: flex; align-items: center; gap: 8px; }
 .hud-coins {
   /* the badge is the hidden dev menu's seven-tap target (ui.js), and the HUD around it is

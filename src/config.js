@@ -379,7 +379,10 @@ export const OVERLOAD_DMG_MUL = 2
 // power card — 1125.7 kills against the control's 752.9, level 25.0 against 17.0 — but it now
 // dies: 81 deaths in 120 runs, median 272.8s. A much stronger run that ends slightly more often
 // than not taking it IS the trade this card is supposed to be.
-export const OVERLOAD_HP_PER_SEC = 0.75
+// v7.15: 0.75 -> 1, from play. The measurements above describe the SHAPE of the trade — the cost
+// has to ride dmgScale or it inverts — and that is still true; only the constant moved, so read
+// them as history rather than as a bound on this number. Playtest sets it.
+export const OVERLOAD_HP_PER_SEC = 1
 // AVARICE. THE HEAL IS THE OPEN NUMBER ON THIS CARD, and the figure it was originally set against
 // was wrong twice over. The original pricing said "593 coins/run, and every coin is value 1, so
 // that is also the PICKUP count", concluding ~83-111 heals and setting 5 HP to reach 1.4-1.85 HP/s.
@@ -493,19 +496,19 @@ export const ALLY_RING = 0x86e37a
 export const ALLY_RING_ARC = 0xd8f7c8   // the draining loan clock, a shade paler than the ring
 export const STILL_STEPS = 5          // rungs of the baked circle->triangle ladder (render.js)
 export const STILL_MORPH_MAX = 0.55   // how far the top rung goes; 1 would be a hard polygon
-// 0xff2a1a and 0.72, not a softer red at a gentler alpha: an alpha blend toward red over the mint
-// body (0x7de3c3) lands on BROWN at mid strength, because mint's green and blue channels survive
-// it. The first pass shipped 0xff4a3a at 0.55 and the probe came back with a muddy brown blob. Red
-// needs the overlay to actually suppress G and B, which means a red that is dark in both and an
-// alpha high enough to carry it.
+// An alpha blend toward red over the mint body (0x7de3c3) lands on BROWN at mid strength, because
+// mint's green and blue channels survive it — a subtle red on a green character IS a brown. Six
+// candidates were shot on one identical frame (0.72 / 0.50 / 0.35 / 0.22, a darker red, a coral)
+// and every one below 0.72 was some brown or olive; there is no alpha that reads "faintly red".
+// The owner's ruling is that the brown is fine and 0.72 was too loud, so this is 0.50 — the tile
+// that changed the creature without turning it into a tomato. Do not "fix" the brown by raising
+// the alpha; that is the tomato, and it was rejected in play.
 export const BERSERK_TINT = 0xff2a1a  // what the skin runs toward while the window is open
-export const BERSERK_TINT_MAX = 0.72  // blend while the window is open
-// The wash holds FULL until the last 25% of the window, then fades out. Two reasons, and the first
-// is correctness: BERSERK_DMG_MUL is constant for the whole window — it does not ramp down — so a
-// tell that faded the whole way would be lying about the buff it reports. The second is that the
-// blend passes through a muddy olive on its way from red to nothing (see BERSERK_TINT), so time
-// spent at mid alpha is time the player looks dirty rather than angry. The short tail doubles as
-// the "about to expire" cue.
+export const BERSERK_TINT_MAX = 0.5   // blend while the window is open
+// The wash holds FULL until the last 25% of the window, then fades out. The reason is correctness:
+// BERSERK_DMG_MUL is constant for the whole window — it does not ramp down — so a tell that faded
+// the whole way would be lying about the buff it reports. The short tail doubles as the "about to
+// expire" cue.
 export const BERSERK_TINT_TAIL = 0.25
 // MARTYR. Priced on a MEASURED denominator (body/2 d3, kite-and-collect bot, 40 runs): 11.3 hits
 // taken/run, 207.4 HP lost/run, 18.4 HP per hit. So x3 is ~55 raw per detonation and ~620 over a
