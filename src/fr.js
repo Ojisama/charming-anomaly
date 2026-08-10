@@ -332,10 +332,10 @@ const CONFIG = {
   'Time Debt': 'Dette Temporelle',
   'Everything arrives 50% sooner — enemies, elites, the ending. Gems pay +50% XP.': "Tout arrive 50% plus tôt — ennemis, élites, la fin. Les gemmes rapportent +50% d'XP.",
   'the clock started running against you': "l'horloge s'est mise à tourner contre toi",
-  'Conscription': 'Conscription',
+  'Submission': 'Soumission',
   'Elites arrive three times as often — and the ones you kill turn instead of dying, fighting the swarm for 20s at 50% of your damage. Nothing you fire can touch them.':
-    'Les élites arrivent trois fois plus souvent — et celles que tu tues changent de camp au lieu de mourir : elles combattent la nuée pendant 20s pour 50% de tes dégâts. Tes tirs ne peuvent pas les toucher.',
-  'the biggest thing in the room changed sides': 'la plus grosse chose de la pièce a changé de camp',
+    'Les élites arrivent trois fois plus souvent — et celles que tu tues changent de camp au lieu de mourir : elles combattent l\'essaim pendant 20s pour 50% de tes dégâts. Tes tirs ne peuvent pas les toucher.',
+  'they only obey the strongest': "ils n'obéissent qu'au plus puissant",
   'Brittle': 'Fragile',
   'Your max HP becomes 1. Your damage is ×4.': 'Tes PV max tombent à 1. Tes dégâts passent à ×4.',
   'you traded every future hit for this one': 'tu as troqué tous les coups à venir contre celui-ci',

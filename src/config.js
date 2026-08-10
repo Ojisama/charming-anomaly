@@ -723,8 +723,9 @@ export const ANOMALIES = {
     minLevel: 3,
   },
   conscription: {
-    name: 'Conscription', icon: '🎖️',
-    from: 'the biggest thing in the room changed sides',
+    // Display name only — the id below stays `conscription`, per the soyMilk/ipecac precedent.
+    name: 'Submission', icon: '🎖️',
+    from: 'they only obey the strongest',
     desc: `Elites arrive three times as often — and the ones you kill turn instead of dying, fighting the swarm for ${CONSCRIPT_DURATION}s at ${Math.round(CONSCRIPT_DMG_FRAC * 100)}% of your damage. Nothing you fire can touch them.`,
     // The same gate as unstableCores, and for the same reason: the card teaches itself only to a
     // player who has already met an elite. It also scopes the card correctly for free — The Blank
