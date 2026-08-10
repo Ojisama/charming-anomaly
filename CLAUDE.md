@@ -221,14 +221,19 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   match no matter how carefully you copy it. Anchor on a single line with no French punctuation,
   or make the edit with node/python. Same reason a NBSP must never reach a KEY: the key is the
   English source string, so one U+00A0 in it means the lookup can never hit (run XX asserts this).
-- **NEVER put a backtick inside `node -e "…"`.** The shell is zsh: backticks inside a double-quoted
+- **NEVER put a backtick inside ANY double-quoted zsh argument** — `node -e "…"`, and `git commit -m
+  "…"` just as much. The shell is zsh: backticks inside a double-quoted
   argument are command substitution, so `` `swept` `` runs `swept` as a command and substitutes its
   (empty) output. The visible symptom is a `command not found` line — which reads as "the command
   failed", while node **has already run** with your string silently shortened. v7.10 lost four calls
   to this: the run applied most of its replacements and ate one `` `swept` `` out of a comment, then
   the follow-up script reported 33 misses because the work was already done. Anything with backticks,
   nested quotes or newlines goes in a `.cjs` file that you run — the same reason the NBSP rule above
-  sends fr.js edits through node rather than through an exact-string anchor.
+  sends fr.js edits through node rather than through an exact-string anchor. v7.16 hit the SAME
+  trap in `git commit -m`, where it is quieter still: the commit SUCCEEDS, and two backticked
+  identifiers are simply missing from the message. Write a non-trivial commit message to a file and
+  use `git commit -F <file>` — and if you only notice afterwards, `git commit --amend -F` fixes it
+  while the commit is still unpushed.
 - **A RENAME SWEEP HAS TWO SILENT FAILURE MODES, and only one of them is a test failure.** Renaming
   `sewerGeyser` → `burstHydrant` and `tesseractBeam` → `pulsarSweep` in v7.10 hit both:
   - **Field names also exist as quoted STRINGS**, which an identifier sweep cannot see. `run.geysers`
@@ -252,6 +257,34 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   weapons, which is exactly why "what does this weapon do" has more than one answer.) Before
   describing a mechanic, list the chapters whose pool contains it and check the branch each takes.
   v7.10 got this wrong out loud and was corrected from play.
+
+## Headless sim probes (node against sim.js — no browser)
+
+`sim.js`/`config.js`/`state.js` import cleanly into plain node, which makes "what does this actually
+do over a real run" a 30-line script rather than a browser session. `scripts/weapon-census.mjs` and
+`scripts/pool-probe.mjs` are the worked examples. Four traps, all of which produced CONFIDENT WRONG
+NUMBERS in v7.16 — every one of them fails silently, and three of them were only caught because a
+downstream detail looked odd:
+
+- **`createRun(meta, opts)` TAKES AN OPTIONS OBJECT.** `createRun(meta, 'undergrowth', 3)` does not
+  throw and does not warn — `opts` is a string, `opts.chapter` is undefined, and you get **body at
+  difficulty 1**. A whole session's measurements were quoted as "undergrowth d3" before a roster-id
+  breakdown came back `redcell`/`antibody`. Use `createRun(meta, { chapter, difficulty })`, and
+  print `run.chapter` in the probe's own header so the output states what it measured.
+- **The probe meta must UNLOCK the chapters**, exactly like a seeded save (see the browser section
+  below). With `chapters: {}` `ensureChapterMeta` defaults `unlocked` to `id === 'body'` and
+  `resolveChapterId` falls back — the same wrong-chapter failure, from a different direction.
+- **SEED `Math.random`** (mulberry32, as test/sim-test.js does) and average several runs. Unseeded,
+  the same build measured 11 and then 34 contact hits — enough to invent or erase any effect you
+  are about to report. Seed per run, use the same seed set on both sides of an A/B.
+- **`WAVE_TABLE` GATES ARCHETYPES BY TIME.** `tank` does not spawn until **t=140s** and `wisp` not
+  until t=40. A 120s probe therefore cannot see a single tank, so anything about tanks — a roster
+  flag, a behaviour, a counter to a strategy — measures as "absent" rather than "absent from this
+  window". Run the full 300s when the question involves late-run composition.
+
+To A/B a change, extract the old tree rather than editing back and forth:
+`git archive HEAD src | tar -x -C <tmp>`, then point the same probe at each `src` in turn (take a
+src path as argv). That also keeps the mutation rule intact — the working tree is never touched.
 
 ## Browser probing (headless / backgrounded tabs)
 
