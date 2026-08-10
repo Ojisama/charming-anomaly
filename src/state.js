@@ -547,6 +547,15 @@ function generateWells(sig) {
  *                 run.novas entry carrying a `fear` field (the Chitter Shriek — see
  *                 stepNovas/stepShriekWeapon in sim.js).
  *                 chitterShriek's panicRout mod amplifies ALL damage a fearT > 0 enemy takes.
+ *               _ccDR / _ccDRPre / _ccSpentAt (v7.17, GLOBAL CROWD-CONTROL PRICING): the enemy's
+ *                 resistance to being controlled, 1 down to CC_DR_FLOOR. Every player-sourced CC —
+ *                 knockback, fear, chill slow, freeze, stun — multiplies by it (times the player's
+ *                 own p.ccMul) and then spends it, ONCE PER FRAME per enemy however many effects
+ *                 landed; it recovers to 1 over CC_DR_RECOVER seconds. _ccDRPre holds the pre-spend
+ *                 value so every effect of one cast is priced identically regardless of call order.
+ *                 This is what stops a fire-rate card buying unlimited control — see the CC_DR_*
+ *                 block in config.js for the measurements. Chapter hazards (traffic, hydrant jets,
+ *                 the lane's repulse) are deliberately NOT scaled.
  *               fearCd (s of fear IMMUNITY remaining, v7.16): armed to FEAR_REFRACTORY on the frame
  *                 fearT expires; while > 0 no ring can fear this enemy again. Caps fear uptime by
  *                 the enemy's own timer instead of by the weapon's cadence — without it any fire
@@ -1292,6 +1301,10 @@ export function createRun(meta, opts = {}) {
       critChance: PLAYER.baseCritChance + shopBonus(meta, 'critChance'),
       critDamage: PLAYER.baseCritDamage + shopBonus(meta, 'critDamage'),
       damageMul: 1 + shopBonus(meta, 'damage'),
+      // v7.17: the player's own crowd-control price. Its OWN stat rather than a read of damageMul,
+      // so damage passives cannot launder a card's discount away and a damage-UP card (BRITTLE, x4)
+      // cannot inherit a control buff. Cards set it explicitly — see applyAnomalyOnTake.
+      ccMul: 1,
       fireRateMul: 1 + shopBonus(meta, 'fireRate'),
       coinGainMul: 1 + shopBonus(meta, 'coinGain'),
       xp: startXp, level: 1, xpNext: xpForLevel(1),

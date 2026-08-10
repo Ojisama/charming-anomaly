@@ -2291,6 +2291,40 @@ export const FEAR_SPEED_MUL = 1.25    // fleeing enemies scatter a bit faster th
 // Feared enemies now also STILL DEAL CONTACT DAMAGE (contactHarmless no longer checks fearT) — they
 // run from you, but a fleeing thing pinned against the crowd behind it is still a threat.
 export const FEAR_REFRACTORY = 2      // s an enemy is fear-proof after its own fear runs out
+
+// ---- GLOBAL CROWD-CONTROL PRICING (v7.17) ------------------------------------------------------
+// THE CLASS OF BUG, not one instance of it: every crowd-control effect in this game is applied PER
+// HIT at a magnitude that reads neither the damage of the hit nor how recently that enemy was
+// already controlled. So ANY card that buys fire rate buys crowd control for free, and the effects
+// stack on each other — knockback pushes the crowd out, chill means it cannot crawl back before the
+// next push, fear inverts it outright. Patching one status at a time (v7.16 did fear) just moves
+// the exploit to the next one.
+//
+// MEASURED on the reported build (undergrowth d3, 300s, kiting bot, 3 seeded runs — Quill Burst +
+// Chitter Shriek + Cold x4 + MACHINE GUN). Each layer widens the ring the crowd is held at, and the
+// x5 fire rate multiplies all of them at once without adding any mechanic of its own:
+//   quill alone                  165.7 contact hits, crowd held at  31px
+//   + shriek                     122.7 hits,                        68px
+//   + cold x4                    104.3 hits,                        71px
+//   + MACHINE GUN                 50.3 hits,                       112px   (4.0 hits / 162px pre-v7.16)
+//
+// TWO RULES, both owner-picked, applied at every player-sourced CC site:
+//
+//   A. DIMINISHING RETURNS, per enemy. Each application multiplies by that enemy's current
+//      resistance and then spends it (x CC_DR_STEP); it recovers to full over CC_DR_RECOVER seconds
+//      without CC. The FIRST hit always lands in full — a slow heavy weapon is untouched by this —
+//      while the fifth inside a second lands at the floor. Fire rate stops buying control, for
+//      every status including ones not written yet.
+//   B. A CC MULTIPLIER on the player (p.ccMul), which cards set explicitly. MACHINE GUN takes it to
+//      SOY_MILK_DMG_MUL, so its x0.2 damage pays for its x5 rate in control as well as in dps.
+//      Deliberately its own stat rather than a read of p.damageMul: damage passives would otherwise
+//      launder the discount away, and a card like BRITTLE (x4 damage) would INHERIT a control buff.
+//
+// Chapter hazards (traffic, hydrant jets, the lane's repulse) are NOT scaled — they are not bought
+// with a card and cannot be stacked by fire rate. Same scoping as `unshakeable` above.
+export const CC_DR_STEP = 0.5       // each application halves what the next one is worth
+export const CC_DR_RECOVER = 2.5    // s of no control to climb back from the floor to full
+export const CC_DR_FLOOR = 0.08     // never quite zero: a hit should always do SOMETHING
 export const SHRIEK_ECHO_DELAY = 0.22 // s between an echoShriek cast and the next (cf. WAVE_ECHO_DELAY)
 export const SHRIEK_ECHO_DMG_FRAC = 0.6 // each echo's damage/fear, as a fraction of the original cast's
 // panicRout (behavioral): a FLEEING enemy (fearT > 0) takes (1 + bonus) × damage from EVERY source

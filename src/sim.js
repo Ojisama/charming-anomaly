@@ -106,7 +106,8 @@ import {
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
   WEAVE_AMP, WEAVE_FREQ,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
-  FEAR_SPEED_MUL, FEAR_REFRACTORY, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
+  FEAR_SPEED_MUL, FEAR_REFRACTORY, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
+  SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
   // v5.4 city
   LINE_CHARGE_RANGE, LINE_CHARGE_TRACK_SPEED_MUL, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
@@ -338,6 +339,11 @@ function applyAnomalyOnTake(run, id) {
   } else if (id === 'soyMilk') {
     p.fireRateMul *= SOY_MILK_FIRE_MUL
     p.damageMul *= SOY_MILK_DMG_MUL
+    // ...AND ITS CROWD CONTROL IS PRICED THE SAME WAY (v7.17). Without this the card's x5 rate buys
+    // five times the knockback, fear, chill and stun for free — measured as a 112px ring nothing
+    // crosses (see the CC_DR_* block in config.js). x0.2 here means the trade is honest in control
+    // as well as in dps: five times as many applications, each worth a fifth.
+    p.ccMul = (p.ccMul ?? 1) * SOY_MILK_DMG_MUL
   }
 }
 
@@ -1219,7 +1225,7 @@ function freshEnemyFields() {
     bleed: 0, bleedDps: 0,
     // Status effects (v5.4, see the enemies[] contract in state.js): fear inverts the seek, stun
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
-    fearT: 0, fearCd: 0, stunT: 0, enrageT: 0,
+    fearT: 0, fearCd: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
   }
@@ -1593,6 +1599,8 @@ function stepEnemyMovement(run, dt) {
     } else if ((e.fearCd ?? 0) > 0) {
       e.fearCd = Math.max(0, e.fearCd - dt)
     }
+    // CC diminishing returns climb back to full over CC_DR_RECOVER seconds of not being controlled.
+    if ((e._ccDR ?? 1) < 1) e._ccDR = Math.min(1, (e._ccDR ?? 1) + dt / CC_DR_RECOVER)
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
@@ -2331,6 +2339,33 @@ function stepSubmission(run, dt) {
 function resistsCC(e) {
   return !!(e.affixes && e.affixes.includes('anchored')) ||
          !!(e.flags && e.flags.includes('unshakeable'))
+}
+
+// GLOBAL CROWD-CONTROL PRICING (v7.17) — see the CC_DR_* block in config.js for the measurements
+// and the argument. Two multipliers, read together at every player-sourced CC site:
+//   ccScale(run, e) — the price of controlling THIS enemy right now (per-enemy diminishing returns
+//     x the player's own ccMul). Read it ONCE per hit and scale every effect of that hit by it, so
+//     a nova that both fears and knocks back charges one application rather than two.
+//   spendCC(run, e) — call once, after applying, to charge for it.
+// A hit that lands with the enemy fully recovered is at FULL strength: this taxes CADENCE, not
+// weapons. resistsCC enemies are already excluded upstream and never reach these.
+function ccScale(run, e) {
+  // Every effect landing on the same enemy on the same frame reads the SAME pre-spend value. Order
+  // within a cast is otherwise load-bearing: the roar's shove spent first, so its stagger read the
+  // already-halved resistance and staggered for half as long as the shove shoved.
+  const dr = e._ccSpentAt === run.time ? (e._ccDRPre ?? 1) : (e._ccDR ?? 1)
+  return dr * (run.player.ccMul ?? 1)
+}
+// ONCE PER FRAME PER ENEMY, not once per effect. A single cast often lands several controls on the
+// same enemy on the same frame — a roar shoves AND staggers, a shriek ring fears AND knocks back —
+// and charging each one separately halved the resistance two or three times for one swing. That is
+// not a cadence tax, it is a tax on having a rich weapon: the roar's stagger mod measured 0.04s of
+// stun and the suite caught it. Same-frame calls after the first are free.
+function spendCC(run, e) {
+  if (e._ccSpentAt === run.time) return
+  e._ccSpentAt = run.time
+  e._ccDRPre = e._ccDR ?? 1
+  e._ccDR = Math.max(CC_DR_FLOOR, (e._ccDR ?? 1) * CC_DR_STEP)
 }
 
 // v5.4: is this enemy harmless to touch right now? The mirror of damageImmune (an enemy that can't
@@ -3866,11 +3901,18 @@ function applyIgnite(enemy, potency, dmgDealt) {
 }
 
 // Shared by the primary hit and Frost Arc's arc targets.
-function applyChill(enemy, potency) {
+function applyChill(run, enemy, potency) {
   const wasChilling = enemy.chill > 0 && enemy.frozen <= 0
-  const slow = Math.min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency)
+  // v7.17: the SLOW is diminished like every other control (owner's call — it is what stops the
+  // crowd closing the gap between two knockbacks, so leaving it out leaves most of the ring
+  // standing). The chill WINDOW is not scaled: a shorter window would just re-arm the freeze
+  // stack faster. `resistsCC` enemies take the damage and the DoT and no slow at all.
+  if (resistsCC(enemy)) return
+  const k = ccScale(run, enemy)
+  const slow = Math.min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency) * k
   enemy.chill = CHILL_DURATION
   if (enemy.frozen > 0) return // already frozen; window refreshed, no restacking needed
+  spendCC(run, enemy)
 
   if (enemy._freezeImmuneT > 0) {
     enemy.chillSlow = slow
@@ -3886,7 +3928,7 @@ function applyChill(enemy, potency) {
       enemy.chillSlow = Math.min(1, slow * ELITE_FREEZE_SLOW_MUL)
     } else {
       enemy.chillSlow = slow
-      enemy.frozen = FREEZE_DURATION
+      enemy.frozen = FREEZE_DURATION * k
     }
   } else {
     enemy.chillSlow = slow
@@ -3966,7 +4008,7 @@ function applyShock(run, enemy, potency, dmgDealt) {
     if (t.ignite > 0 && comboReady(t, 'overload')) triggerOverload(run, t)
 
     if (sourceChilled && comboReady(enemy, 'frostarc')) {
-      applyChill(t, potency)
+      applyChill(run, t, potency)
       frostPoints.push([t.x, t.y])
     }
     if (sourceVenomStacks > 0 && comboReady(enemy, 'conduct')) {
@@ -4002,7 +4044,7 @@ function applyElements(run, enemy, dmgDealt) {
   }
 
   if (pot.fire > 0) applyIgnite(enemy, pot.fire, dmgDealt)
-  if (pot.cold > 0) applyChill(enemy, pot.cold)
+  if (pot.cold > 0) applyChill(run, enemy, pot.cold)
   if (pot.venom > 0) applyVenomStack(enemy)
   if (pot.lightning > 0) applyShock(run, enemy, pot.lightning, dmgDealt)
 }
@@ -4698,15 +4740,18 @@ function stepNovas(run, dt) {
         // still lets a ring re-apply while fear is already up, and a Math.max refresh every frame
         // then holds fearT at full forever, so it never expires and the cooldown never arms. That
         // reads as a working refractory and measures 100% uptime — the lock, untouched.
+        // ONE scale for the whole hit — the fear and the shove are the same application.
+        const k = ccScale(run, e)
         if ((n.fear ?? 0) > 0 && (e.fearT ?? 0) <= 0 && (e.fearCd ?? 0) <= 0 && !resistsCC(e)) {
-          e.fearT = n.fear
+          e.fearT = n.fear * k
         }
         // Anchored/unshakeable: still takes the damage above, just never gets knocked back.
         if (!resistsCC(e)) {
           const kdx = dist > 1e-6 ? dx / dist : 1
           const kdy = dist > 1e-6 ? dy / dist : 0
-          e.kb.x += kdx * n.knockback
-          e.kb.y += kdy * n.knockback
+          e.kb.x += kdx * n.knockback * k
+          e.kb.y += kdy * n.knockback * k
+          spendCC(run, e)
         }
       }
     }
@@ -4878,7 +4923,7 @@ function detonateMine(run, m) {
     const dx = e.x - m.x, dy = e.y - m.y
     if (dx * dx + dy * dy <= m.radius * m.radius) {
       applyDamage(run, e, m.dmg)
-      if (!damageImmune(e)) e.stunT = Math.max(e.stunT || 0, MINE_STUN)
+      if (!damageImmune(e) && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, MINE_STUN * ccScale(run, e)); spendCC(run, e) }
     }
   }
   run.events.push({ type: 'explode', x: m.x, y: m.y, radius: m.radius })
@@ -6312,7 +6357,7 @@ function stepZones(run, dt) {
           e.kb.x += ux * HYDRANT_LAUNCH_KB
           e.kb.y += uy * HYDRANT_LAUNCH_KB
         }
-        e.stunT = Math.max(e.stunT || 0, HYDRANT_STUN * launchBonus)
+        if (!resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, HYDRANT_STUN * launchBonus * ccScale(run, e)); spendCC(run, e) }
       }
     }
     run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r })
@@ -6434,7 +6479,7 @@ function fireRoar(run, stats) {
       applyDamage(run, e, stats.dmg)
       if (e._dead) continue
       shoveFromPlayer(run, e, stats.knockback)
-      if (staggerBonus > 0) e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus)
+      if (staggerBonus > 0 && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus * ccScale(run, e)); spendCC(run, e) }
     }
     run.events.push({ type: 'roar', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
@@ -6449,8 +6494,10 @@ function shoveFromPlayer(run, e, knockback) {
   const d = Math.hypot(dx, dy)
   const ux = d > 1e-6 ? dx / d : 1
   const uy = d > 1e-6 ? dy / d : 0
-  e.kb.x += ux * knockback
-  e.kb.y += uy * knockback
+  const k = ccScale(run, e)
+  e.kb.x += ux * knockback * k
+  e.kb.y += uy * knockback * k
+  spendCC(run, e)
 }
 
 // -- Tail Swipe (v5.4 skies) ---------------------------------------------------------------

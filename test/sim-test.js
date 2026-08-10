@@ -6115,10 +6115,93 @@ function testV54Weapons() {
         if ((e.fearT || 0) > 0) feared++
       }
       const uptime = feared / FRAMES
-      // 1.8s of fear then FEAR_REFRACTORY of immunity = 1.8 / (1.8 + 2) = 47%.
-      const want = 1.8 / (1.8 + FEAR_REFRACTORY)
-      assert.ok(Math.abs(uptime - want) < 0.08,
-        `fear uptime ${(100 * uptime).toFixed(0)}% under a ring firing EVERY FRAME, want ~${(100 * want).toFixed(0)}% — at 100% the machine-gun lock is back`)
+      // Two caps compose here and the assertion must not pin either one's exact value, or it breaks
+      // every time the other moves: FEAR_REFRACTORY bounds it at 1.8/(1.8+2) = 47%, and v7.17's
+      // diminishing returns shorten each application on top of that. What must stay true is that a
+      // ring firing EVERY FRAME — better than any real fire rate — cannot approach a permanent
+      // lock, and that fear still does something.
+      assert.ok(uptime > 0.05 && uptime < 0.55,
+        `fear uptime ${(100 * uptime).toFixed(0)}% under a ring firing EVERY FRAME — at ~100% the machine-gun lock is back, at ~0% fear has stopped working entirely`)
+    }
+
+    // ...AND THE FIRST HIT IS NEVER TAXED. Diminishing returns must charge CADENCE, not weapons: a
+    // slow heavy weapon hitting a recovered enemy gets the full duration, or every un-stacked fear
+    // in the game was quietly nerfed too.
+    {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+      e.flags = []
+      r.enemies.push(e)
+      r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 0, fear: 1.8, life: 1, hit: new Set() })
+      stepQuiet(r, 1 / 60)
+      assert.ok(e.fearT > 1.7,
+        `a single ring on a fully recovered enemy feared it for ${e.fearT.toFixed(2)}s, want the full 1.8 — DR must tax cadence, not the first hit`)
+    }
+
+    // GLOBAL CROWD-CONTROL PRICING (v7.17). Two rules, asserted by EFFECT on the same enemy:
+    //   A. diminishing returns — the Nth application on one enemy is worth far less than the first;
+    //   B. p.ccMul — MACHINE GUN's x0.2 pays for its x5 rate in control, not just in dps.
+    // Measured as knockback actually imparted, because that is the one CC whose magnitude is a
+    // plain number: a state check on _ccDR would pass with every call site left unscaled.
+    {
+      const shove = (n, gun) => {
+        const r = weaponRun('undergrowth', 'chitterShriek')
+        r.weapons = []
+        // Through applyChoice, not by setting ccMul by hand: the thing under test is that the CARD
+        // sets it. Assigning the field directly tests only that ccScale reads it, and a mutant that
+        // deletes the card's own line passes happily (it did).
+        if (gun) { r.levelUpChoices = [{ kind: 'anomaly', id: 'soyMilk' }]; applyChoice(r, 0) }
+        const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+        e.flags = []
+        r.enemies.push(e)
+        let last = 0
+        for (let i = 0; i < n; i++) {
+          e.kb.x = e.kb.y = 0
+          r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 300, fear: 0, life: 1, hit: new Set() })
+          stepQuiet(r, 1 / 60)
+          last = Math.hypot(e.kb.x, e.kb.y)
+        }
+        return last
+      }
+      const first = shove(1, false), fifth = shove(5, false)
+      assert.ok(first > 250, `the FIRST shove imparted ${first.toFixed(0)}, want ~300 — DR must tax cadence, not weapons`)
+      assert.ok(fifth < first * 0.3,
+        `the 5th shove in 5 frames imparted ${fifth.toFixed(0)} against the first's ${first.toFixed(0)} — without diminishing returns any fire rate buys unlimited control`)
+      // B: the same FIRST hit, under MACHINE GUN, priced at x0.2.
+      const firstGun = shove(1, true)
+      assert.ok(Math.abs(firstGun / first - SOY_MILK_DMG_MUL) < 0.02,
+        `MACHINE GUN's first shove was x${(firstGun / first).toFixed(2)} of baseline, want x${SOY_MILK_DMG_MUL} — its x5 rate is free control otherwise`)
+    }
+
+    // ...and the CHILL SLOW is priced too (owner's call). It is what stops the crowd closing the
+    // gap between two knockbacks, so a diminished shove with an undiminished slow still walls.
+    {
+      // applyChill is module-private, so the chill comes through the REAL path: a cold-infused
+      // weapon actually hitting the enemy. `frac` is how far into a 1s window we read the slow, so
+      // n=1 samples a single application and n=6 samples a sustained burst on the same enemy.
+      const slowAfter = (frames) => {
+        const r = weaponRun('undergrowth', 'quillBurst')
+        r.elements.cold = 4
+        r.elementPicks.cold = 4
+        const e = makeStatusEnemy(r, { x: 30, y: 0, hp: 1e9, speed: 0 })
+        e.flags = []
+        r.enemies.push(e)
+        // The FIRST value is whatever the very first application produced — sampled on the frame
+        // chill first appears, not on frame 0: the weapon has its own interval and has not cast yet.
+        let first = 0
+        for (let i = 0; i < frames; i++) {
+          stepQuiet(r, 1 / 60)
+          e.x = 30; e.y = 0                 // pinned in the nova's path, taking every application
+          if (!first && e.chillSlow > 0) first = e.chillSlow
+        }
+        return { peak: first, end: e.chillSlow }
+      }
+      const burst = slowAfter(90)
+      assert.ok(burst.peak > 0.2,
+        `the first chill slowed by ${burst.peak.toFixed(2)}, want the full value — DR must never tax the first hit`)
+      assert.ok(burst.end < burst.peak * 0.7,
+        `chill slow held at ${burst.end.toFixed(2)} against a first hit's ${burst.peak.toFixed(2)} under sustained fire — an undiminished slow rebuilds the wall on its own, whatever the knockback does`)
     }
 
     // UNSHAKEABLE (v7.16): one tank per chapter ignores fear AND weapon knockback outright, so the
