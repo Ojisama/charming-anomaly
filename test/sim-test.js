@@ -101,7 +101,7 @@ import {
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -10841,6 +10841,7 @@ try {
   testIntegerHP()
   testDetonationScaling()
   testSubmission()
+  testDevMenu()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -12741,4 +12742,62 @@ function testSubmission() {
   assert.strictEqual(a2.hp, hpAtTurn,
     `the player's own weapons took ${hpAtTurn - a2.hp} HP off their ally over 10s at point-blank range`)
   console.log(`PASS run SB.c (friendly fire): a ${Math.round(10 / dt)}-frame point-blank barrage at x20 damage took 0 HP off the ally`)
+}
+
+// ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------
+// The dev screen exists so a card can be tested without replaying until the pool offers it, which
+// is only true if the list is actually complete. Both halves of that fail SILENTLY:
+//   (a) devCards walks the rarity ladder because make*Card returns null for a tier a card does not
+//       offer — a `switch` mod is normal-only, Beam Prism's `values` is epic-only. Take the walk
+//       away and 9 cards simply are not in the list, with no error anywhere. The ones that vanish
+//       are exactly the cards whose rarity rules are unusual, i.e. the ones most worth testing.
+//   (b) devTake routes through applyChoice so a dev-added card takes the SHIPPED code path. A
+//       reimplementation that just banked the pick would look right in run.anomalies / run.passives
+//       and quietly skip applyAnomalyOnTake and the maxHP top-up — you would then be testing a card
+//       that never applied its own effect.
+function testDevMenu() {
+  // (a) COMPLETENESS: every card in every table, exactly once.
+  // MUTATION: in devCards, replace the firstTier() walk with make*Card(run, id, rarity) — 9 gone.
+  const run = createRun(makeMeta())
+  const cards = devCards(run)
+  const seen = (kind) => new Set(cards.filter((c) => c.kind === kind).map((c) => c.id))
+  for (const [kind, table] of [['weapon', WEAPONS], ['passive', PASSIVES], ['element', ELEMENTS], ['anomaly', ANOMALIES]]) {
+    const got = seen(kind)
+    const missing = Object.keys(table).filter((id) => !got.has(id))
+    assert.strictEqual(missing.length, 0, `devCards omits ${kind}: ${missing.join(', ')}`)
+    assert.strictEqual(got.size, Object.keys(table).length, `devCards has duplicate ${kind} cards`)
+  }
+  // Mods are keyed per weapon, so the id alone is not the identity.
+  const gotMods = new Set(cards.filter((c) => c.kind === 'mod').map((c) => `${c.weapon}.${c.id}`))
+  const allMods = []
+  for (const wid of Object.keys(WEAPON_MODS)) for (const mid of Object.keys(WEAPON_MODS[wid])) allMods.push(`${wid}.${mid}`)
+  const missingMods = allMods.filter((k) => !gotMods.has(k))
+  assert.strictEqual(missingMods.length, 0, `devCards omits weapon mods: ${missingMods.join(', ')}`)
+  assert.strictEqual(gotMods.size, allMods.length, 'devCards has duplicate mod cards')
+  // Every card must be renderable — ui.js prints title and desc through cardFaceHtml.
+  for (const c of cards) {
+    assert.ok(c.title, `dev card ${c.kind}:${c.id} has no title`)
+    assert.ok(c.desc, `dev card ${c.kind}:${c.id} has no desc`)
+  }
+  console.log(`PASS run DV.a (complete): devCards lists all ${cards.length} cards — ${Object.keys(WEAPONS).length} weapons, ${Object.keys(PASSIVES).length} passives, ${allMods.length} mods, ${Object.keys(ELEMENTS).length} elements, ${Object.keys(ANOMALIES).length} anomalies`)
+
+  // (b) devTake APPLIES the card, it does not merely record it. Asserted as an effect on the
+  // player, which is what a bank-the-pick reimplementation would leave untouched.
+  // MUTATION: make devTake write run.passives[id] / run.anomalies[id] directly.
+  const r1 = createRun(makeMeta())
+  const maxHPCard = devCards(r1).find((c) => c.kind === 'passive' && c.id === 'maxHP')
+  assert.ok(maxHPCard, 'no maxHP passive card in the dev list')
+  const beforeHP = r1.player.maxHP
+  devTake(r1, maxHPCard)
+  assert.strictEqual(r1.player.maxHP, beforeHP + maxHPCard.bonus,
+    `devTake banked the maxHP pick without growing the pool (${beforeHP} -> ${r1.player.maxHP}, card promised +${maxHPCard.bonus})`)
+
+  const r2 = createRun(makeMeta())
+  const overload = devCards(r2).find((c) => c.kind === 'anomaly' && c.id === 'overload')
+  assert.ok(overload, 'no OVERLOAD anomaly card in the dev list')
+  const beforeFire = r2.player.fireRateMul
+  devTake(r2, overload)
+  assert.strictEqual(r2.player.fireRateMul, beforeFire * OVERLOAD_FIRE_MUL,
+    'devTake recorded OVERLOAD without running applyAnomalyOnTake — the card would be inert in the dev menu')
+  console.log(`PASS run DV.b (real path): devTake grew maxHP by +${maxHPCard.bonus} and applied OVERLOAD's x${OVERLOAD_FIRE_MUL} fire rate`)
 }

@@ -7084,6 +7084,68 @@ function rollAnomalyCard(run) {
   return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
 }
 
+// ---- dev menu (v7.12) --------------------------------------------------------------------
+// EVERY card the game can produce, flat, in the ordinary card shape — for the hidden dev screen
+// (ui.js gates it behind seven taps on the HUD coin badge). Deliberately ignores every
+// eligibility rule the real pools enforce: chapter weapon pool, PASSIVE/anomaly minLevel, an
+// anomaly's `when` gate, MAX_ANOMALIES_PER_RUN, and already-picked dedup. The point is to TEST a
+// card, and half the slate is gated behind conditions that take a real run to reach — SUBMISSION
+// alone needs an elite kill first.
+//
+// Rarity: `rarity` is the tier PREFERRED, not the tier forced. The make*Card factories return
+// null for a tier a card does not offer (a `switch` mod is normal-only; Beam Prism's `values` is
+// epic-only; see makeWeaponModCard), so each candidate walks the ladder and takes the first tier
+// that yields a card. Without that walk the dev list silently omits exactly the cards whose
+// rarity rules are unusual — i.e. the ones most worth testing.
+export function devCards(run, rarity = 'rare') {
+  const tiers = [rarity, ...RARITY_ORDER]
+  const firstTier = (make) => {
+    for (const r of tiers) { const c = make(r); if (c) return c }
+    return null
+  }
+  const out = []
+  for (const id of Object.keys(WEAPONS)) {
+    const cfg = WEAPONS[id]
+    const owned = run.weapons.find((w) => w.id === id)
+    // Same two shapes buildLevelUpChoices deals: a NEW weapon carries its own rarity, an upgrade
+    // carries UPGRADE_RARITY (not a RARITIES key, so ui.js prints no tier chip).
+    out.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc,
+      tag: owned ? `Lv ${owned.level + 1}` : 'New!',
+      rarity: owned ? UPGRADE_RARITY : cfg.rarity, icon: cfg.icon })
+  }
+  for (const id of Object.keys(PASSIVES)) {
+    const c = firstTier((r) => makePassiveCard(run, id, r))
+    if (c) out.push(c)
+  }
+  for (const wid of Object.keys(WEAPON_MODS)) {
+    for (const mid of Object.keys(WEAPON_MODS[wid])) {
+      const c = firstTier((r) => makeWeaponModCard(run, wid, mid, r))
+      if (c) out.push(c)
+    }
+  }
+  for (const id of Object.keys(ELEMENTS)) {
+    const c = firstTier((r) => makeElementCard(run, id, r))
+    if (c) out.push(c)
+  }
+  for (const id of Object.keys(ANOMALIES)) {
+    const a = ANOMALIES[id]
+    const subjects = a.subjects ? a.subjects(run) : null
+    out.push({ kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '',
+      rarity: 'anomaly', icon: a.icon, subjects,
+      subjectPicks: subjects ? Object.fromEntries(subjects.map((w) => [w, weaponModPickCount(run, w)])) : null })
+  }
+  return out
+}
+
+// Hand one of those cards to the ORDINARY pick path. Routing through run.levelUpChoices instead
+// of duplicating applyChoice's branches is the whole point of the dev menu: a card added here
+// takes exactly the code path a card taken from a level-up screen takes, so what you are testing
+// is the shipped behaviour and not a second implementation of it.
+export function devTake(run, card, subject = null) {
+  run.levelUpChoices = [card]
+  applyChoice(run, 0, subject)
+}
+
 // Roll ONE card: bucket first (BUCKET_WEIGHTS), then a rarity inside it. Never walks the rarity
 // ladder — an empty bucket is dropped and the remainder renormalized, because deflecting a failed
 // roll onto the next tier down is what produced 16.1% legendary in the shim's first draft (F1).
