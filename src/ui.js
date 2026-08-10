@@ -1171,10 +1171,13 @@ export function initUI(hooks) {
       chaosRefs = { text: q('[data-chaos-text]'), bonus: q('[data-chaos-bonus]'), fill: q('[data-chaos-fill]') }
     }
     const R = chaosRefs
-    // frac runs 1 -> 0, and the fill is bottom-anchored (styles.css), so the rail SINKS as the wave
-    // approaches and again as it burns off. One direction for both states, deliberately: a rail
-    // that filled in one state and drained in the other would have to be read twice.
-    R.fill.style.height = `${Math.max(0, Math.min(1, c.frac)) * 100}%`
+    // CHARGE, then DISCHARGE. frac runs 1 -> 0 within each phase, so:
+    //   waiting — height is 1 - frac, i.e. the rail FILLS as the wave approaches. Full = it lands.
+    //   live    — height is frac, i.e. the rail DRAINS across the 10s the wave lasts. Empty = over.
+    // Two directions on purpose (owner's call): the rail is a battery, and "filling" and "emptying"
+    // say which of the two states you are in without reading the colour at all.
+    const fill = c.active ? c.frac : 1 - c.frac
+    R.fill.style.height = `${Math.max(0, Math.min(1, fill)) * 100}%`
     // No sentence: the rail has no room for one, so the seconds ARE the label and the state comes
     // from colour (violet incoming, red live — see .chaos--on). Both chips are opaque, which is the
     // half of this the old readout got wrong: its label had no CSS rule at all, inherited the HUD's

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -2290,6 +2290,53 @@ export function createRenderer(app) {
       g.circle(-pr * 0.55, pr * 0.14, pr * 0.14).fill({ color: 0xffa8b8, alpha: 0.55 })
       g.circle(pr * 0.55, pr * 0.14, pr * 0.14).fill({ color: 0xffa8b8, alpha: 0.55 })
       T.playerBody = bake(g)
+    }
+    // STILLNESS (v7.14): the body's own SILHOUETTE sharpens toward a triangle as the ramp climbs —
+    // a skin change rather than a badge, which is the Isaac idiom the owner asked for.
+    //   A baked LADDER, not a live morph: the outline is a 60-point path and rebuilding it every
+    // frame would put Graphics work in the hottest sync in this file, where every other player
+    // element is a static bake. STILL_STEPS frames over a 2s ramp is ~14 fps of shape change,
+    // which reads as continuous at this size.
+    //   Points lerp between the ellipse and an up-pointing rounded triangle of the SAME area, so
+    // the blob sharpens without appearing to grow or shrink.
+    //   Screen-up, not facing-relative: the generic blob pins bodyC.rotation to 0 and supplies
+    // facing with an x-flip alone (see syncPlayer), so a facing-relative point would force the rig
+    // to start rotating — which would spin the baked face with it. Up survives the flip unchanged.
+    //   STILL_MORPH_MAX caps how far it goes: the brief was "slightly more triangular", and a full
+    // polygon stops reading as the same creature.
+    T.playerStill = []
+    T.playerStillFlash = []
+    for (let s = 0; s < STILL_STEPS; s++) {
+      const k = (s / (STILL_STEPS - 1)) * STILL_MORPH_MAX
+      const g = new Graphics()
+      const pts = []
+      const N = 60
+      for (let i = 0; i < N; i++) {
+        const th = (i / N) * Math.PI * 2
+        // ellipse radius at this angle, and the regular-triangle radius with a vertex at screen-up
+        const ex = Math.cos(th) * pr
+        const ey = Math.sin(th) * pr * 0.91
+        const er = Math.hypot(ex, ey)
+        const seg = ((th + Math.PI / 2) % (Math.PI * 2 / 3)) - Math.PI / 3
+        const tr = pr * 1.12 * Math.cos(Math.PI / 3) / Math.cos(seg)
+        const r = er + (tr - er) * k
+        pts.push(Math.cos(th) * r, Math.sin(th) * r)
+      }
+      g.poly(pts).fill(0x7de3c3).stroke({ width: 3.5, color: 0x3aa88a })
+      // the face is drawn at fixed coordinates on top, exactly as in T.playerBody — only the
+      // outline morphs, so the character never stops being the same character
+      g.circle(-pr * 0.36, -pr * 0.18, pr * 0.23).fill(0xffffff)
+      g.circle(pr * 0.36, -pr * 0.18, pr * 0.23).fill(0xffffff)
+      g.beginPath().arc(0, pr * 0.2, pr * 0.2, Math.PI * 0.15, Math.PI * 0.85).stroke({ width: 2.5, color: 0x2f7f68, cap: 'round' })
+      g.circle(-pr * 0.55, pr * 0.14, pr * 0.14).fill({ color: 0xffa8b8, alpha: 0.55 })
+      g.circle(pr * 0.55, pr * 0.14, pr * 0.14).fill({ color: 0xffa8b8, alpha: 0.55 })
+      T.playerStill.push(bake(g))
+      // ...and the same outline as a flat white silhouette, for BERSERK's red wash and for the hit
+      // flash. Baked per rung from the SAME points so the wash can never be a round blob sitting
+      // over a triangular body.
+      const gf = new Graphics()
+      gf.poly(pts).fill(0xffffff).stroke({ width: 3.5, color: 0xffffff })
+      T.playerStillFlash.push(bake(gf))
     }
     {
       const g = new Graphics()
@@ -7455,7 +7502,14 @@ export function createRenderer(app) {
   const pupilR = spriteOf(T.pupil)
   const pFlash = spriteOf(T.playerFlash)
   pFlash.alpha = 0
-  bodyC.addChild(pBody, pupilL, pupilR, pFlash)
+  // BERSERK's red wash (v7.14). A SEPARATE sprite rather than a tint on pBody, because Pixi's tint
+  // is a MULTIPLY: multiplying the mint body (0x7de3c3) by any red can only darken it toward olive,
+  // which is what the first attempt shipped and what the probe caught — a multiply cannot turn a
+  // green body red. An alpha-blended red silhouette in the body's OWN shape can.
+  // Sits above pBody and below the pupils, so the eyes stay sharp while the skin runs hot.
+  const pHot = spriteOf(T.playerFlash)
+  pHot.alpha = 0
+  bodyC.addChild(pBody, pHot, pupilL, pupilR, pFlash)
   // flagellum tail (pond/undergrowth skins): two stacked streak glyphs behind the blob, trailing
   // the player's facingAngle with a wiggle. Textures are fx sprites so they're assigned once the fx
   // sheet loads (buildFxTextures); this rig starts hidden and is revealed by chapterRender.tail.
@@ -11603,7 +11657,28 @@ export function createRenderer(app) {
   }
 
   // -------------------------------------------------------------------- sync
-  function syncPlayer(p, dt, rampageT = 0) {
+  // The two anomalies that change the player's SKIN rather than adding chrome (v7.14). Read from
+  // the RUN here because syncPlayer takes the player; returns both as 0..1 so the renderer never
+  // has to know either card's tuning. Null when neither card is held, which is the common case and
+  // the one that must cost nothing.
+  //   BERSERK's value fades with _berserkT (hurtPlayer refreshes it to BERSERK_DURATION), so the
+  // tell is strongest on the hit and dies with the window — the tint IS the timer.
+  //   STILLNESS's is the same ramp the damage multiplier reads (stepAnomalies), so the silhouette
+  // and the damage can never disagree.
+  function playerBuffs(run) {
+    const a = run.anomalies
+    if (!a || (!a.berserk && !a.stillness)) return null
+    const clamp01 = (v) => Math.max(0, Math.min(1, v))
+    return {
+      berserk: a.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
+      still: a.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
+    }
+  }
+
+  // `buffs` (v7.14): the two anomalies that change the player's SKIN rather than adding chrome —
+  // { berserk, still }, both 0..1, built by playerBuffs() at the call site because this function
+  // takes the PLAYER and both live on the run.
+  function syncPlayer(p, dt, rampageT = 0, buffs = null) {
     playerC.position.set(p.x, p.y)
 
     // v5.11 kaiju redesign: swap the whole body/flash/shadow onto the dedicated kaiju bake for
@@ -11615,6 +11690,7 @@ export function createRenderer(app) {
       if (pBody.texture !== T.kaijuBody.tex) {
         pBody.texture = T.kaijuBody.tex; pBody.anchor.set(T.kaijuBody.ax, T.kaijuBody.ay)
         pFlash.texture = T.kaijuFlash.tex; pFlash.anchor.set(T.kaijuFlash.ax, T.kaijuFlash.ay)
+        pHot.texture = T.kaijuFlash.tex; pHot.anchor.set(T.kaijuFlash.ax, T.kaijuFlash.ay)
         pShadow.texture = T.kaijuShadow.tex; pShadow.anchor.set(T.kaijuShadow.ax, T.kaijuShadow.ay)
       }
       // the region's ONE light direction (SKIES_SHADOW), scaled off the shadow's own reference
@@ -11624,9 +11700,22 @@ export function createRenderer(app) {
       const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
       pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
     } else {
-      if (pBody.texture !== T.playerBody.tex) {
-        pBody.texture = T.playerBody.tex; pBody.anchor.set(T.playerBody.ax, T.playerBody.ay)
-        pFlash.texture = T.playerFlash.tex; pFlash.anchor.set(T.playerFlash.ax, T.playerFlash.ay)
+      // STILLNESS picks a rung of the morph ladder; rung 0 IS the plain body, so a run without the
+      // card takes exactly the old texture. Compared against the CHOSEN look rather than against
+      // T.playerBody — the old guard would have seen a morphed body as "not the base" and reset it
+      // to round on the very next frame, every frame.
+      const rung = buffs && buffs.still > 0
+        ? Math.min(STILL_STEPS - 1, Math.round(buffs.still * (STILL_STEPS - 1)))
+        : 0
+      const bodyLook = rung > 0 ? T.playerStill[rung] : T.playerBody
+      const flashLook = rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
+      if (pBody.texture !== bodyLook.tex) {
+        pBody.texture = bodyLook.tex; pBody.anchor.set(bodyLook.ax, bodyLook.ay)
+      }
+      // pFlash and pHot both wear the silhouette of whatever shape the body currently is
+      if (pFlash.texture !== flashLook.tex) {
+        pFlash.texture = flashLook.tex; pFlash.anchor.set(flashLook.ax, flashLook.ay)
+        pHot.texture = flashLook.tex; pHot.anchor.set(flashLook.ax, flashLook.ay)
         pShadow.texture = T.playerShadow.tex; pShadow.anchor.set(T.playerShadow.ax, T.playerShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)
@@ -11639,6 +11728,13 @@ export function createRenderer(app) {
     // (0x7ad07a) would push the pale cyan sclera toward the same green as the body fill, right when
     // eye contrast matters most.
     pBody.tint = chapterHasKaiju ? 0xffffff : chapterRender.playerTint
+    // BERSERK (v7.14): the skin runs hot while the window is open. Strongest on the frame you are
+    // hit and fading with _berserkT, so the wash IS the timer — no chrome, nothing to read.
+    // An alpha-blended red silhouette, NOT a tint on pBody: see pHot's own note at the rig.
+    pHot.tint = BERSERK_TINT
+    pHot.alpha = buffs
+      ? BERSERK_TINT_MAX * Math.min(1, buffs.berserk / BERSERK_TINT_TAIL)
+      : 0
     if (chapterRender.tail) {
       pTail.visible = true
       if (chapterHasKaiju) {
@@ -12238,7 +12334,7 @@ export function createRenderer(app) {
       if ((e.allyT || 0) > 0) {
         const frac = Math.max(0, Math.min(1, e.allyT / SUBMISSION_DURATION))
         const r = (s.height ? s.height * 0.5 : e.radius) + 7
-        shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: 0xffcc44, alpha: 0.85 })
+        shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: ALLY_RING, alpha: 0.85 })
         // the inner arc drains with the loan — a clock you read at a glance, in plan view.
         // beginPath() IS LOAD-BEARING: Pixi v8's arc() CONTINUES the current path, so without it
         // the arc is joined to whatever was last drawn on shieldG — and shieldG is shared with
@@ -12247,7 +12343,7 @@ export function createRenderer(app) {
         // file is already guarded the same way; this one was the exception.
         shieldG.beginPath()
         shieldG.arc(e.x, e.y, r - 4, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2)
-          .stroke({ width: 2, color: 0xfff0b0, alpha: 0.9 })
+          .stroke({ width: 2, color: ALLY_RING_ARC, alpha: 0.9 })
       }
     }
     for (const [id, s] of enemySprites) {
@@ -12339,7 +12435,7 @@ export function createRenderer(app) {
     syncWebs(run.webs || [])
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
-    syncPlayer(run.player, dt, run.rampageT || 0)
+    syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run))
     syncEnemies(run)
     syncBlooms(run)
     syncLures(run.lures || [])
@@ -12728,7 +12824,7 @@ export function createRenderer(app) {
       updateFloorLayer(cx, cy)
       updateStreets(cx, cy)
       updateJunctions(cx, cy)
-      syncPlayer(run.player, 0)
+      syncPlayer(run.player, 0, 0, playerBuffs(run))
     } else {
       entitiesLayer.visible = false
       idleLayer.visible = true
