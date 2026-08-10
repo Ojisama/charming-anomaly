@@ -11,7 +11,7 @@ const CAST_ART = Object.fromEntries(
     .map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, -4), url]),
 )
 
-const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
+const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary', 'dev']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 // v6.6.18 mis-tap guard: the level-up modal appears mid-fight, right where a thumb is already
 // reaching for the joystick, so a tap in the first instants is a stray press far more often than
@@ -27,6 +27,10 @@ const LEVELUP_GRACE_MS = 500
 // actually spent. Pure chrome, so it lives here and not in config.js — it moves no balance number.
 // Long enough to read three cards, short enough not to become a loading screen every level.
 const BLIND_REVEAL_MS = 2200
+// v7.12 hidden dev menu: the tap gesture that opens it, on the HUD coin badge. Input-guard timing
+// like the two above, so it lives here rather than in config.js — it moves no balance number.
+const DEV_TAPS_TO_OPEN = 7
+const DEV_TAP_WINDOW_MS = 1000
 // ...but the hold is DISMISSIBLE after this, and that distinction is the whole design. An
 // unskippable 1.5s hold on every level-up from ~8 to ~24 is 15-24s of dead modal per 300s run:
 // frustration is a spike, boredom is a wait, and the card is selling the former. The short arm only
@@ -938,7 +942,10 @@ export function initUI(hooks) {
       </div>
       <div class="hud-timer">${fmtTime(RUN_DURATION)}</div>
       <div class="hud-right">
-        <span class="hud-coins">🪙 0</span>
+        <!-- data-act="dev-tap": seven quick taps open the hidden dev menu (see the 'dev-tap' click
+             case). The badge is otherwise inert, and styles.css has to give it pointer-events:auto
+             — the whole HUD is pointer-events:none so it cannot eat gameplay touches. -->
+        <span class="hud-coins" data-act="dev-tap">🪙 0</span>
         <button class="btn-pause" data-act="pause" aria-label="Pause">⏸</button>
       </div>
       <div class="rampage-wrap rampage-wrap--hidden">
@@ -1739,6 +1746,60 @@ export function initUI(hooks) {
     `
   }
 
+  // ---- hidden dev menu (v7.12) ---------------------------------------------
+  // Seven taps on the HUD coin badge pauses the run and opens this. It exists to answer "what does
+  // THIS card actually do", which is otherwise a matter of replaying until the pool offers it —
+  // several of the 20 anomalies are gated behind conditions (an elite kill, a level floor) that
+  // take most of a run to reach.
+  //
+  // Deliberately NOT translated. Every string here is a literal, not a t() call: fr.js is keyed by
+  // the English source string, so routing dev chrome through it would add rows to the translation
+  // surface for a screen only the developer ever sees. The CARDS inside it still translate — they
+  // go through cardFaceHtml, the same function the level-up screen uses.
+  let devList = []          // the flat card list main.js handed us, in devCards() order
+  let devFilter = ''
+  let devListEl = null      // repainted alone on every keystroke, so the filter field keeps focus
+  let devTaps = 0
+  let devTapAt = 0
+
+  // Card rows, grouped by kind with a sticky header per group. Filtering matches the title, the
+  // description and the kind, so "anom" finds the whole tier and "fire" finds what it reads like.
+  function paintDevList() {
+    if (!devListEl) return
+    const q = devFilter.trim().toLowerCase()
+    const rows = devList
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => !q || `${c.kind} ${t(c.title)} ${t(c.desc ?? '')}`.toLowerCase().includes(q))
+    let lastKind = null
+    devListEl.innerHTML = rows.map(({ c, i }) => {
+      const head = c.kind === lastKind ? '' : `<div class="dev-kind">${c.kind}</div>`
+      lastKind = c.kind
+      return `${head}<button class="card lv-card" data-dev="${i}" data-rarity="${c.rarity ?? 'normal'}">${cardFaceHtml(c, false)}</button>`
+    }).join('')
+    const count = root.querySelector('.dev-count')
+    if (count) count.textContent = `${rows.length} / ${devList.length} cards · tap to add`
+  }
+
+  function renderDev(d) {
+    devList = d.cards ?? []
+    // main.js re-shows this screen after every take (the list is rebuilt against the changed run).
+    // Without carrying the scroll across, testing the third anomaly means scrolling back down to it
+    // every single time.
+    const scroll = devListEl ? devListEl.scrollTop : 0
+    screens.dev.innerHTML = `
+      <div class="modal modal--dev">
+        <h2 class="modal-title">DEV</h2>
+        <input class="dev-filter" id="dev-filter" type="text" placeholder="name, or anomaly / mod / passive…" autocomplete="off" value="${devFilter.replace(/"/g, '&quot;')}">
+        <p class="dev-count"></p>
+        <div class="dev-list"></div>
+        <button class="btn btn--big" data-act="dev-close">▶&nbsp; Resume</button>
+      </div>
+    `
+    devListEl = screens.dev.querySelector('.dev-list')
+    paintDevList()
+    devListEl.scrollTop = scroll
+  }
+
   // ---- summary modal -------------------------------------------------------
   function renderSummary(d) {
     const mutatorIds = d.mutators || []
@@ -1788,6 +1849,7 @@ export function initUI(hooks) {
     else if (name === 'levelup') renderLevelup(data ?? {})
     else if (name === 'pause') renderPause(data ?? {})
     else if (name === 'summary') renderSummary(data ?? {})
+    else if (name === 'dev') renderDev(data ?? {})
     const hudUnder = name === 'levelup' || name === 'pause'   // hud stays visible under these modals
     for (const [n, el] of Object.entries(screens)) {
       el.classList.toggle('screen--visible', n === name || (hudUnder && n === 'hud'))
@@ -1828,6 +1890,9 @@ export function initUI(hooks) {
   // rewrite. Delegated, so it survives the field being destroyed and recreated on every re-render.
   root.addEventListener('input', (e) => {
     if (e.target.id === 'rename-field') renameDraft = e.target.value
+    // Repaint the LIST only, never the modal: rewriting screens.dev.innerHTML on every keystroke
+    // would destroy the field being typed into and drop focus after one character.
+    else if (e.target.id === 'dev-filter') { devFilter = e.target.value; paintDevList() }
   })
   root.addEventListener('keydown', (e) => {
     if (e.target.id !== 'rename-field') return
@@ -1840,8 +1905,16 @@ export function initUI(hooks) {
 
   // ---- one delegated click handler for every screen ---------------------------
   root.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject]')
+    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev]')
     if (!el) return
+    if (el.dataset.dev !== undefined) {
+      // The screen stays open — testing a card usually means stacking two or three of them, and
+      // re-showing rebuilds the list against the run that just changed (a weapon card that read
+      // "New!" now reads "Lv 2").
+      hooks.onDevTake?.(Number(el.dataset.dev))
+      playSfx('buy')
+      return
+    }
     if (el.dataset.buy !== undefined) {
       if (hooks.onBuy(el.dataset.buy)) renderShop(el.dataset.buy)
       return
@@ -1978,6 +2051,18 @@ export function initUI(hooks) {
       }
       case 'pause':
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
+      // Hidden dev menu: seven taps on the HUD coin badge. Seven because the badge sits next to the
+      // pause button on a phone, and anything shorter would open on a fat-fingered miss. The count
+      // resets after a second of quiet, so it takes a deliberate burst rather than seven taps
+      // spread across a run.
+      case 'dev-tap': {
+        const now = performance.now()
+        devTaps = now - devTapAt < DEV_TAP_WINDOW_MS ? devTaps + 1 : 1
+        devTapAt = now
+        if (devTaps >= DEV_TAPS_TO_OPEN) { devTaps = 0; playSfx('buy'); hooks.onDevOpen?.() }
+        break
+      }
+      case 'dev-close': playSfx('click'); hooks.onDevClose?.(); break
       case 'build-toggle': {
         const key = el.dataset.key
         if (openBuild.has(key)) openBuild.delete(key)

@@ -47,6 +47,31 @@ There is no single-test runner and no test framework: `test/sim-test.js` is one 
 
 Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
 
+## The hidden dev menu (v7.12) — how to test one specific card
+
+**Seven quick taps on the HUD coin badge**, mid-run, pauses the game and opens a list of *every*
+card the game can produce (190 of them: weapons, passives, weapon mods, elements, anomalies).
+Tapping one adds it to the run; the list rebuilds, so a weapon you just took now reads `Lv 2`.
+Resume closes it. It ships in the production bundle deliberately — the point is to test a card on
+a phone against the live URL, not only on localhost.
+
+- The taps must be within `DEV_TAP_WINDOW_MS` (1s) of each other, so the counter cannot creep up
+  across a run from stray taps.
+- The filter matches title, description **and kind** — type `anomaly` to get the whole slate,
+  `mod` for all 134 weapon mods.
+- `devCards(run)` (sim.js) ignores every eligibility rule on purpose: chapter pool, minLevel, an
+  anomaly's `when` gate, `MAX_ANOMALIES_PER_RUN`, already-picked dedup. That is the whole point —
+  SUBMISSION needs an elite kill before the real pool will offer it.
+- `devTake` routes through `applyChoice` via `run.levelUpChoices`, so a dev-added card takes the
+  **shipped** code path. Do not reimplement the branches here; you would be testing a second
+  implementation instead of the game.
+- Run DV in the suite guards both halves. Both fail silently otherwise: `devCards` walks the
+  rarity ladder because `make*Card` returns null for a tier a card does not offer (a `switch` mod
+  is normal-only, Sweep Loot is epic-only), and without the walk **9 cards are simply absent from
+  the list** — exactly the ones whose rarity rules are unusual, i.e. the ones most worth testing.
+- The dev screen is Pixi-free like the rest of ui.js, so its layout is testable with the throwaway
+  `harness.html` trick below (see *When there is no MCP browser tab*) — no app boot needed.
+
 ## Module architecture — the boundaries are the design
 
 Every module has a hard rule about what it may touch. These rules are what make the sim headless-testable and the renderer swappable; **do not cross them.**
