@@ -116,8 +116,8 @@ import {
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
   TORNADO_SWEEP_R, TORNADO_RESPACE,
-  GEYSER_LAUNCH_KB, GEYSER_STUN,
-  GEYSER_SPRAY_FRAC, GEYSER_IDLE_FRAC, GEYSER_JET_PUSH, GEYSER_MAX_LIVE, GEYSER_STAGGER, GEYSER_STREAMS_FALLBACK, GEYSER_STREAMS_MAX,
+  HYDRANT_LAUNCH_KB, HYDRANT_STUN,
+  HYDRANT_SPRAY_FRAC, HYDRANT_IDLE_FRAC, HYDRANT_JET_PUSH, ZONE_MAX_LIVE, HYDRANT_STAGGER, HYDRANT_STREAMS_FALLBACK, HYDRANT_STREAMS_MAX,
   // v5.4 skies
   STRAFE_STANDOFF, STRAFE_BANK_T, STRAFE_BANK_SPEED_MUL, STRAFE_TELEGRAPH_T, STRAFE_RUN_T, STRAFE_RUN_SPEED_MUL,
   MISSILE_STANDOFF, MISSILE_HOVER_SPEED_MUL, MISSILE_DEADZONE, MISSILE_FIRE_RANGE, MISSILE_REACQUIRE_T, MISSILE_MAX_LIVE, MISSILE_INTERVAL, MISSILE_COUNT,
@@ -144,9 +144,9 @@ import {
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
   SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
-  TESSERACT_ARMS, TESSERACT_COLLAPSE_MUL, TESSERACT_COLLAPSE_PULL,
+  PULSAR_ARMS, PULSAR_COLLAPSE_MUL, PULSAR_COLLAPSE_PULL,
   PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
-  TESSERACT_FAN_ARC, TESSERACT_FAN_SWEEP, TESSERACT_FAN_RATE,
+  PULSAR_FAN_ARC, PULSAR_FAN_SWEEP, PULSAR_FAN_RATE,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -1475,7 +1475,7 @@ function stepEnemyMovement(run, dt) {
     // seek for everyone else; the plain seek runs for the rest. slowMul (chill/freeze) applies
     // throughout. Machines take the seek target, so lured foes run their routine at the decoy.
     if ((e.stunT || 0) > 0) {
-      // stunned (geyser launch / roar stagger): no seek at all — knockback still carries it below.
+      // stunned (hydrant launch / roar stagger): no seek at all — knockback still carries it below.
     } else if ((e.fearT || 0) > 0) {
       // feared (chitter shriek): flee — the seek direction, inverted, at FEAR_SPEED_MUL.
       if (d > 1e-6 && slowMul > 0) {
@@ -3943,8 +3943,8 @@ const WEAPON_STAT_MODS = {
   stinger:   { sharper: ['dmg', 'pct'], volley: ['count', 'flat'], piercingNeedles: ['pierce', 'flat'] },
   lure:      { widerTaunt: ['aggro', 'pct'], longerLure: ['dur', 'pct'] },
   // v5.4 natives. Same two exclusions as above, applied uniformly: every attack-RATE mod
-  // (quickPaws/rapidQuills/rapidShriek/rapidGeyser/rapidRoar/quickTail/rapidToss/rapidShard/
-  // rapidFold) divides the interval at its fire site rather than folding into `rate` — folding it
+  // (quickPaws/rapidQuills/rapidShriek/rapidHydrant/rapidRoar/quickTail/rapidToss/rapidShard/
+  // rapidSweep) divides the interval at its fire site rather than folding into `rate` — folding it
   // in would SLOW the weapon — and so does every mod that has to touch two fields at once
   // (longQuills = range AND speed, longToss = castRange at the throw site). The rest is plain stat
   // folding.
@@ -3952,12 +3952,12 @@ const WEAPON_STAT_MODS = {
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
-  sewerGeyser:   { pressure: ['dmg', 'pct'], longHose: ['r', 'pct'], moreStreams: ['streams', 'flat'], deepMain: ['jetDur', 'pct'] },
+  burstHydrant:   { pressure: ['dmg', 'pct'], longHose: ['r', 'pct'], moreStreams: ['streams', 'flat'], deepMain: ['jetDur', 'pct'] },
   roar:          { bellow: ['dmg', 'pct'], wideRoar: ['arc', 'pct'], farRoar: ['range', 'pct'] },
   tailSwipe:     { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'], broadSweep: ['arc', 'pct'] },
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
-  tesseractBeam: { wideFold: [['width', 'length'], 'pct'], sustainFold: ['duration', 'pct'] },
+  pulsarSweep: { wideSweep: [['width', 'length'], 'pct'], sustainSweep: ['duration', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -4010,7 +4010,7 @@ export function buildReadout(run) {
     const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
     // ORDERED, and ui.js slices to STAT_MAX_ROWS (5) after appending the cadence row `every` — so
-    // where a key sits decides what falls off the sheet. jetDur goes after 'r': the Sewer Geyser
+    // where a key sits decides what falls off the sheet. jetDur goes after 'r': the Burst Hydrant
     // then emits dmg, count, r, jetDur + every = exactly 5. `streams` is deliberately NOT here — a
     // sixth row would push `every` (the cadence) off, and Split Nozzle already shows up in the mod
     // list below the table, the same way every behavioural mod does.
@@ -4078,12 +4078,12 @@ function stepWeapons(run, dt) {
     else if (w.id === 'quillBurst') stepQuillWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'chitterShriek') stepShriekWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'trashTornado') stepTornadoWeapon(run, stats, fireRateMul, dt)
-    else if (w.id === 'sewerGeyser') stepGeyserWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'burstHydrant') stepHydrantWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'roar') stepRoarWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'tailSwipe') stepTailWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'debrisToss') stepDebrisWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'realityShard') stepShardWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'tesseractBeam') stepTesseractWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'pulsarSweep') stepPulsarWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -4096,7 +4096,7 @@ function stepWeapons(run, dt) {
   stepBlooms(run, dt)
   stepLures(run, dt)
   stepClawSlashes(run, dt)
-  stepGeysers(run, dt)
+  stepZones(run, dt)
   stepLobs(run, dt)
 
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
@@ -5053,7 +5053,7 @@ function fireBeam(run, stats) {
   // Beam Prism: snapshot the ladder at cast time, same rule as Strobe above — a mod picked mid-run
   // must not retroactively re-cut a beam that is already in the air. A beam with no prism carries
   // an empty ladder and stepBeams' refraction branch never opens (this is also what keeps the
-  // Tesseract out of it: run.beams is shared, and only fireBeam ever sets this).
+  // Pulsar out of it: run.beams is shared, and only fireBeam ever sets this).
   const prismLadderCast = prismLadder(run.weaponMods.rainbow?.prism ?? 0)
   for (let i = 0; i < beamCount; i++) {
     run.beams.push({
@@ -5130,16 +5130,16 @@ function castPrism(run, ox, oy, angle, dmg, len, width, depth, ladder, hit) {
   }
 }
 
-// A beam's arms: 1 for the Neon Beam, or `arms` evenly around the circle for a folded Tesseract
-// Beam (2 = the fold itself, 180° apart; hyperfold adds more). One entity rakes them all, so
-// Collapse can resolve the whole fold at once — that's why the fold isn't N separate beams.
+// A beam's arms: 1 for the Neon Beam, or `arms` evenly around the circle for a swept Pulsar
+// Sweep (2 = the pair itself, 180° apart; hyperSweep adds more). One entity rakes them all, so
+// Collapse can resolve every arm at once — that's why the pair isn't N separate beams.
 function beamArmAngles(b) {
-  if (!b.folded) return [b.angle]
-  const arms = b.arms ?? TESSERACT_ARMS
+  if (!b.swept) return [b.angle]
+  const arms = b.arms ?? PULSAR_ARMS
   const out = []
   // v5.22 fan mode (lane): spread the arms across a forward ARC rather than a full circle, so every
   // arm covers ground the player is actually driving into. b.angle is the fan's CENTRE here, not the
-  // first arm's heading — see fireTesseract.
+  // first arm's heading — see firePulsar.
   if (b.fan) {
     if (arms === 1) return [b.angle]
     for (let i = 0; i < arms; i++) out.push(b.angle - b.fan / 2 + (i / (arms - 1)) * b.fan)
@@ -5149,12 +5149,12 @@ function beamArmAngles(b) {
   return out
 }
 
-// Collapse (tesseractBeam): when the fold snaps shut, everything inside ANY arm is yanked toward
+// Collapse (pulsarSweep): when the sweep ends, everything inside ANY arm is yanked toward
 // the player and takes a multiple of the beam's per-tick damage, plus one explode at the player.
 // v6.9.3: applyDamage, not dealDamage — b.dmg is the raw config tick stat (see wispPop's note).
-function collapseFold(run, b) {
+function collapseSweep(run, b) {
   const p = run.player
-  const dmg = b.dmg * TESSERACT_COLLAPSE_MUL * (1 + b.collapseBonus)
+  const dmg = b.dmg * PULSAR_COLLAPSE_MUL * (1 + b.collapseBonus)
   const angles = beamArmAngles(b)
   for (const e of run.enemies) {
     if (e._dead) continue
@@ -5162,8 +5162,8 @@ function collapseFold(run, b) {
     const dx = p.x - e.x, dy = p.y - e.y
     const d = Math.hypot(dx, dy)
     if (d > 1e-6 && !(e.affixes && e.affixes.includes('anchored'))) {
-      e.kb.x += (dx / d) * TESSERACT_COLLAPSE_PULL
-      e.kb.y += (dy / d) * TESSERACT_COLLAPSE_PULL
+      e.kb.x += (dx / d) * PULSAR_COLLAPSE_PULL
+      e.kb.y += (dy / d) * PULSAR_COLLAPSE_PULL
     }
     if (dmg > 0) applyDamage(run, e, dmg)
   }
@@ -5175,14 +5175,14 @@ function stepBeams(run, dt) {
   for (const b of run.beams) {
     b.life -= dt
     if (b.life <= 0) {
-      if (b.folded && (b.collapseBonus ?? 0) > 0) collapseFold(run, b)
+      if (b.swept && (b.collapseBonus ?? 0) > 0) collapseSweep(run, b)
       continue
     }
     // Fan mode sweeps like a wiper across a fixed forward heading instead of rotating freely — a
     // full rotation is exactly the behaviour that made this weapon useless in a scrolled level.
     if (b.fan) {
       b._sweepT = (b._sweepT ?? 0) + dt
-      b.angle = b.baseAngle + Math.sin(b._sweepT * TESSERACT_FAN_RATE) * TESSERACT_FAN_SWEEP
+      b.angle = b.baseAngle + Math.sin(b._sweepT * PULSAR_FAN_RATE) * PULSAR_FAN_SWEEP
     } else {
       b.angle += b.rotSpeed * dt
     }
@@ -5942,7 +5942,7 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
 // it's telegraphed? Same rotated-rect along/perp idiom as stepLanes' own `inCar` (and inBeamArm):
 // the lane's REST-FRAME band (lane.x/y/angle/len/w), not the moving car hitbox. Read-only, used by
 // trafficMain (below). v6.6.14: run.lanes is NO LONGER city-only — the garden's mower feeds it too
-// — so this scans lanes of both kinds. Harmless today (trafficMain rides sewerGeyser, and a
+// — so this scans lanes of both kinds. Harmless today (trafficMain rides burstHydrant, and a
 // chapter can only offer its own weapons, so a garden run can never hold that mod), but do not
 // re-assume "lanes implies city" here: filter on lane.look if a future reader needs one kind.
 function pointInLane(run, x, y) {
@@ -5956,13 +5956,13 @@ function pointInLane(run, x, y) {
   return false
 }
 
-// -- Sewer Geyser (v5.4 city utility) ------------------------------------------------------
-// Plants telegraphed eruption zones (run.geysers) on/near random enemies within castRange; each
+// -- Burst Hydrant (v5.4 city utility) ------------------------------------------------------
+// Plants telegraphed eruption zones (run.zones) on/near random enemies within castRange; each
 // waits out its harmless fuse, then erupts ONCE against ENEMIES only. The utility native — slowest
-// rapidGeyser divides the interval; launch flings and stuns what the eruption catches; trafficMain
-// (v6.3) biases placement onto lane-covered foes (below) and hits harder there (stepGeysers).
-function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
-  const rapid = run.weaponMods.sewerGeyser?.rapidGeyser ?? 0
+// rapidHydrant divides the interval; launch flings and stuns what the eruption catches; trafficMain
+// (v6.3) biases placement onto lane-covered foes (below) and hits harder there (stepZones).
+function stepHydrantWeapon(run, w, stats, fireRateMul, dt) {
+  const rapid = run.weaponMods.burstHydrant?.rapidHydrant ?? 0
   const p = run.player
   const zones = ipecacN(run, stats.count)
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => {
@@ -5975,14 +5975,14 @@ function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
       //
       // The lead still has to cover the WHOLE wait (delay + fuse), because that is when this mark
       // resolves; leading by the fuse alone would plant a late zone where the target already was.
-      const delay = i * GEYSER_STAGGER
-      const spot = pickGeyserSpot(run, stats.castRange, delay + stats.fuse)
-      run.geysers.push({
+      const delay = i * HYDRANT_STAGGER
+      const spot = pickHydrantSpot(run, stats.castRange, delay + stats.fuse)
+      run.zones.push({
         x: spot.x, y: spot.y, r: stats.r, fuse: stats.fuse, dur: stats.fuse, dmg: stats.dmg,
         delay, jetDur: stats.jetDur, tick: stats.tick, nStreams: stats.streams,
       })
     }
-    run.events.push({ type: 'geyser', x: p.x, y: p.y })
+    run.events.push({ type: 'hydrant', x: p.x, y: p.y })
   })
 }
 
@@ -5993,13 +5993,13 @@ function stepGeyserWeapon(run, w, stats, fireRateMul, dt) {
 // enemy-hit branch; the fallback calls pickBloomSpot verbatim, so "mod held, no lane" draws exactly
 // what "mod absent" draws. This runs inside fireOnTimer's cast callback — event-timed, not
 // per-frame-stable like createRun's boot sequence — so an occasional extra draw here never shifts a
-// frame-stable stream; no seeded test asserts RNG-stream state across a geyser cast (checked against
-// every AA.e sewerGeyser assertion: they check geyser existence/damage/timing, never exact position
+// frame-stable stream; no seeded test asserts RNG-stream state across a hydrant cast (checked against
+// every AA.e burstHydrant assertion: they check zone existence/damage/timing, never exact position
 // or a cross-run stream comparison).
-function pickGeyserSpot(run, castRange, fuse) {
+function pickHydrantSpot(run, castRange, fuse) {
   const p = run.player
   const rangeSq = castRange * castRange
-  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+  const tm = run.weaponMods.burstHydrant?.trafficMain ?? 0
   if (tm > 0) {
     const inLane = run.enemies.filter((e) => {
       if (e._dead) return false
@@ -6029,7 +6029,7 @@ function pickGeyserSpot(run, castRange, fuse) {
   // Nothing in reach. Plant close to the player rather than anywhere in castRange — whatever arrives
   // next is arriving HERE, so a mark out at the rim is a zone that expires in empty street.
   const a = Math.random() * Math.PI * 2
-  const d = Math.random() * castRange * GEYSER_IDLE_FRAC
+  const d = Math.random() * castRange * HYDRANT_IDLE_FRAC
   return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }
 }
 
@@ -6057,17 +6057,17 @@ function leadSpot(run, e, fuse) {
 }
 
 
-// Shared by the Sewer Geyser and the Reality Shard's riftScar. Never touches the player.
+// Shared by the Burst Hydrant and the Reality Shard's riftScar. Never touches the player.
 //
-// Two lifecycles, chosen by whether the zone carries a jetDur (see the run.geysers block in
-// config.js). A Sewer Geyser erupts and then STAYS OPEN, spraying on a per-(enemy, jet) cooldown; a
+// Two lifecycles, chosen by whether the zone carries a jetDur (see the run.zones block in
+// config.js). A Burst Hydrant erupts and then STAYS OPEN, spraying on a per-(enemy, jet) cooldown; a
 // riftScar rift erupts once and is gone, exactly as before v6.10. The rift path is load-bearing —
 // making rifts persistent would silently rebalance a weapon in another chapter.
-function stepGeysers(run, dt) {
-  if (!run.geysers || run.geysers.length === 0) return
-  const launchBonus = run.weaponMods.sewerGeyser?.launch ?? 0
+function stepZones(run, dt) {
+  if (!run.zones || run.zones.length === 0) return
+  const launchBonus = run.weaponMods.burstHydrant?.launch ?? 0
 
-  for (const g of run.geysers) {
+  for (const g of run.zones) {
     if (g.jet > 0) { stepOpenJet(run, g, dt); continue }   // already erupted, still spraying
     // Dormant: planted but not yet arrived (the cast's stagger). Nothing is drawn for it and
     // nothing can touch it — its fuse has not started.
@@ -6077,7 +6077,7 @@ function stepGeysers(run, dt) {
     if (g.fuse > 0) continue // telegraph — harmless
 
     // ---- eruption ----
-    const dmg = geyserDmg(run, g)
+    const dmg = zoneDmg(run, g)
     const rSq = g.r * g.r
     for (const e of run.enemies) {
       if (e._dead) continue
@@ -6092,10 +6092,10 @@ function stepGeysers(run, dt) {
         const ux = d > 1e-6 ? dx / d : 1
         const uy = d > 1e-6 ? dy / d : 0
         if (!(e.affixes && e.affixes.includes('anchored'))) {
-          e.kb.x += ux * GEYSER_LAUNCH_KB
-          e.kb.y += uy * GEYSER_LAUNCH_KB
+          e.kb.x += ux * HYDRANT_LAUNCH_KB
+          e.kb.y += uy * HYDRANT_LAUNCH_KB
         }
-        e.stunT = Math.max(e.stunT || 0, GEYSER_STUN * launchBonus)
+        e.stunT = Math.max(e.stunT || 0, HYDRANT_STUN * launchBonus)
       }
     }
     run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r })
@@ -6107,18 +6107,18 @@ function stepGeysers(run, dt) {
       g._done = true                     // riftScar: one pop, gone
     }
   }
-  run.geysers = run.geysers.filter((g) => !g._done)
+  run.zones = run.zones.filter((g) => !g._done)
   // The cap is a render/readability guard as much as a balance one (the rim is the hitbox now), so
   // it drops the OLDEST zones: killing the newest would silently eat the cast the player just made.
-  if (run.geysers.length > GEYSER_MAX_LIVE) run.geysers = run.geysers.slice(-GEYSER_MAX_LIVE)
+  if (run.zones.length > ZONE_MAX_LIVE) run.zones = run.zones.slice(-ZONE_MAX_LIVE)
 }
 
 // trafficMain (v6.3): a zone centered inside a live lane hits (1+tm)x harder. Resolved at the zone's
 // own (g.x, g.y) — panicRout's "multiply at the damage site" pattern, applied to the baseDmg fed
 // into applyDamage. Re-resolved per tick on purpose: a lane sweeps past a live jet mid-life, and the
 // jet should start hitting harder when it does.
-function geyserDmg(run, g) {
-  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
+function zoneDmg(run, g) {
+  const tm = run.weaponMods.burstHydrant?.trafficMain ?? 0
   return tm > 0 && pointInLane(run, g.x, g.y) ? g.dmg * (1 + tm) : g.dmg
 }
 
@@ -6129,8 +6129,8 @@ function stepOpenJet(run, g, dt) {
   g.jet -= dt
   if (g.jet <= 0) { g._done = true; return }
 
-  const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
-  const spray = geyserDmg(run, g) * GEYSER_SPRAY_FRAC
+  const tm = run.weaponMods.burstHydrant?.trafficMain ?? 0
+  const spray = zoneDmg(run, g) * HYDRANT_SPRAY_FRAC
   const tick = g.tick > 0 ? g.tick : 0.4
   const rSq = g.r * g.r
 
@@ -6141,9 +6141,9 @@ function stepOpenJet(run, g, dt) {
   // so what is being hit is legible at a glance and the space between streams stays clear.
   //
   // Nearest-N by insertion, not by sorting the whole candidate list: this runs per hydrant per
-  // frame with up to GEYSER_MAX_LIVE hydrants live, and N is 3.
-  // Clamped to GEYSER_STREAMS_MAX: the render rig has that many stream sprites and no more.
-  const maxStreams = Math.min(GEYSER_STREAMS_MAX, Math.max(1, Math.round(g.nStreams ?? GEYSER_STREAMS_FALLBACK)))
+  // frame with up to ZONE_MAX_LIVE hydrants live, and N is 3.
+  // Clamped to HYDRANT_STREAMS_MAX: the render rig has that many stream sprites and no more.
+  const maxStreams = Math.min(HYDRANT_STREAMS_MAX, Math.max(1, Math.round(g.nStreams ?? HYDRANT_STREAMS_FALLBACK)))
   const picks = []
   for (const e of run.enemies) {
     if (e._dead) continue
@@ -6173,8 +6173,8 @@ function stepOpenJet(run, g, dt) {
       const d = Math.hypot(dx, dy)
       const ux = d > 1e-6 ? dx / d : 1
       const uy = d > 1e-6 ? dy / d : 0
-      e.kb.x += ux * GEYSER_JET_PUSH * dt
-      e.kb.y += uy * GEYSER_JET_PUSH * dt
+      e.kb.x += ux * HYDRANT_JET_PUSH * dt
+      e.kb.y += uy * HYDRANT_JET_PUSH * dt
     }
     if ((g._cd.get(e.id) ?? -1) > run.time) continue
     g._cd.set(e.id, run.time + tick)
@@ -6420,12 +6420,12 @@ function stepShardBlink(run, b, dt) {
   b.x += (b.vx / speed) * b._blinkDist
   b.y += (b.vy / speed) * b._blinkDist
   run.events.push({ type: 'blink', x: fromX, y: fromY, tx: b.x, ty: b.y }) // v6.2: the skip is finally visible
-  // riftScar: the departure point scars over and detonates. Rifts reuse run.geysers (the same
+  // riftScar: the departure point scars over and detonates. Rifts reuse run.zones (the same
   // "telegraph then erupt, enemies only" contract) flagged _chained (a rift marker; see config) —
   // a different weapon's mod — can never fire off them.
   const rift = run.weaponMods.realityShard?.riftScar ?? 0
   if (rift > 0) {
-    run.geysers.push({
+    run.zones.push({
       x: fromX, y: fromY, r: SHARD_RIFT_R,
       fuse: SHARD_RIFT_FUSE, dur: SHARD_RIFT_FUSE,
       dmg: b.dmg * SHARD_RIFT_FRAC * rift, _chained: true,
@@ -6458,30 +6458,30 @@ function tryShardRecursion(run, b) {
   }
 }
 
-// -- Tesseract Beam (v5.4 beyond) ----------------------------------------------------------
-// One run.beams entry flagged folded: the "fold" is a second arm 180° opposite the first, sweeping
-// with it, so a cast rakes both sides at once (hyperfold adds arms — 3 = 120° apart, 4 = 90°...).
-// Baking the whole fold into ONE entity (rather than N beams, the way rainbow.prismatic does) is
-// what lets collapse resolve it as a single event. rapidFold divides the cast interval.
-function stepTesseractWeapon(run, w, stats, fireRateMul, dt) {
-  const rapid = run.weaponMods.tesseractBeam?.rapidFold ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireTesseract(run, stats))
+// -- Pulsar Sweep (v5.4 beyond) ----------------------------------------------------------
+// One run.beams entry flagged `swept`: a second arm sits 180° opposite the first and sweeps with
+// it, so a cast rakes both sides at once (hyperSweep adds arms — 3 = 120° apart, 4 = 90°...).
+// Baking every arm into ONE entity (rather than N beams, the way rainbow.prismatic does) is
+// what lets collapse resolve it as a single event. rapidSweep divides the cast interval.
+function stepPulsarWeapon(run, w, stats, fireRateMul, dt) {
+  const rapid = run.weaponMods.pulsarSweep?.rapidSweep ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => firePulsar(run, stats))
 }
 
-function fireTesseract(run, stats) {
-  const mods = run.weaponMods.tesseractBeam
+function firePulsar(run, stats) {
+  const mods = run.weaponMods.pulsarSweep
   // In a lane the forward direction is the ONLY direction that matters, and it is fixed — so the
   // fan is anchored to straight-ahead rather than to aimAngle's nearest-enemy pick, which could
   // (and did) lock onto a straggler already behind the player.
   const lane = CHAPTERS[run.chapter].lane === true
   const baseAngle = lane ? -Math.PI / 2 : aimAngle(run)
   run.beams.push({
-    angle: baseAngle, baseAngle, fan: lane ? TESSERACT_FAN_ARC : 0,
+    angle: baseAngle, baseAngle, fan: lane ? PULSAR_FAN_ARC : 0,
     life: stats.duration, duration: stats.duration, dmg: stats.dmg,
     tick: stats.tick, width: stats.width, length: stats.length,
     rotSpeed: stats.rotSpeed, acc: 0,
-    folded: true,
-    arms: ipecacN(run, TESSERACT_ARMS + (mods?.hyperfold ?? 0)),
+    swept: true,
+    arms: ipecacN(run, PULSAR_ARMS + (mods?.hyperSweep ?? 0)),
     collapseBonus: mods?.collapse ?? 0,
   })
   run.events.push({ type: 'beam' })

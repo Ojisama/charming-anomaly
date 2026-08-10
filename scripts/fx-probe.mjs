@@ -231,7 +231,7 @@ let msgId = 0
 const pending = new Map()
 // Page-side errors, echoed to this terminal. Without these, a scene (or a renderer branch it
 // exercises) that THROWS produces exactly the same symptom as an effect that draws nothing: "scene
-// never became ready", and no clue which. That cost a debugging round on the v6.10 geyser A/B,
+// never became ready", and no clue which. That cost a debugging round on the v6.10 hydrant A/B,
 // where one of four look variants threw and the other three were fine — indistinguishable from the
 // variant simply being invisible until the exception was surfaced.
 const pageErrors = []

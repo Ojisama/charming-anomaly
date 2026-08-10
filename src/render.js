@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, GEYSER_STREAMS_MAX,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -2397,11 +2397,11 @@ export function createRenderer(app) {
         return bake(g)
       }
       T.beam = blade(0xc41220, 0xdc1f2b, 0xff3b45, 0xfff2ef)
-      // The Beyond's Tesseract Beam is a run.beams entry too, so it was drawing itself with the
+      // The Beyond's Pulsar Sweep is a run.beams entry too, so it was drawing itself with the
       // saber above — a crimson bar sweeping a chapter whose whole palette is violet and cyan, and
       // the only saturated red in it. Same blade, folded into the chapter's own colour. Tinting
       // wasn't an option: a blue tint on a red bake multiplies to mud.
-      T.beamFold = blade(0x2d2a8c, 0x4b46d6, 0x8f7dff, 0xf0ecff)
+      T.beamSweep = blade(0x2d2a8c, 0x4b46d6, 0x8f7dff, 0xf0ecff)
       T.beamRefLen = len
       T.beamRefWidth = w
     }
@@ -4055,7 +4055,7 @@ export function createRenderer(app) {
       // them opaque over a body this faint makes the junk read as the entity and the funnel as a
       // smudge behind it.
       const A = 0.7
-      // ---- v6.10 Sewer Geyser jet textures ---------------------------------------------------
+      // ---- v6.10 Burst Hydrant jet textures ---------------------------------------------------
       // Baked, not drawn per frame. The first pass at this effect was four variations of Graphics
       // circles and every one of them read as a diagram rather than as water — the owner's verdict
       // was "change completely the visual". Everything else in this game is a baked texture with an
@@ -5536,7 +5536,7 @@ export function createRenderer(app) {
       return bake(g)
     })()
     // v5.10.1: the rampage screen bloom used to be a bare `T.fx.circle_05` — the same Kenney particle
-    // geyser bubbles, conduct arcs and traffic exhaust all reuse verbatim. A screen bloom's shape IS
+    // hydrant bubbles, conduct arcs and traffic exhaust all reuse verbatim. A screen bloom's shape IS
     // correctly a soft radial gradient (that is what a glow is), so the fix here is giving rampage its
     // OWN hand-authored bake rather than sharing the literal asset three unrelated effects use.
     T.rampageBloom = canvasTex(256, 256, (ctx, w) => {
@@ -5782,8 +5782,8 @@ export function createRenderer(app) {
       T.nova = { tex, ax: 0.5, ay: 0.5 }
       T.novaTexR = fxRadius(tex)
     }
-    // Leaf Blade (run.boomerangs): a DRAWN leaf. v6.6.13, playtest — "leaf blade doesn't look like
-    // a leaf". It didn't: the weapon has been the Leaf Blade since v5.3, but the art stayed the
+    // Boomerang Leaf (run.boomerangs): a DRAWN leaf. v6.6.13, playtest — "leaf blade doesn't look like
+    // a leaf". It didn't: the weapon has been the Boomerang Leaf since v5.3, but the art stayed the
     // Kenney slash glyph tinted orange, i.e. a crescent BLADE. Shape is what says leaf, so it's
     // drawn: a pointed lens widest ~40% from the base, a midrib, three vein pairs and a stem.
     // It stays WARM AMBER rather than going green — the garden floor is bright lawn (bg 0x4e8240
@@ -8735,7 +8735,7 @@ export function createRenderer(app) {
   function expandBeamArms(beams) {
     const out = []
     for (const b of beams) {
-      const arms = b.folded ? (b.arms ?? 2) : 1
+      const arms = b.swept ? (b.arms ?? 2) : 1
       if (arms <= 1) { out.push(b); continue }
       for (let k = 0; k < arms; k++) {
         const angle = b.fan
@@ -9772,14 +9772,14 @@ export function createRenderer(app) {
     }
   }
 
-  // Sewer geysers + reality rifts (run.geysers {x,y,r,fuse,dur,dmg}) and Debris Toss landing rings
+  // Hydrant zones + reality rifts (run.zones {x,y,r,fuse,dur,dmg}) and Debris Toss landing rings
   // (run.lobs): both are "this circle is about to go off", so they share one telegraph Graphics.
-  // Geysers damage ENEMIES ONLY, so they're drawn in a cool sewer-green that can never be mistaken
+  // Zones damage ENEMIES ONLY, so they're drawn in a cool sewer-green that can never be mistaken
   // for the red volatile-bomb telegraph (bombG) that hurts YOU — the colour IS the safety cue.
   function redrawHazards(run) {
     hazardG.clear()
-    for (const gy of run.geysers || []) {
-      // A Sewer Geyser zone (jetDur set) is drawn by the hydrant rig in syncJets. All that belongs
+    for (const gy of run.zones || []) {
+      // A Burst Hydrant zone (jetDur set) is drawn by the hydrant rig in syncJets. All that belongs
       // here is its RADIUS, because the radius is the hitbox and nothing else on the rig carries
       // it — the hydrant is a fixed-size object and the water sits well inside the edge. A thin
       // cool ring, deliberately quiet: the player needs to be able to find it, not look at it, and
@@ -9803,7 +9803,7 @@ export function createRenderer(app) {
       const dur = Math.max(0.001, gy.dur || 1)
       const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 18))
-      // v6.10: fill DOWN, rim UP. Up to GEYSER_MAX_LIVE zones can overlap now that jets persist,
+      // v6.10: fill DOWN, rim UP. Up to ZONE_MAX_LIVE zones can overlap now that jets persist,
       // and a stack of translucent discs is soup — the rim is what has to survive the overlap,
       // because with a live jet the rim IS the hitbox and the player routes around it.
       hazardG.circle(gy.x, gy.y, gy.r).fill({ color: 0x3fae7a, alpha: 0.05 + urgency * 0.08 + pulse * 0.03 })
@@ -9825,7 +9825,7 @@ export function createRenderer(app) {
   }
 
   // ---- v6.10 the burst hydrant --------------------------------------------------------------
-  // A rig per Sewer Geyser zone, live for BOTH phases of its life: the hydrant stands on the street
+  // A rig per Burst Hydrant zone, live for BOTH phases of its life: the hydrant stands on the street
   // rattling while the fuse burns, then its cap blows off and it sheets water until the main runs
   // dry. The telegraph is therefore a physical object you can see coming, not a disc painted on the
   // road — which is the whole reason four passes of translucent zone art got thrown away.
@@ -9844,10 +9844,10 @@ export function createRenderer(app) {
     const crack = spriteOf(T.jetCrack)
     const source = spriteOf(T.jetSource)
     // Two sprites per stream (a dense white core and a looser rinse-coloured spread) so a stream
-    // has depth without a second bake per target. GEYSER_STREAMS_MAX is the ceiling the sim
+    // has depth without a second bake per target. HYDRANT_STREAMS_MAX is the ceiling the sim
     // clamps to, so every target the sim picks always has a jet to be drawn with.
     const streams = []
-    for (let i = 0; i < GEYSER_STREAMS_MAX; i++) {
+    for (let i = 0; i < HYDRANT_STREAMS_MAX; i++) {
       streams.push(T.jetStream.map((look) => {
         const sp = spriteOf(look)
         root.addChild(sp)
@@ -9861,7 +9861,7 @@ export function createRenderer(app) {
     return { root, crack, source, streams, body, cap }
   }
 
-  // `list` is every Sewer Geyser zone — fuse phase AND open phase. Zones without a jetDur are
+  // `list` is every Burst Hydrant zone — fuse phase AND open phase. Zones without a jetDur are
   // Reality Shard rifts, which keep their own green telegraph in redrawHazards and never get a
   // hydrant; filtering them out is the caller's job.
   function syncJets(list) {
@@ -9963,7 +9963,7 @@ export function createRenderer(app) {
 
   // Droplets thrown outward and dragged to a stop before the rim, so the water reads as landing
   // inside the zone rather than escaping it. MAX_PARTICLES is 200 across the whole game and
-  // GEYSER_MAX_LIVE allows 12 jets, so this stays deliberately stingy per jet rather than
+  // ZONE_MAX_LIVE allows 12 jets, so this stays deliberately stingy per jet rather than
   // budgeting for one beautiful hydrant in isolation.
   function jetSpray(gy, rate, tint) {
     if (Math.random() > 0.5 * rate) return
@@ -9981,7 +9981,7 @@ export function createRenderer(app) {
   // _chargeState/_beamState/_coneAngle), all of which MUST be guarded: the roster flags are
   // per-chapter, and title/daily/archetype-fallback enemies carry none of them.
   //
-  // The colour IS the safety cue, the same rule redrawHazards' green geysers follow. Four of these
+  // The colour IS the safety cue, the same rule redrawHazards' green zones follow. Four of these
   // five end in the player taking damage, so they speak the established amber hazard language of
   // the traffic lanes and spray strips (0xffd24a fill / 0xffe37a rim), tightening and quickening
   // as the fuse burns down. The flashlight cone is the deliberate exception — see its block.
@@ -11273,7 +11273,7 @@ export function createRenderer(app) {
           break
         case 'bloom':  spawnRing(e.x, e.y, 40, 0.35, T.nova, 0x2fb6a3); break // v6.2: cast was invisible
         case 'lure':   spawnRing(e.x, e.y, 34, 0.30, T.nova, 0x67b26f); break // v6.2: cast was invisible
-        case 'geyser': spawnRing(e.x, e.y, 44, 0.40, T.nova, 0x5c8a4e); break // v6.2: cast was invisible
+        case 'hydrant': spawnRing(e.x, e.y, 44, 0.40, T.nova, 0x5c8a4e); break // v6.2: cast was invisible
         case 'whip':
           // flagella lash: arc sweep flash + a soft shake (melee weight)
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
@@ -12239,12 +12239,12 @@ export function createRenderer(app) {
     redrawStrips(run)
     redrawLanes(run)
     redrawHazards(run)
-    // The hydrant rig owns BOTH phases of a Sewer Geyser zone — rattling on its fuse, then sheeting
+    // The hydrant rig owns BOTH phases of a Burst Hydrant zone — rattling on its fuse, then sheeting
     // water — so unlike the old open-jet-only pass this takes the whole list. Zones with no jetDur
     // are Reality Shard rifts, which keep the plain green telegraph redrawHazards draws above.
     // `delay` zones are dormant (a cast's stagger) — planted in the sim but not yet arrived, so
     // nothing is drawn for them at all.
-    syncJets((run.geysers || []).filter((g) => g.jetDur > 0 && !(g.delay > 0)))
+    syncJets((run.zones || []).filter((g) => g.jetDur > 0 && !(g.delay > 0)))
     redrawTelegraphs(run)
     updateStrafeLocks(dt) // draws INTO teleG, on top of what redrawTelegraphs just drew — see its own comment
     if (chapterHasStorm) {
@@ -12268,8 +12268,8 @@ export function createRenderer(app) {
     syncTornadoes(run.debris || [])
     syncPool(shotPool, shotLayer, run.enemyShots || [], 'shot', T.missile, placeShot)
     syncHoles(run.holes)
-    // v5.22: expand a FOLDED beam into one drawn arm per damaging arm. syncBeams draws a single
-    // sprite per run.beams entry, so the fold's opposite arm has never been drawn at all — it dealt
+    // v5.22: expand a SWEPT beam into one drawn arm per damaging arm. syncBeams draws a single
+    // sprite per run.beams entry, so the opposite arm has never been drawn at all — it dealt
     // damage down a line with nothing on screen. Fan mode made that visible rather than causing it:
     // b.angle is the fan's CENTRE there, so the one sprite pointed where no arm actually was.
     // The angle math mirrors sim.js's beamArmAngles. render can't import sim, and the beam entity
@@ -12499,13 +12499,13 @@ export function createRenderer(app) {
     bv.root.position.set(playerX, playerY)
     bv.root.rotation = b.angle
 
-    // `folded` is the Tesseract Beam and nothing else (config.js WEAPONS.tesseractBeam), so it is
+    // `swept` is the Pulsar Sweep and nothing else (config.js WEAPONS.pulsarSweep), so it is
     // the whole weapon test — a pool slot serves either weapon, hence swapping here and not in
     // acquireBeam. Both bakes share geometry, so the anchor spriteOf set still holds.
-    const fold = b.folded === true
-    bv.bar.texture = (fold ? T.beamFold : T.beam).tex   // bake() returns {tex, ax, ay}, not a Texture
-    bv.tip.tint = bv.muzzle.tint = fold ? 0xa08cff : 0xff5a52
-    bv.streakA.tint = bv.streakB.tint = fold ? 0xdcd6ff : 0xffd9d4
+    const swept = b.swept === true
+    bv.bar.texture = (swept ? T.beamSweep : T.beam).tex   // bake() returns {tex, ax, ay}, not a Texture
+    bv.tip.tint = bv.muzzle.tint = swept ? 0xa08cff : 0xff5a52
+    bv.streakA.tint = bv.streakB.tint = swept ? 0xdcd6ff : 0xffd9d4
 
     const spawnElapsed = b.duration - b.life
     const spawnIn = spawnElapsed < 0.12 ? Math.max(0, spawnElapsed / 0.12) : 1 // width squashes in

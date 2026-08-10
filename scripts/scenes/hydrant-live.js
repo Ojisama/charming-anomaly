@@ -1,13 +1,13 @@
 // Scene: the Burst Hydrant casting NATURALLY in a real city run — no hand-placed zones.
 //
-// The look was developed against hand-built run.geysers entries, which proves the renderer but not
-// the path that actually feeds it: stepGeyserWeapon -> pickGeyserSpot -> the zone's own fields.
+// The look was developed against hand-built run.zones entries, which proves the renderer but not
+// the path that actually feeds it: stepHydrantWeapon -> pickHydrantSpot -> the zone's own fields.
 // A bad `streams` snapshot, a mis-set jetDur or a mod that folds into nothing all look perfect in a
 // hand-placed shot and produce nothing here.
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/hydrant-live.js --out /tmp/hl --frames 6 --chapter city
 
-H.weapon('sewerGeyser', 5, { moreStreams: 1, deepMain: 0.3, longHose: 0.3 })
+H.weapon('burstHydrant', 5, { moreStreams: 1, deepMain: 0.3, longHose: 0.3 })
 
 H.breed(24)
 H.keep(24)
@@ -17,12 +17,12 @@ H.place((i, p) => ({
 }))
 
 // Let the weapon cast and at least one hydrant actually open its main.
-const ok = H.until(() => (run.geysers || []).some((g) => g.jet > 0), 1200)
+const ok = H.until(() => (run.zones || []).some((g) => g.jet > 0), 1200)
 
-const live = (run.geysers || []).filter((g) => g.jet > 0)
+const live = (run.zones || []).filter((g) => g.jet > 0)
 H.note(JSON.stringify({
   opened: ok,
-  zones: (run.geysers || []).length,
+  zones: (run.zones || []).length,
   open: live.length,
   nStreams: live[0]?.nStreams ?? null,
   jetDur: live[0]?.jetDur?.toFixed?.(2) ?? null,

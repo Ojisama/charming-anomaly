@@ -1,6 +1,6 @@
 // Weapon census — what a weapon actually DOES over a real run, headless.
 //
-// Written for the v6.10 Sewer Geyser rework, where every intuition about the weapon turned out to
+// Written for the v6.10 Burst Hydrant rework, where every intuition about the weapon turned out to
 // be wrong and only measurement settled it. Keep it around: "is this weapon weak?" is a question
 // this repo has answered by guessing at least twice, and been off every time.
 //
@@ -14,7 +14,7 @@
 //   hits/s       tactile feedback rate — how often a number pops
 //   dmg/hit      average swing size
 //
-// and, for weapons that plant telegraphed zones (run.geysers — the Sewer Geyser and the Reality
+// and, for weapons that plant telegraphed zones (run.zones — the Burst Hydrant and the Reality
 // Shard's riftScar), a per-ZONE breakdown: how often a zone caught nothing across its ENTIRE life,
 // and the peak crowd it held.
 //
@@ -22,7 +22,7 @@
 // metric reported the v6.10 jet rework as barely an improvement (27.4% -> 26.1% "whiff") because it
 // scored a jet that caught nobody at t=0 as a miss even when it soaked four enemies a second later.
 // A persistent zone's whole point is that the instant does not matter, so a metric anchored to the
-// instant cannot see the change. This walks run.geysers directly and is purely geometric — no
+// instant cannot see the change. This walks run.zones directly and is purely geometric — no
 // damage attribution, so it cannot be fooled by overkill or by a shared event type.
 //
 // TWO TRAPS, both of which produced confidently wrong readings while this was being written:
@@ -32,15 +32,15 @@
 //     script reported 1,180,510 dps for the Neon Beam and it looked plausible enough to keep going.
 //  2. A 'hit' event's dmg is the RAW SWING, not HP removed. Measuring damage from events credits
 //     overkill in full, which flatters exactly the weapons with the biggest per-hit numbers. Doing
-//     that inverted the ranking of all three city weapons: the Sewer Geyser read as the chapter's
+//     that inverted the ranking of all three city weapons: the Burst Hydrant read as the chapter's
 //     highest-damage weapon (531 raw) when it is in fact the lowest (383 effective, 28% wasted).
 //     eff dps diffs enemy hp across the step instead, and credits the full remaining hp of anything
 //     that vanished.
 //
 // Usage:
 //   node scripts/weapon-census.mjs                                  # city natives, L1 and L5
-//   node scripts/weapon-census.mjs --chapter city --level 5 --weapons sewerGeyser,rainbow
-//   node scripts/weapon-census.mjs --secs 120 --seeds 1001,2002 --mods launch=1,wideGeyser=3
+//   node scripts/weapon-census.mjs --chapter city --level 5 --weapons burstHydrant,rainbow
+//   node scripts/weapon-census.mjs --secs 120 --seeds 1001,2002 --mods launch=1,wideHydrant=3
 //
 // ponytail: seeds and duration are fixed inputs, not a convergence check — five 240s runs is
 // enough to rank weapons but not to resolve a 3% balance difference. Raise --seeds if you need that.
@@ -99,7 +99,7 @@ function census(id, level, seed) {
   const before = new Map()
   const steps = Math.round(SECS / DT)
   // 'explode' is not a zone-weapon signal — the beam and the tornado emit it for their own bursts.
-  // Only weapons that actually plant run.geysers get the per-zone breakdown.
+  // Only weapons that actually plant run.zones get the per-zone breakdown.
   let plantsZones = false
   // Per-zone life tracking. Zones are plain objects with no id, so the object identity IS the key;
   // a WeakSet-style Map keyed on the object works because sim.js mutates zones in place and only
@@ -116,7 +116,7 @@ function census(id, level, seed) {
     for (const e of run.enemies) before.set(e.id, e.hp)
 
     stepSim(run, { x: 0.4, y: 0.2 }, DT)
-    if (run.geysers.length > 0) plantsZones = true
+    if (run.zones.length > 0) plantsZones = true
 
     const after = new Map()
     for (const e of run.enemies) after.set(e.id, e.hp)
@@ -129,7 +129,7 @@ function census(id, level, seed) {
     // Zone life: count the crowd standing in every LIVE zone (fuse burnt down, still open), and
     // retire the ones that vanished this step.
     const live = new Set()
-    for (const g of run.geysers) {
+    for (const g of run.zones) {
       live.add(g)
       if (!zoneLife.has(g)) {
         // First sight — record whether the mark was even planted ON anything. This separates "aimed
