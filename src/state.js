@@ -542,9 +542,17 @@ function generateWells(sig) {
  *               tick down every frame in stepEnemyMovement:
  *               fearT (s of flee remaining): while > 0 the enemy INVERTS its seek (runs from the
  *                 player) at FEAR_SPEED_MUL of its own speed, overriding any behavior-flag state
- *                 machine, and deals no contact damage. Applied by a run.novas entry carrying a
- *                 `fear` field (the Chitter Shriek — see stepNovas/stepShriekWeapon in sim.js).
+ *                 machine. It STILL DEALS CONTACT DAMAGE (v7.16 — it used to be disarmed too,
+ *                 which is half of what made a permanent fear an untouchable wall). Applied by a
+ *                 run.novas entry carrying a `fear` field (the Chitter Shriek — see
+ *                 stepNovas/stepShriekWeapon in sim.js).
  *                 chitterShriek's panicRout mod amplifies ALL damage a fearT > 0 enemy takes.
+ *               fearCd (s of fear IMMUNITY remaining, v7.16): armed to FEAR_REFRACTORY on the frame
+ *                 fearT expires; while > 0 no ring can fear this enemy again. Caps fear uptime by
+ *                 the enemy's own timer instead of by the weapon's cadence — without it any fire
+ *                 rate shorter than the duration pins fear at 100%. Enemies that resist crowd
+ *                 control outright (the `anchored` elite affix, the `unshakeable` roster flag on
+ *                 one tank per chapter) are never feared or knocked back at all — see resistsCC.
  *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
  *                 damage (knockback still carries it). Applied by the Burst Hydrant's launch mod,
  *                 the Roar's stagger mod (see HYDRANT_STUN/ROAR_STUN in config.js), and (v6.4) a

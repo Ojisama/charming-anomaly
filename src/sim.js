@@ -106,7 +106,7 @@ import {
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
   WEAVE_AMP, WEAVE_FREQ,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
-  FEAR_SPEED_MUL, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
+  FEAR_SPEED_MUL, FEAR_REFRACTORY, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
   // v5.4 city
   LINE_CHARGE_RANGE, LINE_CHARGE_TRACK_SPEED_MUL, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
@@ -1219,7 +1219,7 @@ function freshEnemyFields() {
     bleed: 0, bleedDps: 0,
     // Status effects (v5.4, see the enemies[] contract in state.js): fear inverts the seek, stun
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
-    fearT: 0, stunT: 0, enrageT: 0,
+    fearT: 0, fearCd: 0, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
   }
@@ -1585,7 +1585,14 @@ function stepEnemyMovement(run, dt) {
     if (e.orbCd > 0) e.orbCd = Math.max(0, e.orbCd - dt)
     if (e._debrisCd > 0) e._debrisCd = Math.max(0, e._debrisCd - dt) // Trash Tornado's per-chunk cd
     // v5.4 status effects: tick down every frame, like invuln does for the player.
-    if (e.fearT > 0) e.fearT = Math.max(0, e.fearT - dt)
+    if (e.fearT > 0) {
+      e.fearT = Math.max(0, e.fearT - dt)
+      // Armed on the frame it EXPIRES, not on the frame it lands: arming at application would let a
+      // ring that re-fears at 99% of the duration keep the lock alive forever.
+      if (e.fearT === 0) e.fearCd = FEAR_REFRACTORY
+    } else if ((e.fearCd ?? 0) > 0) {
+      e.fearCd = Math.max(0, e.fearCd - dt)
+    }
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
@@ -2315,6 +2322,17 @@ function stepSubmission(run, dt) {
   }
 }
 
+// v7.16: does this enemy shrug off weapon crowd control — the sector sweeps' knockback, a nova's
+// knockback, and fear? Two sources, one meaning: the `anchored` ELITE AFFIX (which already had
+// every knockback immunity and now gains fear) and the `unshakeable` ROSTER FLAG carried by one
+// tank per chapter. Deliberately narrower than `anchored`'s other uses — this does NOT exempt an
+// enemy from hole pull, the straggler teleport, traffic or a hydrant launch, which are hazards
+// rather than the crowd control the machine-gun lock was built out of. See FEAR_REFRACTORY.
+function resistsCC(e) {
+  return !!(e.affixes && e.affixes.includes('anchored')) ||
+         !!(e.flags && e.flags.includes('unshakeable'))
+}
+
 // v5.4: is this enemy harmless to touch right now? The mirror of damageImmune (an enemy that can't
 // be hit can't hit you either), plus the phases and statuses that disarm an enemy without making it
 // invulnerable: a landed toad and a stalled vacuum are punish windows, and a stunned or fleeing
@@ -2329,7 +2347,10 @@ function contactHarmless(e) {
   // lineCharge's 'stall' on the next line. 'circle'/'mark'/'strike' are ordinary: hittable AND able
   // to hit you, like any other enemy.
   if (e._airState === 'climb') return true
-  if ((e.stunT || 0) > 0 || (e.fearT || 0) > 0) return true
+  // v7.16: STUN still disarms, FEAR no longer does. A feared enemy runs from you, but one pinned
+  // against the crowd behind it is still a threat — half of the machine-gun lock was that a
+  // permanent field-wide fear made every enemy on screen literally unable to touch you.
+  if ((e.stunT || 0) > 0) return true
   if (e._pounceState === 'land' || e._chargeState === 'stall') return true
   return false
 }
@@ -4671,9 +4692,17 @@ function stepNovas(run, dt) {
         applyDamage(run, e, n.dmg)
         n.hit.add(e.id)
         // Chitter Shriek: the ring panics what it hits (see FEAR_SPEED_MUL / stepEnemyMovement).
-        if ((n.fear ?? 0) > 0) e.fearT = Math.max(e.fearT || 0, n.fear)
-        // Anchored (elite affix): still takes the damage above, just never gets knocked back.
-        if (!(e.affixes && e.affixes.includes('anchored'))) {
+        // FEAR IS NO LONGER REFRESHABLE (v7.16). It runs its full duration, then FEAR_REFRACTORY of
+        // immunity, and only then can land again — so uptime is capped by the enemy's own timer at
+        // any fire rate. The `fearT <= 0` half is the load-bearing one: gating on the cooldown ALONE
+        // still lets a ring re-apply while fear is already up, and a Math.max refresh every frame
+        // then holds fearT at full forever, so it never expires and the cooldown never arms. That
+        // reads as a working refractory and measures 100% uptime — the lock, untouched.
+        if ((n.fear ?? 0) > 0 && (e.fearT ?? 0) <= 0 && (e.fearCd ?? 0) <= 0 && !resistsCC(e)) {
+          e.fearT = n.fear
+        }
+        // Anchored/unshakeable: still takes the damage above, just never gets knocked back.
+        if (!resistsCC(e)) {
           const kdx = dist > 1e-6 ? dx / dist : 1
           const kdy = dist > 1e-6 ? dy / dist : 0
           e.kb.x += kdx * n.knockback
@@ -6414,7 +6443,7 @@ function fireRoar(run, stats) {
 // Radial shove away from the player (the sector sweeps' knockback). Anchored elites take the
 // damage and stand their ground, exactly as they do against a nova.
 function shoveFromPlayer(run, e, knockback) {
-  if (e.affixes && e.affixes.includes('anchored')) return
+  if (resistsCC(e)) return
   const p = run.player
   const dx = e.x - p.x, dy = e.y - p.y
   const d = Math.hypot(dx, dy)

@@ -2264,8 +2264,33 @@ export const QUILL_REBOUND_SPEED_MUL = 0.85 // the return sweep is slower — it
 // Chitter Shriek (undergrowth utility — see WEAPONS.chitterShriek + stepShriekWeapon in sim.js): a
 // run.novas ring carrying an extra `fear` field (s). Enemies the ring hits get e.fearT = fear and
 // flee: while e.fearT > 0, stepEnemyMovement INVERTS the seek direction (they run from the player)
-// at FEAR_SPEED_MUL of their own speed and never deal contact damage. Ticks down every frame.
+// at FEAR_SPEED_MUL of their own speed. Ticks down every frame.
 export const FEAR_SPEED_MUL = 1.25    // fleeing enemies scatter a bit faster than they chase
+// v7.16 — THE MACHINE-GUN LOCK. Fear was refreshed with Math.max on every ring, so ANY cadence
+// shorter than the duration pinned it at 100%, and a feared enemy could not deal contact damage at
+// all. MEASURED, undergrowth d3, 150s, stationary player: Chitter Shriek alone took 11 contact hits
+// with enemies touching at 36px; the same build under MACHINE GUN (x5 fire rate) took 0 hits and
+// nothing came closer than 189px. A permanent, field-wide, untouchable wall.
+//
+// The root cause is that KNOCKBACK AND FEAR ARE PRICED AT NOTHING. Both are applied per HIT at a
+// magnitude that ignores damage, so a card trading x0.2 damage for x5 rate — a fair trade for dps,
+// which is what it was priced against — buys five times the crowd control for free. Pure knockback
+// is not the problem (Claw Rake + MACHINE GUN still took 12 hits, enemies still reached 19px);
+// fear is, because it also disarms.
+//
+// Two independent fixes, both owner-picked:
+//   1. A REFRACTORY. Once an enemy's fear expires it cannot be feared again for this long, so
+//      uptime is capped by the enemy's own timer instead of by the weapon's cadence — 1.8s of fear
+//      on a 3.8s cycle is ~47%, at any fire rate. A fixed constant rather than "as long as the fear
+//      lasted" so the `terror` mod (+35% duration) still buys uptime instead of extending its own
+//      lockout and doing nothing.
+//   2. `unshakeable` (roster flag) — see the tank entries in CHAPTERS. Immune to fear AND to weapon
+//      knockback, exactly as the `anchored` elite affix already was. One per chapter, always the
+//      TANK: the slow heavy thing shrugging off a shriek reads without being taught, and it needs
+//      no new art because the creature is already visually distinct.
+// Feared enemies now also STILL DEAL CONTACT DAMAGE (contactHarmless no longer checks fearT) — they
+// run from you, but a fleeing thing pinned against the crowd behind it is still a threat.
+export const FEAR_REFRACTORY = 2      // s an enemy is fear-proof after its own fear runs out
 export const SHRIEK_ECHO_DELAY = 0.22 // s between an echoShriek cast and the next (cf. WAVE_ECHO_DELAY)
 export const SHRIEK_ECHO_DMG_FRAC = 0.6 // each echo's damage/fear, as a fraction of the original cast's
 // panicRout (behavioral): a FLEEING enemy (fearT > 0) takes (1 + bonus) × damage from EVERY source
@@ -2863,7 +2888,7 @@ export const CHAPTERS = {
     // time filter would empty it, so an archetype never goes silent early).
     roster: [
       { id: 'redcell',  archetype: 'normal', name: 'Red Blood Cell',    hpMul: 1, speedMul: 1,   flags: [] },
-      { id: 'wbc',      archetype: 'tank',   name: 'White Blood Cell',  hpMul: 1, speedMul: 1,   flags: [] },
+      { id: 'wbc',      archetype: 'tank',   name: 'White Blood Cell',  hpMul: 1, speedMul: 1,   flags: ['unshakeable'] },
       { id: 'antibody', archetype: 'fast',   name: 'Antibody',          hpMul: 1, speedMul: 1,   flags: ['latch'] },
     ],
     eliteFlags: ['acidPool'],           // pill elites dissolve into acid pools
@@ -2905,7 +2930,7 @@ export const CHAPTERS = {
     roster: [
       { id: 'amoeba',     archetype: 'normal', name: 'Amoeba',     hpMul: 1,   speedMul: 0.9, flags: ['split'] },
       { id: 'tadpole',    archetype: 'fast',   name: 'Tadpole',    hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
-      { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: ['phase'] }, // v6.4: cryptobiosis flicker (see PHASE_* below)
+      { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: ['phase', 'unshakeable'] }, // v6.4: cryptobiosis flicker (see PHASE_* below)
     ],
     eliteFlags: ['soapTrail'],
     // v6.4 pond identity: eddies are streamed vortices (run.eddies, sim.js streamEddies) that fold
@@ -2957,7 +2982,7 @@ export const CHAPTERS = {
       { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, radiusMul: 1.25, flags: ['diveBomb'] },
       // v6.6.15 (owner): spiders -20% hp. This is the ROSTER multiplier, so it thins the spider
       // alone; garden's chapter-wide enemyHpMul below still applies on top of it.
-      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, radiusMul: 0.75, flags: ['webZone'] },
+      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, radiusMul: 0.75, flags: ['webZone', 'unshakeable'] },
     ],
     eliteFlags: [],                       // v6.6.16: the mower left the elite flag and became a
                                           // chapter hazard (see `mower` below) — it turns up on its
@@ -3041,7 +3066,7 @@ export const CHAPTERS = {
       // faster leap. A toad now walks slightly faster than a `normal` rat (0.85), which reads odd
       // on paper but not on screen: it spends most of the cycle standing still in 'aim' or frozen
       // in 'land', so its AVERAGE closing speed stays the slowest in the chapter.
-      { id: 'toad', archetype: 'tank',   name: 'Toad', hpMul: 1.6,  speedMul: 1.064, flags: ['pounce'] },
+      { id: 'toad', archetype: 'tank',   name: 'Toad', hpMul: 1.6,  speedMul: 1.064, flags: ['pounce', 'unshakeable'] },
       // Centipede replaces the Owl (v5.6.8). The owl used 'aerialStrike' — circles overhead at
       // AERIAL_RADIUS, dives to a marked spot — which is un-killable in a MELEE-ONLY chapter: it
       // circles past every short-range weapon and dives to where a kiting player WAS, so a
@@ -3133,7 +3158,7 @@ export const CHAPTERS = {
     // + burstHydrant are new v5.4 natives. Starter = the neon beam (rainbow).
     weapons: ['rainbow', 'trashTornado', 'burstHydrant'], starter: 'rainbow',
     roster: [
-      { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge'] },
+      { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge', 'unshakeable'] },
       { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
       // Patrol Drone. v6.10.3 (owner: "some drones circle and dash, remove that") — it has lost
       // `aerialStrike` (circle -> mark -> strike -> climb, see stepAerialStrike in sim.js) and is
@@ -3238,7 +3263,7 @@ export const CHAPTERS = {
       // the roar cone long enough that columns stacked up and their artillery telegraphs became a
       // permanent fixture of the screen. Cutting HP is also a CLUTTER fix: fewer live tanks is
       // fewer square telegraphs, which is the same lever as the LOD cut below.
-      { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.25, speedMul: 0.55, flags: ['artillery'] },
+      { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.25, speedMul: 0.55, flags: ['artillery', 'unshakeable'] },
     ],
     eliteFlags: ['artillery'],            // AA-turret elites shell you too, just harder (see ARTILLERY_*)
     // Signature: bombardment (area denial) — telegraphed artillery circles rain on the player's
@@ -3368,7 +3393,7 @@ export const CHAPTERS = {
     roster: [
       { id: 'drifter',    archetype: 'normal', name: 'Drifter',       hpMul: 0.9,  speedMul: 1,    flags: [] },
       { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',   hpMul: 0.75, speedMul: 1.25, flags: [] },
-      { id: 'warden',     archetype: 'tank',   name: 'Warden',        hpMul: 1.25, speedMul: 0.7,  flags: [] },
+      { id: 'warden',     archetype: 'tank',   name: 'Warden',        hpMul: 1.25, speedMul: 0.7,  flags: ['unshakeable'] },
       { id: 'invader',    archetype: 'normal', name: 'Invader',       hpMul: 0.6,  speedMul: 1,    flags: ['march'], formationOnly: true },  // rank fodder: dies fast, arrives six at a time
       { id: 'hulk',       archetype: 'tank',   name: 'Siege Hulk',    hpMul: 1.4,  speedMul: 0.55, flags: ['march'], formationOnly: true },
     ],
@@ -3432,7 +3457,7 @@ CHAPTERS.blank = {
   roster: [
     { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.15, flags: ['pastSeek'] },
     { id: 'binder',    archetype: 'normal', name: 'Binder',       hpMul: 0.9, speedMul: 1.05, flags: ['latch'] },
-    { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 1.2,  flags: ['wake'] },
+    { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 1.2,  flags: ['wake', 'unshakeable'] },
     { id: 'bindnode',  archetype: 'normal', name: 'Binding Node', hpMul: 1,   speedMul: 0,    flags: [], formationOnly: true },
     { id: 'antibody1', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
     { id: 'antibody2', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },

@@ -63,7 +63,7 @@ import {
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
-  CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
+  CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL, FEAR_REFRACTORY,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
@@ -6045,7 +6045,7 @@ function testV54Weapons() {
   }
 
   // (c) chitterShriek: the ring FEARS what it hits — a feared enemy runs AWAY (inverted seek) at
-  // FEAR_SPEED_MUL and stops dealing contact damage. panicRout amplifies damage on fleeing foes.
+  // FEAR_SPEED_MUL. It KEEPS dealing contact damage (v7.16). panicRout amplifies damage on fleeing foes.
   {
     const run = weaponRun('undergrowth', 'chitterShriek')
     const victim = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
@@ -6077,15 +6077,71 @@ function testV54Weapons() {
     assert(flee < 0, `expected a feared enemy to FLEE (-x), got ${flee.toFixed(1)}`)
     assert(Math.abs(Math.abs(flee / seek) - FEAR_SPEED_MUL) < 0.01, `expected fleeing at ${FEAR_SPEED_MUL}x, got ${Math.abs(flee / seek).toFixed(3)}x`)
 
-    // A feared enemy deals no contact damage.
-    const safe = weaponRun('undergrowth', 'chitterShriek')
-    safe.weapons = []
-    safe.player.hp = 500; safe.player.maxHP = 500; safe.player.invuln = 0
-    const scared = makeStatusEnemy(safe, { x: 0, y: 0, hp: 1e6, speed: 0 })
-    scared.flags = []; scared.fearT = 10
-    safe.enemies.push(scared)
-    stepQuiet(safe, 0.5)
-    assert.strictEqual(safe.player.hp, 500, 'expected a fleeing enemy to deal no contact damage')
+    // A feared enemy STILL DEALS CONTACT DAMAGE (v7.16, owner's call). It used to be disarmed, and
+    // that was half of the machine-gun lock: a x5 fire rate pinned fear at 100% field-wide, so
+    // every enemy on screen was simultaneously fleeing AND unable to touch you. Fear moves them;
+    // it does not make them harmless. STUN still disarms — asserted right after, because deleting
+    // the fear clause from contactHarmless by hand is one keystroke away from deleting both.
+    const touch = (status) => {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      r.player.hp = 500; r.player.maxHP = 500; r.player.invuln = 0
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      Object.assign(e, status)
+      r.enemies.push(e)
+      stepQuiet(r, 0.5)
+      return 500 - r.player.hp
+    }
+    assert.ok(touch({ fearT: 10 }) > 0, 'a feared enemy dealt no contact damage — fear moves enemies, it does not disarm them (v7.16)')
+    assert.strictEqual(touch({ stunT: 10 }), 0, 'a STUNNED enemy dealt contact damage — stun still disarms; only the fear clause was removed')
+
+    // THE REFRACTORY (v7.16). The lock this closes: fear refreshed with Math.max, so any cadence
+    // shorter than the duration held it at 100% — MACHINE GUN's x5 fire rate made an untouchable
+    // 189px wall (0 contact hits over 150s, measured). Asserted as UPTIME under a ring firing every
+    // frame, which is the worst case any fire rate can reach: it must land well under 100%.
+    {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+      e.flags = []
+      r.enemies.push(e)
+      let feared = 0
+      const FRAMES = 60 * 12
+      for (let i = 0; i < FRAMES; i++) {
+        // A fresh full-strength ring ON the enemy every single frame — no weapon can do better.
+        r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 0, fear: 1.8, life: 1, hit: new Set() })
+        stepQuiet(r, 1 / 60)
+        if ((e.fearT || 0) > 0) feared++
+      }
+      const uptime = feared / FRAMES
+      // 1.8s of fear then FEAR_REFRACTORY of immunity = 1.8 / (1.8 + 2) = 47%.
+      const want = 1.8 / (1.8 + FEAR_REFRACTORY)
+      assert.ok(Math.abs(uptime - want) < 0.08,
+        `fear uptime ${(100 * uptime).toFixed(0)}% under a ring firing EVERY FRAME, want ~${(100 * want).toFixed(0)}% — at 100% the machine-gun lock is back`)
+    }
+
+    // UNSHAKEABLE (v7.16): one tank per chapter ignores fear AND weapon knockback outright, so the
+    // wall has something that walks through it. Asserted on the shipped roster entry, not on a
+    // hand-set flag — the flag being absent from config is the failure this must catch.
+    {
+      const tanks = CHAPTER_ORDER.map((id) => ({
+        id, tank: CHAPTERS[id].roster.find((x) => x.archetype === 'tank' && !x.formationOnly),
+      }))
+      for (const { id, tank } of tanks) {
+        assert.ok(tank && tank.flags.includes('unshakeable'),
+          `${id}'s tank (${tank ? tank.name : 'none'}) is not unshakeable — that chapter has no answer to a fear/knockback wall`)
+      }
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+      e.flags = ['unshakeable']
+      r.enemies.push(e)
+      r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 500, fear: 1.8, life: 1, hit: new Set() })
+      stepQuiet(r, 1 / 60)
+      assert.strictEqual(e.fearT || 0, 0, 'an unshakeable enemy was feared')
+      assert.ok(Math.hypot(e.kb.x, e.kb.y) < 1e-9, `an unshakeable enemy was knocked back (${Math.hypot(e.kb.x, e.kb.y).toFixed(0)})`)
+    }
 
     // panicRout: the same hit lands harder on a fleeing foe.
     function routHp(rout) {
