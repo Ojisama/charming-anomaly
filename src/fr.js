@@ -159,7 +159,7 @@ const UI = {
   'Chapter': 'Chapitre',
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
-  // v7.5 SPECIALIST on the build sheet ("Spécialiste : Bouche d'Incendie Éclatée"). NBSP before the colon —
+  // v7.5 SPECIALIST on the build sheet ("Spécialiste : Borne Incendie"). NBSP before the colon —
   // the one piece of French this string carries, and the reason it needs an entry at all.
   '{name}: {sub}': '{name} : {sub}',
 
@@ -302,7 +302,7 @@ const CONFIG = {
   //   Minimes  -> 'Mini-Moi'. FRENCH FALSE FRIEND: 'minime' means minimal/trivial (and is a youth
   //              sports bracket), so the literal names the card "the negligible ones" and says
   //              nothing about copies of you. Mini-Moi is the French dub's Mini-Me and is invariable.
-  //   Wildfire -> 'Traînée de Feu'. 'Incendie' collides with Bouche d'Incendie Éclatée (the city's
+  //   Wildfire -> 'Traînée de Feu'. 'Incendie' collides with Borne Incendie (the city's
   //              Burst Hydrant).
   //   Deadfall -> 'Chausse-Trappe'. 'Traquenard' shares its stem with ~10 existing entries that all
   //              mean HUNT/SEEK (Cellule Traqueuse, traqueurs, Traque, Traque Élargie, rayon de
@@ -409,7 +409,7 @@ const CONFIG = {
   // this dictionary spends on things that SPAWN.
   // NOT an imperative. The pre-rename English opened 'Pick a weapon:' and this line opened
   // 'Choisis une arme :' — but the pause build sheet reprints the desc AFTER the weapon is locked
-  // in, as 'Spécialiste : Bouche d'Incendie Éclatée — <desc>', where an order to pick one arrives twenty
+  // in, as 'Spécialiste : Borne Incendie — <desc>', where an order to pick one arrives twenty
   // minutes late. 'l'arme que tu désignes' is a generic present that is true in both places: on
   // the level-up card the naming is still to come, on the sheet it says which weapon that was —
   // exactly the load the English "the weapon you name" carries.
@@ -482,8 +482,8 @@ const CONFIG = {
   'A shrill scream that hurts, shoves, and panics the swarm.': 'Un cri perçant qui blesse, repousse et sème la panique dans l\'essaim.',
   'Trash Tornado': 'Tornade de Détritus',
   'Whips up street trash into funnels that hunt down what comes near.': 'Soulève les détritus de la rue en tornades qui traquent tout ce qui approche.',
-  'Burst Hydrant': 'Bouche d\'Incendie Éclatée',
-  'Shears a hydrant open; it hoses down whatever comes near.': 'Arrache une bouche d\'incendie ; elle arrose tout ce qui approche.',
+  'Burst Hydrant': 'Borne Incendie',
+  'Shears a hydrant open; it hoses down whatever comes near.': 'Arrache une borne incendie ; elle arrose tout ce qui approche.',
   'Roar': 'Rugissement',
   'A sonic cone that flattens everything in front of you.': 'Un cône sonique qui aplatit tout ce qui se trouve devant toi.',
   'Tail Swipe': 'Coup de Queue',
@@ -561,17 +561,17 @@ const CONFIG = {
   'Rapid Division': 'Division Rapide',
   'mini seeker(s) spawned on a seeker kill': 'mini-traqueur(s) créés quand un traqueur tue',
   'Bigger Hole': 'Trou Plus Grand',
-  'vortex radius': 'rayon du vortex',
-  'Lasting Vortex': 'Vortex Durable',
-  'vortex duration': 'durée du vortex',
+  'hole radius': 'rayon du trou',
+  'Lasting Hole': 'Trou Durable',
+  'hole duration': 'durée du trou',
   'Denser Pull': 'Attraction Intense',
-  'vortex pull': 'force d\'attraction du vortex',
+  'hole pull': 'force d\'attraction du trou',
   'Singularity': 'Singularité',
-  'extra vortex(es) per cast': 'vortex bonus par lancer',
+  'extra hole(s) per cast': 'trou(s) bonus par lancer',
   'Hungry Hole': 'Trou Vorace',
-  'vortex growth rate while alive': 'vitesse de croissance du vortex tant qu\'il est actif',
+  'hole growth rate while alive': 'vitesse de croissance du trou tant qu\'il est actif',
   'Big Crunch': 'Grand Effondrement',
-  'vortex collapse detonation damage': 'dégâts de détonation à l\'effondrement du vortex',
+  'hole collapse detonation damage': 'dégâts de détonation à l\'effondrement du trou',
   'Big Beam': 'Grand Rayon',
   'beam width & length': 'largeur et longueur du rayon',
   'Beam Prism': 'Prisme',
@@ -696,16 +696,16 @@ const CONFIG = {
   'High Pressure': 'Haute Pression',
   'stream damage': 'dégâts du jet',
   'Long Hose': 'Tuyau Long',
-  'hydrant reach': 'portée de la bouche d\'incendie',
+  'hydrant reach': 'portée de la borne',
   'Burst Main': 'Conduite Éclatée',
   'Split Nozzle': 'Lance Multiple',
   'foes hosed at once': 'ennemis arrosés à la fois',
   'Deep Main': 'Conduite Profonde',
-  'how long a hydrant runs': 'durée de la bouche d\'incendie',
+  'how long a hydrant runs': 'durée de la borne',
   'Cap Blast': 'Bouchon Éjecté',
-  'the blown cap flings and stuns what it catches': 'le bouchon éjecté projette et étourdit ce qu\'il atteint',
+  'stuns nearby foes when the hydrant blows': 'étourdit les ennemis proches à l\'apparition de la borne',
   'Traffic Main': 'Conduite Principale',
-  'hydrants in a live lane hit far harder — and seek the street': 'les bouches d\'incendie dans une voie active frappent bien plus fort — et cherchent la rue',
+  'hydrants in a live lane hit far harder — and seek the street': 'les bornes apparaissent dans les rues et font plus de dégâts',
   'Bellow': 'Beuglement',
   'roar damage': 'dégâts du rugissement',
   'Wide Roar': 'Rugissement Large',
@@ -729,11 +729,11 @@ const CONFIG = {
   'Wrecking Tail': 'Queue Dévastatrice',
   'collateral damage where launched foes land': 'dégâts collatéraux là où atterrissent les ennemis projetés',
   'Counter Swipe': 'Contre-Coup',
-  'getting hit triggers a free swipe': 'être touché déclenche un coup de queue gratuit',
+  'getting hit triggers a free swipe': 'subir des dégâts déclenche un coup de queue',
   'Heavy Debris': 'Débris Lourds',
   'impact damage': 'dégâts d\'impact',
   'Big Impact': 'Grand Impact',
-  'impact radius': 'rayon d\'explosion',
+  'impact radius': 'rayon d\'impact',
   'Long Toss': 'Long Lancer',
   'throw range': 'portée du lancer',
   'Quick Hands': 'Mains Rapides',
@@ -749,10 +749,10 @@ const CONFIG = {
   'Phase Edge': 'Tranchant Phasé',
   'shard pierce': 'perforation des éclats',
   'Quick Draw': 'Dégainage Rapide',
-  'Rift Scar': 'Cicatrice de Faille',
-  'each blink leaves a detonating rift': 'chaque saut laisse une faille qui détone',
+  'Rift Scar': 'Faille Béante',
+  'rifts detonate for {n} damage': 'les failles explosent pour {n} de dégâts',
   'Recursion': 'Récursion',
-  'shard(s) forked when one expires': 'éclat(s) dédoublé(s) quand l\'un expire',
+  'shard(s) forked when one burns out': 'éclat(s) dédoublé(s) en fin de course',
   'Wide Sweep': 'Balayage Large',
   'Held Sweep': 'Balayage Soutenu',
   'Quick Sweep': 'Balayage Rapide',

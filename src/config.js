@@ -1594,12 +1594,12 @@ export const WEAPON_MODS = {
     swarm:     { name: 'Rapid Division',         desc: 'mini seeker(s) spawned on a seeker kill', icon: '🐝', kind: 'tier' },
   },
   hole: {
-    biggerHole:  { name: 'Bigger Hole',    desc: 'vortex radius',             icon: '🕳️', base: 0.20, kind: 'pct' },
-    lasting:     { name: 'Lasting Vortex', desc: 'vortex duration',           icon: '⏱️', base: 0.20, kind: 'pct' },
-    denser:      { name: 'Denser Pull',    desc: 'vortex pull',               icon: '🌌', base: 0.20, kind: 'pct' },
-    singularity: { name: 'Singularity',    desc: 'extra vortex(es) per cast', icon: '🌠', kind: 'tier' },
-    hungry:      { name: 'Hungry Hole', desc: 'vortex growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
-    crunch:      { name: 'Big Crunch',  desc: 'vortex collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
+    biggerHole:  { name: 'Bigger Hole',    desc: 'hole radius',             icon: '🕳️', base: 0.20, kind: 'pct' },
+    lasting:     { name: 'Lasting Hole', desc: 'hole duration',           icon: '⏱️', base: 0.20, kind: 'pct' },
+    denser:      { name: 'Denser Pull',    desc: 'hole pull',               icon: '🌌', base: 0.20, kind: 'pct' },
+    singularity: { name: 'Singularity',    desc: 'extra hole(s) per cast', icon: '🌠', kind: 'tier' },
+    hungry:      { name: 'Hungry Hole', desc: 'hole growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
+    crunch:      { name: 'Big Crunch',  desc: 'hole collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
   },
   // v6.7.6 (owner: "merge beam length and beam width into one series"). Wide Beam and Long Beam
   // were the same card twice — both +20% pct, both plain geometry, and between them plus Sustain
@@ -1825,7 +1825,7 @@ export const WEAPON_MODS = {
     // streams ARE the damage now — an extra pick is an extra visible jet.
     moreStreams: { name: 'Split Nozzle',  desc: 'foes hosed at once', icon: '🚿', base: 1, kind: 'flat' },
     deepMain:    { name: 'Deep Main',     desc: 'how long a hydrant runs', icon: '⏳', base: 0.30, kind: 'pct' },
-    launch:      { name: 'Cap Blast',     desc: 'the blown cap flings and stuns what it catches', icon: '🚀', base: 1, kind: 'flat' },
+    launch:      { name: 'Cap Blast',     desc: 'stuns nearby foes when the hydrant blows', icon: '🚀', base: 1, kind: 'flat' },
     // v6.3: without the placement bias this mod's uptime is ~15-25% and uninfluencable — a trap
     // pick. The bias (stepHydrantWeapon's cast: prefer a lane-covered enemy) is the point.
     trafficMain: { name: 'Traffic Main',  desc: 'hydrants in a live lane hit far harder — and seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
@@ -1872,8 +1872,8 @@ export const WEAPON_MODS = {
     moreShards:  { name: 'Splintering',  desc: 'shards per volley', icon: '🔺', base: 1,    kind: 'flat' },
     pierceShard: { name: 'Phase Edge',   desc: 'shard pierce',     icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     rapidShard:  { name: 'Quick Draw',   desc: 'volley rate',      icon: '⏩', base: 0.25, kind: 'pct' },
-    riftScar:    { name: 'Rift Scar',    desc: 'each blink leaves a detonating rift', icon: '🌀', base: 0.50, kind: 'pct' },
-    recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one expires',    icon: '♾️', kind: 'tier' },
+    riftScar:    { name: 'Rift Scar',    desc: 'rifts detonate for {n} damage', icon: '🌀', base: 0.50, kind: 'pct' },
+    recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one burns out',    icon: '♾️', kind: 'tier' },
   },
   // wideSweep/sustainSweep fold into pulsarSweep's levels[] via WEAPON_STAT_MODS; rapidSweep (cast
   // rate) is read at the cast site. hyperSweep/collapse are behavioral (see stepPulsarWeapon /
