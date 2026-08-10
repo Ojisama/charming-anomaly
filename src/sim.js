@@ -47,6 +47,7 @@ import {
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC,
   AVARICE_HEAL_CHANCE, AVARICE_HEAL_HP, AVARICE_COIN_DROP_MUL,
   BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, BLOOD_MONEY_ESCALATION,
+  CONSCRIPT_ELITE_EVERY_MUL, CONSCRIPT_DURATION, CONSCRIPT_DMG_FRAC, CONSCRIPT_HIT_EVERY,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE, CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_MUL,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
@@ -216,6 +217,7 @@ export function stepSim(run, input, dt) {
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   stepEnemyMovement(run, dt)
+  stepConscripts(run, dt) // CONSCRIPTION: the loan's clock, and the conscript's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
@@ -658,7 +660,12 @@ function stepSpawning(run, dt) {
   const chaosMul = run.anomalies?.chaosPact && run.time % CHAOS_PACT_PERIOD < CHAOS_PACT_SURGE
     ? CHAOS_PACT_SPAWN_MUL : 1
   run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * laneMul * chaosMul * dt
-  const cap = maxAliveFor(run.mods) // per-chapter density cap (v6.6.4) — see maxAliveFor
+  // CONSCRIPTION: your conscripts must not eat the swarm's spawn budget. They live in run.enemies,
+  // so without this the cap counts them and the game quietly spawns FEWER hostiles while an ally is
+  // out — a second, invisible buff on top of the card, and one that corrupts any kills-per-run
+  // measurement used to price it. Counted once here rather than inside the loop: the cap check runs
+  // per spawn, and an O(n) scan in there would make saturated frames O(n^2).
+  const cap = maxAliveFor(run.mods) + allyCount(run) // per-chapter density cap (v6.6.4) — see maxAliveFor
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
     spawnEnemy(run)
@@ -1211,7 +1218,12 @@ function freshEnemyFields() {
 // normal spawn-timer path in stepSpawning.
 function spawnEnemy(run, opts = {}) {
   const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
-  if (isElite) run._nextEliteAt += eliteEveryAt(run.time) * run.mods.eliteEveryMul
+  // CONSCRIPTION brings its own elites (config: CONSCRIPT_ELITE_EVERY_MUL). Read-time, never
+  // written into run.mods — that table is the run's mutator product and must stay fixed.
+  if (isElite) {
+    run._nextEliteAt += eliteEveryAt(run.time) * run.mods.eliteEveryMul
+      * (run.anomalies?.conscription ? CONSCRIPT_ELITE_EVERY_MUL : 1)
+  }
 
   const type = opts.type ?? pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
   const base = ENEMIES[type]
@@ -1332,7 +1344,7 @@ function stepStragglers(run) {
   const spawnD = run.viewRadius + SPAWN_RING
   const dropSq = spawnD * KITE_DROP_MUL * (spawnD * KITE_DROP_MUL)
   for (const e of run.enemies) {
-    if (e._dead || (e.affixes && e.affixes.includes('anchored'))) continue
+    if (e._dead || isAlly(e) || (e.affixes && e.affixes.includes('anchored'))) continue   // CONSCRIPTION: never yank a conscript off its fight
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy < dropSq) continue
     const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
@@ -1411,7 +1423,21 @@ function stepEnemyMovement(run, dt) {
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
-    if (hasLures) {
+    // CONSCRIPTION — THE RETARGET SEAM. This one line is what every movement machine below reads;
+    // they are handed a POINT and never see run.player, which is why pointing a conscript at the
+    // nearest hostile makes seek, dash, charge, strafe, standoff, dive and pounce all aim correctly
+    // for one edit. The Pheromone Lure override just below is the existing precedent for an enemy
+    // seeking something that is not the player.
+    //   `_tgtX/_tgtY` is also what render reads to face the sprite: bearing is otherwise recomputed
+    // from run.player every frame, so a conscript charging the swarm would draw walking BACKWARDS
+    // in all 32 roster looks, silently.
+    if (isAlly(e)) {
+      const foe = nearestHostile(run, e)
+      if (foe) { tx = foe.x; ty = foe.y }
+      e._tgtX = tx; e._tgtY = ty
+      // A conscript is not tempted by your own decoys, and the straggler recycler must not yank it
+      // back to you mid-fight (stepStragglers exempts it the way `anchored` is exempted).
+    } else if (hasLures) {
       let bestSq = Infinity
       for (const lu of run.lures) {
         const ldx = lu.x - e.x, ldy = lu.y - e.y
@@ -2173,9 +2199,101 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
 // the flag's new home (city's patrol drone) is a ranged chapter, and circling/marking/striking
 // drones are ordinary, killable targets there. Only 'climb' keeps any special contact rule, and
 // that lives in contactHarmless below (a punish window, not a damage immunity).
+// CONSCRIPTION (v7.x): a conscript is an ELITE THAT TURNED. It stays in run.enemies — that is the
+// whole point of the card's form ("the elite, turned"): every behaviour machine, telegraph, affix
+// and bake keeps working on it for free, because it is still the same entity in the same array.
+// `e.elite` deliberately STAYS TRUE. Clearing it to disable elite-only logic silently swaps the
+// texture (render.js swaps ant_elite -> ant) and pops the gold crown off mid-life.
+export function isAlly(e) { return (e.allyT ?? 0) > 0 }
+
+// How many of run.enemies are yours. Cheap and only ever non-zero under the anomaly, so the scan
+// costs nothing in a normal run.
+function allyCount(run) {
+  if (!run.anomalies?.conscription) return 0
+  let n = 0
+  for (const e of run.enemies) if (isAlly(e) && !e._dead) n++
+  return n
+}
+
 function damageImmune(e) {
   if (e._phaseSolid === false) return true
+  // A conscript takes nothing from anyone. This ONE clause buys two of the owner's rulings at
+  // once, because damageImmune is checked by dealDamage (3514), applyDamage (3659) AND
+  // contactHarmless (2186): your weapons cannot hurt your ally, and your ally cannot hurt you.
+  // Doing it here rather than at 26 separate damage loops is also what makes it impossible to
+  // miss one — a missed loop would not throw, it would just kill your ally and read as "the card
+  // does nothing".
+  if (isAlly(e)) return true
   return false
+}
+
+// The conscript's target picker. Deliberately NOT nearestEnemy: that one is the PLAYER's aim
+// helper and is measured from the player, while a conscript hunts from where IT stands.
+// ponytail: naive O(allies x enemies) scan, same shape and same ceiling as the seek at
+// stepEnemyMovement — upgrade path is the spatial hash that note already names.
+function nearestHostile(run, from) {
+  let best = null, bestSq = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || e === from) continue
+    const dx = e.x - from.x, dy = e.y - from.y
+    const dSq = dx * dx + dy * dy
+    if (dSq < bestSq) { bestSq = dSq; best = e }
+  }
+  return best
+}
+
+// CONSCRIPTION: the loan's clock, and the conscript's only attack.
+//
+// CONTACT IS THE WHOLE ARSENAL, and that is not a simplification — it is what the roster actually
+// is. Pounce, dive, charge and strafe all resolve to stepContactDamage; of the four
+// run.enemyShots push sites three belong to The Blank's scripted boss, which has no elites at all.
+// So "it keeps its own attacks" comes down to this loop for every conscript in the game bar one.
+//
+// Damage goes through applyDamage, not dealDamage: the spec grants 100% of your crit and the
+// player's damage scaling, and dealDamage skips the crit roll and the multipliers entirely — a
+// conscript wired to it would deal flat unscaled damage and still look like it worked. Elements
+// ride along with applyDamage; that is deliberate (it fights with YOUR damage, elements included)
+// and worth knowing, because the spec does not mention it.
+//
+// EXPIRY DOES NOT ROUTE THROUGH THE DEATH BRANCH. It retires the body here instead, because that
+// branch would pay the elite's entire reward a second time. The volatile core is re-fired by hand
+// because it is the one gift that already damages the swarm — that is the Unstable Cores
+// interaction the spec names as this card's headline.
+// ponytail: splitter wisps, `split` children and the acid pool are NOT re-fired on expiry — they
+// spawn HOSTILE and would make your ally's death a gift to the swarm. Upgrade path is an allied
+// spawn (children inheriting allyT), which is a system, not a card.
+function stepConscripts(run, dt) {
+  if (!run.anomalies?.conscription) return
+  // Snapshot the length: applyDamage below can kill a splitter/split enemy, which APPENDS to
+  // run.enemies mid-loop. That is the hazard MARTYR's queue and stepBombs' `chained` buffer both
+  // exist to dodge — children took the blast they were born into.
+  const n = run.enemies.length
+  for (let i = 0; i < n; i++) {
+    const e = run.enemies[i]
+    if (!e || e._dead || !isAlly(e)) continue
+    e.allyT -= dt
+    if (e.allyT <= 0) {
+      e.allyT = 0
+      e._dead = true
+      run.events.push({ type: 'conscriptend', x: e.x, y: e.y })
+      if (e.elite && e.affixes && e.affixes.includes('volatile')) {
+        run.bombs.push(volatileBomb(run, e.x, e.y))
+      }
+      continue
+    }
+    e._allyHitT = (e._allyHitT ?? 0) - dt
+    if (e._allyHitT > 0) continue
+    for (let j = 0; j < n; j++) {
+      const foe = run.enemies[j]
+      if (!foe || foe._dead || isAlly(foe) || foe === e) continue
+      const dx = foe.x - e.x, dy = foe.y - e.y
+      const rad = e.radius + foe.radius
+      if (dx * dx + dy * dy > rad * rad) continue
+      applyDamage(run, foe, e.dmg * CONSCRIPT_DMG_FRAC)
+      e._allyHitT = CONSCRIPT_HIT_EVERY
+      break
+    }
+  }
 }
 
 // v5.4: is this enemy harmless to touch right now? The mirror of damageImmune (an enemy that can't
@@ -3211,7 +3329,7 @@ function stepLanePasses(run, dt) {
       // For a normal hit, invuln makes "once per pass" implicit, the way contact damage does.
     }
     for (const e of run.enemies) {
-      if (e._dead || lane.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || lane.hitIds.has(e.id)) continue   // CONSCRIPTION: pass THROUGH a conscript — immune, but blocks nothing
       if (!inCar(e.x, e.y, e.radius)) continue
       lane.hitIds.add(e.id) // one hit per enemy per pass
       // EVERY enemy takes lane.enemyFrac of its OWN max hp — drones, rats and elites alike — so a
@@ -3557,7 +3675,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
       if (budget > 0) {
         let best = null, bestSq = WILDFIRE_JUMP_R * WILDFIRE_JUMP_R
         for (const e of run.enemies) {
-          if (e._dead || e === enemy || e.ignite > 0) continue   // already lit: spend the jump on new ground
+          if (e._dead || isAlly(e) || e === enemy || e.ignite > 0) continue   // already lit (or yours): spend the jump on new ground
           const dx = e.x - enemy.x, dy = e.y - enemy.y
           const dSq = dx * dx + dy * dy
           if (dSq < bestSq) { bestSq = dSq; best = e }
@@ -3644,6 +3762,26 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
         len: BLANK_WAKE_LEN, w: BLANK_WAKE_W, fuse: 0.3, t: BLANK_MEMORY_T, dps: BLANK_WAKE_DPS,
         look: 'erase', variant: 'residue',
       })
+    }
+
+    // CONSCRIPTION: THE BODY GETS UP. Deliberately the LAST thing in this branch, so the elite's
+    // death is completely ordinary first — it pays out its kill, its 4x xp gem, its 8 coins, its
+    // _eliteKills, its blood-pact stacks, and every one of its on-death affixes (the volatile core,
+    // the splitter wisps, the acid pool). That is why this is one insertion instead of six guards
+    // threaded through the payout above: an elite under Conscription really does die, and the whole
+    // card is what happens next.
+    //   `_turned` is the idempotence guard and it is load-bearing: without it the conscript's own
+    // fall re-enters this branch and pays the entire elite reward a second time (a gem and coin
+    // fountain, not an exception). It is also why expiry does NOT route through here at all — see
+    // stepConscripts, which retires the body itself.
+    //   hp goes back through roundHP: a fractional maxHP leaves an immortal sub-1 sliver (v6.9.2).
+    if (run.anomalies?.conscription && enemy.elite && !enemy._turned) {
+      enemy._dead = false      // must be cleared: ~27 guards skip _dead, and the once-per-frame
+      enemy._turned = true     // sweep at the tail of stepWeapons would delete it this same frame
+      enemy.hp = roundHP(enemy.maxHP)
+      enemy.allyT = CONSCRIPT_DURATION
+      enemy.hitFlash = 0       // it is not being struck, it is changing sides
+      run.events.push({ type: 'conscript', x: enemy.x, y: enemy.y, elite: true })
     }
   }
 }
@@ -3909,6 +4047,10 @@ function nearestEnemy(run, pad = 100) {
   let target = null
   let bestSq = Infinity
   for (const e of run.enemies) {
+    // CONSCRIPTION: never aim at your own conscript. THIS IS THE CHOKE POINT — seven weapon aim
+    // sites plus aimAngle come through here, so the alternative is seven edits that each fail
+    // silently ("my weapons stopped shooting the swarm", no error).
+    if (isAlly(e)) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const dSq = dx * dx + dy * dy
     if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
@@ -4197,7 +4339,7 @@ function tryChainBullet(run, b, fromEnemy) {
   let target = null
   let bestSq = Infinity
   for (const e of run.enemies) {
-    if (e._dead || b.hitIds.has(e.id)) continue
+    if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue   // CONSCRIPTION: pass THROUGH a conscript — immune, but blocks nothing
     const dx = e.x - fromEnemy.x, dy = e.y - fromEnemy.y
     const dSq = dx * dx + dy * dy
     if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
@@ -4260,7 +4402,7 @@ function stepBullets(run, dt) {
     let justHit = null
     for (const e of run.enemies) {
       if (b.pierce <= 0) break
-      if (e._dead || b.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue   // CONSCRIPTION: pass THROUGH a conscript — immune, but blocks nothing
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
@@ -4810,7 +4952,7 @@ function stepHomingShots(run, dt) {
     let target = null
     let bestSq = Infinity
     for (const e of run.enemies) {
-      if (e._dead || h.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || h.hitIds.has(e.id)) continue   // CONSCRIPTION: pass THROUGH a conscript — immune, but blocks nothing
       if (claimed?.has(e.id)) continue
       const dx = e.x - h.x, dy = e.y - h.y
       const dSq = dx * dx + dy * dy
@@ -4821,7 +4963,7 @@ function stepHomingShots(run, dt) {
     // and the third doubles up on whichever is nearer. Never leave a seeker flying blind.
     if (!target && claimed) {
       for (const e of run.enemies) {
-        if (e._dead || h.hitIds.has(e.id)) continue
+        if (e._dead || isAlly(e) || h.hitIds.has(e.id)) continue   // CONSCRIPTION: pass THROUGH a conscript — immune, but blocks nothing
         const dx = e.x - h.x, dy = e.y - h.y
         const dSq = dx * dx + dy * dy
         if (dSq < bestSq) { bestSq = dSq; target = e }
@@ -4842,7 +4984,7 @@ function stepHomingShots(run, dt) {
     h.y += h.vy * dt
 
     for (const e of run.enemies) {
-      if (e._dead || h.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || h.hitIds.has(e.id)) continue   // CONSCRIPTION: pass THROUGH a conscript — immune, but blocks nothing
       const dx = e.x - h.x, dy = e.y - h.y
       const rad = HOMING_HIT_R + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
@@ -4874,7 +5016,10 @@ function pickHoleSpot(run, excludeIds) {
   const p = run.player
   const viewSq = run.viewRadius * run.viewRadius
   const inView = run.enemies.filter((e) => {
-    if (e._dead || excludeIds.has(e.id)) return false
+    // CONSCRIPTION: a conscript is never a valid MARK. This is aim dilution, not friendly fire —
+    // the spot is picked uniformly at random, so N allies among M hostiles waste N/(N+M) of every
+    // cast, and stacking is uncapped by design.
+    if (e._dead || isAlly(e) || excludeIds.has(e.id)) return false
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= viewSq
   })
@@ -5311,7 +5456,7 @@ function pickBloomSpot(run, castRange) {
   const p = run.player
   const rangeSq = castRange * castRange
   const inRange = run.enemies.filter((e) => {
-    if (e._dead) return false
+    if (e._dead || isAlly(e)) return false   // CONSCRIPTION: never mark your own conscript
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
@@ -5816,7 +5961,7 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   // stepSim's filter is the only thing that ever removes an enemy, but a funnel that outlives its
   // prey by any other route would otherwise sit on the corpse's last coordinates forever, and that
   // failure mode is invisible until someone adds a despawn. One Set beats an includes() per funnel.
-  const live = new Set(run.enemies)
+  const live = new Set(run.enemies.filter((e) => !isAlly(e)))   // CONSCRIPTION: a funnel never claims your ally (sticky claim + elite HP = a funnel lost for the run)
   const claimed = new Set()
   for (const t of list) {
     if (t.tgt && (t.tgt._dead || !live.has(t.tgt) || !leashed(t.tgt))) t.tgt = null
@@ -5999,7 +6144,7 @@ function pickGeyserSpot(run, castRange, fuse) {
   const tm = run.weaponMods.sewerGeyser?.trafficMain ?? 0
   if (tm > 0) {
     const inLane = run.enemies.filter((e) => {
-      if (e._dead) return false
+      if (e._dead || isAlly(e)) return false   // CONSCRIPTION: never mark your own conscript
       const dx = e.x - p.x, dy = e.y - p.y
       return dx * dx + dy * dy <= rangeSq && pointInLane(run, e.x, e.y)
     })
@@ -6018,7 +6163,7 @@ function pickGeyserSpot(run, castRange, fuse) {
   // enemy, two for the no-enemy fallback) so seeded streams are unchanged: the lead needs the ENEMY,
   // not just its position, because how far to lead depends on how fast that particular thing moves.
   const inRange = run.enemies.filter((e) => {
-    if (e._dead) return false
+    if (e._dead || isAlly(e)) return false   // CONSCRIPTION: never mark your own conscript
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
