@@ -546,8 +546,8 @@ function generateWells(sig) {
  *                 `fear` field (the Chitter Shriek — see stepNovas/stepShriekWeapon in sim.js).
  *                 chitterShriek's panicRout mod amplifies ALL damage a fearT > 0 enemy takes.
  *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
- *                 damage (knockback still carries it). Applied by the Sewer Geyser's launch mod,
- *                 the Roar's stagger mod (see GEYSER_STUN/ROAR_STUN in config.js), and (v6.4) a
+ *                 damage (knockback still carries it). Applied by the Burst Hydrant's launch mod,
+ *                 the Roar's stagger mod (see HYDRANT_STUN/ROAR_STUN in config.js), and (v6.4) a
  *                 detonating mine (MINE_STUN, sim.js's detonateMine) against every non-ghosted
  *                 enemy in its blast radius.
  *               allyT (s of loan remaining) — SUBMISSION anomaly: while > 0 this enemy is YOURS.
@@ -664,7 +664,7 @@ function generateWells(sig) {
  *               field — it's applied straight to `tick` above).
  *               prism (v6.7.6, optional): Beam Prism's split ladder, e.g. [4,3,2] at mythic —
  *               baked at cast time like Strobe, and null on any beam without the mod (which
- *               includes every Tesseract Beam, since only fireBeam ever sets it). See the PRISM_*
+ *               includes every Pulsar Sweep, since only fireBeam ever sets it). See the PRISM_*
  *               block in config.js. Its sub-beams are NOT entries here — they resolve inside the
  *               tick that cast them and leave only the render-only segments below.
  * prisms[i]:    { x, y, x2, y2, d, life }  v6.7.6, RENDER-ONLY — one drawn refraction segment.
@@ -996,9 +996,9 @@ function generateWells(sig) {
  *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and inside `hunt` px
  *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
  *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
- * geysers[i]: { x, y, r, fuse, dur, dmg, delay?, jetDur?, tick?, nStreams?, jet?, streams?, _cd?,
+ * zones[i]: { x, y, r, fuse, dur, dmg, delay?, jetDur?, tick?, nStreams?, jet?, streams?, _cd?,
  *   _chained? }
- *   — telegraphed zones (Sewer Geyser, city weapon; also reused by the Reality Shard's riftScar
+ *   — telegraphed zones (Burst Hydrant, city weapon; also reused by the Reality Shard's riftScar
  *   rifts). `delay` (if set) holds the zone DORMANT first — planted but not yet arrived, drawn by
  *   nothing, its fuse not started; that is how one cast staggers its zones without giving them
  *   different-length spawn animations. Then fuse counts down as a HARMLESS telegraph (dur is its
@@ -1006,7 +1006,7 @@ function generateWells(sig) {
  *   in r against ENEMIES only (never the player), emitting {type:'explode', x, y, radius:r}.
  *
  *   What happens after the eruption depends on jetDur, and BOTH paths are live:
- *     jetDur > 0  a Sewer Geyser hydrant. It stays up for jetDur (`jet` counts the remaining time)
+ *     jetDur > 0  a Burst Hydrant hydrant. It stays up for jetDur (`jet` counts the remaining time)
  *                 as a TURRET: each step it locks the nearest `nStreams` foes within r and hoses
  *                 them, damaging each on its own `tick` cooldown. Nothing else in r is touched —
  *                 r is a RANGE, not a damage area. `_cd` is that cooldown map (enemy id -> next
@@ -1015,8 +1015,8 @@ function generateWells(sig) {
  *                 ids so a target dying mid-frame cannot leave render chasing a stale entity.
  *     jetDur nil  a riftScar rift: one pop and gone. Rifts must keep this — a jet field that
  *                 quietly made rifts persistent would rebalance a weapon in another chapter.
- *   _chained marks a rift. Nothing reads it since v6.10 dropped chainGeyser; it is kept as the
- *   "not a Sewer Geyser cast" marker. See stepGeysers / stepOpenJet in sim.js.
+ *   _chained marks a rift. Nothing reads it since v6.10 dropped chainHydrant; it is kept as the
+ *   "not a Burst Hydrant cast" marker. See stepZones / stepOpenJet in sim.js.
  * lobs[i]: { x, y, fromX, fromY, tx, ty, t, flight, r, dmg } — Debris Toss chunks (skies weapon).
  *   t counts UP from 0 to flight; x/y are the straight (fromX,fromY)->(tx,ty) lerp at t/flight,
  *   and render adds the parabolic hop (sim only needs t/flight). On landing the chunk bursts ONCE
@@ -1028,15 +1028,15 @@ function generateWells(sig) {
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
  * chunks and Debris Toss' splinters are all ordinary run.bullets entries tagged weapon:'quill' /
  * 'shard' / 'trash' / 'debris' (star's split/chain/ricochet budgets zeroed, exactly like the
- * stinger's needles); the Chitter Shriek is a run.novas entry carrying `fear` (s); the Tesseract
- * Beam is a run.beams entry carrying `folded: true` + `arms` (n arms evenly around the circle,
+ * stinger's needles); the Chitter Shriek is a run.novas entry carrying `fear` (s); the Pulsar
+ * Beam is a run.beams entry carrying `swept: true` + `arms` (n arms evenly around the circle,
  * sweeping together) + `collapseBonus`. New events:
  *   {type:'clawRake', x, y, angle, range, arc}      a Claw Rake slash (same shape as 'whip'; x,y =
  *                                                   the player — the rake never moves them)
  *   {type:'roar', x, y, angle, range, arc}          a Roar sector sweep (same shape as 'whip')
  *   {type:'tail', x, y, angle, range, arc}          a Tail Swipe sector sweep
- *   {type:'geyser', x, y}                           a Sewer Geyser cast (x,y = player, for sfx;
- *                                                   the zones live in run.geysers above)
+ *   {type:'hydrant', x, y}                           a Burst Hydrant cast (x,y = player, for sfx;
+ *                                                   the zones live in run.zones above)
  *   {type:'toss', x, y}                             a Debris Toss cast (x,y = player, for sfx)
  *   {type:'shoot', weapon:'quillBurst'|'realityShard'|'chitterShriek'}  volley/cast fired
  * player.vx/vy (v5.4): the player's own input velocity in px/s this frame (0 while standing still;
@@ -1428,7 +1428,7 @@ export function createRun(meta, opts = {}) {
     // v5.4 chapter behavior (see doc block above). wells are permanent signature FURNITURE, seeded
     // once here from this chapter's signature (any other signature -> []); the rest are fed during
     // the run — lanes by the city's traffic signature, enemyShots by missileVolley helicopters,
-    // debris by the Trash Tornado (persistent since v6.8 — the funnels hunt), geysers by the Sewer Geyser
+    // debris by the Trash Tornado (persistent since v6.8 — the funnels hunt), zones by the Burst Hydrant
     // (and the Reality Shard's rifts), lobs by the Debris Toss.
     // v6.5: traps are no longer seeded here (generateTraps deleted) — sim.js's streamTraps
     // materializes them around the player the same way streamObstacles/streamEddies do, keyed off
@@ -1444,7 +1444,7 @@ export function createRun(meta, opts = {}) {
     lanes: [],
     enemyShots: [],
     debris: [],
-    geysers: [],
+    zones: [],
     lobs: [],
     kills: 0,
     coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect

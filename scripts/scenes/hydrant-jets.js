@@ -1,7 +1,7 @@
-// Scene: Sewer Geyser open jets over a crowd, for the v6.10 look A/B (render.js GEYSER_LOOK, ?gv=N).
+// Scene: Burst Hydrant open jets over a crowd, for the v6.10 look A/B (render.js GEYSER_LOOK, ?gv=N).
 // Runs in the page with (run, app, step, H) in scope; see the H surface in fx-probe.mjs.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/geyser-jets.js --out /tmp/gv1 --frames 12 \
+//   node scripts/fx-probe.mjs --scene scripts/scenes/hydrant-jets.js --out /tmp/gv1 --frames 12 \
 //     --url 'http://127.0.0.1:PORT/?gv=1'
 //
 // The jets are HAND-PLACED rather than left to the weapon's own casts. Placement is the one thing
@@ -13,7 +13,7 @@
 // freshly erupted, mid-life, and closing. A burst or a fade cannot be judged from a still that only
 // shows one instant of it, and re-booting per age costs ~16s a frame.
 
-H.weapon('sewerGeyser', 5)
+H.weapon('burstHydrant', 5)
 
 H.breed(20)
 const crowd = H.keep(20)
@@ -27,7 +27,7 @@ H.place((i, p) => ({
 }))
 
 // Let the weapon cast once so the run is in a real state, then take the zones over.
-H.until(() => run.geysers.length > 0, 900)
+H.until(() => run.zones.length > 0, 900)
 
 // r=128 is the real L5 radius and it is ENORMOUS against a 390px-wide viewport — two jets already
 // cover most of the screen. Three plus a telegraph, the first framing tried here, was an unreadable
@@ -45,19 +45,19 @@ const jet = (x, y, age) => ({
   r: R, fuse: -1, dur: 0.6, dmg: 48,
   jetDur: DUR, tick: 0.4, jet: DUR * (1 - age), _cd: new Map(),
 })
-run.geysers = [jet(-104, -150, 0.10), jet(96, 60, 0.55)]
+run.zones = [jet(-104, -150, 0.10), jet(96, 60, 0.55)]
 
 // A zone still on its fuse, so the telegraph and the open jet can be compared side by side — they
 // have to be tellable apart at a glance, since one is harmless and one is not.
-run.geysers.push({ x: run.player.x - 60, y: run.player.y + 250, r: R, fuse: 0.22, dur: 0.6, dmg: 48, jetDur: DUR, tick: 0.4 })
+run.zones.push({ x: run.player.x - 60, y: run.player.y + 250, r: R, fuse: 0.22, dur: 0.6, dmg: 48, jetDur: DUR, tick: 0.4 })
 
-H.note(JSON.stringify({ zones: run.geysers.length }))
+H.note(JSON.stringify({ zones: run.zones.length }))
 
 // Scrub the jets' remaining life to sweep them through their whole cycle together. Not H.scrub:
 // that rewinds a `life` field, and a jet's clock is `jet` counting DOWN from jetDur.
-const base = run.geysers.map((g) => g.jet)
+const base = run.zones.map((g) => g.jet)
 return (age) => {
-  run.geysers.forEach((g, i) => {
+  run.zones.forEach((g, i) => {
     if (base[i] == null) return
     // Each jet keeps its own offset so the frame always shows distinct ages, and wraps rather than
     // dying — a jet at jet<=0 is removed by the sim and there would be nothing to photograph.

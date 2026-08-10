@@ -65,7 +65,7 @@ import {
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
-  ROAR_RESONANCE_EVERY, TESSERACT_ARMS,
+  ROAR_RESONANCE_EVERY, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
@@ -1148,7 +1148,7 @@ function testAnomalySlate() {
     }
 
     // EVERY WEAPON, ENUMERATED. Written after the shipped card was found to do NOTHING AT ALL to
-    // three of the 22 (sewerGeyser, debrisToss, realityShard were simply never patched) and to
+    // three of the 22 (burstHydrant, debrisToss, realityShard were simply never patched) and to
     // stack orbit's ring three-deep on five points instead of spreading it over fifteen. Neither
     // was visible to the hand-picked fixtures above, and the orbit one was caught BY EYE from a
     // screenshot that looked unchanged — which is exactly what "15 orbs in 5 positions" looks like.
@@ -1158,7 +1158,7 @@ function testAnomalySlate() {
     // rewrite exists to escape. Weapons that spawn no entity at all (the melee sectors) are counted
     // by their FX events instead — three sweeps push three events.
     {
-      const LISTS = ['bullets', 'orbs', 'mines', 'geysers', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas']
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -1176,12 +1176,12 @@ function testAnomalySlate() {
           const seen = new Set()
           // Keyed by SHAPE, not position alone. Several weapons spawn everything at the player and
           // differ only in heading (beams), in radius (novas — they spread by band, not by place)
-          // or in an arm COUNT carried on one entity (tesseractBeam). Position alone reads all of
+          // or in an arm COUNT carried on one entity (pulsarSweep). Position alone reads all of
           // those as a single thing and would wave the card through for three of the 22 weapons.
           for (const key of LISTS) {
             for (const o of r[key] ?? []) {
               // An ARM is a separate piece of output that happens to be stored as a field on one
-              // entity (tesseractBeam), so it is expanded rather than counted as one thing —
+              // entity (pulsarSweep), so it is expanded rather than counted as one thing —
               // otherwise a beam that folds into six creases reads identically to one that folds
               // into two.
               const arms = Math.max(1, o.arms ?? 1)
@@ -1383,9 +1383,9 @@ function testPoolBuckets() {
   const full = [
     { name: 'body/4', chapter: 'body', slots: 4, weapons: [{ id: 'star', level: 3 }, { id: 'orbit', level: 2 }, { id: 'wave', level: 2 }, { id: 'homing', level: 2 }] },
     { name: 'body/2', chapter: 'body', slots: 2, weapons: [{ id: 'star', level: 3 }, { id: 'orbit', level: 2 }, { id: 'wave', level: 2 }, { id: 'homing', level: 2 }] },
-    { name: 'city/2', chapter: 'city', slots: 2, weapons: [{ id: 'rainbow', level: 2 }, { id: 'trashTornado', level: 2 }, { id: 'sewerGeyser', level: 2 }] },
-    { name: 'beyond/4', chapter: 'beyond', slots: 4, weapons: [{ id: 'realityShard', level: 3 }, { id: 'hole', level: 2 }, { id: 'tesseractBeam', level: 2 }] },
-    { name: 'beyond/2', chapter: 'beyond', slots: 2, weapons: [{ id: 'realityShard', level: 3 }, { id: 'hole', level: 2 }, { id: 'tesseractBeam', level: 2 }] },
+    { name: 'city/2', chapter: 'city', slots: 2, weapons: [{ id: 'rainbow', level: 2 }, { id: 'trashTornado', level: 2 }, { id: 'burstHydrant', level: 2 }] },
+    { name: 'beyond/4', chapter: 'beyond', slots: 4, weapons: [{ id: 'realityShard', level: 3 }, { id: 'hole', level: 2 }, { id: 'pulsarSweep', level: 2 }] },
+    { name: 'beyond/2', chapter: 'beyond', slots: 2, weapons: [{ id: 'realityShard', level: 3 }, { id: 'hole', level: 2 }, { id: 'pulsarSweep', level: 2 }] },
   ]
   const seen = {}
   for (const cfg of full) {
@@ -1485,12 +1485,12 @@ function testPoolBuckets() {
   }
 
   // ...but it must still gate acquisition somewhere: with both non-starters unowned, the
-  // legendary `hole` has to be a rarer FIND than the epic `tesseractBeam`. (The uniform
+  // legendary `hole` has to be a rarer FIND than the epic `pulsarSweep`. (The uniform
   // NEW_WEAPON_MIN_RATE floor compresses this — it is a discovery guarantee, deliberately
   // rarity-blind — so the assertion is directional, not a ratio.)
   const fresh = seen['beyond/2 starter only']
-  assert.ok((fresh.perWeapon.hole ?? 0) < (fresh.perWeapon.tesseractBeam ?? 0),
-    `beyond: legendary hole offered ${fresh.perWeapon.hole} times against epic tesseractBeam's ${fresh.perWeapon.tesseractBeam} — rarity stopped gating acquisition`)
+  assert.ok((fresh.perWeapon.hole ?? 0) < (fresh.perWeapon.pulsarSweep ?? 0),
+    `beyond: legendary hole offered ${fresh.perWeapon.hole} times against epic pulsarSweep's ${fresh.perWeapon.pulsarSweep} — rarity stopped gating acquisition`)
 
   for (const [id, tiers] of Object.entries(valueTiers)) {
     const keys = Object.keys(PASSIVES[id].values)
@@ -5778,12 +5778,12 @@ function testLaneSkills() {
     console.log(`PASS run ZR.c (asteroid hurts the player): hp ${hp0}->${run.player.hp}`)
   }
 
-  // (e) v5.22: the Tesseract Beam fans FORWARD in a lane. It used to rake a full circle from an
+  // (e) v5.22: the Pulsar Sweep fans FORWARD in a lane. It used to rake a full circle from an
   // angle picked by nearestEnemy, so in a scrolled level most of its duty cycle pointed at empty
   // space behind the player — and the cast could lock onto a straggler that had already gone past.
   {
     const run = laneRun()
-    run.weapons = [{ id: 'tesseractBeam', level: 1 }]
+    run.weapons = [{ id: 'pulsarSweep', level: 1 }]
     // A decoy BEHIND the player: under the old aimAngle path this is what the beam aimed at.
     run.enemies.push(makeStatusEnemy(run, { x: 0, y: 400, speed: 0 }))
     let fired = null
@@ -5791,7 +5791,7 @@ function testLaneSkills() {
       stepSim(run, { x: 0, y: 0 }, dt)
       if (run.beams.length > 0) fired = run.beams[0]
     }
-    assert(fired, 'expected the tesseract beam to fire within 9s (L1 rate is 6.5s)')
+    assert(fired, 'expected the pulsar sweep to fire within 9s (L1 rate is 6.5s)')
     assert(fired.fan > 0, 'expected fan mode in a lane chapter')
     // Every arm, across the whole sweep, must have a forward (negative-y) component.
     let worst = -Infinity
@@ -5803,8 +5803,8 @@ function testLaneSkills() {
       for (let k = 0; k < b.arms; k++) arms.push(b.angle - b.fan / 2 + (k / (b.arms - 1)) * b.fan)
       for (const a of arms) worst = Math.max(worst, Math.sin(a)) // +sin = pointing DOWN = behind
     }
-    assert(worst < 0, `expected every tesseract arm to point forward; worst sin(angle)=${worst.toFixed(3)}`)
-    console.log(`PASS run ZR.e (tesseract fans forward): no arm ever pointed behind (worst sin=${worst.toFixed(2)})`)
+    assert(worst < 0, `expected every pulsar arm to point forward; worst sin(angle)=${worst.toFixed(3)}`)
+    console.log(`PASS run ZR.e (pulsar fans forward): no arm ever pointed behind (worst sin=${worst.toFixed(2)})`)
   }
 
   // (f) v5.22: a vortex has to FIT on a phone. The binding constraint is half the screen WIDTH
@@ -6168,12 +6168,12 @@ function testV54Weapons() {
     console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px) + fling`)
   }
 
-  // (e) sewerGeyser: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.
+  // (e) burstHydrant: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.
   // Enemies only, never the player. Cap Blast flings and stuns; the turret hoses only the nearest
   // `streams` foes, and a zone with no jetDur (a riftScar rift) still pops once and vanishes.
   {
-    const run = weaponRun('city', 'sewerGeyser')
-    const lvl = WEAPONS.sewerGeyser.levels[MAX_WEAPON_LEVEL - 1]
+    const run = weaponRun('city', 'burstHydrant')
+    const lvl = WEAPONS.burstHydrant.levels[MAX_WEAPON_LEVEL - 1]
     const victim = makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 }) // in castRange, clear of the player
     victim.flags = []
     run.enemies.push(victim)
@@ -6181,33 +6181,33 @@ function testV54Weapons() {
     for (let i = 0; i < Math.round(4 / dt) && !planted; i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       stepSim(run, { x: 0, y: 0 }, dt)
-      planted = run.geysers[0]
+      planted = run.zones[0]
     }
-    assert(planted, 'expected the weapon to plant a geyser')
+    assert(planted, 'expected the weapon to plant a zone')
     assert.strictEqual(planted.dur, lvl.fuse, 'expected dur to snapshot the starting fuse (render grows the warning ring from fuse/dur)')
     const hpAtPlant = victim.hp
     stepQuiet(run, 0.02)
-    assert.strictEqual(victim.hp, hpAtPlant, 'expected the geyser fuse to be a harmless telegraph')
+    assert.strictEqual(victim.hp, hpAtPlant, 'expected the hydrant fuse to be a harmless telegraph')
     stepQuiet(run, lvl.fuse + 0.2)
     assert(victim.hp < hpAtPlant, `expected the eruption to damage the enemy, hp=${victim.hp}`)
 
-    // Enemies only, NEVER the player: a geyser erupting right on top of them does nothing at all.
-    const safe = weaponRun('city', 'sewerGeyser')
+    // Enemies only, NEVER the player: a hydrant erupting right on top of them does nothing at all.
+    const safe = weaponRun('city', 'burstHydrant')
     safe.weapons = [] // no re-planting, no enemies: the hand-placed zone is the only thing live
     safe.player.hp = 500; safe.player.maxHP = 500; safe.player.invuln = 0
-    safe.geysers.push({ x: 0, y: 0, r: 150, fuse: 0.05, dur: 0.05, dmg: 999 })
+    safe.zones.push({ x: 0, y: 0, r: 150, fuse: 0.05, dur: 0.05, dmg: 999 })
     stepQuiet(safe, 0.3)
-    assert.strictEqual(safe.player.hp, 500, 'expected a geyser to NEVER damage the player')
-    assert.strictEqual(safe.geysers.length, 0, 'expected the geyser to erupt ONCE and be removed')
+    assert.strictEqual(safe.player.hp, 500, 'expected a hydrant zone to NEVER damage the player')
+    assert.strictEqual(safe.zones.length, 0, 'expected the hydrant to erupt ONCE and be removed')
 
     // launch: the eruption flings and stuns.
-    const launch = weaponRun('city', 'sewerGeyser')
+    const launch = weaponRun('city', 'burstHydrant')
     launch.weapons = []
-    launch.weaponMods.sewerGeyser.launch = 1
+    launch.weaponMods.burstHydrant.launch = 1
     const caught = makeStatusEnemy(launch, { x: 40, y: 0, hp: 1e6, speed: 0 })
     caught.flags = []
     launch.enemies.push(caught)
-    launch.geysers.push({ x: 0, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 10 })
+    launch.zones.push({ x: 0, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 10 })
     stepQuiet(launch, 0.2)
     assert(caught.stunT > 0, `expected launch to stun what it catches, stunT=${caught.stunT}`)
     assert(caught.x > 40, `expected launch to fling the enemy outward, x=${caught.x.toFixed(1)}`)
@@ -6215,7 +6215,7 @@ function testV54Weapons() {
     // v6.10 TURRET: an open hydrant hoses only the nearest `nStreams` foes in range. This is the
     // property the whole rework turns on — r is a RANGE, not a damage area — so it is asserted
     // against a line of foes at known distances rather than against a count.
-    const turret = weaponRun('city', 'sewerGeyser')
+    const turret = weaponRun('city', 'burstHydrant')
     turret.weapons = []
     const line = [60, 120, 180, 240].map((x) => {
       const e = makeStatusEnemy(turret, { x, y: 0, hp: 1e6, speed: 0 })
@@ -6224,7 +6224,7 @@ function testV54Weapons() {
       turret.enemies.push(e)
       return e
     })
-    turret.geysers.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 2 })
+    turret.zones.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 2 })
     // The ERUPTION is still radial — the cap blowing off is a blast, and it hits everything in r
     // once. Only the SUSTAINED hosing is aimed, so the measurement window has to start after the
     // eruption or it reads the blast and concludes the turret is a zone.
@@ -6241,10 +6241,10 @@ function testV54Weapons() {
     assert(line[0].hp < midHp, 'expected an open hydrant to keep hosing its target, not fire once')
     // ...then the main runs dry and the zone is gone.
     stepQuiet(turret, 1.2)
-    assert.strictEqual(turret.geysers.length, 0, 'expected the hydrant to be removed once jetDur ran out')
+    assert.strictEqual(turret.zones.length, 0, 'expected the hydrant to be removed once jetDur ran out')
 
     // A wider nozzle reaches further down the same line: nStreams=4 hoses all four.
-    const wide = weaponRun('city', 'sewerGeyser')
+    const wide = weaponRun('city', 'burstHydrant')
     wide.weapons = []
     const line2 = [60, 120, 180, 240].map((x) => {
       const e = makeStatusEnemy(wide, { x, y: 0, hp: 1e6, speed: 0 })
@@ -6253,7 +6253,7 @@ function testV54Weapons() {
       wide.enemies.push(e)
       return e
     })
-    wide.geysers.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 4 })
+    wide.zones.push({ x: 0, y: 0, r: 300, fuse: 0.02, dur: 0.02, dmg: 40, jetDur: 1.0, tick: 0.1, nStreams: 4 })
     stepQuiet(wide, 0.1)
     const hp2 = line2.map((e) => e.hp)      // after the blast, as above
     stepQuiet(wide, 0.4)
@@ -6262,9 +6262,9 @@ function testV54Weapons() {
     // ...and Split Nozzle is what raises it: the mod must reach the PLANTED zone, which snapshots
     // stats.streams at cast time. Asserting on the zone rather than on a stats object keeps this
     // honest about the whole path (WEAPON_STAT_MODS -> effectiveWeaponStats -> the cast site).
-    const nozzle = weaponRun('city', 'sewerGeyser')
-    nozzle.weaponMods.sewerGeyser.moreStreams = 2
-    const baseStreams = WEAPONS.sewerGeyser.levels[MAX_WEAPON_LEVEL - 1].streams
+    const nozzle = weaponRun('city', 'burstHydrant')
+    nozzle.weaponMods.burstHydrant.moreStreams = 2
+    const baseStreams = WEAPONS.burstHydrant.levels[MAX_WEAPON_LEVEL - 1].streams
     const foe = makeStatusEnemy(nozzle, { x: 200, y: 0, hp: 1e6, speed: 0 })
     foe.flags = []
     nozzle.enemies.push(foe)
@@ -6272,12 +6272,12 @@ function testV54Weapons() {
     for (let i = 0; i < Math.round(4 / dt) && !plantedN; i++) {
       if (nozzle.phase === 'levelup') { declineLevelUp(nozzle); continue }
       stepSim(nozzle, { x: 0, y: 0 }, dt)
-      plantedN = nozzle.geysers[0]
+      plantedN = nozzle.zones[0]
     }
     assert(plantedN, 'expected a hydrant to be planted with Split Nozzle held')
     assert.strictEqual(plantedN.nStreams, baseStreams + 2,
       `expected Split Nozzle x2 to fold into streams (${baseStreams} -> ${baseStreams + 2}), got ${plantedN.nStreams}`)
-    console.log(`PASS run AA.e (sewerGeyser): telegraph -> erupt (enemies only) -> turret hoses the nearest 2 of 4 in range -> dry; Cap Blast stuns; Split Nozzle ${baseStreams} -> ${plantedN.nStreams} streams`)
+    console.log(`PASS run AA.e (burstHydrant): telegraph -> erupt (enemies only) -> turret hoses the nearest 2 of 4 in range -> dry; Cap Blast stuns; Split Nozzle ${baseStreams} -> ${plantedN.nStreams} streams`)
   }
 
   // (f) roar: a narrow sector sweep aimed at the NEAREST enemy that shoves; stagger stuns;
@@ -6413,7 +6413,7 @@ function testV54Weapons() {
   }
 
   // (i) realityShard: shards SKIP through space (a blink jumps blinkDist along the heading without
-  // sweeping the gap). riftScar leaves _chained rifts (so chainGeyser can't fire off them);
+  // sweeping the gap). riftScar leaves _chained rifts (so chainHydrant can't fire off them);
   // recursion forks a shard whose LIFE expired.
   {
     const run = weaponRun('beyond', 'realityShard')
@@ -6443,10 +6443,10 @@ function testV54Weapons() {
     for (let i = 0; i < Math.round(2 / dt) && rifts.length === 0; i++) {
       if (rift.phase === 'levelup') { declineLevelUp(rift); continue }
       stepSim(rift, { x: 0, y: 0 }, dt)
-      rifts = rift.geysers.slice()
+      rifts = rift.zones.slice()
     }
     assert(rifts.length > 0, 'expected riftScar to leave rifts at blink departure points')
-    for (const g of rifts) assert.strictEqual(g._chained, true, 'expected rifts flagged _chained (the "not a Sewer Geyser cast" marker)')
+    for (const g of rifts) assert.strictEqual(g._chained, true, 'expected rifts flagged _chained (the "not a Burst Hydrant cast" marker)')
 
     // recursion: a shard that runs out of LIFE forks into _fork shards.
     const rec = weaponRun('beyond', 'realityShard')
@@ -6465,66 +6465,66 @@ function testV54Weapons() {
     console.log(`PASS run AA.i (realityShard): blink skips ${(covered - flown).toFixed(0)}px, riftScar leaves _chained rifts, recursion forks once`)
   }
 
-  // (j) tesseractBeam: ONE folded run.beams entry sweeping TESSERACT_ARMS arms at once (a plain
+  // (j) pulsarSweep: ONE swept run.beams entry sweeping PULSAR_ARMS arms at once (a plain
   // Neon Beam rakes only the one it points at); collapse damages + yanks everything in any arm.
   {
-    const run = weaponRun('beyond', 'tesseractBeam')
+    const run = weaponRun('beyond', 'pulsarSweep')
     const front = makeStatusEnemy(run, { x: 150, y: 0, hp: 1e9, speed: 0 }) // aim anchor
     const back = makeStatusEnemy(run, { x: -150, y: 0, hp: 1e6, speed: 0 }) // the FOLD's other arm
     front.flags = []; back.flags = []
     run.enemies.push(front, back)
     let beam = null
-    for (let i = 0; i < Math.round(6 / dt) && !beam; i++) { // the fold's cast cadence is ~4.5s at max
+    for (let i = 0; i < Math.round(6 / dt) && !beam; i++) { // the cast cadence is ~4.5s at max
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       stepSim(run, { x: 0, y: 0 }, dt)
       beam = run.beams[0]
     }
     assert(beam, 'expected the weapon to cast a beam')
-    assert.strictEqual(beam.folded, true, 'expected the cast flagged folded')
-    assert.strictEqual(beam.arms, TESSERACT_ARMS, `expected ${TESSERACT_ARMS} arms on a plain fold, got ${beam.arms}`)
+    assert.strictEqual(beam.swept, true, 'expected the cast flagged swept')
+    assert.strictEqual(beam.arms, PULSAR_ARMS, `expected ${PULSAR_ARMS} arms on a plain cast, got ${beam.arms}`)
 
-    // The fold itself, isolated: a non-rotating folded beam aimed +x rakes BOTH sides at once,
-    // where the plain (unfolded) Neon Beam of the same shape only ever rakes the side it points at.
+    // The opposed pair itself, isolated: a non-rotating swept beam aimed +x rakes BOTH sides at once,
+    // where the plain (unswept) Neon Beam of the same shape only ever rakes the side it points at.
     // (Left to sweep, any beam eventually crosses everything — that would prove nothing.)
-    function farSideHp(folded) {
-      const r = weaponRun('beyond', 'tesseractBeam')
+    function farSideHp(swept) {
+      const r = weaponRun('beyond', 'pulsarSweep')
       r.weapons = []
       const far = makeStatusEnemy(r, { x: -150, y: 0, hp: 1e6, speed: 0 })
       far.flags = []
       r.enemies.push(far)
       r.beams.push({
         angle: 0, life: 0.5, duration: 0.5, dmg: 22, tick: 0.05, width: 46, length: 430,
-        rotSpeed: 0, acc: 0, ...(folded ? { folded: true, arms: TESSERACT_ARMS } : {}),
+        rotSpeed: 0, acc: 0, ...(swept ? { swept: true, arms: PULSAR_ARMS } : {}),
       })
       stepQuiet(r, 0.3)
       return far.hp
     }
-    const foldedFar = farSideHp(true), plainFar = farSideHp(false)
-    assert.strictEqual(plainFar, 1e6, `expected an unfolded beam to never reach the far side (hp ${plainFar})`)
-    assert(foldedFar < 1e6, `expected the fold's opposite arm to rake the far side too, hp=${foldedFar}`)
+    const sweptFar = farSideHp(true), plainFar = farSideHp(false)
+    assert.strictEqual(plainFar, 1e6, `expected an unswept beam to never reach the far side (hp ${plainFar})`)
+    assert(sweptFar < 1e6, `expected the opposite arm to rake the far side too, hp=${sweptFar}`)
 
-    // hyperfold adds arms; collapse detonates + yanks when the fold snaps shut.
-    const col = weaponRun('beyond', 'tesseractBeam')
+    // hyperSweep adds arms; collapse detonates + yanks when the sweep ends.
+    const col = weaponRun('beyond', 'pulsarSweep')
     col.weapons = []
-    col.weaponMods.tesseractBeam.collapse = 0.80
+    col.weaponMods.pulsarSweep.collapse = 0.80
     const caught = makeStatusEnemy(col, { x: 150, y: 0, hp: 1e6, speed: 0 })
     caught.flags = []
     col.enemies.push(caught)
     col.beams.push({
       angle: 0, life: 0.05, duration: 2, dmg: 22, tick: 99, width: 46, length: 430,
-      rotSpeed: 0, acc: 0, folded: true, arms: TESSERACT_ARMS, collapseBonus: 0.80,
+      rotSpeed: 0, acc: 0, swept: true, arms: PULSAR_ARMS, collapseBonus: 0.80,
     })
     stepQuiet(col, 0.1)
-    assert(caught.hp < 1e6, `expected collapse to detonate on what the fold held, hp=${caught.hp}`)
+    assert(caught.hp < 1e6, `expected collapse to detonate on what the sweep held, hp=${caught.hp}`)
     assert(caught.kb.x < 0, `expected collapse to yank the foe toward the player, kb.x=${caught.kb.x.toFixed(1)}`)
     assert(col.events.some((ev) => ev.type === 'explode'), 'expected collapse to emit an explode at the player')
 
-    const hyper = weaponRun('beyond', 'tesseractBeam')
-    hyper.weaponMods.tesseractBeam.hyperfold = 2
+    const hyper = weaponRun('beyond', 'pulsarSweep')
+    hyper.weaponMods.pulsarSweep.hyperSweep = 2
     stepQuiet(hyper, 6.0)
-    assert(hyper.beams.length > 0, 'expected the hyperfold cast to land')
-    assert.strictEqual(hyper.beams[0].arms, TESSERACT_ARMS + 2, `expected hyperfold to add arms, got ${hyper.beams[0].arms}`)
-    console.log(`PASS run AA.j (tesseractBeam): ${beam.arms} arms rake at once, hyperfold adds more, collapse detonates + yanks`)
+    assert(hyper.beams.length > 0, 'expected the hyperSweep cast to land')
+    assert.strictEqual(hyper.beams[0].arms, PULSAR_ARMS + 2, `expected hyperSweep to add arms, got ${hyper.beams[0].arms}`)
+    console.log(`PASS run AA.j (pulsarSweep): ${beam.arms} arms rake at once, hyperSweep adds more, collapse detonates + yanks`)
   }
 
   // (k) each v5.4 chapter's level-up pool offers ONLY its own natives, as weapon AND mod cards
@@ -6598,7 +6598,7 @@ function testV54Weapons() {
       city: [
         ['rainbow', (r) => { r.weaponMods.rainbow.wideBeam = 0.20; r.weaponMods.rainbow.longBeam = 0.20 }],
         ['trashTornado', (r) => { r.weaponMods.trashTornado.heavyTrash = 0.25; r.weaponMods.trashTornado.moreTrash = 1 }],
-        ['sewerGeyser', (r) => { r.weaponMods.sewerGeyser.pressure = 0.30; r.weaponMods.sewerGeyser.longHose = 0.30 }],
+        ['burstHydrant', (r) => { r.weaponMods.burstHydrant.pressure = 0.30; r.weaponMods.burstHydrant.longHose = 0.30 }],
       ],
       skies: [
         ['roar', (r) => { r.weaponMods.roar.bellow = 0.30; r.weaponMods.roar.wideRoar = 0.30 }],
@@ -6608,7 +6608,7 @@ function testV54Weapons() {
       beyond: [
         ['realityShard', (r) => { r.weaponMods.realityShard.keenShard = 0.25; r.weaponMods.realityShard.moreShards = 1 }],
         ['hole', (r) => { r.weaponMods.hole.biggerHole = 0.20; r.weaponMods.hole.denser = 0.20 }],
-        ['tesseractBeam', (r) => { r.weaponMods.tesseractBeam.wideFold = 0.20; r.weaponMods.tesseractBeam.longFold = 0.20 }],
+        ['pulsarSweep', (r) => { r.weaponMods.pulsarSweep.wideSweep = 0.20; r.weaponMods.pulsarSweep.longFold = 0.20 }],
       ],
     }
     for (const [chapter, entries] of Object.entries(bands)) {
@@ -8159,19 +8159,19 @@ function testCoverDestructible() {
   }
 }
 
-// ---- Run KK.f: v6.3 trafficMain — the lane-aware geyser mod ------------------------------------
-// sewerGeyser's trafficMain mod: an eruption centered inside a LIVE lane band (warn telegraph OR
-// sweep — pointInLane doesn't care which) deals (1+tm)x damage, resolved once per geyser at its own
+// ---- Run KK.f: v6.3 trafficMain — the lane-aware hydrant mod ------------------------------------
+// burstHydrant's trafficMain mod: an eruption centered inside a LIVE lane band (warn telegraph OR
+// sweep — pointInLane doesn't care which) deals (1+tm)x damage, resolved once per zone at its own
 // (g.x, g.y) — panicRout's "multiply at the damage site" idiom, not a stat fold (WEAPON_STAT_MODS
-// never gains a trafficMain entry). The placement bias (pickGeyserSpot, read by stepGeyserWeapon's
+// never gains a trafficMain entry). The placement bias (pickHydrantSpot, read by stepHydrantWeapon's
 // cast) prefers a lane-covered enemy over the plain unbiased pick when the mod is held.
-function testTrafficMainGeyser() {
+function testTrafficMainHydrant() {
   const dt = 1 / 60
 
   // A quiet city run: no auto-spawns, no auto-rolled lanes (the roller is parked so the ONLY lane
   // ever live is the one hand-placed per case below), deterministic hit damage (zero crit chance —
   // the AA-series weapon tests' convention).
-  function geyserRun() {
+  function hydrantRun() {
     const run = createRun(makeMeta(), { chapter: 'city' })
     run.weapons = []; run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
     run._laneAcc = 1e6
@@ -8198,31 +8198,31 @@ function testTrafficMainGeyser() {
     }
   }
 
-  // (1) Conditional damage: a hand-placed geyser centered on a planted enemy INSIDE the band erupts
-  // for base*1.4; the identical geyser (same dmg) centered on an enemy well outside any band erupts
+  // (1) Conditional damage: a hand-placed zone centered on a planted enemy INSIDE the band erupts
+  // for base*1.4; the identical zone (same dmg) centered on an enemy well outside any band erupts
   // for plain base damage, even with the mod held.
   {
     Math.random = mulberry32(20260714)
-    const run = geyserRun()
-    run.weaponMods.sewerGeyser.trafficMain = 0.40
+    const run = hydrantRun()
+    run.weaponMods.burstHydrant.trafficMain = 0.40
     run.lanes = [warnLane()]
     const inLane = makeStatusEnemy(run, { x: 50, y: 0, hp: 1e6, speed: 0 }) // |along|=50<=550, |perp|=0<=65: inside the band
     inLane.flags = []
     run.enemies.push(inLane)
-    run.geysers.push({ x: 50, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 40 })
+    run.zones.push({ x: 50, y: 0, r: 100, fuse: 0.05, dur: 0.05, dmg: 40 })
     const hp0 = inLane.hp
     stepQuiet(run, 0.1) // clears the fuse
     const dealt = hp0 - inLane.hp
     const expected = Math.round(40 * 1.4)
     assert.strictEqual(dealt, expected, `expected an in-lane eruption to deal base*1.4=${expected}, got ${dealt}`)
 
-    const run2 = geyserRun()
-    run2.weaponMods.sewerGeyser.trafficMain = 0.40
+    const run2 = hydrantRun()
+    run2.weaponMods.burstHydrant.trafficMain = 0.40
     run2.lanes = [warnLane()]
     const outOfLane = makeStatusEnemy(run2, { x: 5000, y: 5000, hp: 1e6, speed: 0 }) // nowhere near the band
     outOfLane.flags = []
     run2.enemies.push(outOfLane)
-    run2.geysers.push({ x: 5000, y: 5000, r: 100, fuse: 0.05, dur: 0.05, dmg: 40 })
+    run2.zones.push({ x: 5000, y: 5000, r: 100, fuse: 0.05, dur: 0.05, dmg: 40 })
     const hp0b = outOfLane.hp
     stepQuiet(run2, 0.1)
     const dealtB = hp0b - outOfLane.hp
@@ -8236,13 +8236,13 @@ function testTrafficMainGeyser() {
   {
     function runCasts(withMod) {
       Math.random = mulberry32(20260714)
-      const run = geyserRun()
-      run.weapons = [{ id: 'sewerGeyser', level: MAX_WEAPON_LEVEL }]
-      if (withMod) run.weaponMods.sewerGeyser.trafficMain = 0.40
+      const run = hydrantRun()
+      run.weapons = [{ id: 'burstHydrant', level: MAX_WEAPON_LEVEL }]
+      if (withMod) run.weaponMods.burstHydrant.trafficMain = 0.40
       const laneSpot = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 0 })   // in castRange AND in the band
       const clearSpot = makeStatusEnemy(run, { x: 100, y: 200, hp: 1e6, speed: 0 }) // in castRange, outside the band (perp=200 > w/2=65)
       laneSpot.flags = []; clearSpot.flags = []
-      // v6.10: an open jet shoves what stands in it outward every frame (GEYSER_JET_PUSH), so these
+      // v6.10: an open jet shoves what stands in it outward every frame (HYDRANT_JET_PUSH), so these
       // speed-0 fixtures would drift off their marks and the placement this test is about would
       // read as a miss. 'anchored' is the affix the push already exempts — this test is about WHERE
       // a cast lands, not about the drift, which run AA.e.jet covers directly.
@@ -8252,10 +8252,10 @@ function testTrafficMainGeyser() {
       for (let i = 0; i < Math.round(11 / dt); i++) {
         run.lanes = [warnLane()] // re-planted every frame: the band never expires mid-test
         if (run.phase === 'levelup') { declineLevelUp(run); continue }
-        const before = run.geysers.length
+        const before = run.zones.length
         stepSim(run, { x: 0, y: 0 }, dt)
-        if (run.geysers.length > before || run.geysers.some((g) => !g._seenKKf)) {
-          for (const g of run.geysers) {
+        if (run.zones.length > before || run.zones.some((g) => !g._seenKKf)) {
+          for (const g of run.zones) {
             if (!g._seenKKf) { g._seenKKf = true; spots.push({ x: g.x, y: g.y }) }
           }
         }
@@ -8272,14 +8272,14 @@ function testTrafficMainGeyser() {
     // resolved at the ZONE's position, not the target's.
     const LANE_HALF = TRAFFIC_W / 2
     const biased = runCasts(true)
-    assert(biased.length >= 3, `expected several geysers planted over the test window, got ${biased.length}`)
+    assert(biased.length >= 3, `expected several hydrants planted over the test window, got ${biased.length}`)
     assert(biased.every((s) => Math.abs(s.y) <= LANE_HALF),
-      `expected every geyser to land INSIDE the band with trafficMain held (|y| <= ${LANE_HALF}), got ${JSON.stringify(biased)}`)
+      `expected every hydrant to land INSIDE the band with trafficMain held (|y| <= ${LANE_HALF}), got ${JSON.stringify(biased)}`)
     assert(biased.every((s) => s.x === 100 && s.y === 0),
-      `expected every geyser on the in-lane enemy (speed 0, so no lead), got ${JSON.stringify(biased)}`)
+      `expected every hydrant on the in-lane enemy (speed 0, so no lead), got ${JSON.stringify(biased)}`)
 
     const unbiased = runCasts(false)
-    assert(unbiased.length >= 3, `expected several geysers planted over the test window, got ${unbiased.length}`)
+    assert(unbiased.length >= 3, `expected several hydrants planted over the test window, got ${unbiased.length}`)
     const hitLane = unbiased.some((s) => s.x === 100 && s.y === 0)
     const hitClear = unbiased.some((s) => s.x === 100 && s.y === 200)
     assert(hitLane && hitClear, `expected the unbiased pick to land on BOTH enemies across ${unbiased.length} casts, got ${JSON.stringify(unbiased)}`)
@@ -10804,7 +10804,7 @@ try {
   testCityTerrainWiring()
   testTrafficLaneSnap()
   testCoverDestructible()
-  testTrafficMainGeyser()
+  testTrafficMainHydrant()
   testDispatchAndCoverKind()
   testTheBlankDifficulty()
   testAntiTurtle()
@@ -12559,7 +12559,7 @@ function testIntegerHP() {
 }
 
 // ---- run VE: mod-gated detonations must scale with the player's damage multiplier ----------
-// v6.9.3 regression. Apoptosis Pop (wispPop), Big Crunch (holeCrunch) and Collapse (collapseFold)
+// v6.9.3 regression. Apoptosis Pop (wispPop), Big Crunch (holeCrunch) and Collapse (collapseSweep)
 // used to call dealDamage on a RAW config stat, so each contributed a FLAT constant that ignored
 // damageMul / passives.damage / mods.playerDmgMul and never crit — Big Crunch went from ~42% of
 // the vortex's output at 1x damage to ~7% at 10x. Their correct siblings (orbitSupernova, tail
@@ -12573,7 +12573,7 @@ function testDetonationScaling() {
   const detonationCases = [
     ['homing',        { wispNova: 0.6 }, 'Apoptosis Pop'],
     ['hole',          { crunch: 1.0 },   'Big Crunch'],
-    ['tesseractBeam', { collapse: 0.8 }, 'Collapse'],
+    ['pulsarSweep', { collapse: 0.8 }, 'Collapse'],
   ]
 
   const damageOver = (weapon, mods, dmgMul) => {

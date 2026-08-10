@@ -196,6 +196,37 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   match no matter how carefully you copy it. Anchor on a single line with no French punctuation,
   or make the edit with node/python. Same reason a NBSP must never reach a KEY: the key is the
   English source string, so one U+00A0 in it means the lookup can never hit (run XX asserts this).
+- **NEVER put a backtick inside `node -e "…"`.** The shell is zsh: backticks inside a double-quoted
+  argument are command substitution, so `` `swept` `` runs `swept` as a command and substitutes its
+  (empty) output. The visible symptom is a `command not found` line — which reads as "the command
+  failed", while node **has already run** with your string silently shortened. v7.10 lost four calls
+  to this: the run applied most of its replacements and ate one `` `swept` `` out of a comment, then
+  the follow-up script reported 33 misses because the work was already done. Anything with backticks,
+  nested quotes or newlines goes in a `.cjs` file that you run — the same reason the NBSP rule above
+  sends fr.js edits through node rather than through an exact-string anchor.
+- **A RENAME SWEEP HAS TWO SILENT FAILURE MODES, and only one of them is a test failure.** Renaming
+  `sewerGeyser` → `burstHydrant` and `tesseractBeam` → `pulsarSweep` in v7.10 hit both:
+  - **Field names also exist as quoted STRINGS**, which an identifier sweep cannot see. `run.geysers`
+    was renamed everywhere except `LISTS = [… 'geysers' …]` in test/sim-test.js's every-weapon IPECAC
+    block, and the doc block in state.js indexes fields the same way. The suite caught this one, but
+    only because that assertion happened to enumerate the array by name.
+  - **A DISPLAY-name sweep over-matches user-facing copy.** `leaf blade` → `boomerang leaf` also
+    rewrote the boomerang's five mod descriptions, shipping `'boomerang leaf(s) per throw'` — which
+    is not English, and which every test passes happily. Nothing catches this but reading it.
+  The check that finds both, run after the sweep and before the commit:
+  `git diff -U0 src/config.js | grep -E "name: '|desc: '"` — every user-facing string the rename
+  touched, in one screen — plus a grep for the OLD token in quotes. Also leave verbatim quotations
+  alone: the sweep rewrote a playtest quote (`"leaf blade doesn't look like a leaf"`) into words
+  nobody said.
+- **A WEAPON'S BEHAVIOUR IS CHAPTER-CONDITIONAL — read the branch its own chapter takes.** Several
+  systems fork on `CHAPTERS[id].lane`, and `beyond` is the only lane chapter. So `firePulsar`'s
+  `lane ? PULSAR_FAN_ARC : 0` means the full-circle rotating rake — the behaviour its comments
+  describe at length, and the one you will describe to the owner if you read the function
+  top-to-bottom — **never happens in The Beyond**, the only chapter that offers the weapon: there it
+  is a ~112° forward fan wipering left-right-left. (It does run in `blank`, whose pool is all 22
+  weapons, which is exactly why "what does this weapon do" has more than one answer.) Before
+  describing a mechanic, list the chapters whose pool contains it and check the branch each takes.
+  v7.10 got this wrong out loud and was corrected from play.
 
 ## Browser probing (headless / backgrounded tabs)
 

@@ -172,7 +172,7 @@ export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP']
 // cards and making city's mythic starter the hardest weapon in the chapter to level — the pool
 // choosing your build for you.
 // "Tilts", not "gates", and the difference is measured: with only the starter owned, beyond
-// offers the legendary `hole` on 2.49% of cards against the epic `tesseractBeam`'s 4.08%, but
+// offers the legendary `hole` on 2.49% of cards against the epic `pulsarSweep`'s 4.08%, but
 // 47% of hole's offers come from the rarity-blind NEW_WEAPON_MIN_RATE floor below (86% once it
 // is the only unowned weapon left, where the floor picks uniformly from a list of one). The
 // floor is the discovery GUARANTEE and is deliberately tier-blind; weighting it by rarity was
@@ -715,7 +715,7 @@ export const BLIND_FAITH_FLOOR = 'epic'  // the lowest rarity a blind screen may
 // not x3 — star.multishot +2 on a 1-projectile volley genuinely is x3, wave.echo +2 adds echoes at a
 // FRACTION of damage, and orbit.extraOrb +2 adds to a persistent ring that never "fires" at all.
 // Nine of the 22 weapons have no count axis whatsoever (mines, flagella, clawRake, roar, tailSwipe,
-// wave, hole, chitterShriek, tesseractBeam), so for those "three of it" is authored rather than
+// wave, hole, chitterShriek, pulsarSweep), so for those "three of it" is authored rather than
 // multiplied — three sectors at 120 degrees, three novas at different radii, three scattered cysts.
 // THE HALVED FIRE RATE STAYS. It was only ever in doubt because the measured +2 grant was worth
 // x1.35; authored properly every row is a true x3 of output, so the paper trade returns to x1.5 —
@@ -1096,14 +1096,14 @@ export const WEAPONS = {
     ],
   },
   boomerang: {
-    // v5.3: re-themed as The Garden's starter (Leaf Blade) — COPY ONLY, behavior unchanged
+    // v5.3: re-themed as The Garden's starter (Boomerang Leaf) — COPY ONLY, behavior unchanged
     // (still the boomerang weapon step/mods in sim.js, entity array run.boomerangs, and the
     // WEAPON_MODS.boomerang set below). Keeping the id 'boomerang' keeps render.js/main.js
     // (outside the v5.3 sim scope) working; the display name is what the player sees. Moved
     // from vaulted into the garden's weapon pool (see CHAPTERS.garden.weapons).
     // v6.6.13: the ART caught up with the name — for three releases this threw a tinted crescent
     // BLADE and a playtester said so. It is a drawn leaf now (see T.boomerang in render.js).
-    name: 'Leaf Blade',
+    name: 'Boomerang Leaf',
     desc: 'Flings a spinning leaf that slices out and curves back.',
     icon: '🍃', rarity: 'rare',
     levels: [
@@ -1141,10 +1141,10 @@ export const WEAPONS = {
     ],
   },
   hole: {
-    // v5.4: re-themed as The Beyond's native (Black-Hole Vortex) — COPY ONLY, behavior/numbers
+    // v5.4: re-themed as The Beyond's native (Mini Black Hole) — COPY ONLY, behavior/numbers
     // unchanged (still the hole weapon step/mods in sim.js, entity array run.holes). Moved from
     // vaulted into the beyond's weapon pool (see CHAPTERS.beyond.weapons) — its thematic home.
-    name: 'Black-Hole Vortex',
+    name: 'Mini Black Hole',
     desc: 'Opens a vortex that swallows the swarm.',
     icon: '🕳️', rarity: 'legendary',
     // v5.18.2 RADIUS FIX (playtest: "black hole is glitched", phone screenshot). These were
@@ -1244,7 +1244,7 @@ export const WEAPONS = {
     // — quillBurst 1,1,2,2,2 + piercingQuills; realityShard 1,1,2,2,3 + pierceShard; star the same
     // 1,1,2,2,3. Stinger was the only one denied both. The ladder below (identical to star's and
     // realityShard's, deliberately — this is parity, not a promotion) plus piercingNeedles takes it
-    // to seven mods, tying bloom/clawRake/sewerGeyser for the most-modded weapon in the game.
+    // to seven mods, tying bloom/clawRake/burstHydrant for the most-modded weapon in the game.
     // Nothing else about the weapon changed: same damage, same cadence, same cone.
     // Measured on the shipped tree (240s, garden d3, solo at L5, 3 seeds), as a share of the free
     // starter boomerang's kills: bare 64% -> 80%, one pick of every mod 77% -> 92%. It stays UNDER
@@ -1358,7 +1358,7 @@ export const WEAPONS = {
     ],
   },
   // City chapter natives (v5.4). Neon Beam = the rainbow re-theme (see WEAPONS.rainbow).
-  // See stepTornadoWeapon/stepGeyserWeapon in sim.js.
+  // See stepTornadoWeapon/stepHydrantWeapon in sim.js.
   trashTornado: {
     name: 'Trash Tornado',
     desc: 'Whips up street trash into funnels that hunt down what comes near.',
@@ -1378,14 +1378,15 @@ export const WEAPONS = {
       { dmg: 26, chunks: 6, radius: 130, hunt: 270, travelSpeed: 260, rotSpeed: 2.2, tick: 0.35 },
     ],
   },
-  sewerGeyser: {
-    // Display name renamed in v6.10 when the weapon became a hydrant turret; the ID stays
-    // `sewerGeyser` on purpose — it is threaded through WEAPON_MODS, WEAPON_STAT_MODS,
-    // WEAPON_RATE_MODS, the chapter pools and the sim, and none of that is improved by churn.
+  burstHydrant: {
+    // Renamed from `sewerGeyser` (the pre-v6.10 name, when it was a one-shot sewer pop) once the
+    // display name had been Burst Hydrant for a while and the mismatch was just a trap. Weapon ids
+    // live only in `run`, never in the save, so the rename needed no migration. The zones it plants
+    // are still run.zones — that array is shared with the Reality Shard's rifts and stays generic.
     name: 'Burst Hydrant',
     desc: 'Shears a hydrant open; it hoses down whatever comes near.',
     icon: '🚒', rarity: 'rare',
-    // The area-denial native: plants `count` telegraphed zones (run.geysers) on the path between a
+    // The area-denial native: plants `count` telegraphed zones (run.zones) on the path between a
     // foe and the player within castRange; each waits `fuse` seconds (harmless telegraph), erupts
     // for `dmg`, then STAYS OPEN for `jetDur`, spraying every `tick`. Enemies only — never hurts
     // the player.
@@ -1397,7 +1398,7 @@ export const WEAPONS = {
     // 2.4x, i.e. the weapon punished kiting. A jet that stays open recovers both: nothing has to be
     // on the mark at one exact instant, and the damage arrives in tick-sized pieces.
     //
-    // `dmg` is the ERUPTION punch; each spray tick is dmg * GEYSER_SPRAY_FRAC.
+    // `dmg` is the ERUPTION punch; each spray tick is dmg * HYDRANT_SPRAY_FRAC.
     //
     // v6.10.3 (owner): fuse flat 0.20s at every level, down from 0.70-0.60. The telegraph is pure
     // anticipation here, not a safety cue — a hydrant never hurts the player — so the only thing
@@ -1407,7 +1408,7 @@ export const WEAPONS = {
     // v6.10.2 (owner): r and jetDur both +35% over the v6.10 ladder. `r` is the turret's RANGE, not
     // a damage area — widening it costs no screen clutter now that the only radial art is the
     // fuse-phase ring, and it buys the hydrant more time hosing before the swarm walks out the far
-    // side. Longer jetDur means more hydrants alive at once; GEYSER_MAX_LIVE is the backstop.
+    // side. Longer jetDur means more hydrants alive at once; ZONE_MAX_LIVE is the backstop.
     levels: [
       { rate: 3.0, castRange: 260, fuse: 0.20, r: 122, dmg: 22, count: 1, jetDur: 3.40, tick: 0.40, streams: 2 },
       { rate: 2.8, castRange: 270, fuse: 0.20, r: 132, dmg: 27, count: 1, jetDur: 3.50, tick: 0.40, streams: 2 },
@@ -1467,8 +1468,8 @@ export const WEAPONS = {
       { dmg: 70, rate: 1.8, castRange: 420, flight: 0.30, r: 122, count: 3 },
     ],
   },
-  // Beyond chapter natives (v5.4). Black-Hole Vortex = the hole re-theme (see WEAPONS.hole).
-  // See stepShardWeapon/stepTesseractWeapon in sim.js.
+  // Beyond chapter natives (v5.4). Mini Black Hole = the hole re-theme (see WEAPONS.hole).
+  // See stepShardWeapon/stepPulsarWeapon in sim.js.
   realityShard: {
     name: 'Reality Shard',
     desc: 'Splinters of elsewhere that skip through space as they fly.',
@@ -1485,12 +1486,12 @@ export const WEAPONS = {
       { dmg: 27, rate: 0.52, count: 4, speed: 450, range: 390, blinkEvery: 0.20, blinkDist: 100, pierce: 3 },
     ],
   },
-  tesseractBeam: {
-    name: 'Tesseract Beam',
-    desc: 'Folds the arena in half and sweeps the crease.',
+  pulsarSweep: {
+    name: 'Pulsar Sweep',
+    desc: 'Two lasers sweep back and forth across the way ahead.',
     icon: '🔷', rarity: 'epic',
-    // A run.beams entry (same shape/step as the Neon Beam) flagged `folded: true`: the "fold" is a
-    // second arm 180° opposite the first, sweeping together — i.e. one cast rakes both sides at
+    // A run.beams entry (same shape/step as the Neon Beam) flagged `swept: true`: a second arm
+    // sits 180° opposite the first and sweeps with it — i.e. one cast rakes both sides at
     // once. rate (not `interval`) is the cast cadence, matching the other v5.x natives.
     levels: [
       { dmg: 10, tick: 0.16, rate: 6.5, duration: 2.0, rotSpeed: 2.2, width: 34, length: 340 },
@@ -1682,19 +1683,19 @@ export const WEAPON_MODS = {
     undertow:  { name: 'Chemotaxis',  desc: 'novas reel in gems and coins (wider per stack)', icon: '🧲', base: 1, kind: 'flat' },
     tsunami:   { name: 'Cytokine Storm',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
   },
-  // v5.3: the id stays 'boomerang' (Leaf Blade re-theme is copy-only, see WEAPONS.boomerang);
-  // only the desc copy was retouched from 'boomerang' to 'leaf blade' where it named the weapon.
+  // v5.3: the id stays 'boomerang' (Boomerang Leaf re-theme is copy-only, see WEAPONS.boomerang);
+  // only the desc copy was retouched from 'boomerang' to 'leaf' where it named the weapon.
   boomerang: {
     // v6.6.13 (playtest): was kind 'flat' base 1, i.e. max(1, round(1 * rarityMult)) — a RARE roll
     // already handed out +2 blades and a mythic one +7, on top of the weapon's own 1/1/2/2/3 ladder.
     // That is exactly the spiral WEAPON_MOD_TIER_BONUS exists to prevent (see its note above): a
     // per-cast ENTITY COUNT must not be multiplied by rarity. As a tier mod the second blade now
     // starts at epic (1/1/2/2/3 by rarity), which is what the playtester asked for.
-    extraRang:  { name: 'Extra Blades', desc: 'leaf blade(s) per throw', icon: '🍃', kind: 'tier' },
-    longThrow:  { name: 'Long Throw',   desc: 'leaf blade range',      icon: '📏', base: 0.20, kind: 'pct' },
-    bigBlade:   { name: 'Big Blade',    desc: 'leaf blade hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
-    heavyBlade: { name: 'Heavy Blade',  desc: 'leaf blade damage',     icon: '🔨', base: 0.20, kind: 'pct' },
-    backhand:   { name: 'Backhand',      desc: 'leaf blade return-swing damage',      icon: '🤛', base: 0.50, kind: 'pct' },
+    extraRang:  { name: 'Extra Blades', desc: 'leaf(s) per throw', icon: '🍃', kind: 'tier' },
+    longThrow:  { name: 'Long Throw',   desc: 'leaf range',      icon: '📏', base: 0.20, kind: 'pct' },
+    bigBlade:   { name: 'Big Blade',    desc: 'leaf hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
+    heavyBlade: { name: 'Heavy Blade',  desc: 'leaf damage',     icon: '🔨', base: 0.20, kind: 'pct' },
+    backhand:   { name: 'Backhand',      desc: 'leaf return-swing damage',      icon: '🤛', base: 0.50, kind: 'pct' },
     seeker:     { name: 'Seeker Blades', desc: 'outbound curve-toward-target strength', icon: '🧭', base: 0.50, kind: 'pct' },
   },
   mines: {
@@ -1923,9 +1924,9 @@ export const WEAPON_MODS = {
       descFor: () => 'funnels reel in gems and coins',
     },
   },
-  // pressure/longHose/moreStreams/deepMain fold into sewerGeyser's levels[] via WEAPON_STAT_MODS;
-  // rapidGeyser (cast rate) is read at the cast site. launch/trafficMain are behavioral (see
-  // stepGeysers/stepGeyserWeapon in sim.js).
+  // pressure/longHose/moreStreams/deepMain fold into burstHydrant's levels[] via WEAPON_STAT_MODS;
+  // rapidHydrant (cast rate) is read at the cast site. launch/trafficMain are behavioral (see
+  // stepZones/stepHydrantWeapon in sim.js).
   // v6.10: rebuilt around the turret. The old set described a one-shot radial pop — "eruption
   // radius", "geysers per cast", "follow-up geyser(s) per eruption" — and half of it stopped
   // describing what the weapon does once the hydrant started aiming at things.
@@ -1935,20 +1936,20 @@ export const WEAPON_MODS = {
   //                (avg 1.48 foes caught per zone against 2.16 without it) — the extra hydrants
   //                landed on foes the first one had already killed. "More streams" is the same
   //                fantasy pointed somewhere that isn't already dead.
-  //   chainGeyser  scattering weak follow-ups at random offsets was coherent when placement was
+  //   chainHydrant  scattering weak follow-ups at random offsets was coherent when placement was
   //                random anyway. Against a turret that picks its targets, random extra turrets is
   //                noise, and it was the only 'tier' mod on the weapon.
-  sewerGeyser: {
+  burstHydrant: {
     pressure:    { name: 'High Pressure', desc: 'stream damage', icon: '💥', base: 0.30, kind: 'pct' },
     longHose:    { name: 'Long Hose',     desc: 'hydrant reach', icon: '📏', base: 0.30, kind: 'pct' },
-    rapidGeyser: { name: 'Burst Main',    desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
+    rapidHydrant: { name: 'Burst Main',    desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
     // The flagship turret mod: one more foe hosed at once. Reads instantly on screen because the
     // streams ARE the damage now — an extra pick is an extra visible jet.
     moreStreams: { name: 'Split Nozzle',  desc: 'foes hosed at once', icon: '🚿', base: 1, kind: 'flat' },
     deepMain:    { name: 'Deep Main',     desc: 'how long a hydrant runs', icon: '⏳', base: 0.30, kind: 'pct' },
     launch:      { name: 'Cap Blast',     desc: 'the blown cap flings and stuns what it catches', icon: '🚀', base: 1, kind: 'flat' },
     // v6.3: without the placement bias this mod's uptime is ~15-25% and uninfluencable — a trap
-    // pick. The bias (stepGeyserWeapon's cast: prefer a lane-covered enemy) is the point.
+    // pick. The bias (stepHydrantWeapon's cast: prefer a lane-covered enemy) is the point.
     trafficMain: { name: 'Traffic Main',  desc: 'hydrants in a live lane hit far harder — and seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
   },
   // ---- Skies natives (v5.4) ----
@@ -1984,7 +1985,7 @@ export const WEAPON_MODS = {
     moreDebris:  { name: 'Both Hands',   desc: 'chunks per throw', icon: '🪨', base: 1,  kind: 'flat' },
     shrapnel:    { name: 'Shrapnel',     desc: 'splinter(s) scattered by each impact', icon: '🎆', kind: 'tier' },
   },
-  // ---- Beyond natives (v5.4; the Black-Hole Vortex rides the existing WEAPON_MODS.hole set) ----
+  // ---- Beyond natives (v5.4; the Mini Black Hole rides the existing WEAPON_MODS.hole set) ----
   // keenShard/moreShards/pierceShard fold into realityShard's levels[] via WEAPON_STAT_MODS;
   // rapidShard (fire rate) is read at the fire site. riftScar/recursion are behavioral (see
   // stepShardWeapon / the shard branch of stepBullets).
@@ -1996,20 +1997,21 @@ export const WEAPON_MODS = {
     riftScar:    { name: 'Rift Scar',    desc: 'each blink leaves a detonating rift', icon: '🌀', base: 0.50, kind: 'pct' },
     recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one expires',    icon: '♾️', kind: 'tier' },
   },
-  // wideFold/sustainFold fold into tesseractBeam's levels[] via WEAPON_STAT_MODS; rapidFold (cast
-  // rate) is read at the cast site. hyperfold/collapse are behavioral (see stepTesseractWeapon /
-  // the folded branch of stepBeams).
-  // v6.7.6: Long Fold merged into Wide Fold, for the reason spelled out on rainbow.wideBeam above —
-  // this weapon carried the identical redundant trio, and leaving it would fix the complaint in one
-  // chapter and leave it standing in another. The prism does NOT follow: the Tesseract's identity
-  // is the fold and its collapse, and a second splitting mechanic on a weapon whose arms already
-  // rake the full circle adds noise rather than a decision.
-  tesseractBeam: {
-    wideFold:    { name: 'Big Fold',     desc: 'beam width & length', icon: '📡', base: 0.20, kind: 'pct' },
-    sustainFold: { name: 'Held Fold',    desc: 'beam duration', icon: '⌛', base: 0.20, kind: 'pct' },
-    rapidFold:   { name: 'Quick Fold',   desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
-    hyperfold:   { name: 'Hyperfold',    desc: 'extra fold arm(s) per cast',        icon: '🔷', kind: 'tier' },
-    collapse:    { name: 'Collapse',     desc: 'damage when the fold snaps shut',   icon: '🌋', base: 0.80, kind: 'pct' },
+  // wideSweep/sustainSweep fold into pulsarSweep's levels[] via WEAPON_STAT_MODS; rapidSweep (cast
+  // rate) is read at the cast site. hyperSweep/collapse are behavioral (see stepPulsarWeapon /
+  // the swept branch of stepBeams).
+  // v6.7.6: Long Fold merged into Wide Sweep (both were named "... Fold" until this weapon stopped
+  // being the Tesseract Beam), for the reason spelled out on rainbow.wideBeam above — this weapon
+  // carried the identical redundant trio, and leaving it would fix the complaint in one chapter and
+  // leave it standing in another. The prism does NOT follow: the Pulsar's identity is the opposed
+  // pair and its collapse, and a second splitting mechanic on a weapon whose arms already rake the
+  // full circle adds noise rather than a decision.
+  pulsarSweep: {
+    wideSweep:    { name: 'Wide Sweep',   desc: 'beam width & length', icon: '📡', base: 0.20, kind: 'pct' },
+    sustainSweep: { name: 'Held Sweep',   desc: 'beam duration', icon: '⌛', base: 0.20, kind: 'pct' },
+    rapidSweep:   { name: 'Quick Sweep',  desc: 'cast rate',     icon: '⏩', base: 0.25, kind: 'pct' },
+    hyperSweep:   { name: 'More Arms',    desc: 'extra arm(s) per cast',             icon: '🔷', kind: 'tier' },
+    collapse:    { name: 'Collapse',     desc: 'damage when the sweep ends',       icon: '🌋', base: 0.80, kind: 'pct' },
   },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
@@ -2031,8 +2033,8 @@ export const WEAPON_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2
 export const WEAPON_RATE_MODS = {
   flagella: 'frenzy', bloom: 'quickCast', stinger: 'rapid', lure: 'fastLure',
   clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
-  sewerGeyser: 'rapidGeyser', roar: 'rapidRoar', tailSwipe: 'quickTail',
-  debrisToss: 'rapidToss', realityShard: 'rapidShard', tesseractBeam: 'rapidFold',
+  burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailSwipe: 'quickTail',
+  debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
@@ -2160,7 +2162,7 @@ export const BLOOM_SLOW = 0.35     // speed fraction removed while standing in a
 export const BLOOM_SLOW_T = 0.15   // s, bloomSlowT refresh window
 export const TIDE_DMG_BONUS = 0.35 // tideCarried: tick damage bonus per pick
 
-// ---- Garden weapons (v5.3: Stinger + Pheromone Lure; Leaf Blade = boomerang re-theme) --------
+// ---- Garden weapons (v5.3: Stinger + Pheromone Lure; Boomerang Leaf = boomerang re-theme) --------
 // Stinger (garden native, needle-cone — see WEAPONS.stinger + stepStingerWeapon in sim.js): each
 // needle is a run.bullets projectile tagged weapon:'stinger' so stepBullets can apply stinger-only
 // behaviour (venomTips) without touching star's split/chain/ricochet (disabled per-needle).
@@ -2252,7 +2254,7 @@ export const SHRIEK_SPINE_RANGE_MUL = 1.6  // flight distance, as a multiple of 
 // the note in makeWeaponModCard. It is not a constant here on purpose: a second copy of the number
 // at the fire site is exactly how a card ends up promising +1 and delivering 4.
 
-// ---- City weapons (v5.4: Trash Tornado + Sewer Geyser; Neon Beam = the rainbow re-theme) -------
+// ---- City weapons (v5.4: Trash Tornado + Burst Hydrant; Neon Beam = the rainbow re-theme) -------
 // Trash Tornado (city — see WEAPONS.trashTornado + stepTornadoWeapon in sim.js). v6.8: run.debris
 // is PERSISTENT, not rewritten every frame — each entry is a funnel that hunts (see the levels[]
 // comment). Damage is unchanged: a funnel damages enemies it overlaps every `tick` s, on the
@@ -2280,51 +2282,51 @@ export const TORNADO_FLING_RANGE = 260 // px before a flung chunk expires (life 
 // passive and Sticky Aura pointless in this chapter.
 export const TORNADO_SWEEP_R = 120
 
-// Sewer Geyser (city area denial — see WEAPONS.sewerGeyser + stepGeyserWeapon/stepGeysers in
-// sim.js). run.geysers entries: { x, y, r, fuse, dur, dmg, jetDur?, tick?, jet?, _cd?, _chained? }.
+// Burst Hydrant (city area denial — see WEAPONS.burstHydrant + stepHydrantWeapon/stepZones in
+// sim.js). run.zones entries: { x, y, r, fuse, dur, dmg, jetDur?, tick?, jet?, _cd?, _chained? }.
 // fuse counts down (harmless telegraph; dur is its starting value so render can grow a warning ring
 // from fuse/dur), then the zone erupts for dmg against ENEMIES only, never the player.
 //
 // What happens next depends on jetDur, and BOTH paths are live:
-//   jetDur > 0  — the Sewer Geyser. The jet stays open for jetDur, spraying every `tick`, then is
+//   jetDur > 0  — the Burst Hydrant. The jet stays open for jetDur, spraying every `tick`, then is
 //                 removed. `jet` counts the remaining open time; `_cd` is the per-(enemy, jet) tick
 //                 cooldown, keyed by enemy id — per JET, not per enemy, so overlapping jets stack.
 //   jetDur nil  — the Reality Shard's riftScar. One pop and gone, exactly as before v6.10. Rifts
 //                 must keep this: a jet field that quietly made rifts persistent would be a
 //                 cross-weapon balance change nothing in the shard's own tuning accounts for.
 // Both emit {type:'explode', x, y, radius:r} on eruption. _chained marks a rift; nothing reads it
-// since v6.10 dropped chainGeyser, but riftScar still sets it and it costs nothing to keep as the
-// "this zone is not a Sewer Geyser cast" marker.
-export const GEYSER_LAUNCH_KB = 260   // launch (behavioral): knockback applied to caught enemies
-export const GEYSER_STUN = 0.6        // launch: stun seconds × bonus (e.stunT — no seek, no contact damage)
+// since v6.10 dropped chainHydrant, but riftScar still sets it and it costs nothing to keep as the
+// "this zone is not a Burst Hydrant cast" marker.
+export const HYDRANT_LAUNCH_KB = 260   // launch (behavioral): knockback applied to caught enemies
+export const HYDRANT_STUN = 0.6        // launch: stun seconds × bonus (e.stunT — no seek, no contact damage)
 // v6.10 jet constants.
-export const GEYSER_SPRAY_FRAC = 0.45 // each spray tick, as a fraction of the eruption punch (dmg)
-export const GEYSER_IDLE_FRAC = 0.35  // with nothing in castRange, plant within this fraction of it
+export const HYDRANT_SPRAY_FRAC = 0.45 // each spray tick, as a fraction of the eruption punch (dmg)
+export const HYDRANT_IDLE_FRAC = 0.35  // with nothing in castRange, plant within this fraction of it
                                       // around the player — whatever arrives next arrives HERE, so a
                                       // mark out at the rim just expires in empty street.
-export const GEYSER_JET_PUSH = 300    // px/s^2 outward on enemies inside a live jet. kb decays at
+export const HYDRANT_JET_PUSH = 300    // px/s^2 outward on enemies inside a live jet. kb decays at
                                       // KB_DECAY_RATE (6/s), so this settles at ~50px/s drift —
                                       // well under a drone's 90px/s walk, so seekers wade back in
                                       // and mill at the rim. A jet that ejected its own targets
                                       // would defeat itself; this is a soft wall, not a repulsor.
-export const GEYSER_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
+export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast rate plus count can
                                       // otherwise carpet the street with live hydrants.
 // Hard ceiling on streams per hydrant. The render rig allocates this many stream sprites per
 // hydrant up front, so the sim MUST clamp to it — otherwise Split Nozzle stacks past the rig and
 // the extra targets take damage with no jet drawn, which is the worst possible failure for a
 // weapon whose whole readability rests on the art showing what is being hit.
-export const GEYSER_STREAMS_MAX = 8
-export const GEYSER_STREAMS_FALLBACK = 3 // foes an open hydrant hoses at once when its zone carries
+export const HYDRANT_STREAMS_MAX = 8
+export const HYDRANT_STREAMS_FALLBACK = 3 // foes an open hydrant hoses at once when its zone carries
                                       // no nStreams — only riftScar-shaped zones, which never open a
                                       // jet, so in practice this is a guard rather than a tuning
-                                      // number. The real value is WEAPONS.sewerGeyser.levels[].streams,
+                                      // number. The real value is WEAPONS.burstHydrant.levels[].streams,
                                       // which Split Nozzle adds to. The eruption is
                                       // still radial (it blows the cap off); everything after it is
                                       // aimed. A radial damage AREA is what made the effect
                                       // unreadable — it has to be drawn at its own full radius, and
                                       // several overlapping fill the screen. Streams put the damage
                                       // where the art is.
-export const GEYSER_STAGGER = 0.28    // s of extra fuse per zone within one cast, so a cast rolls
+export const HYDRANT_STAGGER = 0.28    // s of extra fuse per zone within one cast, so a cast rolls
                                       // out instead of landing all at once. Measured: with three
                                       // marks opening on the same frame, 39% of jets never caught
                                       // anything — not because they missed, but because the first
@@ -2359,7 +2361,7 @@ export const LOB_SHRAPNEL_SPEED = 420      // px/s, splinters fly radially from 
 export const LOB_SHRAPNEL_RANGE = 200      // px before a splinter expires (life = range/speed)
 export const LOB_SHRAPNEL_R = 7            // px, splinter hit radius (run.bullets tagged weapon:'debris')
 
-// ---- Beyond weapons (v5.4: Reality Shard + Tesseract Beam; Black-Hole Vortex = the hole) -------
+// ---- Beyond weapons (v5.4: Reality Shard + Pulsar Sweep; Mini Black Hole = the hole) -------
 // Reality Shard (beyond starter — see WEAPONS.realityShard + stepShardWeapon in sim.js): a
 // run.bullets projectile tagged weapon:'shard' carrying _blinkCd (s until its next blink). A blink
 // jumps it blinkDist px along its CURRENT heading (post gravity-well curvature) without consuming
@@ -2367,7 +2369,7 @@ export const LOB_SHRAPNEL_R = 7            // px, splinter hit radius (run.bulle
 export const SHARD_R = 9                   // px, shard hit radius (added to enemy radius)
 // riftScar (behavioral): each blink leaves a rift at the shard's DEPARTURE point that detonates
 // after SHARD_RIFT_FUSE for SHARD_RIFT_FRAC × bonus × the shard's damage in SHARD_RIFT_R. Rifts
-// reuse run.geysers (same "telegraph then erupt, enemies only" contract) with _chained: true set.
+// reuse run.zones (same "telegraph then erupt, enemies only" contract) with _chained: true set.
 // They carry no jetDur, so they take the one-pop path and never become hydrant turrets.
 export const SHARD_RIFT_FUSE = 0.30
 export const SHARD_RIFT_R = 55
@@ -2378,34 +2380,34 @@ export const SHARD_RIFT_FRAC = 0.8
 export const SHARD_RECURSE_DMG_FRAC = 0.5
 export const SHARD_RECURSE_LIFE_FRAC = 0.6
 
-// Tesseract Beam (beyond — see WEAPONS.tesseractBeam + stepTesseractWeapon in sim.js): a run.beams
-// entry with `folded: true`. A folded beam sweeps `arms` arms evenly around the circle (2 by
-// default = the fold, 180° apart; hyperfold adds more, so 3 arms = 120°, 4 = 90°, ...) — the same
+// Pulsar Sweep (beyond — see WEAPONS.pulsarSweep + stepPulsarWeapon in sim.js): a run.beams
+// entry with `swept: true`. A swept beam rakes `arms` arms evenly around the circle (2 by
+// default = the opposed pair, 180° apart; hyperSweep adds more, so 3 arms = 120°, 4 = 90°, ...) — the same
 // geometry rainbow.prismatic uses, but baked into ONE beam entity rather than several, so
-// collapse can resolve the whole fold at once.
-export const TESSERACT_ARMS = 2            // arms on a plain (unmodded) fold
+// collapse can resolve every arm at once.
+export const PULSAR_ARMS = 2            // arms on a plain (unmodded) cast
 // v5.22 FAN MODE (lane chapters only — gated on CHAPTERS[chapter].lane).
-// The fold rakes a full 360 degrees, which is right when you can walk in any direction and wrong
+// The arms rake a full 360 degrees, which is right when you can walk in any direction and wrong
 // when you cannot. In the lane the player advances up a corridor and every threat is AHEAD, so a
 // rotating rake spends most of its duty cycle pointed at empty space behind — and because the cast
 // angle came from `nearestEnemy`, it would happily lock onto something that had already gone past.
 // In fan mode the arms spread across a forward ARC instead of a circle and sweep back and forth
 // across it, so no arm ever points backwards and the cast angle stops depending on target choice.
-// THE CONSTRAINT: TESSERACT_FAN_ARC / 2 + TESSERACT_FAN_SWEEP must stay under PI/2, or the outer
+// THE CONSTRAINT: PULSAR_FAN_ARC / 2 + PULSAR_FAN_SWEEP must stay under PI/2, or the outer
 // arm swings past the horizontal at the ends of the wiper stroke and points behind the player
 // again — which is the entire bug this mode exists to fix. 0.31pi + 0.16pi = 0.47pi, with margin.
 // A test pins this (run ZR.e): it walks a whole cast and asserts no arm ever has a rearward
 // component, and it caught exactly this when the arc was first set to 0.78pi.
-export const TESSERACT_FAN_ARC = Math.PI * 0.62   // ~112deg of forward cover the arms spread across
-export const TESSERACT_FAN_SWEEP = Math.PI * 0.16 // +/- this much of wiper motion on top
-export const TESSERACT_FAN_RATE = 2.2             // rad/s of that sweep
-// collapse (behavioral): when a folded beam expires, everything currently inside ANY of its arms
-// is yanked toward the player at TESSERACT_COLLAPSE_PULL px/s and takes TESSERACT_COLLAPSE_MUL ×
+export const PULSAR_FAN_ARC = Math.PI * 0.62   // ~112deg of forward cover the arms spread across
+export const PULSAR_FAN_SWEEP = Math.PI * 0.16 // +/- this much of wiper motion on top
+export const PULSAR_FAN_RATE = 2.2             // rad/s of that sweep
+// collapse (behavioral): when a swept beam expires, everything currently inside ANY of its arms
+// is yanked toward the player at PULSAR_COLLAPSE_PULL px/s and takes PULSAR_COLLAPSE_MUL ×
 // (1 + bonus) × the beam's per-tick damage, plus an {type:'explode'} at the player.
 // v6.9.3: through applyDamage, so it crits and takes the player's damage multipliers — the
 // beam's stored per-tick dmg is a RAW config stat, not an already-rolled hit.
-export const TESSERACT_COLLAPSE_MUL = 8
-export const TESSERACT_COLLAPSE_PULL = 400
+export const PULSAR_COLLAPSE_MUL = 8
+export const PULSAR_COLLAPSE_PULL = 400
 
 // ---- Beam Prism (v6.7.6, rainbow.prism — behavioral, read in stepBeams) -----------------------
 // Owner spec: "when a beam touches an enemy, it splits into N sub-beams like a prism (each deal
@@ -2916,8 +2918,8 @@ export const CHAPTERS = {
   },
   garden: {
     name: 'The Garden', tagline: 'your scent gives you away', icon: '🐜',
-    // Leaf Blade is the boomerang re-theme (id kept as 'boomerang', see WEAPONS.boomerang);
-    // stinger + lure are new v5.3 natives. Starter = the leaf blade (boomerang).
+    // Boomerang Leaf is the boomerang re-theme (id kept as 'boomerang', see WEAPONS.boomerang);
+    // stinger + lure are new v5.3 natives. Starter = the Boomerang Leaf (id `boomerang`).
     weapons: ['boomerang', 'stinger', 'lure'], starter: 'boomerang',
     roster: [
       // v6.6.16 (owner): ants and spiders 25% smaller, the wasp 25% bigger. radiusMul is a ROSTER
@@ -3100,8 +3102,8 @@ export const CHAPTERS = {
   city: {
     name: 'The City', tagline: 'you\'ve been reported', icon: '🏙️',
     // Neon Beam is the rainbow re-theme (id kept as 'rainbow', see WEAPONS.rainbow); trashTornado
-    // + sewerGeyser are new v5.4 natives. Starter = the neon beam (rainbow).
-    weapons: ['rainbow', 'trashTornado', 'sewerGeyser'], starter: 'rainbow',
+    // + burstHydrant are new v5.4 natives. Starter = the neon beam (rainbow).
+    weapons: ['rainbow', 'trashTornado', 'burstHydrant'], starter: 'rainbow',
     roster: [
       { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge'] },
       { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
@@ -3319,9 +3321,9 @@ export const CHAPTERS = {
   },
   beyond: {
     name: 'The Beyond', tagline: 'you were never local', icon: '🌌',
-    // Black-Hole Vortex comes home here (id kept as 'hole', see WEAPONS.hole); realityShard +
-    // tesseractBeam are new v5.4 natives. Starter = the reality shard.
-    weapons: ['realityShard', 'hole', 'tesseractBeam'], starter: 'realityShard',
+    // Mini Black Hole comes home here (id kept as 'hole', see WEAPONS.hole); realityShard +
+    // pulsarSweep are new v5.4 natives. Starter = the reality shard.
+    weapons: ['realityShard', 'hole', 'pulsarSweep'], starter: 'realityShard',
     // v5.18: the roster is now a MERGE of the two genres this chapter fuses (see `lane` below).
     //   - invader (normal): marches in rank, ignores you, never seeks. The Space Invaders half.
     //     Formation waves (stepFormations) spawn these and nothing else.
@@ -3396,8 +3398,8 @@ CHAPTERS.blank = {
   scripted: true,          // gates victory timer + ordinary spawning (sim.js), HUD readout (ui.js)
   maxDifficultyCap: 3,     // per-chapter ladder ceiling (see chapterMaxDifficulty helper)
   weapons: ['star','orbit','wave','homing','flagella','mines','bloom','boomerang','stinger','lure',
-            'clawRake','quillBurst','chitterShriek','rainbow','trashTornado','sewerGeyser',
-            'roar','tailSwipe','debrisToss','realityShard','hole','tesseractBeam'], // union of all 7 pools
+            'clawRake','quillBurst','chitterShriek','rainbow','trashTornado','burstHydrant',
+            'roar','tailSwipe','debrisToss','realityShard','hole','pulsarSweep'], // union of all 7 pools
   starter: 'realityShard',
   roster: [
     { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.15, flags: ['pastSeek'] },
@@ -5532,7 +5534,7 @@ export const PULL_BEAM_W = 90           // px, beam width (render-only; the pull
 // of g × (1 - dist/r) px/s² toward (x, y), added to the projectile's velocity. Speed is then
 // renormalised back to the projectile's own speed, so a well BENDS a projectile's path without
 // making it faster or slower (that's the whole mechanic: curvature, not chaos). Beams (run.beams),
-// orbitals (run.orbs/run.debris), zones (run.pools/blooms/geysers) and novas are NOT projectiles
+// orbitals (run.orbs/run.debris), zones (run.pools/blooms/zones) and novas are NOT projectiles
 // and are untouched. Enemies and the player are untouched too — this bends shots, not bodies.
 export const GRAVITY_FORCE = 900        // px/s² at the well's center, falling linearly to 0 at r
 export const GRAVITY_WELL_R = 190       // px, influence radius
