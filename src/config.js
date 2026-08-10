@@ -2013,9 +2013,10 @@ export const CRUNCH_DMG_MUL = 10
 
 // ---- Pond weapons (v5.0 task 4: Flagella Whip + Toxin Bloom) --------------------------------
 // Flagella Whip (pond starter, melee arc sweep — see WEAPONS.flagella above and stepFlagellaWeapon
-// in sim.js): a swing damages every enemy whose CENTER falls in the sector (arc rad, range px)
-// centered on the player's facing. cyclone (behavioral): every FLAGELLA_CYCLONE_EVERY-th swing
-// opens to a full 360° instead of the arc.
+// in sim.js): a swing damages every enemy whose BODY falls in the sector (arc rad, range px)
+// centered on the player's facing — inSector, shared with clawRake/roar/tailSwipe.
+// cyclone (behavioral): every FLAGELLA_CYCLONE_EVERY-th swing opens to a full 360° instead of
+// the arc.
 export const FLAGELLA_CYCLONE_EVERY = 3
 // barbed (behavioral): a struck enemy bleeds a DoT whose TOTAL = the hit's dealt damage ×
 // BARBED_DMG_MUL × (accumulated barbed bonus), spread over BARBED_DURATION seconds and ticked

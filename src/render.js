@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, Container, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -10330,10 +10330,10 @@ export function createRenderer(app) {
   }
 
   // Whip swings (one-off {type:'whip'} events, render-local like rings/arcs). An ANCHORED melee
-  // swoosh — NOT a projectile: ONE curved shape pinned to the player, deep mint over the murky
-  // floor, cracking across the swept wedge over its short life with a fainter trailing ghost as
-  // motion smear and a bright spark at the tip. Segment-chain approaches read as "concatenated
-  // blobs" (twice user-rejected) — one shape IS the arc, don't rebuild it from parts.
+  // sweep — NOT a projectile: ONE shape pinned to the player, deep mint over the murky floor,
+  // raking across the swept wedge over its short life with a bright spark at the tip. Segment-chain
+  // approaches read as "concatenated blobs" (twice user-rejected) — one shape IS the arc, don't
+  // rebuild it from parts.
   //
   // v6.6.13: the swoosh is DRAWN, not stamped from Kenney's slash_02. Measured, that PNG's ink
   // spans ~177 degrees about its own centre, so the swing covered two to three times the wedge the
@@ -10342,6 +10342,17 @@ export function createRenderer(app) {
   // could SEE. That is the playtest report ("not clear or doesn't do anything") in full. Same
   // defect and same fix as the Claw Rake's gash (see bakeClawGash): draw it, and budget the DRAWN
   // extent onto the TESTED extent. Shared with the kaiju tail swipe, which has the same mod.
+  //
+  // But that fix was ANGULAR ONLY, and the RADIAL half of the same lie outlived it.
+  // fireFlagella (sim.js) damages every enemy whose centre is in the FILLED sector — r from the
+  // player out to `range`. The swoosh was a crescent hanging inward only SWOOSH_W (40 of a 100px
+  // bake) from the rim, so at lv5 it drew r in [105,175] and the inner 60% of the reach, which in
+  // a survivors-like is where the swarm actually IS, took damage with nothing drawn on it. Probed
+  // with scripts/scenes/flagella-hitbox.js: 7 enemies hit, 1 under the swoosh. So the band now
+  // opens all the way to the player (a FAN leaving the body, not a crescent on the rim) and the
+  // fade moved from the shape's outline into its alpha: solid at the leading edge, out to nothing
+  // at the trailing one, so the sweep drags a radar-style trail instead of flashing whole. That
+  // fade also replaces the lagging ghost sprite, which was the old motion smear.
   const MAX_WHIPS = 8
   const WHIP_CORE = 0x2fd6a0         // vivid spring-green swoosh — must sit clearly ABOVE the murky floor
   const WHIP_EDGE = 0x9fffd9         // lighter mint rim: what separates the swoosh from the floor
@@ -10353,8 +10364,9 @@ export function createRenderer(app) {
                                      // squash below inverts a tan, which is useless near the pole
                                      // (this is why slash_02's ~3.1 rad of ink could not be squashed
                                      // into honesty — there was no faithful q to solve for).
-  const SWOOSH_W = 40                // radial thickness at the belly — FAT is the whip's whole read
-  const SWOOSH_BELLY = 2.0           // >1 pushes the belly toward the LEADING end; the tail drags thin
+  const SWOOSH_BELLY = 0.5           // <1 puts the belly at the TRAILING root, so the shape opens out
+                                     // of the player rather than hanging off the rim
+  const SWOOSH_TAIL = 0              // alpha left at the trailing edge — 0 is the full radar drag
   const WHIP_SWEEP = 0.45            // fraction of the wedge spent on TRAVEL; the shape's own width
                                      // is the rest, and the two always sum to exactly `arc`
   // Widest the SHAPE is ever drawn, in rad. Squashing (q<1) keeps the band hugging the reach
@@ -10364,14 +10376,12 @@ export function createRenderer(app) {
   // surplus on TRAVEL instead: the tail sweeps further, cyclone goes all the way round, and the
   // drawn extent still lands on `arc` exactly.
   const WHIP_HALF_MAX = SWOOSH_SPAN / 2
-  const WHIP_GHOST_LAG = 0.35        // fraction of the swing the ghost trails by, in TIME not angle —
-                                     // an angular lag put the smear outside the wedge at k=0
   const whips = []
-  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, travel: 0, tipA: 0, tipR: 0, t: 0, dur: 0.18, root: null, lead: null, ghost: null, tip: null })
+  for (let i = 0; i < MAX_WHIPS; i++) whips.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, travel: 0, tipA: 0, tipR: 0, t: 0, dur: 0.18, root: null, lead: null, tip: null })
   let whipCursor = 0
-  // One curved, belly-forward swoosh, baked once and shared by every swing. Drawn with the arc's
-  // CENTRE at the local origin and bulging +x, so bake()'s anchor puts that centre on the player,
-  // rotation is just the bearing, and scale is just the reach — the gash's convention exactly.
+  // One fan, baked once and shared by every swing. Drawn with the arc's CENTRE at the local origin
+  // and bulging +x, so bake()'s anchor puts that centre on the player, rotation is just the
+  // bearing, and scale is just the reach — the gash's convention exactly.
   let swooshTex = null
   function bakeSwoosh() {
     const g = new Graphics()
@@ -10384,14 +10394,33 @@ export function createRenderer(app) {
       // Belly profile: 0 at both ends, fat toward the leading end. Clamp the sin's argument — t can
       // land a hair outside [0,1] in float, and pow(negative, fraction) is NaN, and ONE NaN vertex
       // blanks the whole baked texture (the v5.4 bulge() bug, same shape as bakeClawGash's clamp).
+      // The band opens the whole way to SWOOSH_R — i.e. to the player — so the drawn shape covers
+      // the radial extent the sim tests and not just its rim.
       const u = Math.min(1, Math.max(0, Math.pow(t, SWOOSH_BELLY)))
-      const w = SWOOSH_W * Math.pow(Math.max(0, Math.sin(Math.PI * u)), 0.7)
+      const w = SWOOSH_R * Math.pow(Math.max(0, Math.sin(Math.PI * u)), 0.7)
       outer.push(SWOOSH_R * ca, SWOOSH_R * sa)
       inner.push((SWOOSH_R - w) * ca, (SWOOSH_R - w) * sa)
     }
     const back = []
     for (let i = inner.length - 2; i >= 0; i -= 2) back.push(inner[i], inner[i + 1])
-    g.poly([...outer, ...back]).fill(WHIP_CORE).stroke({ width: 2, color: WHIP_EDGE, join: 'round' })
+    // The fade is ANGULAR: solid at the leading edge, washing out to SWOOSH_TAIL at the trailing
+    // one, so the fan drags a radar-style trail instead of flashing whole. The shape hugs radius
+    // ~SWOOSH_R, so y = r*sin(a) is monotonic in the local angle a — a plain linear gradient in y
+    // IS the angular one. 'global' textureSpace means these are the Graphics' own local coords
+    // (origin = the player); the runtime rotation carries the ramp along and the y-squash only
+    // compresses it, so no per-swing work is needed and this still bakes exactly once.
+    const yEnd = SWOOSH_R * Math.sin(SWOOSH_SPAN / 2)
+    const fade = (hex, a) => `rgba(${(hex >> 16) & 255},${(hex >> 8) & 255},${hex & 255},${a})`
+    const ramp = (c) => new FillGradient({
+      type: 'linear', textureSpace: 'global',
+      start: { x: 0, y: -yEnd }, end: { x: 0, y: yEnd },
+      colorStops: [
+        { offset: 0, color: fade(c, SWOOSH_TAIL) },
+        { offset: 0.6, color: fade(c, SWOOSH_TAIL + (1 - SWOOSH_TAIL) * 0.45) },
+        { offset: 1, color: c },
+      ],
+    })
+    g.poly([...outer, ...back]).fill(ramp(WHIP_CORE)).stroke({ width: 2, fill: ramp(WHIP_EDGE), join: 'round' })
     return bake(g)
   }
   function makeSwoosh() {
@@ -10405,12 +10434,11 @@ export function createRenderer(app) {
     whipCursor = (whipCursor + 1) % MAX_WHIPS
     if (!wp.root) {
       wp.root = new Container()
-      wp.ghost = makeSwoosh()
       wp.lead = makeSwoosh()
       wp.tip = new Sprite(T.fx.spark_04)
       wp.tip.anchor.set(0.5)
       wp.tip.tint = WHIP_TIP
-      wp.root.addChild(wp.ghost, wp.lead, wp.tip)
+      wp.root.addChild(wp.lead, wp.tip)
       whipLayer.addChild(wp.root)
     }
     wp.live = true
@@ -10429,8 +10457,7 @@ export function createRenderer(app) {
     const cs = Math.cos(SWOOSH_SPAN / 2), sn = Math.sin(SWOOSH_SPAN / 2)
     const sc = wp.range / SWOOSH_R
     wp.lead.scale.set(sc, sc * q)
-    wp.ghost.scale.set(sc, sc * q)
-    wp.tipA = half                          // == atan(q * tan(SPAN/2)) by construction of q
+    wp.tipA = half                         // == atan(q * tan(SPAN/2)) by construction of q
     wp.tipR = sc * SWOOSH_R * Math.hypot(cs, q * sn) // the shape's end, which the squash pulls in
   }
   function updateWhips(dt) {
@@ -10441,12 +10468,10 @@ export function createRenderer(app) {
       const k = wp.t / wp.dur
       wp.root.position.set(wp.x, wp.y)
       const flash = Math.sin(Math.PI * k) // ramp in then out
-      // the swoosh cracks from one rim of the wedge to the other (a full turn at arc = 2pi / cyclone)
+      // the fan rakes from one rim of the wedge to the other (a full turn at arc = 2pi / cyclone)
       const bearing = (kk) => wp.angle - wp.travel / 2 + wp.travel * kk
       wp.lead.rotation = bearing(k)
       wp.lead.alpha = flash
-      wp.ghost.rotation = bearing(Math.max(0, k - WHIP_GHOST_LAG)) // lags in time, so it stays inside
-      wp.ghost.alpha = flash * 0.3
       const tipAngle = bearing(k) + wp.tipA
       wp.tip.position.set(wp.tipR * Math.cos(tipAngle), wp.tipR * Math.sin(tipAngle))
       wp.tip.rotation = k * 6 // a little spin on the spark

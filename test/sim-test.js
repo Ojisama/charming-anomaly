@@ -145,6 +145,18 @@ function pickNonElementIndex(run) {
 
 // Advances `run` by stepping stepSim, auto-resolving any levelup screens
 // (picks the first non-element choice) so the run keeps flowing like main.js would drive it.
+// v7.8: THIS HELPER DRAINS run.events EVERY STEP, exactly as main.js:404 does. It used not to, and
+// that cost the suite real time twice over: the backlog was RESCANNED in full on every step (so a
+// 305s run walked tens of thousands of events 18,300 times, quadratic), and the array itself grew
+// without bound (allocation and GC, which turned out to be the larger half — EE.d2 alone ran 9.2s
+// undrained against 2.2s drained). It is the same trap CLAUDE.md documents for weapon-census, "the
+// backlog is recounted every frame", living in the harness that is supposed to model main.js.
+//   SO: run.events IS EMPTY WHEN advance() RETURNS. That is the game's real behaviour, not a
+// harness quirk — nothing in the game ever observes an undrained backlog, and sim.js only ever
+// pushes to it (it never reads it, which is why draining cannot change what the sim does). All 22
+// call sites were enumerated before this changed; none read run.events afterwards. If you need the
+// events, use the returned Set of types, or run your own stepSim loop like the ~15 scenarios that
+// need per-event detail already do.
 function advance(run, seconds, dt, input) {
   const steps = Math.round(seconds / dt)
   const eventsSeen = new Set()
@@ -157,6 +169,7 @@ function advance(run, seconds, dt, input) {
     if (run.phase !== 'playing') break
     stepSim(run, input, dt)
     for (const e of run.events) eventsSeen.add(e.type)
+    run.events.length = 0
     assert(finite(run.player.x), `player.x not finite: ${run.player.x}`)
     assert(finite(run.player.y), `player.y not finite: ${run.player.y}`)
     assert(finite(run.player.hp), `player.hp not finite: ${run.player.hp}`)
@@ -4541,6 +4554,34 @@ function testPondWeapons() {
     // (b) whip event emitted, carrying the render fields.
     assert(sawWhip, 'expected at least one whip event')
     console.log('PASS run W.a/b (whip aims at nearest; out-of-range foe untouched + whip event)')
+  }
+
+  // (a1) the sector test is against the enemy's BODY, not its centre — inSector, the same test
+  // clawRake/roar/tailSwipe already used. A foe the fan plainly sweeps, whose CENTRE sits a few px
+  // past `range`, used to take nothing; that disagreement between the drawing and the damage is the
+  // whole bug this weapon was reported for. Asserted as an EFFECT (hp fell) on a foe placed inside
+  // reach but outside a centre test, with a control past reach that must still take nothing — so
+  // reverting inSector fails the first assert and widening it without limit fails the second.
+  {
+    const R = WEAPONS.flagella.levels[MAX_WEAPON_LEVEL - 1].range
+    const run = createRun(makeMeta())
+    run.weapons = [{ id: 'flagella', level: MAX_WEAPON_LEVEL }]
+    run.mods.spawnMul = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.hp = 1e9; run.player.maxHP = 1e9
+    // radius 16 (makeStatusEnemy): clipped is 8px past range and so 8px INSIDE reach; control is
+    // 24px past range, clear of reach by 8px. Both dead ahead, so only the radial test separates them.
+    const clipped = makeStatusEnemy(run, { x: R + 8, y: 0, hp: 1e6, speed: 0 })
+    const control = makeStatusEnemy(run, { x: R + 24, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(clipped, control)
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      clipped.x = R + 8; control.x = R + 24   // re-pin: the whip knocks back what it hits
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert(clipped.hp < 1e6, `expected a foe clipped by the sector edge to be hit (centre ${R + 8} vs range ${R}, radius 16), hp=${clipped.hp}`)
+    assert.strictEqual(control.hp, 1e6, `expected a foe past range+radius to stay untouched, hp=${control.hp}`)
+    console.log(`PASS run W.a1 (sector tests the BODY): centre ${R + 8}px hit through a ${R}px reach, ${R + 24}px still untouched`)
   }
 
   // (a2) THE FIX: a lone enemy directly BEHIND a player who moved forward is now HIT, because the
@@ -9991,13 +10032,30 @@ function testChapterDensityCap() {
     const cap = maxAliveFor(run.mods)
     assert.strictEqual(cap, Math.round(MAX_ALIVE * (CHAPTERS[id].balance?.maxAliveMul ?? 1)),
       `expected ${id} run cap to match its chapter multiplier`)
+    // v7.8: STOP SOON AFTER SATURATION rather than always running the full 300s. This one scenario
+    // was 58% of the suite's runtime (56.6s of 98s), and nearly all of it simulated a field that had
+    // already reached its cap — city saturates at t=131s and then sits at 400 alive for 170 more
+    // seconds, proving nothing it had not proved by t=146.
+    //   THE TAIL LENGTH IS THE ENTIRE SAFETY ARGUMENT, so it was measured against a mutant rather
+    // than guessed. With the cap gate deleted from stepSim's spawn loop, a 5s tail still PASSES on
+    // body, garden and city — they overshoot by only 4.4%, under the 5% split-children allowance
+    // below — so the obvious trim quietly guts the test while the peaks still look right. 10s is the
+    // first tail that fails all four chapters; 15s is used for margin, taking the tightest (body)
+    // from 9.4% over the threshold to 15.6%.
+    //   Given up knowingly: this no longer proves the cap HOLDS for the rest of the run — a leak
+    // starting after ~t=146 would now pass. Nothing time-varying feeds maxAliveFor today, so that is
+    // a cheap thing to stop paying 40s per suite run for. Note the loop must keep its 300s bound as
+    // the outer limit: garden does not saturate until t=266s, so a fixed shorter run fails outright.
+    const TAIL_FRAMES = Math.round(15 / dt)
     let peak = 0
-    for (let i = 0; i < Math.round(300 / dt); i++) {
+    let stopAt = Math.round(300 / dt)
+    for (let i = 0; i < stopAt; i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       if (run.phase !== 'playing') break
       stepSim(run, { x: 0, y: 0 }, dt)
       run.player.hp = run.player.maxHP
       if (run.enemies.length > peak) peak = run.enemies.length
+      if (peak >= cap) stopAt = Math.min(stopAt, i + TAIL_FRAMES)
     }
     peaks[id] = peak
   }
