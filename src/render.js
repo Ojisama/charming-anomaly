@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, GEYSER_STREAMS_MAX,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, GEYSER_STREAMS_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -9343,6 +9343,11 @@ export function createRenderer(app) {
   // Pheromone Lure decoys (run.lures, {x,y,t,dur,...}): a cute beacon the swarm converges on — soft
   // amber glow + a pulsing double-stacked gold star, floated over the crowd so it POPS. Fades in over
   // its first moments; the one-shot burst on expiry renders via the {type:'explode'} event elsewhere.
+  // MINIMES share this pool because they share run.lures, but they must NOT share the look: the
+  // card is "copies of you", and it was shipping as the Pheromone Lure's amber beacon — a gold
+  // star, which reads as a pickup, not as a copy of the player. The body below is T.playerBody,
+  // the player's OWN bake, scaled down: the repo's rule is that UI depicting a game entity uses
+  // the game's art rather than a lookalike, and here the entity being depicted is the player.
   const lurePool = []
   function acquireLure() {
     const root = new Container()
@@ -9350,9 +9355,21 @@ export function createRenderer(app) {
     const ring = new Sprite(T.fx.light_02); ring.anchor.set(0.5)
     const star1 = new Sprite(T.fx.star_04); star1.anchor.set(0.5)
     const star2 = new Sprite(T.fx.star_04); star2.anchor.set(0.5)
-    root.addChild(glow, ring, star1, star2)
+    // spriteOf, NOT `new Sprite(T.playerBody)`: bake() returns a LOOK ({tex, ax, ay}), not a
+    // Texture, and it carries its own anchor. Constructing the sprite by hand hands Pixi an object
+    // and draws nothing at all — no throw, no warning, an empty patch of floor where the copy
+    // should be. Caught only by looking at a capture.
+    const shadow = spriteOf(T.playerShadow); shadow.visible = false
+    const body = spriteOf(T.playerBody); body.visible = false
+    // The player's eyes are SEPARATE sprites over the body bake, and the body is TINTED per
+    // chapter (chapterRender.playerTint). A copy carrying neither is a different creature: the
+    // first capture of this showed a bright mint blob with plain eyes standing next to a dark
+    // green player in a visor. Both are reproduced below at the same proportions.
+    const eyeL = spriteOf(T.pupil); eyeL.visible = false
+    const eyeR = spriteOf(T.pupil); eyeR.visible = false
+    root.addChild(glow, ring, star1, star2, shadow, body, eyeL, eyeR)
     lureLayer.addChild(root)
-    return { root, glow, ring, star1, star2 }
+    return { root, glow, ring, star1, star2, shadow, body, eyeL, eyeR }
   }
   function syncLures(list) {
     const n = list.length
@@ -9364,6 +9381,34 @@ export function createRenderer(app) {
       lv.root.position.set(lu.x, lu.y)
       const pulse = 0.5 + 0.5 * Math.sin(animT * 6 + i * 1.3)
       const inA = Math.min(1, lu.t / 0.25) // fade in over the first 0.25s (lu.t ages up to lu.dur)
+      // A MINIME IS A SMALL YOU; a planted Pheromone Lure is the amber beacon it always was.
+      // `lu.minime` is the sim's own flag (sim.js sets it on the entity it pushes into run.lures).
+      const mini = !!lu.minime
+      lv.star1.visible = lv.star2.visible = lv.ring.visible = !mini
+      lv.body.visible = lv.shadow.visible = lv.eyeL.visible = lv.eyeR.visible = mini
+      if (mini) {
+        // Keep a faint glow so it still reads as a DECOY the swarm wants, not as a second player —
+        // dimmer and cooler than the beacon's, and under the body rather than around it.
+        lv.glow.tint = 0xffd36b; lv.glow.alpha = 0.26 * inA * (0.7 + 0.3 * pulse)
+        lv.glow.scale.set(fxScale(T.fx.circle_05, 44 + pulse * 8))
+        lv.shadow.alpha = 0.5 * inA
+        lv.shadow.scale.set(MINIME_DRAW_SCALE)
+        lv.shadow.position.set(0, 2)
+        lv.body.alpha = inA
+        lv.body.scale.set(MINIME_DRAW_SCALE)
+        lv.body.tint = chapterRender.playerTint   // the same tint the live player wears
+        // Match the PLAYER's own rig, which flips rather than rotates outside the kaiju chapter —
+        // a rotating body here would be a different projection from the thing it is a copy of.
+        if (lu.vx) lv.body.scale.x = Math.sign(lu.vx) * MINIME_DRAW_SCALE
+        // Eyes, at the player's own proportions (syncPlayer's pr * 0.36 / -pr * 0.16), scaled down
+        // with the body. No look-around wiggle: a decoy staring straight ahead reads as a decoy.
+        const pr = PLAYER.radius * MINIME_DRAW_SCALE
+        lv.eyeL.scale.set(MINIME_DRAW_SCALE); lv.eyeR.scale.set(MINIME_DRAW_SCALE)
+        lv.eyeL.alpha = lv.eyeR.alpha = inA
+        lv.eyeL.position.set(-pr * 0.36, -pr * 0.16)
+        lv.eyeR.position.set(pr * 0.36, -pr * 0.16)
+        continue
+      }
       lv.glow.tint = 0xffd36b; lv.glow.alpha = 0.5 * inA * (0.7 + 0.3 * pulse)
       lv.glow.scale.set(fxScale(T.fx.circle_05, 70 + pulse * 14))
       lv.ring.tint = 0xffe9a0; lv.ring.alpha = 0.55 * inA

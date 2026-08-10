@@ -565,17 +565,28 @@ export const WILDFIRE_JUMP_R = 160   // px, how far a jump reaches — about two
 // did not have to equip" rather than as a second, differently-tuned decoy. The burst goes through
 // applyDamage like the lure's, which is what makes it scale off PLAYER stats (the spec's
 // requirement) rather than off a weapon's levels[] the card does not own.
-// OPEN, and flagged as such: the cadence is the entire balance here. The spec's risk note is
-// "if decoys hold aggro reliably they do not add pressure, they DELETE it". 6s between spawns
-// against a 4s life means the field is empty a third of the time, which is the conservative end.
-// Shorten the interval before lengthening the life if it plays as too weak — a permanent decoy is
-// exactly the failure mode above.
-export const MINIME_INTERVAL = 6      // s between spawns
+// v7.x PLAYTEST (owner, from play): interval 6 -> 4 and speed 190 -> 95. Both come from the same
+// complaint — "they stay like 2s on screen" — and the second number is the one that caused it.
+// A decoy at 190px/s crosses a phone's half-height (~380px) in TWO SECONDS, so most of its 4s life
+// was spent off-screen: the card was doing its job somewhere the player could not watch, which
+// reads as the card doing nothing. At 95px/s it travels ~380px over the full 4s, i.e. it is visible
+// for essentially its whole life and bursts around the edge of view, which is where a decoy that
+// drags the swarm away is supposed to burst.
+// THE COST, STATED: 4s interval against a 4s life means there is now ALWAYS one out, where before
+// the field was empty a third of the time. The block below used to warn against exactly this — "if
+// decoys hold aggro reliably they do not add pressure, they DELETE it" — so watch for the swarm
+// feeling permanently defused rather than redirected. If it does, the lever is the interval (back
+// toward 5-6s), not the speed: the speed is what makes the card legible.
+export const MINIME_INTERVAL = 4      // s between spawns
 export const MINIME_LIFE = 4          // s before it detonates
-export const MINIME_SPEED = 190       // px/s outward — slower than the player, so you can outrun it
+export const MINIME_SPEED = 95        // px/s outward — slow enough to stay in view for its whole life
 export const MINIME_AGGRO = 230
 export const MINIME_BURST_R = 126
 export const MINIME_BURST_DMG = 42
+// A minime is drawn as a SMALL COPY OF THE PLAYER (render.js reuses T.playerBody, the player's own
+// bake) rather than as the Pheromone Lure's amber beacon it inherited by sharing run.lures. The
+// card's whole fiction is "copies of you"; a gold star does not read as one.
+export const MINIME_DRAW_SCALE = 0.55  // fraction of the player's own size
 // SPECIALIST (v7.5). "I commit to one weapon and the game commits back." The spec is emphatic that
 // the deliverability half is a TARGETING tool and not a deliverability FIX — focus redistributes
 // where mod cards land, it cannot create them.

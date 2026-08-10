@@ -361,7 +361,7 @@ const CONFIG = {
   'When a burning enemy dies, the fire jumps to the nearest one — up to 3 times.': "Quand un ennemi qui brûle meurt, le feu saute sur le plus proche — jusqu'à 3 fois.",
   'your fire found something worth spreading to': 'ton feu a trouvé vers quoi se propager',
   'Minimes': 'Mini-Moi',
-  'Copies of you peel off every 6s, pull the swarm away, and detonate.': "Des copies de toi se détachent toutes les 6s, attirent l'essaim au loin, puis explosent.",
+  'Copies of you peel off every 4s, pull the swarm away, and detonate.': "Des copies de toi se détachent toutes les 4s, attirent l'essaim au loin, puis explosent.",
   'there started being more of you than there was of you': "il s'est mis à y avoir plus de toi qu'il n'y avait de toi",
   // ---- v7.5 upgrade-pool cards ------------------------------------------------------
   // Same rules as the v7.2 slate above (composed keys — regenerate, never retype; French decimal
