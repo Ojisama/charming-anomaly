@@ -526,10 +526,54 @@ export const MARTYR_RADIUS = 140
 // is `run.time % PERIOD >= SURGE`, so scaling time changes the beat FREQUENCY and leaves the 25/75
 // duty cycle exactly where it was. The pair reads 34.2% against chaosPact's own arm — no
 // interaction beyond the two cards separately.
-export const CHAOS_PACT_PERIOD = 60
-export const CHAOS_PACT_SURGE = 15    // s of the cycle spent under the spawn surge
+// v7.x PLAYTEST (owner, from play): "it's not very visible to the player when the rush is active".
+// Two changes, and the invisibility is what drove both. The beat is now TWICE as frequent (30s, not
+// 60) and the surge is a clean 10s, so the rhythm is short enough to feel as a rhythm rather than
+// as weather; and the payoff became a RAMP the player can watch climb instead of a flat multiplier
+// that silently toggled on and off. A HUD countdown now names the state outright — see ui.js.
+// THE PAYOFF STACKS: every wave you live through is +CHAOS_PACT_DMG_PER_WAVE, permanently, for the
+// rest of the run. A 300s run has 10 waves, so it ends around +100% — a card you earn by enduring,
+// where the shipped version handed you +50% for 45 of every 60 seconds and asked nothing.
+// Derived from run.time alone (no accumulator on `run`), which keeps it a pure read like the
+// spawn half and means a reload or a paused frame cannot double-count a wave.
+//   TIME DEBT still does not amplify it: scaling time changes the beat FREQUENCY, and since the
+// ramp counts waves, a compressed run simply reaches its waves sooner — the per-wave value is
+// untouched. (The old note below measured the duty cycle; that argument still holds for the surge.)
+export const CHAOS_PACT_PERIOD = 30
+export const CHAOS_PACT_SURGE = 10    // s of the cycle spent under the spawn surge
 export const CHAOS_PACT_SPAWN_MUL = 1.5
-export const CHAOS_PACT_DMG_MUL = 1.5
+export const CHAOS_PACT_DMG_PER_WAVE = 0.10   // permanent damage gained per wave survived
+
+// A RAMP NEEDS RUNWAY, so the card stops being offered once there is not enough run left to pay it
+// back (owner: "it won't be worth it"). At 120s remaining a fresh pick banks at most 4 waves, i.e.
+// +40% for the tail of a run — against jackpots that pay in full the moment they are taken. This is
+// a `when` gate rather than a weight tweak because the problem is not that it is rare, it is that
+// late it is a dead pick, and a dead pick on a 3-card screen is a lost choice.
+export const CHAOS_PACT_MIN_REMAINING = 120   // s of run that must remain for the card to be offered
+// CHAOS PACT's cycle, in ONE place because three readers must agree on it to the frame: the spawn
+// surge (sim), the damage ramp (sim) and the HUD countdown (ui). A countdown that disagreed with
+// the sim is precisely the "I can't tell when the rush is active" complaint this card was changed
+// to fix, so they are not allowed to be two implementations. Pure functions of the clock.
+export const chaosSurgeActive = (time) => time % CHAOS_PACT_PERIOD < CHAOS_PACT_SURGE
+// Completed waves only — the one in progress does not pay until you have survived it.
+export const chaosWavesSurvived = (time) =>
+  Math.floor(time / CHAOS_PACT_PERIOD) + (time % CHAOS_PACT_PERIOD >= CHAOS_PACT_SURGE ? 1 : 0)
+// Everything the HUD needs: which state, how long left in it, how far through it (for a bar that
+// drains), and what the ramp is worth so far.
+export const chaosStatus = (time) => {
+  const into = time % CHAOS_PACT_PERIOD
+  const active = into < CHAOS_PACT_SURGE
+  const span = active ? CHAOS_PACT_SURGE : CHAOS_PACT_PERIOD - CHAOS_PACT_SURGE
+  const elapsed = active ? into : into - CHAOS_PACT_SURGE
+  return {
+    active,
+    left: span - elapsed,
+    frac: 1 - elapsed / span,
+    waves: chaosWavesSurvived(time),
+    bonus: chaosWavesSurvived(time) * CHAOS_PACT_DMG_PER_WAVE,
+  }
+}
+
 // ALIGNMENT. COMBOS.comboCd is 0.5s per enemy per combo; this removes it, so shatter/overload/
 // acid-burn/brittle fire on EVERY qualifying hit. Makes the interaction the star instead of a
 // potency number — which is why it replaced a straight combo-damage bump.
@@ -808,11 +852,15 @@ export const ANOMALIES = {
   chaosPact: {
     name: 'Chaos Pact', icon: '🌀',
     from: 'you agreed to a rhythm you did not set',
-    desc: `Every minute: ${CHAOS_PACT_SURGE}s of +${Math.round((CHAOS_PACT_SPAWN_MUL - 1) * 100)}% enemies, then +${Math.round((CHAOS_PACT_DMG_MUL - 1) * 100)}% damage until the next one.`,
+    desc: `Every ${CHAOS_PACT_PERIOD}s a ${CHAOS_PACT_SURGE}s chaos wave brings +${Math.round((CHAOS_PACT_SPAWN_MUL - 1) * 100)}% enemies. Survive one and keep +${Math.round(CHAOS_PACT_DMG_PER_WAVE * 100)}% damage — for the rest of the run, every time.`,
     // Keys off run.time, which TIME DEBT inflates 1.5x — so under both cards the beats arrive half
-    // again as often in real seconds. Intended, and the card text says "every minute" rather than
-    // "every 60 seconds" partly because of it.
-    when: () => true,
+    // again as often in real seconds. Intended: the ramp counts WAVES, so a compressed run simply
+    // reaches more of them, and the per-wave value is untouched.
+    // NOT OFFERED IN THE LAST CHAOS_PACT_MIN_REMAINING SECONDS (owner: "it won't be worth it").
+    // The payoff is a ramp, so a late pick banks a handful of waves and is a dead choice on a
+    // screen that only has three. `?? 0` because `when` must not throw on the fixture run shapes
+    // that run PB drives it with.
+    when: (r) => (RUN_DURATION - (r.time ?? 0)) >= CHAOS_PACT_MIN_REMAINING,
     weight: 4, chapter: null, kind: 'pivot',
   },
   wildfire: {

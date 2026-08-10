@@ -13,7 +13,7 @@ import {
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, hasWeaponAt,
-  WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_MUL,
+  WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_PER_WAVE,
   SPECIALIST_MIN_MODS, SPECIALIST_EXTRA_PICKS, specialistSubjects, modPickCap,
   BLIND_FAITH_FLOOR, BLIND_FAITH_NO_REROLL,
   IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
@@ -701,12 +701,20 @@ function testAnomalySlate() {
     const still = dealt('stillness', (r) => { r._stillT = STILLNESS_RAMP * 10 })
     assert.ok(still > base * 1.5, `STILLNESS dealt ${still} against a baseline ${base} — the ramp is banked but never read`)
 
-    // CHAOS PACT: past the surge window is the payoff half.
-    const pact = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + CHAOS_PACT_SURGE + 1 })
-    assert.ok(pact > base * 1.2, `CHAOS PACT dealt ${pact} against a baseline ${base} — the payoff half of the cycle is inert`)
-    // ...and the surge half must NOT carry it, or the card is a flat buff with a siren.
-    const surge = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + 1 })
-    assert.ok(surge < pact * 0.95, `CHAOS PACT dealt ${surge} inside its spawn surge and ${pact} outside — the two halves must differ`)
+    // CHAOS PACT (v7.x): the payoff is now a RAMP — every wave SURVIVED is worth
+    // CHAOS_PACT_DMG_PER_WAVE for the rest of the run, rather than a flat multiplier that toggled
+    // on between surges. So the assertion is no longer "off during the surge, on after"; it is
+    // "more waves behind you means more damage", and the surge simply sits one wave short.
+    const late = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 8 + CHAOS_PACT_SURGE + 1 })
+    const early = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 1 + CHAOS_PACT_SURGE + 1 })
+    assert.ok(late > early * 1.2,
+      `CHAOS PACT dealt ${late} nine waves in and ${early} two waves in — the ramp is not accumulating`)
+    assert.ok(early > base, `CHAOS PACT dealt ${early} against a baseline ${base} — a survived wave pays nothing`)
+    // Mid-wave is worth exactly one wave less than just after it: you are paid for SURVIVING.
+    const during = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + 1 })
+    const after = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + CHAOS_PACT_SURGE + 1 })
+    assert.ok(during < after,
+      `CHAOS PACT dealt ${during} inside wave 3 and ${after} just after it — the wave in progress must not pay until it is survived`)
 
     // BLOOD PACT: the snowball, forced to a readable size.
     const blood = dealt('bloodPact', (r) => { r._bloodPact = 1 })

@@ -166,6 +166,8 @@ const UI = {
   // HUD
   'WAVE': 'VAGUE',
   'Lv': 'Niv',
+  'next chaos: {n}s': 'chaos dans {n}s',
+  'chaos: {n}s left': 'chaos : {n}s',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
 
   // level-up card composition parts (see tCardDesc/tCardTag in ui.js).
@@ -321,7 +323,8 @@ const CONFIG = {
   'Every point of HP you lose detonates around you, harder as the run goes on.': 'Chaque point de PV que tu perds détone autour de toi, de plus en plus fort au fil de la partie.',
   'you bled, and the ground answered': 'tu as saigné, et le sol a répondu',
   'Chaos Pact': 'Pacte du Chaos',
-  'Every minute: 15s of +50% enemies, then +50% damage until the next one.': "Chaque minute : 15s avec +50% d'ennemis, puis +50% de dégâts jusqu'à la suivante.",
+  'Every 30s a 10s chaos wave brings +50% enemies. Survive one and keep +10% damage — for the rest of the run, every time.':
+    "Toutes les 30s, une vague de chaos de 10s amène +50% d'ennemis. Survis-en une et tu gardes +10% de dégâts — pour le reste de la partie, à chaque fois.",
   'you agreed to a rhythm you did not set': "tu as accepté un rythme que tu n'as pas choisi",
   'Deadfall': 'Chausse-Trappe',
   'Snap traps ignore you, and re-arm 5 times faster.': "Les pièges à mâchoires t'ignorent et se réarment 5 fois plus vite.",

@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, chaosStatus } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -944,6 +944,14 @@ export function initUI(hooks) {
       <div class="rampage-wrap rampage-wrap--hidden">
         <div class="rampage-bar"><div class="rampage-fill"></div></div>
       </div>
+      <!-- CHAOS PACT countdown. Reuses .rampage-bar/.rampage-fill for chrome (ui.js does not own
+           styles.css), with the colour set inline per state: gold while a wave is incoming, red
+           while it is on you. The LABEL is the point — the owner's complaint was that the surge
+           was invisible, and a bar alone cannot say which of the two states it is counting. -->
+      <div class="chaos-wrap" data-chaos style="display:none; grid-column:1 / -1; grid-row:3;">
+        <div class="rampage-bar" style="height:12px;"><div class="rampage-fill" data-chaos-fill></div></div>
+        <span class="chaos-text" data-chaos-text style="font-size:11px; opacity:0.85;"></span>
+      </div>
       <!-- v5.24: The Blank's boss HP bar; v6.0.0 it spans the full hud-top row (grid-column
            1/-1) and IS the phase readout — the timer slot goes blank while a boss is up. Reuses
            .rampage-bar/.rampage-fill classes for chrome (border/radius/background); ui.js doesn't
@@ -980,6 +988,9 @@ export function initUI(hooks) {
     skillCd: screens.hud.querySelector('.skill-btn-cd'),
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
+    chaosWrap: screens.hud.querySelector('[data-chaos]'),
+    chaosFill: screens.hud.querySelector('[data-chaos-fill]'),
+    chaosText: screens.hud.querySelector('[data-chaos-text]'),
   }
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
@@ -992,6 +1003,9 @@ export function initUI(hooks) {
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
     scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
+    // CHAOS PACT: the label only changes once a second, so the rendered STRING is cached and only
+    // the fill is repainted every frame — a per-frame textContent write is the expensive half.
+    chaosShown: undefined, chaosLabel: '',
   }
 
   function updateHUD(run, events) {
@@ -1122,6 +1136,28 @@ export function initUI(hooks) {
     // HUD banner is gone; the {type:'dispatch'} event itself STAYS, because render.js's red strobe
     // at the spawn point and main.js's siren are the telegraph that an elite just arrived, and that
     // is worth keeping. `events` is still in the signature for the next consumer.
+    // ---- CHAOS PACT countdown -------------------------------------------------------------
+    // Shown for the whole run once the card is held: the complaint this answers is that the surge
+    // was invisible, and a readout that came and went would be its own version of that problem.
+    const chaosOn = !!run.anomalies?.chaosPact
+    if (chaosOn !== last.chaosShown) {
+      last.chaosShown = chaosOn
+      hud.chaosWrap.style.display = chaosOn ? '' : 'none'
+    }
+    if (chaosOn) {
+      const c = chaosStatus(run.time)
+      hud.chaosFill.style.width = `${Math.max(0, Math.min(1, c.frac)) * 100}%`
+      hud.chaosFill.style.background = c.active ? '#e0563f' : 'var(--gold)'
+      // WHOLE STRINGS, not glued fragments: the two states have different SHAPES in French
+      // ("chaos dans 12s" carries no colon, "chaos : 4s" does), and a fragment-glued label cannot
+      // express that. tt() fills {n}. Keys are the English source, per the fr.js contract.
+      const label = c.active
+        ? tt('chaos: {n}s left', { n: Math.ceil(c.left) })
+        : tt('next chaos: {n}s', { n: Math.ceil(c.left) })
+      const full = `${label}   +${Math.round(c.bonus * 100)}%`
+      if (full !== last.chaosLabel) { last.chaosLabel = full; hud.chaosText.textContent = full }
+    }
+
   }
 
   // ---- level-up modal ----------------------------------------------------

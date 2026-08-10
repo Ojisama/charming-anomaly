@@ -50,7 +50,7 @@ import {
   SUBMISSION_ELITE_EVERY_MUL, SUBMISSION_DURATION, SUBMISSION_DMG_FRAC, SUBMISSION_HIT_EVERY,
   SUBMISSION_STRIP_FLAGS,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
-  CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE, CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_MUL,
+  CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_PER_WAVE, chaosSurgeActive, chaosWavesSurvived,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
   MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
@@ -488,8 +488,10 @@ function anomalyDamageMul(run) {
     const ramp = Math.min(1, (run._stillT ?? 0) / STILLNESS_RAMP)
     mul *= 1 + (STILLNESS_MAX_MUL - 1) * ramp
   }
-  // CHAOS PACT: the payoff half of the cycle — everything after the spawn surge.
-  if (a.chaosPact && run.time % CHAOS_PACT_PERIOD >= CHAOS_PACT_SURGE) mul *= CHAOS_PACT_DMG_MUL
+  // CHAOS PACT: the ramp. Every wave SURVIVED is worth CHAOS_PACT_DMG_PER_WAVE, kept for the rest
+  // of the run — so this is read from the clock rather than accumulated on `run`, and a wave can
+  // never be double-counted by a paused or repeated frame.
+  if (a.chaosPact) mul *= 1 + chaosWavesSurvived(run.time) * CHAOS_PACT_DMG_PER_WAVE
   // BLOOD PACT: the snowball, accumulated in stepSim's kill accounting.
   if (a.bloodPact) mul *= 1 + (run._bloodPact ?? 0)
   return mul
@@ -658,8 +660,7 @@ function stepSpawning(run, dt) {
   // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
   // read-time). The payoff half is the damage multiplier in anomalyDamageMul.
-  const chaosMul = run.anomalies?.chaosPact && run.time % CHAOS_PACT_PERIOD < CHAOS_PACT_SURGE
-    ? CHAOS_PACT_SPAWN_MUL : 1
+  const chaosMul = run.anomalies?.chaosPact && chaosSurgeActive(run.time) ? CHAOS_PACT_SPAWN_MUL : 1
   run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * laneMul * chaosMul * dt
   // SUBMISSION: your allies must not eat the swarm's spawn budget. They live in run.enemies,
   // so without this the cap counts them and the game quietly spawns FEWER hostiles while an ally is
