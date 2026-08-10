@@ -12239,7 +12239,13 @@ export function createRenderer(app) {
         const frac = Math.max(0, Math.min(1, e.allyT / SUBMISSION_DURATION))
         const r = (s.height ? s.height * 0.5 : e.radius) + 7
         shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: 0xffcc44, alpha: 0.85 })
-        // the inner arc drains with the loan — a clock you read at a glance, in plan view
+        // the inner arc drains with the loan — a clock you read at a glance, in plan view.
+        // beginPath() IS LOAD-BEARING: Pixi v8's arc() CONTINUES the current path, so without it
+        // the arc is joined to whatever was last drawn on shieldG — and shieldG is shared with
+        // every shielded enemy on the map. v7.12 shipped without it and drew a long gold line from
+        // this ring to an off-screen shield ring (reported from play). Every other arc() in this
+        // file is already guarded the same way; this one was the exception.
+        shieldG.beginPath()
         shieldG.arc(e.x, e.y, r - 4, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2)
           .stroke({ width: 2, color: 0xfff0b0, alpha: 0.9 })
       }
