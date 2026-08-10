@@ -1612,7 +1612,7 @@ export const WEAPON_MODS = {
     wideBeam:  { name: 'Big Beam',        desc: 'beam width & length',    icon: '📡', base: 0.20, kind: 'pct' },
     sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
     prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier' },
-    focus:     { name: 'Focus Lens', desc: 'beam damage ramp by the end of its duration', icon: '🔎', base: 0.80, kind: 'pct' },
+    focus:     { name: 'Focus Lens', desc: 'damage climbs by {n} the longer it fires', icon: '🔎', base: 0.80, kind: 'pct' },
     strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct' },
     // v6.7.6 Beam Prism (owner spec). A `values` mod — the SAME idiom PASSIVES.armor/regen use:
     // it rolls only the listed rarities at the listed exact amounts, and makeWeaponModCard returns
@@ -1739,7 +1739,7 @@ export const WEAPON_MODS = {
     // first draft of this string ('quill(s) sweep back through on the return') read as a count of
     // quills and would have had a level-5 player believe two of twelve came back rather than all
     // twelve, twice each.
-    reboundQuills:  { name: 'Rebound Quills', desc: 'return pass(es) per quill', icon: '↩️', kind: 'tier', maxPicks: REBOUND_MAX_PICKS },
+    reboundQuills:  { name: 'Rebound Quills', desc: 'quills make {n} round trip(s)', icon: '↩️', kind: 'tier', maxPicks: REBOUND_MAX_PICKS },
     rapidQuills:    { name: 'Twitchy Spine',  desc: 'burst rate',          icon: '⏩', base: 0.25, kind: 'pct' },
     retaliate:      { name: 'Retaliation',    desc: 'getting hit fires a free burst', icon: '💢', base: 1, kind: 'flat' },
   },
@@ -1766,7 +1766,7 @@ export const WEAPON_MODS = {
     shockwave:    { name: 'Shockwave',    desc: 'shriek radius',  icon: '📡', base: 0.30, kind: 'pct' },
     shrill:       { name: 'Shrill',       desc: 'shriek damage',  icon: '📢', base: 0.30, kind: 'pct' },
     rapidShriek:  { name: 'Chatterbox',   desc: 'shriek rate',    icon: '⏩', base: 0.25, kind: 'pct' },
-    echoShriek:   { name: 'Echo Shriek',  desc: 'echo shriek(s) per cast',      icon: '🔁', kind: 'tier' },
+    echoShriek:   { name: 'Echo Shriek',  desc: '{n} echo(es) of the first shriek',      icon: '🔁', kind: 'tier' },
     panicRout:    { name: 'Panic Rout',   desc: 'damage taken by fleeing foes',  icon: '🏃', base: 0.40, kind: 'pct' },
     // perTier 4: WEAPON_MOD_TIER_BONUS.normal is 1, and fireShriekSpines spaces its spines with
     // `angle = (i / count) * 2pi` — so at a bare tier bonus a normal pick fires exactly ONE spine,
@@ -1778,17 +1778,16 @@ export const WEAPON_MODS = {
   },
   // ---- City natives (v5.4; Neon Beam rides the existing WEAPON_MODS.rainbow set above) ----
   // heavyTrash/wideHunt/fastWinds/moreTrash fold into trashTornado's levels[] via WEAPON_STAT_MODS.
-  // flingDebris/sweepLoot are behavioral (see stepTornadoWeapon in sim.js).
+  // sweepLoot is behavioral (see stepTornadoWeapon in sim.js).
   // v6.8: the two cards that tuned the ORBIT are gone with the orbit's primacy — orbit radius
   // (wideTornado) and spin speed (fasterSpin) now describe what the funnels do while idle, which
   // is not a thing worth a level-up. They are replaced one for one by the two numbers that decide
   // how the weapon actually kills: how far it hunts, and how fast it gets there.
   trashTornado: {
-    heavyTrash:  { name: 'Heavy Trash',   desc: 'funnel damage',   icon: '🔨', base: 0.25, kind: 'pct' },
-    wideHunt:    { name: 'Wide Hunt',     desc: 'hunting radius',  icon: '🧭', base: 0.25, kind: 'pct' },
+    heavyTrash:  { name: 'Heavy Trash',   desc: 'tornado damage',   icon: '🔨', base: 0.25, kind: 'pct' },
+    wideHunt:    { name: 'Wide Hunt',     desc: 'attack radius',  icon: '🧭', base: 0.25, kind: 'pct' },
     fastWinds:   { name: 'Fast Winds',    desc: 'travel speed',    icon: '💨', base: 0.25, kind: 'pct' },
     moreTrash:   { name: 'More Tornadoes', desc: 'tornadoes',      icon: '🌪️', base: 1,    kind: 'flat' },
-    flingDebris: { name: 'Fling Debris',  desc: 'chunk(s) hurled outward periodically', icon: '🎯', kind: 'tier' },
     // v6.9 (owner): the tornado used to pull ENEMIES inward. It now sweeps up LOOT instead — the
     // same job wave.undertow (Chemotaxis) does one chapter over, marking gems and coins `_vac` so
     // stepPickups reels them in past magnet range. A funnel that hunts across the street and drags
@@ -1799,8 +1798,8 @@ export const WEAPON_MODS = {
     // an epic. maxPicks 1: a second pick would have nothing to add.
     sweepLoot: {
       name: 'Street Sweeper', icon: '🧲', kind: 'flat', maxPicks: 1, values: { epic: 1 },
-      desc: 'funnels reel in gems and coins',
-      descFor: () => 'funnels reel in gems and coins',
+      desc: 'tornadoes reel in gems and coins',
+      descFor: () => 'tornadoes reel in gems and coins',
     },
   },
   // pressure/longHose/moreStreams/deepMain fold into burstHydrant's levels[] via WEAPON_STAT_MODS;
@@ -2137,12 +2136,6 @@ export const DEBRIS_R = 20            // px, base funnel hit radius. Was 14 whil
 // idle state stops reading as an orbit at all — which is the half of the weapon that was already
 // right. Small on purpose: snapping them into place looks mechanical.
 export const TORNADO_RESPACE = 1.2
-// flingDebris (behavioral): every TORNADO_FLING_EVERY seconds the tornado hurls <tier bonus> chunks
-// straight outward as run.bullets tagged weapon:'trash', at TORNADO_FLING_DMG_FRAC of chunk damage.
-export const TORNADO_FLING_EVERY = 1.5
-export const TORNADO_FLING_DMG_FRAC = 0.8
-export const TORNADO_FLING_SPEED = 430 // px/s
-export const TORNADO_FLING_RANGE = 260 // px before a flung chunk expires (life = range/speed)
 // Street Sweeper (sweepLoot, behavioral — v6.9, replaces the enemy-pulling `suction`): every gem
 // and coin within this of ANY funnel is marked `_vac`, exactly as wave.undertow marks its own, and
 // stepPickups then homes it to the player ignoring magnet range. Radius is per FUNNEL, not per

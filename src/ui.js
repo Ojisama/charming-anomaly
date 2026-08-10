@@ -1202,7 +1202,7 @@ export function initUI(hooks) {
           </span>
           <span class="lv-card-desc">${c.subject && WEAPONS[c.subject]
             ? tt('{name} — {text}', { name: t(WEAPONS[c.subject].name), text: tCardDesc(c.desc) })
-            : tCardDesc(c.desc)}</span>
+            : cardDescHtml(c)}</span>
           ${c.from ? `<span class="lv-card-from">${t(c.from)}</span>` : ''}
         </span>`
   }
@@ -1588,6 +1588,28 @@ export function initUI(hooks) {
   }
   // A mod's accumulated effect, composed exactly the way its level-up card was (see
   // makeWeaponModCard in sim.js) — so the pause sheet and the card that sold it agree word for word.
+  // THE one composer for a weapon mod's effect line. Both surfaces that show a mod — the level-up
+  // card and the pause build sheet — go through this, because they used to compose "+N <phrase>"
+  // separately (sim.js's makeWeaponModCard and modLine below) and "they agree word for word" was a
+  // promise kept by hand rather than by construction.
+  //
+  // A desc carrying {n} PLACES THE AMOUNT ITSELF, anywhere in the sentence, and each language
+  // places it independently — the dict key is the English template, exactly the contract tt() is
+  // built on (see i18n.js). French wants the number mid-sentence far more often than English does
+  // (« 1 volée sur 4 », « les piquants font 2 aller-retours »), and before this it could only ever
+  // be prefixed. A desc with no {n} keeps the old "+N " head, which is still most of them.
+  function modEffectText(cfg, bonus) {
+    if (cfg.kind === 'switch') return t(cfg.desc)
+    const n = cfg.kind === 'pct' ? `${Math.round(bonus * 100)}%` : fmtNum(bonus)
+    return cfg.desc.includes('{n}') ? tt(cfg.desc, { n }) : `+${n} ${t(cfg.desc)}`
+  }
+  // The level-up card's desc line. A mod recomposes from its config so it gets {n} support and
+  // stays identical to the pause sheet; everything else uses the string sim.js already composed.
+  function cardDescHtml(c) {
+    const cfg = c.kind === 'mod' ? WEAPON_MODS[c.weapon]?.[c.id] : null
+    if (cfg && !cfg.descFor) return modEffectText(cfg, c.bonus)
+    return tCardDesc(c.desc)
+  }
   function modLine(weaponId, m) {
     const cfg = WEAPON_MODS[weaponId]?.[m.id]
     if (!cfg) return ''
@@ -1599,9 +1621,13 @@ export function initUI(hooks) {
     if (cfg.descFor) {
       return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t">${esc(tCardDesc(cfg.descFor(m.bonus)))}</span></div>`
     }
-    const body = t(cfg.desc)
-    const head = cfg.kind === 'switch' ? '' : cfg.kind === 'pct' ? `+${Math.round(m.bonus * 100)}% ` : `+${fmtNum(m.bonus)} `
-    return `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t"><b>${esc(head)}</b>${esc(body)}</span></div>`
+    // Split the "+N " head off only when there IS one — a {n} desc has the amount inside the
+    // sentence, so there is nothing to bold and nothing to split.
+    const text = modEffectText(cfg, m.bonus)
+    const head = /^(\+[\d.]+%? )/.exec(text)
+    return head
+      ? `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t"><b>${esc(head[1])}</b>${esc(text.slice(head[1].length))}</span></div>`
+      : `<div class="bd-eff"><span class="bd-eff-i">${cfg.icon ?? '•'}</span><span class="bd-eff-t">${esc(text)}</span></div>`
   }
   function sectionHtml(key, icon, name, headline, bodyHtml, badge = '') {
     const open = openBuild.has(key)

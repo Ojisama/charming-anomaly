@@ -6034,7 +6034,7 @@ function testV54Weapons() {
   // only the idle state); prey inside `hunt` px of the PLAYER pulls one off the ring; a kill sends
   // it home. One funnel per foe — the claim in stepTornadoWeapon is load-bearing, not cosmetic: the
   // damage cooldown is per ENEMY, so a pack piled on one target throws away all but one funnel's
-  // damage. sweepLoot reels gems/coins in; flingDebris hurls chunks out as run.bullets 'trash'.
+  // damage. sweepLoot reels gems/coins in.
   {
     const lvl = WEAPONS.trashTornado.levels[MAX_WEAPON_LEVEL - 1]
     const onRing = (r, d) => Math.abs(Math.hypot(d.x - r.player.x, d.y - r.player.y) - lvl.radius) < 1e-6
@@ -6116,13 +6116,7 @@ function testV54Weapons() {
     assert(!unswept.vac, 'expected no _vac marking without the mod')
     assert(swept.closed > unswept.closed + 20,
       `expected the swept gem to reel in past magnet range (closed ${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
-
-    // flingDebris: chunks are hurled outward as bullets.
-    const fling = weaponRun('city', 'trashTornado')
-    fling.weaponMods.trashTornado.flingDebris = 2
-    stepQuiet(fling, 2.0)
-    assert(fling.bullets.some((b) => b.weapon === 'trash'), 'expected flingDebris to hurl chunks as weapon:trash bullets')
-    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px) + fling`)
+    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
   }
 
   // (e) burstHydrant: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.
@@ -10797,6 +10791,7 @@ try {
   testRoadOff()
   testIntegerHP()
   testDetonationScaling()
+  testDescPlaceholder()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -12575,4 +12570,75 @@ function testDetonationScaling() {
       `Its detonation is dealing raw config damage — use applyDamage, not dealDamage.`)
     console.log(`PASS run VE (${label}): scales ${ratio.toFixed(4)}x with a 3x damage multiplier, flat residue ${Math.round(flat)}`)
   }
+}
+
+// ---- run VF: the {n} mod-desc placeholder --------------------------------------------------
+// A mod desc may carry {n} to place its amount MID-SENTENCE instead of taking the usual "+N "
+// head, because French wants that far more often than English does (« les piquants font 2
+// aller-retours »). The mechanism spans three files and every way it breaks is SILENT — the card
+// still renders, just wrongly:
+//   - a French value that drops the {n} loses the number entirely (the amount is interpolated
+//     AFTER translation, so nothing puts it back);
+//   - a French value that keeps {n} while its English key has none is never interpolated, and the
+//     player reads a literal "{n}" on the card;
+//   - ui.js composing its own "+N " head again (it did, in two places, and the comment claiming
+//     they matched "word for word" was a promise kept by hand) reintroduces the drift this
+//     collapsed, and no config-only assertion would see it.
+// ui.js is not importable here (DOM), so its half is a SOURCE tripwire — run UG.k's idiom.
+function testDescPlaceholder() {
+  // (a) English key and French value must agree about carrying the placeholder.
+  const mismatched = []
+  for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
+    for (const [mid, cfg] of Object.entries(mods)) {
+      if (!cfg.desc) continue
+      const fr = FR[cfg.desc]
+      if (fr === undefined) continue // dictionary COVERAGE is run XX's job, not this one's
+      if (cfg.desc.includes('{n}') !== fr.includes('{n}')) {
+        mismatched.push(`${wid}.${mid} (EN ${cfg.desc.includes('{n}') ? 'has' : 'lacks'} {n}, FR ${fr.includes('{n}') ? 'has' : 'lacks'} it)`)
+      }
+    }
+  }
+  assert.deepStrictEqual(mismatched, [],
+    `a {n} desc and its translation must agree: ${JSON.stringify(mismatched)} — the amount is interpolated AFTER translation, so a French value without {n} shows no number at all, and one with {n} against a plain English key prints a literal "{n}" on the card`)
+
+  // (b) The composed card: a placeholder desc must resolve, keep its number, and NOT also collect
+  //     the "+N " head (which would state the amount twice).
+  const want = new Set()
+  for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
+    for (const [mid, cfg] of Object.entries(mods)) if (cfg.desc?.includes('{n}')) want.add(`${wid}:${mid}`)
+  }
+  assert.ok(want.size >= 3,
+    `expected the {n} descs to still exist, found [${[...want]}] — if they were all reworded this scenario is dead weight and should be deleted rather than left passing vacuously`)
+
+  Math.random = mulberry32(20260810)
+  const seen = new Map()
+  const r = createRun(makeMeta(), { chapter: 'body' })
+  r.weapons = [...new Set([...want].map((k) => k.split(':')[0]))].map((id) => ({ id, level: 3 }))
+  for (let i = 0; i < 4000 && seen.size < want.size; i++) {
+    r._screenRerolls = -1
+    r._screenAnomaly = undefined
+    for (const c of buildLevelUpChoices(r)) {
+      if (c.kind === 'mod' && want.has(`${c.weapon}:${c.id}`)) seen.set(`${c.weapon}:${c.id}`, c)
+    }
+  }
+  assert.strictEqual(seen.size, want.size,
+    `never got a card for ${[...want].filter((k) => !seen.has(k))} — the fixture stopped offering them, so the assertions below would pass without testing anything`)
+  for (const [key, c] of seen) {
+    assert.ok(!/^\+[\d.]+%? /.test(c.desc),
+      `${key} carries {n} but its card still took a "+N " head ("${c.desc}") — the amount is stated twice`)
+    assert.ok(!c.desc.includes('{n}'), `${key} shipped an uninterpolated placeholder: "${c.desc}"`)
+    assert.ok(/\d/.test(c.desc), `${key} lost its number entirely: "${c.desc}"`)
+  }
+
+  // (c) ui.js renders BOTH surfaces through one composer, and that composer is placeholder-aware.
+  const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  assert.ok(/function modEffectText\(/.test(uiSrc),
+    'ui.js no longer defines modEffectText — the level-up card and the pause build sheet are composing "+N <phrase>" separately again, which is the drift it exists to prevent')
+  assert.ok(/includes\('\{n\}'\) \? tt\(/.test(uiSrc),
+    'modEffectText no longer routes a {n} desc through tt() — the placeholder would reach the player literally')
+  const callers = (uiSrc.match(/modEffectText\(/g) ?? []).length
+  assert.ok(callers >= 3,
+    `expected modEffectText to be DEFINED and used by both surfaces, found ${callers} mentions in ui.js`)
+
+  console.log(`PASS run VF ({n} desc placeholder): ${want.size} placeholder descs resolve with a number and no "+N " head, EN/FR agree on every mod, and ui.js composes both surfaces through one placeholder-aware helper`)
 }

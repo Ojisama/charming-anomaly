@@ -113,7 +113,7 @@ import {
   TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_DMG, TRAFFIC_KB, TRAFFIC_ENEMY_HP_FRAC, TRAFFIC_ROADKILL, COVER_MIN_R,
   MOWER_FIRST_T, MOWER_GAP_MIN, MOWER_GAP_MAX, MOWER_WARN, MOWER_SWEEP, MOWER_LEN, MOWER_W, MOWER_OFFSET,
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
-  DEBRIS_R, TORNADO_FLING_EVERY, TORNADO_FLING_DMG_FRAC, TORNADO_FLING_SPEED, TORNADO_FLING_RANGE,
+  DEBRIS_R,
   TORNADO_SWEEP_R, TORNADO_RESPACE,
   HYDRANT_LAUNCH_KB, HYDRANT_STUN,
   HYDRANT_SPRAY_FRAC, HYDRANT_IDLE_FRAC, HYDRANT_JET_PUSH, ZONE_MAX_LIVE, HYDRANT_STAGGER, HYDRANT_STREAMS_FALLBACK, HYDRANT_STREAMS_MAX,
@@ -5742,8 +5742,8 @@ function stepShriekEchoes(run, dt) {
 // travelSpeed and parks on it; with nothing in reach it spirals back into a ring of `radius`
 // around the player and circles at rotSpeed — the pre-v6.8 look, now the idle state. Damage is
 // unchanged, ticking on the per-enemy cooldown orbit uses (e._debrisCd, the run.orbs/orbCd
-// bookkeeping). flingDebris hurls chunks outward as run.bullets tagged weapon:'trash'; sweepLoot
-// marks nearby gems/coins `_vac` so stepPickups reels them home past magnet range.
+// bookkeeping). sweepLoot marks nearby gems/coins `_vac` so stepPickups reels them home past
+// magnet range.
 function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   const p = run.player
   const mods = run.weaponMods.trashTornado
@@ -5852,37 +5852,6 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
         if (it._vac) continue
         const dx = it.x - t.x, dy = it.y - t.y
         if (dx * dx + dy * dy <= sweepSq) it._vac = true
-      }
-    }
-  }
-
-  // flingDebris: every TORNADO_FLING_EVERY seconds, hurl <tier bonus> chunks straight outward.
-  // v6.8: thrown BY a funnel, from wherever that funnel currently is. It used to spawn chunks on a
-  // fixed circle around the player, which with the funnels off hunting reads as junk materialising
-  // out of empty street. Aimed away from the player so a fling still sprays outward rather than
-  // back through you; a second chunk from the same funnel is fanned off so they don't overlap.
-  const fling = mods?.flingDebris ?? 0
-  if (fling > 0 && list.length > 0) {
-    run._tornadoFlingAcc = (run._tornadoFlingAcc ?? 0) + dt
-    while (run._tornadoFlingAcc >= TORNADO_FLING_EVERY) {
-      run._tornadoFlingAcc -= TORNADO_FLING_EVERY
-      for (let i = 0; i < fling; i++) {
-        const src = list[i % list.length]
-        const angle = Math.atan2(src.y - p.y, src.x - p.x) + Math.floor(i / list.length) * 0.7
-        run.bullets.push({
-          x: src.x,
-          y: src.y,
-          vx: Math.cos(angle) * TORNADO_FLING_SPEED,
-          vy: Math.sin(angle) * TORNADO_FLING_SPEED,
-          dmg: stats.dmg * TORNADO_FLING_DMG_FRAC,
-          pierce: 1,
-          life: TORNADO_FLING_RANGE / TORNADO_FLING_SPEED,
-          r: DEBRIS_R,
-          speed: TORNADO_FLING_SPEED,
-          hitIds: new Set(),
-          weapon: 'trash',
-          _shard: false, _splitDone: true, _chainsLeft: 0,
-        })
       }
     }
   }
@@ -6725,7 +6694,7 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
     if (!(rarity in cfg.values)) return null
     const bonus = cfg.values[rarity]
     return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name,
-      desc: cfg.descFor ? cfg.descFor(bonus) : `+${bonus} ${cfg.desc}`,
+      desc: cfg.descFor ? cfg.descFor(bonus) : cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', `${bonus}`) : `+${bonus} ${cfg.desc}`,
       tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
   }
   const mult = RARITIES[rarity].mult
@@ -6742,11 +6711,15 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   else if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity] * (cfg.perTier ?? 1)
   else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * mult))
   else bonus = cfg.base * mult
+  // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
+  // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which
+  // each language re-places independently, the number being interpolated after translation).
+  const nStr = cfg.kind === 'pct' ? `${Math.round(bonus * 100)}%` : `${bonus}`
   const desc = cfg.kind === 'switch'
     ? cfg.desc
-    : cfg.kind === 'pct'
-      ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
-      : `+${bonus} ${cfg.desc}`
+    : cfg.desc.includes('{n}')
+      ? cfg.desc.replaceAll('{n}', nStr)
+      : `+${nStr} ${cfg.desc}`
   return { kind: 'mod', id: modId, weapon: weaponId, title: cfg.name, desc, tag: `${WEAPONS[weaponId].name} upgrade`, rarity, icon: cfg.icon, bonus }
 }
 

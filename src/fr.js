@@ -582,7 +582,7 @@ const CONFIG = {
   'Prismatic Split': 'Division Prismatique',
   'extra beam(s) per cast': 'rayon(s) bonus par lancer',
   'Focus Lens': 'Lentille Focale',
-  'beam damage ramp by the end of its duration': 'montée en dégâts du rayon en fin de durée',
+  'damage climbs by {n} the longer it fires': 'les dégâts augmentent de {n} pendant la durée du tir',
   'Strobe Ray': 'Rayon Stroboscopique',
   'beam tick rate': 'fréquence des dégâts du rayon',
   'Long Reach': 'Longue Portée',
@@ -655,8 +655,8 @@ const CONFIG = {
   'quill damage': 'dégâts des piquants',
   'Bristling': 'Hérissement',
   'quills per burst': 'piquants par salve',
-  'Rebound Quills': 'Piquants Boomerang',
-  'return pass(es) per quill': 'passage(s) de retour par piquant',
+  'Rebound Quills': 'Piquants Rebondissants',
+  'quills make {n} round trip(s)': 'les piquants font {n} aller-retour(s)',
   'Twitchy Spine': 'Échine Nerveuse',
   'burst rate': 'cadence de salve',
   'Retaliation': 'Riposte',
@@ -670,31 +670,29 @@ const CONFIG = {
   'Chatterbox': 'Moulin à Paroles',
   'shriek rate': 'cadence du cri',
   'Echo Shriek': 'Cri en Écho',
-  'echo shriek(s) per cast': 'cri(s) en écho par lancer',
+  '{n} echo(es) of the first shriek': '{n} écho(s) du cri initial',
   'Panic Rout': 'Déroute Panique',
   'damage taken by fleeing foes': 'dégâts subis par les ennemis en fuite',
   'Chitter Spines': 'Cri Épineux',
   'quill(s) spat outward per shriek': 'piquant(s) craché(s) à chaque cri',
   'Heavy Trash': 'Détritus Lourds',
-  'funnel damage': 'dégâts des tornades',
+  'tornado damage': 'dégâts des tornades',
   // v6.8 replaced the two orbit cards ('Tornade Large' / 'Rotation Rapide') one for one — the
   // orbit is only what the funnels do while there is nothing to hunt, so tuning it stopped being
   // worth a level-up. 'Traque' is the verb the weapon's own description now uses.
   'Wide Hunt': 'Traque Élargie',
-  'hunting radius': 'rayon de traque',
+  'attack radius': 'rayon d\'attaque',
   'Fast Winds': 'Vents Rapides',
   'travel speed': 'vitesse de déplacement',
   'More Tornadoes': 'Plus de Tornades',
   'tornadoes': 'tornades',
-  'Fling Debris': 'Projection de Débris',
-  'chunk(s) hurled outward periodically': 'morceau(x) projeté(s) vers l\'extérieur périodiquement',
   // v6.9: the tornado stopped pulling ENEMIES and started sweeping LOOT, so 'Aspiration' /
   // 'attraction ... sur les ennemis proches' went with the mechanic. 'Balayeuse' is the actual
   // French word for a street-sweeping vehicle, which is exactly what the card depicts, and the
   // effect line reuses this dictionary's established phrasing for the same job on wave.undertow
   // ('les éruptions ramènent gemmes et pièces') so two cards doing one thing read as one thing.
   'Street Sweeper': 'Balayeuse de Rue',
-  'funnels reel in gems and coins': 'les tornades ramènent gemmes et pièces',
+  'tornadoes reel in gems and coins': 'les tornades ramènent gemmes et pièces',
   'High Pressure': 'Haute Pression',
   'stream damage': 'dégâts du jet',
   'Long Hose': 'Tuyau Long',
