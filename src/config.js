@@ -416,7 +416,7 @@ export const AVARICE_COIN_DROP_MUL = 0.7
 // toward elites is correspondingly weaker. Still an owner call; the numbers are the user's.
 export const BLOOD_PACT_PER_KILL = 0.001
 export const BLOOD_PACT_PER_ELITE = 0.01
-// CONSCRIPTION. A killed elite does not die — it turns, and fights the swarm for you.
+// SUBMISSION. A killed elite does not die — it turns, and fights the swarm for you.
 // THE DENOMINATOR IS MEASURED, NOT GUESSED: full 300s runs land 8.6-10.6 elites, and that count is
 // chapter-INVARIANT because `eliteEvery` is a TIME cadence, not a kill cadence (spec
 // 2026-08-07-upgrade-pool-design.md:1157-1163). So the duration below is "how much of a run is
@@ -432,13 +432,13 @@ export const BLOOD_PACT_PER_ELITE = 0.01
 // RAMPAGE's multipliers are read at use). Applied at spawnEnemy's cadence step.
 // Knock-on, stated rather than hidden: elites carry ELITE.coins and ELITE.xpMul, so 3x elites is
 // also ~3x elite coins and elite xp. On a jackpot that is intended, but it is a second buff.
-export const CONSCRIPT_ELITE_EVERY_MUL = 1 / 3   // interval multiplier -> three times the elites
-export const CONSCRIPT_DURATION = 20      // seconds the loan runs before the conscript falls
-export const CONSCRIPT_DMG_FRAC = 0.5     // the spec's "50% of your damage"; fire rate and crit are 100%
+export const SUBMISSION_ELITE_EVERY_MUL = 1 / 3   // interval multiplier -> three times the elites
+export const SUBMISSION_DURATION = 20      // seconds the loan runs before the ally falls
+export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; fire rate and crit are 100%
 // Contact is the ONLY attack most of the roster has — pounce, dive, charge and strafe all resolve
 // to stepContactDamage, and of the four run.enemyShots push sites three belong to The Blank's
-// scripted boss. So this cadence, not any weapon table, is what a conscript's damage output IS.
-export const CONSCRIPT_HIT_EVERY = 0.5    // seconds between a conscript's contact hits on one target
+// scripted boss. So this cadence, not any weapon table, is what an ally's damage output IS.
+export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
 // rerolls") was overstated because it priced against regen AVERAGED across runs (0.41/s) when
 // regen is bimodal — most runs never pick it, so the real budget is maxHP alone, ~11 rerolls.
@@ -722,19 +722,21 @@ export const ANOMALIES = {
     kind: 'jackpot',
     minLevel: 3,
   },
-  conscription: {
-    // Display name only — the id below stays `conscription`, per the soyMilk/ipecac precedent.
+  submission: {
+    // The id, the constants and the event types all say `submission` too. Renaming a card means
+    // renaming it IN THE CODE — the soyMilk/ipecac precedent (keep the id, change the name) is
+    // what a future session gets lost in, hunting a `soyMilk` that the game calls Machine Gun.
     name: 'Submission', icon: '🎖️',
     from: 'they only obey the strongest',
-    desc: `Elites arrive three times as often — and the ones you kill turn instead of dying, fighting the swarm for ${CONSCRIPT_DURATION}s at ${Math.round(CONSCRIPT_DMG_FRAC * 100)}% of your damage. Nothing you fire can touch them.`,
+    desc: `Elites arrive three times as often — and the ones you kill turn instead of dying, fighting the swarm for ${SUBMISSION_DURATION}s at ${Math.round(SUBMISSION_DMG_FRAC * 100)}% of your damage. Nothing you fire can touch them.`,
     // The same gate as unstableCores, and for the same reason: the card teaches itself only to a
     // player who has already met an elite. It also scopes the card correctly for free — The Blank
     // is `scripted`, sim.js:643 returns before the elite cadence there, so _eliteKills never rises
-    // and Conscription is simply never offered in the one chapter where it could do nothing.
+    // and Submission is simply never offered in the one chapter where it could do nothing.
     when: (r) => (r._eliteKills ?? 0) > 0,
     // Weight matches unstableCores: both are jackpots gated on the same event, and a tier should
     // feel like its jackpots. Two elite-keyed cards in the pool is deliberate — they combine
-    // (a conscript's expiry fires its core), which is the interaction the spec names as the point.
+    // (an ally's expiry fires its core), which is the interaction the spec names as the point.
     weight: 4,
     chapter: null,
     kind: 'jackpot',

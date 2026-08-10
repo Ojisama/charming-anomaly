@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, CONSCRIPT_DURATION, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, GEYSER_STREAMS_MAX,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, GEYSER_STREAMS_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -11976,7 +11976,7 @@ export function createRenderer(app) {
       // pair would tear at the mirror boundary, where flip is discontinuous by construction.
       let tdx = px - e.x
       let tdy = run.player.y - e.y
-      // CONSCRIPTION: a conscript faces WHAT IT IS FIGHTING, not you. Without this it would draw
+      // SUBMISSION: an ally faces WHAT IT IS FIGHTING, not you. Without this it would draw
       // walking backwards in all 32 roster looks — bearing is derived here from run.player every
       // frame, and look.faceDir is declared per LOOK, so it cannot express "this INSTANCE has a
       // different target". sim publishes the seek point it already computed as _tgtX/_tgtY.
@@ -12176,7 +12176,7 @@ export function createRenderer(app) {
         pacerG.circle(e.x, e.y, PACER_RADIUS).stroke({ width: 2, color: 0xffb347, alpha: 0.18 + pulse * 0.14 })
       }
 
-      // CONSCRIPTION: the ally ring. A GROUND RING is a plan view by construction, which is the
+      // SUBMISSION: the ally ring. A GROUND RING is a plan view by construction, which is the
       // one marker shape that cannot get the projection wrong (the camera looks straight down —
       // a badge or banner would be the v6.8 Trash Tornado error again). It rides shieldG, a SHARED
       // Graphics cleared every frame at 11890: no pool, no bake, no lifetime and no reset site, so
@@ -12191,7 +12191,7 @@ export function createRenderer(app) {
       // named as one in the commit — the upgrade path is a per-instance tint slot, which the
       // strictly-ranked tint ladder at 12048 does not currently have room for.
       if ((e.allyT || 0) > 0) {
-        const frac = Math.max(0, Math.min(1, e.allyT / CONSCRIPT_DURATION))
+        const frac = Math.max(0, Math.min(1, e.allyT / SUBMISSION_DURATION))
         const r = (s.height ? s.height * 0.5 : e.radius) + 7
         shieldG.circle(e.x, e.y, r).stroke({ width: 3, color: 0xffcc44, alpha: 0.85 })
         // the inner arc drains with the loan — a clock you read at a glance, in plan view

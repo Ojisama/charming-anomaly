@@ -286,11 +286,11 @@ const SFX_FOR_EVENT = {
   shatter: 'explode', overload: 'explode', frostarc: 'zap', conduct: 'zap',
   // Revive Token firing reuses the levelup jingle — it's a "good news" beat, same register
   revive: 'levelup',
-  // CONSCRIPTION: an elite changing sides is the same register as a Revive — the run just went
+  // SUBMISSION: an elite changing sides is the same register as a Revive — the run just went
   // your way — so it borrows the same jingle. Its expiry deliberately gets NO sound: with 3x the
   // elite cadence these fire often, and a chime every time a loan lapses is nagging, not feedback.
   // (The kill sfx already plays at the turn itself, from the ordinary `kill` event.)
-  conscript: 'levelup',
+  submission: 'levelup',
   // v5.8 kaiju redesign (skies): a structure destroyed by crushing — own sfx (audio.js), throttled
   // there like shoot/hit/zap so a rampage flattening dozens of structures a second doesn't machine-
   // gun the audio graph (design doc §2, "audio machine-gunning").
