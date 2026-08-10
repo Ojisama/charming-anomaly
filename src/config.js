@@ -1418,6 +1418,8 @@ export const WEAPONS = {
     // are still run.zones — that array is shared with the Reality Shard's rifts and stays generic.
     name: 'Burst Hydrant',
     desc: 'Shears a hydrant open; it hoses down whatever comes near.',
+    // STAND-IN: 🚒 is a fire ENGINE — there is no hydrant emoji, and 🚿 is already Split Nozzle's.
+    // Kept knowingly (the alternative, 💦, reads as sweat); swap it the day this gets real art.
     icon: '🚒', rarity: 'rare',
     // The area-denial native: plants `count` telegraphed zones (run.zones) on the path between a
     // foe and the player within castRange; each waits `fuse` seconds (harmless telegraph), erupts
@@ -1522,6 +1524,10 @@ export const WEAPONS = {
   pulsarSweep: {
     name: 'Pulsar Sweep',
     desc: 'Two lasers sweep back and forth across the way ahead.',
+    // 🔷 is inherited from the Tesseract Beam and was re-checked on the card against 🔦/✴️/🩻/📶:
+    // kept, because it is the only one whose colour agrees with the violet render.js actually bakes
+    // this sweep in (T.beamSweep) and with The Beyond's palette. The literal "beam" glyphs all read
+    // as a household torch or a status indicator, and the star ones render orange.
     icon: '🔷', rarity: 'epic',
     // A run.beams entry (same shape/step as the Neon Beam) flagged `swept: true`: a second arm
     // sits 180° opposite the first and sweeps with it — i.e. one cast rakes both sides at
@@ -1599,7 +1605,7 @@ export const MAX_PASSIVE_LEVEL = 5
 //
 // Behavioral mods (read directly off run.weaponMods.<weapon>.<mod> at their trigger site in
 // sim.js, rather than folding into effectiveWeaponStats):
-//   star.multishot/split/chain/ricochet: unchanged from v2/v3 (see fireStar/stepBullets).
+//   star.multishot/split/chain: unchanged from v2/v3 (see fireStar/stepBullets).
 //   orbit.twinRing:    N orbs on an inner ring at ORBIT_TWIN_RING_RADIUS_FRAC of the main
 //                      ring's radius, counter-rotating, same dmg/tick as the main ring.
 //   orbit.bigOrbs:     scales ORB_R (a constant, not a `levels[]` field) — read directly too.
@@ -1630,8 +1636,6 @@ export const MAX_PASSIVE_LEVEL = 5
 //   wave.tsunami:       every TSUNAMI_EVERY-th cast (tracked by run._waveCasts) multiplies that
 //                       cast's radius AND damage by (1 + bonus) — a "monster wave".
 //   boomerang.backhand: boomerangs deal (1 + bonus)× damage while in their 'back' (return) phase.
-//   boomerang.seeker:   outbound ('out' phase only) boomerangs steer toward the nearest enemy at
-//                       SEEKER_TURN_RATE × bonus rad/s, baked into the boomerang at throw time.
 //   mines.magnetic:     armed (not-yet-triggered) mines crawl toward the nearest enemy at
 //                       MINE_CRAWL_SPEED × bonus px/s.
 //   mines.chainReaction: when a mine explodes, up to <tier bonus> other ARMED mines within its
@@ -1690,31 +1694,42 @@ export const REBOUND_MAX_PICKS = 2
 // comment offers an exemption list for that case; a literal costs less and keeps the sweep honest.
 const PRISM_DESC = 'sub-beams where the beam lands'
 const PRISM_DESC_DEEP = 'sub-beams where the beam lands, each splitting again'
+// ICON CONVENTION, and what the icon audit deliberately did NOT fix.
+// Mod icons are a vocabulary, not decoration: 📏 range, ⏩ rate, 🪭 cone width, 📡 radius,
+// ⏳ duration, 🔨/🗡️ damage, 🧲 pull, 🌺 twin, 💢 retaliate, 🔁 echo. The same glyph on the same
+// KIND of stat across weapons is the point — do not "de-duplicate" those. Separately, each
+// weapon's count mod ("more of them") reuses the weapon's own glyph; every weapon does this
+// exactly once, which is the check that caught Cytokine Burst showing 🌊 three times.
+// Left alone knowingly, because the pause build sheet stacks weapons, mods, elements, anomalies
+// and mutators together and these read fine in context: 🌀 means six things there (orbit spin,
+// cyclone, resonance, rift scar, Chaos Pact, Unstable Physics), 🪤 four, ⚡ four, 💥 nine. And
+// stinger.volley uses 🎯 for a COUNT while 🎯 is pierce on star and realityShard.
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
-    // no-brainer even after the v4.4 offer caps (user call: star keeps 5 mods, no explosions).
+    // no-brainer even after the v4.4 offer caps (user call: no explosions). Reflex Rebound
+    // (ricochet) removed later, on the owner's call — it and Signal Cascade both read as "a spent
+    // antigen keeps going", and the random bounce was the weaker of the two. star keeps 4 mods.
     pierce:    { name: 'Membrane Piercer',  desc: 'antigen pierce',                    icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     multishot: { name: 'Split Strain',     desc: 'antigens per volley',              icon: '💫', kind: 'tier' },
     split:     { name: 'Mitosis',     desc: "shard(s) on an antigen's first hit", icon: '🔱', base: 1,    kind: 'flat' },
-    chain:     { name: 'Signal Cascade',     desc: 'chain jump(s) on spent antigens',  icon: '🔗', kind: 'tier' },
-    ricochet:  { name: 'Reflex Rebound',  desc: 'bounce(s) on spent antigens',      icon: '🪀', base: 1,    kind: 'flat' },
+    chain:     { name: 'Signal Cascade',     desc: 'jump(s) to the next enemy',        icon: '🔗', kind: 'tier' },
   },
   orbit: {
-    extraOrb:  { name: 'Extra Phages', desc: 'phages on your ring',                  icon: '✨', base: 1,    kind: 'flat' },
+    extraOrb:  { name: 'Extra Phages', desc: 'phages circling you',                  icon: '✨', base: 1,    kind: 'flat' },
     bigOrbs:   { name: 'Engorged Phages',   desc: 'phage hit radius',                     icon: '🔵', base: 0.20, kind: 'pct' },
-    wideRing:  { name: 'Wide Orbit',   desc: 'ring radius',                        icon: '🪐', base: 0.20, kind: 'pct' },
+    wideRing:  { name: 'Wide Orbit',   desc: 'how far out they circle',                        icon: '🪐', base: 0.20, kind: 'pct' },
     overdrive: { name: 'Fever Spin',    desc: 'orbit rotation speed',               icon: '🌀', base: 0.20, kind: 'pct' },
-    twinRing:  { name: 'Double Membrane',    desc: 'counter-rotating inner ring of phages', icon: '💠', kind: 'tier' },
+    twinRing:  { name: 'Double Membrane',    desc: 'a second row of phages around you', icon: '💠', kind: 'tier' },
     supernova: { name: 'Lysis Burst', desc: 'phage-kill splash damage',         icon: '🌟', base: 0.50, kind: 'pct' },
   },
   wave: {
-    bigWave:   { name: 'Systemic Surge',  desc: 'nova radius',           icon: '🌊', base: 0.20, kind: 'pct' },
-    shove:     { name: 'Fever Shove', desc: 'nova knockback',        icon: '👊', base: 0.20, kind: 'pct' },
+    bigWave:   { name: 'Systemic Surge',  desc: 'burst radius',           icon: '🌊', base: 0.20, kind: 'pct' },
+    shove:     { name: 'Fever Shove', desc: 'burst knockback',        icon: '👊', base: 0.20, kind: 'pct' },
     amplitude: { name: 'Inflammation', desc: 'wave damage',           icon: '📢', base: 0.20, kind: 'pct' },
     echo:      { name: 'Immune Echo', desc: 'echo wave(s) per cast', icon: '🔁', kind: 'tier' },
-    undertow:  { name: 'Chemotaxis',  desc: 'novas reel in gems and coins (wider per stack)', icon: '🧲', base: 1, kind: 'flat' },
-    tsunami:   { name: 'Cytokine Storm',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
+    undertow:  { name: 'Chemotaxis',  desc: 'bursts reel in gems and coins (wider per stack)', icon: '🧲', base: 1, kind: 'flat' },
+    tsunami:   { name: 'Cytokine Storm',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌡️', base: 0.60, kind: 'pct' },
   },
   // v5.3: the id stays 'boomerang' (Boomerang Leaf re-theme is copy-only, see WEAPONS.boomerang);
   // only the desc copy was retouched from 'boomerang' to 'leaf' where it named the weapon.
@@ -1724,20 +1739,19 @@ export const WEAPON_MODS = {
     // That is exactly the spiral WEAPON_MOD_TIER_BONUS exists to prevent (see its note above): a
     // per-cast ENTITY COUNT must not be multiplied by rarity. As a tier mod the second blade now
     // starts at epic (1/1/2/2/3 by rarity), which is what the playtester asked for.
-    extraRang:  { name: 'Extra Blades', desc: 'leaf(s) per throw', icon: '🍃', kind: 'tier' },
+    extraRang:  { name: 'Extra Leaves', desc: 'leaf(s) per throw', icon: '🍃', kind: 'tier' },
     longThrow:  { name: 'Long Throw',   desc: 'leaf range',      icon: '📏', base: 0.20, kind: 'pct' },
-    bigBlade:   { name: 'Big Blade',    desc: 'leaf hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
-    heavyBlade: { name: 'Heavy Blade',  desc: 'leaf damage',     icon: '🔨', base: 0.20, kind: 'pct' },
+    bigBlade:   { name: 'Big Leaf',    desc: 'leaf hit radius', icon: '🌿', base: 0.20, kind: 'pct' },
+    heavyBlade: { name: 'Heavy Leaf',  desc: 'leaf damage',     icon: '🔨', base: 0.20, kind: 'pct' },
     backhand:   { name: 'Backhand',      desc: 'leaf return-swing damage',      icon: '🤛', base: 0.50, kind: 'pct' },
-    seeker:     { name: 'Seeker Blades', desc: 'outbound curve-toward-target strength', icon: '🧭', base: 0.50, kind: 'pct' },
   },
   mines: {
-    minefield:   { name: 'Minefield',     desc: 'max mines alive',             icon: '🪤', base: 1,    kind: 'flat' },
-    bigBoom:     { name: 'Big Boom',      desc: 'mine blast radius',           icon: '💥', base: 0.20, kind: 'pct' },
-    heavyCharge: { name: 'Heavy Charge',  desc: 'mine damage',                 icon: '🧨', base: 0.20, kind: 'pct' },
-    cluster:     { name: 'Cluster Bombs', desc: 'bomblet(s) when a mine pops', icon: '🎆', kind: 'tier' },
-    magnetic:      { name: 'Magnetic Mines', desc: 'armed-mine crawl speed toward foes', icon: '🧲', base: 0.50, kind: 'pct' },
-    chainReaction: { name: 'Chain Reaction', desc: 'nearby armed mine(s) detonated by a blast', icon: '⛓️', kind: 'tier' },
+    minefield:   { name: 'Minefield',     desc: 'max cysts alive',             icon: '🪤', base: 1,    kind: 'flat' },
+    bigBoom:     { name: 'Big Boom',      desc: 'cyst blast radius',           icon: '💥', base: 0.20, kind: 'pct' },
+    heavyCharge: { name: 'Heavy Charge',  desc: 'cyst damage',                 icon: '🧨', base: 0.20, kind: 'pct' },
+    cluster:     { name: 'Cluster Bombs', desc: 'bomblet(s) when a cyst pops', icon: '🎆', kind: 'tier' },
+    magnetic:      { name: 'Magnetic Cysts', desc: 'armed-cyst crawl speed toward foes', icon: '🧲', base: 0.50, kind: 'pct' },
+    chainReaction: { name: 'Chain Reaction', desc: 'nearby armed cyst(s) detonated by a blast', icon: '⛓️', kind: 'tier' },
   },
   homing: {
     extraWisp: { name: 'Clone Culture',   desc: 'seekers per volley', icon: '🔮', base: 1,    kind: 'flat' },
@@ -1748,12 +1762,12 @@ export const WEAPON_MODS = {
     swarm:     { name: 'Rapid Division',         desc: 'mini seeker(s) spawned on a seeker kill', icon: '🐝', kind: 'tier' },
   },
   hole: {
-    biggerHole:  { name: 'Bigger Hole',    desc: 'vortex radius',             icon: '🕳️', base: 0.20, kind: 'pct' },
-    lasting:     { name: 'Lasting Vortex', desc: 'vortex duration',           icon: '⏱️', base: 0.20, kind: 'pct' },
-    denser:      { name: 'Denser Pull',    desc: 'vortex pull',               icon: '🌌', base: 0.20, kind: 'pct' },
-    singularity: { name: 'Singularity',    desc: 'extra vortex(es) per cast', icon: '🌠', kind: 'tier' },
-    hungry:      { name: 'Hungry Hole', desc: 'vortex growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
-    crunch:      { name: 'Big Crunch',  desc: 'vortex collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
+    biggerHole:  { name: 'Bigger Hole',    desc: 'hole radius',             icon: '🕳️', base: 0.20, kind: 'pct' },
+    lasting:     { name: 'Lasting Hole', desc: 'hole duration',           icon: '⏱️', base: 0.20, kind: 'pct' },
+    denser:      { name: 'Denser Pull',    desc: 'hole pull',               icon: '🌌', base: 0.20, kind: 'pct' },
+    singularity: { name: 'Singularity',    desc: 'extra hole(s) per cast', icon: '🌠', kind: 'tier' },
+    hungry:      { name: 'Hungry Hole', desc: 'hole growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
+    crunch:      { name: 'Big Crunch',  desc: 'hole collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
   },
   // v6.7.6 (owner: "merge beam length and beam width into one series"). Wide Beam and Long Beam
   // were the same card twice — both +20% pct, both plain geometry, and between them plus Sustain
@@ -1766,7 +1780,7 @@ export const WEAPON_MODS = {
     wideBeam:  { name: 'Big Beam',        desc: 'beam width & length',    icon: '📡', base: 0.20, kind: 'pct' },
     sustain:   { name: 'Sustain',         desc: 'beam duration',          icon: '⌛', base: 0.20, kind: 'pct' },
     prismatic: { name: 'Prismatic Split', desc: 'extra beam(s) per cast', icon: '🎇', kind: 'tier' },
-    focus:     { name: 'Focus Lens', desc: 'beam damage ramp by the end of its duration', icon: '🔎', base: 0.80, kind: 'pct' },
+    focus:     { name: 'Focus Lens', desc: 'damage climbs by {n} the longer it fires', icon: '🔎', base: 0.80, kind: 'pct' },
     strobe:    { name: 'Strobe Ray', desc: 'beam tick rate',                             icon: '💡', base: 0.40, kind: 'pct' },
     // v6.7.6 Beam Prism (owner spec). A `values` mod — the SAME idiom PASSIVES.armor/regen use:
     // it rolls only the listed rarities at the listed exact amounts, and makeWeaponModCard returns
@@ -1800,7 +1814,7 @@ export const WEAPON_MODS = {
     frenzy:    { name: 'Frenzy',      desc: 'whip speed',  icon: '💨', base: 0.25, kind: 'pct' },
     heavyLash: { name: 'Heavy Lash',  desc: 'whip damage', icon: '🔨', base: 0.40, kind: 'pct' },
     cyclone:   { name: 'Cyclone',     desc: 'full 360° sweep (every 3rd swing)', icon: '🌀', kind: 'switch' },
-    barbed:    { name: 'Barbed Lash', desc: 'bleed on struck foes (over 3s, dot)', icon: '🩸', base: 0.50, kind: 'pct' },
+    barbed:    { name: 'Barbed Lash', desc: 'inflicts bleeding for 3s on enemies hit', icon: '🩸', base: 0.50, kind: 'pct' },
   },
   // bigBloom/lasting/virulent fold into bloom's levels[] via WEAPON_STAT_MODS; quickCast (cast
   // rate) is read at the plant site (divides the plant interval, same reason as flagella.frenzy).
@@ -1855,7 +1869,7 @@ export const WEAPON_MODS = {
     longClaws:   { name: 'Long Claws',    desc: 'claw reach',  icon: '📏', base: 0.30, kind: 'pct' },
     quickPaws:   { name: 'Quick Paws',    desc: 'rake rate',   icon: '💨', base: 0.25, kind: 'pct' },
     doubleSlash: { name: 'Double Slash',  desc: 'every 3rd rake slashes twice',        icon: '🐈', kind: 'switch' },
-    bleedClaws:  { name: 'Bleeding Claws', desc: 'bleed on raked foes (over 3s, dot)', icon: '🩹', base: 0.50, kind: 'pct' },
+    bleedClaws:  { name: 'Bleeding Claws', desc: 'inflicts bleeding for 3s on raked foes', icon: '🩹', base: 0.50, kind: 'pct' },
     ambushPredator: { name: 'Ambush Predator', desc: 'claws hit harder near a trap', icon: '🪤', base: 0.45, kind: 'pct' },
   },
   // sharpQuills/moreQuills fold into quillBurst's levels[] via WEAPON_STAT_MODS;
@@ -1893,7 +1907,7 @@ export const WEAPON_MODS = {
     // first draft of this string ('quill(s) sweep back through on the return') read as a count of
     // quills and would have had a level-5 player believe two of twelve came back rather than all
     // twelve, twice each.
-    reboundQuills:  { name: 'Rebound Quills', desc: 'return pass(es) per quill', icon: '↩️', kind: 'tier', maxPicks: REBOUND_MAX_PICKS },
+    reboundQuills:  { name: 'Rebound Quills', desc: 'quills make {n} round trip(s)', icon: '↩️', kind: 'tier', maxPicks: REBOUND_MAX_PICKS },
     rapidQuills:    { name: 'Twitchy Spine',  desc: 'burst rate',          icon: '⏩', base: 0.25, kind: 'pct' },
     retaliate:      { name: 'Retaliation',    desc: 'getting hit fires a free burst', icon: '💢', base: 1, kind: 'flat' },
   },
@@ -1920,7 +1934,7 @@ export const WEAPON_MODS = {
     shockwave:    { name: 'Shockwave',    desc: 'shriek radius',  icon: '📡', base: 0.30, kind: 'pct' },
     shrill:       { name: 'Shrill',       desc: 'shriek damage',  icon: '📢', base: 0.30, kind: 'pct' },
     rapidShriek:  { name: 'Chatterbox',   desc: 'shriek rate',    icon: '⏩', base: 0.25, kind: 'pct' },
-    echoShriek:   { name: 'Echo Shriek',  desc: 'echo shriek(s) per cast',      icon: '🔁', kind: 'tier' },
+    echoShriek:   { name: 'Echo Shriek',  desc: '{n} echo(es) of the first shriek',      icon: '🔁', kind: 'tier' },
     panicRout:    { name: 'Panic Rout',   desc: 'damage taken by fleeing foes',  icon: '🏃', base: 0.40, kind: 'pct' },
     // perTier 4: WEAPON_MOD_TIER_BONUS.normal is 1, and fireShriekSpines spaces its spines with
     // `angle = (i / count) * 2pi` — so at a bare tier bonus a normal pick fires exactly ONE spine,
@@ -1932,17 +1946,16 @@ export const WEAPON_MODS = {
   },
   // ---- City natives (v5.4; Neon Beam rides the existing WEAPON_MODS.rainbow set above) ----
   // heavyTrash/wideHunt/fastWinds/moreTrash fold into trashTornado's levels[] via WEAPON_STAT_MODS.
-  // flingDebris/sweepLoot are behavioral (see stepTornadoWeapon in sim.js).
+  // sweepLoot is behavioral (see stepTornadoWeapon in sim.js).
   // v6.8: the two cards that tuned the ORBIT are gone with the orbit's primacy — orbit radius
   // (wideTornado) and spin speed (fasterSpin) now describe what the funnels do while idle, which
   // is not a thing worth a level-up. They are replaced one for one by the two numbers that decide
   // how the weapon actually kills: how far it hunts, and how fast it gets there.
   trashTornado: {
-    heavyTrash:  { name: 'Heavy Trash',   desc: 'funnel damage',   icon: '🔨', base: 0.25, kind: 'pct' },
-    wideHunt:    { name: 'Wide Hunt',     desc: 'hunting radius',  icon: '🧭', base: 0.25, kind: 'pct' },
+    heavyTrash:  { name: 'Heavy Trash',   desc: 'tornado damage',   icon: '🔨', base: 0.25, kind: 'pct' },
+    wideHunt:    { name: 'Wide Hunt',     desc: 'attack radius',  icon: '🧭', base: 0.25, kind: 'pct' },
     fastWinds:   { name: 'Fast Winds',    desc: 'travel speed',    icon: '💨', base: 0.25, kind: 'pct' },
     moreTrash:   { name: 'More Tornadoes', desc: 'tornadoes',      icon: '🌪️', base: 1,    kind: 'flat' },
-    flingDebris: { name: 'Fling Debris',  desc: 'chunk(s) hurled outward periodically', icon: '🎯', kind: 'tier' },
     // v6.9 (owner): the tornado used to pull ENEMIES inward. It now sweeps up LOOT instead — the
     // same job wave.undertow (Chemotaxis) does one chapter over, marking gems and coins `_vac` so
     // stepPickups reels them in past magnet range. A funnel that hunts across the street and drags
@@ -1953,8 +1966,8 @@ export const WEAPON_MODS = {
     // an epic. maxPicks 1: a second pick would have nothing to add.
     sweepLoot: {
       name: 'Street Sweeper', icon: '🧲', kind: 'flat', maxPicks: 1, values: { epic: 1 },
-      desc: 'funnels reel in gems and coins',
-      descFor: () => 'funnels reel in gems and coins',
+      desc: 'tornadoes reel in gems and coins',
+      descFor: () => 'tornadoes reel in gems and coins',
     },
   },
   // pressure/longHose/moreStreams/deepMain fold into burstHydrant's levels[] via WEAPON_STAT_MODS;
@@ -1980,7 +1993,7 @@ export const WEAPON_MODS = {
     // streams ARE the damage now — an extra pick is an extra visible jet.
     moreStreams: { name: 'Split Nozzle',  desc: 'foes hosed at once', icon: '🚿', base: 1, kind: 'flat' },
     deepMain:    { name: 'Deep Main',     desc: 'how long a hydrant runs', icon: '⏳', base: 0.30, kind: 'pct' },
-    launch:      { name: 'Cap Blast',     desc: 'the blown cap flings and stuns what it catches', icon: '🚀', base: 1, kind: 'flat' },
+    launch:      { name: 'Cap Blast',     desc: 'stuns nearby foes when the hydrant blows', icon: '🚀', base: 1, kind: 'flat' },
     // v6.3: without the placement bias this mod's uptime is ~15-25% and uninfluencable — a trap
     // pick. The bias (stepHydrantWeapon's cast: prefer a lane-covered enemy) is the point.
     trafficMain: { name: 'Traffic Main',  desc: 'hydrants in a live lane hit far harder — and seek the street', icon: '🚦', base: 0.40, kind: 'pct' },
@@ -2012,7 +2025,7 @@ export const WEAPON_MODS = {
   // (see stepLobs in sim.js).
   debrisToss: {
     heavyDebris: { name: 'Heavy Debris', desc: 'impact damage', icon: '🔨', base: 0.30, kind: 'pct' },
-    bigImpact:   { name: 'Big Impact',   desc: 'burst radius',  icon: '💥', base: 0.30, kind: 'pct' },
+    bigImpact:   { name: 'Big Impact',   desc: 'impact radius',  icon: '💥', base: 0.30, kind: 'pct' },
     longToss:    { name: 'Long Toss',    desc: 'throw range',   icon: '📏', base: 0.30, kind: 'pct' },
     rapidToss:   { name: 'Quick Hands',  desc: 'throw rate',    icon: '⏩', base: 0.25, kind: 'pct' },
     moreDebris:  { name: 'Both Hands',   desc: 'chunks per throw', icon: '🪨', base: 1,  kind: 'flat' },
@@ -2027,8 +2040,8 @@ export const WEAPON_MODS = {
     moreShards:  { name: 'Splintering',  desc: 'shards per volley', icon: '🔺', base: 1,    kind: 'flat' },
     pierceShard: { name: 'Phase Edge',   desc: 'shard pierce',     icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     rapidShard:  { name: 'Quick Draw',   desc: 'volley rate',      icon: '⏩', base: 0.25, kind: 'pct' },
-    riftScar:    { name: 'Rift Scar',    desc: 'each blink leaves a detonating rift', icon: '🌀', base: 0.50, kind: 'pct' },
-    recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one expires',    icon: '♾️', kind: 'tier' },
+    riftScar:    { name: 'Rift Scar',    desc: 'rifts detonate for {n} damage', icon: '🌀', base: 0.50, kind: 'pct' },
+    recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one burns out',    icon: '♾️', kind: 'tier' },
   },
   // wideSweep/sustainSweep fold into pulsarSweep's levels[] via WEAPON_STAT_MODS; rapidSweep (cast
   // rate) is read at the cast site. hyperSweep/collapse are behavioral (see stepPulsarWeapon /
@@ -2114,7 +2127,7 @@ export const MINE_STUN = 0.3 // s, stunT applied to every non-ghosted enemy in a
 export const HOLE_SINGULARITY_FRAC = 0.55
 
 // Split: shard damage/angle shape (picks-per-shard count lives on WEAPON_MODS.star.split above).
-// v4.4: 0.5 -> 0.4. Split/chain/ricochet all multiply a star's total hits, so their per-shard/
+// v4.4: 0.5 -> 0.4. Split and chain both multiply a star's total hits, so their per-shard/
 // per-jump damage fractions compound multiplicatively when stacked together (a heavily-invested
 // star hit ~9.5x its own pierce/blast baseline — the runaway that made pouring picks into star a
 // no-brainer). Trimming these fractions shaves that stacked tail while barely touching a 1-pick
@@ -2124,17 +2137,10 @@ export const STAR_SPLIT_BASE_ANGLE = (35 * Math.PI) / 180 // ± half-angle used 
 export const STAR_SPLIT_MAX_SPREAD = (90 * Math.PI) / 180 // total fan spread once 3+ shards are out
 
 // Chain: when a bullet's pierce is exhausted, it re-targets the nearest not-yet-hit enemy
-// within range instead of dying (falls back to ricochet if none is found or no jumps remain).
+// within range instead of dying (it simply dies if none is found or no jumps remain).
 export const STAR_CHAIN_RANGE = 200       // px, re-target search radius from the last hit enemy
 export const STAR_CHAIN_DMG_MUL = 0.7     // damage multiplier applied per jump (v4.4: 0.8 -> 0.7, tames stacked compounding)
 export const STAR_CHAIN_EXTRA_LIFE = 0.4  // s, minimum flight time granted on a chain jump
-
-// Ricochet: once a spent bullet has no chain jumps left, it bounces off in a random new
-// direction (deflected 60-120° from its incoming heading) instead of dying.
-export const STAR_RICOCHET_DMG_MUL = 0.6                      // damage multiplier applied per bounce (v4.4: 0.7 -> 0.6, tames stacked compounding)
-export const STAR_RICOCHET_ANGLE_MIN = (60 * Math.PI) / 180   // min deflection from incoming heading
-export const STAR_RICOCHET_ANGLE_MAX = (120 * Math.PI) / 180  // max deflection from incoming heading
-export const STAR_RICOCHET_EXTRA_LIFE = 0.4                   // s, minimum flight time granted on a bounce
 
 // ---- v4.3 "crazy-mod pass" tuning (13 new behavioral mods, one set per weapon below) --------
 
@@ -2147,8 +2153,6 @@ export const UNDERTOW_VAC_RADIUS_PER_STACK = 0.5
 // Tsunami (wave): cast cadence for a "monster wave" (radius/damage both multiplied).
 export const TSUNAMI_EVERY = 3 // every 3rd wave cast
 
-// Seeker Blades (boomerang): outbound curve-toward-target turn rate at bonus=1.
-export const SEEKER_TURN_RATE = 2.5 // rad/s
 
 // Magnetic Mines: armed-mine crawl speed toward the nearest enemy at bonus=1.
 export const MINE_CRAWL_SPEED = 55 // px/s
@@ -2198,7 +2202,7 @@ export const TIDE_DMG_BONUS = 0.35 // tideCarried: tick damage bonus per pick
 // ---- Garden weapons (v5.3: Stinger + Pheromone Lure; Boomerang Leaf = boomerang re-theme) --------
 // Stinger (garden native, needle-cone — see WEAPONS.stinger + stepStingerWeapon in sim.js): each
 // needle is a run.bullets projectile tagged weapon:'stinger' so stepBullets can apply stinger-only
-// behaviour (venomTips) without touching star's split/chain/ricochet (disabled per-needle).
+// behaviour (venomTips) without touching star's split/chain (disabled per-needle).
 export const STINGER_R = 7            // px, needle hit radius (added to enemy radius)
 export const STINGER_HIVE_EVERY = 4   // hive (behavioral): every Nth volley fires in all directions
 // Pheromone Lure (garden native, taunt decoy + burst — see WEAPONS.lure + stepLureWeapon/stepLures
@@ -2249,7 +2253,7 @@ export const AMBUSH_R = 200 // px, player-to-trap radius that keeps ambushPredat
 
 // Quill Burst (undergrowth — see WEAPONS.quillBurst + stepQuillWeapon in sim.js): each quill is a
 // run.bullets projectile tagged weapon:'quill' so stepBullets applies quill-only behaviour without
-// touching star's split/chain/ricochet (all disabled per-quill, exactly like stinger's needles).
+// touching star's split/chain (both disabled per-quill, exactly like stinger's needles).
 export const QUILL_R = 8              // px, quill hit radius (added to enemy radius)
 // retaliate (behavioral): a burst also fires the instant the player TAKES contact/zone damage
 // (hurtPlayer), free of the weapon timer, at most once per QUILL_RETALIATE_CD seconds. Each pick
@@ -2366,12 +2370,6 @@ export const DEBRIS_R = 20            // px, base funnel hit radius. Was 14 whil
 // idle state stops reading as an orbit at all — which is the half of the weapon that was already
 // right. Small on purpose: snapping them into place looks mechanical.
 export const TORNADO_RESPACE = 1.2
-// flingDebris (behavioral): every TORNADO_FLING_EVERY seconds the tornado hurls <tier bonus> chunks
-// straight outward as run.bullets tagged weapon:'trash', at TORNADO_FLING_DMG_FRAC of chunk damage.
-export const TORNADO_FLING_EVERY = 1.5
-export const TORNADO_FLING_DMG_FRAC = 0.8
-export const TORNADO_FLING_SPEED = 430 // px/s
-export const TORNADO_FLING_RANGE = 260 // px before a flung chunk expires (life = range/speed)
 // Street Sweeper (sweepLoot, behavioral — v6.9, replaces the enemy-pulling `suction`): every gem
 // and coin within this of ANY funnel is marked `_vac`, exactly as wave.undertow marks its own, and
 // stepPickups then homes it to the player ignoring magnet range. Radius is per FUNNEL, not per
@@ -3096,7 +3094,9 @@ export const CHAPTERS = {
     },
   },
   undergrowth: {
-    name: 'The Undergrowth', tagline: 'the traps were already set', icon: '🐾',
+    // 🍄 not 🐾: the paw belongs to Claw Rake, this chapter's own starter weapon, and the two sit
+    // side by side on the brief screen and the pause sheet.
+    name: 'The Undergrowth', tagline: 'the traps were already set', icon: '🍄',
     weapons: ['clawRake', 'quillBurst', 'chitterShriek'], starter: 'clawRake',
     roster: [
       // v6.6.32: was a Cat. Replaced after seven rejected art revisions — a cat has no graphic

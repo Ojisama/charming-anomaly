@@ -2497,7 +2497,7 @@ function testStarMods() {
   console.log(`PASS run F (star mods): baseline dmg=${baseline.totalDmg} modded dmg=${modded.totalDmg} (no explosions — blast removed)`)
 }
 
-// Multishot/split/chain/ricochet: force all four maxed alongside pierce and check the
+// Multishot/split/chain: force all three maxed alongside pierce and check the
 // cumulative damage against a saturated target ring beats a pierce-only baseline (same
 // seed/duration), that split actually produces _shard bullets, and that at least one bullet
 // chain-retargeted (run._chains debug counter, see state.js bullets[] doc).
@@ -2531,7 +2531,7 @@ function testAdvancedStarMods() {
   }
 
   const baseline = runStarOnly({ pierce: 3 })
-  const advanced = runStarOnly({ pierce: 3, multishot: 3, split: 2, chain: 3, ricochet: 2 })
+  const advanced = runStarOnly({ pierce: 3, multishot: 3, split: 2, chain: 3 })
 
   assert(baseline.totalDmg > 0, `expected baseline total damage > 0, got ${baseline.totalDmg}`)
   assert(advanced.totalDmg > baseline.totalDmg,
@@ -2539,7 +2539,7 @@ function testAdvancedStarMods() {
   assert(advanced.sawShard, 'expected Split Stars to produce at least one _shard bullet')
   assert((advanced.run._chains ?? 0) > 0, `expected at least one Chain Stars retarget, got ${advanced.run._chains}`)
 
-  console.log(`PASS run F2 (multishot/split/chain/ricochet): baseline dmg=${baseline.totalDmg} advanced dmg=${advanced.totalDmg} chains=${advanced.run._chains} ricochets=${advanced.run._ricochets ?? 0}`)
+  console.log(`PASS run F2 (multishot/split/chain): baseline dmg=${baseline.totalDmg} advanced dmg=${advanced.totalDmg} chains=${advanced.run._chains}`)
 }
 
 // Elements + combos: (a) ignite DoT alone can finish a kill, (b) chill slows movement and
@@ -3467,40 +3467,6 @@ function testCrazyMods() {
     console.log(`PASS run O.4 (backhand): out=${outDmg} back=${backDmg}`)
   }
 
-  // 5. boomerang.seeker: an outbound boomerang's angle converges toward an off-axis enemy.
-  // Enemy placed very far away so the boomerang's own (short) travel barely shifts the bearing
-  // to it — isolating the steering effect from incidental position-drift geometry.
-  function testSeeker() {
-    const run = createRun(makeMeta())
-    // v6.4.3: this is an isolation test — its premise ("no enemies yet" while the boomerang
-    // fires) breaks once runs bank an opening spawn credit, so silence organic spawning like
-    // every other isolation scenario does (also skips the credit, which gates on spawnMul > 0).
-    run.mods.spawnMul = 0
-    run.weapons = [{ id: 'boomerang', level: 1 }]
-    run.weaponMods.boomerang.seeker = 1
-    run.player.x = 0; run.player.y = 0; run.player.facing = 1
-    let fired = false
-    const fireSteps = Math.round(2 / dt)
-    for (let i = 0; i < fireSteps && !fired; i++) {
-      stepSim(run, { x: 0, y: 0 }, dt) // no enemies yet -> baseAngle = facing = 0
-      if (run.boomerangs.length > 0) fired = true
-    }
-    assert(fired, 'expected the boomerang to fire')
-    const b = run.boomerangs[0]
-    const enemyAngle = b.angle + Math.PI / 2 // 90 degrees off its current heading
-    const ex = b.x + Math.cos(enemyAngle) * 3000
-    const ey = b.y + Math.sin(enemyAngle) * 3000
-    run.enemies.push(makeStatusEnemy(run, { x: ex, y: ey, hp: 1e6, speed: 0 }))
-    const angleDiff = (a, c) => Math.abs(Math.atan2(Math.sin(a - c), Math.cos(a - c)))
-    const diffBefore = angleDiff(b.angle, Math.atan2(ey - b.y, ex - b.x))
-    for (let i = 0; i < 50; i++) stepSim(run, { x: 0, y: 0 }, dt)
-    const bAfter = run.boomerangs.find((x) => x === b)
-    assert(bAfter, 'expected the boomerang to still be flying (out phase)')
-    const diffAfter = angleDiff(bAfter.angle, Math.atan2(ey - bAfter.y, ex - bAfter.x))
-    assert(diffAfter < diffBefore, `expected seeker angle diff to shrink (before=${diffBefore.toFixed(3)}, after=${diffAfter.toFixed(3)})`)
-    console.log(`PASS run O.5 (seeker): angleDiff before=${diffBefore.toFixed(3)} after=${diffAfter.toFixed(3)}`)
-  }
-
   // 6. mines.magnetic: an armed mine crawls toward a distant enemy (too far to trigger).
   function testMagneticMines() {
     const run = createRun(makeMeta())
@@ -3736,7 +3702,6 @@ function testCrazyMods() {
   testUndertow()
   testTsunami()
   testBackhand()
-  testSeeker()
   testMagneticMines()
   testChainReaction()
   testWispNova()
@@ -3873,13 +3838,13 @@ function testStarBalance() {
     console.log(`PASS run P.3 (power band): starPlain=${starPlain} star6=${star6} median-other=${median} strongest-other=${strongest} star6/median=${(star6 / median).toFixed(2)}x`)
   }
 
-  // --- Invariant 4: compounding bound. The F2 stack (multishot/split/chain/ricochet on top of
+  // --- Invariant 4: compounding bound. The F2 stack (multishot/split/chain on top of
   // pierce) must stay under an 8x runaway over its own pierce-only baseline.
   // (blast removed v4.6 — both sides of the ratio lost it.)
   {
     const level = 3
     const baseline = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3 }))
-    const advanced = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, multishot: 3, split: 2, chain: 3, ricochet: 2 }))
+    const advanced = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, multishot: 3, split: 2, chain: 3 }))
     const ratio = advanced / baseline
     assert(advanced > baseline, `expected advanced star mods to still beat the pierce-only baseline (adv=${advanced}, base=${baseline})`)
     assert(ratio <= 8.0, `expected star compounding <= 8x its pierce-only baseline, got ${ratio.toFixed(2)}x`)
@@ -5703,7 +5668,7 @@ function testV54Signatures() {
     const speed = 480
     run.bullets.push({
       x: -150, y: 0, vx: speed, vy: 0, dmg: 1, pierce: 1, life: 5, r: 10, speed,
-      hitIds: new Set(), weapon: 'quill', _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      hitIds: new Set(), weapon: 'quill', _shard: false, _splitDone: true, _chainsLeft: 0,
     })
     const b = run.bullets[0]
     let maxSpeedErr = 0
@@ -6257,7 +6222,7 @@ function testV54Weapons() {
   // only the idle state); prey inside `hunt` px of the PLAYER pulls one off the ring; a kill sends
   // it home. One funnel per foe — the claim in stepTornadoWeapon is load-bearing, not cosmetic: the
   // damage cooldown is per ENEMY, so a pack piled on one target throws away all but one funnel's
-  // damage. sweepLoot reels gems/coins in; flingDebris hurls chunks out as run.bullets 'trash'.
+  // damage. sweepLoot reels gems/coins in.
   {
     const lvl = WEAPONS.trashTornado.levels[MAX_WEAPON_LEVEL - 1]
     const onRing = (r, d) => Math.abs(Math.hypot(d.x - r.player.x, d.y - r.player.y) - lvl.radius) < 1e-6
@@ -6339,13 +6304,7 @@ function testV54Weapons() {
     assert(!unswept.vac, 'expected no _vac marking without the mod')
     assert(swept.closed > unswept.closed + 20,
       `expected the swept gem to reel in past magnet range (closed ${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
-
-    // flingDebris: chunks are hurled outward as bullets.
-    const fling = weaponRun('city', 'trashTornado')
-    fling.weaponMods.trashTornado.flingDebris = 2
-    stepQuiet(fling, 2.0)
-    assert(fling.bullets.some((b) => b.weapon === 'trash'), 'expected flingDebris to hurl chunks as weapon:trash bullets')
-    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px) + fling`)
+    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
   }
 
   // (e) burstHydrant: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.
@@ -6635,7 +6594,7 @@ function testV54Weapons() {
     rec.bullets.push({
       x: 0, y: 0, vx: 380, vy: 0, dmg: 13, pierce: 1, life: 0.02, r: 9, speed: 380,
       hitIds: new Set(), weapon: 'shard', _blinkCd: 99, _blinkEvery: 0.28, _blinkDist: 70, _life0: 0.8,
-      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      _shard: false, _splitDone: true, _chainsLeft: 0,
     })
     stepQuiet(rec, 0.05)
     const forks = rec.bullets.filter((b) => b._fork)
@@ -11020,6 +10979,7 @@ try {
   testRoadOff()
   testIntegerHP()
   testDetonationScaling()
+  testDescPlaceholder()
   testSubmission()
   testDevMenu()
   console.log('ALL TESTS PASSED')
@@ -12198,7 +12158,7 @@ function testUndergrowthRound() {
         _reboundPierce: o.pierce ?? 2,
         _reboundLife: life / QUILL_REBOUND_SPEED_MUL,
         _reboundSpeed: speed * QUILL_REBOUND_SPEED_MUL,
-        _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+        _shard: false, _splitDone: true, _chainsLeft: 0,
       }
       run.bullets.push(b)
       return b
@@ -12800,6 +12760,77 @@ function testDetonationScaling() {
       `Its detonation is dealing raw config damage — use applyDamage, not dealDamage.`)
     console.log(`PASS run VE (${label}): scales ${ratio.toFixed(4)}x with a 3x damage multiplier, flat residue ${Math.round(flat)}`)
   }
+}
+
+// ---- run VF: the {n} mod-desc placeholder --------------------------------------------------
+// A mod desc may carry {n} to place its amount MID-SENTENCE instead of taking the usual "+N "
+// head, because French wants that far more often than English does (« les piquants font 2
+// aller-retours »). The mechanism spans three files and every way it breaks is SILENT — the card
+// still renders, just wrongly:
+//   - a French value that drops the {n} loses the number entirely (the amount is interpolated
+//     AFTER translation, so nothing puts it back);
+//   - a French value that keeps {n} while its English key has none is never interpolated, and the
+//     player reads a literal "{n}" on the card;
+//   - ui.js composing its own "+N " head again (it did, in two places, and the comment claiming
+//     they matched "word for word" was a promise kept by hand) reintroduces the drift this
+//     collapsed, and no config-only assertion would see it.
+// ui.js is not importable here (DOM), so its half is a SOURCE tripwire — run UG.k's idiom.
+function testDescPlaceholder() {
+  // (a) English key and French value must agree about carrying the placeholder.
+  const mismatched = []
+  for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
+    for (const [mid, cfg] of Object.entries(mods)) {
+      if (!cfg.desc) continue
+      const fr = FR[cfg.desc]
+      if (fr === undefined) continue // dictionary COVERAGE is run XX's job, not this one's
+      if (cfg.desc.includes('{n}') !== fr.includes('{n}')) {
+        mismatched.push(`${wid}.${mid} (EN ${cfg.desc.includes('{n}') ? 'has' : 'lacks'} {n}, FR ${fr.includes('{n}') ? 'has' : 'lacks'} it)`)
+      }
+    }
+  }
+  assert.deepStrictEqual(mismatched, [],
+    `a {n} desc and its translation must agree: ${JSON.stringify(mismatched)} — the amount is interpolated AFTER translation, so a French value without {n} shows no number at all, and one with {n} against a plain English key prints a literal "{n}" on the card`)
+
+  // (b) The composed card: a placeholder desc must resolve, keep its number, and NOT also collect
+  //     the "+N " head (which would state the amount twice).
+  const want = new Set()
+  for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
+    for (const [mid, cfg] of Object.entries(mods)) if (cfg.desc?.includes('{n}')) want.add(`${wid}:${mid}`)
+  }
+  assert.ok(want.size >= 3,
+    `expected the {n} descs to still exist, found [${[...want]}] — if they were all reworded this scenario is dead weight and should be deleted rather than left passing vacuously`)
+
+  Math.random = mulberry32(20260810)
+  const seen = new Map()
+  const r = createRun(makeMeta(), { chapter: 'body' })
+  r.weapons = [...new Set([...want].map((k) => k.split(':')[0]))].map((id) => ({ id, level: 3 }))
+  for (let i = 0; i < 4000 && seen.size < want.size; i++) {
+    r._screenRerolls = -1
+    r._screenAnomaly = undefined
+    for (const c of buildLevelUpChoices(r)) {
+      if (c.kind === 'mod' && want.has(`${c.weapon}:${c.id}`)) seen.set(`${c.weapon}:${c.id}`, c)
+    }
+  }
+  assert.strictEqual(seen.size, want.size,
+    `never got a card for ${[...want].filter((k) => !seen.has(k))} — the fixture stopped offering them, so the assertions below would pass without testing anything`)
+  for (const [key, c] of seen) {
+    assert.ok(!/^\+[\d.]+%? /.test(c.desc),
+      `${key} carries {n} but its card still took a "+N " head ("${c.desc}") — the amount is stated twice`)
+    assert.ok(!c.desc.includes('{n}'), `${key} shipped an uninterpolated placeholder: "${c.desc}"`)
+    assert.ok(/\d/.test(c.desc), `${key} lost its number entirely: "${c.desc}"`)
+  }
+
+  // (c) ui.js renders BOTH surfaces through one composer, and that composer is placeholder-aware.
+  const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  assert.ok(/function modEffectText\(/.test(uiSrc),
+    'ui.js no longer defines modEffectText — the level-up card and the pause build sheet are composing "+N <phrase>" separately again, which is the drift it exists to prevent')
+  assert.ok(/includes\('\{n\}'\) \? tt\(/.test(uiSrc),
+    'modEffectText no longer routes a {n} desc through tt() — the placeholder would reach the player literally')
+  const callers = (uiSrc.match(/modEffectText\(/g) ?? []).length
+  assert.ok(callers >= 3,
+    `expected modEffectText to be DEFINED and used by both surfaces, found ${callers} mentions in ui.js`)
+
+  console.log(`PASS run VF ({n} desc placeholder): ${want.size} placeholder descs resolve with a number and no "+N " head, EN/FR agree on every mod, and ui.js composes both surfaces through one placeholder-aware helper`)
 }
 
 // ---- Run SB: the SUBMISSION anomaly (a killed elite turns and fights for you) -----------------

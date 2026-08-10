@@ -599,11 +599,10 @@ function generateWells(sig) {
  *               per-enemy funnel cooldown, the run.debris analogue of orbCd). }
  * bullets[i]: { x, y, vx, vy, dmg, pierce, life, r, speed, hitIds:Set<enemyId>,
  *               _shard (true for Split Stars shards; they never re-split), _splitDone,
- *               _chainsLeft (Chain Stars jumps remaining), _ricochetsLeft (Ricochet Stars
- *               bounces remaining) }. On a spend (pierce exhausted): chain re-target is tried
- *               first, ricochet bounce only if chain isn't available/found nothing (see
- *               tryChainBullet/tryRicochetBullet in sim.js). run._chains/_ricochets are debug
- *               counters incremented each time one of those triggers (not a render contract).
+ *               _chainsLeft (Chain Stars jumps remaining) }. On a spend (pierce exhausted) a
+ *               bullet re-targets the nearest not-yet-hit enemy if it has a jump left and finds
+ *               one (tryChainBullet in sim.js); otherwise it dies. run._chains is a debug counter
+ *               incremented on each jump (not a render contract).
  * novas[i]:   { x, y, r, maxR, dmg, knockback, life, hit:Set<enemyId> }  (r grows; render draws the ring)
  *             knockback (v4.3): always the weapon's normal positive value — novas push enemies
  *             back regardless of mods. (v6.4.8: Chemotaxis/wave.undertow no longer inverts this
@@ -619,13 +618,12 @@ function generateWells(sig) {
  *             the player every frame regardless of magnet range, until collected.
  *
  * v2 weapon entities (all sim-owned, render-drawn):
- * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set, hitR, backhandMul, seekerTurnRate }
+ * boomerangs[i]: { x, y, angle, phase:'out'|'back', dmg, hit:Set, hitR, backhandMul }
  *               (hit cleared at turnaround; hitR (v4.1) = BOOMERANG_HIT_R × (1 + boomerang.bigBlade
  *               bonus), snapshotted per throw — sim-internal collision radius, not required by
- *               render). backhandMul/seekerTurnRate (v4.3, see WEAPON_MODS.boomerang): also
- *               snapshotted per throw — backhandMul (= 1 + backhand bonus) multiplies dmg only
- *               while phase==='back'; seekerTurnRate (= SEEKER_TURN_RATE × seeker bonus, 0 = off)
- *               steers the travel angle toward the nearest enemy, 'out' phase only.
+ *               render). backhandMul (v4.3, see WEAPON_MODS.boomerang): also snapshotted per
+ *               throw — (= 1 + backhand bonus) multiplies dmg only while phase==='back'.
+ *               (Seeker Leaves, which steered the outbound leg, was cut on the owner's call.)
  * mines[i]:     { x, y, arm (s until armed), dmg, radius, small?, _detonate? }
  *               small (v4.1, optional): true for Cluster Bombs bomblets (see WEAPON_MODS.mines
  *               in config.js) — smaller/weaker mines popped from a mine's death; render draws
@@ -709,7 +707,7 @@ function generateWells(sig) {
  * stepLureWeapon/stepLures in sim.js):
  *   Stinger needles are ordinary run.bullets entries (see bullets[] above) but tagged
  *   weapon:'stinger' and _venomTips (snapshot of the venomTips mod — stepBullets injects 1 venom
- *   stack per hit when set), with star's split/chain/ricochet budgets zeroed so those never apply.
+ *   stack per hit when set), with star's split/chain budgets zeroed so those never apply.
  *   {type:'shoot', weapon:'stinger'}  a stinger volley fired.
  *   {type:'lure', x, y}               a Pheromone Lure decoy was planted (x,y = player, for sfx;
  *                                     the decoys live in run.lures above). A lure's burst emits an
@@ -1044,7 +1042,7 @@ function generateWells(sig) {
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
  * chunks and Debris Toss' splinters are all ordinary run.bullets entries tagged weapon:'quill' /
- * 'shard' / 'trash' / 'debris' (star's split/chain/ricochet budgets zeroed, exactly like the
+ * 'shard' / 'trash' / 'debris' (star's split/chain budgets zeroed, exactly like the
  * stinger's needles); the Chitter Shriek is a run.novas entry carrying `fear` (s); the Pulsar
  * Beam is a run.beams entry carrying `swept: true` + `arms` (n arms evenly around the circle,
  * sweeping together) + `collapseBonus`. New events:
@@ -1495,6 +1493,5 @@ export function createRun(meta, opts = {}) {
     _waveCasts: 0,
     // Debug counters only (see bullets[] doc above) — not consumed by render/main.
     _chains: 0,
-    _ricochets: 0,
   }
 }
