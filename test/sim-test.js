@@ -2453,7 +2453,7 @@ function testStarMods() {
   console.log(`PASS run F (star mods): baseline dmg=${baseline.totalDmg} modded dmg=${modded.totalDmg} (no explosions — blast removed)`)
 }
 
-// Multishot/split/chain/ricochet: force all four maxed alongside pierce and check the
+// Multishot/split/chain: force all three maxed alongside pierce and check the
 // cumulative damage against a saturated target ring beats a pierce-only baseline (same
 // seed/duration), that split actually produces _shard bullets, and that at least one bullet
 // chain-retargeted (run._chains debug counter, see state.js bullets[] doc).
@@ -2487,7 +2487,7 @@ function testAdvancedStarMods() {
   }
 
   const baseline = runStarOnly({ pierce: 3 })
-  const advanced = runStarOnly({ pierce: 3, multishot: 3, split: 2, chain: 3, ricochet: 2 })
+  const advanced = runStarOnly({ pierce: 3, multishot: 3, split: 2, chain: 3 })
 
   assert(baseline.totalDmg > 0, `expected baseline total damage > 0, got ${baseline.totalDmg}`)
   assert(advanced.totalDmg > baseline.totalDmg,
@@ -2495,7 +2495,7 @@ function testAdvancedStarMods() {
   assert(advanced.sawShard, 'expected Split Stars to produce at least one _shard bullet')
   assert((advanced.run._chains ?? 0) > 0, `expected at least one Chain Stars retarget, got ${advanced.run._chains}`)
 
-  console.log(`PASS run F2 (multishot/split/chain/ricochet): baseline dmg=${baseline.totalDmg} advanced dmg=${advanced.totalDmg} chains=${advanced.run._chains} ricochets=${advanced.run._ricochets ?? 0}`)
+  console.log(`PASS run F2 (multishot/split/chain): baseline dmg=${baseline.totalDmg} advanced dmg=${advanced.totalDmg} chains=${advanced.run._chains}`)
 }
 
 // Elements + combos: (a) ignite DoT alone can finish a kill, (b) chill slows movement and
@@ -3423,40 +3423,6 @@ function testCrazyMods() {
     console.log(`PASS run O.4 (backhand): out=${outDmg} back=${backDmg}`)
   }
 
-  // 5. boomerang.seeker: an outbound boomerang's angle converges toward an off-axis enemy.
-  // Enemy placed very far away so the boomerang's own (short) travel barely shifts the bearing
-  // to it — isolating the steering effect from incidental position-drift geometry.
-  function testSeeker() {
-    const run = createRun(makeMeta())
-    // v6.4.3: this is an isolation test — its premise ("no enemies yet" while the boomerang
-    // fires) breaks once runs bank an opening spawn credit, so silence organic spawning like
-    // every other isolation scenario does (also skips the credit, which gates on spawnMul > 0).
-    run.mods.spawnMul = 0
-    run.weapons = [{ id: 'boomerang', level: 1 }]
-    run.weaponMods.boomerang.seeker = 1
-    run.player.x = 0; run.player.y = 0; run.player.facing = 1
-    let fired = false
-    const fireSteps = Math.round(2 / dt)
-    for (let i = 0; i < fireSteps && !fired; i++) {
-      stepSim(run, { x: 0, y: 0 }, dt) // no enemies yet -> baseAngle = facing = 0
-      if (run.boomerangs.length > 0) fired = true
-    }
-    assert(fired, 'expected the boomerang to fire')
-    const b = run.boomerangs[0]
-    const enemyAngle = b.angle + Math.PI / 2 // 90 degrees off its current heading
-    const ex = b.x + Math.cos(enemyAngle) * 3000
-    const ey = b.y + Math.sin(enemyAngle) * 3000
-    run.enemies.push(makeStatusEnemy(run, { x: ex, y: ey, hp: 1e6, speed: 0 }))
-    const angleDiff = (a, c) => Math.abs(Math.atan2(Math.sin(a - c), Math.cos(a - c)))
-    const diffBefore = angleDiff(b.angle, Math.atan2(ey - b.y, ex - b.x))
-    for (let i = 0; i < 50; i++) stepSim(run, { x: 0, y: 0 }, dt)
-    const bAfter = run.boomerangs.find((x) => x === b)
-    assert(bAfter, 'expected the boomerang to still be flying (out phase)')
-    const diffAfter = angleDiff(bAfter.angle, Math.atan2(ey - bAfter.y, ex - bAfter.x))
-    assert(diffAfter < diffBefore, `expected seeker angle diff to shrink (before=${diffBefore.toFixed(3)}, after=${diffAfter.toFixed(3)})`)
-    console.log(`PASS run O.5 (seeker): angleDiff before=${diffBefore.toFixed(3)} after=${diffAfter.toFixed(3)}`)
-  }
-
   // 6. mines.magnetic: an armed mine crawls toward a distant enemy (too far to trigger).
   function testMagneticMines() {
     const run = createRun(makeMeta())
@@ -3692,7 +3658,6 @@ function testCrazyMods() {
   testUndertow()
   testTsunami()
   testBackhand()
-  testSeeker()
   testMagneticMines()
   testChainReaction()
   testWispNova()
@@ -3829,13 +3794,13 @@ function testStarBalance() {
     console.log(`PASS run P.3 (power band): starPlain=${starPlain} star6=${star6} median-other=${median} strongest-other=${strongest} star6/median=${(star6 / median).toFixed(2)}x`)
   }
 
-  // --- Invariant 4: compounding bound. The F2 stack (multishot/split/chain/ricochet on top of
+  // --- Invariant 4: compounding bound. The F2 stack (multishot/split/chain on top of
   // pierce) must stay under an 8x runaway over its own pierce-only baseline.
   // (blast removed v4.6 — both sides of the ratio lost it.)
   {
     const level = 3
     const baseline = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3 }))
-    const advanced = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, multishot: 3, split: 2, chain: 3, ricochet: 2 }))
+    const advanced = measureDamage('star', level, (r) => Object.assign(r.weaponMods.star, { pierce: 3, multishot: 3, split: 2, chain: 3 }))
     const ratio = advanced / baseline
     assert(advanced > baseline, `expected advanced star mods to still beat the pierce-only baseline (adv=${advanced}, base=${baseline})`)
     assert(ratio <= 8.0, `expected star compounding <= 8x its pierce-only baseline, got ${ratio.toFixed(2)}x`)
@@ -5659,7 +5624,7 @@ function testV54Signatures() {
     const speed = 480
     run.bullets.push({
       x: -150, y: 0, vx: speed, vy: 0, dmg: 1, pierce: 1, life: 5, r: 10, speed,
-      hitIds: new Set(), weapon: 'quill', _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      hitIds: new Set(), weapon: 'quill', _shard: false, _splitDone: true, _chainsLeft: 0,
     })
     const b = run.bullets[0]
     let maxSpeedErr = 0
@@ -6447,7 +6412,7 @@ function testV54Weapons() {
     rec.bullets.push({
       x: 0, y: 0, vx: 380, vy: 0, dmg: 13, pierce: 1, life: 0.02, r: 9, speed: 380,
       hitIds: new Set(), weapon: 'shard', _blinkCd: 99, _blinkEvery: 0.28, _blinkDist: 70, _life0: 0.8,
-      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      _shard: false, _splitDone: true, _chainsLeft: 0,
     })
     stepQuiet(rec, 0.05)
     const forks = rec.bullets.filter((b) => b._fork)
@@ -12008,7 +11973,7 @@ function testUndergrowthRound() {
         _reboundPierce: o.pierce ?? 2,
         _reboundLife: life / QUILL_REBOUND_SPEED_MUL,
         _reboundSpeed: speed * QUILL_REBOUND_SPEED_MUL,
-        _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+        _shard: false, _splitDone: true, _chainsLeft: 0,
       }
       run.bullets.push(b)
       return b

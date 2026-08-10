@@ -63,13 +63,12 @@ import {
   STAR_LIFE, STAR_R, STAR_FAN, ORB_R, NOVA_LIFE,
   STAR_SPLIT_DMG_FRAC, STAR_SPLIT_BASE_ANGLE, STAR_SPLIT_MAX_SPREAD,
   STAR_CHAIN_RANGE, STAR_CHAIN_DMG_MUL, STAR_CHAIN_EXTRA_LIFE,
-  STAR_RICOCHET_DMG_MUL, STAR_RICOCHET_ANGLE_MIN, STAR_RICOCHET_ANGLE_MAX, STAR_RICOCHET_EXTRA_LIFE,
   HOLE_CORE_FRAC, HOLE_RIM_PULL_MUL, HOLE_RESIST_CAP, HOLE_SPIRAL_MUL,
   HOLE_CORE_DMG_MUL, HOLE_PULL_DECAY,
   ORBIT_TWIN_RING_RADIUS_FRAC, WAVE_ECHO_DELAY, WAVE_ECHO_DMG_FRAC,
   MINE_CLUSTER_DMG_FRAC, MINE_CLUSTER_RADIUS_FRAC, MINE_CLUSTER_ARM,
   MINE_CLUSTER_SCATTER_MIN, MINE_CLUSTER_SCATTER_MAX, MINE_STUN, HOLE_SINGULARITY_FRAC,
-  ORBIT_NOVA_RADIUS, UNDERTOW_VAC_RADIUS_PER_STACK, TSUNAMI_EVERY, SEEKER_TURN_RATE,
+  ORBIT_NOVA_RADIUS, UNDERTOW_VAC_RADIUS_PER_STACK, TSUNAMI_EVERY,
   MINE_CRAWL_SPEED, WISP_NOVA_RADIUS, SWARM_DMG_FRAC, SWARM_LIFE, CRUNCH_DMG_MUL,
   STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
   CHILL_SLOW_BASE, CHILL_SLOW_PER_POTENCY, CHILL_SLOW_CAP, CHILL_DURATION,
@@ -4132,7 +4131,6 @@ function fireStar(run, stats) {
   const count = ipecacN(run, stats.count + (run.weaponMods.star?.multishot ?? 0))
   const pierce = stats.pierce + (run.weaponMods.star?.pierce ?? 0)
   const chainsLeft = run.weaponMods.star?.chain ?? 0
-  const ricochetsLeft = run.weaponMods.star?.ricochet ?? 0
   for (let i = 0; i < count; i++) {
     const angle = baseAngle + (i - (count - 1) / 2) * STAR_FAN
     run.bullets.push({
@@ -4143,12 +4141,11 @@ function fireStar(run, stats) {
       pierce,
       life: STAR_LIFE,
       r: STAR_R,
-      speed: stats.speed, // kept so chain/ricochet redirects preserve the original travel speed
+      speed: stats.speed, // kept so a chain redirect preserves the original travel speed
       hitIds: new Set(),
       _shard: false,
       _splitDone: false,
       _chainsLeft: chainsLeft,
-      _ricochetsLeft: ricochetsLeft,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'star' })
@@ -4156,7 +4153,7 @@ function fireStar(run, stats) {
 
 // Split Stars: actual shard count = run.weaponMods.star.split + 1 (0 picks = no split; see
 // WEAPON_MODS doc in config.js). Shards are plain bullets flagged _shard so they never re-split, but they
-// still carry a fresh chain/ricochet budget off run.weaponMods.star, same as any other bullet.
+// still carry a fresh chain budget off run.weaponMods.star, same as any other bullet.
 function splitCountFor(run) {
   const picks = run.weaponMods.star?.split ?? 0
   return picks > 0 ? picks + 1 : 0
@@ -4166,7 +4163,6 @@ function spawnSplitShards(run, b, hitEnemy, shardCount) {
   const baseAngle = Math.atan2(b.vy, b.vx)
   const spreadTotal = shardCount <= 2 ? STAR_SPLIT_BASE_ANGLE * 2 : STAR_SPLIT_MAX_SPREAD
   const chainsLeft = run.weaponMods.star?.chain ?? 0
-  const ricochetsLeft = run.weaponMods.star?.ricochet ?? 0
   const shardDmg = b.dmg * STAR_SPLIT_DMG_FRAC
   for (let i = 0; i < shardCount; i++) {
     const offset = shardCount > 1 ? -spreadTotal / 2 + i * (spreadTotal / (shardCount - 1)) : 0
@@ -4176,7 +4172,7 @@ function spawnSplitShards(run, b, hitEnemy, shardCount) {
       vx: Math.cos(angle) * b.speed,
       vy: Math.sin(angle) * b.speed,
       dmg: shardDmg,
-      pierce: 1, // shards die on their first hit unless chain/ricochet picks keep them alive
+      pierce: 1, // shards die on their first hit unless chain picks keep them alive
       life: STAR_LIFE,
       r: STAR_R,
       speed: b.speed,
@@ -4184,14 +4180,12 @@ function spawnSplitShards(run, b, hitEnemy, shardCount) {
       _shard: true,
       _splitDone: true,
       _chainsLeft: chainsLeft,
-      _ricochetsLeft: ricochetsLeft,
     })
   }
 }
 
 // Chain Stars: when a bullet's pierce is exhausted, re-target the nearest not-yet-hit enemy
 // within STAR_CHAIN_RANGE of the last hit and keep flying (damage decays per jump).
-// @returns true if the bullet was redirected (caller should not also try ricochet).
 function tryChainBullet(run, b, fromEnemy) {
   const rangeSq = STAR_CHAIN_RANGE * STAR_CHAIN_RANGE
   let target = null
@@ -4216,23 +4210,6 @@ function tryChainBullet(run, b, fromEnemy) {
   b.life = Math.max(b.life, STAR_CHAIN_EXTRA_LIFE)
   run._chains = (run._chains ?? 0) + 1
   return true
-}
-
-// Ricochet Stars: once a spent bullet has no chain jumps left (or none targetable), bounce it
-// off in a random new direction instead of letting it die.
-function tryRicochetBullet(run, b) {
-  b._ricochetsLeft--
-  const curAngle = Math.atan2(b.vy, b.vx)
-  const sign = Math.random() < 0.5 ? -1 : 1
-  const turn = sign * (STAR_RICOCHET_ANGLE_MIN + Math.random() * (STAR_RICOCHET_ANGLE_MAX - STAR_RICOCHET_ANGLE_MIN))
-  const newAngle = curAngle + turn
-  b.vx = Math.cos(newAngle) * b.speed
-  b.vy = Math.sin(newAngle) * b.speed
-  b.dmg *= STAR_RICOCHET_DMG_MUL
-  b.pierce = 1
-  b.hitIds.clear() // allow re-hits after bouncing away; bounce count itself caps any loop
-  b.life = Math.max(b.life, STAR_RICOCHET_EXTRA_LIFE)
-  run._ricochets = (run._ricochets ?? 0) + 1
 }
 
 function stepBullets(run, dt) {
@@ -4281,13 +4258,9 @@ function stepBullets(run, dt) {
       }
     }
 
-    // Resolution order once a bullet is spent this frame: chain re-target first, ricochet
-    // bounce only if chain isn't available/found a target.
-    if (justHit && b.pierce <= 0) {
-      if (!(b._chainsLeft > 0 && tryChainBullet(run, b, justHit)) && b._ricochetsLeft > 0) {
-        tryRicochetBullet(run, b)
-      }
-    }
+    // A spent bullet re-targets if it has a chain jump left and something to jump to; otherwise
+    // it dies at the end of the loop like any other.
+    if (justHit && b.pierce <= 0 && b._chainsLeft > 0) tryChainBullet(run, b, justHit)
     // ... and a quill that ran out of PIERCE turns around, the same as one that ran out of flight.
     // It has to be caught HERE, after the hit scan and before the end-of-loop filter, because that
     // filter drops `pierce <= 0` just as surely as it drops `life <= 0` — checking at the top of the
@@ -4518,7 +4491,6 @@ function fireBoomerang(run, stats) {
   // Backhand/Seeker: also snapshotted per boomerang at throw time (same reasoning as Undertow —
   // mid-run picks shouldn't retroactively change blades already in flight).
   const backhandMul = 1 + (run.weaponMods.boomerang?.backhand ?? 0)
-  const seekerTurnRate = SEEKER_TURN_RATE * (run.weaponMods.boomerang?.seeker ?? 0)
   for (let i = 0; i < count; i++) {
     const angle = count > 1 ? baseAngle - BOOMERANG_FAN + i * step : baseAngle
     run.boomerangs.push({
@@ -4526,35 +4498,16 @@ function fireBoomerang(run, stats) {
       angle, phase: 'out',
       dmg: stats.dmg, hit: new Set(),
       speed: stats.speed, range: stats.range, hitR,
-      backhandMul, seekerTurnRate,
+      backhandMul,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'boomerang' })
-}
-
-// Seeker Blades: steer an outbound ('out' phase only) boomerang's travel angle toward the
-// nearest enemy, same clamped-turn approach as homing wisps.
-function steerSeekerBoomerang(run, b, dt) {
-  let target = null
-  let bestSq = Infinity
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    const dx = e.x - b.x, dy = e.y - b.y
-    const dSq = dx * dx + dy * dy
-    if (dSq < bestSq) { bestSq = dSq; target = e }
-  }
-  if (!target) return
-  const desired = Math.atan2(target.y - b.y, target.x - b.x)
-  const diff = Math.atan2(Math.sin(desired - b.angle), Math.cos(desired - b.angle))
-  const maxTurn = b.seekerTurnRate * dt
-  b.angle += Math.max(-maxTurn, Math.min(maxTurn, diff))
 }
 
 function stepBoomerangs(run, dt) {
   const p = run.player
   for (const b of run.boomerangs) {
     if (b.phase === 'out') {
-      if (b.seekerTurnRate > 0) steerSeekerBoomerang(run, b, dt)
       b.x += Math.cos(b.angle) * b.speed * dt
       b.y += Math.sin(b.angle) * b.speed * dt
       const traveled = Math.hypot(b.x - b.ox, b.y - b.oy)
@@ -5400,7 +5353,7 @@ function stepBlooms(run, dt) {
 // Every `rate` seconds (rapid divides that interval, like the global fire rate) fires a tight cone
 // of `count` needle projectiles into run.bullets, aimed at the nearest enemy. Needles reuse the
 // bullet system (stepBullets) but are tagged weapon:'stinger' and carry disabled split/chain/
-// ricochet budgets so star's mods never touch them. longNeedles scales range AND speed; venomTips
+// chain budgets so star's mods never touch them. longNeedles scales range AND speed; venomTips
 // injects a venom stack per needle hit (stepBullets); hive fires the whole volley in all directions
 // every STINGER_HIVE_EVERY-th cast.
 function stepStingerWeapon(run, w, stats, fireRateMul, dt) {
@@ -5450,7 +5403,7 @@ function fireStinger(run, stats) {
       weapon: 'stinger',
       _venomTips: venomOn,
       // Disable star's bullet behaviours on needles (they share run.bullets/stepBullets).
-      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      _shard: false, _splitDone: true, _chainsLeft: 0,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'stinger' })
@@ -5630,7 +5583,7 @@ function stepClawSlashes(run, dt) {
 // -- Quill Burst (v5.4 undergrowth) -------------------------------------------------------
 // A ring of quills fired evenly around the FULL circle — never aimed: this is the panic button,
 // not the sniper. Each quill is a run.bullets entry tagged weapon:'quill' with star's split/chain/
-// ricochet budgets zeroed, exactly like the stinger's needles. longQuills scales range AND speed;
+// chain budgets zeroed, exactly like the stinger's needles. longQuills scales range AND speed;
 // rapidQuills divides the interval; retaliate fires a free (bigger) burst whenever the player is hit.
 function stepQuillWeapon(run, w, stats, fireRateMul, dt) {
   if (run._quillRetalCd > 0) run._quillRetalCd = Math.max(0, run._quillRetalCd - dt)
@@ -5672,7 +5625,7 @@ function fireQuills(run, stats, count) {
       _reboundLife: life / QUILL_REBOUND_SPEED_MUL,  // same DISTANCE back, at the slower speed
       _reboundSpeed: speed * QUILL_REBOUND_SPEED_MUL,
       // Disable star's bullet behaviours on quills (they share run.bullets/stepBullets).
-      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      _shard: false, _splitDone: true, _chainsLeft: 0,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'quillBurst' })
@@ -5760,7 +5713,7 @@ function fireShriekSpines(run, stats, count) {
       // the shriek's stats, and reboundQuill()'s snapshot fields are deliberately absent here.
       _reboundsLeft: 0,
       // Disable star's bullet behaviours (they share run.bullets/stepBullets).
-      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      _shard: false, _splitDone: true, _chainsLeft: 0,
     })
   }
   // No event: the cast already pushed {type:'shriek'}, which SFX_FOR_EVENT maps to the 'shoot'
@@ -5928,7 +5881,7 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
           speed: TORNADO_FLING_SPEED,
           hitIds: new Set(),
           weapon: 'trash',
-          _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+          _shard: false, _splitDone: true, _chainsLeft: 0,
         })
       }
     }
@@ -6360,7 +6313,7 @@ function stepLobs(run, dt) {
         speed: LOB_SHRAPNEL_SPEED,
         hitIds: new Set(),
         weapon: 'debris',
-        _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+        _shard: false, _splitDone: true, _chainsLeft: 0,
       })
     }
   }
@@ -6400,7 +6353,7 @@ function fireShards(run, stats) {
       weapon: 'shard',
       _blinkCd: stats.blinkEvery, _blinkEvery: stats.blinkEvery, _blinkDist: stats.blinkDist,
       _life0: life, // recursion forks at a fraction of the ORIGINAL life, not what's left
-      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      _shard: false, _splitDone: true, _chainsLeft: 0,
     })
   }
   run.events.push({ type: 'shoot', weapon: 'realityShard' })
@@ -6450,7 +6403,7 @@ function tryShardRecursion(run, b) {
       _blinkCd: b._blinkEvery, _blinkEvery: b._blinkEvery, _blinkDist: b._blinkDist,
       _life0: (b._life0 ?? 1) * SHARD_RECURSE_LIFE_FRAC,
       _fork: true,
-      _shard: false, _splitDone: true, _chainsLeft: 0, _ricochetsLeft: 0,
+      _shard: false, _splitDone: true, _chainsLeft: 0,
     })
   }
 }
