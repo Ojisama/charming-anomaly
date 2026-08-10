@@ -1542,6 +1542,16 @@ export const REBOUND_MAX_PICKS = 2
 // comment offers an exemption list for that case; a literal costs less and keeps the sweep honest.
 const PRISM_DESC = 'sub-beams where the beam lands'
 const PRISM_DESC_DEEP = 'sub-beams where the beam lands, each splitting again'
+// ICON CONVENTION, and what the icon audit deliberately did NOT fix.
+// Mod icons are a vocabulary, not decoration: 📏 range, ⏩ rate, 🪭 cone width, 📡 radius,
+// ⏳ duration, 🔨/🗡️ damage, 🧲 pull, 🌺 twin, 💢 retaliate, 🔁 echo. The same glyph on the same
+// KIND of stat across weapons is the point — do not "de-duplicate" those. Separately, each
+// weapon's count mod ("more of them") reuses the weapon's own glyph; every weapon does this
+// exactly once, which is the check that caught Cytokine Burst showing 🌊 three times.
+// Left alone knowingly, because the pause build sheet stacks weapons, mods, elements, anomalies
+// and mutators together and these read fine in context: 🌀 means six things there (orbit spin,
+// cyclone, resonance, rift scar, Chaos Pact, Unstable Physics), 🪤 four, ⚡ four, 💥 nine. And
+// stinger.volley uses 🎯 for a COUNT while 🎯 is pierce on star and realityShard.
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
