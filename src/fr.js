@@ -321,7 +321,8 @@ const CONFIG = {
   'Every point of HP you lose detonates around you, harder as the run goes on.': 'Chaque point de PV que tu perds détone autour de toi, de plus en plus fort au fil de la partie.',
   'you bled, and the ground answered': 'tu as saigné, et le sol a répondu',
   'Chaos Pact': 'Pacte du Chaos',
-  'Every minute: 15s of +50% enemies, then +50% damage until the next one.': "Chaque minute : 15s avec +50% d'ennemis, puis +50% de dégâts jusqu'à la suivante.",
+  'Every 30s a 10s chaos wave brings +50% enemies. Survive one and keep +10% damage — for the rest of the run, every time.':
+    "Toutes les 30s, une vague de chaos de 10s amène +50% d'ennemis. Survis-en une et tu gardes +10% de dégâts — pour le reste de la partie, à chaque fois.",
   'you agreed to a rhythm you did not set': "tu as accepté un rythme que tu n'as pas choisi",
   'Deadfall': 'Chausse-Trappe',
   'Snap traps ignore you, and re-arm 5 times faster.': "Les pièges à mâchoires t'ignorent et se réarment 5 fois plus vite.",
@@ -332,11 +333,15 @@ const CONFIG = {
   'Time Debt': 'Dette Temporelle',
   'Everything arrives 50% sooner — enemies, elites, the ending. Gems pay +50% XP.': "Tout arrive 50% plus tôt — ennemis, élites, la fin. Les gemmes rapportent +50% d'XP.",
   'the clock started running against you': "l'horloge s'est mise à tourner contre toi",
+  'Submission': 'Soumission',
+  'Elites arrive three times as often — and the ones you kill turn instead of dying, fighting the swarm for 20s at 50% of your damage. Nothing you fire can touch them.':
+    'Les élites arrivent trois fois plus souvent — et celles que tu tues changent de camp au lieu de mourir : elles combattent l\'essaim pendant 20s pour 50% de tes dégâts. Tes tirs ne peuvent pas les toucher.',
+  'they only obey the strongest': "ils n'obéissent qu'au plus puissant",
   'Brittle': 'Fragile',
   'Your max HP becomes 1. Your damage is ×4.': 'Tes PV max tombent à 1. Tes dégâts passent à ×4.',
   'you traded every future hit for this one': 'tu as troqué tous les coups à venir contre celui-ci',
   'Overload': 'Surcharge',
-  '×2 fire rate and ×2 damage, for 0.75 HP every second.': 'Cadence de tir ×2 et dégâts ×2, contre 0,75 PV par seconde.',
+  '×2 fire rate and ×2 damage, for 1 HP every second.': 'Cadence de tir ×2 et dégâts ×2, contre 1 PV par seconde.',
   'you found the part of you that burns': 'tu as trouvé la part de toi qui brûle',
   'Blood Pact': 'Pacte de Sang',
   'You can never heal again. Every kill makes you permanently stronger — around ×2 by the end.': 'Tu ne peux plus jamais te soigner. Chaque victime te renforce définitivement — environ ×2 en fin de partie.',
@@ -357,7 +362,7 @@ const CONFIG = {
   'When a burning enemy dies, the fire jumps to the nearest one — up to 3 times.': "Quand un ennemi qui brûle meurt, le feu saute sur le plus proche — jusqu'à 3 fois.",
   'your fire found something worth spreading to': 'ton feu a trouvé vers quoi se propager',
   'Minimes': 'Mini-Moi',
-  'Copies of you peel off every 6s, pull the swarm away, and detonate.': "Des copies de toi se détachent toutes les 6s, attirent l'essaim au loin, puis explosent.",
+  'Copies of you peel off every 4s, pull the swarm away, and detonate.': "Des copies de toi se détachent toutes les 4s, attirent l'essaim au loin, puis explosent.",
   'there started being more of you than there was of you': "il s'est mis à y avoir plus de toi qu'il n'y avait de toi",
   // ---- v7.5 upgrade-pool cards ------------------------------------------------------
   // Same rules as the v7.2 slate above (composed keys — regenerate, never retype; French decimal

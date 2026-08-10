@@ -2,7 +2,7 @@
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
 import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
-import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout } from './sim.js'
+import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
@@ -22,6 +22,9 @@ let runMode = 'classic'
 // onBriefStart. Overwritten by the next Play if the player backs out via the nav (nothing was
 // created or spent, so abandoning it is free).
 let pendingPlay = null
+// The dev menu's current card list. ui.js hands back an INDEX into it, so it has to be the same
+// array the screen was rendered from — rebuilt on every open and every take (see onDevOpen).
+let devList = []
 
 // Spend boosters (cheapest-first affordability, ui already gates but belt-and-braces), create
 // the classic run with the EXACT mutators the briefing showed, and start it.
@@ -176,6 +179,32 @@ const ui = initUI({
     }
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
   },
+  // ---- hidden dev menu (v7.12) ----------------------------------------------------------
+  // Seven taps on the HUD coin badge. Pauses the run the same way the pause button does — the
+  // ticker keeps calling sync with dt 0, so the world is frozen and still drawn behind the modal.
+  // devCards is a read-only projection of what the pools COULD produce (sim.js), which is why the
+  // list is rebuilt on every open and after every take: a weapon already owned reads "Lv 3", not
+  // "New!".
+  onDevOpen() {
+    if (!run || run.phase !== 'playing') return
+    devList = devCards(run)
+    run.phase = 'paused'
+    ui.showScreen('dev', { cards: devList })
+  },
+  onDevTake(i) {
+    if (!run || run.phase !== 'paused') return
+    // subject stays null: applyChoice falls back to the first legal weapon on a SUBJECTED card
+    // (SPECIALIST), which is documented there and is the right default for a test menu — the
+    // chooser is a level-up-screen flow, not something to rebuild here.
+    devTake(run, devList[i])
+    devList = devCards(run)
+    ui.showScreen('dev', { cards: devList })
+  },
+  onDevClose() {
+    if (!run || run.phase !== 'paused') return
+    run.phase = 'playing'
+    ui.showScreen('hud')
+  },
   onDifficulty(d) {
     // Belt-and-braces with the UI: never let a locked level (above the SELECTED chapter's
     // maxDifficulty) stick, even if a stray click somehow got through disabled/no-op pips.
@@ -286,6 +315,11 @@ const SFX_FOR_EVENT = {
   shatter: 'explode', overload: 'explode', frostarc: 'zap', conduct: 'zap',
   // Revive Token firing reuses the levelup jingle — it's a "good news" beat, same register
   revive: 'levelup',
+  // SUBMISSION: an elite changing sides is the same register as a Revive — the run just went
+  // your way — so it borrows the same jingle. Its expiry deliberately gets NO sound: with 3x the
+  // elite cadence these fire often, and a chime every time a loan lapses is nagging, not feedback.
+  // (The kill sfx already plays at the turn itself, from the ordinary `kill` event.)
+  submission: 'levelup',
   // v5.8 kaiju redesign (skies): a structure destroyed by crushing — own sfx (audio.js), throttled
   // there like shoot/hit/zap so a rampage flattening dozens of structures a second doesn't machine-
   // gun the audio graph (design doc §2, "audio machine-gunning").

@@ -47,8 +47,10 @@ import {
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC,
   AVARICE_HEAL_CHANCE, AVARICE_HEAL_HP, AVARICE_COIN_DROP_MUL,
   BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, BLOOD_MONEY_ESCALATION,
+  SUBMISSION_ELITE_EVERY_MUL, SUBMISSION_DURATION, SUBMISSION_DMG_FRAC, SUBMISSION_HIT_EVERY,
+  SUBMISSION_STRIP_FLAGS,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
-  CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE, CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_MUL,
+  CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_PER_WAVE, chaosSurgeActive, chaosWavesSurvived,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
   MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
@@ -103,7 +105,8 @@ import {
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
   WEAVE_AMP, WEAVE_FREQ,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
-  FEAR_SPEED_MUL, SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
+  FEAR_SPEED_MUL, FEAR_REFRACTORY, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
+  SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
   // v5.4 city
   LINE_CHARGE_RANGE, LINE_CHARGE_TRACK_SPEED_MUL, LINE_CHARGE_LOCK_T, LINE_CHARGE_T,
@@ -215,6 +218,7 @@ export function stepSim(run, input, dt) {
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   stepEnemyMovement(run, dt)
+  stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
@@ -334,6 +338,11 @@ function applyAnomalyOnTake(run, id) {
   } else if (id === 'soyMilk') {
     p.fireRateMul *= SOY_MILK_FIRE_MUL
     p.damageMul *= SOY_MILK_DMG_MUL
+    // ...AND ITS CROWD CONTROL IS PRICED THE SAME WAY (v7.17). Without this the card's x5 rate buys
+    // five times the knockback, fear, chill and stun for free — measured as a 112px ring nothing
+    // crosses (see the CC_DR_* block in config.js). x0.2 here means the trade is honest in control
+    // as well as in dps: five times as many applications, each worth a fifth.
+    p.ccMul = (p.ccMul ?? 1) * SOY_MILK_DMG_MUL
   }
 }
 
@@ -415,7 +424,17 @@ function stepAnomalies(run, dt) {
     // per-second cost in this file has to bank the fraction; the floor exists so a real DoT tick
     // can never do nothing, and it turns any sub-1 drain into a catastrophe.
     // x dmgScale: the cost tracks the damage the card is preventing. See OVERLOAD_HP_PER_SEC.
-    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dmgScale(run.time) * dt
+    //
+    // AND x TIME_DEBT_MUL, on the RUN clock rather than the real one (v7.15). Without this the two
+    // cards anti-combo: TIME DEBT ends the run in 200 real seconds instead of 300, so a drain
+    // charged per REAL second collects only two thirds of the HP it would over a full run — the
+    // pair was a DISCOUNT on the card whose whole point is a cost. Charging per run-second makes
+    // the total identical to an undebted run and the per-real-second bite 1.5x, which is what
+    // "everything arrives 50% sooner" says on the TIME DEBT card. BERSERK's window above is
+    // deliberately NOT scaled: it is a 5s reward for being hit, not a cost, and shortening it is a
+    // nerf nobody asked for.
+    const clockDt = a.timeDebt ? dt * TIME_DEBT_MUL : dt
+    run._overloadAcc = (run._overloadAcc ?? 0) + OVERLOAD_HP_PER_SEC * dmgScale(run.time) * clockDt
     if (run._overloadAcc >= 1) {
       const spend = Math.floor(run._overloadAcc)
       run._overloadAcc -= spend
@@ -484,8 +503,10 @@ function anomalyDamageMul(run) {
     const ramp = Math.min(1, (run._stillT ?? 0) / STILLNESS_RAMP)
     mul *= 1 + (STILLNESS_MAX_MUL - 1) * ramp
   }
-  // CHAOS PACT: the payoff half of the cycle — everything after the spawn surge.
-  if (a.chaosPact && run.time % CHAOS_PACT_PERIOD >= CHAOS_PACT_SURGE) mul *= CHAOS_PACT_DMG_MUL
+  // CHAOS PACT: the ramp. Every wave SURVIVED is worth CHAOS_PACT_DMG_PER_WAVE, kept for the rest
+  // of the run — so this is read from the clock rather than accumulated on `run`, and a wave can
+  // never be double-counted by a paused or repeated frame.
+  if (a.chaosPact) mul *= 1 + chaosWavesSurvived(run.time) * CHAOS_PACT_DMG_PER_WAVE
   // BLOOD PACT: the snowball, accumulated in stepSim's kill accounting.
   if (a.bloodPact) mul *= 1 + (run._bloodPact ?? 0)
   return mul
@@ -654,10 +675,14 @@ function stepSpawning(run, dt) {
   // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
   // read-time). The payoff half is the damage multiplier in anomalyDamageMul.
-  const chaosMul = run.anomalies?.chaosPact && run.time % CHAOS_PACT_PERIOD < CHAOS_PACT_SURGE
-    ? CHAOS_PACT_SPAWN_MUL : 1
+  const chaosMul = run.anomalies?.chaosPact && chaosSurgeActive(run.time) ? CHAOS_PACT_SPAWN_MUL : 1
   run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * laneMul * chaosMul * dt
-  const cap = maxAliveFor(run.mods) // per-chapter density cap (v6.6.4) — see maxAliveFor
+  // SUBMISSION: your allies must not eat the swarm's spawn budget. They live in run.enemies,
+  // so without this the cap counts them and the game quietly spawns FEWER hostiles while an ally is
+  // out — a second, invisible buff on top of the card, and one that corrupts any kills-per-run
+  // measurement used to price it. Counted once here rather than inside the loop: the cap check runs
+  // per spawn, and an O(n) scan in there would make saturated frames O(n^2).
+  const cap = maxAliveFor(run.mods) + allyCount(run) // per-chapter density cap (v6.6.4) — see maxAliveFor
   while (run._spawnAcc >= 1 && run.enemies.length < cap) {
     run._spawnAcc -= 1
     spawnEnemy(run)
@@ -1199,7 +1224,7 @@ function freshEnemyFields() {
     bleed: 0, bleedDps: 0,
     // Status effects (v5.4, see the enemies[] contract in state.js): fear inverts the seek, stun
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
-    fearT: 0, stunT: 0, enrageT: 0,
+    fearT: 0, fearCd: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
   }
@@ -1210,7 +1235,12 @@ function freshEnemyFields() {
 // normal spawn-timer path in stepSpawning.
 function spawnEnemy(run, opts = {}) {
   const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
-  if (isElite) run._nextEliteAt += eliteEveryAt(run.time) * run.mods.eliteEveryMul
+  // SUBMISSION brings its own elites (config: SUBMISSION_ELITE_EVERY_MUL). Read-time, never
+  // written into run.mods — that table is the run's mutator product and must stay fixed.
+  if (isElite) {
+    run._nextEliteAt += eliteEveryAt(run.time) * run.mods.eliteEveryMul
+      * (run.anomalies?.submission ? SUBMISSION_ELITE_EVERY_MUL : 1)
+  }
 
   const type = opts.type ?? pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
   const base = ENEMIES[type]
@@ -1331,7 +1361,7 @@ function stepStragglers(run) {
   const spawnD = run.viewRadius + SPAWN_RING
   const dropSq = spawnD * KITE_DROP_MUL * (spawnD * KITE_DROP_MUL)
   for (const e of run.enemies) {
-    if (e._dead || (e.affixes && e.affixes.includes('anchored'))) continue
+    if (e._dead || isAlly(e) || (e.affixes && e.affixes.includes('anchored'))) continue   // SUBMISSION: never yank an ally off its fight
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy < dropSq) continue
     const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
@@ -1410,7 +1440,26 @@ function stepEnemyMovement(run, dt) {
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
-    if (hasLures) {
+    // SUBMISSION — THE RETARGET SEAM. This one line is what every movement machine below reads;
+    // they are handed a POINT and never see run.player, which is why pointing an ally at the
+    // nearest hostile makes seek, dash, charge, strafe, standoff, dive and pounce all aim correctly
+    // for one edit. The Pheromone Lure override just below is the existing precedent for an enemy
+    // seeking something that is not the player.
+    //   `_tgtX/_tgtY` is also what render reads to face the sprite: bearing is otherwise recomputed
+    // from run.player every frame, so an ally charging the swarm would draw walking BACKWARDS
+    // in all 32 roster looks, silently.
+    if (isAlly(e)) {
+      const foe = nearestHostile(run, e)
+      if (foe) { tx = foe.x; ty = foe.y }
+      e._tgtX = tx; e._tgtY = ty
+      // Your OWN Chitter Shriek applies fear to everything in run.enemies, which would send your
+      // ally running from the swarm you sent it into; the stun does the same in miniature. Both are
+      // read a few lines below, so clearing them here is the whole fix. Knockback and chill are
+      // deliberately left alone — a shove and a slow are what your nova visibly does.
+      e.fearT = 0; e.stunT = 0
+      // An ally is not tempted by your own decoys, and the straggler recycler must not yank it
+      // back to you mid-fight (stepStragglers exempts it the way `anchored` is exempted).
+    } else if (hasLures) {
       let bestSq = Infinity
       for (const lu of run.lures) {
         const ldx = lu.x - e.x, ldy = lu.y - e.y
@@ -1541,7 +1590,16 @@ function stepEnemyMovement(run, dt) {
     if (e.orbCd > 0) e.orbCd = Math.max(0, e.orbCd - dt)
     if (e._debrisCd > 0) e._debrisCd = Math.max(0, e._debrisCd - dt) // Trash Tornado's per-chunk cd
     // v5.4 status effects: tick down every frame, like invuln does for the player.
-    if (e.fearT > 0) e.fearT = Math.max(0, e.fearT - dt)
+    if (e.fearT > 0) {
+      e.fearT = Math.max(0, e.fearT - dt)
+      // Armed on the frame it EXPIRES, not on the frame it lands: arming at application would let a
+      // ring that re-fears at 99% of the duration keep the lock alive forever.
+      if (e.fearT === 0) e.fearCd = FEAR_REFRACTORY
+    } else if ((e.fearCd ?? 0) > 0) {
+      e.fearCd = Math.max(0, e.fearCd - dt)
+    }
+    // CC diminishing returns climb back to full over CC_DR_RECOVER seconds of not being controlled.
+    if ((e._ccDR ?? 1) < 1) e._ccDR = Math.min(1, (e._ccDR ?? 1) + dt / CC_DR_RECOVER)
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
@@ -2172,9 +2230,141 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
 // the flag's new home (city's patrol drone) is a ranged chapter, and circling/marking/striking
 // drones are ordinary, killable targets there. Only 'climb' keeps any special contact rule, and
 // that lives in contactHarmless below (a punish window, not a damage immunity).
+// SUBMISSION (v7.x): an ally is an ELITE THAT TURNED. It stays in run.enemies — that is the
+// whole point of the card's form ("the elite, turned"): every behaviour machine, telegraph, affix
+// and bake keeps working on it for free, because it is still the same entity in the same array.
+// `e.elite` deliberately STAYS TRUE. Clearing it to disable elite-only logic silently swaps the
+// texture (render.js swaps ant_elite -> ant) and pops the gold crown off mid-life.
+export function isAlly(e) { return (e.allyT ?? 0) > 0 }
+
+// How many of run.enemies are yours. Cheap and only ever non-zero under the anomaly, so the scan
+// costs nothing in a normal run.
+function allyCount(run) {
+  if (!run.anomalies?.submission) return 0
+  let n = 0
+  for (const e of run.enemies) if (isAlly(e) && !e._dead) n++
+  return n
+}
+
 function damageImmune(e) {
   if (e._phaseSolid === false) return true
+  // An ally takes nothing from anyone. This ONE clause buys two of the owner's rulings at
+  // once, because damageImmune is checked by dealDamage (3514), applyDamage (3659) AND
+  // contactHarmless (2186): your weapons cannot hurt your ally, and your ally cannot hurt you.
+  // Doing it here rather than at 26 separate damage loops is also what makes it impossible to
+  // miss one — a missed loop would not throw, it would just kill your ally and read as "the card
+  // does nothing".
+  if (isAlly(e)) return true
   return false
+}
+
+// The ally's target picker. Deliberately NOT nearestEnemy: that one is the PLAYER's aim
+// helper and is measured from the player, while an ally hunts from where IT stands.
+// ponytail: naive O(allies x enemies) scan, same shape and same ceiling as the seek at
+// stepEnemyMovement — upgrade path is the spatial hash that note already names.
+function nearestHostile(run, from) {
+  let best = null, bestSq = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || e === from) continue
+    const dx = e.x - from.x, dy = e.y - from.y
+    const dSq = dx * dx + dy * dy
+    if (dSq < bestSq) { bestSq = dSq; best = e }
+  }
+  return best
+}
+
+// SUBMISSION: the loan's clock, and the ally's only attack.
+//
+// CONTACT IS THE WHOLE ARSENAL, and that is not a simplification — it is what the roster actually
+// is. Pounce, dive, charge and strafe all resolve to stepContactDamage; of the four
+// run.enemyShots push sites three belong to The Blank's scripted boss, which has no elites at all.
+// So "it keeps its own attacks" comes down to this loop for every ally in the game bar one.
+//
+// Damage goes through applyDamage, not dealDamage: the spec grants 100% of your crit and the
+// player's damage scaling, and dealDamage skips the crit roll and the multipliers entirely — a
+// ally wired to it would deal flat unscaled damage and still look like it worked. Elements
+// ride along with applyDamage; that is deliberate (it fights with YOUR damage, elements included)
+// and worth knowing, because the spec does not mention it.
+//
+// EXPIRY DOES NOT ROUTE THROUGH THE DEATH BRANCH. It retires the body here instead, because that
+// branch would pay the elite's entire reward a second time. The volatile core is re-fired by hand
+// because it is the one gift that already damages the swarm — that is the Unstable Cores
+// interaction the spec names as this card's headline.
+// ponytail: splitter wisps, `split` children and the acid pool are NOT re-fired on expiry — they
+// spawn HOSTILE and would make your ally's death a gift to the swarm. Upgrade path is an allied
+// spawn (children inheriting allyT), which is a system, not a card.
+function stepSubmission(run, dt) {
+  if (!run.anomalies?.submission) return
+  // Snapshot the length: applyDamage below can kill a splitter/split enemy, which APPENDS to
+  // run.enemies mid-loop. That is the hazard MARTYR's queue and stepBombs' `chained` buffer both
+  // exist to dodge — children took the blast they were born into.
+  const n = run.enemies.length
+  for (let i = 0; i < n; i++) {
+    const e = run.enemies[i]
+    if (!e || e._dead || !isAlly(e)) continue
+    e.allyT -= dt
+    if (e.allyT <= 0) {
+      e.allyT = 0
+      e._dead = true
+      // The loan ending reuses `explode`, which already has a render case and an SFX entry —
+      // a bespoke `submissionend` was a dead event: nothing drew it and nothing played it.
+      run.events.push({ type: 'explode', x: e.x, y: e.y, radius: e.radius * 1.5 })
+      if (e.elite && e.affixes && e.affixes.includes('volatile')) {
+        run.bombs.push(volatileBomb(run, e.x, e.y))
+      }
+      continue
+    }
+    e._allyHitT = (e._allyHitT ?? 0) - dt
+    if (e._allyHitT > 0) continue
+    for (let j = 0; j < n; j++) {
+      const foe = run.enemies[j]
+      if (!foe || foe._dead || isAlly(foe) || foe === e) continue
+      const dx = foe.x - e.x, dy = foe.y - e.y
+      const rad = e.radius + foe.radius
+      if (dx * dx + dy * dy > rad * rad) continue
+      applyDamage(run, foe, e.dmg * SUBMISSION_DMG_FRAC)
+      e._allyHitT = SUBMISSION_HIT_EVERY
+      break
+    }
+  }
+}
+
+// v7.16: does this enemy shrug off weapon crowd control — the sector sweeps' knockback, a nova's
+// knockback, and fear? Two sources, one meaning: the `anchored` ELITE AFFIX (which already had
+// every knockback immunity and now gains fear) and the `unshakeable` ROSTER FLAG carried by one
+// tank per chapter. Deliberately narrower than `anchored`'s other uses — this does NOT exempt an
+// enemy from hole pull, the straggler teleport, traffic or a hydrant launch, which are hazards
+// rather than the crowd control the machine-gun lock was built out of. See FEAR_REFRACTORY.
+function resistsCC(e) {
+  return !!(e.affixes && e.affixes.includes('anchored')) ||
+         !!(e.flags && e.flags.includes('unshakeable'))
+}
+
+// GLOBAL CROWD-CONTROL PRICING (v7.17) — see the CC_DR_* block in config.js for the measurements
+// and the argument. Two multipliers, read together at every player-sourced CC site:
+//   ccScale(run, e) — the price of controlling THIS enemy right now (per-enemy diminishing returns
+//     x the player's own ccMul). Read it ONCE per hit and scale every effect of that hit by it, so
+//     a nova that both fears and knocks back charges one application rather than two.
+//   spendCC(run, e) — call once, after applying, to charge for it.
+// A hit that lands with the enemy fully recovered is at FULL strength: this taxes CADENCE, not
+// weapons. resistsCC enemies are already excluded upstream and never reach these.
+function ccScale(run, e) {
+  // Every effect landing on the same enemy on the same frame reads the SAME pre-spend value. Order
+  // within a cast is otherwise load-bearing: the roar's shove spent first, so its stagger read the
+  // already-halved resistance and staggered for half as long as the shove shoved.
+  const dr = e._ccSpentAt === run.time ? (e._ccDRPre ?? 1) : (e._ccDR ?? 1)
+  return dr * (run.player.ccMul ?? 1)
+}
+// ONCE PER FRAME PER ENEMY, not once per effect. A single cast often lands several controls on the
+// same enemy on the same frame — a roar shoves AND staggers, a shriek ring fears AND knocks back —
+// and charging each one separately halved the resistance two or three times for one swing. That is
+// not a cadence tax, it is a tax on having a rich weapon: the roar's stagger mod measured 0.04s of
+// stun and the suite caught it. Same-frame calls after the first are free.
+function spendCC(run, e) {
+  if (e._ccSpentAt === run.time) return
+  e._ccSpentAt = run.time
+  e._ccDRPre = e._ccDR ?? 1
+  e._ccDR = Math.max(CC_DR_FLOOR, (e._ccDR ?? 1) * CC_DR_STEP)
 }
 
 // v5.4: is this enemy harmless to touch right now? The mirror of damageImmune (an enemy that can't
@@ -2191,7 +2381,10 @@ function contactHarmless(e) {
   // lineCharge's 'stall' on the next line. 'circle'/'mark'/'strike' are ordinary: hittable AND able
   // to hit you, like any other enemy.
   if (e._airState === 'climb') return true
-  if ((e.stunT || 0) > 0 || (e.fearT || 0) > 0) return true
+  // v7.16: STUN still disarms, FEAR no longer does. A feared enemy runs from you, but one pinned
+  // against the crowd behind it is still a threat — half of the machine-gun lock was that a
+  // permanent field-wide fear made every enemy on screen literally unable to touch you.
+  if ((e.stunT || 0) > 0) return true
   if (e._pounceState === 'land' || e._chargeState === 'stall') return true
   return false
 }
@@ -3210,7 +3403,7 @@ function stepLanePasses(run, dt) {
       // For a normal hit, invuln makes "once per pass" implicit, the way contact damage does.
     }
     for (const e of run.enemies) {
-      if (e._dead || lane.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || lane.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
       if (!inCar(e.x, e.y, e.radius)) continue
       lane.hitIds.add(e.id) // one hit per enemy per pass
       // EVERY enemy takes lane.enemyFrac of its OWN max hp — drones, rats and elites alike — so a
@@ -3556,7 +3749,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
       if (budget > 0) {
         let best = null, bestSq = WILDFIRE_JUMP_R * WILDFIRE_JUMP_R
         for (const e of run.enemies) {
-          if (e._dead || e === enemy || e.ignite > 0) continue   // already lit: spend the jump on new ground
+          if (e._dead || isAlly(e) || e === enemy || e.ignite > 0) continue   // already lit (or yours): spend the jump on new ground
           const dx = e.x - enemy.x, dy = e.y - enemy.y
           const dSq = dx * dx + dy * dy
           if (dSq < bestSq) { bestSq = dSq; best = e }
@@ -3644,6 +3837,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
         look: 'erase', variant: 'residue',
       })
     }
+
+    // SUBMISSION: an elite under this card dies completely normally here — its kill, its 4x xp gem,
+    // its 8 coins, its _eliteKills, its blood-pact stacks and every on-death affix (the volatile
+    // core, the splitter wisps, the acid pool). The whole card is what happens NEXT.
+    //   THE TURN ITSELF IS NOT HERE. It runs in turnDeadElites, at the very end of the frame —
+    // see there for why clearing _dead inside this branch was wrong.
   }
 }
 
@@ -3701,11 +3900,18 @@ function applyIgnite(enemy, potency, dmgDealt) {
 }
 
 // Shared by the primary hit and Frost Arc's arc targets.
-function applyChill(enemy, potency) {
+function applyChill(run, enemy, potency) {
   const wasChilling = enemy.chill > 0 && enemy.frozen <= 0
-  const slow = Math.min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency)
+  // v7.17: the SLOW is diminished like every other control (owner's call — it is what stops the
+  // crowd closing the gap between two knockbacks, so leaving it out leaves most of the ring
+  // standing). The chill WINDOW is not scaled: a shorter window would just re-arm the freeze
+  // stack faster. `resistsCC` enemies take the damage and the DoT and no slow at all.
+  if (resistsCC(enemy)) return
+  const k = ccScale(run, enemy)
+  const slow = Math.min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency) * k
   enemy.chill = CHILL_DURATION
   if (enemy.frozen > 0) return // already frozen; window refreshed, no restacking needed
+  spendCC(run, enemy)
 
   if (enemy._freezeImmuneT > 0) {
     enemy.chillSlow = slow
@@ -3721,7 +3927,7 @@ function applyChill(enemy, potency) {
       enemy.chillSlow = Math.min(1, slow * ELITE_FREEZE_SLOW_MUL)
     } else {
       enemy.chillSlow = slow
-      enemy.frozen = FREEZE_DURATION
+      enemy.frozen = FREEZE_DURATION * k
     }
   } else {
     enemy.chillSlow = slow
@@ -3801,7 +4007,7 @@ function applyShock(run, enemy, potency, dmgDealt) {
     if (t.ignite > 0 && comboReady(t, 'overload')) triggerOverload(run, t)
 
     if (sourceChilled && comboReady(enemy, 'frostarc')) {
-      applyChill(t, potency)
+      applyChill(run, t, potency)
       frostPoints.push([t.x, t.y])
     }
     if (sourceVenomStacks > 0 && comboReady(enemy, 'conduct')) {
@@ -3837,7 +4043,7 @@ function applyElements(run, enemy, dmgDealt) {
   }
 
   if (pot.fire > 0) applyIgnite(enemy, pot.fire, dmgDealt)
-  if (pot.cold > 0) applyChill(enemy, pot.cold)
+  if (pot.cold > 0) applyChill(run, enemy, pot.cold)
   if (pot.venom > 0) applyVenomStack(enemy)
   if (pot.lightning > 0) applyShock(run, enemy, pot.lightning, dmgDealt)
 }
@@ -3847,7 +4053,7 @@ function applyElements(run, enemy, dmgDealt) {
 function stepStatuses(run, dt) {
   const potVenom = run.elements.venom
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: chain slot: an ally next to the shocked body is the nearest thing there is
 
     for (const k of Object.keys(e._comboCd)) e._comboCd[k] = Math.max(0, e._comboCd[k] - dt)
     if (e._shockCd > 0) e._shockCd = Math.max(0, e._shockCd - dt)
@@ -3908,6 +4114,10 @@ function nearestEnemy(run, pad = 100) {
   let target = null
   let bestSq = Infinity
   for (const e of run.enemies) {
+    // SUBMISSION: never aim at your own ally. THIS IS THE CHOKE POINT — seven weapon aim
+    // sites plus aimAngle come through here, so the alternative is seven edits that each fail
+    // silently ("my weapons stopped shooting the swarm", no error).
+    if (isAlly(e)) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const dSq = dx * dx + dy * dy
     if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
@@ -4098,7 +4308,48 @@ function stepWeapons(run, dt) {
   stepZones(run, dt)
   stepLobs(run, dt)
 
+  turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
+}
+
+// SUBMISSION: THE BODY GETS UP — at the END OF THE FRAME, not inside dealDamage.
+//
+// THIS PLACEMENT IS THE WHOLE FIX, and the obvious placement was wrong in a way that broke OTHER
+// cards. Resurrecting inside dealDamage's death branch meant clearing `enemy._dead` while the
+// killing blow was still unwinding, and three on-kill weapon mods test `e._dead` AFTER the damage
+// call returns — Supernova Sparks (sim.js ~4513), Swarm (~4993) and Sporeburst (~5532). Taking
+// Submission silently switched all three OFF for elites, the single biggest kill in the game.
+// applyDamage's own `if (!enemy._dead) applyElements(...)` had the same problem in reverse: it
+// infused the brand-new ally with the killing blow's ignite/chill.
+//   Running here instead, after every weapon has finished with the corpse and immediately before
+// the once-per-frame sweep that would delete it, means `_dead` stays true for the entire frame —
+// so every one of those call sites behaves exactly as it does without the card, with no guards.
+//
+// `_turned` is the idempotence guard and it is load-bearing: without it the ally's own fall
+// re-enters this pass and pays the elite reward a second time (a gem and coin fountain, not an
+// exception). Expiry is handled in stepSubmission, which retires the body itself.
+// hp goes back through roundHP: a fractional maxHP leaves an immortal sub-1 sliver (v6.9.2).
+function turnDeadElites(run) {
+  if (!run.anomalies?.submission) return
+  for (const e of run.enemies) {
+    if (!e._dead || !e.elite || e._turned) continue
+    e._dead = false
+    e._turned = true
+    e.hp = roundHP(e.maxHP)
+    e.allyT = SUBMISSION_DURATION
+    e.hitFlash = 0            // it is not being struck, it is changing sides
+    // STRIP THE FLAGS THAT ONLY EVER POINT AT THE PLAYER. One line and one config list instead of a
+    // seven-row suppress-or-retarget table: every chapter's eliteFlags is in here, so without it a
+    // turned elite keeps shelling you (skies), laying soap pools under you (pond), abducting you
+    // (beyond), disgorging hostile minions (city) or enraging the swarm it should be fighting
+    // (undergrowth). Contact is the whole arsenal for the rest of the roster anyway.
+    //   .filter() AND NOT AN IN-PLACE SPLICE, and that is not style: spawnSplitChildren assigns
+    // `flags: parent.flags` BY REFERENCE while spawnEnemy copies, and a splitter elite spawns its
+    // children in the death branch that just ran — mutating in place would strip the children's
+    // flags too. Reassigning the filter result gives the required copy for free.
+    if (e.flags && e.flags.length) e.flags = e.flags.filter((f) => !SUBMISSION_STRIP_FLAGS.includes(f))
+    run.events.push({ type: 'submission', x: e.x, y: e.y, elite: true })
+  }
 }
 
 // Shared interval countdown with catch-up: fires as often as needed to absorb
@@ -4191,7 +4442,7 @@ function tryChainBullet(run, b, fromEnemy) {
   let target = null
   let bestSq = Infinity
   for (const e of run.enemies) {
-    if (e._dead || b.hitIds.has(e.id)) continue
+    if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
     const dx = e.x - fromEnemy.x, dy = e.y - fromEnemy.y
     const dSq = dx * dx + dy * dy
     if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
@@ -4237,7 +4488,7 @@ function stepBullets(run, dt) {
     let justHit = null
     for (const e of run.enemies) {
       if (b.pierce <= 0) break
-      if (e._dead || b.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
       const dx = e.x - b.x, dy = e.y - b.y
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
@@ -4456,13 +4707,24 @@ function stepNovas(run, dt) {
         applyDamage(run, e, n.dmg)
         n.hit.add(e.id)
         // Chitter Shriek: the ring panics what it hits (see FEAR_SPEED_MUL / stepEnemyMovement).
-        if ((n.fear ?? 0) > 0) e.fearT = Math.max(e.fearT || 0, n.fear)
-        // Anchored (elite affix): still takes the damage above, just never gets knocked back.
-        if (!(e.affixes && e.affixes.includes('anchored'))) {
+        // FEAR IS NO LONGER REFRESHABLE (v7.16). It runs its full duration, then FEAR_REFRACTORY of
+        // immunity, and only then can land again — so uptime is capped by the enemy's own timer at
+        // any fire rate. The `fearT <= 0` half is the load-bearing one: gating on the cooldown ALONE
+        // still lets a ring re-apply while fear is already up, and a Math.max refresh every frame
+        // then holds fearT at full forever, so it never expires and the cooldown never arms. That
+        // reads as a working refractory and measures 100% uptime — the lock, untouched.
+        // ONE scale for the whole hit — the fear and the shove are the same application.
+        const k = ccScale(run, e)
+        if ((n.fear ?? 0) > 0 && (e.fearT ?? 0) <= 0 && (e.fearCd ?? 0) <= 0 && !resistsCC(e)) {
+          e.fearT = n.fear * k
+        }
+        // Anchored/unshakeable: still takes the damage above, just never gets knocked back.
+        if (!resistsCC(e)) {
           const kdx = dist > 1e-6 ? dx / dist : 1
           const kdy = dist > 1e-6 ? dy / dist : 0
-          e.kb.x += kdx * n.knockback
-          e.kb.y += kdy * n.knockback
+          e.kb.x += kdx * n.knockback * k
+          e.kb.y += kdy * n.knockback * k
+          spendCC(run, e)
         }
       }
     }
@@ -4591,7 +4853,7 @@ function stepMagneticMines(run, dt, bonus) {
     let target = null
     let bestSq = Infinity
     for (const e of run.enemies) {
-      if (e._dead) continue
+      if (e._dead || isAlly(e)) continue   // SUBMISSION: a mine must not seek your ally
       const dx = e.x - m.x, dy = e.y - m.y
       const dSq = dx * dx + dy * dy
       if (dSq < bestSq) { bestSq = dSq; target = e }
@@ -4610,11 +4872,11 @@ function stepMagneticMines(run, dt, bonus) {
 // damage AND gets no stun, exactly like it eats nothing else.
 function detonateMine(run, m) {
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally would trip the whole field for zero damage
     const dx = e.x - m.x, dy = e.y - m.y
     if (dx * dx + dy * dy <= m.radius * m.radius) {
       applyDamage(run, e, m.dmg)
-      if (!damageImmune(e)) e.stunT = Math.max(e.stunT || 0, MINE_STUN)
+      if (!damageImmune(e) && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, MINE_STUN * ccScale(run, e)); spendCC(run, e) }
     }
   }
   run.events.push({ type: 'explode', x: m.x, y: m.y, radius: m.radius })
@@ -4763,7 +5025,7 @@ function stepHomingShots(run, dt) {
     let target = null
     let bestSq = Infinity
     for (const e of run.enemies) {
-      if (e._dead || h.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || h.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
       if (claimed?.has(e.id)) continue
       const dx = e.x - h.x, dy = e.y - h.y
       const dSq = dx * dx + dy * dy
@@ -4774,7 +5036,7 @@ function stepHomingShots(run, dt) {
     // and the third doubles up on whichever is nearer. Never leave a seeker flying blind.
     if (!target && claimed) {
       for (const e of run.enemies) {
-        if (e._dead || h.hitIds.has(e.id)) continue
+        if (e._dead || isAlly(e) || h.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
         const dx = e.x - h.x, dy = e.y - h.y
         const dSq = dx * dx + dy * dy
         if (dSq < bestSq) { bestSq = dSq; target = e }
@@ -4795,7 +5057,7 @@ function stepHomingShots(run, dt) {
     h.y += h.vy * dt
 
     for (const e of run.enemies) {
-      if (e._dead || h.hitIds.has(e.id)) continue
+      if (e._dead || isAlly(e) || h.hitIds.has(e.id)) continue   // SUBMISSION: pass THROUGH an ally — immune, but blocks nothing
       const dx = e.x - h.x, dy = e.y - h.y
       const rad = HOMING_HIT_R + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
@@ -4827,7 +5089,10 @@ function pickHoleSpot(run, excludeIds) {
   const p = run.player
   const viewSq = run.viewRadius * run.viewRadius
   const inView = run.enemies.filter((e) => {
-    if (e._dead || excludeIds.has(e.id)) return false
+    // SUBMISSION: an ally is never a valid MARK. This is aim dilution, not friendly fire —
+    // the spot is picked uniformly at random, so N allies among M hostiles waste N/(N+M) of every
+    // cast, and stacking is uncapped by design.
+    if (e._dead || isAlly(e) || excludeIds.has(e.id)) return false
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= viewSq
   })
@@ -5046,7 +5311,7 @@ function firstOnRay(run, ox, oy, angle, len, width, hit) {
   let best = null
   let bestD = Infinity
   for (const e of run.enemies) {
-    if (e._dead || hit.has(e.id)) continue
+    if (e._dead || isAlly(e) || hit.has(e.id)) continue   // SUBMISSION: light must not bend off your ally ("blocks nothing")
     const d = alongRay(ox, oy, angle, len, width, e)
     if (d < 0 || d >= bestD) continue
     bestD = d
@@ -5264,7 +5529,7 @@ function pickBloomSpot(run, castRange) {
   const p = run.player
   const rangeSq = castRange * castRange
   const inRange = run.enemies.filter((e) => {
-    if (e._dead) return false
+    if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
@@ -5921,7 +6186,7 @@ function pickHydrantSpot(run, castRange, fuse) {
   const tm = run.weaponMods.burstHydrant?.trafficMain ?? 0
   if (tm > 0) {
     const inLane = run.enemies.filter((e) => {
-      if (e._dead) return false
+      if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
       const dx = e.x - p.x, dy = e.y - p.y
       return dx * dx + dy * dy <= rangeSq && pointInLane(run, e.x, e.y)
     })
@@ -5940,7 +6205,7 @@ function pickHydrantSpot(run, castRange, fuse) {
   // enemy, two for the no-enemy fallback) so seeded streams are unchanged: the lead needs the ENEMY,
   // not just its position, because how far to lead depends on how fast that particular thing moves.
   const inRange = run.enemies.filter((e) => {
-    if (e._dead) return false
+    if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
     const dx = e.x - p.x, dy = e.y - p.y
     return dx * dx + dy * dy <= rangeSq
   })
@@ -6014,7 +6279,7 @@ function stepZones(run, dt) {
           e.kb.x += ux * HYDRANT_LAUNCH_KB
           e.kb.y += uy * HYDRANT_LAUNCH_KB
         }
-        e.stunT = Math.max(e.stunT || 0, HYDRANT_STUN * launchBonus)
+        if (!resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, HYDRANT_STUN * launchBonus * ccScale(run, e)); spendCC(run, e) }
       }
     }
     run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r })
@@ -6065,7 +6330,7 @@ function stepOpenJet(run, g, dt) {
   const maxStreams = Math.min(HYDRANT_STREAMS_MAX, Math.max(1, Math.round(g.nStreams ?? HYDRANT_STREAMS_FALLBACK)))
   const picks = []
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally would eat one of GEYSER_STREAMS_MAX stream slots
     const dx = e.x - g.x, dy = e.y - g.y
     const d2 = dx * dx + dy * dy
     if (d2 > rSq) continue
@@ -6136,7 +6401,7 @@ function fireRoar(run, stats) {
       applyDamage(run, e, stats.dmg)
       if (e._dead) continue
       shoveFromPlayer(run, e, stats.knockback)
-      if (staggerBonus > 0) e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus)
+      if (staggerBonus > 0 && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus * ccScale(run, e)); spendCC(run, e) }
     }
     run.events.push({ type: 'roar', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
@@ -6145,14 +6410,16 @@ function fireRoar(run, stats) {
 // Radial shove away from the player (the sector sweeps' knockback). Anchored elites take the
 // damage and stand their ground, exactly as they do against a nova.
 function shoveFromPlayer(run, e, knockback) {
-  if (e.affixes && e.affixes.includes('anchored')) return
+  if (resistsCC(e)) return
   const p = run.player
   const dx = e.x - p.x, dy = e.y - p.y
   const d = Math.hypot(dx, dy)
   const ux = d > 1e-6 ? dx / d : 1
   const uy = d > 1e-6 ? dy / d : 0
-  e.kb.x += ux * knockback
-  e.kb.y += uy * knockback
+  const k = ccScale(run, e)
+  e.kb.x += ux * knockback * k
+  e.kb.y += uy * knockback * k
+  spendCC(run, e)
 }
 
 // -- Tail Swipe (v5.4 skies) ---------------------------------------------------------------
@@ -6471,8 +6738,13 @@ function stepPickups(run, dt) {
     // which cannot heal still pays. It does now.
     const canHeal = run.player.hp < run.player.maxHP && !run.anomalies?.bloodPact
     if (run.anomalies?.avarice && canHeal && Math.random() < AVARICE_HEAL_CHANCE) {
+      // Carry the HP that ACTUALLY LANDED, not AVARICE_HEAL_HP. healPlayer clamps to maxHP, so a
+      // pickup at maxHP-2 heals 2 — and the renderer prints this number. Sending the nominal 5
+      // would put a figure on screen that the HP bar visibly contradicts, which is worse than the
+      // silence it replaces.
+      const before = run.player.hp
       healPlayer(run, AVARICE_HEAL_HP)
-      run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value, healed: true })
+      run.events.push({ type: 'coin', x: c.x, y: c.y, value: c.value, healed: true, heal: Math.round(run.player.hp - before) })
       return
     }
     // v6.4.2: clamp at COIN_CAP_PER_RUN (config.js) — pickups past the cap still sparkle
@@ -6827,6 +7099,68 @@ function rollAnomalyCard(run) {
   // line under the description.
   run._screensSinceAnomaly = 0
   return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
+}
+
+// ---- dev menu (v7.12) --------------------------------------------------------------------
+// EVERY card the game can produce, flat, in the ordinary card shape — for the hidden dev screen
+// (ui.js gates it behind seven taps on the HUD coin badge). Deliberately ignores every
+// eligibility rule the real pools enforce: chapter weapon pool, PASSIVE/anomaly minLevel, an
+// anomaly's `when` gate, MAX_ANOMALIES_PER_RUN, and already-picked dedup. The point is to TEST a
+// card, and half the slate is gated behind conditions that take a real run to reach — SUBMISSION
+// alone needs an elite kill first.
+//
+// Rarity: `rarity` is the tier PREFERRED, not the tier forced. The make*Card factories return
+// null for a tier a card does not offer (a `switch` mod is normal-only; Beam Prism's `values` is
+// epic-only; see makeWeaponModCard), so each candidate walks the ladder and takes the first tier
+// that yields a card. Without that walk the dev list silently omits exactly the cards whose
+// rarity rules are unusual — i.e. the ones most worth testing.
+export function devCards(run, rarity = 'rare') {
+  const tiers = [rarity, ...RARITY_ORDER]
+  const firstTier = (make) => {
+    for (const r of tiers) { const c = make(r); if (c) return c }
+    return null
+  }
+  const out = []
+  for (const id of Object.keys(WEAPONS)) {
+    const cfg = WEAPONS[id]
+    const owned = run.weapons.find((w) => w.id === id)
+    // Same two shapes buildLevelUpChoices deals: a NEW weapon carries its own rarity, an upgrade
+    // carries UPGRADE_RARITY (not a RARITIES key, so ui.js prints no tier chip).
+    out.push({ kind: 'weapon', id, title: cfg.name, desc: cfg.desc,
+      tag: owned ? `Lv ${owned.level + 1}` : 'New!',
+      rarity: owned ? UPGRADE_RARITY : cfg.rarity, icon: cfg.icon })
+  }
+  for (const id of Object.keys(PASSIVES)) {
+    const c = firstTier((r) => makePassiveCard(run, id, r))
+    if (c) out.push(c)
+  }
+  for (const wid of Object.keys(WEAPON_MODS)) {
+    for (const mid of Object.keys(WEAPON_MODS[wid])) {
+      const c = firstTier((r) => makeWeaponModCard(run, wid, mid, r))
+      if (c) out.push(c)
+    }
+  }
+  for (const id of Object.keys(ELEMENTS)) {
+    const c = firstTier((r) => makeElementCard(run, id, r))
+    if (c) out.push(c)
+  }
+  for (const id of Object.keys(ANOMALIES)) {
+    const a = ANOMALIES[id]
+    const subjects = a.subjects ? a.subjects(run) : null
+    out.push({ kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '',
+      rarity: 'anomaly', icon: a.icon, subjects,
+      subjectPicks: subjects ? Object.fromEntries(subjects.map((w) => [w, weaponModPickCount(run, w)])) : null })
+  }
+  return out
+}
+
+// Hand one of those cards to the ORDINARY pick path. Routing through run.levelUpChoices instead
+// of duplicating applyChoice's branches is the whole point of the dev menu: a card added here
+// takes exactly the code path a card taken from a level-up screen takes, so what you are testing
+// is the shipped behaviour and not a second implementation of it.
+export function devTake(run, card, subject = null) {
+  run.levelUpChoices = [card]
+  applyChoice(run, 0, subject)
 }
 
 // Roll ONE card: bucket first (BUCKET_WEIGHTS), then a rarity inside it. Never walks the rarity

@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, chaosStatus } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -11,7 +11,7 @@ const CAST_ART = Object.fromEntries(
     .map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, -4), url]),
 )
 
-const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary']
+const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary', 'dev']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 // v6.6.18 mis-tap guard: the level-up modal appears mid-fight, right where a thumb is already
 // reaching for the joystick, so a tap in the first instants is a stray press far more often than
@@ -27,6 +27,10 @@ const LEVELUP_GRACE_MS = 500
 // actually spent. Pure chrome, so it lives here and not in config.js — it moves no balance number.
 // Long enough to read three cards, short enough not to become a loading screen every level.
 const BLIND_REVEAL_MS = 2200
+// v7.12 hidden dev menu: the tap gesture that opens it, on the HUD coin badge. Input-guard timing
+// like the two above, so it lives here rather than in config.js — it moves no balance number.
+const DEV_TAPS_TO_OPEN = 7
+const DEV_TAP_WINDOW_MS = 1000
 // ...but the hold is DISMISSIBLE after this, and that distinction is the whole design. An
 // unskippable 1.5s hold on every level-up from ~8 to ~24 is 15-24s of dead modal per 300s run:
 // frustration is a spike, boredom is a wait, and the card is selling the former. The short arm only
@@ -938,11 +942,30 @@ export function initUI(hooks) {
       </div>
       <div class="hud-timer">${fmtTime(RUN_DURATION)}</div>
       <div class="hud-right">
-        <span class="hud-coins">🪙 0</span>
+        <!-- data-act="dev-tap": seven quick taps open the hidden dev menu (see the 'dev-tap' click
+             case). The badge is otherwise inert, and styles.css has to give it pointer-events:auto
+             — the whole HUD is pointer-events:none so it cannot eat gameplay touches. -->
+        <span class="hud-coins" data-act="dev-tap">🪙 0</span>
         <button class="btn-pause" data-act="pause" aria-label="Pause">⏸</button>
       </div>
       <div class="rampage-wrap rampage-wrap--hidden">
         <div class="rampage-bar"><div class="rampage-fill"></div></div>
+      </div>
+      <!-- CHAOS PACT countdown (v7.12): a VERTICAL rail on the right edge.
+           The horizontal bar this replaces was var(--gold) directly above the gold full-width xp
+           bar and read as a second xp track, and its label had no CSS rule at all so it inherited
+           the HUD's dark ink and vanished on every dark floor. A 90-degree turn is what makes the
+           confusion structurally impossible rather than merely unlikely — the xp bar is horizontal
+           by definition — and vacating this row lets the xp bar move up.
+           Lives OUTSIDE .hud-top's grid (position:fixed, see styles.css), parked in the gap
+           between the pause button above and the skill button below (right:22px bottom:34px,
+           78px square) so it collides with neither. -->
+      <div class="chaos-wrap" data-chaos style="display:none;">
+        <span class="chaos-vrail">
+          <b class="chaos-vrail-num" data-chaos-text></b>
+          <span class="chaos-vrail-track"><i data-chaos-fill></i></span>
+          <b class="chaos-vrail-bonus" data-chaos-bonus></b>
+        </span>
       </div>
       <!-- v5.24: The Blank's boss HP bar; v6.0.0 it spans the full hud-top row (grid-column
            1/-1) and IS the phase readout — the timer slot goes blank while a boss is up. Reuses
@@ -980,6 +1003,7 @@ export function initUI(hooks) {
     skillCd: screens.hud.querySelector('.skill-btn-cd'),
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
+    chaosWrap: screens.hud.querySelector('[data-chaos]'),
   }
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
@@ -992,6 +1016,10 @@ export function initUI(hooks) {
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
     scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
+    // CHAOS PACT: the seconds tick once a second and the bonus only on a surviving a wave, so both
+    // are cached and only the rail's height is repainted every frame — a per-frame textContent
+    // write is the expensive half.
+    chaosShown: undefined, chaosSecs: -1, chaosBonus: -1,
   }
 
   function updateHUD(run, events) {
@@ -1052,6 +1080,17 @@ export function initUI(hooks) {
     // above — a per-chapter constant, not something that flips mid-run.
     const scriptedChapter = CHAPTERS[run.chapter].scripted === true
     if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
+    // TIME DEBT marks the clock it is accelerating (v7.15). The card changes the RATE, never the
+    // number, so at the instant you take it the timer reads exactly what it read before — measured,
+    // 4:01 either way — and one real second later both still read 3:59. It works (run.time advances
+    // x1.5 and every system downstream of it comes along), but nothing on screen said so and it
+    // read as a dead card in play. COLOUR, not a glyph: a '⏳' inside the pill widens it enough to
+    // wrap the coin badge onto a second line at 390px, which the harness shot caught.
+    const debtOn = !!run.anomalies?.timeDebt
+    if (debtOn !== last.debtOn) {
+      last.debtOn = debtOn
+      hud.timer.classList.toggle('hud-timer--debt', debtOn)
+    }
     if (scriptedChapter) {
       const script = run.script
       const label = script.stage % 2 === 0 ? `${t('WAVE')} ${script.waveIdx + 1}` : ''
@@ -1122,6 +1161,43 @@ export function initUI(hooks) {
     // HUD banner is gone; the {type:'dispatch'} event itself STAYS, because render.js's red strobe
     // at the spawn point and main.js's siren are the telegraph that an elite just arrived, and that
     // is worth keeping. `events` is still in the signature for the next consumer.
+    // ---- CHAOS PACT countdown -------------------------------------------------------------
+    // Shown for the whole run once the card is held: the complaint this answers is that the surge
+    // was invisible, and a readout that came and went would be its own version of that problem.
+    const chaosOn = !!run.anomalies?.chaosPact
+    if (chaosOn !== last.chaosShown) {
+      last.chaosShown = chaosOn
+      hud.chaosWrap.style.display = chaosOn ? '' : 'none'
+    }
+    if (chaosOn) paintChaos(chaosStatus(run.time))
+
+  }
+
+  // The CHAOS PACT rail's per-frame paint. Refs are looked up once — the HUD markup is written
+  // exactly once at boot (screens.hud.innerHTML above), so they can never go stale.
+  let chaosRefs = null
+  function paintChaos(c) {
+    if (!chaosRefs) {
+      const q = (sel) => hud.chaosWrap.querySelector(sel)
+      chaosRefs = { text: q('[data-chaos-text]'), bonus: q('[data-chaos-bonus]'), fill: q('[data-chaos-fill]') }
+    }
+    const R = chaosRefs
+    // CHARGE, then DISCHARGE. frac runs 1 -> 0 within each phase, so:
+    //   waiting — height is 1 - frac, i.e. the rail FILLS as the wave approaches. Full = it lands.
+    //   live    — height is frac, i.e. the rail DRAINS across the 10s the wave lasts. Empty = over.
+    // Two directions on purpose (owner's call): the rail is a battery, and "filling" and "emptying"
+    // say which of the two states you are in without reading the colour at all.
+    const fill = c.active ? c.frac : 1 - c.frac
+    R.fill.style.height = `${Math.max(0, Math.min(1, fill)) * 100}%`
+    // No sentence: the rail has no room for one, so the seconds ARE the label and the state comes
+    // from colour (violet incoming, red live — see .chaos--on). Both chips are opaque, which is the
+    // half of this the old readout got wrong: its label had no CSS rule at all, inherited the HUD's
+    // dark ink, and was invisible on every dark chapter floor.
+    const secs = Math.ceil(c.left)
+    hud.chaosWrap.classList.toggle('chaos--on', c.active)
+    if (secs !== last.chaosSecs) { last.chaosSecs = secs; R.text.textContent = `${secs}s` }
+    const bonus = Math.round(c.bonus * 100)
+    if (bonus !== last.chaosBonus) { last.chaosBonus = bonus; R.bonus.textContent = `+${bonus}%` }
   }
 
   // ---- level-up modal ----------------------------------------------------
@@ -1289,6 +1365,12 @@ export function initUI(hooks) {
     const choices = lvData.choices ?? []
     lvCards.forEach((el, i) => {
       el.innerHTML = cardFaceHtml(choices[i], false)
+      // ...AND DROP THE FACE-DOWN CLASS. The contents flip face up, but `.lv-card--blind` lives on
+      // the BUTTON, and swapping innerHTML cannot reach it — so every revealed card kept
+      // `grayscale(1)` on its icon and `--ink-soft` on its text. The card you took stayed grey at
+      // the exact moment it is supposed to be the one thing in colour, which is the whole payoff of
+      // the reveal. Reported from play; shipped greyed since v7.5.
+      el.classList.remove('lv-card--blind')
       el.disabled = true                       // no silent swallowing: the row is visibly inert
       el.classList.remove('card--focused')
     })
@@ -1729,6 +1811,60 @@ export function initUI(hooks) {
     `
   }
 
+  // ---- hidden dev menu (v7.12) ---------------------------------------------
+  // Seven taps on the HUD coin badge pauses the run and opens this. It exists to answer "what does
+  // THIS card actually do", which is otherwise a matter of replaying until the pool offers it —
+  // several of the 20 anomalies are gated behind conditions (an elite kill, a level floor) that
+  // take most of a run to reach.
+  //
+  // Deliberately NOT translated. Every string here is a literal, not a t() call: fr.js is keyed by
+  // the English source string, so routing dev chrome through it would add rows to the translation
+  // surface for a screen only the developer ever sees. The CARDS inside it still translate — they
+  // go through cardFaceHtml, the same function the level-up screen uses.
+  let devList = []          // the flat card list main.js handed us, in devCards() order
+  let devFilter = ''
+  let devListEl = null      // repainted alone on every keystroke, so the filter field keeps focus
+  let devTaps = 0
+  let devTapAt = 0
+
+  // Card rows, grouped by kind with a sticky header per group. Filtering matches the title, the
+  // description and the kind, so "anom" finds the whole tier and "fire" finds what it reads like.
+  function paintDevList() {
+    if (!devListEl) return
+    const q = devFilter.trim().toLowerCase()
+    const rows = devList
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => !q || `${c.kind} ${t(c.title)} ${t(c.desc ?? '')}`.toLowerCase().includes(q))
+    let lastKind = null
+    devListEl.innerHTML = rows.map(({ c, i }) => {
+      const head = c.kind === lastKind ? '' : `<div class="dev-kind">${c.kind}</div>`
+      lastKind = c.kind
+      return `${head}<button class="card lv-card" data-dev="${i}" data-rarity="${c.rarity ?? 'normal'}">${cardFaceHtml(c, false)}</button>`
+    }).join('')
+    const count = root.querySelector('.dev-count')
+    if (count) count.textContent = `${rows.length} / ${devList.length} cards · tap to add`
+  }
+
+  function renderDev(d) {
+    devList = d.cards ?? []
+    // main.js re-shows this screen after every take (the list is rebuilt against the changed run).
+    // Without carrying the scroll across, testing the third anomaly means scrolling back down to it
+    // every single time.
+    const scroll = devListEl ? devListEl.scrollTop : 0
+    screens.dev.innerHTML = `
+      <div class="modal modal--dev">
+        <h2 class="modal-title">DEV</h2>
+        <input class="dev-filter" id="dev-filter" type="text" placeholder="name, or anomaly / mod / passive…" autocomplete="off" value="${devFilter.replace(/"/g, '&quot;')}">
+        <p class="dev-count"></p>
+        <div class="dev-list"></div>
+        <button class="btn btn--big" data-act="dev-close">▶&nbsp; Resume</button>
+      </div>
+    `
+    devListEl = screens.dev.querySelector('.dev-list')
+    paintDevList()
+    devListEl.scrollTop = scroll
+  }
+
   // ---- summary modal -------------------------------------------------------
   function renderSummary(d) {
     const mutatorIds = d.mutators || []
@@ -1778,6 +1914,7 @@ export function initUI(hooks) {
     else if (name === 'levelup') renderLevelup(data ?? {})
     else if (name === 'pause') renderPause(data ?? {})
     else if (name === 'summary') renderSummary(data ?? {})
+    else if (name === 'dev') renderDev(data ?? {})
     const hudUnder = name === 'levelup' || name === 'pause'   // hud stays visible under these modals
     for (const [n, el] of Object.entries(screens)) {
       el.classList.toggle('screen--visible', n === name || (hudUnder && n === 'hud'))
@@ -1818,6 +1955,9 @@ export function initUI(hooks) {
   // rewrite. Delegated, so it survives the field being destroyed and recreated on every re-render.
   root.addEventListener('input', (e) => {
     if (e.target.id === 'rename-field') renameDraft = e.target.value
+    // Repaint the LIST only, never the modal: rewriting screens.dev.innerHTML on every keystroke
+    // would destroy the field being typed into and drop focus after one character.
+    else if (e.target.id === 'dev-filter') { devFilter = e.target.value; paintDevList() }
   })
   root.addEventListener('keydown', (e) => {
     if (e.target.id !== 'rename-field') return
@@ -1830,8 +1970,16 @@ export function initUI(hooks) {
 
   // ---- one delegated click handler for every screen ---------------------------
   root.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject]')
+    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev]')
     if (!el) return
+    if (el.dataset.dev !== undefined) {
+      // The screen stays open — testing a card usually means stacking two or three of them, and
+      // re-showing rebuilds the list against the run that just changed (a weapon card that read
+      // "New!" now reads "Lv 2").
+      hooks.onDevTake?.(Number(el.dataset.dev))
+      playSfx('buy')
+      return
+    }
     if (el.dataset.buy !== undefined) {
       if (hooks.onBuy(el.dataset.buy)) renderShop(el.dataset.buy)
       return
@@ -1968,6 +2116,18 @@ export function initUI(hooks) {
       }
       case 'pause':
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
+      // Hidden dev menu: seven taps on the HUD coin badge. Seven because the badge sits next to the
+      // pause button on a phone, and anything shorter would open on a fat-fingered miss. The count
+      // resets after a second of quiet, so it takes a deliberate burst rather than seven taps
+      // spread across a run.
+      case 'dev-tap': {
+        const now = performance.now()
+        devTaps = now - devTapAt < DEV_TAP_WINDOW_MS ? devTaps + 1 : 1
+        devTapAt = now
+        if (devTaps >= DEV_TAPS_TO_OPEN) { devTaps = 0; playSfx('buy'); hooks.onDevOpen?.() }
+        break
+      }
+      case 'dev-close': playSfx('click'); hooks.onDevClose?.(); break
       case 'build-toggle': {
         const key = el.dataset.key
         if (openBuild.has(key)) openBuild.delete(key)

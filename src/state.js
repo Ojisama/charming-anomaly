@@ -455,6 +455,13 @@ function generateWells(sig) {
  *                                            anomaly converted it to HP instead of paying —
  *                                            render tints the sparkle, see pickupSparkle)
  *   { type:'levelup' }                       player leveled (run.levelUpChoices is set, phase='levelup')
+ *   { type:'submission', x, y, elite:true }  SUBMISSION anomaly: an elite you just killed got back
+ *                                            up as YOURS (turnDeadElites, end of frame). The
+ *                                            ordinary {type:'kill'} fires too, one statement
+ *                                            earlier — the elite really does die first, and that
+ *                                            is what keeps pool-probe's elite counter working.
+ *                                            The loan ENDING reuses {type:'explode'} rather than a
+ *                                            bespoke event, so it needs no new render or sfx case.
  *   { type:'hurt', dmg, dot?, src? }         player took damage (dot=true for pool/DoT ticks —
  *                                            see run.pools below and hurtPlayer in sim.js; absent/
  *                                            false for ordinary contact damage and bomb blasts).
@@ -535,14 +542,49 @@ function generateWells(sig) {
  *               tick down every frame in stepEnemyMovement:
  *               fearT (s of flee remaining): while > 0 the enemy INVERTS its seek (runs from the
  *                 player) at FEAR_SPEED_MUL of its own speed, overriding any behavior-flag state
- *                 machine, and deals no contact damage. Applied by a run.novas entry carrying a
- *                 `fear` field (the Chitter Shriek — see stepNovas/stepShriekWeapon in sim.js).
+ *                 machine. It STILL DEALS CONTACT DAMAGE (v7.16 — it used to be disarmed too,
+ *                 which is half of what made a permanent fear an untouchable wall). Applied by a
+ *                 run.novas entry carrying a `fear` field (the Chitter Shriek — see
+ *                 stepNovas/stepShriekWeapon in sim.js).
  *                 chitterShriek's panicRout mod amplifies ALL damage a fearT > 0 enemy takes.
+ *               _ccDR / _ccDRPre / _ccSpentAt (v7.17, GLOBAL CROWD-CONTROL PRICING): the enemy's
+ *                 resistance to being controlled, 1 down to CC_DR_FLOOR. Every player-sourced CC —
+ *                 knockback, fear, chill slow, freeze, stun — multiplies by it (times the player's
+ *                 own p.ccMul) and then spends it, ONCE PER FRAME per enemy however many effects
+ *                 landed; it recovers to 1 over CC_DR_RECOVER seconds. _ccDRPre holds the pre-spend
+ *                 value so every effect of one cast is priced identically regardless of call order.
+ *                 This is what stops a fire-rate card buying unlimited control — see the CC_DR_*
+ *                 block in config.js for the measurements. Chapter hazards (traffic, hydrant jets,
+ *                 the lane's repulse) are deliberately NOT scaled.
+ *               fearCd (s of fear IMMUNITY remaining, v7.16): armed to FEAR_REFRACTORY on the frame
+ *                 fearT expires; while > 0 no ring can fear this enemy again. Caps fear uptime by
+ *                 the enemy's own timer instead of by the weapon's cadence — without it any fire
+ *                 rate shorter than the duration pins fear at 100%. Enemies that resist crowd
+ *                 control outright (the `anchored` elite affix, the `unshakeable` roster flag on
+ *                 one tank per chapter) are never feared or knocked back at all — see resistsCC.
  *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
  *                 damage (knockback still carries it). Applied by the Burst Hydrant's launch mod,
  *                 the Roar's stagger mod (see HYDRANT_STUN/ROAR_STUN in config.js), and (v6.4) a
  *                 detonating mine (MINE_STUN, sim.js's detonateMine) against every non-ghosted
  *                 enemy in its blast radius.
+ *               allyT (s of loan remaining) — SUBMISSION anomaly: while > 0 this enemy is YOURS.
+ *                 It stays in run.enemies and `elite` stays TRUE (clearing it would swap the
+ *                 texture and pop the crown off mid-life), but isAlly(e) in sim.js makes it
+ *                 damageImmune — which also makes it contactHarmless, so it can neither be hurt by
+ *                 you nor hurt you — excludes it from every targeting/claim/consumption loop, and
+ *                 points it at the nearest hostile instead of the player. Set by turnDeadElites,
+ *                 counted down in stepSubmission, which retires the body when it reaches 0.
+ *               _turned (bool) — SUBMISSION: this elite has already had its loan. The idempotence
+ *                 guard; without it the ally's own fall re-enters the turn and pays the elite's
+ *                 whole reward again (a gem and coin fountain).
+ *               _allyHitT (s) — SUBMISSION: cooldown on the ally's contact attack
+ *                 (SUBMISSION_HIT_EVERY). Contact is its ONLY attack: the player-directed flags are
+ *                 stripped at the turn (SUBMISSION_STRIP_FLAGS), and for the rest of the roster
+ *                 pounce/dive/charge/strafe all resolve to contact damage anyway.
+ *               _tgtX/_tgtY (px) — SUBMISSION: the seek point stepEnemyMovement chose for an ally,
+ *                 published so RENDER can face the sprite. render derives every other enemy's
+ *                 bearing from run.player each frame, so without this an ally charging the swarm
+ *                 draws walking backwards in all 32 roster looks. Render-only; sim never reads it.
  *               enrageT (s of enrage remaining): while > 0 the enemy's seek speed is ×
  *                 FLASHLIGHT_SPEED_MUL and its contact damage × FLASHLIGHT_DMG_MUL. Applied by the
  *                 undergrowth's flashlightCone elites (see stepFlashlightCones in sim.js).
@@ -1257,6 +1299,10 @@ export function createRun(meta, opts = {}) {
       critChance: PLAYER.baseCritChance + shopBonus(meta, 'critChance'),
       critDamage: PLAYER.baseCritDamage + shopBonus(meta, 'critDamage'),
       damageMul: 1 + shopBonus(meta, 'damage'),
+      // v7.17: the player's own crowd-control price. Its OWN stat rather than a read of damageMul,
+      // so damage passives cannot launder a card's discount away and a damage-UP card (BRITTLE, x4)
+      // cannot inherit a control buff. Cards set it explicitly — see applyAnomalyOnTake.
+      ccMul: 1,
       fireRateMul: 1 + shopBonus(meta, 'fireRate'),
       coinGainMul: 1 + shopBonus(meta, 'coinGain'),
       xp: startXp, level: 1, xpNext: xpForLevel(1),

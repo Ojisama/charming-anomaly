@@ -379,7 +379,10 @@ export const OVERLOAD_DMG_MUL = 2
 // power card — 1125.7 kills against the control's 752.9, level 25.0 against 17.0 — but it now
 // dies: 81 deaths in 120 runs, median 272.8s. A much stronger run that ends slightly more often
 // than not taking it IS the trade this card is supposed to be.
-export const OVERLOAD_HP_PER_SEC = 0.75
+// v7.15: 0.75 -> 1, from play. The measurements above describe the SHAPE of the trade — the cost
+// has to ride dmgScale or it inverts — and that is still true; only the constant moved, so read
+// them as history rather than as a bound on this number. Playtest sets it.
+export const OVERLOAD_HP_PER_SEC = 1
 // AVARICE. THE HEAL IS THE OPEN NUMBER ON THIS CARD, and the figure it was originally set against
 // was wrong twice over. The original pricing said "593 coins/run, and every coin is value 1, so
 // that is also the PICKUP count", concluding ~83-111 heals and setting 5 HP to reach 1.4-1.85 HP/s.
@@ -416,6 +419,44 @@ export const AVARICE_COIN_DROP_MUL = 0.7
 // toward elites is correspondingly weaker. Still an owner call; the numbers are the user's.
 export const BLOOD_PACT_PER_KILL = 0.001
 export const BLOOD_PACT_PER_ELITE = 0.01
+// SUBMISSION. A killed elite does not die — it turns, and fights the swarm for you.
+// THE DENOMINATOR IS MEASURED, NOT GUESSED: full 300s runs land 8.6-10.6 elites, and that count is
+// chapter-INVARIANT because `eliteEvery` is a TIME cadence, not a kill cadence (spec
+// 2026-08-07-upgrade-pool-design.md:1157-1163). So the duration below is "how much of a run is
+// spent with an ally out", against ~9 triggers: at 20s that is ~180 ally-seconds of a ~300s run,
+// and stacking (uncapped, owner's call) is what happens when two elites die inside one loan.
+// AND THE CARD BRINGS ITS OWN ELITES. Owner's call, and the measurement is why: at the base
+// cadence a run sees 8.6-10.6 elites, so a 20s loan means one ally at a time, occasionally, and
+// the uncapped stacking the card is specced around would essentially never happen. Tripling the
+// cadence is what makes the card's own premise reachable — and it is the difference between "a
+// nice thing that sometimes occurs" and a card anyone would spend an anomaly slot on.
+// Read-time only, never folded into run.mods: that table is the run's MUTATOR product, fixed
+// before the run, and writing an anomaly into it would corrupt it permanently (the same reason
+// RAMPAGE's multipliers are read at use). Applied at spawnEnemy's cadence step.
+// Knock-on, stated rather than hidden: elites carry ELITE.coins and ELITE.xpMul, so 3x elites is
+// also ~3x elite coins and elite xp. On a jackpot that is intended, but it is a second buff.
+export const SUBMISSION_ELITE_EVERY_MUL = 1 / 3   // interval multiplier -> three times the elites
+export const SUBMISSION_DURATION = 20      // seconds the loan runs before the ally falls
+export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; fire rate and crit are 100%
+// Contact is the ONLY attack most of the roster has — pounce, dive, charge and strafe all resolve
+// to stepContactDamage, and of the four run.enemyShots push sites three belong to The Blank's
+// scripted boss. So this cadence, not any weapon table, is what an ally's damage output IS.
+// WHAT A TURNED ELITE STOPS DOING. Every one of these points at the PLAYER by construction and
+// bypasses the retarget seam, so without stripping them your ally keeps shelling you (skies
+// artillery), laying damaging pools under you (pond soapTrail), abducting you (beyond pullBeam),
+// disgorging HOSTILE minions (city spawner) or enraging the swarm it is supposed to be fighting
+// (undergrowth flashlightCone). Derived from every chapter's `eliteFlags` plus the roster flags
+// that can land on an elite (garden's spider webZone, skies' helicopter missileVolley).
+//   `acidPool` is deliberately NOT here: it is an on-DEATH flag and it already fired when the
+// elite died, one statement before the turn.
+// ponytail: stripping beats a per-flag suppress-or-retarget table. Contact is the whole arsenal
+// for the rest of the roster anyway (pounce, dive, charge and strafe all resolve to contact
+// damage), so the fidelity lost is one turret's aim. Upgrade path is retargeting `artillery`,
+// whose shells already damage enemies via run.bombs.
+export const SUBMISSION_STRIP_FLAGS = [
+  'soapTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
+]
+export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
 // rerolls") was overstated because it priced against regen AVERAGED across runs (0.41/s) when
 // regen is bimodal — most runs never pick it, so the real budget is maxHP alone, ~11 rerolls.
@@ -444,6 +485,31 @@ export const BLOOD_MONEY_ESCALATION = 1.5
 // so a velocity test would hard-counter the card in exactly one chapter and nowhere else.
 export const STILLNESS_RAMP = 2      // s of no input to reach the cap
 export const STILLNESS_MAX_MUL = 3   // damage multiplier at the cap
+// The player-SKIN tells for these two (v7.14, owner: "very subtle, I like the Isaac way of
+// changing the skin of the player to show the active buffs"). Look numbers, not balance — they
+// move no damage — but they live here because config.js is the one place a number may be tuned
+// from, and these are exactly the kind you tune by eye and want to find again.
+// SUBMISSION's ally ring (v7.14). GREEN, because green is what an ally reads as — the ring shipped
+// gold in v7.11 and gold in this game already means coins, the xp bar and the rampage bar. A green
+// distinct from the player's own mint (0x7de3c3), so a turned elite never reads as a second you.
+export const ALLY_RING = 0x86e37a
+export const ALLY_RING_ARC = 0xd8f7c8   // the draining loan clock, a shade paler than the ring
+export const STILL_STEPS = 5          // rungs of the baked circle->triangle ladder (render.js)
+export const STILL_MORPH_MAX = 0.55   // how far the top rung goes; 1 would be a hard polygon
+// An alpha blend toward red over the mint body (0x7de3c3) lands on BROWN at mid strength, because
+// mint's green and blue channels survive it — a subtle red on a green character IS a brown. Six
+// candidates were shot on one identical frame (0.72 / 0.50 / 0.35 / 0.22, a darker red, a coral)
+// and every one below 0.72 was some brown or olive; there is no alpha that reads "faintly red".
+// The owner's ruling is that the brown is fine and 0.72 was too loud, so this is 0.50 — the tile
+// that changed the creature without turning it into a tomato. Do not "fix" the brown by raising
+// the alpha; that is the tomato, and it was rejected in play.
+export const BERSERK_TINT = 0xff2a1a  // what the skin runs toward while the window is open
+export const BERSERK_TINT_MAX = 0.5   // blend while the window is open
+// The wash holds FULL until the last 25% of the window, then fades out. The reason is correctness:
+// BERSERK_DMG_MUL is constant for the whole window — it does not ramp down — so a tell that faded
+// the whole way would be lying about the buff it reports. The short tail doubles as the "about to
+// expire" cue.
+export const BERSERK_TINT_TAIL = 0.25
 // MARTYR. Priced on a MEASURED denominator (body/2 d3, kite-and-collect bot, 40 runs): 11.3 hits
 // taken/run, 207.4 HP lost/run, 18.4 HP per hit. So x3 is ~55 raw per detonation and ~620 over a
 // run — which against ~64 HP trash at mid-run is about one enemy per hit, i.e. nothing.
@@ -488,10 +554,54 @@ export const MARTYR_RADIUS = 140
 // is `run.time % PERIOD >= SURGE`, so scaling time changes the beat FREQUENCY and leaves the 25/75
 // duty cycle exactly where it was. The pair reads 34.2% against chaosPact's own arm — no
 // interaction beyond the two cards separately.
-export const CHAOS_PACT_PERIOD = 60
-export const CHAOS_PACT_SURGE = 15    // s of the cycle spent under the spawn surge
+// v7.x PLAYTEST (owner, from play): "it's not very visible to the player when the rush is active".
+// Two changes, and the invisibility is what drove both. The beat is now TWICE as frequent (30s, not
+// 60) and the surge is a clean 10s, so the rhythm is short enough to feel as a rhythm rather than
+// as weather; and the payoff became a RAMP the player can watch climb instead of a flat multiplier
+// that silently toggled on and off. A HUD countdown now names the state outright — see ui.js.
+// THE PAYOFF STACKS: every wave you live through is +CHAOS_PACT_DMG_PER_WAVE, permanently, for the
+// rest of the run. A 300s run has 10 waves, so it ends around +100% — a card you earn by enduring,
+// where the shipped version handed you +50% for 45 of every 60 seconds and asked nothing.
+// Derived from run.time alone (no accumulator on `run`), which keeps it a pure read like the
+// spawn half and means a reload or a paused frame cannot double-count a wave.
+//   TIME DEBT still does not amplify it: scaling time changes the beat FREQUENCY, and since the
+// ramp counts waves, a compressed run simply reaches its waves sooner — the per-wave value is
+// untouched. (The old note below measured the duty cycle; that argument still holds for the surge.)
+export const CHAOS_PACT_PERIOD = 30
+export const CHAOS_PACT_SURGE = 10    // s of the cycle spent under the spawn surge
 export const CHAOS_PACT_SPAWN_MUL = 1.5
-export const CHAOS_PACT_DMG_MUL = 1.5
+export const CHAOS_PACT_DMG_PER_WAVE = 0.10   // permanent damage gained per wave survived
+
+// A RAMP NEEDS RUNWAY, so the card stops being offered once there is not enough run left to pay it
+// back (owner: "it won't be worth it"). At 120s remaining a fresh pick banks at most 4 waves, i.e.
+// +40% for the tail of a run — against jackpots that pay in full the moment they are taken. This is
+// a `when` gate rather than a weight tweak because the problem is not that it is rare, it is that
+// late it is a dead pick, and a dead pick on a 3-card screen is a lost choice.
+export const CHAOS_PACT_MIN_REMAINING = 120   // s of run that must remain for the card to be offered
+// CHAOS PACT's cycle, in ONE place because three readers must agree on it to the frame: the spawn
+// surge (sim), the damage ramp (sim) and the HUD countdown (ui). A countdown that disagreed with
+// the sim is precisely the "I can't tell when the rush is active" complaint this card was changed
+// to fix, so they are not allowed to be two implementations. Pure functions of the clock.
+export const chaosSurgeActive = (time) => time % CHAOS_PACT_PERIOD < CHAOS_PACT_SURGE
+// Completed waves only — the one in progress does not pay until you have survived it.
+export const chaosWavesSurvived = (time) =>
+  Math.floor(time / CHAOS_PACT_PERIOD) + (time % CHAOS_PACT_PERIOD >= CHAOS_PACT_SURGE ? 1 : 0)
+// Everything the HUD needs: which state, how long left in it, how far through it (for a bar that
+// drains), and what the ramp is worth so far.
+export const chaosStatus = (time) => {
+  const into = time % CHAOS_PACT_PERIOD
+  const active = into < CHAOS_PACT_SURGE
+  const span = active ? CHAOS_PACT_SURGE : CHAOS_PACT_PERIOD - CHAOS_PACT_SURGE
+  const elapsed = active ? into : into - CHAOS_PACT_SURGE
+  return {
+    active,
+    left: span - elapsed,
+    frac: 1 - elapsed / span,
+    waves: chaosWavesSurvived(time),
+    bonus: chaosWavesSurvived(time) * CHAOS_PACT_DMG_PER_WAVE,
+  }
+}
+
 // ALIGNMENT. COMBOS.comboCd is 0.5s per enemy per combo; this removes it, so shatter/overload/
 // acid-burn/brittle fire on EVERY qualifying hit. Makes the interaction the star instead of a
 // potency number — which is why it replaced a straight combo-damage bump.
@@ -527,17 +637,28 @@ export const WILDFIRE_JUMP_R = 160   // px, how far a jump reaches — about two
 // did not have to equip" rather than as a second, differently-tuned decoy. The burst goes through
 // applyDamage like the lure's, which is what makes it scale off PLAYER stats (the spec's
 // requirement) rather than off a weapon's levels[] the card does not own.
-// OPEN, and flagged as such: the cadence is the entire balance here. The spec's risk note is
-// "if decoys hold aggro reliably they do not add pressure, they DELETE it". 6s between spawns
-// against a 4s life means the field is empty a third of the time, which is the conservative end.
-// Shorten the interval before lengthening the life if it plays as too weak — a permanent decoy is
-// exactly the failure mode above.
-export const MINIME_INTERVAL = 6      // s between spawns
+// v7.x PLAYTEST (owner, from play): interval 6 -> 4 and speed 190 -> 95. Both come from the same
+// complaint — "they stay like 2s on screen" — and the second number is the one that caused it.
+// A decoy at 190px/s crosses a phone's half-height (~380px) in TWO SECONDS, so most of its 4s life
+// was spent off-screen: the card was doing its job somewhere the player could not watch, which
+// reads as the card doing nothing. At 95px/s it travels ~380px over the full 4s, i.e. it is visible
+// for essentially its whole life and bursts around the edge of view, which is where a decoy that
+// drags the swarm away is supposed to burst.
+// THE COST, STATED: 4s interval against a 4s life means there is now ALWAYS one out, where before
+// the field was empty a third of the time. The block below used to warn against exactly this — "if
+// decoys hold aggro reliably they do not add pressure, they DELETE it" — so watch for the swarm
+// feeling permanently defused rather than redirected. If it does, the lever is the interval (back
+// toward 5-6s), not the speed: the speed is what makes the card legible.
+export const MINIME_INTERVAL = 4      // s between spawns
 export const MINIME_LIFE = 4          // s before it detonates
-export const MINIME_SPEED = 190       // px/s outward — slower than the player, so you can outrun it
+export const MINIME_SPEED = 95        // px/s outward — slow enough to stay in view for its whole life
 export const MINIME_AGGRO = 230
 export const MINIME_BURST_R = 126
 export const MINIME_BURST_DMG = 42
+// A minime is drawn as a SMALL COPY OF THE PLAYER (render.js reuses T.playerBody, the player's own
+// bake) rather than as the Pheromone Lure's amber beacon it inherited by sharing run.lures. The
+// card's whole fiction is "copies of you"; a gold star does not read as one.
+export const MINIME_DRAW_SCALE = 0.55  // fraction of the player's own size
 // SPECIALIST (v7.5). "I commit to one weapon and the game commits back." The spec is emphatic that
 // the deliverability half is a TARGETING tool and not a deliverability FIX — focus redistributes
 // where mod cards land, it cannot create them.
@@ -699,6 +820,28 @@ export const ANOMALIES = {
     kind: 'jackpot',
     minLevel: 3,
   },
+  submission: {
+    // The id, the constants and the event types all say `submission` too. Renaming a card means
+    // renaming it IN THE CODE — the soyMilk/ipecac precedent (keep the id, change the name) is
+    // what a future session gets lost in, hunting a `soyMilk` that the game calls Machine Gun.
+    name: 'Submission', icon: '🎖️',
+    from: 'they only obey the strongest',
+    desc: `Elites arrive three times as often — and the ones you kill turn instead of dying, fighting the swarm for ${SUBMISSION_DURATION}s at ${Math.round(SUBMISSION_DMG_FRAC * 100)}% of your damage. Nothing you fire can touch them.`,
+    // The same gate as unstableCores, and for the same reason: the card teaches itself only to a
+    // player who has already met an elite. It also scopes the card correctly for free — The Blank
+    // is `scripted`, sim.js:643 returns before the elite cadence there, so _eliteKills never rises
+    // and Submission is simply never offered in the one chapter where it could do nothing.
+    when: (r) => (r._eliteKills ?? 0) > 0,
+    // Weight matches unstableCores: both are jackpots gated on the same event, and a tier should
+    // feel like its jackpots. Two elite-keyed cards in the pool is deliberate — they combine
+    // (an ally's expiry fires its core), which is the interaction the spec names as the point.
+    weight: 4,
+    chapter: null,
+    kind: 'jackpot',
+    // A jackpot with no cost, so ANOMALY_MIN_LEVEL's argument (which is about COST cards) does not
+    // apply — same reasoning as unstableCores, whose measurement is quoted in its block above.
+    minLevel: 3,
+  },
 
   // ---- PIVOTS: no direct cost, but they change how the run is PLAYED ------------------
   // A jackpot means no COST, not no DECISION. A card that changes nothing about how you play has
@@ -737,11 +880,15 @@ export const ANOMALIES = {
   chaosPact: {
     name: 'Chaos Pact', icon: '🌀',
     from: 'you agreed to a rhythm you did not set',
-    desc: `Every minute: ${CHAOS_PACT_SURGE}s of +${Math.round((CHAOS_PACT_SPAWN_MUL - 1) * 100)}% enemies, then +${Math.round((CHAOS_PACT_DMG_MUL - 1) * 100)}% damage until the next one.`,
+    desc: `Every ${CHAOS_PACT_PERIOD}s a ${CHAOS_PACT_SURGE}s chaos wave brings +${Math.round((CHAOS_PACT_SPAWN_MUL - 1) * 100)}% enemies. Survive one and keep +${Math.round(CHAOS_PACT_DMG_PER_WAVE * 100)}% damage — for the rest of the run, every time.`,
     // Keys off run.time, which TIME DEBT inflates 1.5x — so under both cards the beats arrive half
-    // again as often in real seconds. Intended, and the card text says "every minute" rather than
-    // "every 60 seconds" partly because of it.
-    when: () => true,
+    // again as often in real seconds. Intended: the ramp counts WAVES, so a compressed run simply
+    // reaches more of them, and the per-wave value is untouched.
+    // NOT OFFERED IN THE LAST CHAOS_PACT_MIN_REMAINING SECONDS (owner: "it won't be worth it").
+    // The payoff is a ramp, so a late pick banks a handful of waves and is a dead choice on a
+    // screen that only has three. `?? 0` because `when` must not throw on the fixture run shapes
+    // that run PB drives it with.
+    when: (r) => (RUN_DURATION - (r.time ?? 0)) >= CHAOS_PACT_MIN_REMAINING,
     weight: 4, chapter: null, kind: 'pivot',
   },
   wildfire: {
@@ -2121,8 +2268,67 @@ export const QUILL_REBOUND_SPEED_MUL = 0.85 // the return sweep is slower — it
 // Chitter Shriek (undergrowth utility — see WEAPONS.chitterShriek + stepShriekWeapon in sim.js): a
 // run.novas ring carrying an extra `fear` field (s). Enemies the ring hits get e.fearT = fear and
 // flee: while e.fearT > 0, stepEnemyMovement INVERTS the seek direction (they run from the player)
-// at FEAR_SPEED_MUL of their own speed and never deal contact damage. Ticks down every frame.
+// at FEAR_SPEED_MUL of their own speed. Ticks down every frame.
 export const FEAR_SPEED_MUL = 1.25    // fleeing enemies scatter a bit faster than they chase
+// v7.16 — THE MACHINE-GUN LOCK. Fear was refreshed with Math.max on every ring, so ANY cadence
+// shorter than the duration pinned it at 100%, and a feared enemy could not deal contact damage at
+// all. MEASURED, undergrowth d3, 150s, stationary player: Chitter Shriek alone took 11 contact hits
+// with enemies touching at 36px; the same build under MACHINE GUN (x5 fire rate) took 0 hits and
+// nothing came closer than 189px. A permanent, field-wide, untouchable wall.
+//
+// The root cause is that KNOCKBACK AND FEAR ARE PRICED AT NOTHING. Both are applied per HIT at a
+// magnitude that ignores damage, so a card trading x0.2 damage for x5 rate — a fair trade for dps,
+// which is what it was priced against — buys five times the crowd control for free. Pure knockback
+// is not the problem (Claw Rake + MACHINE GUN still took 12 hits, enemies still reached 19px);
+// fear is, because it also disarms.
+//
+// Two independent fixes, both owner-picked:
+//   1. A REFRACTORY. Once an enemy's fear expires it cannot be feared again for this long, so
+//      uptime is capped by the enemy's own timer instead of by the weapon's cadence — 1.8s of fear
+//      on a 3.8s cycle is ~47%, at any fire rate. A fixed constant rather than "as long as the fear
+//      lasted" so the `terror` mod (+35% duration) still buys uptime instead of extending its own
+//      lockout and doing nothing.
+//   2. `unshakeable` (roster flag) — see the tank entries in CHAPTERS. Immune to fear AND to weapon
+//      knockback, exactly as the `anchored` elite affix already was. One per chapter, always the
+//      TANK: the slow heavy thing shrugging off a shriek reads without being taught, and it needs
+//      no new art because the creature is already visually distinct.
+// Feared enemies now also STILL DEAL CONTACT DAMAGE (contactHarmless no longer checks fearT) — they
+// run from you, but a fleeing thing pinned against the crowd behind it is still a threat.
+export const FEAR_REFRACTORY = 2      // s an enemy is fear-proof after its own fear runs out
+
+// ---- GLOBAL CROWD-CONTROL PRICING (v7.17) ------------------------------------------------------
+// THE CLASS OF BUG, not one instance of it: every crowd-control effect in this game is applied PER
+// HIT at a magnitude that reads neither the damage of the hit nor how recently that enemy was
+// already controlled. So ANY card that buys fire rate buys crowd control for free, and the effects
+// stack on each other — knockback pushes the crowd out, chill means it cannot crawl back before the
+// next push, fear inverts it outright. Patching one status at a time (v7.16 did fear) just moves
+// the exploit to the next one.
+//
+// MEASURED on the reported build (undergrowth d3, 300s, kiting bot, 3 seeded runs — Quill Burst +
+// Chitter Shriek + Cold x4 + MACHINE GUN). Each layer widens the ring the crowd is held at, and the
+// x5 fire rate multiplies all of them at once without adding any mechanic of its own:
+//   quill alone                  165.7 contact hits, crowd held at  31px
+//   + shriek                     122.7 hits,                        68px
+//   + cold x4                    104.3 hits,                        71px
+//   + MACHINE GUN                 50.3 hits,                       112px   (4.0 hits / 162px pre-v7.16)
+//
+// TWO RULES, both owner-picked, applied at every player-sourced CC site:
+//
+//   A. DIMINISHING RETURNS, per enemy. Each application multiplies by that enemy's current
+//      resistance and then spends it (x CC_DR_STEP); it recovers to full over CC_DR_RECOVER seconds
+//      without CC. The FIRST hit always lands in full — a slow heavy weapon is untouched by this —
+//      while the fifth inside a second lands at the floor. Fire rate stops buying control, for
+//      every status including ones not written yet.
+//   B. A CC MULTIPLIER on the player (p.ccMul), which cards set explicitly. MACHINE GUN takes it to
+//      SOY_MILK_DMG_MUL, so its x0.2 damage pays for its x5 rate in control as well as in dps.
+//      Deliberately its own stat rather than a read of p.damageMul: damage passives would otherwise
+//      launder the discount away, and a card like BRITTLE (x4 damage) would INHERIT a control buff.
+//
+// Chapter hazards (traffic, hydrant jets, the lane's repulse) are NOT scaled — they are not bought
+// with a card and cannot be stacked by fire rate. Same scoping as `unshakeable` above.
+export const CC_DR_STEP = 0.5       // each application halves what the next one is worth
+export const CC_DR_RECOVER = 2.5    // s of no control to climb back from the floor to full
+export const CC_DR_FLOOR = 0.08     // never quite zero: a hit should always do SOMETHING
 export const SHRIEK_ECHO_DELAY = 0.22 // s between an echoShriek cast and the next (cf. WAVE_ECHO_DELAY)
 export const SHRIEK_ECHO_DMG_FRAC = 0.6 // each echo's damage/fear, as a fraction of the original cast's
 // panicRout (behavioral): a FLEEING enemy (fearT > 0) takes (1 + bonus) × damage from EVERY source
@@ -2714,7 +2920,7 @@ export const CHAPTERS = {
     // time filter would empty it, so an archetype never goes silent early).
     roster: [
       { id: 'redcell',  archetype: 'normal', name: 'Red Blood Cell',    hpMul: 1, speedMul: 1,   flags: [] },
-      { id: 'wbc',      archetype: 'tank',   name: 'White Blood Cell',  hpMul: 1, speedMul: 1,   flags: [] },
+      { id: 'wbc',      archetype: 'tank',   name: 'White Blood Cell',  hpMul: 1, speedMul: 1,   flags: ['unshakeable'] },
       { id: 'antibody', archetype: 'fast',   name: 'Antibody',          hpMul: 1, speedMul: 1,   flags: ['latch'] },
     ],
     eliteFlags: ['acidPool'],           // pill elites dissolve into acid pools
@@ -2756,7 +2962,7 @@ export const CHAPTERS = {
     roster: [
       { id: 'amoeba',     archetype: 'normal', name: 'Amoeba',     hpMul: 1,   speedMul: 0.9, flags: ['split'] },
       { id: 'tadpole',    archetype: 'fast',   name: 'Tadpole',    hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
-      { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: ['phase'] }, // v6.4: cryptobiosis flicker (see PHASE_* below)
+      { id: 'tardigrade', archetype: 'tank',   name: 'Tardigrade', hpMul: 2.5, speedMul: 0.6, flags: ['phase', 'unshakeable'] }, // v6.4: cryptobiosis flicker (see PHASE_* below)
     ],
     eliteFlags: ['soapTrail'],
     // v6.4 pond identity: eddies are streamed vortices (run.eddies, sim.js streamEddies) that fold
@@ -2808,7 +3014,7 @@ export const CHAPTERS = {
       { id: 'wasp',   archetype: 'fast',   name: 'Wasp',   hpMul: 1.3,  speedMul: 0.8, radiusMul: 1.25, flags: ['diveBomb'] },
       // v6.6.15 (owner): spiders -20% hp. This is the ROSTER multiplier, so it thins the spider
       // alone; garden's chapter-wide enemyHpMul below still applies on top of it.
-      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, radiusMul: 0.75, flags: ['webZone'] },
+      { id: 'spider', archetype: 'tank',   name: 'Spider', hpMul: 1.2,  speedMul: 0.9, radiusMul: 0.75, flags: ['webZone', 'unshakeable'] },
     ],
     eliteFlags: [],                       // v6.6.16: the mower left the elite flag and became a
                                           // chapter hazard (see `mower` below) — it turns up on its
@@ -2894,7 +3100,7 @@ export const CHAPTERS = {
       // faster leap. A toad now walks slightly faster than a `normal` rat (0.85), which reads odd
       // on paper but not on screen: it spends most of the cycle standing still in 'aim' or frozen
       // in 'land', so its AVERAGE closing speed stays the slowest in the chapter.
-      { id: 'toad', archetype: 'tank',   name: 'Toad', hpMul: 1.6,  speedMul: 1.064, flags: ['pounce'] },
+      { id: 'toad', archetype: 'tank',   name: 'Toad', hpMul: 1.6,  speedMul: 1.064, flags: ['pounce', 'unshakeable'] },
       // Centipede replaces the Owl (v5.6.8). The owl used 'aerialStrike' — circles overhead at
       // AERIAL_RADIUS, dives to a marked spot — which is un-killable in a MELEE-ONLY chapter: it
       // circles past every short-range weapon and dives to where a kiting player WAS, so a
@@ -2986,7 +3192,7 @@ export const CHAPTERS = {
     // + burstHydrant are new v5.4 natives. Starter = the neon beam (rainbow).
     weapons: ['rainbow', 'trashTornado', 'burstHydrant'], starter: 'rainbow',
     roster: [
-      { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge'] },
+      { id: 'vacuum',   archetype: 'tank',   name: 'Robot Vacuum',    hpMul: 1.5,  speedMul: 0.85, flags: ['lineCharge', 'unshakeable'] },
       { id: 'ratDrone', archetype: 'normal', name: 'Rat-Catcher Drone', hpMul: 1,  speedMul: 1.05, flags: [] },
       // Patrol Drone. v6.10.3 (owner: "some drones circle and dash, remove that") — it has lost
       // `aerialStrike` (circle -> mark -> strike -> climb, see stepAerialStrike in sim.js) and is
@@ -3091,7 +3297,7 @@ export const CHAPTERS = {
       // the roar cone long enough that columns stacked up and their artillery telegraphs became a
       // permanent fixture of the screen. Cutting HP is also a CLUTTER fix: fewer live tanks is
       // fewer square telegraphs, which is the same lever as the LOD cut below.
-      { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.25, speedMul: 0.55, flags: ['artillery'] },
+      { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.25, speedMul: 0.55, flags: ['artillery', 'unshakeable'] },
     ],
     eliteFlags: ['artillery'],            // AA-turret elites shell you too, just harder (see ARTILLERY_*)
     // Signature: bombardment (area denial) — telegraphed artillery circles rain on the player's
@@ -3221,7 +3427,7 @@ export const CHAPTERS = {
     roster: [
       { id: 'drifter',    archetype: 'normal', name: 'Drifter',       hpMul: 0.9,  speedMul: 1,    flags: [] },
       { id: 'swarmDrone', archetype: 'fast',   name: 'Swarm Drone',   hpMul: 0.75, speedMul: 1.25, flags: [] },
-      { id: 'warden',     archetype: 'tank',   name: 'Warden',        hpMul: 1.25, speedMul: 0.7,  flags: [] },
+      { id: 'warden',     archetype: 'tank',   name: 'Warden',        hpMul: 1.25, speedMul: 0.7,  flags: ['unshakeable'] },
       { id: 'invader',    archetype: 'normal', name: 'Invader',       hpMul: 0.6,  speedMul: 1,    flags: ['march'], formationOnly: true },  // rank fodder: dies fast, arrives six at a time
       { id: 'hulk',       archetype: 'tank',   name: 'Siege Hulk',    hpMul: 1.4,  speedMul: 0.55, flags: ['march'], formationOnly: true },
     ],
@@ -3285,7 +3491,7 @@ CHAPTERS.blank = {
   roster: [
     { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.15, flags: ['pastSeek'] },
     { id: 'binder',    archetype: 'normal', name: 'Binder',       hpMul: 0.9, speedMul: 1.05, flags: ['latch'] },
-    { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 1.2,  flags: ['wake'] },
+    { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 1.2,  flags: ['wake', 'unshakeable'] },
     { id: 'bindnode',  archetype: 'normal', name: 'Binding Node', hpMul: 1,   speedMul: 0,    flags: [], formationOnly: true },
     { id: 'antibody1', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },
     { id: 'antibody2', archetype: 'tank',   name: 'The Antibody', hpMul: 1,   speedMul: 1,    flags: ['standoff'], formationOnly: true },

@@ -13,7 +13,7 @@ import {
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, hasWeaponAt,
-  WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_MUL,
+  WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_PER_WAVE,
   SPECIALIST_MIN_MODS, SPECIALIST_EXTRA_PICKS, specialistSubjects, modPickCap,
   BLIND_FAITH_FLOOR, BLIND_FAITH_NO_REROLL,
   IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
@@ -35,7 +35,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
-  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter,
+  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
@@ -63,7 +63,7 @@ import {
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_RADIUS, BOMBARDMENT_FUSE, BOMBARDMENT_DMG,
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
-  CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL,
+  CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL, FEAR_REFRACTORY,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
@@ -101,7 +101,7 @@ import {
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -503,6 +503,26 @@ function testAnomalySlate() {
     const p = withCard(null).player
     assert.ok(Math.abs(r.player.fireRateMul / p.fireRateMul - OVERLOAD_FIRE_MUL) < 1e-9, 'OVERLOAD did not multiply fire rate')
     assert.ok(Math.abs(r.player.damageMul / p.damageMul - OVERLOAD_DMG_MUL) < 1e-9, 'OVERLOAD did not multiply damage')
+    // ...AND THE DRAIN RIDES THE RUN CLOCK, NOT THE REAL ONE (v7.15). TIME DEBT ends the run in 200
+    // real seconds instead of 300, so a cost charged per REAL second collects two thirds of the HP
+    // — the two cards anti-comboed, and TIME DEBT was a quiet DISCOUNT on the one card whose whole
+    // point is a price. Measured over the same real window from the same run.time, the debted drain
+    // has to be TIME_DEBT_MUL times the undebted one. Asserted as a RATIO of HP actually removed,
+    // so deleting the clockDt term fails it; a state check on run.anomalies would not.
+    const drainReal = (debt) => {
+      const x = withCard('overload', (y) => { y.player.hp = 1e6; y.player.maxHP = 1e6 })
+      if (debt) { x.levelUpChoices = [{ kind: 'anomaly', id: 'timeDebt' }]; applyChoice(x, 0) }
+      const b = x.player.hp
+      for (let i = 0; i < 120; i++) stepSim(x, { x: 0, y: 0 }, dt)   // 2 REAL seconds either way
+      return b - x.player.hp
+    }
+    const plain = drainReal(false), debted = drainReal(true)
+    const ratio = debted / plain
+    // Band, not equality: under debt run.time also advances faster, so dmgScale(run.time) climbs a
+    // little within the window and the ratio sits just above TIME_DEBT_MUL. 1.4..1.75 excludes both
+    // the bug (1.0, the term deleted) and a double-application (2.25).
+    assert.ok(ratio > 1.4 && ratio < 1.75,
+      `OVERLOAD+TIME DEBT drained x${ratio.toFixed(3)} per real second, want ~x${TIME_DEBT_MUL} — at x1 the drain is charged per real second and TIME DEBT is a 33% DISCOUNT on the card's whole cost`)
   }
 
   // SOY MILK — paper-neutral by construction, so assert both halves or half the card can vanish.
@@ -589,6 +609,22 @@ function testAnomalySlate() {
     // fall back to paying" (nowhere on either card).
     assert.strictEqual(full((x) => { x.player.maxHP = 500; x.player.hp = 100; x.anomalies = { bloodPact: true } }), 200,
       'AVARICE + BLOOD PACT destroyed coins — no heal, no payout, and nothing on either card says so')
+    // ...AND THE NUMBER ON SCREEN IS THE HP THAT LANDED (v7.15). The conversion now prints `+N`,
+    // and healPlayer clamps to maxHP — so a pickup 2 HP below full heals 2, not AVARICE_HEAL_HP.
+    // Asserted against the HP actually gained rather than against the constant: a renderer fed the
+    // nominal 5 would put a figure on screen the HP bar visibly contradicts.
+    {
+      const r = withCard('avarice', (x) => { x.player.maxHP = 500; x.player.hp = 498 })
+      for (let i = 0; i < 200; i++) r.coins.push({ x: 0, y: 0, value: 1 })
+      const before = r.player.hp
+      stepSim(r, { x: 0, y: 0 }, dt)
+      const healEvents = r.events.filter((e) => e.type === 'coin' && e.healed)
+      assert.ok(healEvents.length > 0, 'AVARICE converted nothing 2 HP below full — the heal can still land there')
+      const shown = healEvents.reduce((n, e) => n + e.heal, 0)
+      assert.strictEqual(shown, r.player.hp - before,
+        `AVARICE's coin events promised +${shown} HP but the player gained ${r.player.hp - before} — the floating number would be lying about a clamped heal`)
+      assert.ok(healEvents[0].heal <= 2, `first conversion 2 HP below full reported +${healEvents[0].heal}, want <= 2 (clamped)`)
+    }
   }
 
   // BERSERK — a window opened by a real hit and closed by time, read through anomalyDamageMul.
@@ -701,12 +737,20 @@ function testAnomalySlate() {
     const still = dealt('stillness', (r) => { r._stillT = STILLNESS_RAMP * 10 })
     assert.ok(still > base * 1.5, `STILLNESS dealt ${still} against a baseline ${base} — the ramp is banked but never read`)
 
-    // CHAOS PACT: past the surge window is the payoff half.
-    const pact = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + CHAOS_PACT_SURGE + 1 })
-    assert.ok(pact > base * 1.2, `CHAOS PACT dealt ${pact} against a baseline ${base} — the payoff half of the cycle is inert`)
-    // ...and the surge half must NOT carry it, or the card is a flat buff with a siren.
-    const surge = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + 1 })
-    assert.ok(surge < pact * 0.95, `CHAOS PACT dealt ${surge} inside its spawn surge and ${pact} outside — the two halves must differ`)
+    // CHAOS PACT (v7.x): the payoff is now a RAMP — every wave SURVIVED is worth
+    // CHAOS_PACT_DMG_PER_WAVE for the rest of the run, rather than a flat multiplier that toggled
+    // on between surges. So the assertion is no longer "off during the surge, on after"; it is
+    // "more waves behind you means more damage", and the surge simply sits one wave short.
+    const late = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 8 + CHAOS_PACT_SURGE + 1 })
+    const early = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 1 + CHAOS_PACT_SURGE + 1 })
+    assert.ok(late > early * 1.2,
+      `CHAOS PACT dealt ${late} nine waves in and ${early} two waves in — the ramp is not accumulating`)
+    assert.ok(early > base, `CHAOS PACT dealt ${early} against a baseline ${base} — a survived wave pays nothing`)
+    // Mid-wave is worth exactly one wave less than just after it: you are paid for SURVIVING.
+    const during = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + 1 })
+    const after = dealt('chaosPact', (r) => { r.time = CHAOS_PACT_PERIOD * 2 + CHAOS_PACT_SURGE + 1 })
+    assert.ok(during < after,
+      `CHAOS PACT dealt ${during} inside wave 3 and ${after} just after it — the wave in progress must not pay until it is survived`)
 
     // BLOOD PACT: the snowball, forced to a readable size.
     const blood = dealt('bloodPact', (r) => { r._bloodPact = 1 })
@@ -5966,7 +6010,7 @@ function testV54Weapons() {
   }
 
   // (c) chitterShriek: the ring FEARS what it hits — a feared enemy runs AWAY (inverted seek) at
-  // FEAR_SPEED_MUL and stops dealing contact damage. panicRout amplifies damage on fleeing foes.
+  // FEAR_SPEED_MUL. It KEEPS dealing contact damage (v7.16). panicRout amplifies damage on fleeing foes.
   {
     const run = weaponRun('undergrowth', 'chitterShriek')
     const victim = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e6, speed: 100 })
@@ -5998,15 +6042,154 @@ function testV54Weapons() {
     assert(flee < 0, `expected a feared enemy to FLEE (-x), got ${flee.toFixed(1)}`)
     assert(Math.abs(Math.abs(flee / seek) - FEAR_SPEED_MUL) < 0.01, `expected fleeing at ${FEAR_SPEED_MUL}x, got ${Math.abs(flee / seek).toFixed(3)}x`)
 
-    // A feared enemy deals no contact damage.
-    const safe = weaponRun('undergrowth', 'chitterShriek')
-    safe.weapons = []
-    safe.player.hp = 500; safe.player.maxHP = 500; safe.player.invuln = 0
-    const scared = makeStatusEnemy(safe, { x: 0, y: 0, hp: 1e6, speed: 0 })
-    scared.flags = []; scared.fearT = 10
-    safe.enemies.push(scared)
-    stepQuiet(safe, 0.5)
-    assert.strictEqual(safe.player.hp, 500, 'expected a fleeing enemy to deal no contact damage')
+    // A feared enemy STILL DEALS CONTACT DAMAGE (v7.16, owner's call). It used to be disarmed, and
+    // that was half of the machine-gun lock: a x5 fire rate pinned fear at 100% field-wide, so
+    // every enemy on screen was simultaneously fleeing AND unable to touch you. Fear moves them;
+    // it does not make them harmless. STUN still disarms — asserted right after, because deleting
+    // the fear clause from contactHarmless by hand is one keystroke away from deleting both.
+    const touch = (status) => {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      r.player.hp = 500; r.player.maxHP = 500; r.player.invuln = 0
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      Object.assign(e, status)
+      r.enemies.push(e)
+      stepQuiet(r, 0.5)
+      return 500 - r.player.hp
+    }
+    assert.ok(touch({ fearT: 10 }) > 0, 'a feared enemy dealt no contact damage — fear moves enemies, it does not disarm them (v7.16)')
+    assert.strictEqual(touch({ stunT: 10 }), 0, 'a STUNNED enemy dealt contact damage — stun still disarms; only the fear clause was removed')
+
+    // THE REFRACTORY (v7.16). The lock this closes: fear refreshed with Math.max, so any cadence
+    // shorter than the duration held it at 100% — MACHINE GUN's x5 fire rate made an untouchable
+    // 189px wall (0 contact hits over 150s, measured). Asserted as UPTIME under a ring firing every
+    // frame, which is the worst case any fire rate can reach: it must land well under 100%.
+    {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+      e.flags = []
+      r.enemies.push(e)
+      let feared = 0
+      const FRAMES = 60 * 12
+      for (let i = 0; i < FRAMES; i++) {
+        // A fresh full-strength ring ON the enemy every single frame — no weapon can do better.
+        r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 0, fear: 1.8, life: 1, hit: new Set() })
+        stepQuiet(r, 1 / 60)
+        if ((e.fearT || 0) > 0) feared++
+      }
+      const uptime = feared / FRAMES
+      // Two caps compose here and the assertion must not pin either one's exact value, or it breaks
+      // every time the other moves: FEAR_REFRACTORY bounds it at 1.8/(1.8+2) = 47%, and v7.17's
+      // diminishing returns shorten each application on top of that. What must stay true is that a
+      // ring firing EVERY FRAME — better than any real fire rate — cannot approach a permanent
+      // lock, and that fear still does something.
+      assert.ok(uptime > 0.05 && uptime < 0.55,
+        `fear uptime ${(100 * uptime).toFixed(0)}% under a ring firing EVERY FRAME — at ~100% the machine-gun lock is back, at ~0% fear has stopped working entirely`)
+    }
+
+    // ...AND THE FIRST HIT IS NEVER TAXED. Diminishing returns must charge CADENCE, not weapons: a
+    // slow heavy weapon hitting a recovered enemy gets the full duration, or every un-stacked fear
+    // in the game was quietly nerfed too.
+    {
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+      e.flags = []
+      r.enemies.push(e)
+      r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 0, fear: 1.8, life: 1, hit: new Set() })
+      stepQuiet(r, 1 / 60)
+      assert.ok(e.fearT > 1.7,
+        `a single ring on a fully recovered enemy feared it for ${e.fearT.toFixed(2)}s, want the full 1.8 — DR must tax cadence, not the first hit`)
+    }
+
+    // GLOBAL CROWD-CONTROL PRICING (v7.17). Two rules, asserted by EFFECT on the same enemy:
+    //   A. diminishing returns — the Nth application on one enemy is worth far less than the first;
+    //   B. p.ccMul — MACHINE GUN's x0.2 pays for its x5 rate in control, not just in dps.
+    // Measured as knockback actually imparted, because that is the one CC whose magnitude is a
+    // plain number: a state check on _ccDR would pass with every call site left unscaled.
+    {
+      const shove = (n, gun) => {
+        const r = weaponRun('undergrowth', 'chitterShriek')
+        r.weapons = []
+        // Through applyChoice, not by setting ccMul by hand: the thing under test is that the CARD
+        // sets it. Assigning the field directly tests only that ccScale reads it, and a mutant that
+        // deletes the card's own line passes happily (it did).
+        if (gun) { r.levelUpChoices = [{ kind: 'anomaly', id: 'soyMilk' }]; applyChoice(r, 0) }
+        const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+        e.flags = []
+        r.enemies.push(e)
+        let last = 0
+        for (let i = 0; i < n; i++) {
+          e.kb.x = e.kb.y = 0
+          r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 300, fear: 0, life: 1, hit: new Set() })
+          stepQuiet(r, 1 / 60)
+          last = Math.hypot(e.kb.x, e.kb.y)
+        }
+        return last
+      }
+      const first = shove(1, false), fifth = shove(5, false)
+      assert.ok(first > 250, `the FIRST shove imparted ${first.toFixed(0)}, want ~300 — DR must tax cadence, not weapons`)
+      assert.ok(fifth < first * 0.3,
+        `the 5th shove in 5 frames imparted ${fifth.toFixed(0)} against the first's ${first.toFixed(0)} — without diminishing returns any fire rate buys unlimited control`)
+      // B: the same FIRST hit, under MACHINE GUN, priced at x0.2.
+      const firstGun = shove(1, true)
+      assert.ok(Math.abs(firstGun / first - SOY_MILK_DMG_MUL) < 0.02,
+        `MACHINE GUN's first shove was x${(firstGun / first).toFixed(2)} of baseline, want x${SOY_MILK_DMG_MUL} — its x5 rate is free control otherwise`)
+    }
+
+    // ...and the CHILL SLOW is priced too (owner's call). It is what stops the crowd closing the
+    // gap between two knockbacks, so a diminished shove with an undiminished slow still walls.
+    {
+      // applyChill is module-private, so the chill comes through the REAL path: a cold-infused
+      // weapon actually hitting the enemy. `frac` is how far into a 1s window we read the slow, so
+      // n=1 samples a single application and n=6 samples a sustained burst on the same enemy.
+      const slowAfter = (frames) => {
+        const r = weaponRun('undergrowth', 'quillBurst')
+        r.elements.cold = 4
+        r.elementPicks.cold = 4
+        const e = makeStatusEnemy(r, { x: 30, y: 0, hp: 1e9, speed: 0 })
+        e.flags = []
+        r.enemies.push(e)
+        // The FIRST value is whatever the very first application produced — sampled on the frame
+        // chill first appears, not on frame 0: the weapon has its own interval and has not cast yet.
+        let first = 0
+        for (let i = 0; i < frames; i++) {
+          stepQuiet(r, 1 / 60)
+          e.x = 30; e.y = 0                 // pinned in the nova's path, taking every application
+          if (!first && e.chillSlow > 0) first = e.chillSlow
+        }
+        return { peak: first, end: e.chillSlow }
+      }
+      const burst = slowAfter(90)
+      assert.ok(burst.peak > 0.2,
+        `the first chill slowed by ${burst.peak.toFixed(2)}, want the full value — DR must never tax the first hit`)
+      assert.ok(burst.end < burst.peak * 0.7,
+        `chill slow held at ${burst.end.toFixed(2)} against a first hit's ${burst.peak.toFixed(2)} under sustained fire — an undiminished slow rebuilds the wall on its own, whatever the knockback does`)
+    }
+
+    // UNSHAKEABLE (v7.16): one tank per chapter ignores fear AND weapon knockback outright, so the
+    // wall has something that walks through it. Asserted on the shipped roster entry, not on a
+    // hand-set flag — the flag being absent from config is the failure this must catch.
+    {
+      const tanks = CHAPTER_ORDER.map((id) => ({
+        id, tank: CHAPTERS[id].roster.find((x) => x.archetype === 'tank' && !x.formationOnly),
+      }))
+      for (const { id, tank } of tanks) {
+        assert.ok(tank && tank.flags.includes('unshakeable'),
+          `${id}'s tank (${tank ? tank.name : 'none'}) is not unshakeable — that chapter has no answer to a fear/knockback wall`)
+      }
+      const r = weaponRun('undergrowth', 'chitterShriek')
+      r.weapons = []
+      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
+      e.flags = ['unshakeable']
+      r.enemies.push(e)
+      r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 500, fear: 1.8, life: 1, hit: new Set() })
+      stepQuiet(r, 1 / 60)
+      assert.strictEqual(e.fearT || 0, 0, 'an unshakeable enemy was feared')
+      assert.ok(Math.hypot(e.kb.x, e.kb.y) < 1e-9, `an unshakeable enemy was knocked back (${Math.hypot(e.kb.x, e.kb.y).toFixed(0)})`)
+    }
 
     // panicRout: the same hit lands harder on a fleeing foe.
     function routHp(rout) {
@@ -10792,6 +10975,8 @@ try {
   testIntegerHP()
   testDetonationScaling()
   testDescPlaceholder()
+  testSubmission()
+  testDevMenu()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -12641,4 +12826,184 @@ function testDescPlaceholder() {
     `expected modEffectText to be DEFINED and used by both surfaces, found ${callers} mentions in ui.js`)
 
   console.log(`PASS run VF ({n} desc placeholder): ${want.size} placeholder descs resolve with a number and no "+N " head, EN/FR agree on every mod, and ui.js composes both surfaces through one placeholder-aware helper`)
+}
+
+// ---- Run SB: the SUBMISSION anomaly (a killed elite turns and fights for you) -----------------
+// THE SUITE HAD ZERO ELITE COVERAGE BEFORE THIS (one cadence bound, run I), which is why the first
+// cut of this card shipped green while a skies ally shelled the player for 300 HP a loan and a city
+// ally spawned 12 hostiles in 15s. Both are asserted below, enumerated from the CHAPTERS table
+// rather than a hand-written list — the bug was per-chapter, so a sampled test would have missed it
+// exactly the way the first review did.
+function testSubmission() {
+  const dt = 1 / 60
+
+  // (a) AN ALLY NEVER DAMAGES THE PLAYER, in any chapter. Driven off CHAPTERS[*].eliteFlags so a
+  // chapter added later is covered without editing this test. The ally is parked ON the player —
+  // contact, pools, beams, cones and shells all reach from there — and given every flag its chapter
+  // can put on an elite.
+  // MUTATION: remove any id from SUBMISSION_STRIP_FLAGS and the chapter that owns it goes red.
+  // MEASURED AGAINST A CONTROL, not against zero. The first cut of this test asserted the player
+  // simply lost no HP, and city failed it for 34 HP — from the chapter's own TRAFFIC signature
+  // running over a parked player, nothing to do with the ally. Every chapter has some passive
+  // hazard like that (traffic, bombardment, rocks, currents), so the only honest question is
+  // whether the ALLY changed anything: run the identical fixture with and without it and diff.
+  let checked = 0
+  for (const id of CHAPTER_ORDER) {
+    const flags = CHAPTERS[id].eliteFlags || []
+    if (flags.length === 0) continue
+
+    const damageTaken = (withAlly) => {
+      Math.random = mulberry32(20260810)
+      const run = createRun(makeMeta(), { chapter: id, difficulty: 1 })
+      run.anomalies.submission = true
+      run.weapons = []
+      run.mods.spawnMul = 0            // nothing but our ally in the field
+      run.player.hp = run.player.maxHP = 5000
+      let e = null
+      if (withAlly) {
+        e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, elite: true, hp: 1e6, speed: 0 })
+        e.flags = [...flags]
+        e._dead = true                 // killed this frame — turnDeadElites picks it up
+        run.enemies.push(e)
+      }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (withAlly) {
+        assert.ok(e.allyT > 0, `${id}: the dead elite did not turn — fixture broken, not the sim`)
+        assert.strictEqual(e.elite, true, `${id}: an ally must stay elite (clearing it pops the crown and swaps the texture)`)
+      }
+      const hp0 = run.player.hp
+      const bodies0 = run.enemies.length
+      for (let i = 0; i < Math.round(10 / dt); i++) {
+        if (run.phase !== 'playing') break
+        if (e) { e.x = run.player.x; e.y = run.player.y; e.allyT = SUBMISSION_DURATION }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+      }
+      return { lost: hp0 - run.player.hp, spawned: run.enemies.length - bodies0 }
+    }
+
+    const withAlly = damageTaken(true)
+    const control = damageTaken(false)
+    assert.strictEqual(withAlly.lost, control.lost,
+      `${id}: an ally sitting on the player for 10s cost ${withAlly.lost - control.lost} HP more than the same run without one — ` +
+      `its ${flags.join('/')} flag is still pointed at the player (see SUBMISSION_STRIP_FLAGS)`)
+    assert.strictEqual(withAlly.spawned, control.spawned,
+      `${id}: an ally added ${withAlly.spawned - control.spawned} bodies the control did not — a stripped flag is still disgorging hostiles`)
+    checked++
+  }
+  assert.ok(checked >= 5, `expected at least 5 chapters with eliteFlags to exercise, got ${checked}`)
+  console.log(`PASS run SB.a (the ally is harmless to you): ${checked} chapters with eliteFlags, ally parked ON the player for 10s, damage identical to a no-ally control`)
+
+  // (b) THE PAYOUT RUNS EXACTLY ONCE PER ELITE. The failure this guards is not an exception, it is a
+  // gem and coin fountain: clear _turned and the ally's own fall re-enters the death branch, paying
+  // the whole elite reward again — and a DoT tick would do it every STATUS_TICK, forever.
+  // MUTATION: drop the `|| e._turned` from turnDeadElites' skip.
+  Math.random = mulberry32(20260810)
+  const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+  run.anomalies.submission = true
+  run.weapons = []
+  run.mods.spawnMul = 0
+  run.player.hp = run.player.maxHP = 5000
+  const e = makeStatusEnemy(run, { x: run.player.x + 300, y: run.player.y, elite: true, hp: 1e6, speed: 0 })
+  e.flags = []
+  e._dead = true
+  run.enemies.push(e)
+  stepSim(run, { x: 0, y: 0 }, dt)
+  const gems = run.gems.length, coins = run.coins.length, kills = run.kills, elites = run._eliteKills ?? 0
+  // run the WHOLE loan out, through the expiry, and past it
+  for (let i = 0; i < Math.round((SUBMISSION_DURATION + 5) / dt); i++) {
+    if (run.phase !== 'playing') break
+    stepSim(run, { x: 0, y: 0 }, dt)
+    run.events.length = 0
+  }
+  assert.strictEqual(run.gems.length, gems, `the ally's fall dropped ${run.gems.length - gems} extra xp gems — the elite paid out twice`)
+  assert.strictEqual(run.coins.length, coins, `the ally's fall dropped ${run.coins.length - coins} extra coins — the elite paid out twice`)
+  assert.strictEqual(run.kills, kills, `the ally's fall counted ${run.kills - kills} extra kills`)
+  assert.strictEqual(run._eliteKills ?? 0, elites, `the ally's fall counted an extra elite kill — it feeds other cards' when() gates`)
+  assert.ok(!run.enemies.includes(e) || e._dead, 'the ally outlived its loan')
+  console.log(`PASS run SB.b (paid once): a full ${SUBMISSION_DURATION}s loan + expiry added 0 gems, 0 coins, 0 kills, 0 elite kills`)
+
+  // (c) YOUR OWN FIRE NEITHER TARGETS NOR HURTS AN ALLY, and is not consumed by it. Asserted as an
+  // EFFECT: a full weapon build firing into an ally for 10s must not scratch it.
+  // MUTATION: drop the isAlly guard in damageImmune, or in nearestEnemy.
+  Math.random = mulberry32(20260810)
+  const r2 = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+  r2.anomalies.submission = true
+  r2.mods.spawnMul = 0
+  r2.player.hp = r2.player.maxHP = 5000
+  r2.player.damageMul = 20
+  const a2 = makeStatusEnemy(r2, { x: r2.player.x + 60, y: r2.player.y, elite: true, hp: 4000, speed: 0 })
+  a2.flags = []
+  a2._dead = true
+  r2.enemies.push(a2)
+  stepSim(r2, { x: 0, y: 0 }, dt)
+  const hpAtTurn = a2.hp
+  for (let i = 0; i < Math.round(10 / dt); i++) {
+    if (r2.phase !== 'playing') break
+    a2.x = r2.player.x + 60; a2.y = r2.player.y
+    a2.allyT = SUBMISSION_DURATION   // hold the loan open for the whole probe
+    stepSim(r2, { x: 0, y: 0 }, dt)
+    r2.events.length = 0
+  }
+  assert.strictEqual(a2.hp, hpAtTurn,
+    `the player's own weapons took ${hpAtTurn - a2.hp} HP off their ally over 10s at point-blank range`)
+  console.log(`PASS run SB.c (friendly fire): a ${Math.round(10 / dt)}-frame point-blank barrage at x20 damage took 0 HP off the ally`)
+}
+
+// ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------
+// The dev screen exists so a card can be tested without replaying until the pool offers it, which
+// is only true if the list is actually complete. Both halves of that fail SILENTLY:
+//   (a) devCards walks the rarity ladder because make*Card returns null for a tier a card does not
+//       offer — a `switch` mod is normal-only, Beam Prism's `values` is epic-only. Take the walk
+//       away and 9 cards simply are not in the list, with no error anywhere. The ones that vanish
+//       are exactly the cards whose rarity rules are unusual, i.e. the ones most worth testing.
+//   (b) devTake routes through applyChoice so a dev-added card takes the SHIPPED code path. A
+//       reimplementation that just banked the pick would look right in run.anomalies / run.passives
+//       and quietly skip applyAnomalyOnTake and the maxHP top-up — you would then be testing a card
+//       that never applied its own effect.
+function testDevMenu() {
+  // (a) COMPLETENESS: every card in every table, exactly once.
+  // MUTATION: in devCards, replace the firstTier() walk with make*Card(run, id, rarity) — 9 gone.
+  const run = createRun(makeMeta())
+  const cards = devCards(run)
+  const seen = (kind) => new Set(cards.filter((c) => c.kind === kind).map((c) => c.id))
+  for (const [kind, table] of [['weapon', WEAPONS], ['passive', PASSIVES], ['element', ELEMENTS], ['anomaly', ANOMALIES]]) {
+    const got = seen(kind)
+    const missing = Object.keys(table).filter((id) => !got.has(id))
+    assert.strictEqual(missing.length, 0, `devCards omits ${kind}: ${missing.join(', ')}`)
+    assert.strictEqual(got.size, Object.keys(table).length, `devCards has duplicate ${kind} cards`)
+  }
+  // Mods are keyed per weapon, so the id alone is not the identity.
+  const gotMods = new Set(cards.filter((c) => c.kind === 'mod').map((c) => `${c.weapon}.${c.id}`))
+  const allMods = []
+  for (const wid of Object.keys(WEAPON_MODS)) for (const mid of Object.keys(WEAPON_MODS[wid])) allMods.push(`${wid}.${mid}`)
+  const missingMods = allMods.filter((k) => !gotMods.has(k))
+  assert.strictEqual(missingMods.length, 0, `devCards omits weapon mods: ${missingMods.join(', ')}`)
+  assert.strictEqual(gotMods.size, allMods.length, 'devCards has duplicate mod cards')
+  // Every card must be renderable — ui.js prints title and desc through cardFaceHtml.
+  for (const c of cards) {
+    assert.ok(c.title, `dev card ${c.kind}:${c.id} has no title`)
+    assert.ok(c.desc, `dev card ${c.kind}:${c.id} has no desc`)
+  }
+  console.log(`PASS run DV.a (complete): devCards lists all ${cards.length} cards — ${Object.keys(WEAPONS).length} weapons, ${Object.keys(PASSIVES).length} passives, ${allMods.length} mods, ${Object.keys(ELEMENTS).length} elements, ${Object.keys(ANOMALIES).length} anomalies`)
+
+  // (b) devTake APPLIES the card, it does not merely record it. Asserted as an effect on the
+  // player, which is what a bank-the-pick reimplementation would leave untouched.
+  // MUTATION: make devTake write run.passives[id] / run.anomalies[id] directly.
+  const r1 = createRun(makeMeta())
+  const maxHPCard = devCards(r1).find((c) => c.kind === 'passive' && c.id === 'maxHP')
+  assert.ok(maxHPCard, 'no maxHP passive card in the dev list')
+  const beforeHP = r1.player.maxHP
+  devTake(r1, maxHPCard)
+  assert.strictEqual(r1.player.maxHP, beforeHP + maxHPCard.bonus,
+    `devTake banked the maxHP pick without growing the pool (${beforeHP} -> ${r1.player.maxHP}, card promised +${maxHPCard.bonus})`)
+
+  const r2 = createRun(makeMeta())
+  const overload = devCards(r2).find((c) => c.kind === 'anomaly' && c.id === 'overload')
+  assert.ok(overload, 'no OVERLOAD anomaly card in the dev list')
+  const beforeFire = r2.player.fireRateMul
+  devTake(r2, overload)
+  assert.strictEqual(r2.player.fireRateMul, beforeFire * OVERLOAD_FIRE_MUL,
+    'devTake recorded OVERLOAD without running applyAnomalyOnTake — the card would be inert in the dev menu')
+  console.log(`PASS run DV.b (real path): devTake grew maxHP by +${maxHPCard.bonus} and applied OVERLOAD's x${OVERLOAD_FIRE_MUL} fire rate`)
 }
