@@ -1599,6 +1599,54 @@ body {
    measured at 728px with two sections open. */
 .modal--pause { max-height: 100%; }
 
+/* ---- CHAOS PACT rail (v7.12) ---------------------------------------------------------------
+   Replaces a gold full-width bar that sat directly above the gold full-width xp bar and read as a
+   second xp track, and whose label had NO rule here at all — it inherited the HUD's dark ink and
+   was invisible on every dark chapter floor. Turning it 90 degrees is what makes the confusion
+   structurally impossible (the xp bar is horizontal by definition) rather than merely unlikely,
+   and it gives the vacated HUD row back to the xp bar.
+   Fixed rather than in .hud-top's grid, parked in the gap between the pause button above and the
+   skill button below (right:22px bottom:34px, 78px square). */
+.chaos-wrap { pointer-events: none; }
+.chaos-vrail {
+  position: fixed;
+  right: 16px;
+  top: 30%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+/* Both chips are OPAQUE on purpose: this is the half of the old readout that was broken, and a
+   text-shadow alone does not survive a light floor (the void chapter's is white). */
+.chaos-vrail-num,
+.chaos-vrail-bonus {
+  padding: 2px 7px 3px;
+  border-radius: 999px;
+  background: rgba(24, 20, 36, 0.88);
+  font-size: 0.72rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.chaos-vrail-num { color: #fff; }
+.chaos-vrail-bonus { color: #ffd93d; }
+.chaos-vrail-track {
+  width: 13px;
+  height: 24vh;
+  border-radius: 999px;
+  background: rgba(24, 20, 36, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;   /* frac drains 1 -> 0, so a bottom-anchored fill SINKS as the wave nears */
+}
+.chaos-vrail-track i { width: 100%; background: #8f7bff; border-radius: 999px; }
+/* live wave: violet -> red. Never colour ALONE — the seconds chip is the other half. */
+.chaos--on .chaos-vrail-track { border-color: rgba(255, 166, 148, 0.6); }
+.chaos--on .chaos-vrail-track i { background: #ff6b52; }
+.chaos--on .chaos-vrail-num { background: rgba(52, 18, 16, 0.92); color: #ffd7cf; }
+
 /* ---- hidden dev menu (v7.12) ----------------------------------------------------------------
    Seven taps on the HUD coin badge. Every card in the game in one scrolling list, so a card can be
    tested without replaying until the pool happens to offer it. Chrome only. */

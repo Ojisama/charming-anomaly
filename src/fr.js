@@ -166,8 +166,6 @@ const UI = {
   // HUD
   'WAVE': 'VAGUE',
   'Lv': 'Niv',
-  'next chaos: {n}s': 'chaos dans {n}s',
-  'chaos: {n}s left': 'chaos : {n}s',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
 
   // level-up card composition parts (see tCardDesc/tCardTag in ui.js).
