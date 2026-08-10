@@ -1,6 +1,10 @@
 # Submission (the anomaly card) — what is built, and what must land before it ships
 
-Branch `worktree-upgrade-pool-specs`. The card is **NOT shippable yet**. `npm test` is green and the
+> **STATUS 2026-08-10, after the ponytail review:** everything in "MUST FIX" below is DONE except
+> where noted, and run SB in `test/sim-test.js` now covers the card (3 scenarios, mutation-proven).
+> The fix was smaller than this plan assumed — see "How it was actually fixed" at the foot.
+
+Branch `worktree-upgrade-pool-specs`. The card **was NOT shippable** when this was written. `npm test` is green and the
 bundle builds, and neither fact means anything here: the suite has no coverage of this card, and it
 passes just as happily with every defect below present.
 
@@ -86,3 +90,35 @@ There are none. Minimum set, each with the mutation that must redden it:
 - `changent de camp` is a *defection* metaphor on a card called **Soumission** whose flavour line is
   about obedience — three fictions in one card.
 - `au plus puissant` vs the set phrase **`la loi du plus fort`**.
+
+---
+
+## How it was actually fixed (ponytail review, 2026-08-10)
+
+The 17-item list collapsed to 8 changes, because two of them killed whole classes:
+
+1. **The turn moved out of `dealDamage` into `turnDeadElites(run)`, called at end of frame** just
+   before the `_dead` sweep. `_dead` now stays `true` for the entire frame, so the three on-kill
+   weapon mods and `applyDamage`'s `applyElements` behave exactly as they do without the card —
+   findings #1 and #3 died with zero guards. This was the fix I missed: I had put the turn in the
+   obvious place, inside the death branch, and that is what broke other cards.
+2. **`SUBMISSION_STRIP_FLAGS`** — one config list, applied with `.filter()` at the turn, replaced
+   the whole six-chapter suppress-or-retarget table. `.filter()` and not an in-place splice is
+   mandatory: `spawnSplitChildren` assigns `flags: parent.flags` BY REFERENCE, and a splitter elite
+   spawns its children in the death branch that just ran.
+3. Six one-token `isAlly(e)` guards: `applyShock`, `steerSeekerBoomerang`, `stepMagneticMines`,
+   `stepMines`, `stepOpenJet`, `firstOnRay` (prism).
+4. `e.fearT = 0; e.stunT = 0` in the ally branch — your own Chitter Shriek was making your ally flee.
+5. Tornado guard moved from the sticky `live` set to the target PICK (it was oscillating every frame).
+6. `submissionend` deleted; expiry reuses the fully-wired `{type:'explode'}`.
+7. `state.js` doc block updated.
+
+**Cut deliberately** (with reasons in the review): the spawner density-cap correction (the flag is
+stripped, so a turned van never spawns), knockback/chill/vortex on an immune ally (a shove and a
+slow are what your nova visibly does), and retargeting `artillery`/`missileVolley` rather than
+stripping them.
+
+**Still open:** the `redrawTelegraphs` amber telegraph on an ally (a `// ponytail:` ceiling, not
+code), and a volatile elite now firing two cores per elite — one at the turn, one at expiry. That
+may be exactly the Unstable Cores headline, but it doubles the card's damage contribution and the
+config does not say so. Owner's call at playtest.
