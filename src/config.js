@@ -3312,6 +3312,22 @@ export const CHAPTERS = {
       { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.25, speedMul: 0.55, flags: ['artillery', 'unshakeable'] },
     ],
     eliteFlags: ['artillery'],            // AA-turret elites shell you too, just harder (see ARTILLERY_*)
+    // v7.21 (owner directive): 10% fewer tank columns. THE MULTIPLIER IS NOT THE CUT — waveWeights
+    // renormalises, so a share multiplier hands the removed weight to jets and helis and the count
+    // falls by LESS than the number you type. The obvious 0.9 delivers only -7.4%.
+    //
+    // Do not tune this by running seeded sims and comparing counts: changing the multiplier
+    // re-phases the entire Math.random stream, so adjacent values are independent samples rather
+    // than a trend. Measured 0.865 -> 212.0 tanks/run and 0.84 -> 220.5, i.e. BACKWARDS — the
+    // re-phasing trap CLAUDE.md documents for the test suite, showing up in a balance probe.
+    // It has a closed form instead: inside a wave row of tank share s the tank rate scales by
+    // exactly m/((1-s) + m*s), and the only measured input is how many tanks each row contributes
+    // (53.0 / 104.6 / 23.0 / 51.3 per run for the t>=140/200/240/260 rows; 231.9 total, 8 seeds x
+    // 300s). That solves to -10.00% at 0.8661, so 0.866 is -10.01% -> ~208.7 tanks/run.
+    //
+    // This is the second half of "the tank telegraph is too much": SKIES_FX.artillery dims each
+    // mark, this removes one in ten of them. v5.13 cut tank HP for the same clutter reason.
+    archetypeMul: { tank: 0.866 },
     // Signature: bombardment (area denial) — telegraphed artillery circles rain on the player's
     // area CONTINUOUSLY, independent of the artillery-flagged roster. Both feed run.bombs (the
     // existing volatile-bomb array: telegraph fuse -> explode, damages player AND enemies).
@@ -3415,7 +3431,11 @@ export const CHAPTERS = {
       // have shrunk the roar/tailSwipe hit window along with the sprite. render.js reads this and
       // scales the sprite only; sim.js never sees it (not in this file's exports, not imported by
       // sim.js — grep confirms).
-      enemyDrawScale: 0.55,
+      // v7.21 (owner directive): 0.55 -> 0.605, a flat +10%. Still render-only for exactly the
+      // reason spelled out above — the sim radius is an addend in ~12 hit tests and moving it would
+      // resize the roar/tailSwipe hit window along with the sprite. See SKIES_KAIJU.bodyScale,
+      // which drops 20% in the same change.
+      enemyDrawScale: 0.605,
     },
   },
   beyond: {
@@ -4541,7 +4561,11 @@ export const SKIES_KAIJU = {
   // than to each sprite, so every part of the rig scales together and the tail can't drift off the
   // hip. The sim hitbox (PLAYER.radius, 22) is untouched — this is render-only, like the rest of
   // this block.
-  bodyScale: 0.62,
+  // v7.21 (owner directive): 0.62 -> 0.496, a flat -20%. Render-only, as the note above says — the
+  // sim hitbox (PLAYER.radius, 22) does not move, so nothing about what hits you changes. Paired
+  // with enemyDrawScale 0.55 -> 0.605 (+10%) in CHAPTERS.skies.render: the two knobs push the same
+  // ratio from opposite ends, so the kaiju/aircraft size gap closes by ~27% in one step.
+  bodyScale: 0.496,
 }
 
 // Ruins (spec §5.9) — swapped in PERMANENTLY at a crush site by the render-local crush ledger
@@ -5387,7 +5411,10 @@ export const SKIES_FX = {
   // only mark anchored to the PLAYER, and the only magenta in any of the seven chapters.
   missile: {
     designator: 0xff2d6f,   // the lock diamond + designation line: signal magenta
-    reticleCore: 0xffd7e6,  // the pale core of the reticle, and the impact star
+    // v7.21: `reticleCore` lived here for the crawling lock BEAD and nothing else (its comment also
+    // claimed the impact star, which has always used impactCore below). The bead is gone — a bright
+    // dot travelling from a helicopter to your feet reads as a projectile, so it was taken for a
+    // missile that hit and did nothing. Removed rather than left dangling.
     exhaustHot: 0xfff2c0, exhaustCool: 0xffb35c,       // dart exhaust, hot core -> cooler flare
     smokeNear: 0x6a4a5e, smokeFar: 0x3a2c33,           // ribbon fades along this ramp as a puff ages
     impactCore: 0xffd7e6, impactSoot: 0x2a2620,        // magenta star over black smoke ring — NOT
@@ -5414,9 +5441,21 @@ export const SKIES_FX = {
   // scattered tanks, where a screenful of sky strikes is all-parallel.
   artillery: {
     bracket: 0xc9b26a,      // dull ordnance ochre — the L corner brackets + ranging graduations
-    hatchBar: 0x0a0d12, hatchFill: 0xc9b26a, hatchAlpha: 0.18,   // the sweeping clock hand
-    shellShadow: 0x0a0c10, shellShadowAlpha: 0.55,               // the falling shell's OWN shadow
-    ghost: 0xc9b26a, ghostAlpha: 0.28,                           // trajectory arc back to (ox, oy)
+    // v7.21 (owner directive) — "make the tank telegraph more subtle". Every alpha on this threat
+    // dropped ~35-45%, and the two that were inline literals in render.js (the bracket ramp and the
+    // hatch bars) moved here so the whole mark has ONE loudness knob instead of three.
+    // What did NOT change: the shape, the arrival clock, or the ORDER of the ramp. This is a
+    // telegraph for real damage, so it is dimmer, not slower and not later — the bracket still
+    // brightens as the fuse burns and still peaks on the impact frame. The ornament (trajectory
+    // ghost, hatch fill, shell shadow) is cut hardest and the impact bracket least, because the
+    // bracket is the part that actually tells you WHERE, and tanks stack: this mark being loud
+    // x8 on screen is what "too much" meant. Paired with archetypeMul tank 0.9 in CHAPTERS.skies,
+    // which removes ~10% of the marks outright — dimmer AND fewer, the same two levers v5.13 used.
+    bracketAlpha: 0.36, bracketAlphaRamp: 0.34,                  // 0.36 -> 0.70 over the fuse (was 0.55 -> 0.95)
+    hatchBar: 0x0a0d12, hatchFill: 0xc9b26a, hatchAlpha: 0.10,   // the sweeping clock hand (was 0.18)
+    hatchBarAlpha: 0.45,                                         // was an inline 0.75 in render.js
+    shellShadow: 0x0a0c10, shellShadowAlpha: 0.36,               // the falling shell's OWN shadow (was 0.55)
+    ghost: 0xc9b26a, ghostAlpha: 0.15,                           // trajectory arc back to (ox, oy) (was 0.28)
     eliteTick: 0x7fffb0,    // radar-green tick on the bracket — AA-turret elites only
     muzzle: 0xffd98a, muzzleT: 0.06,                             // s, the firing tank's flash
     fireball: 0xe8641e, fireballCore: 0x16120e,                  // BLACK-cored fireball: ordnance,

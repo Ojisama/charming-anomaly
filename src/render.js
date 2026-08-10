@@ -8276,14 +8276,14 @@ export function createRenderer(app) {
         const boxR = b.radius * (1.55 - 0.55 * k)
         rig.box.visible = true
         rig.box.tint = AF.bracket
-        rig.box.alpha = jamAlpha(0.55 + 0.4 * k)
+        rig.box.alpha = jamAlpha(AF.bracketAlpha + AF.bracketAlphaRamp * k)
         rig.box.scale.set(boxR / T.tgSquare.ref)
         rig.box.position.set(b.x, b.y)
         rig.box.rotation = 0
         // ...part 2: the hatched hand sweeps EXACTLY 360 degrees over the fuse and completes on
         // impact. Two opposed motions locking on the same frame is the whole read.
         const hand = k * Math.PI * 2 - Math.PI / 2
-        for (const [sp, tint, alpha] of [[rig.fill, AF.hatchFill, AF.hatchAlpha], [rig.bars, AF.hatchBar, 0.75]]) {
+        for (const [sp, tint, alpha] of [[rig.fill, AF.hatchFill, AF.hatchAlpha], [rig.bars, AF.hatchBar, AF.hatchBarAlpha]]) {
           sp.visible = !far
           sp.tint = tint
           sp.alpha = jamAlpha(alpha)
@@ -8483,8 +8483,14 @@ export function createRenderer(app) {
       const k = firing ? 1 : 1 - left / M.lockT       // 0 -> 1, reaching 1 on the LAUNCH frame
       tightest = Math.min(tightest, 1 - k)
       if (farFromPlayer(e.x, e.y) || jamDrop()) continue
-      // the designation line from the helicopter's nose, with a BEAD crawling it — the arrival
-      // clock: the bead reaches the diamond on the launch frame
+      // the designation line from the helicopter's nose. v7.21: it used to carry a BEAD crawling
+      // toward you as its arrival clock, and the bead was the single most misread mark in the
+      // chapter — a small bright dot travelling from a helicopter to your feet is a PROJECTILE in
+      // every visual language this genre has, so players read it as a missile that passed through
+      // them and did nothing. The lock keeps its clock: the line brightens and the diamond on you
+      // snaps tighter (both keyed to the same k), neither of which can be mistaken for a thing
+      // being fired. The only travelling mark on this threat is now the dart itself, which is what
+      // the four-clocks table above always claimed ("flies AT you").
       const ux = (p.x - e.x) / (d || 1), uy = (p.y - e.y) / (d || 1)
       const dash = 14
       for (let t = 0; t < d - 20; t += dash * 2) {
@@ -8493,8 +8499,6 @@ export function createRenderer(app) {
         teleG.lineTo(e.x + ux * Math.min(t + dash, d - 20), e.y + uy * Math.min(t + dash, d - 20))
       }
       teleG.stroke({ width: 1.4, color: M.designator, alpha: jamAlpha(0.5 + 0.3 * k) })
-      const bd = d * k
-      teleG.circle(e.x + ux * bd, e.y + uy * bd, 3.4).fill({ color: M.reticleCore, alpha: jamAlpha(0.95) })
     }
     lockDiamond.visible = locking
     if (!locking) return

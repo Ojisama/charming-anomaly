@@ -11854,7 +11854,11 @@ function testSpiderShare() {
   // v6.10.3 added city (owner: "15% less Robo tanks at the beginning of their apparitions") — the
   // Robot Vacuum is city's only tank, so a roster weight would be a one-item pool, same reason
   // garden and undergrowth reached for this lever.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city']
+  // v7.21 added skies (owner: "diminish tank amount by 10%"): the Tank Column is skies' only tank,
+  // making this the fourth chapter to hit the identical one-item-pool wall. Its cut is also a
+  // CLUTTER fix — every live column paints an artillery telegraph — so it lands alongside dimming
+  // that mark in SKIES_FX.artillery.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies']
   for (const id of CHAPTER_ORDER) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
     assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — only ${ARCHETYPE_MUL_CHAPTERS.join('/')} asked for it`)
