@@ -10982,6 +10982,7 @@ try {
   testDescPlaceholder()
   testSubmission()
   testDevMenu()
+  testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -13011,4 +13012,55 @@ function testDevMenu() {
   assert.strictEqual(r2.player.fireRateMul, beforeFire * OVERLOAD_FIRE_MUL,
     'devTake recorded OVERLOAD without running applyAnomalyOnTake — the card would be inert in the dev menu')
   console.log(`PASS run DV.b (real path): devTake grew maxHP by +${maxHPCard.bonus} and applied OVERLOAD's x${OVERLOAD_FIRE_MUL} fire rate`)
+}
+
+// ---- run MP: the modal entrance animation must not replay on a re-render ----------------------
+// ui.js re-renders a screen by rewriting its innerHTML wholesale, which DESTROYS and rebuilds the
+// modal open inside it — and a brand-new element replays its CSS entrance animation. Every popup in
+// the game therefore popped in again on every tap inside it (settings, save slots, reset confirm,
+// boosters, pause). setHtml() fixes it by tagging boxes with data-pop and marking the survivors of a
+// rewrite with .no-pop.
+//
+// ui.js is DOM-bound, so the behaviour itself is proven in a browser, not here (getAnimations() on
+// the backdrop before and after a re-render). This is the SOURCE tripwire for the two ways the fix
+// goes silently inert, both of which cost a round in the version that shipped it:
+//   1. a new modal written with a raw `screens.X.innerHTML =` never enters the bookkeeping, so it
+//      re-pops exactly like before and nothing warns;
+//   2. two boxes sharing a data-pop key make the second one inherit the first's "already seen"
+//      state — it opens without animating at all.
+// Plus the cascade trap: `.no-pop` and `.modal-backdrop` have IDENTICAL specificity, so `.no-pop`
+// only wins by being declared later. Sitting next to @keyframes pop-in it lost, and the backdrop
+// kept flashing while the sheet inside it sat still — a half-fix that looks fixed in a still.
+function testModalPopBookkeeping() {
+  const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  // (a) no screen is written with a raw innerHTML. The hud is the one exception: it is built once,
+  // holds no modal, and updateHUD mutates its children in place.
+  const raw = [...ui.matchAll(/screens\.(\w+)\.innerHTML\s*=/g)].map((m) => m[1])
+  assert.deepStrictEqual(raw, ['hud'],
+    `every screen render must go through setHtml() so its modals are tracked; these still write ` +
+    `innerHTML directly: [${raw.filter((n) => n !== 'hud')}] — those popups will replay their ` +
+    `opening animation on every tap inside them`)
+
+  // (b) keys are unique. paintLevelup and paintAnomalyPick deliberately SHARE "levelup": that is
+  // one box changing its contents, not a second modal opening, so it must not re-pop.
+  const keys = [...ui.matchAll(/data-pop="([^"]+)"/g)].map((m) => m[1])
+  assert.ok(keys.length >= 8, `expected every modal to carry a data-pop key, found only ${keys.length}`)
+  const dupes = keys.filter((k, i) => k !== 'levelup' && keys.indexOf(k) !== i)
+  assert.deepStrictEqual(dupes, [],
+    `duplicate data-pop keys ${JSON.stringify(dupes)}: the second box inherits the first's ` +
+    `"already on screen" state and will never animate when it opens`)
+
+  // (c) the kill rule is last. Anything with an entrance animation declared AFTER .no-pop and at the
+  // same specificity beats it.
+  const noPop = css.indexOf('.no-pop,')
+  assert.ok(noPop > 0, '.no-pop rule is gone from styles.css — every modal re-pops on re-render')
+  const after = css.slice(noPop)
+  const losers = [...after.matchAll(/^\.([\w-]+)[^{}]*\{[^{}]*animation:\s*(pop-in|sheet-up)/gm)].map((m) => m[1])
+  assert.deepStrictEqual(losers, [],
+    `.${losers[0]} declares an entrance animation AFTER the .no-pop kill rule and at the same ` +
+    `specificity, so it wins the cascade and re-pops anyway — move .no-pop back to the end of the file`)
+
+  console.log(`PASS run MP (modal pop bookkeeping): ${keys.length} popups routed through setHtml with unique keys, kill rule last in the cascade`)
 }
