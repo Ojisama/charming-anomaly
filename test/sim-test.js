@@ -35,7 +35,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
-  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter,
+  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
@@ -10832,6 +10832,7 @@ try {
   testRoadOff()
   testIntegerHP()
   testDetonationScaling()
+  testSubmission()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -12610,4 +12611,126 @@ function testDetonationScaling() {
       `Its detonation is dealing raw config damage — use applyDamage, not dealDamage.`)
     console.log(`PASS run VE (${label}): scales ${ratio.toFixed(4)}x with a 3x damage multiplier, flat residue ${Math.round(flat)}`)
   }
+}
+
+// ---- Run SB: the SUBMISSION anomaly (a killed elite turns and fights for you) -----------------
+// THE SUITE HAD ZERO ELITE COVERAGE BEFORE THIS (one cadence bound, run I), which is why the first
+// cut of this card shipped green while a skies ally shelled the player for 300 HP a loan and a city
+// ally spawned 12 hostiles in 15s. Both are asserted below, enumerated from the CHAPTERS table
+// rather than a hand-written list — the bug was per-chapter, so a sampled test would have missed it
+// exactly the way the first review did.
+function testSubmission() {
+  const dt = 1 / 60
+
+  // (a) AN ALLY NEVER DAMAGES THE PLAYER, in any chapter. Driven off CHAPTERS[*].eliteFlags so a
+  // chapter added later is covered without editing this test. The ally is parked ON the player —
+  // contact, pools, beams, cones and shells all reach from there — and given every flag its chapter
+  // can put on an elite.
+  // MUTATION: remove any id from SUBMISSION_STRIP_FLAGS and the chapter that owns it goes red.
+  // MEASURED AGAINST A CONTROL, not against zero. The first cut of this test asserted the player
+  // simply lost no HP, and city failed it for 34 HP — from the chapter's own TRAFFIC signature
+  // running over a parked player, nothing to do with the ally. Every chapter has some passive
+  // hazard like that (traffic, bombardment, rocks, currents), so the only honest question is
+  // whether the ALLY changed anything: run the identical fixture with and without it and diff.
+  let checked = 0
+  for (const id of CHAPTER_ORDER) {
+    const flags = CHAPTERS[id].eliteFlags || []
+    if (flags.length === 0) continue
+
+    const damageTaken = (withAlly) => {
+      Math.random = mulberry32(20260810)
+      const run = createRun(makeMeta(), { chapter: id, difficulty: 1 })
+      run.anomalies.submission = true
+      run.weapons = []
+      run.mods.spawnMul = 0            // nothing but our ally in the field
+      run.player.hp = run.player.maxHP = 5000
+      let e = null
+      if (withAlly) {
+        e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, elite: true, hp: 1e6, speed: 0 })
+        e.flags = [...flags]
+        e._dead = true                 // killed this frame — turnDeadElites picks it up
+        run.enemies.push(e)
+      }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (withAlly) {
+        assert.ok(e.allyT > 0, `${id}: the dead elite did not turn — fixture broken, not the sim`)
+        assert.strictEqual(e.elite, true, `${id}: an ally must stay elite (clearing it pops the crown and swaps the texture)`)
+      }
+      const hp0 = run.player.hp
+      const bodies0 = run.enemies.length
+      for (let i = 0; i < Math.round(10 / dt); i++) {
+        if (run.phase !== 'playing') break
+        if (e) { e.x = run.player.x; e.y = run.player.y; e.allyT = SUBMISSION_DURATION }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+      }
+      return { lost: hp0 - run.player.hp, spawned: run.enemies.length - bodies0 }
+    }
+
+    const withAlly = damageTaken(true)
+    const control = damageTaken(false)
+    assert.strictEqual(withAlly.lost, control.lost,
+      `${id}: an ally sitting on the player for 10s cost ${withAlly.lost - control.lost} HP more than the same run without one — ` +
+      `its ${flags.join('/')} flag is still pointed at the player (see SUBMISSION_STRIP_FLAGS)`)
+    assert.strictEqual(withAlly.spawned, control.spawned,
+      `${id}: an ally added ${withAlly.spawned - control.spawned} bodies the control did not — a stripped flag is still disgorging hostiles`)
+    checked++
+  }
+  assert.ok(checked >= 5, `expected at least 5 chapters with eliteFlags to exercise, got ${checked}`)
+  console.log(`PASS run SB.a (the ally is harmless to you): ${checked} chapters with eliteFlags, ally parked ON the player for 10s, damage identical to a no-ally control`)
+
+  // (b) THE PAYOUT RUNS EXACTLY ONCE PER ELITE. The failure this guards is not an exception, it is a
+  // gem and coin fountain: clear _turned and the ally's own fall re-enters the death branch, paying
+  // the whole elite reward again — and a DoT tick would do it every STATUS_TICK, forever.
+  // MUTATION: drop the `|| e._turned` from turnDeadElites' skip.
+  Math.random = mulberry32(20260810)
+  const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+  run.anomalies.submission = true
+  run.weapons = []
+  run.mods.spawnMul = 0
+  run.player.hp = run.player.maxHP = 5000
+  const e = makeStatusEnemy(run, { x: run.player.x + 300, y: run.player.y, elite: true, hp: 1e6, speed: 0 })
+  e.flags = []
+  e._dead = true
+  run.enemies.push(e)
+  stepSim(run, { x: 0, y: 0 }, dt)
+  const gems = run.gems.length, coins = run.coins.length, kills = run.kills, elites = run._eliteKills ?? 0
+  // run the WHOLE loan out, through the expiry, and past it
+  for (let i = 0; i < Math.round((SUBMISSION_DURATION + 5) / dt); i++) {
+    if (run.phase !== 'playing') break
+    stepSim(run, { x: 0, y: 0 }, dt)
+    run.events.length = 0
+  }
+  assert.strictEqual(run.gems.length, gems, `the ally's fall dropped ${run.gems.length - gems} extra xp gems — the elite paid out twice`)
+  assert.strictEqual(run.coins.length, coins, `the ally's fall dropped ${run.coins.length - coins} extra coins — the elite paid out twice`)
+  assert.strictEqual(run.kills, kills, `the ally's fall counted ${run.kills - kills} extra kills`)
+  assert.strictEqual(run._eliteKills ?? 0, elites, `the ally's fall counted an extra elite kill — it feeds other cards' when() gates`)
+  assert.ok(!run.enemies.includes(e) || e._dead, 'the ally outlived its loan')
+  console.log(`PASS run SB.b (paid once): a full ${SUBMISSION_DURATION}s loan + expiry added 0 gems, 0 coins, 0 kills, 0 elite kills`)
+
+  // (c) YOUR OWN FIRE NEITHER TARGETS NOR HURTS AN ALLY, and is not consumed by it. Asserted as an
+  // EFFECT: a full weapon build firing into an ally for 10s must not scratch it.
+  // MUTATION: drop the isAlly guard in damageImmune, or in nearestEnemy.
+  Math.random = mulberry32(20260810)
+  const r2 = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+  r2.anomalies.submission = true
+  r2.mods.spawnMul = 0
+  r2.player.hp = r2.player.maxHP = 5000
+  r2.player.damageMul = 20
+  const a2 = makeStatusEnemy(r2, { x: r2.player.x + 60, y: r2.player.y, elite: true, hp: 4000, speed: 0 })
+  a2.flags = []
+  a2._dead = true
+  r2.enemies.push(a2)
+  stepSim(r2, { x: 0, y: 0 }, dt)
+  const hpAtTurn = a2.hp
+  for (let i = 0; i < Math.round(10 / dt); i++) {
+    if (r2.phase !== 'playing') break
+    a2.x = r2.player.x + 60; a2.y = r2.player.y
+    a2.allyT = SUBMISSION_DURATION   // hold the loan open for the whole probe
+    stepSim(r2, { x: 0, y: 0 }, dt)
+    r2.events.length = 0
+  }
+  assert.strictEqual(a2.hp, hpAtTurn,
+    `the player's own weapons took ${hpAtTurn - a2.hp} HP off their ally over 10s at point-blank range`)
+  console.log(`PASS run SB.c (friendly fire): a ${Math.round(10 / dt)}-frame point-blank barrage at x20 damage took 0 HP off the ally`)
 }

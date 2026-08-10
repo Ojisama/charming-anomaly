@@ -455,6 +455,13 @@ function generateWells(sig) {
  *                                            anomaly converted it to HP instead of paying —
  *                                            render tints the sparkle, see pickupSparkle)
  *   { type:'levelup' }                       player leveled (run.levelUpChoices is set, phase='levelup')
+ *   { type:'submission', x, y, elite:true }  SUBMISSION anomaly: an elite you just killed got back
+ *                                            up as YOURS (turnDeadElites, end of frame). The
+ *                                            ordinary {type:'kill'} fires too, one statement
+ *                                            earlier — the elite really does die first, and that
+ *                                            is what keeps pool-probe's elite counter working.
+ *                                            The loan ENDING reuses {type:'explode'} rather than a
+ *                                            bespoke event, so it needs no new render or sfx case.
  *   { type:'hurt', dmg, dot?, src? }         player took damage (dot=true for pool/DoT ticks —
  *                                            see run.pools below and hurtPlayer in sim.js; absent/
  *                                            false for ordinary contact damage and bomb blasts).
@@ -543,6 +550,24 @@ function generateWells(sig) {
  *                 the Roar's stagger mod (see GEYSER_STUN/ROAR_STUN in config.js), and (v6.4) a
  *                 detonating mine (MINE_STUN, sim.js's detonateMine) against every non-ghosted
  *                 enemy in its blast radius.
+ *               allyT (s of loan remaining) — SUBMISSION anomaly: while > 0 this enemy is YOURS.
+ *                 It stays in run.enemies and `elite` stays TRUE (clearing it would swap the
+ *                 texture and pop the crown off mid-life), but isAlly(e) in sim.js makes it
+ *                 damageImmune — which also makes it contactHarmless, so it can neither be hurt by
+ *                 you nor hurt you — excludes it from every targeting/claim/consumption loop, and
+ *                 points it at the nearest hostile instead of the player. Set by turnDeadElites,
+ *                 counted down in stepSubmission, which retires the body when it reaches 0.
+ *               _turned (bool) — SUBMISSION: this elite has already had its loan. The idempotence
+ *                 guard; without it the ally's own fall re-enters the turn and pays the elite's
+ *                 whole reward again (a gem and coin fountain).
+ *               _allyHitT (s) — SUBMISSION: cooldown on the ally's contact attack
+ *                 (SUBMISSION_HIT_EVERY). Contact is its ONLY attack: the player-directed flags are
+ *                 stripped at the turn (SUBMISSION_STRIP_FLAGS), and for the rest of the roster
+ *                 pounce/dive/charge/strafe all resolve to contact damage anyway.
+ *               _tgtX/_tgtY (px) — SUBMISSION: the seek point stepEnemyMovement chose for an ally,
+ *                 published so RENDER can face the sprite. render derives every other enemy's
+ *                 bearing from run.player each frame, so without this an ally charging the swarm
+ *                 draws walking backwards in all 32 roster looks. Render-only; sim never reads it.
  *               enrageT (s of enrage remaining): while > 0 the enemy's seek speed is ×
  *                 FLASHLIGHT_SPEED_MUL and its contact damage × FLASHLIGHT_DMG_MUL. Applied by the
  *                 undergrowth's flashlightCone elites (see stepFlashlightCones in sim.js).

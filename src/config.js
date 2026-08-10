@@ -438,6 +438,21 @@ export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; f
 // Contact is the ONLY attack most of the roster has — pounce, dive, charge and strafe all resolve
 // to stepContactDamage, and of the four run.enemyShots push sites three belong to The Blank's
 // scripted boss. So this cadence, not any weapon table, is what an ally's damage output IS.
+// WHAT A TURNED ELITE STOPS DOING. Every one of these points at the PLAYER by construction and
+// bypasses the retarget seam, so without stripping them your ally keeps shelling you (skies
+// artillery), laying damaging pools under you (pond soapTrail), abducting you (beyond pullBeam),
+// disgorging HOSTILE minions (city spawner) or enraging the swarm it is supposed to be fighting
+// (undergrowth flashlightCone). Derived from every chapter's `eliteFlags` plus the roster flags
+// that can land on an elite (garden's spider webZone, skies' helicopter missileVolley).
+//   `acidPool` is deliberately NOT here: it is an on-DEATH flag and it already fired when the
+// elite died, one statement before the turn.
+// ponytail: stripping beats a per-flag suppress-or-retarget table. Contact is the whole arsenal
+// for the rest of the roster anyway (pounce, dive, charge and strafe all resolve to contact
+// damage), so the fidelity lost is one turret's aim. Upgrade path is retargeting `artillery`,
+// whose shells already damage enemies via run.bombs.
+export const SUBMISSION_STRIP_FLAGS = [
+  'soapTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
+]
 export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
 // rerolls") was overstated because it priced against regen AVERAGED across runs (0.41/s) when

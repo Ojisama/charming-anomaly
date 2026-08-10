@@ -48,6 +48,7 @@ import {
   AVARICE_HEAL_CHANCE, AVARICE_HEAL_HP, AVARICE_COIN_DROP_MUL,
   BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, BLOOD_MONEY_ESCALATION,
   SUBMISSION_ELITE_EVERY_MUL, SUBMISSION_DURATION, SUBMISSION_DMG_FRAC, SUBMISSION_HIT_EVERY,
+  SUBMISSION_STRIP_FLAGS,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE, CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_MUL,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL,
@@ -1435,6 +1436,11 @@ function stepEnemyMovement(run, dt) {
       const foe = nearestHostile(run, e)
       if (foe) { tx = foe.x; ty = foe.y }
       e._tgtX = tx; e._tgtY = ty
+      // Your OWN Chitter Shriek applies fear to everything in run.enemies, which would send your
+      // ally running from the swarm you sent it into; the stun does the same in miniature. Both are
+      // read a few lines below, so clearing them here is the whole fix. Knockback and chill are
+      // deliberately left alone — a shove and a slow are what your nova visibly does.
+      e.fearT = 0; e.stunT = 0
       // An ally is not tempted by your own decoys, and the straggler recycler must not yank it
       // back to you mid-fight (stepStragglers exempts it the way `anchored` is exempted).
     } else if (hasLures) {
@@ -2275,7 +2281,9 @@ function stepSubmission(run, dt) {
     if (e.allyT <= 0) {
       e.allyT = 0
       e._dead = true
-      run.events.push({ type: 'submissionend', x: e.x, y: e.y })
+      // The loan ending reuses `explode`, which already has a render case and an SFX entry —
+      // a bespoke `submissionend` was a dead event: nothing drew it and nothing played it.
+      run.events.push({ type: 'explode', x: e.x, y: e.y, radius: e.radius * 1.5 })
       if (e.elite && e.affixes && e.affixes.includes('volatile')) {
         run.bombs.push(volatileBomb(run, e.x, e.y))
       }
@@ -3764,25 +3772,11 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
       })
     }
 
-    // SUBMISSION: THE BODY GETS UP. Deliberately the LAST thing in this branch, so the elite's
-    // death is completely ordinary first — it pays out its kill, its 4x xp gem, its 8 coins, its
-    // _eliteKills, its blood-pact stacks, and every one of its on-death affixes (the volatile core,
-    // the splitter wisps, the acid pool). That is why this is one insertion instead of six guards
-    // threaded through the payout above: an elite under Submission really does die, and the whole
-    // card is what happens next.
-    //   `_turned` is the idempotence guard and it is load-bearing: without it the ally's own
-    // fall re-enters this branch and pays the entire elite reward a second time (a gem and coin
-    // fountain, not an exception). It is also why expiry does NOT route through here at all — see
-    // stepSubmission, which retires the body itself.
-    //   hp goes back through roundHP: a fractional maxHP leaves an immortal sub-1 sliver (v6.9.2).
-    if (run.anomalies?.submission && enemy.elite && !enemy._turned) {
-      enemy._dead = false      // must be cleared: ~27 guards skip _dead, and the once-per-frame
-      enemy._turned = true     // sweep at the tail of stepWeapons would delete it this same frame
-      enemy.hp = roundHP(enemy.maxHP)
-      enemy.allyT = SUBMISSION_DURATION
-      enemy.hitFlash = 0       // it is not being struck, it is changing sides
-      run.events.push({ type: 'submission', x: enemy.x, y: enemy.y, elite: true })
-    }
+    // SUBMISSION: an elite under this card dies completely normally here — its kill, its 4x xp gem,
+    // its 8 coins, its _eliteKills, its blood-pact stacks and every on-death affix (the volatile
+    // core, the splitter wisps, the acid pool). The whole card is what happens NEXT.
+    //   THE TURN ITSELF IS NOT HERE. It runs in turnDeadElites, at the very end of the frame —
+    // see there for why clearing _dead inside this branch was wrong.
   }
 }
 
@@ -3986,7 +3980,7 @@ function applyElements(run, enemy, dmgDealt) {
 function stepStatuses(run, dt) {
   const potVenom = run.elements.venom
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: chain slot: an ally next to the shocked body is the nearest thing there is
 
     for (const k of Object.keys(e._comboCd)) e._comboCd[k] = Math.max(0, e._comboCd[k] - dt)
     if (e._shockCd > 0) e._shockCd = Math.max(0, e._shockCd - dt)
@@ -4241,7 +4235,48 @@ function stepWeapons(run, dt) {
   stepGeysers(run, dt)
   stepLobs(run, dt)
 
+  turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
+}
+
+// SUBMISSION: THE BODY GETS UP — at the END OF THE FRAME, not inside dealDamage.
+//
+// THIS PLACEMENT IS THE WHOLE FIX, and the obvious placement was wrong in a way that broke OTHER
+// cards. Resurrecting inside dealDamage's death branch meant clearing `enemy._dead` while the
+// killing blow was still unwinding, and three on-kill weapon mods test `e._dead` AFTER the damage
+// call returns — Supernova Sparks (sim.js ~4513), Swarm (~4993) and Sporeburst (~5532). Taking
+// Submission silently switched all three OFF for elites, the single biggest kill in the game.
+// applyDamage's own `if (!enemy._dead) applyElements(...)` had the same problem in reverse: it
+// infused the brand-new ally with the killing blow's ignite/chill.
+//   Running here instead, after every weapon has finished with the corpse and immediately before
+// the once-per-frame sweep that would delete it, means `_dead` stays true for the entire frame —
+// so every one of those call sites behaves exactly as it does without the card, with no guards.
+//
+// `_turned` is the idempotence guard and it is load-bearing: without it the ally's own fall
+// re-enters this pass and pays the elite reward a second time (a gem and coin fountain, not an
+// exception). Expiry is handled in stepSubmission, which retires the body itself.
+// hp goes back through roundHP: a fractional maxHP leaves an immortal sub-1 sliver (v6.9.2).
+function turnDeadElites(run) {
+  if (!run.anomalies?.submission) return
+  for (const e of run.enemies) {
+    if (!e._dead || !e.elite || e._turned) continue
+    e._dead = false
+    e._turned = true
+    e.hp = roundHP(e.maxHP)
+    e.allyT = SUBMISSION_DURATION
+    e.hitFlash = 0            // it is not being struck, it is changing sides
+    // STRIP THE FLAGS THAT ONLY EVER POINT AT THE PLAYER. One line and one config list instead of a
+    // seven-row suppress-or-retarget table: every chapter's eliteFlags is in here, so without it a
+    // turned elite keeps shelling you (skies), laying soap pools under you (pond), abducting you
+    // (beyond), disgorging hostile minions (city) or enraging the swarm it should be fighting
+    // (undergrowth). Contact is the whole arsenal for the rest of the roster anyway.
+    //   .filter() AND NOT AN IN-PLACE SPLICE, and that is not style: spawnSplitChildren assigns
+    // `flags: parent.flags` BY REFERENCE while spawnEnemy copies, and a splitter elite spawns its
+    // children in the death branch that just ran — mutating in place would strip the children's
+    // flags too. Reassigning the filter result gives the required copy for free.
+    if (e.flags && e.flags.length) e.flags = e.flags.filter((f) => !SUBMISSION_STRIP_FLAGS.includes(f))
+    run.events.push({ type: 'submission', x: e.x, y: e.y, elite: true })
+  }
 }
 
 // Shared interval countdown with catch-up: fires as often as needed to absorb
@@ -4680,7 +4715,7 @@ function steerSeekerBoomerang(run, b, dt) {
   let target = null
   let bestSq = Infinity
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: Seeker Blades run their own scan, not nearestEnemy
     const dx = e.x - b.x, dy = e.y - b.y
     const dSq = dx * dx + dy * dy
     if (dSq < bestSq) { bestSq = dSq; target = e }
@@ -4780,7 +4815,7 @@ function stepMagneticMines(run, dt, bonus) {
     let target = null
     let bestSq = Infinity
     for (const e of run.enemies) {
-      if (e._dead) continue
+      if (e._dead || isAlly(e)) continue   // SUBMISSION: a mine must not seek your ally
       const dx = e.x - m.x, dy = e.y - m.y
       const dSq = dx * dx + dy * dy
       if (dSq < bestSq) { bestSq = dSq; target = e }
@@ -4799,7 +4834,7 @@ function stepMagneticMines(run, dt, bonus) {
 // damage AND gets no stun, exactly like it eats nothing else.
 function detonateMine(run, m) {
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally would trip the whole field for zero damage
     const dx = e.x - m.x, dy = e.y - m.y
     if (dx * dx + dy * dy <= m.radius * m.radius) {
       applyDamage(run, e, m.dmg)
@@ -5238,7 +5273,7 @@ function firstOnRay(run, ox, oy, angle, len, width, hit) {
   let best = null
   let bestD = Infinity
   for (const e of run.enemies) {
-    if (e._dead || hit.has(e.id)) continue
+    if (e._dead || isAlly(e) || hit.has(e.id)) continue   // SUBMISSION: light must not bend off your ally ("blocks nothing")
     const d = alongRay(ox, oy, angle, len, width, e)
     if (d < 0 || d >= bestD) continue
     bestD = d
@@ -5961,7 +5996,7 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   // stepSim's filter is the only thing that ever removes an enemy, but a funnel that outlives its
   // prey by any other route would otherwise sit on the corpse's last coordinates forever, and that
   // failure mode is invisible until someone adds a despawn. One Set beats an includes() per funnel.
-  const live = new Set(run.enemies.filter((e) => !isAlly(e)))   // SUBMISSION: a funnel never claims your ally (sticky claim + elite HP = a funnel lost for the run)
+  const live = new Set(run.enemies)
   const claimed = new Set()
   for (const t of list) {
     if (t.tgt && (t.tgt._dead || !live.has(t.tgt) || !leashed(t.tgt))) t.tgt = null
@@ -6288,7 +6323,7 @@ function stepOpenJet(run, g, dt) {
   const maxStreams = Math.min(GEYSER_STREAMS_MAX, Math.max(1, Math.round(g.nStreams ?? GEYSER_STREAMS_FALLBACK)))
   const picks = []
   for (const e of run.enemies) {
-    if (e._dead) continue
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally would eat one of GEYSER_STREAMS_MAX stream slots
     const dx = e.x - g.x, dy = e.y - g.y
     const d2 = dx * dx + dy * dy
     if (d2 > rSq) continue
