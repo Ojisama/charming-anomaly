@@ -1266,6 +1266,8 @@ export const WEAPONS = {
     // are still run.zones — that array is shared with the Reality Shard's rifts and stays generic.
     name: 'Burst Hydrant',
     desc: 'Shears a hydrant open; it hoses down whatever comes near.',
+    // STAND-IN: 🚒 is a fire ENGINE — there is no hydrant emoji, and 🚿 is already Split Nozzle's.
+    // Kept knowingly (the alternative, 💦, reads as sweat); swap it the day this gets real art.
     icon: '🚒', rarity: 'rare',
     // The area-denial native: plants `count` telegraphed zones (run.zones) on the path between a
     // foe and the player within castRange; each waits `fuse` seconds (harmless telegraph), erupts
@@ -1370,6 +1372,10 @@ export const WEAPONS = {
   pulsarSweep: {
     name: 'Pulsar Sweep',
     desc: 'Two lasers sweep back and forth across the way ahead.',
+    // 🔷 is inherited from the Tesseract Beam and was re-checked on the card against 🔦/✴️/🩻/📶:
+    // kept, because it is the only one whose colour agrees with the violet render.js actually bakes
+    // this sweep in (T.beamSweep) and with The Beyond's palette. The literal "beam" glyphs all read
+    // as a household torch or a status indicator, and the star ones render orange.
     icon: '🔷', rarity: 'epic',
     // A run.beams entry (same shape/step as the Neon Beam) flagged `swept: true`: a second arm
     // sits 180° opposite the first and sweeps with it — i.e. one cast rakes both sides at
@@ -1561,7 +1567,7 @@ export const WEAPON_MODS = {
     amplitude: { name: 'Inflammation', desc: 'wave damage',           icon: '📢', base: 0.20, kind: 'pct' },
     echo:      { name: 'Immune Echo', desc: 'echo wave(s) per cast', icon: '🔁', kind: 'tier' },
     undertow:  { name: 'Chemotaxis',  desc: 'bursts reel in gems and coins (wider per stack)', icon: '🧲', base: 1, kind: 'flat' },
-    tsunami:   { name: 'Cytokine Storm',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌊', base: 0.60, kind: 'pct' },
+    tsunami:   { name: 'Cytokine Storm',   desc: 'radius/damage on every 3rd (monster) wave', icon: '🌡️', base: 0.60, kind: 'pct' },
   },
   // v5.3: the id stays 'boomerang' (Boomerang Leaf re-theme is copy-only, see WEAPONS.boomerang);
   // only the desc copy was retouched from 'boomerang' to 'leaf' where it named the weapon.
@@ -1573,7 +1579,7 @@ export const WEAPON_MODS = {
     // starts at epic (1/1/2/2/3 by rarity), which is what the playtester asked for.
     extraRang:  { name: 'Extra Leaves', desc: 'leaf(s) per throw', icon: '🍃', kind: 'tier' },
     longThrow:  { name: 'Long Throw',   desc: 'leaf range',      icon: '📏', base: 0.20, kind: 'pct' },
-    bigBlade:   { name: 'Big Leaf',    desc: 'leaf hit radius', icon: '⚔️', base: 0.20, kind: 'pct' },
+    bigBlade:   { name: 'Big Leaf',    desc: 'leaf hit radius', icon: '🌿', base: 0.20, kind: 'pct' },
     heavyBlade: { name: 'Heavy Leaf',  desc: 'leaf damage',     icon: '🔨', base: 0.20, kind: 'pct' },
     backhand:   { name: 'Backhand',      desc: 'leaf return-swing damage',      icon: '🤛', base: 0.50, kind: 'pct' },
   },
@@ -2860,7 +2866,9 @@ export const CHAPTERS = {
     },
   },
   undergrowth: {
-    name: 'The Undergrowth', tagline: 'the traps were already set', icon: '🐾',
+    // 🍄 not 🐾: the paw belongs to Claw Rake, this chapter's own starter weapon, and the two sit
+    // side by side on the brief screen and the pause sheet.
+    name: 'The Undergrowth', tagline: 'the traps were already set', icon: '🍄',
     weapons: ['clawRake', 'quillBurst', 'chitterShriek'], starter: 'clawRake',
     roster: [
       // v6.6.32: was a Cat. Replaced after seven rejected art revisions — a cat has no graphic
