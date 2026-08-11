@@ -12801,7 +12801,19 @@ function testUndergrowthRound() {
       "the roar wave is back to starting at 30% OF RANGE — the dead zone in front of the player then scales with the range stat, so buying Long Roar shrinks the visible wave")
     assert.ok(/const roarStart =/.test(src) && /roarStart \+ Math\.max\(0, rp\.range - roarStart\) \* ki/.test(src),
       'the roar wave must expand from a fixed start (the mouth) out to `range`')
-    console.log('PASS run UG.k3 (roar wave): the pressure wave is born at the mouth, not at a fraction of range')
+
+    // ...and it must be an ACTUAL arc, not a fixed-span sprite stretched in Y to fake one. The old
+    // form scaled a 1.0 rad bake by q = tan(arc/2)/tan(ROAR_SPAN/2): fine near the baked span,
+    // nonsense away from it, and wideRoar multiplies `arc` at runtime so a real build leaves that
+    // range immediately — q is 1.7 at L5 base, 2.6 at +150% width, 6.6 at +200%. At those factors
+    // the sprite is the same arc smeared into a tall ellipse, which is what the owner saw:
+    // "we just see orange lines on the screen ... it doesn't look like a roar sound pressure wave
+    // anymore when >150% roar width". A Graphics annulus sector has no such limit.
+    assert.ok(!/tan\(rp\.arc \/ 2\) \/ Math\.tan\(ROAR_SPAN/.test(src),
+      'the roar is back to faking its arc by y-stretching a fixed-span bake — that linearisation collapses under wideRoar and draws streaks instead of a wavefront')
+    assert.ok(/roarG\.arc\(rp\.x, rp\.y, rOut, a0, a1\)/.test(src),
+      'the roar band must be drawn as a real arc at the cast’s own angle (a0/a1 from rp.arc)')
+    console.log('PASS run UG.k3 (roar wave): born at the mouth, and drawn as a true arc at any width rather than a y-stretched bake')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')

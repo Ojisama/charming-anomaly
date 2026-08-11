@@ -145,6 +145,29 @@ const bootstrap = `(() => {
         run.player.hp = run.player.maxHP
         pendingDt += dt
       },
+      // Same, but FORWARDS this step's events to the renderer instead of dropping them.
+      //
+      // Use it for any effect that is spawned by an EVENT rather than by a run.* array: the roar
+      // band, the tail lash line, the whip, the claw — handleEvents is the only thing that creates
+      // those, and H.tick + H.render (which syncs with a hardcoded []) means the event never
+      // arrives, so the effect never spawns. A scene built on H.tick therefore captures a frame
+      // with no effect in it AND NO ERROR, which is indistinguishable from "the effect is invisible"
+      // — v7.27 shipped a claim about the roar's appearance off exactly such a frame.
+      //
+      // Deliberately a separate call rather than a change to tick(): a long warm-up
+      // (H.until/H.breed run hundreds of ticks) must keep dropping its events, or the first render
+      // is buried under the whole warm-up's damage numbers, which is what tick()'s drain is for.
+      // Step the warm-up with tick(), then the frames you are capturing with tickFx().
+      tickFx(dt = 1 / 60) {
+        step(run, { x: 0, y: 0 }, dt)
+        const events = run.events.splice(0)
+        run.player.hp = run.player.maxHP
+        pendingDt += dt
+        window.__renderer.sync(run, Math.min(pendingDt, 0.05), events)
+        pendingDt = 0
+        app.renderer.render(app.stage)
+        return events
+      },
       until(pred, max = 4000) { let g = 0; while (!pred() && g++ < max) { H.tick(); H.pin() } return g < max },
       breed(n, max = 6000) { run.player.hp = run.player.maxHP = 99999; return H.until(() => run.enemies.length >= n, max) },
       // Take the first n bred enemies as the cast and freeze everything about them. Enemies that
