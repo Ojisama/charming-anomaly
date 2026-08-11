@@ -16,6 +16,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
+  BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
 import { currentForce } from './sim.js'
@@ -6143,6 +6144,13 @@ export function createRenderer(app) {
   const homingLayer = new Container()
   const beamLayer = new Container()
   const arcG = new Graphics() // elemental shock arcs (shockarc/frostarc/conduct)
+  // v7.23 skies: the Atomic Breath's live forks (run.arcs) and the Tail Lash's drag tethers
+  // (run.drags). Its own Graphics rather than arcG because those are one-shot fading procs on a
+  // render-local pool, while these are PERSISTING sim entities redrawn from run state every frame.
+  // The jagged-polyline drawing itself is shared (jitterPath/strokePath) — a fork and a shock arc
+  // are the same picture, so there is no second stroker.
+  // Palette law 2 (SKIES_PALETTE): both are the PLAYER's output, so both are atomic cyan-green.
+  const breathG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
@@ -6152,7 +6160,7 @@ export function createRenderer(app) {
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
+    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
     // damage numbers. A taxi crossing a split used to paint over it, which on the one layer whose
@@ -11014,11 +11022,11 @@ export function createRenderer(app) {
   let breathe = 0
   let idleT = 0
   let flashT = 0       // player hurt flash
-  // v5.11 kaiju redesign: 0->1 pulse set by the `tail` sim event (WEAPONS.tailSwipe/stepTailWeapon),
+  // v5.11 kaiju redesign: 0->1 pulse set by the `tail` sim event (WEAPONS.tailLash/stepLashWeapon),
   // decaying over SKIES_KAIJU.swipeDecay seconds — see syncPlayer's kaiju tail branch. The event
   // already drives spawnWhip's arc-swoosh at the hit site (handleEvents); this makes the anatomical
   // tail itself visibly crack at the same moment, instead of only an effect appearing where it
-  // lands. Harmless outside skies: tailSwipe isn't in any other chapter's weapon pool, so the `tail`
+  // lands. Harmless outside skies: tailLash isn't in any other chapter's weapon pool, so the `tail`
   // event never fires there and this timer just sits at 0, unread (chapterHasKaiju gates its use).
   let kaijuSwipeT = 0
   let vignetteA = 0
@@ -11203,6 +11211,43 @@ export function createRenderer(app) {
       path.push([x2, y2])
     }
     return path
+  }
+
+  // v7.23 skies. Two persisting player effects, one Graphics, cleared and redrawn from run state
+  // every frame — the same idiom as hazardG/laneG, and it needs no pool because a fork is a
+  // polyline whose vertex COUNT changes every tick (it re-forks as bodies die).
+  function redrawBreath(run) {
+    breathG.clear()
+    const p = run.player
+    // Tail Lash: a tether from the kaiju to each aircraft being reeled in. Without it the plane
+    // reads as sliding toward you for no reason — the tether IS the causal link.
+    // DELIBERATELY NOT JAGGED. The first cut ran this through jitterPath like the fork below, and
+    // the probe frame showed the two weapons as the same effect: cyan-green crackle leaving the
+    // kaiju's head, twice. "It's not clear" is the complaint that started this whole rework, so the
+    // two must not converge. A tail is a TAUT CABLE and lightning is JAGGED — one straight heavy
+    // stroke against a jittered polyline separates them at a glance, with no new colour needed.
+    for (const d of run.drags || []) {
+      const e = run.enemies.find((x) => x.id === d.id)
+      if (!e) continue
+      breathG.moveTo(p.x, p.y).lineTo(e.x, e.y).stroke({ width: 9, color: SKIES_PALETTE.player, alpha: 0.28, cap: 'round' })
+      breathG.moveTo(p.x, p.y).lineTo(e.x, e.y).stroke({ width: 3.5, color: SKIES_PALETTE.playerHot, alpha: 0.9, cap: 'round' })
+      // A hook at the far end: the bit that is actually holding the aircraft.
+      breathG.circle(e.x, e.y, 9).stroke({ width: 3, color: SKIES_PALETTE.playerHot, alpha: 0.9 })
+    }
+    for (let i = 0; i < (run.arcs || []).length; i++) {
+      const a = run.arcs[i]
+      // The wind-up: a ring closing onto the kaiju, so the charge is legible as "something is
+      // coming" rather than as the weapon being broken. Nothing is struck while this draws.
+      if (a.charge > 0) {
+        const k = a.charge / BREATH_CHARGE_T          // 1 -> 0 over the wind-up
+        breathG.circle(p.x, p.y, 30 + k * 90).stroke({ width: 2 + (1 - k) * 3, color: SKIES_PALETTE.player, alpha: 0.25 + (1 - k) * 0.5 })
+        continue
+      }
+      if (!a.nodes || a.nodes.length < 2) continue
+      const path = jitterPath(a.nodes.map((n) => [n.x, n.y]), i * 5.1)
+      strokePath(breathG, path, 10, SKIES_PALETTE.player, 0.35)
+      strokePath(breathG, path, 3.5, SKIES_PALETTE.playerHot, 0.95)
+    }
   }
 
   function redrawArcs() {
@@ -11419,11 +11464,20 @@ export function createRenderer(app) {
           addShake(2.5, 0.12)
           break
         case 'tail':
-          // tail swipe: the whip's fat swoosh IS a heavy tail sweep — reuse it across the wide
-          // arc, with a heavier shake than the lash (this launches things)
-          spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
-          addShake(4, 0.16)
+          // v7.23 Tail Lash: a LINE, not a sector, so the whip's fat swoosh no longer describes it.
+          // spawnArc is exactly the right drawer — a one-shot jagged polyline that flashes and
+          // fades — and it is already here for the elemental shocks. Atomic cyan-green, palette
+          // law 2: this is the player's own reach, never a threat.
+          spawnArc([[e.x, e.y], [e.x + Math.cos(e.angle) * e.range, e.y + Math.sin(e.angle) * e.range]],
+            SKIES_PALETTE.player, SKIES_PALETTE.playerHot, 0.22, 6, 1)
+          // A lash that HOOKED something lands harder than one that swiped empty air.
+          addShake(e.hooked > 0 ? 4 : 2, e.hooked > 0 ? 0.16 : 0.09)
           kaijuSwipeT = SKIES_KAIJU.swipeKick   // the anatomical tail itself cracks (syncPlayer)
+          break
+        case 'breath':
+          // Atomic Breath: the cast itself only kicks the screen — the wind-up ring and the fork
+          // are drawn from run.arcs every frame (redrawBreath), because both persist.
+          addShake(2, 0.1)
           break
         case 'toss':
           // debris toss: the lobs themselves are visible entities (syncLobs) — the event only
@@ -11600,6 +11654,7 @@ export function createRenderer(app) {
     teleG.clear()
     wellG.clear()
     bindG.clear()
+    breathG.clear() // v7.23: a Graphics, not a pool — clearing it IS the reset (see redrawBreath)
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
@@ -12492,6 +12547,7 @@ export function createRenderer(app) {
     redrawPrisms(run)
     updateArcs(dt)
     redrawArcs()
+    redrawBreath(run) // v7.23 skies: Atomic Breath forks + Tail Lash drag tethers
 
     updateWhips(dt)
     updateClaws(dt)

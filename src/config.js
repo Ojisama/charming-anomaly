@@ -747,7 +747,7 @@ export const BLIND_FAITH_FLOOR = 'epic'  // the lowest rarity a blind screen may
 // WHY IT IS PER WEAPON: "+N count" is not commensurable across weapons. A generic +2 measured x1.35,
 // not x3 — star.multishot +2 on a 1-projectile volley genuinely is x3, wave.echo +2 adds echoes at a
 // FRACTION of damage, and orbit.extraOrb +2 adds to a persistent ring that never "fires" at all.
-// Nine of the 22 weapons have no count axis whatsoever (mines, flagella, clawRake, roar, tailSwipe,
+// Nine of the 22 weapons have no count axis whatsoever (mines, flagella, clawRake, roar, tailLash,
 // wave, hole, chitterShriek, pulsarSweep), so for those "three of it" is authored rather than
 // multiplied — three sectors at 120 degrees, three novas at different radii, three scattered cysts.
 // THE HALVED FIRE RATE STAYS. It was only ever in doubt because the measured +2 grant was worth
@@ -1452,7 +1452,7 @@ export const WEAPONS = {
       { rate: 2.0, castRange: 320, fuse: 0.20, r: 173, dmg: 48, count: 3, jetDur: 4.05, tick: 0.40, streams: 4 },
     ],
   },
-  // Skies chapter natives (v5.4). See stepRoarWeapon/stepTailWeapon/stepDebrisWeapon in sim.js.
+  // Skies chapter natives (v5.4). See stepRoarWeapon/stepLashWeapon/stepDebrisWeapon in sim.js.
   roar: {
     name: 'Roar',
     desc: 'A sonic cone that flattens everything in front of you.',
@@ -1468,18 +1468,71 @@ export const WEAPONS = {
       { dmg: 34, rate: 0.66, range: 275, arc: 1.30, knockback: 110 },
     ],
   },
-  tailSwipe: {
-    name: 'Tail Swipe',
-    desc: 'A heavy sweep that clears the ground around you.',
+  // v7.23 (owner: "replace tail whip of this chapter, it's not clear, it's not powerful, and
+  // reminds too much of flagella whip"). All three were true and all three were measured, not
+  // assumed — see docs/superpowers/specs/2026-08-11-skies-tail-lash-atomic-breath-design.md:
+  //   - a RARE that loses to the FREE STARTER on every axis (eff dps 117 vs roar's 138, kills/min
+  //     75.3 vs 85.2, waste 14% vs 9%);
+  //   - the fourth `inSector` aimed melee arc in the game, and the only chapter carrying TWO of
+  //     them (roar is the other) — "reminds too much of flagella whip" is structural, not a feel;
+  //   - reach 150-200, the SHORTEST in the game's most standoff-heavy chapter. Every skies enemy
+  //     is built to stay away (jet banks to STRAFE_STANDOFF 420, helicopter holds at its missile
+  //     standoff, tanks shell from range), and debrisToss' own comment already calls itself "the
+  //     skies' designated ANTI-AIR pick". The pool knew.
+  // So the tail stops being a wide sector and becomes a LONG THIN LINE that reaches out and drags
+  // the air force down to you. See stepLashWeapon/fireLash in sim.js and LASH_* below.
+  tailLash: {
+    name: 'Tail Lash',
+    desc: 'Snaps out and drags an aircraft down to be crushed underfoot.',
     icon: '🦖', rarity: 'rare',
-    // Sector geometry again, but WIDE and short: slow, hard, and it launches. Sits between roar
-    // (fast chip) and debrisToss (slow burst) in the skies pool.
+    // Aimed at the FARTHEST crushable enemy in reach — the inverse of every other weapon in the
+    // game, which all aim at the nearest, and the entire point: it goes and gets the helicopter
+    // standing off at 400px rather than the drone already at your feet.
+    // `hooks` is the LADDER, and it has to be, for a reason the first cut got wrong. Most of this
+    // weapon's output is the free crush on arrival (stepEnemies' crushable branch), whose value is
+    // the aircraft's whole HP bar and is completely independent of `dmg` — so a ladder that only
+    // grew dmg/range measured 149 -> 217 eff dps across five levels (+46%) while Roar doubled.
+    // Levelling has to buy MORE AIRCRAFT PER LASH or it barely registers.
     levels: [
-      { dmg: 26, rate: 1.60, range: 150, arc: 2.20, knockback: 140 },
-      { dmg: 31, rate: 1.50, range: 160, arc: 2.35, knockback: 155 },
-      { dmg: 38, rate: 1.40, range: 172, arc: 2.50, knockback: 170 },
-      { dmg: 46, rate: 1.28, range: 185, arc: 2.70, knockback: 190 },
-      { dmg: 58, rate: 1.15, range: 200, arc: 2.95, knockback: 220 },
+      // The RATE ladder is steep for the same reason: a lash's value is dominated by how often it
+      // gets to crush something, not by `dmg`. At a flat-ish 1.50->1.12 the L1 card measured 149
+      // eff dps against Debris Toss' 78 — twice a rare's opening, because one free crush every
+      // 1.5s is already most of a weapon. Slow the opening, keep the top.
+      { dmg: 30, rate: 3.10, range: 340, width: 26, hooks: 1 },
+      { dmg: 36, rate: 2.60, range: 370, width: 28, hooks: 1 },
+      { dmg: 43, rate: 2.05, range: 400, width: 30, hooks: 2 },
+      { dmg: 52, rate: 1.55, range: 430, width: 32, hooks: 2 },
+      { dmg: 64, rate: 1.15, range: 460, width: 34, hooks: 3 },
+    ],
+  },
+  // v7.23: the kaiju's answer to an air force. Charges (a readable telegraph), then burns while
+  // FORKING like lightning from body to body — owner's spec: "it should aim for closest enemy then
+  // 'spread' like lighting to other enemies".
+  // WHY THIS IS NOT A THIRD BEAM: a run.beams entry is a ray from the player at an angle (rainbow
+  // auto-rotates, pulsarSweep wipers a fixed fan). A fork is a CHAIN OF SEGMENTS BETWEEN BODIES,
+  // all live at once — it cannot be expressed as an angle and a length. It is also not
+  // tryChainBullet (Chain Stars), which re-targets one travelling projectile, so only ever one
+  // segment exists. Hence its own array, run.arcs. See stepArcs/fireBreath in sim.js.
+  atomicBreath: {
+    name: 'Atomic Breath',
+    desc: 'A charged blast that forks from body to body like lightning.',
+    icon: '☢️', rarity: 'epic',
+    // The fork REBUILDS on every damage tick: dead branches drop out and fresh targets snap in
+    // while the beam is still burning. That is what makes it read as lightning rather than a ray,
+    // and it is also the mechanic — the breath keeps finding new bodies for its whole duration.
+    levels: [
+      // v7.23 pass 2: dmg +28% over the first cut. Measured, not guessed — at the original ladder
+      // the census read 223 eff dps against Debris Toss' 231 and Tail Lash's 217, i.e. an EPIC
+      // tying the chapter's two rares, which is not what the rarity is charging for.
+      // Pass 3. The first two cuts left an EPIC tying the free starter at L1 (68 vs Roar's 67) and
+      // sitting under the rare Tail Lash at L5 (239 vs 246). The dead time was the L1 problem —
+      // a 0.5s charge inside a 5.5s cycle is a lot of nothing — so the interval ladder flattens
+      // upward rather than the damage carrying it all.
+      { dmg: 32, jumps: 2, arcRange: 150, duration: 1.00, interval: 4.8, tick: 0.14 },
+      { dmg: 38, jumps: 3, arcRange: 160, duration: 1.10, interval: 4.6, tick: 0.14 },
+      { dmg: 45, jumps: 3, arcRange: 175, duration: 1.20, interval: 4.4, tick: 0.13 },
+      { dmg: 54, jumps: 4, arcRange: 190, duration: 1.30, interval: 4.2, tick: 0.13 },
+      { dmg: 66, jumps: 5, arcRange: 200, duration: 1.40, interval: 4.0, tick: 0.12 },
     ],
   },
   debrisToss: {
@@ -2009,16 +2062,38 @@ export const WEAPON_MODS = {
     stagger:   { name: 'Stagger',     desc: 'stun on roared foes',              icon: '💫', base: 0.50, kind: 'pct' },
     resonance: { name: 'Resonance',   desc: 'every 3rd roar goes all around',   icon: '🌀', kind: 'switch' },
   },
-  // heavyTail/longTail/broadSweep fold into tailSwipe's levels[] via WEAPON_STAT_MODS; quickTail
-  // (attack rate) is read at the fire site. wreckingTail/counterSwipe are behavioral (see
-  // stepTailWeapon and the counter hook in hurtPlayer).
-  tailSwipe: {
-    heavyTail:    { name: 'Heavy Tail',    desc: 'swipe damage', icon: '🔨', base: 0.30, kind: 'pct' },
-    longTail:     { name: 'Long Tail',     desc: 'swipe reach',  icon: '📏', base: 0.30, kind: 'pct' },
-    broadSweep:   { name: 'Broad Sweep',   desc: 'tail sweep width', icon: '🪭', base: 0.25, kind: 'pct' },
-    quickTail:    { name: 'Quick Tail',    desc: 'swipe rate',   icon: '💨', base: 0.25, kind: 'pct' },
-    wreckingTail: { name: 'Wrecking Tail', desc: 'collateral damage where launched foes land', icon: '🎳', base: 0.40, kind: 'pct' },
-    counterSwipe: { name: 'Counter Swipe', desc: 'getting hit triggers a free swipe',          icon: '💢', kind: 'switch' },
+  // heavyTail/longTail fold into tailLash's levels[] via WEAPON_STAT_MODS; doubleHook adds to
+  // `hooks` at the fire site (WEAPON_COUNT_MODS/WEAPON_COUNT_KEYS); quickTail
+  // (attack rate) is read at the fire site. wreckingBall/counterLash are behavioral (see
+  // stepLashWeapon and the counter hook in hurtPlayer).
+  // v7.23: heavyTail/longTail/quickTail keep their ids AND their names — damage, reach and rate
+  // are axes both the old sector and the new line have, so there is nothing to rename, no clash
+  // with flagella's Heavy Lash/Long Reach, and their French entries carry over untouched.
+  // broadSweep is gone: "sweep width" is meaningless on a thin line. wreckingBall is wreckingTail
+  // with its defect fixed — the old card dealt its collateral inside an invisible 60px disc after
+  // a 37px nudge (knockback/KB_DECAY_RATE), which is why the owner reported it as not working: it
+  // FIRED correctly (A/B census, 5 stacks = +18% eff dps) but nothing visibly moved or died. Now
+  // the damage is dealt along a 340-460px drag you watch happen.
+  tailLash: {
+    heavyTail:    { name: 'Heavy Tail',    desc: 'lash damage', icon: '🔨', base: 0.30, kind: 'pct' },
+    longTail:     { name: 'Long Tail',     desc: 'lash reach',  icon: '📏', base: 0.30, kind: 'pct' },
+    quickTail:    { name: 'Quick Tail',    desc: 'lash rate',   icon: '💨', base: 0.25, kind: 'pct' },
+    doubleHook:   { name: 'Double Hook',   desc: 'aircraft dragged down per lash', icon: '🪝', base: 1, kind: 'flat' },
+    wreckingBall: { name: 'Wrecking Ball', desc: 'damage dealt by a dragged aircraft', icon: '🎳', base: 0.40, kind: 'pct' },
+    counterLash:  { name: 'Counter Lash',  desc: 'getting hit triggers a free lash',  icon: '💢', kind: 'switch' },
+  },
+  // overcharge/arcReach/heldBreath fold into atomicBreath's levels[] via WEAPON_STAT_MODS;
+  // quickBreath (cast rate) is read at the cast site and `forked` (+jumps) at the fork site.
+  // fallout is behavioral (see stepArcs in sim.js).
+  atomicBreath: {
+    overcharge:  { name: 'Overcharge',    desc: 'breath damage',   icon: '🔨', base: 0.30, kind: 'pct' },
+    forked:      { name: 'Forked Breath', desc: 'extra fork(s) per breath', icon: '⚡', base: 1, kind: 'flat' },
+    arcReach:    { name: 'Arc Reach',     desc: 'fork distance',   icon: '📏', base: 0.25, kind: 'pct' },
+    heldBreath:  { name: 'Held Breath',   desc: 'breath duration', icon: '⌛', base: 0.25, kind: 'pct' },
+    quickBreath: { name: 'Quick Breath',  desc: 'breath rate',     icon: '⏩', base: 0.25, kind: 'pct' },
+    // fallout reuses applyIgnite verbatim — the same idiom flagella.barbed uses for bleed. An
+    // atomic breath that sets what it touches burning needs no new DoT system.
+    fallout:     { name: 'Fallout',       desc: 'sets everything the breath touches burning', icon: '☣️', base: 0.50, kind: 'pct' },
   },
   // heavyDebris/bigImpact/moreDebris fold into debrisToss' levels[] via WEAPON_STAT_MODS; longToss
   // (castRange) and rapidToss (cast rate) are read at the throw site. shrapnel is behavioral
@@ -2079,13 +2154,20 @@ export const WEAPON_MOD_TIER_BONUS = { normal: 1, rare: 1, epic: 2, legendary: 2
 export const WEAPON_RATE_MODS = {
   flagella: 'frenzy', bloom: 'quickCast', stinger: 'rapid', lure: 'fastLure',
   clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
-  burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailSwipe: 'quickTail',
+  burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
+  atomicBreath: 'quickBreath',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
 // tell a player firing four bullets that they fire one.
-export const WEAPON_COUNT_MODS = { star: 'multishot' }
+// v7.23: the lash's doubleHook (how many aircraft one lash drags down) and the breath's `forked`
+// (+jumps) are read at their own sites too, for the same reason — folding a count into levels[]
+// via WEAPON_STAT_MODS only works for keys effectiveWeaponStats already carries.
+export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', atomicBreath: 'forked' }
+// ...and WHICH levels[] key that mod adds to. The star's is literally `count`, which is why this
+// map did not exist before; the two v7.23 weapons count different things. Missing entry = 'count'.
+export const WEAPON_COUNT_KEYS = { tailLash: 'hooks', atomicBreath: 'jumps' }
 
 export const MOD_POOL_MAX = 6
 // Per-weapon fairness for the level-up mod pool (v4.4): a single weapon contributes at most this
@@ -2170,7 +2252,7 @@ export const CRUNCH_DMG_MUL = 10
 // ---- Pond weapons (v5.0 task 4: Flagella Whip + Toxin Bloom) --------------------------------
 // Flagella Whip (pond starter, melee arc sweep — see WEAPONS.flagella above and stepFlagellaWeapon
 // in sim.js): a swing damages every enemy whose BODY falls in the sector (arc rad, range px)
-// centered on the player's facing — inSector, shared with clawRake/roar/tailSwipe.
+// centered on the player's facing — inSector, shared with clawRake/roar/tailLash.
 // cyclone (behavioral): every FLAGELLA_CYCLONE_EVERY-th swing opens to a full 360° instead of
 // the arc.
 export const FLAGELLA_CYCLONE_EVERY = 3
@@ -2438,14 +2520,29 @@ export const HYDRANT_STAGGER = 0.28    // s of extra fuse per zone within one ca
 export const ROAR_STUN = 0.5              // stagger (behavioral): stun seconds × bonus on roared foes (e.stunT)
 export const ROAR_RESONANCE_EVERY = 3     // resonance (behavioral): every Nth roar opens to a full 360° (cf. FLAGELLA_CYCLONE_EVERY)
 
-// Tail Swipe (skies — see WEAPONS.tailSwipe + stepTailWeapon in sim.js).
-// wreckingTail (behavioral): a struck enemy is knocked back as usual, and where it ENDS UP it
-// deals TAIL_COLLIDE_FRAC × bonus × the swipe's dealt damage to every OTHER enemy within
-// TAIL_COLLIDE_R of it (resolved once per swipe, after all knockbacks are applied; collateral
-// never re-triggers collateral).
-export const TAIL_COLLIDE_R = 60
-export const TAIL_COLLIDE_FRAC = 0.5
-export const TAIL_COUNTER_CD = 1.5        // counterSwipe (behavioral): free swipe on taking damage, at most every N s (cf. QUILL_RETALIATE_CD)
+// Tail Lash (skies — see WEAPONS.tailLash + stepLashWeapon/fireLash in sim.js). run.drags entries:
+// { id, dmg, t, dur, hitIds } — an aircraft being reeled in, one per hooked target.
+//
+// WHY ONLY AIRCRAFT GET PULLED (owner directive: "it should not pull tanks since they deal dmg"):
+// `crushable` is already exactly "aircraft" in this roster — jet and helicopter carry it,
+// tankColumn does not — and it already means "harmless on contact": stepEnemies' crushable branch
+// destroys the airframe outright and costs the player NO damage and NO invuln window. So dragging
+// a helicopter into the kaiju IS the kill, with no new code, and dragging a TANK there would just
+// park a contact-damage dealer on the player's face. One flag answers both halves.
+export const LASH_PULL_T = 0.22           // s to reel a hooked aircraft in (it dies on arrival, via crushable)
+export const LASH_DRAG_FRAC = 0.5         // wreckingBall: a dragged body deals this × bonus × the lash's damage
+                                          // to each enemy it plows through, once per body per drag.
+export const LASH_DRAG_R = 34             // px, how close the dragged body must pass to hurt something
+export const LASH_COUNTER_CD = 1.5        // counterLash (behavioral): free lash on taking damage, at most every N s (cf. QUILL_RETALIATE_CD)
+
+// Atomic Breath (skies — see WEAPONS.atomicBreath + stepArcs/fireBreath in sim.js).
+// run.arcs entries: { life, duration, charge, tick, acc, dmg, jumps, arcRange, falloutBonus,
+// nodes: [{x,y}...] }. `nodes` is the fork polyline (player -> body -> body -> ...), REBUILT on
+// every damage tick and read by render.js — it is the entity, there is no angle and no length.
+export const BREATH_CHARGE_T = 0.5        // s of wind-up before the first tick — dead time, and the telegraph
+export const BREATH_JUMP_DMG_MUL = 0.85   // damage multiplier per fork jump (cf. STAR_CHAIN_DMG_MUL 0.7; gentler
+                                          // because the breath re-forks every tick and would otherwise decay to
+                                          // nothing on a long chain that keeps being rebuilt from the root)
 
 // Debris Toss (skies utility — see WEAPONS.debrisToss + stepDebrisWeapon/stepLobs in sim.js).
 // run.lobs entries: { x, y, fromX, fromY, tx, ty, t, flight, r, dmg } — t counts UP from 0 to
@@ -3292,7 +3389,12 @@ export const CHAPTERS = {
   },
   skies: {
     name: 'The Skies', tagline: 'they brought the air force', icon: '🌩️',
-    weapons: ['roar', 'tailSwipe', 'debrisToss'], starter: 'roar',
+    // v7.23: FOUR natives, not three. MAX_WEAPONS is 4 and level-up weapon offers are scoped to
+    // this array, so a three-weapon chapter leaves every run of it ending with a permanently empty
+    // fourth weapon slot. Replacing Tail Swipe with two weapons fills a slot that was dead, rather
+    // than diluting anything. Four distinct verbs now: close chip (roar), reach-and-yank
+    // (tailLash), formation clear (atomicBreath), ranged burst (debrisToss).
+    weapons: ['roar', 'tailLash', 'atomicBreath', 'debrisToss'], starter: 'roar',
     roster: [
       // 'crushable' (v5.14): flying into a kaiju kills the aircraft and does NOT scratch the kaiju.
       // A jet does not bounce off a monster the size of a city block, and it certainly does not
@@ -3403,7 +3505,7 @@ export const CHAPTERS = {
       // and as the fallback if `kaiju` were ever turned off.
       playerTint: 0x7ad07a, // classic rubber-suit kaiju green
       tail: true,
-      tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailSwipe's business end)
+      tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailLash's business end)
       // v5.11 kaiju redesign: the player was STILL the generic cross-chapter blob — identical
       // silhouette to body/pond/garden/undergrowth/city/beyond, just retinted, at ~44px on screen
       // (2 x PLAYER.radius) next to a tower that now draws up to 96px (SKIES_STRUCTURE_ART.tower).
@@ -3428,12 +3530,12 @@ export const CHAPTERS = {
       // an `enemyScale` sim knob and it silently rebalanced the chapter: e.radius is an addend in
       // ~12 hit tests (all three body tests inside inSector, sim.js — added in v5.6.3 specifically
       // so sector sweeps test the enemy's BODY, not its centre). Shrinking the sim radius would
-      // have shrunk the roar/tailSwipe hit window along with the sprite. render.js reads this and
+      // have shrunk the roar/tailLash hit window along with the sprite. render.js reads this and
       // scales the sprite only; sim.js never sees it (not in this file's exports, not imported by
       // sim.js — grep confirms).
       // v7.21 (owner directive): 0.55 -> 0.605, a flat +10%. Still render-only for exactly the
       // reason spelled out above — the sim radius is an addend in ~12 hit tests and moving it would
-      // resize the roar/tailSwipe hit window along with the sprite. See SKIES_KAIJU.bodyScale,
+      // resize the roar/tailLash hit window along with the sprite. See SKIES_KAIJU.bodyScale,
       // which drops 20% in the same change.
       enemyDrawScale: 0.605,
     },
@@ -3518,7 +3620,7 @@ CHAPTERS.blank = {
   maxDifficultyCap: 3,     // per-chapter ladder ceiling (see chapterMaxDifficulty helper)
   weapons: ['star','orbit','wave','homing','flagella','mines','bloom','boomerang','stinger','lure',
             'clawRake','quillBurst','chitterShriek','rainbow','trashTornado','burstHydrant',
-            'roar','tailSwipe','debrisToss','realityShard','hole','pulsarSweep'], // union of all 7 pools
+            'roar','tailLash','atomicBreath','debrisToss','realityShard','hole','pulsarSweep'], // union of all 7 pools
   starter: 'realityShard',
   roster: [
     { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.15, flags: ['pastSeek'] },
@@ -4536,7 +4638,7 @@ export const SKIES_KAIJU = {
     rootY: 58,   // pTail's LOCAL root offset (render.js) — a fixed point near the body's rear,
                  // instead of dead centre, so the swing reads as rooted at the hip, not the belly
   },
-  // TAIL SWIPE WHIP: the `tail` sim event (sim.js stepTailWeapon/WEAPONS.tailSwipe) already drives
+  // TAIL SWIPE WHIP: the `tail` sim event (sim.js stepLashWeapon/WEAPONS.tailLash) already drives
   // spawnWhip's arc-swoosh at the hit site (render.js handleEvents); this ADDS a snap on the
   // anatomical tail itself, decaying over swipeDecay seconds, so the weapon's own limb visibly
   // moves instead of only an effect appearing where it lands.
@@ -5089,7 +5191,7 @@ export const STRAFE_RUN_SPEED_MUL = 4.5
 // contactDmgTakenMul path, respects invuln) and emits {type:'explode', x, y, radius: MISSILE_BLAST}.
 // It never damages enemies. It IS a projectile for the beyond's gravity wells (they bend it).
 // Damages: the PLAYER only.
-// v5.6.15: was 300 — OUTSIDE every skies weapon's reach (roar L1 ~216 incl. body, tailSwipe 200,
+// v5.6.15: was 300 — OUTSIDE every skies weapon's reach (roar L1 ~216 incl. body, tailLash 200,
 // debrisToss L1 280), so the chapter's COMMON spawn was effectively unkillable and accumulated:
 // measured 217 helicopters alive at t=180 on a kiting starter run, 2796 damage taken vs the
 // garden's 969 — the user called the chapter impossible and was right. 180 sits inside the

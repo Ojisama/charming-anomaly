@@ -1667,6 +1667,9 @@ export function initUI(hooks) {
     radius: 'Radius', hunt: 'Hunt radius', travelSpeed: 'Travel speed',
     r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length', jetDur: 'Runs for',
     width: 'Width', pierce: 'Pierce', every: 'Every',
+    // v7.23 skies: Atomic Breath. Both are also registered in buildReadout's ordered whitelist
+    // (sim.js) — a stat needs BOTH sites or it is silently absent from the build sheet.
+    jumps: 'Forks', arcRange: 'Fork range', duration: 'Burns for', hooks: 'Aircraft hooked',
   }
   const STAT_MAX_ROWS = 5
   // French writes 1,00 s — comma decimal, NBSP before the unit. The dictionary cannot fix a number,

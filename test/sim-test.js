@@ -100,6 +100,8 @@ import {
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
+  // v7.23 skies weapon rework (Run AA.g / AA.g2)
+  BREATH_CHARGE_T, LASH_PULL_T,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
 
@@ -1113,48 +1115,41 @@ function testAnomalySlate() {
     assert.ok(aimed < far * 2,
       `IPECAC's roar dealt ${aimed.toFixed(0)} to the nearest enemy against ${far.toFixed(0)} to the far one — the sectors are overlapping and one body is eating the x3, which is the overkill trap this card exists to avoid`)
 
-    // TAIL SWIPE is the dangerous row: its arc (126-169 degrees) is WIDER than the 120 degree
-    // spacing, so without de-duplication the three sweeps overlap and it silently becomes x3 damage.
-    const tail = swing('ipecac', 'tailSwipe')
-    const tailPlain = swing(null, 'tailSwipe')
-    assert.ok(tail.filter((d) => d > 0).length === 3,
-      `IPECAC's tail swipe reached ${tail.filter((d) => d > 0).length} of 3 enemies — it should sweep all the way around`)
-    assert.ok(Math.max(...tail) < Math.max(...tailPlain) * 2,
-      `IPECAC's tail swipe dealt ${Math.max(...tail).toFixed(0)} to one enemy against ${Math.max(...tailPlain).toFixed(0)} unmodified — its arc is wider than the sector spacing, so the same body is being hit by more than one sweep`)
-
-    // THE OVERLAP CASE, which is the one that actually needs the de-duplication and which the ring
-    // above CANNOT reach: three enemies at 120 degrees sit one per sector whatever the arc, so the
-    // dedup can be deleted with every assertion above still green (it was). tailSwipe's arc is
-    // 126-169 degrees — WIDER than the 120 degree spacing — so a body parked between two sectors is
-    // inside both, and without the shared `hit` set it eats the swipe twice. That is silently the
-    // x3 DAMAGE card again, on the one weapon whose geometry allows it.
+    // v7.23: the Tail Swipe rows that used to sit here are GONE, and the reason is worth stating
+    // rather than silently deleting. They tested the one weapon whose SECTOR (126-169 degrees) was
+    // wider than IPECAC's 120 degree spacing, so its three sweeps overlapped and it silently became
+    // x3 damage on one body. Tail Swipe is now the Tail Lash, a thin LINE — and with it gone no
+    // weapon in the game has an arc exceeding 120 degrees, so that failure mode no longer exists.
+    //
+    // The hazard does not vanish, it MOVES: three rays 120 degrees apart all pass within
+    // width/2 + radius of a body sitting near the player, so a close enemy is on all three lines at
+    // once. That is the same x3-on-one-body trap in the new geometry, and it is what fireLash's
+    // shared `hit` set now guards. Tested here, because the ring fixture above cannot reach it —
+    // three enemies at 120 degrees sit one per ray however thin the ray is.
     {
-      // TWO enemies, and the geometry is the point. The weapon AIMS at the nearest, so that one is
-      // always dead-centre in sector 0 and can never be in a seam — the seam has to be created by a
-      // SECOND body. `bait` sits closest (so it takes the aim); `seam` sits 60 degrees off it,
-      // which is inside the half-arc of BOTH sector 0 and sector 120.
+      // `far` sits out at 300px and takes the aim (the lash aims at the FARTHEST, not the nearest).
+      // `close` sits 12px from the player, where all three IPECAC rays cover it at once.
       const pair = (id) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
-        r.weapons = [{ id: 'tailSwipe', level: 3 }]
+        r.weapons = [{ id: 'tailLash', level: 3 }]
         r.time = 5
-        const bait = makeStatusEnemy(r, { x: 50, y: 0, hp: 1e9, speed: 0 })
-        const a = (60 * Math.PI) / 180
-        const seam = makeStatusEnemy(r, { x: Math.cos(a) * 70, y: Math.sin(a) * 70, hp: 1e9, speed: 0 })
-        r.enemies.push(bait, seam)
-        const b0 = bait.hp, s0 = seam.hp
+        const close = makeStatusEnemy(r, { x: 0, y: 12, hp: 1e9, speed: 0 })
+        const far = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e9, speed: 0 })
+        r.enemies.push(close, far)
+        const c0 = close.hp, f0 = far.hp
         for (let i = 0; i < 600; i++) {
           stepSim(r, { x: 0, y: 0 }, dt)
-          if (b0 - bait.hp > 0 || s0 - seam.hp > 0) return { bait: b0 - bait.hp, seam: s0 - seam.hp }
+          if (c0 - close.hp > 0 || f0 - far.hp > 0) return { close: c0 - close.hp, far: f0 - far.hp }
         }
-        return { bait: 0, seam: 0 }
+        return { close: 0, far: 0 }
       }
       const plain = pair(null), sick = pair('ipecac')
-      assert.ok(plain.bait > 0, 'the tailSwipe overlap fixture never connected — it is not reaching its subject')
-      assert.ok(sick.seam > 0,
-        'the seam enemy took nothing under IPECAC — the extra sectors are not sweeping, so this fixture is not testing what it claims')
-      // One swipe's worth is what the aimed enemy takes. The seam enemy must not take two.
-      assert.ok(sick.seam <= plain.bait * 1.5,
-        `an enemy in the seam between two IPECAC sectors took ${sick.seam.toFixed(0)} against ${plain.bait.toFixed(0)} for a single swipe — the sweeps overlap and one body is eating the x3, which is the overkill trap the whole card was rewritten to escape`)
+      assert.ok(plain.far > 0, 'the tailLash fixture never connected — it is not reaching its subject')
+      assert.ok(sick.close > 0,
+        'the close enemy took nothing under IPECAC — the extra rays are not lashing, so this fixture is not testing what it claims')
+      // One lash's worth is what the aimed enemy takes. The body under all three rays must not take three.
+      assert.ok(sick.close <= plain.far * 1.5,
+        `an enemy sitting on all three IPECAC rays took ${sick.close.toFixed(0)} against ${plain.far.toFixed(0)} for a single lash — the rays overlap and one body is eating the x3, which is the overkill trap the whole card was rewritten to escape`)
     }
 
     // ...and roar's own de-duplication, which the ring above equally cannot reach: roar's cone is
@@ -1194,7 +1189,11 @@ function testAnomalySlate() {
     // rewrite exists to escape. Weapons that spawn no entity at all (the melee sectors) are counted
     // by their FX events instead — three sweeps push three events.
     {
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas']
+      // v7.23: 'arcs' added for Atomic Breath. Its entries carry x/y = the fork's ROOT body, which
+      // is what makes IPECAC's three forks distinguishable here — they anchor on three different
+      // enemies, so the shape key below separates them. (This list is a set of QUOTED STRINGS, the
+      // exact thing an identifier rename sweep cannot see — see CLAUDE.md's rename rule.)
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -4566,7 +4565,7 @@ function testPondWeapons() {
   }
 
   // (a1) the sector test is against the enemy's BODY, not its centre — inSector, the same test
-  // clawRake/roar/tailSwipe already used. A foe the fan plainly sweeps, whose CENTRE sits a few px
+  // clawRake/roar/tailLash already used. A foe the fan plainly sweeps, whose CENTRE sits a few px
   // past `range`, used to take nothing; that disagreement between the drawing and the damage is the
   // whole bug this weapon was reported for. Asserted as an EFFECT (hp fell) on a foe placed inside
   // reach but outside a centre test, with a control past reach that must still take nothing — so
@@ -6491,13 +6490,14 @@ function testV54Weapons() {
     console.log(`PASS run AA.f (roar): sweeps + shoves, stagger stuns, resonance reaches behind (${withRes.toFixed(0)} vs ${without.toFixed(0)})`)
   }
 
-  // (g) tailSwipe: a wide sector that launches; wreckingTail turns the launched body into
-  // collateral where it lands; counterSwipe swings for free when the player is hit.
+  // (g) tailLash (v7.23, replaces Tail Swipe): a long thin line at the FARTHEST target, which drags
+  // aircraft down to be crushed and leaves everything else exactly where it stands. wreckingBall
+  // makes the dragged body hurt what it passes; counterLash lashes for free when the player is hit.
   {
-    const run = weaponRun('skies', 'tailSwipe')
-    const foe = makeStatusEnemy(run, { x: 80, y: 0, hp: 1e6, speed: 0 })
-    foe.flags = []
-    run.enemies.push(foe)
+    const run = weaponRun('skies', 'tailLash')
+    const plane = makeStatusEnemy(run, { x: 300, y: 0, hp: 1e6, speed: 0 })
+    plane.flags = ['crushable']
+    run.enemies.push(plane)
     let sawTail = false
     for (let i = 0; i < Math.round(2 / dt); i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
@@ -6505,38 +6505,121 @@ function testV54Weapons() {
       if (run.events.some((ev) => ev.type === 'tail')) sawTail = true
     }
     assert(sawTail, 'expected a tail event')
-    assert(foe.hp < 1e6, 'expected the swipe to damage what it hits')
-    assert(foe.x > 80, `expected the swipe to launch the foe, x=${foe.x.toFixed(1)}`)
+    assert(plane.hp < 1e6, 'expected the lash to damage what the line crosses')
+    assert(plane.x < 300, `expected the lash to DRAG the aircraft inward, x=${plane.x.toFixed(1)}`)
 
-    // wreckingTail: a bystander near where the launched foe ends up takes collateral.
+    // THE OWNER'S CONSTRAINT, and the assertion that must never regress: "it should not pull tanks
+    // since they deal dmg". Ground armour takes the line damage and does not move one pixel.
+    // Both halves are asserted — a gate that silenced the weapon entirely would pass "did not move".
+    {
+      const r = weaponRun('skies', 'tailLash')
+      const tank = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e6, speed: 0 })
+      tank.flags = ['unshakeable']   // a tank column: NOT crushable
+      r.enemies.push(tank)
+      const x0 = tank.x, y0 = tank.y
+      stepQuiet(r, 2.0)
+      assert(tank.hp < 1e6, 'expected the lash to still DAMAGE a tank it crosses — it just must not move it')
+      assert.strictEqual(tank.x, x0, `a tank was dragged to x=${tank.x.toFixed(1)} from ${x0} — it deals contact damage, so pulling it to the player is self-harm`)
+      assert.strictEqual(tank.y, y0, `a tank was dragged off its line to y=${tank.y.toFixed(1)}`)
+    }
+
+    // Aims at the FARTHEST, not the nearest — the inverse of every other weapon, and the whole
+    // point of the rework (the chapter's enemies are built to stand off).
+    {
+      const r = weaponRun('skies', 'tailLash')
+      const near = makeStatusEnemy(r, { x: 0, y: 60, hp: 1e6, speed: 0 })
+      const far = makeStatusEnemy(r, { x: 320, y: 0, hp: 1e6, speed: 0 })
+      near.flags = ['crushable']; far.flags = ['crushable']
+      r.enemies.push(near, far)
+      stepQuiet(r, 2.0)
+      assert(far.x < 320, `expected the FARTHEST aircraft hooked, but it sat still at x=${far.x.toFixed(1)}`)
+    }
+
+    // wreckingBall: a bystander standing along the drag path takes collateral it otherwise would not.
     function bystanderHp(wrecking) {
-      const r = weaponRun('skies', 'tailSwipe')
-      if (wrecking) r.weaponMods.tailSwipe.wreckingTail = 0.40
-      // struck sits just inside the swipe's reach; bystander sits just OUTSIDE it (so the swipe can
-      // never hit it directly) but within TAIL_COLLIDE_R of where the launched body comes down.
-      const struck = makeStatusEnemy(r, { x: 190, y: 0, hp: 1e9, speed: 0 })
-      struck.flags = []
-      const bystander = makeStatusEnemy(r, { x: 240, y: 0, hp: 1e6, speed: 0 })
-      bystander.flags = []
-      r.enemies.push(struck, bystander)
-      stepQuiet(r, 1.5) // one swipe
+      const r = weaponRun('skies', 'tailLash')
+      if (wrecking) r.weaponMods.tailLash.wreckingBall = 0.40
+      // The aircraft is hooked at 320px and reeled to the player; the bystander sits at y=45, off
+      // the lash line itself (so the line can never hit it) but inside LASH_DRAG_R of the path home.
+      const plane2 = makeStatusEnemy(r, { x: 320, y: 0, hp: 1e9, speed: 0 })
+      plane2.flags = ['crushable']
+      const bystander = makeStatusEnemy(r, { x: 160, y: 30, hp: 1e6, speed: 0 })
+      bystander.flags = ['unshakeable']
+      r.enemies.push(plane2, bystander)
+      stepQuiet(r, 2.0)
       return bystander.hp
     }
     const wrecked = bystanderHp(true), clean = bystanderHp(false)
-    assert(wrecked < clean, `expected wreckingTail collateral on a bystander (${clean} -> ${wrecked})`)
+    assert(wrecked < clean, `expected wreckingBall collateral along the drag path (${clean} -> ${wrecked})`)
 
-    // counterSwipe: getting hurt swings for free, off the weapon timer.
-    const ctr = weaponRun('skies', 'tailSwipe')
+    // counterLash: getting hurt lashes for free, off the weapon timer.
+    const ctr = weaponRun('skies', 'tailLash')
     ctr.player.hp = 500; ctr.player.maxHP = 500; ctr.player.invuln = 0
-    ctr.weaponMods.tailSwipe.counterSwipe = 1
-    ctr.weaponTimers.tailSwipe = 1e6 // park the timer: any swipe now can only be the counter
-    const hitMe = makeStatusEnemy(ctr, { x: 90, y: 0, hp: 1e6, speed: 0 })
+    ctr.weaponMods.tailLash.counterLash = 1
+    ctr.weaponTimers.tailLash = 1e6 // park the timer: any lash now can only be the counter
+    const hitMe = makeStatusEnemy(ctr, { x: 200, y: 0, hp: 1e6, speed: 0 })
     hitMe.flags = []
     ctr.enemies.push(hitMe)
     ctr.bombs.push({ x: 0, y: 0, radius: 60, fuse: 0.01, duration: 0.01, dmg: 5 }) // hurt the player
     stepQuiet(ctr, 0.1)
-    assert(ctr.events.some((ev) => ev.type === 'tail') || hitMe.hp < 1e6, 'expected counterSwipe to swing when the player is hurt')
-    console.log(`PASS run AA.g (tailSwipe): launches, wreckingTail collateral (${clean} -> ${wrecked}), counterSwipe on being hit`)
+    assert(ctr.events.some((ev) => ev.type === 'tail') || hitMe.hp < 1e6, 'expected counterLash to lash when the player is hurt')
+    console.log(`PASS run AA.g (tailLash): drags aircraft only, tanks never move, aims farthest, wreckingBall (${clean} -> ${wrecked}), counterLash`)
+  }
+
+  // (g2) atomicBreath (v7.23): charges, then FORKS from body to body, rebuilding the chain every
+  // tick. Asserts the effects, never that a field moved — a count of live arcs would pass with the
+  // damage deleted.
+  {
+    // A line of enemies 120px apart: the root is nearest, then each fork reaches the next.
+    const chainRun = (jumps, n = 6) => {
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]   // L5: jumps 5, arcRange 200
+      const foes = []
+      for (let i = 0; i < n; i++) {
+        const e = makeStatusEnemy(r, { x: 120 * (i + 1), y: 0, hp: 1e9, speed: 0 })
+        e.flags = []
+        foes.push(e)
+      }
+      r.enemies.push(...foes)
+      if (jumps != null) r.weapons[0].level = jumps
+      return { r, foes }
+    }
+
+    // The charge is DEAD TIME: nothing takes damage during BREATH_CHARGE_T.
+    {
+      const { r, foes } = chainRun(null, 3)
+      r.weaponTimers.atomicBreath = 0.0001   // fire almost immediately
+      stepQuiet(r, 0.0001 + BREATH_CHARGE_T * 0.6)
+      assert(foes.every((e) => e.hp === 1e9),
+        `an enemy took damage during the breath's charge — the wind-up must be a real telegraph, not decoration`)
+    }
+
+    // It forks: with 6 enemies chained inside arcRange, more than one takes damage, and the reach
+    // stops at jumps + 1 bodies.
+    {
+      const { r, foes } = chainRun(null, 6)
+      stepQuiet(r, 8)
+      const touched = foes.filter((e) => e.hp < 1e9).length
+      assert(touched > 1, `the breath hit ${touched} of 6 chained enemies — it is not forking at all`)
+      // Damage DECAYS along the chain: the root must take strictly more than the last body reached.
+      const reached = foes.filter((e) => e.hp < 1e9)
+      const first = 1e9 - reached[0].hp, last = 1e9 - reached[reached.length - 1].hp
+      assert(first > last, `the fork dealt ${first.toFixed(0)} at the root and ${last.toFixed(0)} at the tail — damage is not decaying per jump`)
+    }
+
+    // Out of arcRange is out of the fork: a body parked past the gap takes nothing.
+    {
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      const near = makeStatusEnemy(r, { x: 100, y: 0, hp: 1e9, speed: 0 })
+      const island = makeStatusEnemy(r, { x: 900, y: 0, hp: 1e9, speed: 0 })  // >> arcRange 200 from anything
+      near.flags = []; island.flags = []
+      r.enemies.push(near, island)
+      stepQuiet(r, 8)
+      assert(near.hp < 1e9, 'the breath never connected at all — this fixture proves nothing')
+      assert.strictEqual(island.hp, 1e9, 'a body far beyond arcRange took fork damage — the fork range gate is not holding')
+    }
+    console.log('PASS run AA.g2 (atomicBreath): charge is dead time, forks along a chain, damage decays per jump, arcRange gates')
   }
 
   // (h) debrisToss: chunks arc onto foes (run.lobs, t counting UP to flight) and burst ONCE on
@@ -6768,7 +6851,7 @@ function testV54Weapons() {
       ],
       skies: [
         ['roar', (r) => { r.weaponMods.roar.bellow = 0.30; r.weaponMods.roar.wideRoar = 0.30 }],
-        ['tailSwipe', (r) => { r.weaponMods.tailSwipe.heavyTail = 0.30; r.weaponMods.tailSwipe.longTail = 0.30 }],
+        ['tailLash', (r) => { r.weaponMods.tailLash.heavyTail = 0.30; r.weaponMods.tailLash.longTail = 0.30 }],
         ['debrisToss', (r) => { r.weaponMods.debrisToss.heavyDebris = 0.30; r.weaponMods.debrisToss.bigImpact = 0.30 }],
       ],
       beyond: [
@@ -11106,8 +11189,11 @@ function testPlaytestSweepAndBlades() {
   }
   console.log('PASS run PT.c (wide arc): the mod does exactly what it claims — the tested wedge widens 30% and ~30% more of a ring is hit')
 
-  // -- PT.d: the four sector weapons stopped naming a thing the player cannot see ------------
-  const sectorMods = [['flagella', 'wideArc'], ['clawRake', 'wideRake'], ['roar', 'wideRoar'], ['tailSwipe', 'broadSweep']]
+  // -- PT.d: the sector weapons stopped naming a thing the player cannot see ------------------
+  // v7.23: THREE, not four. tailLash's `broadSweep` was the fourth entry; the Tail Lash is a thin
+  // line now, so it has no width card to mis-name — and with Tail Swipe gone these three are the
+  // whole sector family, which is the point of the rework (skies carried two of them).
+  const sectorMods = [['flagella', 'wideArc'], ['clawRake', 'wideRake'], ['roar', 'wideRoar']]
   for (const [weaponId, modId] of sectorMods) {
     const desc = WEAPON_MODS[weaponId][modId].desc
     assert.ok(!/\barc\b/i.test(desc), `${modId} must not sell itself as an "arc" — that is design vocabulary, not something on screen (got "${desc}")`)
@@ -11327,7 +11413,7 @@ function testSwitchMods() {
   // audit: if someone adds a `(mods?.x ?? 0) > 0` read, it belongs here or it will print "+4".
   const SWITCHES = [
     ['flagella', 'cyclone'], ['bloom', 'sporeburst'], ['stinger', 'venomTips'], ['stinger', 'hive'],
-    ['lure', 'stickyScent'], ['clawRake', 'doubleSlash'], ['roar', 'resonance'], ['tailSwipe', 'counterSwipe'],
+    ['lure', 'stickyScent'], ['clawRake', 'doubleSlash'], ['roar', 'resonance'], ['tailLash', 'counterLash'],
   ]
   for (const [weapon, mod] of SWITCHES) {
     const cfg = WEAPON_MODS[weapon][mod]
