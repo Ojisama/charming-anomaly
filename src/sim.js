@@ -38,7 +38,7 @@ import {
   // a weight table and lets pickWeighted renormalise the survivors — it never redirects a roll.
   RARITY_ORDER, RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT, REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
-  ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
+  ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, ANOMALY_REROLL_MUL,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
   // v7.2 anomaly slate. Every number these cards use lives in config.js (the standing rule); the
   // trigger sites below read run.anomalies.<id> and reach for the constant, never a literal.
@@ -7046,9 +7046,9 @@ export function anomalyWeightFor(run) {
   return Math.min(ANOMALY_PITY_CAP, ANOMALY_BASE_WEIGHT + ANOMALY_PITY_PER_SCREEN * dryScreens)
 }
 
-// The anomaly tier's roll: ONCE PER SCREEN (see buildLevelUpChoices, which memoises the outcome
-// on run._screenAnomaly so a reroll cannot draw again), against the ordinary table's TOTAL rather
-// than as an entry inside RARITY_WEIGHTS. Rolling against the total is what makes it a parallel
+// The anomaly tier's roll: ONCE PER DEAL — including every paid re-deal, at ANOMALY_REROLL_MUL of
+// the weight (v7.20; it used to be memoised per screen, see that constant) — against the ordinary
+// table's TOTAL rather than as an entry inside RARITY_WEIGHTS. Rolling against the total is what makes it a parallel
 // tier: its share reads directly as weight/(total + weight), it never perturbs the rarity ladder,
 // and a failed roll simply leaves the screen as rolled.
 function rollAnomalyCard(run) {
@@ -7057,19 +7057,23 @@ function rollAnomalyCard(run) {
   // RARITY_WEIGHTS, UNDECAYED — never the reroll-decayed table rollCard builds. Summing the
   // decayed one would shrink the denominator the tier competes against every time the player paid
   // for a reroll: 8.6% -> 11.6% of screens at REROLL_RARITY_CAP, +35% relative, i.e. coins buying
-  // the rarest tier through the back door after v6.7.9 closed the front one (spec B6). Run PB4
-  // pins this exactly rather than statistically, because the per-screen memo below settles the
-  // tier at reroll 0 and would hide the leak from any sampled measurement.
+  // the rarest tier through the back door after v6.7.9 closed the front one (spec B6). Still
+  // load-bearing under v7.20, and more so: the tier is rolled on every re-deal now, so a decayed
+  // denominator would compound across rerolls instead of being settled once by the old memo.
   const ordinaryTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
-  const anomalyWeight = anomalyWeightFor(run)
+  // x ANOMALY_REROLL_MUL on any deal the player PAID for (v7.20). The tier is an ordinary card now —
+  // a reroll can find it and can lose it — and this is the whole of what stops coins farming it.
+  const paid = (run._screenRerolls ?? 0) > 0
+  const anomalyWeight = anomalyWeightFor(run) * (paid ? ANOMALY_REROLL_MUL : 1)
   if (Math.random() * (ordinaryTotal + anomalyWeight) >= anomalyWeight) return null
   // RESET WHEN THE TIER IS OFFERED — the credit buys the screen carrying the card, not the card
   // being kept. Resetting on the PICK instead would put the tier back on screen every ~5 level-ups
   // until the player accepted it, which turns declining one of the slate's COST cards into a nag
-  // rather than a decision. Declining therefore does cost the credit, and it costs it ONCE: the
-  // screen's outcome is memoised, so a reroll neither re-draws the tier nor throws the card away
-  // (v6.7.9 — before it, rerolling past an unwanted anomaly spent the whole bank and handed back
-  // a screen at base weight, F5's second clause).
+  // rather than a decision. Declining costs the credit, and costs it once per screen for free (see
+  // the reset below). NOTE the consequence of v7.20, which is real and deliberate: a re-deal can
+  // now lose a Rupture that was already offered, and the credit stays spent — you had your offer.
+  // That is F5's second clause arriving by the front door instead of the back, and it is the price
+  // of the tier being an ordinary card.
   // The other half of that contract lives downstream: the NEW_WEAPON_MIN_RATE swap is guarded on
   // !placedAnomaly precisely so a reset can never be followed by the card being overwritten (F4).
   // v7.5: the assignment moved DOWN to the return, so that a card which bails after this point
@@ -7097,6 +7101,10 @@ function rollAnomalyCard(run) {
   // OWN field, not the `tag`: tag is a nowrap pill sized for "Lv 3"/"New!", and a sentence in it
   // overflows the card (the modal is min(92vw, 390px)). ui.js renders `from` as its own wrapping
   // line under the description.
+  // Charged ONCE PER SCREEN for free, without a flag: zeroing is idempotent and nothing raises
+  // _screensSinceAnomaly again until stepLevelUp opens the next screen, so a second offer on a
+  // re-deal cannot re-spend a credit that is already at 0. (v7.20 briefly carried a
+  // _screenAnomalyPaid guard for this; it could never fire.)
   run._screensSinceAnomaly = 0
   return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
 }
@@ -7416,23 +7424,23 @@ function buildLevelUpChoices(run) {
   //   - the slot is uniform, so no shuffle is needed and no other pool's RNG stream moves.
   // An ineligible run costs zero Math.random calls (eligibleAnomalyIds is checked first), which is
   // why every seeded scenario that cannot see the tier is bit-identical.
-  // ONE DECISION PER SCREEN, not one per BUILD (v6.7.9). main.js's onReroll calls this function
+  // ONE ROLL PER DEAL (v7.20), at a halved weight when the deal was paid for. Was ONE PER SCREEN
+  // (v6.7.9). main.js's onReroll calls this function
   // again on the same screen, so a roll made here was a fresh, independent draw at the current
   // pitied weight every time the player paid: measured, a player who rerolls until the tier shows
   // took anomaly-on-screen from 20.1% to 75.5% over 5 rerolls at a saturated counter, and from
   // 6.8% to 33.9% at base pity — 133 coins against ~370 earned in a body/2 run. Coins buying the
   // tier whose entire design licence is scarcity, which spec B6 says must not happen (it guarded
-  // the WEIGHT; the mechanism was repeated draws). run._screenAnomaly holds the screen's answer:
-  // `undefined` = not asked yet, `null` = asked, no anomaly, a card = this screen's anomaly.
-  // stepLevelUp clears it when a NEW screen opens; nothing else does, so a reroll re-rolls the
-  // ordinary cards and leaves the Rupture question settled — and cannot spend the pity twice.
-  // SAMPLER HAZARD, the same one _screenRerolls carries: a test loop that reuses one run and
-  // calls this directly is rerolling ONE screen, so it must reset _screenAnomaly per iteration or
-  // it samples a single frozen draw 4000 times.
+  // the WEIGHT; the mechanism was repeated draws). What is left of
+  // that memo is ANOMALY_REROLL_MUL — the halved weight on a paid deal, which is the whole of what
+  // stops coins farming the tier. The CARD is no longer frozen: a reroll can find a Rupture and can
+  // lose one, because the owner's rule (v7.20) is that it is an ordinary card.
+  // SAMPLER HAZARD, the same one _screenRerolls carries: a test loop that reuses one run and calls
+  // this directly is re-dealing ONE screen, so it must reset _screenRerolls per iteration or every
+  // sample after the first is measured at the halved reroll weight.
   let placedAnomaly = false
   if (cards.length > 1) {
-    if (run._screenAnomaly === undefined) run._screenAnomaly = rollAnomalyCard(run)
-    const anomaly = run._screenAnomaly
+    const anomaly = rollAnomalyCard(run)
     if (anomaly) {
       cards[Math.floor(Math.random() * cards.length)] = anomaly
       placedAnomaly = true
@@ -7477,10 +7485,9 @@ function stepLevelUp(run) {
   p.xp -= p.xpNext
   p.level += 1
   p.xpNext = xpForLevel(p.level)
-  // A NEW SCREEN, so the tier's answer for the last one is discarded and asked again — this is the
-  // line that makes the memo in buildLevelUpChoices a per-SCREEN decision rather than a per-run
-  // one, and the only place it is cleared. A reroll goes through the builder, never through here.
-  run._screenAnomaly = undefined
+  // (v7.20: the per-screen anomaly memo that used to be cleared here is gone — the tier is rolled
+  // fresh on every deal, at ANOMALY_REROLL_MUL of its weight on the paid ones. The pity counter
+  // below is now the only per-screen anomaly state.)
   // Same reason, for the rarity decay: this screen has been paid for exactly once, so it is dealt
   // at the undecayed table and only the replacements the player buys step up (rerollLevelUpChoices
   // does the stepping — see _screenRerolls in state.js for why the BUILDER must not).

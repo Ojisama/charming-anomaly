@@ -269,6 +269,18 @@ export const WEAPON_UP_WEIGHT = 100
 // player-visible effect of pity is "Unstable Cores, in 75-93% of runs instead of 50-70%", not
 // variety. The 1-2/run target is a slate-shaped number; do not read the shipped column as the
 // design landing.
+// v7.20 (owner, from play): A RUPTURE IS AN ORDINARY CARD ON A REROLL. v6.7.9 memoised the tier's
+// answer for the whole screen so a reroll could neither draw it nor throw it away — which stopped
+// coins buying the rarest tier, but meant an unwanted Rupture OCCUPIED A SLOT on every re-deal.
+// Reproduced: five paid rerolls of one screen returned Overload in all five, only changing slot,
+// so on a 2-slot screen the player was paying an escalating price for half a reroll, forever.
+// The tier is now rolled fresh on every deal like everything else, at this fraction of its natural
+// weight on any deal the player PAID for. Rerolling can therefore lose a Rupture as well as find
+// one — which is the point: it is a card, not a fixture.
+// The anti-purchase rule (spec B6) is kept by the two things that actually carry it: the halved
+// weight, and PITY CHARGED AT MOST ONCE PER SCREEN (see _screenAnomalyPaid in sim.js) so a player
+// cannot spend the dry-run credit twice on one screen or burn it repeatedly by rerolling.
+export const ANOMALY_REROLL_MUL = 0.5
 export const ANOMALY_BASE_WEIGHT = 12
 // PITY (v6.7.8, Task 3). A screen that shows no anomaly adds PER_SCREEN to the next screen's
 // weight, so a dry run drifts toward the tier instead of waiting on a flat coin flip.
