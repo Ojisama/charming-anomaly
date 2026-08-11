@@ -1790,3 +1790,17 @@ body {
 .brief-rr:disabled { opacity: 0.35; cursor: default; }
 .brief-rr:active:not(:disabled) { transform: translateY(1px); }
 .rr-ico { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- no-pop: the entrance-animation kill switch (v7.10) ----
+   Every screen re-renders by rewriting its innerHTML, which rebuilds an open modal from scratch —
+   and a brand-new element REPLAYS pop-in / sheet-up. That is why every sheet in the game popped in
+   again on each tap INSIDE it. setHtml (ui.js) marks the boxes that were already on screen before
+   the rewrite; this kills the entrance on them and on the sheet they wrap.
+   LAST IN THE FILE ON PURPOSE: `.no-pop` and `.modal-backdrop` have identical specificity, so the
+   later rule wins — declared next to @keyframes pop-in it lost to .modal-backdrop and the backdrop
+   kept flashing while the sheet inside it sat still.
+   Anything MEANT to replay per render (.sacrifice-counter, .card--bounce, the lv-card deal) carries
+   no data-pop and never gets this class. */
+.no-pop,
+.no-pop > .bottom-sheet,
+.no-pop > .confirm-sheet { animation: none; }

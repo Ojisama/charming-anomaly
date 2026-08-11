@@ -30,7 +30,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
+  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
@@ -127,7 +127,8 @@ import {
   ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
   ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_FUSE, BOMBARDMENT_RADIUS, BOMBARDMENT_DMG,
-  ROAR_STUN, ROAR_RESONANCE_EVERY, TAIL_COLLIDE_R, TAIL_COLLIDE_FRAC, TAIL_COUNTER_CD,
+  ROAR_STUN, ROAR_RESONANCE_EVERY, LASH_COUNTER_CD,
+  LASH_PULL_T, LASH_DRAG_FRAC, LASH_DRAG_R, BREATH_CHARGE_T, BREATH_JUMP_DMG_MUL,
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
   // v5.8 kaiju redesign (skies crushing + rampage)
   STRUCTURE_KINDS, CRUSH_XP, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL, RAMPAGE_GRACE_T,
@@ -140,7 +141,7 @@ import {
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
-  FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL,
+  FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
@@ -360,7 +361,7 @@ function ipecacN(run, n) {
 // over the full circle, which is what makes this a genuine x3 of output rather than a x3 of damage
 // on one enemy: overkill eats surplus poured into something already dying and cannot touch a hit
 // that landed somewhere else. Callers de-duplicate per cast (one enemy, at most one sector) so a
-// weapon whose arc is wider than the spacing — tailSwipe is 126-169 degrees — cannot quietly become
+// weapon whose arc is wider than the spacing — tailLash is 126-169 degrees — cannot quietly become
 // the x3 damage card this one was written to replace.
 // The RADIAL equivalent of ipecacAngles, for the weapons that are already 360 degrees and so have
 // no angle left to spread across. Bands, not one thicker ring: an inner, the original, and an outer.
@@ -670,7 +671,9 @@ function stepSpawning(run, dt) {
   // v5.18: in the lane the ranks (stepFormations) are a second, concurrent spawner aimed down the
   // same narrow corridor — the ordinary stream yields so the two together read as pressure rather
   // than a wall. See LANE_SPAWN_MUL.
-  const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL : 1
+  // laneEarlyMul is the +33% opening (see LANE_EARLY_BOOST) — it also compresses the rank cadence in
+  // stepFormations, because the ranks are the majority of this chapter's early arrivals.
+  const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL * laneEarlyMul(run.time) : 1
   // CHAOS PACT (v7.2): the danger half of the cycle. Read-time, never written into run.mods —
   // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
@@ -703,7 +706,9 @@ function stepFormations(run, dt) {
   if (!CHAPTERS[run.chapter].lane) return
   run._formationT = (run._formationT ?? FORMATION_INTERVAL) - dt
   if (run._formationT > 0) return
-  run._formationT += FORMATION_INTERVAL
+  // Divided by the opening boost, so ranks arrive 33% more often at t=0 and settle back to exactly
+  // FORMATION_INTERVAL by LANE_EARLY_UNTIL. Read at fire time, so the cadence eases as the run goes.
+  run._formationT += FORMATION_INTERVAL / laneEarlyMul(run.time)
 
   // Extra rows come from the same curve that drives ordinary spawning: 1 row early, up to 3 late.
   const rows = Math.max(1, Math.min(3, Math.round(spawnRate(run.time) * run.mods.spawnMul / 3)))
@@ -1655,7 +1660,16 @@ function stepEnemyMovement(run, dt) {
       e._shellT = (e._shellT ?? interval) - dt
       // out of range: hold the timer near-ready (same shape as missileVolley's on-station gate) —
       // only tanks close enough to be a visible threat get to shell, however many exist on the map
+      // v7.22 (owner: "shooting at me from outside the screen"): the radial gate cannot express
+      // that. ARTILLERY_FIRE_RANGE 640 exceeds a portrait phone's half-diagonal (~465) outright,
+      // and the horizontal half-view is only ~195 — so a tank 400px to the side was in range and
+      // off the edge of the screen, shelling from nowhere. canCommitFrom is the SAME viewport-
+      // rectangle rule v6.6.24 gave the wasps ("if it's not displayed on the screen, it should not
+      // be able to jump on you"), which is a shell just as much as a dive: a threat may be
+      // impossible to ignore, never impossible to trace. The radius stays as the desktop backstop —
+      // on a wide screen the rectangle alone would let a tank shell from 1000px away.
       if ((p.x - e.x) ** 2 + (p.y - e.y) ** 2 > ARTILLERY_FIRE_RANGE * ARTILLERY_FIRE_RANGE ||
+          !canCommitFrom(run, e) ||
           run.bombs.length >= SHELL_MAX_LIVE) {
         e._shellT = Math.max(e._shellT, 0.3)
       } else if (e._shellT <= 0) {
@@ -2181,10 +2195,10 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
     (run._martyrBursts ??= []).push({ x: p.x, y: p.y, dmg: dmg * MARTYR_DMG_MUL * hpScale(run.time) })
   }
   // v5.4 reaction mods: taking damage (contact OR zone — every path routes through here) fires a
-  // free Quill Burst / Tail Swipe off the weapon timer, each on its own internal cooldown. No-ops
+  // free Quill Burst / Tail Lash off the weapon timer, each on its own internal cooldown. No-ops
   // unless the weapon is equipped AND the mod is picked.
   tryQuillRetaliate(run)
-  tryCounterSwipe(run)
+  tryCounterLash(run)
   if (p.hp <= 0) {
     // Revive Token (v4.5, see CONSUMABLES.revive in config.js): consume one revive instead of
     // dying — restore hp, grant a longer invuln window, and radially shove every nearby enemy
@@ -4163,7 +4177,8 @@ const WEAPON_STAT_MODS = {
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
   burstHydrant:   { pressure: ['dmg', 'pct'], longHose: ['r', 'pct'], moreStreams: ['streams', 'flat'], deepMain: ['jetDur', 'pct'] },
   roar:          { bellow: ['dmg', 'pct'], wideRoar: ['arc', 'pct'], farRoar: ['range', 'pct'] },
-  tailSwipe:     { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'], broadSweep: ['arc', 'pct'] },
+  tailLash:      { heavyTail: ['dmg', 'pct'], longTail: ['range', 'pct'] },
+  atomicBreath:  { overcharge: ['dmg', 'pct'], arcReach: ['arcRange', 'pct'], heldBreath: ['duration', 'pct'] },
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
   pulsarSweep: { wideSweep: [['width', 'length'], 'pct'], sustainSweep: ['duration', 'pct'] },
@@ -4214,7 +4229,8 @@ export function buildReadout(run) {
     const eff = effectiveWeaponStats(run, w)
     const mods = run.weaponMods[w.id] ?? {}
     const countMod = WEAPON_COUNT_MODS[w.id]
-    if (countMod && eff.count != null) eff.count += mods[countMod] ?? 0
+    const countKey = WEAPON_COUNT_KEYS[w.id] ?? 'count'
+    if (countMod && eff[countKey] != null) eff[countKey] += mods[countMod] ?? 0
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
@@ -4223,7 +4239,16 @@ export function buildReadout(run) {
     // then emits dmg, count, r, jetDur + every = exactly 5. `streams` is deliberately NOT here — a
     // sixth row would push `every` (the cadence) off, and Split Nozzle already shows up in the mod
     // list below the table, the same way every behavioural mod does.
-    for (const key of ['dmg', 'count', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // v7.23: jumps/arcRange/duration added for Atomic Breath, placed so the breath emits exactly
+    // dmg, jumps, duration, arcRange + every = 5 rows. `duration` is shared: it also surfaces
+    // rainbow's Sustain and pulsarSweep's Held Sweep, which were invisible on the sheet before —
+    // both weapons sit at 4 rows today, so gaining one costs neither of them a row.
+    // v7.26: `arcRange` is deliberately NOT here. The breath now carries both `range` (how far it
+    // reaches for its first target) and `arcRange` (how far it jumps after that), which would make
+    // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
+    // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
+    // gets above.
+    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -4289,7 +4314,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'trashTornado') stepTornadoWeapon(run, stats, fireRateMul, dt)
     else if (w.id === 'burstHydrant') stepHydrantWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'roar') stepRoarWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'tailSwipe') stepTailWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'tailLash') stepLashWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'atomicBreath') stepBreathWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'debrisToss') stepDebrisWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'realityShard') stepShardWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'pulsarSweep') stepPulsarWeapon(run, w, stats, fireRateMul, dt)
@@ -4307,6 +4333,11 @@ function stepWeapons(run, dt) {
   stepClawSlashes(run, dt)
   stepZones(run, dt)
   stepLobs(run, dt)
+  // v7.23 skies. stepDrags moves bodies, so it runs BEFORE the dead sweep below and before
+  // stepArcs, whose fork is rebuilt from live positions — a hooked aircraft should already be at
+  // its new spot when the breath decides where to jump.
+  stepDrags(run, dt)
+  stepArcs(run, dt)
 
   turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
@@ -5449,7 +5480,7 @@ const EMPTY_HIT = new Set()
 // -- Flagella Whip (v5.0 pond starter) --------------------------------------------------
 // A melee arc sweep: every `rate` seconds (frenzy divides that interval, like the global fire
 // rate) it damages every enemy whose BODY falls in the sector (arc rad, range px) centered on
-// the nearest enemy — inSector, the same test clawRake/roar/tailSwipe use. It was a centre-only
+// the nearest enemy — inSector, the same test clawRake/roar/tailLash use. It was a centre-only
 // test until the swing's DRAWING was fixed to cover the sector it damages, at which point the
 // boundary disagreement it had always had became visible: a foe the fan plainly swept, whose
 // centre sat a few px past the edge, took nothing. cyclone opens every 3rd swing to a full
@@ -5736,7 +5767,31 @@ function aimAngle(run) {
   return p.facing >= 0 ? 0 : Math.PI
 }
 
-// Shared by every sector sweep (clawRake, roar, tailSwipe): is the enemy's CENTER inside
+// v7.23 Tail Lash: aim at the FARTHEST enemy within `range`, preferring `crushable` ones (aircraft,
+// the only thing the lash can actually drag — see the LASH_* block in config.js). This is the
+// inverse of aimAngle above, and it is the whole design: the skies' enemies are built to stand off
+// (jet at STRAFE_STANDOFF 420, helicopter at its missile standoff), so a weapon that reaches past
+// the crowd to the thing shooting at you is the counterplay the chapter never had. Returns null
+// when nothing is in reach — the lash simply does not swing rather than flailing at empty ground.
+function farthestAimAngle(run, range) {
+  const p = run.player
+  const rangeSq = range * range
+  let best = null, bestSq = -1, bestCrushable = false
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const dSq = dx * dx + dy * dy
+    if (dSq > rangeSq) continue
+    const crushable = !!(e.flags && e.flags.includes('crushable'))
+    // Any aircraft outranks any ground target; among equals, farthest wins.
+    if (crushable !== bestCrushable ? !crushable : dSq <= bestSq) continue
+    bestSq = dSq; best = e; bestCrushable = crushable
+  }
+  if (!best) return null
+  return Math.atan2(best.y - p.y, best.x - p.x)
+}
+
+// Shared by every sector sweep (clawRake, roar, tailLash): is the enemy's CENTER inside
 // the sector of half-angle arc/2 and radius `range` centered on `angle` at (ox, oy)? fullCircle
 // skips the angular test (cyclone/resonance's 360° swings).
 // Tests the enemy's BODY against the sector, not its centre. A centre-only test is why a foe whose
@@ -6422,73 +6477,228 @@ function shoveFromPlayer(run, e, knockback) {
   spendCC(run, e)
 }
 
-// -- Tail Swipe (v5.4 skies) ---------------------------------------------------------------
-// The sector again, WIDE and short: slow, hard, and it launches. quickTail divides the interval;
-// counterSwipe fires a free swipe when the player is hit; wreckingTail turns the launched bodies
-// into collateral where they come down.
-function stepTailWeapon(run, w, stats, fireRateMul, dt) {
-  if (run._tailCounterCd > 0) run._tailCounterCd = Math.max(0, run._tailCounterCd - dt)
-  const quick = run.weaponMods.tailSwipe?.quickTail ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireTail(run, stats))
+// -- Tail Lash (v7.23 skies, replaces the v5.4 Tail Swipe) -----------------------------------
+// A long THIN line, not a sector. It aims at the FARTHEST crushable enemy in reach — the inverse of
+// every other weapon in the game, all of which aim at the nearest — and drags it back to be crushed
+// underfoot. See WEAPONS.tailLash + the LASH_* block in config.js for why only aircraft get pulled.
+// quickTail divides the interval; counterLash fires a free lash when the player is hit; doubleHook
+// hooks more aircraft at once; wreckingBall makes a dragged body hurt what it plows through.
+function stepLashWeapon(run, w, stats, fireRateMul, dt) {
+  if (run._lashCounterCd > 0) run._lashCounterCd = Math.max(0, run._lashCounterCd - dt)
+  const quick = run.weaponMods.tailLash?.quickTail ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireLash(run, stats))
 }
 
-function fireTail(run, stats) {
+// Is `e` on the ray from the player heading `angle`, and how far along? -1 if not.
+// firstOnRay/rayHit already implement exactly this test for the beams; reuse it rather than
+// writing a second thin-line geometry that can drift out of agreement with the first.
+function lashTargets(run, angle, stats) {
   const p = run.player
-  const angle = aimAngle(run)
-  const wrecking = run.weaponMods.tailSwipe?.wreckingTail ?? 0
-  const struck = []
+  const out = []
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue
+    const along = alongRay(p.x, p.y, angle, stats.range, stats.width, e)
+    if (along >= 0) out.push({ e, along })
+  }
+  return out
+}
 
-  // IPECAC: three sweeps instead of one. tailSwipe's arc is 126-169 degrees — WIDER than the 120
-  // degree spacing — so without the `hit` set the sectors overlap and one body eats the swipe twice,
-  // which is the x3 DAMAGE card this one exists to replace. With it, the tail simply reaches all the
-  // way around.
+function fireLash(run, stats) {
+  const p = run.player
+  const wrecking = run.weaponMods.tailLash?.wreckingBall ?? 0
+  const hooks = (stats.hooks ?? 1) + (run.weaponMods.tailLash?.doubleHook ?? 0)
+
+  // Aim at the FARTHEST crushable enemy in reach, falling back to the farthest enemy of any kind
+  // when no aircraft is up (the lash still swings, it just has nothing to drag). `aimAngle`'s
+  // nearest-enemy rule is deliberately NOT used — reaching past the crowd is the whole weapon.
+  const angle = farthestAimAngle(run, stats.range)
+  if (angle == null) return
+
+  // IPECAC: three lashes instead of one, 120 degrees apart. The line is thin, so unlike the old
+  // sector there is no overlap to dedupe — but a body CAN sit on two rays at once near the player,
+  // so `hit` still guards against one enemy eating the same cast twice.
   const hit = new Set()
   for (const swing of ipecacAngles(run, angle)) {
-    for (const e of run.enemies) {
+    const onLine = lashTargets(run, swing, stats)
+    for (const { e } of onLine) {
       if (e._dead || hit.has(e)) continue
-      if (!inSector(p.x, p.y, swing, stats.range, stats.arc, e, false)) continue
       hit.add(e)
-      const dealt = applyDamage(run, e, stats.dmg)
-      if (e._dead) continue
-      shoveFromPlayer(run, e, stats.knockback)
-      struck.push({ e, dealt })
+      applyDamage(run, e, stats.dmg)
     }
+    // Hook the farthest crushable bodies IN REACH — deliberately not "on the line". The line is
+    // what the tail SWEEPS THROUGH (it damages that); the hooks are what it comes back with, and
+    // requiring all of them to sit on one thin ray made `hooks` a stat that read 3 and delivered 1
+    // in almost every real cast (probe frame: hooks 3 at L5, one tether). A card whose number the
+    // player cannot see happening is the exact defect this whole rework exists to remove.
+    // A hooked body dies on ARRIVAL through stepEnemies' crushable branch — this never kills it.
+    const catchable = run.enemies
+      .filter((e) => !e._dead && !isAlly(e) && e.flags && e.flags.includes('crushable') &&
+                     (e.x - p.x) ** 2 + (e.y - p.y) ** 2 <= stats.range * stats.range &&
+                     !run.drags.some((d) => d.id === e.id))
+      .sort((a, b) => ((b.x - p.x) ** 2 + (b.y - p.y) ** 2) - ((a.x - p.x) ** 2 + (a.y - p.y) ** 2))
+      .slice(0, hooks)
+      .map((e) => ({ e }))
+    for (const { e } of catchable) {
+      run.drags.push({ id: e.id, t: 0, dur: LASH_PULL_T, hitIds: new Set([e.id]),
+                       dmg: wrecking > 0 ? Math.round(stats.dmg * LASH_DRAG_FRAC * wrecking) : 0 })
+    }
+    run.events.push({ type: 'tail', x: p.x, y: p.y, angle: swing, range: stats.range,
+                      hooked: catchable.length })
   }
+}
 
-  // wreckingTail: resolved in a second pass, AFTER every knockback of this swipe is applied, so a
-  // launched body's collateral lands where it's actually headed. "Where it ends up" is derived from
-  // the knockback we just gave it: e.kb decays exponentially at KB_DECAY_RATE, so its remaining
-  // travel integrates to kb/KB_DECAY_RATE. Collateral never re-triggers collateral.
-  if (wrecking > 0) {
-    for (const { e, dealt } of struck) {
-      const lx = e.x + e.kb.x / KB_DECAY_RATE
-      const ly = e.y + e.kb.y / KB_DECAY_RATE
-      const dmg = Math.round(dealt * TAIL_COLLIDE_FRAC * wrecking)
-      if (dmg <= 0) continue
+// Reels every hooked aircraft toward the player. wreckingBall makes the travelling body damage what
+// it passes (once per victim per drag — hitIds), which is the visible version of the old
+// wreckingTail: a 340-460px journey you watch, not a 37px nudge into an invisible 60px disc.
+function stepDrags(run, dt) {
+  if (run.drags.length === 0) return
+  const p = run.player
+  for (const d of run.drags) {
+    const e = run.enemies.find((x) => x.id === d.id)
+    if (!e || e._dead) { d.t = d.dur; continue }
+    d.t += dt
+    const k = Math.min(1, dt / Math.max(1e-6, d.dur - (d.t - dt)))  // fraction of the REMAINING gap
+    e.x += (p.x - e.x) * k
+    e.y += (p.y - e.y) * k
+    e.kb.x = 0; e.kb.y = 0    // the reel owns this body's motion; a leftover shove would fight it
+    if (d.dmg > 0) {
       for (const other of run.enemies) {
-        if (other._dead || other.id === e.id) continue
-        const dx = other.x - lx, dy = other.y - ly
-        if (dx * dx + dy * dy > TAIL_COLLIDE_R * TAIL_COLLIDE_R) continue
-        dealDamage(run, other, dmg, false)
+        if (other._dead || d.hitIds.has(other.id) || isAlly(other)) continue
+        const dx = other.x - e.x, dy = other.y - e.y
+        if (dx * dx + dy * dy > LASH_DRAG_R * LASH_DRAG_R) continue
+        d.hitIds.add(other.id)
+        dealDamage(run, other, d.dmg, false)
       }
     }
   }
-  // One event PER SWEEP. The damage loop above already runs three sectors under IPECAC; emitting a
-  // single event here would apply three swipes and draw one, which is precisely the bug v5.6.16
-  // shipped ("roar and tail swipe are visible — their events were silently dropped") in reverse.
-  for (const swing of ipecacAngles(run, angle)) {
-    run.events.push({ type: 'tail', x: p.x, y: p.y, angle: swing, range: stats.range, arc: stats.arc })
-  }
+  run.drags = run.drags.filter((d) => d.t < d.dur)
 }
 
-// counterSwipe: getting hurt swings the tail for free, at most every TAIL_COUNTER_CD (cf. retaliate).
-function tryCounterSwipe(run) {
-  const bonus = run.weaponMods.tailSwipe?.counterSwipe ?? 0
-  if (bonus <= 0 || (run._tailCounterCd ?? 0) > 0) return
-  const w = run.weapons.find((x) => x.id === 'tailSwipe')
+// counterLash: getting hurt lashes for free, at most every LASH_COUNTER_CD (cf. retaliate).
+function tryCounterLash(run) {
+  const bonus = run.weaponMods.tailLash?.counterLash ?? 0
+  if (bonus <= 0 || (run._lashCounterCd ?? 0) > 0) return
+  const w = run.weapons.find((x) => x.id === 'tailLash')
   if (!w) return
-  run._tailCounterCd = TAIL_COUNTER_CD
-  fireTail(run, effectiveWeaponStats(run, w))
+  run._lashCounterCd = LASH_COUNTER_CD
+  fireLash(run, effectiveWeaponStats(run, w))
+}
+
+// -- Atomic Breath (v7.23 skies) -------------------------------------------------------------
+// Charges, then burns while FORKING from body to body. The fork is REBUILT on every damage tick
+// (buildFork), so dead branches drop out and fresh targets snap in mid-burn — that is what makes it
+// read as lightning rather than as a ray, and it is also the mechanic.
+function stepBreathWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.atomicBreath?.quickBreath ?? 0
+  // v7.25 (owner: "it should charge even if no enemies around ... then start charging again as soon
+  // as it finished firing"). The breath is a CYCLE, not a cadence: wind up, discharge, wind up
+  // again, with no dead air between. `interval` is set to charge + duration in config so the timer
+  // comes ready exactly as the previous breath expires.
+  //
+  // Charging never depends on there being a target — fireBreath does not look at run.enemies at all,
+  // so the plates light on schedule in an empty street and the discharge simply finds whatever has
+  // arrived by the time it fires.
+  //
+  // The live-arc guard is what makes this safe rather than merely fast: quickBreath and the global
+  // fire-rate divide `interval`, so without it a fast build would start a second breath ON TOP of
+  // one still burning. Two overlapping forks are double damage from one weapon, and they draw as
+  // one thicker fork — the "same hit, bigger" shape, invisible in a screenshot.
+  if (run.arcs.length > 0) { run.weaponTimers[w.id] = 0; return }
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireBreath(run, stats))
+}
+
+function fireBreath(run, stats) {
+  const p = run.player
+  // IPECAC has no angle to fan here — a fork is not a ray. The honest analogue is N forks that ROOT
+  // ON DIFFERENT BODIES (rootRank skips the k nearest when picking a root), so the extra output
+  // covers new ground instead of stacking three identical chains on the same chain of enemies —
+  // which would be the x3 DAMAGE card this anomaly was rewritten to escape.
+  // ONE local for the count, used as both the loop bound and the rank spread: writing the count
+  // twice is exactly how v7.6.0 shipped fifteen phages in five positions.
+  const casts = ipecacAngles(run, 0).length
+  for (let k = 0; k < casts; k++) {
+    // Snapshot the mod-derived numbers at cast, the same rule fireBeam applies to Strobe and Beam
+    // Prism: a mod picked mid-burn must not retune a breath that is already in the air.
+    run.arcs.push({
+      life: stats.duration + BREATH_CHARGE_T, duration: stats.duration, charge: BREATH_CHARGE_T,
+      tick: stats.tick, acc: 0, dmg: stats.dmg,
+      jumps: stats.jumps + (run.weaponMods.atomicBreath?.forked ?? 0),
+      arcRange: stats.arcRange, castRange: stats.range, rootRank: k,
+      falloutBonus: run.weaponMods.atomicBreath?.fallout ?? 0,
+      // x/y track the fork's ROOT body (not the player), so two forks anchored on different enemies
+      // are distinguishable — by render, and by anything asking where this arc actually is.
+      x: p.x, y: p.y, nodes: [],
+    })
+  }
+  run.events.push({ type: 'breath', x: p.x, y: p.y })
+}
+
+// The fork, rebuilt from scratch: root at the NEAREST enemy (owner's spec), then repeatedly jump to
+// the nearest not-yet-taken enemy within arcRange of the last one. Returns the chain of enemies.
+function buildFork(run, a) {
+  const p = run.player
+  const chain = []
+  const taken = new Set()
+  let fx = p.x, fy = p.y
+  // The root reaches as far as one jump does, so a breath cast with nothing adjacent still lights.
+  for (let i = 0; i <= a.jumps; i++) {
+    // The ROOT reaches the closest enemy within the weapon's own `range`; arcRange governs how far
+    // the fork JUMPS between bodies and nothing else. v7.23 used arcRange for both, so an enemy at
+    // 250px was invisible and the breath discharged into empty ground; v7.25 fixed that by opening
+    // the root to the whole viewport, which was too much initial reach (owner). a.castRange is the
+    // middle: comfortably past arcRange, well under the screen.
+    const reach = i === 0 ? a.castRange : a.arcRange
+    // The ROOT skips the `rootRank` nearest, so IPECAC's extra forks anchor on different bodies.
+    // Clamped by availability: a crowd smaller than the rank falls back to the nearest, not nothing.
+    const skip = i === 0 ? (a.rootRank ?? 0) : 0
+    const ranked = []
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e) || taken.has(e.id)) continue
+      const dx = e.x - fx, dy = e.y - fy
+      const dSq = dx * dx + dy * dy
+      if (dSq <= reach * reach) ranked.push({ e, dSq })
+    }
+    if (ranked.length === 0) break
+    ranked.sort((m, n) => m.dSq - n.dSq)
+    const best = ranked[Math.min(skip, ranked.length - 1)].e
+    taken.add(best.id)
+    chain.push(best)
+    fx = best.x; fy = best.y
+  }
+  return chain
+}
+
+function stepArcs(run, dt) {
+  const p = run.player
+  for (const a of run.arcs) {
+    a.life -= dt
+    if (a.charge > 0) {
+      a.charge = Math.max(0, a.charge - dt)
+      a.nodes = []          // nothing is lit while it winds up — the charge is dead time on purpose
+      continue
+    }
+    if (a.life <= 0) continue
+    a.acc += dt
+    let ticked = false
+    while (a.acc >= a.tick) {
+      a.acc -= a.tick
+      ticked = true
+      const chain = buildFork(run, a)
+      a.nodes = [{ x: p.x, y: p.y }, ...chain.map((e) => ({ x: e.x, y: e.y }))]
+      if (chain.length > 0) { a.x = chain[0].x; a.y = chain[0].y }
+      let dmg = a.dmg
+      for (const e of chain) {
+        const dealt = applyDamage(run, e, dmg)
+        if (a.falloutBonus > 0 && dealt > 0 && !e._dead) applyIgnite(e, a.falloutBonus, dealt)
+        dmg *= BREATH_JUMP_DMG_MUL
+      }
+      if (chain.length > 0) run.events.push({ type: 'arc', nodes: a.nodes })
+    }
+    // Between ticks the fork still has to FOLLOW the bodies it is attached to, or a 0.12s-tick beam
+    // visibly lags every moving target by up to a tick. Cheap: re-read the same nodes' positions.
+    if (!ticked && a.nodes.length > 1) a.nodes[0] = { x: p.x, y: p.y }
+  }
+  run.arcs = run.arcs.filter((a) => a.life > 0)
 }
 
 // -- Debris Toss (v5.4 skies utility) ------------------------------------------------------

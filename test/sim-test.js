@@ -99,8 +99,11 @@ import {
   MAX_ALIVE, maxAliveFor,
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
+  LANE_SPAWN_MUL, LANE_EARLY_BOOST, LANE_EARLY_UNTIL, laneEarlyMul, FORMATION_INTERVAL, FORMATION_COLS,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
+  // v7.23 skies weapon rework (Run AA.g / AA.g2)
+  BREATH_CHARGE_T, LASH_PULL_T,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
 
@@ -1107,48 +1110,41 @@ function testAnomalySlate() {
     assert.ok(aimed < far * 2,
       `IPECAC's roar dealt ${aimed.toFixed(0)} to the nearest enemy against ${far.toFixed(0)} to the far one — the sectors are overlapping and one body is eating the x3, which is the overkill trap this card exists to avoid`)
 
-    // TAIL SWIPE is the dangerous row: its arc (126-169 degrees) is WIDER than the 120 degree
-    // spacing, so without de-duplication the three sweeps overlap and it silently becomes x3 damage.
-    const tail = swing('ipecac', 'tailSwipe')
-    const tailPlain = swing(null, 'tailSwipe')
-    assert.ok(tail.filter((d) => d > 0).length === 3,
-      `IPECAC's tail swipe reached ${tail.filter((d) => d > 0).length} of 3 enemies — it should sweep all the way around`)
-    assert.ok(Math.max(...tail) < Math.max(...tailPlain) * 2,
-      `IPECAC's tail swipe dealt ${Math.max(...tail).toFixed(0)} to one enemy against ${Math.max(...tailPlain).toFixed(0)} unmodified — its arc is wider than the sector spacing, so the same body is being hit by more than one sweep`)
-
-    // THE OVERLAP CASE, which is the one that actually needs the de-duplication and which the ring
-    // above CANNOT reach: three enemies at 120 degrees sit one per sector whatever the arc, so the
-    // dedup can be deleted with every assertion above still green (it was). tailSwipe's arc is
-    // 126-169 degrees — WIDER than the 120 degree spacing — so a body parked between two sectors is
-    // inside both, and without the shared `hit` set it eats the swipe twice. That is silently the
-    // x3 DAMAGE card again, on the one weapon whose geometry allows it.
+    // v7.23: the Tail Swipe rows that used to sit here are GONE, and the reason is worth stating
+    // rather than silently deleting. They tested the one weapon whose SECTOR (126-169 degrees) was
+    // wider than IPECAC's 120 degree spacing, so its three sweeps overlapped and it silently became
+    // x3 damage on one body. Tail Swipe is now the Tail Lash, a thin LINE — and with it gone no
+    // weapon in the game has an arc exceeding 120 degrees, so that failure mode no longer exists.
+    //
+    // The hazard does not vanish, it MOVES: three rays 120 degrees apart all pass within
+    // width/2 + radius of a body sitting near the player, so a close enemy is on all three lines at
+    // once. That is the same x3-on-one-body trap in the new geometry, and it is what fireLash's
+    // shared `hit` set now guards. Tested here, because the ring fixture above cannot reach it —
+    // three enemies at 120 degrees sit one per ray however thin the ray is.
     {
-      // TWO enemies, and the geometry is the point. The weapon AIMS at the nearest, so that one is
-      // always dead-centre in sector 0 and can never be in a seam — the seam has to be created by a
-      // SECOND body. `bait` sits closest (so it takes the aim); `seam` sits 60 degrees off it,
-      // which is inside the half-arc of BOTH sector 0 and sector 120.
+      // `far` sits out at 300px and takes the aim (the lash aims at the FARTHEST, not the nearest).
+      // `close` sits 12px from the player, where all three IPECAC rays cover it at once.
       const pair = (id) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
-        r.weapons = [{ id: 'tailSwipe', level: 3 }]
+        r.weapons = [{ id: 'tailLash', level: 3 }]
         r.time = 5
-        const bait = makeStatusEnemy(r, { x: 50, y: 0, hp: 1e9, speed: 0 })
-        const a = (60 * Math.PI) / 180
-        const seam = makeStatusEnemy(r, { x: Math.cos(a) * 70, y: Math.sin(a) * 70, hp: 1e9, speed: 0 })
-        r.enemies.push(bait, seam)
-        const b0 = bait.hp, s0 = seam.hp
+        const close = makeStatusEnemy(r, { x: 0, y: 12, hp: 1e9, speed: 0 })
+        const far = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e9, speed: 0 })
+        r.enemies.push(close, far)
+        const c0 = close.hp, f0 = far.hp
         for (let i = 0; i < 600; i++) {
           stepSim(r, { x: 0, y: 0 }, dt)
-          if (b0 - bait.hp > 0 || s0 - seam.hp > 0) return { bait: b0 - bait.hp, seam: s0 - seam.hp }
+          if (c0 - close.hp > 0 || f0 - far.hp > 0) return { close: c0 - close.hp, far: f0 - far.hp }
         }
-        return { bait: 0, seam: 0 }
+        return { close: 0, far: 0 }
       }
       const plain = pair(null), sick = pair('ipecac')
-      assert.ok(plain.bait > 0, 'the tailSwipe overlap fixture never connected — it is not reaching its subject')
-      assert.ok(sick.seam > 0,
-        'the seam enemy took nothing under IPECAC — the extra sectors are not sweeping, so this fixture is not testing what it claims')
-      // One swipe's worth is what the aimed enemy takes. The seam enemy must not take two.
-      assert.ok(sick.seam <= plain.bait * 1.5,
-        `an enemy in the seam between two IPECAC sectors took ${sick.seam.toFixed(0)} against ${plain.bait.toFixed(0)} for a single swipe — the sweeps overlap and one body is eating the x3, which is the overkill trap the whole card was rewritten to escape`)
+      assert.ok(plain.far > 0, 'the tailLash fixture never connected — it is not reaching its subject')
+      assert.ok(sick.close > 0,
+        'the close enemy took nothing under IPECAC — the extra rays are not lashing, so this fixture is not testing what it claims')
+      // One lash's worth is what the aimed enemy takes. The body under all three rays must not take three.
+      assert.ok(sick.close <= plain.far * 1.5,
+        `an enemy sitting on all three IPECAC rays took ${sick.close.toFixed(0)} against ${plain.far.toFixed(0)} for a single lash — the rays overlap and one body is eating the x3, which is the overkill trap the whole card was rewritten to escape`)
     }
 
     // ...and roar's own de-duplication, which the ring above equally cannot reach: roar's cone is
@@ -1188,7 +1184,11 @@ function testAnomalySlate() {
     // rewrite exists to escape. Weapons that spawn no entity at all (the melee sectors) are counted
     // by their FX events instead — three sweeps push three events.
     {
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas']
+      // v7.23: 'arcs' added for Atomic Breath. Its entries carry x/y = the fork's ROOT body, which
+      // is what makes IPECAC's three forks distinguishable here — they anchor on three different
+      // enemies, so the shape key below separates them. (This list is a set of QUOTED STRINGS, the
+      // exact thing an identifier rename sweep cannot see — see CLAUDE.md's rename rule.)
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -4572,7 +4572,7 @@ function testPondWeapons() {
   }
 
   // (a1) the sector test is against the enemy's BODY, not its centre — inSector, the same test
-  // clawRake/roar/tailSwipe already used. A foe the fan plainly sweeps, whose CENTRE sits a few px
+  // clawRake/roar/tailLash already used. A foe the fan plainly sweeps, whose CENTRE sits a few px
   // past `range`, used to take nothing; that disagreement between the drawing and the damage is the
   // whole bug this weapon was reported for. Asserted as an EFFECT (hp fell) on a foe placed inside
   // reach but outside a centre test, with a control past reach that must still take nothing — so
@@ -5317,7 +5317,10 @@ function testV54Flags() {
       `expected the shell led by vx*${ARTILLERY_LEAD} (=${(run.player.vx * ARTILLERY_LEAD).toFixed(1)}), got ${lead.toFixed(1)}`)
     assert(lead > 0, 'expected the shell aimed AHEAD of a player moving +x')
 
-    const el = flagRun('skies', ['artillery'], { at: 600, speed: 20, elite: true })
+    // v7.22: `at` was 600 — inside ARTILLERY_FIRE_RANGE but OUTSIDE the 480px half-view, which the
+    // new visibility gate (below) correctly refuses. This case is about the elite's wider RADIUS,
+    // so park it where it can see the player and the radius is the only thing under test.
+    const el = flagRun('skies', ['artillery'], { at: 300, speed: 20, elite: true })
     el.run._bombardAcc = 1e6 // park the bombardment signature: this is about the elite's own shells
     for (let i = 0; i < Math.round(2.0 / dt); i++) stepSim(el.run, { x: 0, y: 0 }, dt)
     assert(el.run.bombs.some((b) => b.radius === ARTILLERY_ELITE_RADIUS), 'expected an AA elite to shell with the wider elite radius')
@@ -5327,6 +5330,30 @@ function testV54Flags() {
     far.run._bombardAcc = 1e6
     for (let i = 0; i < Math.round((ARTILLERY_INTERVAL + 1.0) / dt); i++) stepSim(far.run, { x: 0, y: 0 }, dt)
     assert.strictEqual(far.run.bombs.length, 0, `expected an out-of-range tank to hold fire, got ${far.run.bombs.length} shells`)
+
+    // v7.22 VISIBILITY gate (owner: "tanks are shooting at me from outside the screen"). The radial
+    // gate cannot express the phone: ARTILLERY_FIRE_RANGE is 640 and a portrait phone's horizontal
+    // half-view is ~195, so a tank 400px to the SIDE was in range and off the edge of the screen.
+    // Same viewport-rectangle rule v6.6.24 gave the wasps, applied to shells. Both halves matter —
+    // an over-tight gate that silenced tanks everywhere would pass the first assert alone.
+    const PHONE = { viewW: 195, viewH: 375, viewRadius: Math.hypot(390, 750) / 2 }
+    const shellsFrom = (dx, dy) => {
+      const { run: r } = flagRun('skies', ['artillery'], { at: 0, speed: 0 })
+      Object.assign(r, PHONE)
+      r._bombardAcc = 1e6
+      r.enemies[0].x = dx; r.enemies[0].y = dy
+      for (let i = 0; i < Math.round((ARTILLERY_INTERVAL + 1.0) / dt); i++) {
+        r.enemies[0].x = dx; r.enemies[0].y = dy // speed 0 still drifts on separation; re-pin it
+        stepSim(r, { x: 0, y: 0 }, dt)
+      }
+      return r.bombs.length
+    }
+    const sideDist = Math.hypot(400, 0)
+    assert(sideDist < ARTILLERY_FIRE_RANGE, `this case is only meaningful inside the radial gate (${sideDist} vs ${ARTILLERY_FIRE_RANGE})`)
+    assert.strictEqual(shellsFrom(400, 0), 0,
+      `a tank 400px to the side of a ${PHONE.viewW * 2}px-wide phone screen is NOT on screen and must hold fire, got ${shellsFrom(400, 0)} shells`)
+    const onScreen = shellsFrom(150, 0)
+    assert(onScreen > 0, 'a tank 150px away is plainly on screen and must still shell — the gate must not silence artillery outright')
 
     // v5.7.5 live cap: with SHELL_MAX_LIVE telegraphs already up, neither artillery nor the
     // bombardment signature adds another (the barrage backstop).
@@ -6470,13 +6497,14 @@ function testV54Weapons() {
     console.log(`PASS run AA.f (roar): sweeps + shoves, stagger stuns, resonance reaches behind (${withRes.toFixed(0)} vs ${without.toFixed(0)})`)
   }
 
-  // (g) tailSwipe: a wide sector that launches; wreckingTail turns the launched body into
-  // collateral where it lands; counterSwipe swings for free when the player is hit.
+  // (g) tailLash (v7.23, replaces Tail Swipe): a long thin line at the FARTHEST target, which drags
+  // aircraft down to be crushed and leaves everything else exactly where it stands. wreckingBall
+  // makes the dragged body hurt what it passes; counterLash lashes for free when the player is hit.
   {
-    const run = weaponRun('skies', 'tailSwipe')
-    const foe = makeStatusEnemy(run, { x: 80, y: 0, hp: 1e6, speed: 0 })
-    foe.flags = []
-    run.enemies.push(foe)
+    const run = weaponRun('skies', 'tailLash')
+    const plane = makeStatusEnemy(run, { x: 300, y: 0, hp: 1e6, speed: 0 })
+    plane.flags = ['crushable']
+    run.enemies.push(plane)
     let sawTail = false
     for (let i = 0; i < Math.round(2 / dt); i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
@@ -6484,38 +6512,198 @@ function testV54Weapons() {
       if (run.events.some((ev) => ev.type === 'tail')) sawTail = true
     }
     assert(sawTail, 'expected a tail event')
-    assert(foe.hp < 1e6, 'expected the swipe to damage what it hits')
-    assert(foe.x > 80, `expected the swipe to launch the foe, x=${foe.x.toFixed(1)}`)
+    assert(plane.hp < 1e6, 'expected the lash to damage what the line crosses')
+    assert(plane.x < 300, `expected the lash to DRAG the aircraft inward, x=${plane.x.toFixed(1)}`)
 
-    // wreckingTail: a bystander near where the launched foe ends up takes collateral.
+    // THE OWNER'S CONSTRAINT, and the assertion that must never regress: "it should not pull tanks
+    // since they deal dmg". Ground armour takes the line damage and does not move one pixel.
+    // Both halves are asserted — a gate that silenced the weapon entirely would pass "did not move".
+    {
+      const r = weaponRun('skies', 'tailLash')
+      const tank = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e6, speed: 0 })
+      tank.flags = ['unshakeable']   // a tank column: NOT crushable
+      r.enemies.push(tank)
+      const x0 = tank.x, y0 = tank.y
+      stepQuiet(r, 2.0)
+      assert(tank.hp < 1e6, 'expected the lash to still DAMAGE a tank it crosses — it just must not move it')
+      assert.strictEqual(tank.x, x0, `a tank was dragged to x=${tank.x.toFixed(1)} from ${x0} — it deals contact damage, so pulling it to the player is self-harm`)
+      assert.strictEqual(tank.y, y0, `a tank was dragged off its line to y=${tank.y.toFixed(1)}`)
+    }
+
+    // Aims at the FARTHEST, not the nearest — the inverse of every other weapon, and the whole
+    // point of the rework (the chapter's enemies are built to stand off).
+    {
+      const r = weaponRun('skies', 'tailLash')
+      const near = makeStatusEnemy(r, { x: 0, y: 60, hp: 1e6, speed: 0 })
+      const far = makeStatusEnemy(r, { x: 320, y: 0, hp: 1e6, speed: 0 })
+      near.flags = ['crushable']; far.flags = ['crushable']
+      r.enemies.push(near, far)
+      stepQuiet(r, 2.0)
+      assert(far.x < 320, `expected the FARTHEST aircraft hooked, but it sat still at x=${far.x.toFixed(1)}`)
+    }
+
+    // wreckingBall: a bystander standing along the drag path takes collateral it otherwise would not.
     function bystanderHp(wrecking) {
-      const r = weaponRun('skies', 'tailSwipe')
-      if (wrecking) r.weaponMods.tailSwipe.wreckingTail = 0.40
-      // struck sits just inside the swipe's reach; bystander sits just OUTSIDE it (so the swipe can
-      // never hit it directly) but within TAIL_COLLIDE_R of where the launched body comes down.
-      const struck = makeStatusEnemy(r, { x: 190, y: 0, hp: 1e9, speed: 0 })
-      struck.flags = []
-      const bystander = makeStatusEnemy(r, { x: 240, y: 0, hp: 1e6, speed: 0 })
-      bystander.flags = []
-      r.enemies.push(struck, bystander)
-      stepQuiet(r, 1.5) // one swipe
+      const r = weaponRun('skies', 'tailLash')
+      if (wrecking) r.weaponMods.tailLash.wreckingBall = 0.40
+      // The aircraft is hooked at 320px and reeled to the player; the bystander sits at y=45, off
+      // the lash line itself (so the line can never hit it) but inside LASH_DRAG_R of the path home.
+      const plane2 = makeStatusEnemy(r, { x: 320, y: 0, hp: 1e9, speed: 0 })
+      plane2.flags = ['crushable']
+      const bystander = makeStatusEnemy(r, { x: 160, y: 30, hp: 1e6, speed: 0 })
+      bystander.flags = ['unshakeable']
+      r.enemies.push(plane2, bystander)
+      stepQuiet(r, 2.0)
       return bystander.hp
     }
     const wrecked = bystanderHp(true), clean = bystanderHp(false)
-    assert(wrecked < clean, `expected wreckingTail collateral on a bystander (${clean} -> ${wrecked})`)
+    assert(wrecked < clean, `expected wreckingBall collateral along the drag path (${clean} -> ${wrecked})`)
 
-    // counterSwipe: getting hurt swings for free, off the weapon timer.
-    const ctr = weaponRun('skies', 'tailSwipe')
+    // counterLash: getting hurt lashes for free, off the weapon timer.
+    const ctr = weaponRun('skies', 'tailLash')
     ctr.player.hp = 500; ctr.player.maxHP = 500; ctr.player.invuln = 0
-    ctr.weaponMods.tailSwipe.counterSwipe = 1
-    ctr.weaponTimers.tailSwipe = 1e6 // park the timer: any swipe now can only be the counter
-    const hitMe = makeStatusEnemy(ctr, { x: 90, y: 0, hp: 1e6, speed: 0 })
+    ctr.weaponMods.tailLash.counterLash = 1
+    ctr.weaponTimers.tailLash = 1e6 // park the timer: any lash now can only be the counter
+    const hitMe = makeStatusEnemy(ctr, { x: 200, y: 0, hp: 1e6, speed: 0 })
     hitMe.flags = []
     ctr.enemies.push(hitMe)
     ctr.bombs.push({ x: 0, y: 0, radius: 60, fuse: 0.01, duration: 0.01, dmg: 5 }) // hurt the player
     stepQuiet(ctr, 0.1)
-    assert(ctr.events.some((ev) => ev.type === 'tail') || hitMe.hp < 1e6, 'expected counterSwipe to swing when the player is hurt')
-    console.log(`PASS run AA.g (tailSwipe): launches, wreckingTail collateral (${clean} -> ${wrecked}), counterSwipe on being hit`)
+    assert(ctr.events.some((ev) => ev.type === 'tail') || hitMe.hp < 1e6, 'expected counterLash to lash when the player is hurt')
+    console.log(`PASS run AA.g (tailLash): drags aircraft only, tanks never move, aims farthest, wreckingBall (${clean} -> ${wrecked}), counterLash`)
+  }
+
+  // (g2) atomicBreath (v7.23): charges, then FORKS from body to body, rebuilding the chain every
+  // tick. Asserts the effects, never that a field moved — a count of live arcs would pass with the
+  // damage deleted.
+  {
+    // A line of enemies 120px apart: the root is nearest, then each fork reaches the next.
+    const chainRun = (jumps, n = 6) => {
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]   // L5: jumps 5, arcRange 200
+      const foes = []
+      for (let i = 0; i < n; i++) {
+        const e = makeStatusEnemy(r, { x: 120 * (i + 1), y: 0, hp: 1e9, speed: 0 })
+        e.flags = []
+        foes.push(e)
+      }
+      r.enemies.push(...foes)
+      if (jumps != null) r.weapons[0].level = jumps
+      return { r, foes }
+    }
+
+    // The charge is DEAD TIME: nothing takes damage during BREATH_CHARGE_T.
+    {
+      const { r, foes } = chainRun(null, 3)
+      r.weaponTimers.atomicBreath = 0.0001   // fire almost immediately
+      stepQuiet(r, 0.0001 + BREATH_CHARGE_T * 0.6)
+      assert(foes.every((e) => e.hp === 1e9),
+        `an enemy took damage during the breath's charge — the wind-up must be a real telegraph, not decoration`)
+    }
+
+    // It forks: with 6 enemies chained inside arcRange, more than one takes damage, and the reach
+    // stops at jumps + 1 bodies.
+    {
+      const { r, foes } = chainRun(null, 6)
+      stepQuiet(r, 8)
+      const touched = foes.filter((e) => e.hp < 1e9).length
+      assert(touched > 1, `the breath hit ${touched} of 6 chained enemies — it is not forking at all`)
+      // Damage DECAYS along the chain: the root must take strictly more than the last body reached.
+      const reached = foes.filter((e) => e.hp < 1e9)
+      const first = 1e9 - reached[0].hp, last = 1e9 - reached[reached.length - 1].hp
+      assert(first > last, `the fork dealt ${first.toFixed(0)} at the root and ${last.toFixed(0)} at the tail — damage is not decaying per jump`)
+    }
+
+    // Out of arcRange is out of the fork: a body parked past the gap takes nothing.
+    {
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      const near = makeStatusEnemy(r, { x: 100, y: 0, hp: 1e9, speed: 0 })
+      const island = makeStatusEnemy(r, { x: 900, y: 0, hp: 1e9, speed: 0 })  // >> arcRange 200 from anything
+      near.flags = []; island.flags = []
+      r.enemies.push(near, island)
+      stepQuiet(r, 8)
+      assert(near.hp < 1e9, 'the breath never connected at all — this fixture proves nothing')
+      assert.strictEqual(island.hp, 1e9, 'a body far beyond arcRange took fork damage — the fork range gate is not holding')
+    }
+    // v7.25, the owner's three corrections. All three shipped wrong in v7.23 and NONE of them was
+    // guarded, which is why they reached him: every assertion above is about what happens once a
+    // fork exists, and all three faults are about whether one ever does.
+    {
+      // (1) "It should charge even if no enemies around." An EMPTY world must still wind up.
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      r.enemies.length = 0
+      r.mods.spawnMul = 0
+      // Comfortably past one full cycle (interval 1.90 at L5) — fireOnTimer starts its timer at a
+      // full interval, so a window shorter than that proves nothing either way. Generous on purpose
+      // so THIS case keeps testing "charges with no target" rather than incidentally testing the
+      // cadence; the idle-fraction case below is what owns the cadence.
+      stepQuiet(r, 5.0)
+      assert(r.arcs.length > 0, 'the breath must charge with no enemies around — it waited for a target instead')
+      assert(r.enemies.length === 0, 'the empty-world fixture spawned enemies — it is no longer testing an empty world')
+    }
+    {
+      // (2) "Discharge to closest enemy." A lone enemy well beyond arcRange (200 at L5) but inside
+      // the weapon's own `range` (340) must still be struck. This is the actual v7.23 bug: the ROOT
+      // was picked within arcRange of the player, so the breath discharged into empty ground.
+      const L5 = WEAPONS.atomicBreath.levels[4]
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      const far = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e9, speed: 0 })
+      far.flags = []
+      r.enemies.push(far)
+      assert(300 > L5.arcRange && 300 < L5.range,
+        `this case is only meaningful BETWEEN arcRange (${L5.arcRange}) and range (${L5.range}) — the fixture has drifted`)
+      stepQuiet(r, 6)
+      assert(far.hp < 1e9,
+        `a lone enemy at 300px — outside arcRange but inside the weapon's ${L5.range}px range — took nothing. arcRange governs the JUMPS between bodies, not how far the breath reaches for its FIRST target`)
+    }
+    {
+      // (3) "Start charging again as soon as it finished firing." No dead air: sample every frame
+      // over several cycles and assert the weapon is never idle for long. Asserted as an EFFECT
+      // (frames with no live breath) rather than by reading the timer, which would pass with the
+      // cycle broken. The small allowance is the single frame where one expires before the next
+      // starts.
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      const foe = makeStatusEnemy(r, { x: 120, y: 0, hp: 1e12, speed: 0 })
+      foe.flags = []
+      r.enemies.push(foe)
+      stepQuiet(r, 2) // let the first cycle settle
+      let idle = 0, frames = 0, maxLive = 0
+      for (let i = 0; i < Math.round(10 / dt); i++) {
+        stepSim(r, { x: 0, y: 0 }, dt); r.events.length = 0
+        frames++
+        if (r.arcs.length === 0) idle++
+        maxLive = Math.max(maxLive, r.arcs.length)
+      }
+      assert(idle / frames < 0.05,
+        `the breath was idle on ${(100 * idle / frames).toFixed(0)}% of frames — it must re-charge the moment it finishes firing, not wait out an interval`)
+      assert.strictEqual(maxLive, 1, `${maxLive} breaths were live at once at base rate`)
+    }
+    {
+      // ...and the guard that makes a zero-gap cycle SAFE, which needs a FAST build to expose. At
+      // base rate `interval` equals charge + duration exactly, so nothing overlaps whether the
+      // guard exists or not — deleting it passed every assertion above. quickBreath divides the
+      // interval below the cycle length, and without the guard a second breath then starts on top
+      // of one still burning: double damage from one weapon, drawn as a single thicker fork, which
+      // is precisely the "same hit, bigger" shape that is invisible in a screenshot.
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      r.weaponMods.atomicBreath = { quickBreath: 1.0 }   // interval 1.90 -> 0.95, well under the cycle
+      const foe = makeStatusEnemy(r, { x: 120, y: 0, hp: 1e12, speed: 0 })
+      foe.flags = []
+      r.enemies.push(foe)
+      let maxLive = 0
+      for (let i = 0; i < Math.round(12 / dt); i++) {
+        stepSim(r, { x: 0, y: 0 }, dt); r.events.length = 0
+        maxLive = Math.max(maxLive, r.arcs.length)
+      }
+      assert.strictEqual(maxLive, 1,
+        `${maxLive} breaths were live at once on a fast build — overlapping forks are double damage from one weapon, and they draw as one`)
+    }
+    console.log('PASS run AA.g2 (atomicBreath): charges with no enemies, reaches the closest on screen past arcRange, cycles with no dead air and never overlaps, charge is dead time, damage decays per jump')
   }
 
   // (h) debrisToss: chunks arc onto foes (run.lobs, t counting UP to flight) and burst ONCE on
@@ -6747,7 +6935,7 @@ function testV54Weapons() {
       ],
       skies: [
         ['roar', (r) => { r.weaponMods.roar.bellow = 0.30; r.weaponMods.roar.wideRoar = 0.30 }],
-        ['tailSwipe', (r) => { r.weaponMods.tailSwipe.heavyTail = 0.30; r.weaponMods.tailSwipe.longTail = 0.30 }],
+        ['tailLash', (r) => { r.weaponMods.tailLash.heavyTail = 0.30; r.weaponMods.tailLash.longTail = 0.30 }],
         ['debrisToss', (r) => { r.weaponMods.debrisToss.heavyDebris = 0.30; r.weaponMods.debrisToss.bigImpact = 0.30 }],
       ],
       beyond: [
@@ -10384,6 +10572,74 @@ function testEarlySpawnBoost() {
   console.log(`PASS run WW (v6.6.5 early spawn boost): rate ${plain(0).toFixed(2)}->${spawnRate(0).toFixed(2)}/s at t=0, seamless at t=${SPAWN_EARLY_UNTIL}, first-minute arrivals ~${plainExpected.toFixed(0)} -> ${boosted}`)
 }
 
+// ---- Run WL: The Beyond's denser opening (LANE_EARLY_BOOST) -----------------------------------
+// "33% more enemies at the start, but finish at the same rate." The lane has TWO spawners and the
+// ranks are the majority of its early arrivals, so a boost wired into only one of them delivers
+// roughly half the ask while every existing test still passes. Both halves are asserted as ARRIVAL
+// COUNTS from a real run, split by source, against a baseline integrated from the shipped constants
+// — not against eyeballed literals, so a retune of the boost moves the test with the config.
+function testLaneOpening() {
+  // (a) the taper's shape. The far end is the whole "finish at the same rate" half of the ask.
+  assert(Math.abs(laneEarlyMul(0) - (1 + LANE_EARLY_BOOST)) < 1e-9, `expected the full boost at t=0, got ${laneEarlyMul(0)}`)
+  assert(Math.abs(laneEarlyMul(LANE_EARLY_UNTIL / 2) - (1 + LANE_EARLY_BOOST / 2)) < 1e-9, 'expected half the boost at the midpoint')
+  assert.strictEqual(laneEarlyMul(LANE_EARLY_UNTIL), 1, 'expected the boost spent exactly at LANE_EARLY_UNTIL')
+  assert.strictEqual(laneEarlyMul(300), 1, 'the end of a run must be untouched — that is the constraint')
+
+  const dt = 1 / 60
+  const WINDOW = 30
+  // Weapons stripped so nothing dies and the count is pure arrivals; the player is immortal so the
+  // run cannot end early. Enemies are split by rosterId: the lane's `march` entries are the ranks
+  // (stepFormations), everything else came through ordinary ring spawning (stepSpawning).
+  const arrivals = (secs) => {
+    Math.random = mulberry32(20260811)
+    const run = createRun(makeMeta(), { chapter: 'beyond' })
+    run.weapons = []
+    run.player.hp = run.player.maxHP = 1e9
+    const seen = new Set()
+    let ring = 0, rank = 0
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+      for (const e of run.enemies) {
+        if (seen.has(e.id)) continue
+        seen.add(e.id)
+        if (e.rosterId === 'invader' || e.rosterId === 'hulk') rank++; else ring++
+      }
+    }
+    return { ring, rank }
+  }
+  const got = arrivals(WINDOW)
+
+  // (b) THE RING STREAM. Baseline = the shipped curve integrated over the same window at the lane's
+  // own rate, i.e. what stepSpawning would have delivered with laneEarlyMul dropped. The boost
+  // averages 1+LANE_EARLY_BOOST*(1-WINDOW/2/LANE_EARLY_UNTIL) over this window, so demand most of
+  // it; the opening credit and the elite cadence ride along on top and only ever help.
+  let ringBase = 0
+  for (let i = 0; i < Math.round(WINDOW / dt); i++) ringBase += spawnRate(i * dt) * LANE_SPAWN_MUL * dt
+  const ringWant = 1 + LANE_EARLY_BOOST * (1 - WINDOW / 2 / LANE_EARLY_UNTIL) * 0.75
+  assert(got.ring > ringBase * ringWant,
+    `ring stream: expected the opening boost in stepSpawning (baseline ~${ringBase.toFixed(0)}, wanted > ${(ringBase * ringWant).toFixed(0)}, got ${got.ring})`)
+
+  // (c) THE RANKS, which are the bigger half here and the one a rate multiplier alone cannot move:
+  // stepFormations' row count is a rounded 1..3 and stays pinned at 1 this early whatever you
+  // multiply it by. The boost has to reach the CADENCE. Baseline is exact — the formation timer is
+  // pure dt accumulation with no RNG in it at all.
+  const rankBase = Math.floor(WINDOW / FORMATION_INTERVAL) * FORMATION_COLS
+  assert(got.rank > rankBase,
+    `ranks: expected a compressed cadence in stepFormations (shipped cadence lands ${rankBase} in ${WINDOW}s, got ${got.rank}) — a spawn-RATE multiplier alone cannot do this`)
+
+  // (d) SOURCE TRIPWIRE. Two call sites, and losing either is silent: the run still plays, every
+  // other test still passes, and the chapter quietly delivers half the boost it advertises.
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('LANE_SPAWN_MUL * laneEarlyMul(run.time)'), 'stepSpawning must scale the ring stream by laneEarlyMul')
+  assert.ok(src.includes('FORMATION_INTERVAL / laneEarlyMul(run.time)'), 'stepFormations must compress the rank cadence by laneEarlyMul')
+
+  console.log(`PASS run WL (lane opening): first ${WINDOW}s of The Beyond — ring ${ringBase.toFixed(0)} -> ${got.ring}, ranks ${rankBase} -> ${got.rank}; boost spent at t=${LANE_EARLY_UNTIL}s`)
+}
+
 // ---- Run YY: forward compatibility — an OLDER build must not destroy a NEWER build's save -----
 // Slice 0 of docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md (§2.4/§2.5).
 // Today a save only ever moves FORWARD through builds, so only backward compatibility mattered.
@@ -10963,6 +11219,7 @@ try {
   testEnemySeparation()
   testChapterDensityCap()
   testEarlySpawnBoost()
+  testLaneOpening()
   testFrenchDictionary()
   testForwardCompatibleSave()
   // BEFORE testSyncDecisions, and that is not cosmetic: run ZZ.f calls freezeSaves(), which is a
@@ -10988,6 +11245,7 @@ try {
   testDescPlaceholder()
   testSubmission()
   testDevMenu()
+  testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -11084,8 +11342,11 @@ function testPlaytestSweepAndBlades() {
   }
   console.log('PASS run PT.c (wide arc): the mod does exactly what it claims — the tested wedge widens 30% and ~30% more of a ring is hit')
 
-  // -- PT.d: the four sector weapons stopped naming a thing the player cannot see ------------
-  const sectorMods = [['flagella', 'wideArc'], ['clawRake', 'wideRake'], ['roar', 'wideRoar'], ['tailSwipe', 'broadSweep']]
+  // -- PT.d: the sector weapons stopped naming a thing the player cannot see ------------------
+  // v7.23: THREE, not four. tailLash's `broadSweep` was the fourth entry; the Tail Lash is a thin
+  // line now, so it has no width card to mis-name — and with Tail Swipe gone these three are the
+  // whole sector family, which is the point of the rework (skies carried two of them).
+  const sectorMods = [['flagella', 'wideArc'], ['clawRake', 'wideRake'], ['roar', 'wideRoar']]
   for (const [weaponId, modId] of sectorMods) {
     const desc = WEAPON_MODS[weaponId][modId].desc
     assert.ok(!/\barc\b/i.test(desc), `${modId} must not sell itself as an "arc" — that is design vocabulary, not something on screen (got "${desc}")`)
@@ -11305,7 +11566,7 @@ function testSwitchMods() {
   // audit: if someone adds a `(mods?.x ?? 0) > 0` read, it belongs here or it will print "+4".
   const SWITCHES = [
     ['flagella', 'cyclone'], ['bloom', 'sporeburst'], ['stinger', 'venomTips'], ['stinger', 'hive'],
-    ['lure', 'stickyScent'], ['clawRake', 'doubleSlash'], ['roar', 'resonance'], ['tailSwipe', 'counterSwipe'],
+    ['lure', 'stickyScent'], ['clawRake', 'doubleSlash'], ['roar', 'resonance'], ['tailLash', 'counterLash'],
   ]
   for (const [weapon, mod] of SWITCHES) {
     const cfg = WEAPON_MODS[weapon][mod]
@@ -11859,7 +12120,11 @@ function testSpiderShare() {
   // v6.10.3 added city (owner: "15% less Robo tanks at the beginning of their apparitions") — the
   // Robot Vacuum is city's only tank, so a roster weight would be a one-item pool, same reason
   // garden and undergrowth reached for this lever.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city']
+  // v7.21 added skies (owner: "diminish tank amount by 10%"): the Tank Column is skies' only tank,
+  // making this the fourth chapter to hit the identical one-item-pool wall. Its cut is also a
+  // CLUTTER fix — every live column paints an artillery telegraph — so it lands alongside dimming
+  // that mark in SKIES_FX.artillery.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies']
   for (const id of CHAPTER_ORDER) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
     assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — only ${ARCHETYPE_MUL_CHAPTERS.join('/')} asked for it`)
@@ -12587,6 +12852,32 @@ function testUndergrowthRound() {
         `nothing in render.js ever READS look.${hook} — the hook is dead weight`)
     }
     console.log('PASS run UG.k (render hooks are wired): faceDir/turnRate/poseOf are declared, forwarded by makeRosterLook, and read by syncEnemies')
+
+    // v7.23, same tripwire shape for the Atomic Breath's wind-up. The owner asked "I thought the
+    // scales on the back should light up when charging?" — and they did not: the design and the
+    // spec both promised the dorsal plates, and the first cut shipped a bare ring instead. The
+    // failure mode this guards is the NEXT one: updateRampage owns platePool and blanket-hides it
+    // whenever rampage is inactive, so a lightPlatesForBreath that exists but is not called from
+    // that branch is silently inert — every plate is hidden one line later, with no error anywhere.
+    assert.ok(/function lightPlatesForBreath/.test(src),
+      'the Atomic Breath wind-up must light the dorsal plates — lightPlatesForBreath is gone')
+    assert.ok(/if \(!lightPlatesForBreath\(run\)\) for \(const s of platePool\) s\.visible = false/.test(src),
+      'lightPlatesForBreath is declared but updateRampage does not gate its plate-hiding on it — the plates would be hidden the line after they are lit, a silent no-op')
+    assert.ok(/lightPlatesForBreath[\s\S]{0,900}run\.arcs[\s\S]{0,400}charge/.test(src),
+      'lightPlatesForBreath must key off a charging run.arcs entry — otherwise it is not the wind-up it claims to draw')
+    console.log('PASS run UG.k2 (breath wind-up): the dorsal plates are lit by lightPlatesForBreath, and updateRampage gates its hide on it')
+
+    // v7.26: the Roar's pressure wave must be born at a FIXED distance (the mouth), never at a
+    // fraction of `range`. Owner: "with 200%+ range, we almost don't see the pressure wave". The
+    // old form was `rp.range * (0.3 + 0.7 * ki)` — a dead zone in front of the kaiju that GREW with
+    // the range stat, so Long Roar made the effect worse the more you took. That is invisible in
+    // any sim test (the hitbox never changed) and invisible in a base-range screenshot; it only
+    // shows up with the mod stacked, which is why it survived to a playtest report.
+    assert.ok(!/rp\.range \* \(0\.3 \+ 0\.7 \* ki\)/.test(src),
+      "the roar wave is back to starting at 30% OF RANGE — the dead zone in front of the player then scales with the range stat, so buying Long Roar shrinks the visible wave")
+    assert.ok(/const roarStart =/.test(src) && /roarStart \+ Math\.max\(0, rp\.range - roarStart\) \* ki/.test(src),
+      'the roar wave must expand from a fixed start (the mouth) out to `range`')
+    console.log('PASS run UG.k3 (roar wave): the pressure wave is born at the mouth, not at a fraction of range')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
@@ -13016,4 +13307,55 @@ function testDevMenu() {
   assert.strictEqual(r2.player.fireRateMul, beforeFire * OVERLOAD_FIRE_MUL,
     'devTake recorded OVERLOAD without running applyAnomalyOnTake — the card would be inert in the dev menu')
   console.log(`PASS run DV.b (real path): devTake grew maxHP by +${maxHPCard.bonus} and applied OVERLOAD's x${OVERLOAD_FIRE_MUL} fire rate`)
+}
+
+// ---- run MP: the modal entrance animation must not replay on a re-render ----------------------
+// ui.js re-renders a screen by rewriting its innerHTML wholesale, which DESTROYS and rebuilds the
+// modal open inside it — and a brand-new element replays its CSS entrance animation. Every popup in
+// the game therefore popped in again on every tap inside it (settings, save slots, reset confirm,
+// boosters, pause). setHtml() fixes it by tagging boxes with data-pop and marking the survivors of a
+// rewrite with .no-pop.
+//
+// ui.js is DOM-bound, so the behaviour itself is proven in a browser, not here (getAnimations() on
+// the backdrop before and after a re-render). This is the SOURCE tripwire for the two ways the fix
+// goes silently inert, both of which cost a round in the version that shipped it:
+//   1. a new modal written with a raw `screens.X.innerHTML =` never enters the bookkeeping, so it
+//      re-pops exactly like before and nothing warns;
+//   2. two boxes sharing a data-pop key make the second one inherit the first's "already seen"
+//      state — it opens without animating at all.
+// Plus the cascade trap: `.no-pop` and `.modal-backdrop` have IDENTICAL specificity, so `.no-pop`
+// only wins by being declared later. Sitting next to @keyframes pop-in it lost, and the backdrop
+// kept flashing while the sheet inside it sat still — a half-fix that looks fixed in a still.
+function testModalPopBookkeeping() {
+  const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  // (a) no screen is written with a raw innerHTML. The hud is the one exception: it is built once,
+  // holds no modal, and updateHUD mutates its children in place.
+  const raw = [...ui.matchAll(/screens\.(\w+)\.innerHTML\s*=/g)].map((m) => m[1])
+  assert.deepStrictEqual(raw, ['hud'],
+    `every screen render must go through setHtml() so its modals are tracked; these still write ` +
+    `innerHTML directly: [${raw.filter((n) => n !== 'hud')}] — those popups will replay their ` +
+    `opening animation on every tap inside them`)
+
+  // (b) keys are unique. paintLevelup and paintAnomalyPick deliberately SHARE "levelup": that is
+  // one box changing its contents, not a second modal opening, so it must not re-pop.
+  const keys = [...ui.matchAll(/data-pop="([^"]+)"/g)].map((m) => m[1])
+  assert.ok(keys.length >= 8, `expected every modal to carry a data-pop key, found only ${keys.length}`)
+  const dupes = keys.filter((k, i) => k !== 'levelup' && keys.indexOf(k) !== i)
+  assert.deepStrictEqual(dupes, [],
+    `duplicate data-pop keys ${JSON.stringify(dupes)}: the second box inherits the first's ` +
+    `"already on screen" state and will never animate when it opens`)
+
+  // (c) the kill rule is last. Anything with an entrance animation declared AFTER .no-pop and at the
+  // same specificity beats it.
+  const noPop = css.indexOf('.no-pop,')
+  assert.ok(noPop > 0, '.no-pop rule is gone from styles.css — every modal re-pops on re-render')
+  const after = css.slice(noPop)
+  const losers = [...after.matchAll(/^\.([\w-]+)[^{}]*\{[^{}]*animation:\s*(pop-in|sheet-up)/gm)].map((m) => m[1])
+  assert.deepStrictEqual(losers, [],
+    `.${losers[0]} declares an entrance animation AFTER the .no-pop kill rule and at the same ` +
+    `specificity, so it wins the cascade and re-pops anyway — move .no-pop back to the end of the file`)
+
+  console.log(`PASS run MP (modal pop bookkeeping): ${keys.length} popups routed through setHtml with unique keys, kill rule last in the cascade`)
 }
