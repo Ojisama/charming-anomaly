@@ -336,6 +336,11 @@ const SFX_FOR_EVENT = {
   // v6.3 dispatch beat (city elite spawn): a two-tone alarm wail — own synth (audio.js), no
   // throttle entry needed (elite cadence is seconds apart, nothing like shoot/hit's per-frame rate).
   dispatch: 'siren',
+  // v7.23 skies weapon rework. `breath` fires once per cast (4-5.5s apart) so it takes the beam
+  // voice untouched. `arc` fires once per DAMAGE TICK — up to ~8/s while a fork burns — so it takes
+  // 'zap', which audio.js already throttles for exactly this reason (see shoot/hit/zap). The `tail`
+  // event has never had an entry and still doesn't: the lash is heard through the hits it lands.
+  breath: 'beam', arc: 'zap',
 }
 
 function endRun(victory) {

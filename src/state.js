@@ -1038,6 +1038,22 @@ function generateWells(sig) {
  *   for dmg in r against ENEMIES only (never the player), emits {type:'explode', x:tx, y:ty,
  *   radius:r} and is removed. A lob is a projectile for gravity-well purposes (a well bends its
  *   landing point) but it is NOT a run.bullets entry. See stepDebrisWeapon/stepLobs in sim.js.
+ * drags[i]: { id, t, dur, dmg, hitIds } — an aircraft the Tail Lash has hooked and is reeling in
+ *   (v7.23 skies). `id` is the enemy's id; t counts UP to dur (LASH_PULL_T). stepDrags moves the
+ *   body toward the player and CLEARS its e.kb, so the reel owns that body's motion outright. It
+ *   never kills: the hooked aircraft dies on ARRIVAL through stepEnemies' existing `crushable`
+ *   branch, which is also why ONLY crushable enemies are ever hooked — a tank dragged to your feet
+ *   would just deal contact damage (owner directive). dmg > 0 only with the wreckingBall mod, and
+ *   is dealt once per victim per drag (hitIds). See fireLash/stepDrags in sim.js.
+ * arcs[i]: { life, duration, charge, tick, acc, dmg, jumps, arcRange, rootRank, falloutBonus,
+ *   x, y, nodes } — a live Atomic Breath fork (v7.23 skies). `charge` counts DOWN through
+ *   BREATH_CHARGE_T and nothing is struck while it is > 0 (the wind-up is a real telegraph, and
+ *   `life` includes it). `nodes` is the polyline [player, body, body, ...] REBUILT on every damage
+ *   tick by buildFork, so dead branches drop out and fresh targets snap in mid-burn — that is the
+ *   mechanic, not just the look, and it is why this cannot be a run.beams entry (a beam is one
+ *   angle and one length; a fork is a chain of segments between bodies, all live at once). x/y
+ *   track the ROOT body so IPECAC's extra forks — which anchor on different enemies via rootRank —
+ *   are distinguishable. Damage decays BREATH_JUMP_DMG_MUL per jump. See fireBreath/stepArcs.
  *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
@@ -1049,7 +1065,16 @@ function generateWells(sig) {
  *   {type:'clawRake', x, y, angle, range, arc}      a Claw Rake slash (same shape as 'whip'; x,y =
  *                                                   the player — the rake never moves them)
  *   {type:'roar', x, y, angle, range, arc}          a Roar sector sweep (same shape as 'whip')
- *   {type:'tail', x, y, angle, range, arc}          a Tail Swipe sector sweep
+ *   {type:'tail', x, y, angle, range, hooked}       a Tail Lash (v7.23). NOT a sector: `range` is
+ *                                                   the LINE's length along `angle`, there is no
+ *                                                   arc, and `hooked` is how many aircraft this
+ *                                                   cast caught (render lands a heavier shake
+ *                                                   when it caught something).
+ *   {type:'breath', x, y}                            an Atomic Breath cast — the wind-up ring and
+ *                                                   the fork are drawn from run.arcs, so this is
+ *                                                   only the screen kick + sfx beat.
+ *   {type:'arc', nodes}                              one Atomic Breath damage tick; `nodes` is the
+ *                                                   fork polyline it struck along (sfx + render).
  *   {type:'hydrant', x, y}                           a Burst Hydrant cast (x,y = player, for sfx;
  *                                                   the zones live in run.zones above)
  *   {type:'toss', x, y}                             a Debris Toss cast (x,y = player, for sfx)
@@ -1465,6 +1490,11 @@ export function createRun(meta, opts = {}) {
     debris: [],
     zones: [],
     lobs: [],
+    // v7.23 skies. drags: aircraft being reeled in by the Tail Lash — { id, t, dur, dmg, hitIds }.
+    // arcs: live Atomic Breath forks — { life, duration, charge, tick, acc, dmg, jumps, arcRange,
+    // falloutBonus, nodes }, where `nodes` is the polyline player->body->body rebuilt every tick.
+    drags: [],
+    arcs: [],
     kills: 0,
     coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect
     levelUpChoices: null,

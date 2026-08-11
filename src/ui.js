@@ -245,6 +245,25 @@ export function initUI(hooks) {
     screens[name] = el
   }
 
+  // Every screen re-renders by rewriting its innerHTML wholesale, which destroys and rebuilds any
+  // modal open inside it — and a brand-new element REPLAYS its CSS entrance animation. That is why
+  // the settings sheet, the save-slot picker, the reset confirm and the pause sheet all popped in
+  // again on every tap INSIDE them. Boxes tagged data-pop are matched by key across the rewrite: a
+  // key that was already on screen gets .no-pop (styles.css), so only a box that genuinely just
+  // opened animates. showScreen clears the memory on a screen change, so re-opening one still pops.
+  // Surgical updates (updateTitleBelow, updateHUD) must NOT go through here — they rewrite a
+  // subtree that holds no modal, and would wrongly forget the sheet still open beside it.
+  let popShown = new Set()
+  function setHtml(el, html) {
+    el.innerHTML = html
+    const next = new Set()
+    for (const n of el.querySelectorAll('[data-pop]')) {
+      next.add(n.dataset.pop)
+      if (popShown.has(n.dataset.pop)) n.classList.add('no-pop')
+    }
+    popShown = next
+  }
+
   // ---- title -----------------------------------------------------------
   // Session-local pre-run booster selection (v4.5). Not saved to meta — plain in-memory Set,
   // scoped to this initUI() call. Only applies to classic runs (see onBriefStart hook doc above);
@@ -463,7 +482,7 @@ export function initUI(hooks) {
         </button>`
     }).join('')
     return `
-      <div class="modal-backdrop sheet-backdrop" data-act="boosters-close">
+      <div class="modal-backdrop sheet-backdrop" data-act="boosters-close" data-pop="boosters">
         <div class="bottom-sheet">
           <div class="sheet-handle"></div>
           <h3 class="sheet-title">${t('Boosters')} <span class="sheet-note">${t('this run only')}</span></h3>
@@ -604,7 +623,7 @@ export function initUI(hooks) {
     // creates one — and falling back to an unvalidated pointer would put the alien id straight back
     // (R1, config.js).
     if (!meta.chapters?.[browseChapterId]) browseChapterId = resolveChapterId(meta.chapter)
-    screens.title.innerHTML = `
+    setHtml(screens.title, `
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
         <h1 class="title-logo"><span>Charming</span> <span>Anomaly</span></h1>
@@ -616,7 +635,7 @@ export function initUI(hooks) {
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
-    `
+    `)
     wireCarousel()
     // After the wholesale innerHTML rewrite, never before it.
     focusRenameField()
@@ -633,7 +652,7 @@ export function initUI(hooks) {
     const langRows = LANGS.map(([id, label]) => `
       <button class="settings-lang${id === getLang() ? ' settings-lang--on' : ''}" data-act="lang-pick" data-lang="${id}">${label}</button>`).join('')
     return `
-      <div class="modal-backdrop sheet-backdrop" data-act="settings-close">
+      <div class="modal-backdrop sheet-backdrop" data-act="settings-close" data-pop="settings">
         <div class="bottom-sheet">
           <div class="sheet-handle"></div>
           <h3 class="sheet-title">⚙ ${t('Settings')}</h3>
@@ -696,7 +715,7 @@ export function initUI(hooks) {
   function renameSheetHtml() {
     if (renameSlot == null) return ''
     return `
-      <div class="modal-backdrop" data-act="rename-cancel">
+      <div class="modal-backdrop" data-act="rename-cancel" data-pop="rename">
         <div class="confirm-sheet">
           <h2 class="confirm-sheet-title">✏️ ${t('Name this save')}</h2>
           <p class="confirm-sheet-body">${tt('Slot {n} — leave it empty to go back to a number.', { n: renameSlot })}</p>
@@ -727,7 +746,7 @@ export function initUI(hooks) {
     const rows = Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1)
       .map((n) => slotRowHtml(n, { disabled: n === activeSlot() })).join('')
     return `
-      <div class="modal-backdrop" data-act="slots-cancel">
+      <div class="modal-backdrop" data-act="slots-cancel" data-pop="slots">
         <div class="confirm-sheet">
           <h2 class="confirm-sheet-title">💾 ${t('Save slots')}</h2>
           ${rows}
@@ -861,7 +880,7 @@ export function initUI(hooks) {
   function resetModalHtml() {
     if (!resetOpen) return ''
     return `
-      <div class="modal-backdrop reset-modal" data-act="reset-cancel">
+      <div class="modal-backdrop reset-modal" data-act="reset-cancel" data-pop="reset">
         <div class="confirm-sheet">
           <h2 class="confirm-sheet-title">${t('Erase everything?')}</h2>
           <p class="confirm-sheet-body">${t('Coins, upgrades, slots and best scores will be permanently erased.')}</p>
@@ -881,7 +900,7 @@ export function initUI(hooks) {
     // rendered while a Cancel/Confirm flow is up.
     screens.shop.classList.toggle('screen--sac', sacrificeOpen && cost != null)
     if (sacrificeOpen && cost != null) {
-      screens.shop.innerHTML = sacrificeViewHtml(cost)
+      setHtml(screens.shop, sacrificeViewHtml(cost))
       return
     }
     // v6.6 card: the NAME is gone from the face. A purchase turns on the effect and the price —
@@ -919,13 +938,13 @@ export function initUI(hooks) {
         </button>`
     }).join('')
     // Nav (below) replaces the old "← Back" header.
-    screens.shop.innerHTML = `
+    setHtml(screens.shop, `
       <header class="shop-head"><span class="shop-balance">🪙 <b>${meta.coins}</b></span></header>
       <div class="shop-rows">${cards}</div>
       ${shopFootHtml(slots, cost)}
       ${navHtml('shop')}
       ${resetModalHtml()}
-    `
+    `)
   }
 
   // ---- hud (built once; updateHUD mutates in place) ---------------------
@@ -1313,8 +1332,8 @@ export function initUI(hooks) {
     const rerollLabel = !canReroll
       ? t('No rerolls')
       : onHP ? tt('Reroll ({n}❤️)', { n: rerollN }) : tt('Reroll ({n}🪙)', { n: rerollN })
-    screens.levelup.innerHTML = `
-      <div class="modal">
+    setHtml(screens.levelup, `
+      <div class="modal" data-pop="levelup">
         <h2 class="modal-title">${t('LEVEL UP!')}</h2>
         <div class="lv-cards">${cards}</div>
         <p class="lv-hint">${tt('1-{n} · arrows · enter · R reroll', { n: choices.length })}</p>
@@ -1323,7 +1342,7 @@ export function initUI(hooks) {
           <span class="lv-coins">${onHP ? `❤️ ${hp}` : `🪙 ${coins}`}</span>
         </div>
       </div>
-    `
+    `)
     lvCards = Array.from(screens.levelup.querySelectorAll('.lv-card'))
     lvArmAt = performance.now() + LEVELUP_GRACE_MS
     setLvFocus(0)
@@ -1419,13 +1438,15 @@ export function initUI(hooks) {
           <span class="lv-card-desc">${tt('{n} upgrades taken', { n: card.subjectPicks?.[id] ?? 0 })}</span>
         </span>
       </button>`).join('')
-    screens.levelup.innerHTML = `
-      <div class="modal">
+    // Same data-pop key as the card row above: this is the SAME box changing its contents (you
+    // picked an anomaly, now you pick its weapon), not a second modal opening over the first.
+    setHtml(screens.levelup, `
+      <div class="modal" data-pop="levelup">
         <h2 class="modal-title">${t(card.title)}</h2>
         <p class="lv-hint">${t('Which weapon?')}</p>
         <div class="lv-cards">${rows}</div>
       </div>
-    `
+    `)
     lvCards = Array.from(screens.levelup.querySelectorAll('.lv-card'))
     lvArmAt = performance.now() + LEVELUP_GRACE_MS
     setLvFocus(0)
@@ -1545,8 +1566,8 @@ export function initUI(hooks) {
     const ids = dailyMutators(todayKey(), chId) // chapter-scoped pool — must match main.js's roll
     const chapter = CHAPTERS[chId]
     const isPreview = !meta.chapters?.[chId]?.unlocked
-    screens.daily.innerHTML = `
-      <div class="modal daily-brief">
+    setHtml(screens.daily, `
+      <div class="modal daily-brief" data-pop="daily">
         <h2 class="modal-title">🌀 ${t('Daily Anomaly')}</h2>
         <p class="daily-date">${todayKey()}</p>
         <div class="daily-chapter">
@@ -1559,7 +1580,7 @@ export function initUI(hooks) {
         <button class="btn btn--big" data-act="daily-start">▶&nbsp; ${t('Start Daily Run')}</button>
       </div>
       ${navHtml('daily')}
-    `
+    `)
   }
 
   // ---- classic pre-run summary (v6.0.2 briefing, widened v6.7) ---------------
@@ -1607,8 +1628,8 @@ export function initUI(hooks) {
     const ids = d.mutators ?? []
     const reroll = d.reroll && ids.length ? { afford: meta.coins >= ANOMALY_REROLL_COST } : null
     const eyebrow = (txt, note) => `<div class="brief-eyebrow">${t(txt)}${note ? `<i>${note}</i>` : ''}</div>`
-    screens.brief.innerHTML = `
-      <div class="modal daily-brief brief">
+    setHtml(screens.brief, `
+      <div class="modal daily-brief brief" data-pop="brief">
         <div class="brief-head">
           <div class="brief-headtext">
             <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
@@ -1627,7 +1648,7 @@ export function initUI(hooks) {
       </div>
       ${navHtml('battle')}
       ${boosterSheetHtml()}
-    `
+    `)
   }
 
 
@@ -1646,6 +1667,9 @@ export function initUI(hooks) {
     radius: 'Radius', hunt: 'Hunt radius', travelSpeed: 'Travel speed',
     r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length', jetDur: 'Runs for',
     width: 'Width', pierce: 'Pierce', every: 'Every',
+    // v7.23 skies: Atomic Breath. Both are also registered in buildReadout's ordered whitelist
+    // (sim.js) — a stat needs BOTH sites or it is silently absent from the build sheet.
+    jumps: 'Forks', arcRange: 'Fork range', duration: 'Burns for', hooks: 'Aircraft hooked',
   }
   const STAT_MAX_ROWS = 5
   // French writes 1,00 s — comma decimal, NBSP before the unit. The dictionary cannot fix a number,
@@ -1799,8 +1823,8 @@ export function initUI(hooks) {
             </span>
           </div>`).join('')}
       </div>` : ''
-    screens.pause.innerHTML = `
-      <div class="modal modal--pause">
+    setHtml(screens.pause, `
+      <div class="modal modal--pause" data-pop="pause">
         <h2 class="modal-title">${t('Paused')}</h2>
         ${mutatorBlock}
         ${buildBlockHtml(d.build)}
@@ -1808,7 +1832,7 @@ export function initUI(hooks) {
         <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
         ${buildStampHtml()}
       </div>
-    `
+    `)
   }
 
   // ---- hidden dev menu (v7.12) ---------------------------------------------
@@ -1851,15 +1875,15 @@ export function initUI(hooks) {
     // Without carrying the scroll across, testing the third anomaly means scrolling back down to it
     // every single time.
     const scroll = devListEl ? devListEl.scrollTop : 0
-    screens.dev.innerHTML = `
-      <div class="modal modal--dev">
+    setHtml(screens.dev, `
+      <div class="modal modal--dev" data-pop="dev">
         <h2 class="modal-title">DEV</h2>
         <input class="dev-filter" id="dev-filter" type="text" placeholder="name, or anomaly / mod / passive…" autocomplete="off" value="${devFilter.replace(/"/g, '&quot;')}">
         <p class="dev-count"></p>
         <div class="dev-list"></div>
         <button class="btn btn--big" data-act="dev-close">▶&nbsp; Resume</button>
       </div>
-    `
+    `)
     devListEl = screens.dev.querySelector('.dev-list')
     paintDevList()
     devListEl.scrollTop = scroll
@@ -1879,8 +1903,8 @@ export function initUI(hooks) {
         <div class="summary-mutators-head">🌀 ${d.mode === 'daily' ? t('Daily Anomaly') : t('Anomalies')}</div>
         ${mutatorIds.map((id) => `<div class="summary-mutator-line">${MUTATORS[id]?.icon ?? '❔'} ${t(MUTATORS[id]?.name ?? id)}</div>`).join('')}
       </div>` : ''
-    screens.summary.innerHTML = `
-      <div class="modal">
+    setHtml(screens.summary, `
+      <div class="modal" data-pop="summary">
         <h2 class="modal-title">${d.victory
           ? t(CHAPTER_ENDINGS[chapterId]?.victory ?? 'You escaped! 🎉')
           : t(CHAPTER_ENDINGS[chapterId]?.death ?? 'Squished… 💦')}</h2>
@@ -1902,11 +1926,15 @@ export function initUI(hooks) {
         <button class="btn btn--big" data-act="play" data-mode="${d.mode ?? 'classic'}">▶&nbsp; ${d.nextDifficulty ? t('Next level') : t('Play again')}</button>
         <button class="btn btn--soft" data-act="quit">${t('Menu')}</button>
       </div>
-    `
+    `)
   }
 
   // ---- screen switching -----------------------------------------------------
   function showScreen(name, data) {
+    // Arriving on a DIFFERENT screen is a genuine open, so forget what setHtml saw last: the pause
+    // sheet you closed and re-open must pop in again. Re-showing the screen you are already on (a
+    // level-up reroll) is a re-render, and keeps the memory.
+    if (name !== active) popShown.clear()
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
     else if (name === 'daily') renderDaily()

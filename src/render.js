@@ -16,6 +16,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   // sim constants the FX clocks key off (the spec's "arrival clock" rule is only enforceable if
   // the clock and the fuse are literally the same number — see SKIES_FX's own doc)
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
+  BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
 import { currentForce } from './sim.js'
@@ -6143,6 +6144,13 @@ export function createRenderer(app) {
   const homingLayer = new Container()
   const beamLayer = new Container()
   const arcG = new Graphics() // elemental shock arcs (shockarc/frostarc/conduct)
+  // v7.23 skies: the Atomic Breath's live forks (run.arcs) and the Tail Lash's drag tethers
+  // (run.drags). Its own Graphics rather than arcG because those are one-shot fading procs on a
+  // render-local pool, while these are PERSISTING sim entities redrawn from run state every frame.
+  // The jagged-polyline drawing itself is shared (jitterPath/strokePath) — a fork and a shock arc
+  // are the same picture, so there is no second stroker.
+  // Palette law 2 (SKIES_PALETTE): both are the PLAYER's output, so both are atomic cyan-green.
+  const breathG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
@@ -6152,7 +6160,7 @@ export function createRenderer(app) {
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
     bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
-    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG,
+    bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
     // damage numbers. A taxi crossing a split used to paint over it, which on the one layer whose
@@ -8276,14 +8284,14 @@ export function createRenderer(app) {
         const boxR = b.radius * (1.55 - 0.55 * k)
         rig.box.visible = true
         rig.box.tint = AF.bracket
-        rig.box.alpha = jamAlpha(0.55 + 0.4 * k)
+        rig.box.alpha = jamAlpha(AF.bracketAlpha + AF.bracketAlphaRamp * k)
         rig.box.scale.set(boxR / T.tgSquare.ref)
         rig.box.position.set(b.x, b.y)
         rig.box.rotation = 0
         // ...part 2: the hatched hand sweeps EXACTLY 360 degrees over the fuse and completes on
         // impact. Two opposed motions locking on the same frame is the whole read.
         const hand = k * Math.PI * 2 - Math.PI / 2
-        for (const [sp, tint, alpha] of [[rig.fill, AF.hatchFill, AF.hatchAlpha], [rig.bars, AF.hatchBar, 0.75]]) {
+        for (const [sp, tint, alpha] of [[rig.fill, AF.hatchFill, AF.hatchAlpha], [rig.bars, AF.hatchBar, AF.hatchBarAlpha]]) {
           sp.visible = !far
           sp.tint = tint
           sp.alpha = jamAlpha(alpha)
@@ -8483,8 +8491,14 @@ export function createRenderer(app) {
       const k = firing ? 1 : 1 - left / M.lockT       // 0 -> 1, reaching 1 on the LAUNCH frame
       tightest = Math.min(tightest, 1 - k)
       if (farFromPlayer(e.x, e.y) || jamDrop()) continue
-      // the designation line from the helicopter's nose, with a BEAD crawling it — the arrival
-      // clock: the bead reaches the diamond on the launch frame
+      // the designation line from the helicopter's nose. v7.21: it used to carry a BEAD crawling
+      // toward you as its arrival clock, and the bead was the single most misread mark in the
+      // chapter — a small bright dot travelling from a helicopter to your feet is a PROJECTILE in
+      // every visual language this genre has, so players read it as a missile that passed through
+      // them and did nothing. The lock keeps its clock: the line brightens and the diamond on you
+      // snaps tighter (both keyed to the same k), neither of which can be mistaken for a thing
+      // being fired. The only travelling mark on this threat is now the dart itself, which is what
+      // the four-clocks table above always claimed ("flies AT you").
       const ux = (p.x - e.x) / (d || 1), uy = (p.y - e.y) / (d || 1)
       const dash = 14
       for (let t = 0; t < d - 20; t += dash * 2) {
@@ -8493,8 +8507,6 @@ export function createRenderer(app) {
         teleG.lineTo(e.x + ux * Math.min(t + dash, d - 20), e.y + uy * Math.min(t + dash, d - 20))
       }
       teleG.stroke({ width: 1.4, color: M.designator, alpha: jamAlpha(0.5 + 0.3 * k) })
-      const bd = d * k
-      teleG.circle(e.x + ux * bd, e.y + uy * bd, 3.4).fill({ color: M.reticleCore, alpha: jamAlpha(0.95) })
     }
     lockDiamond.visible = locking
     if (!locking) return
@@ -8622,8 +8634,13 @@ export function createRenderer(app) {
     // layer, and so did rampWaveR — the wave had exactly one consumer and it was those cones. The
     // rim-light sweep below is a separate thing: it keys off the crush radius, not the wave.
     if (!active) {
-      for (const s of platePool) s.visible = false
       rampBeatT = 0
+      // v7.23: the dorsal plates are not rampage's private property any more. The Atomic Breath's
+      // wind-up lights the SAME spine — that is what a charging kaiju looks like, and it is what
+      // this weapon's own design doc promised before it shipped a bare ring instead. Rampage still
+      // wins outright when both are live (it is a whole-run state, the breath is half a second),
+      // which is why this sits in the not-active branch rather than fighting the loop above.
+      if (!lightPlatesForBreath(run)) for (const s of platePool) s.visible = false
       return
     }
     const p = run.player
@@ -8669,6 +8686,43 @@ export function createRenderer(app) {
       s.position.set(0, py)
     }
   }
+  // v7.23 Atomic Breath wind-up: the seven dorsal plates charge TAIL -> HEAD and the whole spine
+  // brightens as the charge fills, arriving lit at the head exactly as the breath fires. Returns
+  // false when there is nothing charging, so the caller can hide the pool as before.
+  //
+  // Reuses updateRampage's plate machinery wholesale — same platePool, same T.plate texture, same
+  // (0, py) spine points drawKaijuBody bakes as anatomy, so this cannot drift out of register with
+  // the body the way the pre-v5.11 rotating arc did. The DIFFERENCE from rampage is the motion:
+  // rampage runs a continuous loop off animT (it is a sustained state), while this is a one-way
+  // fill on the sim's own charge clock — so the plates read as "winding up to something", not as
+  // "rampage is on".
+  function lightPlatesForBreath(run) {
+    if (!chapterHasKaiju) return false
+    const a = (run.arcs || []).find((x) => x.charge > 0)
+    if (!a) return false
+    const R = SKIES_FX.rampage
+    const K = SKIES_KAIJU
+    const k = 1 - Math.max(0, Math.min(1, a.charge / BREATH_CHARGE_T))   // 0 -> 1 across the wind-up
+    for (let i = 0; i < platePool.length; i++) {
+      const s = platePool[i]
+      const f = i / (platePool.length - 1)
+      // drawKaijuBody bakes py = lerp(-44, 92, f), so f=0 is the HEAD and f=1 the tail. A tail->head
+      // wavefront therefore travels f: 1 -> 0, i.e. it sits at (1 - k).
+      const front = Math.max(0, 1 - Math.abs(f - (1 - k)) * 3)
+      const charge = Math.min(1, front + k * k * 0.6)   // ...and the whole spine glows hotter as it fills
+      const py = lerp(-44, 92, f)
+      const bump = Math.max(0, 1 - Math.abs(f - 0.42) * 1.5)
+      s.visible = true
+      if (s.texture !== T.plate.tex) { s.texture = T.plate.tex; s.anchor.set(T.plate.ax, T.plate.ay) }
+      s.tint = mix(R.plateCool, R.plateHot, charge)
+      s.alpha = 0.35 + 0.65 * charge
+      s.scale.set(lerp(0.9, 1.7, bump) * (0.9 + 0.35 * charge) * K.plateGlowScale)
+      s.rotation = 0
+      s.position.set(0, py)
+    }
+    return true
+  }
+
   function clearRampage() {
     rampG.clear()
     jamT = 0; rampBeatT = 0
@@ -10772,12 +10826,23 @@ export function createRenderer(app) {
       rp.root.rotation = rp.angle
       // exact wedge fit (the claw lesson: the q ~= arc/SPAN linearisation is wide at the tips)
       const q = Math.tan(rp.arc / 2) / Math.tan(ROAR_SPAN / 2)
+      // v7.26 (owner: "roar animation should start from the player mouth ... with 200%+ range we
+      // almost don't see the pressure wave"). The wavefront used to be born at 30% OF RANGE, and
+      // that is the bug: the dead zone in front of the kaiju SCALED with the stat you were buying.
+      // At L5's 275 it started 82px out; with range mods at 200%+ it started ~180px out, so the
+      // whole early sweep — the part that reads as a roar leaving the head — never existed, and
+      // Long Roar visibly made the effect worse the more you took.
+      // Now it is born at the MOUTH, a fixed distance, and expands to `range`. The arc CENTRE stays
+      // on the player because that is where inSector tests from: the wedge on screen is still the
+      // honest hitbox, and the band at the mouth's radius passes exactly through the mouth. Falls
+      // back to the body radius outside skies (the Blank's pool carries roar and has no kaiju).
+      const roarStart = chapterHasKaiju ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
       for (let i = 0; i < rp.bands.length; i++) {
         const band = rp.bands[i]
-        // stagger: each band launches a beat later and expands from 30% out to exactly `range`
+        // stagger: each band launches a beat later and expands from the mouth to exactly `range`
         const ki = Math.min(1, Math.max(0, (k - i * 0.12) / 0.72))
         if (ki <= 0) { band.alpha = 0; continue }
-        const radius = rp.range * (0.3 + 0.7 * ki)
+        const radius = roarStart + Math.max(0, rp.range - roarStart) * ki
         const sx = radius / ROAR_REF
         band.scale.set(sx, sx * q)
         band.alpha = Math.sin(Math.PI * ki) * (0.8 - i * 0.16)
@@ -11010,11 +11075,11 @@ export function createRenderer(app) {
   let breathe = 0
   let idleT = 0
   let flashT = 0       // player hurt flash
-  // v5.11 kaiju redesign: 0->1 pulse set by the `tail` sim event (WEAPONS.tailSwipe/stepTailWeapon),
+  // v5.11 kaiju redesign: 0->1 pulse set by the `tail` sim event (WEAPONS.tailLash/stepLashWeapon),
   // decaying over SKIES_KAIJU.swipeDecay seconds — see syncPlayer's kaiju tail branch. The event
   // already drives spawnWhip's arc-swoosh at the hit site (handleEvents); this makes the anatomical
   // tail itself visibly crack at the same moment, instead of only an effect appearing where it
-  // lands. Harmless outside skies: tailSwipe isn't in any other chapter's weapon pool, so the `tail`
+  // lands. Harmless outside skies: tailLash isn't in any other chapter's weapon pool, so the `tail`
   // event never fires there and this timer just sits at 0, unread (chapterHasKaiju gates its use).
   let kaijuSwipeT = 0
   let vignetteA = 0
@@ -11199,6 +11264,53 @@ export function createRenderer(app) {
       path.push([x2, y2])
     }
     return path
+  }
+
+  // v7.23 skies. Two persisting player effects, one Graphics, cleared and redrawn from run state
+  // every frame — the same idiom as hazardG/laneG, and it needs no pool because a fork is a
+  // polyline whose vertex COUNT changes every tick (it re-forks as bodies die).
+  function redrawBreath(run) {
+    breathG.clear()
+    const p = run.player
+    // Tail Lash: a tether from the kaiju to each aircraft being reeled in. Without it the plane
+    // reads as sliding toward you for no reason — the tether IS the causal link.
+    // DELIBERATELY NOT JAGGED. The first cut ran this through jitterPath like the fork below, and
+    // the probe frame showed the two weapons as the same effect: cyan-green crackle leaving the
+    // kaiju's head, twice. "It's not clear" is the complaint that started this whole rework, so the
+    // two must not converge. A tail is a TAUT CABLE and lightning is JAGGED — one straight heavy
+    // stroke against a jittered polyline separates them at a glance, with no new colour needed.
+    for (const d of run.drags || []) {
+      const e = run.enemies.find((x) => x.id === d.id)
+      if (!e) continue
+      breathG.moveTo(p.x, p.y).lineTo(e.x, e.y).stroke({ width: 9, color: SKIES_PALETTE.player, alpha: 0.28, cap: 'round' })
+      breathG.moveTo(p.x, p.y).lineTo(e.x, e.y).stroke({ width: 3.5, color: SKIES_PALETTE.playerHot, alpha: 0.9, cap: 'round' })
+      // A hook at the far end: the bit that is actually holding the aircraft.
+      breathG.circle(e.x, e.y, 9).stroke({ width: 3, color: SKIES_PALETTE.playerHot, alpha: 0.9 })
+    }
+    for (let i = 0; i < (run.arcs || []).length; i++) {
+      const a = run.arcs[i]
+      // The wind-up draws NOTHING here (v7.26, owner: "remove the green circle tell"). A closing
+      // ring stood in for the telegraph while the dorsal plates were unimplemented; now that they
+      // chain-charge along the spine (lightPlatesForBreath) the ring is a second tell for the same
+      // half-second, on a weapon that fires continuously — so it read as permanent screen furniture
+      // rather than as a warning. The plates are the telegraph.
+      if (a.charge > 0) continue
+      if (!a.nodes || a.nodes.length < 2) continue
+      // v7.26 (owner: "should shoot from the mouth"). The sim roots the fork at the player's
+      // CENTRE, which is correct for it — the chain's geometry is body-to-body and the first
+      // segment's origin has no bearing on what is damaged. Where it is DRAWN from is anatomy, so
+      // it is resolved here: drawKaijuBody points the head at local -y and syncPlayer rotates bodyC
+      // by facingAngle + PI/2, which works out to a plain forward offset along facingAngle once the
+      // container scale is applied. Only the first node moves; every jump after it is a real body.
+      const pts = a.nodes.map((n) => [n.x, n.y])
+      if (chapterHasKaiju && p.facingAngle != null) {
+        const m = SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale
+        pts[0] = [p.x + Math.cos(p.facingAngle) * m, p.y + Math.sin(p.facingAngle) * m]
+      }
+      const path = jitterPath(pts, i * 5.1)
+      strokePath(breathG, path, 10, SKIES_PALETTE.player, 0.35)
+      strokePath(breathG, path, 3.5, SKIES_PALETTE.playerHot, 0.95)
+    }
   }
 
   function redrawArcs() {
@@ -11415,11 +11527,20 @@ export function createRenderer(app) {
           addShake(2.5, 0.12)
           break
         case 'tail':
-          // tail swipe: the whip's fat swoosh IS a heavy tail sweep — reuse it across the wide
-          // arc, with a heavier shake than the lash (this launches things)
-          spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
-          addShake(4, 0.16)
+          // v7.23 Tail Lash: a LINE, not a sector, so the whip's fat swoosh no longer describes it.
+          // spawnArc is exactly the right drawer — a one-shot jagged polyline that flashes and
+          // fades — and it is already here for the elemental shocks. Atomic cyan-green, palette
+          // law 2: this is the player's own reach, never a threat.
+          spawnArc([[e.x, e.y], [e.x + Math.cos(e.angle) * e.range, e.y + Math.sin(e.angle) * e.range]],
+            SKIES_PALETTE.player, SKIES_PALETTE.playerHot, 0.22, 6, 1)
+          // A lash that HOOKED something lands harder than one that swiped empty air.
+          addShake(e.hooked > 0 ? 4 : 2, e.hooked > 0 ? 0.16 : 0.09)
           kaijuSwipeT = SKIES_KAIJU.swipeKick   // the anatomical tail itself cracks (syncPlayer)
+          break
+        case 'breath':
+          // Atomic Breath: the cast itself only kicks the screen — the wind-up ring and the fork
+          // are drawn from run.arcs every frame (redrawBreath), because both persist.
+          addShake(2, 0.1)
           break
         case 'toss':
           // debris toss: the lobs themselves are visible entities (syncLobs) — the event only
@@ -11596,6 +11717,7 @@ export function createRenderer(app) {
     teleG.clear()
     wellG.clear()
     bindG.clear()
+    breathG.clear() // v7.23: a Graphics, not a pool — clearing it IS the reset (see redrawBreath)
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
@@ -12488,6 +12610,7 @@ export function createRenderer(app) {
     redrawPrisms(run)
     updateArcs(dt)
     redrawArcs()
+    redrawBreath(run) // v7.23 skies: Atomic Breath forks + Tail Lash drag tethers
 
     updateWhips(dt)
     updateClaws(dt)
