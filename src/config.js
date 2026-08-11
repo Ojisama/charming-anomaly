@@ -4072,6 +4072,19 @@ export const MARCH_HOME_MUL = 0.55
 // alive count runs away to MAX_ALIVE, which is the unthreadable wall the paragraph above describes.
 export const LANE_SPAWN_MUL = 0.55       // ordinary (non-rank) spawning rate in the lane
 
+// Owner directive: "33% more enemies at the start, but finish at the same rate." The lane opens
+// denser and decays LINEARLY back to the shipped rate at SPAWN_LATE_START — the same no-step-change
+// shape as SPAWN_EARLY_BOOST, and pinned to that landmark because it is where spawnRate hands over
+// to its late quadratic, so from t=120 on the chapter is arithmetically identical to what shipped.
+// It multiplies BOTH lane spawners, which is not optional: measured over 5 seeds x 300s at d3, the
+// RANKS are 63% of the first 30s of arrivals (36 of 57). Putting the whole +33% on the ring stream
+// alone would need +89% on it and would flip the swarm/rank mix this chapter exists to merge.
+// Ranks take it as a SHORTER INTERVAL, not extra rows: row count is a rounded 1..3 (stepFormations)
+// and cannot express a third of a row — at these rates it stays pinned at 1 whatever you multiply.
+export const LANE_EARLY_BOOST = 0.33     // +33% at t=0, +16.5% at t=60, +0% from t=120
+export const LANE_EARLY_UNTIL = SPAWN_LATE_START
+export const laneEarlyMul = (t) => (t >= LANE_EARLY_UNTIL ? 1 : 1 + LANE_EARLY_BOOST * (1 - t / LANE_EARLY_UNTIL))
+
 // Contact hurts LESS in the lane, and this is a fairness rule rather than a difficulty knob.
 // Measured over 60s of play: 83% of all damage taken (236 of 283) was head-on CONTACT, against 7
 // from leaks and 40 from DoT. That ratio is a property of the movement mode, not of the tuning — in

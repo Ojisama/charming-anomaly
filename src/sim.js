@@ -140,7 +140,7 @@ import {
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
-  FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL,
+  FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
@@ -670,7 +670,9 @@ function stepSpawning(run, dt) {
   // v5.18: in the lane the ranks (stepFormations) are a second, concurrent spawner aimed down the
   // same narrow corridor — the ordinary stream yields so the two together read as pressure rather
   // than a wall. See LANE_SPAWN_MUL.
-  const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL : 1
+  // laneEarlyMul is the +33% opening (see LANE_EARLY_BOOST) — it also compresses the rank cadence in
+  // stepFormations, because the ranks are the majority of this chapter's early arrivals.
+  const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL * laneEarlyMul(run.time) : 1
   // CHAOS PACT (v7.2): the danger half of the cycle. Read-time, never written into run.mods —
   // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
@@ -703,7 +705,9 @@ function stepFormations(run, dt) {
   if (!CHAPTERS[run.chapter].lane) return
   run._formationT = (run._formationT ?? FORMATION_INTERVAL) - dt
   if (run._formationT > 0) return
-  run._formationT += FORMATION_INTERVAL
+  // Divided by the opening boost, so ranks arrive 33% more often at t=0 and settle back to exactly
+  // FORMATION_INTERVAL by LANE_EARLY_UNTIL. Read at fire time, so the cadence eases as the run goes.
+  run._formationT += FORMATION_INTERVAL / laneEarlyMul(run.time)
 
   // Extra rows come from the same curve that drives ordinary spawning: 1 row early, up to 3 late.
   const rows = Math.max(1, Math.min(3, Math.round(spawnRate(run.time) * run.mods.spawnMul / 3)))
