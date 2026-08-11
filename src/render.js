@@ -11278,15 +11278,25 @@ export function createRenderer(app) {
     }
     for (let i = 0; i < (run.arcs || []).length; i++) {
       const a = run.arcs[i]
-      // The wind-up: a ring closing onto the kaiju, so the charge is legible as "something is
-      // coming" rather than as the weapon being broken. Nothing is struck while this draws.
-      if (a.charge > 0) {
-        const k = a.charge / BREATH_CHARGE_T          // 1 -> 0 over the wind-up
-        breathG.circle(p.x, p.y, 30 + k * 90).stroke({ width: 2 + (1 - k) * 3, color: SKIES_PALETTE.player, alpha: 0.25 + (1 - k) * 0.5 })
-        continue
-      }
+      // The wind-up draws NOTHING here (v7.26, owner: "remove the green circle tell"). A closing
+      // ring stood in for the telegraph while the dorsal plates were unimplemented; now that they
+      // chain-charge along the spine (lightPlatesForBreath) the ring is a second tell for the same
+      // half-second, on a weapon that fires continuously — so it read as permanent screen furniture
+      // rather than as a warning. The plates are the telegraph.
+      if (a.charge > 0) continue
       if (!a.nodes || a.nodes.length < 2) continue
-      const path = jitterPath(a.nodes.map((n) => [n.x, n.y]), i * 5.1)
+      // v7.26 (owner: "should shoot from the mouth"). The sim roots the fork at the player's
+      // CENTRE, which is correct for it — the chain's geometry is body-to-body and the first
+      // segment's origin has no bearing on what is damaged. Where it is DRAWN from is anatomy, so
+      // it is resolved here: drawKaijuBody points the head at local -y and syncPlayer rotates bodyC
+      // by facingAngle + PI/2, which works out to a plain forward offset along facingAngle once the
+      // container scale is applied. Only the first node moves; every jump after it is a real body.
+      const pts = a.nodes.map((n) => [n.x, n.y])
+      if (chapterHasKaiju && p.facingAngle != null) {
+        const m = SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale
+        pts[0] = [p.x + Math.cos(p.facingAngle) * m, p.y + Math.sin(p.facingAngle) * m]
+      }
+      const path = jitterPath(pts, i * 5.1)
       strokePath(breathG, path, 10, SKIES_PALETTE.player, 0.35)
       strokePath(breathG, path, 3.5, SKIES_PALETTE.playerHot, 0.95)
     }

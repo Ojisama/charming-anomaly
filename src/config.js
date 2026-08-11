@@ -1532,11 +1532,27 @@ export const WEAPONS = {
       // Damage is down ~2.1x from the v7.24 numbers and that is not a nerf: duty cycle went from
       // 1.4s of burn every 4.0s (35%) to 1.4s of every 1.9s (74%), so the same eff dps needs
       // roughly half the per-tick damage. Measured, not derived — see the census in the commit.
-      { dmg: 9,  jumps: 2, arcRange: 150, duration: 1.00, interval: 1.50, tick: 0.14 },
-      { dmg: 11, jumps: 3, arcRange: 160, duration: 1.10, interval: 1.60, tick: 0.14 },
-      { dmg: 14, jumps: 3, arcRange: 175, duration: 1.20, interval: 1.70, tick: 0.13 },
-      { dmg: 19, jumps: 4, arcRange: 190, duration: 1.30, interval: 1.80, tick: 0.13 },
-      { dmg: 25, jumps: 5, arcRange: 200, duration: 1.40, interval: 1.90, tick: 0.12 },
+      // `range` is how far the breath reaches for its FIRST target; `arcRange` is how far it jumps
+      // between bodies after that. Two separate numbers on purpose — v7.23 used arcRange for both
+      // and the weapon could not see anything past 200px, and v7.25 over-corrected to the whole
+      // viewport (viewRadius + 100, ~520px on a phone), which is more initial reach than a breath
+      // should have (owner: "too much initial range"). This sits between: past arcRange so the
+      // original bug stays fixed, under debrisToss' 340+ castRange so the lob keeps its anti-air job.
+      // dmg is up ~15% from the first cut of these numbers: pulling the root in from the whole
+      // viewport to `range` costs real targets, and measured 298 -> 244 eff dps at L5, which put
+      // the EPIC back under the rare Tail Lash. The reach is the owner's call; the damage is what
+      // pays for it.
+      // JUMPS, not damage, is this weapon's lever, and that is worth writing down because it cost
+      // two census passes to learn: raising L5 damage 29 -> 32 moved eff dps 261 -> 259, i.e. not at
+      // all. With the root pulled in to `range` the binding constraint is how many bodies the fork
+      // can REACH, not how hard each tick lands — the extra damage went straight to overkill. One
+      // more fork at the top of the ladder is both the effective knob and the one that matches what
+      // the card is about.
+      { dmg: 10, jumps: 2, arcRange: 150, range: 240, duration: 1.00, interval: 1.50, tick: 0.14 },
+      { dmg: 13, jumps: 3, arcRange: 160, range: 265, duration: 1.10, interval: 1.60, tick: 0.14 },
+      { dmg: 16, jumps: 4, arcRange: 175, range: 290, duration: 1.20, interval: 1.70, tick: 0.13 },
+      { dmg: 22, jumps: 5, arcRange: 190, range: 315, duration: 1.30, interval: 1.80, tick: 0.13 },
+      { dmg: 29, jumps: 6, arcRange: 200, range: 340, duration: 1.40, interval: 1.90, tick: 0.12 },
     ],
   },
   debrisToss: {
@@ -4672,6 +4688,14 @@ export const SKIES_KAIJU = {
   // with enemyDrawScale 0.55 -> 0.605 (+10%) in CHAPTERS.skies.render: the two knobs push the same
   // ratio from opposite ends, so the kaiju/aircraft size gap closes by ~27% in one step.
   bodyScale: 0.496,
+  // v7.26: how far forward of the player's centre the MOUTH sits, in the same local pre-scale units
+  // drawKaijuBody draws in (its head polygon runs y -60 to the snout tip at -134, so this sits just
+  // inside the jaw). Render multiplies by bodyScale and rotates by facingAngle — see redrawBreath.
+  // The Atomic Breath is emitted from here rather than from the player's centre: a breath weapon
+  // leaving the middle of the body reads as the body being on fire, not as the creature breathing.
+  // Render-only, like everything else in this block — no hitbox moves, and the fork's damage is
+  // unchanged (sim still chains body to body; this only moves where the FIRST segment is drawn from).
+  muzzle: 118,
 }
 
 // Ruins (spec §5.9) — swapped in PERMANENTLY at a crush site by the render-local crush ledger

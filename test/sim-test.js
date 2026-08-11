@@ -6637,19 +6637,20 @@ function testV54Weapons() {
       assert(r.enemies.length === 0, 'the empty-world fixture spawned enemies — it is no longer testing an empty world')
     }
     {
-      // (2) "Discharge to closest enemy." A lone enemy well beyond arcRange (200 at L5) but plainly
-      // on screen must still be struck. This is the actual v7.23 bug: the ROOT was picked within
-      // arcRange of the player, so the breath discharged into empty ground.
+      // (2) "Discharge to closest enemy." A lone enemy well beyond arcRange (200 at L5) but inside
+      // the weapon's own `range` (340) must still be struck. This is the actual v7.23 bug: the ROOT
+      // was picked within arcRange of the player, so the breath discharged into empty ground.
+      const L5 = WEAPONS.atomicBreath.levels[4]
       const r = weaponRun('skies', 'atomicBreath')
       r.weapons = [{ id: 'atomicBreath', level: 5 }]
-      const far = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e9, speed: 0 })  // 300 >> arcRange 200
+      const far = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e9, speed: 0 })
       far.flags = []
       r.enemies.push(far)
-      assert(300 > WEAPONS.atomicBreath.levels[4].arcRange,
-        'this case is only meaningful outside arcRange — the fixture has drifted')
+      assert(300 > L5.arcRange && 300 < L5.range,
+        `this case is only meaningful BETWEEN arcRange (${L5.arcRange}) and range (${L5.range}) — the fixture has drifted`)
       stepQuiet(r, 6)
       assert(far.hp < 1e9,
-        `a lone enemy at 300px — well inside the viewport — took nothing. arcRange governs the JUMPS between bodies, not how far the breath reaches for its FIRST target`)
+        `a lone enemy at 300px — outside arcRange but inside the weapon's ${L5.range}px range — took nothing. arcRange governs the JUMPS between bodies, not how far the breath reaches for its FIRST target`)
     }
     {
       // (3) "Start charging again as soon as it finished firing." No dead air: sample every frame

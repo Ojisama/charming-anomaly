@@ -4239,7 +4239,12 @@ export function buildReadout(run) {
     // dmg, jumps, duration, arcRange + every = 5 rows. `duration` is shared: it also surfaces
     // rainbow's Sustain and pulsarSweep's Held Sweep, which were invisible on the sheet before —
     // both weapons sit at 4 rows today, so gaining one costs neither of them a row.
-    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'duration', 'maxR', 'range', 'arcRange', 'length', 'width', 'pierce']) {
+    // v7.26: `arcRange` is deliberately NOT here. The breath now carries both `range` (how far it
+    // reaches for its first target) and `arcRange` (how far it jumps after that), which would make
+    // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
+    // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
+    // gets above.
+    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -6614,7 +6619,7 @@ function fireBreath(run, stats) {
       life: stats.duration + BREATH_CHARGE_T, duration: stats.duration, charge: BREATH_CHARGE_T,
       tick: stats.tick, acc: 0, dmg: stats.dmg,
       jumps: stats.jumps + (run.weaponMods.atomicBreath?.forked ?? 0),
-      arcRange: stats.arcRange, rootRank: k,
+      arcRange: stats.arcRange, castRange: stats.range, rootRank: k,
       falloutBonus: run.weaponMods.atomicBreath?.fallout ?? 0,
       // x/y track the fork's ROOT body (not the player), so two forks anchored on different enemies
       // are distinguishable — by render, and by anything asking where this arc actually is.
@@ -6633,14 +6638,12 @@ function buildFork(run, a) {
   let fx = p.x, fy = p.y
   // The root reaches as far as one jump does, so a breath cast with nothing adjacent still lights.
   for (let i = 0; i <= a.jumps; i++) {
-    // v7.25: the ROOT reaches the CLOSEST enemy ON SCREEN, not one within arcRange of the player.
-    // arcRange governs how far the fork JUMPS between bodies and nothing else — using it for the
-    // root too meant an enemy 250px away, plainly visible, was invisible to the weapon, so the
-    // breath wound up and discharged into empty ground (owner: "it should ... discharge to closest
-    // enemy"). nearestEnemy is the shared choke point every other aim site goes through, so this
-    // also inherits its ally rule for free.
-    const rootRange = run.viewRadius + 100
-    const reach = i === 0 ? rootRange : a.arcRange
+    // The ROOT reaches the closest enemy within the weapon's own `range`; arcRange governs how far
+    // the fork JUMPS between bodies and nothing else. v7.23 used arcRange for both, so an enemy at
+    // 250px was invisible and the breath discharged into empty ground; v7.25 fixed that by opening
+    // the root to the whole viewport, which was too much initial reach (owner). a.castRange is the
+    // middle: comfortably past arcRange, well under the screen.
+    const reach = i === 0 ? a.castRange : a.arcRange
     // The ROOT skips the `rootRank` nearest, so IPECAC's extra forks anchor on different bodies.
     // Clamped by availability: a crowd smaller than the rank falls back to the nearest, not nothing.
     const skip = i === 0 ? (a.rootRank ?? 0) : 0
