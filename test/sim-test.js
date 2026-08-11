@@ -98,6 +98,7 @@ import {
   MAX_ALIVE, maxAliveFor,
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
+  LANE_SPAWN_MUL, LANE_EARLY_BOOST, LANE_EARLY_UNTIL, laneEarlyMul, FORMATION_INTERVAL, FORMATION_COLS,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
 } from '../src/config.js'
@@ -10373,6 +10374,74 @@ function testEarlySpawnBoost() {
   console.log(`PASS run WW (v6.6.5 early spawn boost): rate ${plain(0).toFixed(2)}->${spawnRate(0).toFixed(2)}/s at t=0, seamless at t=${SPAWN_EARLY_UNTIL}, first-minute arrivals ~${plainExpected.toFixed(0)} -> ${boosted}`)
 }
 
+// ---- Run WL: The Beyond's denser opening (LANE_EARLY_BOOST) -----------------------------------
+// "33% more enemies at the start, but finish at the same rate." The lane has TWO spawners and the
+// ranks are the majority of its early arrivals, so a boost wired into only one of them delivers
+// roughly half the ask while every existing test still passes. Both halves are asserted as ARRIVAL
+// COUNTS from a real run, split by source, against a baseline integrated from the shipped constants
+// — not against eyeballed literals, so a retune of the boost moves the test with the config.
+function testLaneOpening() {
+  // (a) the taper's shape. The far end is the whole "finish at the same rate" half of the ask.
+  assert(Math.abs(laneEarlyMul(0) - (1 + LANE_EARLY_BOOST)) < 1e-9, `expected the full boost at t=0, got ${laneEarlyMul(0)}`)
+  assert(Math.abs(laneEarlyMul(LANE_EARLY_UNTIL / 2) - (1 + LANE_EARLY_BOOST / 2)) < 1e-9, 'expected half the boost at the midpoint')
+  assert.strictEqual(laneEarlyMul(LANE_EARLY_UNTIL), 1, 'expected the boost spent exactly at LANE_EARLY_UNTIL')
+  assert.strictEqual(laneEarlyMul(300), 1, 'the end of a run must be untouched — that is the constraint')
+
+  const dt = 1 / 60
+  const WINDOW = 30
+  // Weapons stripped so nothing dies and the count is pure arrivals; the player is immortal so the
+  // run cannot end early. Enemies are split by rosterId: the lane's `march` entries are the ranks
+  // (stepFormations), everything else came through ordinary ring spawning (stepSpawning).
+  const arrivals = (secs) => {
+    Math.random = mulberry32(20260811)
+    const run = createRun(makeMeta(), { chapter: 'beyond' })
+    run.weapons = []
+    run.player.hp = run.player.maxHP = 1e9
+    const seen = new Set()
+    let ring = 0, rank = 0
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+      for (const e of run.enemies) {
+        if (seen.has(e.id)) continue
+        seen.add(e.id)
+        if (e.rosterId === 'invader' || e.rosterId === 'hulk') rank++; else ring++
+      }
+    }
+    return { ring, rank }
+  }
+  const got = arrivals(WINDOW)
+
+  // (b) THE RING STREAM. Baseline = the shipped curve integrated over the same window at the lane's
+  // own rate, i.e. what stepSpawning would have delivered with laneEarlyMul dropped. The boost
+  // averages 1+LANE_EARLY_BOOST*(1-WINDOW/2/LANE_EARLY_UNTIL) over this window, so demand most of
+  // it; the opening credit and the elite cadence ride along on top and only ever help.
+  let ringBase = 0
+  for (let i = 0; i < Math.round(WINDOW / dt); i++) ringBase += spawnRate(i * dt) * LANE_SPAWN_MUL * dt
+  const ringWant = 1 + LANE_EARLY_BOOST * (1 - WINDOW / 2 / LANE_EARLY_UNTIL) * 0.75
+  assert(got.ring > ringBase * ringWant,
+    `ring stream: expected the opening boost in stepSpawning (baseline ~${ringBase.toFixed(0)}, wanted > ${(ringBase * ringWant).toFixed(0)}, got ${got.ring})`)
+
+  // (c) THE RANKS, which are the bigger half here and the one a rate multiplier alone cannot move:
+  // stepFormations' row count is a rounded 1..3 and stays pinned at 1 this early whatever you
+  // multiply it by. The boost has to reach the CADENCE. Baseline is exact — the formation timer is
+  // pure dt accumulation with no RNG in it at all.
+  const rankBase = Math.floor(WINDOW / FORMATION_INTERVAL) * FORMATION_COLS
+  assert(got.rank > rankBase,
+    `ranks: expected a compressed cadence in stepFormations (shipped cadence lands ${rankBase} in ${WINDOW}s, got ${got.rank}) — a spawn-RATE multiplier alone cannot do this`)
+
+  // (d) SOURCE TRIPWIRE. Two call sites, and losing either is silent: the run still plays, every
+  // other test still passes, and the chapter quietly delivers half the boost it advertises.
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  assert.ok(src.includes('LANE_SPAWN_MUL * laneEarlyMul(run.time)'), 'stepSpawning must scale the ring stream by laneEarlyMul')
+  assert.ok(src.includes('FORMATION_INTERVAL / laneEarlyMul(run.time)'), 'stepFormations must compress the rank cadence by laneEarlyMul')
+
+  console.log(`PASS run WL (lane opening): first ${WINDOW}s of The Beyond — ring ${ringBase.toFixed(0)} -> ${got.ring}, ranks ${rankBase} -> ${got.rank}; boost spent at t=${LANE_EARLY_UNTIL}s`)
+}
+
 // ---- Run YY: forward compatibility — an OLDER build must not destroy a NEWER build's save -----
 // Slice 0 of docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md (§2.4/§2.5).
 // Today a save only ever moves FORWARD through builds, so only backward compatibility mattered.
@@ -10952,6 +11021,7 @@ try {
   testEnemySeparation()
   testChapterDensityCap()
   testEarlySpawnBoost()
+  testLaneOpening()
   testFrenchDictionary()
   testForwardCompatibleSave()
   // BEFORE testSyncDecisions, and that is not cosmetic: run ZZ.f calls freezeSaves(), which is a
