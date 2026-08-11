@@ -8634,8 +8634,13 @@ export function createRenderer(app) {
     // layer, and so did rampWaveR — the wave had exactly one consumer and it was those cones. The
     // rim-light sweep below is a separate thing: it keys off the crush radius, not the wave.
     if (!active) {
-      for (const s of platePool) s.visible = false
       rampBeatT = 0
+      // v7.23: the dorsal plates are not rampage's private property any more. The Atomic Breath's
+      // wind-up lights the SAME spine — that is what a charging kaiju looks like, and it is what
+      // this weapon's own design doc promised before it shipped a bare ring instead. Rampage still
+      // wins outright when both are live (it is a whole-run state, the breath is half a second),
+      // which is why this sits in the not-active branch rather than fighting the loop above.
+      if (!lightPlatesForBreath(run)) for (const s of platePool) s.visible = false
       return
     }
     const p = run.player
@@ -8681,6 +8686,43 @@ export function createRenderer(app) {
       s.position.set(0, py)
     }
   }
+  // v7.23 Atomic Breath wind-up: the seven dorsal plates charge TAIL -> HEAD and the whole spine
+  // brightens as the charge fills, arriving lit at the head exactly as the breath fires. Returns
+  // false when there is nothing charging, so the caller can hide the pool as before.
+  //
+  // Reuses updateRampage's plate machinery wholesale — same platePool, same T.plate texture, same
+  // (0, py) spine points drawKaijuBody bakes as anatomy, so this cannot drift out of register with
+  // the body the way the pre-v5.11 rotating arc did. The DIFFERENCE from rampage is the motion:
+  // rampage runs a continuous loop off animT (it is a sustained state), while this is a one-way
+  // fill on the sim's own charge clock — so the plates read as "winding up to something", not as
+  // "rampage is on".
+  function lightPlatesForBreath(run) {
+    if (!chapterHasKaiju) return false
+    const a = (run.arcs || []).find((x) => x.charge > 0)
+    if (!a) return false
+    const R = SKIES_FX.rampage
+    const K = SKIES_KAIJU
+    const k = 1 - Math.max(0, Math.min(1, a.charge / BREATH_CHARGE_T))   // 0 -> 1 across the wind-up
+    for (let i = 0; i < platePool.length; i++) {
+      const s = platePool[i]
+      const f = i / (platePool.length - 1)
+      // drawKaijuBody bakes py = lerp(-44, 92, f), so f=0 is the HEAD and f=1 the tail. A tail->head
+      // wavefront therefore travels f: 1 -> 0, i.e. it sits at (1 - k).
+      const front = Math.max(0, 1 - Math.abs(f - (1 - k)) * 3)
+      const charge = Math.min(1, front + k * k * 0.6)   // ...and the whole spine glows hotter as it fills
+      const py = lerp(-44, 92, f)
+      const bump = Math.max(0, 1 - Math.abs(f - 0.42) * 1.5)
+      s.visible = true
+      if (s.texture !== T.plate.tex) { s.texture = T.plate.tex; s.anchor.set(T.plate.ax, T.plate.ay) }
+      s.tint = mix(R.plateCool, R.plateHot, charge)
+      s.alpha = 0.35 + 0.65 * charge
+      s.scale.set(lerp(0.9, 1.7, bump) * (0.9 + 0.35 * charge) * K.plateGlowScale)
+      s.rotation = 0
+      s.position.set(0, py)
+    }
+    return true
+  }
+
   function clearRampage() {
     rampG.clear()
     jamT = 0; rampBeatT = 0

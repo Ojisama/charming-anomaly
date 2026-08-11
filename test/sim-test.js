@@ -12699,6 +12699,20 @@ function testUndergrowthRound() {
         `nothing in render.js ever READS look.${hook} — the hook is dead weight`)
     }
     console.log('PASS run UG.k (render hooks are wired): faceDir/turnRate/poseOf are declared, forwarded by makeRosterLook, and read by syncEnemies')
+
+    // v7.23, same tripwire shape for the Atomic Breath's wind-up. The owner asked "I thought the
+    // scales on the back should light up when charging?" — and they did not: the design and the
+    // spec both promised the dorsal plates, and the first cut shipped a bare ring instead. The
+    // failure mode this guards is the NEXT one: updateRampage owns platePool and blanket-hides it
+    // whenever rampage is inactive, so a lightPlatesForBreath that exists but is not called from
+    // that branch is silently inert — every plate is hidden one line later, with no error anywhere.
+    assert.ok(/function lightPlatesForBreath/.test(src),
+      'the Atomic Breath wind-up must light the dorsal plates — lightPlatesForBreath is gone')
+    assert.ok(/if \(!lightPlatesForBreath\(run\)\) for \(const s of platePool\) s\.visible = false/.test(src),
+      'lightPlatesForBreath is declared but updateRampage does not gate its plate-hiding on it — the plates would be hidden the line after they are lit, a silent no-op')
+    assert.ok(/lightPlatesForBreath[\s\S]{0,900}run\.arcs[\s\S]{0,400}charge/.test(src),
+      'lightPlatesForBreath must key off a charging run.arcs entry — otherwise it is not the wind-up it claims to draw')
+    console.log('PASS run UG.k2 (breath wind-up): the dorsal plates are lit by lightPlatesForBreath, and updateRampage gates its hide on it')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
