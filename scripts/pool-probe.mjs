@@ -93,9 +93,9 @@ const DIFF = Number(args.find((a) => a.startsWith('--diff='))?.slice(7) ?? 1)
 const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1)
 // --rerolls=N: re-deal every screen N times before measuring it, exactly as a paying player would
 // (see the header). Shipped pipeline only. Drives buildLevelUpChoices through the same field
-// main.js's reroll purchase steps, so the anomaly memo (run._screenAnomaly) survives the re-deal
-// and the tier stays decided once per screen — the reason this cannot be faked by rebuilding the
-// screen from scratch.
+// main.js's reroll purchase steps, which is what gates v7.20's halved anomaly weight on a paid
+// deal (ANOMALY_REROLL_MUL) — the reason this cannot be faked by rebuilding the screen from
+// scratch, which would measure every re-deal at the full natural rate.
 const REROLLS = Number(args.find((a) => a.startsWith('--rerolls='))?.slice(10) ?? 0)
 const XPMUL = Number(args.find((a) => a.startsWith('--xpmul='))?.slice(8) ?? 1)
 // v6.7.14: --modcands, --focus/--focusmul and --specialist are GONE. All four biased the mod

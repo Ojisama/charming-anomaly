@@ -10779,81 +10779,74 @@ export function createRenderer(app) {
   // dies exactly at `range` — the drawn extent is the tested extent, per the claw rule) and fading
   // as they travel. Warm dark amber on the skies' pale cool concrete (warm-vs-cool + darker value
   // is what reads there — pale-on-pale is the chapter's documented camouflage trap).
-  // Same fixed-span-bake + tan-exact y-squash as the claw: the band is baked spanning ROAR_SPAN
-  // and squashed so the drawn wedge IS the cast's arc (wideRoar changes it at runtime).
+  // v7.27: DRAWN AS A REAL ARC, not a baked sprite stretched to fake one.
+  //
+  // It used to be the claw's fixed-span-bake + tan-exact y-squash: one band baked spanning
+  // ROAR_SPAN (1.0 rad), scaled by q = tan(arc/2)/tan(ROAR_SPAN/2) in Y to "become" the cast's arc.
+  // That is a LINEARISATION, and it only holds near the baked span — its own comment admitted it was
+  // "wide at the tips". wideRoar multiplies `arc` at runtime, so a real build walks straight out of
+  // the range where it holds: L5's 1.30 rad already needs q = 1.7, +150% width needs 2.6, +200%
+  // needs 6.6. At those factors the sprite is not a wider arc, it is the SAME arc smeared into a
+  // tall ellipse — which is why the owner reported "we just see orange lines on the screen" and
+  // "it doesn't look like a roar sound pressure wave anymore when >150% roar width".
+  //
+  // A Graphics annulus sector has no such limit: it is drawn at the cast's true arc, so the picture
+  // is correct at 0.9 rad and at 2.6 rad alike, and the q hack, the bake and its two constants are
+  // all gone with it. Cost is trivial — a roar lasts 0.34s and at most MAX_ROARS x ROAR_BANDS = 18
+  // sectors can ever be on screen at once, rebuilt on a Graphics that is cleared every frame anyway
+  // (same idiom as hazardG/laneG/breathG).
   const MAX_ROARS = 6
-  const ROAR_SPAN = 1.0        // rad the baked band subtends
-  const ROAR_REF = 100         // baked outer radius; scaled by radius/ROAR_REF at use
   const ROAR_BANDS = 3
   const ROAR_COLORS = [0xf0a63f, 0xcf7d24, 0xb8641f] // leading edge bright, trailing bands darker
-  let roarBandTex = null
-  function bakeRoarBand() {
-    const g = new Graphics()
-    const pts = []
-    const N = 26
-    for (let i = 0; i <= N; i++) { const a = -ROAR_SPAN / 2 + (i / N) * ROAR_SPAN; pts.push(Math.cos(a) * ROAR_REF, Math.sin(a) * ROAR_REF) }
-    for (let i = N; i >= 0; i--) { const a = -ROAR_SPAN / 2 + (i / N) * ROAR_SPAN; pts.push(Math.cos(a) * ROAR_REF * 0.86, Math.sin(a) * ROAR_REF * 0.86) }
-    g.poly(pts).fill(0xffffff) // white, tinted per band
-    return bake(g)
-  }
+  const ROAR_THICK_FRAC = 0.14  // band thickness as a fraction of its current radius...
+  const ROAR_THICK_MIN = 10     // ...with a floor, so a wave born at the mouth is not a 1px hairline
+  const roarG = new Graphics()
+  whipLayer.addChild(roarG)
   const roars = []
-  for (let i = 0; i < MAX_ROARS; i++) roars.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.34, root: null, bands: null })
+  for (let i = 0; i < MAX_ROARS; i++) roars.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.34 })
   let roarCursor = 0
   function spawnRoar(x, y, angle, range, arc) {
     const rp = roars[roarCursor]
     roarCursor = (roarCursor + 1) % MAX_ROARS
-    if (!rp.root) {
-      if (!roarBandTex) roarBandTex = bakeRoarBand()
-      rp.root = new Container()
-      rp.bands = ROAR_COLORS.map((c) => {
-        const b = new Sprite(roarBandTex.tex)
-        b.anchor.set(roarBandTex.ax, roarBandTex.ay) // arc centre -> sits on the player
-        b.tint = c
-        return b
-      })
-      rp.root.addChild(...rp.bands)
-      whipLayer.addChild(rp.root)
-    }
     rp.live = true
     rp.x = x; rp.y = y; rp.angle = angle; rp.range = range; rp.arc = arc || 1
     rp.t = 0
-    rp.root.visible = true
   }
   function updateRoars(dt) {
+    roarG.clear()
     for (const rp of roars) {
       if (!rp.live) continue
       if (dt > 0) rp.t += dt
-      if (rp.t >= rp.dur) { rp.live = false; rp.root.visible = false; continue }
+      if (rp.t >= rp.dur) { rp.live = false; continue }
       const k = rp.t / rp.dur
-      rp.root.position.set(rp.x, rp.y)
-      rp.root.rotation = rp.angle
-      // exact wedge fit (the claw lesson: the q ~= arc/SPAN linearisation is wide at the tips)
-      const q = Math.tan(rp.arc / 2) / Math.tan(ROAR_SPAN / 2)
-      // v7.26 (owner: "roar animation should start from the player mouth ... with 200%+ range we
-      // almost don't see the pressure wave"). The wavefront used to be born at 30% OF RANGE, and
-      // that is the bug: the dead zone in front of the kaiju SCALED with the stat you were buying.
-      // At L5's 275 it started 82px out; with range mods at 200%+ it started ~180px out, so the
-      // whole early sweep — the part that reads as a roar leaving the head — never existed, and
-      // Long Roar visibly made the effect worse the more you took.
-      // Now it is born at the MOUTH, a fixed distance, and expands to `range`. The arc CENTRE stays
-      // on the player because that is where inSector tests from: the wedge on screen is still the
-      // honest hitbox, and the band at the mouth's radius passes exactly through the mouth. Falls
-      // back to the body radius outside skies (the Blank's pool carries roar and has no kaiju).
+      // The wavefront is born at the MOUTH — a fixed distance — and expands to `range`. It used to
+      // be born at 30% OF RANGE, so the dead zone in front of the kaiju SCALED with the range stat:
+      // 82px out at L5's 275, ~180px out with range mods past 200%, which meant the early sweep (the
+      // part that reads as a roar leaving the head) never existed and Long Roar made its own effect
+      // worse the more you took. The arc CENTRE stays on the player because that is where inSector
+      // tests from, so the wedge on screen is still the honest hitbox, and a band at the mouth's
+      // radius passes through the mouth anyway. Body radius outside skies (the Blank has no kaiju).
       const roarStart = chapterHasKaiju ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
-      for (let i = 0; i < rp.bands.length; i++) {
-        const band = rp.bands[i]
+      const a0 = rp.angle - rp.arc / 2
+      const a1 = rp.angle + rp.arc / 2
+      for (let i = 0; i < ROAR_BANDS; i++) {
         // stagger: each band launches a beat later and expands from the mouth to exactly `range`
         const ki = Math.min(1, Math.max(0, (k - i * 0.12) / 0.72))
-        if (ki <= 0) { band.alpha = 0; continue }
-        const radius = roarStart + Math.max(0, rp.range - roarStart) * ki
-        const sx = radius / ROAR_REF
-        band.scale.set(sx, sx * q)
-        band.alpha = Math.sin(Math.PI * ki) * (0.8 - i * 0.16)
+        if (ki <= 0) continue
+        const rOut = roarStart + Math.max(0, rp.range - roarStart) * ki
+        const rIn = Math.max(1, rOut - Math.max(ROAR_THICK_MIN, rOut * ROAR_THICK_FRAC))
+        const alpha = Math.sin(Math.PI * ki) * (0.8 - i * 0.16)
+        if (alpha <= 0.004) continue
+        // Annulus sector: out along the arc, back along the inner radius, closed. One filled band.
+        roarG.arc(rp.x, rp.y, rOut, a0, a1)
+          .arc(rp.x, rp.y, rIn, a1, a0, true)
+          .fill({ color: ROAR_COLORS[i], alpha })
       }
     }
   }
   function clearRoars() {
-    for (const rp of roars) { rp.live = false; if (rp.root) rp.root.visible = false }
+    roarG.clear()
+    for (const rp of roars) rp.live = false
   }
 
   // particles: fixed-size freelist of sprites + plain data

@@ -13,6 +13,12 @@
 //   kills/min    what the player experiences as clear speed
 //   hits/s       tactile feedback rate — how often a number pops
 //   dmg/hit      average swing size
+//   dud          % of casts that dealt NO damage at all — "fired at nothing". eff dps cannot
+//                separate "weak" from "regularly misses entirely", and the second is a bug wearing
+//                the first one's clothes (see the cast-detection block below for the v7.23 case
+//                this was added for). Read it as a ratio against the other rows, not an absolute:
+//                every weapon fires on a timer that never asks whether anything is in reach, so a
+//                healthy weapon still duds during quiet stretches (6-17% for the skies natives).
 //
 // and, for weapons that plant telegraphed zones (run.zones — the Burst Hydrant and the Reality
 // Shard's tornSeam), a per-ZONE breakdown: how often a zone caught nothing across its ENTIRE life,
@@ -96,6 +102,9 @@ function census(id, level, seed) {
   if (Object.keys(MODS).length) run.weaponMods[id] = Object.assign(run.weaponMods[id] ?? {}, MODS)
 
   let raw = 0, eff = 0, hits = 0
+  // Dud tracking (see the cast-detection block in the step loop below).
+  const wid = id
+  let casts = 0, duds = 0, windowEff = 0, prevTimer
   const before = new Map()
   const steps = Math.round(SECS / DT)
   // 'explode' is not a zone-weapon signal — the beam and the tornado emit it for their own bursts.
@@ -120,7 +129,37 @@ function census(id, level, seed) {
 
     const after = new Map()
     for (const e of run.enemies) after.set(e.id, e.hp)
-    for (const [eid, hp] of before) eff += Math.max(0, hp - (after.get(eid) ?? 0))
+    let stepEff = 0
+    for (const [eid, hp] of before) stepEff += Math.max(0, hp - (after.get(eid) ?? 0))
+    eff += stepEff
+
+    // DUD RATE: casts that dealt nothing at all. fireOnTimer ADDS the interval back after firing,
+    // so the weapon's timer going UP is the cast signal — no per-weapon event vocabulary needed.
+    // Damage is credited to the cast's whole window (cast -> next cast), which is what makes this
+    // work for delayed weapons too: a lob lands mid-window, a breath burns across most of one.
+    //
+    // Why it exists: eff dps alone cannot tell "this weapon is weak" from "this weapon regularly
+    // fires at nothing", and the second is a BUG wearing the first one's clothes. v7.23's Atomic
+    // Breath gated its first target by the wrong radius and discharged into empty ground on a large
+    // fraction of casts; every sim-test passed (they all placed an enemy where the weapon worked)
+    // and the census reported a plausible dps, so it shipped and came back as "I don't think atomic
+    // breath works correctly".
+    // MEASURED, by reintroducing that bug on a scratch copy (skies L5, 120s): dud 13% -> 22% while
+    // eff dps moved 46 -> 40. So this is a clearer signal than dps but NOT a klaxon — read it as a
+    // RATIO against the other weapons in the same table, not against an absolute threshold. Some
+    // duds are normal and irreducible: every weapon fires on a timer that does not ask whether
+    // anything is in reach, so a quiet stretch is a dud by construction (the four skies natives sit
+    // at 6-17% when healthy).
+    const tNow = run.weaponTimers[wid]
+    if (tNow !== undefined) {
+      if (prevTimer !== undefined && tNow > prevTimer + 1e-9) {
+        if (casts > 0 && windowEff <= 0) duds++
+        casts++
+        windowEff = 0
+      }
+      prevTimer = tNow
+    }
+    windowEff += stepEff
 
     for (const ev of run.events.splice(0)) {          // trap 1: main.js drains every frame
       if (ev.type === 'hit') { raw += ev.dmg; hits++ }
@@ -160,7 +199,8 @@ function census(id, level, seed) {
     for (const [g, rec] of zoneLife) if (!live.has(g)) { finished.push(rec); zoneLife.delete(g) }
   }
   for (const rec of zoneLife.values()) finished.push(rec)   // still open when the run ended
-  return { raw, eff, hits, zones: plantsZones ? finished : [], kills: run.kills, time: run.time }
+  if (casts > 0 && windowEff <= 0) duds++   // the final cast's window closes at the run's end
+  return { raw, eff, hits, casts, duds, zones: plantsZones ? finished : [], kills: run.kills, time: run.time }
 }
 
 const pad = (s, n) => String(s).padStart(n)
@@ -170,20 +210,22 @@ if (Object.keys(MODS).length) console.log(`mods: ${JSON.stringify(MODS)}`)
 
 for (const level of LEVELS) {
   console.log(`\n--- level ${level} ---`)
-  console.log('  weapon           raw dps  eff dps  waste  kills/min  hits/s  dmg/hit')
+  console.log('  weapon           raw dps  eff dps  waste  kills/min  hits/s  dmg/hit  dud')
   const zoneRows = []
   for (const id of WEAPON_IDS) {
     if (!WEAPONS[id]) { console.log(`  ${id}: no such weapon`); continue }
-    let raw = 0, eff = 0, hits = 0, kills = 0, t = 0
+    let raw = 0, eff = 0, hits = 0, kills = 0, t = 0, casts = 0, duds = 0
     let caught = []
     for (const s of SEEDS) {
       const r = census(id, level, s)
       raw += r.raw; eff += r.eff; hits += r.hits; kills += r.kills; t += r.time
+      casts += r.casts; duds += r.duds
       caught = caught.concat(r.zones)
     }
     console.log('  ' + WEAPONS[id].name.padEnd(16) + pad(Math.round(raw / t), 7) + pad(Math.round(eff / t), 9) +
       pad(Math.round(100 * (1 - eff / Math.max(1, raw))) + '%', 7) + pad((kills / t * 60).toFixed(1), 11) +
-      pad((hits / t).toFixed(1), 8) + pad((raw / Math.max(1, hits)).toFixed(1), 9))
+      pad((hits / t).toFixed(1), 8) + pad((raw / Math.max(1, hits)).toFixed(1), 9) +
+      pad(casts ? Math.round(100 * duds / casts) + '%' : '-', 5))
     if (caught.length) zoneRows.push([WEAPONS[id].name, caught])
   }
   for (const [name, zones] of zoneRows) {

@@ -23,6 +23,7 @@ import {
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
+  ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
@@ -456,7 +457,6 @@ function testAnomalySlate() {
       let seen = 0
       for (let i = 0; i < 300; i++) {
         b._screenRerolls = -1
-        b._screenAnomaly = undefined
         for (const c of buildLevelUpChoices(b)) {
           if (c.kind === 'passive' && DEFENSIVE_PASSIVES.includes(c.id)) seen++
         }
@@ -468,7 +468,6 @@ function testAnomalySlate() {
       let ctrl = 0
       for (let i = 0; i < 300; i++) {
         n._screenRerolls = -1
-        n._screenAnomaly = undefined
         for (const c of buildLevelUpChoices(n)) {
           if (c.kind === 'passive' && DEFENSIVE_PASSIVES.includes(c.id)) ctrl++
         }
@@ -561,7 +560,6 @@ function testAnomalySlate() {
     const r = withCard('bloodMoney', (x) => { x.player.maxHP = 100; x.player.hp = 100; x.coinsEarned = 0 })
     r.player.level = 12
     r._eliteKills = 1
-    r._screenAnomaly = undefined
     r.levelUpChoices = buildLevelUpChoices(r)
     const price = rerollPrice(r)
     assert.strictEqual(price.currency, 'hp', 'rerollPrice still says coins under BLOOD MONEY — the button will print the wrong wallet')
@@ -880,7 +878,6 @@ function testAnomalySlate() {
       let mods = 0, cards = 0
       for (let i = 0; i < 3000; i++) {
         r._screenRerolls = -1
-        r._screenAnomaly = undefined
         for (const c of buildLevelUpChoices(r)) {
           cards++
           if (c.kind !== 'mod') continue
@@ -916,7 +913,6 @@ function testAnomalySlate() {
       const offered = new Set()
       for (let i = 0; i < 3000; i++) {
         r._screenRerolls = -1
-        r._screenAnomaly = undefined
         for (const c of buildLevelUpChoices(r)) if (c.kind === 'mod') offered.add(`${c.weapon}:${c.id}`)
       }
       assert.ok(offered.has(`orbit:${modId}`),
@@ -945,7 +941,6 @@ function testAnomalySlate() {
       let cards = 0, switches = 0, dealt = 0
       for (let i = 0; i < 2000; i++) {
         r._screenRerolls = rerolls
-        r._screenAnomaly = undefined
         const row = buildLevelUpChoices(r)
         dealt++
         for (const c of row) {
@@ -1058,7 +1053,6 @@ function testAnomalySlate() {
       let sawSwitch = 0, illegal = 0, shortScreens = 0
       for (let i = 0; i < 400; i++) {
         r._screenRerolls = -1
-        r._screenAnomaly = undefined
         const row = buildLevelUpChoices(r)
         if (row.length < MAX_CHOICE_SLOTS) shortScreens++
         for (const c of row) {
@@ -1338,7 +1332,6 @@ function testPoolBuckets() {
     let total = 0, defence = 0
     for (let i = 0; i < 4000; i++) {
       run._screenRerolls = -1   // never let reroll decay contaminate a base-rate sample
-      run._screenAnomaly = undefined   // ...and each iteration is a NEW screen, not a reroll of one
       for (const c of buildLevelUpChoices(run)) {
         if (c.kind === 'heal') continue
         kinds[c.kind] = (kinds[c.kind] ?? 0) + 1
@@ -1593,10 +1586,6 @@ function testAnomalyTier() {
     const slotHits = new Array(slots).fill(0)
     for (let i = 0; i < 6000; i++) {
       run._screenRerolls = -1
-      // Each iteration is a NEW SCREEN. buildLevelUpChoices memoises the tier's answer on
-      // run._screenAnomaly so a REROLL cannot draw again (v6.7.9) — without this reset the loop
-      // would sample one frozen draw 6000 times and report it as a rate.
-      run._screenAnomaly = undefined
       const cards = buildLevelUpChoices(run)
       pools++
       assert.strictEqual(cards.length, slots, `a pool returned ${cards.length} cards, not ${slots}`)
@@ -1685,7 +1674,6 @@ function testAnomalyTier() {
     mutate(r)
     for (let i = 0; i < 400; i++) {
       r._screenRerolls = -1
-      r._screenAnomaly = undefined   // a new screen each pass, not 400 rerolls of one (v6.7.9)
       if (buildLevelUpChoices(r).some((c) => c.kind === 'anomaly' && (id === null || c.id === id))) return true
     }
     return false
@@ -1795,7 +1783,6 @@ function testAnomalyTier() {
     let offered = 0
     for (let i = 0; i < 600; i++) {
       r._screenRerolls = -1
-      r._screenAnomaly = undefined   // a new screen each pass, not 600 rerolls of one (v6.7.9)
       for (const c of buildLevelUpChoices(r)) if (c.kind === 'anomaly') offered++
     }
     assert.ok(offered > 0, 'a throwing predicate took the whole tier down with it')
@@ -2020,7 +2007,6 @@ function testAnomalyPity() {
     let hits = 0
     for (let i = 0; i < iters; i++) {
       run._screenRerolls = -1
-      run._screenAnomaly = undefined
       run._screensSinceAnomaly = screensSince
       const cards = buildLevelUpChoices(run)
       const hit = cards.some((c) => c.kind === 'anomaly')
@@ -2061,46 +2047,108 @@ function testAnomalyPity() {
   assert.ok(Math.abs(saturated - ceiling) < 2.5,
     `a saturated run offered the tier on ${saturated.toFixed(1)}% of pools against the capped ceiling ${ceiling.toFixed(1)}% (ANOMALY_PITY_CAP ${ANOMALY_PITY_CAP}) — pity is uncapped, or it is not being applied at all`)
 
-  // STICKY. A reroll is buildLevelUpChoices called AGAIN on the same screen (main.js onReroll), so
-  // the tier's answer must already be settled: the same card comes back, the counter does not
-  // move, and — the property spec B6 states and this is the test of — the chance the screen
-  // carries one does not rise with the number of rerolls bought. Measured before the fix, at a
-  // saturated counter, rerolling until it showed: 20.1% at 0 rerolls, 75.5% at 5, for 133 coins
-  // against ~370 earned in a body/2 run (6.8% -> 33.9% at base pity). The per-iteration assertions
-  // are the exact ones; the two rates are the B6 claim.
+  // A RUPTURE IS AN ORDINARY CARD ON A REROLL (v7.20, owner). It used to be STICKY — the screen's
+  // answer was decided once and reused, so a reroll could neither draw the tier nor lose it, and an
+  // unwanted Rupture sat in a slot through every paid re-deal. Three properties replace that, and
+  // all three are needed: without the halved weight coins farm the tier, without the once-per-
+  // screen pity charge a reroll-heavy player ends a run having seen FEWER Ruptures for paying more,
+  // and without the "it can change" check the memo could come back unnoticed.
   const REROLLS = 5
-  const afterRerolls = (screensSince, rerolls, iters) => {
+  // Drives the SHIPPED reroll (rerollLevelUpChoices), not a hand-stepped counter: _screenRerolls is
+  // what gates the halved weight, and a loop that sets it by hand measures the wrong branch.
+  const rerollScreens = (screensSince, rerolls, iters) => {
     Math.random = mulberry32(20260811)
     meta.choiceSlots = 2
     const run = createRun(meta)
     run.player.level = 12
     run._eliteKills = 1
-    let hits = 0
+    let hits = 0, changed = 0, pitySteps = 0
     for (let i = 0; i < iters; i++) {
-      run._screenRerolls = -1
-      run._screenAnomaly = undefined   // a NEW screen...
+      run._screenRerolls = 0
+      run._rerolls = 0
+      run.coinsEarned = 1e9              // the price ladder is PB4's subject, not this block's
       run._screensSinceAnomaly = screensSince
-      let cards = buildLevelUpChoices(run)
-      const first = cards.filter((c) => c.kind === 'anomaly').map((c) => c.id).join()
-      const pity = run._screensSinceAnomaly
+      run.levelUpChoices = buildLevelUpChoices(run)
+      const idOf = (cards) => cards.filter((c) => c.kind === 'anomaly').map((c) => c.id).join()
+      const first = idOf(run.levelUpChoices)
+      let before = run._screensSinceAnomaly
       for (let r = 0; r < rerolls; r++) {
-        run._screenRerolls = -1          // ...and every pass after it is a REROLL of that screen:
-        cards = buildLevelUpChoices(run) // _screenAnomaly is deliberately NOT cleared here
-        assert.strictEqual(cards.filter((c) => c.kind === 'anomaly').map((c) => c.id).join(), first,
-          `reroll ${r + 1} changed the screen's anomaly ('${first}' -> '${cards.filter((c) => c.kind === 'anomaly').map((c) => c.id).join()}') — the tier must be decided once per SCREEN, or coins buy it (B6) and rerolling past one burns the pity that bought it`)
-        assert.strictEqual(run._screensSinceAnomaly, pity,
-          'a reroll moved the pity counter — reroll is a pity pump (F5), and coins are buying the rarest tier')
+        rerollLevelUpChoices(run)
+        if (before !== 0 && run._screensSinceAnomaly === 0) pitySteps++
+        before = run._screensSinceAnomaly
       }
-      if (cards.some((c) => c.kind === 'anomaly')) hits++
+      if (idOf(run.levelUpChoices) !== first) changed++
+      if (run.levelUpChoices.some((c) => c.kind === 'anomaly')) hits++
     }
-    return (100 * hits) / iters
+    return { rate: (100 * hits) / iters, changed, pitySteps }
   }
-  const sat0 = afterRerolls(10000, 0, 1500)
-  const sat5 = afterRerolls(10000, REROLLS, 1500)
-  assert.ok(Math.abs(sat5 - sat0) < 3.5,
-    `${REROLLS} rerolls took anomaly-on-screen ${sat0.toFixed(1)}% -> ${sat5.toFixed(1)}% at a saturated counter — rerolling buys BIGGER NUMBERS, never more anomalies (spec B6)`)
 
-  console.log(`PASS run PB3 (anomaly pity): weight ${w(1)}/${w(2)}/${w(10000)} at 1/2/saturated screens and identical at 4 slots; one screen = one step, ${SCREENS} ineligible screens bank nothing; rate ${rateFor(0).toFixed(1)}% -> ${mid.toFixed(1)}%/${mid4.toFixed(1)}% (2/4 slots) at ${midScreens - 1} dry screens -> ${saturated.toFixed(1)}% saturated against a ceiling of ${ceiling.toFixed(1)}%; ${REROLLS} rerolls hold it at ${sat0.toFixed(1)}% -> ${sat5.toFixed(1)}%; every reset kept its card`)
+  // 1. NOT STICKY. Over 1500 saturated screens, rerolling must sometimes change what the tier slot
+  //    holds — the old memo made this exactly 0.
+  const sat0 = rerollScreens(10000, 0, 1500)
+  const sat5 = rerollScreens(10000, REROLLS, 1500)
+  assert.ok(sat5.changed > 100,
+    `${REROLLS} rerolls changed the screen's Rupture on only ${sat5.changed} of 1500 screens — the tier is sticky again, which is the bug v7.20 fixed`)
+
+  // 2. REROLLING A RUPTURE AWAY REFUNDS HALF THE DRY-STREAK CREDIT (v7.30). The credit is spent
+  //     the moment the tier is offered, which was fair while the offer was guaranteed to survive to
+  //     the end of the screen — v7.29 broke that, so a reroll bought for an unrelated reason could
+  //     burn an 18-screen streak and hand back nothing. Asserted on the COUNTER, since that is the
+  //     quantity the player is being refunded, and against a control that took a card instead.
+  {
+    const screenWithRupture = (thenReroll) => {
+      Math.random = mulberry32(4242)
+      meta.choiceSlots = 2
+      const run = createRun(meta)
+      run.player.level = 12
+      run._eliteKills = 1
+      run.coinsEarned = 1e9
+      // Deal until a screen actually carries one, at a known dry streak.
+      let cards = null
+      for (let i = 0; i < 4000 && !cards; i++) {
+        run._screenRerolls = 0
+        run._rerolls = 0
+        run._screensSinceAnomaly = 20            // saturated, so the refund has something to halve
+        const deal = buildLevelUpChoices(run)
+        if (deal.some((c) => c.kind === 'anomaly')) cards = deal
+      }
+      assert.ok(cards, 'no screen carried a Rupture in 4000 deals — the fixture is not reaching its subject')
+      run.levelUpChoices = cards
+      assert.strictEqual(run._screensSinceAnomaly, 0, 'the offer did not spend the credit')
+      if (thenReroll) rerollLevelUpChoices(run)
+      return run._screensSinceAnomaly
+    }
+    const kept = screenWithRupture(false)
+    const rerolled = screenWithRupture(true)
+    assert.strictEqual(kept, 0, 'a screen resolved with its Rupture still on it must keep the credit spent in full')
+    assert.strictEqual(rerolled, Math.floor(20 * ANOMALY_REROLL_PITY_REFUND),
+      `rerolling a Rupture away left the credit at ${rerolled}, want ${Math.floor(20 * ANOMALY_REROLL_PITY_REFUND)} of 20 — at 0 the reroll silently burns a whole dry streak, at 20 declining the tier costs nothing and it re-offers until accepted`)
+  }
+
+  // 3. HALVED PER DEAL. A single paid re-deal carries the tier at ANOMALY_REROLL_MUL of the natural
+  //    rate. Measured on the re-deal itself rather than cumulatively, because the cumulative number
+  //    necessarily rises with rerolls now and is reported (not asserted) below.
+  // Pinned ARITHMETICALLY against the constants, not as a ratio of the two measured rates. A rate
+  // is w/(total + w), so halving the WEIGHT does not halve the RATE — the old ratio-of-rates form
+  // wanted x0.50 and only got it because the pity was being zeroed on exactly the screens that had
+  // carried a Rupture, which dragged the average onto the right number for the wrong reason. It
+  // broke the moment v7.30 refunded half that credit. This form says what the code should do.
+  const oneReroll = rerollScreens(10000, 1, 3000)
+  const tableTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+  const paidWeight = ANOMALY_PITY_CAP * ANOMALY_REROLL_MUL          // saturated counter, halved
+  const wantRate = (100 * paidWeight) / (tableTotal + paidWeight)
+  const ratio = oneReroll.rate / sat0.rate
+  assert.ok(Math.abs(oneReroll.rate - wantRate) < 1.6,
+    `one paid re-deal carried the tier on ${oneReroll.rate.toFixed(1)}% of screens, want ${wantRate.toFixed(1)}% (cap ${ANOMALY_PITY_CAP} x ${ANOMALY_REROLL_MUL} against an undecayed table of ${tableTotal}) — this halving is the whole of what stops coins farming the rarest tier (B6)`)
+
+  // 3. THE CREDIT IS SPENT BY THE OFFER, WHEREVER IT ARRIVES. A Rupture that first shows up on a
+  //    paid re-deal must still zero the pity — otherwise a rerolling player accrues credit forever
+  //    and the tier's rate climbs run-long. (It cannot be spent TWICE: zeroing is idempotent and
+  //    nothing raises the counter again until the next screen.)
+  assert.ok(sat5.pitySteps > 0,
+    'no reroll ever spent the pity credit — a Rupture found on a re-deal must charge it exactly as one found on the first deal')
+
+  console.log(`PASS run PB3 (anomaly pity): weight ${w(1)}/${w(2)}/${w(10000)} at 1/2/saturated screens and identical at 4 slots; one screen = one step, ${SCREENS} ineligible screens bank nothing; rate ${rateFor(0).toFixed(1)}% -> ${mid.toFixed(1)}%/${mid4.toFixed(1)}% (2/4 slots) at ${midScreens - 1} dry screens -> ${saturated.toFixed(1)}% saturated against a ceiling of ${ceiling.toFixed(1)}%; ${REROLLS} rerolls move it ${sat0.rate.toFixed(1)}% -> ${sat5.rate.toFixed(1)}% cumulative (one re-deal x${ratio.toFixed(2)}, changed on ${sat5.changed}/1500 screens, pity re-spent ${sat5.pitySteps}x)`)
 }
 
 // ---- Run PB4: reroll nudges rarity, never the anomaly tier --------------------------
@@ -2111,12 +2159,12 @@ function testAnomalyPity() {
 // The first two are invariance tests — the numbers must not move at all — because both are card
 // KIND, and the reroll's promise is card SIZE.
 // The sixth tier is spec B6. Two independent mechanisms keep it apart and both are pinned here:
-//   MEMO   the screen's anomaly answer is decided once and reused (v6.7.9; run PB3's STICKY block
-//          is the test of that half).
-//   DENOM  the anomaly roll competes against the sum of the UNDECAYED table. Summing the decayed
-//          one shrinks the denominator and inflates the tier ~35% relative — and because the memo
-//          settles the question at reroll 0, no Monte Carlo through the shipped screen flow can
-//          see that. The pin below is exact arithmetic, not a sample.
+//   HALVING  a paid re-deal rolls the tier at ANOMALY_REROLL_MUL of its weight (v7.20, replacing
+//            v6.7.9's per-screen memo; run PB3's block is the test of that half).
+//   DENOM    the anomaly roll competes against the sum of the UNDECAYED table. Summing the decayed
+//            one shrinks the denominator and inflates the tier ~35% relative. The pin below is
+//            exact arithmetic, not a sample — and it matters MORE now that the tier is rolled on
+//            every re-deal, since a decayed denominator would compound across rerolls.
 function testRerollRarity() {
   const meta = makeMeta()
   meta.choiceSlots = 3
@@ -2205,7 +2253,6 @@ function testRerollRarity() {
     let normal = 0, total = 0, epicPlus = 0, multSum = 0, elem = 0, elemNormal = 0
     for (let i = 0; i < SCREENS; i++) {
       run._screenRerolls = 0
-      run._screenAnomaly = undefined     // each iteration is a NEW screen (v6.7.9 memo)...
       run._screensSinceAnomaly = 3       // ...with pity pinned, so it confounds nothing
       let cards = buildLevelUpChoices(run)
       for (let r = 0; r < rerolls; r++) {
@@ -2294,7 +2341,6 @@ function testRerollRarity() {
     let mods = 0, switches = 0
     for (let i = 0; i < SCREENS; i++) {
       run._screenRerolls = rerolls
-      run._screenAnomaly = undefined
       for (const c of buildLevelUpChoices(run)) {
         if (c.kind !== 'mod') continue
         mods++
@@ -2326,7 +2372,6 @@ function testRerollRarity() {
     let n = 0
     for (let i = 0; i < SCREENS; i++) {
       run._screenRerolls = rerolls
-      run._screenAnomaly = undefined
       for (const c of buildLevelUpChoices(run)) {
         if (c.kind !== 'weapon' || c.tag !== 'New!') continue
         n++
@@ -2378,7 +2423,6 @@ function testRerollRarity() {
     let hits = 0
     for (let i = 0; i < N; i++) {
       run._screenRerolls = rerolls
-      run._screenAnomaly = undefined
       run._screensSinceAnomaly = 3
       if (buildLevelUpChoices(run).some((c) => c.kind === 'anomaly')) hits++
     }
@@ -2388,15 +2432,20 @@ function testRerollRarity() {
   const a0 = anomalyRateAt(0, N)
   const aCap = anomalyRateAt(REROLL_RARITY_CAP, N)
   assert.ok(a0 > 0, 'the tier never rolled in the anomaly-rate fixture at all')
-  const drift = Math.abs(aCap - a0) / a0
-  assert.ok(drift < 0.10,
-    `${REROLL_RARITY_CAP} rerolls moved the anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (${(drift * 100).toFixed(0)}% relative) — reroll is buying anomalies (B6)`)
+  // v7.20 INVERTED THIS. It used to assert the rate did not move at all (the memo settled the tier
+  // at reroll 0); now a paid re-deal rolls the tier fresh at ANOMALY_REROLL_MUL of its weight, so
+  // the rate must land at exactly that fraction. Both directions are failures: at x1 the halving
+  // is gone and coins farm the tier (B6), at x0 the tier cannot be found on a reroll at all, which
+  // is the sticky-Rupture bug this replaced.
+  const ratio = aCap / a0
+  assert.ok(Math.abs(ratio - ANOMALY_REROLL_MUL) < 0.12,
+    `${REROLL_RARITY_CAP} rerolls put the anomaly rate at x${ratio.toFixed(2)} of the natural one (${a0.toFixed(2)}% -> ${aCap.toFixed(2)}%), want x${ANOMALY_REROLL_MUL} — at x1 reroll is buying anomalies (B6), at x0 the tier is sticky again`)
 
   // The whole table config.js documents, printed rather than described — the rows a reader would
   // otherwise have to take on trust. `node scripts/pool-probe.mjs body 3 40 random --rerolls=N`
   // regenerates them off the shipped pipeline.
   const table = rows.map((r, i) => `${i === 3 ? REROLL_RARITY_CAP : i}:${r.normal.toFixed(1)}/${r.epicPlus.toFixed(1)}/${r.mult.toFixed(3)}`).join(' ')
-  console.log(`PASS run PB4 (reroll rarity): rerolls normal%/epic+%/mult ${table} and ${past.normal.toFixed(1)}% normal at ${REROLL_RARITY_CAP + 3} (capped); garden switch mods ${sw0.toFixed(2)}% -> ${swCap.toFixed(2)}% of mod cards and New! discovery unmoved; anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (${(drift * 100).toFixed(0)}% drift), denominator pinned undecayed`)
+  console.log(`PASS run PB4 (reroll rarity): rerolls normal%/epic+%/mult ${table} and ${past.normal.toFixed(1)}% normal at ${REROLL_RARITY_CAP + 3} (capped); garden switch mods ${sw0.toFixed(2)}% -> ${swCap.toFixed(2)}% of mod cards and New! discovery unmoved; anomaly rate ${a0.toFixed(2)}% -> ${aCap.toFixed(2)}% (x${ratio.toFixed(2)}, want x${ANOMALY_REROLL_MUL}), denominator pinned undecayed`)
 }
 
 // Declines every level-up screen (still banks the xp/level, per stepLevelUp, but grants no
@@ -12892,7 +12941,19 @@ function testUndergrowthRound() {
       "the roar wave is back to starting at 30% OF RANGE — the dead zone in front of the player then scales with the range stat, so buying Long Roar shrinks the visible wave")
     assert.ok(/const roarStart =/.test(src) && /roarStart \+ Math\.max\(0, rp\.range - roarStart\) \* ki/.test(src),
       'the roar wave must expand from a fixed start (the mouth) out to `range`')
-    console.log('PASS run UG.k3 (roar wave): the pressure wave is born at the mouth, not at a fraction of range')
+
+    // ...and it must be an ACTUAL arc, not a fixed-span sprite stretched in Y to fake one. The old
+    // form scaled a 1.0 rad bake by q = tan(arc/2)/tan(ROAR_SPAN/2): fine near the baked span,
+    // nonsense away from it, and wideRoar multiplies `arc` at runtime so a real build leaves that
+    // range immediately — q is 1.7 at L5 base, 2.6 at +150% width, 6.6 at +200%. At those factors
+    // the sprite is the same arc smeared into a tall ellipse, which is what the owner saw:
+    // "we just see orange lines on the screen ... it doesn't look like a roar sound pressure wave
+    // anymore when >150% roar width". A Graphics annulus sector has no such limit.
+    assert.ok(!/tan\(rp\.arc \/ 2\) \/ Math\.tan\(ROAR_SPAN/.test(src),
+      'the roar is back to faking its arc by y-stretching a fixed-span bake — that linearisation collapses under wideRoar and draws streaks instead of a wavefront')
+    assert.ok(/roarG\.arc\(rp\.x, rp\.y, rOut, a0, a1\)/.test(src),
+      'the roar band must be drawn as a real arc at the cast’s own angle (a0/a1 from rp.arc)')
+    console.log('PASS run UG.k3 (roar wave): born at the mouth, and drawn as a true arc at any width rather than a y-stretched bake')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
@@ -13118,7 +13179,6 @@ function testDescPlaceholder() {
   r.weapons = [...new Set([...want].map((k) => k.split(':')[0]))].map((id) => ({ id, level: 3 }))
   for (let i = 0; i < 4000 && seen.size < want.size; i++) {
     r._screenRerolls = -1
-    r._screenAnomaly = undefined
     for (const c of buildLevelUpChoices(r)) {
       if (c.kind === 'mod' && want.has(`${c.weapon}:${c.id}`)) seen.set(`${c.weapon}:${c.id}`, c)
     }

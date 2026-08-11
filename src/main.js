@@ -171,13 +171,18 @@ const ui = initUI({
   },
   onPauseToggle() {
     if (!run) return
-    if (run.phase === 'playing') {
-      run.phase = 'paused'
-      // buildReadout is a read-only projection (see sim.js): main is the only place allowed to
-      // hand sim data to ui, which never imports sim.
-      ui.showScreen('pause', { mutators: run.mutators, mode: runMode, build: buildReadout(run) })
-    }
+    if (run.phase === 'playing') { run.phase = 'paused'; ui.showScreen('pause', pauseData()) }
     else if (run.phase === 'paused') { run.phase = 'playing'; ui.showScreen('hud') }
+    // The same sheet, opened OVER a level-up — "should I reroll this?" is a question about
+    // the build you already have, and it was only answerable from the pause screen, which the
+    // level-up had no way back to. run.phase deliberately STAYS 'levelup': the ticker freezes on
+    // any phase but 'playing' (so there is nothing to juggle), the pick stays unspent, and Resume
+    // re-shows the same cards. ui.js refuses the toggle while a pick is in flight — see its
+    // 'pause' case for why that one is not optional.
+    else if (run.phase === 'levelup') {
+      if (ui.activeScreen() === 'pause') ui.showScreen('levelup', levelupData())
+      else ui.showScreen('pause', pauseData())
+    }
   },
   // ---- hidden dev menu (v7.12) ----------------------------------------------------------
   // Seven taps on the HUD coin badge. Pauses the run the same way the pause button does — the
@@ -286,6 +291,11 @@ const ui = initUI({
     playSfx('click')
   },
 })
+
+// buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
+// data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
+// over a level-up.
+const pauseData = () => ({ mutators: run.mutators, mode: runMode, build: buildReadout(run) })
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {

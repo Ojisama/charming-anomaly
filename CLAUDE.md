@@ -25,6 +25,13 @@ node scripts/weapon-census.mjs       # what a weapon actually DOES over real run
                                      # per-zone breakdown for run.geysers weapons. Run it before
                                      # answering "is this weapon weak?" — this repo has guessed at
                                      # that twice and been wrong both times.
+                                     # COMPARE WITHIN ONE INVOCATION, NEVER ACROSS RUNS: every
+                                     # weapon in --weapons is measured off ONE seeded RNG stream, so
+                                     # changing weapon A re-phases B's draws. v7.25 read Tail Lash
+                                     # at 246 then 263 with no lash change at all — the re-phasing
+                                     # trap the sim-test section documents, in the harness. A number
+                                     # that moved without a matching code change is noise; re-run
+                                     # the whole table and read the ORDER, not the absolute value.
 
 # Terrain, two dev views. Neither ships in the bundle.
 #  1. /terrain-preview.html?seed=1&span=14000&cx=0&cy=0  (npm run dev) — the GENERATOR alone: biome
@@ -281,6 +288,29 @@ downstream detail looked odd:
   until t=40. A 120s probe therefore cannot see a single tank, so anything about tanks — a roster
   flag, a behaviour, a counter to a strategy — measures as "absent" rather than "absent from this
   window". Run the full 300s when the question involves late-run composition.
+
+**PICK THE RIG FOR THE QUESTION, not just the parameters.** The traps above are all things you can
+get wrong in a correct rig; this is the one that makes a correct probe structurally incapable of
+seeing the answer, and it costs whole rounds because it returns confident numbers rather than an
+error. Three rigs, three different questions:
+
+- **immortal + stationary** (the offer probe): what the pool OFFERS, what a weapon DOES, dps,
+  proc rates. `pool-probe.mjs` says in its own header that it is not valid for survival — that
+  warning is broader than it looks.
+- **immortal + KITING** (walk away from the crowd; a floor on player skill, not a model of one):
+  can anything REACH you. Anything about slows, knockback, fear, walls or "I'm invincible" needs
+  this. A stationary player is surrounded whatever the crowd's speed, so it reports the same
+  180-350 contact hits for every build and hides the effect completely — v7.17 read that as "no
+  lock exists" while the lock was on screen in a screenshot.
+- **mortal + kiting**: can you SURVIVE. Only this one may be quoted as a win rate.
+
+Match the metric too. For a wall, damage taken is the wrong number — it conflates "nothing reached
+me" with "I killed it first". Use the **median distance of the nearest enemy** over the back half of
+the run: a crowd sitting at a stable radius is a lock, whatever the damage column says.
+
+And when several effects compose (knockback + slow + fear + fire rate), add them to the REAL build
+one at a time. Testing each alone finds nothing and reads as "cannot reproduce" — see the layered
+table in the CC_DR_* block of config.js.
 
 To A/B a change, extract the old tree rather than editing back and forth:
 `git archive HEAD src | tar -x -C <tmp>`, then point the same probe at each `src` in turn (take a
