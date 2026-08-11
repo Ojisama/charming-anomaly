@@ -211,6 +211,10 @@ function formatShopBonus(id, levels) {
  *       mutators = run.mutators (omit/empty for classic runs); mode = the run mode chip;
  *       build = buildReadout(run) — the pause sheet's weapon/passive/element/Rupture sections,
  *       and `build.anomalies` is what the Rupture section reads. See main.js's pause hook.
+ *       It also opens ON TOP of a level-up — the build you already have is what "is this worth
+ *       rerolling?" is asking about. onPauseToggle fires with the run still in the 'levelup'
+ *       phase and Resume goes back to the same undealt cards, which is why main.js needs
+ *       ui.activeScreen() to tell those two directions apart.
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
  *       nextDifficulty?, unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter? }
  *       nextDifficulty (v6.4.4) is the difficulty a classic win just advanced the chapter's saved
@@ -230,6 +234,8 @@ function formatShopBonus(id, levels) {
  *   ui.updateHUD(run, events)   called every frame while playing — renders run.mutators as HUD
  *     chips. events is this frame's drained run.events array. v6.9 removed its only consumer
  *     (the "pest control dispatched" banner); the parameter stays for the next one.
+ *   ui.activeScreen()   the name last passed to showScreen. One caller: main.js's pause hook,
+ *     which needs to know whether ⏸ during a level-up means "open the sheet" or "go back".
  */
 export function initUI(hooks) {
   const root = document.getElementById('ui')
@@ -1944,6 +1950,10 @@ export function initUI(hooks) {
     else if (name === 'summary') renderSummary(data ?? {})
     else if (name === 'dev') renderDev(data ?? {})
     const hudUnder = name === 'levelup' || name === 'pause'   // hud stays visible under these modals
+    // The level-up screen passes taps through to that HUD so its ⏸ works (styles.css). The
+    // SKILL button is under there too and must stay dead — pressSkill latches (input.js), so a
+    // stray tap beside the cards would fire the skill the instant the modal closes.
+    root.classList.toggle('lv-open', name === 'levelup')
     for (const [n, el] of Object.entries(screens)) {
       el.classList.toggle('screen--visible', n === name || (hudUnder && n === 'hud'))
     }
@@ -2142,7 +2152,14 @@ export function initUI(hooks) {
         updateTitleBelow() // surgical: keep the carousel's scroll position (a full renderTitle would reset it)
         break
       }
+      // The HUD's ⏸ is reachable during a level-up (styles.css lets taps outside that modal
+      // fall through), so the build sheet answers "is this worth rerolling?". NOT while a pick is
+      // in flight, though: leaving the screen clears the BLIND FAITH reveal timer and re-paints the
+      // card row, so pausing during a reveal or SPECIALIST's chooser would hand back a pick the
+      // player has already made — a second card for one level.
       case 'pause':
+        if (active === 'levelup' && (lvRevealing || lvChoosing >= 0)) break
+        playSfx('click'); hooks.onPauseToggle(); break
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
       // Hidden dev menu: seven taps on the HUD coin badge. Seven because the badge sits next to the
       // pause button on a phone, and anything shorter would open on a fat-fingered miss. The count
@@ -2243,11 +2260,13 @@ export function initUI(hooks) {
     }
   })
 
-  // Escape/KeyP from input.js — only meaningful while in a run
+  // Escape/KeyP from input.js — only meaningful while in a run. 'levelup' included so the build
+  // sheet is reachable mid-choice; same in-flight guard as the ⏸ button above, same reason.
   window.addEventListener('game-pause', () => {
-    if (active === 'hud' || active === 'pause') hooks.onPauseToggle()
+    if (active === 'levelup' && (lvRevealing || lvChoosing >= 0)) return
+    if (active === 'hud' || active === 'pause' || active === 'levelup') hooks.onPauseToggle()
   })
 
   showScreen('title')
-  return { showScreen, updateHUD }
+  return { showScreen, updateHUD, activeScreen: () => active }
 }

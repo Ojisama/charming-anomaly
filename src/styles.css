@@ -581,6 +581,27 @@ body {
   margin: 0 12px calc(10px + env(safe-area-inset-bottom));
 }
 .screen--levelup .modal-title { font-size: 1.25rem; }
+/* Taps OUTSIDE the level-up modal fall through to the HUD underneath, so its ⏸ (which has
+   always been visible there and always been dead) opens the build sheet mid-choice — see
+   onPauseToggle in main.js. Everything reachable under there is either inert during the level-up
+   phase (the dev-menu coin badge) or carries [data-ui], which is what stops input.js anchoring the
+   joystick on a tap beside the cards. The one exception is the skill button: pressSkill LATCHES,
+   so a stray tap would fire the skill the moment the modal closes. .lv-open is set by showScreen.
+   `#ui >` is not decoration: `#ui > * { pointer-events: auto }` at the top of this file is an ID
+   selector, so a bare `.screen--levelup` loses to it on specificity however far down it sits — the
+   button stayed unreachable and the only thing that showed it was elementFromPoint (a synthetic
+   .click() bypasses hit-testing entirely and passes either way). */
+#ui > .screen--levelup { pointer-events: none; }
+.screen--levelup .modal { pointer-events: auto; }
+/* ...and the HUD underneath has to CATCH what now falls through, for the level-up only. It is
+   pointer-events:none by default so it cannot eat gameplay touches — but with the level-up screen
+   transparent to taps, the next thing under a finger beside the cards is the game CANVAS, and
+   input.js's `closest('button, .card, [data-ui]')` guard does not match a canvas: the floating
+   joystick anchored under the modal and the player lurched the moment the pick was spent. Every
+   .screen carries [data-ui], so catching here is what makes that touch a no-op. Costs nothing —
+   the sim is frozen for the whole of this phase. */
+#ui.lv-open > .screen--hud { pointer-events: auto; }
+#ui.lv-open .skill-btn { pointer-events: none; }
 @media (min-width: 700px) {
   .screen--levelup {
     align-items: flex-end;
