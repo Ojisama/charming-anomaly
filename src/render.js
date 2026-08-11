@@ -10826,12 +10826,23 @@ export function createRenderer(app) {
       rp.root.rotation = rp.angle
       // exact wedge fit (the claw lesson: the q ~= arc/SPAN linearisation is wide at the tips)
       const q = Math.tan(rp.arc / 2) / Math.tan(ROAR_SPAN / 2)
+      // v7.26 (owner: "roar animation should start from the player mouth ... with 200%+ range we
+      // almost don't see the pressure wave"). The wavefront used to be born at 30% OF RANGE, and
+      // that is the bug: the dead zone in front of the kaiju SCALED with the stat you were buying.
+      // At L5's 275 it started 82px out; with range mods at 200%+ it started ~180px out, so the
+      // whole early sweep — the part that reads as a roar leaving the head — never existed, and
+      // Long Roar visibly made the effect worse the more you took.
+      // Now it is born at the MOUTH, a fixed distance, and expands to `range`. The arc CENTRE stays
+      // on the player because that is where inSector tests from: the wedge on screen is still the
+      // honest hitbox, and the band at the mouth's radius passes exactly through the mouth. Falls
+      // back to the body radius outside skies (the Blank's pool carries roar and has no kaiju).
+      const roarStart = chapterHasKaiju ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
       for (let i = 0; i < rp.bands.length; i++) {
         const band = rp.bands[i]
-        // stagger: each band launches a beat later and expands from 30% out to exactly `range`
+        // stagger: each band launches a beat later and expands from the mouth to exactly `range`
         const ki = Math.min(1, Math.max(0, (k - i * 0.12) / 0.72))
         if (ki <= 0) { band.alpha = 0; continue }
-        const radius = rp.range * (0.3 + 0.7 * ki)
+        const radius = roarStart + Math.max(0, rp.range - roarStart) * ki
         const sx = radius / ROAR_REF
         band.scale.set(sx, sx * q)
         band.alpha = Math.sin(Math.PI * ki) * (0.8 - i * 0.16)

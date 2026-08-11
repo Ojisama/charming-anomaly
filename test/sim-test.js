@@ -12790,6 +12790,18 @@ function testUndergrowthRound() {
     assert.ok(/lightPlatesForBreath[\s\S]{0,900}run\.arcs[\s\S]{0,400}charge/.test(src),
       'lightPlatesForBreath must key off a charging run.arcs entry — otherwise it is not the wind-up it claims to draw')
     console.log('PASS run UG.k2 (breath wind-up): the dorsal plates are lit by lightPlatesForBreath, and updateRampage gates its hide on it')
+
+    // v7.26: the Roar's pressure wave must be born at a FIXED distance (the mouth), never at a
+    // fraction of `range`. Owner: "with 200%+ range, we almost don't see the pressure wave". The
+    // old form was `rp.range * (0.3 + 0.7 * ki)` — a dead zone in front of the kaiju that GREW with
+    // the range stat, so Long Roar made the effect worse the more you took. That is invisible in
+    // any sim test (the hitbox never changed) and invisible in a base-range screenshot; it only
+    // shows up with the mod stacked, which is why it survived to a playtest report.
+    assert.ok(!/rp\.range \* \(0\.3 \+ 0\.7 \* ki\)/.test(src),
+      "the roar wave is back to starting at 30% OF RANGE — the dead zone in front of the player then scales with the range stat, so buying Long Roar shrinks the visible wave")
+    assert.ok(/const roarStart =/.test(src) && /roarStart \+ Math\.max\(0, rp\.range - roarStart\) \* ki/.test(src),
+      'the roar wave must expand from a fixed start (the mouth) out to `range`')
+    console.log('PASS run UG.k3 (roar wave): the pressure wave is born at the mouth, not at a fraction of range')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
