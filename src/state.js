@@ -1143,13 +1143,12 @@ function generateWells(sig) {
  *   screens right after ANOMALY_MIN_LEVEL. Zeroed by rollAnomalyCard when the roll fires — when
  *   the tier is OFFERED, not when the card is kept — and capped in weight by ANOMALY_PITY_CAP.
  *   Never serialized.
- * _screenAnomaly (v6.7.9): the CURRENT screen's answer to "does this screen carry an anomaly" —
- *   `undefined` = not asked yet, `null` = asked, no, a card object = this screen's anomaly card.
- *   buildLevelUpChoices fills it on first ask and reuses it afterwards; stepLevelUp clears it when
- *   a new screen opens, and nothing else does. That is what makes a REROLL re-roll the ordinary
- *   cards only: without it every reroll was an independent draw at the pitied weight (5 rerolls
- *   measured 20.1% -> 75.5% anomaly-on-screen at a saturated counter), and a reroll of a screen
- *   that HAD one both spent the pity and threw the card away. Never serialized.
+ *   (v7.20 REMOVED _screenAnomaly, the per-screen memo that used to sit here. It froze the tier's
+ *   answer for a whole screen so a reroll could neither draw a Rupture nor lose one — which stopped
+ *   coins farming the tier but left an unwanted Rupture occupying a slot through every paid
+ *   re-deal. The tier is an ordinary card now: rolled fresh on every deal, at ANOMALY_REROLL_MUL of
+ *   its weight on the paid ones. Measured, undergrowth d3, rerolling until it shows: base pity
+ *   5.8% -> 21.9% over 5 rerolls, saturated 20.7% -> 57.9%, against the pre-v6.7.9 leak's 75.5%.)
  * _screenRerolls (v6.7.10): rerolls PAID FOR on the screen currently open. rollCard multiplies the
  *   `normal` rarity weight by REROLL_RARITY_DECAY ^ min(this, REROLL_RARITY_CAP), so rerolling
  *   buys bigger numbers; it never reaches the anomaly tier (which rolls against the sum of the
@@ -1386,9 +1385,6 @@ export function createRun(meta, opts = {}) {
     // buildLevelUpChoices, or a reroll would pump it) and zeroed by the roll itself. See
     // ANOMALY_PITY_PER_SCREEN in config.js.
     _screensSinceAnomaly: 0,
-    // v6.7.9: this screen's anomaly decision — undefined (not asked), null (asked, none) or the
-    // card. Made once per screen so a reroll cannot draw the tier again, or spend the pity twice.
-    _screenAnomaly: undefined,
     // v6.7.10: rerolls PAID FOR on the screen currently open — they decay the `normal` rarity
     // weight (REROLL_RARITY_DECAY in config.js). Zeroed by stepLevelUp when a screen opens and
     // stepped by sim.js's rerollLevelUpChoices, beside the _rerolls bump that prices the next one.

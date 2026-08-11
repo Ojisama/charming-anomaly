@@ -269,6 +269,18 @@ export const WEAPON_UP_WEIGHT = 100
 // player-visible effect of pity is "Unstable Cores, in 75-93% of runs instead of 50-70%", not
 // variety. The 1-2/run target is a slate-shaped number; do not read the shipped column as the
 // design landing.
+// v7.20 (owner, from play): A RUPTURE IS AN ORDINARY CARD ON A REROLL. v6.7.9 memoised the tier's
+// answer for the whole screen so a reroll could neither draw it nor throw it away — which stopped
+// coins buying the rarest tier, but meant an unwanted Rupture OCCUPIED A SLOT on every re-deal.
+// Reproduced: five paid rerolls of one screen returned Overload in all five, only changing slot,
+// so on a 2-slot screen the player was paying an escalating price for half a reroll, forever.
+// The tier is now rolled fresh on every deal like everything else, at this fraction of its natural
+// weight on any deal the player PAID for. Rerolling can therefore lose a Rupture as well as find
+// one — which is the point: it is a card, not a fixture.
+// The anti-purchase rule (spec B6) is kept by the two things that actually carry it: the halved
+// weight, and PITY CHARGED AT MOST ONCE PER SCREEN (see _screenAnomalyPaid in sim.js) so a player
+// cannot spend the dry-run credit twice on one screen or burn it repeatedly by rerolling.
+export const ANOMALY_REROLL_MUL = 0.5
 export const ANOMALY_BASE_WEIGHT = 12
 // PITY (v6.7.8, Task 3). A screen that shows no anomaly adds PER_SCREEN to the next screen's
 // weight, so a dry run drifts toward the tier instead of waiting on a flat coin flip.
@@ -4225,6 +4237,19 @@ export const MARCH_HOME_MUL = 0.55
 // over the old pair. 0.6 was measurably past the point where a weak build stops keeping up and the
 // alive count runs away to MAX_ALIVE, which is the unthreadable wall the paragraph above describes.
 export const LANE_SPAWN_MUL = 0.55       // ordinary (non-rank) spawning rate in the lane
+
+// Owner directive: "33% more enemies at the start, but finish at the same rate." The lane opens
+// denser and decays LINEARLY back to the shipped rate at SPAWN_LATE_START — the same no-step-change
+// shape as SPAWN_EARLY_BOOST, and pinned to that landmark because it is where spawnRate hands over
+// to its late quadratic, so from t=120 on the chapter is arithmetically identical to what shipped.
+// It multiplies BOTH lane spawners, which is not optional: measured over 5 seeds x 300s at d3, the
+// RANKS are 63% of the first 30s of arrivals (36 of 57). Putting the whole +33% on the ring stream
+// alone would need +89% on it and would flip the swarm/rank mix this chapter exists to merge.
+// Ranks take it as a SHORTER INTERVAL, not extra rows: row count is a rounded 1..3 (stepFormations)
+// and cannot express a third of a row — at these rates it stays pinned at 1 whatever you multiply.
+export const LANE_EARLY_BOOST = 0.33     // +33% at t=0, +16.5% at t=60, +0% from t=120
+export const LANE_EARLY_UNTIL = SPAWN_LATE_START
+export const laneEarlyMul = (t) => (t >= LANE_EARLY_UNTIL ? 1 : 1 + LANE_EARLY_BOOST * (1 - t / LANE_EARLY_UNTIL))
 
 // Contact hurts LESS in the lane, and this is a fairness rule rather than a difficulty knob.
 // Measured over 60s of play: 83% of all damage taken (236 of 283) was head-on CONTACT, against 7
