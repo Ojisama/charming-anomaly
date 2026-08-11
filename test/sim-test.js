@@ -6619,7 +6619,83 @@ function testV54Weapons() {
       assert(near.hp < 1e9, 'the breath never connected at all — this fixture proves nothing')
       assert.strictEqual(island.hp, 1e9, 'a body far beyond arcRange took fork damage — the fork range gate is not holding')
     }
-    console.log('PASS run AA.g2 (atomicBreath): charge is dead time, forks along a chain, damage decays per jump, arcRange gates')
+    // v7.25, the owner's three corrections. All three shipped wrong in v7.23 and NONE of them was
+    // guarded, which is why they reached him: every assertion above is about what happens once a
+    // fork exists, and all three faults are about whether one ever does.
+    {
+      // (1) "It should charge even if no enemies around." An EMPTY world must still wind up.
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      r.enemies.length = 0
+      r.mods.spawnMul = 0
+      // Comfortably past one full cycle (interval 1.90 at L5) — fireOnTimer starts its timer at a
+      // full interval, so a window shorter than that proves nothing either way. Generous on purpose
+      // so THIS case keeps testing "charges with no target" rather than incidentally testing the
+      // cadence; the idle-fraction case below is what owns the cadence.
+      stepQuiet(r, 5.0)
+      assert(r.arcs.length > 0, 'the breath must charge with no enemies around — it waited for a target instead')
+      assert(r.enemies.length === 0, 'the empty-world fixture spawned enemies — it is no longer testing an empty world')
+    }
+    {
+      // (2) "Discharge to closest enemy." A lone enemy well beyond arcRange (200 at L5) but plainly
+      // on screen must still be struck. This is the actual v7.23 bug: the ROOT was picked within
+      // arcRange of the player, so the breath discharged into empty ground.
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      const far = makeStatusEnemy(r, { x: 300, y: 0, hp: 1e9, speed: 0 })  // 300 >> arcRange 200
+      far.flags = []
+      r.enemies.push(far)
+      assert(300 > WEAPONS.atomicBreath.levels[4].arcRange,
+        'this case is only meaningful outside arcRange — the fixture has drifted')
+      stepQuiet(r, 6)
+      assert(far.hp < 1e9,
+        `a lone enemy at 300px — well inside the viewport — took nothing. arcRange governs the JUMPS between bodies, not how far the breath reaches for its FIRST target`)
+    }
+    {
+      // (3) "Start charging again as soon as it finished firing." No dead air: sample every frame
+      // over several cycles and assert the weapon is never idle for long. Asserted as an EFFECT
+      // (frames with no live breath) rather than by reading the timer, which would pass with the
+      // cycle broken. The small allowance is the single frame where one expires before the next
+      // starts.
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      const foe = makeStatusEnemy(r, { x: 120, y: 0, hp: 1e12, speed: 0 })
+      foe.flags = []
+      r.enemies.push(foe)
+      stepQuiet(r, 2) // let the first cycle settle
+      let idle = 0, frames = 0, maxLive = 0
+      for (let i = 0; i < Math.round(10 / dt); i++) {
+        stepSim(r, { x: 0, y: 0 }, dt); r.events.length = 0
+        frames++
+        if (r.arcs.length === 0) idle++
+        maxLive = Math.max(maxLive, r.arcs.length)
+      }
+      assert(idle / frames < 0.05,
+        `the breath was idle on ${(100 * idle / frames).toFixed(0)}% of frames — it must re-charge the moment it finishes firing, not wait out an interval`)
+      assert.strictEqual(maxLive, 1, `${maxLive} breaths were live at once at base rate`)
+    }
+    {
+      // ...and the guard that makes a zero-gap cycle SAFE, which needs a FAST build to expose. At
+      // base rate `interval` equals charge + duration exactly, so nothing overlaps whether the
+      // guard exists or not — deleting it passed every assertion above. quickBreath divides the
+      // interval below the cycle length, and without the guard a second breath then starts on top
+      // of one still burning: double damage from one weapon, drawn as a single thicker fork, which
+      // is precisely the "same hit, bigger" shape that is invisible in a screenshot.
+      const r = weaponRun('skies', 'atomicBreath')
+      r.weapons = [{ id: 'atomicBreath', level: 5 }]
+      r.weaponMods.atomicBreath = { quickBreath: 1.0 }   // interval 1.90 -> 0.95, well under the cycle
+      const foe = makeStatusEnemy(r, { x: 120, y: 0, hp: 1e12, speed: 0 })
+      foe.flags = []
+      r.enemies.push(foe)
+      let maxLive = 0
+      for (let i = 0; i < Math.round(12 / dt); i++) {
+        stepSim(r, { x: 0, y: 0 }, dt); r.events.length = 0
+        maxLive = Math.max(maxLive, r.arcs.length)
+      }
+      assert.strictEqual(maxLive, 1,
+        `${maxLive} breaths were live at once on a fast build — overlapping forks are double damage from one weapon, and they draw as one`)
+    }
+    console.log('PASS run AA.g2 (atomicBreath): charges with no enemies, reaches the closest on screen past arcRange, cycles with no dead air and never overlaps, charge is dead time, damage decays per jump')
   }
 
   // (h) debrisToss: chunks arc onto foes (run.lobs, t counting UP to flight) and burst ONCE on

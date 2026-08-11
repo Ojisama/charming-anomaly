@@ -6581,6 +6581,20 @@ function tryCounterLash(run) {
 // read as lightning rather than as a ray, and it is also the mechanic.
 function stepBreathWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.atomicBreath?.quickBreath ?? 0
+  // v7.25 (owner: "it should charge even if no enemies around ... then start charging again as soon
+  // as it finished firing"). The breath is a CYCLE, not a cadence: wind up, discharge, wind up
+  // again, with no dead air between. `interval` is set to charge + duration in config so the timer
+  // comes ready exactly as the previous breath expires.
+  //
+  // Charging never depends on there being a target — fireBreath does not look at run.enemies at all,
+  // so the plates light on schedule in an empty street and the discharge simply finds whatever has
+  // arrived by the time it fires.
+  //
+  // The live-arc guard is what makes this safe rather than merely fast: quickBreath and the global
+  // fire-rate divide `interval`, so without it a fast build would start a second breath ON TOP of
+  // one still burning. Two overlapping forks are double damage from one weapon, and they draw as
+  // one thicker fork — the "same hit, bigger" shape, invisible in a screenshot.
+  if (run.arcs.length > 0) { run.weaponTimers[w.id] = 0; return }
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireBreath(run, stats))
 }
 
@@ -6618,13 +6632,18 @@ function buildFork(run, a) {
   const taken = new Set()
   let fx = p.x, fy = p.y
   // The root reaches as far as one jump does, so a breath cast with nothing adjacent still lights.
-  let reach = a.arcRange
   for (let i = 0; i <= a.jumps; i++) {
-    // The ROOT (i === 0) skips the `rootRank` nearest, so IPECAC's extra forks anchor on different
-    // bodies. Every later jump is a plain nearest-unused pick. Skipping is clamped by availability:
-    // if the crowd is smaller than the rank, the root falls back to the nearest rather than nothing.
+    // v7.25: the ROOT reaches the CLOSEST enemy ON SCREEN, not one within arcRange of the player.
+    // arcRange governs how far the fork JUMPS between bodies and nothing else — using it for the
+    // root too meant an enemy 250px away, plainly visible, was invisible to the weapon, so the
+    // breath wound up and discharged into empty ground (owner: "it should ... discharge to closest
+    // enemy"). nearestEnemy is the shared choke point every other aim site goes through, so this
+    // also inherits its ally rule for free.
+    const rootRange = run.viewRadius + 100
+    const reach = i === 0 ? rootRange : a.arcRange
+    // The ROOT skips the `rootRank` nearest, so IPECAC's extra forks anchor on different bodies.
+    // Clamped by availability: a crowd smaller than the rank falls back to the nearest, not nothing.
     const skip = i === 0 ? (a.rootRank ?? 0) : 0
-    let best = null
     const ranked = []
     for (const e of run.enemies) {
       if (e._dead || isAlly(e) || taken.has(e.id)) continue
@@ -6634,11 +6653,10 @@ function buildFork(run, a) {
     }
     if (ranked.length === 0) break
     ranked.sort((m, n) => m.dSq - n.dSq)
-    best = ranked[Math.min(skip, ranked.length - 1)].e
+    const best = ranked[Math.min(skip, ranked.length - 1)].e
     taken.add(best.id)
     chain.push(best)
     fx = best.x; fy = best.y
-    reach = a.arcRange
   }
   return chain
 }

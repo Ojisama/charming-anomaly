@@ -1524,15 +1524,19 @@ export const WEAPONS = {
       // v7.23 pass 2: dmg +28% over the first cut. Measured, not guessed — at the original ladder
       // the census read 223 eff dps against Debris Toss' 231 and Tail Lash's 217, i.e. an EPIC
       // tying the chapter's two rares, which is not what the rarity is charging for.
-      // Pass 3. The first two cuts left an EPIC tying the free starter at L1 (68 vs Roar's 67) and
-      // sitting under the rare Tail Lash at L5 (239 vs 246). The dead time was the L1 problem —
-      // a 0.5s charge inside a 5.5s cycle is a lot of nothing — so the interval ladder flattens
-      // upward rather than the damage carrying it all.
-      { dmg: 32, jumps: 2, arcRange: 150, duration: 1.00, interval: 4.8, tick: 0.14 },
-      { dmg: 38, jumps: 3, arcRange: 160, duration: 1.10, interval: 4.6, tick: 0.14 },
-      { dmg: 45, jumps: 3, arcRange: 175, duration: 1.20, interval: 4.4, tick: 0.13 },
-      { dmg: 54, jumps: 4, arcRange: 190, duration: 1.30, interval: 4.2, tick: 0.13 },
-      { dmg: 66, jumps: 5, arcRange: 200, duration: 1.40, interval: 4.0, tick: 0.12 },
+      // v7.25 `interval` IS charge + duration, deliberately: BREATH_CHARGE_T (0.5) + duration, so
+      // the cycle timer comes ready exactly as the previous breath expires and the weapon is always
+      // either winding up or discharging (owner: "start charging again as soon as it finished
+      // firing"). Do not raise it above that sum without meaning to reintroduce dead air.
+      //
+      // Damage is down ~2.1x from the v7.24 numbers and that is not a nerf: duty cycle went from
+      // 1.4s of burn every 4.0s (35%) to 1.4s of every 1.9s (74%), so the same eff dps needs
+      // roughly half the per-tick damage. Measured, not derived — see the census in the commit.
+      { dmg: 9,  jumps: 2, arcRange: 150, duration: 1.00, interval: 1.50, tick: 0.14 },
+      { dmg: 11, jumps: 3, arcRange: 160, duration: 1.10, interval: 1.60, tick: 0.14 },
+      { dmg: 14, jumps: 3, arcRange: 175, duration: 1.20, interval: 1.70, tick: 0.13 },
+      { dmg: 19, jumps: 4, arcRange: 190, duration: 1.30, interval: 1.80, tick: 0.13 },
+      { dmg: 25, jumps: 5, arcRange: 200, duration: 1.40, interval: 1.90, tick: 0.12 },
     ],
   },
   debrisToss: {
