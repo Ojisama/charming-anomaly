@@ -1655,7 +1655,16 @@ function stepEnemyMovement(run, dt) {
       e._shellT = (e._shellT ?? interval) - dt
       // out of range: hold the timer near-ready (same shape as missileVolley's on-station gate) —
       // only tanks close enough to be a visible threat get to shell, however many exist on the map
+      // v7.22 (owner: "shooting at me from outside the screen"): the radial gate cannot express
+      // that. ARTILLERY_FIRE_RANGE 640 exceeds a portrait phone's half-diagonal (~465) outright,
+      // and the horizontal half-view is only ~195 — so a tank 400px to the side was in range and
+      // off the edge of the screen, shelling from nowhere. canCommitFrom is the SAME viewport-
+      // rectangle rule v6.6.24 gave the wasps ("if it's not displayed on the screen, it should not
+      // be able to jump on you"), which is a shell just as much as a dive: a threat may be
+      // impossible to ignore, never impossible to trace. The radius stays as the desktop backstop —
+      // on a wide screen the rectangle alone would let a tank shell from 1000px away.
       if ((p.x - e.x) ** 2 + (p.y - e.y) ** 2 > ARTILLERY_FIRE_RANGE * ARTILLERY_FIRE_RANGE ||
+          !canCommitFrom(run, e) ||
           run.bombs.length >= SHELL_MAX_LIVE) {
         e._shellT = Math.max(e._shellT, 0.3)
       } else if (e._shellT <= 0) {

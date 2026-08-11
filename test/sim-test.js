@@ -5311,7 +5311,10 @@ function testV54Flags() {
       `expected the shell led by vx*${ARTILLERY_LEAD} (=${(run.player.vx * ARTILLERY_LEAD).toFixed(1)}), got ${lead.toFixed(1)}`)
     assert(lead > 0, 'expected the shell aimed AHEAD of a player moving +x')
 
-    const el = flagRun('skies', ['artillery'], { at: 600, speed: 20, elite: true })
+    // v7.22: `at` was 600 — inside ARTILLERY_FIRE_RANGE but OUTSIDE the 480px half-view, which the
+    // new visibility gate (below) correctly refuses. This case is about the elite's wider RADIUS,
+    // so park it where it can see the player and the radius is the only thing under test.
+    const el = flagRun('skies', ['artillery'], { at: 300, speed: 20, elite: true })
     el.run._bombardAcc = 1e6 // park the bombardment signature: this is about the elite's own shells
     for (let i = 0; i < Math.round(2.0 / dt); i++) stepSim(el.run, { x: 0, y: 0 }, dt)
     assert(el.run.bombs.some((b) => b.radius === ARTILLERY_ELITE_RADIUS), 'expected an AA elite to shell with the wider elite radius')
@@ -5321,6 +5324,30 @@ function testV54Flags() {
     far.run._bombardAcc = 1e6
     for (let i = 0; i < Math.round((ARTILLERY_INTERVAL + 1.0) / dt); i++) stepSim(far.run, { x: 0, y: 0 }, dt)
     assert.strictEqual(far.run.bombs.length, 0, `expected an out-of-range tank to hold fire, got ${far.run.bombs.length} shells`)
+
+    // v7.22 VISIBILITY gate (owner: "tanks are shooting at me from outside the screen"). The radial
+    // gate cannot express the phone: ARTILLERY_FIRE_RANGE is 640 and a portrait phone's horizontal
+    // half-view is ~195, so a tank 400px to the SIDE was in range and off the edge of the screen.
+    // Same viewport-rectangle rule v6.6.24 gave the wasps, applied to shells. Both halves matter —
+    // an over-tight gate that silenced tanks everywhere would pass the first assert alone.
+    const PHONE = { viewW: 195, viewH: 375, viewRadius: Math.hypot(390, 750) / 2 }
+    const shellsFrom = (dx, dy) => {
+      const { run: r } = flagRun('skies', ['artillery'], { at: 0, speed: 0 })
+      Object.assign(r, PHONE)
+      r._bombardAcc = 1e6
+      r.enemies[0].x = dx; r.enemies[0].y = dy
+      for (let i = 0; i < Math.round((ARTILLERY_INTERVAL + 1.0) / dt); i++) {
+        r.enemies[0].x = dx; r.enemies[0].y = dy // speed 0 still drifts on separation; re-pin it
+        stepSim(r, { x: 0, y: 0 }, dt)
+      }
+      return r.bombs.length
+    }
+    const sideDist = Math.hypot(400, 0)
+    assert(sideDist < ARTILLERY_FIRE_RANGE, `this case is only meaningful inside the radial gate (${sideDist} vs ${ARTILLERY_FIRE_RANGE})`)
+    assert.strictEqual(shellsFrom(400, 0), 0,
+      `a tank 400px to the side of a ${PHONE.viewW * 2}px-wide phone screen is NOT on screen and must hold fire, got ${shellsFrom(400, 0)} shells`)
+    const onScreen = shellsFrom(150, 0)
+    assert(onScreen > 0, 'a tank 150px away is plainly on screen and must still shell — the gate must not silence artillery outright')
 
     // v5.7.5 live cap: with SHELL_MAX_LIVE telegraphs already up, neither artillery nor the
     // bombardment signature adds another (the barrage backstop).
