@@ -23,7 +23,7 @@ import {
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
-  ANOMALY_REROLL_MUL,
+  ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
@@ -2090,13 +2090,56 @@ function testAnomalyPity() {
   assert.ok(sat5.changed > 100,
     `${REROLLS} rerolls changed the screen's Rupture on only ${sat5.changed} of 1500 screens — the tier is sticky again, which is the bug v7.20 fixed`)
 
-  // 2. HALVED PER DEAL. A single paid re-deal carries the tier at ANOMALY_REROLL_MUL of the natural
+  // 2. REROLLING A RUPTURE AWAY REFUNDS HALF THE DRY-STREAK CREDIT (v7.30). The credit is spent
+  //     the moment the tier is offered, which was fair while the offer was guaranteed to survive to
+  //     the end of the screen — v7.29 broke that, so a reroll bought for an unrelated reason could
+  //     burn an 18-screen streak and hand back nothing. Asserted on the COUNTER, since that is the
+  //     quantity the player is being refunded, and against a control that took a card instead.
+  {
+    const screenWithRupture = (thenReroll) => {
+      Math.random = mulberry32(4242)
+      meta.choiceSlots = 2
+      const run = createRun(meta)
+      run.player.level = 12
+      run._eliteKills = 1
+      run.coinsEarned = 1e9
+      // Deal until a screen actually carries one, at a known dry streak.
+      let cards = null
+      for (let i = 0; i < 4000 && !cards; i++) {
+        run._screenRerolls = 0
+        run._rerolls = 0
+        run._screensSinceAnomaly = 20            // saturated, so the refund has something to halve
+        const deal = buildLevelUpChoices(run)
+        if (deal.some((c) => c.kind === 'anomaly')) cards = deal
+      }
+      assert.ok(cards, 'no screen carried a Rupture in 4000 deals — the fixture is not reaching its subject')
+      run.levelUpChoices = cards
+      assert.strictEqual(run._screensSinceAnomaly, 0, 'the offer did not spend the credit')
+      if (thenReroll) rerollLevelUpChoices(run)
+      return run._screensSinceAnomaly
+    }
+    const kept = screenWithRupture(false)
+    const rerolled = screenWithRupture(true)
+    assert.strictEqual(kept, 0, 'a screen resolved with its Rupture still on it must keep the credit spent in full')
+    assert.strictEqual(rerolled, Math.floor(20 * ANOMALY_REROLL_PITY_REFUND),
+      `rerolling a Rupture away left the credit at ${rerolled}, want ${Math.floor(20 * ANOMALY_REROLL_PITY_REFUND)} of 20 — at 0 the reroll silently burns a whole dry streak, at 20 declining the tier costs nothing and it re-offers until accepted`)
+  }
+
+  // 3. HALVED PER DEAL. A single paid re-deal carries the tier at ANOMALY_REROLL_MUL of the natural
   //    rate. Measured on the re-deal itself rather than cumulatively, because the cumulative number
   //    necessarily rises with rerolls now and is reported (not asserted) below.
+  // Pinned ARITHMETICALLY against the constants, not as a ratio of the two measured rates. A rate
+  // is w/(total + w), so halving the WEIGHT does not halve the RATE — the old ratio-of-rates form
+  // wanted x0.50 and only got it because the pity was being zeroed on exactly the screens that had
+  // carried a Rupture, which dragged the average onto the right number for the wrong reason. It
+  // broke the moment v7.30 refunded half that credit. This form says what the code should do.
   const oneReroll = rerollScreens(10000, 1, 3000)
+  const tableTotal = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0)
+  const paidWeight = ANOMALY_PITY_CAP * ANOMALY_REROLL_MUL          // saturated counter, halved
+  const wantRate = (100 * paidWeight) / (tableTotal + paidWeight)
   const ratio = oneReroll.rate / sat0.rate
-  assert.ok(Math.abs(ratio - ANOMALY_REROLL_MUL) < 0.12,
-    `one paid re-deal carried the tier at x${ratio.toFixed(2)} of the natural rate (${sat0.rate.toFixed(1)}% -> ${oneReroll.rate.toFixed(1)}%), want x${ANOMALY_REROLL_MUL} — this halving is the whole of what stops coins farming the rarest tier (B6)`)
+  assert.ok(Math.abs(oneReroll.rate - wantRate) < 1.6,
+    `one paid re-deal carried the tier on ${oneReroll.rate.toFixed(1)}% of screens, want ${wantRate.toFixed(1)}% (cap ${ANOMALY_PITY_CAP} x ${ANOMALY_REROLL_MUL} against an undecayed table of ${tableTotal}) — this halving is the whole of what stops coins farming the rarest tier (B6)`)
 
   // 3. THE CREDIT IS SPENT BY THE OFFER, WHEREVER IT ARRIVES. A Rupture that first shows up on a
   //    paid re-deal must still zero the pity — otherwise a rerolling player accrues credit forever

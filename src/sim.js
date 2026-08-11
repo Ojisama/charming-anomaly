@@ -38,7 +38,7 @@ import {
   // a weight table and lets pickWeighted renormalise the survivors — it never redirects a roll.
   RARITY_ORDER, RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT, REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
-  ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, ANOMALY_REROLL_MUL,
+  ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
   // v7.2 anomaly slate. Every number these cards use lives in config.js (the standing rule); the
   // trigger sites below read run.anomalies.<id> and reach for the constant, never a literal.
@@ -7315,6 +7315,9 @@ function rollAnomalyCard(run) {
   // _screensSinceAnomaly again until stepLevelUp opens the next screen, so a second offer on a
   // re-deal cannot re-spend a credit that is already at 0. (v7.20 briefly carried a
   // _screenAnomalyPaid guard for this; it could never fire.)
+  // The pre-spend value is stashed so a reroll that DISCARDS this offer can hand half of it back —
+  // see refundPityOnReroll. Without the stash the credit is unrecoverable the instant it is spent.
+  run._pityBeforeAnomaly = run._screensSinceAnomaly
   run._screensSinceAnomaly = 0
   return { kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '', rarity: 'anomaly', icon: a.icon, subjects, subjectPicks }
 }
@@ -7771,6 +7774,18 @@ export function rerollPrice(run) {
   return { cost: rerollCost(run._rerolls ?? 0), currency: 'coins', available: true }
 }
 
+// A reroll that throws away a screen showing a Rupture hands back ANOMALY_REROLL_PITY_REFUND of the
+// dry-streak credit the offer had just spent (v7.30). Called before the re-deal, on the OUTGOING
+// screen — after it, run.levelUpChoices is the new one and the question cannot be asked any more.
+// Taking a card instead still costs the credit in full: declining has to cost something, or the
+// tier re-offers every few level-ups until accepted (the nag rollAnomalyCard's own note rules out).
+function refundPityOnReroll(run) {
+  if (!run.levelUpChoices?.some((c) => c.kind === 'anomaly')) return
+  const before = run._pityBeforeAnomaly ?? 0
+  run._screensSinceAnomaly = Math.floor(before * ANOMALY_REROLL_PITY_REFUND)
+  run._pityBeforeAnomaly = run._screensSinceAnomaly
+}
+
 export function rerollLevelUpChoices(run) {
   // BLOOD MONEY (v7.2) replaces the currency. Both counters still step, so the per-screen rarity
   // decay is unchanged — but the PRICE LADDER is not: rerollCost escalates 10/15/23/34/... over the
@@ -7805,6 +7820,7 @@ export function rerollLevelUpChoices(run) {
     hurtPlayer(run, cost, true, 'bloodMoney')
     run._rerolls = (run._rerolls ?? 0) + 1
     run._screenRerolls = (run._screenRerolls ?? 0) + 1
+    refundPityOnReroll(run)
     run.levelUpChoices = buildLevelUpChoices(run)
     return true
   }
@@ -7819,6 +7835,7 @@ export function rerollLevelUpChoices(run) {
   // ...and the SCREEN counter is the same purchase scoped to the open screen: rollCard decays the
   // `normal` rarity weight by REROLL_RARITY_DECAY ^ it, and stepLevelUp zeroes it on the next one.
   run._screenRerolls = (run._screenRerolls ?? 0) + 1
+  refundPityOnReroll(run)
   run.levelUpChoices = buildLevelUpChoices(run)
   return true
 }
