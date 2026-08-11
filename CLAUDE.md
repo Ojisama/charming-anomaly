@@ -25,6 +25,13 @@ node scripts/weapon-census.mjs       # what a weapon actually DOES over real run
                                      # per-zone breakdown for run.geysers weapons. Run it before
                                      # answering "is this weapon weak?" — this repo has guessed at
                                      # that twice and been wrong both times.
+                                     # COMPARE WITHIN ONE INVOCATION, NEVER ACROSS RUNS: every
+                                     # weapon in --weapons is measured off ONE seeded RNG stream, so
+                                     # changing weapon A re-phases B's draws. v7.25 read Tail Lash
+                                     # at 246 then 263 with no lash change at all — the re-phasing
+                                     # trap the sim-test section documents, in the harness. A number
+                                     # that moved without a matching code change is noise; re-run
+                                     # the whole table and read the ORDER, not the absolute value.
 
 # Terrain, two dev views. Neither ships in the bundle.
 #  1. /terrain-preview.html?seed=1&span=14000&cx=0&cy=0  (npm run dev) — the GENERATOR alone: biome

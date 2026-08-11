@@ -189,6 +189,10 @@ const bootstrap = `(() => {
           e._dead = false; e.kb.x = e.kb.y = 0; e.hitFlash = 0
         }
       },
+      // REPLACES run.weapons — it does not append. Calling it twice equips only the SECOND weapon,
+      // silently, which reads downstream as "the first weapon never fires" (a scene once spent its
+      // whole 900-tick H.until budget waiting on a weapon that was not equipped). For a two-weapon
+      // scene, assign the array yourself: run.weapons = [{id:'a',level:5},{id:'b',level:5}].
       weapon(id, level = 5, mods = null) {
         run.weapons = [{ id, level }]
         if (mods) run.weaponMods[id] = { ...run.weaponMods[id], ...mods }
