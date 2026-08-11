@@ -2128,14 +2128,14 @@ export const WEAPON_MODS = {
   },
   // ---- Beyond natives (v5.4; the Mini Black Hole rides the existing WEAPON_MODS.hole set) ----
   // keenShard/moreShards/pierceShard fold into realityShard's levels[] via WEAPON_STAT_MODS;
-  // rapidShard (fire rate) is read at the fire site. riftScar/recursion are behavioral (see
+  // rapidShard (fire rate) is read at the fire site. tornSeam/recursion are behavioral (see
   // stepShardWeapon / the shard branch of stepBullets).
   realityShard: {
     keenShard:   { name: 'Keen Shards',  desc: 'shard damage',     icon: '🗡️', base: 0.25, kind: 'pct' },
     moreShards:  { name: 'Splintering',  desc: 'shards per volley', icon: '🔺', base: 1,    kind: 'flat' },
     pierceShard: { name: 'Phase Edge',   desc: 'shard pierce',     icon: '🎯', base: 1,    kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     rapidShard:  { name: 'Quick Draw',   desc: 'volley rate',      icon: '⏩', base: 0.25, kind: 'pct' },
-    riftScar:    { name: 'Rift Scar',    desc: 'rifts detonate for {n} damage', icon: '🌀', base: 0.50, kind: 'pct' },
+    tornSeam:    { name: 'Torn Seam',    desc: 'the skipped gap tears open for {n} damage', icon: '🌀', base: 0.50, kind: 'pct' },
     recursion:   { name: 'Recursion',    desc: 'shard(s) forked when one burns out',    icon: '♾️', kind: 'tier' },
   },
   // wideSweep/sustainSweep fold into pulsarSweep's levels[] via WEAPON_STAT_MODS; rapidSweep (cast
@@ -2482,20 +2482,27 @@ export const TORNADO_RESPACE = 1.2
 export const TORNADO_SWEEP_R = 120
 
 // Burst Hydrant (city area denial — see WEAPONS.burstHydrant + stepHydrantWeapon/stepZones in
-// sim.js). run.zones entries: { x, y, r, fuse, dur, dmg, jetDur?, tick?, jet?, _cd?, _chained? }.
-// fuse counts down (harmless telegraph; dur is its starting value so render can grow a warning ring
-// from fuse/dur), then the zone erupts for dmg against ENEMIES only, never the player.
+// sim.js). run.zones entries: { x, y, r, fuse, dur, dmg, jetDur?, tick?, jet?, _cd?, _chained?,
+// a?, d? }. fuse counts down (harmless telegraph; dur is its starting value so render can grow a
+// warning ring from fuse/dur), then the zone erupts for dmg against ENEMIES only, never the player.
+//
+// SHAPE is decided by `d` (v7.29). Without it the zone is the historical DISC of radius r about
+// (x, y). With it the zone is a CAPSULE: everything within r of the segment running d px from
+// (x, y) along heading `a`. Only the Reality Shard's tornSeam sets a/d — the seam it cuts is the
+// gap the shard skipped — and render.js draws the identical segment, so the art and the hitbox
+// are the same two numbers and cannot drift.
 //
 // What happens next depends on jetDur, and BOTH paths are live:
 //   jetDur > 0  — the Burst Hydrant. The jet stays open for jetDur, spraying every `tick`, then is
 //                 removed. `jet` counts the remaining open time; `_cd` is the per-(enemy, jet) tick
 //                 cooldown, keyed by enemy id — per JET, not per enemy, so overlapping jets stack.
-//   jetDur nil  — the Reality Shard's riftScar. One pop and gone, exactly as before v6.10. Rifts
-//                 must keep this: a jet field that quietly made rifts persistent would be a
+//   jetDur nil  — the Reality Shard's tornSeam. One pop and gone, exactly as before v6.10. Seams
+//                 must keep this: a jet field that quietly made them persistent would be a
 //                 cross-weapon balance change nothing in the shard's own tuning accounts for.
-// Both emit {type:'explode', x, y, radius:r} on eruption. _chained marks a rift; nothing reads it
-// since v6.10 dropped chainHydrant, but riftScar still sets it and it costs nothing to keep as the
-// "this zone is not a Burst Hydrant cast" marker.
+// Both emit {type:'explode', x, y, radius:r, rift?, a?, d?} on eruption; the last three are
+// render's, and mark the seam so it closes rather than detonating. _chained marks a seam; nothing
+// in the sim reads it since v6.10 dropped chainHydrant (`d` is what decides the shape now), but
+// tornSeam still sets it and it costs nothing as the "not a Burst Hydrant cast" marker.
 export const HYDRANT_LAUNCH_KB = 260   // launch (behavioral): knockback applied to caught enemies
 export const HYDRANT_STUN = 0.6        // launch: stun seconds × bonus (e.stunT — no seek, no contact damage)
 // v6.10 jet constants.
@@ -2516,7 +2523,7 @@ export const ZONE_MAX_LIVE = 12     // cap on simultaneous zones. A fast cast ra
 // weapon whose whole readability rests on the art showing what is being hit.
 export const HYDRANT_STREAMS_MAX = 8
 export const HYDRANT_STREAMS_FALLBACK = 3 // foes an open hydrant hoses at once when its zone carries
-                                      // no nStreams — only riftScar-shaped zones, which never open a
+                                      // no nStreams — only tornSeam-shaped zones, which never open a
                                       // jet, so in practice this is a guard rather than a tuning
                                       // number. The real value is WEAPONS.burstHydrant.levels[].streams,
                                       // which Split Nozzle adds to. The eruption is
@@ -2581,12 +2588,21 @@ export const LOB_SHRAPNEL_R = 7            // px, splinter hit radius (run.bulle
 // jumps it blinkDist px along its CURRENT heading (post gravity-well curvature) without consuming
 // life, and without sweeping the gap (nothing in between is hit — that's the point).
 export const SHARD_R = 9                   // px, shard hit radius (added to enemy radius)
-// riftScar (behavioral): each blink leaves a rift at the shard's DEPARTURE point that detonates
-// after SHARD_RIFT_FUSE for SHARD_RIFT_FRAC × bonus × the shard's damage in SHARD_RIFT_R. Rifts
-// reuse run.zones (same "telegraph then erupt, enemies only" contract) with _chained: true set.
-// They carry no jetDur, so they take the one-pop path and never become hydrant turrets.
+// seamRip (behavioral, was tornSeam): each blink leaves a SEAM spanning the skip — from the
+// shard's departure point to where it came out, blinkDist px along the heading — which closes over
+// SHARD_RIFT_FUSE and cuts everything within SHARD_RIFT_W of the LINE for SHARD_RIFT_FRAC × bonus ×
+// the shard's damage. Seams reuse run.zones (same "telegraph then erupt, enemies only" contract)
+// carrying `d` (the skip length); a zone with a `d` is hit-tested as a capsule, everything else as
+// the historical disc. They carry no jetDur, so they take the one-pop path, never hydrant turrets.
+//
+// v7.29 turned a 55px disc at the departure point into this capsule, and W is picked so the
+// FOOTPRINT barely moves: π·55² = 9503px², and a capsule of half-width 32 over the level-5 skip of
+// 100px is π·32² + 2·32·100 = 9617px². It comes out slightly smaller at low levels (7697px² at the
+// level-1 skip of 70px) and grows with blinkDist, which is the honest shape for a mod that draws
+// the jump — but it means the mod is a shade weaker at Lv1 than the disc it replaced. That is the
+// whole balance delta; nothing else about the weapon moved.
 export const SHARD_RIFT_FUSE = 0.30
-export const SHARD_RIFT_R = 55
+export const SHARD_RIFT_W = 32
 export const SHARD_RIFT_FRAC = 0.8
 // recursion (behavioral): when a shard's life expires (NOT when its pierce is spent) it forks into
 // <tier bonus> new shards in random directions at SHARD_RECURSE_DMG_FRAC damage and

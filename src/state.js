@@ -1012,13 +1012,19 @@ function generateWells(sig) {
  *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
  *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
  * zones[i]: { x, y, r, fuse, dur, dmg, delay?, jetDur?, tick?, nStreams?, jet?, streams?, _cd?,
- *   _chained? }
- *   — telegraphed zones (Burst Hydrant, city weapon; also reused by the Reality Shard's riftScar
+ *   _chained?, a?, d? }
+ *   — telegraphed zones (Burst Hydrant, city weapon; also reused by the Reality Shard's tornSeam
  *   rifts). `delay` (if set) holds the zone DORMANT first — planted but not yet arrived, drawn by
  *   nothing, its fuse not started; that is how one cast staggers its zones without giving them
  *   different-length spawn animations. Then fuse counts down as a HARMLESS telegraph (dur is its
  *   starting value, so render can grow a warning ring from fuse/dur), and the zone erupts for dmg
  *   in r against ENEMIES only (never the player), emitting {type:'explode', x, y, radius:r}.
+ *
+ *   SHAPE is decided by `d` (v7.29). Without it the zone is a DISC of radius r about (x, y).
+ *   With it the zone is a CAPSULE — everything within r of the segment running d px from (x, y)
+ *   along heading `a`. Only tornSeam sets a/d, and the eruption event carries them on
+ *   {rift, a, d} so render.js draws the identical segment: the seam cuts exactly what it looks
+ *   like it cuts.
  *
  *   What happens after the eruption depends on jetDur, and BOTH paths are live:
  *     jetDur > 0  a Burst Hydrant hydrant. It stays up for jetDur (`jet` counts the remaining time)
@@ -1028,10 +1034,10 @@ function generateWells(sig) {
  *                 time), per HYDRANT, so a foe hosed by two hydrants takes both. `streams` is the
  *                 current target POSITIONS ([{x,y}], sim-written, render-read) — positions and not
  *                 ids so a target dying mid-frame cannot leave render chasing a stale entity.
- *     jetDur nil  a riftScar rift: one pop and gone. Rifts must keep this — a jet field that
- *                 quietly made rifts persistent would rebalance a weapon in another chapter.
- *   _chained marks a rift. Nothing reads it since v6.10 dropped chainHydrant; it is kept as the
- *   "not a Burst Hydrant cast" marker. See stepZones / stepOpenJet in sim.js.
+ *     jetDur nil  a tornSeam seam: one pop and gone. Seams must keep this — a jet field that
+ *                 quietly made them persistent would rebalance a weapon in another chapter.
+ *   _chained marks a seam. Nothing reads it since v6.10 dropped chainHydrant (`d` is what decides
+ *   the shape); it is kept as the "not a Burst Hydrant cast" marker. See stepZones in sim.js.
  * lobs[i]: { x, y, fromX, fromY, tx, ty, t, flight, r, dmg } — Debris Toss chunks (skies weapon).
  *   t counts UP from 0 to flight; x/y are the straight (fromX,fromY)->(tx,ty) lerp at t/flight,
  *   and render adds the parabolic hop (sim only needs t/flight). On landing the chunk bursts ONCE
