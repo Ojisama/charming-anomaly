@@ -202,10 +202,8 @@ const UI = {
   // Why a fresh noun at all: the tier was called 'Anomaly'/'Anomalie', and 'anomalie' is already
   // spent on ELEVEN user-facing FR strings — the Daily's mutators ('Anomalie du jour', 'Relancer
   // cette anomalie', 'Les anomalies tordent les règles de cette partie'), MUTATORS.overtime and
-  // .jumbo, and the player themselves ('Ton anomalie', line 35). The obvious alternative is taken
-  // too: 'Singularité' by hole. ('Faille' was taken by Rift Scar when this was decided; v7.29
-  // renamed that card to Torn Seam / Couture Déchirée and freed the word, but the reasoning for
-  // 'Brèche' was an owner call on its own merits and was not revisited.) And no ADJECTIVE can join the
+  // .jumbo, and the player themselves ('Ton anomalie', line 35). The two obvious alternatives are
+  // taken too: 'Faille' by tornSeam and 'Singularité' by hole. And no ADJECTIVE can join the
   // Normale/Épique/Mythique series, because 'Instable' is already used twice — including by this
   // very card. A previously-unused noun was forced. See RARITIES in config.js.
   'Rupture': 'Brèche',
@@ -770,7 +768,11 @@ const CONFIG = {
   'Phase Edge': 'Tranchant Phasé',
   'shard pierce': 'perforation des éclats',
   'Quick Draw': 'Dégainage Rapide',
-  'Torn Seam': 'Couture Déchirée',
+  // Owner call, 2026-08-12. 'Faille de Réalité' deliberately rhymes with the weapon's own
+  // 'Éclat de Réalité' above, so the card reads as belonging to it. His spare, if another Beyond
+  // mod ever needs a name in this register: 'Réalité Décousue' — which keeps the unstitched-seam
+  // sense the English 'Torn Seam' carries and 'Faille' drops.
+  'Torn Seam': 'Faille de Réalité',
   'the skipped gap tears open for {n} damage': "l'espace sauté se déchire pour {n} de dégâts",
   'Recursion': 'Récursion',
   'shard(s) forked when one burns out': 'éclat(s) dédoublé(s) en fin de course',
