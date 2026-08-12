@@ -12933,6 +12933,22 @@ function testUndergrowthRound() {
     assert.ok(/roarG\.arc\(rp\.x, rp\.y, rOut, a0, a1\)/.test(src),
       'the roar band must be drawn as a real arc at the cast’s own angle (a0/a1 from rp.arc)')
     console.log('PASS run UG.k3 (roar wave): born at the mouth, and drawn as a true arc at any width rather than a y-stretched bake')
+
+    // The black hole's body must NOT come from a canvas-backed texture. This is a tripwire
+    // for a fault that cannot be reproduced on this hardware at all, so nothing else can guard it.
+    // One reporter's Android draws a canvas-backed sprite's own QUAD — a hard-edged rectangle
+    // where only a soft disc should be. It has now happened twice with THIS texture: v5.23.7 took
+    // it off the gravity well, left the hole on it, and the artifact simply moved to the hole (a
+    // red band across the top of the disc, always level, always attached to it). The several
+    // hundred bake()/PNG sprites on the same device are fine, so the rule is narrow and specific:
+    // the disc is still a sprite, its texture just goes through generateTexture like the rest.
+    assert.ok(/T\.holeDisc = bake\(/.test(src),
+      "the hole's disc must be baked through generateTexture — T.holeDisc = bake(...) is gone")
+    assert.ok(!/T\.holeDisc = Texture\.from/.test(src),
+      'the hole disc is back on a canvas-backed texture (Texture.from) — that is the exact construct that draws a red rectangle over the hole on the reporting device, twice now')
+    assert.ok(/hv\.disc\.scale\.set\(h\.radius \/ T\.holeDiscRef\)/.test(src),
+      'the hole disc must be scaled off T.holeDiscRef (the radius it was baked at) — a hardcoded divisor silently resizes the body when the bake changes')
+    console.log('PASS run UG.k4 (hole disc): the body is a generateTexture bake, not a canvas texture, and is scaled off the radius it was baked at')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')

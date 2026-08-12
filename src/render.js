@@ -2412,19 +2412,55 @@ export function createRenderer(app) {
       g.circle(0, 0, R * 0.16).fill(0x140a24)
       T.holeCore = bake(g)
       T.holeRefR = R
-      // Giant-hole body: smooth radial gradient disc (low-frequency, upscales cleanly —
-      // the twirl sprites do NOT, so they only serve as fixed-size core detail now)
-      const c = document.createElement('canvas')
-      c.width = c.height = 512
-      const ctx = c.getContext('2d')
-      const grad = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
-      grad.addColorStop(0, 'rgba(38,20,84,0.55)')
-      grad.addColorStop(0.55, 'rgba(58,32,122,0.34)')
-      grad.addColorStop(0.85, 'rgba(90,47,176,0.14)')
-      grad.addColorStop(1, 'rgba(90,47,176,0)')
-      ctx.fillStyle = grad
-      ctx.fillRect(0, 0, 512, 512)
-      T.holeDisc = Texture.from(c)
+      // The hole's BODY. Same radial gradient it has always been — the four stops below are the
+      // canvas gradient's own — but rasterised as concentric strokes and put through bake() like
+      // every other sprite in this file, so there is NO canvas anywhere in the path.
+      //
+      // It used to be `Texture.from(canvas)`. That is the second time this exact texture had to be
+      // taken out of an object, on the same reporter's device: v5.23.7 removed it from the gravity
+      // well, which was showing "a hard-edged rectangle stuck to the well, measured at exactly that
+      // sprite's width with hard top and bottom edges" — a sprite's own QUAD, visible where only a
+      // soft disc should be. The well was fixed and the hole was left on it, so the artifact just
+      // moved house: reported again on the hole, a red band across the top of the disc, always
+      // level, always attached to it. The fault has only ever been seen on CANVAS-backed textures
+      // (this and a canvas clip() in v5.23.5); the several hundred bake()/PNG sprites on the same
+      // device are fine, which is the whole reason this stays a sprite and only changes how the
+      // texture is made. Do not put a canvas back in here.
+      //
+      // DISJOINT ANNULI, each carrying the gradient's exact colour and alpha at its own radius — a
+      // circle stroke IS an annulus, so nothing composites over anything and there is nothing to
+      // solve. The two approaches tried before this both distorted the look, and both were caught
+      // by pixel-diffing the result against the canvas gradient itself:
+      //   - nested FILLS composited up to the curve: needs a per-ring colour solve that demands
+      //     out-of-range channels once the rings are fine, and clamping left the tint ~6/255 off.
+      //   - OVERLAPPING strokes (1.3x width, to hide seams): near the centre a stroke's width
+      //     exceeds its radius, so they pile up on each other — alpha 181 where it should be 140.
+      // Hence butt-jointed widths and a plain fill for the middle, inside which the gradient is
+      // flat enough (0.550 -> 0.542) that one colour is truthful.
+      {
+        const RREF = 128          // baked small and upscaled: it is low-frequency, it takes it well
+        const N = 192             // bands: quantisation is then under 1/255 across the whole disc
+        const T0 = 0.02           // below this the fill takes over
+        const stops = [[0, 0x261454, 0.55], [0.55, 0x3a207a, 0.34], [0.85, 0x5a2fb0, 0.14], [1, 0x5a2fb0, 0]]
+        const at = (t) => {
+          let k = 1
+          while (k < stops.length - 1 && t > stops[k][0]) k++
+          const [t0, c0, a0] = stops[k - 1]
+          const [t1, c1, a1] = stops[k]
+          const f = (t - t0) / (t1 - t0)
+          const ch = (sh) => Math.round(((c0 >> sh) & 255) + (((c1 >> sh) & 255) - ((c0 >> sh) & 255)) * f)
+          return { color: (ch(16) << 16) | (ch(8) << 8) | ch(0), alpha: a0 + (a1 - a0) * f }
+        }
+        const gd = new Graphics()
+        const w = (RREF * (1 - T0)) / N
+        for (let i = 0; i < N; i++) {
+          const r = RREF * T0 + (i + 0.5) * w
+          gd.circle(0, 0, r).stroke({ width: w, ...at(r / RREF) })
+        }
+        gd.circle(0, 0, RREF * T0).fill(at(T0 / 2))
+        T.holeDisc = bake(gd)
+        T.holeDiscRef = RREF
+      }
     }
     // neon beam: horizontal bar baked at the weapon's max length/width, anchored so local (0,0)
     // sits at the left edge (player origin). v5.6.13 (user art direction): a SITH SABER, not a
@@ -8780,8 +8816,7 @@ export function createRenderer(app) {
   const HOLE_TWIRL_MAX = 460 // px, twirl detail size cap
   function acquireHole() {
     const root = new Container()
-    const disc = new Sprite(T.holeDisc)
-    disc.anchor.set(0.5)
+    const disc = spriteOf(T.holeDisc)
     const ring = new Graphics()
     const vortexA = new Sprite(T.fx.twirl_01)
     vortexA.anchor.set(0.5)
@@ -12788,7 +12823,7 @@ export function createRenderer(app) {
     const breathe = 1 + 0.05 * Math.sin(animT * 4 + i * 1.7) // subtle scale breathing
     hv.root.scale.set(breathe)
     // children sized to the real radius (root stays ~1 so the twirl cap holds)
-    hv.disc.scale.set((h.radius * 2) / 512)
+    hv.disc.scale.set(h.radius / T.holeDiscRef)
     const twirlPx = Math.min(h.radius * 1.2, HOLE_TWIRL_MAX)
     hv.vortexA.scale.set(fxScale(T.fx.twirl_01, twirlPx))
     hv.vortexB.scale.set(fxScale(T.fx.twirl_02, twirlPx * 0.85))
