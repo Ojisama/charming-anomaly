@@ -11,6 +11,7 @@ import {
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
+  CHAPTER_LATE_ELITE, lateEliteFor,
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, hasWeaponAt,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_PER_WAVE,
@@ -383,6 +384,80 @@ function testChapterLateRate() {
     'exactly ONE hpScale call may take a rate (spawnEnemy). The snap-trap and core-blast sites are enemy-side damage: scaling those with the ladder buffs the player in late chapters.')
 
   console.log(`PASS run PB6 (chapter tail): body ${bodyEnd.toFixed(1)}x -> beyond ${beyondEnd.toFixed(1)}x at t=300, inert before ${HP_SCALE_LATE_START}s, wired at exactly one site`)
+
+  // ---- PB6.b: the ELITE half of the same late ramp (owner: more elites at the end of the beyond)
+  // Same window and the same self-targeting property as the HP tail above, so it gets the same two
+  // properties asserted plus a wiring tripwire — the call site takes one extra argument, and
+  // dropping it is silent: every chapter falls back to the flat cadence with nothing going red.
+  for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies']) {
+    assert.strictEqual(lateEliteFor(id), 0, `${id} must not get the late elite ramp — it is beyond's`)
+  }
+  assert.strictEqual(lateEliteFor('beyond'), CHAPTER_LATE_ELITE.beyond, 'beyond must get its ladder value')
+  assert.strictEqual(lateEliteFor('blank'), 0, 'an off-ladder chapter keeps the flat cadence')
+  assert.strictEqual(lateEliteFor(undefined), 0, 'no chapter keeps the flat cadence')
+
+  // SELF-TARGETING, exactly as the HP tail: inert until HP_SCALE_LATE_START, so a run that ends
+  // early never meets it.
+  for (const t of [0, 60, HP_SCALE_LATE_START]) {
+    assert.strictEqual(eliteEveryAt(t, CHAPTER_LATE_ELITE.beyond), eliteEveryAt(t),
+      `at t=${t}s (<= HP_SCALE_LATE_START) the elite ramp must be inert`)
+  }
+  assert.ok(eliteEveryAt(HP_SCALE_LATE_START + 1, CHAPTER_LATE_ELITE.beyond) < eliteEveryAt(HP_SCALE_LATE_START + 1),
+    'one second past the start the elite ramp must bite')
+  // ...and at the very end it reaches its full value: the gap divided by (1 + late).
+  assert.ok(Math.abs(eliteEveryAt(300, CHAPTER_LATE_ELITE.beyond) * (1 + CHAPTER_LATE_ELITE.beyond) - eliteEveryAt(300)) < 1e-9,
+    'at RUN_DURATION the interval must be the flat one divided by (1 + late)')
+
+  // EFFECT, not state: step a real beyond run across the late window and count what it actually
+  // spawns, against the flat cadence the same recurrence gives. Asserting the constant instead
+  // would pass with the sim call site reverted, which is the failure this is here to catch.
+  {
+    const flat = (late) => {          // the shipped recurrence, run forward over a whole 300s
+      let next = 40
+      let n = 0
+      while (next <= 300) { if (next >= HP_SCALE_LATE_START) n++; next += eliteEveryAt(next, late) }
+      return n
+    }
+    const withRamp = flat(CHAPTER_LATE_ELITE.beyond)
+    const without = flat(0)
+    assert.ok(withRamp >= without + 4,
+      `the ramp must buy several late elites, not one: ${without} -> ${withRamp}. The cadence is COARSE `
+      + '(only ~7 elites land after t=150 at all), so a small multiplier here rounds away to nothing.')
+
+    const seeded = mulberry32(20260812)
+    const realRandom = Math.random
+    Math.random = seeded
+    try {
+      const run = createRun(makeMeta(), { chapter: 'beyond', difficulty: 1 })
+      run.viewRadius = 465            // main.js sets these every frame; the spawn ring needs them
+      run.viewW = 195
+      run.viewH = 422
+      const seen = new Set()
+      let late = 0
+      while (run.time < 300 && run.phase !== 'dead') {
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 30)
+        run.events.length = 0
+        run.player.hp = run.player.maxHP        // immortal: measure the throw, not the survival
+        if (run.phase === 'levelup') { run.levelUpChoices = []; run.phase = 'playing' }
+        for (const e of run.enemies) {
+          if (!e.elite || seen.has(e)) continue
+          seen.add(e)
+          if (run.time >= HP_SCALE_LATE_START) late++
+        }
+      }
+      assert.ok(late >= without + 3,
+        `a real beyond run must actually SPAWN the extra late elites (flat cadence gives ${without}, `
+        + `this run gave ${late}) — if this is ~${without} the sim stopped passing lateEliteFor(run.chapter)`)
+      console.log(`PASS run PB6.b (late elites): beyond spawns ${late} elites after t=${HP_SCALE_LATE_START}s `
+        + `where the flat cadence gives ${without}; ramp inert before that`)
+    } finally {
+      Math.random = realRandom
+    }
+  }
+
+  const esrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  assert.ok(esrc.includes('eliteEveryAt(run.time, lateEliteFor(run.chapter))'),
+    'spawnEnemy must pass the chapter elite ramp — without it beyond keeps the flat cadence and nothing goes red')
 }
 
 // ---- Run PB7: the v7.2 anomaly slate actually DOES something ------------------------

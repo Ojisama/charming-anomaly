@@ -1862,7 +1862,10 @@ export const WEAPON_MODS = {
     lasting:     { name: 'Lasting Hole', desc: 'hole duration',           icon: '⏱️', base: 0.20, kind: 'pct' },
     denser:      { name: 'Denser Pull',    desc: 'hole pull',               icon: '🌌', base: 0.20, kind: 'pct' },
     singularity: { name: 'Singularity',    desc: 'extra hole(s) per cast', icon: '🌠', kind: 'tier' },
-    hungry:      { name: 'Hungry Hole', desc: 'hole growth rate while alive',       icon: '🍽️', base: 0.40, kind: 'pct' },
+    // 0.40 -> 0.20 (owner, "it's too strong"): the growth compounds against a radius that is
+    // already the hitbox, and it runs for the whole of a hole's duration, so the tier read as a
+    // second Bigger Hole stacked on top of itself rather than a flavour on the same card.
+    hungry:      { name: 'Hungry Hole', desc: 'hole growth rate while alive',       icon: '🍽️', base: 0.20, kind: 'pct' },
     crunch:      { name: 'Big Crunch',  desc: 'hole collapse detonation damage',    icon: '🌋', base: 1.00, kind: 'pct' },
   },
   // v6.7.6 (owner: "merge beam length and beam width into one series"). Wide Beam and Long Beam
@@ -2945,9 +2948,15 @@ export const HP_SCALE_LATE_RATE = 0.005
 //      dies 18s before the tail begins. Raising a chapter's number here cannot make its EARLY game
 //      harder — only HP_SCALE_LATE_START can, and lowering that is the thing this lever exists to
 //      avoid.
+// beyond 0.045 -> 0.0605 (owner): the last chapter's endgame should keep climbing. Solved, not
+// guessed — 0.0605 is the rate that lands hpScale(300) exactly 30% above what 0.045 gave
+// (33.58x -> 43.66x). The ramp is smooth and self-targeting as ever: +0% at t=150, +19.8% at 180,
+// +27.6% at 240, +30.0% at 300. Front-loaded, because the factor is (1 + rate * dt) and a ratio of
+// two such lines rises fastest at the start of the window — worth knowing before reading the
+// middle of the curve as a mistake.
 export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
-  city: 0.028, skies: 0.036, beyond: 0.045,
+  city: 0.028, skies: 0.036, beyond: 0.0605,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -2989,9 +2998,24 @@ export const maxAliveFor = (mods) => Math.round(MAX_ALIVE * (mods?.maxAliveMul ?
 // late-run — intended).
 export const ELITE_EVERY_START = 45  // seconds, first elite still at t=40 (see state.js _nextEliteAt)
 export const ELITE_EVERY_END = 12
-export const eliteEveryAt = (t) => {
+// ...and in the last chapter it shrinks FURTHER over the same window the HP tail uses (owner: more
+// elites at the end of the beyond). Fraction of EXTRA elites per unit time by RUN_DURATION, ramping
+// from 0 at HP_SCALE_LATE_START — so like CHAPTER_LATE_RATE it is self-targeting and cannot touch a
+// run that ends early. Same table shape, deliberately: these two are one difficulty ramp.
+//
+// 1.5 is not a mirror of the HP number and must not be "corrected" into one. THE ELITE CADENCE IS
+// COARSE: only ~7 elites land after t=150 at all, so +30% here buys exactly ONE more over a whole
+// run — measured, and the reason the owner was shown counts rather than percentages before picking.
+// At 1.5: 13 elites after t=150 instead of 7, 8 of them in the last minute instead of 4, gaps
+// closing to ~6s by t=300.
+export const CHAPTER_LATE_ELITE = { beyond: 1.5 }
+export const lateEliteFor = (chapterId) => CHAPTER_LATE_ELITE[chapterId] ?? 0
+export const eliteEveryAt = (t, late = 0) => {
   const frac = Math.min(1, Math.max(0, t / RUN_DURATION))
-  return ELITE_EVERY_START + (ELITE_EVERY_END - ELITE_EVERY_START) * frac
+  const base = ELITE_EVERY_START + (ELITE_EVERY_END - ELITE_EVERY_START) * frac
+  if (!late) return base
+  const k = Math.min(1, Math.max(0, (t - HP_SCALE_LATE_START) / (RUN_DURATION - HP_SCALE_LATE_START)))
+  return base / (1 + late * k)
 }
 export const SPAWN_RING = 60    // px beyond the larger half-screen diagonal
 // ---- Anti-kite straggler recycling (v6.0.1) ----
