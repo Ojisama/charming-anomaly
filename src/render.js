@@ -9988,6 +9988,9 @@ export function createRenderer(app) {
         }
         continue
       }
+      // A seam (a zone carrying `d`) draws itself: the green bubbling grate below is the SEWER's
+      // safety cue, and a seam has nothing to warn you about — zones never touch the player.
+      if (gy.d > 0) { riftTelegraph(gy); continue }
       const dur = Math.max(0.001, gy.dur || 1)
       const urgency = 1 - Math.max(0, Math.min(1, gy.fuse / dur))
       const pulse = 0.5 + 0.5 * Math.sin(animT * (5 + urgency * 18))
@@ -11207,6 +11210,65 @@ export function createRenderer(app) {
     spawnRing(x, y, radius, 0.35, T.novaWarm, chapterIsVoid ? 0x8a5fe0 : 0xffffff)
   }
 
+  // ---- Reality Shard seams (v7.29) -----------------------------------------------------------
+  // tornSeam used to be a sewer zone that erupted as a campfire: a green bubbling disc at the
+  // shard's departure point for 0.3s, then explosionBurst's orange scorch. Water and fire, in the
+  // one chapter that is neither, describing a point when the mechanic is a LINE.
+  //
+  // Now the art IS the hitbox. sim.js hands over (a, d) — the heading and the length of the skip —
+  // and hit-tests a capsule about exactly the segment drawn here, so a seam cuts what it looks
+  // like it cuts. It opens at its widest the instant the shard leaves and pinches shut as the fuse
+  // burns: space healing over the gap, not a charge going off.
+  //
+  // The budget is the second constraint. At Lv5 with Quick Draw a build plants ~30 seams a SECOND
+  // (4 shards x a blink every 0.2s x a volley every 0.5s), so ~9 are alive at any moment. This
+  // spends 6 particles on a close; explosionBurst spends 13, which is why it turned to soup.
+  const RIFT_EDGE = 0xc9b8ff  // lit lilac, off the shard bullet's own violet — the torn edge
+  const RIFT_CORE = 0xffffff  // the mouths, and the zip
+
+  function riftTelegraph(gy) {
+    const dur = Math.max(0.001, gy.dur || 1)
+    const k = 1 - Math.max(0, Math.min(1, gy.fuse / dur)) // 0 -> 1 over the fuse
+    const a = gy.a || 0
+    const d = gy.d || gy.r * 2
+    const ux = Math.cos(a), uy = Math.sin(a)
+    const px = -uy, py = ux
+    // THIN, and DARKER INSIDE than the void it sits in. A fat symmetric lens is a petal however it
+    // is tinted: the first cut of this filled it violet and four parallel seams read, unmistakably,
+    // as a lotus — the Trash Tornado trap again, a coherent drawing of the wrong thing. What makes
+    // it a hole instead is that you can see nothing through it.
+    const W = d * 0.07 * (1 - k)                 // widest at birth, pinched shut at the pop
+    const ex = gy.x + ux * d, ey = gy.y + uy * d
+    const mx = gy.x + ux * d * 0.5, my = gy.y + uy * d * 0.5
+    hazardG.moveTo(gy.x, gy.y)
+      .quadraticCurveTo(mx + px * W * 2, my + py * W * 2, ex, ey)
+      .quadraticCurveTo(mx - px * W * 2, my - py * W * 2, gy.x, gy.y)
+      .fill({ color: 0x05010f, alpha: 0.55 * (1 - k) })
+      .stroke({ width: 1.2 + (1 - k) * 1.3, color: RIFT_EDGE, alpha: 0.4 + 0.5 * (1 - k) })
+    // The two mouths stay lit all the way down. They are the only part that survives a stack of
+    // overlapping seams, and they are where the shard actually was — in and out.
+    hazardG.circle(gy.x, gy.y, 2.5).fill({ color: RIFT_CORE, alpha: 0.5 + k * 0.4 })
+      .circle(ex, ey, 2.5).fill({ color: RIFT_CORE, alpha: 0.5 + k * 0.4 })
+  }
+
+  // The close. No ring: a ring is a blast radiating from a point, and this is a line zipping shut.
+  function riftBurst(x, y, radius, a = 0, d = 0) {
+    const len = d || radius * 2
+    const ux = Math.cos(a), uy = Math.sin(a)
+    spawnArc([[x, y], [x + ux * len, y + uy * len]], RIFT_CORE, RIFT_EDGE, 0.14, 4, 1)
+    for (let i = 0; i < 4; i++) {
+      const side = i % 2 ? 1 : -1
+      const ca = a + side * (1.35 + Math.random() * 0.5)
+      const t = 0.25 + Math.random() * 0.5   // squeezed out from somewhere along the seam
+      const sp = 150 + Math.random() * 110
+      spawnParticle(T.fx.spark_04, x + ux * len * t, y + uy * len * t,
+        Math.cos(ca) * sp, Math.sin(ca) * sp, 0.20, 0.05, RIFT_EDGE, 0, 5)
+    }
+    spawnParticle(T.fx.light_01, x + ux * len * 0.5, y + uy * len * 0.5, 0, 0,
+      0.16, 0.07, RIFT_CORE, 0.6, 0)
+    addShake(1, 0.07)
+  }
+
   // Crush collapse (skies only — sim.js's stepCrush, {type:'crush',x,y,kind}). v5.10 replaced this
   // outright: see skiesCrush above for the shard/dust/ruin treatment and kill list §8.4 for what it
   // reused (T.fx.circle_05 + T.fx.scorch_01 + T.dot — the same two Kenney textures explosionBurst
@@ -11589,6 +11651,8 @@ export function createRenderer(app) {
           spawnStrafeLock(e.x, e.y, e.angle, e.len)
           break
         case 'explode': {
+          // A seam zipping shut is not a detonation — it never reaches the skies branches below.
+          if (e.rift) { riftBurst(e.x, e.y, e.radius, e.a, e.d); break }
           // v5.10.1: THREE separate detonation drawers in skies, not one re-tinted burst. Which one
           // is decided by object identity, not by guessing from timing: justStruck holds the
           // run.bombs entries that vanished this frame (with `src` still on them, set explicitly by

@@ -21,7 +21,7 @@
 //                healthy weapon still duds during quiet stretches (6-17% for the skies natives).
 //
 // and, for weapons that plant telegraphed zones (run.zones — the Burst Hydrant and the Reality
-// Shard's riftScar), a per-ZONE breakdown: how often a zone caught nothing across its ENTIRE life,
+// Shard's tornSeam), a per-ZONE breakdown: how often a zone caught nothing across its ENTIRE life,
 // and the peak crowd it held.
 //
 // Measure the zone over its life, not at the eruption instant. The instant-only version of this

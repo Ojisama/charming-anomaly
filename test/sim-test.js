@@ -40,7 +40,7 @@ import {
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
-  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC,
+  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SHARD_RIFT_W, SHARD_RIFT_FUSE,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
   POUNCE_RANGE, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
@@ -6385,7 +6385,7 @@ function testV54Weapons() {
 
   // (e) burstHydrant: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.
   // Enemies only, never the player. Cap Blast flings and stuns; the turret hoses only the nearest
-  // `streams` foes, and a zone with no jetDur (a riftScar rift) still pops once and vanishes.
+  // `streams` foes, and a zone with no jetDur (a tornSeam seam) still pops once and vanishes.
   {
     const run = weaponRun('city', 'burstHydrant')
     const lvl = WEAPONS.burstHydrant.levels[MAX_WEAPON_LEVEL - 1]
@@ -6789,8 +6789,8 @@ function testV54Weapons() {
   }
 
   // (i) realityShard: shards SKIP through space (a blink jumps blinkDist along the heading without
-  // sweeping the gap). riftScar leaves _chained rifts (so chainHydrant can't fire off them);
-  // recursion forks a shard whose LIFE expired.
+  // sweeping the gap). tornSeam cuts a _chained SEAM spanning that skip; recursion forks a shard
+  // whose LIFE expired.
   {
     const run = weaponRun('beyond', 'realityShard')
     run.enemies.push(makeStatusEnemy(run, { x: 400, y: 0, hp: 1e9, speed: 0 }))
@@ -6809,9 +6809,9 @@ function testV54Weapons() {
     const flown = lvl.speed * (lvl.blinkEvery + 0.02)
     assert(covered > flown + lvl.blinkDist * 0.9, `expected a blink to skip ~${lvl.blinkDist}px on top of the flight (covered=${covered.toFixed(1)}, flown=${flown.toFixed(1)})`)
 
-    // riftScar: each blink scars its departure point into a _chained rift.
+    // tornSeam: each blink splits the gap it skipped into a _chained seam.
     const rift = weaponRun('beyond', 'realityShard')
-    rift.weaponMods.realityShard.riftScar = 0.50
+    rift.weaponMods.realityShard.tornSeam = 0.50
     rift.enemies.push(makeStatusEnemy(rift, { x: 400, y: 0, hp: 1e9, speed: 0 }))
     // Sample WHILE stepping: a rift's whole life is SHARD_RIFT_FUSE, so it plants, erupts and is
     // gone well inside any window long enough to have produced one.
@@ -6821,8 +6821,29 @@ function testV54Weapons() {
       stepSim(rift, { x: 0, y: 0 }, dt)
       rifts = rift.zones.slice()
     }
-    assert(rifts.length > 0, 'expected riftScar to leave rifts at blink departure points')
-    for (const g of rifts) assert.strictEqual(g._chained, true, 'expected rifts flagged _chained (the "not a Burst Hydrant cast" marker)')
+    assert(rifts.length > 0, 'expected tornSeam to leave seams at blink departure points')
+    for (const g of rifts) assert.strictEqual(g._chained, true, 'expected seams flagged _chained (the "not a Burst Hydrant cast" marker)')
+    for (const g of rifts) assert(g.d > 0, 'expected each seam to carry the skip length it spans')
+
+    // v7.29: the SEAM is the hitbox, not a disc at the departure point. Both probes below are
+    // OUTSIDE any disc the old shape could have drawn (SHARD_RIFT_W is 32, and the disc it replaced
+    // was 55), so this passes only if stepZones really hit-tests the capsule:
+    //   far — standing where the shard came OUT, 100px along the seam. Cut.
+    //   off — 90px off to the side of that same seam, level with its middle. Untouched.
+    // Mutation-proved: reverting stepZones to the plain disc leaves `far` on full HP.
+    const cut = weaponRun('beyond', 'realityShard')
+    cut.weapons = []
+    const far = makeStatusEnemy(cut, { x: 100, y: 0, hp: 1e9, speed: 0 })
+    const off = makeStatusEnemy(cut, { x: 50, y: 90, hp: 1e9, speed: 0 })
+    cut.enemies.push(far, off)
+    cut.zones.push({
+      x: 0, y: 0, r: SHARD_RIFT_W, fuse: SHARD_RIFT_FUSE, dur: SHARD_RIFT_FUSE,
+      dmg: 100, _chained: true, a: 0, d: 100,
+    })
+    const farHP = far.hp, offHP = off.hp
+    stepQuiet(cut, SHARD_RIFT_FUSE + 0.05)
+    assert(far.hp < farHP, 'expected the seam to cut at its far mouth, 100px from the zone origin')
+    assert.strictEqual(off.hp, offHP, 'expected an enemy 90px off the seam to be untouched')
 
     // recursion: a shard that runs out of LIFE forks into _fork shards.
     const rec = weaponRun('beyond', 'realityShard')
@@ -6838,7 +6859,7 @@ function testV54Weapons() {
     assert.strictEqual(forks.length, 2, `expected recursion to fork 2 shards on life expiry, got ${forks.length}`)
     stepQuiet(rec, 1.0)
     assert.strictEqual(rec.bullets.filter((b) => b._fork).length, 0, 'expected forks to expire without re-forking')
-    console.log(`PASS run AA.i (realityShard): blink skips ${(covered - flown).toFixed(0)}px, riftScar leaves _chained rifts, recursion forks once`)
+    console.log(`PASS run AA.i (realityShard): blink skips ${(covered - flown).toFixed(0)}px, tornSeam cuts a ${rifts[0].d}px seam that reaches its far mouth and not 90px off it, recursion forks once`)
   }
 
   // (j) pulsarSweep: ONE swept run.beams entry sweeping PULSAR_ARMS arms at once (a plain

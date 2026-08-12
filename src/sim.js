@@ -145,7 +145,7 @@ import {
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
-  SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_R, SHARD_RIFT_FRAC,
+  SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
   SHARD_RECURSE_DMG_FRAC, SHARD_RECURSE_LIFE_FRAC,
   PULSAR_ARMS, PULSAR_COLLAPSE_MUL, PULSAR_COLLAPSE_PULL,
   PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
@@ -6296,11 +6296,11 @@ function leadSpot(run, e, fuse) {
 }
 
 
-// Shared by the Burst Hydrant and the Reality Shard's riftScar. Never touches the player.
+// Shared by the Burst Hydrant and the Reality Shard's tornSeam. Never touches the player.
 //
 // Two lifecycles, chosen by whether the zone carries a jetDur (see the run.zones block in
 // config.js). A Burst Hydrant erupts and then STAYS OPEN, spraying on a per-(enemy, jet) cooldown; a
-// riftScar rift erupts once and is gone, exactly as before v6.10. The rift path is load-bearing —
+// tornSeam rift erupts once and is gone, exactly as before v6.10. The rift path is load-bearing —
 // making rifts persistent would silently rebalance a weapon in another chapter.
 function stepZones(run, dt) {
   if (!run.zones || run.zones.length === 0) return
@@ -6320,8 +6320,15 @@ function stepZones(run, dt) {
     const rSq = g.r * g.r
     for (const e of run.enemies) {
       if (e._dead) continue
+      // A zone carrying `d` is a SEAM, not a disc: it cuts within g.r of the LINE from (g.x, g.y)
+      // to d px along g.a — the gap the shard skipped. Everything else (every Burst Hydrant) keeps
+      // the historical disc, which is what the d=0 case degenerates to anyway.
       const dx = e.x - g.x, dy = e.y - g.y
-      if (dx * dx + dy * dy > rSq) continue
+      if (g.d > 0) {
+        const t = Math.max(0, Math.min(1, (dx * Math.cos(g.a) + dy * Math.sin(g.a)) / g.d))
+        const ox = dx - Math.cos(g.a) * g.d * t, oy = dy - Math.sin(g.a) * g.d * t
+        if (ox * ox + oy * oy > rSq) continue
+      } else if (dx * dx + dy * dy > rSq) continue
       applyDamage(run, e, dmg)
       // launch: the eruption throws them clear and leaves them stunned (see e.stunT in state.js).
       // Eruption frame only — the gentle continuous drift of an open jet is baseline (stepOpenJet),
@@ -6337,13 +6344,16 @@ function stepZones(run, dt) {
         if (!resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, HYDRANT_STUN * launchBonus * ccScale(run, e)); spendCC(run, e) }
       }
     }
-    run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r })
+    // `rift` tells render.js this is a seam closing rather than a detonation — it draws the zip
+    // along (a, d) instead of explosionBurst's orange scorch. a/d are the same numbers the capsule
+    // above was tested against, so the art and the hitbox cannot drift apart.
+    run.events.push({ type: 'explode', x: g.x, y: g.y, radius: g.r, rift: g._chained, a: g.a, d: g.d })
 
     if (g.jetDur > 0) {
       g.jet = g.jetDur                   // the main is open; spray from here
       g._cd = new Map()                  // per-(enemy, jet) tick cooldown, keyed by enemy id
     } else {
-      g._done = true                     // riftScar: one pop, gone
+      g._done = true                     // tornSeam: one pop, gone
     }
   }
   run.zones = run.zones.filter((g) => !g._done)
@@ -6770,7 +6780,7 @@ function stepLobs(run, dt) {
 // Fans `count` shards at the nearest enemy (star's STAR_FAN volley shape). Each is a run.bullets
 // entry tagged weapon:'shard' that flies normally but TELEPORTS along its own heading every
 // blinkEvery seconds — skipping the gap entirely, which is the point (nothing in between is hit).
-// rapidShard divides the interval; riftScar leaves a detonating rift at each departure point;
+// rapidShard divides the interval; tornSeam splits the skipped gap open along its whole length;
 // recursion forks a shard that outlives its range (see the shard branch of stepBullets).
 function stepShardWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.realityShard?.rapidShard ?? 0
@@ -6816,15 +6826,20 @@ function stepShardBlink(run, b, dt) {
   b.x += (b.vx / speed) * b._blinkDist
   b.y += (b.vy / speed) * b._blinkDist
   run.events.push({ type: 'blink', x: fromX, y: fromY, tx: b.x, ty: b.y }) // v6.2: the skip is finally visible
-  // riftScar: the departure point scars over and detonates. Rifts reuse run.zones (the same
-  // "telegraph then erupt, enemies only" contract) flagged _chained (a rift marker; see config) —
-  // a different weapon's mod — can never fire off them.
-  const rift = run.weaponMods.realityShard?.riftScar ?? 0
-  if (rift > 0) {
+  // tornSeam (v7.29): the gap the shard just skipped does not close cleanly — it splits open
+  // along the whole skip and cuts what stands in it. The zone spans departure -> arrival, so `a`
+  // and `d` are LOAD-BEARING, not decoration: stepZones hit-tests a `d` zone as a capsule about
+  // that line, and render.js draws exactly the same line. Until v7.29 this was a 55px disc at the
+  // departure point that erupted like a grenade, which described neither the skip nor the weapon.
+  // Rifts reuse run.zones (the same "telegraph then erupt, enemies only" contract) flagged
+  // _chained, the "not a Burst Hydrant cast" marker.
+  const seam = run.weaponMods.realityShard?.tornSeam ?? 0
+  if (seam > 0) {
     run.zones.push({
-      x: fromX, y: fromY, r: SHARD_RIFT_R,
+      x: fromX, y: fromY, r: SHARD_RIFT_W,
       fuse: SHARD_RIFT_FUSE, dur: SHARD_RIFT_FUSE,
-      dmg: b.dmg * SHARD_RIFT_FRAC * rift, _chained: true,
+      dmg: b.dmg * SHARD_RIFT_FRAC * seam, _chained: true,
+      a: Math.atan2(b.vy, b.vx), d: b._blinkDist,
     })
   }
 }
