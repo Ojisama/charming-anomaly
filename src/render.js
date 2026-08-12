@@ -10868,7 +10868,7 @@ export function createRenderer(app) {
   const ROAR_RING_PX = 20       // ring thickness, absolute px at every radius
   const ROAR_GAP_PX = 35        // gap between rings — pitch is RING + GAP = 55px
   const ROAR_RIPPLE_SPEED = 620 // px/s the ripple train travels outward — a look, not a stat
-  const ROAR_RIPPLE_ALPHA = 0.5 // peak per-ring alpha, mid-flight
+  const ROAR_RIPPLE_ALPHA = 0.4 // peak per-ring alpha, mid-flight (owner: 20% more transparent)
   let ripplePhase = 0           // shared outward travel, so a new cast does not restart the ripples
   function updateRoars(dt) {
     roarG.clear()
