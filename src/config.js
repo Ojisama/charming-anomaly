@@ -1800,6 +1800,16 @@ const PRISM_DESC_DEEP = 'sub-beams where the beam lands, each splitting again'
 // and mutators together and these read fine in context: 🌀 means six things there (orbit spin,
 // cyclone, resonance, rift scar, Chaos Pact, Unstable Physics), 🪤 four, ⚡ four, 💥 nine. And
 // stinger.volley uses 🎯 for a COUNT while 🎯 is pierce on star and realityShard.
+// stagger (behavioral): the mod's banked bonus IS the stun in SECONDS, so one normal pick is
+// STAGGER_STUN_PER_PICK seconds flat and four are 1.40s (× rarity, × ccScale). It used to be
+// ROAR_STUN(0.5) × a pct bonus(0.5/pick) = 0.25s, which is the same shape every duration in this
+// file avoids: two multiplied constants in two places, neither of which states the answer. Nothing
+// in the game told you the number — the card said "+50%" of something it never named — and the
+// owner's question was literally "what does stun do, it doesn't seem to do much". Measured before
+// the change: 4 picks moved contact hits 181 -> 179, i.e. nothing. See STAGGER_STUN_PER_PICK on
+// WEAPON_MODS.roar.stagger; there is no stun CHANCE anywhere in the game, every stun is 100% on
+// what it catches (cf. REPULSE_STUN, MINE_STUN, HYDRANT_STUN).
+export const STAGGER_STUN_PER_PICK = 0.35 // s of stun per normal Stagger pick — the card states it
 export const WEAPON_MODS = {
   star: {
     // blast ("Exploding Stars") removed in v4.6 — star AoE splash on every hit made it a
@@ -2108,7 +2118,11 @@ export const WEAPON_MODS = {
     // no longer several times what you can see.
     farRoar:   { name: 'Carrying Roar', desc: 'roar range', icon: '📏', base: 0.18, kind: 'pct' },
     rapidRoar: { name: 'Short Breath', desc: 'roar rate',   icon: '💨', base: 0.25, kind: 'pct' },
-    stagger:   { name: 'Stagger',     desc: 'stun on roared foes',              icon: '💫', base: 0.50, kind: 'pct' },
+    // kind 'secs': not one of the four kinds makeWeaponModCard branches on, so it takes the default
+    // `base × rarityMult` and renders {n} as a plain number — the same route pivot/trade/jackpot
+    // already take. The name is documentation, and it is what lets the card say "0.4s" instead of
+    // the "+50%" that named no unit and no subject.
+    stagger:   { name: 'Stagger',     desc: 'stuns roared foes for {n}s',       icon: '💫', base: STAGGER_STUN_PER_PICK, kind: 'secs' },
     resonance: { name: 'Resonance',   desc: 'every 3rd roar goes all around',   icon: '🌀', kind: 'switch' },
   },
   // heavyTail/longTail fold into tailLash's levels[] via WEAPON_STAT_MODS; doubleHook adds to
@@ -2573,7 +2587,6 @@ export const HYDRANT_STAGGER = 0.28    // s of extra fuse per zone within one ca
 // ---- Skies weapons (v5.4: Roar + Tail Swipe + Debris Toss) ------------------------------------
 // Roar (skies starter — see WEAPONS.roar + stepRoarWeapon in sim.js): the same sector test
 // flagella/clawRake use, plus a radial shove away from the player.
-export const ROAR_STUN = 0.5              // stagger (behavioral): stun seconds × bonus on roared foes (e.stunT)
 export const ROAR_RESONANCE_EVERY = 3     // resonance (behavioral): every Nth roar opens to a full 360° (cf. FLAGELLA_CYCLONE_EVERY)
 
 // Tail Lash (skies — see WEAPONS.tailLash + stepLashWeapon/fireLash in sim.js). run.drags entries:

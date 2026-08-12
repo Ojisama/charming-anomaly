@@ -127,7 +127,7 @@ import {
   ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
   ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_FUSE, BOMBARDMENT_RADIUS, BOMBARDMENT_DMG,
-  ROAR_STUN, ROAR_RESONANCE_EVERY, LASH_COUNTER_CD,
+  ROAR_RESONANCE_EVERY, LASH_COUNTER_CD,
   LASH_PULL_T, LASH_DRAG_FRAC, LASH_DRAG_R, BREATH_CHARGE_T, BREATH_JUMP_DMG_MUL,
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
   // v5.8 kaiju redesign (skies crushing + rampage)
@@ -6466,7 +6466,11 @@ function fireRoar(run, stats) {
       applyDamage(run, e, stats.dmg)
       if (e._dead) continue
       shoveFromPlayer(run, e, stats.knockback)
-      if (staggerBonus > 0 && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus * ccScale(run, e)); spendCC(run, e) }
+      // staggerBonus IS the stun in seconds (STAGGER_STUN_PER_PICK per normal pick) — no second
+      // constant multiplying it, so the number on the card is the number applied here. Math.max,
+      // not +=: casts REFRESH the timer rather than accumulating, which is what stops a fire-rate
+      // build from chain-locking the screen (the same reason the CC_DR_* pricing exists).
+      if (staggerBonus > 0 && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, staggerBonus * ccScale(run, e)); spendCC(run, e) }
     }
     run.events.push({ type: 'roar', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
@@ -7207,6 +7211,10 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // mod bit-identical.
   else if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity] * (cfg.perTier ?? 1)
   else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * mult))
+  // 'secs' banks a DURATION, which is the one kind whose raw product reaches the player as text: a
+  // legendary Stagger is 0.35 × 4 = 1.4000000000000001, and {n} would print every digit of it.
+  // Rounded to 2dp here so the banked value and the card agree exactly, rather than only on screen.
+  else if (cfg.kind === 'secs') bonus = Math.round(cfg.base * mult * 100) / 100
   else bonus = cfg.base * mult
   // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
   // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which
