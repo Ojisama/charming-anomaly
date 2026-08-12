@@ -7830,8 +7830,9 @@ function testTheBlank() {
   // (a2) The door: a wave ring leaves one BLANK_WAVE_GAP-wide wedge empty, so an encircled player
   // always has an opening to aim for. Measured as the largest angular spacing between consecutive
   // spawn bearings (exact — no binning). This cannot pass by luck: for n uniform bearings the
-  // chance of a spacing that big is n(1 - gap/2pi)^(n-1), which is 5e-6 at wave 1's n=128 and
-  // 6e-11 by the 256-body wave — so a run of three waves is a real assertion, not a coin flip.
+  // chance of a spacing that big is n(1 - gap/2pi)^(n-1), which at the shipped 90° door is 2e-14
+  // at wave 1's n=128 and 3e-30 by the 256-body wave (it was 5e-6 / 6e-11 at the original 45°, so
+  // widening the door only strengthens this) — a real assertion, not a coin flip.
   // Every wave in the script is checked, since the gap is re-rolled per wave.
   {
     const gaps = []

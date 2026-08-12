@@ -5954,11 +5954,14 @@ export const BLANK_SCRIPT = [
   { waves: [ { n: 160, ids: ['eraser','binder'] }, { n: 208, ids: ['eraser','probe','binder'] }, { n: 256, ids: ['eraser','probe','binder'] } ] },
   { boss: 'antibody3' },
 ]
-export const BLANK_WAVE_GAP = Math.PI / 4 // rad (45°) of the wave ring left EMPTY — the door (owner directive).
+export const BLANK_WAVE_GAP = Math.PI / 2 // rad (90°, owner directive — was 45°) of the wave ring left EMPTY — the door.
                                           // A wave of 128-256 spawns as a closed ring at viewRadius + SPAWN_RING;
                                           // with the probes now shadowing you (BLANK_PASTSEEK_LAG) a closed ring is
                                           // a hug with no out. One wedge, re-rolled per wave, is the escape the
-                                          // player aims for. Wave blocks ONLY — a boss phase's recruits (and the
+                                          // player aims for — a quarter of the ring, so it reads as a direction to
+                                          // commit to rather than a needle to thread, and the remaining bodies pack
+                                          // into 270° (the same n, ~33% denser wherever they DO stand).
+                                          // Wave blocks ONLY — a boss phase's recruits (and the
                                           // nodes) keep spawning all the way round.
 export const BLANK_WAVE_XP_MUL = 1 / 3    // v6.3.3: wave (_wave-tagged) bodies only — recruits and the
                                           // antibody keep full value; gem xp is float-safe end to end
