@@ -7,7 +7,8 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
+  SHOP, shopCost, MAX_SHOP_LEVEL, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
+  PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
@@ -4050,6 +4051,35 @@ function testGoldSinks() {
     assert.strictEqual(rerollCost(1), 15, `expected rerollCost(1)=15, got ${rerollCost(1)}`)
     assert.strictEqual(rerollCost(2), 23, `expected rerollCost(2)=23, got ${rerollCost(2)}`)
     console.log('PASS run Q.d (rerollCost)')
+  }
+
+  // Q.e shop surcharge (v7.49, owner directive): the 1.6^level curve carries a linear surcharge —
+  // +20% at level 0, +200% at the last purchasable level — then clamps per line. Assert the ramp's
+  // ENDS against base (not against hardcoded coin totals, which would just re-encode 1.6^9), and
+  // assert the caps actually BIND: a cap nothing reaches is a cap that could be deleted.
+  {
+    const last = MAX_SHOP_LEVEL - 1
+    for (const id of Object.keys(SHOP)) {
+      const base = SHOP[id].base
+      assert.strictEqual(shopCost(id, 0), Math.round(base * 1.2),
+        `${id} level 0 should cost base * 1.2 (+20%), got ${shopCost(id, 0)} against base ${base}`)
+      const cap = SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT
+      const uncapped = Math.round(base * Math.pow(1.6, last) * 3)
+      assert.strictEqual(shopCost(id, last), Math.min(cap, uncapped),
+        `${id} last level should be min(cap ${cap}, base * 1.6^${last} * 3 = ${uncapped}), got ${shopCost(id, last)}`)
+      // monotonic: a surcharge that ever makes the NEXT level cheaper is a broken ramp
+      for (let l = 1; l <= last; l++) {
+        assert.ok(shopCost(id, l) >= shopCost(id, l - 1),
+          `${id} cost went DOWN from level ${l - 1} (${shopCost(id, l - 1)}) to ${l} (${shopCost(id, l)})`)
+      }
+    }
+    const capped = Object.keys(SHOP).filter((id) =>
+      Math.round(SHOP[id].base * Math.pow(1.6, last) * 3) > (SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT))
+    assert.ok(capped.length > 0,
+      'no shop line reaches its cost cap at max level — the cap is dead code, or the curve was retuned under it')
+    assert.strictEqual(shopCost('damage', last), Math.round(SHOP.damage.base * Math.pow(1.6, last) * 3),
+      'damage has the 9999 ceiling and must NOT be clamped by the 4999 default')
+    console.log(`PASS run Q.e (shop surcharge): +20% at L0 rising to +200% at L${last}, capped for ${capped.join(', ')}`)
   }
 }
 

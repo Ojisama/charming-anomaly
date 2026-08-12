@@ -3092,7 +3092,18 @@ export const SHOP = {
   coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙' },
 }
 export const MAX_SHOP_LEVEL = 10
-export const shopCost = (id, level) => Math.round(SHOP[id].base * Math.pow(1.6, level))
+// v7.49 (owner directive): the old bare 1.6^level curve got a surcharge on top — +20% on the FIRST
+// level, rising linearly to +200% on the LAST. `level` is the count already owned, so the last
+// purchase is at level MAX_SHOP_LEVEL - 1 and that is what the ramp divides by.
+// Then a hard ceiling per line: the three stats that carry a run climb to SHOP_COST_CAP, everything
+// else stops at SHOP_COST_CAP_DEFAULT. The cap BINDS today (coinGain/critDamage/moveSpeed all blow
+// past 4999 at level 9) — it is a real price, not a safety rail.
+export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999 }
+export const SHOP_COST_CAP_DEFAULT = 4999
+export const shopCost = (id, level) => Math.min(
+  SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
+  Math.round(SHOP[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
+)
 
 // Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
 // level-up card slot (see meta.choiceSlots in state.js and hooks.onSacrifice in main.js).
