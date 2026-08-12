@@ -1591,7 +1591,7 @@ export function initUI(hooks) {
     setHtml(screens.levelup, `
       <div class="modal" data-pop="levelup">
         <h2 class="modal-title">${t(card.title)}</h2>
-        <p class="lv-hint">${t('Which weapon?')}</p>
+        <p class="lv-ask">${t('Which weapon?')}</p>
         <div class="lv-cards">${rows}</div>
       </div>
     `)

@@ -4080,6 +4080,11 @@ function testGoldSinks() {
   // assert the caps actually BIND: a cap nothing reaches is a cap that could be deleted.
   {
     const last = MAX_SHOP_LEVEL - 1
+    // Pin the ceiling map itself. Every other assertion here READS SHOP_COST_CAP to build its own
+    // expectation, so it cannot see a wrong number or a dropped line — only this can.
+    assert.deepStrictEqual(SHOP_COST_CAP, { damage: 9999, maxHP: 9999, critChance: 9999, coinGain: 9999 },
+      'the 9999 ceiling is owner-specified for exactly damage/maxHP/critChance/coinGain')
+    assert.strictEqual(SHOP_COST_CAP_DEFAULT, 4999, 'every other shop line stops at 4999 (owner-specified)')
     for (const id of Object.keys(SHOP)) {
       const base = SHOP[id].base
       assert.strictEqual(shopCost(id, 0), Math.round(base * 1.2),
