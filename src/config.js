@@ -3095,10 +3095,11 @@ export const MAX_SHOP_LEVEL = 10
 // v7.49 (owner directive): the old bare 1.6^level curve got a surcharge on top — +20% on the FIRST
 // level, rising linearly to +200% on the LAST. `level` is the count already owned, so the last
 // purchase is at level MAX_SHOP_LEVEL - 1 and that is what the ramp divides by.
-// Then a hard ceiling per line: the three stats that carry a run climb to SHOP_COST_CAP, everything
-// else stops at SHOP_COST_CAP_DEFAULT. The cap BINDS today (coinGain/critDamage/moveSpeed all blow
-// past 4999 at level 9) — it is a real price, not a safety rail.
-export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999 }
+// Then a hard ceiling per line: the lines listed in SHOP_COST_CAP climb to their own number,
+// everything else stops at SHOP_COST_CAP_DEFAULT. The default BINDS today (critDamage and moveSpeed
+// blow past 4999 at level 9) — it is a real price, not a safety rail. coinGain sits under its 9999
+// at 8246, so its entry is headroom rather than a live clamp.
+export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999, coinGain: 9999 }
 export const SHOP_COST_CAP_DEFAULT = 4999
 export const shopCost = (id, level) => Math.min(
   SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
