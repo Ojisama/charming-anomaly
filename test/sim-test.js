@@ -4275,7 +4275,48 @@ function testChapters() {
     assert.strictEqual((src.match(/meta\.chapter = /g) ?? []).length, 0, 'ui.js must not write meta.chapter directly — it goes through hooks.onChapter (main.js) so the save stays the single writer')
   }
 
-  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock, carousel settle guards')
+  // (h) v7.x WIP gate. meta.dev hides work-in-progress chapters from real players, so the two
+  // things that matter are that it round-trips and that NOTHING can turn it on by accident. It is
+  // coerced (`m.dev === true`) rather than `??=` defaulted, because every gate reads `=== true`:
+  // a save carrying 'yes' or 1 would be truthy at every OTHER site and the flag would disagree
+  // with itself. A tampered save must read as off, not as "on but only sometimes".
+  {
+    const devStub = {
+      coins: 0, shop: {}, best: { time: 0, kills: 0 }, runs: 0, choiceSlots: 2, chapter: 'body', chapters: {},
+    }
+    const load = (dev) => {
+      if (dev === undefined) delete devStub.dev; else devStub.dev = dev
+      globalThis.localStorage = { getItem: () => JSON.stringify(devStub), setItem: () => {} }
+      const m = loadMeta()
+      delete globalThis.localStorage
+      return m.dev
+    }
+    assert.strictEqual(load(true), true, 'meta.dev: a stored `true` round-trips as true')
+    assert.strictEqual(load(false), false, 'meta.dev: a stored `false` stays false')
+    assert.strictEqual(load(undefined), false, 'meta.dev: absent (every save written before the gate existed) loads as false')
+    for (const junk of [null, 'yes', 1, 'true', {}, []]) {
+      assert.strictEqual(load(junk), false, `meta.dev: a tampered ${JSON.stringify(junk)} must load as false, not as a truthy non-boolean`)
+    }
+    // A brand-new save skips the migration entirely (loadMeta returns the fresh literal), so the
+    // literal needs its own `dev: false` — without it the flag reads `undefined`, which works by
+    // luck at every truthiness test and is a different value from what every other save carries.
+    globalThis.localStorage = { getItem: () => null, setItem: () => {} }
+    const freshDev = loadMeta().dev
+    delete globalThis.localStorage
+    assert.strictEqual(freshDev, false, 'meta.dev: a brand-new save is created with the gate explicitly false, not undefined')
+  }
+
+  // (i) v7.x, R1 of the Book 2 plan: the WIP gate must NEVER reach sim.js. sim reads
+  // CHAPTERS[run.chapter] and plays what it is handed, which is what makes a run behind the gate
+  // take the SHIPPED code path — test the gated thing and you have tested the thing that ships.
+  // The moment sim branches on the flag, the two diverge and the gate stops being a gate.
+  {
+    const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    assert.ok(!/\bmeta\.dev\b/.test(simSrc), 'sim.js reads meta.dev — the WIP gate must not change simulation, or what you playtest is not what ships (plan R1)')
+    assert.ok(!/\brun\.dev\b/.test(simSrc), 'sim.js reads run.dev — the WIP gate must not reach the run object (plan R1)')
+  }
+
+  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock, carousel settle guards, WIP gate coercion + R1')
 }
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------

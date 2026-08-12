@@ -267,6 +267,12 @@ export function loadMeta() {
       // Which side of the screen the skill button sits on. 'left' is the right-handed default —
       // see the .skill-btn block in styles.css for why the button goes to the OFF hand.
       m.skillSide = m.skillSide === 'right' ? 'right' : 'left'
+      // WIP gate (Book 2). Work-in-progress chapters are hidden from players behind this, and the
+      // title's coin badge toggles it with seven taps (ui.js). Coerced to a real boolean rather
+      // than `??=`: every gate reads `meta.dev === true`, so a hand-edited or imported save
+      // carrying 'yes' or 1 would be truthy everywhere EXCEPT those tests and the flag would
+      // disagree with itself. This never reaches sim.js — see the plan's R1.
+      m.dev = m.dev === true
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
       // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
@@ -289,6 +295,7 @@ export function loadMeta() {
     chapters: {},
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
     skillSide: 'left', // right-handed default (see the loadMeta migration above)
+    dev: false, // WIP gate, off for every real player (see the loadMeta migration above)
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,

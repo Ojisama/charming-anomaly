@@ -150,6 +150,15 @@ const ui = initUI({
     setLang(l)
     playSfx('click')
   },
+  // The WIP gate: seven taps on the TITLE coin badge (ui.js). Persist only — ui.js owns repainting
+  // the title and the DEV pill, the same split as onLang. This flag gates which chapters are
+  // OFFERED and never reaches sim.js: a run behind the gate is played by exactly the shipped code
+  // path, so what gets tested here is what ships.
+  onDev(on) {
+    meta.dev = on
+    saveMeta(meta)
+    playSfx('click')
+  },
   // Which side the skill button sits on ('left' is the right-handed default — see the .skill-btn
   // block in styles.css). Persist only; ui.js owns moving the element, same split as onLang.
   onSkillSide(side) {

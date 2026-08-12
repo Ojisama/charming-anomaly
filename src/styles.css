@@ -123,6 +123,24 @@ body {
    build stamp, the last two of which overlapped — and floating means every one of them also cost
    padding-top to clear. One honest row instead: ⚙ (everything else, in a sheet), the wordmark, the
    wallet. Nothing overlaps because nothing is positioned. */
+/* The WIP gate's tell. Shown in the title bar whenever meta.dev, because a hidden flag you cannot
+   see is how work-in-progress chapters reach a real player. Deliberately NOT translated, for the
+   same reason the dev menu isn't (see ui.js): it would add rows to the translation surface for
+   chrome only the developer ever sees.
+   Sized against the 320px header, which has exactly 39px of slack once ⚙, the wordmark and the
+   wallet have taken theirs: at 0.62rem with 7px sides this came to 36px + an 8px gap and pushed the
+   bar 5px wide. flex-shrink:0 so it never absorbs the squeeze itself — the wordmark, which already
+   wraps to two lines, is the thing that should give. */
+.dev-pill {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--cream-soft);
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
 .title-bar {
   flex-shrink: 0;
   display: flex;

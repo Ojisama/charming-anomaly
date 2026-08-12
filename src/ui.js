@@ -647,7 +647,11 @@ export function initUI(hooks) {
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
         <h1 class="title-logo"><span>Charming</span> <span>Anomaly</span></h1>
-        <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
+        ${meta.dev ? '<span class="dev-pill">DEV</span>' : ''}
+        <!-- data-act="dev-tap-wip": seven quick taps toggle the WIP gate (meta.dev), which is what
+             reveals work-in-progress chapters. Same gesture as the HUD badge's hidden dev menu and
+             the same two constants, but its own counter and its own case — see 'dev-tap-wip'. -->
+        <div class="coins-badge" data-act="dev-tap-wip">🪙 <b>${meta.coins}</b></div>
       </header>
       ${carouselHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
@@ -1884,6 +1888,12 @@ export function initUI(hooks) {
   let devListEl = null      // repainted alone on every keystroke, so the filter field keeps focus
   let devTaps = 0
   let devTapAt = 0
+  // The TITLE badge's seven-tap counter, deliberately NOT the pair above. Sharing one counter would
+  // let taps on two different badges add up, so a burst split across the title and the HUD could
+  // half-arm either gesture — and these two do very different things (this one toggles a persisted
+  // flag, that one opens a throwaway screen). Two counters, no interaction.
+  let wipTaps = 0
+  let wipTapAt = 0
 
   // Card rows, grouped by kind with a sticky header per group. Filtering matches the title, the
   // description and the kind, so "anom" finds the whole tier and "fire" finds what it reads like.
@@ -2210,6 +2220,22 @@ export function initUI(hooks) {
         break
       }
       case 'dev-close': playSfx('click'); hooks.onDevClose?.(); break
+      // The WIP gate, on the TITLE coin badge. Seven taps flips meta.dev, which is what makes
+      // work-in-progress chapters visible at all. renderTitle() repaints so the DEV pill appears
+      // or vanishes on the same tap — a hidden flag with no tell is how WIP content reaches
+      // players by accident. Same constants as 'dev-tap' above, separate counter (see wipTaps).
+      case 'dev-tap-wip': {
+        const now = performance.now()
+        wipTaps = now - wipTapAt < DEV_TAP_WINDOW_MS ? wipTaps + 1 : 1
+        wipTapAt = now
+        if (wipTaps >= DEV_TAPS_TO_OPEN) {
+          wipTaps = 0
+          playSfx('buy')
+          hooks.onDev?.(!meta.dev)   // persists; meta is the same object, so renderTitle reads it fresh
+          renderTitle()
+        }
+        break
+      }
       case 'build-toggle': {
         const key = el.dataset.key
         if (openBuild.has(key)) openBuild.delete(key)
