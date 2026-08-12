@@ -625,10 +625,8 @@ export const chaosStatus = (time) => {
   }
 }
 
-// ALIGNMENT. COMBOS.comboCd is 0.5s per enemy per combo; this removes it, so shatter/overload/
-// acid-burn/brittle fire on EVERY qualifying hit. Makes the interaction the star instead of a
-// potency number — which is why it replaced a straight combo-damage bump.
-export const ALIGNMENT_COMBO_CD = 0
+// ALIGNMENT. Multiplies the potency of every element the player carries.
+export const ALIGNMENT_POTENCY_MUL = 2
 // DEADFALL. The trap field is undergrowth's identity, so this is a chapter inversion: the hazard
 // stops being something you route around and becomes furniture you kite ACROSS.
 export const DEADFALL_REARM_MUL = 0.2
@@ -963,9 +961,9 @@ export const ANOMALIES = {
   alignment: {
     name: 'Alignment', icon: '⚗️',
     from: 'two elements found the same beat',
-    desc: 'Element combos have no cooldown. Every hit that can trigger one, does.',
-    // Redesigned away from a potency bump: this makes the INTERACTION the star. Gated on owning
-    // two distinct elements, which is also the only state in which the card means anything.
+    desc: `All your elements now have ×${ALIGNMENT_POTENCY_MUL} potency.`,
+    // Gated on owning two distinct elements: that is the fiction, and it keeps the card off a
+    // screen where it would read as a single-element buff.
     when: (r) => Object.values(r.elementPicks ?? {}).filter((n) => n > 0).length >= 2,
     weight: 6, chapter: null, kind: 'jackpot',
   },
@@ -2745,7 +2743,9 @@ export const ELEMENTS = {
     desc: 'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.',
   },
 }
-export const MAX_ELEMENT_PICKS = 5
+// At the cap `eligibleElementIds` drops the id from the pool, so this is the point an elemental
+// build stops being offered the thing it committed to.
+export const MAX_ELEMENT_PICKS = 8
 // v6.7 (Track B): ELEMENT_CARD_WEIGHT is GONE. It was a per-id pre-filter that let an eligible
 // element join a pool only 25% of the time; with four elements, all four were dropped on
 // 0.75^4 = 31.6% of pools, so an 18% element bucket would only have delivered ~12%.
@@ -3092,7 +3092,18 @@ export const SHOP = {
   coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙' },
 }
 export const MAX_SHOP_LEVEL = 10
-export const shopCost = (id, level) => Math.round(SHOP[id].base * Math.pow(1.6, level))
+// v7.49 (owner directive): the old bare 1.6^level curve got a surcharge on top — +20% on the FIRST
+// level, rising linearly to +200% on the LAST. `level` is the count already owned, so the last
+// purchase is at level MAX_SHOP_LEVEL - 1 and that is what the ramp divides by.
+// Then a hard ceiling per line: the three stats that carry a run climb to SHOP_COST_CAP, everything
+// else stops at SHOP_COST_CAP_DEFAULT. The cap BINDS today (coinGain/critDamage/moveSpeed all blow
+// past 4999 at level 9) — it is a real price, not a safety rail.
+export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999 }
+export const SHOP_COST_CAP_DEFAULT = 4999
+export const shopCost = (id, level) => Math.min(
+  SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
+  Math.round(SHOP[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
+)
 
 // Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
 // level-up card slot (see meta.choiceSlots in state.js and hooks.onSacrifice in main.js).
@@ -3105,8 +3116,9 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
 export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
 
-// End-of-run coin bonus
-export const runBonusCoins = (kills) => Math.floor(kills / 10)
+// End-of-run coin bonus: sqrt(kills) + level reached (owner directive). The sqrt flattens the
+// kill term so a long farm run can't outrun a short deep one, and levelling is paid directly.
+export const runBonusCoins = (kills, level = 1) => Math.floor(Math.sqrt(Math.max(0, kills)) + level)
 
 // v6.4.2 (owner directive): a single run banks at most this many coins. Clamped at BOTH ends:
 // the standing run.coinsEarned counter (stepPickups, sim.js — rerolls spend it down and it can

@@ -7,7 +7,8 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
+  SHOP, shopCost, MAX_SHOP_LEVEL, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
+  PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
@@ -23,7 +24,7 @@ import {
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
-  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
+  ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
@@ -94,7 +95,7 @@ import {
   // v6.4.1/v6.4.3 early-calm (Run OO)
   EARLY_CALM,
   // v6.4.2 coin cap (Run PP)
-  COIN_CAP_PER_RUN,
+  COIN_CAP_PER_RUN, runBonusCoins,
   // v6.4.3 opening spawn credit (Run QQ)
   SPAWN_OPENING_CREDIT,
   // v6.5.1 enemy separation (Run UU)
@@ -766,28 +767,49 @@ function testAnomalySlate() {
     assert.ok(CHAOS_PACT_SURGE < CHAOS_PACT_PERIOD, 'the surge must be shorter than the cycle, or the payoff never arrives')
   }
 
-  // ALIGNMENT — asserted through the COMBO RATE, not through its constant. `ALIGNMENT_COMBO_CD === 0`
-  // is two config reads that touch no sim code: deleting the anomaly's ternary in triggerCombo left
-  // it green. This runs the real thing — fire + cold on a packed field, count the shatters.
+  // ALIGNMENT — asserted as ELEMENTAL DAMAGE, once PER CALL SITE. The card multiplies potency
+  // where potency is CONSUMED and leaves run.elements alone, so every state assertion available
+  // (run.elements, elementPicks, the build readout) reads identically with the card and without
+  // it. Only the damage moves. Fire and venom are separate arms because they break independently:
+  // applyIgnite banks its dps once at apply time, the venom DoT re-reads potency every tick in
+  // stepStatuses, and one combined number stays green with either site reverted.
+  // withCard re-seeds Math.random per call and the card draws no randoms, so the arms share one
+  // stream and the subtraction below is exact rather than statistical.
   {
-    assert.strictEqual(ALIGNMENT_COMBO_CD, 0, 'ALIGNMENT must remove the combo cooldown, not shorten it')
-    assert.ok(COMBOS.comboCd > 0, 'there is no combo cooldown left for ALIGNMENT to remove')
-    const shatters = (id) => {
+    assert.ok(ALIGNMENT_POTENCY_MUL > 1, 'ALIGNMENT must raise element potency, not lower it')
+    // Shatter consumes the chill AND the freeze stack, so a shatter every hit is a freeze that
+    // never lands. Nothing may zero this.
+    assert.ok(COMBOS.comboCd > 0, 'the combo cooldown must stay — zeroing it deletes freeze')
+    // `extras` puts a second body inside SHOCK_RANGE: the lightning arm has nothing to arc to
+    // otherwise, and applyShock returns before it ever reads the potency it was handed.
+    const dealt = (id, elements, extras = 0) => {
       const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
       r.weapons = [{ id: 'star', level: 5 }]
-      setElements(r, { fire: 4, cold: 4 })
-      for (let i = 0; i < 24; i++) r.enemies.push(makeStatusEnemy(r, { x: 90 + (i % 6) * 22, y: (i / 6 | 0) * 22 - 30, hp: 1e6 }))
-      let n = 0
-      for (let f = 0; f < 90 * 6; f++) {
-        stepSim(r, { x: 0, y: 0 }, dt)
-        for (const ev of r.events) if (ev.type === 'shatter') n++
-        r.events.length = 0
-      }
-      return n
+      setElements(r, elements)
+      const es = [makeStatusEnemy(r, { x: 120, y: 0, hp: 1e9, speed: 0 })]
+      for (let i = 0; i < extras; i++) es.push(makeStatusEnemy(r, { x: 120, y: (i + 1) * 40, hp: 1e9, speed: 0 }))
+      r.enemies.push(...es)
+      const hp = () => es.reduce((a, e) => a + e.hp, 0)
+      const before = hp()
+      for (let f = 0; f < 240; f++) stepSim(r, { x: 0, y: 0 }, dt)
+      return before - hp()
     }
-    const plain = shatters(null), aligned = shatters('alignment')
-    assert.ok(aligned > plain,
-      `ALIGNMENT produced ${aligned} shatters against ${plain} without it — the cooldown is not being read at triggerCombo`)
+    for (const [label, elements, extras] of [
+      ['fire', { fire: 4 }, 0],
+      ['venom', { venom: 4 }, 0],
+      ['lightning', { lightning: 4 }, 1],
+    ]) {
+      const weaponOnly = dealt(null, {}, extras)
+      // Subtract the weapon's own damage so the ratio is the ELEMENT's, undiluted — with the
+      // star's contribution left in, a real x2 on the DoT reads as a much smaller total and the
+      // band would have to be loose enough to pass with the multiplier halved.
+      const plain = dealt(null, elements, extras) - weaponOnly
+      const aligned = dealt('alignment', elements, extras) - weaponOnly
+      assert.ok(plain > 0, `the ${label} arm dealt no elemental damage at all — the harness is not reaching its subject`)
+      assert.ok(aligned > plain * 1.5,
+        `ALIGNMENT dealt ${Math.round(aligned)} ${label} damage against ${Math.round(plain)} without it ` +
+        `(x${(aligned / plain).toFixed(2)}, want >=x${ALIGNMENT_POTENCY_MUL}) — the multiplier never reaches that potency site`)
+    }
   }
 
   // THE FOUR VARIABLE DAMAGE MULTIPLIERS, asserted as DAMAGE. Between them these are the payoff of
@@ -1390,7 +1412,7 @@ function testAnomalySlate() {
     }
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
+  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by elemental damage per potency site, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {
@@ -4050,6 +4072,35 @@ function testGoldSinks() {
     assert.strictEqual(rerollCost(1), 15, `expected rerollCost(1)=15, got ${rerollCost(1)}`)
     assert.strictEqual(rerollCost(2), 23, `expected rerollCost(2)=23, got ${rerollCost(2)}`)
     console.log('PASS run Q.d (rerollCost)')
+  }
+
+  // Q.e shop surcharge (v7.49, owner directive): the 1.6^level curve carries a linear surcharge —
+  // +20% at level 0, +200% at the last purchasable level — then clamps per line. Assert the ramp's
+  // ENDS against base (not against hardcoded coin totals, which would just re-encode 1.6^9), and
+  // assert the caps actually BIND: a cap nothing reaches is a cap that could be deleted.
+  {
+    const last = MAX_SHOP_LEVEL - 1
+    for (const id of Object.keys(SHOP)) {
+      const base = SHOP[id].base
+      assert.strictEqual(shopCost(id, 0), Math.round(base * 1.2),
+        `${id} level 0 should cost base * 1.2 (+20%), got ${shopCost(id, 0)} against base ${base}`)
+      const cap = SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT
+      const uncapped = Math.round(base * Math.pow(1.6, last) * 3)
+      assert.strictEqual(shopCost(id, last), Math.min(cap, uncapped),
+        `${id} last level should be min(cap ${cap}, base * 1.6^${last} * 3 = ${uncapped}), got ${shopCost(id, last)}`)
+      // monotonic: a surcharge that ever makes the NEXT level cheaper is a broken ramp
+      for (let l = 1; l <= last; l++) {
+        assert.ok(shopCost(id, l) >= shopCost(id, l - 1),
+          `${id} cost went DOWN from level ${l - 1} (${shopCost(id, l - 1)}) to ${l} (${shopCost(id, l)})`)
+      }
+    }
+    const capped = Object.keys(SHOP).filter((id) =>
+      Math.round(SHOP[id].base * Math.pow(1.6, last) * 3) > (SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT))
+    assert.ok(capped.length > 0,
+      'no shop line reaches its cost cap at max level — the cap is dead code, or the curve was retuned under it')
+    assert.strictEqual(shopCost('damage', last), Math.round(SHOP.damage.base * Math.pow(1.6, last) * 3),
+      'damage has the 9999 ceiling and must NOT be clamped by the 4999 default')
+    console.log(`PASS run Q.e (shop surcharge): +20% at L0 rising to +200% at L${last}, capped for ${capped.join(', ')}`)
   }
 }
 
@@ -10519,6 +10570,19 @@ function testCoinCap() {
     assert.strictEqual(run.coinsEarned, COIN_CAP_PER_RUN,
       `expected run.coinsEarned to re-earn back up to COIN_CAP_PER_RUN (${COIN_CAP_PER_RUN}) exactly, got ${run.coinsEarned}`)
     console.log(`PASS run PP.b (coin cap re-earn after spend): coinsEarned=${run.coinsEarned}`)
+  }
+
+  // (c) the end-of-run bonus is floor(sqrt(kills) + level). The `level` argument DEFAULTS to 1, so
+  // a caller that forgets to pass it still returns a plausible number and nothing throws — grep
+  // main.js's one call site (run UG.k's trick) rather than trusting the formula alone.
+  {
+    assert.strictEqual(runBonusCoins(400, 25), 45, 'runBonusCoins(400, 25) should be sqrt(400)+25 = 45')
+    assert.strictEqual(runBonusCoins(0, 1), 1, 'a level-1 run with no kills still banks its level')
+    assert.ok(runBonusCoins(100, 10) > runBonusCoins(100, 5), 'the level term must move the bonus')
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/runBonusCoins\(run\.kills,\s*run\.player\.level\)/.test(src),
+      'endRun (main.js) must pass run.player.level to runBonusCoins — the default of 1 hides the omission')
+    console.log('PASS run PP.c (end-of-run bonus): floor(sqrt(kills) + level), and main.js forwards the level')
   }
 
   console.log('PASS run PP (v6.4.2 coin cap): run.coinsEarned clamps to COIN_CAP_PER_RUN on pickup and re-earns back up to it (never past) after a mid-run spend')
