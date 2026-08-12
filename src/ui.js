@@ -657,6 +657,11 @@ export function initUI(hooks) {
     if (!settingsOpen) return ''
     const langRows = LANGS.map(([id, label]) => `
       <button class="settings-lang${id === getLang() ? ' settings-lang--on' : ''}" data-act="lang-pick" data-lang="${id}">${label}</button>`).join('')
+    // Which side the skill button sits on. Reuses the language row's picker markup verbatim — same
+    // two-of-N shape, so it needs no CSS of its own. The label's ☉ is the button's OWN glyph
+    // (skill-btn-glyph), not a lookalike, so the row names the thing it moves.
+    const sideRows = [['left', t('Left')], ['right', t('Right')]].map(([id, label]) => `
+      <button class="settings-lang${id === meta.skillSide ? ' settings-lang--on' : ''}" data-act="side-pick" data-side="${id}">${label}</button>`).join('')
     return `
       <div class="modal-backdrop sheet-backdrop" data-act="settings-close" data-pop="settings">
         <div class="bottom-sheet">
@@ -665,6 +670,10 @@ export function initUI(hooks) {
           <div class="settings-row">
             <span class="settings-label">🌐 ${t('language')}</span>
             <span class="settings-langs">${langRows}</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">☉ ${t('skill button')}</span>
+            <span class="settings-langs">${sideRows}</span>
           </div>
           <button class="btn btn--soft btn--small settings-slots" data-act="slots">💾 ${t('Save slots')} <i>${activeSlot()}/${SAVE_SLOTS}</i></button>
           ${buildStampHtml()}
@@ -1030,6 +1039,11 @@ export function initUI(hooks) {
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
   }
+  // The button's side is a PREFERENCE, not per-frame state, so it is applied once at boot and again
+  // when the setting changes — deliberately NOT from updateHUD, which runs every frame and already
+  // caches everything it touches (see `last` below).
+  const applySkillSide = () => hud.skillBtn.classList.toggle('skill-btn--right', meta.skillSide === 'right')
+  applySkillSide()
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
     // v5.8 kaiju redesign: undefined (not NaN/false) so the very first updateHUD call always
@@ -2087,6 +2101,15 @@ export function initUI(hooks) {
         // a cycle makes the player tap a row and watch a DIFFERENT one light up.
         const next = el.dataset.lang
         if (next && next !== getLang()) hooks.onLang?.(next)
+        renderTitle()
+        break
+      }
+      case 'side-pick': {
+        const side = el.dataset.side
+        if (side && side !== meta.skillSide) {
+          hooks.onSkillSide?.(side)     // persists; meta is the same object, so the class read below is current
+          applySkillSide()
+        }
         renderTitle()
         break
       }
