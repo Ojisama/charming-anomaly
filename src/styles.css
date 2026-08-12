@@ -693,6 +693,15 @@ body {
   .lv-hint { display: block; }
 }
 
+/* the subject chooser's QUESTION. Deliberately NOT .lv-hint: that one is a keyboard legend and is
+   hidden on every phone, which left the chooser asking nothing on the platform this game targets. */
+.lv-ask {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
 /* level-up footer: reroll (v4.5 gold sink) — kept subtle, under the cards, not competing */
 .lv-footer {
   display: flex;
