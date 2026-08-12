@@ -76,7 +76,7 @@ import {
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
-  BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL,
+  BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -7825,6 +7825,37 @@ function testTheBlank() {
     assert(run.enemies.every((e) => e._wave), 'expected every enemy alive after 30s idle to still be wave-tagged — no ordinary spawner ever ran')
     assert(run.enemies.every((e) => !e.elite), 'expected zero elites after 30s idle')
     console.log(`PASS run EE.a (wave 1 + no ordinary spawning): ${wave0.n} spawned, ${run.enemies.length} alive after 30s idle, all wave-tagged`)
+  }
+
+  // (a2) The door: a wave ring leaves one BLANK_WAVE_GAP-wide wedge empty, so an encircled player
+  // always has an opening to aim for. Measured as the largest angular spacing between consecutive
+  // spawn bearings (exact — no binning). This cannot pass by luck: for n uniform bearings the
+  // chance of a spacing that big is n(1 - gap/2pi)^(n-1), which is 5e-6 at wave 1's n=128 and
+  // 6e-11 by the 256-body wave — so a run of three waves is a real assertion, not a coin flip.
+  // Every wave in the script is checked, since the gap is re-rolled per wave.
+  {
+    const gaps = []
+    for (let b = 0; b < BLANK_SCRIPT.length; b += 2) {
+      for (let w = 0; w < BLANK_SCRIPT[b].waves.length; w++) {
+        const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+        run.player.hp = run.player.maxHP = 1e6
+        run.weapons = []
+        Object.assign(run.script, { stage: b, waveIdx: w, waveT: 0, spawned: false })
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const p = run.player
+        const bearings = run.enemies.map((e) => Math.atan2(e.y - p.y, e.x - p.x)).sort((m, n) => m - n)
+        let widest = bearings[0] + Math.PI * 2 - bearings[bearings.length - 1] // the wrap-around span
+        for (let i = 1; i < bearings.length; i++) widest = Math.max(widest, bearings[i] - bearings[i - 1])
+        // The measurement is taken one frame AFTER the spawn (stepSim runs movement + separation
+        // on the fresh ring before it returns), so the door has already narrowed by a fraction of
+        // a degree. 2° of slack covers that without weakening anything: the null hypothesis this
+        // rejects would have to produce a 43° spacing by chance, which is rarer still.
+        assert(widest >= BLANK_WAVE_GAP - 0.035,
+          `expected wave ${b}/${w} (${bearings.length} bodies) to leave a >= ${(BLANK_WAVE_GAP * 180 / Math.PI).toFixed(0)}° door, widest empty arc was ${(widest * 180 / Math.PI).toFixed(1)}°`)
+        gaps.push(widest * 180 / Math.PI)
+      }
+    }
+    console.log(`PASS run EE.a2 (the door): every one of the ${gaps.length} scripted waves left an escape wedge — widest empty arcs ${gaps.map((g) => g.toFixed(0)).join('/')}° against a ${(BLANK_WAVE_GAP * 180 / Math.PI).toFixed(0)}° door (2° of post-spawn drift allowed)`)
   }
 
   // (b) Clear-advance: hard-kill every wave-1 enemy -> wave 2 arrives immediately (rosterIds from

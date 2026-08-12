@@ -3725,7 +3725,10 @@ CHAPTERS.blank = {
             'roar','tailLash','atomicBreath','debrisToss','realityShard','hole','pulsarSweep'], // union of all 7 pools
   starter: 'realityShard',
   roster: [
-    { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.15, flags: ['pastSeek'] },
+    // probe speedMul 1.15 -> 1.3 (owner directive): 165 x 1.3 = 214 px/s, just under the player's 220 — it
+    // shadows a runner and punishes any pause, but outrunning the opening wave still WORKS (the same rule
+    // BLANK_CATCHUP_MAX keeps for the boss). Paired with BLANK_PASTSEEK_LAG 4 -> 1.
+    { id: 'probe',     archetype: 'fast',   name: 'Probe',        hpMul: 0.7, speedMul: 1.3,  flags: ['pastSeek'] },
     { id: 'binder',    archetype: 'normal', name: 'Binder',       hpMul: 0.9, speedMul: 1.05, flags: ['latch'] },
     { id: 'eraser',    archetype: 'tank',   name: 'Eraser',       hpMul: 1.2, speedMul: 1.2,  flags: ['wake', 'unshakeable'] },
     { id: 'bindnode',  archetype: 'normal', name: 'Binding Node', hpMul: 1,   speedMul: 0,    flags: [], formationOnly: true },
@@ -5951,6 +5954,12 @@ export const BLANK_SCRIPT = [
   { waves: [ { n: 160, ids: ['eraser','binder'] }, { n: 208, ids: ['eraser','probe','binder'] }, { n: 256, ids: ['eraser','probe','binder'] } ] },
   { boss: 'antibody3' },
 ]
+export const BLANK_WAVE_GAP = Math.PI / 4 // rad (45°) of the wave ring left EMPTY — the door (owner directive).
+                                          // A wave of 128-256 spawns as a closed ring at viewRadius + SPAWN_RING;
+                                          // with the probes now shadowing you (BLANK_PASTSEEK_LAG) a closed ring is
+                                          // a hug with no out. One wedge, re-rolled per wave, is the escape the
+                                          // player aims for. Wave blocks ONLY — a boss phase's recruits (and the
+                                          // nodes) keep spawning all the way round.
 export const BLANK_WAVE_XP_MUL = 1 / 3    // v6.3.3: wave (_wave-tagged) bodies only — recruits and the
                                           // antibody keep full value; gem xp is float-safe end to end
 export const BLANK_WAVE_TIMEOUT = 20      // s, next wave arrives even if this one isn't cleared
@@ -5967,7 +5976,10 @@ export const BLANK_MAX_ALIVE = 700        // blank-only cap (v6.3.1 [panel/bugs]
 export const BLANK_CATCHUP_MAX = 200      // px/s ceiling on catch-up pursuit [panel/fun+gameplay]: 120×2.8=336 would
                                           // outrun even a maxed moveSpeed build (308) — fleeing must keep working
 export const BLANK_BOSS_SPEED_P3 = 170    // px/s — P3 drops the standoff and RUNS YOU DOWN (player ~220)
-export const BLANK_BOSS_DMG = 15          // contact damage — the band keeps it rare in P1/P2; P3 makes it a chase
+export const BLANK_BOSS_DMG = 30          // contact damage — the band keeps it rare in P1/P2; P3 makes it a chase
+                                          // (owner directive: every boss-sourced number below is ×2 — contact,
+                                          // shots, trail bombs, erasure bands, the yank. Minion damage — the
+                                          // eraser's BLANK_WAKE_DPS — is NOT the boss and stays put.)
 export const BLANK_BOSS_XP = 60           // gem worth on each phase kill
 export const BLANK_PHASE_LEVELS = 3       // level-ups banked on each NON-final phase kill (paid as xp, chained by stepLevelUp)
 export const BLANK_STANDOFF_MIN = 240     // px, standoff flag: back off inside this
@@ -5991,8 +6003,12 @@ export const BLANK_READ1_K = 8            // trail points detonated per read (mo
 export const BLANK_READ1_FUSE = 0.9       // s telegraph on the oldest point
 export const BLANK_READ1_STAGGER = 0.14   // s extra fuse per point (oldest detonates first)
 export const BLANK_READ1_R = 46           // px blast radius
-export const BLANK_READ1_DMG = 12
-export const BLANK_PASTSEEK_LAG = 4       // trail samples behind the player probes aim at (~1.4s)
+export const BLANK_READ1_DMG = 24         // ×2 with the rest of the boss's damage
+export const BLANK_PASTSEEK_LAG = 1       // trail samples behind the player probes aim at (~0.7s; was 4 ≈ 1.4-1.75s)
+                                          // Owner directive "the first enemies wait too much": at 4 a probe
+                                          // perpetually arrived where you had already left, so the opening waves
+                                          // never touched a moving player. At 1 they cut the corner and land on you;
+                                          // the flag still reads the PAST, it just isn't a free pass any more.
 // P2 holds your present: up to BLANK_NODE_MAX 'bindnode' enemies (formationOnly, spawned by
 // stepBossScript) tether the player and MIN-stack a slow by count alive; a node that survives
 // BLANK_YANK_T instead yanks the player toward the boss and dies.
@@ -6004,10 +6020,16 @@ export const BLANK_NODE_SLOW = [1, 0.78, 0.62, 0.5] // player speed mul by alive
 export const BLANK_YANK_T = 8             // v6.3.1 [panel/gameplay]: at 5s the yank spent all nodes before
                                           // a 3rd could spawn — the 3-node slow tier was unreachable dead content
 export const BLANK_YANK_DIST = 150        // px instant drag toward the boss
-export const BLANK_YANK_DMG = 10
+export const BLANK_YANK_DMG = 20          // ×2 with the rest of the boss's damage
 export const BLANK_SHOT_T = 2.4           // s between P2 aimed shots (run.enemyShots)
+export const BLANK_SHOT_N = 2             // shots per aimed volley (P2's own, and P1's borrowed one at d2+).
+                                          // Owner directive "double every projectile the boss deals": the single
+                                          // aimed shot is a PAIR straddling the aim line by BLANK_FAN_SPREAD. Both
+                                          // halves home (BLANK_SHOT_TURN), so the pair reconverges — the gap down
+                                          // the middle is a beat, not a free lane. Same doubling on the P3 fans
+                                          // below (BLANK_FAN_N/_MATURE).
 export const BLANK_SHOT_SPEED = 240
-export const BLANK_SHOT_DMG = 10
+export const BLANK_SHOT_DMG = 20          // ×2 with the rest of the boss's damage (every shot the boss fires)
 export const BLANK_SHOT_R = 8             // px hit radius
 export const BLANK_SHOT_LIFE = 3          // s before a shot fizzles
 export const BLANK_SHOT_TURN = 0.4        // rad/s homing clamp — outrunnable, but you're slowed
@@ -6022,11 +6044,14 @@ export const BLANK_BAND_FUSE = 0.75       // s telegraph
 export const BLANK_BAND_T = 2.0           // v6.3.1 [panel/gameplay]: active duration must stay under the
                                           // desperate cross cadence 2.6×0.75×0.8≈1.56s closely enough that
                                           // double-stars are a beat, not a state (was 2.4)
-export const BLANK_BAND_DPS = 26
+export const BLANK_BAND_DPS = 52          // ×2 with the rest of the boss's damage — a full BLANK_BAND_T in a band
+                                          // is now 104, i.e. the erasure bands are lethal, not chip
 export const BLANK_DESPERATE_FRAC = 0.25  // any phase below this hp fraction accelerates its read/shot/node
                                           // timers ×BLANK_DESPERATE_MUL (P3's cross uses BLANK_READ3_DESPERATE_MUL)
 export const BLANK_DESPERATE_MUL = 0.62
-export const BLANK_FAN_N = 3              // shots per P3 fan (odd — center shot dead-on)
+export const BLANK_FAN_N = 6              // shots per P3 fan (owner directive ×2, was 3). Even now, so there is no
+                                          // dead-on center shot — the pair straddles your line instead, and the arc
+                                          // widens to 5×BLANK_FAN_SPREAD ≈ 100°: more angles denied, gaps still real.
 export const BLANK_FAN_SPREAD = 0.35      // rad between fan shots
 export const BLANK_FAN_SPEED = 310        // px/s, straight (turnRate 0) — dodge the spread, not the shot
 // v6.3.1 difficulty-ladder patterns. crossReactive (d2+): each phase borrows a neighboring
@@ -6042,7 +6067,9 @@ export const BLANK_READ1_K_MATURE = 16    // full-read points at d3 (not the who
                                           // mines an entire standoff-orbit lap; 16 doubles the base 8 cleanly)
 export const BLANK_NODE_MAX_MATURE = 4    // P2 node cap at d3 (slow table unchanged — floor stays 0.5:
                                           // [panel/fun] a 0.42 tier made 240 px/s homing shots literally unoutrunnable)
-export const BLANK_FAN_N_MATURE = 5       // P3 fan shots at d3
+export const BLANK_FAN_N_MATURE = 10      // P3 fan shots at d3 (owner directive ×2, was 5) — a 9×0.35 ≈ 180° wall
+                                          // from a boss already chasing you; the shots diverge, so the gaps open with
+                                          // distance and backing off is the answer
 export const BLANK_BAND_ANGLES = [0, Math.PI / 2]                                    // P3 cross
 export const BLANK_BAND_ANGLES_MATURE = [0, Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4] // d3: 8-arm star
 export const BLANK_READ3_DESPERATE_MUL = 0.8 // [panel/gameplay] the cross keeps a MILDER desperation than the
@@ -6057,8 +6084,13 @@ export const BLANK_WAKE_T = 1.6
 export const BLANK_WAKE_DPS = 14
 export const BLANK_MEMORY_T = 2.0         // s an immuneMemory residue lives (len/w = BLANK_WAKE_*)
 export const BLANK_RECRUIT_T = [6, 7, 3]  // s between recruit spawns in phase 1/2/3 — P3 pulses fast:
-export const BLANK_RECRUIT_N = [3, 4, 15] // endless fodder so a low-damage build can still farm xp mid-duel
+export const BLANK_RECRUIT_N = [9, 12, 45] // endless fodder so a low-damage build can still farm xp mid-duel
                                           // (v6.3.2: P2 adds ×2, P3 adds ×3 — the duel gets CROWDED, owner directive)
+                                          // ×3 again (owner directive): a boss phase is now a horde fight, not a
+                                          // duel with garnish. P3 pushes 15 bodies/s at BLANK_MAX_ALIVE, so the cap
+                                          // (not this number) is what the field settles at if you can't clear.
+                                          // NOTE: recruits keep FULL xp (BLANK_WAVE_XP_MUL is _wave-tagged only),
+                                          // so this triples the mid-duel xp faucet as well as the pressure.
 export const BLANK_ACCEL_MUL = 0.75       // accelResponse: applied to READ1_T/READ3_T/NODE_T/SHOT_T/fuses/WAVE_TIMEOUT
 
 // ---- Gold sinks: pre-run consumables + level-up rerolls (see run fields in state.js) ----
