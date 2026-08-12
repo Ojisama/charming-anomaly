@@ -13014,8 +13014,8 @@ function testUndergrowthRound() {
     // shows up with the mod stacked, which is why it survived to a playtest report.
     assert.ok(!/rp\.range \* \(0\.3 \+ 0\.7 \* ki\)/.test(src),
       "the roar wave is back to starting at 30% OF RANGE — the dead zone in front of the player then scales with the range stat, so buying Long Roar shrinks the visible wave")
-    assert.ok(/const roarStart =/.test(src) && /roarStart \+ Math\.max\(0, rp\.range - roarStart\) \* ki/.test(src),
-      'the roar wave must expand from a fixed start (the mouth) out to `range`')
+    assert.ok(/const roarStart =/.test(src) && /for \(let r = roarStart \+ ripplePhase % period/.test(src),
+      'the roar ripples must start at a fixed distance (the mouth), not at a fraction of `range`')
 
     // ...and it must be an ACTUAL arc, not a fixed-span sprite stretched in Y to fake one. The old
     // form scaled a 1.0 rad bake by q = tan(arc/2)/tan(ROAR_SPAN/2): fine near the baked span,
@@ -13023,12 +13023,41 @@ function testUndergrowthRound() {
     // range immediately — q is 1.7 at L5 base, 2.6 at +150% width, 6.6 at +200%. At those factors
     // the sprite is the same arc smeared into a tall ellipse, which is what the owner saw:
     // "we just see orange lines on the screen ... it doesn't look like a roar sound pressure wave
-    // anymore when >150% roar width". A Graphics annulus sector has no such limit.
+    // anymore when >150% roar width". Graphics arcs have no such limit.
     assert.ok(!/tan\(rp\.arc \/ 2\) \/ Math\.tan\(ROAR_SPAN/.test(src),
       'the roar is back to faking its arc by y-stretching a fixed-span bake — that linearisation collapses under wideRoar and draws streaks instead of a wavefront')
-    assert.ok(/roarG\.arc\(rp\.x, rp\.y, rOut, a0, a1\)/.test(src),
-      'the roar band must be drawn as a real arc at the cast’s own angle (a0/a1 from rp.arc)')
-    console.log('PASS run UG.k3 (roar wave): born at the mouth, and drawn as a true arc at any width rather than a y-stretched bake')
+    assert.ok(/roarG\.arc\(rp\.x, rp\.y, r, a0, a1\)/.test(src),
+      'the roar ripples must be drawn as real arcs at the cast’s own angle (a0/a1 from rp.arc)')
+
+    // The concentric-ripple rework, and the reason this scenario keeps growing: the roar is the one
+    // effect in the game whose footprint is AREA, so every stat the player buys multiplies its ink.
+    // The owner reported the chapter unplayable at a +231% width / +229% range / +320% rate build.
+    // Three separate regressions are guarded here, and each one shipped at least once:
+    const roarBlock = src.slice(src.indexOf('function updateRoars'), src.indexOf('function clearRoars'))
+
+    //  (a) STROKED, NOT FILLED. The `arc(ro) + arc(ri, reversed) + fill()` annulus does not cut its
+    //      hole at these ring counts: it composites as nested filled SECTORS and the whole cone goes
+    //      solid orange. This is invisible at 2-3 rings (a base build) and total at 8, which is
+    //      exactly why it reached a playtest — every probe frame of the base weapon looked correct.
+    //      Checked BEFORE the thickness rule below, because the realistic regression (swap the
+    //      stroke back for a fill) trips both, and this is the message worth reading when it does.
+    assert.ok(!/\.fill\(\{ color: ROAR/.test(roarBlock),
+      'the roar rings are filled annuli again — that idiom composites as nested filled sectors here and paints the cone solid; stroke them instead')
+
+    //  (b) NOTHING DRAWN MAY SCALE WITH A STAT. The old band was `rOut * ROAR_THICK_FRAC` — 14% of
+    //      the current radius, i.e. a 185px slab at a scaled build. Thickness must be absolute px.
+    assert.ok(/width: ROAR_RING_PX/.test(roarBlock),
+      'the roar ring must be stroked at an absolute px width — a thickness derived from radius or range is what made the chapter unplayable')
+    assert.ok(!/rp\.range \*|rOut \* ROAR_THICK|radius \* ROAR/.test(roarBlock),
+      'something in the roar drawing scales with `range` again — a longer roar must be MORE rings, never fatter ones')
+
+    //  (c) THE RIPPLES ARE CONTINUOUS, decoupled from fire rate. ripplePhase must advance on dt, not
+    //      on the cast's own life: at +320% rate the roar re-fires every 0.10s against a 0.34s wave,
+    //      so a per-cast train never gets past 30% of the way out and the effect parks on the player
+    //      instead of passing over the field (probe read k=0.25, front=266px, every frame).
+    assert.ok(/ripplePhase \+= dt \* ROAR_RIPPLE_SPEED/.test(roarBlock),
+      'the roar ripples must advance on dt at a fixed speed — tying them to the cast makes on-screen ink a function of FIRE RATE')
+    console.log('PASS run UG.k3 (roar ripples): born at the mouth, real arcs, absolute-px stroked rings, and continuous across casts')
 
     // The black hole's body must NOT come from a canvas-backed texture. This is a tripwire
     // for a fault that cannot be reproduced on this hardware at all, so nothing else can guard it.
