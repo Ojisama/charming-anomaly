@@ -587,14 +587,28 @@ export function initUI(hooks) {
   }
 
   // Attach the scroll-settle selection to a freshly-rendered carousel. Safari lacks 'scrollend', so
-  // a debounced scroll-timeout backs it up (both funnel into settle(); the second is a no-op once
-  // browseChapterId already matches the centred card).
+  // a debounced scroll-timeout backs it up — both funnel into settle(), and settle() disarms the
+  // debounce so the two can never fire for the same gesture (v7.35, see the race below).
   function wireCarousel() {
     const car = screens.title.querySelector('[data-carousel]')
     if (!car) return
     positionCarousel()
     let timer = null
     const settle = () => {
+      // Disarm the debounce first. 'scrollend' and the timeout are two reads of ONE gesture, and
+      // before v7.35 scrollend running settle left the timer armed, so it fired again 130ms later —
+      // by which time the player may have tapped Play and the title screen is display:none. That
+      // second run is what the guard below catches, and clearing here is what stops it happening at
+      // all on every browser that has scrollend.
+      if (timer) { clearTimeout(timer); timer = null }
+      // A display:none screen measures EVERY card at rect 0, so every distance below ties at 0 and
+      // the loop keeps the first card it saw — 'body'. That silently rewrote meta.chapter, and the
+      // symptom appeared a whole run later: flick the carousel to The Beyond, tap Play inside the
+      // 130ms window, play the Beyond run you correctly got, then watch the summary's "Next level"
+      // start The Body. The comment above used to reason that a second settle is "a no-op once
+      // browseChapterId already matches the centred card" — true only while the screen is laid out,
+      // which is exactly the assumption that broke.
+      if (!car.clientWidth) return
       // Pick the card whose centre is nearest the carousel's centre, both in viewport space
       // (getBoundingClientRect). Do NOT use el.offsetLeft here: it's relative to the positioned
       // .screen--title, not the scroller, so on wide screens it's shifted by the carousel's left

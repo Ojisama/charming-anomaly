@@ -4177,7 +4177,30 @@ function testChapters() {
   assert.strictEqual(notEarned.chapters.garden.unlocked, false, 'pond maxDifficulty 3 (won only lvl 2) leaves garden locked')
   delete globalThis.localStorage
 
-  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock')
+  // (g) v7.35 SOURCE tripwire. ui.js is not headless-testable (DOM), and settle() — the carousel's
+  // scroll handler — is the ONLY writer of meta.chapter in the whole game (main.js's onChapter is
+  // its only caller). It picks the card nearest the carousel's centre by getBoundingClientRect, and
+  // a display:none screen measures EVERY card at rect 0: every distance ties at 0, the loop keeps
+  // the first card, and 'body' silently becomes the player's saved chapter. It shipped, and the
+  // symptom surfaced a whole run later — flick the carousel to The Beyond, tap Play inside the
+  // 130ms debounce, and 'scrollend' settles correctly while the still-armed timer fires 130ms after
+  // the title is hidden. The Beyond run you started was right; the summary's "Next level" started
+  // The Body, crediting the wrong ledger. Both halves are asserted: the layout guard, and settle
+  // disarming the debounce so scrollend and the timeout can never both read one gesture.
+  {
+    const src = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const settle = src.slice(src.indexOf('const settle = () =>'), src.indexOf("car.addEventListener('scrollend'"))
+    assert.ok(settle.length > 0 && settle.length < 4000, 'could not isolate settle() in ui.js — the tripwire below is measuring nothing')
+    assert.ok(/if \(!car\.clientWidth\) return/.test(settle),
+      'settle() lost its layout guard: on a display:none title every card ties at distance 0 and it silently elects the FIRST card (body) as meta.chapter')
+    assert.ok(/clearTimeout\(timer\)/.test(settle),
+      'settle() no longer disarms the scroll debounce, so scrollend leaves a timer that fires after the title is hidden — the exact v7.35 race')
+    assert.ok(settle.indexOf('if (!car.clientWidth) return') < settle.indexOf('getBoundingClientRect'),
+      'the layout guard must come BEFORE settle() measures anything, or it is measuring the zeroed rects it exists to reject')
+    assert.strictEqual((src.match(/meta\.chapter = /g) ?? []).length, 0, 'ui.js must not write meta.chapter directly — it goes through hooks.onChapter (main.js) so the save stays the single writer')
+  }
+
+  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock, carousel settle guards')
 }
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
