@@ -4345,8 +4345,11 @@ export const FORMATION_ROW_PX = 120      // px between rows when a wave brings m
 // gate (hurtPlayer SETS p.invuln but does not CHECK it — the check lives in stepContactDamage), so
 // a rank arriving together removed 7x4 = 28 HP in a SINGLE FRAME out of 100. The gate is the real
 // fix; 2 is what the number should have been anyway now that a whole rank is visible and dodgeable.
+// 1 -> 2 (owner): letting a rank through should cost something you notice. Note this lands on the
+// number the paragraph above already argued for — the rev.1 disaster was the missing invuln gate,
+// not the size of the hit, and 1 was the over-correction that outlived it.
 export const LANE_LEAK_BEHIND_PX = 260   // px behind the player at which a marcher counts as through
-export const LANE_LEAK_DMG = 1           // HP lost per invader that gets through (invuln-gated, see stepLeaks)
+export const LANE_LEAK_DMG = 2           // HP lost per invader that gets through (invuln-gated, see stepLeaks)
 
 // ---- Repulsion (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) -------------------------
 // The lane's ANSWER to its own constraint. Strafe-only movement means a rank that converges on your
@@ -4379,7 +4382,8 @@ export const ROCK_SPEED = 155            // px/s down the lane — faster than a
 export const ROCK_DRIFT_X = 46           // px/s of sideways drift, so they never fall in clean columns
 export const ROCK_SPIN = 1.3             // rad/s of tumble (render only)
 export const ROCK_SPREAD_MUL = 1.15      // spawns slightly WIDER than the lane, so some pass you by
-export const ROCK_DMG = 10               // HP to the player on contact (invuln-gated)
+export const ROCK_DMG = 20               // 10 -> 20 (owner): a rock you failed to dodge should hurt.
+                                         // HP to the player on contact (invuln-gated)
 export const ROCK_TICK = 0.15            // s between grind ticks on overlapping enemies
 export const ROCK_TICK_DMG = 16
 
