@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -224,6 +224,11 @@ export function createRenderer(app) {
   // 'shafts' — currently The Shelf only). Same latch pattern as chapterHasEddies; read by
   // updateShafts.
   let chapterHasShafts = false
+  // v7.x Book 2: the active chapter's swell block (CHAPTERS[].render.swell) or null. A CONFIG
+  // OBJECT rather than a boolean, unlike its neighbours here, because updateSwell reads six numbers
+  // off it every frame and re-deriving them from run.chapter per crest per frame is the kind of
+  // thing that quietly costs a chapter its frame budget.
+  let swellCfg = null
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
   // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
   let chapterHasStorm = false
@@ -6075,14 +6080,50 @@ export function createRenderer(app) {
   // own const is a TDZ crash that only shows in the minified bundle.
   const leafLayer = new Container()
 
+  // ---- THE DARK (v7.x Book 2) ------------------------------------------------------------------
+  // A screen-space scrim over the whole world, its alpha driven by the chapter's resource bar.
+  // Owner: "if we're stealing light, then our surroundings should be dark, and darker the less
+  // light we have." One Graphics, redrawn per frame — the same per-frame-rebuild idiom the enemy
+  // telegraphs already use, and there are only ever a handful of shafts in view.
+  //
+  // A STAGE child sitting directly above `world`, and both halves of that matter:
+  //   - above `world`, so it dims the floor, the props, the roster and the player as one flat
+  //     sheet. A `world` child would slide and scale with the camera and stop being a scrim.
+  //   - BELOW idleLayer/dustLayer/lightningFlash/vignette, so floating damage numbers and the red
+  //     damage vignette stay at full strength. Dimming the safety cues along with the world is how
+  //     a dark chapter turns into an unfair one, and the whole point is that the dark costs you
+  //     information about the CROWD, not about your own health.
+  //
+  // The shafts are cut HOLES (Graphics.cut()), not brighter sprites painted over the top. That is
+  // a gameplay requirement and not a look: additive light over a flattened scene raises its
+  // brightness but cannot un-flatten it, so a shaft drawn that way is a glowing disc you can see
+  // LESS inside — the exact opposite of what standing in the light is for. A cut hole shows the
+  // untouched world, so the lit pool is the one place the chapter plays normally.
+  const darkLayer = new Container()
+  const darkScrim = new Graphics()
+  darkLayer.addChild(darkScrim)
+  darkLayer.visible = false
+
+  // ---- SWELL (v7.x Book 2) ---------------------------------------------------------------------
+  // The waves. Pooled world-space crest streaks built on the CURRENT_VIS idiom — same respawn-in-
+  // view, same fade envelope — with one deliberate difference: a FIXED heading instead of an
+  // advected force field. A current has a field and a swell has a direction, and reusing
+  // updateCurrents would have meant inventing a fake force field to make a straight line.
+  //
+  // A `world` CHILD, unlike the dark scrim above it, because a wave is a thing at a place: it has
+  // to slide past the camera. It sits under `entitiesLayer`, so a crest never draws over an enemy —
+  // surface glints ON TOP of the roster would read better as "we are below the surface looking up"
+  // and would cost legibility in a chapter whose whole mechanic is already taking legibility away.
+  const swellLayer = new Container()
+
   // ---- the light layer (v5.10, spec §7) — the chapter's identity -------------------------------
   // "TOKUSATSU NIGHT — the lights are looking for you." Sits between the cloud shadows and the
   // entities so light cuts THROUGH cloud shadow. blendMode appears nowhere else in this file:
   // additive is a new concept here and it is a CORRECTNESS requirement, not a perf note. Each
   // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
   // blend-mode/texture transition — three sub-containers, three draw calls.
-  world.addChild(floorLayer, cloudShadowLayer, entitiesLayer)
-  app.stage.addChild(world, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
+  world.addChild(floorLayer, swellLayer, cloudShadowLayer, entitiesLayer)
+  app.stage.addChild(world, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -6846,14 +6887,60 @@ export function createRenderer(app) {
     big: BIG_POND, mid: MID_POND, detail: DETAIL_POND,
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x3a5a34, foot: 0x243617 },
   }
+
+  // ---- The Shelf (v7.x Book 2) — open water over the continental shelf --------------------------
+  // Owner: "this looks too much like the pond ... we're at the SURFACE of the ocean, we're not in a
+  // pond, so green is weird." The Shelf spent one version aliased to BIOME_POND, which put reeds,
+  // BOG MUSHROOMS and LILYPADS in the open sea. This is the fix, and it is a retint plus a cast
+  // change rather than new art: the prop PNGs are shape-neutral enough that a reed reads as a kelp
+  // stipe and a cluster reads as a weed raft, but nothing makes a lilypad read as anything else.
+  //
+  // GREEN IS THE WHOLE NOTE. Every tint here keeps BLUE >= GREEN, which is the property the pond
+  // family breaks (0x669369, 0x6b944f, 0x6c9456 — all green-dominant). Retinting via `floorTint`
+  // alone cannot do this: floorTint is a MULTIPLY, so it can only ever drag a green prop toward
+  // teal and never off green. The work has to happen here, at the source tints, which is why this
+  // is a separate biome and not a wash over the pond's.
+  //
+  // Contrast follows BIG_POND's measured methodology rather than re-deriving it: the darker family
+  // (kelp/seagrass/weed) sits ~1.3-1.45x BELOW the effective floor and the pale family (foam) sits
+  // above it, so decor stays well clear of every creature's own contrast and never competes with
+  // the roster for the eye. scripts/obstacle-contrast.mjs audits the obstacle line specifically.
+  const KELP_TINTS = [0x1f4f5e, 0x1b4553]          // kelp stipe — big/mid `reed`
+  const KELP_BUNDLE_TINTS = [0x21545f, 0x1c4a55]   // a bundled holdfast — `bush_a`
+  const SEAGRASS_TINTS = [0x246071, 0x1f5566]      // grass_c/d
+  const WEEDRAFT_TINTS = [0x2a5f66, 0x25565e, 0x2f6a70] // cluster_a/b/c — floating weed
+  const BIG_SHELF = [
+    { name: 'reed', tints: KELP_TINTS, upright: true, size: [110, 175] },
+    { name: 'bush_a', tints: KELP_BUNDLE_TINTS, upright: true, size: [90, 145] },
+    { name: 'cluster_b', tints: WEEDRAFT_TINTS, upright: false, size: [86, 132] },
+  ]
+  const MID_SHELF = [
+    { name: 'reed', tints: KELP_TINTS, upright: true, size: [45, 70] },
+    { name: 'grass_c', tints: SEAGRASS_TINTS, upright: true, size: [28, 48] },
+    { name: 'grass_d', tints: SEAGRASS_TINTS, upright: true, size: [28, 48] },
+    { name: 'cluster_a', tints: WEEDRAFT_TINTS, upright: false, size: [50, 78] },
+    { name: 'cluster_c', tints: WEEDRAFT_TINTS, upright: false, size: [50, 78] },
+  ]
+  // Foam, not litter: the pale member of the family is sea foam flecking the surface, which is the
+  // one thing on this floor that belongs at the TOP of the water rather than under it.
+  const DETAIL_SHELF = [
+    { name: 'scatter_a', tint: 0xdcecf6, alpha: 0.5, size: [24, 42] },
+    { name: 'scatter_b', tint: 0xc8e2f0, alpha: 0.42, size: [20, 36] },
+    { name: 'leaf', tint: 0x2b6270, alpha: 0.65, size: [18, 32] },
+    { name: 'pebble', baked: true, scale: [0.7, 1.4] },
+  ]
+  const BIOME_SHELF = {
+    big: BIG_SHELF, mid: MID_SHELF, detail: DETAIL_SHELF,
+    // Reef rock, not a submerged hedge: cool blue-grey stone with a near-black foot.
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x2f4d5c, foot: 0x122029 },
+  }
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
-    // v7.x Book 2: The Shelf is the pond's biome for now, matching CHAPTERS.shelf, which is
-    // literally a spread of CHAPTERS.pond. Not decorative — chapterBiome falls back to BIOMES.body
-    // for an unknown id, so WITHOUT this line The Shelf would draw villi and platelets under a teal
-    // tint. A stand-in, like the chapter it serves.
-    shelf: BIOME_POND,
+    // v7.x Book 2 — open water, its own family now (see BIOME_SHELF above). Load-bearing, not
+    // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
+    // The Shelf draws villi and platelets under a blue tint.
+    shelf: BIOME_SHELF,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -7922,6 +8009,101 @@ export function createRenderer(app) {
   function clearShafts() {
     shaftLayer.visible = false
     for (const sv of shaftPool) { sv.glow.visible = false; sv.ring.visible = false }
+  }
+
+  // ---------------------------------------------------------------- swell (v7.x Book 2)
+  // The waves. DRAWN, not sprited — and the sprite version is worth recording because it looked
+  // correct in every diagnostic. A pool of 34 tinted `trace_05` streaks reported swellVis=true and
+  // crests=34/34, at alpha 0.62 and 26px wide, and was still almost invisible on screen: fxScale
+  // squashes the WHOLE texture, transparent margins included, so scaling a soft round blob to
+  // 340x26 leaves a sliver of actual ink. "The effect is drawing" and "the effect is visible" are
+  // different questions, and only a screenshot answers the second.
+  //
+  // Sine polylines answer both, and are less code than the pool they replaced (no respawn, no fade
+  // envelope, no per-crest bookkeeping) because a swell is a periodic field rather than a set of
+  // objects. Crest lines run along world x and travel +y; axis-aligned on purpose, since a rotation
+  // would mean re-deriving the visible region in the rotated frame for no read the player can name.
+  const swellG = new Graphics()
+  swellLayer.addChild(swellG)
+  let swellT = 0
+  function updateSwell(run, dt, cx, cy) {
+    if (!swellCfg) { swellLayer.visible = false; return }
+    swellLayer.visible = true
+    swellT += dt
+    const w = app.screen.width, h = app.screen.height
+    const cfg = swellCfg
+    // Padded past the viewport by one full wavelength, so a crest scrolls in already drawn rather
+    // than appearing at the screen edge — and in WORLD coords, because swellLayer is a `world`
+    // child and the camera transform is applied above us.
+    const pad = cfg.wavelength
+    const x0 = -cx - pad, x1 = -cx + w + pad
+    const yTop = -cy - pad, yBot = -cy + h + pad
+    const k = (Math.PI * 2) / cfg.wavelength
+    // The crest field is anchored to WORLD y and scrolled by a wrapped phase, so it slides past the
+    // camera instead of riding it. Modulo the spacing, so the phase never grows without bound.
+    const phase = (swellT * cfg.speed) % cfg.spacing
+    const step = Math.max(14, cfg.wavelength / 16)   // enough samples that the curve is not a zigzag
+    // BANDS, not lines. Owner, on the stroked version: "I don't think they look like waves" — and
+    // he was right, because a stroked curve is a CONTOUR. Seen from directly overhead a wave is not
+    // a line at all: it is a strip of water tilted toward the sky next to a strip tilted away, so
+    // what you actually see is alternating light and shadow. Two wide, soft, low-alpha strokes per
+    // crest — one either side of it — draw that, and no thin core is drawn at all, because any
+    // sharp line immediately reads as an outline again.
+    //
+    // band 0.5 makes the pair exactly tile the spacing (light spans -bw..0, dark 0..+bw, and the
+    // next crest begins where this one ends), so the surface is continuously corrugated rather than
+    // striped with gaps of flat water between wave pairs.
+    const bw = cfg.spacing * cfg.band
+    swellG.clear()
+    for (let y = Math.floor(yTop / cfg.spacing) * cfg.spacing + phase; y < yBot; y += cfg.spacing) {
+      // Per-crest variation, keyed on the crest's INDEX in the unscrolled field rather than on its
+      // current y. Both look stable in a still; only the index is stable while the field SCROLLS,
+      // and keying on y makes every crest breathe as it travels, which reads as a shimmer.
+      const idx = Math.round((y - phase) / cfg.spacing)
+      const amp = cfg.amp * (0.62 + 0.38 * Math.sin(idx * 2.399))
+      const v = 0.72 + 0.28 * Math.sin(idx * 1.111 + 1.7)   // this crest's share of the swell
+      // A second harmonic at an irrational-ish ratio, so the crest never repeats over the span
+      // actually on screen. One sine is a wave in a diagram; two is a wave on water.
+      const off = idx * 1.73
+      const yAt = (x) => y + Math.sin(x * k + off) * amp + Math.sin(x * k * 2.37 + off * 1.9) * amp * 0.33
+      const band = (dy, color, alpha) => {
+        swellG.moveTo(x0, yAt(x0) + dy)
+        for (let x = x0 + step; x <= x1; x += step) swellG.lineTo(x, yAt(x) + dy)
+        swellG.stroke({ width: bw, color, alpha })
+      }
+      band(-bw * 0.5, cfg.light, cfg.lightA * v)   // the face turned up toward the sky
+      band(bw * 0.5, cfg.dark, cfg.darkA * v)      // and its shadowed back
+    }
+  }
+  function clearSwell() {
+    swellLayer.visible = false
+    swellG.clear()
+  }
+
+  // The dark scrim (see darkLayer's block up in the stage setup for WHY it is shaped this way).
+  // Reads run.charge through the same darkness() curve sim.js uses for the move-speed penalty, so
+  // "the screen dimmed" and "I am slow" can never drift apart into two separate mysteries.
+  function updateDark(run, cx, cy) {
+    const cfg = CHAPTERS[run.chapter]
+    const res = cfg?.resource
+    const a = res?.dark ? darkness(run.charge, res) * res.dark.dim : 0
+    if (a <= 0.004) { darkLayer.visible = false; return }  // fully lit: no scrim, no per-frame rebuild
+    darkLayer.visible = true
+    const w = app.screen.width, h = app.screen.height
+    // The scrim is drawn OVERSIZE by twice the largest shaft radius. cut() documents that a hole
+    // which is not wholly inside its shape "will fail to cut correctly", and a shaft straddling the
+    // screen edge is exactly that case — at margin >= 2r, any shaft still touching the viewport is
+    // wholly inside the padded rect, and any shaft skipped below is wholly off it. Derived from the
+    // chapter's own radius rather than hardcoded, so retuning signature.r cannot silently reintroduce
+    // a rim of un-cut scrim sliding in from the edge of the screen.
+    const m = (cfg.signature?.r ?? 0) * 2 + 80
+    darkScrim.clear()
+    darkScrim.rect(-m, -m, w + m * 2, h + m * 2).fill({ color: cfg.render?.darkTint ?? 0x02131f, alpha: a })
+    for (const sh of run.shafts) {
+      const sx = sh.x + cx, sy = sh.y + cy
+      if (sx - sh.r < -m || sx + sh.r > w + m || sy - sh.r < -m || sy + sh.r > h + m) continue
+      darkScrim.circle(sx, sy, sh.r).cut()
+    }
   }
 
   // ---------------------------------------------------------------- storm overlay
@@ -11938,6 +12120,8 @@ export function createRenderer(app) {
     clearCurrents()
     clearEddies()
     clearShafts()
+    clearSwell()
+    darkLayer.visible = false   // a run ending mid-dark must not leave the scrim over the next screen
     clearStorm()
     clearSkiesBombs()
     clearScars()
@@ -12814,6 +12998,8 @@ export function createRenderer(app) {
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
     updateShafts(run)
+    updateSwell(run, dt, cx, cy)
+    updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list
     updateStorm(run, dt, cx, cy)
     updateRain(dt) // v6.3: own top-level call — chapterHasRain no longer implies chapterHasStorm
   }
@@ -13093,6 +13279,7 @@ export function createRenderer(app) {
     chapterHasCurrents = cfg?.signature?.type === 'currents'
     chapterHasEddies = !!(cfg?.signature?.type === 'currents' && cfg?.signature?.eddies)
     chapterHasShafts = cfg?.signature?.type === 'shafts'
+    swellCfg = cfg?.render?.swell ?? null
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);
     // city opts into rain/ruins individually without the clouds `storm` alone would also switch on.

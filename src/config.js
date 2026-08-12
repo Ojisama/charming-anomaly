@@ -3836,12 +3836,85 @@ CHAPTERS.shelf = {
   // player who spends whenever they can afford a full pulse gets one every ~18s, and a player who
   // mashes the button gets the floor shove two times in three. Avoiding the light entirely nets
   // about -1.6/s, so it empties in roughly a minute — the drain bites without being a countdown.
-  resource: { name: 'Light', drain: 2.0, refill: 45, killRefill: 0.5, max: 100 },
+  //
+  // v7.x REVISION (owner, 2026-08-12), on two counts:
+  //   - `killRefill` is now SHOP-ONLY. It is the value you get once LIGHT_THIEF_COST is paid, and
+  //     zero until then — createRun gates it into run.killRefill so sim.js never reads meta. The
+  //     first cut had it on by default at 0.5/kill, which was both unbought and invisible: 0.5 of a
+  //     100 bar is a rounding error next to a 2.2/s drain. Bought, it is worth roughly a third of
+  //     the drain at a normal kill rate, so it BLUNTS the dark rather than abolishing it.
+  //   - the bar now drives `dark` (see darkness() above): the world dims and the player slows on
+  //     one curve. `from: 0.5` puts the threshold at half a bar, which the probe measures as the
+  //     level a shaft-working player crosses a few times a run and a player ignoring the light
+  //     falls under permanently.
+  //
+  // REFILL IS THE KNOB, and finding that took a wrong sweep first. A drain x shaft-density grid came
+  // back FLAT — a seeking player went 21% -> 33% dark across a doubled drain AND halved coverage —
+  // because at the old refill of 45/s a shaft refilled the whole bar in 2.3s, so light was a
+  // checkpoint you TOUCHED and nothing upstream of that could matter. At 18/s it is a place you have
+  // to STAND (6.3s for a full bar, 3.2s to climb back out of the dark), which is the version with
+  // an actual decision in it: standing still in a survivors-like is what the crowd is waiting for.
+  // Measured across refill 45/18/10/6 x drain 2.2/3.2 (5 rows either side of this one):
+  //   - 45: 35% of the run dark, 27% of it lit. The dark is a nuisance you outrun.
+  //   - 18: 63% dark at mean depth 0.29, 52% lit, and the HIGHEST damage taken of any row — the
+  //         player is out in the open travelling, or parked and being closed on. This one.
+  //   - 10 and 6: 95-99% lit. The chapter degenerates into standing in a circle, and at 6 the
+  //         damage doubles because you never leave. A slower refill is not a harder chapter.
+  resource: {
+    name: 'Light', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
+    dark: { from: 0.5, speedFloor: 0.6, dim: 0.78 },
+  },
 
   // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
   // Book 1's: maxAlive between body's 0.45 and pond's 0.60, HP between body's 0.75 and pond's 0.85.
   // The coin purse is shared, so this has to read for a 0-card newcomer and an 8-card veteran alike.
   balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.8, xpMul: 1.25, maxAliveMul: 0.5 },
+
+  // ---- render-only. Owner: "this looks too much like the pond ... we're at the SURFACE of the
+  // ocean, we're not in a pond, so green is weird. it should be more blue, with waves." ----
+  // Overrides the pond `render` the spread above brought in, wholesale. The chapter is above the
+  // continental shelf in open water, lit from directly overhead, which is also what the sun shafts
+  // are: the mechanic and the setting are the same picture, and the tagline ("the light only goes
+  // down") is Book 2's arc — The Shelf is the BRIGHTEST it ever gets.
+  //
+  // Deliberately brighter and bluer than the pond's murk (0x2e6258 / 0x66c2a9). The prop family
+  // moves with it — see BIOME_SHELF in render.js, which is where green actually lives; floorTint is
+  // a MULTIPLY and can only ever push a green prop toward teal, never off green, so retinting the
+  // props is the part that does the work and this is the wash over the top.
+  render: {
+    cast: ['amoeba', 'tadpole', 'tardigrade'], // still the pond's roster — a stand-in, like the rest
+    bgColor: 0x18567f,     // open sunlit ocean between the floor blotches
+    floorTint: 0x9fd6f0,   // pale blue wash over the (already blue-green) shelf props
+    playerTint: 0xd6f7ff,  // near-white cyan: the floor is mid-blue, so the blob wins on VALUE
+    tail: true,
+    tailTint: 0x8fe3ff,
+    eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8],
+
+    // The colour of the dark (render.js updateDark). Deep ocean blue-black rather than pure black:
+    // black reads as a screen fade — a UI event — where a blue-black reads as depth, which is the
+    // thing Book 2 is descending into. The CURVE it is multiplied by lives with the mechanic, in
+    // resource.dark, because sim.js reads that same curve for the move-speed penalty.
+    darkTint: 0x02131f,
+
+    // SWELL (v7.x): the waves. Drawn sine crest lines running along world x and travelling +y —
+    // see updateSwell in render.js for why this is a Graphics and not the pooled sprite field it
+    // started as. Seen from directly overhead (the camera's only projection) a wave IS a crest
+    // line, so this is the honest shape rather than a stylisation.
+    //   spacing   px between crests
+    //   amp       px of sideways wander per crest
+    //   wavelength px along the crest for one full wander
+    //   speed     px/s the whole field scrolls. Far under DEADZONE x baseSpeed (33 px/s), the
+    //             joystick's minimum non-zero speed: a swell that outran your slowest walk would
+    //             read as the world dragging you somewhere, not as the surface moving under you.
+    //   band      fraction of `spacing` each of the two shading bands covers. 0.5 tiles exactly.
+    //   light/dark  the lit face and the shadowed one. Two soft bands per crest, never a stroked
+    //             line — a line reads as a contour, which is what the first cut of this looked like.
+    // Owner's pick off a three-scale sheet, then "even softer": A's scale, ~60% of its contrast.
+    // The surface should be something you notice and then stop noticing — this chapter spends half
+    // its run dimmed, and the swell must not be competing with the roster for the eye down there.
+    swell: { spacing: 96, amp: 22, wavelength: 320, speed: 26, band: 0.5,
+             light: 0xdaf0ff, lightA: 0.08, dark: 0x06304f, darkA: 0.10 },
+  },
 }
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
@@ -4559,6 +4632,49 @@ export const REPULSE_STUN = 0.55         // s of stun on top, so the shove reads
 export const PULSE_CHARGE_COST = 45      // charge a full-strength pulse spends; a full bar is two of them
 export const PULSE_RADIUS_AT_FULL = 620  // px at a full spend (floor REPULSE_RADIUS 340)
 export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_FORCE 880)
+
+// ---- THE DARK (v7.x Book 2, owner directive) --------------------------------------------------
+// The bar is no longer only the Pulse's ammo. Owner's words: "if we're stealing light, then our
+// surroundings should be dark, and darker the less light we have", plus a drawback while you are
+// down there. Both are driven off ONE curve, `darkness(charge, res)` below, because a player has to
+// be able to read their own condition off the screen without consulting the rail: it gets darker
+// and you get slower AT THE SAME RATE, so "the world dimmed" and "I am slow" are one fact.
+//
+// The chapter declares `resource.dark = { from, speedFloor, dim }`:
+//   from       - charge FRACTION at and above which nothing happens at all. Above this the chapter
+//                plays exactly like a chapter with no dark at all.
+//   speedFloor - player move-speed multiplier at charge 0 (sim; see stepPlayer's slowMul MIN).
+//   dim        - peak alpha of the screen-space darkness at charge 0 (RENDER ONLY, but it lives
+//                here and not in the `render` block on purpose: it must share `from` with the slow
+//                or the two cues drift apart and the dimming becomes decoration).
+//
+// WHICH drawback is an owner ruling, taken 2026-08-12 against three alternatives. Move speed, not
+// damage and not accuracy, because weapons auto-fire: a slow player still kills at the same rate,
+// so kills still pay (with LIGHT_THIEF bought) and the state is escapable. Damage-down and
+// shots-go-wide both cut the kill rate, which is the same spiral the Pulse's floor exists to
+// prevent, one level up.
+//
+// SPEED, NOT VISION, is also why the dim can be generous: it stacks on top of "you cannot see the
+// crowd arriving", which in a survivors-like is already a real cost.
+export const darkness = (charge, res) => {
+  const d = res?.dark
+  if (!d) return 0
+  const frac = res.max > 0 ? charge / res.max : 1
+  if (frac >= d.from) return 0
+  return (d.from - frac) / d.from   // 0 at the threshold, 1 at an empty bar
+}
+
+// ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
+// Kills give light back — but ONLY once bought. Owner ruling, and a reversal of the first cut which
+// had it on by default: "none by default, only via the shop". So the baseline chapter is tuned to
+// be survivable on shafts alone (scripts/charge-probe.mjs measures exactly that), and this is a
+// permanent unlock that changes how the chapter is PLAYED rather than a percentage on a stat.
+//
+// Priced in the sacrifice ladder's currency — purchased SHOP levels, burned with no coin refund —
+// because that is the game's existing vocabulary for "permanent, and it costs you something you
+// already own". 15 sits deliberately BELOW the 3rd card slot's 20: it is the cheapest thing on that
+// screen, so it is a plausible first sacrifice rather than a late-game luxury.
+export const LIGHT_THIEF_COST = 15
 
 // ---- Asteroids (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) ------------------------
 // Drifting rock that hurts EVERYONE. It is the lane's only neutral party: it damages the player on

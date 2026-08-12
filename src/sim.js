@@ -142,7 +142,7 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -567,7 +567,15 @@ function stepPlayerMovement(run, input, dt) {
       if (wdx * wdx + wdy * wdy <= web.r * web.r) { webMul = WEB_SLOW_MUL; break }
     }
   }
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1)
+  // THE DARK (v7.x Book 2): a chapter declaring `resource.dark` slows the player as its bar empties,
+  // on the same curve that dims the screen (darkness(), config.js) so the two cues are one fact.
+  // Joins the MIN rather than multiplying in, for the reason the block above gives — and here that
+  // is the load-bearing choice, not just consistency: the dark is CONTINUOUS once you are under the
+  // threshold, so multiplying would make every web and every latch in this chapter strictly nastier
+  // than the same web anywhere else, which is a difficulty change nobody asked for.
+  const _dres = CHAPTERS[run.chapter].resource
+  const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres) : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
@@ -3902,11 +3910,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
-    // v7.x Book 2: kills feed the bar. The one refill geometry that asks for no verb the player
-    // does not already have - you are killing anyway - so it keeps the bar alive between shafts
-    // without turning the chapter into a fetch quest. Clamped, and a no-op without a resource.
+    // v7.x Book 2: kills feed the bar - but only for a player who BOUGHT that. Owner ruling: "none
+    // by default, only via the shop" (Light Thief, LIGHT_THIEF_COST in config.js). run.killRefill is
+    // the snapshot createRun already took, and is 0 on an unbought save - so sim.js never reads meta
+    // and the chapter's baseline tune is the unbought one. Clamped, and a no-op without a resource.
     const _res = CHAPTERS[run.chapter].resource
-    if (_res) run.charge = Math.min(_res.max, run.charge + (_res.killRefill ?? 0))
+    if (_res && run.killRefill > 0) run.charge = Math.min(_res.max, run.charge + run.killRefill)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)

@@ -70,12 +70,21 @@ const UI = {
   'All 4 upgrade slots unlocked.': 'Les 4 emplacements d\'amélioration sont débloqués.',
   'Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).':
     'Débloque le {nth} emplacement d\'amélioration — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
+  // Book 2 (dev-gated). 'Voleur de Lumiere' keeps the owner's own framing - he described the
+  // mechanic as STEALING light - rather than a neutral 'Recuperateur'. Same sentence shape as the
+  // slot line above, so the two sacrifice targets read as siblings on one screen.
+  'Light Thief': 'Voleur de Lumière',
+  'Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).':
+    'Les éliminations rendent de la Lumière — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
   // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
   // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
   'buy : 🪙 {n}': 'achat : 🪙 {n}',
   // Deliberately shorter than the English: the full phrase is 217px in a 202px pill on a 320px
   // phone. The modal this pill opens spells it out ("emplacement d'amélioration") in full.
   '{nth} upgrade slot': '{nth} emplacement',
+  // The sacrifice view's target STRIP, narrower still than the shop pill above — two buttons
+  // sharing 288px at 320px wide.
+  '{nth} slot': '{nth} empl.',
   'Offer': 'Offrir',
   // 'Retirer', not 'Annuler': the sacrifice screen shows this per-row ↺ button AND a footer
   // Cancel at the same time, and both would otherwise read 'Annuler'. Undo takes back one offered
