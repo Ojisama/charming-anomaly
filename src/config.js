@@ -625,10 +625,8 @@ export const chaosStatus = (time) => {
   }
 }
 
-// ALIGNMENT. COMBOS.comboCd is 0.5s per enemy per combo; this removes it, so shatter/overload/
-// acid-burn/brittle fire on EVERY qualifying hit. Makes the interaction the star instead of a
-// potency number — which is why it replaced a straight combo-damage bump.
-export const ALIGNMENT_COMBO_CD = 0
+// ALIGNMENT. Multiplies the potency of every element the player carries.
+export const ALIGNMENT_POTENCY_MUL = 2
 // DEADFALL. The trap field is undergrowth's identity, so this is a chapter inversion: the hazard
 // stops being something you route around and becomes furniture you kite ACROSS.
 export const DEADFALL_REARM_MUL = 0.2
@@ -963,9 +961,9 @@ export const ANOMALIES = {
   alignment: {
     name: 'Alignment', icon: '⚗️',
     from: 'two elements found the same beat',
-    desc: 'Element combos have no cooldown. Every hit that can trigger one, does.',
-    // Redesigned away from a potency bump: this makes the INTERACTION the star. Gated on owning
-    // two distinct elements, which is also the only state in which the card means anything.
+    desc: `All your elements now have ×${ALIGNMENT_POTENCY_MUL} potency.`,
+    // Gated on owning two distinct elements: that is the fiction, and it keeps the card off a
+    // screen where it would read as a single-element buff.
     when: (r) => Object.values(r.elementPicks ?? {}).filter((n) => n > 0).length >= 2,
     weight: 6, chapter: null, kind: 'jackpot',
   },
@@ -2745,7 +2743,9 @@ export const ELEMENTS = {
     desc: 'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.',
   },
 }
-export const MAX_ELEMENT_PICKS = 5
+// At the cap `eligibleElementIds` drops the id from the pool, so this is the point an elemental
+// build stops being offered the thing it committed to.
+export const MAX_ELEMENT_PICKS = 8
 // v6.7 (Track B): ELEMENT_CARD_WEIGHT is GONE. It was a per-id pre-filter that let an eligible
 // element join a pool only 25% of the time; with four elements, all four were dropped on
 // 0.75^4 = 31.6% of pools, so an 18% element bucket would only have delivered ~12%.

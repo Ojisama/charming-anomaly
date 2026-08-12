@@ -328,7 +328,7 @@ const CONFIG = {
   'Snap traps ignore you, and re-arm 5 times faster.': "Les pièges à mâchoires t'ignorent et se réarment 5 fois plus vite.",
   'the traps stopped caring about you': 'les pièges se sont désintéressés de toi',
   'Alignment': 'Alignement',
-  'Element combos have no cooldown. Every hit that can trigger one, does.': "Les combos élémentaires n'ont plus de recharge. Chaque coup qui peut en déclencher un le fait.",
+  'All your elements now have ×2 potency.': 'Tous les éléments ont maintenant une puissance doublée.',
   'two elements found the same beat': 'deux éléments ont trouvé le même tempo',
   'Time Debt': 'Dette Temporelle',
   'Everything arrives 50% sooner — enemies, elites, the ending. Gems pay +50% XP.': "Tout arrive 50% plus tôt — ennemis, élites, la fin. Les gemmes rapportent +50% d'XP.",

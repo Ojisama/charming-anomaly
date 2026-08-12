@@ -23,7 +23,7 @@ import {
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
-  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
+  ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
@@ -763,28 +763,49 @@ function testAnomalySlate() {
     assert.ok(CHAOS_PACT_SURGE < CHAOS_PACT_PERIOD, 'the surge must be shorter than the cycle, or the payoff never arrives')
   }
 
-  // ALIGNMENT — asserted through the COMBO RATE, not through its constant. `ALIGNMENT_COMBO_CD === 0`
-  // is two config reads that touch no sim code: deleting the anomaly's ternary in triggerCombo left
-  // it green. This runs the real thing — fire + cold on a packed field, count the shatters.
+  // ALIGNMENT — asserted as ELEMENTAL DAMAGE, once PER CALL SITE. The card multiplies potency
+  // where potency is CONSUMED and leaves run.elements alone, so every state assertion available
+  // (run.elements, elementPicks, the build readout) reads identically with the card and without
+  // it. Only the damage moves. Fire and venom are separate arms because they break independently:
+  // applyIgnite banks its dps once at apply time, the venom DoT re-reads potency every tick in
+  // stepStatuses, and one combined number stays green with either site reverted.
+  // withCard re-seeds Math.random per call and the card draws no randoms, so the arms share one
+  // stream and the subtraction below is exact rather than statistical.
   {
-    assert.strictEqual(ALIGNMENT_COMBO_CD, 0, 'ALIGNMENT must remove the combo cooldown, not shorten it')
-    assert.ok(COMBOS.comboCd > 0, 'there is no combo cooldown left for ALIGNMENT to remove')
-    const shatters = (id) => {
+    assert.ok(ALIGNMENT_POTENCY_MUL > 1, 'ALIGNMENT must raise element potency, not lower it')
+    // Shatter consumes the chill AND the freeze stack, so a shatter every hit is a freeze that
+    // never lands. Nothing may zero this.
+    assert.ok(COMBOS.comboCd > 0, 'the combo cooldown must stay — zeroing it deletes freeze')
+    // `extras` puts a second body inside SHOCK_RANGE: the lightning arm has nothing to arc to
+    // otherwise, and applyShock returns before it ever reads the potency it was handed.
+    const dealt = (id, elements, extras = 0) => {
       const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
       r.weapons = [{ id: 'star', level: 5 }]
-      setElements(r, { fire: 4, cold: 4 })
-      for (let i = 0; i < 24; i++) r.enemies.push(makeStatusEnemy(r, { x: 90 + (i % 6) * 22, y: (i / 6 | 0) * 22 - 30, hp: 1e6 }))
-      let n = 0
-      for (let f = 0; f < 90 * 6; f++) {
-        stepSim(r, { x: 0, y: 0 }, dt)
-        for (const ev of r.events) if (ev.type === 'shatter') n++
-        r.events.length = 0
-      }
-      return n
+      setElements(r, elements)
+      const es = [makeStatusEnemy(r, { x: 120, y: 0, hp: 1e9, speed: 0 })]
+      for (let i = 0; i < extras; i++) es.push(makeStatusEnemy(r, { x: 120, y: (i + 1) * 40, hp: 1e9, speed: 0 }))
+      r.enemies.push(...es)
+      const hp = () => es.reduce((a, e) => a + e.hp, 0)
+      const before = hp()
+      for (let f = 0; f < 240; f++) stepSim(r, { x: 0, y: 0 }, dt)
+      return before - hp()
     }
-    const plain = shatters(null), aligned = shatters('alignment')
-    assert.ok(aligned > plain,
-      `ALIGNMENT produced ${aligned} shatters against ${plain} without it — the cooldown is not being read at triggerCombo`)
+    for (const [label, elements, extras] of [
+      ['fire', { fire: 4 }, 0],
+      ['venom', { venom: 4 }, 0],
+      ['lightning', { lightning: 4 }, 1],
+    ]) {
+      const weaponOnly = dealt(null, {}, extras)
+      // Subtract the weapon's own damage so the ratio is the ELEMENT's, undiluted — with the
+      // star's contribution left in, a real x2 on the DoT reads as a much smaller total and the
+      // band would have to be loose enough to pass with the multiplier halved.
+      const plain = dealt(null, elements, extras) - weaponOnly
+      const aligned = dealt('alignment', elements, extras) - weaponOnly
+      assert.ok(plain > 0, `the ${label} arm dealt no elemental damage at all — the harness is not reaching its subject`)
+      assert.ok(aligned > plain * 1.5,
+        `ALIGNMENT dealt ${Math.round(aligned)} ${label} damage against ${Math.round(plain)} without it ` +
+        `(x${(aligned / plain).toFixed(2)}, want >=x${ALIGNMENT_POTENCY_MUL}) — the multiplier never reaches that potency site`)
+    }
   }
 
   // THE FOUR VARIABLE DAMAGE MULTIPLIERS, asserted as DAMAGE. Between them these are the payoff of
@@ -1387,7 +1408,7 @@ function testAnomalySlate() {
     }
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
+  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by elemental damage per potency site, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {
