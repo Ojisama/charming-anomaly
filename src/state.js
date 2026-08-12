@@ -828,10 +828,15 @@ function generateWells(sig) {
  *   this field was the Pulse's ammo and nothing else:
  *     1. the Pulse's strength (PULSE_* in config.js; an empty bar still fires the shipped
  *        REPULSE_* shove, which is the floor that keeps the resource from being self-denying);
- *     2. THE DARK — below resource.dark.from the screen dims toward resource.dark.dim (render.js
- *        updateDark) and the player slows toward resource.dark.speedFloor (sim.js stepPlayer).
- *        Both read the ONE curve darkness(charge, res) in config.js, so the dimming and the slow
- *        are always the same number and the player can read their condition off the screen;
+ *     2. THE DARK — below resource.dark.from the LIGHT YOU EMIT closes in from resource.dark
+ *        .lightFull to .lightEmpty (render.js updateDark cuts a hole of that radius in a scrim at
+ *        .dim and feathers its rim), and the player slows toward resource.dark.speedFloor (sim.js
+ *        stepPlayer). Both read the ONE curve darkness(charge, res) in config.js — lightRadius()
+ *        interpolates on it rather than on raw charge for exactly that reason — so the closing
+ *        light and the slow start at the same instant and bottom out together, and the player can
+ *        read their condition off the screen without consulting the rail. The first cut ramped the
+ *        alpha of a uniform screen-wide sheet instead; owner: "you are the source light, you emit
+ *        the light, but the less light you have, the less far you emit";
  *     3. nothing else. It still scales no damage and no fire rate — deliberately, because those
  *        cut the kill rate, and the kill rate is what Light Thief pays out on.
  * killRefill: number — light per kill, snapshotted at createRun from meta.lightThief (the permanent

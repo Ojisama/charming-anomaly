@@ -1634,6 +1634,12 @@ body {
 /* Sits on the LEFT by default, which is the right-handed layout: the joystick is FLOATING (it
    appears wherever you touch), so the dominant thumb takes movement — the continuous, precise
    input — and the off thumb taps the button. meta.skillSide flips it for left-handed players. */
+/* SUNDISC (v7.x, owner: "the action button should have a different design, purple is weird").
+   Owner's pick off a three-variant sheet shot over a real Shelf frame, against a see-through
+   tide-glass disc and a ring gauge. A white-hot core in a warm corona: the button IS the Light it
+   spends, and warm is the one hue neither the sea nor the void already owns, so it separates from
+   both without a per-chapter skin. ONE button for every chapter — the beyond's Repulsion takes it
+   too, rather than teaching the player a new control surface per biome. */
 .skill-btn {
   position: absolute;
   left: 22px;
@@ -1641,16 +1647,16 @@ body {
   width: 78px;
   height: 78px;
   border-radius: 50%;
-  border: 3px solid rgba(226, 216, 255, 0.35);
-  background: radial-gradient(circle at 38% 32%, #5b4a9e, #2b2158 70%, #1a1338);
-  color: #e6dcff;
+  border: 3px solid rgba(255, 232, 170, 0.4);
+  background: radial-gradient(circle at 40% 30%, #fffdf2 4%, #ffd98a 34%, #f0a520 66%, #94540b);
+  color: #fff6dd;
   font-size: 30px;
   line-height: 1;
   display: grid;
   place-items: center;
   pointer-events: auto;
-  opacity: 0.45;
-  transition: opacity 0.15s, transform 0.1s, border-color 0.15s;
+  opacity: 0.4;
+  transition: opacity 0.15s, transform 0.1s, border-color 0.15s, filter 0.15s;
 }
 .skill-btn--hidden { display: none; }
 .skill-btn--right { left: auto; right: 22px; }
@@ -1658,8 +1664,8 @@ body {
    un-pressable-looking, so readiness is legible from peripheral vision mid-run. */
 .skill-btn--ready {
   opacity: 1;
-  border-color: rgba(190, 170, 255, 0.95);
-  box-shadow: 0 0 16px rgba(150, 120, 255, 0.55);
+  border-color: rgba(255, 240, 190, 0.95);
+  box-shadow: 0 0 18px rgba(255, 190, 70, 0.65), 0 0 40px rgba(255, 160, 40, 0.28);
 }
 .skill-btn--ready:active { transform: scale(0.92); }
 .skill-btn-glyph { pointer-events: none; }
@@ -1673,6 +1679,10 @@ body {
 }
 /* The glyph hides while a countdown number is showing — two symbols in one 78px circle is mush. */
 .skill-btn:not(.skill-btn--ready) .skill-btn-glyph { opacity: 0; }
+/* ...and the whole disc goes grey-gold on cooldown. Opacity alone was enough while the button was
+   violet on a violet-ish void; a saturated gold at 0.4 alpha is still the warmest thing on a blue
+   screen and kept reading as available. Desaturating is what actually makes it look spent. */
+.skill-btn:not(.skill-btn--ready) { filter: saturate(0.55); }
 
 /* ---- pause: the build readout (v6.6.17) -------------------------------------------------- */
 /* Design 2's spec tables inside design 3's collapsible rows. The whole block is one flex column

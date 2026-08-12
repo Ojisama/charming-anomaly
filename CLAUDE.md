@@ -188,6 +188,15 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   Diff enemy `hp` across the step instead — `scripts/weapon-census.mjs` does, and documents the
   other trap in the same breath (`run.events` must be drained every step, as main.js does, or the
   backlog is recounted every frame and dps reads ~2800× high).
+- **`CHAPTER_ORDER` IS BOOK 1 ONLY. A sweep over "every chapter" that uses it silently skips The
+  Blank and the whole of Book 2.** It is `BOOKS.book1.chapters`; `ALL_CHAPTER_IDS` adds the other
+  books' ladders but still drops every `hidden` id. The honest denominator for "does every chapter
+  satisfy X" is `Object.keys(CHAPTERS)`. This is not theoretical: run RA (roster art) was written
+  specifically to guard The Shelf's new roster, shipped green over `CHAPTER_ORDER`, and a mutation
+  deleting the copepod's `ROSTER_LOOKS` entry passed it — the test could not see the only chapter it
+  existed for. The tell is a count in the PASS line that you have not checked against reality: it
+  read "25 roster entries across 7 chapters" when the answer is 35 across 9. Print the denominator
+  in every sweep's log line, and assert the set contains the id you are actually working on.
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
 - **A PER-CAST COUNT IS USUALLY WRITTEN TWICE — as the loop bound AND as the divisor that spaces
   what the loop spawns.** `for (i < stats.orbs)` with `angle = (i / stats.orbs) * 2pi`,

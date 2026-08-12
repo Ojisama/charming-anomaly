@@ -873,6 +873,11 @@ const CONFIG = {
   'Amoeba': 'Amibe',
   'Tadpole': 'Têtard',
   'Tardigrade': 'Tardigrade',
+  // The Shelf (Book 2). 'Krill' is the French word too. 'Méduse Lune' over the real common
+  // name 'Aurélie', which is correct but reads as a first name rather than an animal.
+  'Copepod': 'Copépode',
+  'Krill': 'Krill',
+  'Moon Jelly': 'Méduse Lune',
   'The Garden': 'Le Jardin',
   'your scent gives you away': 'ton odeur te trahit',
   'Ant': 'Fourmi',

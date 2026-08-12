@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -803,6 +803,251 @@ export function createRenderer(app) {
       g.ellipse(r * 0.71, -r * 0.03, r * 0.055, r * 0.048).fill({ color: 0x1a1206, alpha: 0.5 })
     }
     if (elite) eliteCrown(-H * 1.05, r)
+  }
+
+  // --- Shelf chapter (open blue water) ---
+  // Owner: "the enemies should be new, this is open sea not a pond" — then, on a first set of
+  // jellyfish/squid/turtle: "too big, those could be for next chapter. maybe plankton, shrimp and
+  // jelly". So the cast is the PLANKTON COLUMN, at the pond's own size class: nothing here is
+  // bigger than the tardigrade it replaces, and two of the three are smaller.
+  //
+  // The Shelf floor is mid-blue (bg 0x18567f under blotches multiplied by floorTint 0x9fd6f0), so —
+  // exactly as in the pond above — the three have to separate from the water on VALUE and HUE and
+  // from each other as well. Warm is the whole opportunity: nothing else in this chapter is warm,
+  // and it is also true to life (copepods and krill are carotenoid orange-red), so two of the three
+  // take it and the third goes pale and cold.
+  //   copepod = MID WARM   (saturated amber, the loudest body in the water)
+  //   krill   = PALE WARM  (translucent coral, lighter and two thirds the size)
+  //   jelly   = PALE COLD  (near-white bell, the biggest and the faintest)
+  // EYE COUNT is the backup read, and it is the one that survives the dark: this chapter dims its
+  // own world, and hue is the first thing a 0.86 scrim takes. The copepod has ONE median eye, the
+  // krill has TWO on stalks, the jelly has none at all — three silhouettes still tellable apart at
+  // the edge of your light, where they are all the same blue-grey.
+  //
+  // Every flag is inherited unchanged from the pond roster (split / dashBurst / phase+unshakeable):
+  // this is an art change, and the spawn economy the refill sweep was tuned against is untouched.
+
+  // copepod: the plankton everyone has seen down a microscope. A blunt teardrop prosome, a narrow
+  // segmented urosome behind it, two caudal setae trailing, and the pair of enormous first antennae
+  // held out sideways that nothing else in this game has — at 24px the antennae ARE the silhouette,
+  // the body is just the blob between them. One median (nauplius) eye, dead centre on the head.
+  //
+  // The paired EGG SACS are not decoration. This is the roster's `split` carrier, and a gravid
+  // copepod slung with two egg sacs that burst into nauplii is exactly, literally what the flag
+  // does (SPLIT_CHILD_COUNT = 2, at SPLIT_RADIUS_FRAC 0.7 of the parent). They are drawn where they
+  // really sit, either side of the prosome/urosome joint, so the tell is on the animal before it
+  // dies rather than being a surprise afterwards.
+  function drawCopepod(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x7c3c08)
+    const noseX = r * 0.92
+    const len = r * 1.5           // prosome: nose +0.92r -> waist -0.58r
+    const H = r * 0.4             // SLIM. A round prosome plus jointed limbs is a flea, not plankton
+    const spine = (t) => [noseX - t * len, 0]
+    // Blunt round head, narrowing steadily to the waist: k=0.3 up front is the tardigrade's flat-cap
+    // trick, k=0.85 behind lets it actually taper to a teardrop instead of closing as a capsule.
+    const prosome = (t) => H * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.4 ? 0.3 : 0.85)
+    groundShadow(r * 1.15, H + r * 0.18)
+    const waistX = noseX - len
+    // FIRST ANTENNAE — the whole silhouette. Held nearly STRAIGHT OUT to the sides and barely swept,
+    // which is the copepod's own resting pose and the thing that separates it from every jointed
+    // bug in this bestiary: two long straight spars making a T, not a splay of legs. Drawn before
+    // the body so their roots disappear under it, and identical in both twins (taperStroke takes
+    // `line`, which is white on the flash twin) so the baked bounds stay equal.
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 0.6, s * H * 0.5], [r * 0.36, s * r * 1.0], [r * 0.08, s * r * 1.92]],
+        Math.max(1.7, r * 0.105), 0.7, line, 6)
+    }
+    // swimming legs: three short paired oars, tucked close under the prosome. Deliberately stubby —
+    // long jointed legs are what made the first cut of this read as an insect.
+    for (let i = 0; i < 3; i++) {
+      const t = 0.42 + i * 0.16
+      const [x] = spine(t)
+      const w = prosome(t)
+      for (const s of [-1, 1]) {
+        taperStroke(g, [[x, s * w * 0.5], [x - r * 0.13, s * (w + r * 0.17)]], Math.max(1.1, r * 0.065), 0.6, line, 2)
+      }
+    }
+    // urosome + caudal setae: a narrow rod carrying on from the waist, ending in two splayed hairs
+    const uroLen = r * 0.8
+    const uro = (t) => [waistX - t * uroLen, 0]
+    const uroW = (t) => H * (0.36 - 0.16 * t)
+    g.poly(spineOutline(uro, uroW, 10)).fill(f(0xd97a22)).stroke({ width: Math.max(1.7, r * 0.095), color: line })
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[waistX - uroLen, s * H * 0.1], [waistX - uroLen - r * 0.66, s * r * 0.3]],
+        Math.max(1.4, r * 0.08), 0.7, line, 3)
+    }
+    // EGG SACS. BEHIND the waist, flanking the urosome and angled back like a pair of saddlebags —
+    // this is where a gravid copepod really carries them, and it is also the only placement that
+    // reads as CARRIED. The first cut sat them over the prosome and they read as beetle wing-cases.
+    for (const s of [-1, 1]) {
+      const ex = waistX - uroLen * 0.42
+      const ey = s * (H * 0.42 + r * 0.13)
+      g.ellipse(ex, ey, r * 0.3, r * 0.17)
+        .fill(white ? 0xffffff : { color: 0xa9cede, alpha: 0.95 })
+        .stroke({ width: Math.max(1.3, r * 0.07), color: line })
+      if (!white) {
+        for (const [ox, oy] of [[-0.11, -0.02], [0.02, 0.03], [0.13, -0.01]]) {
+          g.circle(ex + ox * r, ey + oy * r, r * 0.05).fill({ color: 0x5d86a0, alpha: 0.6 })
+        }
+      }
+    }
+    g.poly(spineOutline(spine, prosome, 34)).fill(f(0xef8f28)).stroke({ width: Math.max(2.2, r * 0.14), color: line })
+    if (!white) {
+      g.ellipse(noseX - r * 0.5, -H * 0.34, r * 0.5, H * 0.3).fill({ color: 0xffd9a0, alpha: 0.45 }) // dorsal sheen
+      g.ellipse(noseX - r * 0.72, H * 0.38, r * 0.42, H * 0.26).fill({ color: 0xa8560c, alpha: 0.26 })
+      g.beginPath()
+      for (const t of [0.52, 0.7, 0.86]) { // prosome segment creases
+        const [x] = spine(t)
+        const w = prosome(t)
+        g.moveTo(x, -w * 0.88).lineTo(x, w * 0.88)
+      }
+      g.stroke({ width: 1.3, color: 0x8f4a0c, alpha: 0.6 })
+      g.beginPath()
+      for (let i = 1; i < 3; i++) { // urosome segments
+        const x = waistX - (i / 3) * uroLen
+        g.moveTo(x, -H * 0.26).lineTo(x, H * 0.26)
+      }
+      g.stroke({ width: 1.1, color: 0x8f4a0c, alpha: 0.55 })
+      // the single median eye: one dark red lens on the midline, the copepod's whole species read
+      g.ellipse(noseX - r * 0.16, 0, r * 0.2, r * 0.17).fill(0xffe0b4)
+      darkEye(g, noseX - r * 0.16, 0, r * 0.13, r * 0.115, 0x8c1218, true)
+    }
+    if (elite) eliteCrown(-r * 1.5, r)
+  }
+
+  // krill: a small shrimp, and drawn as one — segmented carapace, a rostrum spike off the front, two
+  // BLACK STALKED EYES set wide, a row of thoracic legs down each side and a three-bladed tail fan.
+  // Pale translucent coral with hard dark segment creases: at 18px on blue it reads as a light,
+  // busy, fast thing, which is the archetype. The tail fan is what sells `dashBurst` — the flag is a
+  // burst of speed and a krill's escape is one flick of exactly that fan.
+  function drawKrill(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0xb04a2e)
+    const noseX = r * 1.05
+    const len = r * 2.5           // rostrum tip +1.05r -> tail root -1.45r
+    const H = r * 0.44
+    // A shrimp is never straight: a gentle constant camber down the body, deepest at the abdomen.
+    const spine = (t) => [noseX - t * len, Math.sin(t * Math.PI * 0.85) * r * 0.16]
+    const body = (t) => {
+      const head = Math.exp(-Math.pow((t - 0.26) / 0.22, 2))       // fat carapace
+      const tail = 0.42 * Math.pow(Math.max(0, 1 - t), 0.7)        // abdomen tapering back
+      const cap = t < 0.08 ? Math.sqrt(Math.max(0, 1 - Math.pow((0.08 - t) / 0.08, 2))) : 1
+      return H * cap * (head + tail)
+    }
+    groundShadow(r * 1.3, H + r * 0.3)
+    // antennae: two long ones streaming back past the tail, the giveaway that this is a crustacean
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 0.78, s * H * 0.5], [-r * 0.4, s * r * 0.66], [-r * 1.9, s * r * 0.82]],
+        Math.max(1.4, r * 0.1), 0.7, line, 5)
+    }
+    // thoracic legs: six short paired oars under the carapace
+    for (let i = 0; i < 6; i++) {
+      const t = 0.2 + i * 0.078
+      const [x, y] = spine(t)
+      const w = body(t)
+      for (const s of [-1, 1]) {
+        taperStroke(g, [[x, y + s * w * 0.6], [x - r * 0.1, y + s * (w + r * 0.26)]], Math.max(1.1, r * 0.07), 0.6, line, 2)
+      }
+    }
+    // TAIL FAN: telson on the midline plus a uropod blade either side, the whole thing spread
+    const [tx, ty] = spine(1)
+    for (const [ax, ay] of [[-r * 0.72, 0], [-r * 0.62, -r * 0.44], [-r * 0.62, r * 0.44]]) {
+      g.poly([tx, ty, tx + ax, ty + ay - r * 0.1, tx + ax * 1.1, ty + ay + r * 0.1])
+        .fill(white ? 0xffffff : { color: 0xff9d84, alpha: 0.85 }).stroke({ width: Math.max(1.3, r * 0.08), color: line })
+    }
+    g.poly(spineOutline(spine, body, 30)).fill(f(0xffc0a6)).stroke({ width: Math.max(2, r * 0.15), color: line })
+    if (!white) {
+      g.beginPath()
+      for (let i = 0; i < 5; i++) { // abdominal segment creases, the busy detail that reads as "shrimp"
+        const t = 0.5 + i * 0.1
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x + r * 0.04, y - w * 0.92).lineTo(x - r * 0.04, y + w * 0.92)
+      }
+      g.stroke({ width: 1.3, color: 0xc4553a, alpha: 0.8 })
+      g.ellipse(noseX - r * 0.6, -H * 0.4, r * 0.5, H * 0.34).fill({ color: 0xfff0e4, alpha: 0.5 }) // carapace sheen
+      // photophores: the light organs a krill actually has. Two faint dots — and in a chapter about
+      // stealing light, the one animal here that MAKES its own gets to show it.
+      for (const t of [0.62, 0.82]) {
+        const [x, y] = spine(t)
+        g.circle(x, y, r * 0.075).fill({ color: 0xbfefff, alpha: 0.75 })
+      }
+      // two black eyes on short stalks, set wide off the rostrum
+      for (const s of [-1, 1]) {
+        taperStroke(g, [[noseX - r * 0.62, s * H * 0.36], [noseX - r * 0.34, s * H * 0.78]], Math.max(1.2, r * 0.08), 1, 0xb04a2e, 2)
+        darkEye(g, noseX - r * 0.3, s * H * 0.86, r * 0.16, r * 0.15, 0x140a08, true)
+      }
+    }
+    if (elite) eliteCrown(-r * 1.05, r)
+  }
+
+  // moon jelly: the one plan-view animal in nature — from directly overhead a moon jelly IS its
+  // icon, a translucent disc with four horseshoe gonads in a clover and a fringe of hair-fine
+  // marginal tentacles. Radially symmetric, so ROSTER_LOOKS gives it lean 0: it has no front to
+  // turn, and faking one would be the only wrong thing you could do to this drawing.
+  //
+  // It carries the tardigrade's `phase` (see PHASE_* in config.js) and is a far better home for it:
+  // the flag ghosts a body through obstacles and out of damage for 1.0s in every 2.6s, and a jelly
+  // is ALREADY the translucent thing you cannot get hold of. The low fill alpha here is the same
+  // fact drawn — solid enough to read against dark water, thin enough that the ghost frames are a
+  // difference of degree rather than a costume change.
+  function drawJelly(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x6fb6d2)
+    // A near-circle. The first cut lobed the margin 6% on an 8-fold cosine and hung a stiff fringe
+    // off it, and the two together read as a SNOWFLAKE — regular radial spikes on a scalloped disc
+    // is the shape of a virus capsid or a sea urchin, not of anything soft.
+    const bell = (a) => r * (0.97 + 0.025 * Math.cos(a * 8))
+    groundShadow(r * 0.95, r * 0.85)
+    // MARGINAL TENTACLES: a moon jelly's are hair-fine and there are hundreds, so this is FUZZ and
+    // not a comb — thin, short, faint, and dense enough that no single one is countable. Under the
+    // bell so the roots are hidden. The irregular length is what stops the eye locking onto a
+    // period; at 96 hairs the gaps stop being spikes and start being an edge.
+    for (let i = 0; i < 96; i++) {
+      const a = (i / 96) * Math.PI * 2
+      const rad = bell(a)
+      const lenT = r * (0.07 + 0.075 * ((i * 5) % 4) / 3)
+      taperStroke(g, [[Math.cos(a) * rad * 0.94, Math.sin(a) * rad * 0.94],
+        [Math.cos(a) * (rad + lenT), Math.sin(a) * (rad + lenT)]], Math.max(0.8, r * 0.028), 0.5,
+      white ? 0xffffff : 0x9ad4ea, 1)
+    }
+    if (white) {
+      g.poly(radialOutline(bell, 72)).fill(0xffffff).stroke({ width: Math.max(2.4, r * 0.1), color: 0xffffff })
+    } else {
+      g.poly(radialOutline(bell, 72)).fill({ color: 0xdff4ff, alpha: 0.58 }).stroke({ width: Math.max(2, r * 0.075), color: line, alpha: 0.85 })
+      g.circle(0, 0, r * 0.82).stroke({ width: 1.1, color: 0x8fd0e6, alpha: 0.4 }) // ring canal
+      // THE CLOVER — four horseshoe gonads, and the whole species read. Each is a C with its gap
+      // facing OUT, and the four sit far enough apart (centres at 0.44r, arcs of 0.2r) that the
+      // water shows between them. The first cut had them at 0.36r with a fatter stroke: they closed
+      // ranks into one continuous four-armed swirl, which reads as a PINWHEEL, and a pinwheel is a
+      // thing with rotational motion — the exact wrong idea for an animal that just drifts.
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+        const cx = Math.cos(a) * r * 0.44
+        const cy = Math.sin(a) * r * 0.44
+        const pts = []
+        for (let k = 0; k <= 18; k++) {
+          const b = a + Math.PI + (-1.05 + (k / 18) * 2.1)
+          pts.push([cx + Math.cos(b) * r * 0.2, cy + Math.sin(b) * r * 0.2])
+        }
+        taperStroke(g, pts, r * 0.085, r * 0.085, 0xc79ae4, 1)
+      }
+      // Four SHORT oral arms hanging straight down from the mouth, on the axes BETWEEN the gonads.
+      // Straight, not hooked: the first cut curled each one 0.5rad off its own axis, which handed
+      // the gonads a matching set of swirl arms and doubled down on the pinwheel. The 45deg offset
+      // is the second half of that fix — arms sharing the gonads' axes pointed straight into each
+      // horseshoe's gap and the eight together closed up into one asterisk.
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2
+        taperStroke(g, [[0, 0], [Math.cos(a) * r * 0.17, Math.sin(a) * r * 0.17]], r * 0.09, r * 0.035, 0xefe2ff, 3)
+      }
+      g.circle(0, 0, r * 0.08).fill({ color: 0xe4d6f7, alpha: 0.8 }) // manubrium
+    }
+    if (elite) eliteCrown(-r * 1.12, r)
   }
 
   // --- Garden chapter (lawn green) ---
@@ -2120,6 +2365,12 @@ export function createRenderer(app) {
     amoeba: { archetype: 'normal', draw: drawAmoeba, lean: 0 },        // radial blob, pseudopods in 4 directions; no nose
     tadpole: { archetype: 'fast', draw: drawTadpole, lean: 90 },       // top-down: nose +x, tail -x, lateral eyes in a ±y pair
     tardigrade: { archetype: 'tank', draw: drawTardigrade, lean: 30 }, // 3/4: all 7 legs at +y, eyespot at -y
+    // v7.x The Shelf (Book 2). Replaces the pond ids this chapter was standing in with; every flag
+    // is inherited unchanged, so these three are a repaint of amoeba/tadpole/tardigrade and not a
+    // re-tune. A missing key here is SILENT — syncEnemies falls through to a generic archetype blob.
+    copepod: { archetype: 'normal', draw: drawCopepod, lean: 90 },     // top-down: antennae, legs, setae and egg sacs all ±y mirrored
+    krill: { archetype: 'fast', draw: drawKrill, lean: 90 },           // top-down: stalked eyes, leg rows and tail fan all ±y mirrored
+    jelly: { archetype: 'tank', draw: drawJelly, lean: 0 },            // radial bell — no front to turn, so nothing to lean
     ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
@@ -2510,6 +2761,30 @@ export function createRenderer(app) {
       ctx.fillStyle = grad
       ctx.fillRect(0, 0, 256, 256)
       T.vignette = Texture.from(c)
+    }
+
+    // THE DARK'S FALLOFF (v7.x Book 2) — the soft rim of the light you emit. White, so one bake
+    // serves any chapter's darkTint; INVERTED against every other gradient here (transparent in the
+    // middle, opaque at the rim) because this is the darkness, not the light. updateDark cuts a hard
+    // hole of radius R in the scrim and drops this over it at exactly 2R across, so the sprite's
+    // fully-opaque edge meets the untouched scrim at the same alpha and the seam disappears.
+    //
+    // Clear out to 0.45 and then a hand-eased ramp rather than a straight line: a linear alpha ramp
+    // over a radius reads as a visible grey ring at its own midpoint (Mach banding — the eye finds
+    // the second derivative), and the point of a falloff is that you cannot say where it starts.
+    // The stops are a smoothstep sampled at 5 points, which is under half a percent off the curve
+    // and costs nothing.
+    {
+      const c = document.createElement('canvas')
+      c.width = c.height = 512
+      const ctx = c.getContext('2d')
+      const grad = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
+      for (const [t, a] of [[0, 0], [0.45, 0], [0.59, 0.09], [0.72, 0.36], [0.86, 0.73], [1, 1]]) {
+        grad.addColorStop(t, `rgba(255,255,255,${a})`)
+      }
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 512, 512)
+      T.darkFalloff = Texture.from(c)
     }
 
     // storm blob (skies overlay, v5.6.18): a plain soft white radial gradient, center to fully
@@ -6083,8 +6358,27 @@ export function createRenderer(app) {
   // ---- THE DARK (v7.x Book 2) ------------------------------------------------------------------
   // A screen-space scrim over the whole world, its alpha driven by the chapter's resource bar.
   // Owner: "if we're stealing light, then our surroundings should be dark, and darker the less
-  // light we have." One Graphics, redrawn per frame — the same per-frame-rebuild idiom the enemy
-  // telegraphs already use, and there are only ever a handful of shafts in view.
+  // light we have" — then, on seeing it: "you are the source light, you EMIT the light, but the
+  // less light you have, the less far you emit." So the darkness is not a sheet whose alpha ramps,
+  // it is a HOLE whose radius shrinks, and the player is standing in the hole.
+  //
+  // TWO OBJECTS, because Pixi has no soft-edged hole. Graphics.cut() punches a hard circle and
+  // nothing else does; a canvas gradient feathers but cannot subtract. So:
+  //   darkScrim  a flat rect at `dim`, with a HARD circle of radius R cut at the player and one
+  //              cut per sun shaft.
+  //   darkGlow   T.darkFalloff (transparent core -> opaque rim), tinted the same colour, laid over
+  //              the player's hole at exactly 2R across so its opaque rim lands on the cut edge.
+  // Inside R the scrim is absent and only the sprite is painting; at R the sprite is fully opaque
+  // and the scrim resumes at the same alpha, so the two meet with no seam. The falloff profile is
+  // baked into the texture, not into config — see T.darkFalloff for the shape and why it is eased.
+  //
+  // ponytail: a shaft whose disc overlaps the falloff RING gets shaded by the sprite even though it
+  // is cut out of the scrim, because the sprite draws after (and over) every cut. It reads as a
+  // shaft sitting at the edge of your light, which is true, so it stays. The fix if it ever matters
+  // is an erase-blend render group, which costs a render target per frame for a rim artefact.
+  //
+  // One Graphics, redrawn per frame — the same per-frame-rebuild idiom the enemy telegraphs already
+  // use, and there are only ever a handful of shafts in view.
   //
   // A STAGE child sitting directly above `world`, and both halves of that matter:
   //   - above `world`, so it dims the floor, the props, the roster and the player as one flat
@@ -6101,7 +6395,9 @@ export function createRenderer(app) {
   // untouched world, so the lit pool is the one place the chapter plays normally.
   const darkLayer = new Container()
   const darkScrim = new Graphics()
-  darkLayer.addChild(darkScrim)
+  const darkGlow = new Sprite(Texture.EMPTY)   // T.darkFalloff, assigned on first use (see updateDark)
+  darkGlow.anchor.set(0.5)
+  darkLayer.addChild(darkScrim, darkGlow)
   darkLayer.visible = false
 
   // ---- SWELL (v7.x Book 2) ---------------------------------------------------------------------
@@ -8083,27 +8379,52 @@ export function createRenderer(app) {
   // The dark scrim (see darkLayer's block up in the stage setup for WHY it is shaped this way).
   // Reads run.charge through the same darkness() curve sim.js uses for the move-speed penalty, so
   // "the screen dimmed" and "I am slow" can never drift apart into two separate mysteries.
+  // Fraction of T.darkFalloff's radius that is still fully transparent. Duplicated from the bake's
+  // first non-zero stop on purpose — the scrim needs it to know when the light covers the whole
+  // viewport and the whole layer can be skipped, and a texture cannot be asked.
+  const DARK_CLEAR_FRAC = 0.45
   function updateDark(run, cx, cy) {
     const cfg = CHAPTERS[run.chapter]
     const res = cfg?.resource
-    const a = res?.dark ? darkness(run.charge, res) * res.dark.dim : 0
-    if (a <= 0.004) { darkLayer.visible = false; return }  // fully lit: no scrim, no per-frame rebuild
-    darkLayer.visible = true
+    const a = res?.dark ? res.dark.dim : 0
+    if (a <= 0.004) { darkLayer.visible = false; return }  // no dark in this chapter: no per-frame rebuild
     const w = app.screen.width, h = app.screen.height
+    // The player is the lamp. Screen space, via the same (world + c) convention every cull below
+    // uses — NOT viewW()/2, which is only the player's position in the chapters that centre the
+    // camera (a lane chapter sits them low, see cy above).
+    const px = run.player.x + cx, py = run.player.y + cy
+    const R = lightRadius(run.charge, res)
+    // Nothing to draw once the CLEAR core alone covers the farthest corner. This is the cheap exit
+    // for a full bar on a phone, and it is also what bounds `m` below: past here R is at most a
+    // screen diagonal, so the oversize rect stays a sane size instead of scaling with lightFull.
+    const corner = Math.max(Math.hypot(px, py), Math.hypot(w - px, py),
+                            Math.hypot(px, h - py), Math.hypot(w - px, h - py))
+    if (R * DARK_CLEAR_FRAC >= corner) { darkLayer.visible = false; return }
+    darkLayer.visible = true
     // The scrim is drawn OVERSIZE by twice the largest shaft radius. cut() documents that a hole
     // which is not wholly inside its shape "will fail to cut correctly", and a shaft straddling the
     // screen edge is exactly that case — at margin >= 2r, any shaft still touching the viewport is
     // wholly inside the padded rect, and any shaft skipped below is wholly off it. Derived from the
     // chapter's own radius rather than hardcoded, so retuning signature.r cannot silently reintroduce
     // a rim of un-cut scrim sliding in from the edge of the screen.
-    const m = (cfg.signature?.r ?? 0) * 2 + 80
+    // ...and the player's own circle is the biggest hole of the lot, so the margin is the larger of
+    // the two radii. Bounded by the corner test above, which already returned for any R big enough
+    // to matter.
+    const m = Math.max(cfg.signature?.r ?? 0, R) * 2 + 80
+    const tint = cfg.render?.darkTint ?? 0x02131f
     darkScrim.clear()
-    darkScrim.rect(-m, -m, w + m * 2, h + m * 2).fill({ color: cfg.render?.darkTint ?? 0x02131f, alpha: a })
+    darkScrim.rect(-m, -m, w + m * 2, h + m * 2).fill({ color: tint, alpha: a })
+    darkScrim.circle(px, py, R).cut()
     for (const sh of run.shafts) {
       const sx = sh.x + cx, sy = sh.y + cy
       if (sx - sh.r < -m || sx + sh.r > w + m || sy - sh.r < -m || sy + sh.r > h + m) continue
       darkScrim.circle(sx, sy, sh.r).cut()
     }
+    if (darkGlow.texture !== T.darkFalloff) darkGlow.texture = T.darkFalloff
+    darkGlow.position.set(px, py)
+    darkGlow.width = darkGlow.height = R * 2
+    darkGlow.tint = tint
+    darkGlow.alpha = a
   }
 
   // ---------------------------------------------------------------- storm overlay

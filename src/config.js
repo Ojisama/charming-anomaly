@@ -3830,6 +3830,28 @@ CHAPTERS.shelf = {
   // streamShafts subtracts driftAmp from its own jitter slack instead (sim.js), so jitter and drift
   // share the budget and their sum still stays inside the cell. Slack here is
   // 760/2 - 205 - 20 - 60 = 95px, comfortably positive.
+  // The cast. Owner: "the enemies should be new, this is open sea not a pond" — and, on a first set
+  // of jellyfish/squid/turtle, "too big, those could be for next chapter. maybe plankton, shrimp
+  // and jelly". So this is the plankton column at the pond's own size class, and the reach for
+  // shelf-sized animals is banked for a chapter further down.
+  //
+  // EVERY FLAG IS THE PONDS'S, UNCHANGED, and that is the point: this is a repaint, so the spawn
+  // economy that scripts/charge-probe.mjs's refill sweep was tuned against is untouched and none of
+  // those numbers need re-reading. Each one also fits its new animal better than its old one:
+  //   split       a gravid copepod carries TWO egg sacs that burst into nauplii, which is literally
+  //               SPLIT_CHILD_COUNT at SPLIT_RADIUS_FRAC. Drawn on the body, so the tell is on the
+  //               animal before it dies (render.js drawCopepod).
+  //   dashBurst   a krill's escape response is one flick of the tail fan. It IS a burst.
+  //   phase       a moon jelly is already the translucent thing you cannot get hold of; ghosting
+  //               through an obstacle out of damage suits it far better than it ever suited a water
+  //               bear in cryptobiosis.
+  // hpMul/speedMul are carried over one-for-one from pond's amoeba/tadpole/tardigrade.
+  roster: [
+    { id: 'copepod', archetype: 'normal', name: 'Copepod',    hpMul: 1,   speedMul: 0.9, flags: ['split'] },
+    { id: 'krill',   archetype: 'fast',   name: 'Krill',      hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
+    { id: 'jelly',   archetype: 'tank',   name: 'Moon Jelly', hpMul: 2.5, speedMul: 0.6, flags: ['phase', 'unshakeable'] },
+  ],
+
   signature: { type: 'shafts', cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
   // The bar. Owner ruling: it is the Pulse's AMMO and nothing else — it does not scale damage, fire
@@ -3874,7 +3896,12 @@ CHAPTERS.shelf = {
   //         damage doubles because you never leave. A slower refill is not a harder chapter.
   resource: {
     name: 'Light', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
-    dark: { from: 0.5, speedFloor: 0.6, dim: 0.78 },
+    // lightFull 820 vs lightEmpty 210: the falloff is clear inside ~45% of the radius, so a full bar
+    // leaves ~370px of untouched world around you — past the corner of a 390x844 phone (464px from
+    // centre) only as a faint shade, which is what "you are the lamp" should look like when the lamp
+    // is full. At an empty bar the clear disc is ~95px and everything is gone by 210: about one
+    // second of warning at a normal enemy approach speed, and you are at 0.6x on top of it.
+    dark: { from: 0.5, speedFloor: 0.6, dim: 0.86, lightFull: 820, lightEmpty: 210 },
   },
 
   // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
@@ -3894,7 +3921,7 @@ CHAPTERS.shelf = {
   // a MULTIPLY and can only ever push a green prop toward teal, never off green, so retinting the
   // props is the part that does the work and this is the wash over the top.
   render: {
-    cast: ['amoeba', 'tadpole', 'tardigrade'], // still the pond's roster — a stand-in, like the rest
+    cast: ['copepod', 'krill', 'jelly'],
     bgColor: 0x18567f,     // open sunlit ocean between the floor blotches
     floorTint: 0x9fd6f0,   // pale blue wash over the (already blue-green) shelf props
     playerTint: 0xd6f7ff,  // near-white cyan: the floor is mid-blue, so the blob wins on VALUE
@@ -4652,13 +4679,31 @@ export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_
 // be able to read their own condition off the screen without consulting the rail: it gets darker
 // and you get slower AT THE SAME RATE, so "the world dimmed" and "I am slow" are one fact.
 //
-// The chapter declares `resource.dark = { from, speedFloor, dim }`:
+// The chapter declares `resource.dark = { from, speedFloor, dim, lightFull, lightEmpty }`:
 //   from       - charge FRACTION at and above which nothing happens at all. Above this the chapter
 //                plays exactly like a chapter with no dark at all.
 //   speedFloor - player move-speed multiplier at charge 0 (sim; see stepPlayer's slowMul MIN).
-//   dim        - peak alpha of the screen-space darkness at charge 0 (RENDER ONLY, but it lives
-//                here and not in the `render` block on purpose: it must share `from` with the slow
-//                or the two cues drift apart and the dimming becomes decoration).
+//   dim        - alpha of the darkness OUTSIDE your light (RENDER ONLY, but it lives here and not
+//                in the `render` block on purpose: it must share `from` with the slow or the two
+//                cues drift apart and the dimming becomes decoration).
+//   lightFull  - radius in world px that you light at and above `from`.
+//   lightEmpty - ...and at an empty bar. See lightRadius() below.
+//
+// YOU ARE THE LAMP (owner, 2026-08-12, revising the first cut). The first version ramped the alpha
+// of a UNIFORM screen-wide sheet, which is the wrong picture twice over: "I thought the light
+// dimming would be the light RADIUS diminishing, you being slowly engulfed in darkness, not the
+// whole screen diminishing. like you are the source light, you EMIT the light, but the less light
+// you have, the less far you emit." A flat sheet says the sun went out; a shrinking radius says the
+// light is yours and it is running out, which is the only reading under which stealing it back off
+// the sea floor is a thing you would want to do. It also fixes a legibility problem the flat sheet
+// had by construction — dimming everything uniformly costs you the far field and the enemy on your
+// hip in equal measure, where a radius always leaves the metre around you at full strength and
+// takes the horizon, which is the trade a survivors-like can actually be played against.
+//
+// dim is therefore a CONSTANT here rather than a ramp: the radius is the whole readout, and the
+// far field is simply what lies outside it. One curve still drives everything, because the radius
+// interpolates on darkness() rather than on raw charge — so the light starts closing in at exactly
+// the instant the slow starts biting, and both bottom out together at an empty bar.
 //
 // WHICH drawback is an owner ruling, taken 2026-08-12 against three alternatives. Move speed, not
 // damage and not accuracy, because weapons auto-fire: a slow player still kills at the same rate,
@@ -4674,6 +4719,17 @@ export const darkness = (charge, res) => {
   const frac = res.max > 0 ? charge / res.max : 1
   if (frac >= d.from) return 0
   return (d.from - frac) / d.from   // 0 at the threshold, 1 at an empty bar
+}
+
+// How far you light the world, in WORLD px, measured to where the falloff reaches full `dim`.
+// Interpolates on darkness() and not on raw charge/max, which is what keeps the shrinking light and
+// the slow one fact rather than two: above `from` the radius is pinned at lightFull, and it starts
+// closing at the same instant the slow starts. Infinity (not 0) for a chapter with no dark block —
+// "this chapter lights everything" is the identity here, and a 0 would black the screen out.
+export const lightRadius = (charge, res) => {
+  const d = res?.dark
+  if (!d) return Infinity
+  return d.lightFull - (d.lightFull - d.lightEmpty) * darkness(charge, res)
 }
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------

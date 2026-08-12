@@ -1,6 +1,6 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
@@ -72,7 +72,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -4740,6 +4740,34 @@ function runDark() {
     assert.strictEqual(darkness(50, { max: 100 }), 0, 'a resource with no dark block -> no darkness')
   }
 
+  // (a2) THE LIGHT YOU EMIT rides the SAME curve, which is the whole reason it is written as a
+  // function of darkness() and not of charge/max. Owner: "you are the source light, you emit the
+  // light, but the less light you have, the less far you emit." If this interpolated on raw charge
+  // instead, the light would start closing in at a full bar while the slow waited until half — two
+  // schedules, and the player unable to tell which state they are in from the picture.
+  {
+    assert.strictEqual(lightRadius(res.max, res), d.lightFull, 'a full bar lights lightFull')
+    assert.strictEqual(lightRadius(res.max * d.from, res), d.lightFull,
+      'the light must still be at full reach AT the threshold — it starts closing exactly where the slow starts')
+    assert.strictEqual(lightRadius(0, res), d.lightEmpty, 'an empty bar lights only lightEmpty')
+    const mid = lightRadius(res.max * d.from * 0.5, res)
+    assert.ok(Math.abs(mid - (d.lightFull + d.lightEmpty) / 2) < 1e-9,
+      `halfway to empty must light the midpoint radius, got ${mid}`)
+    // Monotone shrinking, sampled — a non-monotone radius would read as the light flickering back
+    // out as you get worse, and no endpoint check can catch it.
+    let prev = Infinity
+    for (let c = res.max; c >= 0; c -= res.max / 40) {
+      const r = lightRadius(c, res)
+      assert.ok(r <= prev + 1e-9, `light radius must never grow as the bar empties (charge ${c})`)
+      prev = r
+    }
+    assert.ok(d.lightEmpty > 0 && d.lightEmpty < d.lightFull, 'an empty bar must still light SOMETHING, and less than a full one')
+    // A chapter with no dark lights everything. Infinity and not 0: the renderer's "does my light
+    // already cover the corner" early-out has to say yes, and a 0 would black the screen out.
+    assert.strictEqual(lightRadius(0, CHAPTERS.pond.resource ?? undefined), Infinity, 'no resource -> unbounded light')
+    assert.strictEqual(lightRadius(50, { max: 100 }), Infinity, 'a resource with no dark block -> unbounded light')
+  }
+
   // (b) THE SLOW IS REAL, and measured as DISTANCE TRAVELLED rather than by reading a multiplier
   // back out. Asserting the knob would pass with the feature deleted; asserting the distance is
   // what fails if stepPlayer stops consulting the curve.
@@ -4818,17 +4846,79 @@ function runDark() {
   // slow on screen, which is the entire failure this run exists to prevent.
   {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(/darkness\(run\.charge,\s*res\)\s*\*\s*res\.dark\.dim/.test(src),
-      'render.js must derive the scrim alpha from darkness(run.charge, res) * res.dark.dim, so the dimming and the slow cannot drift apart')
+    assert.ok(/const R = lightRadius\(run\.charge, res\)/.test(src),
+      'render.js must size the light from lightRadius(run.charge, res), so the shrinking light and the slow cannot drift apart')
+    assert.ok(/darkScrim\.circle\(px, py, R\)\.cut\(\)/.test(src),
+      'the player must be a CUT hole of radius R in the scrim — a radial gradient painted over an un-cut sheet dims the metre around you too, which is the flat-sheet version the owner rejected')
+    assert.ok(/darkGlow\.width = darkGlow\.height = R \* 2/.test(src),
+      'the falloff sprite must span exactly 2R, or its opaque rim lands somewhere other than the cut edge and the seam shows')
     assert.ok(/darkScrim\.circle\([^)]*\)\.cut\(\)/.test(src),
       'the shafts must be CUT from the scrim, not painted over it — additive light cannot un-flatten a dimmed scene, so a painted shaft is one you see LESS inside')
     assert.ok(src.includes('app.stage.addChild(world, darkLayer,'),
       'the scrim must sit directly above `world` and below the damage vignette/flash, or the dark takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): one curve drives both — screen dims to alpha ${d.dim} and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, linear, MIN-composed with the latch slow, pond untouched, scrim cuts its shafts`)
+  console.log(`PASS run DK (the dark): one curve drives both — the light you emit closes from ${d.lightFull}px to ${d.lightEmpty}px and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, linear, MIN-composed with the latch slow, pond untouched, scrim cuts the player and its shafts`)
 }
 runDark()
+
+// ---- Run RA: every creature in a roster has art, and every chapter card has a thumbnail ---------
+// TWO SILENT FAILURES, both already documented in render.js's own comments and neither one caught
+// by anything until now:
+//   - a roster id with no ROSTER_LOOKS entry does NOT throw. syncEnemies falls through to the
+//     generic archetype blob, so a new chapter's creatures simply render as Chapter 1's kawaii
+//     cells, with no error anywhere. render.js says exactly this above the beyond block, having
+//     been bitten by it in v5.18.
+//   - src/cast/*.png is GENERATED (scripts/bake-cast.mjs) and HAND-RUN. A chapter whose
+//     render.cast names a new id keeps showing the old drawing on its title card, and bake-cast's
+//     own header calls this out as a ponytail: nothing warns you.
+// v7.x walked straight through both: The Shelf's roster went amoeba/tadpole/tardigrade ->
+// copepod/krill/jelly, which is exactly the diff that strands a look key or a stale thumbnail.
+// render.js is not importable here (Vite-only import.meta.glob), so the look table is read as
+// SOURCE TEXT — the run UG.k trick.
+function runRosterArt() {
+  const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const start = src.indexOf('const ROSTER_LOOKS = {')
+  assert.ok(start > 0, 'render.js must still declare ROSTER_LOOKS (this whole run reads it as text)')
+  const end = src.indexOf('\n  }\n', start)
+  assert.ok(end > start, 'could not find the end of the ROSTER_LOOKS object')
+  const block = src.slice(start, end)
+  // Entries sit one indent level inside the object literal. Matching `key: {` and NOT
+  // `key: { archetype:` on purpose — the multi-line entries (toad) carry archetype on the next line.
+  const looks = new Set([...block.matchAll(/^ {4}(\w+):\s*\{/gm)].map((m) => m[1]))
+  assert.ok(looks.size >= 30, `expected a full look table, parsed only ${looks.size} keys — the regex has drifted from the file`)
+
+  // EVERY chapter that exists, not CHAPTER_ORDER — which is BOOKS.book1.chapters and therefore
+  // excludes both the hidden Blank and the whole `downward` book. The first cut of this run used
+  // CHAPTER_ORDER and silently skipped The Shelf, i.e. the exact chapter it was written for: a
+  // mutation deleting the copepod's look passed it green. Object.keys is the honest denominator.
+  const ALL_IDS = Object.keys(CHAPTERS)
+  assert.ok(ALL_IDS.includes('shelf') && ALL_IDS.includes('blank'),
+    'this run must sweep the WIP book and the hidden chapter too — they are exactly where a missing look hides')
+  let rosters = 0
+  for (const id of ALL_IDS) {
+    for (const e of CHAPTERS[id].roster ?? []) {
+      rosters++
+      assert.ok(looks.has(e.id),
+        `chapter '${id}' rosters '${e.id}' but ROSTER_LOOKS has no entry for it — it would render as a generic archetype blob, silently`)
+    }
+  }
+  assert.ok(rosters >= 20, `expected every chapter's roster, counted only ${rosters}`)
+
+  let thumbs = 0
+  for (const id of ALL_IDS) {
+    for (const cid of CHAPTERS[id].render?.cast ?? []) {
+      thumbs++
+      assert.ok(looks.has(cid), `chapter '${id}' puts '${cid}' on its title card, but no ROSTER_LOOKS entry can draw it`)
+      assert.ok(existsSync(new URL(`../src/cast/${cid}.png`, import.meta.url)),
+        `chapter '${id}' casts '${cid}' but src/cast/${cid}.png is missing — re-run node scripts/bake-cast.mjs`)
+    }
+  }
+  assert.ok(thumbs >= 12, `expected a cast per chapter card, counted only ${thumbs}`)
+
+  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, and all ${thumbs} title-card thumbnails exist on disk`)
+}
+runRosterArt()
 
 // ---- Run LT: Light Thief (v7.x Book 2) ------------------------------------------------------
 // Owner ruling, and a REVERSAL of the first cut: "none by default, only via the shop". So the
