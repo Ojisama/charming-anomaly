@@ -20,13 +20,26 @@ node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --f
                                      # reproducible in-game frames of ONE effect, for A/B-ing a look
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
 node scripts/charge-probe.mjs        # what a chapter RESOURCE bar (The Shelf's Light) actually does
-                                     # over real 300s runs, under THREE spend policies. One policy
+                                     # over real 300s runs, across THREE axes: spend policy, MOVEMENT
+                                     # policy, and whether Light Thief is bought. One spend policy
                                      # cannot tell "the bar cannot fill" from "this player spent it
                                      # all" — a greedy player pins the bar at zero under every tune
                                      # there is, which is what the first cut of this probe reported.
                                      # Rig is immortal + KITING and accepts level-ups: two earlier
                                      # cuts printed full-looking tables for a 36s and a 100s run
                                      # (exited at the first level-up; then died).
+                                     # THE MOVEMENT AXIS EXISTS BECAUSE THE KITING RIG LIES ABOUT ANY
+                                     # MECHANIC THAT SLOWS YOU. The walk turns at a fixed rate, so
+                                     # its circle has radius speed/0.35/2pi — 628px at full speed,
+                                     # 377px once the dark slows you to x0.6. Shaft cells are 760px
+                                     # apart, so slowing the player SHRINKS THE SAMPLED AREA below
+                                     # the spacing of the thing being sampled, and %inLight fell
+                                     # 11.8 -> 3.0. That reads exactly like the chapter trapping the
+                                     # player in the dark, and it is a property of walking in a
+                                     # circle. `seek` (walk toward the nearest shaft when low) is
+                                     # the honest model; report the pair, never `kite` alone.
+                                     # Generalise it: before believing a probe's damning number, ask
+                                     # whether the RIG's own geometry moved when the knob did.
 node scripts/weapon-census.mjs       # what a weapon actually DOES over real runs, headless
                                      #   --chapter city --level 5 --weapons sewerGeyser --mods launch=1
                                      # raw vs EFFECTIVE dps, overkill waste, kills/min, hits/s, and a

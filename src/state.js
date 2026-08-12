@@ -277,6 +277,10 @@ export function loadMeta() {
       // carrying 'yes' or 1 would be truthy everywhere EXCEPT those tests and the flag would
       // disagree with itself. This never reaches sim.js — see the plan's R1.
       m.dev = m.dev === true
+      // Light Thief (Book 2): the permanent "kills give light back" unlock, bought with shop levels
+      // on the sacrifice screen. Coerced for the same reason as m.dev above — createRun tests
+      // `=== true`, so a truthy-but-not-true value would grant it everywhere else and deny it there.
+      m.lightThief = m.lightThief === true
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
       // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
@@ -300,6 +304,7 @@ export function loadMeta() {
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
     skillSide: 'left', // right-handed default (see the loadMeta migration above)
     dev: false, // WIP gate, off for every real player (see the loadMeta migration above)
+    lightThief: false, // Book 2's permanent kills-give-light unlock (see the loadMeta migration above)
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
@@ -817,9 +822,22 @@ function generateWells(sig) {
  *   drifted one; drift is a pure function of run._realTime and `phase`, storing no state and
  *   consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
  * charge: number — the chapter resource bar (CHAPTERS[chapter].resource; The Shelf's 'Light').
- *   Drains passively, refills inside a shaft and per kill, clamped to [0, resource.max]. It is
- *   the Pulse's AMMO and nothing else: it scales no damage, fire rate or speed, and an empty bar
- *   still fires the shipped REPULSE_* shove. 0 and untouched in every chapter without a resource.
+ *   Drains passively, refills inside a shaft and (with Light Thief bought) per kill, clamped to
+ *   [0, resource.max]. 0 and untouched in every chapter without a resource.
+ *   It drives THREE things, and the third arrived later (v7.x, owner directive) — the first cut of
+ *   this field was the Pulse's ammo and nothing else:
+ *     1. the Pulse's strength (PULSE_* in config.js; an empty bar still fires the shipped
+ *        REPULSE_* shove, which is the floor that keeps the resource from being self-denying);
+ *     2. THE DARK — below resource.dark.from the screen dims toward resource.dark.dim (render.js
+ *        updateDark) and the player slows toward resource.dark.speedFloor (sim.js stepPlayer).
+ *        Both read the ONE curve darkness(charge, res) in config.js, so the dimming and the slow
+ *        are always the same number and the player can read their condition off the screen;
+ *     3. nothing else. It still scales no damage and no fire rate — deliberately, because those
+ *        cut the kill rate, and the kill rate is what Light Thief pays out on.
+ * killRefill: number — light per kill, snapshotted at createRun from meta.lightThief (the permanent
+ *   Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen). 0 unbought, and 0
+ *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
+ *   meta, because sim.js must never see meta — see the plan's R1.
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
@@ -1469,6 +1487,12 @@ export function createRun(meta, opts = {}) {
     // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
     // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
     charge: CHAPTERS[chapter].resource?.max ?? 0,
+    // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (meta.lightThief, bought
+    // for LIGHT_THIEF_COST shop levels). This exists as a run field rather than sim.js reading
+    // meta because sim.js must never see meta at all — it plays what it is handed, which is what
+    // makes a dev-gated chapter playtest as the thing that eventually ships. 0 unbought, and 0 for
+    // every chapter that declares no resource.
+    killRefill: meta.lightThief === true ? (CHAPTERS[chapter].resource?.killRefill ?? 0) : 0,
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which

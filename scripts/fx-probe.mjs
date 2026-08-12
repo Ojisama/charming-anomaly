@@ -101,8 +101,12 @@ const bootstrap = `(() => {
   for (const id of ['body', ${JSON.stringify(chapter)}]) {
     chapters[id] = { unlocked: true, maxDifficulty: 5, difficulty: 1, best: { time: 0, kills: 0 } }
   }
+  // dev: true (v7.x) so a WIP chapter can be probed at all. playableChapterId downgrades a book
+  // marked \`wip\` to CHAPTER_ORDER[0] for any save without this flag, so without it --chapter shelf
+  // silently shoots THE BODY: a full, correct-looking frame sequence of the wrong chapter, with no
+  // error anywhere. Harmless for the shipped chapters, which do not consult it.
   localStorage.setItem('charming-anomaly-save-v1', JSON.stringify({
-    schema: 1, coins: 0, runs: 5, lang: 'en', chapter: ${JSON.stringify(chapter)},
+    schema: 1, coins: 0, runs: 5, lang: 'en', chapter: ${JSON.stringify(chapter)}, dev: true,
     shop: {}, best: { time: 0, kills: 0 }, choiceSlots: 2, chapters,
   }))
 
