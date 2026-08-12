@@ -58,7 +58,7 @@ import {
   BLIND_FAITH_NO_REROLL, BLIND_FAITH_FLOOR,
   IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   ENEMIES, ELITE, WAVE_TABLE,
-  spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, SPAWN_RING, speedCreepMul,
+  spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, lateEliteFor, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
@@ -1243,7 +1243,7 @@ function spawnEnemy(run, opts = {}) {
   // SUBMISSION brings its own elites (config: SUBMISSION_ELITE_EVERY_MUL). Read-time, never
   // written into run.mods — that table is the run's mutator product and must stay fixed.
   if (isElite) {
-    run._nextEliteAt += eliteEveryAt(run.time) * run.mods.eliteEveryMul
+    run._nextEliteAt += eliteEveryAt(run.time, lateEliteFor(run.chapter)) * run.mods.eliteEveryMul
       * (run.anomalies?.submission ? SUBMISSION_ELITE_EVERY_MUL : 1)
   }
 
