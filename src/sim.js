@@ -142,7 +142,7 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -159,6 +159,7 @@ import {
   BLANK_SHOT_R, BLANK_SHOT_LIFE, BLANK_SHOT_TURN, BLANK_STANDOFF_DRIFT_MUL, BLANK_BOSS_DMG,
   BLANK_STANDOFF_CATCHUP_D, BLANK_STANDOFF_CATCHUP_MUL,
   BLANK_READ3_T, BLANK_LEAD, BLANK_BAND_LEN, BLANK_BAND_W, BLANK_BAND_FUSE, BLANK_BAND_T, BLANK_BAND_DPS,
+  BLANK_BAND_GROW,
   BLANK_DESPERATE_FRAC, BLANK_DESPERATE_MUL, BLANK_WAKE_DT, BLANK_WAKE_LEN, BLANK_WAKE_W, BLANK_WAKE_T,
   BLANK_WAKE_DPS, BLANK_MEMORY_T, BLANK_RECRUIT_T, BLANK_RECRUIT_N, BLANK_ACCEL_MUL,
   BLANK_BOSS_SPEED_P3, BLANK_PHASE_LEVELS, BLANK_FAN_N, BLANK_FAN_SPREAD, BLANK_FAN_SPEED,
@@ -224,6 +225,9 @@ export function stepSim(run, input, dt) {
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
+  streamShafts(run)       // v7.x Book 2: materialize/drop sun-shaft cells (no-op outside The Shelf)
+  stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
+  stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
@@ -1017,7 +1021,7 @@ function stepBossScript(run, dt) {
         run.strips.push({
           x: cx, y: cy, angle: a + da,
           len: BLANK_BAND_LEN, w: BLANK_BAND_W, fuse: BLANK_BAND_FUSE * accel, t: BLANK_BAND_T,
-          dps: BLANK_BAND_DPS, look: 'erase',
+          dps: BLANK_BAND_DPS, look: 'erase', grow: BLANK_BAND_GROW,
         })
       }
     }
@@ -1113,13 +1117,31 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
 // The cooldown ticks unconditionally so it recovers while you are busy, and `input.skill` is an
 // edge-triggered one-shot from input.js — sim never sees a held button, only a press.
 function stepRepulse(run, input, dt) {
-  if (!CHAPTERS[run.chapter].lane) return
+  const ch = CHAPTERS[run.chapter]
+  // v7.x: lane chapters have always had this; a chapter declaring a `resource` gets it too, and
+  // spends that resource to amplify it. Both gates on one line so no chapter can have the button
+  // without the cast, or the cast without the button (ui.js unhides on exactly this pair).
+  if (!ch.lane && !ch.resource) return
   run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
   if (!input.skill || run.repulseCd > 0) return
   run.repulseCd = REPULSE_CD
   const p = run.player
-  run.events.push({ type: 'repulse', x: p.x, y: p.y, r: REPULSE_RADIUS })
-  const radSq = REPULSE_RADIUS * REPULSE_RADIUS
+  // The amplification. `spend` is capped by what the bar actually holds, so an EMPTY bar leaves
+  // t = 0 and the shipped v5.21 shove fires unchanged - the floor that stops the spiral where
+  // having no charge prevents you from earning charge. Lane chapters declare no resource, so their
+  // t is 0 forever and The Beyond's pulse is byte-identical to what it was.
+  const res = ch.resource
+  const spend = res ? Math.min(run.charge, PULSE_CHARGE_COST) : 0
+  const t = res ? spend / PULSE_CHARGE_COST : 0
+  if (spend > 0) run.charge -= spend
+  const radius = REPULSE_RADIUS + (PULSE_RADIUS_AT_FULL - REPULSE_RADIUS) * t
+  const force = REPULSE_FORCE + (PULSE_FORCE_AT_FULL - REPULSE_FORCE) * t
+  // The SCALED radius, not the constant. render.js draws both rings at e.r under a comment saying
+  // the radius is pushed rather than fixed because "a burst that lies about its reach makes the
+  // cooldown feel arbitrary" - pushing REPULSE_RADIUS here would draw the 340px floor ring around
+  // a 620px shove, which is that exact complaint with a bigger gap.
+  run.events.push({ type: 'repulse', x: p.x, y: p.y, r: radius, charged: t })
+  const radSq = radius * radius
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y
@@ -1130,9 +1152,9 @@ function stepRepulse(run, input, dt) {
     // so an enemy sitting exactly on the player still goes the way everything else does.
     const ux = d > 1e-6 ? dx / d : 0
     const uy = d > 1e-6 ? dy / d : -1
-    const falloff = 1 - d / REPULSE_RADIUS
-    e.kb.x += ux * REPULSE_FORCE * falloff
-    e.kb.y += uy * REPULSE_FORCE * falloff
+    const falloff = 1 - d / radius
+    e.kb.x += ux * force * falloff
+    e.kb.y += uy * force * falloff
     e.stunT = Math.max(e.stunT || 0, REPULSE_STUN)
   }
 }
@@ -2815,6 +2837,110 @@ function streamEddies(run) {
   }
 }
 
+// -- Sun shafts (v7.x Book 2 / The Shelf: streamed pools of light) --------------------
+// The fourth copy of streamObstacles' streaming idiom (obstacles -> eddies -> traps -> here): own
+// cell size (sig.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
+// run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts (20
+// occupancy, 21 x jitter, 22 y jitter, 23 drift phase) so a shaft's roll can never collide with an
+// obstacle's (0-4), an eddy's (11-14) or a trap's (15-17) at the same cell. ZERO Math.random() at
+// step time - the same hard rule all three others state (the AA.c/runStarOnly scar).
+//
+// THIS FUNCTION DECIDES EXISTENCE ONLY. It early-returns whenever the player has not crossed a cell
+// boundary, exactly like streamEddies, so anything it computes is computed ONCE per materialization
+// and never again - it structurally cannot make a shaft drift. stepShafts below does that, every
+// frame. An earlier draft of the plan specified "a direct copy of streamEddies" plus drift and gave
+// the drift no per-frame home: shafts would have been frozen except at cell crossings, and nothing
+// would have LOOKED broken, because render re-places from the list every frame and would have
+// faithfully drawn the frozen field.
+//
+// Jitter slack subtracts driftAmp, which the other three streamers have no reason to do: their
+// objects never move, so they may spend the whole cs/2 - r - 20 budget on jitter. Here jitter and
+// drift share it, and the sum has to stay inside the cell or a shaft's collider reaches into the
+// neighbour and overlaps that cell's own shaft. (A density artifact, not a correctness break - the
+// cell bookkeeping keys `live` on _cell, which drift never touches, so a drifted shaft can neither
+// duplicate nor be re-rolled. But it is free to be correct here.)
+function streamShafts(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'shafts') return
+  if (run._obstacleSeed == null) return
+  const p = run.player
+  const cs = sig.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._shaftCellI && cj === run._shaftCellJ) return // same cell as last scan - field unchanged
+  run._shaftCellI = ci; run._shaftCellJ = cj
+
+  for (let k = run.shafts.length - 1; k >= 0; k--) {
+    const sh = run.shafts[k]
+    if (Math.hypot(sh.bx - p.x, sh.by - p.y) > OBSTACLE_DROP_RADIUS) run.shafts.splice(k, 1)
+  }
+  const live = new Set()
+  for (const sh of run.shafts) live.add(sh._cell)
+
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  const amp = sig.driftAmp ?? 0
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      if (obstacleCellHash(i, j, seed, 20) >= sig.chance) continue
+      const slack = Math.max(0, cs / 2 - sig.r - 20 - amp) // see the driftAmp note above
+      const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 21) - 0.5) * 2 * slack
+      const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 22) - 0.5) * 2 * slack
+      if (Math.hypot(bx, by) < sig.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the
+      // whole field does not pulse in unison. Stored, not re-derived, because x/y are recomputed
+      // every frame and a per-frame hash would be the one avoidable cost in that loop.
+      const phase = obstacleCellHash(i, j, seed, 23) * Math.PI * 2
+      run.shafts.push({ x: bx, y: by, bx, by, r: sig.r, phase, _cell: key })
+    }
+  }
+}
+
+// Shaft drift (v7.x). Pure function of run._realTime and the shaft's own phase: stores no state,
+// consumes no RNG, and is therefore identical across a reload or a re-run of the same seed.
+//
+// run._realTime, NOT run.time. The Time Debt anomaly advances run.time at TIME_DEBT_MUL (1.5x, see
+// the step order above) and its `chapter` is null so it rolls in The Shelf - deriving drift from
+// run.time would multiply peak drift speed by 1.5 and push the shipped tune (63 px/s) to 95, within
+// a rounding error of the KITE_MIN_SPEED ceiling the number was chosen to sit under. _realTime
+// exists precisely to be a unit that means the same thing in every run.
+//
+// x uses cos and y uses sin of the SAME angle, so a shaft travels a small circle at a CONSTANT
+// speed of driftAmp x driftHz rather than easing to a halt at each end of a line. A shaft that
+// stops dead twice a cycle reads as a stutter, and the number checked against the ceiling would
+// then be a peak rather than the speed it actually holds.
+function stepShafts(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'shafts' || !run.shafts.length) return
+  const amp = sig.driftAmp ?? 0
+  if (!amp) return
+  const a = run._realTime * (sig.driftHz ?? 0)
+  for (const sh of run.shafts) {
+    sh.x = sh.bx + Math.cos(a + sh.phase) * amp
+    sh.y = sh.by + Math.sin(a + sh.phase) * amp
+  }
+}
+
+// The chapter resource bar (v7.x Book 2). A chapter-gated no-op exactly like stepCurrents and
+// streamTraps - a chapter that declares no `resource` returns on the first line and its run.charge
+// stays the 0 createRun gave it, which is what lets this live in main from day one with no flag.
+//
+// Drains passively and refills while the player stands in a shaft. Kill refills arrive separately,
+// at the kill site, because they are not a per-frame quantity.
+function stepCharge(run, dt) {
+  const res = CHAPTERS[run.chapter].resource
+  if (!res) return
+  let c = run.charge - res.drain * dt
+  const p = run.player
+  for (const sh of run.shafts) {
+    // Centre-to-centre against the shaft radius: standing IN the light, not brushing its edge.
+    if (Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r) { c += res.refill * dt; break }
+  }
+  run.charge = Math.max(0, Math.min(res.max, c))
+}
+
 // -- Snap traps (v6.5 undergrowth identity: streamed) ---------------------------------
 // Exact copy of streamEddies' idiom above (itself a copy of streamObstacles') — own cell size
 // (sig.traps.cell), own _trapCellI/_trapCellJ cell cursor (independent of streamObstacles' and
@@ -3138,6 +3264,17 @@ function stepStrips(run, dt) {
     if (s.fuse > 0) { s.fuse -= dt; continue } // telegraph phase — no damage yet
     s.t -= dt
     if (s.t <= 0) continue
+    // `grow` (the blank's P3 star, BLANK_BAND_GROW): the strip reaches its authored length over
+    // `grow` seconds from the moment it goes live, expanding from its centre. The hitbox below IS
+    // the current length, so the arms SWEEP — the far end arrives a second after the near end,
+    // which is the whole point (a star that lands at full extent hits everyone at once). _lenFull
+    // is captured on the first live frame, so the length stays authored in exactly one place and
+    // the telegraph still draws at full extent during the fuse.
+    if (s.grow) {
+      s._lenFull ??= s.len
+      s._grown = (s._grown ?? 0) + dt
+      s.len = s._lenFull * Math.min(1, s._grown / s.grow)
+    }
     // Point-in-rotated-rectangle: project the player offset onto the strip's axis (along) and its
     // perpendicular (perp); inside iff within half the length/width on each.
     const dx = p.x - s.x, dy = p.y - s.y
@@ -3771,6 +3908,11 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
+    // v7.x Book 2: kills feed the bar. The one refill geometry that asks for no verb the player
+    // does not already have - you are killing anyway - so it keeps the bar alive between shafts
+    // without turning the chapter into a fetch quest. Clamped, and a no-op without a resource.
+    const _res = CHAPTERS[run.chapter].resource
+    if (_res) run.charge = Math.min(_res.max, run.charge + (_res.killRefill ?? 0))
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)

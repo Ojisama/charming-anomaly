@@ -123,6 +123,24 @@ body {
    build stamp, the last two of which overlapped — and floating means every one of them also cost
    padding-top to clear. One honest row instead: ⚙ (everything else, in a sheet), the wordmark, the
    wallet. Nothing overlaps because nothing is positioned. */
+/* The WIP gate's tell. Shown in the title bar whenever meta.dev, because a hidden flag you cannot
+   see is how work-in-progress chapters reach a real player. Deliberately NOT translated, for the
+   same reason the dev menu isn't (see ui.js): it would add rows to the translation surface for
+   chrome only the developer ever sees.
+   Sized against the 320px header, which has exactly 39px of slack once ⚙, the wordmark and the
+   wallet have taken theirs: at 0.62rem with 7px sides this came to 36px + an 8px gap and pushed the
+   bar 5px wide. flex-shrink:0 so it never absorbs the squeeze itself — the wordmark, which already
+   wraps to two lines, is the thing that should give. */
+.dev-pill {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: var(--cream-soft);
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
 .title-bar {
   flex-shrink: 0;
   display: flex;
@@ -1584,9 +1602,12 @@ body {
    thumb lives on the stick and the right one has nothing to do until now. .screen--hud is
    pointer-events:none (it is a full-screen div that would otherwise eat every tap), so this needs
    its own `auto` back — same as .btn-pause. */
+/* Sits on the LEFT by default, which is the right-handed layout: the joystick is FLOATING (it
+   appears wherever you touch), so the dominant thumb takes movement — the continuous, precise
+   input — and the off thumb taps the button. meta.skillSide flips it for left-handed players. */
 .skill-btn {
   position: absolute;
-  right: 22px;
+  left: 22px;
   bottom: 34px;
   width: 78px;
   height: 78px;
@@ -1603,6 +1624,7 @@ body {
   transition: opacity 0.15s, transform 0.1s, border-color 0.15s;
 }
 .skill-btn--hidden { display: none; }
+.skill-btn--right { left: auto; right: 22px; }
 /* Ready is the loud state: full opacity and a lit rim. On cooldown it is deliberately dim and
    un-pressable-looking, so readiness is legible from peripheral vision mid-run. */
 .skill-btn--ready {
@@ -1675,6 +1697,21 @@ body {
   align-items: flex-end;   /* frac drains 1 -> 0, so a bottom-anchored fill SINKS as the wave nears */
 }
 .chaos-vrail-track i { width: 100%; background: #8f7bff; border-radius: 999px; }
+/* v7.x Book 2: the chapter RESOURCE rail — the same battery, mirrored to the LEFT so it sits on the
+   same thumb as the skill button whose ammo it is. Only the position and the colour differ; every
+   size, radius and chip rule above is shared, which is the point of reusing the markup. */
+.chaos-vrail--charge { left: 16px; right: auto; }
+/* Amber, deliberately not the violet/red the chaos rail owns: two batteries on screen at once must
+   never be told apart by position alone, since a left-handed player moves the button, not the rail. */
+.chaos-vrail--charge .chaos-vrail-track i { background: #ffb347; }
+.chaos-vrail--charge .chaos-vrail-num { color: #ffe0b0; }
+/* Armed = the next press is a full-strength Pulse rather than the floor shove. A brightness step,
+   not a hue step: the bar is still the same resource, and PULSE_CHARGE_COST is not a round fraction
+   of max, so the height alone cannot show where the threshold is. */
+.charge--armed .chaos-vrail-track { border-color: rgba(255, 220, 150, 0.75); }
+.charge--armed .chaos-vrail-track i { background: #ffe9a8; }
+.charge--armed .chaos-vrail-num { background: rgba(70, 46, 12, 0.92); color: #fff3d0; }
+
 /* live wave: violet -> red. Never colour ALONE — the seconds chip is the other half. */
 .chaos--on .chaos-vrail-track { border-color: rgba(255, 166, 148, 0.6); }
 .chaos--on .chaos-vrail-track i { background: #ff6b52; }

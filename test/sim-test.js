@@ -7,7 +7,8 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
+  SHOP, shopCost, MAX_SHOP_LEVEL, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
+  PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
@@ -37,6 +38,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
+  BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -70,12 +72,14 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
+  BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
@@ -91,7 +95,7 @@ import {
   // v6.4.1/v6.4.3 early-calm (Run OO)
   EARLY_CALM,
   // v6.4.2 coin cap (Run PP)
-  COIN_CAP_PER_RUN,
+  COIN_CAP_PER_RUN, runBonusCoins,
   // v6.4.3 opening spawn credit (Run QQ)
   SPAWN_OPENING_CREDIT,
   // v6.5.1 enemy separation (Run UU)
@@ -4069,6 +4073,35 @@ function testGoldSinks() {
     assert.strictEqual(rerollCost(2), 23, `expected rerollCost(2)=23, got ${rerollCost(2)}`)
     console.log('PASS run Q.d (rerollCost)')
   }
+
+  // Q.e shop surcharge (v7.49, owner directive): the 1.6^level curve carries a linear surcharge —
+  // +20% at level 0, +200% at the last purchasable level — then clamps per line. Assert the ramp's
+  // ENDS against base (not against hardcoded coin totals, which would just re-encode 1.6^9), and
+  // assert the caps actually BIND: a cap nothing reaches is a cap that could be deleted.
+  {
+    const last = MAX_SHOP_LEVEL - 1
+    for (const id of Object.keys(SHOP)) {
+      const base = SHOP[id].base
+      assert.strictEqual(shopCost(id, 0), Math.round(base * 1.2),
+        `${id} level 0 should cost base * 1.2 (+20%), got ${shopCost(id, 0)} against base ${base}`)
+      const cap = SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT
+      const uncapped = Math.round(base * Math.pow(1.6, last) * 3)
+      assert.strictEqual(shopCost(id, last), Math.min(cap, uncapped),
+        `${id} last level should be min(cap ${cap}, base * 1.6^${last} * 3 = ${uncapped}), got ${shopCost(id, last)}`)
+      // monotonic: a surcharge that ever makes the NEXT level cheaper is a broken ramp
+      for (let l = 1; l <= last; l++) {
+        assert.ok(shopCost(id, l) >= shopCost(id, l - 1),
+          `${id} cost went DOWN from level ${l - 1} (${shopCost(id, l - 1)}) to ${l} (${shopCost(id, l)})`)
+      }
+    }
+    const capped = Object.keys(SHOP).filter((id) =>
+      Math.round(SHOP[id].base * Math.pow(1.6, last) * 3) > (SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT))
+    assert.ok(capped.length > 0,
+      'no shop line reaches its cost cap at max level — the cap is dead code, or the curve was retuned under it')
+    assert.strictEqual(shopCost('damage', last), Math.round(SHOP.damage.base * Math.pow(1.6, last) * 3),
+      'damage has the 9999 ceiling and must NOT be clamped by the 4999 default')
+    console.log(`PASS run Q.e (shop surcharge): +20% at L0 rising to +200% at L${last}, capped for ${capped.join(', ')}`)
+  }
 }
 
 // ---- Run R: permanent level-up choice slots (v4.8) + retuned rarity (v4.7) ---------------
@@ -4273,8 +4306,405 @@ function testChapters() {
   assert.strictEqual(notEarned.chapters.garden.unlocked, false, 'pond maxDifficulty 3 (won only lvl 2) leaves garden locked')
   delete globalThis.localStorage
 
-  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock')
+  // (g) v7.35 SOURCE tripwire. ui.js is not headless-testable (DOM), and settle() — the carousel's
+  // scroll handler — is the ONLY writer of meta.chapter in the whole game (main.js's onChapter is
+  // its only caller). It picks the card nearest the carousel's centre by getBoundingClientRect, and
+  // a display:none screen measures EVERY card at rect 0: every distance ties at 0, the loop keeps
+  // the first card, and 'body' silently becomes the player's saved chapter. It shipped, and the
+  // symptom surfaced a whole run later — flick the carousel to The Beyond, tap Play inside the
+  // 130ms debounce, and 'scrollend' settles correctly while the still-armed timer fires 130ms after
+  // the title is hidden. The Beyond run you started was right; the summary's "Next level" started
+  // The Body, crediting the wrong ledger. Both halves are asserted: the layout guard, and settle
+  // disarming the debounce so scrollend and the timeout can never both read one gesture.
+  {
+    const src = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const settle = src.slice(src.indexOf('const settle = () =>'), src.indexOf("car.addEventListener('scrollend'"))
+    assert.ok(settle.length > 0 && settle.length < 4000, 'could not isolate settle() in ui.js — the tripwire below is measuring nothing')
+    assert.ok(/if \(!car\.clientWidth\) return/.test(settle),
+      'settle() lost its layout guard: on a display:none title every card ties at distance 0 and it silently elects the FIRST card (body) as meta.chapter')
+    assert.ok(/clearTimeout\(timer\)/.test(settle),
+      'settle() no longer disarms the scroll debounce, so scrollend leaves a timer that fires after the title is hidden — the exact v7.35 race')
+    assert.ok(settle.indexOf('if (!car.clientWidth) return') < settle.indexOf('getBoundingClientRect'),
+      'the layout guard must come BEFORE settle() measures anything, or it is measuring the zeroed rects it exists to reject')
+    assert.strictEqual((src.match(/meta\.chapter = /g) ?? []).length, 0, 'ui.js must not write meta.chapter directly — it goes through hooks.onChapter (main.js) so the save stays the single writer')
+  }
+
+  // (h) v7.x WIP gate. meta.dev hides work-in-progress chapters from real players, so the two
+  // things that matter are that it round-trips and that NOTHING can turn it on by accident. It is
+  // coerced (`m.dev === true`) rather than `??=` defaulted, because every gate reads `=== true`:
+  // a save carrying 'yes' or 1 would be truthy at every OTHER site and the flag would disagree
+  // with itself. A tampered save must read as off, not as "on but only sometimes".
+  {
+    const devStub = {
+      coins: 0, shop: {}, best: { time: 0, kills: 0 }, runs: 0, choiceSlots: 2, chapter: 'body', chapters: {},
+    }
+    const load = (dev) => {
+      if (dev === undefined) delete devStub.dev; else devStub.dev = dev
+      globalThis.localStorage = { getItem: () => JSON.stringify(devStub), setItem: () => {} }
+      const m = loadMeta()
+      delete globalThis.localStorage
+      return m.dev
+    }
+    assert.strictEqual(load(true), true, 'meta.dev: a stored `true` round-trips as true')
+    assert.strictEqual(load(false), false, 'meta.dev: a stored `false` stays false')
+    assert.strictEqual(load(undefined), false, 'meta.dev: absent (every save written before the gate existed) loads as false')
+    for (const junk of [null, 'yes', 1, 'true', {}, []]) {
+      assert.strictEqual(load(junk), false, `meta.dev: a tampered ${JSON.stringify(junk)} must load as false, not as a truthy non-boolean`)
+    }
+    // A brand-new save skips the migration entirely (loadMeta returns the fresh literal), so the
+    // literal needs its own `dev: false` — without it the flag reads `undefined`, which works by
+    // luck at every truthiness test and is a different value from what every other save carries.
+    globalThis.localStorage = { getItem: () => null, setItem: () => {} }
+    const freshDev = loadMeta().dev
+    delete globalThis.localStorage
+    assert.strictEqual(freshDev, false, 'meta.dev: a brand-new save is created with the gate explicitly false, not undefined')
+  }
+
+  // (i) v7.x, R1 of the Book 2 plan: the WIP gate must NEVER reach sim.js. sim reads
+  // CHAPTERS[run.chapter] and plays what it is handed, which is what makes a run behind the gate
+  // take the SHIPPED code path — test the gated thing and you have tested the thing that ships.
+  // The moment sim branches on the flag, the two diverge and the gate stops being a gate.
+  {
+    const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    assert.ok(!/\bmeta\.dev\b/.test(simSrc), 'sim.js reads meta.dev — the WIP gate must not change simulation, or what you playtest is not what ships (plan R1)')
+    assert.ok(!/\brun\.dev\b/.test(simSrc), 'sim.js reads run.dev — the WIP gate must not reach the run object (plan R1)')
+  }
+
+  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock, carousel settle guards, WIP gate coercion + R1')
 }
+
+// ---- Run BK: books + the WIP gate (v7.x, Book 2 phase 1) ---------------------------------
+// The refactor is additive on purpose — CHAPTER_ORDER is an ALIAS for BOOKS.book1.chapters — so the
+// danger is not that Book 1 breaks loudly. It is that a WIP chapter LEAKS to a player, or that the
+// gate is so tight nothing can reach the chapter it is guarding. Both fail silently, and the second
+// one fails while every other test in this file still passes.
+function runBooks() {
+  // (a) nextChapter walks the id's OWN book and returns null past its end. It used to return 'body'
+  // for every id outside CHAPTER_ORDER, because indexOf is -1 and -1 + 1 indexes element 0. Latent
+  // then (both call sites were inert); a second book is what makes an outside id routine.
+  assert.strictEqual(nextChapter('blank'), null, "nextChapter('blank') === null — The Blank is hidden, outside book 1's ladder")
+  assert.strictEqual(nextChapter('shelf'), null, "nextChapter('shelf') === null — last (and only) chapter of its own book")
+  assert.strictEqual(nextChapter('nope'), null, "nextChapter on an id no book claims === null, NOT 'body'")
+  assert.strictEqual(nextChapter(undefined), null, 'nextChapter(undefined) === null')
+  assert.strictEqual(nextChapter('body'), 'pond', 'nextChapter still walks book 1 normally')
+  assert.strictEqual(nextChapter('beyond'), null, "nextChapter past book 1's end === null")
+
+  // (b) A WIP chapter must be unreachable by every route that does NOT ask for it by name: the
+  // shipped order, the daily draw (a full year of date keys), and the unlock chain.
+  const wip = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
+  assert.ok(wip.length > 0, 'expected at least one WIP chapter, or this whole run asserts nothing')
+  for (const id of wip) {
+    assert.ok(!CHAPTER_ORDER.includes(id), `WIP chapter '${id}' must not be in CHAPTER_ORDER — that alias is what keeps it out of every shipped loop`)
+    assert.ok(Object.hasOwn(CHAPTERS, id), `WIP chapter '${id}' must be a real CHAPTERS entry, or the gate guards nothing`)
+  }
+  for (let d = 0; d < 366; d++) {
+    const key = `2026-${String(1 + (d % 12)).padStart(2, '0')}-${String(1 + (d % 28)).padStart(2, '0')}`
+    assert.ok(!wip.includes(dailyChapter(key)), `dailyChapter('${key}') surfaced a WIP chapter — the daily draws from CHAPTER_ORDER only`)
+  }
+  for (const id of CHAPTER_ORDER) {
+    assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
+  }
+  // isWipChapter is what main.js's onChapter bypasses the unlock check with, so a false positive
+  // here would make a SHIPPED locked chapter selectable — the gate leaking in the other direction.
+  assert.strictEqual(isWipChapter('shelf'), true, "isWipChapter('shelf') — its book is marked wip")
+  assert.strictEqual(isWipChapter('pond'), false, "isWipChapter('pond') === false — a shipped chapter is never a WIP bypass")
+  assert.strictEqual(isWipChapter('blank'), false, "isWipChapter('blank') === false — hidden is not the same as WIP; it is earned, and book 1 is not wip")
+  for (const junk of ['nope', undefined, null, '__proto__', 'constructor']) {
+    assert.strictEqual(isWipChapter(junk), false, `isWipChapter(${JSON.stringify(junk)}) === false — no id may bypass the unlock check by accident`)
+  }
+
+  // (c) Gate OFF: a save pointing at a WIP chapter plays a SHIPPED one. resolveChapterId still
+  // returns it verbatim — it is a real chapter and that helper is only a "does this exist" test.
+  const metaOff = { chapter: 'shelf', dev: false, chapters: {} }
+  assert.strictEqual(resolveChapterId('shelf'), 'shelf', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
+  assert.strictEqual(playableChapterId(metaOff), CHAPTER_ORDER[0], 'gate off: a WIP meta.chapter falls back to the first shipped chapter')
+  assert.strictEqual(playableChapterId({ chapter: 'pond', dev: false }), 'pond', 'gate off: a shipped chapter is untouched')
+  for (const junk of [undefined, null, {}, { chapter: 'nope' }]) {
+    assert.strictEqual(playableChapterId(junk), CHAPTER_ORDER[0], `playableChapterId(${JSON.stringify(junk)}) falls back rather than throwing`)
+  }
+
+  // (d) Gate ON: the WIP id survives the WHOLE path, including createRun's own SECOND resolve.
+  // This is the assertion that would have caught the silent downgrade an earlier draft of the plan
+  // shipped: making resolveChapterId dev-aware looked right, but createRun re-resolves with no meta
+  // to consult, so every gated run became a Body run credited to body's ledger — no throw, no
+  // warning. Note it must name 'shelf' EXPLICITLY: every existing test of this shape iterates
+  // CHAPTER_ORDER, which by design never contains it, so they would all still have passed.
+  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true, chapters: {} }
+  assert.strictEqual(playableChapterId(metaOn), 'shelf', 'gate on: the WIP chapter is what Play reads')
+  const wipRun = createRun(metaOn, { chapter: 'shelf', difficulty: 1 })
+  assert.strictEqual(wipRun.chapter, 'shelf', "createRun kept 'shelf' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
+  assert.strictEqual(wipRun.weapons.length > 0, true, 'the WIP run got a real starter weapon, so it is genuinely playable and not a husk')
+
+  // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
+  // ships a chapter nothing can select — and every other assertion in this file still passes.
+  const listed = { chapters: Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 1, difficulty: 1 }])), dev: true }
+  assert.ok(titleChapterList(listed).includes('shelf'), 'gate on: the title carousel must list the WIP chapter, or it cannot be selected')
+  listed.dev = false
+  assert.ok(!titleChapterList(listed).includes('shelf'), 'gate off: the title carousel must NOT list the WIP chapter')
+  assert.deepStrictEqual(titleChapterList(listed).filter((id) => id !== 'blank'), CHAPTER_ORDER,
+    'gate off: the carousel is exactly book 1 (plus The Blank when earned) — the refactor must not change what a player sees')
+  // (f) chapterAvailable is the single permission the card, the Play button, the scroll-persist,
+  // the brief and onChapter all read. Listing the chapter is NOT enough: the first cut of phase 1
+  // fixed only onChapter, and The Shelf duly appeared in the carousel as a locked "???" card with a
+  // dead Play button — listed and unreachable, the same dead end one step further along. Caught by
+  // a screenshot, not by a test, which is why it is asserted here now.
+  const shelfLocked = { dev: false, chapters: { shelf: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
+  assert.strictEqual(chapterAvailable(shelfLocked, 'shelf'), false, 'gate off: a WIP chapter is not available')
+  assert.strictEqual(chapterAvailable(shelfLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
+  assert.strictEqual(chapterAvailable(shelfLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
+  const shelfDev = { ...shelfLocked, dev: true }
+  assert.strictEqual(chapterAvailable(shelfDev, 'shelf'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(chapterAvailable(shelfDev, 'beyond'), false,
+    'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
+  assert.strictEqual(shelfDev.chapters.shelf.unlocked, false,
+    'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
+
+  // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source
+  // tripwire: the helper existing proves nothing if a call site still reads `unlocked` directly.
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/if \(!chapterAvailable\(meta, id\)\) return/.test(mainSrc),
+      'main.js onChapter no longer gates on chapterAvailable — the carousel would list the chapter and refuse every tap on it')
+    assert.ok(!/const chapterId = resolveChapterId\(meta\.chapter\)/.test(mainSrc),
+      'main.js still resolves the play path with resolveChapterId — it must use playableChapterId, or the gate does not apply where it matters')
+    assert.strictEqual((mainSrc.match(/playableChapterId\(meta\)/g) ?? []).length, 2,
+      'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
+    assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
+      'ui.js must gate the hero CARD, the carousel dot, the Play button, the scroll-persist and the brief on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+    // The count above is the assertion that keeps missing one. It read 4 and passed while
+    // heroCardHtml still gated itself, so The Shelf had a live Play button above a padlocked "???"
+    // card — caught by a screenshot. So also sweep the whole title-rendering span for a raw read.
+    const titleSpan = uiSrc.slice(uiSrc.indexOf('function heroCardHtml'), uiSrc.indexOf('function wireCarousel'))
+    const rawReads = titleSpan.split('\n').filter((l) => /chapters\?\.\[[a-zA-Z]+\]\?\.unlocked/.test(l) && !l.includes('//'))
+      // Counting how much of BOOK 1 is finished is not an availability decision, and must keep
+      // reading the raw flag — the completion badge must never count a WIP chapter as progress.
+      .filter((l) => !l.includes('CHAPTER_ORDER'))
+    assert.deepStrictEqual(rawReads, [],
+      `a raw per-chapter \`unlocked\` read is back in the title-rendering span — route it through chapterAvailable or a WIP chapter renders locked:\n${rawReads.join('\n')}`)
+  }
+
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
+}
+runBooks()
+
+// ---- Run BL: The Shelf's mechanic (v7.x, Book 2 phase 2) --------------------------------
+// The bar, the shafts and the amplified Pulse. Every failure this guards is SILENT: a frozen shaft
+// field looks correct in any still frame, a resource that leaks into other chapters shows up as
+// balance drift nobody attributes to it, and a pulse whose event lies about its radius draws the
+// wrong ring around a real shove.
+function runShelf() {
+  const shelfMeta = () => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+    chapters: Object.fromEntries([...CHAPTER_ORDER, 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
+  })
+  const res = CHAPTERS.shelf.resource
+  const sig = CHAPTERS.shelf.signature
+  const mkRun = (seed = 20260812, opts = {}) => {
+    Math.random = mulberry32(seed)
+    return createRun(shelfMeta(), { chapter: 'shelf', difficulty: 1, ...opts })
+  }
+  // Step without any of stepSim's other machinery mattering: no input, no skill.
+  const idle = { x: 0, y: 0, skill: false }
+  // createRun does NOT stream — the field is materialized by the first stepSim, so every assertion
+  // about shafts needs one step first. (The first cut of this run asserted on a fresh run and read
+  // "expected shafts, or this measures nothing", which is that guard doing its job.)
+  const warm = (run) => { stepSim(run, idle, 1 / 60); run.events.length = 0; return run }
+
+  // (a) The bar drains at the configured rate, and clamps at zero rather than going negative.
+  {
+    const run = mkRun()
+    run.charge = res.max
+    // Park the player far from every shaft so ONLY the drain is measured — standing in one would
+    // net the two effects together and the test would pass for any pair of numbers that cancelled.
+    run.shafts.length = 0
+    const before = run.charge
+    for (let i = 0; i < 60; i++) { run.shafts.length = 0; stepSim(run, idle, 1 / 60); run.events.length = 0 }
+    const dropped = before - run.charge
+    // Kills refill too, and a step spawns enemies a weapon may kill, so this is a band not an equality.
+    assert.ok(dropped > res.drain * 0.5 && dropped <= res.drain * 1.5 + 0.01,
+      `one second of drain should be about ${res.drain}, got ${dropped.toFixed(3)}`)
+    run.charge = 0.001
+    for (let i = 0; i < 120; i++) { run.shafts.length = 0; stepSim(run, idle, 1 / 60); run.events.length = 0 }
+    assert.ok(run.charge >= 0, `charge clamps at zero, got ${run.charge}`)
+  }
+
+  // (b) Standing in a shaft refills, and the bar clamps at max rather than growing forever.
+  {
+    const run = warm(mkRun())
+    run.charge = 0
+    assert.ok(run.shafts.length > 0, 'expected shafts to stream around the origin, or (b) measures nothing')
+    const sh = run.shafts[0]
+    run.player.x = sh.x; run.player.y = sh.y
+    for (let i = 0; i < 30; i++) {
+      const s0 = run.shafts[0]
+      run.player.x = s0.x; run.player.y = s0.y   // follow the drift, so the player stays inside
+      stepSim(run, idle, 1 / 60); run.events.length = 0
+    }
+    assert.ok(run.charge > 0, 'standing in a shaft must refill the bar')
+    run.charge = res.max
+    for (let i = 0; i < 60; i++) {
+      const s0 = run.shafts[0]
+      run.player.x = s0.x; run.player.y = s0.y
+      stepSim(run, idle, 1 / 60); run.events.length = 0
+    }
+    assert.ok(run.charge <= res.max + 1e-9, `charge clamps at max ${res.max}, got ${run.charge}`)
+  }
+
+  // (c) THE ONE THAT CATCHES A MISSING stepShafts. A shaft must MOVE between two frames with no
+  // cell crossing. streamShafts early-returns unless the player changes cell, so a build that
+  // relies on the streamer alone computes each position once per materialization and never again —
+  // and nothing looks broken, because render re-places from the list every frame and would draw the
+  // frozen field perfectly. The player is held still on purpose: that guarantees no cell crossing.
+  {
+    const run = warm(mkRun())
+    assert.ok(run.shafts.length > 0, 'expected shafts, or (c) measures nothing')
+    const id = run.shafts[0]._cell
+    const x0 = run.shafts[0].x, y0 = run.shafts[0].y
+    const ci = run._shaftCellI, cj = run._shaftCellJ
+    for (let i = 0; i < 30; i++) { stepSim(run, idle, 1 / 60); run.events.length = 0 }
+    const same = run.shafts.find((sh) => sh._cell === id)
+    assert.ok(same, 'the shaft streamed out mid-test — (c) needs the SAME shaft on both frames')
+    assert.strictEqual(run._shaftCellI, ci, 'the player must not have crossed a cell, or (c) proves nothing')
+    assert.strictEqual(run._shaftCellJ, cj, 'the player must not have crossed a cell, or (c) proves nothing')
+    const moved = Math.hypot(same.x - x0, same.y - y0)
+    assert.ok(moved > 1, `a shaft must DRIFT between frames with no cell crossing — moved ${moved.toFixed(3)}px in half a second`)
+    // ...and it drifts around its streamed BASE, never wandering off: the offset is exactly driftAmp.
+    const off = Math.hypot(same.x - same.bx, same.y - same.by)
+    assert.ok(Math.abs(off - sig.driftAmp) < 1e-6, `drift offset must be exactly driftAmp (${sig.driftAmp}), got ${off.toFixed(4)}`)
+  }
+
+  // input.js needs a DOM and cannot be imported here, so its DEADZONE is mirrored as a literal.
+  // If input.js ever changes it, (d)'s floor goes stale silently — hence the grep below it.
+  const DEADZONE_FOR_TEST = 0.15
+  // (d) Peak drift speed sits inside the band the tune has to respect: above the joystick's minimum
+  // non-zero speed (DEADZONE x baseSpeed) so the player can follow it, and below KITE_MIN_SPEED so
+  // chasing the light does not also recycle the horde onto it.
+  {
+    const peak = sig.driftAmp * sig.driftHz
+    const floor = DEADZONE_FOR_TEST * PLAYER.baseSpeed
+    assert.ok(peak > floor, `peak drift ${peak} must exceed the joystick floor ${floor} px/s`)
+    assert.ok(peak < KITE_MIN_SPEED, `peak drift ${peak} must stay under KITE_MIN_SPEED ${KITE_MIN_SPEED} px/s`)
+  }
+
+  // (e) Drift is derived from run._realTime, NOT run.time. The Time Debt anomaly advances run.time
+  // at 1.5x and its `chapter` is null, so it rolls here — a run.time-derived drift would be 50%
+  // faster under one anomaly and would breach the ceiling asserted in (d) without any config change.
+  {
+    const a = warm(mkRun())
+    const b = warm(mkRun())
+    // +37, not something huge: run.time >= RUN_DURATION (300) flips the run to 'victory' and
+    // stepSim returns before it ever reaches stepShafts, so a big offset makes this vacuous from
+    // the other direction. 37s is 25.9 rad of drift phase, nowhere near a multiple of 2pi.
+    b.time = a.time + 37            // desynchronise the two clocks...
+    b._realTime = a._realTime       // ...while holding the one drift is supposed to use
+    // A REAL dt, not 0: stepSim does not reach stepShafts on a zero step, so a dt of 0 makes this
+    // whole check vacuous — it passed against a deliberately broken build until the mutation run
+    // caught it. Both runs advance _realTime by the same amount, so the clock drift stays isolated.
+    for (const r of [a, b]) { stepSim(r, idle, 1 / 60); r.events.length = 0 }
+    assert.strictEqual(a.shafts.length, b.shafts.length, 'same seed must stream the same field')
+    for (let i = 0; i < a.shafts.length; i++) {
+      assert.ok(Math.abs(a.shafts[i].x - b.shafts[i].x) < 1e-9 && Math.abs(a.shafts[i].y - b.shafts[i].y) < 1e-9,
+        'shaft drift must ignore run.time entirely — it reads run._realTime (Time Debt advances run.time at 1.5x)')
+    }
+  }
+
+  // (f) Streaming is deterministic AND consumes no RNG. Two runs on the same seed produce the same
+  // field; and re-running with Math.random replaced by a constant that would change every draw
+  // leaves the field byte-identical, which a hash-based streamer must and an RNG-based one cannot.
+  {
+    const a = warm(mkRun(4242))
+    const b = warm(mkRun(4242))
+    assert.deepStrictEqual(a.shafts.map((sh) => sh._cell), b.shafts.map((sh) => sh._cell), 'same seed must stream the same cells')
+    const c = warm(mkRun(4242))
+    const saved = Math.random
+    Math.random = () => 0.999999      // any shaft roll reading this would move every position
+    c.player.x += sig.cell * 1.5      // force a cell crossing, so the streamer actually re-scans
+    stepSim(c, idle, 1 / 60); c.events.length = 0
+    Math.random = saved
+    const d = warm(mkRun(4242))
+    d.player.x += sig.cell * 1.5
+    Math.random = () => 0.000001
+    stepSim(d, idle, 1 / 60); d.events.length = 0
+    Math.random = saved
+    // `phase` is in the key deliberately: without it this compared only bx/by and an RNG-drawn
+    // phase passed clean, which is exactly what the mutation run found. Every field the streamer
+    // derives from the cell hash belongs here.
+    const key = (sh) => `${sh._cell}:${sh.bx.toFixed(4)},${sh.by.toFixed(4)},${sh.phase.toFixed(6)}`
+    assert.deepStrictEqual(c.shafts.map(key),
+                           d.shafts.map(key),
+      'shaft streaming must consume ZERO Math.random at step time — two opposite RNG stubs gave different fields')
+  }
+
+  // (g) R2's guard: a chapter that declares no resource is BIT-FOR-BIT unaffected. This is the
+  // reason the whole mechanic can sit in main with no feature flag, and it is the assertion that
+  // fails the moment stepCharge or streamShafts forgets its early-out.
+  {
+    const other = () => {
+      Math.random = mulberry32(777)
+      const m = shelfMeta()
+      const r = createRun(m, { chapter: 'pond', difficulty: 1 })
+      for (let i = 0; i < 240; i++) { stepSim(r, { x: 0.5, y: 0.3, skill: true }, 1 / 60); r.events.length = 0 }
+      return r
+    }
+    const r = other()
+    assert.strictEqual(r.charge, 0, 'a chapter with no resource must never accrue charge')
+    // A chapter with no resource must not have its charge TOUCHED, which is stronger than "stays
+    // zero": pond starts at 0 and a drain clamps at 0, so a stepCharge that lost its early-out
+    // still measured 0 and passed. Park a value in there and require it to be exactly untouched.
+    r.charge = 50
+    for (let i = 0; i < 120; i++) { stepSim(r, { x: 0.5, y: 0.3, skill: true }, 1 / 60); r.events.length = 0 }
+    assert.strictEqual(r.charge, 50, 'stepCharge must early-out entirely for a chapter with no resource, not merely clamp to zero')
+    assert.strictEqual(r.shafts.length, 0, 'a chapter with no shafts signature must stream none')
+    assert.strictEqual(r._shaftCellI, undefined, 'the shaft cell cursor must never be written outside a shafts chapter')
+  }
+
+  // (h) The Pulse. An EMPTY bar still fires the shipped v5.21 shove — the floor that stops the
+  // spiral where having no charge prevents you from earning charge — and a full spend scales both
+  // radius and force. The EVENT must carry the SCALED radius: render draws both rings at e.r under
+  // a comment saying a burst that lies about its reach makes the cooldown feel arbitrary.
+  {
+    const empty = mkRun()
+    empty.charge = 0
+    empty.repulseCd = 0
+    stepSim(empty, { x: 0, y: 0, skill: true }, 1 / 60)
+    const e0 = empty.events.find((e) => e.type === 'repulse')
+    assert.ok(e0, 'an empty bar must still fire the Pulse')
+    assert.ok(Math.abs(e0.r - REPULSE_RADIUS) < 1e-9, `an empty bar fires at the shipped floor ${REPULSE_RADIUS}, got ${e0.r}`)
+    assert.strictEqual(empty.charge, 0, 'an empty bar spends nothing')
+
+    const full = mkRun()
+    full.charge = res.max
+    full.repulseCd = 0
+    stepSim(full, { x: 0, y: 0, skill: true }, 1 / 60)
+    const e1 = full.events.find((e) => e.type === 'repulse')
+    assert.ok(e1, 'a full bar must fire the Pulse')
+    assert.ok(Math.abs(e1.r - PULSE_RADIUS_AT_FULL) < 1e-9,
+      `a full spend must PUSH the scaled radius ${PULSE_RADIUS_AT_FULL}, got ${e1.r} — pushing the constant draws the floor ring around a bigger shove`)
+    // The same step also applies one frame of DRAIN, so subtract it rather than widening the band:
+    // a tolerance big enough to swallow the drain would also swallow a 3% error in the cost itself.
+    const spend = res.max - full.charge - res.drain / 60
+    assert.ok(Math.abs(spend - PULSE_CHARGE_COST) < 0.01,
+      `a full spend costs exactly ${PULSE_CHARGE_COST} (net of one frame's drain), measured ${spend.toFixed(4)}`)
+    assert.ok(e1.r > e0.r, 'a charged pulse must reach further than an empty one, or the bar buys nothing')
+  }
+
+  // (i) The Beyond is untouched. It declares no resource, so its t is 0 forever and its pulse must
+  // be byte-identical to the shipped one — the lane chapter shares this function and nothing else.
+  {
+    Math.random = mulberry32(31337)
+    const lane = createRun(shelfMeta(), { chapter: 'beyond', difficulty: 1 })
+    lane.repulseCd = 0
+    stepSim(lane, { x: 0, y: 0, skill: true }, 1 / 60)
+    const ev = lane.events.find((e) => e.type === 'repulse')
+    assert.ok(ev, 'The Beyond must still fire its repulse')
+    assert.ok(Math.abs(ev.r - REPULSE_RADIUS) < 1e-9, `The Beyond's pulse stays at ${REPULSE_RADIUS}, got ${ev.r}`)
+    assert.strictEqual(lane.charge, 0, 'The Beyond has no resource and must never accrue charge')
+  }
+
+  console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
+}
+runShelf()
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —
@@ -7851,8 +8281,9 @@ function testTheBlank() {
   // (a2) The door: a wave ring leaves one BLANK_WAVE_GAP-wide wedge empty, so an encircled player
   // always has an opening to aim for. Measured as the largest angular spacing between consecutive
   // spawn bearings (exact — no binning). This cannot pass by luck: for n uniform bearings the
-  // chance of a spacing that big is n(1 - gap/2pi)^(n-1), which is 5e-6 at wave 1's n=128 and
-  // 6e-11 by the 256-body wave — so a run of three waves is a real assertion, not a coin flip.
+  // chance of a spacing that big is n(1 - gap/2pi)^(n-1), which at the shipped 90° door is 2e-14
+  // at wave 1's n=128 and 3e-30 by the 256-body wave (it was 5e-6 / 6e-11 at the original 45°, so
+  // widening the door only strengthens this) — a real assertion, not a coin flip.
   // Every wave in the script is checked, since the gap is re-rolled per wave.
   {
     const gaps = []
@@ -8177,7 +8608,9 @@ function testTheBlankPacing() {
       fanSeen = Math.max(fanSeen, run.enemyShots.length)
       if (run.enemyShots.some((s) => s.turnRate !== 0)) allStraight = false
     }
-    const bands = run.strips.filter((s) => s.look === 'erase' && s.len === BLANK_BAND_LEN)
+    // (_lenFull ?? len): a LIVE band is mid-sweep and shorter than the constant it was authored
+    // with (BLANK_BAND_GROW) — stepStrips stashes the authored length on the first live frame.
+    const bands = run.strips.filter((s) => s.look === 'erase' && (s._lenFull ?? s.len) === BLANK_BAND_LEN)
     assert(bands.length >= 2, `expected a cross (>= 2 full-length bands) within ${(BLANK_READ3_T + 1).toFixed(1)}s, got ${bands.length}`)
     const perp = Math.abs(Math.atan2(Math.sin(bands[0].angle - bands[1].angle), Math.cos(bands[0].angle - bands[1].angle)))
     assert(Math.abs(perp - Math.PI / 2) < 0.01, `expected the cross's bands ~90° apart, got ${(perp * 180 / Math.PI).toFixed(1)}°`)
@@ -8186,6 +8619,41 @@ function testTheBlankPacing() {
     const dAfter = Math.hypot(boss.x - run.player.x, boss.y - run.player.y)
     assert(dAfter < dBefore - 100, `expected the P3 boss to close on the player (${dBefore.toFixed(0)} -> ${dAfter.toFixed(0)}px)`)
     console.log(`PASS run HH.b-d (P3): chases at ${BLANK_BOSS_SPEED_P3} (${dBefore.toFixed(0)} -> ${dAfter.toFixed(0)}px), cross ${(perp * 180 / Math.PI).toFixed(0)}° apart, ${fanSeen}-shot straight fan`)
+  }
+
+  // (d2) The sweep (BLANK_BAND_GROW): a live band REACHES its authored length over `grow` seconds
+  // from its centre, so the far end of an arm arrives later than the near end — the fix for "the
+  // star hits too soon". Asserted as an EFFECT, not as a length: a player parked 120px out along a
+  // 320px band (i.e. 75% of the way to the tip) must not be touched until the arm has swept that
+  // far, where the same band without `grow` bites on its first tick. Driven through stepSim in the
+  // body chapter, whose only strip producer is this test — enemies spawn a screen away and cannot
+  // cross it inside the window, and are cleared each frame anyway.
+  {
+    const OUT = 120 // px from the band's centre, along its axis: 0.75 of the 160px half-length
+    const firstHitAt = (grow) => {
+      const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+      run.player.hp = run.player.maxHP = 1e6
+      run.weapons = []
+      const p = run.player
+      run.strips.push({
+        x: p.x - OUT, y: p.y, angle: 0, len: BLANK_BAND_LEN, w: BLANK_BAND_W,
+        fuse: 0, t: 3, dps: BLANK_BAND_DPS, look: 'erase', ...(grow ? { grow } : {}),
+      })
+      const hp0 = run.player.hp
+      for (let i = 1; i <= Math.round(2.5 / dt) && run.phase === 'playing'; i++) {
+        run.enemies.length = 0
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.player.hp < hp0) return i * dt
+      }
+      return Infinity
+    }
+    const swept = firstHitAt(BLANK_BAND_GROW)
+    const instant = firstHitAt(0)
+    // The arm needs grow x 0.75 to reach OUT, then one STATUS_TICK inside it to land a tick.
+    const expect = BLANK_BAND_GROW * (OUT / (BLANK_BAND_LEN / 2)) + STATUS_TICK
+    assert(Math.abs(swept - expect) < 0.05, `expected a growing band to reach 120px out at ~${expect.toFixed(2)}s, first hit landed at ${swept.toFixed(2)}s`)
+    assert(instant <= STATUS_TICK + 0.02, `expected the same band without grow to bite on its first tick (~${STATUS_TICK}s), got ${instant.toFixed(2)}s`)
+    console.log(`PASS run HH.d2 (the star sweeps): 120px out along the arm, a growing band first bit at ${swept.toFixed(2)}s vs ${instant.toFixed(2)}s ungrown — ${(swept - instant).toFixed(2)}s of extra warning at that range`)
   }
 
   // (e) P3 recruit faucet: idling in the duel keeps spawning mixed fodder — after 10s there are
@@ -9220,7 +9688,7 @@ function testTheBlankDifficulty() {
     Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
     stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody3
     advance(run, BLANK_READ3_T * BLANK_ACCEL_MUL + 1, dt, { x: 0, y: 0 })
-    const bands = run.strips.filter((s) => s.look === 'erase' && s.len === BLANK_BAND_LEN)
+    const bands = run.strips.filter((s) => s.look === 'erase' && (s._lenFull ?? s.len) === BLANK_BAND_LEN)
     assert(bands.length > 0, 'expected P3 star/cross bands to appear within the window')
     assert(bands.every((s) => s.variant === undefined), "expected the boss's own P3 bands to carry NO variant tag")
     console.log(`PASS run LL.g.3 (boss bands untagged): ${bands.length} P3 bands, none tagged variant`)
@@ -9862,6 +10330,19 @@ function testCoinCap() {
     assert.strictEqual(run.coinsEarned, COIN_CAP_PER_RUN,
       `expected run.coinsEarned to re-earn back up to COIN_CAP_PER_RUN (${COIN_CAP_PER_RUN}) exactly, got ${run.coinsEarned}`)
     console.log(`PASS run PP.b (coin cap re-earn after spend): coinsEarned=${run.coinsEarned}`)
+  }
+
+  // (c) the end-of-run bonus is floor(sqrt(kills) + level). The `level` argument DEFAULTS to 1, so
+  // a caller that forgets to pass it still returns a plausible number and nothing throws — grep
+  // main.js's one call site (run UG.k's trick) rather than trusting the formula alone.
+  {
+    assert.strictEqual(runBonusCoins(400, 25), 45, 'runBonusCoins(400, 25) should be sqrt(400)+25 = 45')
+    assert.strictEqual(runBonusCoins(0, 1), 1, 'a level-1 run with no kills still banks its level')
+    assert.ok(runBonusCoins(100, 10) > runBonusCoins(100, 5), 'the level term must move the bonus')
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/runBonusCoins\(run\.kills,\s*run\.player\.level\)/.test(src),
+      'endRun (main.js) must pass run.player.level to runBonusCoins — the default of 1 hides the omission')
+    console.log('PASS run PP.c (end-of-run bonus): floor(sqrt(kills) + level), and main.js forwards the level')
   }
 
   console.log('PASS run PP (v6.4.2 coin cap): run.coinsEarned clamps to COIN_CAP_PER_RUN on pickup and re-earns back up to it (never past) after a mid-run spend')

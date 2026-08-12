@@ -3092,7 +3092,18 @@ export const SHOP = {
   coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙' },
 }
 export const MAX_SHOP_LEVEL = 10
-export const shopCost = (id, level) => Math.round(SHOP[id].base * Math.pow(1.6, level))
+// v7.49 (owner directive): the old bare 1.6^level curve got a surcharge on top — +20% on the FIRST
+// level, rising linearly to +200% on the LAST. `level` is the count already owned, so the last
+// purchase is at level MAX_SHOP_LEVEL - 1 and that is what the ramp divides by.
+// Then a hard ceiling per line: the three stats that carry a run climb to SHOP_COST_CAP, everything
+// else stops at SHOP_COST_CAP_DEFAULT. The cap BINDS today (coinGain/critDamage/moveSpeed all blow
+// past 4999 at level 9) — it is a real price, not a safety rail.
+export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999 }
+export const SHOP_COST_CAP_DEFAULT = 4999
+export const shopCost = (id, level) => Math.min(
+  SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
+  Math.round(SHOP[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
+)
 
 // Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
 // level-up card slot (see meta.choiceSlots in state.js and hooks.onSacrifice in main.js).
@@ -3105,8 +3116,9 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
 export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
 
-// End-of-run coin bonus
-export const runBonusCoins = (kills) => Math.floor(kills / 10)
+// End-of-run coin bonus: sqrt(kills) + level reached (owner directive). The sqrt flattens the
+// kill term so a long farm run can't outrun a short deep one, and levelling is paid directly.
+export const runBonusCoins = (kills, level = 1) => Math.floor(Math.sqrt(Math.max(0, kills)) + level)
 
 // v6.4.2 (owner directive): a single run banks at most this many coins. Clamped at BOTH ends:
 // the standing run.coinsEarned counter (stepPickups, sim.js — rerolls spend it down and it can
@@ -3118,7 +3130,33 @@ export const COIN_CAP_PER_RUN = 999
 // pools, and signature/obstacle config from the run's chapter snapshot (see state.js
 // createRun). v5.4 completes the seven-chapter arc from the design doc — CHAPTER_ORDER is the
 // single source of truth for sequencing, daily seeding, and how many chapters currently ship.
-export const CHAPTER_ORDER = ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']
+// ---- Books (v7.x) ------------------------------------------------------------------
+// A book is a campaign: its own chapters, its own ladder, its own protagonist. Book 1 is the
+// shipped game. A book marked `wip` is hidden from players entirely and reachable only behind
+// meta.dev — see playableChapterId below and titleChapterList in ui.js.
+//
+// CHAPTER_ORDER is an ALIAS for book 1's chapters, and that is the whole design of this refactor:
+// every existing read site — slot summaries, the daily draw, the retroactive unlock chain, ~40 test
+// assertions — keeps working untouched and keeps meaning "the shipped chapters, in order". Adding a
+// book therefore cannot break Book 1 by omission; the only way to reach another book's chapters is
+// to ask for that book by name.
+//
+// `hidden` is for chapters that belong to a book but sit outside its ladder — The Blank is Book 1's,
+// unlocked by winning The Beyond at 5 rather than by finishing the chapter before it.
+export const BOOKS = {
+  book1: {
+    name: 'The Anomaly',
+    chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
+    hidden: ['blank'],
+  },
+  downward: { name: 'Downward', chapters: ['shelf'], hidden: [], wip: true },
+}
+export const CHAPTER_ORDER = BOOKS.book1.chapters
+// Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
+// every loop (saveSummary and ui.js both say so in their own comments, and ui.js's carousel repair
+// branches on its ledger entry being ABSENT), so sweeping it in here would change shipped
+// behaviour for a refactor that is supposed to change none.
+export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -3747,6 +3785,76 @@ CHAPTERS.blank = {
             voidFloor: true,   // RENDER gates all decorative floor layers off
             ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
 }
+
+// v7.x Book 2 ("Downward"), phase 1 — The Shelf, WEARING THE POND'S CLOTHES. Literally: this is a
+// spread of CHAPTERS.pond with a new name, so every roster entry, weapon, tint and balance number
+// it has is A STAND-IN AND NOT A DESIGN. Written as a spread rather than a 45-line copy on purpose
+// — a copy drifts silently and starts reading like a decision, whereas this cannot be mistaken for
+// one and cannot fall out of sync with what it borrowed.
+//
+// It exists because phase 1 is the WIP gate and the selection path, and a gate with nothing behind
+// it tests nothing: the two assertions that catch the ways this refactor is known to break (a WIP
+// run silently downgrading to The Body, and a WIP chapter no UI can select) both need a real
+// chapter to name. Phase 2 is what makes it a chapter — swapping `signature` from the pond's
+// currents to shafts, adding `resource`, and re-cutting `balance` for a book-opening difficulty.
+//
+// Sharing the pond's nested objects by reference is safe BECAUSE config.js is read-only ground
+// truth; phase 2 replaces them wholesale rather than mutating them.
+CHAPTERS.shelf = {
+  ...CHAPTERS.pond,
+  name: 'The Shelf',
+  tagline: 'the light only goes down',
+  icon: '🌊',
+
+  // ---- Book 2's mechanic (phase 2). Everything ABOVE this line is still the pond's. ----
+  // A NEW object, never a mutation: the spread shares pond's nested objects by reference, so
+  // editing `signature` in place would rewrite The Pond's currents too.
+  //
+  // Sun shafts: streamed pools of light you stand in to refill the bar. `cell`/`chance`/`r`/
+  // `minDist` are the eddy block's vocabulary exactly (see signature.eddies above) — chance is a
+  // DIRECT per-cell occupancy probability, minDist is spawn-ring clearance measured from the run
+  // ORIGIN. cell 760 at chance 0.62 with r 205 lights 14.2% of the plane (chance x pi r^2 / cell^2);
+  // a travelling player actually catches about half of that, which is the number the tune below is
+  // balanced against rather than the geometric one.
+  //
+  // driftAmp/driftHz are the wander. driftHz is RADIANS per second, so peak drift speed is
+  // driftAmp x driftHz = 60 px/s, which has to sit between two hard numbers:
+  //   - above 33 px/s (DEADZONE 0.15 x baseSpeed 220, the joystick's minimum non-zero speed and a
+  //     hard cut rather than a rescale) or the player cannot follow it slowly enough to matter;
+  //   - below KITE_MIN_SPEED (100), above which stepStragglers may recycle the horde into your
+  //     heading — chasing the light would then also summon the crowd onto it.
+  //
+  // DEVIATION from the plan, which pinned driftAmp under ~20px against the streamer's jitter slack
+  // (cs/2 - r - 20). At 20px a shaft moves a tenth of its own radius and the drift is a shimmer,
+  // not something you travel to follow — which is the whole fantasy the phase gate exists to judge.
+  // streamShafts subtracts driftAmp from its own jitter slack instead (sim.js), so jitter and drift
+  // share the budget and their sum still stays inside the cell. Slack here is
+  // 760/2 - 205 - 20 - 60 = 95px, comfortably positive.
+  signature: { type: 'shafts', cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
+
+  // The bar. Owner ruling: it is the Pulse's AMMO and nothing else — it does not scale damage, fire
+  // rate or speed, so an empty bar costs you the amplified shove and never turns the run into an
+  // unwinnable slide. `drain` is the ambient pressure ("you are running out of light"), `refill` is
+  // per second standing in a shaft, and `killRefill` is per kill — the one refill geometry that asks
+  // for no verb the player lacks.
+  //
+  // MEASURED, not guessed: scripts/charge-probe.mjs, 5 seeded 300s runs, immortal + kiting, under
+  // three spend policies, because one policy cannot tell "the bar cannot fill" apart from "this
+  // player spent it all". The first cut (drain 1.5 / refill 22 / kill 1.5 over a 4.4%-lit plane)
+  // read as a cycling bar under a greedy player and was actually the spiral this design says must
+  // not exist: HOARDING — never firing at all — still drained to zero by t=100s and never came back.
+  // A second cut over-corrected until hoarding pinned at 99% armed, i.e. the drain was dead config.
+  // These numbers hold the middle: hoarding HOVERS at 70-100 rather than pinning either way, a
+  // player who spends whenever they can afford a full pulse gets one every ~18s, and a player who
+  // mashes the button gets the floor shove two times in three. Avoiding the light entirely nets
+  // about -1.6/s, so it empties in roughly a minute — the drain bites without being a countdown.
+  resource: { name: 'Light', drain: 2.0, refill: 45, killRefill: 0.5, max: 100 },
+
+  // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
+  // Book 1's: maxAlive between body's 0.45 and pond's 0.60, HP between body's 0.75 and pond's 0.85.
+  // The coin purse is shared, so this has to read for a 0-card newcomer and an 8-card veteran alike.
+  balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.8, xpMul: 1.25, maxAliveMul: 0.5 },
+}
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -4223,7 +4331,74 @@ export const ROAD_JUNCTION = {
 // an order check would silently turn every Blank run into a body run.
 export const resolveChapterId = (id) => (Object.hasOwn(CHAPTERS, id) ? id : CHAPTER_ORDER[0])
 
-export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
+// Which book claims this chapter (ladder or hidden), or null for an id no book knows.
+export const bookOf = (id) => Object.keys(BOOKS).find((b) => BOOKS[b].chapters.includes(id) || BOOKS[b].hidden.includes(id)) ?? null
+// Is this chapter behind the WIP gate — i.e. does its book still need meta.dev to be reachable?
+export const isWipChapter = (id) => BOOKS[bookOf(id)]?.wip === true
+
+// The next chapter in the id's OWN book, or null past its end and for any id no book claims.
+// Was `CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null`, which returned 'body' for every
+// outside id because indexOf is -1 and -1 + 1 indexes element 0. That was latent rather than live —
+// both call sites are inert, ui.js only ever feeding it ids already filtered through CHAPTER_ORDER
+// and main.js following it with an `unlocked` check body always passes — but a second book is
+// exactly what makes an outside id routine, so it is fixed before it can matter.
+export const nextChapter = (id) => {
+  const order = BOOKS[bookOf(id)]?.chapters ?? []
+  const i = order.indexOf(id)
+  return i < 0 ? null : (order[i + 1] ?? null)
+}
+
+// The chapter the PLAY path may actually start — the one and only place the WIP gate belongs.
+// Deliberately NOT folded into resolveChapterId: createRun resolves a SECOND time (state.js) and
+// has no meta to consult there, so a dev-aware resolveChapterId would silently downgrade every
+// gated run to CHAPTER_ORDER[0] — no throw, no warning, and endRun crediting the wrong chapter's
+// ledger. resolveChapterId stays a pure "is this a real chapter" test so every sim-adjacent caller
+// passes a legitimately-selected WIP id straight through; visibility is asked for explicitly, here.
+export const playableChapterId = (meta) => {
+  const id = resolveChapterId(meta?.chapter)
+  return isWipChapter(id) && meta?.dev !== true ? CHAPTER_ORDER[0] : id
+}
+
+// May this save select and play this chapter? Unlocked the ordinary way, OR a WIP chapter with the
+// gate on — meta.dev IS the permission for a chapter that has no unlock path yet.
+//
+// One helper because `unlocked` is read at FIVE places that each decide a different thing: whether
+// the carousel card is a "???" preview, whether Play is enabled, whether scrolling to it persists
+// the selection, whether the pre-run brief is a preview, and whether a tap is honoured at all. The
+// first cut of phase 1 fixed only the last one, so The Shelf appeared in the carousel as a locked
+// card with a dead Play button — listed and unreachable, which is the same dead end the plan was
+// rewritten to avoid, reached from one step further along.
+//
+// NOT by marking WIP chapters `unlocked` in the save instead: that writes a permission to disk that
+// outlives the gate, so turning dev back off would leave an unlocked WIP chapter behind.
+export const chapterAvailable = (meta, id) =>
+  !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && isWipChapter(id))
+
+// Which chapters the title carousel shows: every unlocked chapter, plus the first still-locked one
+// as an anonymous "???" preview. Pure function of the save — it was module-local in ui.js until
+// v7.x, and it moved here because it is chapter DATA logic with no DOM in it, and because the WIP
+// gate below is only a real gate if the suite can assert it (ui.js cannot be imported headless:
+// import.meta.glob is Vite-only).
+export function titleChapterList(meta) {
+  const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
+  const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
+  if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
+  const base = ids.length ? ids : [CHAPTER_ORDER[0]]
+  // v5.24: The Blank lives OUTSIDE CHAPTER_ORDER (see config.js) so nextChapter can never surface
+  // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
+  // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
+  if (meta.chapters?.blank?.unlocked) base.push('blank')
+  // >= not ===: R3 (state.js) keeps a future build's higher maxDifficulty as stored, and a strict
+  // equality against this build's ceiling would make the "???" card vanish for exactly the players
+  // who have gone furthest. undefined/null still compare false, so nothing else changes.
+  else if (meta.chapters?.beyond?.maxDifficulty >= MAX_DIFFICULTY) base.push('blank')
+  // v7.x: a WIP book's chapters are appended ONLY behind the dev gate, the same explicit-append
+  // idiom The Blank uses one line up and for the same reason — they live outside CHAPTER_ORDER, so
+  // the filter above structurally cannot surface them. This append is the only way to reach one,
+  // which is what makes meta.dev a real gate rather than a decoration.
+  if (meta.dev) for (const b of Object.values(BOOKS)) if (b.wip) base.push(...b.chapters)
+  return base
+}
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
 // dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks
 // are independent draws from the same date key.
@@ -4382,6 +4557,20 @@ export const REPULSE_CD = 6.0            // s between uses — long enough that 
 export const REPULSE_RADIUS = 340        // px, generous: it must clear a full FORMATION_COLS rank
 export const REPULSE_FORCE = 880         // px/s of knockback at the centre, falling off linearly
 export const REPULSE_STUN = 0.55         // s of stun on top, so the shove reads as a stagger
+
+// ---- The Pulse (v7.x Book 2 — chapters declaring a `resource`) --------------------------------
+// The same cast as REPULSE above, AMPLIFIED by spending the chapter's bar. The REPULSE_* numbers
+// stay exactly as they are and become the FLOOR: an empty bar still fires the shipped v5.21 shove,
+// which is what stops the obvious spiral where having no charge prevents you from earning charge.
+// Everything above the floor is bought with charge, linearly, so a half-spend reads as half-way
+// between the two — no thresholds to learn.
+//
+// It still deals NO DAMAGE. That is not an oversight and it is not a balance knob left unturned:
+// REPULSE_CD's block above says why, and Book 2's whole premise is that the second verb is
+// POSITIONAL. A pulse that also killed would collapse back into "another weapon, on a button".
+export const PULSE_CHARGE_COST = 45      // charge a full-strength pulse spends; a full bar is two of them
+export const PULSE_RADIUS_AT_FULL = 620  // px at a full spend (floor REPULSE_RADIUS 340)
+export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_FORCE 880)
 
 // ---- Asteroids (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) ------------------------
 // Drifting rock that hurts EVERYONE. It is the lane's only neutral party: it damages the player on
@@ -5958,11 +6147,14 @@ export const BLANK_SCRIPT = [
   { waves: [ { n: 160, ids: ['eraser','binder'] }, { n: 208, ids: ['eraser','probe','binder'] }, { n: 256, ids: ['eraser','probe','binder'] } ] },
   { boss: 'antibody3' },
 ]
-export const BLANK_WAVE_GAP = Math.PI / 4 // rad (45°) of the wave ring left EMPTY — the door (owner directive).
+export const BLANK_WAVE_GAP = Math.PI / 2 // rad (90°, owner directive — was 45°) of the wave ring left EMPTY — the door.
                                           // A wave of 128-256 spawns as a closed ring at viewRadius + SPAWN_RING;
                                           // with the probes now shadowing you (BLANK_PASTSEEK_LAG) a closed ring is
                                           // a hug with no out. One wedge, re-rolled per wave, is the escape the
-                                          // player aims for. Wave blocks ONLY — a boss phase's recruits (and the
+                                          // player aims for — a quarter of the ring, so it reads as a direction to
+                                          // commit to rather than a needle to thread, and the remaining bodies pack
+                                          // into 270° (the same n, ~33% denser wherever they DO stand).
+                                          // Wave blocks ONLY — a boss phase's recruits (and the
                                           // nodes) keep spawning all the way round.
 export const BLANK_WAVE_XP_MUL = 1 / 3    // v6.3.3: wave (_wave-tagged) bodies only — recruits and the
                                           // antibody keep full value; gem xp is float-safe end to end
@@ -6040,16 +6232,28 @@ export const BLANK_SHOT_TURN = 0.4        // rad/s homing clamp — outrunnable,
 // P3 takes your future: pre-fired erasure bands (run.strips, look:'erase') centred on the
 // player's extrapolated position (pos + vel × BLANK_LEAD) — a CROSS (one band across the heading,
 // one along it), plus straight aimed shot fans from a boss that is itself chasing (SPEED_P3).
-export const BLANK_READ3_T = 2.6          // s between P3 pre-fired crosses
+export const BLANK_READ3_T = 3.25         // s between P3 pre-fired crosses — 25% slower than the 2.6 it shipped at
+                                          // (owner directive: the star "hits too soon"). Cadence, growth and damage
+                                          // all move together on that note; see BLANK_BAND_GROW/DPS below.
 export const BLANK_LEAD = 0.55            // s of velocity extrapolation
 export const BLANK_BAND_LEN = 320
 export const BLANK_BAND_W = 64
 export const BLANK_BAND_FUSE = 0.75       // s telegraph
 export const BLANK_BAND_T = 2.0           // v6.3.1 [panel/gameplay]: active duration must stay under the
-                                          // desperate cross cadence 2.6×0.75×0.8≈1.56s closely enough that
-                                          // double-stars are a beat, not a state (was 2.4)
-export const BLANK_BAND_DPS = 52          // ×2 with the rest of the boss's damage — a full BLANK_BAND_T in a band
-                                          // is now 104, i.e. the erasure bands are lethal, not chip
+                                          // desperate cross cadence — now 3.25×0.75×0.8≈1.95s, so the double-star
+                                          // window is down to 0.05s, even more of a beat than the 2.6 it was
+                                          // written against (was 2.4)
+export const BLANK_BAND_GROW = 1.0        // s the band takes to reach BLANK_BAND_LEN, growing from its centre
+                                          // outward once LIVE (owner directive: the star "hits too soon"). The
+                                          // hitbox is the CURRENT length, so the arms sweep out and reach the far
+                                          // end a full second after the telegraph fires — standing at arm's length
+                                          // is now a second of warning instead of none. The 0.75s fuse still draws
+                                          // the star at full extent first, so the danger zone is known before
+                                          // anything bites. Generic: stepStrips grows any strip carrying `grow`.
+export const BLANK_BAND_DPS = 34          // owner directive: the star hit too hard as well as too soon. Was 26,
+                                          // doubled to 52 with the rest of the boss's damage, now 34 — a full
+                                          // BLANK_BAND_T of exposure is 68, so the band is the fight's heaviest
+                                          // hazard without being lethal on its own to a base 100 HP player
 export const BLANK_DESPERATE_FRAC = 0.25  // any phase below this hp fraction accelerates its read/shot/node
                                           // timers ×BLANK_DESPERATE_MUL (P3's cross uses BLANK_READ3_DESPERATE_MUL)
 export const BLANK_DESPERATE_MUL = 0.62
@@ -6133,7 +6337,7 @@ export const MUTATORS = {
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
   // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
   // "Pond identity" plan).
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but

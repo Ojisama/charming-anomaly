@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, chaosStatus } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -70,22 +70,9 @@ function selectedChapterMeta(meta) {
 // browsed chapter updates; an unlocked one persists via hooks.onChapter, the locked one never
 // reaches it. The v5.1 single-card + ‹ › arrows + custom touch swipe (navChapter, heroTouch*) are
 // gone — native scroll handles paging.
-// The carousel = [unlocked chapters] + [the first still-locked CHAPTERS entry].
-function titleChapterList(meta) {
-  const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
-  const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
-  if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
-  const base = ids.length ? ids : [CHAPTER_ORDER[0]]
-  // v5.24: The Blank lives OUTSIDE CHAPTER_ORDER (see config.js) so nextChapter can never surface
-  // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
-  // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
-  if (meta.chapters?.blank?.unlocked) base.push('blank')
-  // >= not ===: R3 (state.js) keeps a future build's higher maxDifficulty as stored, and a strict
-  // equality against this build's ceiling would make the "???" card vanish for exactly the players
-  // who have gone furthest. undefined/null still compare false, so nothing else changes.
-  else if (meta.chapters?.beyond?.maxDifficulty >= MAX_DIFFICULTY) base.push('blank')
-  return base
-}
+// The carousel list itself lives in config.js (titleChapterList) — it is a pure function of the
+// save, with no DOM in it, which is what lets the suite assert the WIP gate for real rather than
+// by grepping this file.
 
 // Pixi int colour (0xrrggbb) -> '#rrggbb'; shade() blends a hex toward white (amt > 0) or black
 // (amt < 0) by |amt| for the hero card's diorama gradient stops; luminance() picks dark-on-light
@@ -289,7 +276,10 @@ export function initUI(hooks) {
   //     level — pips that disagree with the run. (The pip COUNT is the same either way:
   //     chapterMaxDifficulty returns MAX_DIFFICULTY for an unknown id. It is the unlocked state
   //     that lies.) No card exists for that id either, so the carousel would centre on nothing.
-  let browseChapterId = resolveChapterId(meta.chapter)
+  // playableChapterId, not resolveChapterId: with the gate OFF, a save still pointing at a WIP
+  // chapter must browse a shipped one. resolveChapterId would happily return it (it is a real
+  // chapter) and the below-carousel block would then describe a card the carousel is not showing.
+  let browseChapterId = playableChapterId(meta)
   let boostersOpen = false
 
   // v6.7.2 cast art: rosterId -> URL of that creature's thumbnail, resolved at BUILD time from
@@ -355,7 +345,7 @@ export function initUI(hooks) {
   // The hollow last star still PULSES when that level is unlocked but not yet won — a "one to go"
   // tease, which is what it always should have meant.
   function heroCardHtml(id) {
-    if (!meta.chapters?.[id]?.unlocked) {
+    if (!chapterAvailable(meta, id)) {
       const tagline = id === 'blank'
         ? t('win The Beyond at level 5 — something has been counting')
         : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
@@ -439,7 +429,7 @@ export function initUI(hooks) {
     const list = titleChapterList(meta)
     const cards = list.map((id) => heroCardHtml(id)).join('')
     const dots = list.map((id) => {
-      const locked = !meta.chapters?.[id]?.unlocked
+      const locked = !chapterAvailable(meta, id)
       return `<span class="carousel-dot${id === browseChapterId ? ' carousel-dot--active' : ''}${locked ? ' carousel-dot--locked' : ''}" data-dot="${id}"></span>`
     }).join('')
     return `
@@ -532,7 +522,7 @@ export function initUI(hooks) {
   }
 
   function titleBelowHtml() {
-    const heroUnlocked = !!meta.chapters?.[browseChapterId]?.unlocked
+    const heroUnlocked = chapterAvailable(meta, browseChapterId)
     const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
     const cap = chapterMaxDifficulty(browseChapterId)
     const playBlock = heroUnlocked ? `
@@ -587,14 +577,28 @@ export function initUI(hooks) {
   }
 
   // Attach the scroll-settle selection to a freshly-rendered carousel. Safari lacks 'scrollend', so
-  // a debounced scroll-timeout backs it up (both funnel into settle(); the second is a no-op once
-  // browseChapterId already matches the centred card).
+  // a debounced scroll-timeout backs it up — both funnel into settle(), and settle() disarms the
+  // debounce so the two can never fire for the same gesture (v7.35, see the race below).
   function wireCarousel() {
     const car = screens.title.querySelector('[data-carousel]')
     if (!car) return
     positionCarousel()
     let timer = null
     const settle = () => {
+      // Disarm the debounce first. 'scrollend' and the timeout are two reads of ONE gesture, and
+      // before v7.35 scrollend running settle left the timer armed, so it fired again 130ms later —
+      // by which time the player may have tapped Play and the title screen is display:none. That
+      // second run is what the guard below catches, and clearing here is what stops it happening at
+      // all on every browser that has scrollend.
+      if (timer) { clearTimeout(timer); timer = null }
+      // A display:none screen measures EVERY card at rect 0, so every distance below ties at 0 and
+      // the loop keeps the first card it saw — 'body'. That silently rewrote meta.chapter, and the
+      // symptom appeared a whole run later: flick the carousel to The Beyond, tap Play inside the
+      // 130ms window, play the Beyond run you correctly got, then watch the summary's "Next level"
+      // start The Body. The comment above used to reason that a second settle is "a no-op once
+      // browseChapterId already matches the centred card" — true only while the screen is laid out,
+      // which is exactly the assumption that broke.
+      if (!car.clientWidth) return
       // Pick the card whose centre is nearest the carousel's centre, both in viewport space
       // (getBoundingClientRect). Do NOT use el.offsetLeft here: it's relative to the positioned
       // .screen--title, not the scroller, so on wide screens it's shifted by the carousel's left
@@ -612,7 +616,7 @@ export function initUI(hooks) {
       browseChapterId = best.dataset.chapter
       // Unlocked + a real change persists via onChapter (which itself plays 'click'); the locked
       // preview only browses, so click here instead. Then patch the below-carousel block in place.
-      if (meta.chapters?.[browseChapterId]?.unlocked && browseChapterId !== meta.chapter) hooks.onChapter(browseChapterId)
+      if (chapterAvailable(meta, browseChapterId) && browseChapterId !== meta.chapter) hooks.onChapter(browseChapterId)
       else playSfx('click')
       updateTitleBelow()
     }
@@ -628,12 +632,16 @@ export function initUI(hooks) {
     // entry — reachable for 'blank', which lives outside CHAPTER_ORDER so ensureChapterMeta never
     // creates one — and falling back to an unvalidated pointer would put the alien id straight back
     // (R1, config.js).
-    if (!meta.chapters?.[browseChapterId]) browseChapterId = resolveChapterId(meta.chapter)
+    if (!meta.chapters?.[browseChapterId]) browseChapterId = playableChapterId(meta)
     setHtml(screens.title, `
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
         <h1 class="title-logo"><span>Charming</span> <span>Anomaly</span></h1>
-        <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
+        ${meta.dev ? '<span class="dev-pill">DEV</span>' : ''}
+        <!-- data-act="dev-tap-wip": seven quick taps toggle the WIP gate (meta.dev), which is what
+             reveals work-in-progress chapters. Same gesture as the HUD badge's hidden dev menu and
+             the same two constants, but its own counter and its own case — see 'dev-tap-wip'. -->
+        <div class="coins-badge" data-act="dev-tap-wip">🪙 <b>${meta.coins}</b></div>
       </header>
       ${carouselHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
@@ -657,6 +665,11 @@ export function initUI(hooks) {
     if (!settingsOpen) return ''
     const langRows = LANGS.map(([id, label]) => `
       <button class="settings-lang${id === getLang() ? ' settings-lang--on' : ''}" data-act="lang-pick" data-lang="${id}">${label}</button>`).join('')
+    // Which side the skill button sits on. Reuses the language row's picker markup verbatim — same
+    // two-of-N shape, so it needs no CSS of its own. The label's ☉ is the button's OWN glyph
+    // (skill-btn-glyph), not a lookalike, so the row names the thing it moves.
+    const sideRows = [['left', t('Left')], ['right', t('Right')]].map(([id, label]) => `
+      <button class="settings-lang${id === meta.skillSide ? ' settings-lang--on' : ''}" data-act="side-pick" data-side="${id}">${label}</button>`).join('')
     return `
       <div class="modal-backdrop sheet-backdrop" data-act="settings-close" data-pop="settings">
         <div class="bottom-sheet">
@@ -665,6 +678,10 @@ export function initUI(hooks) {
           <div class="settings-row">
             <span class="settings-label">🌐 ${t('language')}</span>
             <span class="settings-langs">${langRows}</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">☉ ${t('skill button')}</span>
+            <span class="settings-langs">${sideRows}</span>
           </div>
           <button class="btn btn--soft btn--small settings-slots" data-act="slots">💾 ${t('Save slots')} <i>${activeSlot()}/${SAVE_SLOTS}</i></button>
           ${buildStampHtml()}
@@ -992,6 +1009,20 @@ export function initUI(hooks) {
           <b class="chaos-vrail-bonus" data-chaos-bonus></b>
         </span>
       </div>
+      <!-- v7.x Book 2: the chapter RESOURCE rail (CHAPTERS[].resource — The Shelf's Light). Reuses
+           the chaos rail's markup and CSS wholesale, which is the owner's call: the game already
+           has one vertical battery and a second one should read as the same kind of object rather
+           than a new invention. It sits on the LEFT, opposite chaos, because that is the side the
+           skill button is on by default — the bar is that button's ammo and nothing else, so
+           putting them on the same thumb says so without a label. (meta.skillSide can move the
+           button to the right; the rail stays put, since it is a readout, not a control, and it is
+           parked well above the button either way.) -->
+      <div class="chaos-wrap" data-charge style="display:none;">
+        <span class="chaos-vrail chaos-vrail--charge">
+          <b class="chaos-vrail-num" data-charge-text></b>
+          <span class="chaos-vrail-track"><i data-charge-fill></i></span>
+        </span>
+      </div>
       <!-- v5.24: The Blank's boss HP bar; v6.0.0 it spans the full hud-top row (grid-column
            1/-1) and IS the phase readout — the timer slot goes blank while a boss is up. Reuses
            .rampage-bar/.rampage-fill classes for chrome (border/radius/background); ui.js doesn't
@@ -1008,7 +1039,7 @@ export function initUI(hooks) {
       <div class="xp-bar"><div class="xp-fill"></div></div>
     </div>
     <div class="weapon-row"></div>
-    <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Repulse">
+    <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Pulse">
       <span class="skill-btn-glyph">☉</span>
       <span class="skill-btn-cd"></span>
     </button>
@@ -1029,7 +1060,13 @@ export function initUI(hooks) {
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
+    chargeWrap: screens.hud.querySelector('[data-charge]'),
   }
+  // The button's side is a PREFERENCE, not per-frame state, so it is applied once at boot and again
+  // when the setting changes — deliberately NOT from updateHUD, which runs every frame and already
+  // caches everything it touches (see `last` below).
+  const applySkillSide = () => hud.skillBtn.classList.toggle('skill-btn--right', meta.skillSide === 'right')
+  applySkillSide()
   const last = {
     hp: NaN, maxHP: NaN, remain: NaN, coins: NaN, level: NaN, xpPct: NaN, weaponsSig: '',
     // v5.8 kaiju redesign: undefined (not NaN/false) so the very first updateHUD call always
@@ -1045,6 +1082,7 @@ export function initUI(hooks) {
     // are cached and only the rail's height is repainted every frame — a per-frame textContent
     // write is the expensive half.
     chaosShown: undefined, chaosSecs: -1, chaosBonus: -1,
+    chargeShown: undefined, chargeNum: -1, chargeArmed: undefined,
   }
 
   function updateHUD(run, events) {
@@ -1082,7 +1120,10 @@ export function initUI(hooks) {
     // v5.21: the Repulsion button, shown only for `lane` chapters. Gated on the chapter flag rather
     // than on repulseCd for the same reason the rampage bar above is — a cooldown that merely
     // happens to be 0 is not a signal that the chapter HAS the skill.
-    const laneChapter = CHAPTERS[run.chapter].lane === true
+    // v7.x: the button belongs to any chapter with the cast, which is now lane chapters AND any
+    // chapter declaring a resource (sim.js's stepRepulse gates on exactly this same pair — if the
+    // two ever disagree you get a button with no cast, or a cast with no button).
+    const laneChapter = CHAPTERS[run.chapter].lane === true || !!CHAPTERS[run.chapter].resource
     if (laneChapter !== last.laneChapter) {
       last.laneChapter = laneChapter
       hud.skillBtn.classList.toggle('skill-btn--hidden', !laneChapter)
@@ -1196,6 +1237,38 @@ export function initUI(hooks) {
     }
     if (chaosOn) paintChaos(chaosStatus(run.time))
 
+    // ---- chapter RESOURCE rail (v7.x Book 2) ---------------------------------------------
+    // Shown only for a chapter that declares one, so every shipped chapter's HUD is untouched.
+    const res = CHAPTERS[run.chapter].resource
+    if (!!res !== last.chargeShown) {
+      last.chargeShown = !!res
+      hud.chargeWrap.style.display = res ? '' : 'none'
+    }
+    if (res) paintCharge(run.charge, res.max)
+  }
+
+  // The RESOURCE rail's per-frame paint, modelled on paintChaos below — refs looked up once (the
+  // HUD markup is written exactly once at boot, so they cannot go stale) and every text write
+  // guarded by a cache, because the textContent write is the expensive half of a per-frame readout.
+  let chargeRefs = null
+  function paintCharge(charge, max) {
+    if (!chargeRefs) {
+      const q = (sel) => hud.chargeWrap.querySelector(sel)
+      chargeRefs = { text: q('[data-charge-text]'), fill: q('[data-charge-fill]') }
+    }
+    const frac = max > 0 ? Math.max(0, Math.min(1, charge / max)) : 0
+    chargeRefs.fill.style.height = `${frac * 100}%`
+    // Two readouts from one bar, because the quantity alone does not answer the only question the
+    // player actually asks: the NUMBER is how much light is left, and the ARMED state is whether
+    // the next press is a full-strength Pulse or the floor shove. A player reading only the height
+    // cannot tell where the threshold is, and PULSE_CHARGE_COST is not a round fraction of max.
+    const armed = charge >= PULSE_CHARGE_COST
+    if (armed !== last.chargeArmed) {
+      last.chargeArmed = armed
+      hud.chargeWrap.classList.toggle('charge--armed', armed)
+    }
+    const n = Math.round(charge)
+    if (n !== last.chargeNum) { last.chargeNum = n; chargeRefs.text.textContent = `${n}` }
   }
 
   // The CHAOS PACT rail's per-frame paint. Refs are looked up once — the HUD markup is written
@@ -1571,7 +1644,7 @@ export function initUI(hooks) {
     const chId = dailyChapter(todayKey())
     const ids = dailyMutators(todayKey(), chId) // chapter-scoped pool — must match main.js's roll
     const chapter = CHAPTERS[chId]
-    const isPreview = !meta.chapters?.[chId]?.unlocked
+    const isPreview = !chapterAvailable(meta, chId)
     setHtml(screens.daily, `
       <div class="modal daily-brief" data-pop="daily">
         <h2 class="modal-title">🌀 ${t('Daily Anomaly')}</h2>
@@ -1856,6 +1929,12 @@ export function initUI(hooks) {
   let devListEl = null      // repainted alone on every keystroke, so the filter field keeps focus
   let devTaps = 0
   let devTapAt = 0
+  // The TITLE badge's seven-tap counter, deliberately NOT the pair above. Sharing one counter would
+  // let taps on two different badges add up, so a burst split across the title and the HUD could
+  // half-arm either gesture — and these two do very different things (this one toggles a persisted
+  // flag, that one opens a throwaway screen). Two counters, no interaction.
+  let wipTaps = 0
+  let wipTapAt = 0
 
   // Card rows, grouped by kind with a sticky header per group. Filtering matches the title, the
   // description and the kind, so "anom" finds the whole tier and "fire" finds what it reads like.
@@ -2090,6 +2169,15 @@ export function initUI(hooks) {
         renderTitle()
         break
       }
+      case 'side-pick': {
+        const side = el.dataset.side
+        if (side && side !== meta.skillSide) {
+          hooks.onSkillSide?.(side)     // persists; meta is the same object, so the class read below is current
+          applySkillSide()
+        }
+        renderTitle()
+        break
+      }
       // v6.4.6 save slots: the settings sheet's 💾 row opens the picker, backdrop/Cancel closes it, tapping
       // an inactive slot row hands off to main.js (which reloads — see hooks.onSlot). Same
       // direct-backdrop-hit guard as reset-cancel/boosters-close below.
@@ -2173,6 +2261,22 @@ export function initUI(hooks) {
         break
       }
       case 'dev-close': playSfx('click'); hooks.onDevClose?.(); break
+      // The WIP gate, on the TITLE coin badge. Seven taps flips meta.dev, which is what makes
+      // work-in-progress chapters visible at all. renderTitle() repaints so the DEV pill appears
+      // or vanishes on the same tap — a hidden flag with no tell is how WIP content reaches
+      // players by accident. Same constants as 'dev-tap' above, separate counter (see wipTaps).
+      case 'dev-tap-wip': {
+        const now = performance.now()
+        wipTaps = now - wipTapAt < DEV_TAP_WINDOW_MS ? wipTaps + 1 : 1
+        wipTapAt = now
+        if (wipTaps >= DEV_TAPS_TO_OPEN) {
+          wipTaps = 0
+          playSfx('buy')
+          hooks.onDev?.(!meta.dev)   // persists; meta is the same object, so renderTitle reads it fresh
+          renderTitle()
+        }
+        break
+      }
       case 'build-toggle': {
         const key = el.dataset.key
         if (openBuild.has(key)) openBuild.delete(key)

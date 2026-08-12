@@ -220,6 +220,10 @@ export function createRenderer(app) {
   // v6.4 pond signature: whether the active chapter's currents also stream eddies (run.eddies —
   // CHAPTERS[id].signature.eddies). Same latch pattern as chapterHasCurrents; read by updateEddies.
   let chapterHasEddies = false
+  // v7.x Book 2: whether the active chapter streams sun shafts (CHAPTERS[].signature.type ===
+  // 'shafts' — currently The Shelf only). Same latch pattern as chapterHasEddies; read by
+  // updateShafts.
+  let chapterHasShafts = false
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
   // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
   let chapterHasStorm = false
@@ -6154,6 +6158,12 @@ export function createRenderer(app) {
   // must read as floor-level, UNDER the crowd, the same "under entities" contract obstacleLayer/
   // poolLayer/holeLayer already keep. Positioned right after holeLayer: same pooled-vortex idiom.
   const eddyLayer = new Container()
+  // v7.x Book 2: sun-shaft decals. A CHILD of entitiesLayer for the same reason eddyLayer is — the
+  // shaft marks a real refill boundary, so it has to read as floor-level, UNDER the crowd. Pooled
+  // DECALS, not a rig: one sprite plus one ring per shaft, so this pool belongs in reset()'s flat
+  // list and must NOT get a `.root.visible` line (converting the two the wrong way round is the
+  // silent failure documented in CLAUDE.md).
+  const shaftLayer = new Container()
   const novaLayer = new Container()
   const mineLayer = new Container()
   // elite affix ground fx (bomb telegraphs + pacer auras): per-frame vector layers,
@@ -6191,7 +6201,7 @@ export function createRenderer(app) {
   const textLayer = new Container()
   entitiesLayer.addChild(
     mownG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
-    gemLayer, coinLayer, holeLayer, eddyLayer, novaLayer, mineLayer,
+    gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
@@ -6839,6 +6849,11 @@ export function createRenderer(app) {
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
+    // v7.x Book 2: The Shelf is the pond's biome for now, matching CHAPTERS.shelf, which is
+    // literally a spread of CHAPTERS.pond. Not decorative — chapterBiome falls back to BIOMES.body
+    // for an unknown id, so WITHOUT this line The Shelf would draw villi and platelets under a teal
+    // tint. A stand-in, like the chapter it serves.
+    shelf: BIOME_POND,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -7858,6 +7873,55 @@ export function createRenderer(app) {
   function clearEddies() {
     eddyLayer.visible = false
     for (const ev of eddyPool) ev.root.visible = false
+  }
+
+  // ---------------------------------------------------------------- sun shafts (v7.x Book 2)
+  // The Shelf's refill pools, drawn as a soft lit disc with a rim so the boundary is legible — a
+  // player has to be able to tell "am I IN it" at a glance, because standing in it IS the mechanic
+  // (sim.js's stepCharge tests centre-to-centre against exactly this radius).
+  //
+  // A pooled DECAL, not a rig: two display objects that never transform independently of each
+  // other. That is why the pool is a flat array and why clearShafts hides the SPRITES rather than a
+  // `.root` — a rig left in the flat list of reset() sets a dead property on a plain object and the
+  // previous run's entities stay on screen, with no throw and no warning.
+  const shaftPool = []
+  function acquireShaft() {
+    const glow = new Sprite(T.fx.light_01)
+    glow.anchor.set(0.5)
+    glow.tint = 0xfff0c0
+    glow.blendMode = 'add'
+    const ring = new Graphics()
+    shaftLayer.addChild(glow, ring)
+    return { glow, ring, _r: 0 }
+  }
+  function updateShafts(run) {
+    if (!chapterHasShafts) { shaftLayer.visible = false; return }
+    shaftLayer.visible = true
+    const list = run.shafts
+    while (shaftPool.length < list.length) shaftPool.push(acquireShaft())
+    for (let i = 0; i < shaftPool.length; i++) {
+      const sv = shaftPool[i]
+      const on = i < list.length
+      sv.glow.visible = on
+      sv.ring.visible = on
+      if (!on) continue
+      const sh = list[i]
+      sv.glow.position.set(sh.x, sh.y)
+      sv.ring.position.set(sh.x, sh.y)
+      sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 2.1))
+      // Breathe, out of phase per shaft (i, not animT alone) so a field of them does not pulse in
+      // unison — the same trick placeEddy uses for its twirl layers.
+      sv.glow.alpha = 0.62 + 0.10 * Math.sin(animT * 1.1 + i * 1.7)
+      if (sv._r !== sh.r) {  // rim redrawn only when the radius changes, same cache as the eddy ring
+        sv._r = sh.r
+        sv.ring.clear()
+        sv.ring.circle(0, 0, sh.r).stroke({ width: 4, color: 0xffe9a8, alpha: 0.55 })
+      }
+    }
+  }
+  function clearShafts() {
+    shaftLayer.visible = false
+    for (const sv of shaftPool) { sv.glow.visible = false; sv.ring.visible = false }
   }
 
   // ---------------------------------------------------------------- storm overlay
@@ -11873,6 +11937,7 @@ export function createRenderer(app) {
     clearStrafeLocks()
     clearCurrents()
     clearEddies()
+    clearShafts()
     clearStorm()
     clearSkiesBombs()
     clearScars()
@@ -12748,6 +12813,7 @@ export function createRenderer(app) {
     updateLeaves(dt)
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
+    updateShafts(run)
     updateStorm(run, dt, cx, cy)
     updateRain(dt) // v6.3: own top-level call — chapterHasRain no longer implies chapterHasStorm
   }
@@ -13026,6 +13092,7 @@ export function createRenderer(app) {
     chapterRender = cfg?.render ?? BODY_RENDER
     chapterHasCurrents = cfg?.signature?.type === 'currents'
     chapterHasEddies = !!(cfg?.signature?.type === 'currents' && cfg?.signature?.eddies)
+    chapterHasShafts = cfg?.signature?.type === 'shafts'
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);
     // city opts into rain/ruins individually without the clouds `storm` alone would also switch on.

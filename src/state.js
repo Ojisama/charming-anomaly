@@ -1,7 +1,7 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
 import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
-  difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
+  difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
@@ -249,7 +249,11 @@ export function loadMeta() {
         delete m.maxDifficulty
       }
       m.chapter ??= 'body'
-      for (const id of CHAPTER_ORDER) ensureChapterMeta(m, id)
+      // ALL_CHAPTER_IDS, not CHAPTER_ORDER: every book's ladder gets an entry, so toggling the WIP
+      // gate on needs no migration and cannot produce a chapter with no ledger. Harmless for a
+      // player — ensureChapterMeta defaults `unlocked` to `id === 'body'`, so a WIP entry is created
+      // locked and nothing on the title reads it unless meta.dev is on.
+      for (const id of ALL_CHAPTER_IDS) ensureChapterMeta(m, id)
       // Retroactive chapter unlocks: a chapter that shipped AFTER the player already beat the
       // previous one at CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load — winning level d raises that
       // chapter's maxDifficulty to d+1, so maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY proves the
@@ -264,6 +268,15 @@ export function loadMeta() {
       // the `??= 2` this replaces and turns a tampered value into 2 rather than NaN.
       m.choiceSlots = Math.max(2, Number(m.choiceSlots) || 2)
       m.lang ??= 'en' // v6.1 i18n: display language, read once at boot (main.js -> i18n.setLang)
+      // Which side of the screen the skill button sits on. 'left' is the right-handed default —
+      // see the .skill-btn block in styles.css for why the button goes to the OFF hand.
+      m.skillSide = m.skillSide === 'right' ? 'right' : 'left'
+      // WIP gate (Book 2). Work-in-progress chapters are hidden from players behind this, and the
+      // title's coin badge toggles it with seven taps (ui.js). Coerced to a real boolean rather
+      // than `??=`: every gate reads `meta.dev === true`, so a hand-edited or imported save
+      // carrying 'yes' or 1 would be truthy everywhere EXCEPT those tests and the flag would
+      // disagree with itself. This never reaches sim.js — see the plan's R1.
+      m.dev = m.dev === true
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
       // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
@@ -285,6 +298,8 @@ export function loadMeta() {
     chapter: 'body',
     chapters: {},
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
+    skillSide: 'left', // right-handed default (see the loadMeta migration above)
+    dev: false, // WIP gate, off for every real player (see the loadMeta migration above)
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
@@ -293,7 +308,7 @@ export function loadMeta() {
     name: '',
     savedAt: 0,
   }
-  for (const id of CHAPTER_ORDER) ensureChapterMeta(fresh, id)
+  for (const id of ALL_CHAPTER_IDS) ensureChapterMeta(fresh, id)  // see the loadMeta sweep above
   return fresh
 }
 
@@ -792,6 +807,19 @@ function generateWells(sig) {
  *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
+ * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2 (The Shelf): streamed pools of light
+ *   the player stands in to refill `charge`. Same _obstacleSeed cell-hash idiom as eddies above,
+ *   own salts (20 occupancy, 21 x jitter, 22 y jitter, 23 drift phase) and own _shaftCellI/
+ *   _shaftCellJ cursor. Gated on CHAPTERS[chapter].signature.type === 'shafts' ([] everywhere
+ *   else). UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
+ *   early-returns unless the player crossed a cell boundary, so it structurally cannot move
+ *   anything — stepShafts does that every frame. bx/by are the streamed BASE position and x/y the
+ *   drifted one; drift is a pure function of run._realTime and `phase`, storing no state and
+ *   consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
+ * charge: number — the chapter resource bar (CHAPTERS[chapter].resource; The Shelf's 'Light').
+ *   Drains passively, refills inside a shaft and per kill, clamped to [0, resource.max]. It is
+ *   the Pulse's AMMO and nothing else: it scales no damage, fire rate or speed, and an empty bar
+ *   still fires the shipped REPULSE_* shove. 0 and untouched in every chapter without a resource.
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
@@ -906,7 +934,7 @@ function generateWells(sig) {
  *   (stepEnemyMovement, NOT elite-gated) and by the lure's stickyScent mod on burst. While the
  *   player stands in any web, stepPlayerMovement multiplies move speed by WEB_SLOW_MUL (stacking
  *   with the latch debuff via MIN, not multiply). t counts down; removed once t <= 0 (stepWebs).
- * strips[i]: { x, y, angle, len, w, fuse, t, dps, look:'erase', variant? } — telegraphed
+ * strips[i]: { x, y, angle, len, w, fuse, t, dps, look:'erase', variant?, grow? } — telegraphed
  *   rectangular hazard strips. v6.6.14: the Blank is now the ONLY producer (P3's erasure bands, the
  *   eraser flag's wake, and immuneMemory death residue — the last two tagged variant:'residue'),
  *   so every live strip carries look:'erase'. The garden's pesticide spray used to feed this too
@@ -914,6 +942,11 @@ function generateWells(sig) {
  *   counts down first with NO damage; once fuse <= 0 the strip is live and t counts down while it
  *   ticks dot-flagged {type:'hurt', dmg, dot:true} damage every STATUS_TICK to the player inside
  *   the rotated rectangle (stepStrips), same DoT contract as run.pools. Removed once fuse<=0 && t<=0.
+ *   `grow` (seconds, optional — P3's star passes BLANK_BAND_GROW) makes the strip REACH its authored
+ *   len over that long once live, expanding from its centre: stepStrips stashes the authored value
+ *   in _lenFull on the first live frame and rewrites len every frame after, so both the hitbox and
+ *   render.js's rectangle sweep outward. Anything reading len to identify a strip must therefore
+ *   read (_lenFull ?? len) — a live growing band is shorter than the constant it was authored with.
  * lures[i]: { x, y, t, dur, aggro, burstR, burstDmg, sticky } — Pheromone Lure decoys (garden
  *   weapon). Enemies within `aggro` of a lure path to it instead of the player (stepEnemyMovement).
  *   t ages to dur, then the lure BURSTS: player-scaled AoE damage (applyDamage) to enemies within
@@ -1427,6 +1460,15 @@ export function createRun(meta, opts = {}) {
     // chapter carries the field, but only a 'currents' signature with a sig.eddies block ever
     // populates it.
     eddies: [],
+    // v7.x Book 2: sun shafts (sim.js streamShafts/stepShafts), the same _obstacleSeed streaming
+    // idiom as obstacles/eddies above with its OWN salts and its OWN cell cursor. Unconditional
+    // like eddies, so every chapter carries the field, but only a 'shafts' signature ever fills it.
+    shafts: [],
+    // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf only). Starts FULL: the
+    // first minute of a run should teach the drain, not open on an empty bar the player has not
+    // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
+    // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
+    charge: CHAPTERS[chapter].resource?.max ?? 0,
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which

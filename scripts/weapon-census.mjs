@@ -110,6 +110,7 @@ function census(id, level, seed) {
   // 'explode' is not a zone-weapon signal — the beam and the tornado emit it for their own bursts.
   // Only weapons that actually plant run.zones get the per-zone breakdown.
   let plantsZones = false
+  let chargeSum = 0, chargeSteps = 0
   // Per-zone life tracking. Zones are plain objects with no id, so the object identity IS the key;
   // a WeakSet-style Map keyed on the object works because sim.js mutates zones in place and only
   // drops them when they are finished.
@@ -125,6 +126,10 @@ function census(id, level, seed) {
     for (const e of run.enemies) before.set(e.id, e.hp)
 
     stepSim(run, { x: 0.4, y: 0.2 }, DT)
+    // v7.x Book 2: a chapter resource AMPLIFIES the player's Pulse, so in a resource chapter the
+    // numbers below are measured against some state of that bar. Reported so a reading is never
+    // quoted without it — 0 everywhere else, since createRun leaves charge at 0 with no resource.
+    chargeSum += run.charge; chargeSteps++
     if (run.zones.length > 0) plantsZones = true
 
     const after = new Map()
@@ -200,32 +205,38 @@ function census(id, level, seed) {
   }
   for (const rec of zoneLife.values()) finished.push(rec)   // still open when the run ended
   if (casts > 0 && windowEff <= 0) duds++   // the final cast's window closes at the run's end
-  return { raw, eff, hits, casts, duds, zones: plantsZones ? finished : [], kills: run.kills, time: run.time }
+  return { raw, eff, hits, casts, duds, zones: plantsZones ? finished : [], kills: run.kills, time: run.time,
+           charge: chargeSum / Math.max(1, chargeSteps), chargeMax: CHAPTERS[CHAPTER]?.resource?.max ?? 0 }
 }
 
 const pad = (s, n) => String(s).padStart(n)
 
 console.log(`chapter ${CHAPTER}, difficulty ${DIFFICULTY}, ${SECS}s x ${SEEDS.length} seeds, one weapon equipped, all offers refused`)
+if (CHAPTERS[CHAPTER]?.resource) {
+  console.log(`resource: ${CHAPTERS[CHAPTER].resource.name} — this chapter's bar amplifies the Pulse, so the 'charge' column below is the state every other number was measured against`)
+}
 if (Object.keys(MODS).length) console.log(`mods: ${JSON.stringify(MODS)}`)
 
 for (const level of LEVELS) {
   console.log(`\n--- level ${level} ---`)
-  console.log('  weapon           raw dps  eff dps  waste  kills/min  hits/s  dmg/hit  dud')
+  const hasRes = !!CHAPTERS[CHAPTER]?.resource
+  console.log('  weapon           raw dps  eff dps  waste  kills/min  hits/s  dmg/hit  dud' + (hasRes ? '   charge' : ''))
   const zoneRows = []
   for (const id of WEAPON_IDS) {
     if (!WEAPONS[id]) { console.log(`  ${id}: no such weapon`); continue }
-    let raw = 0, eff = 0, hits = 0, kills = 0, t = 0, casts = 0, duds = 0
+    let raw = 0, eff = 0, hits = 0, kills = 0, t = 0, casts = 0, duds = 0, chg = 0
     let caught = []
     for (const s of SEEDS) {
       const r = census(id, level, s)
       raw += r.raw; eff += r.eff; hits += r.hits; kills += r.kills; t += r.time
-      casts += r.casts; duds += r.duds
+      casts += r.casts; duds += r.duds; chg += r.charge
       caught = caught.concat(r.zones)
     }
     console.log('  ' + WEAPONS[id].name.padEnd(16) + pad(Math.round(raw / t), 7) + pad(Math.round(eff / t), 9) +
       pad(Math.round(100 * (1 - eff / Math.max(1, raw))) + '%', 7) + pad((kills / t * 60).toFixed(1), 11) +
       pad((hits / t).toFixed(1), 8) + pad((raw / Math.max(1, hits)).toFixed(1), 9) +
-      pad(casts ? Math.round(100 * duds / casts) + '%' : '-', 5))
+      pad(casts ? Math.round(100 * duds / casts) + '%' : '-', 5) +
+      (hasRes ? pad((chg / SEEDS.length).toFixed(0), 9) : ''))
     if (caught.length) zoneRows.push([WEAPONS[id].name, caught])
   }
   for (const [name, zones] of zoneRows) {
