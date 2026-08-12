@@ -6043,16 +6043,28 @@ export const BLANK_SHOT_TURN = 0.4        // rad/s homing clamp — outrunnable,
 // P3 takes your future: pre-fired erasure bands (run.strips, look:'erase') centred on the
 // player's extrapolated position (pos + vel × BLANK_LEAD) — a CROSS (one band across the heading,
 // one along it), plus straight aimed shot fans from a boss that is itself chasing (SPEED_P3).
-export const BLANK_READ3_T = 2.6          // s between P3 pre-fired crosses
+export const BLANK_READ3_T = 3.25         // s between P3 pre-fired crosses — 25% slower than the 2.6 it shipped at
+                                          // (owner directive: the star "hits too soon"). Cadence, growth and damage
+                                          // all move together on that note; see BLANK_BAND_GROW/DPS below.
 export const BLANK_LEAD = 0.55            // s of velocity extrapolation
 export const BLANK_BAND_LEN = 320
 export const BLANK_BAND_W = 64
 export const BLANK_BAND_FUSE = 0.75       // s telegraph
 export const BLANK_BAND_T = 2.0           // v6.3.1 [panel/gameplay]: active duration must stay under the
-                                          // desperate cross cadence 2.6×0.75×0.8≈1.56s closely enough that
-                                          // double-stars are a beat, not a state (was 2.4)
-export const BLANK_BAND_DPS = 52          // ×2 with the rest of the boss's damage — a full BLANK_BAND_T in a band
-                                          // is now 104, i.e. the erasure bands are lethal, not chip
+                                          // desperate cross cadence — now 3.25×0.75×0.8≈1.95s, so the double-star
+                                          // window is down to 0.05s, even more of a beat than the 2.6 it was
+                                          // written against (was 2.4)
+export const BLANK_BAND_GROW = 1.0        // s the band takes to reach BLANK_BAND_LEN, growing from its centre
+                                          // outward once LIVE (owner directive: the star "hits too soon"). The
+                                          // hitbox is the CURRENT length, so the arms sweep out and reach the far
+                                          // end a full second after the telegraph fires — standing at arm's length
+                                          // is now a second of warning instead of none. The 0.75s fuse still draws
+                                          // the star at full extent first, so the danger zone is known before
+                                          // anything bites. Generic: stepStrips grows any strip carrying `grow`.
+export const BLANK_BAND_DPS = 34          // owner directive: the star hit too hard as well as too soon. Was 26,
+                                          // doubled to 52 with the rest of the boss's damage, now 34 — a full
+                                          // BLANK_BAND_T of exposure is 68, so the band is the fight's heaviest
+                                          // hazard without being lethal on its own to a base 100 HP player
 export const BLANK_DESPERATE_FRAC = 0.25  // any phase below this hp fraction accelerates its read/shot/node
                                           // timers ×BLANK_DESPERATE_MUL (P3's cross uses BLANK_READ3_DESPERATE_MUL)
 export const BLANK_DESPERATE_MUL = 0.62
