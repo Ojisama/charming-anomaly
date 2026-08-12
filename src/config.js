@@ -2100,7 +2100,13 @@ export const WEAPON_MODS = {
   roar: {
     bellow:    { name: 'Bellow',      desc: 'roar damage', icon: '📢', base: 0.30, kind: 'pct' },
     wideRoar:  { name: 'Wide Roar',   desc: 'roar cone width', icon: '🪭', base: 0.30, kind: 'pct' },
-    farRoar:   { name: 'Carrying Roar', desc: 'roar range', icon: '📏', base: 0.30, kind: 'pct' },
+    // Owner directive, alongside the concentric-ripple rework: 0.30 -> 0.18, a 40% cut to the
+    // per-pick range bonus. A real late-run sheet showed +381% range = 1323px against a phone's
+    // ~420px view radius — the roar was killing things THREE SCREENS away, the inverse of the
+    // artillery problem v7.22 fixed, and it also meant the wavefront spent almost its whole life
+    // off-screen. The same picks now buy ~+229% (~905px): still the longest reach in the chapter,
+    // no longer several times what you can see.
+    farRoar:   { name: 'Carrying Roar', desc: 'roar range', icon: '📏', base: 0.18, kind: 'pct' },
     rapidRoar: { name: 'Short Breath', desc: 'roar rate',   icon: '💨', base: 0.25, kind: 'pct' },
     stagger:   { name: 'Stagger',     desc: 'stun on roared foes',              icon: '💫', base: 0.50, kind: 'pct' },
     resonance: { name: 'Resonance',   desc: 'every 3rd roar goes all around',   icon: '🌀', kind: 'switch' },

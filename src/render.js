@@ -10825,16 +10825,13 @@ export function createRenderer(app) {
   // tall ellipse — which is why the owner reported "we just see orange lines on the screen" and
   // "it doesn't look like a roar sound pressure wave anymore when >150% roar width".
   //
-  // A Graphics annulus sector has no such limit: it is drawn at the cast's true arc, so the picture
-  // is correct at 0.9 rad and at 2.6 rad alike, and the q hack, the bake and its two constants are
-  // all gone with it. Cost is trivial — a roar lasts 0.34s and at most MAX_ROARS x ROAR_BANDS = 18
-  // sectors can ever be on screen at once, rebuilt on a Graphics that is cleared every frame anyway
-  // (same idiom as hazardG/laneG/breathG).
+  // Graphics arcs have no such limit: they are drawn at the cast's true arc, so the picture is
+  // correct at 0.9 rad and at 2.6 rad alike, and the q hack, the bake and its two constants are all
+  // gone with it. Cost is trivial — one cast is drawn at a time and the ripple field is at most
+  // (screen radius / 55) rings, rebuilt on a Graphics that is cleared every frame anyway (same idiom
+  // as hazardG/laneG/breathG).
   const MAX_ROARS = 6
-  const ROAR_BANDS = 3
-  const ROAR_COLORS = [0xf0a63f, 0xcf7d24, 0xb8641f] // leading edge bright, trailing bands darker
-  const ROAR_THICK_FRAC = 0.14  // band thickness as a fraction of its current radius...
-  const ROAR_THICK_MIN = 10     // ...with a floor, so a wave born at the mouth is not a 1px hairline
+  const ROAR_COLOR = 0xf0a63f
   const roarG = new Graphics()
   whipLayer.addChild(roarG)
   const roars = []
@@ -10847,8 +10844,39 @@ export function createRenderer(app) {
     rp.x = x; rp.y = y; rp.angle = angle; rp.range = range; rp.arc = arc || 1
     rp.t = 0
   }
+  // ---- the roar's ripple field --------------------------------------------------------------
+  // The roar draws as CONCENTRIC RIPPLES: 20px rings on a 55px pitch, born at the mouth, travelling
+  // outward at a fixed speed, filling the cast's cone out to its range. Two properties matter and
+  // both are load-bearing, because the look this replaced went solid orange on a scaled build and
+  // the owner reported the chapter unplayable:
+  //
+  //  1. NOTHING DRAWN SCALES WITH A STAT. Ring thickness and pitch are absolute px, so a longer roar
+  //     is MORE rings, never fatter ones. The old band was `radius * 0.14` thick, which at a +229%
+  //     range build is a 185px slab, and no alpha makes a 185px slab read as a wave.
+  //  2. THE RIPPLES ARE CONTINUOUS, not one train per cast. Ink on screen is therefore a function of
+  //     the ripple pitch (fixed) and not of FIRE RATE. Measured, this is not optional: at +320% rate
+  //     the roar re-fires every 0.10s while its wave needs 0.34s to cross, so a per-cast train never
+  //     got past 30% of the way out before being replaced (probe read k=0.25, front=266px, every
+  //     single frame) — the effect sat permanently ON the player instead of passing over the field.
+  //
+  // Rings are STROKED, never filled as annuli. The `arc(ro) + arc(ri, reversed) + fill()` idiom used
+  // elsewhere in this file does not cut its hole at these ring counts: it composites as nested
+  // filled SECTORS, whose radial profile is a staircase stepping down once per ring with no gap ever
+  // reaching the floor (measured 157 units of ink at the centre decaying to 9 at the rim over 6
+  // steps — i.e. a solid orange disc). A stroke of width ROAR_RING_PX is a 20px ring by
+  // construction. If you ever reintroduce a filled band here, shoot it at a +200% range build first.
+  const ROAR_RING_PX = 20       // ring thickness, absolute px at every radius
+  const ROAR_GAP_PX = 35        // gap between rings — pitch is RING + GAP = 55px
+  const ROAR_RIPPLE_SPEED = 620 // px/s the ripple train travels outward — a look, not a stat
+  const ROAR_RIPPLE_ALPHA = 0.5 // peak per-ring alpha, mid-flight
+  let ripplePhase = 0           // shared outward travel, so a new cast does not restart the ripples
   function updateRoars(dt) {
     roarG.clear()
+    ripplePhase += dt * ROAR_RIPPLE_SPEED
+    // One cast drawn at a time. The ripple field is continuous and identical for every live cast, so
+    // a second one contributes nothing but opacity — its rings land exactly on the first one's.
+    const liveSorted = roars.filter((r) => r.live).sort((a, b) => a.t - b.t) // youngest first
+    for (let i = 1; i < liveSorted.length; i++) liveSorted[i].live = false
     for (const rp of roars) {
       if (!rp.live) continue
       if (dt > 0) rp.t += dt
@@ -10864,18 +10892,23 @@ export function createRenderer(app) {
       const roarStart = chapterHasKaiju ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
       const a0 = rp.angle - rp.arc / 2
       const a1 = rp.angle + rp.arc / 2
-      for (let i = 0; i < ROAR_BANDS; i++) {
-        // stagger: each band launches a beat later and expands from the mouth to exactly `range`
-        const ki = Math.min(1, Math.max(0, (k - i * 0.12) / 0.72))
-        if (ki <= 0) continue
-        const rOut = roarStart + Math.max(0, rp.range - roarStart) * ki
-        const rIn = Math.max(1, rOut - Math.max(ROAR_THICK_MIN, rOut * ROAR_THICK_FRAC))
-        const alpha = Math.sin(Math.PI * ki) * (0.8 - i * 0.16)
+
+      // Rings fade out over the last quarter of the cast's life, so when the player stops firing the
+      // field dies away instead of popping. Under sustained fire k never gets near 0.75.
+      const env = k > 0.75 ? (1 - k) / 0.25 : 1
+      // viewRadius from the renderer's OWN screen — main.js derives run.viewRadius from exactly this,
+      // and updateRoars takes only dt, so reading it here avoids threading `run` through. Past the
+      // screen edge there is no picture, only cost.
+      const viewR = Math.hypot(app.screen.width, app.screen.height) / 2
+      const period = ROAR_RING_PX + ROAR_GAP_PX
+      const edge = Math.min(rp.range, viewR + 40)
+      const span = Math.max(period, edge - roarStart)
+      for (let r = roarStart + ripplePhase % period; r <= edge; r += period) {
+        // Fade in off the mouth and out at the far edge — a ring must not blink into existence.
+        const f = (r - roarStart) / span
+        const alpha = ROAR_RIPPLE_ALPHA * Math.sin(Math.PI * Math.min(1, f * 1.2)) * env
         if (alpha <= 0.004) continue
-        // Annulus sector: out along the arc, back along the inner radius, closed. One filled band.
-        roarG.arc(rp.x, rp.y, rOut, a0, a1)
-          .arc(rp.x, rp.y, rIn, a1, a0, true)
-          .fill({ color: ROAR_COLORS[i], alpha })
+        roarG.arc(rp.x, rp.y, r, a0, a1).stroke({ width: ROAR_RING_PX, color: ROAR_COLOR, alpha })
       }
     }
   }
