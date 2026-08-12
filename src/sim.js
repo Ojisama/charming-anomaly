@@ -159,6 +159,7 @@ import {
   BLANK_SHOT_R, BLANK_SHOT_LIFE, BLANK_SHOT_TURN, BLANK_STANDOFF_DRIFT_MUL, BLANK_BOSS_DMG,
   BLANK_STANDOFF_CATCHUP_D, BLANK_STANDOFF_CATCHUP_MUL,
   BLANK_READ3_T, BLANK_LEAD, BLANK_BAND_LEN, BLANK_BAND_W, BLANK_BAND_FUSE, BLANK_BAND_T, BLANK_BAND_DPS,
+  BLANK_BAND_GROW,
   BLANK_DESPERATE_FRAC, BLANK_DESPERATE_MUL, BLANK_WAKE_DT, BLANK_WAKE_LEN, BLANK_WAKE_W, BLANK_WAKE_T,
   BLANK_WAKE_DPS, BLANK_MEMORY_T, BLANK_RECRUIT_T, BLANK_RECRUIT_N, BLANK_ACCEL_MUL,
   BLANK_BOSS_SPEED_P3, BLANK_PHASE_LEVELS, BLANK_FAN_N, BLANK_FAN_SPREAD, BLANK_FAN_SPEED,
@@ -1011,7 +1012,7 @@ function stepBossScript(run, dt) {
         run.strips.push({
           x: cx, y: cy, angle: a + da,
           len: BLANK_BAND_LEN, w: BLANK_BAND_W, fuse: BLANK_BAND_FUSE * accel, t: BLANK_BAND_T,
-          dps: BLANK_BAND_DPS, look: 'erase',
+          dps: BLANK_BAND_DPS, look: 'erase', grow: BLANK_BAND_GROW,
         })
       }
     }
@@ -3132,6 +3133,17 @@ function stepStrips(run, dt) {
     if (s.fuse > 0) { s.fuse -= dt; continue } // telegraph phase — no damage yet
     s.t -= dt
     if (s.t <= 0) continue
+    // `grow` (the blank's P3 star, BLANK_BAND_GROW): the strip reaches its authored length over
+    // `grow` seconds from the moment it goes live, expanding from its centre. The hitbox below IS
+    // the current length, so the arms SWEEP — the far end arrives a second after the near end,
+    // which is the whole point (a star that lands at full extent hits everyone at once). _lenFull
+    // is captured on the first live frame, so the length stays authored in exactly one place and
+    // the telegraph still draws at full extent during the fuse.
+    if (s.grow) {
+      s._lenFull ??= s.len
+      s._grown = (s._grown ?? 0) + dt
+      s.len = s._lenFull * Math.min(1, s._grown / s.grow)
+    }
     // Point-in-rotated-rectangle: project the player offset onto the strip's axis (along) and its
     // perpendicular (perp); inside iff within half the length/width on each.
     const dx = p.x - s.x, dy = p.y - s.y

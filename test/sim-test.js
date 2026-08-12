@@ -76,6 +76,7 @@ import {
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
+  BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
@@ -8221,7 +8222,9 @@ function testTheBlankPacing() {
       fanSeen = Math.max(fanSeen, run.enemyShots.length)
       if (run.enemyShots.some((s) => s.turnRate !== 0)) allStraight = false
     }
-    const bands = run.strips.filter((s) => s.look === 'erase' && s.len === BLANK_BAND_LEN)
+    // (_lenFull ?? len): a LIVE band is mid-sweep and shorter than the constant it was authored
+    // with (BLANK_BAND_GROW) — stepStrips stashes the authored length on the first live frame.
+    const bands = run.strips.filter((s) => s.look === 'erase' && (s._lenFull ?? s.len) === BLANK_BAND_LEN)
     assert(bands.length >= 2, `expected a cross (>= 2 full-length bands) within ${(BLANK_READ3_T + 1).toFixed(1)}s, got ${bands.length}`)
     const perp = Math.abs(Math.atan2(Math.sin(bands[0].angle - bands[1].angle), Math.cos(bands[0].angle - bands[1].angle)))
     assert(Math.abs(perp - Math.PI / 2) < 0.01, `expected the cross's bands ~90° apart, got ${(perp * 180 / Math.PI).toFixed(1)}°`)
@@ -8230,6 +8233,41 @@ function testTheBlankPacing() {
     const dAfter = Math.hypot(boss.x - run.player.x, boss.y - run.player.y)
     assert(dAfter < dBefore - 100, `expected the P3 boss to close on the player (${dBefore.toFixed(0)} -> ${dAfter.toFixed(0)}px)`)
     console.log(`PASS run HH.b-d (P3): chases at ${BLANK_BOSS_SPEED_P3} (${dBefore.toFixed(0)} -> ${dAfter.toFixed(0)}px), cross ${(perp * 180 / Math.PI).toFixed(0)}° apart, ${fanSeen}-shot straight fan`)
+  }
+
+  // (d2) The sweep (BLANK_BAND_GROW): a live band REACHES its authored length over `grow` seconds
+  // from its centre, so the far end of an arm arrives later than the near end — the fix for "the
+  // star hits too soon". Asserted as an EFFECT, not as a length: a player parked 120px out along a
+  // 320px band (i.e. 75% of the way to the tip) must not be touched until the arm has swept that
+  // far, where the same band without `grow` bites on its first tick. Driven through stepSim in the
+  // body chapter, whose only strip producer is this test — enemies spawn a screen away and cannot
+  // cross it inside the window, and are cleared each frame anyway.
+  {
+    const OUT = 120 // px from the band's centre, along its axis: 0.75 of the 160px half-length
+    const firstHitAt = (grow) => {
+      const run = createRun(makeMeta(), { chapter: 'body', difficulty: 1 })
+      run.player.hp = run.player.maxHP = 1e6
+      run.weapons = []
+      const p = run.player
+      run.strips.push({
+        x: p.x - OUT, y: p.y, angle: 0, len: BLANK_BAND_LEN, w: BLANK_BAND_W,
+        fuse: 0, t: 3, dps: BLANK_BAND_DPS, look: 'erase', ...(grow ? { grow } : {}),
+      })
+      const hp0 = run.player.hp
+      for (let i = 1; i <= Math.round(2.5 / dt) && run.phase === 'playing'; i++) {
+        run.enemies.length = 0
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.player.hp < hp0) return i * dt
+      }
+      return Infinity
+    }
+    const swept = firstHitAt(BLANK_BAND_GROW)
+    const instant = firstHitAt(0)
+    // The arm needs grow x 0.75 to reach OUT, then one STATUS_TICK inside it to land a tick.
+    const expect = BLANK_BAND_GROW * (OUT / (BLANK_BAND_LEN / 2)) + STATUS_TICK
+    assert(Math.abs(swept - expect) < 0.05, `expected a growing band to reach 120px out at ~${expect.toFixed(2)}s, first hit landed at ${swept.toFixed(2)}s`)
+    assert(instant <= STATUS_TICK + 0.02, `expected the same band without grow to bite on its first tick (~${STATUS_TICK}s), got ${instant.toFixed(2)}s`)
+    console.log(`PASS run HH.d2 (the star sweeps): 120px out along the arm, a growing band first bit at ${swept.toFixed(2)}s vs ${instant.toFixed(2)}s ungrown — ${(swept - instant).toFixed(2)}s of extra warning at that range`)
   }
 
   // (e) P3 recruit faucet: idling in the duel keeps spawning mixed fodder — after 10s there are
@@ -9264,7 +9302,7 @@ function testTheBlankDifficulty() {
     Object.assign(run.script, { stage: 5, waveIdx: 0, waveT: 0, spawned: false, bossId: null })
     stepSim(run, { x: 0, y: 0 }, dt) // spawns antibody3
     advance(run, BLANK_READ3_T * BLANK_ACCEL_MUL + 1, dt, { x: 0, y: 0 })
-    const bands = run.strips.filter((s) => s.look === 'erase' && s.len === BLANK_BAND_LEN)
+    const bands = run.strips.filter((s) => s.look === 'erase' && (s._lenFull ?? s.len) === BLANK_BAND_LEN)
     assert(bands.length > 0, 'expected P3 star/cross bands to appear within the window')
     assert(bands.every((s) => s.variant === undefined), "expected the boss's own P3 bands to carry NO variant tag")
     console.log(`PASS run LL.g.3 (boss bands untagged): ${bands.length} P3 bands, none tagged variant`)

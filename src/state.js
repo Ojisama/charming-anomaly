@@ -917,7 +917,7 @@ function generateWells(sig) {
  *   (stepEnemyMovement, NOT elite-gated) and by the lure's stickyScent mod on burst. While the
  *   player stands in any web, stepPlayerMovement multiplies move speed by WEB_SLOW_MUL (stacking
  *   with the latch debuff via MIN, not multiply). t counts down; removed once t <= 0 (stepWebs).
- * strips[i]: { x, y, angle, len, w, fuse, t, dps, look:'erase', variant? } — telegraphed
+ * strips[i]: { x, y, angle, len, w, fuse, t, dps, look:'erase', variant?, grow? } — telegraphed
  *   rectangular hazard strips. v6.6.14: the Blank is now the ONLY producer (P3's erasure bands, the
  *   eraser flag's wake, and immuneMemory death residue — the last two tagged variant:'residue'),
  *   so every live strip carries look:'erase'. The garden's pesticide spray used to feed this too
@@ -925,6 +925,11 @@ function generateWells(sig) {
  *   counts down first with NO damage; once fuse <= 0 the strip is live and t counts down while it
  *   ticks dot-flagged {type:'hurt', dmg, dot:true} damage every STATUS_TICK to the player inside
  *   the rotated rectangle (stepStrips), same DoT contract as run.pools. Removed once fuse<=0 && t<=0.
+ *   `grow` (seconds, optional — P3's star passes BLANK_BAND_GROW) makes the strip REACH its authored
+ *   len over that long once live, expanding from its centre: stepStrips stashes the authored value
+ *   in _lenFull on the first live frame and rewrites len every frame after, so both the hitbox and
+ *   render.js's rectangle sweep outward. Anything reading len to identify a strip must therefore
+ *   read (_lenFull ?? len) — a live growing band is shorter than the constant it was authored with.
  * lures[i]: { x, y, t, dur, aggro, burstR, burstDmg, sticky } — Pheromone Lure decoys (garden
  *   weapon). Enemies within `aggro` of a lure path to it instead of the player (stepEnemyMovement).
  *   t ages to dur, then the lure BURSTS: player-scaled AoE damage (applyDamage) to enemies within
