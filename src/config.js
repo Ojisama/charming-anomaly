@@ -3105,8 +3105,9 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
 export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
 
-// End-of-run coin bonus
-export const runBonusCoins = (kills) => Math.floor(kills / 10)
+// End-of-run coin bonus: sqrt(kills) + level reached (owner directive). The sqrt flattens the
+// kill term so a long farm run can't outrun a short deep one, and levelling is paid directly.
+export const runBonusCoins = (kills, level = 1) => Math.floor(Math.sqrt(Math.max(0, kills)) + level)
 
 // v6.4.2 (owner directive): a single run banks at most this many coins. Clamped at BOTH ends:
 // the standing run.coinsEarned counter (stepPickups, sim.js — rerolls spend it down and it can

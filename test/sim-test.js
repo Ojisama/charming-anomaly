@@ -94,7 +94,7 @@ import {
   // v6.4.1/v6.4.3 early-calm (Run OO)
   EARLY_CALM,
   // v6.4.2 coin cap (Run PP)
-  COIN_CAP_PER_RUN,
+  COIN_CAP_PER_RUN, runBonusCoins,
   // v6.4.3 opening spawn credit (Run QQ)
   SPAWN_OPENING_CREDIT,
   // v6.5.1 enemy separation (Run UU)
@@ -10279,6 +10279,19 @@ function testCoinCap() {
     assert.strictEqual(run.coinsEarned, COIN_CAP_PER_RUN,
       `expected run.coinsEarned to re-earn back up to COIN_CAP_PER_RUN (${COIN_CAP_PER_RUN}) exactly, got ${run.coinsEarned}`)
     console.log(`PASS run PP.b (coin cap re-earn after spend): coinsEarned=${run.coinsEarned}`)
+  }
+
+  // (c) the end-of-run bonus is floor(sqrt(kills) + level). The `level` argument DEFAULTS to 1, so
+  // a caller that forgets to pass it still returns a plausible number and nothing throws — grep
+  // main.js's one call site (run UG.k's trick) rather than trusting the formula alone.
+  {
+    assert.strictEqual(runBonusCoins(400, 25), 45, 'runBonusCoins(400, 25) should be sqrt(400)+25 = 45')
+    assert.strictEqual(runBonusCoins(0, 1), 1, 'a level-1 run with no kills still banks its level')
+    assert.ok(runBonusCoins(100, 10) > runBonusCoins(100, 5), 'the level term must move the bonus')
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/runBonusCoins\(run\.kills,\s*run\.player\.level\)/.test(src),
+      'endRun (main.js) must pass run.player.level to runBonusCoins — the default of 1 hides the omission')
+    console.log('PASS run PP.c (end-of-run bonus): floor(sqrt(kills) + level), and main.js forwards the level')
   }
 
   console.log('PASS run PP (v6.4.2 coin cap): run.coinsEarned clamps to COIN_CAP_PER_RUN on pickup and re-earns back up to it (never past) after a mid-run spend')
