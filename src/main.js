@@ -150,6 +150,13 @@ const ui = initUI({
     setLang(l)
     playSfx('click')
   },
+  // Which side the skill button sits on ('left' is the right-handed default — see the .skill-btn
+  // block in styles.css). Persist only; ui.js owns moving the element, same split as onLang.
+  onSkillSide(side) {
+    meta.skillSide = side
+    saveMeta(meta)
+    playSfx('click')
+  },
   onBuy(id) {
     const level = meta.shop[id]
     const cost = shopCost(id, level)

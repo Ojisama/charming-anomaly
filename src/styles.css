@@ -1584,9 +1584,12 @@ body {
    thumb lives on the stick and the right one has nothing to do until now. .screen--hud is
    pointer-events:none (it is a full-screen div that would otherwise eat every tap), so this needs
    its own `auto` back — same as .btn-pause. */
+/* Sits on the LEFT by default, which is the right-handed layout: the joystick is FLOATING (it
+   appears wherever you touch), so the dominant thumb takes movement — the continuous, precise
+   input — and the off thumb taps the button. meta.skillSide flips it for left-handed players. */
 .skill-btn {
   position: absolute;
-  right: 22px;
+  left: 22px;
   bottom: 34px;
   width: 78px;
   height: 78px;
@@ -1603,6 +1606,7 @@ body {
   transition: opacity 0.15s, transform 0.1s, border-color 0.15s;
 }
 .skill-btn--hidden { display: none; }
+.skill-btn--right { left: auto; right: 22px; }
 /* Ready is the loud state: full opacity and a lit rim. On cooldown it is deliberately dim and
    un-pressable-looking, so readiness is legible from peripheral vision mid-run. */
 .skill-btn--ready {

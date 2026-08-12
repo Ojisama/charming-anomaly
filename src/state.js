@@ -264,6 +264,9 @@ export function loadMeta() {
       // the `??= 2` this replaces and turns a tampered value into 2 rather than NaN.
       m.choiceSlots = Math.max(2, Number(m.choiceSlots) || 2)
       m.lang ??= 'en' // v6.1 i18n: display language, read once at boot (main.js -> i18n.setLang)
+      // Which side of the screen the skill button sits on. 'left' is the right-handed default —
+      // see the .skill-btn block in styles.css for why the button goes to the OFF hand.
+      m.skillSide = m.skillSide === 'right' ? 'right' : 'left'
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
       // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
@@ -285,6 +288,7 @@ export function loadMeta() {
     chapter: 'body',
     chapters: {},
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
+    skillSide: 'left', // right-handed default (see the loadMeta migration above)
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
