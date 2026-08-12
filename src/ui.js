@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -1009,6 +1009,20 @@ export function initUI(hooks) {
           <b class="chaos-vrail-bonus" data-chaos-bonus></b>
         </span>
       </div>
+      <!-- v7.x Book 2: the chapter RESOURCE rail (CHAPTERS[].resource — The Shelf's Light). Reuses
+           the chaos rail's markup and CSS wholesale, which is the owner's call: the game already
+           has one vertical battery and a second one should read as the same kind of object rather
+           than a new invention. It sits on the LEFT, opposite chaos, because that is the side the
+           skill button is on by default — the bar is that button's ammo and nothing else, so
+           putting them on the same thumb says so without a label. (meta.skillSide can move the
+           button to the right; the rail stays put, since it is a readout, not a control, and it is
+           parked well above the button either way.) -->
+      <div class="chaos-wrap" data-charge style="display:none;">
+        <span class="chaos-vrail chaos-vrail--charge">
+          <b class="chaos-vrail-num" data-charge-text></b>
+          <span class="chaos-vrail-track"><i data-charge-fill></i></span>
+        </span>
+      </div>
       <!-- v5.24: The Blank's boss HP bar; v6.0.0 it spans the full hud-top row (grid-column
            1/-1) and IS the phase readout — the timer slot goes blank while a boss is up. Reuses
            .rampage-bar/.rampage-fill classes for chrome (border/radius/background); ui.js doesn't
@@ -1025,7 +1039,7 @@ export function initUI(hooks) {
       <div class="xp-bar"><div class="xp-fill"></div></div>
     </div>
     <div class="weapon-row"></div>
-    <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Repulse">
+    <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Pulse">
       <span class="skill-btn-glyph">☉</span>
       <span class="skill-btn-cd"></span>
     </button>
@@ -1046,6 +1060,7 @@ export function initUI(hooks) {
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
+    chargeWrap: screens.hud.querySelector('[data-charge]'),
   }
   // The button's side is a PREFERENCE, not per-frame state, so it is applied once at boot and again
   // when the setting changes — deliberately NOT from updateHUD, which runs every frame and already
@@ -1067,6 +1082,7 @@ export function initUI(hooks) {
     // are cached and only the rail's height is repainted every frame — a per-frame textContent
     // write is the expensive half.
     chaosShown: undefined, chaosSecs: -1, chaosBonus: -1,
+    chargeShown: undefined, chargeNum: -1, chargeArmed: undefined,
   }
 
   function updateHUD(run, events) {
@@ -1104,7 +1120,10 @@ export function initUI(hooks) {
     // v5.21: the Repulsion button, shown only for `lane` chapters. Gated on the chapter flag rather
     // than on repulseCd for the same reason the rampage bar above is — a cooldown that merely
     // happens to be 0 is not a signal that the chapter HAS the skill.
-    const laneChapter = CHAPTERS[run.chapter].lane === true
+    // v7.x: the button belongs to any chapter with the cast, which is now lane chapters AND any
+    // chapter declaring a resource (sim.js's stepRepulse gates on exactly this same pair — if the
+    // two ever disagree you get a button with no cast, or a cast with no button).
+    const laneChapter = CHAPTERS[run.chapter].lane === true || !!CHAPTERS[run.chapter].resource
     if (laneChapter !== last.laneChapter) {
       last.laneChapter = laneChapter
       hud.skillBtn.classList.toggle('skill-btn--hidden', !laneChapter)
@@ -1218,6 +1237,38 @@ export function initUI(hooks) {
     }
     if (chaosOn) paintChaos(chaosStatus(run.time))
 
+    // ---- chapter RESOURCE rail (v7.x Book 2) ---------------------------------------------
+    // Shown only for a chapter that declares one, so every shipped chapter's HUD is untouched.
+    const res = CHAPTERS[run.chapter].resource
+    if (!!res !== last.chargeShown) {
+      last.chargeShown = !!res
+      hud.chargeWrap.style.display = res ? '' : 'none'
+    }
+    if (res) paintCharge(run.charge, res.max)
+  }
+
+  // The RESOURCE rail's per-frame paint, modelled on paintChaos below — refs looked up once (the
+  // HUD markup is written exactly once at boot, so they cannot go stale) and every text write
+  // guarded by a cache, because the textContent write is the expensive half of a per-frame readout.
+  let chargeRefs = null
+  function paintCharge(charge, max) {
+    if (!chargeRefs) {
+      const q = (sel) => hud.chargeWrap.querySelector(sel)
+      chargeRefs = { text: q('[data-charge-text]'), fill: q('[data-charge-fill]') }
+    }
+    const frac = max > 0 ? Math.max(0, Math.min(1, charge / max)) : 0
+    chargeRefs.fill.style.height = `${frac * 100}%`
+    // Two readouts from one bar, because the quantity alone does not answer the only question the
+    // player actually asks: the NUMBER is how much light is left, and the ARMED state is whether
+    // the next press is a full-strength Pulse or the floor shove. A player reading only the height
+    // cannot tell where the threshold is, and PULSE_CHARGE_COST is not a round fraction of max.
+    const armed = charge >= PULSE_CHARGE_COST
+    if (armed !== last.chargeArmed) {
+      last.chargeArmed = armed
+      hud.chargeWrap.classList.toggle('charge--armed', armed)
+    }
+    const n = Math.round(charge)
+    if (n !== last.chargeNum) { last.chargeNum = n; chargeRefs.text.textContent = `${n}` }
   }
 
   // The CHAOS PACT rail's per-frame paint. Refs are looked up once — the HUD markup is written

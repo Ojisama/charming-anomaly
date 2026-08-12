@@ -71,6 +71,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -4435,6 +4436,224 @@ function runBooks() {
   console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
 }
 runBooks()
+
+// ---- Run BL: The Shelf's mechanic (v7.x, Book 2 phase 2) --------------------------------
+// The bar, the shafts and the amplified Pulse. Every failure this guards is SILENT: a frozen shaft
+// field looks correct in any still frame, a resource that leaks into other chapters shows up as
+// balance drift nobody attributes to it, and a pulse whose event lies about its radius draws the
+// wrong ring around a real shove.
+function runShelf() {
+  const shelfMeta = () => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+    chapters: Object.fromEntries([...CHAPTER_ORDER, 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
+  })
+  const res = CHAPTERS.shelf.resource
+  const sig = CHAPTERS.shelf.signature
+  const mkRun = (seed = 20260812, opts = {}) => {
+    Math.random = mulberry32(seed)
+    return createRun(shelfMeta(), { chapter: 'shelf', difficulty: 1, ...opts })
+  }
+  // Step without any of stepSim's other machinery mattering: no input, no skill.
+  const idle = { x: 0, y: 0, skill: false }
+  // createRun does NOT stream — the field is materialized by the first stepSim, so every assertion
+  // about shafts needs one step first. (The first cut of this run asserted on a fresh run and read
+  // "expected shafts, or this measures nothing", which is that guard doing its job.)
+  const warm = (run) => { stepSim(run, idle, 1 / 60); run.events.length = 0; return run }
+
+  // (a) The bar drains at the configured rate, and clamps at zero rather than going negative.
+  {
+    const run = mkRun()
+    run.charge = res.max
+    // Park the player far from every shaft so ONLY the drain is measured — standing in one would
+    // net the two effects together and the test would pass for any pair of numbers that cancelled.
+    run.shafts.length = 0
+    const before = run.charge
+    for (let i = 0; i < 60; i++) { run.shafts.length = 0; stepSim(run, idle, 1 / 60); run.events.length = 0 }
+    const dropped = before - run.charge
+    // Kills refill too, and a step spawns enemies a weapon may kill, so this is a band not an equality.
+    assert.ok(dropped > res.drain * 0.5 && dropped <= res.drain * 1.5 + 0.01,
+      `one second of drain should be about ${res.drain}, got ${dropped.toFixed(3)}`)
+    run.charge = 0.001
+    for (let i = 0; i < 120; i++) { run.shafts.length = 0; stepSim(run, idle, 1 / 60); run.events.length = 0 }
+    assert.ok(run.charge >= 0, `charge clamps at zero, got ${run.charge}`)
+  }
+
+  // (b) Standing in a shaft refills, and the bar clamps at max rather than growing forever.
+  {
+    const run = warm(mkRun())
+    run.charge = 0
+    assert.ok(run.shafts.length > 0, 'expected shafts to stream around the origin, or (b) measures nothing')
+    const sh = run.shafts[0]
+    run.player.x = sh.x; run.player.y = sh.y
+    for (let i = 0; i < 30; i++) {
+      const s0 = run.shafts[0]
+      run.player.x = s0.x; run.player.y = s0.y   // follow the drift, so the player stays inside
+      stepSim(run, idle, 1 / 60); run.events.length = 0
+    }
+    assert.ok(run.charge > 0, 'standing in a shaft must refill the bar')
+    run.charge = res.max
+    for (let i = 0; i < 60; i++) {
+      const s0 = run.shafts[0]
+      run.player.x = s0.x; run.player.y = s0.y
+      stepSim(run, idle, 1 / 60); run.events.length = 0
+    }
+    assert.ok(run.charge <= res.max + 1e-9, `charge clamps at max ${res.max}, got ${run.charge}`)
+  }
+
+  // (c) THE ONE THAT CATCHES A MISSING stepShafts. A shaft must MOVE between two frames with no
+  // cell crossing. streamShafts early-returns unless the player changes cell, so a build that
+  // relies on the streamer alone computes each position once per materialization and never again —
+  // and nothing looks broken, because render re-places from the list every frame and would draw the
+  // frozen field perfectly. The player is held still on purpose: that guarantees no cell crossing.
+  {
+    const run = warm(mkRun())
+    assert.ok(run.shafts.length > 0, 'expected shafts, or (c) measures nothing')
+    const id = run.shafts[0]._cell
+    const x0 = run.shafts[0].x, y0 = run.shafts[0].y
+    const ci = run._shaftCellI, cj = run._shaftCellJ
+    for (let i = 0; i < 30; i++) { stepSim(run, idle, 1 / 60); run.events.length = 0 }
+    const same = run.shafts.find((sh) => sh._cell === id)
+    assert.ok(same, 'the shaft streamed out mid-test — (c) needs the SAME shaft on both frames')
+    assert.strictEqual(run._shaftCellI, ci, 'the player must not have crossed a cell, or (c) proves nothing')
+    assert.strictEqual(run._shaftCellJ, cj, 'the player must not have crossed a cell, or (c) proves nothing')
+    const moved = Math.hypot(same.x - x0, same.y - y0)
+    assert.ok(moved > 1, `a shaft must DRIFT between frames with no cell crossing — moved ${moved.toFixed(3)}px in half a second`)
+    // ...and it drifts around its streamed BASE, never wandering off: the offset is exactly driftAmp.
+    const off = Math.hypot(same.x - same.bx, same.y - same.by)
+    assert.ok(Math.abs(off - sig.driftAmp) < 1e-6, `drift offset must be exactly driftAmp (${sig.driftAmp}), got ${off.toFixed(4)}`)
+  }
+
+  // input.js needs a DOM and cannot be imported here, so its DEADZONE is mirrored as a literal.
+  // If input.js ever changes it, (d)'s floor goes stale silently — hence the grep below it.
+  const DEADZONE_FOR_TEST = 0.15
+  // (d) Peak drift speed sits inside the band the tune has to respect: above the joystick's minimum
+  // non-zero speed (DEADZONE x baseSpeed) so the player can follow it, and below KITE_MIN_SPEED so
+  // chasing the light does not also recycle the horde onto it.
+  {
+    const peak = sig.driftAmp * sig.driftHz
+    const floor = DEADZONE_FOR_TEST * PLAYER.baseSpeed
+    assert.ok(peak > floor, `peak drift ${peak} must exceed the joystick floor ${floor} px/s`)
+    assert.ok(peak < KITE_MIN_SPEED, `peak drift ${peak} must stay under KITE_MIN_SPEED ${KITE_MIN_SPEED} px/s`)
+  }
+
+  // (e) Drift is derived from run._realTime, NOT run.time. The Time Debt anomaly advances run.time
+  // at 1.5x and its `chapter` is null, so it rolls here — a run.time-derived drift would be 50%
+  // faster under one anomaly and would breach the ceiling asserted in (d) without any config change.
+  {
+    const a = warm(mkRun())
+    const b = warm(mkRun())
+    // +37, not something huge: run.time >= RUN_DURATION (300) flips the run to 'victory' and
+    // stepSim returns before it ever reaches stepShafts, so a big offset makes this vacuous from
+    // the other direction. 37s is 25.9 rad of drift phase, nowhere near a multiple of 2pi.
+    b.time = a.time + 37            // desynchronise the two clocks...
+    b._realTime = a._realTime       // ...while holding the one drift is supposed to use
+    // A REAL dt, not 0: stepSim does not reach stepShafts on a zero step, so a dt of 0 makes this
+    // whole check vacuous — it passed against a deliberately broken build until the mutation run
+    // caught it. Both runs advance _realTime by the same amount, so the clock drift stays isolated.
+    for (const r of [a, b]) { stepSim(r, idle, 1 / 60); r.events.length = 0 }
+    assert.strictEqual(a.shafts.length, b.shafts.length, 'same seed must stream the same field')
+    for (let i = 0; i < a.shafts.length; i++) {
+      assert.ok(Math.abs(a.shafts[i].x - b.shafts[i].x) < 1e-9 && Math.abs(a.shafts[i].y - b.shafts[i].y) < 1e-9,
+        'shaft drift must ignore run.time entirely — it reads run._realTime (Time Debt advances run.time at 1.5x)')
+    }
+  }
+
+  // (f) Streaming is deterministic AND consumes no RNG. Two runs on the same seed produce the same
+  // field; and re-running with Math.random replaced by a constant that would change every draw
+  // leaves the field byte-identical, which a hash-based streamer must and an RNG-based one cannot.
+  {
+    const a = warm(mkRun(4242))
+    const b = warm(mkRun(4242))
+    assert.deepStrictEqual(a.shafts.map((sh) => sh._cell), b.shafts.map((sh) => sh._cell), 'same seed must stream the same cells')
+    const c = warm(mkRun(4242))
+    const saved = Math.random
+    Math.random = () => 0.999999      // any shaft roll reading this would move every position
+    c.player.x += sig.cell * 1.5      // force a cell crossing, so the streamer actually re-scans
+    stepSim(c, idle, 1 / 60); c.events.length = 0
+    Math.random = saved
+    const d = warm(mkRun(4242))
+    d.player.x += sig.cell * 1.5
+    Math.random = () => 0.000001
+    stepSim(d, idle, 1 / 60); d.events.length = 0
+    Math.random = saved
+    // `phase` is in the key deliberately: without it this compared only bx/by and an RNG-drawn
+    // phase passed clean, which is exactly what the mutation run found. Every field the streamer
+    // derives from the cell hash belongs here.
+    const key = (sh) => `${sh._cell}:${sh.bx.toFixed(4)},${sh.by.toFixed(4)},${sh.phase.toFixed(6)}`
+    assert.deepStrictEqual(c.shafts.map(key),
+                           d.shafts.map(key),
+      'shaft streaming must consume ZERO Math.random at step time — two opposite RNG stubs gave different fields')
+  }
+
+  // (g) R2's guard: a chapter that declares no resource is BIT-FOR-BIT unaffected. This is the
+  // reason the whole mechanic can sit in main with no feature flag, and it is the assertion that
+  // fails the moment stepCharge or streamShafts forgets its early-out.
+  {
+    const other = () => {
+      Math.random = mulberry32(777)
+      const m = shelfMeta()
+      const r = createRun(m, { chapter: 'pond', difficulty: 1 })
+      for (let i = 0; i < 240; i++) { stepSim(r, { x: 0.5, y: 0.3, skill: true }, 1 / 60); r.events.length = 0 }
+      return r
+    }
+    const r = other()
+    assert.strictEqual(r.charge, 0, 'a chapter with no resource must never accrue charge')
+    // A chapter with no resource must not have its charge TOUCHED, which is stronger than "stays
+    // zero": pond starts at 0 and a drain clamps at 0, so a stepCharge that lost its early-out
+    // still measured 0 and passed. Park a value in there and require it to be exactly untouched.
+    r.charge = 50
+    for (let i = 0; i < 120; i++) { stepSim(r, { x: 0.5, y: 0.3, skill: true }, 1 / 60); r.events.length = 0 }
+    assert.strictEqual(r.charge, 50, 'stepCharge must early-out entirely for a chapter with no resource, not merely clamp to zero')
+    assert.strictEqual(r.shafts.length, 0, 'a chapter with no shafts signature must stream none')
+    assert.strictEqual(r._shaftCellI, undefined, 'the shaft cell cursor must never be written outside a shafts chapter')
+  }
+
+  // (h) The Pulse. An EMPTY bar still fires the shipped v5.21 shove — the floor that stops the
+  // spiral where having no charge prevents you from earning charge — and a full spend scales both
+  // radius and force. The EVENT must carry the SCALED radius: render draws both rings at e.r under
+  // a comment saying a burst that lies about its reach makes the cooldown feel arbitrary.
+  {
+    const empty = mkRun()
+    empty.charge = 0
+    empty.repulseCd = 0
+    stepSim(empty, { x: 0, y: 0, skill: true }, 1 / 60)
+    const e0 = empty.events.find((e) => e.type === 'repulse')
+    assert.ok(e0, 'an empty bar must still fire the Pulse')
+    assert.ok(Math.abs(e0.r - REPULSE_RADIUS) < 1e-9, `an empty bar fires at the shipped floor ${REPULSE_RADIUS}, got ${e0.r}`)
+    assert.strictEqual(empty.charge, 0, 'an empty bar spends nothing')
+
+    const full = mkRun()
+    full.charge = res.max
+    full.repulseCd = 0
+    stepSim(full, { x: 0, y: 0, skill: true }, 1 / 60)
+    const e1 = full.events.find((e) => e.type === 'repulse')
+    assert.ok(e1, 'a full bar must fire the Pulse')
+    assert.ok(Math.abs(e1.r - PULSE_RADIUS_AT_FULL) < 1e-9,
+      `a full spend must PUSH the scaled radius ${PULSE_RADIUS_AT_FULL}, got ${e1.r} — pushing the constant draws the floor ring around a bigger shove`)
+    // The same step also applies one frame of DRAIN, so subtract it rather than widening the band:
+    // a tolerance big enough to swallow the drain would also swallow a 3% error in the cost itself.
+    const spend = res.max - full.charge - res.drain / 60
+    assert.ok(Math.abs(spend - PULSE_CHARGE_COST) < 0.01,
+      `a full spend costs exactly ${PULSE_CHARGE_COST} (net of one frame's drain), measured ${spend.toFixed(4)}`)
+    assert.ok(e1.r > e0.r, 'a charged pulse must reach further than an empty one, or the bar buys nothing')
+  }
+
+  // (i) The Beyond is untouched. It declares no resource, so its t is 0 forever and its pulse must
+  // be byte-identical to the shipped one — the lane chapter shares this function and nothing else.
+  {
+    Math.random = mulberry32(31337)
+    const lane = createRun(shelfMeta(), { chapter: 'beyond', difficulty: 1 })
+    lane.repulseCd = 0
+    stepSim(lane, { x: 0, y: 0, skill: true }, 1 / 60)
+    const ev = lane.events.find((e) => e.type === 'repulse')
+    assert.ok(ev, 'The Beyond must still fire its repulse')
+    assert.ok(Math.abs(ev.r - REPULSE_RADIUS) < 1e-9, `The Beyond's pulse stays at ${REPULSE_RADIUS}, got ${ev.r}`)
+    assert.strictEqual(lane.charge, 0, 'The Beyond has no resource and must never accrue charge')
+  }
+
+  console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
+}
+runShelf()
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —

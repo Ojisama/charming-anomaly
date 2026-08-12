@@ -19,6 +19,14 @@ node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]   # phone-viewp
 node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14
                                      # reproducible in-game frames of ONE effect, for A/B-ing a look
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
+node scripts/charge-probe.mjs        # what a chapter RESOURCE bar (The Shelf's Light) actually does
+                                     # over real 300s runs, under THREE spend policies. One policy
+                                     # cannot tell "the bar cannot fill" from "this player spent it
+                                     # all" — a greedy player pins the bar at zero under every tune
+                                     # there is, which is what the first cut of this probe reported.
+                                     # Rig is immortal + KITING and accepts level-ups: two earlier
+                                     # cuts printed full-looking tables for a 36s and a 100s run
+                                     # (exited at the first level-up; then died).
 node scripts/weapon-census.mjs       # what a weapon actually DOES over real runs, headless
                                      #   --chapter city --level 5 --weapons sewerGeyser --mods launch=1
                                      # raw vs EFFECTIVE dps, overkill waste, kills/min, hits/s, and a

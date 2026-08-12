@@ -1697,6 +1697,21 @@ body {
   align-items: flex-end;   /* frac drains 1 -> 0, so a bottom-anchored fill SINKS as the wave nears */
 }
 .chaos-vrail-track i { width: 100%; background: #8f7bff; border-radius: 999px; }
+/* v7.x Book 2: the chapter RESOURCE rail — the same battery, mirrored to the LEFT so it sits on the
+   same thumb as the skill button whose ammo it is. Only the position and the colour differ; every
+   size, radius and chip rule above is shared, which is the point of reusing the markup. */
+.chaos-vrail--charge { left: 16px; right: auto; }
+/* Amber, deliberately not the violet/red the chaos rail owns: two batteries on screen at once must
+   never be told apart by position alone, since a left-handed player moves the button, not the rail. */
+.chaos-vrail--charge .chaos-vrail-track i { background: #ffb347; }
+.chaos-vrail--charge .chaos-vrail-num { color: #ffe0b0; }
+/* Armed = the next press is a full-strength Pulse rather than the floor shove. A brightness step,
+   not a hue step: the bar is still the same resource, and PULSE_CHARGE_COST is not a round fraction
+   of max, so the height alone cannot show where the threshold is. */
+.charge--armed .chaos-vrail-track { border-color: rgba(255, 220, 150, 0.75); }
+.charge--armed .chaos-vrail-track i { background: #ffe9a8; }
+.charge--armed .chaos-vrail-num { background: rgba(70, 46, 12, 0.92); color: #fff3d0; }
+
 /* live wave: violet -> red. Never colour ALONE — the seconds chip is the other half. */
 .chaos--on .chaos-vrail-track { border-color: rgba(255, 166, 148, 0.6); }
 .chaos--on .chaos-vrail-track i { background: #ff6b52; }

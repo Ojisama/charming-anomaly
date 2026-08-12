@@ -807,6 +807,19 @@ function generateWells(sig) {
  *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
+ * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2 (The Shelf): streamed pools of light
+ *   the player stands in to refill `charge`. Same _obstacleSeed cell-hash idiom as eddies above,
+ *   own salts (20 occupancy, 21 x jitter, 22 y jitter, 23 drift phase) and own _shaftCellI/
+ *   _shaftCellJ cursor. Gated on CHAPTERS[chapter].signature.type === 'shafts' ([] everywhere
+ *   else). UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
+ *   early-returns unless the player crossed a cell boundary, so it structurally cannot move
+ *   anything — stepShafts does that every frame. bx/by are the streamed BASE position and x/y the
+ *   drifted one; drift is a pure function of run._realTime and `phase`, storing no state and
+ *   consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
+ * charge: number — the chapter resource bar (CHAPTERS[chapter].resource; The Shelf's 'Light').
+ *   Drains passively, refills inside a shaft and per kill, clamped to [0, resource.max]. It is
+ *   the Pulse's AMMO and nothing else: it scales no damage, fire rate or speed, and an empty bar
+ *   still fires the shipped REPULSE_* shove. 0 and untouched in every chapter without a resource.
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
  *   random()) folded into stepCurrents' sine-sum field so two runs of the same currents chapter
  *   don't drift identically.
@@ -1447,6 +1460,15 @@ export function createRun(meta, opts = {}) {
     // chapter carries the field, but only a 'currents' signature with a sig.eddies block ever
     // populates it.
     eddies: [],
+    // v7.x Book 2: sun shafts (sim.js streamShafts/stepShafts), the same _obstacleSeed streaming
+    // idiom as obstacles/eddies above with its OWN salts and its OWN cell cursor. Unconditional
+    // like eddies, so every chapter carries the field, but only a 'shafts' signature ever fills it.
+    shafts: [],
+    // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf only). Starts FULL: the
+    // first minute of a run should teach the drain, not open on an empty bar the player has not
+    // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
+    // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
+    charge: CHAPTERS[chapter].resource?.max ?? 0,
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which
