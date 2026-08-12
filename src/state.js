@@ -568,7 +568,8 @@ function generateWells(sig) {
  *                 one tank per chapter) are never feared or knocked back at all — see resistsCC.
  *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
  *                 damage (knockback still carries it). Applied by the Burst Hydrant's launch mod,
- *                 the Roar's stagger mod (see HYDRANT_STUN/ROAR_STUN in config.js), and (v6.4) a
+ *                 the Roar's stagger mod (HYDRANT_STUN, and STAGGER_STUN_PER_PICK — the stagger
+ *                 bonus IS the duration in seconds, there is no second multiplier), and (v6.4) a
  *                 detonating mine (MINE_STUN, sim.js's detonateMine) against every non-ghosted
  *                 enemy in its blast radius.
  *               allyT (s of loan remaining) — SUBMISSION anomaly: while > 0 this enemy is YOURS.

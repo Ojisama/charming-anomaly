@@ -725,7 +725,7 @@ const CONFIG = {
   'Short Breath': 'Souffle Court',
   'roar rate': 'cadence du rugissement',
   'Stagger': 'Chancellement',
-  'stun on roared foes': 'étourdissement des ennemis touchés par le rugissement',
+  'stuns roared foes for {n}s': 'étourdit les ennemis touchés pendant {n} s',
   'Resonance': 'Résonance',
   'every 3rd roar goes all around': 'un rugissement sur 3 part dans toutes les directions',
   'Heavy Tail': 'Queue Lourde',

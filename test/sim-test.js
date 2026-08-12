@@ -11,6 +11,7 @@ import {
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
+  CHAPTER_LATE_ELITE, lateEliteFor,
   ANOMALIES, ANOMALY_MIN_LEVEL, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP,
   MAX_ANOMALIES_PER_RUN, hasWeaponAt,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R, MINIME_INTERVAL, CHAOS_PACT_DMG_PER_WAVE,
@@ -66,7 +67,7 @@ import {
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL, FEAR_REFRACTORY,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
-  ROAR_RESONANCE_EVERY, PULSAR_ARMS,
+  ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
@@ -75,7 +76,7 @@ import {
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
-  BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL,
+  BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -383,6 +384,80 @@ function testChapterLateRate() {
     'exactly ONE hpScale call may take a rate (spawnEnemy). The snap-trap and core-blast sites are enemy-side damage: scaling those with the ladder buffs the player in late chapters.')
 
   console.log(`PASS run PB6 (chapter tail): body ${bodyEnd.toFixed(1)}x -> beyond ${beyondEnd.toFixed(1)}x at t=300, inert before ${HP_SCALE_LATE_START}s, wired at exactly one site`)
+
+  // ---- PB6.b: the ELITE half of the same late ramp (owner: more elites at the end of the beyond)
+  // Same window and the same self-targeting property as the HP tail above, so it gets the same two
+  // properties asserted plus a wiring tripwire — the call site takes one extra argument, and
+  // dropping it is silent: every chapter falls back to the flat cadence with nothing going red.
+  for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies']) {
+    assert.strictEqual(lateEliteFor(id), 0, `${id} must not get the late elite ramp — it is beyond's`)
+  }
+  assert.strictEqual(lateEliteFor('beyond'), CHAPTER_LATE_ELITE.beyond, 'beyond must get its ladder value')
+  assert.strictEqual(lateEliteFor('blank'), 0, 'an off-ladder chapter keeps the flat cadence')
+  assert.strictEqual(lateEliteFor(undefined), 0, 'no chapter keeps the flat cadence')
+
+  // SELF-TARGETING, exactly as the HP tail: inert until HP_SCALE_LATE_START, so a run that ends
+  // early never meets it.
+  for (const t of [0, 60, HP_SCALE_LATE_START]) {
+    assert.strictEqual(eliteEveryAt(t, CHAPTER_LATE_ELITE.beyond), eliteEveryAt(t),
+      `at t=${t}s (<= HP_SCALE_LATE_START) the elite ramp must be inert`)
+  }
+  assert.ok(eliteEveryAt(HP_SCALE_LATE_START + 1, CHAPTER_LATE_ELITE.beyond) < eliteEveryAt(HP_SCALE_LATE_START + 1),
+    'one second past the start the elite ramp must bite')
+  // ...and at the very end it reaches its full value: the gap divided by (1 + late).
+  assert.ok(Math.abs(eliteEveryAt(300, CHAPTER_LATE_ELITE.beyond) * (1 + CHAPTER_LATE_ELITE.beyond) - eliteEveryAt(300)) < 1e-9,
+    'at RUN_DURATION the interval must be the flat one divided by (1 + late)')
+
+  // EFFECT, not state: step a real beyond run across the late window and count what it actually
+  // spawns, against the flat cadence the same recurrence gives. Asserting the constant instead
+  // would pass with the sim call site reverted, which is the failure this is here to catch.
+  {
+    const flat = (late) => {          // the shipped recurrence, run forward over a whole 300s
+      let next = 40
+      let n = 0
+      while (next <= 300) { if (next >= HP_SCALE_LATE_START) n++; next += eliteEveryAt(next, late) }
+      return n
+    }
+    const withRamp = flat(CHAPTER_LATE_ELITE.beyond)
+    const without = flat(0)
+    assert.ok(withRamp >= without + 4,
+      `the ramp must buy several late elites, not one: ${without} -> ${withRamp}. The cadence is COARSE `
+      + '(only ~7 elites land after t=150 at all), so a small multiplier here rounds away to nothing.')
+
+    const seeded = mulberry32(20260812)
+    const realRandom = Math.random
+    Math.random = seeded
+    try {
+      const run = createRun(makeMeta(), { chapter: 'beyond', difficulty: 1 })
+      run.viewRadius = 465            // main.js sets these every frame; the spawn ring needs them
+      run.viewW = 195
+      run.viewH = 422
+      const seen = new Set()
+      let late = 0
+      while (run.time < 300 && run.phase !== 'dead') {
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 30)
+        run.events.length = 0
+        run.player.hp = run.player.maxHP        // immortal: measure the throw, not the survival
+        if (run.phase === 'levelup') { run.levelUpChoices = []; run.phase = 'playing' }
+        for (const e of run.enemies) {
+          if (!e.elite || seen.has(e)) continue
+          seen.add(e)
+          if (run.time >= HP_SCALE_LATE_START) late++
+        }
+      }
+      assert.ok(late >= without + 3,
+        `a real beyond run must actually SPAWN the extra late elites (flat cadence gives ${without}, `
+        + `this run gave ${late}) — if this is ~${without} the sim stopped passing lateEliteFor(run.chapter)`)
+      console.log(`PASS run PB6.b (late elites): beyond spawns ${late} elites after t=${HP_SCALE_LATE_START}s `
+        + `where the flat cadence gives ${without}; ramp inert before that`)
+    } finally {
+      Math.random = realRandom
+    }
+  }
+
+  const esrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  assert.ok(esrc.includes('eliteEveryAt(run.time, lateEliteFor(run.chapter))'),
+    'spawnEnemy must pass the chapter elite ramp — without it beyond keeps the flat cadence and nothing goes red')
 }
 
 // ---- Run PB7: the v7.2 anomaly slate actually DOES something ------------------------
@@ -6535,14 +6610,42 @@ function testV54Weapons() {
     assert(foe.hp < 1e6, 'expected the roar to damage what it hits')
     assert(foe.x > 100, `expected the roar to shove the foe away, x=${foe.x.toFixed(1)}`)
 
-    // stagger: roared foes are stunned.
-    const stag = weaponRun('skies', 'roar')
-    stag.weaponMods.roar.stagger = 0.50
-    const s = makeStatusEnemy(stag, { x: 100, y: 0, hp: 1e6, speed: 0 })
-    s.flags = []
-    stag.enemies.push(s)
-    stepQuiet(stag, 1.5)
-    assert(s.stunT > 0, `expected stagger to stun a roared foe, stunT=${s.stunT}`)
+    // stagger: roared foes are stunned FOR THE DURATION THE CARD PROMISES. `stunT > 0` was the old
+    // assertion here and it is the shape that passes with the feature broken — it held just as
+    // happily at the previous 0.25s, and would hold at 0.001s. The banked bonus IS the seconds now
+    // (no ROAR_STUN multiplier), so the card's number and this number are the same number, and that
+    // identity is the thing worth pinning: the owner's complaint was that nothing in the game
+    // stated it. First application only, where _ccDR is still 1, so ccScale contributes exactly 1.
+    function peakStun(picks) {
+      const r = weaponRun('skies', 'roar')
+      r.weaponMods.roar.stagger = STAGGER_STUN_PER_PICK * picks
+      const foe2 = makeStatusEnemy(r, { x: 100, y: 0, hp: 1e6, speed: 0 })
+      foe2.flags = []
+      r.enemies.push(foe2)
+      let peak = 0
+      for (let i = 0; i < Math.round(1.5 / dt); i++) {
+        if (r.phase === 'levelup') { declineLevelUp(r); continue }
+        stepSim(r, { x: 0, y: 0 }, dt)
+        r.events.length = 0
+        peak = Math.max(peak, foe2.stunT ?? 0)
+      }
+      return peak
+    }
+    // LITERAL expectations, deliberately not derived from STAGGER_STUN_PER_PICK. Deriving them made
+    // this a tautology — halving the constant moved the expectation with it and the mutation passed.
+    // 0.35s per pick is an owner directive, so it is pinned here; changing it should require editing
+    // this line too, which is the point.
+    assert.strictEqual(STAGGER_STUN_PER_PICK, 0.35, 'Stagger is specified at 0.35s per normal pick')
+    // Sampled after stepSim, so the observed peak has already ticked down by up to one frame.
+    for (const [picks, want] of [[1, 0.35], [2, 0.70], [4, 1.40]]) {
+      const got = peakStun(picks)
+      assert(got > want - 2 * dt && got <= want + 1e-9,
+        `expected ${picks} Stagger pick(s) to stun for ${want.toFixed(2)}s, got ${got.toFixed(3)}s`)
+    }
+    // Stagger is the gate — the roar does not stun on its own. NOT mutation-provable (a zero bonus
+    // yields a zero duration whatever the gate does), so this is documentation of intent, and it
+    // becomes load-bearing the moment anyone gives the roar a base stun.
+    assert.strictEqual(peakStun(0), 0, 'the roar must not stun without the Stagger mod')
 
     // resonance: an in-range foe BEHIND the aim anchor is only ever reached by the 360° roar.
     function behindHp(resonance) {
@@ -7745,6 +7848,38 @@ function testTheBlank() {
     assert(run.enemies.every((e) => e._wave), 'expected every enemy alive after 30s idle to still be wave-tagged — no ordinary spawner ever ran')
     assert(run.enemies.every((e) => !e.elite), 'expected zero elites after 30s idle')
     console.log(`PASS run EE.a (wave 1 + no ordinary spawning): ${wave0.n} spawned, ${run.enemies.length} alive after 30s idle, all wave-tagged`)
+  }
+
+  // (a2) The door: a wave ring leaves one BLANK_WAVE_GAP-wide wedge empty, so an encircled player
+  // always has an opening to aim for. Measured as the largest angular spacing between consecutive
+  // spawn bearings (exact — no binning). This cannot pass by luck: for n uniform bearings the
+  // chance of a spacing that big is n(1 - gap/2pi)^(n-1), which at the shipped 90° door is 2e-14
+  // at wave 1's n=128 and 3e-30 by the 256-body wave (it was 5e-6 / 6e-11 at the original 45°, so
+  // widening the door only strengthens this) — a real assertion, not a coin flip.
+  // Every wave in the script is checked, since the gap is re-rolled per wave.
+  {
+    const gaps = []
+    for (let b = 0; b < BLANK_SCRIPT.length; b += 2) {
+      for (let w = 0; w < BLANK_SCRIPT[b].waves.length; w++) {
+        const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+        run.player.hp = run.player.maxHP = 1e6
+        run.weapons = []
+        Object.assign(run.script, { stage: b, waveIdx: w, waveT: 0, spawned: false })
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const p = run.player
+        const bearings = run.enemies.map((e) => Math.atan2(e.y - p.y, e.x - p.x)).sort((m, n) => m - n)
+        let widest = bearings[0] + Math.PI * 2 - bearings[bearings.length - 1] // the wrap-around span
+        for (let i = 1; i < bearings.length; i++) widest = Math.max(widest, bearings[i] - bearings[i - 1])
+        // The measurement is taken one frame AFTER the spawn (stepSim runs movement + separation
+        // on the fresh ring before it returns), so the door has already narrowed by a fraction of
+        // a degree. 2° of slack covers that without weakening anything: the null hypothesis this
+        // rejects would have to produce a 43° spacing by chance, which is rarer still.
+        assert(widest >= BLANK_WAVE_GAP - 0.035,
+          `expected wave ${b}/${w} (${bearings.length} bodies) to leave a >= ${(BLANK_WAVE_GAP * 180 / Math.PI).toFixed(0)}° door, widest empty arc was ${(widest * 180 / Math.PI).toFixed(1)}°`)
+        gaps.push(widest * 180 / Math.PI)
+      }
+    }
+    console.log(`PASS run EE.a2 (the door): every one of the ${gaps.length} scripted waves left an escape wedge — widest empty arcs ${gaps.map((g) => g.toFixed(0)).join('/')}° against a ${(BLANK_WAVE_GAP * 180 / Math.PI).toFixed(0)}° door (2° of post-spawn drift allowed)`)
   }
 
   // (b) Clear-advance: hard-kill every wave-1 enemy -> wave 2 arrives immediately (rosterIds from
@@ -12962,8 +13097,8 @@ function testUndergrowthRound() {
     // shows up with the mod stacked, which is why it survived to a playtest report.
     assert.ok(!/rp\.range \* \(0\.3 \+ 0\.7 \* ki\)/.test(src),
       "the roar wave is back to starting at 30% OF RANGE — the dead zone in front of the player then scales with the range stat, so buying Long Roar shrinks the visible wave")
-    assert.ok(/const roarStart =/.test(src) && /roarStart \+ Math\.max\(0, rp\.range - roarStart\) \* ki/.test(src),
-      'the roar wave must expand from a fixed start (the mouth) out to `range`')
+    assert.ok(/const roarStart =/.test(src) && /for \(let r = roarStart \+ ripplePhase % period/.test(src),
+      'the roar ripples must start at a fixed distance (the mouth), not at a fraction of `range`')
 
     // ...and it must be an ACTUAL arc, not a fixed-span sprite stretched in Y to fake one. The old
     // form scaled a 1.0 rad bake by q = tan(arc/2)/tan(ROAR_SPAN/2): fine near the baked span,
@@ -12971,12 +13106,57 @@ function testUndergrowthRound() {
     // range immediately — q is 1.7 at L5 base, 2.6 at +150% width, 6.6 at +200%. At those factors
     // the sprite is the same arc smeared into a tall ellipse, which is what the owner saw:
     // "we just see orange lines on the screen ... it doesn't look like a roar sound pressure wave
-    // anymore when >150% roar width". A Graphics annulus sector has no such limit.
+    // anymore when >150% roar width". Graphics arcs have no such limit.
     assert.ok(!/tan\(rp\.arc \/ 2\) \/ Math\.tan\(ROAR_SPAN/.test(src),
       'the roar is back to faking its arc by y-stretching a fixed-span bake — that linearisation collapses under wideRoar and draws streaks instead of a wavefront')
-    assert.ok(/roarG\.arc\(rp\.x, rp\.y, rOut, a0, a1\)/.test(src),
-      'the roar band must be drawn as a real arc at the cast’s own angle (a0/a1 from rp.arc)')
-    console.log('PASS run UG.k3 (roar wave): born at the mouth, and drawn as a true arc at any width rather than a y-stretched bake')
+    assert.ok(/roarG\.arc\(rp\.x, rp\.y, r, a0, a1\)/.test(src),
+      'the roar ripples must be drawn as real arcs at the cast’s own angle (a0/a1 from rp.arc)')
+
+    // The concentric-ripple rework, and the reason this scenario keeps growing: the roar is the one
+    // effect in the game whose footprint is AREA, so every stat the player buys multiplies its ink.
+    // The owner reported the chapter unplayable at a +231% width / +229% range / +320% rate build.
+    // Three separate regressions are guarded here, and each one shipped at least once:
+    const roarBlock = src.slice(src.indexOf('function updateRoars'), src.indexOf('function clearRoars'))
+
+    //  (a) STROKED, NOT FILLED. The `arc(ro) + arc(ri, reversed) + fill()` annulus does not cut its
+    //      hole at these ring counts: it composites as nested filled SECTORS and the whole cone goes
+    //      solid orange. This is invisible at 2-3 rings (a base build) and total at 8, which is
+    //      exactly why it reached a playtest — every probe frame of the base weapon looked correct.
+    //      Checked BEFORE the thickness rule below, because the realistic regression (swap the
+    //      stroke back for a fill) trips both, and this is the message worth reading when it does.
+    assert.ok(!/\.fill\(\{ color: ROAR/.test(roarBlock),
+      'the roar rings are filled annuli again — that idiom composites as nested filled sectors here and paints the cone solid; stroke them instead')
+
+    //  (b) NOTHING DRAWN MAY SCALE WITH A STAT. The old band was `rOut * ROAR_THICK_FRAC` — 14% of
+    //      the current radius, i.e. a 185px slab at a scaled build. Thickness must be absolute px.
+    assert.ok(/width: ROAR_RING_PX/.test(roarBlock),
+      'the roar ring must be stroked at an absolute px width — a thickness derived from radius or range is what made the chapter unplayable')
+    assert.ok(!/rp\.range \*|rOut \* ROAR_THICK|radius \* ROAR/.test(roarBlock),
+      'something in the roar drawing scales with `range` again — a longer roar must be MORE rings, never fatter ones')
+
+    //  (c) THE RIPPLES ARE CONTINUOUS, decoupled from fire rate. ripplePhase must advance on dt, not
+    //      on the cast's own life: at +320% rate the roar re-fires every 0.10s against a 0.34s wave,
+    //      so a per-cast train never gets past 30% of the way out and the effect parks on the player
+    //      instead of passing over the field (probe read k=0.25, front=266px, every frame).
+    assert.ok(/ripplePhase \+= dt \* ROAR_RIPPLE_SPEED/.test(roarBlock),
+      'the roar ripples must advance on dt at a fixed speed — tying them to the cast makes on-screen ink a function of FIRE RATE')
+    console.log('PASS run UG.k3 (roar ripples): born at the mouth, real arcs, absolute-px stroked rings, and continuous across casts')
+
+    // The black hole's body must NOT come from a canvas-backed texture. This is a tripwire
+    // for a fault that cannot be reproduced on this hardware at all, so nothing else can guard it.
+    // One reporter's Android draws a canvas-backed sprite's own QUAD — a hard-edged rectangle
+    // where only a soft disc should be. It has now happened twice with THIS texture: v5.23.7 took
+    // it off the gravity well, left the hole on it, and the artifact simply moved to the hole (a
+    // red band across the top of the disc, always level, always attached to it). The several
+    // hundred bake()/PNG sprites on the same device are fine, so the rule is narrow and specific:
+    // the disc is still a sprite, its texture just goes through generateTexture like the rest.
+    assert.ok(/T\.holeDisc = bake\(/.test(src),
+      "the hole's disc must be baked through generateTexture — T.holeDisc = bake(...) is gone")
+    assert.ok(!/T\.holeDisc = Texture\.from/.test(src),
+      'the hole disc is back on a canvas-backed texture (Texture.from) — that is the exact construct that draws a red rectangle over the hole on the reporting device, twice now')
+    assert.ok(/hv\.disc\.scale\.set\(h\.radius \/ T\.holeDiscRef\)/.test(src),
+      'the hole disc must be scaled off T.holeDiscRef (the radius it was baked at) — a hardcoded divisor silently resizes the body when the bake changes')
+    console.log('PASS run UG.k4 (hole disc): the body is a generateTexture bake, not a canvas texture, and is scaled off the radius it was baked at')
   }
 
   console.log('PASS run UG (v6.6.28/29 undergrowth round): centipede -30% hp + weave, claw +30% width and +10pt crit, quill ladder re-cut, reboundQuills, chitterSpines, longQuills + Barbed Quills retired')
