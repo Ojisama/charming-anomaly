@@ -693,6 +693,15 @@ body {
   .lv-hint { display: block; }
 }
 
+/* the subject chooser's QUESTION. Deliberately NOT .lv-hint: that one is a keyboard legend and is
+   hidden on every phone, which left the chooser asking nothing on the platform this game targets. */
+.lv-ask {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+}
+
 /* level-up footer: reroll (v4.5 gold sink) — kept subtle, under the cards, not competing */
 .lv-footer {
   display: flex;
@@ -1401,6 +1410,35 @@ body {
 .shop-sac-meter > i { display: block; height: 100%; border-radius: 999px; background: var(--danger); }
 .shop-sac-count { flex-shrink: 0; font-size: 0.72rem; font-weight: 800; color: var(--danger); }
 .sacrifice-desc { flex-shrink: 0; width: 100%; max-width: 540px; margin: 0; font-size: 0.74rem; line-height: 1.25; font-weight: 600; color: var(--ink-soft); text-align: center; }
+
+/* v7.x: WHAT the offer buys, when there is more than one answer (Book 2's Light Thief joined the
+   3rd/4th card slot). Rendered only for a real choice — see sacrificeViewHtml — so a normal save
+   never sees this row and the view's height is unchanged for it.
+   `flex: 1` on the buttons rather than a fixed width: the labels differ in length between English
+   and French, and this row shares the 294px the sacrifice view has at 320px. */
+.sac-targets { flex-shrink: 0; width: 100%; max-width: 540px; display: flex; gap: 8px; }
+.sac-target {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 2px solid rgba(53, 53, 74, 0.18);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink-soft);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sac-target-label { min-width: 0; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sac-target-cost { flex-shrink: 0; font-size: 0.72rem; color: var(--danger); }
+/* The selected target carries the same danger accent as the pill that opened this view, so "what
+   I am buying" and "what it costs me" read as one object rather than two unrelated controls. */
+.sac-target--on { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-edge); }
+.sac-target:not(.sac-target--on):active { transform: translateY(1px); }
 
 /* ---- generic modal backdrop (sacrifice sheet + reset confirm both use it) ---- */
 .modal-backdrop {

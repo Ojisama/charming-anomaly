@@ -24,7 +24,7 @@ import {
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
-  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
+  ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
@@ -72,7 +72,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -767,28 +767,49 @@ function testAnomalySlate() {
     assert.ok(CHAOS_PACT_SURGE < CHAOS_PACT_PERIOD, 'the surge must be shorter than the cycle, or the payoff never arrives')
   }
 
-  // ALIGNMENT — asserted through the COMBO RATE, not through its constant. `ALIGNMENT_COMBO_CD === 0`
-  // is two config reads that touch no sim code: deleting the anomaly's ternary in triggerCombo left
-  // it green. This runs the real thing — fire + cold on a packed field, count the shatters.
+  // ALIGNMENT — asserted as ELEMENTAL DAMAGE, once PER CALL SITE. The card multiplies potency
+  // where potency is CONSUMED and leaves run.elements alone, so every state assertion available
+  // (run.elements, elementPicks, the build readout) reads identically with the card and without
+  // it. Only the damage moves. Fire and venom are separate arms because they break independently:
+  // applyIgnite banks its dps once at apply time, the venom DoT re-reads potency every tick in
+  // stepStatuses, and one combined number stays green with either site reverted.
+  // withCard re-seeds Math.random per call and the card draws no randoms, so the arms share one
+  // stream and the subtraction below is exact rather than statistical.
   {
-    assert.strictEqual(ALIGNMENT_COMBO_CD, 0, 'ALIGNMENT must remove the combo cooldown, not shorten it')
-    assert.ok(COMBOS.comboCd > 0, 'there is no combo cooldown left for ALIGNMENT to remove')
-    const shatters = (id) => {
+    assert.ok(ALIGNMENT_POTENCY_MUL > 1, 'ALIGNMENT must raise element potency, not lower it')
+    // Shatter consumes the chill AND the freeze stack, so a shatter every hit is a freeze that
+    // never lands. Nothing may zero this.
+    assert.ok(COMBOS.comboCd > 0, 'the combo cooldown must stay — zeroing it deletes freeze')
+    // `extras` puts a second body inside SHOCK_RANGE: the lightning arm has nothing to arc to
+    // otherwise, and applyShock returns before it ever reads the potency it was handed.
+    const dealt = (id, elements, extras = 0) => {
       const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
       r.weapons = [{ id: 'star', level: 5 }]
-      setElements(r, { fire: 4, cold: 4 })
-      for (let i = 0; i < 24; i++) r.enemies.push(makeStatusEnemy(r, { x: 90 + (i % 6) * 22, y: (i / 6 | 0) * 22 - 30, hp: 1e6 }))
-      let n = 0
-      for (let f = 0; f < 90 * 6; f++) {
-        stepSim(r, { x: 0, y: 0 }, dt)
-        for (const ev of r.events) if (ev.type === 'shatter') n++
-        r.events.length = 0
-      }
-      return n
+      setElements(r, elements)
+      const es = [makeStatusEnemy(r, { x: 120, y: 0, hp: 1e9, speed: 0 })]
+      for (let i = 0; i < extras; i++) es.push(makeStatusEnemy(r, { x: 120, y: (i + 1) * 40, hp: 1e9, speed: 0 }))
+      r.enemies.push(...es)
+      const hp = () => es.reduce((a, e) => a + e.hp, 0)
+      const before = hp()
+      for (let f = 0; f < 240; f++) stepSim(r, { x: 0, y: 0 }, dt)
+      return before - hp()
     }
-    const plain = shatters(null), aligned = shatters('alignment')
-    assert.ok(aligned > plain,
-      `ALIGNMENT produced ${aligned} shatters against ${plain} without it — the cooldown is not being read at triggerCombo`)
+    for (const [label, elements, extras] of [
+      ['fire', { fire: 4 }, 0],
+      ['venom', { venom: 4 }, 0],
+      ['lightning', { lightning: 4 }, 1],
+    ]) {
+      const weaponOnly = dealt(null, {}, extras)
+      // Subtract the weapon's own damage so the ratio is the ELEMENT's, undiluted — with the
+      // star's contribution left in, a real x2 on the DoT reads as a much smaller total and the
+      // band would have to be loose enough to pass with the multiplier halved.
+      const plain = dealt(null, elements, extras) - weaponOnly
+      const aligned = dealt('alignment', elements, extras) - weaponOnly
+      assert.ok(plain > 0, `the ${label} arm dealt no elemental damage at all — the harness is not reaching its subject`)
+      assert.ok(aligned > plain * 1.5,
+        `ALIGNMENT dealt ${Math.round(aligned)} ${label} damage against ${Math.round(plain)} without it ` +
+        `(x${(aligned / plain).toFixed(2)}, want >=x${ALIGNMENT_POTENCY_MUL}) — the multiplier never reaches that potency site`)
+    }
   }
 
   // THE FOUR VARIABLE DAMAGE MULTIPLIERS, asserted as DAMAGE. Between them these are the payoff of
@@ -1391,7 +1412,7 @@ function testAnomalySlate() {
     }
   }
 
-  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by shatter rate, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
+  console.log(`PASS run PB7 (v7.2 slate): 18 cards asserted by EFFECT, not by state — the four variable damage muls measured as damage, ALIGNMENT by elemental damage per potency site, DEADFALL by re-arm time, WILDFIRE budgeted, MINIMES fleeing; OVERLOAD ${OVERLOAD_HP_PER_SEC} HP/s (not 60) rising with dmgScale, BLOOD MONEY escalating, BRITTLE unrepairable and its dead picks pulled, AVARICE never eats a coin it cannot convert`)
 }
 
 function testPoolBuckets() {
@@ -4689,6 +4710,246 @@ function runShelf() {
   console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
 }
 runShelf()
+
+// ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
+// "if we're stealing light, then our surroundings should be dark, and darker the less light we
+// have", plus a drawback while you are down there — move speed, chosen over damage and accuracy
+// because weapons auto-fire, so a slow player still kills and the state stays escapable.
+//
+// The thing worth guarding is not the arithmetic of darkness() but that ONE curve drives BOTH the
+// dimming and the slow. They are separately implemented (render.js reads it for a scrim alpha,
+// sim.js for a speed multiplier) and a drift between them is invisible in every screenshot: the
+// world would dim on a different schedule from the one your legs are on, and the player would have
+// no way to tell what state they are in.
+function runDark() {
+  const res = CHAPTERS.shelf.resource
+  const d = res.dark
+  const shelfMeta = () => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+    chapters: Object.fromEntries(['body', 'pond', 'shelf', 'beyond']
+      .map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
+  })
+
+  // (a) the curve. 0 at and above the threshold (so most of a well-played run is untouched), 1 at
+  // an empty bar, and linear between — no thresholds for the player to learn.
+  {
+    assert.strictEqual(darkness(res.max, res), 0, 'a full bar must be fully lit')
+    assert.strictEqual(darkness(res.max * d.from, res), 0, 'exactly at the threshold is still fully lit')
+    assert.strictEqual(darkness(res.max * (d.from + 0.01), res), 0, 'above the threshold is fully lit')
+    assert.strictEqual(darkness(0, res), 1, 'an empty bar must be maximally dark')
+    const mid = darkness(res.max * d.from * 0.5, res)
+    assert.ok(Math.abs(mid - 0.5) < 1e-9, `halfway to empty must read 0.5, got ${mid}`)
+    // A chapter with no `dark` block must return 0 for every charge, not NaN — every chapter runs
+    // this function through the renderer once a frame.
+    assert.strictEqual(darkness(0, CHAPTERS.pond.resource ?? undefined), 0, 'no resource -> no darkness')
+    assert.strictEqual(darkness(50, { max: 100 }), 0, 'a resource with no dark block -> no darkness')
+  }
+
+  // (b) THE SLOW IS REAL, and measured as DISTANCE TRAVELLED rather than by reading a multiplier
+  // back out. Asserting the knob would pass with the feature deleted; asserting the distance is
+  // what fails if stepPlayer stops consulting the curve.
+  const travel = (charge, extra) => {
+    Math.random = mulberry32(4242)
+    const run = createRun(shelfMeta(), { chapter: 'shelf', difficulty: 1 })
+    run.shafts.length = 0              // no refill: the bar must hold where it is put
+    run.charge = charge
+    if (extra) extra(run)
+    const x0 = run.player.x, y0 = run.player.y
+    for (let i = 0; i < 60; i++) {
+      run.charge = charge              // re-pin: stepCharge drains it, and this measures ONE level
+      stepSim(run, { x: 1, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+    }
+    return Math.hypot(run.player.x - x0, run.player.y - y0)
+  }
+  {
+    const lit = travel(res.max)
+    const empty = travel(0)
+    const ratio = empty / lit
+    assert.ok(Math.abs(ratio - d.speedFloor) < 0.02,
+      `an empty bar must move at x${d.speedFloor} of a full one, measured x${ratio.toFixed(3)} (${empty.toFixed(1)}px vs ${lit.toFixed(1)}px)`)
+    // Above the threshold nothing happens at all — the chapter plays like any other.
+    const atThreshold = travel(res.max * d.from)
+    assert.ok(Math.abs(atThreshold - lit) < 0.01,
+      `at the threshold the player must move at FULL speed, got ${atThreshold.toFixed(1)}px vs ${lit.toFixed(1)}px`)
+    // ...and halfway down, halfway to the floor. A curve applied as a step rather than a ramp
+    // passes both endpoints above and fails here.
+    const half = travel(res.max * d.from * 0.5) / lit
+    const want = 1 - (1 - d.speedFloor) * 0.5
+    assert.ok(Math.abs(half - want) < 0.02, `halfway dark must move at x${want}, measured x${half.toFixed(3)}`)
+  }
+
+  // (c) it joins the slow MIN, it does not multiply into it. The strongest slow wins, so standing
+  // in a web while dark is exactly as slow as the worse of the two — never the product. Without
+  // this, every web and every latch in this chapter is silently nastier than the same web anywhere
+  // else, which is a difficulty change nobody asked for and which no test would otherwise notice.
+  //
+  // Composed against the LATCH slow rather than a web: latch is a plain player field (slowT) with
+  // no entity shape to get wrong, and the two constants differ (0.55 vs the 0.6 floor), so this
+  // still tells MIN from a product. A hand-built run.webs fixture measured x0.993 — the fixture was
+  // not slowing anything, which would have made the assertion vacuous rather than failing loudly.
+  {
+    const latched = (charge) => travel(charge, (run) => { run.player.slowT = 10 })
+    const lit = travel(res.max)
+    const latchLit = latched(res.max) / lit
+    const latchDark = latched(0) / lit
+    assert.ok(Math.abs(latchLit - LATCH_SLOW_MUL) < 0.02,
+      `a latch alone must slow to x${LATCH_SLOW_MUL}, got x${latchLit.toFixed(3)} — if this is 1 the fixture is not slowing and the next assertion proves nothing`)
+    const strongest = Math.min(LATCH_SLOW_MUL, d.speedFloor)
+    assert.ok(Math.abs(latchDark - strongest) < 0.02,
+      `latch + dark must be the STRONGEST of the two (x${strongest}), not the product (x${(LATCH_SLOW_MUL * d.speedFloor).toFixed(3)}) — measured x${latchDark.toFixed(3)}`)
+  }
+
+  // (d) a chapter with no resource is untouched. The Pond shares stepPlayer, and the guard that
+  // keeps it out of this is one optional-chain away from being deleted by accident.
+  {
+    Math.random = mulberry32(4242)
+    const pond = createRun(shelfMeta(), { chapter: 'pond', difficulty: 1 })
+    const x0 = pond.player.x
+    for (let i = 0; i < 60; i++) { pond.charge = 0; stepSim(pond, { x: 1, y: 0 }, 1 / 60); pond.events.length = 0 }
+    const dist = pond.player.x - x0
+    Math.random = mulberry32(4242)
+    const pond2 = createRun(shelfMeta(), { chapter: 'pond', difficulty: 1 })
+    const x1 = pond2.player.x
+    for (let i = 0; i < 60; i++) { pond2.charge = 100; stepSim(pond2, { x: 1, y: 0 }, 1 / 60); pond2.events.length = 0 }
+    assert.ok(Math.abs(dist - (pond2.player.x - x1)) < 1e-9,
+      'a chapter with no resource must move identically whatever its (inert) charge field says')
+  }
+
+  // (e) the RENDER side reads the same curve. render.js is not importable here (Vite-only
+  // import.meta.glob), so this is the run UG.k source-text trick: the scrim's alpha must be the
+  // product of darkness() and the chapter's own dim, and the holes must be cut from run.shafts.
+  // A scrim that invented its own ramp would pass every assertion above and still drift from the
+  // slow on screen, which is the entire failure this run exists to prevent.
+  {
+    const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/darkness\(run\.charge,\s*res\)\s*\*\s*res\.dark\.dim/.test(src),
+      'render.js must derive the scrim alpha from darkness(run.charge, res) * res.dark.dim, so the dimming and the slow cannot drift apart')
+    assert.ok(/darkScrim\.circle\([^)]*\)\.cut\(\)/.test(src),
+      'the shafts must be CUT from the scrim, not painted over it — additive light cannot un-flatten a dimmed scene, so a painted shaft is one you see LESS inside')
+    assert.ok(src.includes('app.stage.addChild(world, darkLayer,'),
+      'the scrim must sit directly above `world` and below the damage vignette/flash, or the dark takes the safety cues with it')
+  }
+
+  console.log(`PASS run DK (the dark): one curve drives both — screen dims to alpha ${d.dim} and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, linear, MIN-composed with the latch slow, pond untouched, scrim cuts its shafts`)
+}
+runDark()
+
+// ---- Run LT: Light Thief (v7.x Book 2) ------------------------------------------------------
+// Owner ruling, and a REVERSAL of the first cut: "none by default, only via the shop". So the
+// guard that matters is the gate — an unbought save must get exactly zero light from kills, and
+// sim.js must never learn about meta to find that out.
+function runLightThief() {
+  const res = CHAPTERS.shelf.resource
+  const meta = (thief) => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true, lightThief: thief,
+    chapters: Object.fromEntries(['body', 'pond', 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
+  })
+
+  // (a) the snapshot. createRun resolves the unlock ONCE, into a number.
+  {
+    assert.strictEqual(createRun(meta(false), { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+      'an unbought save must take 0 light per kill')
+    assert.strictEqual(createRun(meta(true), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
+      'a bought save must take the chapter resource killRefill')
+    // Coerced, not truthy: every other gate in the save tests === true, and a save carrying 1 or
+    // 'yes' that granted the unlock HERE while denying it everywhere else is the worst shape.
+    for (const bad of [1, 'yes', {}, [], 'true']) {
+      assert.strictEqual(createRun({ ...meta(false), lightThief: bad }, { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+        `lightThief: ${JSON.stringify(bad)} is not true and must not grant the unlock`)
+    }
+    assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
+      'a chapter with no resource takes 0 per kill even when the unlock is owned')
+  }
+
+  // (b) THE EFFECT, not the field: kill things and watch the bar. Asserting run.killRefill alone
+  // passes with the refill site in sim.js deleted.
+  //
+  // The bar is RE-PINNED to the same value before every step, and that is what makes the two runs
+  // comparable at all. Charge drives the dark, the dark drives move speed, and move speed re-phases
+  // the entire RNG stream — so a bought run and an unbought run left to diverge would end up with
+  // different crowds and the kill counts could not be subtracted. Pinned, both runs are in
+  // lockstep and each step's delta is exactly what that step's refills and drain did.
+  const PIN = 50
+  const killRun = (thief) => {
+    Math.random = mulberry32(90210)
+    const run = createRun(meta(thief), { chapter: 'shelf', difficulty: 1 })
+    run.shafts.length = 0                       // no in-shaft refill: kills are the only credit
+    run.player.hp = run.player.maxHP = 1e9      // immortal, so the run cannot end mid-measurement
+    let gained = 0
+    for (let i = 0; i < 900; i++) {
+      // Park every live enemy on the player at 1 HP: the starter weapon then kills whatever the
+      // wave table has produced, which is what makes this a real kill count rather than a fixture.
+      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
+      run.charge = PIN
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      gained += run.charge - PIN
+      run.player.hp = run.player.maxHP
+    }
+    return { gained, kills: run.kills }
+  }
+  {
+    const off = killRun(false)
+    const on = killRun(true)
+    assert.ok(off.kills > 20, `the rig must actually kill things, got ${off.kills}`)
+    assert.strictEqual(off.kills, on.kills,
+      `pinning the bar must keep both runs in RNG lockstep — got ${off.kills} vs ${on.kills} kills, so the delta below would be meaningless`)
+    const delta = on.gained - off.gained
+    const want = off.kills * res.killRefill
+    assert.ok(Math.abs(delta - want) < 1e-6,
+      `buying Light Thief must be worth exactly ${res.killRefill} per kill: ${off.kills} kills -> ${want}, measured ${delta.toFixed(4)}`)
+    // And the unbought run must gain NOTHING from kills — its whole delta is the passive drain.
+    const drainOnly = -res.drain * (900 / 60)
+    assert.ok(Math.abs(off.gained - drainOnly) < 1e-6,
+      `an unbought run's bar must move by drain alone (${drainOnly.toFixed(2)}), measured ${off.gained.toFixed(2)} over ${off.kills} kills`)
+  }
+
+  // ...and it clamps. A bar over max is a rail drawn past the end of its own track.
+  {
+    Math.random = mulberry32(90210)
+    const run = createRun(meta(true), { chapter: 'shelf', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e9
+    let peak = 0
+    for (let i = 0; i < 600; i++) {
+      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
+      run.charge = res.max                      // already full when the kills land
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      peak = Math.max(peak, run.charge)
+      run.player.hp = run.player.maxHP
+    }
+    assert.ok(run.kills > 10, `the clamp rig must land kills, got ${run.kills}`)
+    assert.ok(peak <= res.max + 1e-9, `kill refill must clamp at ${res.max}, peaked at ${peak}`)
+  }
+
+  // (c) sim.js NEVER reads the unlock. Same rule as meta.dev (the plan's R1): sim plays what it is
+  // handed, which is what makes a dev-gated chapter playtest as the thing that eventually ships.
+  {
+    const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    assert.ok(!/\bmeta\.lightThief\b/.test(src), 'sim.js must never read meta.lightThief — it reads run.killRefill')
+    assert.ok(/run\.killRefill/.test(src), 'sim.js must read the run-level snapshot')
+  }
+
+  // (d) the shop rung. Two claims that are made in prose in config.js and are otherwise unguarded:
+  // it is the CHEAPEST thing on the sacrifice screen, and it is dev-gated so a WIP chapter's unlock
+  // is not advertised to players who cannot reach the chapter.
+  {
+    assert.ok(LIGHT_THIEF_COST < SACRIFICE_COSTS[0],
+      `Light Thief (${LIGHT_THIEF_COST}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
+    const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/meta\.dev === true && meta\.lightThief !== true/.test(ui),
+      'the Light Thief rung must be gated on meta.dev — otherwise the shop advertises a Book 2 unlock, naming a resource no reachable chapter has')
+    const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/onSacrifice\(picks, target = 'slot'\)/.test(main),
+      "onSacrifice must default target to 'slot', so an older caller keeps meaning what it used to")
+    assert.ok(/meta\.lightThief === true \? null : LIGHT_THIEF_COST/.test(main),
+      'onSacrifice must refuse an already-owned Light Thief itself rather than trusting the button to be absent')
+  }
+
+  console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot) and is dev-gated`)
+}
+runLightThief()
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —

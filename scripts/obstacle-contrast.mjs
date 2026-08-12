@@ -31,6 +31,11 @@ function effFloor(bgColor, floorTint) {
 const RIM_ALPHA = 1.00 // baked footprint rim alpha (fully opaque hard contract line)
 const CHAP = [
   { id: 'pond',        bg: 0x2e6258, tint: 0x66c2a9, foot: 0x243617 },
+  // v7.x Book 2. Hand-transcribed like every row above — this table mirrors config.js and
+  // render.js rather than importing them, so a chapter added there is INVISIBLE here until
+  // someone adds it. That is the trap: the audit prints a clean six-row table and says nothing
+  // about the seventh biome at all.
+  { id: 'shelf',       bg: 0x18567f, tint: 0x9fd6f0, foot: 0x122029 },
   { id: 'garden',      bg: 0x4e8240, tint: 0xaad066, foot: 0x243617 },
   { id: 'undergrowth', bg: 0x2b2417, tint: 0x8a7a4e, foot: 0xffffff },
   { id: 'city',        bg: 0x2c2f38, tint: 0x9aa0ac, foot: 0x161a20 },

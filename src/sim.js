@@ -51,7 +51,7 @@ import {
   SUBMISSION_STRIP_FLAGS,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_PER_WAVE, chaosSurgeActive, chaosWavesSurvived,
-  ALIGNMENT_COMBO_CD, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
+  ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   WILDFIRE_JUMPS, WILDFIRE_JUMP_R,
   MINIME_INTERVAL, MINIME_LIFE, MINIME_SPEED, MINIME_AGGRO, MINIME_BURST_R, MINIME_BURST_DMG,
   SPECIALIST_FOCUS_MUL, SPECIALIST_OTHER_PENALTY, modPickCap, weaponModPickCount,
@@ -142,7 +142,7 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -385,6 +385,12 @@ function specialistFocus(run) {
   return typeof f === 'string' ? f : null
 }
 
+// ALIGNMENT. Read at the sites that CONSUME potency (ignite, chill, shock arc, venom DoT), never
+// banked onto run.elements: potency keeps growing, so a take-time doubling would skip every
+// element card picked after the anomaly. The `> 0` guards there test RAW potency — this scales an
+// element you own, it never grants one you don't.
+const alignmentMul = (run) => (run.anomalies?.alignment ? ALIGNMENT_POTENCY_MUL : 1)
+
 // BLIND FAITH (v7.5): the rarity table with every tier below BLIND_FAITH_FLOOR removed. Handed the
 // table the caller was ABOUT to roll on rather than RARITY_WEIGHTS, so the reroll decay and the
 // floor compose instead of one silently replacing the other. pickWeighted normalises over whatever
@@ -567,7 +573,15 @@ function stepPlayerMovement(run, input, dt) {
       if (wdx * wdx + wdy * wdy <= web.r * web.r) { webMul = WEB_SLOW_MUL; break }
     }
   }
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1)
+  // THE DARK (v7.x Book 2): a chapter declaring `resource.dark` slows the player as its bar empties,
+  // on the same curve that dims the screen (darkness(), config.js) so the two cues are one fact.
+  // Joins the MIN rather than multiplying in, for the reason the block above gives — and here that
+  // is the load-bearing choice, not just consistency: the dark is CONTINUOUS once you are under the
+  // threshold, so multiplying would make every web and every latch in this chapter strictly nastier
+  // than the same web anywhere else, which is a difficulty change nobody asked for.
+  const _dres = CHAPTERS[run.chapter].resource
+  const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres) : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
@@ -3902,11 +3916,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
-    // v7.x Book 2: kills feed the bar. The one refill geometry that asks for no verb the player
-    // does not already have - you are killing anyway - so it keeps the bar alive between shafts
-    // without turning the chapter into a fetch quest. Clamped, and a no-op without a resource.
+    // v7.x Book 2: kills feed the bar - but only for a player who BOUGHT that. Owner ruling: "none
+    // by default, only via the shop" (Light Thief, LIGHT_THIEF_COST in config.js). run.killRefill is
+    // the snapshot createRun already took, and is 0 on an unbought save - so sim.js never reads meta
+    // and the chapter's baseline tune is the unbought one. Clamped, and a no-op without a resource.
     const _res = CHAPTERS[run.chapter].resource
-    if (_res) run.charge = Math.min(_res.max, run.charge + (_res.killRefill ?? 0))
+    if (_res && run.killRefill > 0) run.charge = Math.min(_res.max, run.charge + run.killRefill)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
@@ -4053,13 +4068,10 @@ function comboReady(enemy, name) {
   return (enemy._comboCd[name] || 0) <= 0
 }
 
-// ALIGNMENT (v7.2) drops the cooldown to zero, so every qualifying hit triggers the combo instead
-// of one every COMBOS.comboCd (0.5s) per enemy per combo. That is the whole card: it makes the
-// INTERACTION the star rather than handing out a potency number in a costume, which is what the
-// first draft did and why it was redesigned. Passed `run` rather than read off a module flag so
-// the function stays pure in the enemy it mutates.
-function triggerCombo(run, enemy, name) {
-  enemy._comboCd[name] = run.anomalies?.alignment ? ALIGNMENT_COMBO_CD : COMBOS.comboCd
+// Unconditional, and load-bearing: shatter consumes the chill AND the freeze stack, so a shatter
+// on every hit is a freeze that never lands.
+function triggerCombo(enemy, name) {
+  enemy._comboCd[name] = COMBOS.comboCd
 }
 
 function applyIgnite(enemy, potency, dmgDealt) {
@@ -4117,7 +4129,7 @@ function applyVenomStack(enemy, stacks = 1) {
 // fire+cold Shatter: fire landing on a chilled/frozen enemy (or cold landing on an ignited
 // one) bursts AoE damage in COMBOS.shatterRadius, consuming the chill/freeze.
 function triggerShatter(run, enemy, dmgDealt) {
-  triggerCombo(run, enemy, 'shatter')
+  triggerCombo(enemy, 'shatter')
   const dmg = Math.round(dmgDealt * COMBOS.shatterMul)
   const radSq = COMBOS.shatterRadius * COMBOS.shatterRadius
   for (const e of run.enemies) {
@@ -4135,7 +4147,7 @@ function triggerShatter(run, enemy, dmgDealt) {
 // fire+lightning Overload: a shock arc landing on an ignited enemy detonates its remaining
 // ignite damage instantly as an AoE burst in COMBOS.overloadRadius, consuming the ignite.
 function triggerOverload(run, enemy) {
-  triggerCombo(run, enemy, 'overload')
+  triggerCombo(enemy, 'overload')
   const remaining = Math.round(enemy.igniteDps * enemy.ignite)
   enemy.ignite = 0
   enemy.igniteDps = 0
@@ -4193,10 +4205,10 @@ function applyShock(run, enemy, potency, dmgDealt) {
   // (source + every target) when their combo fires, so only fall back to the plain shockarc
   // visual when neither combo triggered this hit — otherwise the arc would double-render.
   if (frostPoints.length > 0) {
-    triggerCombo(run, enemy, 'frostarc')
+    triggerCombo(enemy, 'frostarc')
     run.events.push({ type: 'frostarc', points: [[enemy.x, enemy.y], ...frostPoints] })
   } else if (conductPoints.length > 0) {
-    triggerCombo(run, enemy, 'conduct')
+    triggerCombo(enemy, 'conduct')
     run.events.push({ type: 'conduct', points: [[enemy.x, enemy.y], ...conductPoints] })
   } else {
     run.events.push({ type: 'shockarc', points: [[enemy.x, enemy.y], ...targets.map((t) => [t.x, t.y])] })
@@ -4216,16 +4228,17 @@ function applyElements(run, enemy, dmgDealt) {
     triggerShatter(run, enemy, dmgDealt)
   }
 
-  if (pot.fire > 0) applyIgnite(enemy, pot.fire, dmgDealt)
-  if (pot.cold > 0) applyChill(run, enemy, pot.cold)
-  if (pot.venom > 0) applyVenomStack(enemy)
-  if (pot.lightning > 0) applyShock(run, enemy, pot.lightning, dmgDealt)
+  const am = alignmentMul(run)
+  if (pot.fire > 0) applyIgnite(enemy, pot.fire * am, dmgDealt)
+  if (pot.cold > 0) applyChill(run, enemy, pot.cold * am)
+  if (pot.venom > 0) applyVenomStack(enemy)   // stacks, not potency — the DoT reads it in stepStatuses
+  if (pot.lightning > 0) applyShock(run, enemy, pot.lightning * am, dmgDealt)
 }
 
 // Ticks ignite/venom DoTs (fire+venom Acid Burn speeds both up together), decays chill/freeze
 // and their windows/cooldowns. Chill/freeze's movement effect lives in stepEnemyMovement.
 function stepStatuses(run, dt) {
-  const potVenom = run.elements.venom
+  const potVenom = run.elements.venom * alignmentMul(run)
   for (const e of run.enemies) {
     if (e._dead || isAlly(e)) continue   // SUBMISSION: chain slot: an ally next to the shocked body is the nearest thing there is
 
@@ -7550,7 +7563,15 @@ export function devCards(run, rarity = 'rare') {
   }
   for (const id of Object.keys(ANOMALIES)) {
     const a = ANOMALIES[id]
-    const subjects = a.subjects ? a.subjects(run) : null
+    // This list ignores every eligibility rule (see the header), so a SUBJECTED card can arrive
+    // with nothing legal to point at. An empty list is not inert but WRONG: applyChoice banks
+    // `true`, specialistFocus reads that as "no focus", and the card silently does nothing while
+    // the pause sheet still lists it. Fall back to the whole loadout — any owned weapon is a legal
+    // thing to specialise in, and the point of this menu is to test the card.
+    // ponytail: no CHOOSER here, so this takes weapon [0]; add one if picking the subject from the
+    // dev menu turns out to matter.
+    const subj = a.subjects?.(run)
+    const subjects = subj ? (subj.length ? subj : run.weapons.map((w) => w.id)) : null
     out.push({ kind: 'anomaly', id, title: a.name, desc: a.desc, from: a.from, tag: '',
       rarity: 'anomaly', icon: a.icon, subjects,
       subjectPicks: subjects ? Object.fromEntries(subjects.map((w) => [w, weaponModPickCount(run, w)])) : null })
