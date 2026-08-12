@@ -1,7 +1,7 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
 import {
   PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
-  difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, CHAPTERS,
+  difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
@@ -249,7 +249,11 @@ export function loadMeta() {
         delete m.maxDifficulty
       }
       m.chapter ??= 'body'
-      for (const id of CHAPTER_ORDER) ensureChapterMeta(m, id)
+      // ALL_CHAPTER_IDS, not CHAPTER_ORDER: every book's ladder gets an entry, so toggling the WIP
+      // gate on needs no migration and cannot produce a chapter with no ledger. Harmless for a
+      // player — ensureChapterMeta defaults `unlocked` to `id === 'body'`, so a WIP entry is created
+      // locked and nothing on the title reads it unless meta.dev is on.
+      for (const id of ALL_CHAPTER_IDS) ensureChapterMeta(m, id)
       // Retroactive chapter unlocks: a chapter that shipped AFTER the player already beat the
       // previous one at CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load — winning level d raises that
       // chapter's maxDifficulty to d+1, so maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY proves the
@@ -304,7 +308,7 @@ export function loadMeta() {
     name: '',
     savedAt: 0,
   }
-  for (const id of CHAPTER_ORDER) ensureChapterMeta(fresh, id)
+  for (const id of ALL_CHAPTER_IDS) ensureChapterMeta(fresh, id)  // see the loadMeta sweep above
   return fresh
 }
 

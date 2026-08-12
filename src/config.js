@@ -3118,7 +3118,33 @@ export const COIN_CAP_PER_RUN = 999
 // pools, and signature/obstacle config from the run's chapter snapshot (see state.js
 // createRun). v5.4 completes the seven-chapter arc from the design doc — CHAPTER_ORDER is the
 // single source of truth for sequencing, daily seeding, and how many chapters currently ship.
-export const CHAPTER_ORDER = ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']
+// ---- Books (v7.x) ------------------------------------------------------------------
+// A book is a campaign: its own chapters, its own ladder, its own protagonist. Book 1 is the
+// shipped game. A book marked `wip` is hidden from players entirely and reachable only behind
+// meta.dev — see playableChapterId below and titleChapterList in ui.js.
+//
+// CHAPTER_ORDER is an ALIAS for book 1's chapters, and that is the whole design of this refactor:
+// every existing read site — slot summaries, the daily draw, the retroactive unlock chain, ~40 test
+// assertions — keeps working untouched and keeps meaning "the shipped chapters, in order". Adding a
+// book therefore cannot break Book 1 by omission; the only way to reach another book's chapters is
+// to ask for that book by name.
+//
+// `hidden` is for chapters that belong to a book but sit outside its ladder — The Blank is Book 1's,
+// unlocked by winning The Beyond at 5 rather than by finishing the chapter before it.
+export const BOOKS = {
+  book1: {
+    name: 'The Anomaly',
+    chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
+    hidden: ['blank'],
+  },
+  downward: { name: 'Downward', chapters: ['shelf'], hidden: [], wip: true },
+}
+export const CHAPTER_ORDER = BOOKS.book1.chapters
+// Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
+// every loop (saveSummary and ui.js both say so in their own comments, and ui.js's carousel repair
+// branches on its ledger entry being ABSENT), so sweeping it in here would change shipped
+// behaviour for a refactor that is supposed to change none.
+export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -3747,6 +3773,27 @@ CHAPTERS.blank = {
             voidFloor: true,   // RENDER gates all decorative floor layers off
             ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
 }
+
+// v7.x Book 2 ("Downward"), phase 1 — The Shelf, WEARING THE POND'S CLOTHES. Literally: this is a
+// spread of CHAPTERS.pond with a new name, so every roster entry, weapon, tint and balance number
+// it has is A STAND-IN AND NOT A DESIGN. Written as a spread rather than a 45-line copy on purpose
+// — a copy drifts silently and starts reading like a decision, whereas this cannot be mistaken for
+// one and cannot fall out of sync with what it borrowed.
+//
+// It exists because phase 1 is the WIP gate and the selection path, and a gate with nothing behind
+// it tests nothing: the two assertions that catch the ways this refactor is known to break (a WIP
+// run silently downgrading to The Body, and a WIP chapter no UI can select) both need a real
+// chapter to name. Phase 2 is what makes it a chapter — swapping `signature` from the pond's
+// currents to shafts, adding `resource`, and re-cutting `balance` for a book-opening difficulty.
+//
+// Sharing the pond's nested objects by reference is safe BECAUSE config.js is read-only ground
+// truth; phase 2 replaces them wholesale rather than mutating them.
+CHAPTERS.shelf = {
+  ...CHAPTERS.pond,
+  name: 'The Shelf',
+  tagline: 'the light only goes down',
+  icon: '🌊',
+}
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -4223,7 +4270,74 @@ export const ROAD_JUNCTION = {
 // an order check would silently turn every Blank run into a body run.
 export const resolveChapterId = (id) => (Object.hasOwn(CHAPTERS, id) ? id : CHAPTER_ORDER[0])
 
-export const nextChapter = (id) => CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null
+// Which book claims this chapter (ladder or hidden), or null for an id no book knows.
+export const bookOf = (id) => Object.keys(BOOKS).find((b) => BOOKS[b].chapters.includes(id) || BOOKS[b].hidden.includes(id)) ?? null
+// Is this chapter behind the WIP gate — i.e. does its book still need meta.dev to be reachable?
+export const isWipChapter = (id) => BOOKS[bookOf(id)]?.wip === true
+
+// The next chapter in the id's OWN book, or null past its end and for any id no book claims.
+// Was `CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null`, which returned 'body' for every
+// outside id because indexOf is -1 and -1 + 1 indexes element 0. That was latent rather than live —
+// both call sites are inert, ui.js only ever feeding it ids already filtered through CHAPTER_ORDER
+// and main.js following it with an `unlocked` check body always passes — but a second book is
+// exactly what makes an outside id routine, so it is fixed before it can matter.
+export const nextChapter = (id) => {
+  const order = BOOKS[bookOf(id)]?.chapters ?? []
+  const i = order.indexOf(id)
+  return i < 0 ? null : (order[i + 1] ?? null)
+}
+
+// The chapter the PLAY path may actually start — the one and only place the WIP gate belongs.
+// Deliberately NOT folded into resolveChapterId: createRun resolves a SECOND time (state.js) and
+// has no meta to consult there, so a dev-aware resolveChapterId would silently downgrade every
+// gated run to CHAPTER_ORDER[0] — no throw, no warning, and endRun crediting the wrong chapter's
+// ledger. resolveChapterId stays a pure "is this a real chapter" test so every sim-adjacent caller
+// passes a legitimately-selected WIP id straight through; visibility is asked for explicitly, here.
+export const playableChapterId = (meta) => {
+  const id = resolveChapterId(meta?.chapter)
+  return isWipChapter(id) && meta?.dev !== true ? CHAPTER_ORDER[0] : id
+}
+
+// May this save select and play this chapter? Unlocked the ordinary way, OR a WIP chapter with the
+// gate on — meta.dev IS the permission for a chapter that has no unlock path yet.
+//
+// One helper because `unlocked` is read at FIVE places that each decide a different thing: whether
+// the carousel card is a "???" preview, whether Play is enabled, whether scrolling to it persists
+// the selection, whether the pre-run brief is a preview, and whether a tap is honoured at all. The
+// first cut of phase 1 fixed only the last one, so The Shelf appeared in the carousel as a locked
+// card with a dead Play button — listed and unreachable, which is the same dead end the plan was
+// rewritten to avoid, reached from one step further along.
+//
+// NOT by marking WIP chapters `unlocked` in the save instead: that writes a permission to disk that
+// outlives the gate, so turning dev back off would leave an unlocked WIP chapter behind.
+export const chapterAvailable = (meta, id) =>
+  !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && isWipChapter(id))
+
+// Which chapters the title carousel shows: every unlocked chapter, plus the first still-locked one
+// as an anonymous "???" preview. Pure function of the save — it was module-local in ui.js until
+// v7.x, and it moved here because it is chapter DATA logic with no DOM in it, and because the WIP
+// gate below is only a real gate if the suite can assert it (ui.js cannot be imported headless:
+// import.meta.glob is Vite-only).
+export function titleChapterList(meta) {
+  const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
+  const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
+  if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
+  const base = ids.length ? ids : [CHAPTER_ORDER[0]]
+  // v5.24: The Blank lives OUTSIDE CHAPTER_ORDER (see config.js) so nextChapter can never surface
+  // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
+  // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
+  if (meta.chapters?.blank?.unlocked) base.push('blank')
+  // >= not ===: R3 (state.js) keeps a future build's higher maxDifficulty as stored, and a strict
+  // equality against this build's ceiling would make the "???" card vanish for exactly the players
+  // who have gone furthest. undefined/null still compare false, so nothing else changes.
+  else if (meta.chapters?.beyond?.maxDifficulty >= MAX_DIFFICULTY) base.push('blank')
+  // v7.x: a WIP book's chapters are appended ONLY behind the dev gate, the same explicit-append
+  // idiom The Blank uses one line up and for the same reason — they live outside CHAPTER_ORDER, so
+  // the filter above structurally cannot surface them. This append is the only way to reach one,
+  // which is what makes meta.dev a real gate rather than a decoration.
+  if (meta.dev) for (const b of Object.values(BOOKS)) if (b.wip) base.push(...b.chapters)
+  return base
+}
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
 // dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks
 // are independent draws from the same date key.

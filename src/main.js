@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, COIN_CAP_PER_RUN } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -105,7 +105,12 @@ const ui = initUI({
     // run.chapter) endRun's credit all name the chapter that will actually be played. Reading the
     // unknown chapter's ladder instead would launch The Body at a level the player never unlocked
     // there and hand it that chapter's win. In memory only: meta.chapter is never written back.
-    const chapterId = resolveChapterId(meta.chapter)
+    // v7.x: playableChapterId, which is resolveChapterId plus the WIP gate. THE PLAY PATH IS THE
+    // ONLY PLACE THAT GATE BELONGS — putting it inside resolveChapterId instead would reach
+    // createRun's own second resolve (state.js), which has no meta, and silently turn every gated
+    // run into a Body run credited to body's ledger. onDifficulty below must use the same helper:
+    // it writes into the ledger of whatever this launches, so the two moving apart is a mismatch.
+    const chapterId = playableChapterId(meta)
     const chMeta = ensureChapterMeta(meta, chapterId)
     // The Blank's difficulty ladder is a fixed, named set of modifiers per level (see
     // CHAPTERS.blank.modsByDifficulty) rather than random picks — its whole point is a
@@ -232,7 +237,7 @@ const ui = initUI({
     // Same R1 resolution as onPlay above, for the same reason plus one of its own: writing a
     // clamped difficulty into the entry of a chapter this build cannot play would LOWER a newer
     // save's stored selection on disk — the exact clamp-and-persist loss R3 exists to prevent.
-    const chapterId = resolveChapterId(meta.chapter)
+    const chapterId = playableChapterId(meta)
     const chMeta = ensureChapterMeta(meta, chapterId)
     chMeta.difficulty = Math.max(1, Math.min(chMeta.maxDifficulty, Math.min(chapterMaxDifficulty(chapterId), d)))
     saveMeta(meta)
@@ -242,7 +247,12 @@ const ui = initUI({
   // that isn't unlocked, even if a stray click somehow got through a disabled locked card. ui.js
   // re-renders the title itself right after calling this (same pattern as onDifficulty above).
   onChapter(id) {
-    if (!ensureChapterMeta(meta, id).unlocked) return
+    // chapterAvailable, not the raw `unlocked` flag: a WIP chapter has no unlock path yet and
+    // meta.dev IS its permission. ensureChapterMeta still runs first, so the entry is created and
+    // repaired exactly as before — only the verdict changes. ui.js gates the card, the Play button,
+    // the scroll-persist and the brief on the same helper, so all five agree by construction.
+    ensureChapterMeta(meta, id)
+    if (!chapterAvailable(meta, id)) return
     meta.chapter = id
     saveMeta(meta)
     playSfx('click')

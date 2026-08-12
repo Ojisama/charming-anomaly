@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, chaosStatus } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -70,22 +70,9 @@ function selectedChapterMeta(meta) {
 // browsed chapter updates; an unlocked one persists via hooks.onChapter, the locked one never
 // reaches it. The v5.1 single-card + ‹ › arrows + custom touch swipe (navChapter, heroTouch*) are
 // gone — native scroll handles paging.
-// The carousel = [unlocked chapters] + [the first still-locked CHAPTERS entry].
-function titleChapterList(meta) {
-  const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
-  const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
-  if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
-  const base = ids.length ? ids : [CHAPTER_ORDER[0]]
-  // v5.24: The Blank lives OUTSIDE CHAPTER_ORDER (see config.js) so nextChapter can never surface
-  // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
-  // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
-  if (meta.chapters?.blank?.unlocked) base.push('blank')
-  // >= not ===: R3 (state.js) keeps a future build's higher maxDifficulty as stored, and a strict
-  // equality against this build's ceiling would make the "???" card vanish for exactly the players
-  // who have gone furthest. undefined/null still compare false, so nothing else changes.
-  else if (meta.chapters?.beyond?.maxDifficulty >= MAX_DIFFICULTY) base.push('blank')
-  return base
-}
+// The carousel list itself lives in config.js (titleChapterList) — it is a pure function of the
+// save, with no DOM in it, which is what lets the suite assert the WIP gate for real rather than
+// by grepping this file.
 
 // Pixi int colour (0xrrggbb) -> '#rrggbb'; shade() blends a hex toward white (amt > 0) or black
 // (amt < 0) by |amt| for the hero card's diorama gradient stops; luminance() picks dark-on-light
@@ -289,7 +276,10 @@ export function initUI(hooks) {
   //     level — pips that disagree with the run. (The pip COUNT is the same either way:
   //     chapterMaxDifficulty returns MAX_DIFFICULTY for an unknown id. It is the unlocked state
   //     that lies.) No card exists for that id either, so the carousel would centre on nothing.
-  let browseChapterId = resolveChapterId(meta.chapter)
+  // playableChapterId, not resolveChapterId: with the gate OFF, a save still pointing at a WIP
+  // chapter must browse a shipped one. resolveChapterId would happily return it (it is a real
+  // chapter) and the below-carousel block would then describe a card the carousel is not showing.
+  let browseChapterId = playableChapterId(meta)
   let boostersOpen = false
 
   // v6.7.2 cast art: rosterId -> URL of that creature's thumbnail, resolved at BUILD time from
@@ -355,7 +345,7 @@ export function initUI(hooks) {
   // The hollow last star still PULSES when that level is unlocked but not yet won — a "one to go"
   // tease, which is what it always should have meant.
   function heroCardHtml(id) {
-    if (!meta.chapters?.[id]?.unlocked) {
+    if (!chapterAvailable(meta, id)) {
       const tagline = id === 'blank'
         ? t('win The Beyond at level 5 — something has been counting')
         : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
@@ -439,7 +429,7 @@ export function initUI(hooks) {
     const list = titleChapterList(meta)
     const cards = list.map((id) => heroCardHtml(id)).join('')
     const dots = list.map((id) => {
-      const locked = !meta.chapters?.[id]?.unlocked
+      const locked = !chapterAvailable(meta, id)
       return `<span class="carousel-dot${id === browseChapterId ? ' carousel-dot--active' : ''}${locked ? ' carousel-dot--locked' : ''}" data-dot="${id}"></span>`
     }).join('')
     return `
@@ -532,7 +522,7 @@ export function initUI(hooks) {
   }
 
   function titleBelowHtml() {
-    const heroUnlocked = !!meta.chapters?.[browseChapterId]?.unlocked
+    const heroUnlocked = chapterAvailable(meta, browseChapterId)
     const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
     const cap = chapterMaxDifficulty(browseChapterId)
     const playBlock = heroUnlocked ? `
@@ -626,7 +616,7 @@ export function initUI(hooks) {
       browseChapterId = best.dataset.chapter
       // Unlocked + a real change persists via onChapter (which itself plays 'click'); the locked
       // preview only browses, so click here instead. Then patch the below-carousel block in place.
-      if (meta.chapters?.[browseChapterId]?.unlocked && browseChapterId !== meta.chapter) hooks.onChapter(browseChapterId)
+      if (chapterAvailable(meta, browseChapterId) && browseChapterId !== meta.chapter) hooks.onChapter(browseChapterId)
       else playSfx('click')
       updateTitleBelow()
     }
@@ -642,7 +632,7 @@ export function initUI(hooks) {
     // entry — reachable for 'blank', which lives outside CHAPTER_ORDER so ensureChapterMeta never
     // creates one — and falling back to an unvalidated pointer would put the alien id straight back
     // (R1, config.js).
-    if (!meta.chapters?.[browseChapterId]) browseChapterId = resolveChapterId(meta.chapter)
+    if (!meta.chapters?.[browseChapterId]) browseChapterId = playableChapterId(meta)
     setHtml(screens.title, `
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
@@ -1603,7 +1593,7 @@ export function initUI(hooks) {
     const chId = dailyChapter(todayKey())
     const ids = dailyMutators(todayKey(), chId) // chapter-scoped pool — must match main.js's roll
     const chapter = CHAPTERS[chId]
-    const isPreview = !meta.chapters?.[chId]?.unlocked
+    const isPreview = !chapterAvailable(meta, chId)
     setHtml(screens.daily, `
       <div class="modal daily-brief" data-pop="daily">
         <h2 class="modal-title">🌀 ${t('Daily Anomaly')}</h2>

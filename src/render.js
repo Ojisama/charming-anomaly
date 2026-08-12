@@ -6839,6 +6839,11 @@ export function createRenderer(app) {
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
+    // v7.x Book 2: The Shelf is the pond's biome for now, matching CHAPTERS.shelf, which is
+    // literally a spread of CHAPTERS.pond. Not decorative — chapterBiome falls back to BIOMES.body
+    // for an unknown id, so WITHOUT this line The Shelf would draw villi and platelets under a teal
+    // tint. A stand-in, like the chapter it serves.
+    shelf: BIOME_POND,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,

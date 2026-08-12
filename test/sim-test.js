@@ -37,6 +37,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER,
+  BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -4319,6 +4320,121 @@ function testChapters() {
 
   console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock, carousel settle guards, WIP gate coercion + R1')
 }
+
+// ---- Run BK: books + the WIP gate (v7.x, Book 2 phase 1) ---------------------------------
+// The refactor is additive on purpose — CHAPTER_ORDER is an ALIAS for BOOKS.book1.chapters — so the
+// danger is not that Book 1 breaks loudly. It is that a WIP chapter LEAKS to a player, or that the
+// gate is so tight nothing can reach the chapter it is guarding. Both fail silently, and the second
+// one fails while every other test in this file still passes.
+function runBooks() {
+  // (a) nextChapter walks the id's OWN book and returns null past its end. It used to return 'body'
+  // for every id outside CHAPTER_ORDER, because indexOf is -1 and -1 + 1 indexes element 0. Latent
+  // then (both call sites were inert); a second book is what makes an outside id routine.
+  assert.strictEqual(nextChapter('blank'), null, "nextChapter('blank') === null — The Blank is hidden, outside book 1's ladder")
+  assert.strictEqual(nextChapter('shelf'), null, "nextChapter('shelf') === null — last (and only) chapter of its own book")
+  assert.strictEqual(nextChapter('nope'), null, "nextChapter on an id no book claims === null, NOT 'body'")
+  assert.strictEqual(nextChapter(undefined), null, 'nextChapter(undefined) === null')
+  assert.strictEqual(nextChapter('body'), 'pond', 'nextChapter still walks book 1 normally')
+  assert.strictEqual(nextChapter('beyond'), null, "nextChapter past book 1's end === null")
+
+  // (b) A WIP chapter must be unreachable by every route that does NOT ask for it by name: the
+  // shipped order, the daily draw (a full year of date keys), and the unlock chain.
+  const wip = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
+  assert.ok(wip.length > 0, 'expected at least one WIP chapter, or this whole run asserts nothing')
+  for (const id of wip) {
+    assert.ok(!CHAPTER_ORDER.includes(id), `WIP chapter '${id}' must not be in CHAPTER_ORDER — that alias is what keeps it out of every shipped loop`)
+    assert.ok(Object.hasOwn(CHAPTERS, id), `WIP chapter '${id}' must be a real CHAPTERS entry, or the gate guards nothing`)
+  }
+  for (let d = 0; d < 366; d++) {
+    const key = `2026-${String(1 + (d % 12)).padStart(2, '0')}-${String(1 + (d % 28)).padStart(2, '0')}`
+    assert.ok(!wip.includes(dailyChapter(key)), `dailyChapter('${key}') surfaced a WIP chapter — the daily draws from CHAPTER_ORDER only`)
+  }
+  for (const id of CHAPTER_ORDER) {
+    assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
+  }
+  // isWipChapter is what main.js's onChapter bypasses the unlock check with, so a false positive
+  // here would make a SHIPPED locked chapter selectable — the gate leaking in the other direction.
+  assert.strictEqual(isWipChapter('shelf'), true, "isWipChapter('shelf') — its book is marked wip")
+  assert.strictEqual(isWipChapter('pond'), false, "isWipChapter('pond') === false — a shipped chapter is never a WIP bypass")
+  assert.strictEqual(isWipChapter('blank'), false, "isWipChapter('blank') === false — hidden is not the same as WIP; it is earned, and book 1 is not wip")
+  for (const junk of ['nope', undefined, null, '__proto__', 'constructor']) {
+    assert.strictEqual(isWipChapter(junk), false, `isWipChapter(${JSON.stringify(junk)}) === false — no id may bypass the unlock check by accident`)
+  }
+
+  // (c) Gate OFF: a save pointing at a WIP chapter plays a SHIPPED one. resolveChapterId still
+  // returns it verbatim — it is a real chapter and that helper is only a "does this exist" test.
+  const metaOff = { chapter: 'shelf', dev: false, chapters: {} }
+  assert.strictEqual(resolveChapterId('shelf'), 'shelf', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
+  assert.strictEqual(playableChapterId(metaOff), CHAPTER_ORDER[0], 'gate off: a WIP meta.chapter falls back to the first shipped chapter')
+  assert.strictEqual(playableChapterId({ chapter: 'pond', dev: false }), 'pond', 'gate off: a shipped chapter is untouched')
+  for (const junk of [undefined, null, {}, { chapter: 'nope' }]) {
+    assert.strictEqual(playableChapterId(junk), CHAPTER_ORDER[0], `playableChapterId(${JSON.stringify(junk)}) falls back rather than throwing`)
+  }
+
+  // (d) Gate ON: the WIP id survives the WHOLE path, including createRun's own SECOND resolve.
+  // This is the assertion that would have caught the silent downgrade an earlier draft of the plan
+  // shipped: making resolveChapterId dev-aware looked right, but createRun re-resolves with no meta
+  // to consult, so every gated run became a Body run credited to body's ledger — no throw, no
+  // warning. Note it must name 'shelf' EXPLICITLY: every existing test of this shape iterates
+  // CHAPTER_ORDER, which by design never contains it, so they would all still have passed.
+  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true, chapters: {} }
+  assert.strictEqual(playableChapterId(metaOn), 'shelf', 'gate on: the WIP chapter is what Play reads')
+  const wipRun = createRun(metaOn, { chapter: 'shelf', difficulty: 1 })
+  assert.strictEqual(wipRun.chapter, 'shelf', "createRun kept 'shelf' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
+  assert.strictEqual(wipRun.weapons.length > 0, true, 'the WIP run got a real starter weapon, so it is genuinely playable and not a husk')
+
+  // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
+  // ships a chapter nothing can select — and every other assertion in this file still passes.
+  const listed = { chapters: Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 1, difficulty: 1 }])), dev: true }
+  assert.ok(titleChapterList(listed).includes('shelf'), 'gate on: the title carousel must list the WIP chapter, or it cannot be selected')
+  listed.dev = false
+  assert.ok(!titleChapterList(listed).includes('shelf'), 'gate off: the title carousel must NOT list the WIP chapter')
+  assert.deepStrictEqual(titleChapterList(listed).filter((id) => id !== 'blank'), CHAPTER_ORDER,
+    'gate off: the carousel is exactly book 1 (plus The Blank when earned) — the refactor must not change what a player sees')
+  // (f) chapterAvailable is the single permission the card, the Play button, the scroll-persist,
+  // the brief and onChapter all read. Listing the chapter is NOT enough: the first cut of phase 1
+  // fixed only onChapter, and The Shelf duly appeared in the carousel as a locked "???" card with a
+  // dead Play button — listed and unreachable, the same dead end one step further along. Caught by
+  // a screenshot, not by a test, which is why it is asserted here now.
+  const shelfLocked = { dev: false, chapters: { shelf: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
+  assert.strictEqual(chapterAvailable(shelfLocked, 'shelf'), false, 'gate off: a WIP chapter is not available')
+  assert.strictEqual(chapterAvailable(shelfLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
+  assert.strictEqual(chapterAvailable(shelfLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
+  const shelfDev = { ...shelfLocked, dev: true }
+  assert.strictEqual(chapterAvailable(shelfDev, 'shelf'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(chapterAvailable(shelfDev, 'beyond'), false,
+    'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
+  assert.strictEqual(shelfDev.chapters.shelf.unlocked, false,
+    'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
+
+  // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source
+  // tripwire: the helper existing proves nothing if a call site still reads `unlocked` directly.
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/if \(!chapterAvailable\(meta, id\)\) return/.test(mainSrc),
+      'main.js onChapter no longer gates on chapterAvailable — the carousel would list the chapter and refuse every tap on it')
+    assert.ok(!/const chapterId = resolveChapterId\(meta\.chapter\)/.test(mainSrc),
+      'main.js still resolves the play path with resolveChapterId — it must use playableChapterId, or the gate does not apply where it matters')
+    assert.strictEqual((mainSrc.match(/playableChapterId\(meta\)/g) ?? []).length, 2,
+      'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
+    assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
+      'ui.js must gate the hero CARD, the carousel dot, the Play button, the scroll-persist and the brief on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+    // The count above is the assertion that keeps missing one. It read 4 and passed while
+    // heroCardHtml still gated itself, so The Shelf had a live Play button above a padlocked "???"
+    // card — caught by a screenshot. So also sweep the whole title-rendering span for a raw read.
+    const titleSpan = uiSrc.slice(uiSrc.indexOf('function heroCardHtml'), uiSrc.indexOf('function wireCarousel'))
+    const rawReads = titleSpan.split('\n').filter((l) => /chapters\?\.\[[a-zA-Z]+\]\?\.unlocked/.test(l) && !l.includes('//'))
+      // Counting how much of BOOK 1 is finished is not an availability decision, and must keep
+      // reading the raw flag — the completion badge must never count a WIP chapter as progress.
+      .filter((l) => !l.includes('CHAPTER_ORDER'))
+    assert.deepStrictEqual(rawReads, [],
+      `a raw per-chapter \`unlocked\` read is back in the title-rendering span — route it through chapterAvailable or a WIP chapter renders locked:\n${rawReads.join('\n')}`)
+  }
+
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
+}
+runBooks()
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —
