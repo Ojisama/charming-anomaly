@@ -127,7 +127,7 @@ import {
   ARTILLERY_INTERVAL, ARTILLERY_FUSE, ARTILLERY_RADIUS, ARTILLERY_DMG, ARTILLERY_LEAD,
   ARTILLERY_ELITE_INTERVAL, ARTILLERY_ELITE_RADIUS, ARTILLERY_ELITE_DMG, ARTILLERY_FIRE_RANGE, SHELL_MAX_LIVE,
   BOMBARDMENT_COUNT, BOMBARDMENT_SPREAD, BOMBARDMENT_FUSE, BOMBARDMENT_RADIUS, BOMBARDMENT_DMG,
-  ROAR_STUN, ROAR_RESONANCE_EVERY, LASH_COUNTER_CD,
+  ROAR_RESONANCE_EVERY, LASH_COUNTER_CD,
   LASH_PULL_T, LASH_DRAG_FRAC, LASH_DRAG_R, BREATH_CHARGE_T, BREATH_JUMP_DMG_MUL,
   LOB_SHRAPNEL_DMG_FRAC, LOB_SHRAPNEL_SPEED, LOB_SHRAPNEL_RANGE, LOB_SHRAPNEL_R,
   // v5.8 kaiju redesign (skies crushing + rampage)
@@ -155,7 +155,7 @@ import {
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
   BLANK_READ1_T, BLANK_READ1_K, BLANK_READ1_FUSE, BLANK_READ1_STAGGER, BLANK_READ1_R, BLANK_READ1_DMG,
   BLANK_PASTSEEK_LAG, BLANK_NODE_MAX, BLANK_NODE_T, BLANK_NODE_HP, BLANK_NODE_RING, BLANK_NODE_SLOW,
-  BLANK_YANK_T, BLANK_YANK_DIST, BLANK_YANK_DMG, BLANK_SHOT_T, BLANK_SHOT_SPEED, BLANK_SHOT_DMG,
+  BLANK_YANK_T, BLANK_YANK_DIST, BLANK_YANK_DMG, BLANK_SHOT_T, BLANK_SHOT_N, BLANK_SHOT_SPEED, BLANK_SHOT_DMG,
   BLANK_SHOT_R, BLANK_SHOT_LIFE, BLANK_SHOT_TURN, BLANK_STANDOFF_DRIFT_MUL, BLANK_BOSS_DMG,
   BLANK_STANDOFF_CATCHUP_D, BLANK_STANDOFF_CATCHUP_MUL,
   BLANK_READ3_T, BLANK_LEAD, BLANK_BAND_LEN, BLANK_BAND_W, BLANK_BAND_FUSE, BLANK_BAND_T, BLANK_BAND_DPS,
@@ -163,7 +163,7 @@ import {
   BLANK_WAKE_DPS, BLANK_MEMORY_T, BLANK_RECRUIT_T, BLANK_RECRUIT_N, BLANK_ACCEL_MUL,
   BLANK_BOSS_SPEED_P3, BLANK_PHASE_LEVELS, BLANK_FAN_N, BLANK_FAN_SPREAD, BLANK_FAN_SPEED,
   // v6.3.1 difficulty pass: 4x HP/faster P1/doubled waves + crossReactive (d2+)/affinityMature (d3)
-  BLANK_BOSS_SPEED_P1, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX, BLANK_WAVE_XP_MUL,
+  BLANK_BOSS_SPEED_P1, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K, BLANK_XREACT_STRIDE,
   BLANK_READ1_K_MATURE, BLANK_NODE_MAX_MATURE, BLANK_FAN_N_MATURE,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
@@ -817,8 +817,12 @@ function stepBossScript(run, dt) {
     run.bossBar = null
     if (!s.spawned) {
       const wave = block.waves[s.waveIdx]
+      // The door (owner directive): a wave of 128-256 lands as a closed ring with nowhere to run,
+      // so every wave leaves one BLANK_WAVE_GAP-wide wedge empty. Re-rolled per wave — the opening
+      // is something you read and commit to, not a fixed corner you park in.
+      const gapDir = Math.random() * Math.PI * 2
       for (let i = 0; i < wave.n; i++) {
-        const e = spawnBlankEnemy(run, wave.ids[i % wave.ids.length])
+        const e = spawnBlankEnemy(run, wave.ids[i % wave.ids.length], false, { gapDir, gapArc: BLANK_WAVE_GAP })
         if (!e) break // BLANK_MAX_ALIVE — leftovers already saturate the field
         e._wave = true
         e.xp *= BLANK_WAVE_XP_MUL // v6.3.3: the horde is pressure, not a leveling shortcut (gems are float-safe)
@@ -927,11 +931,14 @@ function stepBossScript(run, dt) {
       run._shotT -= dt
       if (run._shotT <= 0) {
         run._shotT += BLANK_SHOT_T * accel * dmul
-        const a = Math.atan2(p.y - boss.y, p.x - boss.x)
-        run.enemyShots.push({
-          x: boss.x, y: boss.y, vx: Math.cos(a) * BLANK_SHOT_SPEED, vy: Math.sin(a) * BLANK_SHOT_SPEED,
-          r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: BLANK_SHOT_TURN,
-        })
+        const base = Math.atan2(p.y - boss.y, p.x - boss.x)
+        for (let i = 0; i < BLANK_SHOT_N; i++) {
+          const a = base + (i - (BLANK_SHOT_N - 1) / 2) * BLANK_FAN_SPREAD
+          run.enemyShots.push({
+            x: boss.x, y: boss.y, vx: Math.cos(a) * BLANK_SHOT_SPEED, vy: Math.sin(a) * BLANK_SHOT_SPEED,
+            r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: BLANK_SHOT_TURN,
+          })
+        }
       }
     }
   } else if (phase === 2) {
@@ -962,16 +969,21 @@ function stepBossScript(run, dt) {
       for (const n of nodes) dealDamage(run, n, n.hp, false)
       run.events.push({ type: 'yank', x: p.x, y: p.y })
     }
-    // Slow aimed shots (the existing enemy-projectile machinery — outrunnable, but you're slowed).
+    // Slow aimed shots (the existing enemy-projectile machinery — outrunnable, but you're slowed),
+    // fired BLANK_SHOT_N at a time as a pair straddling the aim line: both halves home, so the
+    // gap down the middle closes as they travel.
     run._shotT -= dt
     if (run._shotT <= 0) {
       run._shotT += BLANK_SHOT_T * accel * dmul
-      const a = Math.atan2(p.y - boss.y, p.x - boss.x)
-      run.enemyShots.push({
-        x: boss.x, y: boss.y,
-        vx: Math.cos(a) * BLANK_SHOT_SPEED, vy: Math.sin(a) * BLANK_SHOT_SPEED,
-        r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: BLANK_SHOT_TURN,
-      })
+      const base = Math.atan2(p.y - boss.y, p.x - boss.x)
+      for (let i = 0; i < BLANK_SHOT_N; i++) {
+        const a = base + (i - (BLANK_SHOT_N - 1) / 2) * BLANK_FAN_SPREAD
+        run.enemyShots.push({
+          x: boss.x, y: boss.y,
+          vx: Math.cos(a) * BLANK_SHOT_SPEED, vy: Math.sin(a) * BLANK_SHOT_SPEED,
+          r: BLANK_SHOT_R, dmg: BLANK_SHOT_DMG, life: BLANK_SHOT_LIFE, turnRate: BLANK_SHOT_TURN,
+        })
+      }
     }
     // crossReactive (d2+): P2 borrows P1's trail read, but as a SPREAD field (every
     // BLANK_XREACT_STRIDE-th sample) so a stationary player — P2's own correct play — gets a
@@ -1293,7 +1305,13 @@ function spawnEnemy(run, opts = {}) {
       x = -hw + Math.random() * hw * 2
       y = p.y - (run.viewRadius + SPAWN_RING)
     } else {
-      const angle = Math.random() * Math.PI * 2
+      // opts.gapArc/gapDir (the blank's wave rings): leave ONE wedge of the ring empty — a door.
+      // Drawing from the allowed arc and rotating it past the gap keeps the rest of the ring
+      // uniform; rejection-sampling would have the same distribution but an unbounded loop.
+      const arc = opts.gapArc ?? 0
+      const angle = arc > 0
+        ? opts.gapDir + arc / 2 + Math.random() * (Math.PI * 2 - arc)
+        : Math.random() * Math.PI * 2
       const dist = run.viewRadius + SPAWN_RING
       x = p.x + Math.cos(angle) * dist
       y = p.y + Math.sin(angle) * dist
@@ -6466,7 +6484,11 @@ function fireRoar(run, stats) {
       applyDamage(run, e, stats.dmg)
       if (e._dead) continue
       shoveFromPlayer(run, e, stats.knockback)
-      if (staggerBonus > 0 && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, ROAR_STUN * staggerBonus * ccScale(run, e)); spendCC(run, e) }
+      // staggerBonus IS the stun in seconds (STAGGER_STUN_PER_PICK per normal pick) — no second
+      // constant multiplying it, so the number on the card is the number applied here. Math.max,
+      // not +=: casts REFRESH the timer rather than accumulating, which is what stops a fire-rate
+      // build from chain-locking the screen (the same reason the CC_DR_* pricing exists).
+      if (staggerBonus > 0 && !resistsCC(e)) { e.stunT = Math.max(e.stunT || 0, staggerBonus * ccScale(run, e)); spendCC(run, e) }
     }
     run.events.push({ type: 'roar', x: p.x, y: p.y, angle: swing, range: stats.range, arc })
   }
@@ -7207,6 +7229,10 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // mod bit-identical.
   else if (cfg.kind === 'tier') bonus = WEAPON_MOD_TIER_BONUS[rarity] * (cfg.perTier ?? 1)
   else if (cfg.kind === 'flat') bonus = Math.max(1, Math.round(cfg.base * mult))
+  // 'secs' banks a DURATION, which is the one kind whose raw product reaches the player as text: a
+  // legendary Stagger is 0.35 × 4 = 1.4000000000000001, and {n} would print every digit of it.
+  // Rounded to 2dp here so the banked value and the card agree exactly, rather than only on screen.
+  else if (cfg.kind === 'secs') bonus = Math.round(cfg.base * mult * 100) / 100
   else bonus = cfg.base * mult
   // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
   // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which

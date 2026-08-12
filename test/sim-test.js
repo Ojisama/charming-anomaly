@@ -67,7 +67,7 @@ import {
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL, FEAR_REFRACTORY,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
-  ROAR_RESONANCE_EVERY, PULSAR_ARMS,
+  ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
@@ -76,7 +76,7 @@ import {
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
   BLANK_READ1_T, BLANK_YANK_T, BLANK_NODE_T, BLANK_YANK_DMG,
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
-  BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL,
+  BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
@@ -6587,14 +6587,42 @@ function testV54Weapons() {
     assert(foe.hp < 1e6, 'expected the roar to damage what it hits')
     assert(foe.x > 100, `expected the roar to shove the foe away, x=${foe.x.toFixed(1)}`)
 
-    // stagger: roared foes are stunned.
-    const stag = weaponRun('skies', 'roar')
-    stag.weaponMods.roar.stagger = 0.50
-    const s = makeStatusEnemy(stag, { x: 100, y: 0, hp: 1e6, speed: 0 })
-    s.flags = []
-    stag.enemies.push(s)
-    stepQuiet(stag, 1.5)
-    assert(s.stunT > 0, `expected stagger to stun a roared foe, stunT=${s.stunT}`)
+    // stagger: roared foes are stunned FOR THE DURATION THE CARD PROMISES. `stunT > 0` was the old
+    // assertion here and it is the shape that passes with the feature broken — it held just as
+    // happily at the previous 0.25s, and would hold at 0.001s. The banked bonus IS the seconds now
+    // (no ROAR_STUN multiplier), so the card's number and this number are the same number, and that
+    // identity is the thing worth pinning: the owner's complaint was that nothing in the game
+    // stated it. First application only, where _ccDR is still 1, so ccScale contributes exactly 1.
+    function peakStun(picks) {
+      const r = weaponRun('skies', 'roar')
+      r.weaponMods.roar.stagger = STAGGER_STUN_PER_PICK * picks
+      const foe2 = makeStatusEnemy(r, { x: 100, y: 0, hp: 1e6, speed: 0 })
+      foe2.flags = []
+      r.enemies.push(foe2)
+      let peak = 0
+      for (let i = 0; i < Math.round(1.5 / dt); i++) {
+        if (r.phase === 'levelup') { declineLevelUp(r); continue }
+        stepSim(r, { x: 0, y: 0 }, dt)
+        r.events.length = 0
+        peak = Math.max(peak, foe2.stunT ?? 0)
+      }
+      return peak
+    }
+    // LITERAL expectations, deliberately not derived from STAGGER_STUN_PER_PICK. Deriving them made
+    // this a tautology — halving the constant moved the expectation with it and the mutation passed.
+    // 0.35s per pick is an owner directive, so it is pinned here; changing it should require editing
+    // this line too, which is the point.
+    assert.strictEqual(STAGGER_STUN_PER_PICK, 0.35, 'Stagger is specified at 0.35s per normal pick')
+    // Sampled after stepSim, so the observed peak has already ticked down by up to one frame.
+    for (const [picks, want] of [[1, 0.35], [2, 0.70], [4, 1.40]]) {
+      const got = peakStun(picks)
+      assert(got > want - 2 * dt && got <= want + 1e-9,
+        `expected ${picks} Stagger pick(s) to stun for ${want.toFixed(2)}s, got ${got.toFixed(3)}s`)
+    }
+    // Stagger is the gate — the roar does not stun on its own. NOT mutation-provable (a zero bonus
+    // yields a zero duration whatever the gate does), so this is documentation of intent, and it
+    // becomes load-bearing the moment anyone gives the roar a base stun.
+    assert.strictEqual(peakStun(0), 0, 'the roar must not stun without the Stagger mod')
 
     // resonance: an in-range foe BEHIND the aim anchor is only ever reached by the 360° roar.
     function behindHp(resonance) {
@@ -7797,6 +7825,37 @@ function testTheBlank() {
     assert(run.enemies.every((e) => e._wave), 'expected every enemy alive after 30s idle to still be wave-tagged — no ordinary spawner ever ran')
     assert(run.enemies.every((e) => !e.elite), 'expected zero elites after 30s idle')
     console.log(`PASS run EE.a (wave 1 + no ordinary spawning): ${wave0.n} spawned, ${run.enemies.length} alive after 30s idle, all wave-tagged`)
+  }
+
+  // (a2) The door: a wave ring leaves one BLANK_WAVE_GAP-wide wedge empty, so an encircled player
+  // always has an opening to aim for. Measured as the largest angular spacing between consecutive
+  // spawn bearings (exact — no binning). This cannot pass by luck: for n uniform bearings the
+  // chance of a spacing that big is n(1 - gap/2pi)^(n-1), which is 5e-6 at wave 1's n=128 and
+  // 6e-11 by the 256-body wave — so a run of three waves is a real assertion, not a coin flip.
+  // Every wave in the script is checked, since the gap is re-rolled per wave.
+  {
+    const gaps = []
+    for (let b = 0; b < BLANK_SCRIPT.length; b += 2) {
+      for (let w = 0; w < BLANK_SCRIPT[b].waves.length; w++) {
+        const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+        run.player.hp = run.player.maxHP = 1e6
+        run.weapons = []
+        Object.assign(run.script, { stage: b, waveIdx: w, waveT: 0, spawned: false })
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const p = run.player
+        const bearings = run.enemies.map((e) => Math.atan2(e.y - p.y, e.x - p.x)).sort((m, n) => m - n)
+        let widest = bearings[0] + Math.PI * 2 - bearings[bearings.length - 1] // the wrap-around span
+        for (let i = 1; i < bearings.length; i++) widest = Math.max(widest, bearings[i] - bearings[i - 1])
+        // The measurement is taken one frame AFTER the spawn (stepSim runs movement + separation
+        // on the fresh ring before it returns), so the door has already narrowed by a fraction of
+        // a degree. 2° of slack covers that without weakening anything: the null hypothesis this
+        // rejects would have to produce a 43° spacing by chance, which is rarer still.
+        assert(widest >= BLANK_WAVE_GAP - 0.035,
+          `expected wave ${b}/${w} (${bearings.length} bodies) to leave a >= ${(BLANK_WAVE_GAP * 180 / Math.PI).toFixed(0)}° door, widest empty arc was ${(widest * 180 / Math.PI).toFixed(1)}°`)
+        gaps.push(widest * 180 / Math.PI)
+      }
+    }
+    console.log(`PASS run EE.a2 (the door): every one of the ${gaps.length} scripted waves left an escape wedge — widest empty arcs ${gaps.map((g) => g.toFixed(0)).join('/')}° against a ${(BLANK_WAVE_GAP * 180 / Math.PI).toFixed(0)}° door (2° of post-spawn drift allowed)`)
   }
 
   // (b) Clear-advance: hard-kill every wave-1 enemy -> wave 2 arrives immediately (rosterIds from
