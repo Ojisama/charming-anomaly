@@ -1230,12 +1230,18 @@ export function createRenderer(app) {
   // parapodium fanned into three bristle ticks, not the centipede's long jointed leg ending in a
   // claw-tipped foot ("shorten the parapodia") — the head (soft twin palps, not the forward venom
   // forcipules a land hunter carries: a worm noses its way, it doesn't strike), and the palette (a
-  // marine rust-coral, not the forest-floor amber — "retint"). No phase param and no baked slither
-  // frames: unlike the enemy centipede (ROSTER_LOOKS' `phases: 6`), this is a single static bake
-  // like the kaiju's own player body, animated the same way every OTHER player form already is —
-  // syncPlayer's hop/breathe squash-stretch — not a swapped texture.
+  // marine rust-coral, not the forest-floor amber — "retint"). ANIMATED like the centipede too: the
+  // `phase` arg shifts spine(t)'s sine (same "minus phase moves crests head->tail" convention, and
+  // the same metachronal `Math.sin(i*0.9 - phase)` rowing the parapodia), and buildTextures bakes
+  // WORM_PHASES frames from it. The player rig has no `.frames`/`_animFrame` object the way
+  // syncEnemies' ROSTER_LOOKS path does (that machinery exists per-enemy-sprite, and there is only
+  // ever one player) — syncPlayer instead indexes T.wormBody/T.wormFlash directly off animT, the
+  // same "pick a rung by hand" idiom the STILLNESS morph ladder (T.playerStill) already uses. This
+  // still sits under the hop/breathe squash-stretch every other player form gets — the phase flip
+  // and the squash-stretch are two independent transforms, not one replacing the other.
   const WORM_R = 26
-  function drawWorm(g, white) {
+  const WORM_PHASES = 6
+  function drawWorm(g, white, phase = 0) {
     const r = WORM_R
     const f = (c) => white ? 0xffffff : c
     const bodyLit = f(0xe08a6e), bodyMid = f(0xcf6b52), bodyShade = f(0x8a3a2c)
@@ -1244,19 +1250,20 @@ export function createRenderer(app) {
     const frontX = r * 0.9
     const len = r * 3.2                                    // stockier than the centipede's 4.4r
     const undA = r * 0.3                                   // a touch more S-wag — it swims, not scurries
-    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.6) * undA]
+    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.6 - phase) * undA]
     const body = (t) => r * 0.46 * bulge(0.06 + 0.88 * t, 0.42)
     const N = 16                                            // parapodia run the whole body, not just mid-trunk
     for (let i = 0; i < N; i++) {
       const t = 0.06 + 0.88 * (i / (N - 1))
       const [x, y] = spine(t)
       const w = body(t)
+      const ph = Math.sin(i * 0.9 - phase)      // metachronal wave, rowing with the slither
       for (const s of [-1, 1]) {
         // parapodium: a short stub base plus three bristle ticks fanning off it — SHORTER reach
         // than the centipede's jointed leg, and the bristle tuft (not a leg silhouette) is the tell.
         const bx = x, by = y + s * w * 0.72
         for (let k = -1; k <= 1; k++) {
-          const a = (Math.PI / 2) * s + k * 0.45
+          const a = (Math.PI / 2) * s + k * 0.45 + ph * 0.16 * s
           g.moveTo(bx, by).lineTo(bx + Math.cos(a) * r * 0.26, by + Math.sin(a) * r * 0.26)
             .stroke({ width: 1.6, color: bristle, alpha: 0.85 })
         }
@@ -2850,11 +2857,20 @@ export function createRenderer(app) {
     }
     // The Surf's player body (drawWorm, defined above in that chapter's roster section) — baked
     // here alongside the generic blob it replaces, same "build once regardless of chapter, swap in
-    // syncPlayer at use time" contract T.kaijuBody follows for skies. A dedicated elongated shadow,
-    // not the round T.playerShadow above: the worm's trunk runs long on x, and the round disc would
-    // sit visibly narrower than the body it's meant to ground.
-    T.wormBody = (() => { const g = new Graphics(); drawWorm(g, false); return bake(g) })()
-    T.wormFlash = (() => { const g = new Graphics(); drawWorm(g, true); return bake(g) })()
+    // syncPlayer at use time" contract T.kaijuBody follows for skies. WORM_PHASES frames (the
+    // centipede's own `phases: 6` slither idiom — see drawWorm's comment), so T.wormBody/T.wormFlash
+    // are arrays here, not single {tex,ax,ay} bakes; syncPlayer indexes them off animT. A dedicated
+    // elongated shadow, not the round T.playerShadow above: the worm's trunk runs long on x, and the
+    // round disc would sit visibly narrower than the body it's meant to ground. The shadow itself
+    // does NOT flip per phase — same call drawCentipede's own groundShadow makes (a fixed ellipse
+    // regardless of phase), since a slithering trunk's footprint envelope barely moves.
+    T.wormBody = []
+    T.wormFlash = []
+    for (let wp = 0; wp < WORM_PHASES; wp++) {
+      const ang = (wp / WORM_PHASES) * Math.PI * 2
+      const bg = new Graphics(); drawWorm(bg, false, ang); T.wormBody.push(bake(bg))
+      const wg = new Graphics(); drawWorm(wg, true, ang); T.wormFlash.push(bake(wg))
+    }
     T.wormShadow = (() => {
       const g = new Graphics()
       g.ellipse(0, 0, WORM_R * 1.55, WORM_R * 0.42).fill({ color: 0x000000, alpha: 0.2 })
@@ -12886,13 +12902,19 @@ export function createRenderer(app) {
       const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
       pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
     } else if (playerForm === 'worm') {
-      // the bristle worm (drawWorm, near drawKaijuBody above): one static bake like the kaiju's,
-      // but a plain straight-down shadow like the generic blob's — the worm has no chapter light
-      // direction of its own the way SKIES_SHADOW gives skies.
-      if (pBody.texture !== T.wormBody.tex) {
-        pBody.texture = T.wormBody.tex; pBody.anchor.set(T.wormBody.ax, T.wormBody.ay)
-        pFlash.texture = T.wormFlash.tex; pFlash.anchor.set(T.wormFlash.ax, T.wormFlash.ay)
-        pHot.texture = T.wormFlash.tex; pHot.anchor.set(T.wormFlash.ax, T.wormFlash.ay)
+      // the bristle worm (drawWorm, near drawKaijuBody above): WORM_PHASES baked slither frames,
+      // flipped through on animT — the same speed (`animT * 10`) syncEnemies uses for the
+      // centipede's ROSTER_LOOKS phases, so the two share a cadence. syncEnemies keys its flip off
+      // a per-sprite `_animFrame` because a pack of centipedes must not slither in lockstep; the
+      // player rig has no such per-entity state (there's only ever one), so the frame is picked
+      // directly here. A plain straight-down shadow like the generic blob's — the worm has no
+      // chapter light direction of its own the way SKIES_SHADOW gives skies.
+      const wIdx = Math.floor(animT * 10) % WORM_PHASES
+      const wBody = T.wormBody[wIdx], wFlash = T.wormFlash[wIdx]
+      if (pBody.texture !== wBody.tex) {
+        pBody.texture = wBody.tex; pBody.anchor.set(wBody.ax, wBody.ay)
+        pFlash.texture = wFlash.tex; pFlash.anchor.set(wFlash.ax, wFlash.ay)
+        pHot.texture = wFlash.tex; pHot.anchor.set(wFlash.ax, wFlash.ay)
         pShadow.texture = T.wormShadow.tex; pShadow.anchor.set(T.wormShadow.ax, T.wormShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)

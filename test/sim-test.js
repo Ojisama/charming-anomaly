@@ -14723,7 +14723,19 @@ function testPlayerForms() {
       `form '${f}' is declared in config but ${fn} does not exist in render.js — the player renders as the generic blob with no error`)
   }
 
-  console.log(`PASS run US.f (player forms): ${forms.size} chapter-specific player bodies declared in config, each with a draw fn, and no chapterHasKaiju left`)
+  // (d) the worm actually slithers. Task 8's first cut reused drawCentipede's static geometry
+  // helpers only — drawWorm took no phase arg and was baked exactly once, so the brief's "keep the
+  // slither" shipped as a single frozen S-curve animated only by the generic hop/breathe
+  // squash-stretch every other player form already gets. A worm holding a fixed curve while it
+  // swims reads as a dead sprite being dragged. Guard both halves of the fix independently: the
+  // draw fn takes a phase (like drawCentipede's own `phase = 0`), and syncPlayer picks a frame out
+  // of a baked array rather than reading one static {tex,ax,ay} bake.
+  assert.ok(/function drawWorm\(g, white, phase/.test(src),
+    'drawWorm has no phase param — the worm cannot slither, only a static bake')
+  assert.ok(/T\.wormBody\[wIdx\]/.test(src),
+    'syncPlayer does not index into a baked worm phase array — the worm form is back to one static texture')
+
+  console.log(`PASS run US.f (player forms): ${forms.size} chapter-specific player bodies declared in config, each with a draw fn, and no chapterHasKaiju left; the worm's slither phases are baked and flipped through, not a single static frame`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------
