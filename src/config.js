@@ -3982,7 +3982,14 @@ CHAPTERS.surf = {
   // player cannot express a slow correction against it; and far under 220, or the surge is not a
   // push but a wall. It is deliberately felt rather than fought — chapter 1 teaches "the map is not
   // neutral" and then lets you win the argument.
-  signature: { type: 'tide', surge: 46, period: 14, axis: 0 },
+  signature: {
+    type: 'tide', surge: 46, period: 14, axis: 0,
+    // Sandbars: dry ground you can walk onto. `slowMul` composes with every other slow by MIN (see
+    // the slow-composition note in sim.js), so it is the FLOOR the chapter can impose, never a stack.
+    // drainMul multiplies the resource drain while you stand on one — the sandbar is the only place
+    // Humidity falls fast, which is what makes it a place rather than a clock.
+    bars: { cell: 620, chance: 0.42, r: 150, minDist: 380, slowMul: 0.62, drainMul: 4 },
+  },
 
   // ---- render-only. A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above
   // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in

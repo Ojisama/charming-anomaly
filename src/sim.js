@@ -228,6 +228,7 @@ export function stepSim(run, input, dt) {
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop sun-shaft cells (no-op outside The Shelf)
   stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
+  streamSandbars(run)     // Book 2 surf: materialize/drop dry patches (no-op elsewhere)
   stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
@@ -582,7 +583,11 @@ function stepPlayerMovement(run, input, dt) {
   // than the same web anywhere else, which is a difficulty change nobody asked for.
   const _dres = CHAPTERS[run.chapter].resource
   const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres) : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul)
+  // THE SANDBARS (Book 2 / The Surf): dry ground is a floor on speed, same MIN composition as the
+  // dark above and for the same reason — multiplying would silently stack with latch/web/the dark.
+  const _sig = CHAPTERS[run.chapter].signature
+  const sandMul = _sig && _sig.type === 'tide' && onSandbar(run) ? _sig.bars.slowMul : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
@@ -2954,6 +2959,57 @@ function stepShafts(run) {
     sh.x = sh.bx + Math.cos(a + sh.phase) * amp
     sh.y = sh.by + Math.sin(a + sh.phase) * amp
   }
+}
+
+// Sandbars (Book 2 / The Surf). The FIFTH copy of streamObstacles' streaming idiom (obstacles ->
+// eddies -> traps -> shafts -> here): own cell size (sig.bars.cell), own _sandCellI/_sandCellJ
+// cursor, same run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts
+// (30 occupancy, 31 x jitter, 32 y jitter) so a sandbar's roll can never collide with an obstacle's
+// (0-4), an eddy's (11-14), a trap's (15-17) or a shaft's (20-23) at the same cell.
+//
+// ZERO Math.random() at step time — the same hard rule the other four state, and run US.b asserts it
+// by making Math.random throw. A sandbar never moves, so unlike a shaft it spends the whole jitter
+// budget and has no per-frame step of its own.
+export function streamSandbars(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  const spec = sig && sig.type === 'tide' ? sig.bars : null
+  if (!spec) return
+  if (run._obstacleSeed == null) return
+  const p = run.player
+  const cs = spec.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._sandCellI && cj === run._sandCellJ) return
+  run._sandCellI = ci; run._sandCellJ = cj
+
+  for (let k = run.sandbars.length - 1; k >= 0; k--) {
+    if (Math.hypot(run.sandbars[k].x - p.x, run.sandbars[k].y - p.y) > OBSTACLE_DROP_RADIUS) run.sandbars.splice(k, 1)
+  }
+  const live = new Set()
+  for (const b of run.sandbars) live.add(b._cell)
+
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      if (obstacleCellHash(i, j, seed, 30) >= spec.chance) continue
+      const slack = Math.max(0, cs / 2 - spec.r - 20)
+      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 31) - 0.5) * 2 * slack
+      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 32) - 0.5) * 2 * slack
+      if (Math.hypot(x, y) < spec.minDist) continue
+      if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      run.sandbars.push({ x, y, r: spec.r, _cell: key })
+    }
+  }
+}
+
+// Is the player standing on dry ground? Centre-to-centre against the patch radius, exactly like
+// stepCharge's shaft test — standing ON it, not brushing its edge.
+export function onSandbar(run) {
+  const p = run.player
+  for (const b of run.sandbars) if (Math.hypot(b.x - p.x, b.y - p.y) <= b.r) return true
+  return false
 }
 
 // The chapter resource bar (v7.x Book 2). A chapter-gated no-op exactly like stepCurrents and

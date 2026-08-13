@@ -110,7 +110,7 @@ import {
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -12280,6 +12280,7 @@ try {
   testDescPlaceholder()
   testSubmission()
   testSurfTide()
+  testSurfSandbars()
   testDevMenu()
   testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
@@ -14382,6 +14383,63 @@ function testSurfTide() {
   assert.strictEqual(pond.player.y, py, 'stepTide moved the player in a non-tide chapter')
 
   console.log(`PASS run US.a (the tide): surge reverses across a ${sig.period}s period, peaks at ${peak.toFixed(0)} px/s — over the joystick floor, under half baseSpeed — and is a no-op outside The Surf`)
+}
+
+// ---- run US.b (v7.55): The Surf's sandbars — streamed dry patches that slow the player ---------
+function testSurfSandbars() {
+  Math.random = mulberry32(20260814)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+
+  // (a) the field materializes as the player roams, and drops behind them.
+  run.player.x = 4000; run.player.y = 4000
+  streamSandbars(run)
+  assert.ok(run.sandbars.length > 0, 'no sandbars materialized after crossing a cell boundary')
+  const far = run.sandbars.length
+  run.player.x = 40000; run.player.y = 40000
+  streamSandbars(run)
+  assert.ok(!run.sandbars.some((b) => Math.hypot(b.x - 40000, b.y - 40000) > OBSTACLE_DROP_RADIUS),
+    'sandbars from the old position were not dropped')
+  assert.ok(far > 0 && run.sandbars.length > 0, 'the field went empty after a long walk')
+
+  // (b) it is DETERMINISTIC — no Math.random at step time. Same seed, same field.
+  const snapshot = run.sandbars.map((b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`).sort().join('|')
+  run.sandbars.length = 0
+  run._sandCellI = null; run._sandCellJ = null
+  Math.random = () => { throw new Error('streamSandbars consumed Math.random at step time') }
+  streamSandbars(run)
+  Math.random = mulberry32(1)
+  assert.strictEqual(run.sandbars.map((b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`).sort().join('|'), snapshot,
+    'the sandbar field is not reproducible from the run seed')
+
+  // (c) onSandbar is a position test, not a proximity guess.
+  const b = run.sandbars[0]
+  run.player.x = b.x; run.player.y = b.y
+  assert.strictEqual(onSandbar(run), true, 'standing dead centre on a sandbar read as off it')
+  run.player.x = b.x + b.r + 5; run.player.y = b.y
+  assert.strictEqual(onSandbar(run), false, 'standing outside the radius read as on it')
+
+  // (d) the slow actually reaches the player, and composes by MIN like every other slow.
+  // The tide pushes on the same axis as our input and run._realTime keeps advancing, so both
+  // halves must sample the SAME tide phase or this measures surge as much as slow. Enemies are
+  // cleared for the same reason — contact shoves the player.
+  const before = { x: b.x, y: b.y }
+  const runHalf = () => {
+    run.player.x = before.x; run.player.y = before.y
+    run._realTime = 0
+    run.enemies.length = 0
+    advance(run, 0.5, 1 / 60, { x: 1, y: 0, skill: false })
+    return Math.hypot(run.player.x - before.x, run.player.y - before.y)
+  }
+  const onBar = runHalf()
+  run.sandbars.length = 0
+  const offBar = runHalf()
+  assert.ok(onBar < offBar * 0.9,
+    `a sandbar must slow the player: travelled ${onBar.toFixed(1)}px on it vs ${offBar.toFixed(1)}px off it`)
+
+  console.log(`PASS run US.b (sandbars): ${far} patches streamed deterministically from the run seed, dropped behind the player, and standing on one costs ${(100 - (onBar / offBar) * 100).toFixed(0)}% of your travel`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------

@@ -821,6 +821,13 @@ function generateWells(sig) {
  *   anything — stepShafts does that every frame. bx/by are the streamed BASE position and x/y the
  *   drifted one; drift is a pure function of run._realTime and `phase`, storing no state and
  *   consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
+ * sandbars[i]: { x, y, r, _cell } — Book 2 / The Surf: streamed dry patches (CHAPTERS.surf.signature
+ *   .bars) the player slows on. The FIFTH copy of the same _obstacleSeed streaming idiom (obstacles
+ *   -> eddies -> traps -> shafts -> here), own salts (30 occupancy, 31 x jitter, 32 y jitter) and own
+ *   _sandCellI/_sandCellJ cursor. Gated on CHAPTERS[chapter].signature.type === 'tide' && .bars
+ *   ([] everywhere else). A sandbar never moves, so unlike a shaft it has no drift and no per-frame
+ *   stepper — sim.js's onSandbar reads the list directly, centre-to-centre against `r`, exactly like
+ *   stepCharge's shaft test. Zero RNG at step time, like every streamer above.
  * charge: number — the chapter resource bar (CHAPTERS[chapter].resource; The Shelf's 'Light').
  *   Drains passively, refills inside a shaft and (with Light Thief bought) per kill, clamped to
  *   [0, resource.max]. 0 and untouched in every chapter without a resource.
@@ -1487,6 +1494,9 @@ export function createRun(meta, opts = {}) {
     // idiom as obstacles/eddies above with its OWN salts and its OWN cell cursor. Unconditional
     // like eddies, so every chapter carries the field, but only a 'shafts' signature ever fills it.
     shafts: [],
+    sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
+    _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
+    _sandCellJ: null,
     // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf only). Starts FULL: the
     // first minute of a run should teach the drain, not open on an empty bar the player has not
     // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
