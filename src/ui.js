@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST, elementCodex, ELEMENT_CODEX_INTRO } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -11,7 +11,7 @@ const CAST_ART = Object.fromEntries(
     .map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, -4), url]),
 )
 
-const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary', 'dev']
+const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary', 'dev', 'codex']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 // v6.6.18 mis-tap guard: the level-up modal appears mid-fight, right where a thumb is already
 // reaching for the joystick, so a tap in the first instants is a stray press far more often than
@@ -687,6 +687,9 @@ export function initUI(hooks) {
             <span class="settings-langs">${sideRows}</span>
           </div>
           <button class="btn btn--soft btn--small settings-slots" data-act="slots">💾 ${t('Save slots')} <i>${activeSlot()}/${SAVE_SLOTS}</i></button>
+          <!-- v7.53: no run in progress here, so every element reads P=0 — elementCodex omits the
+               "yours" line at zero, leaving just the rule (see renderCodex). -->
+          <button class="btn btn--soft btn--small" data-act="codex-open" data-from="title">📖 ${t('Codex')}</button>
           ${buildStampHtml()}
           <button class="btn btn--soft btn--small sheet-done" data-act="settings-close">${t('Done')}</button>
         </div>
@@ -1976,6 +1979,10 @@ export function initUI(hooks) {
         <h2 class="modal-title">${t('Paused')}</h2>
         ${mutatorBlock}
         ${buildBlockHtml(d.build)}
+        <!-- v7.53: opt-in entry to the element Codex (see renderCodex), carrying this run's own
+             potency so its pages print "yours" alongside the rule. data-from tells the close
+             button which screen to land back on — see the 'codex-open'/'codex-close' cases. -->
+        <button class="btn btn--soft" data-act="codex-open" data-from="pause">📖 ${t('Codex')}</button>
         <button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>
         <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
         ${buildStampHtml()}
@@ -2029,9 +2036,17 @@ export function initUI(hooks) {
     // Without carrying the scroll across, testing the third anomaly means scrolling back down to it
     // every single time.
     const scroll = devListEl ? devListEl.scrollTop : 0
+    // v7.53: run.newElements gates the elements redesign (config.js) — flip it here to test a card's
+    // NEW wording/rule without replaying to find one. main.js flips the flag, rebuilds devList (card
+    // text depends on it) and re-shows this screen, same round-trip as a card take.
+    const on = !!d.newElements
     setHtml(screens.dev, `
       <div class="modal modal--dev" data-pop="dev">
         <h2 class="modal-title">DEV</h2>
+        <button class="dev-toggle${on ? ' dev-toggle--on' : ''}" data-act="dev-toggle-elements">
+          <span>🧪 New elements</span>
+          <span class="dev-toggle-state">${on ? 'ON' : 'OFF'}</span>
+        </button>
         <input class="dev-filter" id="dev-filter" type="text" placeholder="name, or anomaly / mod / passive…" autocomplete="off" value="${devFilter.replace(/"/g, '&quot;')}">
         <p class="dev-count"></p>
         <div class="dev-list"></div>
@@ -2041,6 +2056,41 @@ export function initUI(hooks) {
     devListEl = screens.dev.querySelector('.dev-list')
     paintDevList()
     devListEl.scrollTop = scroll
+  }
+
+  // ---- element codex (v7.53) ------------------------------------------------
+  // Explains the elements-redesign rule (config.js's "Elements REDESIGN" block) in plain language.
+  // Two opt-in entry points (title's ⚙ sheet, pause's build sheet) hand this the SAME `elements`
+  // shape: a { fire, cold, venom, lightning } potency map, or null with no run in progress. Every
+  // number on the page comes from elementFacts/elementCodex/ELEMENT_CODEX_INTRO (config.js) — this
+  // function only lays the paragraphs out, never composes one.
+  // The Close button carries data-from so main.js (the only module that knows whether a run
+  // exists to go back to) can resolve the right destination — same data-* idiom as data-key on
+  // build-toggle above, rather than a second piece of module state to keep in sync with the render.
+  function renderCodex(d) {
+    const from = d.from ?? 'title'
+    const elements = d.elements ?? null
+    const introHtml = ELEMENT_CODEX_INTRO.map((p) => `<p class="codex-p">${esc(t(p))}</p>`).join('')
+    const sections = Object.keys(ELEMENTS).map((id) => {
+      const cfg = ELEMENTS[id]
+      const P = elements?.[id] ?? 0
+      const body = elementCodex(id, P).map((p) => `<p class="codex-p">${esc(t(p))}</p>`).join('')
+      return `
+        <section class="codex-sec">
+          <h3 class="codex-sec-title">${cfg.icon} ${esc(t(cfg.name))}</h3>
+          ${body}
+        </section>`
+    }).join('')
+    setHtml(screens.codex, `
+      <div class="modal modal--codex" data-pop="codex">
+        <h2 class="modal-title">📖 ${t('Codex')}</h2>
+        <div class="codex-scroll">
+          <div class="codex-intro">${introHtml}</div>
+          ${sections}
+        </div>
+        <button class="btn btn--big" data-act="codex-close" data-from="${from}">${t('Back')}</button>
+      </div>
+    `)
   }
 
   // ---- summary modal -------------------------------------------------------
@@ -2097,6 +2147,7 @@ export function initUI(hooks) {
     else if (name === 'pause') renderPause(data ?? {})
     else if (name === 'summary') renderSummary(data ?? {})
     else if (name === 'dev') renderDev(data ?? {})
+    else if (name === 'codex') renderCodex(data ?? {})
     const hudUnder = name === 'levelup' || name === 'pause'   // hud stays visible under these modals
     // The level-up screen passes taps through to that HUD so its ⏸ works (styles.css). The
     // SKILL button is under there too and must stay dead — pressSkill latches (input.js), so a
@@ -2331,6 +2382,14 @@ export function initUI(hooks) {
         break
       }
       case 'dev-close': playSfx('click'); hooks.onDevClose?.(); break
+      // v7.53: flips run.newElements. main.js owns the flag AND rebuilds devList (card text reads
+      // it), then re-shows this screen — so the row and the cards under it update on the same tap.
+      case 'dev-toggle-elements': playSfx('click'); hooks.onDevToggleElements?.(); break
+      // Opt-in element Codex (see renderCodex): opened from the title's ⚙ sheet or the pause build
+      // sheet, data-from says which so Close can return to it — main.js resolves the destination
+      // (it's the only module that knows whether a run exists to go back to).
+      case 'codex-open': playSfx('click'); hooks.onCodexOpen?.(el.dataset.from || 'title'); break
+      case 'codex-close': playSfx('click'); hooks.onCodexClose?.(el.dataset.from || 'title'); break
       // The WIP gate, on the TITLE coin badge. Seven taps flips meta.dev, which is what makes
       // work-in-progress chapters visible at all. renderTitle() repaints so the DEV pill appears
       // or vanishes on the same tap — a hidden flag with no tell is how WIP content reaches

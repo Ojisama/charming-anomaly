@@ -1414,6 +1414,12 @@ export function createRun(meta, opts = {}) {
     weaponModPicks: Object.fromEntries(Object.keys(WEAPON_MODS).map((wid) =>
       [wid, Object.fromEntries(Object.keys(WEAPON_MODS[wid]).map((mid) => [mid, 0]))])),
     // elemental infusions (see ELEMENTS/COMBOS in config.js), offered always
+    // v7.53 TEST GATE: the elements redesign runs only while this is true. Per-run and OFF by
+    // default — seven taps on the HUD coin badge opens the dev screen, whose first row toggles it.
+    // Deliberately not persisted: a flag that survives a reload is one you forget is on.
+    // ponytail: temporary. When the redesign is accepted or dropped, this field and the loser's
+    // code path both go — see the EL_* block in config.js.
+    newElements: false,
     elements: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     elementPicks: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     // v6.7.6 anomalies (see ANOMALIES in config.js and the doc block above): {id: true} for every
