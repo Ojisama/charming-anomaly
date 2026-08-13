@@ -1465,7 +1465,10 @@ function spawnEnemy(run, opts = {}) {
     affixes,
     flags,
     rosterId: roster?.id ?? null,
-    xp: base.xp,
+    // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
+    // this creature is WORTH, independent of how much health it has. They are separate on
+    // purpose — a chapter can make something cheaper to kill and still pay well for it.
+    xp: base.xp * (roster?.xpMul ?? 1),
     ...freshEnemyFields(),
   })
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never

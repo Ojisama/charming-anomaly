@@ -15050,6 +15050,40 @@ function testUndertowLadder() {
   assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
 
   console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
+
+  // (d) THE MOON JELLY TUNE, and the roster lever it introduced. Owner's ask: -25% health, +25% xp.
+  // Pinned as that arithmetic rather than as bare literals, the way the centipede cut is (run UG.a),
+  // so the INTENT survives a future re-tune of the pre-change numbers.
+  //
+  // The second half is the one that fails silently: xpMul is a NEW roster field, and a new field
+  // nothing reads is indistinguishable from a balance change that did nothing. hpMul and speedMul
+  // were already applied in spawnEnemy; xp was `base.xp` flat. So this spawns a real jelly and
+  // reads the xp off it, rather than trusting the table.
+  {
+    const jelly = CHAPTERS.shelf.roster.find((r) => r.id === 'jelly')
+    assert.ok(jelly, 'the Moon Jelly is gone from The Shelf roster')
+    assert.ok(Math.abs(jelly.hpMul - 2.5 * 0.75) < 1e-9,
+      `expected jelly hpMul = 2.5 x 0.75 = 1.875 ("jelly -25% hp"), got ${jelly.hpMul}`)
+    assert.ok(Math.abs((jelly.xpMul ?? 1) - 1.25) < 1e-9,
+      `expected jelly xpMul 1.25 ("jelly +25% xp"), got ${jelly.xpMul}`)
+
+    Math.random = mulberry32(31337)
+    const run = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    let seen = null
+    for (let i = 0; i < 300 * 60 && !seen; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      seen = run.enemies.find((e) => e.rosterId === 'jelly' && !e._dead && !e.elite) ?? null
+    }
+    assert.ok(seen, 'no ordinary Moon Jelly spawned in 300s, so this scenario proved nothing')
+    const expected = ENEMIES[ARCHETYPE_TYPE.tank].xp * 1.25
+    assert.ok(Math.abs(seen.xp - expected) < 1e-9,
+      `a spawned Moon Jelly carries xp ${seen.xp}, not ${expected} — the roster's xpMul is not reaching ` +
+      `the enemy, so the +25% is a number in a table that nothing reads`)
+    console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75), xpMul ${jelly.xpMul}, and a spawned jelly really carries ${seen.xp} xp`)
+  }
 }
 
 // ---- run EL: the elements redesign, behind run.newElements ---------------------------------
