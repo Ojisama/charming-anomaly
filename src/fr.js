@@ -875,6 +875,12 @@ const CONFIG = {
   'Tardigrade': 'Tardigrade',
   // The Shelf (Book 2). 'Krill' is the French word too. 'Méduse Lune' over the real common
   // name 'Aurélie', which is correct but reads as a first name rather than an animal.
+  // The Surf (Book 2 chapter 1).
+  'The Surf': 'Le Ressac',
+  'the tide decides': 'la marée décide',
+  'Sand Hopper': 'Puce de mer',
+  'Shore Crab': 'Crabe vert',
+  'Gull': 'Mouette',
   'Copepod': 'Copépode',
   'Krill': 'Krill',
   'Moon Jelly': 'Méduse Lune',

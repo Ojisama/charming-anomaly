@@ -3150,7 +3150,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', chapters: ['shelf'], hidden: [], wip: true },
+  undertow: { name: 'Undertow', chapters: ['surf', 'shelf'], hidden: [], wip: true },
 }
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
@@ -3955,6 +3955,31 @@ CHAPTERS.shelf = {
     swell: { spacing: 96, amp: 22, wavelength: 320, speed: 26, band: 0.5,
              light: 0xdaf0ff, lightA: 0.08, dark: 0x06304f, darkA: 0.10 },
   },
+}
+// Book 2 chapter 1. Spreads pond for the same reason The Shelf does — a working balance table and
+// obstacle field to start from — then overrides everything that makes it a beach. The signature,
+// resource and weapon pool arrive in later tasks; this block is the chapter's existence.
+CHAPTERS.surf = {
+  ...CHAPTERS.pond,
+  name: 'The Surf',
+  tagline: 'the tide decides',
+  icon: '🏖️',
+  // The `normal` lane is deliberately FLAGLESS. An onboarding chapter needs one enemy that simply
+  // walks at you: with a flag on all three there is no baseline against which the other two read as
+  // special. (The first draft gave the sandhopper dashBurst and had no plain enemy at all.)
+  roster: [
+    { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9, speedMul: 1,    flags: [] },
+    { id: 'shorecrab',  archetype: 'tank',   name: 'Shore Crab',  hpMul: 2.2, speedMul: 0.75, flags: ['unshakeable'] },
+    { id: 'gull',       archetype: 'fast',   name: 'Gull',        hpMul: 0.8, speedMul: 1.15, flags: ['diveBomb'] },
+  ],
+
+  // ---- render-only. A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above
+  // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in
+  // place would rewrite The Pond's render block too (see CHAPTERS.shelf.obstacles === CHAPTERS
+  // .pond.obstacles in shipped code — shelf only avoids the same trap because it overrides render
+  // wholesale, exactly as this does). cast is the only thing this chapter needs from render right
+  // now; the rest of the beach look (tints, swell) is a later task's.
+  render: { ...CHAPTERS.pond.render, cast: ['sandhopper', 'shorecrab', 'gull'] },
 }
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.

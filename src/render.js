@@ -1050,6 +1050,172 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 1.12, r)
   }
 
+  // --- Surf chapter (Book 2 ch 1, pale sand) ---
+  // Beach sand is pale and warm, so this cast is the opposite problem from the Shelf's plankton
+  // above: nothing here can be a pale warm body without vanishing into the floor. Two go one hue
+  // further than the sand can follow, the third goes the other direction entirely:
+  //   shorecrab  = DEEP RED-ORANGE  (the loudest, darkest body on the beach — a real shore crab's
+  //                own colouring, and the one hue sand never reaches)
+  //   sandhopper = MID GREY-BROWN   (close to the sand's hue but a full step down in VALUE, so it
+  //                reads as a shadow moving across the beach rather than more sand)
+  //   gull       = NEAR-WHITE COLD  (the one creature the warm floor cannot touch at all — it wins
+  //                by contrast, not by finding a colour nothing else owns)
+  // BACKUP READ — what each keeps once colour and detail have both dissolved to a dot at range:
+  // the crab's two raised claws, the hopper's long trailing jump-legs, the gull's notched wingtips.
+
+  // sandhopper (Talitrus saltator, "beach flea"): a small amphipod, plan view. A gently arched,
+  // segmented body with short antennae up front and short walking legs down both flanks — ordinary
+  // crustacean furniture, all of it deliberately understated. The one limb drawn LOUD is the pair of
+  // long, thick uropods kicked out behind the tail: the actual jumping legs, and the reason this
+  // animal is called a hopper at all. Everything else here can blur into the sand; those cannot.
+  function drawSandhopper(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x3c3220)
+    const noseX = r * 0.8
+    const len = r * 1.7             // nose +0.8r -> tail -0.9r
+    const H = r * 0.34
+    // a shallow dorsal arch, deepest at the third segment and tapering hard toward the tail
+    const spine = (t) => [noseX - t * len, -Math.sin(t * Math.PI) * r * 0.06]
+    const body = (t) => H * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.32 ? 0.3 : 0.65)
+    groundShadow(r * 1.0, H + r * 0.24)
+    // short paired antennae, held forward and low
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[noseX - r * 0.02, s * H * 0.36], [noseX + r * 0.36, s * r * 0.3]],
+        Math.max(1.2, r * 0.08), 0.6, line, 3)
+    }
+    // seven short pereopod pairs down the flanks — busy and stubby, nothing here competes with the tail
+    for (let i = 0; i < 7; i++) {
+      const t = 0.14 + i * 0.1
+      const [x] = spine(t)
+      const w = body(t)
+      for (const s of [-1, 1]) {
+        taperStroke(g, [[x, s * w * 0.55], [x - r * 0.04, s * (w + r * 0.14)]], Math.max(1, r * 0.05), 0.5, line, 2)
+      }
+    }
+    // THE TELL: a pair of long, thick uropods kicked back off the tail, drawn heavier and longer
+    // than every other limb on the body so they read as the one weapon even at 12px
+    const [tx, ty] = spine(1)
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[tx, ty + s * H * 0.16], [tx - r * 0.5, ty + s * r * 0.36], [tx - r * 0.92, ty + s * r * 0.56]],
+        Math.max(1.7, r * 0.12), 0.75, line, 4)
+    }
+    g.poly(spineOutline(spine, body, 30)).fill(f(0x8a7a5e)).stroke({ width: Math.max(2, r * 0.13), color: line })
+    if (!white) {
+      g.ellipse(noseX - r * 0.34, -H * 0.32, r * 0.42, H * 0.3).fill({ color: 0xb8a578, alpha: 0.4 }) // dorsal sheen
+      g.beginPath()
+      for (const t of [0.3, 0.5, 0.7, 0.86]) { // segment creases
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x, y - w * 0.85).lineTo(x, y + w * 0.85)
+      }
+      g.stroke({ width: 1.1, color: 0x5c4c30, alpha: 0.6 })
+      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.08, s * H * 0.44, r * 0.075, r * 0.07, 0x1c150c, s > 0)
+    }
+    if (elite) eliteCrown(-r * 0.95, r)
+  }
+
+  // shore crab: plan view, and the one animal on this roster whose real gait is SIDEWAYS rather
+  // than nose-forward — which is exactly why ROSTER_LOOKS gives it lean 0 instead of turning to
+  // square up at the player the way everything else here does. A carapace WIDER than it is long
+  // (the trait that separates it from every other rounded tank in this game), eight walking legs
+  // fanned to the flanks, and two big claws held forward, raised clear of the shell and closing to
+  // a point — the backup read that survives once the deep red-orange has gone to grey.
+  function drawShorecrab(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x4a1206)
+    const claw = f(0xc1391b)
+    groundShadow(r * 1.05, r * 0.85)
+    // eight walking legs, four pairs fanned down the flanks, jointed and splayed, shorter toward
+    // the rear the way a real crab's are
+    const legSets = [
+      [[0.52, 0.18], [0.92, 0.62], [1.1, 0.98]],
+      [[0.3, 0.2], [0.5, 0.78], [0.42, 1.14]],
+      [[0.06, 0.2], [-0.22, 0.8], [-0.5, 1.12]],
+      [[-0.2, 0.18], [-0.62, 0.7], [-0.94, 0.92]],
+    ]
+    for (const s of [-1, 1]) {
+      for (const set of legSets) {
+        const p = set.map(([lx, ly]) => [lx * r * 0.62, s * ly * r * 0.62])
+        taperStroke(g, [[p[0][0], p[0][1] * 0.5], ...p], r * 0.15, r * 0.04, line, 3)
+      }
+    }
+    // THE TELL: two big claws held forward, well clear of the carapace, each closing to an open
+    // pincer point
+    for (const s of [-1, 1]) {
+      const shoulder = [r * 0.5, s * r * 0.34]
+      const elbow = [r * 0.98, s * r * 0.62]
+      const pincerBase = [r * 1.28, s * r * 0.46]
+      taperStroke(g, [shoulder, elbow, pincerBase], r * 0.22, r * 0.16, claw, 4)
+      for (const a of [-0.36, 0.14]) { // two pincer tips, open
+        const ang = Math.atan2(pincerBase[1] - elbow[1], pincerBase[0] - elbow[0]) + a
+        taperStroke(g, [pincerBase, [pincerBase[0] + Math.cos(ang) * r * 0.4, pincerBase[1] + Math.sin(ang) * r * 0.4]],
+          r * 0.14, r * 0.03, claw, 3)
+      }
+    }
+    // eyestalks: short and close-set, well forward
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 0.32, s * r * 0.14], [r * 0.46, s * r * 0.2]], Math.max(1.3, r * 0.05), 0.8, f(0x7a1e0c), 2)
+      darkEye(g, r * 0.48, s * r * 0.2, r * 0.07, r * 0.065, 0x1c0a04, true)
+    }
+    // carapace: a broad, flattened oval — WIDER (±y) than it is long (±x)
+    g.poly(radialOutline((a) => r * (0.62 + 0.04 * Math.cos(a * 2)), 40, 0.82, 1.02))
+      .fill(f(0xb8341c)).stroke({ width: Math.max(2.6, r * 0.12), color: line })
+    if (!white) {
+      g.ellipse(-r * 0.06, -r * 0.14, r * 0.42, r * 0.26).fill({ color: 0xe0693a, alpha: 0.35 }) // dorsal sheen
+      g.beginPath() // the H-shaped cervical/branchiocardiac grooves a real crab shell carries
+      g.moveTo(-r * 0.02, -r * 0.4).lineTo(-r * 0.02, r * 0.4)
+      g.moveTo(-r * 0.02, 0).lineTo(r * 0.3, -r * 0.22)
+      g.moveTo(-r * 0.02, 0).lineTo(r * 0.3, r * 0.22)
+      g.stroke({ width: 1.3, color: 0x7a1e0c, alpha: 0.55 })
+    }
+    if (elite) eliteCrown(-r * 1.1, r)
+  }
+
+  // gull: the one FLIER on this roster, and the one plan-view animal that is ALREADY its own icon
+  // from directly overhead — a gliding gull is a spread-wing silhouette, not a side profile (the
+  // wrong projection this repo shipped once already, on a tornado, and lost a whole version undoing).
+  // Near-white body, the one cold creature against two warm ones, with a hard dark wingtip on each
+  // side and a NOTCH bitten into the trailing edge at the wrist — the carpal bend a gliding gull
+  // shows from above. That notch is the backup read: colour and the body both dissolve to a pale
+  // dot at range, but two dark marks a fixed distance apart, each with a bite out of it, do not.
+  function drawGull(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0xb7bbb2)
+    groundShadow(r * 1.45, r * 0.5)
+    // ONE wing, mirrored ±y: root at the shoulder, a leading edge swept back through the wrist to
+    // the tip, then a trailing edge pulled IN at the notch before closing back to the root
+    const wing = (s) => {
+      const root = [r * 0.5, s * r * 0.2]
+      const wrist = [-r * 0.3, s * r * 1.3]
+      const tip = [-r * 1.7, s * r * 2.5]
+      const notch = [-r * 1.0, s * r * 1.65] // pulled inward — the bite in the trailing edge
+      g.poly([...root, ...wrist, ...tip, ...notch]).fill(f(0xf2f0e8)).stroke({ width: Math.max(1.3, r * 0.09), color: line })
+      if (!white) {
+        // dark wingtip: the outer portion, over-painted so the wing base stays pale
+        const mid = [wrist[0] + (tip[0] - wrist[0]) * 0.55, wrist[1] + (tip[1] - wrist[1]) * 0.55]
+        g.poly([...mid, ...tip, ...notch]).fill({ color: 0x2c2e30, alpha: 0.92 })
+      }
+    }
+    wing(-1)
+    wing(1)
+    // body: a small torpedo, nose right
+    const spine = (t) => [r * 0.85 - t * r * 1.75, 0]
+    const bodyW = (t) => r * 0.26 * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.4 ? 0.4 : 0.7)
+    g.poly(spineOutline(spine, bodyW, 24)).fill(f(0xf7f6f1)).stroke({ width: Math.max(1.4, r * 0.1), color: line })
+    for (const s of [-1, 1]) { // shallow forked tail
+      taperStroke(g, [[-r * 0.9, 0], [-r * 1.3, s * r * 0.32]], r * 0.1, 0.5, f(0xe8e6de), 3)
+    }
+    if (!white) {
+      g.ellipse(r * 0.2, -r * 0.06, r * 0.3, r * 0.12).fill({ color: 0xffffff, alpha: 0.4 }) // dorsal sheen
+      darkEye(g, r * 0.62, 0, r * 0.06, r * 0.06, 0x1a1a1a, true)
+    }
+    taperStroke(g, [[r * 0.82, 0], [r * 1.1, 0]], r * 0.07, 0.5, f(0xd8a23a)) // beak, the one warm mark
+    if (elite) eliteCrown(-r * 2.1, r)
+  }
+
   // --- Garden chapter (lawn green) ---
   // ant: head (right) + narrow thorax + a VISIBLE petiole node + a big tapered gaster (left) — three
   // separate flowing paths so the waist reads, 6 jointed legs (coxa->femur->tibia->tarsus) in
@@ -2371,6 +2537,12 @@ export function createRenderer(app) {
     copepod: { archetype: 'normal', draw: drawCopepod, lean: 90 },     // top-down: antennae, legs, setae and egg sacs all ±y mirrored
     krill: { archetype: 'fast', draw: drawKrill, lean: 90 },           // top-down: stalked eyes, leg rows and tail fan all ±y mirrored
     jelly: { archetype: 'tank', draw: drawJelly, lean: 0 },            // radial bell — no front to turn, so nothing to lean
+    // v7.x The Surf (Book 2 chapter 1). A new roster, not a repaint — every flag here is new
+    // (unshakeable, diveBomb) rather than carried over the way the Shelf's are. A missing key here
+    // is SILENT — syncEnemies falls through to a generic archetype blob.
+    sandhopper: { archetype: 'normal', draw: drawSandhopper, lean: 90 }, // top-down: antennae, legs and the long jump-uropods all ±y mirrored
+    shorecrab: { archetype: 'tank', draw: drawShorecrab, lean: 0 },      // claws forward but never squares up to you — a crab's gait is sideways, and it's unshakeable besides
+    gull: { archetype: 'fast', draw: drawGull, lean: 90 },               // top-down: wings, wingtips and the forked tail all ±y mirrored
     ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
