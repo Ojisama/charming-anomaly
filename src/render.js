@@ -2494,10 +2494,6 @@ export function createRenderer(app) {
   }
 
   const T = {}
-  // The one bake that is a CANVAS and not a Texture: The Dark's lamp stamp, drawImage'd into the
-  // per-frame lightmap rather than uploaded. Filled in with the other bakes below; see its block
-  // there for the profile, and updateDark for what subtracts it.
-  const LIGHT_BLOB = document.createElement('canvas')
   // THE SHARPNESS KNOB. How much of the light's radius is fully lit before the falloff starts;
   // raise it and the transition from your light to the dark gets shorter and harder-edged.
   //
@@ -2781,38 +2777,6 @@ export function createRenderer(app) {
       T.vignette = Texture.from(c)
     }
 
-    // THE LIGHT YOU EMIT (v7.x Book 2) — the player's lamp, as a stamp to subtract from the dark.
-    // OPAQUE in the middle and transparent at the rim, which is the shape of the LIGHT and not of
-    // the darkness: updateDark punches it out of a white lightmap with `destination-out`, and that
-    // operator reads the source's ALPHA, so "how much light is here" has to be what the alpha says.
-    // White because destination-out ignores colour entirely and one bake then serves every chapter.
-    //
-    // A raw CANVAS, not a Texture — it is drawImage'd into another canvas every frame rather than
-    // handed to the GPU. It is also the only bake here that is never uploaded.
-    //
-    // Solid out to LIGHT_CORE_FRAC and then DARK_RAMP's eased ramp to nothing at the rim — see both
-    // of those for the shape and for the knob that positions it.
-    //
-    // The DISC fill matters, and cost a round: a radial gradient clamps to its last stop past its
-    // outer radius, so filling the square would leave the four corners at the rim's value. When the
-    // rim is opaque that paints the dark twice over the corners and the sprite's own bounding box
-    // shows up as hard straight seams at px/py +/- R (measured at charge 0: steps at device y=424
-    // and y=1264 for R=210, colour-solving to 0.86 vs 0.98 of the tint over the same water). Here
-    // the rim is alpha 0, so the corners are transparent either way and the disc is belt and braces.
-    {
-      LIGHT_BLOB.width = LIGHT_BLOB.height = 512
-      const ctx = LIGHT_BLOB.getContext('2d')
-      const grad = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
-      grad.addColorStop(0, 'rgba(255,255,255,1)')
-      DARK_RAMP.forEach((d, i) => {
-        const t = LIGHT_CORE_FRAC + (1 - LIGHT_CORE_FRAC) * (i / (DARK_RAMP.length - 1))
-        grad.addColorStop(t, `rgba(255,255,255,${1 - d})`)
-      })
-      ctx.fillStyle = grad
-      ctx.beginPath()
-      ctx.arc(256, 256, 256, 0, Math.PI * 2)
-      ctx.fill()
-    }
 
     // storm blob (skies overlay, v5.6.18): a plain soft white radial gradient, center to fully
     // transparent at the edge — no Graphics gradient support, same canvas trick as the vignette
@@ -6411,12 +6375,26 @@ export function createRenderer(app) {
   // supposed to play normally. Any fix that moves an edge rather than removing it is the tell that
   // the construct, not the tuning, is wrong.
   //
-  // So the alpha is computed instead of composited. A small offscreen canvas is filled white and the
-  // lights are punched out of it with `destination-out` — soft for the player (LIGHT_BLOB), hard
-  // discs for the shafts — which leaves exactly 1 - light in its alpha channel, overlaps and all,
-  // because destination-out is a multiply on alpha and multiplication does not care what order or
-  // how many. Tint it with the chapter's dark and draw it over the screen at `dim`. No seam can
-  // exist: there is one coverage.
+  // So the field is COMPUTED into a small offscreen canvas rather than composited from objects.
+  // One coverage, so no seam can exist.
+  //
+  // IT CARRIES DARKNESS AS OPAQUE COLOUR AND IS COMPOSITED WITH MULTIPLY: white where lit (multiply
+  // leaves the scene alone), the chapter's dark tint where not, a colour ramp between. The version
+  // before this one built the same field in the canvas's ALPHA channel — fill white, punch the
+  // lights out with `destination-out`, draw the result as a translucent tinted sprite — and it did
+  // not survive on the owner's phone. At 88/100 Light, with a radius covering the screen twice over,
+  // the whole screen was black except the sun shafts.
+  //
+  // THE SHAFTS ARE THE TELL, and they are why this is a rewrite and not a tune. They are arc()+fill()
+  // and they rendered; the player's light was a drawImage() of a pre-baked offscreen canvas whose
+  // ALPHA was the entire effect, and it contributed nothing at all. Four releases were spent moving
+  // where this layer switches on (41% -> 50% -> 90% of the bar), which only moved where the blackout
+  // began — the reports read as tuning complaints and never were. Both halves of that path are now
+  // gone: nothing is baked offscreen, and no alpha channel carries anything. Every operation here is
+  // a fill with an opaque colour.
+  //
+  // Overlaps still compose for free: painting white over white is idempotent, which is the property
+  // destination-out was chosen for in the first place.
   //
   // The buffer is DELIBERATELY tiny (DARK_MAP_W px wide, ~3-4x smaller than the screen) and stretched
   // up. The field it holds is a gradient plus a few discs, so the upscale costs nothing visible, and
@@ -6439,11 +6417,14 @@ export function createRenderer(app) {
   const DARK_MAP_W = 128
   const darkLayer = new Container()
   const darkCanvas = document.createElement('canvas')
-  const darkCtx = darkCanvas.getContext('2d')
+  // alpha:false — there is no transparency to preserve here, and saying so keeps any premultiply
+  // handling out of the upload path entirely.
+  const darkCtx = darkCanvas.getContext('2d', { alpha: false })
   darkCanvas.width = DARK_MAP_W
   darkCanvas.height = DARK_MAP_W
   const darkTex = Texture.from(darkCanvas)
   const darkSprite = new Sprite(darkTex)
+  darkSprite.blendMode = 'multiply'
   darkLayer.addChild(darkSprite)
   darkLayer.visible = false
 
@@ -8460,16 +8441,33 @@ export function createRenderer(app) {
       darkTex.source.resize(DARK_MAP_W, bh)
     }
     const s = DARK_MAP_W / w   // screen px -> buffer px
-    darkCtx.globalCompositeOperation = 'source-over'
-    darkCtx.fillStyle = '#fff'
+    // The unlit colour: the chapter's tint lerped out of white by `dim`, so dim 1 IS the tint and
+    // dim 0 leaves the scene untouched. `a` is that dim (see the top of this function).
+    const tint = cfg.render?.darkTint ?? 0x02131f
+    const chan = (c, lit) => Math.round(255 + (c * (1 - lit) + 255 * lit - 255) * a)
+    const rgbAt = (lit) => `rgb(${chan(tint >> 16 & 255, lit)},${chan(tint >> 8 & 255, lit)},${chan(tint & 255, lit)})`
+    darkCtx.fillStyle = rgbAt(0)
     darkCtx.fillRect(0, 0, DARK_MAP_W, bh)
-    // Every light is now SUBTRACTED from that, so what survives in the alpha channel is the shadow.
-    // destination-out multiplies the destination's alpha by (1 - source alpha), so two lights over
-    // the same pixel compose by multiplication — order-free, count-free, and with no boundary
-    // anywhere for a seam to sit on. That is the entire reason this is a canvas and not three
-    // stacked display objects; see darkLayer's block for the three seams that were the alternative.
-    darkCtx.globalCompositeOperation = 'destination-out'
-    darkCtx.drawImage(LIGHT_BLOB, (px - R) * s, (py - R) * s, R * 2 * s, R * 2 * s)
+
+    // The player's lamp: a per-frame radial gradient between white and that dark, in OPAQUE colour.
+    // Built here rather than stamped from a bake, because a drawImage of an offscreen canvas is the
+    // exact operation that produced nothing on the owner's device (see darkLayer's block). This is
+    // the same primitive as the shafts below, which did render there.
+    const lampR = Math.max(1, R * s)
+    const grad = darkCtx.createRadialGradient(px * s, py * s, 0, px * s, py * s, lampR)
+    grad.addColorStop(0, '#fff')
+    DARK_RAMP.forEach((d, i) => {
+      const t = LIGHT_CORE_FRAC + (1 - LIGHT_CORE_FRAC) * (i / (DARK_RAMP.length - 1))
+      grad.addColorStop(t, rgbAt(1 - d))
+    })
+    darkCtx.fillStyle = grad
+    // A DISC, not the rect: a radial gradient clamps to its last stop past its outer radius, so
+    // filling the rect would paint the rim's colour into the corners instead of the dark.
+    darkCtx.beginPath()
+    darkCtx.arc(px * s, py * s, lampR, 0, Math.PI * 2)
+    darkCtx.fill()
+
+    darkCtx.fillStyle = '#fff'
     for (const sh of run.shafts) {
       const sx = sh.x + cx, sy = sh.y + cy
       if (sx + sh.r < 0 || sx - sh.r > w || sy + sh.r < 0 || sy - sh.r > h) continue
@@ -8481,8 +8479,10 @@ export function createRenderer(app) {
     }
     darkTex.source.update()
     darkSprite.setSize(w, h)
-    darkSprite.tint = cfg.render?.darkTint ?? 0x02131f
-    darkSprite.alpha = a
+    // Neither tinted nor faded: the COLOUR is the darkness and the sprite is opaque. Doing either
+    // here would put the effect back onto the channel that broke.
+    darkSprite.tint = 0xffffff
+    darkSprite.alpha = 1
   }
 
   // ---------------------------------------------------------------- storm overlay
