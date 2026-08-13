@@ -818,11 +818,15 @@ export function createRenderer(app) {
   // take it and the third goes pale and cold.
   //   copepod = MID WARM   (saturated amber, the loudest body in the water)
   //   krill   = PALE WARM  (translucent coral, lighter and two thirds the size)
-  //   jelly   = PALE COLD  (near-white bell, the biggest and the faintest)
-  // EYE COUNT is the backup read, and it is the one that survives the dark: this chapter dims its
-  // own world, and hue is the first thing a 0.86 scrim takes. The copepod has ONE median eye, the
-  // krill has TWO on stalks, the jelly has none at all — three silhouettes still tellable apart at
-  // the edge of your light, where they are all the same blue-grey.
+  //   jelly   = COLD LIGHT (dark bell, lit rim, the biggest and the only one that EMITS)
+  // The jelly's column was "near-white bell, the faintest" until it went side-on: a lantern is the
+  // opposite reading, and it is the better one for the same reason the rule was written. This
+  // chapter dims its OWN world, so the question is what survives the scrim — and a body that emits
+  // survives it completely, while the palest reflector is the first thing it takes.
+  // EYE COUNT is the backup read, and it needs no light at all: the copepod has ONE median eye, the
+  // krill has TWO on stalks, the jelly has none — three silhouettes still tellable apart at the edge
+  // of your lamp. The jelly now also has the only non-plan-view silhouette in the chapter (see
+  // drawJelly for why a water column earns that), which is a third, shape-only read on top.
   //
   // Every flag is inherited unchanged from the pond roster (split / dashBurst / phase+unshakeable):
   // this is an art change, and the spawn economy the refill sweep was tuned against is untouched.
@@ -984,70 +988,125 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 1.05, r)
   }
 
-  // moon jelly: the one plan-view animal in nature — from directly overhead a moon jelly IS its
-  // icon, a translucent disc with four horseshoe gonads in a clover and a fringe of hair-fine
-  // marginal tentacles. Radially symmetric, so ROSTER_LOOKS gives it lean 0: it has no front to
-  // turn, and faking one would be the only wrong thing you could do to this drawing.
+  // MOON JELLY, side elevation. Owner: "I want some design with tentacles. It's a top down game but
+  // those chapters are in the water so the jellyfish can be sideways." That is an exception to the
+  // plan-view rule in CLAUDE.md rather than a breach of it: the rule exists because the camera looks
+  // at a FLOOR, and an animal hanging in a water column has no floor to lie on. (The v6.8 tornado
+  // failed the mirror-image test — a ground-attached thing drawn as though it were not.)
   //
-  // It carries the tardigrade's `phase` (see PHASE_* in config.js) and is a far better home for it:
-  // the flag ghosts a body through obstacles and out of damage for 1.0s in every 2.6s, and a jelly
-  // is ALREADY the translucent thing you cannot get hold of. The low fill alpha here is the same
-  // fact drawn — solid enough to read against dark water, thin enough that the ghost frames are a
-  // difference of degree rather than a costume change.
+  // ORIENTATION IS LOAD-BEARING. The apex points +x, the axis ROSTER_LOOKS aims at the player, and
+  // the mouth and every tentacle trail to -x — so the body is bilaterally symmetric about the
+  // forward axis, and lean 90 is legal by the same argument as the tadpole's. It therefore swims
+  // bell-first at you with its tentacles streaming behind, which is how a jelly actually moves, and
+  // it costs no new facing code: just a nose the existing machinery can already aim. Bell-UP with
+  // tentacles hanging down would instead be a distinct UP, i.e. lean 30, and would drift sideways.
+  //
+  // The bake anchors on the drawing ORIGIN (see bake()), so the trailing tentacles hang off the back
+  // without dragging the sprite off its hit circle. The bell stays centred on the origin for that
+  // reason — r = 26 is the hitbox, and the tentacles are overhang exactly like the tadpole's tail.
+  //
+  // It is a LANTERN: dark body, lit rim, a bead of light at every tentacle tip. This chapter dims
+  // its own world (The Shelf's Light bar), and a creature that EMITS rather than reflects is the one
+  // still readable at the edge of your lamp. That inverts the role it used to play in the cast, so
+  // the art-direction block above is written to match rather than left to contradict it.
+  //
+  // It carries the tardigrade's `phase` (PHASE_* in config.js), ghosting through obstacles and out
+  // of damage for 1.0s in every 2.6s, and a jelly is already the translucent thing you cannot get
+  // hold of. The low fill alpha is that fact drawn: solid enough to read against dark water, thin
+  // enough that the ghost frames are a difference of degree rather than a costume change.
   function drawJelly(g, elite, white) {
     const r = 26
-    const f = (c) => white ? 0xffffff : c
-    const line = f(0x6fb6d2)
-    // A near-circle. The first cut lobed the margin 6% on an 8-fold cosine and hung a stiff fringe
-    // off it, and the two together read as a SNOWFLAKE — regular radial spikes on a scalloped disc
-    // is the shape of a virus capsid or a sea urchin, not of anything soft.
-    const bell = (a) => r * (0.97 + 0.025 * Math.cos(a * 8))
-    groundShadow(r * 0.95, r * 0.85)
-    // MARGINAL TENTACLES: a moon jelly's are hair-fine and there are hundreds, so this is FUZZ and
-    // not a comb — thin, short, faint, and dense enough that no single one is countable. Under the
-    // bell so the roots are hidden. The irregular length is what stops the eye locking onto a
-    // period; at 96 hairs the gaps stop being spikes and start being an edge.
-    for (let i = 0; i < 96; i++) {
-      const a = (i / 96) * Math.PI * 2
-      const rad = bell(a)
-      const lenT = r * (0.07 + 0.075 * ((i * 5) % 4) / 3)
-      taperStroke(g, [[Math.cos(a) * rad * 0.94, Math.sin(a) * rad * 0.94],
-        [Math.cos(a) * (rad + lenT), Math.sin(a) * (rad + lenT)]], Math.max(0.8, r * 0.028), 0.5,
-      white ? 0xffffff : 0x9ad4ea, 1)
+    const xf = r * 0.78     // apex, forward
+    const xa = -r * 0.36    // mouth plane, aft
+    const hw = r * 0.90     // half-width at the margin
+    const N = 30
+    const FILL = 0x123a52
+    const LINE = 0x7fe7ff
+    const TENT = 0x6fd8f5
+    const TIP = 0xeaffff
+    const ARM = 0xffc4ee
+    const CANAL = 0x8fe4ff
+    const GONAD = 0xffb0e4
+    groundShadow(r * 0.78, r * 0.72)
+    // Bell profile: half-width 0 at the apex (t=0) to hw at the margin (t=1). (2t - t^2)^0.5 is
+    // exactly a half-ellipse, i.e. a DOME — round at the apex, falling away at the sides. The first
+    // cut used sin((pi/2) * t^0.6), which comes to a point and reads as a leaf.
+    const prof = (t) => hw * Math.pow(Math.max(0, 2 * t - t * t), 0.46)
+    // The mouth is barely concave, and it is STROKED SEPARATELY from the dome. The first cut bulged
+    // it 0.24r forward and stroked it at the dome's full weight as one closed outline, which drew a
+    // hard bright arc across the middle of the body: the bell then read as a clam, split into a lens
+    // and a crescent. Only the dome gets the heavy line.
+    const mouthX = (s) => xa + r * 0.24 * (1 - (2 * s - 1) ** 2)
+    const dome = []
+    for (let i = N; i >= 0; i--) { const t = i / N; dome.push(xf + (xa - xf) * t, -prof(t)) }
+    for (let i = 0; i <= N; i++) { const t = i / N; dome.push(xf + (xa - xf) * t, prof(t)) }
+    const mouth = []
+    for (let i = 1; i < 14; i++) { const s = 1 - i / 14; mouth.push(mouthX(s), -hw + 2 * hw * s) }
+    const outline = [...dome, ...mouth]
+
+    // TENTACLES first, so the translucent bell sits over their roots and they emerge from under it.
+    // FORESHORTENING IS WHAT MAKES THE RIM READ AS A CIRCLE. The margin is a ring seen edge-on, so
+    // the tentacles near y=0 are the ones on its near and far side, pointing away from the camera —
+    // they project SHORT. Giving them all one length drew a flat parallel curtain, i.e. a broom.
+    // Length scales with |y0|/hw, and the short middle ones are drawn first so the long rim ones
+    // pass in front of them.
+    const hash = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x) }
+    const tent = []
+    for (let i = 0; i < 16; i++) {
+      const s = (i + 0.5) / 16
+      const y0 = -hw + 2 * hw * s
+      tent.push({ y0, s, fore: Math.abs(y0) / hw })
+    }
+    tent.sort((a, b) => a.fore - b.fore)
+    for (let i = 0; i < tent.length; i++) {
+      const { y0, s, fore } = tent[i]
+      const x0 = mouthX(s) * 0.5 + xa * 0.5
+      const L = r * 1.9 * (0.28 + 0.72 * fore) * (0.7 + 0.3 * hash(i))
+      const ph = hash(i + 7) * Math.PI * 2
+      const pts = []
+      for (let k = 0; k <= 9; k++) {
+        const t = k / 9
+        pts.push([x0 - L * t, y0 * (1 - 0.06 * t) + Math.sin(ph + t * 7) * r * 0.10 * t * fore])
+      }
+      taperStroke(g, pts, r * 0.032, r * 0.008, white ? 0xffffff : TENT, 2)
+      if (!white) g.circle(pts[9][0], pts[9][1], r * 0.045).fill({ color: TIP, alpha: 0.9 })
+    }
+    // Four oral arms, of which three read in profile: broad ruffled ribbons off the mouth. They have
+    // to stay visibly WIDER than the tentacles or they are simply three more tentacles.
+    for (let i = 0; i < 3; i++) {
+      const y0 = (i - 1) * hw * 0.36
+      const spine = (t) => [xa - r * 1.15 * t, y0 * (1 + 0.3 * t) + Math.sin(t * Math.PI * 2.2 + i * 2.1) * r * 0.11 * t]
+      g.poly(spineOutline(spine, (t) => r * (0.012 + 0.11 * (1 - t * 0.8)), 18))
+        .fill({ color: white ? 0xffffff : ARM, alpha: white ? 1 : 0.5 })
     }
     if (white) {
-      g.poly(radialOutline(bell, 72)).fill(0xffffff).stroke({ width: Math.max(2.4, r * 0.1), color: 0xffffff })
-    } else {
-      g.poly(radialOutline(bell, 72)).fill({ color: 0xdff4ff, alpha: 0.58 }).stroke({ width: Math.max(2, r * 0.075), color: line, alpha: 0.85 })
-      g.circle(0, 0, r * 0.82).stroke({ width: 1.1, color: 0x8fd0e6, alpha: 0.4 }) // ring canal
-      // THE CLOVER — four horseshoe gonads, and the whole species read. Each is a C with its gap
-      // facing OUT, and the four sit far enough apart (centres at 0.44r, arcs of 0.2r) that the
-      // water shows between them. The first cut had them at 0.36r with a fatter stroke: they closed
-      // ranks into one continuous four-armed swirl, which reads as a PINWHEEL, and a pinwheel is a
-      // thing with rotational motion — the exact wrong idea for an animal that just drifts.
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2 + Math.PI / 4
-        const cx = Math.cos(a) * r * 0.44
-        const cy = Math.sin(a) * r * 0.44
-        const pts = []
-        for (let k = 0; k <= 18; k++) {
-          const b = a + Math.PI + (-1.05 + (k / 18) * 2.1)
-          pts.push([cx + Math.cos(b) * r * 0.2, cy + Math.sin(b) * r * 0.2])
-        }
-        taperStroke(g, pts, r * 0.085, r * 0.085, 0xc79ae4, 1)
-      }
-      // Four SHORT oral arms hanging straight down from the mouth, on the axes BETWEEN the gonads.
-      // Straight, not hooked: the first cut curled each one 0.5rad off its own axis, which handed
-      // the gonads a matching set of swirl arms and doubled down on the pinwheel. The 45deg offset
-      // is the second half of that fix — arms sharing the gonads' axes pointed straight into each
-      // horseshoe's gap and the eight together closed up into one asterisk.
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2
-        taperStroke(g, [[0, 0], [Math.cos(a) * r * 0.17, Math.sin(a) * r * 0.17]], r * 0.09, r * 0.035, 0xefe2ff, 3)
-      }
-      g.circle(0, 0, r * 0.08).fill({ color: 0xe4d6f7, alpha: 0.8 }) // manubrium
+      g.poly(outline).fill(0xffffff).stroke({ width: Math.max(2.4, r * 0.1), color: 0xffffff })
+      if (elite) eliteCrown(-r * 1.02, r)
+      return
     }
-    if (elite) eliteCrown(-r * 1.12, r)
+    for (let k = 0; k < 3; k++) {
+      g.poly(dome, false).stroke({ width: r * (0.10 + 0.07 * k), color: LINE, alpha: 0.08 })
+    }
+    g.poly(outline).fill({ color: FILL, alpha: 0.55 })
+    g.poly(mouth, false).stroke({ width: Math.max(1, r * 0.03), color: LINE, alpha: 0.35 })
+    g.poly(dome, false).stroke({ width: Math.max(1.6, r * 0.055), color: LINE, alpha: 0.85 })
+    // Two of the four radial canals run the bell's length edge-on, with a gonad horseshoe on each —
+    // the plan view's clover, turned 90deg. The horseshoes are arcs of their OWN circle rather than
+    // chords of the bell profile, which is what stopped them reading as two isolated dashes.
+    for (const sgn of [-1, 1]) {
+      const canal = []
+      for (let i = 3; i <= N - 3; i++) { const t = i / N; canal.push([xf + (xa - xf) * t, sgn * prof(t) * 0.60]) }
+      taperStroke(g, canal, r * 0.028, r * 0.028, CANAL, 1)
+      const gx = xf + (xa - xf) * 0.46
+      const gy = sgn * hw * 0.40
+      const arc = []
+      for (let i = 0; i <= 16; i++) {
+        const b = Math.PI * 0.18 + (i / 16) * Math.PI * 1.28
+        arc.push([gx + Math.cos(b) * r * 0.21, gy + sgn * Math.sin(b) * r * 0.17])
+      }
+      taperStroke(g, arc, r * 0.095, r * 0.095, GONAD, 2)
+    }
+    if (elite) eliteCrown(-r * 1.02, r)
   }
 
   // --- Garden chapter (lawn green) ---
@@ -2370,7 +2429,9 @@ export function createRenderer(app) {
     // re-tune. A missing key here is SILENT — syncEnemies falls through to a generic archetype blob.
     copepod: { archetype: 'normal', draw: drawCopepod, lean: 90 },     // top-down: antennae, legs, setae and egg sacs all ±y mirrored
     krill: { archetype: 'fast', draw: drawKrill, lean: 90 },           // top-down: stalked eyes, leg rows and tail fan all ±y mirrored
-    jelly: { archetype: 'tank', draw: drawJelly, lean: 0 },            // radial bell — no front to turn, so nothing to lean
+    // side elevation: apex +x, mouth and tentacles -x, mirrored about that axis — so it rotates
+    // freely and always swims bell-first at you, tentacles streaming behind. See drawJelly.
+    jelly: { archetype: 'tank', draw: drawJelly, lean: 90 },
     ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored

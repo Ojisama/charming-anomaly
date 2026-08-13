@@ -5005,7 +5005,29 @@ function runRosterArt() {
   }
   assert.ok(thumbs >= 12, `expected a cast per chapter card, counted only ${thumbs}`)
 
-  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, and all ${thumbs} title-card thumbnails exist on disk`)
+  // THE JELLY IS THE ONE SIDE-ELEVATION BODY IN THE GAME, AND IT ONLY WORKS AT lean 90.
+  // Everything else is drawn in plan view, so the pair (view, lean) is normally decided once and
+  // never revisited. Here it is load-bearing: the art puts the apex at +x and streams the mouth,
+  // the oral arms and every tentacle to -x, which is legal ONLY because lean 90 lets syncEnemies
+  // aim that axis at the player. Drop it back to 0 — the value every other radial body uses, and
+  // the value this entry itself carried until the redesign — and the bell stops turning while the
+  // tentacles keep pointing one fixed compass direction regardless of where the animal is going.
+  // Nothing else in the suite or the renderer would notice: no throw, no missing texture, just a
+  // creature swimming sideways forever. Hence a text assert, the run UG.k trick.
+  const jelly = block.match(/^ {4}jelly:\s*\{[^}]*\}/m)
+  assert.ok(jelly, 'ROSTER_LOOKS must still declare a jelly entry')
+  assert.ok(/lean:\s*90/.test(jelly[0]),
+    'the jelly is drawn in side elevation with its apex at +x — it must be lean 90, or the body never turns and the tentacles trail in a fixed screen direction')
+  const jd = src.slice(src.indexOf('function drawJelly('))
+  const jdEnd = jd.indexOf('\n  }\n')
+  assert.ok(jdEnd > 0, 'could not find the end of drawJelly')
+  const jbody = jd.slice(0, jdEnd)
+  // The apex must be FORWARD and the mouth AFT. Swap the signs and the art is still a jellyfish,
+  // still renders, and now swims backwards — tentacles first into the player.
+  assert.ok(/const xf = r \* 0\.\d+/.test(jbody) && /const xa = -r \* 0\.\d+/.test(jbody),
+    'drawJelly must keep the apex at +x (xf) and the mouth plane at -x (xa) — reversed, it swims tentacles-first')
+
+  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }
 runRosterArt()
 
