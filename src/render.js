@@ -1395,6 +1395,266 @@ export function createRenderer(app) {
     }
   }
 
+  // --- Reef chapter (Book 2 ch 3, deep water over warm coral) ---
+  // The hardest palette problem in the book, and worth stating before the drawings. This chapter's
+  // WORLD is warm — dark coral reds, magentas and violets (BIOME_REEF) — and so is the PLAYER: Book
+  // 2's fish is a saturated rust-coral body (drawFish, and 1.3x bigger here than on the beach). A
+  // roster that reached for the reef's own colours would be competing with both at once.
+  // So the separation is by SIDE OF THE FLOOR and by SILHOUETTE, not by hue. Every coral is DARKER
+  // than the water (1.8x-2.5x); all three of these are LIGHTER than it (2.7x-4.9x), and none is
+  // saturated. The reef is dark and hot; the animals in it are pale.
+  //   moray      = PALE OCHRE, dark reticulation    (the only NET pattern in the game)
+  //   damselfish = WHITE with three hard BLACK BARS (the only achromatic body in the chapter)
+  //   lionfish   = CREAM with MAROON bands          (the one that does share the reef's hue, and
+  //                separates on shape alone — see its own note)
+  // BACKUP READ — what is left once colour has gone at range, and the reason no two of these read
+  // as each other or as the player's compact rust fusiform: the moray is a RIBBON three times its
+  // own width long, the damselfish a short barred SPINDLE with fanned pectorals, and the lionfish a
+  // spiky STARBURST wider than it is long.
+  // All three are PLAN VIEW. The moon jelly is the one side-elevation body in this game and it
+  // earns that by hanging in a water column with no floor under it (see drawJelly); these three are
+  // all over the reef floor, so the overhead camera is the honest one — and lean 90 on each is the
+  // geometry falling out of that, not a habit: every one is bilaterally symmetric about its own +x
+  // nose, with paired eyes and paired appendages in +-y and nothing that could be called UP.
+
+  // moray: a big eel seen from above, which is a RIBBON — no waist, no peduncle, a long slow taper
+  // to a point, and three times longer than the two fish beside it. THE GAPE IS THE `latch` FLAG
+  // DRAWN: latch is the enemy that takes hold of you, slows you and dies doing it, and the one thing
+  // you see of a moray from directly overhead is an open mouth arriving.
+  //
+  // THE HEAD IS ONE POLYGON WITH A V BITTEN OUT OF ITS FRONT, and that shape is the whole reason it
+  // works. The first cut bolted two thin jaw slivers onto the body's flat front cap and painted a
+  // dark wedge behind them: on screen that was a rectangular block with a saw in it, because
+  // spineOutline closes whatever width is left at t=0 with a STRAIGHT SEGMENT and the jaws were too
+  // slight to break that line. Cutting the notch out of the skull's own outline instead makes the
+  // SILHOUETTE fork — the gape survives at any size and in the white hit-flash twin, where interior
+  // detail does not exist at all.
+  // Animated like the centipede (`phases: 6`): the phase arg shifts spine(t)'s sine.
+  function drawMoray(g, elite, white, phase = 0) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x3a2c14)
+    const skin = f(0xe3d5a4)
+    const lw = Math.max(2.4, r * 0.1)
+    const headX = r * 0.8           // where the skull meets the body; the jaws run forward of this
+    const len = r * 3.15
+    const H = r * 0.4
+    // THE UNDULATION, and why it is not drawFish's. A fish holds its head still and throws its tail,
+    // so that amplitude ramps as t^1.9; an eel throws its WHOLE body, so this one is near uniform
+    // and only eases off over the skull. Two full waves down the length is what reads as swimming
+    // rather than as a bent stick — and it is the same difference the fish's own comment warns about
+    // in the other direction ("a uniform sine is what makes a fish read as an eel").
+    const spine = (t) => [headX - t * len, Math.sin(t * Math.PI * 2.2 - phase) * r * 0.3 * Math.min(1, t * 3.4)]
+    // Thickest at the shoulders and then a very long taper: no waist anywhere, which is exactly what
+    // separates this outline from the two fish.
+    const body = (t) => H * Math.max(0.04,
+      Math.pow(Math.max(0, 1 - t), 0.5) * (0.86 + 0.18 * Math.exp(-Math.pow((t - 0.08) / 0.13, 2))))
+    groundShadow(r * 1.5, H + r * 0.34)
+
+    g.poly(spineOutline(spine, body, 40)).fill(skin).stroke({ width: lw, color: line })
+
+    // The skull, drawn OVER the body's flat cap so the cap never shows. Back corners sit inside the
+    // body; the widest point is just ahead of it; the two jaw tips fork forward with the gape's apex
+    // between them.
+    const hb = headX - r * 0.45, hs = headX - r * 0.05, ht = headX + r * 0.85
+    const apex = headX + r * 0.3
+    const hw = r * 0.44, tipY = r * 0.22
+    // The throat overshoots the tips a little so a band of dark shows INSIDE the notch rather than
+    // the water — the difference between an open mouth and a forked stick.
+    if (!white) g.poly([apex - r * 0.05, 0, ht + r * 0.05, -tipY - r * 0.06, ht + r * 0.05, tipY + r * 0.06]).fill(0x2a1408)
+    // The BACK of the skull is a chevron, not a straight edge. A straight one is drawn inside the
+    // body, so its stroke lands on the pale flank as a hard vertical bar — a collar across the neck,
+    // clearly visible in the probe frame. Two lines converging back to a point on the spine instead
+    // read as the head plates a real eel has, which is what that stroke should have been saying.
+    const [bkx, bky] = spine(0.2)
+    g.poly([bkx, bky, hb, -r * 0.3, hs, -hw, ht, -tipY, apex, 0, ht, tipY, hs, hw, hb, r * 0.3])
+      .fill(skin).stroke({ width: lw * 0.95, color: line })
+    if (!white) {
+      // The dorsal crest runs the whole midline — a moray's dorsal fin starts behind the head and
+      // never stops. On the midline it is also the cue that says "seen from the top", the same job
+      // drawFish's dark ridge does.
+      g.poly(spineOutline(spine, (t) => body(t) * 0.32, 34, 0.16, 0.99))
+        .fill({ color: 0xc6b177, alpha: 0.6 })
+      for (const s of [-1, 1]) { // teeth along the gape, pointing back into the throat
+        for (const u of [0.22, 0.46, 0.7]) {
+          const bx = ht + (apex - ht) * u
+          const by = s * tipY * (1 - u)
+          g.poly([bx, by, bx + r * 0.09, by - s * r * 0.08, bx - r * 0.06, by - s * r * 0.015]).fill(0xfaf1d6)
+        }
+      }
+      // RETICULATION: staggered rows of small dark blotches down the flanks. A net rather than
+      // stripes or spots, because a net is the one pattern nothing else in this bestiary wears — and
+      // SMALL, because the first cut's 0.115r ellipses merged into giraffe patches at drawn size.
+      for (let i = 0; i < 17; i++) {
+        const t = 0.06 + i * 0.055
+        const [x, y] = spine(t)
+        const w = body(t)
+        for (const s of [-1, 1]) {
+          g.ellipse(x, y + s * w * (i % 2 ? 0.58 : 0.24), r * 0.075, w * 0.24)
+            .fill({ color: 0x4a3a1e, alpha: 0.72 })
+        }
+      }
+      for (const s of [-1, 1]) { // gill pore, one either side of the neck
+        const [gx, gy] = spine(0.14)
+        g.ellipse(gx, gy + s * body(0.14) * 0.62, r * 0.05, body(0.14) * 0.26).fill({ color: 0x5f4a1e, alpha: 0.8 })
+        // eyes: high on the skull, well forward, in the ±y pair that makes this a plan view
+        darkEye(g, hs + r * 0.08, s * r * 0.26, r * 0.075, r * 0.07, 0x140d05, s > 0)
+      }
+      // A pale ridge along each jaw, the lip line — it separates the two forks from each other and
+      // from the throat when the whole head is a single flat colour at distance.
+      for (const s of [-1, 1]) {
+        taperStroke(g, [[hs + r * 0.1, s * r * 0.3], [ht - r * 0.06, s * (tipY - r * 0.02)]],
+          Math.max(1.1, r * 0.05), 0.8, 0xfaf1d6, 3)
+      }
+    }
+    if (elite) eliteCrown(-r * 0.82, r)
+  }
+
+  // damselfish: the roster's flagless baseline, and drawn as the plainest thing on the reef — a
+  // humbug damsel, brilliant white with three hard black bars. Achromatic on purpose: it is the one
+  // body here that shares no hue with the coral, the water or the player, so it needs no pattern
+  // trick to be found in a crowd.
+  // NARROW ON PURPOSE, and that is the projection rather than a style choice: a damselfish is
+  // laterally compressed — deep top-to-bottom, thin side-to-side — so from DIRECTLY ABOVE it is a
+  // slim spindle where the player's rounder body (drawFish, half-width 0.58r against this one's
+  // 0.34r) is a broad one. Drawing it deep-bodied would be a side elevation wearing a plan view's
+  // clothes, which is the mistake CLAUDE.md lost a whole version to.
+  function drawDamselfish(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x252c36)
+    const pale = f(0xf4f7f8)
+    const fin = f(0xdde6ec)
+    const lw = Math.max(2, r * 0.11)
+    const noseX = r * 1.0
+    const len = r * 1.95
+    const spine = (t) => [noseX - t * len, 0]
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.34), 0.6)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.34) / 0.72), 1.2)
+      return r * 0.4 * Math.max(0.1, t < 0.34 ? rise : fall)
+    }
+    groundShadow(r * 0.95, r * 0.4)
+    // Pectorals: rounded PADDLES swept a little back, not pointed vanes held forward. A damselfish
+    // hovers on them, and on a body this narrow they are most of what gives the silhouette any width
+    // at all — but the first cut's forward-pointing tips read as swept wings and turned the whole
+    // animal into a small aircraft.
+    const pt = 0.38
+    const [ptx] = spine(pt)
+    const pw = body(pt)
+    for (const s of [-1, 1]) {
+      g.poly([
+        ptx + r * 0.1, s * pw * 0.75,
+        ptx - r * 0.06, s * (pw + r * 0.5),
+        ptx - r * 0.28, s * (pw + r * 0.5),
+        ptx - r * 0.44, s * (pw + r * 0.18),
+        ptx - r * 0.3, s * pw * 0.85,
+      ]).fill({ color: fin, alpha: 0.92 }).stroke({ width: lw * 0.5, color: line })
+    }
+    // Caudal: forked, hinged just short of the tail tip so no seam opens between fin and body.
+    const [tx] = spine(0.96)
+    for (const s of [-1, 1]) {
+      g.poly([tx, 0, tx - r * 0.55, s * r * 0.38, tx - r * 0.44, s * r * 0.05])
+        .fill({ color: fin, alpha: 0.9 }).stroke({ width: lw * 0.5, color: line })
+    }
+    g.poly(spineOutline(spine, body, 34)).fill(pale).stroke({ width: lw, color: line })
+    if (!white) {
+      // THE THREE BARS, cut from the body's own outline over a t-range rather than laid on as
+      // rectangles — spineOutline(t0, t1) returns exactly the strip of silhouette between them, so a
+      // bar can never overhang the fish it belongs to.
+      for (const [t0, t1] of [[0.16, 0.3], [0.46, 0.6], [0.74, 0.88]]) {
+        g.poly(spineOutline(spine, body, 8, t0, t1)).fill({ color: 0x1d2430, alpha: 0.95 })
+      }
+      g.poly(spineOutline(spine, (t) => body(t) * 0.2, 24, 0.08, 0.94))
+        .fill({ color: 0x8f9aa4, alpha: 0.35 })   // dorsal ridge: the plan view stating itself
+      // Both eyes visible from overhead, set just ahead of the first bar — a real humbug's runs
+      // straight THROUGH the eye, which on a 32px sprite simply deletes it.
+      const [ex] = spine(0.11)
+      for (const s of [-1, 1]) darkEye(g, ex, s * body(0.11) * 0.62, r * 0.085, r * 0.08, 0x11161d, true)
+    }
+    if (elite) eliteCrown(-r * 0.95, r)
+  }
+
+  // lionfish: the one body here that DOES share the reef's own hue, and it separates on shape alone.
+  // From directly overhead a lionfish is not a fish outline at all — it is a STARBURST of pectoral
+  // rays thrown out to both sides, wider than the body is long. No retint could have bought that
+  // separation from a warm player on a warm floor; the silhouette does it for free.
+  //
+  // FOUR POSES, DRIVEN BY THE `pounce` STATE MACHINE, not by a timer (the toad's idiom — `poses`
+  // selects a frame, `phases` would flip through them on animT). The fan is the state: spread while
+  // it drifts, flared widest while it aims, folded flat along the body while it is in the air, then
+  // half-open as it recovers. That is a lionfish's real hunting behaviour and it is also the clearest
+  // telegraph available — a fan snapping shut is visible at a glance, where a colour change is not.
+  const LIONFISH_POSES = [
+    { spread: 1.0, rake: 0.1 },    // hold — drifting, fan open and raked a little back
+    { spread: 1.26, rake: -0.16 }, // aim  — flared forward: the threat display
+    { spread: 0.3, rake: 0.62 },   // leap — folded flat along the body: a dart
+    { spread: 0.72, rake: 0.3 },   // land — half open, re-spreading
+  ]
+  function drawLionfish(g, elite, white, pose = 0) {
+    const r = 12
+    const P = LIONFISH_POSES[Math.min(LIONFISH_POSES.length - 1, Math.max(0, pose | 0))]
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x5e2320)
+    const cream = f(0xf6e3c8)
+    const band = f(0x8e2f2c)
+    const lw = Math.max(1.8, r * 0.12)
+    const noseX = r * 0.95
+    const len = r * 2.0
+    const H = r * 0.36
+    const spine = (t) => [noseX - t * len, 0]
+    const body = (t) => H * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.36 ? 0.35 : 0.8)
+    groundShadow(r * 1.1, H + r * 0.3)
+    // THE FAN. 6 rays a side, each a banded spine rather than a webbed blade — separated rays are
+    // what a lionfish has and a webbed fan is what every other fin in this game is, so the gaps are
+    // load-bearing. The pose's `spread` scales the fan about its own centre and `rake` swings the
+    // whole thing back, so folding is one number rather than four drawings.
+    // THE LENGTH LOBE IS WHAT KEEPS IT A FISH. Rays of near-equal length all the way round read as a
+    // sea urchin, which is what the first cut came back as: 0.5 + 0.5 sin makes the middle rays
+    // twice the end ones, so the fan has a shape and the body still shows through it.
+    const RAYS = 6
+    const A0 = Math.PI * 0.28, A1 = Math.PI * 0.8, AC = (A0 + A1) / 2
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < RAYS; i++) {
+        const u = i / (RAYS - 1)
+        const a = AC + (A0 + (A1 - A0) * u - AC) * P.spread + P.rake
+        const L = r * 2.15 * (0.5 + 0.5 * Math.sin(Math.PI * u))
+        const x0 = r * 0.22, y0 = s * H * 0.72
+        const x1 = x0 + Math.cos(a) * L, y1 = y0 + s * Math.sin(a) * L
+        taperStroke(g, [[x0, y0], [x1, y1]], Math.max(1.5, r * 0.13), Math.max(0.7, r * 0.045), cream, 4)
+        if (!white) { // two maroon bands per ray — the banding is the second read after the shape
+          for (const [b0, b1] of [[0.28, 0.44], [0.62, 0.78]]) {
+            taperStroke(g, [[x0 + (x1 - x0) * b0, y0 + (y1 - y0) * b0], [x0 + (x1 - x0) * b1, y0 + (y1 - y0) * b1]],
+              Math.max(1.4, r * 0.11), Math.max(0.8, r * 0.07), 0x8e2f2c, 2)
+          }
+        }
+      }
+    }
+    // Dorsal spines: venomous, and from above they project as a short fringe either side of the
+    // midline rather than as a sail. Four and short — six long ones joined the pectoral rays into
+    // one undifferentiated ball of spikes.
+    for (let i = 0; i < 4; i++) {
+      const t = 0.2 + i * 0.13
+      const [x] = spine(t)
+      const s = i % 2 ? 1 : -1
+      taperStroke(g, [[x, 0], [x - r * 0.16, s * (body(t) + r * 0.22)]], Math.max(1.2, r * 0.1), 0.7, band, 3)
+    }
+    const [tx] = spine(0.97) // caudal: a small spread fan, banded like the rest of it
+    for (const s of [-1, 1]) {
+      g.poly([tx, 0, tx - r * 0.52, s * r * 0.36, tx - r * 0.44, s * r * 0.05])
+        .fill({ color: cream, alpha: 0.92 }).stroke({ width: lw * 0.5, color: line })
+    }
+    g.poly(spineOutline(spine, body, 30)).fill(cream).stroke({ width: lw, color: line })
+    if (!white) {
+      for (const [t0, t1] of [[0.14, 0.26], [0.38, 0.5], [0.62, 0.74], [0.84, 0.94]]) {
+        g.poly(spineOutline(spine, body, 6, t0, t1)).fill({ color: 0x8e2f2c, alpha: 0.9 })
+      }
+      const [ex] = spine(0.12)
+      for (const s of [-1, 1]) darkEye(g, ex, s * body(0.12) * 0.62, r * 0.09, r * 0.085, 0x2a0f0c, true)
+    }
+    if (elite) eliteCrown(-r * 1.5, r)
+  }
+
   // --- Garden chapter (lawn green) ---
   // ant: head (right) + narrow thorax + a VISIBLE petiole node + a big tapered gaster (left) — three
   // separate flowing paths so the waist reads, 6 jointed legs (coxa->femur->tibia->tarsus) in
@@ -2718,17 +2978,27 @@ export function createRenderer(app) {
     // side elevation: apex +x, mouth and tentacles -x, mirrored about that axis — so it rotates
     // freely and always swims bell-first at you, tentacles streaming behind. See drawJelly.
     jelly: { archetype: 'tank', draw: drawJelly, lean: 90 },
-    // v7.x The Reef (Book 2 chapter 3) — ⚠ BORROWED ART, A STAND-IN, NOT A DESIGN. These three ids
-    // point at The Shelf's baked bodies, matched by archetype, purely so the chapter renders animals
-    // instead of generic archetype blobs while the x-lane is being built and tested. A moray is not
-    // a moon jelly and nobody thinks it is; the reef's own art is the next task and replaces all
-    // three. (Registering them at all is the point: an id with no key here does NOT throw —
-    // syncEnemies falls straight through to the generic blob, silently. Same trap the two blocks
-    // above warn about.) The jelly's lean 90 comes with it, which is correct for a side-elevation
-    // body swimming apex-first — see drawJelly and run RA.
-    damselfish: { archetype: 'normal', draw: drawCopepod, lean: 90 },
-    moray: { archetype: 'tank', draw: drawJelly, lean: 90 },
-    lionfish: { archetype: 'fast', draw: drawKrill, lean: 90 },
+    // v7.x The Reef (Book 2 chapter 3). All three PLAN VIEW, all three lean 90 — and that is the
+    // geometry, not a habit: each is bilaterally symmetric about its own +x nose, with paired eyes
+    // and paired appendages in ±y and nothing in the drawing that could be called UP. (The moon
+    // jelly above is the one side-elevation body in the game and it earns that by hanging in a water
+    // column; these three are over the reef floor.) A missing key here is SILENT — syncEnemies falls
+    // through to a generic archetype blob. See the Reef section of the draw fns for the palette.
+    damselfish: { archetype: 'normal', draw: drawDamselfish, lean: 90 }, // top-down: barred spindle, pectorals and eyes in ±y pairs
+    moray: { archetype: 'tank', draw: drawMoray, lean: 90, phases: 6 },  // top-down ribbon: jaws fork ±y, tail -x; 6 baked wave phases = the swim
+    // Four POSES rather than phases, selected by the pounce state machine exactly as the toad's are
+    // (see that entry): the pectoral fan is spread while it stalks, flared while it aims, FOLDED
+    // FLAT while it is in the air, half-open as it lands. faceDir/turnRate keep it committed to the
+    // heading the sim locked at the start of 'aim' — a body that steered mid-leap while its
+    // trajectory did not is the bug v6.6.33 fixed on the toad, and it would return here for free.
+    lionfish: {
+      archetype: 'fast', draw: drawLionfish, lean: 90, poses: 4,
+      poseOf: (e) => ({ hold: 0, aim: 1, leap: 2, land: 3 })[e._pounceState] ?? 0,
+      faceDir: (e) => ((e._pounceState === 'aim' || e._pounceState === 'leap')
+        ? [e._pounceDirX ?? 0, e._pounceDirY ?? 0] : null),
+      turnRate: (e) => (e._pounceState === 'leap' ? POUNCE_TURN_LEAP
+        : e._pounceState === 'aim' ? POUNCE_TURN_AIM : POUNCE_TURN_IDLE),
+    },
     // v7.x The Surf (Book 2 chapter 1). A new roster, not a repaint — every flag here is new
     // (unshakeable, diveBomb) rather than carried over the way the Shelf's are. A missing key here
     // is SILENT — syncEnemies falls through to a generic archetype blob.
@@ -7752,6 +8022,80 @@ export function createRenderer(app) {
     // asks for, and against sand at luminance ~0.38 a warm 0x3d3324 clears it without going black.
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6a5c46, foot: 0x3d3324 },
   }
+  // ---- The Reef (v7.x Book 2 ch 3) — warm coral over deep water -------------------------------
+  // The Shelf's own methodology (a retint of the shape-neutral prop PNGs, not new art), pointed the
+  // OPPOSITE way. Every tint in BIOME_SHELF keeps BLUE >= GREEN because it is open sea; a reef is
+  // the one place in the ocean that is warm and saturated, so every tint here is RED-DOMINANT
+  // (R > G, R > B) and the family runs red -> magenta -> violet. That inversion is the chapter's
+  // whole identity, and it is why this is a separate biome rather than a hue nudge on The Shelf's.
+  //
+  // THE SHAPES, and what each PNG is being re-read as from directly overhead:
+  //   bush_b   — a lobed rosette, the ONE prop no water biome uses. From above it is a BRAIN CORAL
+  //              head, which is the reef's signature mass and the shape nothing else in the game has.
+  //   cluster_* — radial branching rosettes: TABLE CORAL colonies, flat on the floor.
+  //   reed / flower_a — vertical blades and budded stalks: SEA WHIPS and gorgonians, upright.
+  //   grass_c/d — soft coral tufts, upright.
+  //
+  // THE MEASURED BAND (WCAG contrast against the effective floor, the obstacle-contrast.mjs model:
+  // mean blotch x floorTint over bgColor). The reef floor is bg 0x0a3358 under floorTint 0xa9cfe0 =
+  // #4d717f, luminance 0.150 — one step deeper than The Shelf's 0.210.
+  //   coral decor  1.78x - 2.54x BELOW the floor   (The Shelf's own family measures 1.94x - 2.69x)
+  //   coral grit   1.9x  - 2.3x  ABOVE it
+  //   the roster   2.7x  - 4.9x  ABOVE it          (drawMoray/drawDamselfish/drawLionfish)
+  // So decor and roster do not merely differ in magnitude, they sit on OPPOSITE SIDES of the floor:
+  // everything scenic is darker than the water, everything alive is lighter. That is the same split
+  // The Shelf makes, and it is what stops a warm reef competing with a warm player.
+  //
+  // ⚠ WARM IS ONLY AVAILABLE AT LOW VALUE HERE, and that is a consequence, not a compromise.
+  // floorTint multiplies the props (propTint), so at (0.66, 0.81, 0.88) the most red any prop can
+  // reach is 0.66 x 255 = 169. A BRIGHT warm coral is unreachable through that multiply; a dark
+  // saturated one is not. Hence raw tints authored several steps hotter than they land.
+  const CORAL_STAG_TINTS = [0x9c2f30, 0xae3a34]           // branching staghorn — big/mid `reed`
+  const CORAL_BRAIN_TINTS = [0x8c2450, 0x7d2048]          // lobed boulder head — `bush_b`
+  // The flats carry the most screen area, so they run magenta -> violet -> red rather than all
+  // violet: a first probe frame came back reading purple overall, because the two biggest props in
+  // it were both from the violet end and the reds were all in the small upright tufts.
+  const CORAL_TABLE_TINTS = [0x8a2a5c, 0x7b2a72, 0x932f48] // table/plate colonies — cluster_a/b/c
+  const CORAL_SOFT_TINTS = [0x94305c, 0xa33a68]           // soft coral / gorgonian — grass_c/d, flower_a
+  // The one ORANGE member, and it is here because a first probe frame of the family above came back
+  // reading uniformly magenta-to-violet: red, pink and purple were all present and orange was not,
+  // so the reef had a colour rather than a palette. A sponge clump is the honest way to get it.
+  // ⚠ IT LANDS AS A WARM BROWN, not as an orange, and that is the ceiling rather than a bad pick:
+  // orange at the value this band allows IS brown, and the floorTint multiply takes a third of the
+  // red on top. It is therefore a MID prop only — a second probe frame with it at BIG size read as
+  // brown mud clumps dominating the reef, which cost more than the hue variety bought.
+  const CORAL_SPONGE_TINTS = [0x8f4214, 0xa04e14]         // sponge clump — `bush_a`
+  const BIG_REEF = [
+    { name: 'bush_b', tints: CORAL_BRAIN_TINTS, upright: false, size: [96, 152] },
+    { name: 'reed', tints: CORAL_STAG_TINTS, upright: true, size: [105, 168] },
+    { name: 'cluster_b', tints: CORAL_TABLE_TINTS, upright: false, size: [92, 142] },
+  ]
+  const MID_REEF = [
+    { name: 'bush_a', tints: CORAL_SPONGE_TINTS, upright: true, size: [42, 68] },
+    { name: 'flower_a', tints: CORAL_SOFT_TINTS, upright: true, size: [40, 66] },
+    { name: 'grass_c', tints: CORAL_SOFT_TINTS, upright: true, size: [28, 48] },
+    { name: 'grass_d', tints: CORAL_SOFT_TINTS, upright: true, size: [28, 48] },
+    { name: 'cluster_a', tints: CORAL_TABLE_TINTS, upright: false, size: [50, 78] },
+    { name: 'cluster_c', tints: CORAL_TABLE_TINTS, upright: false, size: [50, 78] },
+  ]
+  // Coral sand, not foam: the pale member of a reef family is the crushed skeleton of the family
+  // above it, lying in the gaps between heads. Low alpha keeps it grit rather than snow.
+  const DETAIL_REEF = [
+    { name: 'scatter_a', tint: 0xf2d6cc, alpha: 0.5, size: [24, 42] },
+    { name: 'scatter_b', tint: 0xe0c0ba, alpha: 0.42, size: [20, 36] },
+    // A coral nubbin, NOT the `leaf` prop its two neighbours use. leaf is a maple silhouette and it
+    // survives being read as a scrap of dried wrack on a beach or a weed fragment in open water; on
+    // a reef floor it is unmistakably a maple leaf, which a probe frame showed at once.
+    { name: 'cluster_c', tints: CORAL_TABLE_TINTS, upright: false, alpha: 0.75, size: [20, 34] },
+    { name: 'pebble', baked: true, scale: [0.7, 1.4] },
+  ]
+  const BIOME_REEF = {
+    big: BIG_REEF, mid: MID_REEF, detail: DETAIL_REEF,
+    // A bommie: the clump mound reads as a coral head, in the family's deepest plum-red, over a
+    // near-black aubergine foot. The floor here is dark (L 0.150), so the rim still clears the
+    // audit's 2x by going darker still rather than by going black-and-cold — 3.73x, warm.
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6e2a44, foot: 0x1c0a1a },
+  }
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
@@ -7760,14 +8104,10 @@ export function createRenderer(app) {
     // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
     // The Shelf draws villi and platelets under a blue tint.
     shelf: BIOME_SHELF,
-    // ⚠ TEMPORARY: The Reef (Book 2 ch 3) BORROWS The Shelf's world wholesale until its own art
-    // lands. This alias is not optional bookkeeping — a chapter with no BIOMES entry of its own does
-    // not throw and does not warn, it silently draws ANOTHER chapter's world (chapterBiome falls
-    // back to BIOMES.body, which is how The Surf shipped villi, platelets and plasma motes on its
-    // beach). BIOME_SHELF's own obstacle is already commented "reef rock", so the borrow is at least
-    // pointed the right way; everything else about it is The Shelf's and should be replaced, not
-    // extended, when the reef gets its own family.
-    reef: BIOME_SHELF,
+    // Load-bearing for the same reason as the line above it: a chapter with no BIOMES entry does not
+    // throw and does not warn, it silently draws ANOTHER chapter's world (chapterBiome falls back to
+    // BIOMES.body, which is how The Surf shipped villi, platelets and plasma motes on its beach).
+    reef: BIOME_REEF,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,

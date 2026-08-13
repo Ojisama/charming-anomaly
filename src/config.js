@@ -4406,10 +4406,10 @@ CHAPTERS.reef = {
   // (the same argument CHAPTERS.surf's roster makes — with a flag on all three, none of them reads
   // as special), the moray latches and slows you, and the lionfish pounces.
   //
-  // ⚠ THE ART IS BORROWED. render.js's ROSTER_LOOKS points these three ids at The Shelf's baked
-  // copepod/krill/jelly for now — see the block there. A roster id with NO entry in that table does
-  // not throw: it renders as a generic archetype blob, silently, which is why the placeholder exists
-  // at all rather than being left blank.
+  // Each has its own baked body in render.js's ROSTER_LOOKS (drawMoray/drawDamselfish/drawLionfish),
+  // all three in PLAN VIEW, and each drawing telegraphs its flag: the moray's gape, the lionfish's
+  // fan (which folds flat on the leap, off the pounce state machine), and the damselfish's plain
+  // barred spindle. See that block for the palette argument.
   roster: [
     { id: 'damselfish', archetype: 'normal', name: 'Damselfish', hpMul: 1,   speedMul: 1,    flags: [] },
     { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2, speedMul: 0.7,  flags: ['latch'] },
@@ -4438,29 +4438,38 @@ CHAPTERS.reef = {
   balance: { spawnMul: 0.76, enemyHpMul: 0.95, maxAliveMul: 0.75 },
 
   // ---- render-only (ZERO sim effect) ----
-  // ⚠ BORROWED BIOME AND BORROWED CAST, both temporary.
-  //   - the world: render.js's BIOMES map has no `reef` key of its own yet, and a chapter missing
-  //     from it does not throw — chapterBiome falls back to BIOMES.body and the chapter quietly
-  //     draws ANOTHER chapter's world (The Surf shipped villi and platelets on its beach that way).
-  //     So BIOMES aliases reef -> BIOME_SHELF, whose rock is already commented "reef rock". The
-  //     colours below are The Shelf's for the same reason: one coherent picture until the art lands.
-  //   - the cast: these are THE SHELF's three roster ids, not this chapter's. render.cast needs a
-  //     baked src/cast/<id>.png per entry (run RA asserts the file exists), and those are generated
-  //     by scripts/bake-cast.mjs from render.js's own textures — so the reef's own three cannot go
-  //     on the title card until the art task bakes them.
+  // DEEPER WATER THAN THE SHELF'S, ON PURPOSE. bgColor/floorTint are the pair render.js composites
+  // into the "effective floor" every prop and creature is judged against (the model in
+  // scripts/obstacle-contrast.mjs): The Shelf's 0x18567f/0x9fd6f0 lands at WCAG luminance 0.210,
+  // these land at 0.150 — one clear step darker, i.e. deeper water. That step is what buys the reef
+  // its own identity, because the chapter's decor is WARM (coral reds, magentas, violets — see
+  // BIOME_REEF in render.js) and warm decor needs a floor that is unambiguously cold and dark to sit
+  // on. Keeping The Shelf's floor and only retinting the props would have read as The Shelf with red
+  // weeds in it.
+  //   ⚠ floorTint is a MULTIPLY, and it multiplies the PROPS too. At 0xa9cfe0 = (0.66, 0.81, 0.88)
+  //   every warm prop tint loses a third of its red before it reaches the screen, so BIOME_REEF's raw
+  //   tints are authored several steps hotter than the colour they are meant to end up as. Cool the
+  //   tint further and the corals cannot read as coral at all; warm it and the water stops being blue.
   // form: 'fish' + formScale — ONE body serves all of Book 2 and grows a step per chapter (The Surf
   // leaves it at the default 1, The Shelf is next). playerTint MUST stay white with a `form`:
   // syncPlayer forces white for the body itself, but the level-up MINIME copies read this value
   // directly and a tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
-    cast: ['copepod', 'krill', 'jelly'],
+    // The chapter's own three, normal/fast/tank like every other card. These are baked into
+    // src/cast/<id>.png by `node scripts/bake-cast.mjs` — hand-run, and nothing warns you if they
+    // go stale, so re-run it whenever one of the three draw fns changes.
+    cast: ['damselfish', 'lionfish', 'moray'],
     form: 'fish',
     formScale: 1.3,
-    bgColor: 0x18567f,
-    floorTint: 0x9fd6f0,
+    bgColor: 0x0a3358,
+    floorTint: 0xa9cfe0,
     playerTint: 0xffffff,
     tail: false,
-    eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8],
+    // COOL, and deliberately so on the one warm chapter in the book. The iridescence multiplies the
+    // creature's own bake, so a warm cycle on a warm reef is the one combination that could let an
+    // elite melt into the coral behind it; aqua and mint cannot. A first cut ran coral/rose/aqua and
+    // turned the elite damselfish — the chapter's only achromatic body — pink.
+    eliteIridescent: [0xc4f0ff, 0xd9fff0, 0xffd9e8],
   },
 }
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
