@@ -812,15 +812,20 @@ function generateWells(sig) {
  *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
- * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2 (The Shelf): streamed pools of light
- *   the player stands in to refill `charge`. Same _obstacleSeed cell-hash idiom as eddies above,
- *   own salts (20 occupancy, 21 x jitter, 22 y jitter, 23 drift phase) and own _shaftCellI/
- *   _shaftCellJ cursor. Gated on CHAPTERS[chapter].signature.type === 'shafts' ([] everywhere
- *   else). UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
+ * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2: streamed REFILL CIRCLES the player
+ *   stands in to refill `charge`. ONE list fed from either of two places, decided by refillSpec()
+ *   (config.js): The Shelf's sun shafts (its signature IS the refill spec: cell/chance/r/minDist/
+ *   driftAmp/driftHz sit directly on it) and, since v7.x run US.c, The Surf's tide pools
+ *   (CHAPTERS.surf.signature.pools — no drift, since a pool is a hole in the sand rather than
+ *   something that moves). Same _obstacleSeed cell-hash idiom as eddies above, own salts (20
+ *   occupancy, 21 x jitter, 22 y jitter, 23 drift phase) and own _shaftCellI/_shaftCellJ cursor —
+ *   shared by BOTH chapters' refill circles, since only one of them is ever streaming at a time.
+ *   UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
  *   early-returns unless the player crossed a cell boundary, so it structurally cannot move
- *   anything — stepShafts does that every frame. bx/by are the streamed BASE position and x/y the
- *   drifted one; drift is a pure function of run._realTime and `phase`, storing no state and
- *   consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
+ *   anything — stepShafts does that every frame, gated on signature.type === 'shafts' so only The
+ *   Shelf's field drifts. bx/by are the streamed BASE position and x/y the drifted (or, on The
+ *   Surf, identical) one; drift is a pure function of run._realTime and `phase`, storing no state
+ *   and consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
  * sandbars[i]: { x, y, r, _cell } — Book 2 / The Surf: streamed dry patches (CHAPTERS.surf.signature
  *   .bars) the player slows on. The FIFTH copy of the same _obstacleSeed streaming idiom (obstacles
  *   -> eddies -> traps -> shafts -> here), own salts (30 occupancy, 31 x jitter, 32 y jitter) and own

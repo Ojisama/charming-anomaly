@@ -3989,7 +3989,19 @@ CHAPTERS.surf = {
     // drainMul multiplies the resource drain while you stand on one — the sandbar is the only place
     // Humidity falls fast, which is what makes it a place rather than a clock.
     bars: { cell: 620, chance: 0.42, r: 150, minDist: 380, slowMul: 0.62, drainMul: 4 },
+
+    // Tide pools: the refill. Same vocabulary as the shelf's shafts and the pond's eddies — cell is
+    // the grid, chance a DIRECT per-cell occupancy probability, minDist spawn-ring clearance from
+    // the run ORIGIN. No drift: a pool is a hole in the sand, and the thing that moves in this
+    // chapter is the water, not the ground.
+    pools: { cell: 700, chance: 0.55, r: 165, minDist: 420 },
   },
+
+  // Humidity. `drain` is the ambient cost of being out of the water at all, and standing on a
+  // sandbar multiplies it by signature.bars.drainMul. Numbers are a STARTING POINT to be measured
+  // with scripts/charge-probe.mjs across its three spend policies before being called tuned — the
+  // Shelf's first two cuts both read as healthy under one policy and were the spiral under another.
+  resource: { name: 'Humidity', drain: 1.6, refill: 20, killRefill: 1.2, max: 100 },
 
   // ---- render-only. A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above
   // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in
@@ -4775,6 +4787,16 @@ export const lightRadius = (charge, res) => {
   if (!d) return Infinity
   return d.lightFull - (d.lightFull - d.lightEmpty) * darkness(charge, res)
 }
+
+// Where a chapter's refill circles come from. run.shafts is the ONE list of "streamed circles you
+// stand in to refill", and two chapters fill it from different places: The Shelf's shafts ARE its
+// signature (cell/chance/r/minDist sit directly on it), while The Surf's tide pools are a sub-block,
+// because its signature already owns the surge and the sandbars.
+//
+// Returning the signature OBJECT ITSELF for shafts — not a copy — is deliberate and asserted: the
+// Shelf's tune was measured against that exact object, and a copy would be a second thing to keep
+// in sync for no gain.
+export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? null))
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
 // Kills give light back — but ONLY once bought. Owner ruling, and a reversal of the first cut which

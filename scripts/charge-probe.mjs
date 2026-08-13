@@ -42,10 +42,15 @@
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun } from '../src/state.js'
-import { stepSim, applyChoice } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness } from '../src/config.js'
+import { stepSim, applyChoice, onSandbar } from '../src/sim.js'
+import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec } from '../src/config.js'
 
-const CHAPTER = 'shelf'
+// --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
+// (Humidity, tide pools via the generalised streamShafts) as The Shelf's Light, so the probe reads
+// the geometry through refillSpec() below instead of Shelf-specific field names, and defaults to
+// 'shelf' unchanged for every call this file already documents.
+const argChapter = process.argv.indexOf('--chapter')
+const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'shelf'
 const DIFFICULTY = 1
 const DURATION = 300
 const DT = 1 / 60
@@ -66,6 +71,8 @@ const meta = {
 
 const res = CHAPTERS[CHAPTER].resource
 const sig = CHAPTERS[CHAPTER].signature
+const spec = refillSpec(sig) // the refill-circle geometry, whichever chapter (Shelf's shafts / Surf's pools)
+if (!res || !spec) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
 
 // Spend policies. ONE policy cannot tell "the bar cannot fill" apart from "this player spent it
 // all": a greedy player pins the bar at zero under every tune there is, which is exactly what the
@@ -90,7 +97,13 @@ const POLICIES = {
 const MOVES = {
   kite: () => null,                                         // the slowly-turning walk, unchanged
   seek: (run) => {
-    if (darkness(run.charge, res) <= 0) return null          // above the threshold, no reason to
+    // The trigger itself is chapter-conditional (v7.x): Shelf's `dark` curve says exactly when
+    // there's a reason to seek. The Surf has no dark block — Ruling D leaves its drawback to a
+    // later task — but the bar is already live as the Pulse's ammo (stepSim gates that on `res`
+    // alone, not on `dark`), so a rational player still wants it above half. Below half is an
+    // arbitrary but reasonable stand-in for a chapter that hasn't shipped its own gate yet.
+    const wantSeek = res.dark ? darkness(run.charge, res) > 0 : run.charge < res.max * 0.5
+    if (!wantSeek) return null
     const p = run.player
     let best = null, bd = Infinity
     for (const sh of run.shafts) {
@@ -119,7 +132,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
     if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
 
     let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0
-    let dark = 0, darkSum = 0
+    let dark = 0, darkSum = 0, onBar = 0
     let sum = 0, min = Infinity, max = -Infinity
     let heading = 0
     const samples = []
@@ -140,6 +153,9 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
 
       const pl = run.player
       if (run.shafts.some((sh) => Math.hypot(sh.x - pl.x, sh.y - pl.y) <= sh.r)) inShaft++
+      // Sandbars (v7.x Surf only — onSandbar is a no-op false for any chapter with no run.sandbars
+      // entries, so this column reads 0 for The Shelf without a chapter-type branch here).
+      if (onSandbar(run)) onBar++
       steps++
       const c = run.charge
       sum += c; min = Math.min(min, c); max = Math.max(max, c)
@@ -158,7 +174,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
     Math.random = orig
     rows.push({ mean: sum / steps, min, max, inShaft: inShaft / steps, atZero: atZero / steps,
                 atMax: atMax / steps, armed: armed / steps, dark: dark / steps, meanDark: darkSum / steps,
-                pulses, charged, kills: run.kills, secs: steps * DT, samples })
+                onBar: onBar / steps, pulses, charged, kills: run.kills, secs: steps * DT, samples })
   }
   results[`${thief ? 'thief' : 'base '} ${mname.padEnd(4)} ${pname}`] = rows
 }
@@ -167,13 +183,22 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
 
 const avg = (rows, k) => rows.reduce((a, x) => a + x[k], 0) / rows.length
 console.log(`chapter=${CHAPTER} difficulty=${DIFFICULTY} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
-console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-shaft  kill +${res.killRefill} (Light Thief only)  max ${res.max}`)
-console.log(`dark:     below ${(res.dark.from * 100).toFixed(0)}/${res.max} the screen dims (to alpha ${res.dark.dim}) and you slow (to x${res.dark.speedFloor}), linearly to empty`)
-console.log(`shafts:   cell ${sig.cell} chance ${sig.chance} r ${sig.r}  drift ${sig.driftAmp}px x ${sig.driftHz}rad/s = ${(sig.driftAmp * sig.driftHz).toFixed(1)} px/s peak`)
-console.log(`coverage: ${(100 * sig.chance * Math.PI * sig.r * sig.r / (sig.cell * sig.cell)).toFixed(1)}% of the plane is lit (chance x pi r^2 / cell^2)`)
+console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle  kill +${res.killRefill} (Light Thief only)  max ${res.max}`)
+if (res.dark) {
+  console.log(`dark:     below ${(res.dark.from * 100).toFixed(0)}/${res.max} the screen dims (to alpha ${res.dark.dim}) and you slow (to x${res.dark.speedFloor}), linearly to empty`)
+} else {
+  console.log('dark:     none — this chapter declares no resource.dark block')
+}
+console.log(`refill:   cell ${spec.cell} chance ${spec.chance} r ${spec.r}` +
+  (spec.driftAmp ? `  drift ${spec.driftAmp}px x ${spec.driftHz}rad/s = ${(spec.driftAmp * spec.driftHz).toFixed(1)} px/s peak` : '  no drift'))
+console.log(`coverage: ${(100 * spec.chance * Math.PI * spec.r * spec.r / (spec.cell * spec.cell)).toFixed(1)}% of the plane refills (chance x pi r^2 / cell^2)`)
+if (sig.bars) {
+  console.log(`sandbars: cell ${sig.bars.cell} chance ${sig.bars.chance} r ${sig.bars.r}  slowMul x${sig.bars.slowMul}  drainMul x${sig.bars.drainMul}` +
+    ` — ${(100 * sig.bars.chance * Math.PI * sig.bars.r * sig.bars.r / (sig.bars.cell * sig.bars.cell)).toFixed(1)}% of the plane is dry ground`)
+}
 console.log(`pulse:    costs ${PULSE_CHARGE_COST}; a full bar is ${(res.max / PULSE_CHARGE_COST).toFixed(1)} charged pulses`)
 console.log('')
-console.log('policy              mean    %at0   %atMax  %armed  %inLight   %DARK  meanDark  pulses  charged  kills   secs')
+console.log('policy              mean    %at0   %atMax  %armed  %inLight   %DARK  meanDark   %onBar  pulses  charged  kills   secs')
 for (const [pname, rows] of Object.entries(results)) {
   console.log(
     pname.padEnd(19) +
@@ -184,6 +209,7 @@ for (const [pname, rows] of Object.entries(results)) {
     (avg(rows, 'inShaft') * 100).toFixed(1).padStart(10) +
     (avg(rows, 'dark') * 100).toFixed(0).padStart(8) +
     avg(rows, 'meanDark').toFixed(2).padStart(10) +
+    (avg(rows, 'onBar') * 100).toFixed(1).padStart(9) +
     avg(rows, 'pulses').toFixed(0).padStart(8) +
     avg(rows, 'charged').toFixed(0).padStart(9) +
     avg(rows, 'kills').toFixed(0).padStart(7) +

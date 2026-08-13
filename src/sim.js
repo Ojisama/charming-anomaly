@@ -142,7 +142,7 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -2875,13 +2875,20 @@ function streamEddies(run) {
   }
 }
 
-// -- Sun shafts (v7.x Book 2 / The Shelf: streamed pools of light) --------------------
+// -- Refill circles (v7.x Book 2: The Shelf's sun shafts, The Surf's tide pools) -------
 // The fourth copy of streamObstacles' streaming idiom (obstacles -> eddies -> traps -> here): own
-// cell size (sig.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
+// cell size (spec.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
 // run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts (20
-// occupancy, 21 x jitter, 22 y jitter, 23 drift phase) so a shaft's roll can never collide with an
+// occupancy, 21 x jitter, 22 y jitter, 23 drift phase) so a roll here can never collide with an
 // obstacle's (0-4), an eddy's (11-14) or a trap's (15-17) at the same cell. ZERO Math.random() at
 // step time - the same hard rule all three others state (the AA.c/runStarOnly scar).
+//
+// GENERALISED (v7.x, run US.c) to feed run.shafts from either chapter's signature via refillSpec()
+// (config.js): The Shelf's shafts ARE its signature (refillSpec returns it unchanged — asserted by
+// identity, because the Shelf's tune was measured against that exact object), while The Surf's tide
+// pools live at signature.pools. Same cell/hash-salt geometry either way, so a pool and a shaft are
+// mechanically the same circle with a different name; only The Shelf's own signature carries drift
+// (driftAmp/driftHz), which is why stepShafts below still gates on sig.type === 'shafts'.
 //
 // THIS FUNCTION DECIDES EXISTENCE ONLY. It early-returns whenever the player has not crossed a cell
 // boundary, exactly like streamEddies, so anything it computes is computed ONCE per materialization
@@ -2896,13 +2903,16 @@ function streamEddies(run) {
 // drift share it, and the sum has to stay inside the cell or a shaft's collider reaches into the
 // neighbour and overlaps that cell's own shaft. (A density artifact, not a correctness break - the
 // cell bookkeeping keys `live` on _cell, which drift never touches, so a drifted shaft can neither
-// duplicate nor be re-rolled. But it is free to be correct here.)
-function streamShafts(run) {
+// duplicate nor be re-rolled. But it is free to be correct here.) The Surf's pools declare no
+// driftAmp, so `amp` below is 0 there and the whole slack budget goes to jitter, exactly like the
+// three non-drifting streamers.
+export function streamShafts(run) {
   const sig = CHAPTERS[run.chapter].signature
-  if (!sig || sig.type !== 'shafts') return
+  const spec = refillSpec(sig)
+  if (!spec) return
   if (run._obstacleSeed == null) return
   const p = run.player
-  const cs = sig.cell
+  const cs = spec.cell
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
   if (ci === run._shaftCellI && cj === run._shaftCellJ) return // same cell as last scan - field unchanged
   run._shaftCellI = ci; run._shaftCellJ = cj
@@ -2916,22 +2926,22 @@ function streamShafts(run) {
 
   const seed = run._obstacleSeed
   const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
-  const amp = sig.driftAmp ?? 0
+  const amp = spec.driftAmp ?? 0
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j
       if (live.has(key)) continue
-      if (obstacleCellHash(i, j, seed, 20) >= sig.chance) continue
-      const slack = Math.max(0, cs / 2 - sig.r - 20 - amp) // see the driftAmp note above
+      if (obstacleCellHash(i, j, seed, 20) >= spec.chance) continue
+      const slack = Math.max(0, cs / 2 - spec.r - 20 - amp) // see the driftAmp note above
       const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 21) - 0.5) * 2 * slack
       const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 22) - 0.5) * 2 * slack
-      if (Math.hypot(bx, by) < sig.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (Math.hypot(bx, by) < spec.minDist) continue // spawn-ring clearance from the run ORIGIN
       if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
       // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the
       // whole field does not pulse in unison. Stored, not re-derived, because x/y are recomputed
       // every frame and a per-frame hash would be the one avoidable cost in that loop.
       const phase = obstacleCellHash(i, j, seed, 23) * Math.PI * 2
-      run.shafts.push({ x: bx, y: by, bx, by, r: sig.r, phase, _cell: key })
+      run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase, _cell: key })
     }
   }
 }
@@ -3016,12 +3026,19 @@ export function onSandbar(run) {
 // streamTraps - a chapter that declares no `resource` returns on the first line and its run.charge
 // stays the 0 createRun gave it, which is what lets this live in main from day one with no flag.
 //
-// Drains passively and refills while the player stands in a shaft. Kill refills arrive separately,
-// at the kill site, because they are not a per-frame quantity.
-function stepCharge(run, dt) {
+// Drains passively and refills while the player stands in a shaft (or, on The Surf, a tide pool —
+// both live in run.shafts, see streamShafts' generalisation). Kill refills arrive separately, at the
+// kill site, because they are not a per-frame quantity.
+//
+// dryMul (v7.x, run US.c): The Surf's sandbars multiply the drain while you stand on one, via
+// signature.bars.drainMul — onSandbar(run) is the same position test streamSandbars/stepPlayer use.
+// Gated on sig.type === 'tide' so The Shelf (no sandbars, no `bars` block) never reads this at all.
+export function stepCharge(run, dt) {
   const res = CHAPTERS[run.chapter].resource
   if (!res) return
-  let c = run.charge - res.drain * dt
+  const sig = CHAPTERS[run.chapter].signature
+  const dryMul = sig && sig.type === 'tide' && onSandbar(run) ? sig.bars.drainMul : 1
+  let c = run.charge - res.drain * dryMul * dt
   const p = run.player
   for (const sh of run.shafts) {
     // Centre-to-centre against the shaft radius: standing IN the light, not brushing its edge.

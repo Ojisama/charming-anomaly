@@ -109,8 +109,10 @@ import {
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
+  // v7.55 Book 2 The Surf: Humidity + tide pools (Run US.c)
+  refillSpec,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -12281,6 +12283,7 @@ try {
   testSubmission()
   testSurfTide()
   testSurfSandbars()
+  testSurfHumidity()
   testDevMenu()
   testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
@@ -14440,6 +14443,111 @@ function testSurfSandbars() {
     `a sandbar must slow the player: travelled ${onBar.toFixed(1)}px on it vs ${offBar.toFixed(1)}px off it`)
 
   console.log(`PASS run US.b (sandbars): ${far} patches streamed deterministically from the run seed, dropped behind the player, and standing on one costs ${(100 - (onBar / offBar) * 100).toFixed(0)}% of your travel`)
+}
+
+// ---- run US.c (v7.55): Humidity — the bar, and tide pools as its refill geometry ---------------
+function testSurfHumidity() {
+  Math.random = mulberry32(20260815)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+
+  // (a) The Shelf's refill field is IDENTICAL after the generalisation. This is a regression guard
+  // on shipped, tuned, measured behaviour — the whole reason refillSpec exists rather than a rewrite.
+  const shelf = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+  shelf.player.x = 5000; shelf.player.y = 5000
+  streamShafts(shelf)
+  const shelfField = shelf.shafts.map((s) => `${s.bx.toFixed(2)},${s.by.toFixed(2)},${s.r}`).sort().join('|')
+  assert.ok(shelf.shafts.length > 0, 'The Shelf lost its shaft field')
+  assert.strictEqual(refillSpec(CHAPTERS.shelf.signature), CHAPTERS.shelf.signature,
+    'refillSpec must return the shafts signature ITSELF, or the Shelf tune is reading a different object')
+
+  // (b) The Surf streams refill circles from its own `pools` block into the same list.
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+  run.player.x = 5000; run.player.y = 5000
+  streamShafts(run)
+  assert.ok(run.shafts.length > 0, 'The Surf materialized no tide pools')
+  assert.strictEqual(run.shafts[0].r, CHAPTERS.surf.signature.pools.r, 'tide pools ignored their own radius')
+
+  // (c) the bar fills in a pool and falls outside one.
+  const res = CHAPTERS.surf.resource
+  const pool = run.shafts[0]
+  run.charge = 50
+  run.player.x = pool.x; run.player.y = pool.y
+  run.sandbars.length = 0
+  stepCharge(run, 1)
+  assert.ok(run.charge > 50, `standing in a tide pool must refill: ${run.charge}`)
+  run.player.x = pool.x + pool.r + 400; run.player.y = pool.y
+  const dry = run.charge
+  stepCharge(run, 1)
+  assert.ok(run.charge < dry, `outside a pool the bar must fall: ${run.charge}`)
+
+  // (d) A SANDBAR drains faster than open water — the whole reason the patch is a place and not a
+  // clock. Compare the two drains directly rather than asserting the bar merely moved.
+  run.shafts.length = 0
+  run.sandbars.length = 0
+  run.charge = 80
+  stepCharge(run, 1)
+  const openDrain = 80 - run.charge
+  run.charge = 80
+  run.sandbars.push({ x: run.player.x, y: run.player.y, r: 150, _cell: 'test' })
+  stepCharge(run, 1)
+  const barDrain = 80 - run.charge
+  assert.ok(barDrain > openDrain * 2,
+    `a sandbar must dry you out much faster: ${barDrain.toFixed(2)}/s on it vs ${openDrain.toFixed(2)}/s in water`)
+
+  // (e) The Shelf's field is still byte-identical after all of the above touched the same code path.
+  // Re-seed to the SAME starting seed first: createRun draws _obstacleSeed AND _driftSeed from
+  // Math.random every call (state.js), so the intervening createRun('surf', …) above already
+  // consumed 2 draws the live stream never gives back. Comparing against a shelf2 drawn from a
+  // DIFFERENT stream position would measure the RNG re-phasing exactly this repo's own CLAUDE.md
+  // warns about (a red herring under a different name), not whether streamShafts stayed pure —
+  // "two identical runs" means two runs seeded identically, not two draws off one moving stream.
+  Math.random = mulberry32(20260815)
+  const shelf2 = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+  shelf2.player.x = 5000; shelf2.player.y = 5000
+  streamShafts(shelf2)
+  assert.strictEqual(shelf2.shafts.map((s) => `${s.bx.toFixed(2)},${s.by.toFixed(2)},${s.r}`).sort().join('|'), shelfField,
+    'The Shelf field changed between two identical runs — the generalisation is not seed-stable')
+
+  // (f) The two streamers must not agree. Both run over The Surf now, and if their occupancy salts
+  // collided, every refill pool would sit exactly on a sandbar — the refill point always on the
+  // worst ground, with nothing to signal it. Compare CENTRES, not counts: a count matches happily
+  // when two fields are identical.
+  // (c)/(d) above emptied run.shafts and left a synthetic ('test'-keyed) sandbar in run.sandbars —
+  // clear both real arrays AND their streaming cursors so streamShafts/streamSandbars do a full
+  // re-materialization at the player's current cell, rather than comparing against that leftover
+  // fixture or a stale "already scanned this cell" no-op.
+  run.shafts.length = 0; run.sandbars.length = 0
+  run._shaftCellI = null; run._shaftCellJ = null
+  run._sandCellI = null; run._sandCellJ = null
+  streamShafts(run)
+  streamSandbars(run)
+  const poolAt = new Set(run.shafts.map((s) => `${Math.round(s.bx)},${Math.round(s.by)}`))
+  const coincident = run.sandbars.filter((b) => poolAt.has(`${Math.round(b.x)},${Math.round(b.y)}`)).length
+  assert.ok(run.shafts.length > 0 && run.sandbars.length > 0, 'need both fields populated to compare them')
+  assert.strictEqual(coincident, 0,
+    `${coincident} of ${run.sandbars.length} sandbars sit exactly on a tide pool — the two streamers' hash salts have collided`)
+
+  // (g) The geometric check above is a real regression guard, but it is structurally BLIND to a
+  // PARTIAL salt collision: pools (cell 700) and sandbars (cell 620) sit on different-pitch grids
+  // and use different jitter salts (21/22 vs 31/32), so even a shared OCCUPANCY salt only
+  // correlates which cells exist — it cannot land two jittered centres on the same pixel, and (f)
+  // above would stay green while the two streamers were quietly reading the same occupancy roll.
+  // Read the salts straight out of the source instead (the run UG.k idiom: a render-side contract
+  // with no other guard gets checked as source text) — direct, and immune to (f)'s blind spot.
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const shaftsFn = src.slice(src.indexOf('export function streamShafts'), src.indexOf('function stepShafts'))
+  const sandbarsFn = src.slice(src.indexOf('export function streamSandbars'), src.indexOf('export function onSandbar'))
+  const saltsOf = (text) => [...text.matchAll(/obstacleCellHash\([^,]+,[^,]+,[^,]+,\s*(\d+)\)/g)].map((m) => Number(m[1]))
+  const shaftSalts = new Set(saltsOf(shaftsFn))
+  const sandbarSalts = saltsOf(sandbarsFn)
+  const saltOverlap = sandbarSalts.filter((s) => shaftSalts.has(s))
+  assert.ok(shaftSalts.size > 0 && sandbarSalts.length > 0, 'salt extraction found nothing — the source slice markers moved')
+  assert.strictEqual(saltOverlap.length, 0,
+    `streamSandbars reuses salt(s) ${saltOverlap.join(',')} that streamShafts already owns (${[...shaftSalts].sort((a, b) => a - b).join(',')}) — an occupancy or jitter roll can no longer be told apart`)
+
+  console.log(`PASS run US.c (humidity): tide pools refill ${res.refill}/s, open water drains ${openDrain.toFixed(1)}/s and a sandbar ${barDrain.toFixed(1)}/s, and The Shelf's shaft field is unchanged`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------
