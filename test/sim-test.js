@@ -105,6 +105,8 @@ import {
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
   LANE_SPAWN_MUL, LANE_EARLY_BOOST, LANE_EARLY_UNTIL, laneEarlyMul, FORMATION_INTERVAL, FORMATION_COLS,
+  // v7.x the lane has an AXIS (Run LX)
+  laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -4400,7 +4402,8 @@ function runBooks() {
   // for every id outside CHAPTER_ORDER, because indexOf is -1 and -1 + 1 indexes element 0. Latent
   // then (both call sites were inert); a second book is what makes an outside id routine.
   assert.strictEqual(nextChapter('blank'), null, "nextChapter('blank') === null — The Blank is hidden, outside book 1's ladder")
-  assert.strictEqual(nextChapter('shelf'), null, "nextChapter('shelf') === null — last (and only) chapter of its own book")
+  assert.strictEqual(nextChapter('shelf'), 'reef', "nextChapter('shelf') === 'reef' — the Undertow ladder walks its own book")
+  assert.strictEqual(nextChapter('reef'), null, "nextChapter('reef') === null — last chapter of its own book")
   assert.strictEqual(nextChapter('nope'), null, "nextChapter on an id no book claims === null, NOT 'body'")
   assert.strictEqual(nextChapter(undefined), null, 'nextChapter(undefined) === null')
   assert.strictEqual(nextChapter('body'), 'pond', 'nextChapter still walks book 1 normally')
@@ -6825,7 +6828,7 @@ function testLaneSkills() {
     const run = laneRun()
     const victim = makeStatusEnemy(run, { x: 0, y: -600, hp: 1e6, speed: 0 })
     run.enemies.push(victim)
-    run.rocks.push({ x: 0, y: -600, r: 60, vx: 0, rot: 0, spin: 0, _acc: 0 })
+    run.rocks.push({ x: 0, y: -600, r: 60, vCross: 0, rot: 0, spin: 0, _acc: 0 })
     const hp0 = victim.hp
     for (let i = 0; i < Math.round(0.5 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
     assert(victim.hp < hp0, `expected the rock to grind an overlapping enemy, hp ${hp0}->${victim.hp}`)
@@ -6838,7 +6841,7 @@ function testLaneSkills() {
     const run = laneRun()
     run.player.hp = 500; run.player.maxHP = 500
     run.player.invuln = 0
-    run.rocks.push({ x: run.player.x, y: run.player.y, r: 70, vx: 0, rot: 0, spin: 0, _acc: 0 })
+    run.rocks.push({ x: run.player.x, y: run.player.y, r: 70, vCross: 0, rot: 0, spin: 0, _acc: 0 })
     const hp0 = run.player.hp
     stepSim(run, { x: 0, y: 0 }, dt)
     assert(run.player.hp < hp0, `expected a rock overlapping the player to hurt, hp ${hp0}->${run.player.hp}`)
@@ -12442,6 +12445,7 @@ try {
   testPincer()
   testPlayerForms()
   testLaneGolden()
+  testLaneAxis()
   testDevMenu()
   testModalPopBookkeeping()
   testUndertowLadder()
@@ -14901,6 +14905,147 @@ function testLaneGolden() {
   console.log(`PASS run LN (lane golden master): the beyond is unchanged across ${BEYOND_GOLDEN.length} seeded 180s runs — scroll, strafe, formations, rocks and kills all bit-identical`)
 }
 
+// ---- run LX: the lane has an AXIS, and The Reef runs it sideways ------------------------------
+// Run LN's job is "The Beyond did not move". This one's is the other half: that the axis is a real
+// generalisation rather than a field nothing reads. Every assertion below is written against The
+// REEF, and every one of them PASSES TODAY IF THE FEATURE IS DELETED — a lane whose forward axis is
+// still hardcoded to y simply drives the reef's player straight up out of a corridor that runs
+// sideways, which throws nothing, renders fine, and is only visible as "the chapter does not work".
+// So each is paired with the site it guards, and the mutation table is in the report for this task.
+//
+// Deliberately NOT a golden master: no number here is a captured sample. They are the four
+// invariants the axis IS — forward is +x at exactly LANE_SCROLL_SPEED, the stick's y is the strafe
+// and its x is nothing, the walls are on y, and everything arrives from +x.
+function testLaneAxis() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  meta.shop = meta.shop ?? {}
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  const reefRun = (seed = 20260813) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'reef', 'run LX did not start in the reef — the WIP gate or the meta is wrong, and everything below would measure another chapter')
+    run.player.hp = run.player.maxHP = 1e9
+    return run
+  }
+
+  // The descriptor itself, first: everything below is only meaningful if the reef really declares
+  // the x axis and The Beyond really keeps y. Two chapters, one helper, opposite answers.
+  assert.strictEqual(CHAPTERS.reef.lane, true, 'CHAPTERS.reef.lane must stay the BOOLEAN true — sim.js compares it with === in two places')
+  assert.strictEqual(laneAxes(CHAPTERS.reef).fwd, 'x', 'the reef must declare laneAxis x')
+  assert.strictEqual(laneAxes(CHAPTERS.reef).cross, 'y', "an x-lane's cross axis is y")
+  assert.strictEqual(laneAxes(CHAPTERS.beyond).fwd, 'y', 'The Beyond must still read the y axis from the same helper')
+  assert.strictEqual(laneAxes(CHAPTERS.beyond).dir, -1, 'The Beyond advances -y')
+  assert.strictEqual(laneAxes(CHAPTERS.reef).dir, 1, 'The Reef advances +x')
+
+  // (a) FORWARD IS +x, AT EXACTLY LANE_SCROLL_SPEED. Not "roughly", not "faster with move speed" —
+  // the scroll rate is the one thing this chapter mode guarantees, which is why LN pins the same
+  // property on the other axis. The stick is held hard the WRONG way (full -x) to prove the forward
+  // component is not the joystick's: pushing back must not slow the advance by a single pixel.
+  {
+    const run = reefRun()
+    const x0 = run.player.x, y0 = run.player.y
+    const steps = Math.round(2 / dt)
+    for (let i = 0; i < steps; i++) { stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
+    const want = LANE_SCROLL_SPEED * steps * dt
+    assert.ok(Math.abs((run.player.x - x0) - want) < 1e-6,
+      `expected the reef to advance +x at exactly LANE_SCROLL_SPEED, moved ${(run.player.x - x0).toFixed(3)} vs ${want.toFixed(3)}`)
+    assert.ok(Math.abs(run.player.y - y0) < 1e-9,
+      `the stick's x must do NOTHING in an x-lane — it moved the player across the lane to y=${run.player.y.toFixed(3)}`)
+    assert.strictEqual(run.player.facingAngle, 0, 'an x-lane faces +x (angle 0), so a weapon with nothing to aim at fires up the lane')
+    assert.strictEqual(run.player.moving, true, 'in the lane you are never stationary, whatever the stick says')
+  }
+
+  // (b) THE STRAFE IS THE STICK'S y, and it is the ONLY thing the stick does. Measured against the
+  // real strafe speed rather than "it moved": LANE_STRAFE_MUL is what makes sideways the skill, and
+  // a cross axis wired to the wrong input would still drift the player around convincingly.
+  {
+    const run = reefRun()
+    const y0 = run.player.y
+    const steps = Math.round(1 / dt)
+    for (let i = 0; i < steps; i++) { stepSim(run, { x: 0, y: 1 }, dt); run.events.length = 0 }
+    const want = run.player.speed * LANE_STRAFE_MUL * steps * dt
+    assert.ok(Math.abs((run.player.y - y0) - want) < 1e-6,
+      `expected the stick's y to strafe across the lane at speed x LANE_STRAFE_MUL, moved ${(run.player.y - y0).toFixed(2)} vs ${want.toFixed(2)}`)
+  }
+
+  // (c) THE WALLS ARE ON y. Held hard against one wall long enough to overshoot it many times over,
+  // then the other — a clamp still written against x lets the player leave the corridor entirely,
+  // and nothing in the sim ever complains. The forward axis must NOT be clamped in the same breath:
+  // that failure looks identical from inside the lane (you are stuck at a wall either way) and stops
+  // the chapter dead.
+  {
+    const hw = laneHalfWidth(createRun(meta, { chapter: 'reef', difficulty: 1 }).viewRadius)
+    for (const dir of [1, -1]) {
+      const run = reefRun()
+      const x0 = run.player.x
+      const steps = Math.round(12 / dt)
+      for (let i = 0; i < steps; i++) { stepSim(run, { x: 0, y: dir }, dt); run.events.length = 0 }
+      assert.ok(Math.abs(run.player.y - dir * hw) < 1e-6,
+        `expected the player pinned to the lane wall at y=${(dir * hw).toFixed(1)}, got ${run.player.y.toFixed(1)} — the clamp is on the wrong axis`)
+      assert.ok(run.player.x - x0 > LANE_SCROLL_SPEED * 11,
+        `the FORWARD axis must never be clamped — the player only advanced ${(run.player.x - x0).toFixed(0)}px in 12s`)
+    }
+  }
+
+  // (d) EVERYTHING ARRIVES FROM AHEAD, and "ahead" is +x. Three separate spawn sites feed a lane —
+  // spawnEnemy's own lane branch (the seeking swarm), stepFormations (the ranks) and stepRocks (the
+  // drifting hazard) — and each writes its own coordinates. Snapshotted at the frame each thing is
+  // BORN, because a seeker that has been chasing for a second is behind you legitimately.
+  {
+    const run = reefRun()
+    const hw = laneHalfWidth(run.viewRadius)
+    // Enemies carry an id; rocks do not, so they are tracked by OBJECT IDENTITY. Keying a rock on
+    // its coordinates instead re-checks it every frame after it has drifted, which reads as "a rock
+    // spawned behind the player" the moment one legitimately overtakes you — the first cut of this
+    // case did exactly that and failed on a rock doing its job.
+    const seen = new Set()
+    const seenRocks = new Set()
+    let enemiesChecked = 0, rocksChecked = 0
+    for (let i = 0; i < Math.round(30 / dt); i++) {
+      stepSim(run, { x: 0, y: Math.sin(i / 90) }, dt)
+      run.events.length = 0
+      const p = run.player
+      for (const e of run.enemies) {
+        if (seen.has('e' + e.id)) continue
+        seen.add('e' + e.id)
+        enemiesChecked++
+        assert.ok(e.x > p.x, `a new ${e.rosterId} spawned BEHIND the player (x ${e.x.toFixed(0)} vs ${p.x.toFixed(0)}) — in a strafe-only lane that is unshakeable by construction`)
+        assert.ok(Math.abs(e.y) <= hw + 1, `a new ${e.rosterId} spawned outside the lane at y=${e.y.toFixed(0)} (wall ${hw}) — the cross spread is on the wrong axis`)
+      }
+      for (const rk of run.rocks) {
+        if (seenRocks.has(rk)) continue
+        seenRocks.add(rk)
+        rocksChecked++
+        assert.ok(rk.x > p.x, `a rock spawned behind the player at x=${rk.x.toFixed(0)}`)
+        assert.ok(Math.abs(rk.y) <= hw * ROCK_SPREAD_MUL + 1, `a rock spawned outside the lane at y=${rk.y.toFixed(0)}`)
+      }
+    }
+    assert.ok(enemiesChecked > 30, `expected the reef to actually spawn a crowd, saw only ${enemiesChecked} — this case would pass vacuously`)
+    assert.ok(rocksChecked > 0, 'expected at least one asteroid over 30s, or the rock half of this case asserts nothing')
+  }
+
+  // (e) The camera. render.js is not importable (Pixi + DOM), so this is the run UG.k source-text
+  // trick: the trailing-edge anchor is the ONE lane site with no other guard in this file, and an
+  // x-lane still anchored on y frames the player dead centre — half a screen of warning about a
+  // threat that only ever comes from one side, which is the exact framing LANE_CAMERA_FRAC exists
+  // to fix. Asserting the SHAPE (both axes read the latched descriptor) rather than any pixel.
+  {
+    const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/chapterLaneAxis\s*=\s*laneAxes\(cfg\)/.test(src),
+      'render.js never latches the chapter lane axis — the camera cannot know which edge to anchor to')
+    assert.ok(/const cx = \(laneAheadX \?/.test(src) && /const cy = \(laneAheadY \?/.test(src),
+      'render.js still anchors the lane camera on one hardcoded axis — an x-lane would frame the player centred')
+  }
+
+  console.log(`PASS run LX (the lane has an axis): the reef scrolls +x at ${LANE_SCROLL_SPEED}px/s under a stick that cannot touch it, strafes on y at x${LANE_STRAFE_MUL}, clamps to both y walls, spawns everything ahead, and the camera reads the axis`)
+}
+
 // ---- run US.f: the player's own body is per-chapter, not one boolean ---------------------------
 // render.js gates the chapter-specific player body on `playerForm`, read from CHAPTERS[].render
 // .form, so any chapter can swap the generic blob for a body of its own — the kaiju for skies, a
@@ -15116,7 +15261,7 @@ function testUndertowLadder() {
   }
 
   // (c) the book's ladder is intact and the WIP gate still holds.
-  assert.deepStrictEqual(BOOKS.undertow.chapters, ['surf', 'shelf'], 'the Undertow ladder is wrong')
+  assert.deepStrictEqual(BOOKS.undertow.chapters, ['surf', 'shelf', 'reef'], 'the Undertow ladder is wrong')
   assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
 
   console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)

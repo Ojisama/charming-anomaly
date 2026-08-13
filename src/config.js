@@ -3382,7 +3382,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', chapters: ['surf', 'shelf'], hidden: [], wip: true },
+  undertow: { name: 'Undertow', chapters: ['surf', 'shelf', 'reef'], hidden: [], wip: true },
 }
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
@@ -4365,6 +4365,100 @@ CHAPTERS.surf = {
     eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8], // soapTrail elites, inherited with the pond's flag
   },
 }
+// Book 2 chapter 3 — THE FIRST LEFT-TO-RIGHT SCROLLER. Written as a WHOLE literal rather than
+// `{ ...CHAPTERS.shelf }`, deliberately: the spread shares every nested object BY REFERENCE
+// (CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is literally true in shipped code), and
+// this chapter overrides every one of them anyway — so spreading would buy nothing but the standing
+// risk that a later edit "modifies" one in place and silently rewrites The Shelf's. It also means
+// The Shelf's `resource` (Light) and `signature` (sun shafts) do NOT leak in, which is the whole
+// difference between a shell to build on and a copy of chapter 2 that scrolls.
+//
+// THE LANE, SIDEWAYS. `lane: true` is what The Beyond has always meant — the view auto-scrolls, you
+// hold station on screen, and the joystick gives you nothing but the two directions ACROSS the
+// corridor. `laneAxis: 'x'` is the only new thing: forward is +x instead of -y, so the reef streams
+// past from the right and your strafe is up and down. Everything the lane already owns follows the
+// axis through laneAxes() (config.js, beside laneHalfWidth): the walls, the ranks, the drifting
+// rock, the leak line, the camera's trailing-edge anchor. `lane` stays the BOOLEAN true — sim.js
+// compares it with strict equality in two places, so the direction had to be its own field.
+//
+// ⚠ EVERYTHING BELOW MARKED "borrowed" IS A STAND-IN, not a design. The chapter's own art, its two
+// native weapons (Squid Ink, Oxygen Tank) and its signature mechanic are all later tasks; this
+// exists so the x-lane is playable and testable today.
+CHAPTERS.reef = {
+  name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
+  lane: true,
+  laneAxis: 'x',
+
+  // BORROWED ARSENAL — placeholder until Squid Ink and Oxygen Tank land. Picked for the LANE rather
+  // than for the theme, because a scroller only works if the starter can answer things arriving from
+  // ahead: the stinger is a forward cone at the nearest enemy, the quill ring does not care which way
+  // you face at all, and the Pulsar Sweep is the one weapon in the game that already knows what a
+  // lane is (firePulsar anchors its fan to the chapter's forward heading instead of to nearestEnemy —
+  // which is now this chapter's +x rather than The Beyond's -y, off the same laneAxes descriptor).
+  weapons: ['stinger', 'quillBurst', 'pulsarSweep'], starter: 'stinger',
+
+  // The cast. All three flags already exist in sim.js and are chapter-agnostic, so this roster is
+  // real behaviour rather than a placeholder: the damselfish is the deliberately FLAGLESS baseline
+  // (the same argument CHAPTERS.surf's roster makes — with a flag on all three, none of them reads
+  // as special), the moray latches and slows you, and the lionfish pounces.
+  //
+  // ⚠ THE ART IS BORROWED. render.js's ROSTER_LOOKS points these three ids at The Shelf's baked
+  // copepod/krill/jelly for now — see the block there. A roster id with NO entry in that table does
+  // not throw: it renders as a generic archetype blob, silently, which is why the placeholder exists
+  // at all rather than being left blank.
+  roster: [
+    { id: 'damselfish', archetype: 'normal', name: 'Damselfish', hpMul: 1,   speedMul: 1,    flags: [] },
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2, speedMul: 0.7,  flags: ['latch'] },
+    { id: 'lionfish',   archetype: 'fast',   name: 'Lionfish',   hpMul: 0.9, speedMul: 1.15, flags: ['pounce'] },
+  ],
+  eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with The Surf and The Shelf
+
+  // No signature mechanic yet, and that is a statement rather than a gap: THE LANE IS the mechanic
+  // this chapter is being built to test. A `signature` here would be a second new thing to judge in
+  // the same playtest. null is the same value The Body carries for the same reason.
+  signature: null,
+
+  // Coral heads: bigger than the pond's pebbles, far smaller than The Beyond's planets, and spaced
+  // so you meet one every few seconds rather than a field of them. NOTE they are pure scenery today
+  // — stepObstacles early-returns for every `lane` chapter (see its comment in sim.js), so nothing
+  // here collides. Turning that on for an x-lane needs a clamp so a bommie cannot shove the player
+  // through the lane wall, which is its own task.
+  obstacles: { count: 8, cell: 620, minR: 70, maxR: 150, minDist: 420 },
+
+  // ⚠ UNMEASURED FIRST CUT. It mirrors the step Book 1 takes from its own chapter 2 to its chapter 3
+  // (pond -> garden: the damage and xp cushions come off, spawnMul +0.01, enemyHpMul +0.05,
+  // maxAliveMul +0.10) applied to The Shelf's numbers, which is the same argument CHAPTERS.shelf's
+  // own balance block makes for its position in the ladder. It has NOT been through a headless probe.
+  // Read it alongside the lane's own pressure, which multiplies on top and is not in this table:
+  // LANE_SPAWN_MUL thins the ordinary ring stream to 0.55 and stepFormations adds ranks beside it.
+  balance: { spawnMul: 0.76, enemyHpMul: 0.95, maxAliveMul: 0.75 },
+
+  // ---- render-only (ZERO sim effect) ----
+  // ⚠ BORROWED BIOME AND BORROWED CAST, both temporary.
+  //   - the world: render.js's BIOMES map has no `reef` key of its own yet, and a chapter missing
+  //     from it does not throw — chapterBiome falls back to BIOMES.body and the chapter quietly
+  //     draws ANOTHER chapter's world (The Surf shipped villi and platelets on its beach that way).
+  //     So BIOMES aliases reef -> BIOME_SHELF, whose rock is already commented "reef rock". The
+  //     colours below are The Shelf's for the same reason: one coherent picture until the art lands.
+  //   - the cast: these are THE SHELF's three roster ids, not this chapter's. render.cast needs a
+  //     baked src/cast/<id>.png per entry (run RA asserts the file exists), and those are generated
+  //     by scripts/bake-cast.mjs from render.js's own textures — so the reef's own three cannot go
+  //     on the title card until the art task bakes them.
+  // form: 'fish' + formScale — ONE body serves all of Book 2 and grows a step per chapter (The Surf
+  // leaves it at the default 1, The Shelf is next). playerTint MUST stay white with a `form`:
+  // syncPlayer forces white for the body itself, but the level-up MINIME copies read this value
+  // directly and a tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
+  render: {
+    cast: ['copepod', 'krill', 'jelly'],
+    form: 'fish',
+    formScale: 1.3,
+    bgColor: 0x18567f,
+    floorTint: 0x9fd6f0,
+    playerTint: 0xffffff,
+    tail: false,
+    eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8],
+  },
+}
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -5015,12 +5109,52 @@ export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base 
 // of every rank was off-screen, so ~65% of all damage taken came from invaders the player never saw,
 // and measured survival was 15-18 seconds. Space Invaders has walls for exactly this reason — the
 // formation spans the play area, the play area is what you can see, and every threat is therefore
-// legible. The lane is centred on world x = 0 and the player is clamped to it.
+// legible. The lane is centred on world CROSS-AXIS 0 (x for The Beyond, y for The Reef) and the
+// player is clamped to it.
 // laneHalfWidth() shrinks the lane on a narrow viewport so a rank is ALWAYS fully visible: the
 // guarantee "you can see everything that can hurt you" outranks a fixed world width.
+//
+// ONE NUMBER FOR BOTH AXES, and that is a decision rather than an oversight. viewRadius is the half
+// DIAGONAL (main.js), so it is orientation-blind by construction: an x-lane and a y-lane get the
+// same world-width lane on the same device, which is what keeps every constant measured against it
+// — LANE_HALF_W, FORMATION_COLS' pitch, ROCK_SPREAD_MUL — meaning the same thing in both chapters.
+// ponytail: the honest cross-axis extent is run.viewW/viewH (state.js), and feeding the lane the
+// one it is actually measured ACROSS would deliver the "fully visible" guarantee above literally
+// rather than approximately — today a portrait phone (viewRadius 465, half-width 195) gets a
+// ±418px y-lane more than twice as wide as the screen, which is a pre-existing gap this comment is
+// only now naming. Upgrade path: pass laneAxes(ch).cross's half-extent instead, and re-shoot BOTH
+// chapters at BOTH viewports (the shipped Beyond numbers move the moment you do, so it needs the
+// golden master re-captured with a stated reason).
 export const LANE_HALF_W = 430           // px, half the lane's width at full size
 export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of the viewport radius
 export const laneHalfWidth = (viewRadius) => Math.min(LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
+
+// THE LANE HAS AN AXIS (v7.x). The Beyond scrolls bottom-to-top; The Reef (Book 2 ch 3) scrolls
+// left-to-right. `lane: true` still means "this chapter is a scroller" and is compared with STRICT
+// equality in at least two places in sim.js, so the DIRECTION is a separate optional chapter field,
+// `laneAxis: 'x'` — absent means The Beyond's original 'y'. Do NOT turn `lane` into an object.
+//
+// laneAxes() is the ONE description of "forward" every lane site reads, instead of the same ternary
+// written out at each of them:
+//   fwd / cross      the position FIELD NAMES. Everything the lane does is either ALONG the lane
+//                    (the scroll, the leak line, how far ahead a rank materialises) or ACROSS it
+//                    (the strafe, the walls, a rank's columns, a rock's sideways drift).
+//   vFwd / vCross    the matching velocity fields on run.player.
+//   dir              +1/-1, which way along `fwd` the player advances. Multiplying a coordinate by
+//                    it gives a SIGNED "how far up the lane is this", which is the question the
+//                    leak test and the rock cull actually ask (see stepLeaks in sim.js).
+//   angle / fx, fy   that same heading as radians and as a unit vector — p.facingAngle, the Pulsar
+//                    Sweep's fan anchor, and the repulse shove's dead-centre fallback.
+// Takes the CHAPTER OBJECT, not an id, so render.js can hand it the `cfg` it has already resolved
+// (including the null it holds on the title screen). Anything that is not an x-lane reads 'y',
+// which is exactly the (0, -1) the non-lane callers hardcoded before.
+export const LANE_AXIS_Y = Object.freeze({
+  fwd: 'y', cross: 'x', vFwd: 'vy', vCross: 'vx', dir: -1, angle: -Math.PI / 2, fx: 0, fy: -1,
+})
+export const LANE_AXIS_X = Object.freeze({
+  fwd: 'x', cross: 'y', vFwd: 'vx', vCross: 'vy', dir: 1, angle: 0, fx: 1, fy: 0,
+})
+export const laneAxes = (ch) => (ch?.laneAxis === 'x' ? LANE_AXIS_X : LANE_AXIS_Y)
 
 // march: the Space Invaders half of the roster. The enemy IGNORES the player entirely and advances
 // DOWN the lane in rank at its own speed, swaying side to side on a shared phase so a wave reads as
@@ -7038,7 +7172,7 @@ export const MUTATORS = {
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
   // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
   // "Pond identity" plan).
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but

@@ -143,7 +143,7 @@ import {
   STRUCTURE_RADIUS,
   // v5.4 beyond
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
-  LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
+  LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul,
@@ -602,26 +602,34 @@ function stepPlayerMovement(run, input, dt) {
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
-  // v5.18 THE LANE (beyond only — see CHAPTERS.beyond.lane). You do not roam here: you advance up
-  // the lane at a fixed rate forever and the joystick gives you nothing but left and right. Because
+  // v5.18 THE LANE (see CHAPTERS.beyond.lane). You do not roam here: you advance up the lane at a
+  // fixed rate forever and the joystick gives you nothing but the two directions across it. Because
   // the camera already tracks the player in every chapter, advancing the player IS the auto-scroll —
   // the world slides past while you hold station on screen, for the cost of this branch and nothing
   // else. The forward rate is LANE_SCROLL_SPEED and not `speed`, so move-speed upgrades buy a faster
   // strafe and never a faster scroll.
+  // v7.x: WHICH axis is forward comes from laneAxes (config.js) — The Beyond runs -y, The Reef +x.
   // No early return: the lane only changes the three expressions below, so it is folded into them
   // rather than branching past the per-frame ticks at the bottom of this function. (Rev.1 DID
   // return early and re-implemented those ticks, which is the classic trap — the next per-frame
   // player timer someone appends down there would silently never fire in this chapter.)
   const lane = CHAPTERS[run.chapter].lane === true
-  p.vx = ix * speed * (lane ? LANE_STRAFE_MUL : 1)
-  p.vy = lane ? -LANE_SCROLL_SPEED : iy * speed
+  const ax = lane ? laneAxes(CHAPTERS[run.chapter]) : null
+  if (ax) {
+    p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
+    p[ax.vFwd] = ax.dir * LANE_SCROLL_SPEED
+  } else {
+    p.vx = ix * speed
+    p.vy = iy * speed
+  }
   p.x += p.vx * dt
   p.y += p.vy * dt
-  // The walls. Clamped to a lane that shrinks to fit a narrow viewport, so a rank spanning the lane
-  // is always fully on screen — see laneHalfWidth's doc in config.js for why that is load-bearing.
-  if (lane) {
+  // The walls, ACROSS the lane. Clamped to a lane that shrinks to fit a narrow viewport, so a rank
+  // spanning the lane is always fully on screen — see laneHalfWidth's doc in config.js for why that
+  // is load-bearing (and for what it still only approximates).
+  if (ax) {
     const hw = laneHalfWidth(run.viewRadius)
-    p.x = Math.max(-hw, Math.min(hw, p.x))
+    p[ax.cross] = Math.max(-hw, Math.min(hw, p[ax.cross]))
   }
   // p.vx/p.vy above ARE the snapshot the skies' artillery flag leads its shells with
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read —
@@ -634,7 +642,7 @@ function stepPlayerMovement(run, input, dt) {
   // the Flagella Whip falls back to it only when no enemy exists to aim at (see fireFlagella).
   // Stays null until the player first moves. In the lane you always face up it, so a weapon with
   // nothing to shoot at fires forward rather than at wherever you last strafed.
-  if (lane) p.facingAngle = -Math.PI / 2
+  if (ax) p.facingAngle = ax.angle
   else if (len > 1e-6) p.facingAngle = Math.atan2(iy, ix)
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
@@ -748,23 +756,31 @@ function stepFormations(run, dt) {
   // Extra rows come from the same curve that drives ordinary spawning: 1 row early, up to 3 late.
   const rows = Math.max(1, Math.min(3, Math.round(spawnRate(run.time) * run.mods.spawnMul / 3)))
   const p = run.player
-  // Columns are spread across the LANE and anchored to world x, not to the player. That is what
-  // makes a strafe a decision: the gaps are always in the same places, so you are choosing which
-  // gap to be in rather than watching a wall re-centre on you (which is what rev.1 did).
+  // Columns are spread ACROSS the lane and anchored to the world's cross axis, not to the player.
+  // That is what makes a strafe a decision: the gaps are always in the same places, so you are
+  // choosing which gap to be in rather than watching a wall re-centre on you (which is what rev.1
+  // did). Rows stack back up the lane, AHEAD of the player — `ahead` is that first row's distance.
+  const ax = laneAxes(CHAPTERS[run.chapter])
   const hw = laneHalfWidth(run.viewRadius)
   const pitch = (hw * 2) / FORMATION_COLS
+  const ahead = Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
   for (let row = 0; row < rows; row++) {
     // Alternate rows are offset by half a column — a brick pattern, so holding one gap all the way
     // through a multi-row wave never works.
     const offset = (row % 2) * pitch * 0.5
     for (let col = 0; col < FORMATION_COLS; col++) {
       if (run.enemies.length >= maxAliveFor(run.mods)) return
-      const x = -hw + pitch * (col + 0.5) + offset
-      const y = p.y - Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL) - row * FORMATION_ROW_PX
+      const cross = -hw + pitch * (col + 0.5) + offset
+      const fwd = p[ax.fwd] + ax.dir * ahead + ax.dir * (row * FORMATION_ROW_PX)
       // rosterId: a rank is rank-and-file invaders, never whatever the archetype pool happens to
       // roll. Elites arrive on their own timer through the ordinary spawn path, where they get the
-      // chapter's eliteFlags and read as the exception they are.
-      spawnEnemy(run, { type: ARCHETYPE_TYPE.normal, x, y, forceNormal: true, rosterId: 'invader' })
+      // chapter's eliteFlags and read as the exception they are. A lane chapter with no 'invader'
+      // entry (The Reef, until it has a marcher of its own) falls through spawnEnemy's ordinary
+      // roster pick, so the rank arrives as that chapter's own `normal` — still a block from ahead.
+      spawnEnemy(run, {
+        type: ARCHETYPE_TYPE.normal, forceNormal: true, rosterId: 'invader',
+        [ax.cross]: cross, [ax.fwd]: fwd,
+      })
     }
   }
 }
@@ -1167,6 +1183,7 @@ function stepRepulse(run, input, dt) {
   // a 620px shove, which is that exact complaint with a bigger gap.
   run.events.push({ type: 'repulse', x: p.x, y: p.y, r: radius, charged: t })
   const radSq = radius * radius
+  const lax = laneAxes(ch)
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y
@@ -1174,9 +1191,11 @@ function stepRepulse(run, input, dt) {
     if (dsq > radSq) continue
     const d = Math.sqrt(dsq)
     // Dead centre has no direction to push along; shove it up-lane rather than picking a random one,
-    // so an enemy sitting exactly on the player still goes the way everything else does.
-    const ux = d > 1e-6 ? dx / d : 0
-    const uy = d > 1e-6 ? dy / d : -1
+    // so an enemy sitting exactly on the player still goes the way everything else does. laneAxes
+    // reads 'y' for the non-lane `resource` chapters that also have this button, which is exactly
+    // the (0, -1) this line hardcoded before them.
+    const ux = d > 1e-6 ? dx / d : lax.fx
+    const uy = d > 1e-6 ? dy / d : lax.fy
     const falloff = 1 - d / radius
     e.kb.x += ux * force * falloff
     e.kb.y += uy * force * falloff
@@ -1190,16 +1209,24 @@ function stepRepulse(run, input, dt) {
 function stepRocks(run, dt) {
   if (!CHAPTERS[run.chapter].lane) return false
   const p = run.player
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  // Signed "how far up the lane", whichever axis this chapter runs on: bigger = further ahead.
+  // Multiplying by ±1 is exact, so on The Beyond's -y lane every comparison below is the same
+  // comparison it has always been, with both sides negated.
+  const along = (o) => o[ax.fwd] * ax.dir
   run._rockAcc = (run._rockAcc ?? ROCK_INTERVAL) - dt
   if (run._rockAcc <= 0) {
     run._rockAcc += ROCK_INTERVAL
     if (run.rocks.length < ROCK_MAX_LIVE) {
       const hw = laneHalfWidth(run.viewRadius) * ROCK_SPREAD_MUL
+      const cross = -hw + Math.random() * hw * 2
+      const fwd = p[ax.fwd] + ax.dir * Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
       run.rocks.push({
-        x: -hw + Math.random() * hw * 2,
-        y: p.y - Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL),
+        [ax.cross]: cross,
+        [ax.fwd]: fwd,
         r: ROCK_MIN_R + Math.random() * (ROCK_MAX_R - ROCK_MIN_R),
-        vx: (Math.random() - 0.5) * 2 * ROCK_DRIFT_X,
+        // vCross, not vx: the wander is ACROSS the lane, which is y in an x-lane chapter.
+        vCross: (Math.random() - 0.5) * 2 * ROCK_DRIFT_X,
         rot: Math.random() * Math.PI * 2,
         spin: (Math.random() - 0.5) * 2 * ROCK_SPIN,
         _acc: 0,
@@ -1208,8 +1235,9 @@ function stepRocks(run, dt) {
   }
   let died = false
   for (const rk of run.rocks) {
-    rk.x += rk.vx * dt
-    rk.y += ROCK_SPEED * dt
+    rk[ax.cross] += rk.vCross * dt
+    // DOWN the lane, i.e. against the player's own advance — which is what makes a rock overtake.
+    rk[ax.fwd] += -ax.dir * ROCK_SPEED * dt
     rk.rot += rk.spin * dt
     rk._acc += dt
     // Grind on the DoT cadence, not per frame: 60 fractional hits a second is unreadable and floods
@@ -1234,17 +1262,21 @@ function stepRocks(run, dt) {
     }
   }
   // Drop rocks once they are well behind — same threshold a leaked marcher uses.
-  run.rocks = run.rocks.filter((rk) => rk.y < p.y + LANE_LEAK_BEHIND_PX + rk.r)
+  run.rocks = run.rocks.filter((rk) => along(rk) > along(p) - LANE_LEAK_BEHIND_PX - rk.r)
   return died
 }
 
 function stepLeaks(run) {
   if (!CHAPTERS[run.chapter].lane) return false
   const p = run.player
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  // See stepRocks: signed distance up the lane, so "behind the player" is one comparison whichever
+  // axis the chapter runs on.
+  const along = (o) => o[ax.fwd] * ax.dir
   for (const e of run.enemies) {
     if (e._dead) continue
     if (!e.flags || !e.flags.includes('march')) continue
-    if (e.y < p.y + LANE_LEAK_BEHIND_PX) continue
+    if (along(e) > along(p) - LANE_LEAK_BEHIND_PX) continue
     e._dead = true
     run.events.push({ type: 'leak', x: e.x, y: e.y })
     // THE INVULNERABILITY GATE, and it has to be HERE rather than inside hurtPlayer: hurtPlayer
@@ -1410,9 +1442,12 @@ function spawnEnemy(run, opts = {}) {
     // behind: the shmup contract, and the one that makes "you can only strafe" a game rather than a
     // countdown. Anything that does get past you is now genuinely past you.
     if (CHAPTERS[run.chapter].lane) {
+      const ax = laneAxes(CHAPTERS[run.chapter])
       const hw = laneHalfWidth(run.viewRadius)
-      x = -hw + Math.random() * hw * 2
-      y = p.y - (run.viewRadius + SPAWN_RING)
+      const cross = -hw + Math.random() * hw * 2
+      const fwd = p[ax.fwd] + ax.dir * (run.viewRadius + SPAWN_RING)
+      x = ax.fwd === 'x' ? fwd : cross
+      y = ax.fwd === 'y' ? fwd : cross
     } else {
       // opts.gapArc/gapDir (the blank's wave rings): leave ONE wedge of the ring empty — a door.
       // Drawing from the allowed arc and rotating it past the gap keeps the rest of the ring
@@ -1585,6 +1620,9 @@ function stepEnemyMovement(run, dt) {
   const hasTrails = pheromones && run.trails && run.trails.length > 0
   const hasLures = run.lures && run.lures.length > 0
   const followRadSq = PHEROMONE_FOLLOW_RADIUS * PHEROMONE_FOLLOW_RADIUS
+  // v7.x: which way is "down the lane" for the `march` machine below. Hoisted out of the per-enemy
+  // loop — it is one frozen lookup per frame, and non-lane chapters simply never reach the branch.
+  const laneAx = laneAxes(CHAPTERS[run.chapter])
 
   for (const e of run.enemies) {
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
@@ -1702,7 +1740,7 @@ function stepEnemyMovement(run, dt) {
     } else if (e.flags && e.flags.includes('standoff')) {
       stepStandoff(e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('march')) {
-      stepMarch(e, tx, dt, slowMul, enrageMul)
+      stepMarch(e, tx, ty, dt, slowMul, enrageMul, laneAx)
     } else if (e.elite && e.flags && e.flags.includes('pullBeam') && e._beamState === 'beam') {
       // pullBeam (v5.4 beyond's UFO elites): the UFO holds still while its beam is open. The beam
       // itself (drag + DoT) is stepPullBeams' business — this branch is only its movement.
@@ -2194,24 +2232,26 @@ function fireEnemyMissile(run, e) {
 
 // march (v5.18, The Beyond's lane): the Space Invaders half. It advances DOWN the lane at a fixed
 // fraction of its own speed, shuffling side to side. The sway phase is seeded from the enemy's spawn
-// x (not its id and not Math.random), so every invader in a rank spawned across the same row shares
-// a phase relationship and the block reads as ONE marching formation rather than a crowd of
-// individuals wobbling.
-// v5.19: it now also CONVERGES on the player horizontally, but at MARCH_HOME_MUL of its march speed
-// — roughly a seventh of the player's strafe. That keeps the original contract intact: a rank is
-// still always dodgeable by anyone who commits to a gap (which is what makes LANE_LEAK_DMG a fair
+// CROSS coordinate (not its id and not Math.random), so every invader in a rank spawned across the
+// same row shares a phase relationship and the block reads as ONE marching formation rather than a
+// crowd of individuals wobbling.
+// v5.19: it now also CONVERGES on the player ACROSS the lane, but at MARCH_HOME_MUL of its march
+// speed — roughly a seventh of the player's strafe. That keeps the original contract intact: a rank
+// is still always dodgeable by anyone who commits to a gap (which is what makes LANE_LEAK_DMG a fair
 // punishment), it just no longer slides harmlessly past a player who stands still. The homing is
-// deliberately x-only; steering the descent too would make ranks converge into a column and destroy
-// the formation read.
-function stepMarch(e, tx, dt, slowMul, spdMul) {
-  if (e._marchPhase === undefined) e._marchPhase = e.x * 0.01
+// deliberately CROSS-only; steering the descent too would make ranks converge into a column and
+// destroy the formation read.
+// v7.x: `ax` (laneAxes, config.js) is which axis all of that runs on — 'down the lane' is -ax.dir.
+function stepMarch(e, tx, ty, dt, slowMul, spdMul, ax) {
+  const tCross = ax.cross === 'x' ? tx : ty
+  if (e._marchPhase === undefined) e._marchPhase = e[ax.cross] * 0.01
   e._marchPhase += MARCH_SWAY_RATE * dt
   const spd = e.speed * spdMul * MARCH_SPEED_MUL
-  e.y += spd * slowMul * dt
-  const hx = tx - e.x
+  e[ax.fwd] += -ax.dir * spd * slowMul * dt
+  const hx = tCross - e[ax.cross]
   // Deadband: without it a rank sitting on the player's column jitters across it every frame.
-  if (Math.abs(hx) > 1) e.x += Math.sign(hx) * spd * MARCH_HOME_MUL * slowMul * dt
-  e.x += Math.cos(e._marchPhase) * MARCH_SWAY_PX * MARCH_SWAY_RATE * slowMul * dt
+  if (Math.abs(hx) > 1) e[ax.cross] += Math.sign(hx) * spd * MARCH_HOME_MUL * slowMul * dt
+  e[ax.cross] += Math.cos(e._marchPhase) * MARCH_SWAY_PX * MARCH_SWAY_RATE * slowMul * dt
 }
 
 // standoff (v5.24 blank's antibody): holds a mid-range distance band instead of chasing — closes
@@ -3985,6 +4025,8 @@ function stepEnemyShots(run, dt) {
 function stepPullBeams(run, dt) {
   const p = run.player
   let playerDied = false
+  // null outside a lane chapter — see the drag below, which is the only thing that reads it.
+  const ax = CHAPTERS[run.chapter].lane ? laneAxes(CHAPTERS[run.chapter]) : null
   for (const e of run.enemies) {
     if (e._dead || !e.elite || !e.flags || !e.flags.includes('pullBeam')) continue
 
@@ -3999,12 +4041,12 @@ function stepPullBeams(run, dt) {
     const dx = e.x - p.x, dy = e.y - p.y
     const d = Math.hypot(dx, dy)
     if (d > PULL_BEAM_RANGE || d <= 1e-6) continue
-    p.x += (dx / d) * PULL_BEAM_FORCE * dt
-    // v5.18: in the lane (beyond), the lane OWNS the y axis — the player advances at exactly
+    // v5.18: in a lane the lane OWNS the FORWARD axis — the player advances at exactly
     // LANE_SCROLL_SPEED and nothing is allowed to change that, or the scroll rate stops being the
-    // one predictable thing in the chapter. So an abduction beam drags you sideways only, which is
-    // also the only axis you can fight it on. Everywhere else it pulls in both, unchanged.
-    if (!CHAPTERS[run.chapter].lane) p.y += (dy / d) * PULL_BEAM_FORCE * dt
+    // one predictable thing in the chapter. So an abduction beam drags you ACROSS the lane only,
+    // which is also the only axis you can fight it on. Everywhere else it pulls in both, unchanged.
+    if (!ax || ax.cross === 'x') p.x += (dx / d) * PULL_BEAM_FORCE * dt
+    if (!ax || ax.cross === 'y') p.y += (dy / d) * PULL_BEAM_FORCE * dt
 
     e._beamAcc = (e._beamAcc ?? 0) + dt
     while (e._beamAcc >= STATUS_TICK) {
@@ -7415,7 +7457,7 @@ function firePulsar(run, stats) {
   // fan is anchored to straight-ahead rather than to aimAngle's nearest-enemy pick, which could
   // (and did) lock onto a straggler already behind the player.
   const lane = CHAPTERS[run.chapter].lane === true
-  const baseAngle = lane ? -Math.PI / 2 : aimAngle(run)
+  const baseAngle = lane ? laneAxes(CHAPTERS[run.chapter]).angle : aimAngle(run)
   run.beams.push({
     angle: baseAngle, baseAngle, fan: lane ? PULSAR_FAN_ARC : 0,
     life: stats.duration, duration: stats.duration, dmg: stats.dmg,

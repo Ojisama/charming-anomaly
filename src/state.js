@@ -1540,7 +1540,9 @@ export function createRun(meta, opts = {}) {
     // v5.21 lane chapters (beyond): drifting asteroids that damage the player AND grind enemies,
     // and the cooldown on the active Repulsion shove. Both are no-ops outside a `lane` chapter —
     // sim.js stepRocks/stepRepulse gate on CHAPTERS[chapter].lane. rocks entries are
-    // { x, y, r, vx, rot, spin, _acc }; rot/spin are render-only tumble.
+    // { x, y, r, vCross, rot, spin, _acc }; rot/spin are render-only tumble. vCross (v7.x, was `vx`)
+    // is the wander ACROSS the lane, which is the y axis in a `laneAxis: 'x'` chapter — the drift
+    // along the lane is not stored at all, it is ROCK_SPEED against the chapter's own direction.
     rocks: [],
     repulseCd: 0,
     // v5.0 chapter behavior (see doc block above): pools fed by acidPool/soapTrail elite flags;

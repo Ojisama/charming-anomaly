@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -268,7 +268,10 @@ export function createRenderer(app) {
   // v6.5 undergrowth: screen-space falling leaves (CHAPTERS[].render.leaves — currently only
   // `undergrowth`). Same latch pattern as chapterHasStorm; read by updateLeaves.
   let chapterHasLeaves = false
-  let chapterHasLane = false   // v5.18 beyond: bottom-anchored camera (CHAPTERS[].lane)
+  let chapterHasLane = false   // v5.18 beyond: trailing-edge camera (CHAPTERS[].lane)
+  // v7.x: WHICH edge — laneAxes(cfg) (config.js). 'y' (The Beyond) anchors the player near the
+  // bottom; 'x' (The Reef) near the left. Latched with chapterHasLane and read only by the camera.
+  let chapterLaneAxis = LANE_AXIS_Y
   // v5.24 the blank: the white void draws NO decorative floor (CHAPTERS[].render.voidFloor) —
   // every scatter layer's populate callback early-outs on this, so bgColor alone is the ground.
   // Same latch pattern as chapterHasLane.
@@ -2715,6 +2718,17 @@ export function createRenderer(app) {
     // side elevation: apex +x, mouth and tentacles -x, mirrored about that axis — so it rotates
     // freely and always swims bell-first at you, tentacles streaming behind. See drawJelly.
     jelly: { archetype: 'tank', draw: drawJelly, lean: 90 },
+    // v7.x The Reef (Book 2 chapter 3) — ⚠ BORROWED ART, A STAND-IN, NOT A DESIGN. These three ids
+    // point at The Shelf's baked bodies, matched by archetype, purely so the chapter renders animals
+    // instead of generic archetype blobs while the x-lane is being built and tested. A moray is not
+    // a moon jelly and nobody thinks it is; the reef's own art is the next task and replaces all
+    // three. (Registering them at all is the point: an id with no key here does NOT throw —
+    // syncEnemies falls straight through to the generic blob, silently. Same trap the two blocks
+    // above warn about.) The jelly's lean 90 comes with it, which is correct for a side-elevation
+    // body swimming apex-first — see drawJelly and run RA.
+    damselfish: { archetype: 'normal', draw: drawCopepod, lean: 90 },
+    moray: { archetype: 'tank', draw: drawJelly, lean: 90 },
+    lionfish: { archetype: 'fast', draw: drawKrill, lean: 90 },
     // v7.x The Surf (Book 2 chapter 1). A new roster, not a repaint — every flag here is new
     // (unshakeable, diveBomb) rather than carried over the way the Shelf's are. A missing key here
     // is SILENT — syncEnemies falls through to a generic archetype blob.
@@ -7746,6 +7760,14 @@ export function createRenderer(app) {
     // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
     // The Shelf draws villi and platelets under a blue tint.
     shelf: BIOME_SHELF,
+    // ⚠ TEMPORARY: The Reef (Book 2 ch 3) BORROWS The Shelf's world wholesale until its own art
+    // lands. This alias is not optional bookkeeping — a chapter with no BIOMES entry of its own does
+    // not throw and does not warn, it silently draws ANOTHER chapter's world (chapterBiome falls
+    // back to BIOMES.body, which is how The Surf shipped villi, platelets and plasma motes on its
+    // beach). BIOME_SHELF's own obstacle is already commented "reef rock", so the borrow is at least
+    // pointed the right way; everything else about it is The Shelf's and should be replaced, not
+    // extended, when the reef gets its own family.
+    reef: BIOME_SHELF,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -13978,14 +14000,20 @@ export function createRenderer(app) {
     }
     // cx/cy are the camera offset in WORLD px (screen = (world + c) * mapZoom), which is what every
     // culling test below assumes. At mapZoom 1 this is exactly the old expression.
-    const cx = viewW() / 2 - run.player.x + shake.ox
-    // v5.18 THE LANE SITS THE PLAYER AT THE BOTTOM (beyond). Every other chapter centres the camera,
-    // which is right when threats come from all sides. Here they come from ONE side, so a centred
-    // camera spends the bottom half of the screen on space you have already flown through and gives
-    // you only half a screen of warning about the thing you are actually fighting. Space Invaders
-    // puts you at the bottom and fills everything above you with descending aliens — that framing IS
-    // the genre, not decoration. LANE_CAMERA_FRAC of the viewport is therefore ahead of you.
-    const cy = (chapterHasLane ? viewH() * LANE_CAMERA_FRAC : viewH() / 2) - run.player.y + shake.oy
+    // v5.18 THE LANE ANCHORS THE PLAYER TO ITS TRAILING EDGE. Every other chapter centres the
+    // camera, which is right when threats come from all sides. Here they come from ONE side, so a
+    // centred camera spends half the screen on space you have already flown through and gives you
+    // only half a screen of warning about the thing you are actually fighting. Space Invaders puts
+    // you at the bottom and fills everything above you with descending aliens — that framing IS the
+    // genre, not decoration. LANE_CAMERA_FRAC of the viewport is therefore ahead of you.
+    // v7.x: on WHICH edge follows the chapter's laneAxis. The Beyond runs -y, so the player sits at
+    // LANE_CAMERA_FRAC down the screen (near the bottom, flying up); The Reef runs +x, so it sits at
+    // 1 - LANE_CAMERA_FRAC across (near the left, swimming right). Same fraction ahead either way.
+    const laneAheadX = chapterHasLane && chapterLaneAxis.fwd === 'x'
+    const laneAheadY = chapterHasLane && chapterLaneAxis.fwd === 'y'
+    const laneFrac = (v, dir) => (dir < 0 ? v * LANE_CAMERA_FRAC : v * (1 - LANE_CAMERA_FRAC))
+    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - run.player.x + shake.ox
+    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - run.player.y + shake.oy
     world.scale.set(mapZoom)
     world.position.set(cx * mapZoom, cy * mapZoom)
     updateGroundField(cx, cy)
@@ -14397,6 +14425,7 @@ export function createRenderer(app) {
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
     // the player on the Paused screen. Every other line in this block already guards for that.
     chapterHasLane = cfg?.lane === true
+    chapterLaneAxis = laneAxes(cfg)   // null-safe on the quit-to-title path, like the line above
     chapterIsVoid = !!chapterRender.voidFloor
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
