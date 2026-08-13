@@ -4061,8 +4061,10 @@ CHAPTERS.shelf = {
   },
 }
 // Book 2 chapter 1. Spreads pond for the same reason The Shelf does — a working balance table and
-// obstacle field to start from — then overrides everything that makes it a beach. The signature,
-// resource and weapon pool arrive in later tasks; this block is the chapter's existence.
+// obstacle field to start from — then overrides everything that makes it a beach: its own roster,
+// signature (the tide, its sandbars and its tide pools), Humidity, arsenal, balance table and
+// render block. Nothing but `obstacles`, `eliteFlags` and the chapter-agnostic scaffolding is
+// still the pond's.
 CHAPTERS.surf = {
   ...CHAPTERS.pond,
   name: 'The Surf',
@@ -4131,12 +4133,27 @@ CHAPTERS.surf = {
   // first minutes in Book 2 are spent learning the one weapon nothing else in the game behaves like.
   weapons: ['pincer', 'flagella', 'bloom'], starter: 'pincer',
 
-  // ---- render-only. A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above
-  // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in
-  // place would rewrite The Pond's render block too (see CHAPTERS.shelf.obstacles === CHAPTERS
-  // .pond.obstacles in shipped code — shelf only avoids the same trap because it overrides render
-  // wholesale, exactly as this does). cast, form and tail are all this task adds; the rest of the
-  // beach look (tints, swell) is a later task's.
+  // ---- render-only. Written WHOLESALE rather than spread from the pond's, exactly as The Shelf's
+  // is: `...CHAPTERS.pond` above shares the pond's render object BY REFERENCE, so writing
+  // `CHAPTERS.surf.render.cast = […]` in place would rewrite The Pond's render block too (see
+  // CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles in shipped code).
+  //
+  // THE BEACH PALETTE. This chapter wore the pond's teal (0x2e6258 / 0x66c2a9) for four commits
+  // while its three creatures were deliberately baked against pale warm sand — see the "Surf
+  // chapter (Book 2 ch 1, pale sand)" block in render.js, whose whole contrast argument (the crab
+  // is the one hue sand never reaches, the hopper a step down in VALUE from it, the gull the cold
+  // near-white the warm floor cannot touch) was true of a floor that did not exist yet.
+  //
+  // DAMP sand, not dry, and that is load-bearing rather than flavour: the sandbars are DRY sand, and
+  // a pale patch on a pale floor is a patch nobody can see. Wet sand really is a value step darker
+  // than dry, so the floor takes the darker warm tan and SANDBAR_VIS keeps the bright one — the
+  // mechanic and the physics want the same picture. The gull still wins on value from above, the
+  // crab still owns a hue the sand cannot reach, and the tide pools (deep blue) read as holes.
+  //
+  // playerTint is 0xffffff and not the pond's cyan: syncPlayer forces white for a chapter with its
+  // own `form`, so the worm's rust-coral bake shows as drawn — but the level-up MINIME copies read
+  // chapterRender.playerTint directly, and pond's 0xb0f0ff turned those into teal ghosts of a
+  // red worm. Same rule as skies, which sets its own for exactly this reason.
   //
   // form: 'worm' (v5.11 kaiju redesign, generalised for undertow): the player is a bristle worm
   // here, not the generic cross-chapter blob — see render.js's drawWorm (in this chapter's own
@@ -4144,7 +4161,15 @@ CHAPTERS.surf = {
   // `form: 'kaiju'` uses.
   // tail: false overrides pond's inherited `tail: true` — the worm's own tapered trunk already ends
   // in a tail, so pond's separate trailing flagellum sprite would double up on one.
-  render: { ...CHAPTERS.pond.render, cast: ['sandhopper', 'shorecrab', 'gull'], form: 'worm', tail: false },
+  render: {
+    cast: ['sandhopper', 'shorecrab', 'gull'],
+    form: 'worm',
+    bgColor: 0xbca27a,     // damp warm sand between the floor blotches
+    floorTint: 0xe0c79c,   // sun-bleached wash over the wrack and marram (see BIOME_SURF)
+    playerTint: 0xffffff,
+    tail: false,
+    eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8], // soapTrail elites, inherited with the pond's flag
+  },
 }
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
@@ -4190,6 +4215,65 @@ export const EDDY_VIS = {
   ringWidth: 3,
   pulseAmp: 0.08,        // subtle alpha breathing so a stationary eddy doesn't look static
   pulseRate: 3.0,        // rad/s
+}
+
+// ---- The Surf's three visible mechanics (v7.x Book 2, render.js) ----------------------------
+// All three of the chapter's map mechanics shipped as SIM ONLY: the tide shoved you, the sandbars
+// slowed and dried you, and the tide pools refilled Humidity, with nothing on screen for any of
+// them. The design's own §6.1 asks this chapter to teach "the map is not neutral", and §5.3's named
+// mitigation for letting the bar drive damage is that "the sandbar is a PLACE, so the player can
+// always see the cause and step off it" — neither survives an invisible map. These are the numbers
+// behind the three renderers, here rather than in render.js because every tunable in this repo is.
+
+// The surge, drawn. The tide reuses the pond's flow-streak field (render.js updateCurrents) rather
+// than inventing a second one — same pool, same fade envelopes, sampling tideForce(run) instead of
+// currentForce(). Spread over CURRENT_VIS so only what the beach actually changes is stated here.
+//   - speedMul 2.2 (vs the pond's 3.6): the tide's 46 px/s peak is already three times the pond's
+//     ambient drift, so the pond's exaggeration would have the water outrunning the player.
+//   - tint: pale blue-white foam, not the pond's green-cyan — this is the open surface, and the
+//     floor it draws over is sand rather than weed.
+//   - the streaks REVERSE with the surge, which is the whole point: a cue that only ever pointed
+//     one way would read as a wind, not as a tide with a backwash.
+//   - the streaks are BIGGER and far more opaque than the pond's, and that is not a taste call: the
+//     pond's tint is a saturated teal-white on a dark murky floor, where this draws over pale sand.
+//     Measured against the beach's effective floor (bgColor 0xbca27a, luminance ~0.38), the pond's
+//     own 0.5 alpha lands a contrast of about 1.5x — under the >=2x the obstacle-footprint audit
+//     asks of anything whose job is to be noticed. 0.72 on white takes it to ~2.0x. The first cut
+//     shipped the pond's numbers and the surge was, on screen, a scatter of faint flecks.
+export const TIDE_VIS = { ...CURRENT_VIS, speedMul: 2.2, tint: 0xffffff, alpha: 0.72, lenPx: 74, widthPx: 15, rippleEvery: 2.6 }
+
+// Tide pools (render.js updateShafts, the `pool` look). The Shelf's shafts and The Surf's pools are
+// the same circle in the sim — both live in run.shafts, both come from refillSpec() — and must not
+// be the same circle on screen: a shaft is a warm additive column of light, a pool is a hole in wet
+// sand with water standing in it. Drawn as a body of water rather than a glow, seen from directly
+// overhead like everything else in this game.
+// waterFrac is the ONE number with a contract behind it: the stroked rim sits at exactly
+// signature.pools.r, so the drawn extent is the tested extent (the same rule the web decal and the
+// eddy ring state — a refill circle you can see the edge of is a circle you can learn by eye), and
+// the damp collar fills the band between the water's edge and it.
+export const TIDE_POOL_VIS = {
+  collar: 0x8f7a5c, collarA: 0.34,   // damp sand ring the water has pulled back from
+  water: 0x14607e, waterA: 0.66,     // the standing water itself — deep enough to read as a HOLE
+  shallow: 0x2f96ad, shallowA: 0.40, // the shelf inside it, offset so a pool is not a bullseye
+  rim: 0xcdeefb, rimA: 0.55, rimW: 3,// the bright meniscus, ON r
+  waterFrac: 0.9,                    // water edge as a fraction of r; collar spans this..1
+  sheen: 0xbfe8ff, sheenA: 0.20, sheenFrac: 1.15, // sky caught on the surface (additive, breathing)
+  breathe: 0.06,                     // ± fraction the sheen's size wanders — calm water, not a pulse
+}
+
+// Sandbars (render.js syncSandbars). run.webs is the idiom — a ground patch that slows you, baked
+// once and scaled per patch — and the reason a sandbar has to READ as ground rather than as an
+// overlay is §5.3: humidity drives damage, and a damage multiplier is "imperceptible in its top
+// half and a cliff in its bottom" unless the player can see the place that caused it.
+// The rim is drawn at exactly `r`, same drawn-extent-is-tested-extent contract as the pool above.
+export const SANDBAR_VIS = {
+  sand: 0xf0e2bc, sandA: 0.9,        // DRY sand — deliberately a value step above the damp floor
+  crown: 0xfaf1da, crownA: 0.5,      // the driest, highest part, offset off centre
+  ripple: 0xc19c62, rippleA: 0.42,   // wind ripples: what makes a pale blob read as SAND from above
+  damp: 0x8a7148, dampA: 0.42, dampW: 5, // the wet margin at the waterline — the edge you step over
+  speck: 0xa88a56, speckA: 0.5,      // shell grit
+  ripples: 7,                        // ripple lines across the patch
+  specks: 26,
 }
 
 // Night-thunderstorm overlay (skies chapter, v5.6.18, render.js updateStorm): three cosmetic,

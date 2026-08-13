@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -19,7 +19,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
-import { currentForce } from './sim.js'
+import { currentForce, tideForce } from './sim.js'
 
 const DARK = 0x3b3345
 const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
@@ -216,25 +216,34 @@ function cellHash(i, j, salt) {
 export function createRenderer(app) {
   const R = app.renderer
 
-  // Active chapter palette + whether this chapter's signature is drift currents. Set once per
-  // reset(run); read by the floor populate* callbacks, syncPlayer, obstacle/enemy tinting and
+  // Active chapter palette + which MOVING-WATER field this chapter's signature is, if any. Set once
+  // per reset(run); read by the floor populate* callbacks, syncPlayer, obstacle/enemy tinting and
   // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
   let chapterRender = BODY_RENDER
-  let chapterHasCurrents = false
+  // 'currents' (the pond's drift field), 'tide' (The Surf's alternating surge) or null. A STRING
+  // rather than the boolean it started as, because both chapters draw the same pooled streak field
+  // off a different force function — see updateCurrents, which samples currentForce or tideForce on
+  // this. flowVis is the matching visual block (CURRENT_VIS / TIDE_VIS), latched here so the merge
+  // and the per-sprite tint happen once per run instead of once per streak per frame.
+  let flowKind = null
+  let flowVis = CURRENT_VIS
   // v6.4 pond signature: whether the active chapter's currents also stream eddies (run.eddies —
-  // CHAPTERS[id].signature.eddies). Same latch pattern as chapterHasCurrents; read by updateEddies.
+  // CHAPTERS[id].signature.eddies). Same latch pattern as flowKind; read by updateEddies.
   let chapterHasEddies = false
-  // v7.x Book 2: whether the active chapter streams sun shafts (CHAPTERS[].signature.type ===
-  // 'shafts' — currently The Shelf only). Same latch pattern as chapterHasEddies; read by
-  // updateShafts.
-  let chapterHasShafts = false
+  // v7.x Book 2: which REFILL CIRCLE look the active chapter draws into run.shafts — 'shaft' (The
+  // Shelf's sun shafts) or 'pool' (The Surf's tide pools), null for a chapter with no refill
+  // geometry at all. Driven by refillSpec() (config.js), the same function streamShafts uses to
+  // decide existence, so a chapter can never stream circles the renderer then refuses to draw:
+  // that is exactly what shipped when this was `signature.type === 'shafts'` and The Surf's pools
+  // — its entire refill mechanic — were invisible. Read by updateShafts.
+  let refillLook = null
   // v7.x Book 2: the active chapter's swell block (CHAPTERS[].render.swell) or null. A CONFIG
   // OBJECT rather than a boolean, unlike its neighbours here, because updateSwell reads six numbers
   // off it every frame and re-deriving them from run.chapter per crest per frame is the kind of
   // thing that quietly costs a chapter its frame budget.
   let swellCfg = null
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
-  // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
+  // currently only `skies`). Same latch pattern as flowKind; read by updateStorm.
   let chapterHasStorm = false
   // v6.3: whether the active chapter draws SCREEN-space rain (CHAPTERS[].render.storm OR .rain —
   // currently skies [storm implies rain] and city [rain alone, no clouds]). updateRain reads this
@@ -6749,6 +6758,11 @@ export function createRenderer(app) {
   //   beacon over the swarm; stripG is a telegraph Graphics like bombG (see redrawStrips).
   const trailLayer = new Container()
   const webLayer = new Container()
+  // v7.x Book 2 surf: the dry patches (run.sandbars). Same no-gate rule as its neighbours — the
+  // array is empty in every chapter but The Surf. Deliberately the DEEPEST of the ground-patch
+  // layers after the mown stripes: a sandbar is the ground itself, so a web, a pheromone trail or a
+  // tide pool drawn over one has to sit on top of it, never under.
+  const sandLayer = new Container()
   const lureLayer = new Container()
   const stripG = new Graphics()
   // v5.4 chapter-4-7 field layers. Like the garden/pond layers above these need no chapter gate —
@@ -6861,7 +6875,7 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
+    mownG, sandLayer, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -7554,9 +7568,47 @@ export function createRenderer(app) {
     // Reef rock, not a submerged hedge: cool blue-grey stone with a near-black foot.
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x2f4d5c, foot: 0x122029 },
   }
+  // ---- The Surf (v7.x Book 2 ch 1) — the tide line ---------------------------------------------
+  // A retint of the shelf's own trick (shape-neutral prop PNGs re-read as something else), not new
+  // art. On a beach the plants are WRACK — weed the tide threw up and left to dry — plus marram
+  // tufts back off the water, so the flat `cluster_*` rafts become wrack piles and the uprights stay
+  // upright. Registering this at all is the point: chapterBiome falls back to BIOMES.body for an
+  // unknown id, and until this line existed The Surf drew VILLI, PLATELETS and plasma motes on its
+  // beach — the exact failure BIOME_SHELF's comment warns about, one chapter later.
+  //
+  // Contrast follows the same rule as its two neighbours: the decor family sits BELOW the effective
+  // floor (bgColor 0xbca27a under floorTint 0xe0c79c) so it never competes with the roster, and the
+  // one pale member is sea foam. Everything is warm-dominant (R >= G > B), which is what separates
+  // this family from The Shelf's blue-dominant one at a glance.
+  const WRACK_TINTS = [0x6b5a30, 0x5c4d29]         // dried weed thrown up by the tide
+  const WRACK_DARK_TINTS = [0x4f4324, 0x453a1f]    // the older, deeper pile
+  const MARRAM_TINTS = [0x7d7a3e, 0x6d6a35]        // dune grass, olive rather than lawn-green
+  const BIG_SURF = [
+    { name: 'bush_a', tints: WRACK_DARK_TINTS, upright: false, size: [88, 140] },
+    { name: 'cluster_b', tints: WRACK_TINTS, upright: false, size: [86, 132] },
+  ]
+  const MID_SURF = [
+    { name: 'grass_c', tints: MARRAM_TINTS, upright: true, size: [30, 50] },
+    { name: 'grass_d', tints: MARRAM_TINTS, upright: true, size: [30, 50] },
+    { name: 'cluster_a', tints: WRACK_TINTS, upright: false, size: [48, 76] },
+    { name: 'cluster_c', tints: WRACK_DARK_TINTS, upright: false, size: [48, 76] },
+  ]
+  const DETAIL_SURF = [
+    { name: 'scatter_a', tint: 0xfaf2e2, alpha: 0.55, size: [22, 40] }, // foam / shell grit
+    { name: 'scatter_b', tint: 0xefe1c6, alpha: 0.45, size: [18, 34] },
+    { name: 'leaf', tint: 0x5c4d29, alpha: 0.6, size: [16, 30] },       // a scrap of dried weed
+    { name: 'pebble', baked: true, scale: [0.7, 1.4] },
+  ]
+  const BIOME_SURF = {
+    big: BIG_SURF, mid: MID_SURF, detail: DETAIL_SURF,
+    // A weed-fouled boulder in the wash: warm wet stone, near-black foot ring for the collision
+    // contract against a light floor (the same dark-ring-on-pale-floor rule every biome follows).
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6a5c46, foot: 0x241d12 },
+  }
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
+    surf: BIOME_SURF,
     // v7.x Book 2 — open water, its own family now (see BIOME_SHELF above). Load-bearing, not
     // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
     // The Shelf draws villi and platelets under a blue tint.
@@ -8395,16 +8447,26 @@ export function createRenderer(app) {
     }
   }
 
-  // Current streaks (pond signature): world-space flow streaks that sample the REAL drift field
-  // (sim.js currentForce) and advect along it — exaggerated (CURRENT_VIS.speedMul) so the gentle
-  // sim push reads as an obvious water flow. Each streak is a double-stacked soft trace glyph
-  // (one layer washes out on the light floor) rotated to the local flow direction and stretched by
-  // speed, in a teal-white tint. Streaks fade in, live a few seconds while advecting, then fade out
-  // and respawn in view; they also respawn on straying past the viewport (+margin). Pooled — only
-  // transform/alpha touched per frame. currentLayer stays on the stage; world coords are converted
-  // to screen with the frame's camera offset (cx,cy: screen = world + (cx,cy)).
+  // Flow streaks (the pond's `currents` signature, and The Surf's `tide`): world-space streaks that
+  // sample the REAL force field the sim pushes everything with and advect along it — exaggerated
+  // (flowVis.speedMul) so the gentle sim push reads as an obvious water flow. Each streak is a
+  // double-stacked soft trace glyph (one layer washes out on the light floor) rotated to the local
+  // flow direction and stretched by speed. Streaks fade in, live a few seconds while advecting, then
+  // fade out and respawn in view; they also respawn on straying past the viewport (+margin). Pooled
+  // — only transform/alpha touched per frame. currentLayer stays on the stage; world coords are
+  // converted to screen with the frame's camera offset (cx,cy: screen = world + (cx,cy)).
+  //
+  // ONE pool, two chapters (v7.x). The tide shipped with no visual at all: a 46 px/s lateral shove
+  // with nothing on screen reads as the controls fighting you, where the design (§5.2) asks it to
+  // read as WEATHER. The only thing that differs is the force function and the palette, so the tide
+  // borrows this field rather than growing a second one — flowKind picks tideForce over currentForce
+  // and TIDE_VIS over CURRENT_VIS, both latched in reset(). The streaks REVERSE when the surge does,
+  // which is the tell that there is a backwash and not just a wind.
   const currentStreaks = []
-  let currentTexReady = false
+  // Which vis block the pool's sprite SCALES are currently built for (lenPx/widthPx differ between
+  // the pond and the tide), or null before the fx textures have loaded. Re-derived whenever it
+  // disagrees with flowVis, which is how one pool serves two chapters across a quit-to-title.
+  let currentTexVis = null
   let rippleTimer = 0
   for (let i = 0; i < CURRENT_VIS.count; i++) {
     const g = new Container()
@@ -8424,35 +8486,44 @@ export function createRenderer(app) {
       p.y = -cy + Math.random() * h
     } else { p.x = atX; p.y = atY }
     p.age = 0
-    p.life = CURRENT_VIS.life * (1 + (Math.random() * 2 - 1) * CURRENT_VIS.lifeJitter)
+    p.life = flowVis.life * (1 + (Math.random() * 2 - 1) * flowVis.lifeJitter)
     p.spawned = true
   }
 
+  // The active chapter's flow field at a world point, in px/s. The tide is UNIFORM (one surge for
+  // the whole map) so it ignores x/y; the pond's varies per point. Sampled by the streaks below and
+  // by the crowd's rock in syncEnemies, so both read the same water the sim is pushing with.
+  function flowAt(run, x, y) {
+    if (flowKind === 'tide') return tideForce(run)
+    if (flowKind === 'currents') return currentForce(run, x, y)
+    return { fx: 0, fy: 0 }
+  }
+
   function updateCurrents(run, dt, cx, cy) {
-    if (!chapterHasCurrents) { currentLayer.visible = false; return }
+    if (!flowKind) { currentLayer.visible = false; return }
     currentLayer.visible = true
-    if (!currentTexReady && T.fx && T.fx.trace_05) {
-      const lx = fxScale(T.fx.trace_05, CURRENT_VIS.lenPx)
-      const ly = fxScale(T.fx.trace_05, CURRENT_VIS.widthPx)
+    if (currentTexVis !== flowVis && T.fx && T.fx.trace_05) {
+      const lx = fxScale(T.fx.trace_05, flowVis.lenPx)
+      const ly = fxScale(T.fx.trace_05, flowVis.widthPx)
       for (const p of currentStreaks) {
         p.a.texture = p.b.texture = T.fx.trace_05
         p.a.scale.set(lx, ly)
         p.b.scale.set(lx * 0.9, ly * 0.85)
       }
-      currentTexReady = true
+      currentTexVis = flowVis
     }
-    if (!currentTexReady || dt <= 0) return
+    if (currentTexVis !== flowVis || dt <= 0) return
     const w = app.screen.width
     const h = app.screen.height
-    const mg = CURRENT_VIS.margin
+    const mg = flowVis.margin
 
     for (const p of currentStreaks) {
       if (!p.spawned) respawnStreak(p, cx, cy, w, h)
       p.age += dt
       // advect along the exaggerated real field
-      const f = currentForce(run, p.x, p.y)
-      const vx = f.fx * CURRENT_VIS.speedMul
-      const vy = f.fy * CURRENT_VIS.speedMul
+      const f = flowAt(run, p.x, p.y)
+      const vx = f.fx * flowVis.speedMul
+      const vy = f.fy * flowVis.speedMul
       p.x += vx * dt
       p.y += vy * dt
       const speed = Math.hypot(vx, vy)
@@ -8464,12 +8535,12 @@ export function createRenderer(app) {
       if (p.age >= p.life || off) { respawnStreak(p, cx, cy, w, h); continue }
       // fade envelope: in over fadeIn, out over the last fadeOut
       let env = 1
-      if (p.age < CURRENT_VIS.fadeIn) env = p.age / CURRENT_VIS.fadeIn
-      else if (p.age > p.life - CURRENT_VIS.fadeOut) env = Math.max(0, (p.life - p.age) / CURRENT_VIS.fadeOut)
+      if (p.age < flowVis.fadeIn) env = p.age / flowVis.fadeIn
+      else if (p.age > p.life - flowVis.fadeOut) env = Math.max(0, (p.life - p.age) / flowVis.fadeOut)
       p.g.position.set(sx, sy)
       p.g.rotation = p.ang
-      p.g.scale.set(1 + speed * CURRENT_VIS.stretchPerSpeed, 1) // stretch length with speed
-      p.g.alpha = CURRENT_VIS.alpha * env * (p.boost || 1)
+      p.g.scale.set(1 + speed * flowVis.stretchPerSpeed, 1) // stretch length with speed
+      p.g.alpha = flowVis.alpha * env * (p.boost || 1)
       p.g.visible = true
     }
 
@@ -8477,9 +8548,9 @@ export function createRenderer(app) {
     // streamline (seeded in view, each offset downstream) with a brief brightness boost — a moving
     // arrow emphasising flow direction. Cheap: it just re-seeds existing pooled streaks.
     for (const p of currentStreaks) if (p.boost) p.boost = Math.max(1, p.boost - dt * 1.2)
-    if (CURRENT_VIS.rippleEvery > 0 && currentStreaks.length >= 3) {
+    if (flowVis.rippleEvery > 0 && currentStreaks.length >= 3) {
       rippleTimer += dt
-      if (rippleTimer >= CURRENT_VIS.rippleEvery) {
+      if (rippleTimer >= flowVis.rippleEvery) {
         rippleTimer = 0
         let ox, oy, dx, dy
         // v6.4: bias the train onto an in-view eddy's ring when one exists — a moving arrow tracing
@@ -8506,14 +8577,14 @@ export function createRenderer(app) {
         } else {
           ox = -cx + Math.random() * w
           oy = -cy + Math.random() * h
-          const f = currentForce(run, ox, oy)
+          const f = flowAt(run, ox, oy)
           const sp = Math.hypot(f.fx, f.fy) || 1
           dx = f.fx / sp
           dy = f.fy / sp
         }
         for (let k = 0; k < 3; k++) {
           const p = currentStreaks[(Math.floor(Math.random() * currentStreaks.length) + k) % currentStreaks.length]
-          respawnStreak(p, cx, cy, w, h, ox + dx * k * CURRENT_VIS.lenPx * 0.9, oy + dy * k * CURRENT_VIS.lenPx * 0.9)
+          respawnStreak(p, cx, cy, w, h, ox + dx * k * flowVis.lenPx * 0.9, oy + dy * k * flowVis.lenPx * 0.9)
           p.boost = 2
         }
       }
@@ -8582,53 +8653,92 @@ export function createRenderer(app) {
     for (const ev of eddyPool) ev.root.visible = false
   }
 
-  // ---------------------------------------------------------------- sun shafts (v7.x Book 2)
-  // The Shelf's refill pools, drawn as a soft lit disc with a rim so the boundary is legible — a
-  // player has to be able to tell "am I IN it" at a glance, because standing in it IS the mechanic
-  // (sim.js's stepCharge tests centre-to-centre against exactly this radius).
+  // ------------------------------------------------- refill circles (v7.x Book 2): shafts + pools
+  // Both chapters' refill circles live in run.shafts (sim.js streamShafts feeds it from refillSpec),
+  // and both are drawn as a disc with a rim ON exactly the tested radius, because standing in it IS
+  // the mechanic (stepCharge tests centre-to-centre against that radius) and a player has to be able
+  // to tell "am I IN it" at a glance.
   //
-  // A pooled DECAL, not a rig: two display objects that never transform independently of each
-  // other. That is why the pool is a flat array and why clearShafts hides the SPRITES rather than a
+  // They must not LOOK the same, though, and for a while The Surf's did not look like anything at
+  // all: this function early-returned on `signature.type === 'shafts'`, so the tide pools — the only
+  // way to refill Humidity, which drives the chapter's damage — drew nothing whatsoever. The gate is
+  // now refillLook (see reset), which asks the same refillSpec() question the streamer asks.
+  //   'shaft' — The Shelf. A warm additive column of light. `body` is unused and stays cleared.
+  //   'pool'  — The Surf. A hole in wet sand with water standing in it: a damp collar, a dark water
+  //             body, an off-centre shallow shelf, a bright meniscus, and one soft additive sheen
+  //             for the sky caught on the surface. Drawn from directly overhead like everything
+  //             else; the water is DARKER than the sand around it, which is what makes it read as a
+  //             hole rather than as a glowing marker.
+  //
+  // A pooled DECAL, not a rig: three display objects that never transform independently of each
+  // other. That is why the pool is a flat array and why clearShafts hides the CHILDREN rather than a
   // `.root` — a rig left in the flat list of reset() sets a dead property on a plain object and the
   // previous run's entities stay on screen, with no throw and no warning.
   const shaftPool = []
   function acquireShaft() {
+    // Child order IS the stacking order: the water body must sit under its own sheen, so `body` is
+    // added first and the additive glow second. A shaft never draws into `body` at all.
+    const body = new Graphics()
     const glow = new Sprite(T.fx.light_01)
     glow.anchor.set(0.5)
-    glow.tint = 0xfff0c0
     glow.blendMode = 'add'
     const ring = new Graphics()
-    shaftLayer.addChild(glow, ring)
-    return { glow, ring, _r: 0 }
+    shaftLayer.addChild(body, glow, ring)
+    return { body, glow, ring, _r: 0, _look: null }
   }
   function updateShafts(run) {
-    if (!chapterHasShafts) { shaftLayer.visible = false; return }
+    if (!refillLook) { shaftLayer.visible = false; return }
     shaftLayer.visible = true
+    const pool = refillLook === 'pool'
+    const P = TIDE_POOL_VIS
     const list = run.shafts
     while (shaftPool.length < list.length) shaftPool.push(acquireShaft())
     for (let i = 0; i < shaftPool.length; i++) {
       const sv = shaftPool[i]
       const on = i < list.length
+      sv.body.visible = on
       sv.glow.visible = on
       sv.ring.visible = on
       if (!on) continue
       const sh = list[i]
+      sv.body.position.set(sh.x, sh.y)
       sv.glow.position.set(sh.x, sh.y)
       sv.ring.position.set(sh.x, sh.y)
-      sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 2.1))
-      // Breathe, out of phase per shaft (i, not animT alone) so a field of them does not pulse in
-      // unison — the same trick placeEddy uses for its twirl layers.
-      sv.glow.alpha = 0.62 + 0.10 * Math.sin(animT * 1.1 + i * 1.7)
-      if (sv._r !== sh.r) {  // rim redrawn only when the radius changes, same cache as the eddy ring
+      // Breathe, out of phase per circle (i, not animT alone) so a field of them does not pulse in
+      // unison — the same trick placeEddy uses for its twirl layers. The pool's is slower and
+      // shallower, and it wanders the SIZE rather than only the alpha: calm water, not a beacon.
+      if (pool) {
+        const b = 1 + P.breathe * Math.sin(animT * 0.55 + i * 1.7)
+        sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * P.sheenFrac * b))
+        sv.glow.alpha = P.sheenA * (0.85 + 0.15 * Math.sin(animT * 0.8 + i * 2.3))
+      } else {
+        sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 2.1))
+        sv.glow.alpha = 0.62 + 0.10 * Math.sin(animT * 1.1 + i * 1.7)
+      }
+      // Geometry redrawn only when the radius (or the chapter's look) changes, the same cache the
+      // eddy ring uses. Neither field's radius moves today, so in practice this runs once per circle.
+      if (sv._r !== sh.r || sv._look !== refillLook) {
         sv._r = sh.r
+        sv._look = refillLook
+        sv.body.clear()
         sv.ring.clear()
-        sv.ring.circle(0, 0, sh.r).stroke({ width: 4, color: 0xffe9a8, alpha: 0.55 })
+        if (pool) {
+          const wr = sh.r * P.waterFrac
+          sv.glow.tint = P.sheen
+          sv.body.circle(0, 0, sh.r).fill({ color: P.collar, alpha: P.collarA })
+          sv.body.circle(0, 0, wr).fill({ color: P.water, alpha: P.waterA })
+          sv.body.circle(-wr * 0.14, wr * 0.11, wr * 0.58).fill({ color: P.shallow, alpha: P.shallowA })
+          sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+        } else {
+          sv.glow.tint = 0xfff0c0
+          sv.ring.circle(0, 0, sh.r).stroke({ width: 4, color: 0xffe9a8, alpha: 0.55 })
+        }
       }
     }
   }
   function clearShafts() {
     shaftLayer.visible = false
-    for (const sv of shaftPool) { sv.glow.visible = false; sv.ring.visible = false }
+    for (const sv of shaftPool) { sv.body.visible = false; sv.glow.visible = false; sv.ring.visible = false }
   }
 
   // ---------------------------------------------------------------- swell (v7.x Book 2)
@@ -9678,6 +9788,7 @@ export function createRenderer(app) {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
+    sand: 0,    // v7.x surf: sandbars (run.sandbars) — a flat syncPool, see placeSandbar
     trap: 0, debris: 0, shot: 0, jet: 0,
     guard: 0,   // v7.55 surf: Pincer claws (run.guards)
   }
@@ -10373,6 +10484,74 @@ export function createRenderer(app) {
     }
     for (let i = n; i < prevCount.web; i++) webPool[i].root.visible = false
     prevCount.web = n
+  }
+
+  // Sandbars (v7.x Book 2 / The Surf — run.sandbars, {x,y,r,_cell}): dry ground you can walk onto,
+  // where you move at signature.bars.slowMul and Humidity falls at bars.drainMul. run.webs above is
+  // the idiom this copies exactly — a ground patch that slows you, baked ONCE and scaled per patch,
+  // rotated by a position hash so a field of them is not stamped.
+  //
+  // It ships as a renderer at all because of the design's §5.3: Humidity drives this chapter's
+  // damage, and the named mitigation for that — the reason the owner's override was accepted — is
+  // that "the sandbar is a PLACE, so the player can always see the cause and step off it". An
+  // invisible sandbar is a global damage debuff with no cause on screen, which is precisely the
+  // thing §5.3 says must not happen.
+  //
+  // The drawing, from directly overhead like everything else. A beach seen from above is not a
+  // blob, it is a TEXTURE — so the read is carried by wind ripples and shell grit, not by the
+  // silhouette, and the irregularity lives INSIDE the tested radius rather than on it:
+  //   - the wet apron fills the whole tested disc and its waterline stroke sits at EXACTLY r, so
+  //     drawn extent == tested extent (the web decal's and the eddy ring's contract);
+  //   - the dry sand is a wobbled blob inside that, and the driest crown a smaller one off-centre,
+  //     which is also what a real bar looks like: wet all round, dry in the middle.
+  const SAND_BAKE_RIM = 300 // bake radius (2x the shipped bars.r of 150) so ripples survive scaling
+  const sandbarTex = (() => {
+    const V = SANDBAR_VIS
+    const RIM = SAND_BAKE_RIM
+    const g = new Graphics()
+    // Wobbled outline: three harmonics at coprime-ish frequencies so the shape never repeats around
+    // the circle. Returns a flat point list for Graphics.poly.
+    const blob = (mean, ox, oy, seed) => {
+      const N = 48
+      const pts = []
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2
+        const rr = mean * (1 + 0.065 * Math.sin(a * 3 + seed) + 0.04 * Math.sin(a * 5 + seed * 1.7) + 0.028 * Math.sin(a * 7 + seed * 2.9))
+        pts.push(ox + Math.cos(a) * rr, oy + Math.sin(a) * rr)
+      }
+      return pts
+    }
+    g.circle(0, 0, RIM).fill({ color: V.damp, alpha: 0.16 })                       // the wet apron
+    g.circle(0, 0, RIM).stroke({ width: V.dampW, color: V.damp, alpha: V.dampA })  // waterline, ON r
+    g.poly(blob(RIM * 0.86, 0, 0, 1.3)).fill({ color: V.sand, alpha: V.sandA })
+    g.poly(blob(RIM * 0.5, -RIM * 0.1, -RIM * 0.08, 4.1)).fill({ color: V.crown, alpha: V.crownA })
+    // Wind ripples: near-parallel wavy lines, each cut to the chord of the dry area at its own y so
+    // none of them runs off the sand. The whole sprite is rotated per patch, so drawing them all
+    // along one axis here costs nothing in variety.
+    const RR = RIM * 0.82
+    for (let k = 0; k < V.ripples; k++) {
+      const y = -RR + ((k + 0.5) / V.ripples) * RR * 2
+      const half = Math.sqrt(Math.max(0, RR * RR - y * y)) * 0.92
+      if (half < 14) continue
+      g.moveTo(-half, y + Math.sin(-half * 0.02 + k) * 5)
+      for (let x = -half + 10; x <= half; x += 10) g.lineTo(x, y + Math.sin(x * 0.02 + k) * 5)
+    }
+    g.stroke({ width: 3, color: V.ripple, alpha: V.rippleA, cap: 'round' })
+    // Shell grit, on a fixed hash so it is baked once and never flickers.
+    for (let k = 0; k < V.specks; k++) {
+      const a = hash(k * 3.7 + 0.5) * Math.PI * 2
+      const d = Math.sqrt(hash(k * 5.1 + 2.2)) * RIM * 0.78
+      g.circle(Math.cos(a) * d, Math.sin(a) * d, 2 + hash(k * 7.3 + 4.4) * 3)
+    }
+    g.fill({ color: V.speck, alpha: V.speckA })
+    return bake(g)
+  })()
+  const sandPool = []
+  function placeSandbar(s, b) {
+    s.position.set(b.x, b.y)
+    const ph = hash(b.x * 0.11 + b.y * 0.07) // fixed per-patch seed — no stamped tiling
+    s.rotation = ph * Math.PI * 2
+    s.scale.set(Math.max(b.r, 1) / SAND_BAKE_RIM) // the waterline lands at EXACTLY r
   }
 
   // Pheromone Lure decoys (run.lures, {x,y,t,dur,...}): a cute beacon the swarm converges on — soft
@@ -12792,6 +12971,7 @@ export function createRenderer(app) {
       bulletPool, novaPool, orbPool, gemPool, coinPool,
       boomerangPool, minePool, homingPool, trapPool, shotPool,
       guardPool,   // v7.55 surf: FLAT (one Sprite per Pincer claw) — belongs here, not in the rigs below
+      sandPool,    // v7.x surf: FLAT (one Sprite per dry patch) — likewise, not a rig
     ]) {
       for (const s of pool) s.visible = false
     }
@@ -12944,7 +13124,7 @@ export function createRenderer(app) {
     // both carry their OWN final palette rather than a tint-multiplied base — same "plans carry
     // their own palette, tint bypassed" rule the top-down structure bakes use (STRUCTURE_SKINS'
     // topDown entries set clumpA.tint = 0xffffff, above) — otherwise a uniform multiply by
-    // playerTint (0x7ad07a for skies; still pond's inherited cyan for surf) would push the kaiju's
+    // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
     // pale sclera or the worm's bristle-tuft highlights toward the same hue as the body fill, right
     // when that contrast matters most.
     pBody.tint = (playerForm === 'kaiju' || playerForm === 'worm') ? 0xffffff : chapterRender.playerTint
@@ -13404,13 +13584,17 @@ export function createRenderer(app) {
       // frozen and stun both halt walk/idle animation (here: the wisp's rotation wobble)
       const wobble = (e.type === 'wisp' && frozen <= 0 && stun <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
       // v6.4 pond identity: currents visibly rock the swarm — a small rotation wobble scaled by the
-      // LOCAL field strength (currentForce, the same field the sim itself pushes everyone with), so
+      // LOCAL field strength (flowAt, the same field the sim itself pushes everyone with), so
       // an enemy sitting in an eddy's core rocks harder than one out at the ambient drift's calm
       // spots. Same frozen/stun hold the wisp wobble above already respects — subtle by design, the
       // water rocks the swarm, it doesn't shake it.
+      // v7.x: The Surf's tide gets it too, and there it carries more than flavour. stepTide moves
+      // the CROWD by the same vector it moves the player, and the design says that is what makes the
+      // surge read as weather rather than as a control tax — the crowd rocking on the surge and
+      // going still at slack water is what says "the water did that", not "the stick is fighting me".
       let currentWobble = 0
-      if (chapterHasCurrents && frozen <= 0 && stun <= 0) {
-        const cf = currentForce(run, e.x, e.y)
+      if (flowKind && frozen <= 0 && stun <= 0) {
+        const cf = flowAt(run, e.x, e.y)
         currentWobble = Math.min(1, Math.hypot(cf.fx, cf.fy) / 60) * 0.10 * Math.sin(animT * 4 + e.id)
       }
       // look.spin (the blank's Antibody): slow constant self-rotation for radially-symmetric,
@@ -13666,6 +13850,9 @@ export function createRenderer(app) {
     syncPools(run.pools || [])
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
+    // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
+    // the chapter has no run.sandbars at all.
+    syncPool(sandPool, sandLayer, run.sandbars || [], 'sand', sandbarTex, placeSandbar)
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
     // v7.55 surf: the Pincer's claws. Guarded with `|| []` like every field above — a save or a test
@@ -14010,9 +14197,21 @@ export function createRenderer(app) {
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null
     chapterRender = cfg?.render ?? BODY_RENDER
-    chapterHasCurrents = cfg?.signature?.type === 'currents'
-    chapterHasEddies = !!(cfg?.signature?.type === 'currents' && cfg?.signature?.eddies)
-    chapterHasShafts = cfg?.signature?.type === 'shafts'
+    // The pond drifts, The Surf surges; every other chapter draws no flow field at all. Re-tinting
+    // the whole streak pool here (rather than at construction, where it used to be fixed to the
+    // pond's teal) is what lets one pool serve both looks.
+    const sigType = cfg?.signature?.type
+    flowKind = sigType === 'currents' ? 'currents' : sigType === 'tide' ? 'tide' : null
+    flowVis = flowKind === 'tide' ? TIDE_VIS : CURRENT_VIS
+    for (const p of currentStreaks) { p.a.tint = flowVis.tint; p.b.tint = flowVis.tint }
+    chapterHasEddies = !!(sigType === 'currents' && cfg?.signature?.eddies)
+    // refillSpec() and not signature.type: The Shelf's shafts ARE its signature, The Surf's pools
+    // hang off signature.pools, and streamShafts fills run.shafts from whichever one exists. Asking
+    // the same question the streamer asks is what keeps "the sim made a circle" and "the renderer
+    // draws a circle" from being two independent chapter tests that can disagree.
+    refillLook = cfg?.signature && refillSpec(cfg.signature)
+      ? (sigType === 'shafts' ? 'shaft' : 'pool')
+      : null
     swellCfg = cfg?.render?.swell ?? null
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);

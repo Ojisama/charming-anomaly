@@ -2596,12 +2596,24 @@ function stepCurrents(run, dt) {
 // It moves the ENEMIES too. Water that shoves only the player is a control tax; water that shoves
 // everything is weather, and it is also the only thing that makes the backwash readable — the crowd
 // drifting with you is the tell that you are not simply being nerfed.
+// The instantaneous surge, in px/s, as a vector — currentForce's counterpart for this chapter, and
+// exported for the same reason currentForce is: render.js samples it to advect the flow streaks and
+// to rock the crowd, so "the water is moving" on screen and "the water moved me" in the sim are one
+// number rather than two that can drift apart. {fx:0, fy:0} for any chapter that is not the tide,
+// so a caller needs no chapter branch of its own.
+export function tideForce(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'tide') return { fx: 0, fy: 0 }
+  const s = Math.sin((run._realTime / sig.period) * Math.PI * 2)
+  return { fx: Math.cos(sig.axis) * sig.surge * s, fy: Math.sin(sig.axis) * sig.surge * s }
+}
+
 export function stepTide(run, dt) {
   const sig = CHAPTERS[run.chapter].signature
   if (!sig || sig.type !== 'tide') return
-  const s = Math.sin((run._realTime / sig.period) * Math.PI * 2)
-  const fx = Math.cos(sig.axis) * sig.surge * s * dt
-  const fy = Math.sin(sig.axis) * sig.surge * s * dt
+  const { fx: sx, fy: sy } = tideForce(run)
+  const fx = sx * dt
+  const fy = sy * dt
   const p = run.player
   p.x += fx; p.y += fy
   for (const e of run.enemies) {
