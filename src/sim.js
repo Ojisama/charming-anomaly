@@ -80,7 +80,7 @@ import {
   // Elements redesign, live only while run.newElements — see the EL_* block in config.js.
   EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
   EL_FREEZE_RESIST_T, EL_VENOM_MUL, EL_LIGHT_SHARE, EL_LIGHT_RANGE, EL_LIGHT_FORWARD,
-  EL_BUCKET_WEIGHT, EL_VALUES, elScale, elementCardDesc, elText,
+  EL_BUCKET_WEIGHT, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
@@ -4417,11 +4417,15 @@ function stepStatuses(run, dt) {
       e.frozen = e._elFrozen ?? 0
       e.chill = e.frozen > 0 ? 0 : elSlow(run, e)
       if (e.ignite > 0) {
+        // The burn has its own tick (EL_BURN_TICK, twice STATUS_TICK) and its own floor. At the
+        // shared 0.25s a burn was 12 ticks of ~4% of the hit — "1" on a median hit, and 3.1% of
+        // ticks rounded to nothing at all. Fewer, bigger ticks print the same total in numbers a
+        // player can read; the floor stops a small burn silently dealing zero.
         e.ignite = Math.max(0, e.ignite - dt)
         e._igniteAcc = (e._igniteAcc || 0) + dt
-        while (!e._dead && e._igniteAcc >= STATUS_TICK) {
-          e._igniteAcc -= STATUS_TICK
-          dealDamage(run, e, e.igniteDps * STATUS_TICK, false, true)
+        while (!e._dead && e._igniteAcc >= EL_BURN_TICK) {
+          e._igniteAcc -= EL_BURN_TICK
+          dealDamage(run, e, Math.max(EL_BURN_MIN, e.igniteDps * EL_BURN_TICK), false, true)
         }
         if (e.ignite <= 0) { e.igniteDps = 0; e._igniteAcc = 0 }
       }
