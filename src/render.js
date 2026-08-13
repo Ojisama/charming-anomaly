@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, CORAL_CRUSH,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -232,11 +232,12 @@ export function createRenderer(app) {
   // CHAPTERS[id].signature.eddies). Same latch pattern as flowKind; read by updateEddies.
   let chapterHasEddies = false
   // v7.x Book 2: which REFILL CIRCLE look the active chapter draws into run.shafts — 'shaft' (The
-  // Shelf's sun shafts) or 'pool' (The Surf's tide pools), null for a chapter with no refill
-  // geometry at all. Driven by refillSpec() (config.js), the same function streamShafts uses to
-  // decide existence, so a chapter can never stream circles the renderer then refuses to draw:
-  // that is exactly what shipped when this was `signature.type === 'shafts'` and The Surf's pools
-  // — its entire refill mechanic — were invisible. Read by updateShafts.
+  // Shelf's sun shafts), 'pool' (The Surf's tide pools) or 'pocket' (The Reef's air pockets), null
+  // for a chapter with no refill geometry at all. Driven by refillSpec() (config.js), the same
+  // function streamShafts uses to decide existence, so a chapter can never stream circles the
+  // renderer then refuses to draw: that is exactly what shipped when this was
+  // `signature.type === 'shafts'` and The Surf's pools — its entire refill mechanic — were
+  // invisible. Read by updateShafts.
   let refillLook = null
   // v7.x Book 2: the active chapter's swell block (CHAPTERS[].render.swell) or null. A CONFIG
   // OBJECT rather than a boolean, unlike its neighbours here, because updateSwell reads six numbers
@@ -269,6 +270,12 @@ export function createRenderer(app) {
   // `undergrowth`). Same latch pattern as chapterHasStorm; read by updateLeaves.
   let chapterHasLeaves = false
   let chapterHasLane = false   // v5.18 beyond: trailing-edge camera (CHAPTERS[].lane)
+  // v7.x The Reef: does the active chapter's skill button BURST (CHAPTERS[].burst)? Read in exactly
+  // one place — handleEvents' 'crush' case, which stepCrush now emits for two entirely different
+  // reasons (a kaiju flattening a building, a fish going through coral) and which therefore has to
+  // ask whose crush this is. Latched here rather than read per event for the usual reason: an event
+  // handler that dereferences CHAPTERS[run.chapter] pays for it on every event in the frame.
+  let chapterHasBurst = false
   // v7.x: WHICH edge — laneAxes(cfg) (config.js). 'y' (The Beyond) anchors the player near the
   // bottom; 'x' (The Reef) near the left. Latched with chapterHasLane and read only by the camera.
   let chapterLaneAxis = LANE_AXIS_Y
@@ -9191,7 +9198,8 @@ export function createRenderer(app) {
     if (!refillLook) { shaftLayer.visible = false; return }
     shaftLayer.visible = true
     const pool = refillLook === 'pool'
-    const P = TIDE_POOL_VIS
+    const pocket = refillLook === 'pocket'
+    const P = pocket ? AIR_POCKET_VIS : TIDE_POOL_VIS
     const list = run.shafts
     while (shaftPool.length < list.length) shaftPool.push(acquireShaft())
     for (let i = 0; i < shaftPool.length; i++) {
@@ -9208,7 +9216,7 @@ export function createRenderer(app) {
       // Breathe, out of phase per circle (i, not animT alone) so a field of them does not pulse in
       // unison — the same trick placeEddy uses for its twirl layers. The pool's is slower and
       // shallower, and it wanders the SIZE rather than only the alpha: calm water, not a beacon.
-      if (pool) {
+      if (pool || pocket) {
         const b = 1 + P.breathe * Math.sin(animT * 0.55 + i * 1.7)
         sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * P.sheenFrac * b))
         sv.glow.alpha = P.sheenA * (0.85 + 0.15 * Math.sin(animT * 0.8 + i * 2.3))
@@ -9223,7 +9231,18 @@ export function createRenderer(app) {
         sv._look = refillLook
         sv.body.clear()
         sv.ring.clear()
-        if (pool) {
+        if (pocket) {
+          // Trapped air seen from directly overhead: a HARD silver mirror, not a glow. Same three
+          // strokes as the tide pool one branch down and the same drawn-extent-is-tested-extent
+          // rim, but inverted in value — the pool is a dark hole in pale sand, this is a bright
+          // disc on a dark reef floor, which is what keeps the two from reading as one another.
+          const ar = sh.r * P.airFrac
+          sv.glow.tint = P.sheen
+          sv.body.circle(0, 0, sh.r).fill({ color: P.shade, alpha: P.shadeA })
+          sv.body.circle(0, 0, ar).fill({ color: P.air, alpha: P.airA })
+          sv.body.circle(-ar * 0.16, -ar * 0.13, ar * 0.5).fill({ color: P.lobe, alpha: P.lobeA })
+          sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+        } else if (pool) {
           const wr = sh.r * P.waterFrac
           sv.glow.tint = P.sheen
           sv.body.circle(0, 0, sh.r).fill({ color: P.collar, alpha: P.collarA })
@@ -10173,6 +10192,43 @@ export function createRenderer(app) {
     // light bleeding from a window, which is what this beat actually represents)
     spawnParticle(T.crushSpill, x, y, 0, 0, C.spillT, 0.55, C.spill, -0.5, 0)
     addShake(1.2, 0.07) // light — crush can fire several times a second mid-rampage
+  }
+
+  // A coral head going under a Burst (v7.x, The Reef). Same {type:'crush'} event, same sim path,
+  // completely different physics — see CORAL_CRUSH's block in config.js for why skiesCrush above
+  // cannot be reused: it is dust, brick and window light, and it banks a permanent ruin in the
+  // render-local ledger. Underwater there is no dust and nothing is left standing.
+  //   chunks sink (positive gravity, high drag) — rock in water, thrown and then dropped;
+  //   silt hangs and spreads (no gravity, long life, low alpha) — the cloud you cannot see through;
+  //   bubbles RISE, and they are the only thing in the burst that moves against the fall, which is
+  //     what sells the whole picture as being underwater rather than merely blue.
+  // `r` is the coral's own radius, so the extent ring says exactly what was destroyed.
+  function coralShatter(x, y, r) {
+    const C = CORAL_CRUSH
+    const k = Math.max(0.5, r / 110)   // sized against the bommie, not against the screen
+    for (let i = 0; i < C.chunks; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = C.chunkSpeed + Math.random() * C.chunkSpread
+      const tex = T.shard[Math.floor(Math.random() * T.shard.length)]
+      spawnSmoke(tex.tex, x, y, Math.cos(a) * sp * k, Math.sin(a) * sp * k,
+        C.chunkT, (0.5 + Math.random() * 0.45) * k,
+        Math.random() < 0.45 ? C.chunkTintDark : C.chunkTint,
+        0, 1.6, C.chunkGrav, (Math.random() - 0.5) * 8)
+    }
+    for (let i = 0; i < C.silt; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = C.siltSpeed * (0.5 + Math.random())
+      spawnSmoke(T.fx.circle_05, x, y, Math.cos(a) * sp * k, Math.sin(a) * sp * k,
+        C.siltT, (0.28 + Math.random() * 0.16) * k, C.siltTint, 0.16, 1.1, 0, 0, 0.45)
+    }
+    for (let i = 0; i < C.bubbles; i++) {
+      const a = Math.random() * Math.PI * 2
+      spawnParticle(T.fx.circle_05, x + Math.cos(a) * r * 0.5, y + Math.sin(a) * r * 0.5,
+        Math.cos(a) * 26, -C.bubbleRise * (0.6 + Math.random() * 0.8),
+        C.bubbleT, (0.05 + Math.random() * 0.05) * k, C.bubbleTint, 0.02, 0.7)
+    }
+    spawnRing(x, y, r, C.ringT, T.novaRing, C.ringTint)
+    addShake(2.4 * k, 0.12)
   }
 
   // ---- 5. RAMPAGE (spec §3, rampage row) -------------------------------------------------------
@@ -13191,10 +13247,15 @@ export function createRenderer(app) {
           break
         }
         case 'crush': {
+          const cr = radiusAtCrush(e.x, e.y)
+          // v7.x: stepCrush now has two callers — the kaiju walking through a town, and The Reef's
+          // Burst going through a coral head — and they are the same EVENT with different physics.
+          // Branching here (on the chapter latch, not on e.kind) rather than emitting a second
+          // event type keeps the sim's third entry point to the crush path free of a render concern.
+          if (chapterHasBurst) { coralShatter(e.x, e.y, cr); break }
           // v5.10: e.kind IS read now — it is the point. Brick does not fall like grain and neither
           // falls like a pier into water (SKIES_FX.crush.byKind), and the site keeps a kind-specific
           // baked RUIN afterwards: the only thing in the chapter that records what you did.
-          const cr = radiusAtCrush(e.x, e.y)
           skiesCrush(e.x, e.y, e.kind)
           ledgerAdd(e.x, e.y, e.kind, cr)
           break
@@ -14750,7 +14811,7 @@ export function createRenderer(app) {
     // the same question the streamer asks is what keeps "the sim made a circle" and "the renderer
     // draws a circle" from being two independent chapter tests that can disagree.
     refillLook = cfg?.signature && refillSpec(cfg.signature)
-      ? (sigType === 'shafts' ? 'shaft' : 'pool')
+      ? (sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool')
       : null
     swellCfg = cfg?.render?.swell ?? null
     chapterHasStorm = !!chapterRender.storm
@@ -14765,6 +14826,7 @@ export function createRenderer(app) {
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
     // the player on the Paused screen. Every other line in this block already guards for that.
     chapterHasLane = cfg?.lane === true
+    chapterHasBurst = cfg?.burst === true
     chapterLaneAxis = laneAxes(cfg)   // null-safe on the quit-to-title path, like the line above
     chapterIsVoid = !!chapterRender.voidFloor
     chapterHasDistricts = !!chapterRender.districts

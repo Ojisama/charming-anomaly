@@ -821,13 +821,17 @@ function generateWells(sig) {
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
  * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2: streamed REFILL CIRCLES the player
- *   stands in to refill `charge`. ONE list fed from either of two places, decided by refillSpec()
+ *   stands in to refill `charge`. ONE list fed from any of three places, decided by refillSpec()
  *   (config.js): The Shelf's sun shafts (its signature IS the refill spec: cell/chance/r/minDist/
- *   driftAmp/driftHz sit directly on it) and, since v7.x run US.c, The Surf's tide pools
- *   (CHAPTERS.surf.signature.pools — no drift, since a pool is a hole in the sand rather than
- *   something that moves). Same _obstacleSeed cell-hash idiom as eddies above, own salts (20
- *   occupancy, 21 x jitter, 22 y jitter, 23 drift phase) and own _shaftCellI/_shaftCellJ cursor —
- *   shared by BOTH chapters' refill circles, since only one of them is ever streaming at a time.
+ *   driftAmp/driftHz sit directly on it), The Surf's tide pools (CHAPTERS.surf.signature.pools — no
+ *   drift, since a pool is a hole in the sand rather than something that moves) and The Reef's air
+ *   pockets (CHAPTERS.reef.signature.pockets — no drift either, and the ONLY thing that refills
+ *   Air). Same _obstacleSeed cell-hash idiom as eddies above and own _shaftCellI/_shaftCellJ cursor
+ *   — shared by every chapter's refill circles, since only one of them is ever streaming at a time.
+ *   The SALT BLOCK is the spec's, not the streamer's (spec.salt, default 20): 20-23 for the shafts
+ *   and the pools, 40-43 for the pockets. A salt is what stops two streamed fields landing in
+ *   identical cells, so it belongs to the field rather than to whichever function materialises it —
+ *   and a collision is silent, reading as "the mechanic spawns on top of the other one".
  *   UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
  *   early-returns unless the player crossed a cell boundary, so it structurally cannot move
  *   anything — stepShafts does that every frame, gated on signature.type === 'shafts' so only The
@@ -841,11 +845,12 @@ function generateWells(sig) {
  *   ([] everywhere else). A sandbar never moves, so unlike a shaft it has no drift and no per-frame
  *   stepper — sim.js's onSandbar reads the list directly, centre-to-centre against `r`, exactly like
  *   stepCharge's shaft test. Zero RNG at step time, like every streamer above.
- * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Shelf's 'Light' and
- *   The Surf's 'Humidity'). Drains passively, refills inside a refill circle (run.shafts: a shaft
- *   here, a tide pool there) and (with Light Thief bought) per kill, clamped to [0, resource.max].
+ * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Shelf's 'Light', The
+ *   Surf's 'Humidity' and The Reef's 'Air'). Drains passively, refills inside a refill circle
+ *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third) and (with Light Thief
+ *   bought) per kill, clamped to [0, resource.max].
  *   0 and untouched in every chapter without a resource.
- *   It drives THREE things, and each arrived separately:
+ *   It drives FOUR things, and each arrived separately:
  *     1. the Pulse's strength (PULSE_* in config.js; an empty bar still fires the shipped
  *        REPULSE_* shove, which is the floor that keeps the resource from being self-denying).
  *        Every chapter with a resource. NOTE that on The Surf this now competes with (3) for the
@@ -874,7 +879,26 @@ function generateWells(sig) {
  *        original rule was protecting and the mitigations the exception is conditional on: a TUNED
  *        floor constant (HUMIDITY_DMG_FLOOR), and a drain tied to the SANDBARS rather than to the
  *        clock so the player can always see the cause and step off it. Do not "restore" the old
- *        sentence — read §5.3 first, and if the ruling is ever reversed it is reversed there.
+ *        sentence — read §5.3 first, and if the ruling is ever reversed it is reversed there;
+ *     4. DROWNING, on the chapters whose `resource` declares a `drown` block — currently The Reef's
+ *        Air alone. At an EMPTY bar, stepDrown (sim.js) takes drown.dps as damage over time on a
+ *        DROWN_TICK cadence until the bar comes off zero, and reports a death like every other DoT
+ *        step. Deliberately the opposite SHAPE from (3): §5.3 spends the book's one licence for a
+ *        bar that scales damage on The Surf, whose cause is a place you can step off; empty air is
+ *        a state, so it hurts on a clock and stops the instant you breathe. It publishes into the
+ *        SHIPPED {type:'hurt', dot:true} contract — no new event — so render.js's existing red
+ *        vignette/shake/flash is the tell and main.js's `if (e.dot) continue` keeps it silent.
+ * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
+ *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
+ *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
+ *   Read in two places and nowhere else: stepPlayerMovement's lane branch multiplies the forward
+ *   scroll by BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change
+ *   the lane's scroll rate, because it is the player's own button and not a force acting on them),
+ *   and stepCrush treats it as a third entry point to the permanent obstacle-removal path.
+ *   0 on every run of every other chapter.
+ * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
+ *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
+ *   later. 0 and untouched everywhere else.
  * killRefill: number — light per kill, snapshotted at createRun from meta.lightThief (the permanent
  *   Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
@@ -1558,16 +1582,17 @@ export function createRun(meta, opts = {}) {
     // v7.x Book 2: REFILL CIRCLES (sim.js streamShafts/stepShafts), the same _obstacleSeed streaming
     // idiom as obstacles/eddies above with its OWN salts and its OWN cell cursor. Unconditional
     // like eddies, so every chapter carries the field, but only a signature refillSpec() recognises
-    // ever fills it — The Shelf's sun shafts and The Surf's tide pools, which are the same circle
-    // with two names and two looks (render.js's refillLook draws either). Kept as `shafts` rather
-    // than renamed: the field name is quoted as a string in the test suite and in this doc block,
-    // which is one of the two silent failure modes CLAUDE.md's rename rule describes.
+    // ever fills it — The Shelf's sun shafts, The Surf's tide pools and The Reef's air pockets,
+    // which are the same circle with three names and three looks (render.js's refillLook draws
+    // whichever). Kept as `shafts` rather than renamed: the field name is quoted as a string in the
+    // test suite and in this doc block, which is one of the two silent failure modes CLAUDE.md's
+    // rename rule describes.
     shafts: [],
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
-    // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf's Light and The Surf's
-    // Humidity; see the charge doc above for what each one drives). Starts FULL: the
+    // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf's Light, The Surf's
+    // Humidity, The Reef's Air; see the charge doc above for what each one drives). Starts FULL: the
     // first minute of a run should teach the drain, not open on an empty bar the player has not
     // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
     // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
@@ -1578,6 +1603,11 @@ export function createRun(meta, opts = {}) {
     // makes a dev-gated chapter playtest as the thing that eventually ships. 0 unbought, and 0 for
     // every chapter that declares no resource.
     killRefill: meta.lightThief === true ? (CHAPTERS[chapter].resource?.killRefill ?? 0) : 0,
+    // v7.x The Reef (see the doc block above): seconds of Burst dash left, and the drowning DoT's
+    // part-tick accumulator. The rampage pattern again — every run carries both, and only a chapter
+    // declaring `burst` / a `resource.drown` block ever moves them off 0.
+    _burstT: 0,
+    _drownAcc: 0,
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which

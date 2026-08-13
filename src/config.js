@@ -4417,17 +4417,111 @@ CHAPTERS.reef = {
   ],
   eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with The Surf and The Shelf
 
-  // No signature mechanic yet, and that is a statement rather than a gap: THE LANE IS the mechanic
-  // this chapter is being built to test. A `signature` here would be a second new thing to judge in
-  // the same playtest. null is the same value The Body carries for the same reason.
-  signature: null,
+  // AIR POCKETS. The signature carries no mechanic of its own — the LANE is this chapter's gimmick
+  // — it carries the geometry of the one thing that refills the bar, in the same vocabulary as the
+  // Shelf's shafts, the Surf's tide pools, the pond's eddies and the undergrowth's traps: `cell` is
+  // the grid, `chance` a DIRECT per-cell occupancy probability, `r` the radius that is both drawn
+  // and tested, `minDist` spawn-ring clearance from the run ORIGIN. refillSpec() finds it, so
+  // streamShafts materialises it, render.js draws it and scripts/charge-probe.mjs measures it with
+  // no chapter name anywhere in any of the three.
+  //
+  // `salt` is REQUIRED HERE and is the one field the other two refill specs do not set. Salts are
+  // the streamers' anti-collision registry (sim.js, above obstacleCellHash): 0-4 obstacles, 11-14
+  // eddies, 15-17 traps, 20-23 shafts/pools, 30-32 sandbars. A collision is SILENT — two fields
+  // land in identical cells and it reads as "the mechanic spawns on top of the other one", never as
+  // an error — so this chapter claims block 40, reserved for it in the Book 2 plan, rather than
+  // inheriting streamShafts' 20 because it happens to be the function doing the streaming.
+  //
+  // THE REFILL IS A FIGHT, which §5.2 requires of every one of them, and here it falls out of the
+  // arithmetic rather than being asserted. Jitter slack is cell/2 - r - 20 = 170, so a pocket's
+  // centre sits at |cross| in [150, 490] and its inner edge at |cross| in [20, 360]: there is NO
+  // pocket on the centre line. Taking one means committing to a side of a lane you cannot stop in,
+  // while the scroll carries you through it in at most 2r/laneScroll = 5.8s and everything that
+  // wants to kill you keeps arriving from ahead. Run RF.a pins the no-pocket-on-the-centre-line
+  // property, because it is the whole of that claim and it is one bad `chance` away from being
+  // false.
+  signature: {
+    type: 'air',
+    pockets: { cell: 640, chance: 0.5, r: 130, minDist: 420, salt: 40 },
+  },
+
+  // AIR. Ambient drain, always — you are a fish carrying a lungful through a reef, and the clock
+  // is the chapter. Refill ONLY at the pockets above; there is no second source and no passive
+  // trickle, which is what makes the pockets worth crossing the lane for.
+  //
+  // A SLOPE, NOT A COUNTDOWN, which is the lesson The Surf's own resource block was rewritten
+  // around: a bar that falls at a rate the player cannot argue with is a timer wearing a resource's
+  // clothes. Here the argument is the pockets, and the check is that the two poles come out on
+  // OPPOSITE SIDES of empty.
+  //
+  // MEASURED — scripts/charge-probe.mjs --chapter reef, 300s x 3 seeded runs, difficulty 1,
+  // immortal. Its `kite`/`seek` policies CANNOT BE EXPRESSED IN A LANE (the stick has no forward
+  // component here), so the probe grew two lane policies for this chapter and the pair is the
+  // answer — `centre` holds the middle and never commits to a side, `pocket` steers at the nearest
+  // reachable pocket ahead. Never quote one alone:
+  //
+  //   policy               mean  %at0  %atMax  %inPocket   the reading
+  //   base centre hoard    12.2    76       0        0.0   ignore it and you drown
+  //   base pocket hoard    88.1     0       9       21.2   work it and the bar cycles, 24..100
+  //   base pocket full     18.3    28       0       26.3   ...and spend it on the button as well
+  //   thief centre hoard   20.7    17       0        0.0   Light Thief roughly halves the drowning
+  //   thief pocket hoard   96.0     0      15       17.6
+  //
+  // The two hoard rows are the headline: 76% of the run at zero against 0%, off the same tune, on
+  // the same seeds, decided entirely by whether the player commits to a side of the lane. That is
+  // the bar being a map rather than a clock, stated as a measurement instead of as an intention.
+  // The `centre` row is not a strawman — %inPocket is exactly 0.0 because the jitter budget puts
+  // every pocket's centre at |cross| >= 150, so a player who never leaves the middle physically
+  // cannot touch one.
+  //
+  // ⚠ THE BUTTON AND THE SECOND JOB SHARE ONE BAR, and `pocket full` is where that shows: a player
+  // who spends PULSE_CHARGE_COST (45 of 100, ~6s cooldown) whenever they can afford it drives the
+  // bar into a 0..45 sawtooth and spends 28% of the run drowning. That is NOT this tune failing —
+  // it is the same unresolved design question CHAPTERS.surf.resource records, and it is arguably
+  // healthier here: on The Surf the cost is a damage multiplier nobody can feel, where here it is a
+  // trade the player can name ("I spent my air on a dash, now I am drowning"). Light Thief is the
+  // shipped mitigation and prices itself accordingly (28% -> 11%).
+  //
+  // killRefill 0.2 AND NOT THE SHELF'S 1.5, because the chapter kills six times as fast: the lane
+  // runs two spawners and the probe measures ~4.8 kills/s here against ~0.8 on The Shelf. At 1.2 it
+  // paid 5.8/s against a 1.4/s drain and simply ABOLISHED the bar — `thief centre hoard` pinned at
+  // 100 with the player never touching a pocket, i.e. the purchase deleting the chapter's mechanic
+  // rather than changing how it is played. Read a killRefill against its chapter's KILL RATE, never
+  // against another chapter's number.
+  //
+  // `drown` is this bar's second job (§5.2): at empty you take drown.dps as damage over time until
+  // you breathe. See DROWN_TICK's block for why it is a DoT and not a damage multiplier, and for
+  // why it deliberately introduces no new event.
+  //
+  // killRefill is shop-gated exactly as The Shelf's and The Surf's are (meta.lightThief ->
+  // run.killRefill at createRun), so the numbers above have to work with it at ZERO.
+  resource: { name: 'Air', drain: 1.4, refill: 9, killRefill: 0.2, max: 100, drown: { dps: 4 } },
 
   // Coral heads: bigger than the pond's pebbles, far smaller than The Beyond's planets, and spaced
-  // so you meet one every few seconds rather than a field of them. NOTE they are pure scenery today
-  // — stepObstacles early-returns for every `lane` chapter (see its comment in sim.js), so nothing
-  // here collides. Turning that on for an x-lane needs a clamp so a bommie cannot shove the player
-  // through the lane wall, which is its own task.
+  // so you meet one every few seconds rather than a field of them.
   obstacles: { count: 8, cell: 620, minR: 70, maxR: 150, minDist: 420 },
+
+  // THE CORAL IS SOLID, and only here. `stepObstacles` early-returns for every `lane` chapter, and
+  // its comment names exactly what that protects: the radial push-out was shoving the player back
+  // DOWN the lane on ~10% of frames, locally reversing the one constant the mode guarantees, and it
+  // broke rank by shoving formations apart sideways. Both are still true, so this field turns
+  // collision on under three restrictions rather than lifting the early return:
+  //   1. THE PLAYER ONLY. Enemies keep passing through, so a marching rank still holds its shape —
+  //      that half of the old comment is not a bug to be fixed, it is the reason ranks read as ranks.
+  //   2. ACROSS THE LANE ONLY. The push-out resolves on the cross axis, so a wall may shoulder you
+  //      sideways and can never move you along the lane in EITHER direction — not backward (the
+  //      shipped bug) and not forward either, which would be a free Burst.
+  //   3. ONLY WHERE YOU COULD HAVE GONE ROUND. A coral whose circle pokes out of the lane is
+  //      scenery; solidity there would be a stretch of corridor with no gap, i.e. the structural
+  //      trap §8.2 forbids, and it would fight the wall clamp for the player's position every frame.
+  // ⚠ It is a per-chapter field and NOT a widening of `lane`, so The Beyond comes out bit-identical
+  // — run LN is the proof, and it must stay a captured golden master rather than be re-baselined.
+  laneSolid: true,
+
+  // The button. See BURST_* above for the cast; the flag is here so the chapter reads as a set with
+  // `lane` and `laneSolid` — the lane denies you the forward axis, the coral makes that denial cost
+  // something, and this is what buys it back.
+  burst: true,
 
   // ⚠ UNMEASURED FIRST CUT. It mirrors the step Book 1 takes from its own chapter 2 to its chapter 3
   // (pond -> garden: the damage and xp cushions come off, spawnMul +0.01, enemyHpMul +0.05,
@@ -4582,6 +4676,48 @@ export const SANDBAR_VIS = {
   speck: 0xa88a56, speckA: 0.36,     // shell grit
   ripples: 7,                        // ripple lines across the patch
   specks: 26,
+}
+
+// Air pockets (v7.x, The Reef — render.js updateShafts, refillLook 'pocket'). The third look on
+// the ONE refill-circle pool, beside the Shelf's shaft and the Surf's tide pool, and the third
+// answer to the same drawn-extent-IS-tested-extent contract: the rim sits at exactly `r`, because
+// stepCharge tests centre-to-centre against that radius and the player has to be able to tell "am I
+// IN it" at a glance while the lane carries them through it.
+//
+// PLAN VIEW OF TRAPPED AIR, which is the one thing on this list that is not a colour choice. A
+// pocket held under a coral overhang, looked at from directly above, is a MIRROR — total internal
+// reflection makes it a hard silver disc with a bright meniscus, not a soft glow. So it is drawn as
+// a near-white body with a crisp white rim and one offset lobe, over a dark collar for the rock's
+// shadow. That silver is also the one value the chapter cannot otherwise produce: The Reef's floor
+// is deep cold blue (bgColor 0x0a3358) and every prop on it is warm coral, so a bright achromatic
+// disc cannot be confused with either. RAW final colours — shaftLayer lives in entitiesLayer and is
+// never multiplied by render.floorTint, exactly like the eddy and tide-pool decals.
+export const AIR_POCKET_VIS = {
+  shade: 0x0d2b44, shadeA: 0.55,     // the overhang's shadow: the collar the air is trapped under
+  air: 0xe4f4ff, airA: 0.82,         // the air itself — a silver mirror, hard-edged, not a glow
+  lobe: 0xffffff, lobeA: 0.55,       // the brighter blob inside it, offset so it is not a bullseye
+  rim: 0xffffff, rimA: 0.9, rimW: 3, // the meniscus, ON r — the edge the mechanic is tested against
+  airFrac: 0.86,                     // air edge as a fraction of r; the shade collar spans this..1
+  sheen: 0xbfe9ff, sheenA: 0.18, sheenFrac: 1.15, // additive spill onto the water around it
+  breathe: 0.05,                     // ± fraction the sheen's size wanders — trapped air, not a beacon
+}
+
+// A coral head shattering under a Burst (v7.x, The Reef — render.js coralShatter, driven by the
+// SHIPPED {type:'crush'} event that stepCrush already emits). The skies' own crush FX cannot serve
+// this: it is a dust skirt, brick shards and a warm interior spill, and it leaves a permanent RUIN
+// in the render-local ledger — three things that mean something about a demolished building and
+// nothing at all about coral underwater, where there is no dust and no window light.
+//
+// So: hard angular CHUNKS in the bommie's own plum-red (BIOME_REEF.obstacle.tint), which sink under
+// fake gravity rather than drifting, plus a SILT puff that hangs and a few BUBBLES that rise — the
+// three things that actually happen when you break rock in water. No ledger entry and no scar: the
+// coral is simply gone, which is what run._crushed already guarantees in the sim.
+export const CORAL_CRUSH = {
+  chunks: 9, chunkSpeed: 120, chunkSpread: 170, chunkT: 0.55, chunkGrav: 210,
+  chunkTint: 0x8f3a56, chunkTintDark: 0x4a1730,
+  silt: 4, siltSpeed: 44, siltT: 1.1, siltTint: 0x7d5a63,
+  bubbles: 6, bubbleRise: 95, bubbleT: 0.9, bubbleTint: 0xdff2ff,
+  ringT: 0.34, ringTint: 0xe4f4ff,   // the extent ring, drawn at the coral's own radius
 }
 
 // Night-thunderstorm overlay (skies chapter, v5.6.18, render.js updateStorm): three cosmetic,
@@ -5320,6 +5456,38 @@ export const PULSE_CHARGE_COST = 45      // charge a full-strength pulse spends;
 export const PULSE_RADIUS_AT_FULL = 620  // px at a full spend (floor REPULSE_RADIUS 340)
 export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_FORCE 880)
 
+// ---- BURST (v7.x, The Reef — chapters declaring `burst: true`) ---------------------------------
+// The Reef's half of the same button. One press, one cooldown, one spend: the Pulse's shove above
+// fires exactly as it always does, and a `burst` chapter ALSO gets a forward dash that shatters
+// whatever coral it goes through. Not a second button and not a second bar — the design's rule is
+// one gimmick, one button, one second job for the bar, and a chapter that spent its press on a
+// choice between two casts would be spending it on a menu.
+//
+// WHY A DASH IS THE RIGHT ANSWER HERE and a bigger shove is not: the lane already denies you the
+// forward axis. Every other chapter's answer to "something is in my face" is to walk somewhere
+// else; here the only two things you own are a strafe and this button. The Pulse buys sideways
+// room, so the Burst buys the axis you cannot otherwise touch — which is also what makes the coral
+// mean anything (see CHAPTERS.reef.laneSolid).
+//
+// THE FLOOR IS THE DURATION, not the existence of the dash. spec §8.2's no-spiral rule says a
+// player with no charge must never be structurally trapped, only slowed, and that has to be
+// re-verified per chapter rather than assumed — so an empty bar still dashes, just BURST_DUR_MIN
+// instead of BURST_DUR_AT_FULL, and still shatters what it touches. Run RF.c pins that.
+// At laneScroll 45 x BURST_SPEED_MUL 9 = 405 px/s:
+//   empty bar  0.30s -> 122px travelled, 108px of it bought (13.5px was the scroll anyway)
+//   full bar   0.75s -> 304px travelled, 270px bought — one whole coral head's diameter (maxR 150)
+// The speed is FIXED across that range on purpose: a dash whose speed changed with the bar would be
+// a different move at every charge level, where a dash whose LENGTH changes is the same move, more
+// of it.
+export const BURST_SPEED_MUL = 9         // x the chapter's own laneScroll while the dash is live
+export const BURST_DUR_MIN = 0.30        // s of dash on an EMPTY bar — the no-spiral floor
+export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COST spend
+// Shatter reach while dashing, x PLAYER.radius (22) -> 55px. Deliberately under the rampage's own
+// x3: this is a lance, not a wrecking ball. It reads off stepCrush, the shipped permanent-removal
+// path (splice + run._crushed + {type:'crush'} + a CRUSH_XP gem), so a burst through coral pays the
+// same XP a kaiju gets for a shed and nothing new had to be invented for it.
+export const BURST_CRUSH_MUL = 2.5
+
 // ---- THE DARK (v7.x Book 2, owner directive) --------------------------------------------------
 // The bar is no longer only the Pulse's ammo. Owner's words: "if we're stealing light, then our
 // surroundings should be dark, and darker the less light we have", plus a drawback while you are
@@ -5406,14 +5574,22 @@ export const lightRadius = (charge, res, maxDim) => {
 }
 
 // Where a chapter's refill circles come from. run.shafts is the ONE list of "streamed circles you
-// stand in to refill", and two chapters fill it from different places: The Shelf's shafts ARE its
-// signature (cell/chance/r/minDist sit directly on it), while The Surf's tide pools are a sub-block,
-// because its signature already owns the surge and the sandbars.
+// stand in to refill", and three chapters fill it from different places: The Shelf's shafts ARE its
+// signature (cell/chance/r/minDist sit directly on it), while The Surf's tide pools and The Reef's
+// air pockets are sub-blocks, because those signatures already own something else (the surge and
+// the sandbars; the lane).
 //
 // Returning the signature OBJECT ITSELF for shafts — not a copy — is deliberate and asserted: the
 // Shelf's tune was measured against that exact object, and a copy would be a second thing to keep
 // in sync for no gain.
-export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? null))
+//
+// ONE function, THREE readers — streamShafts (sim.js, which decides existence), reset/updateShafts
+// (render.js, which decides what the circle looks like) and scripts/charge-probe.mjs. Adding a
+// chapter's refill geometry here is what keeps those three from becoming three independent chapter
+// tests that can disagree; that is not hypothetical, it is exactly how The Surf's tide pools — its
+// entire refill mechanic — shipped invisible behind a `signature.type === 'shafts'` test in
+// render.js while the sim was streaming them fine.
+export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? sig?.pockets ?? null))
 
 // How hard you hit, as a function of the chapter bar. OWNER RULING 2026-08-13, overriding the
 // earlier rule that the bar never touches damage — see the design doc's §5.3 for what that rule was
@@ -5432,6 +5608,26 @@ export const resourceDamageMul = (charge, res) => {
   if (!d) return 1
   return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (res.max || 1))
 }
+
+// ---- DROWNING (v7.x, The Reef — resources declaring a `drown` block) ---------------------------
+// The Reef's second job for its bar, and the opposite SHAPE from The Surf's. §5.3 spends the book's
+// one licence for a bar that drives damage on Humidity, and spends it on an onboarding chapter
+// whose cause is a place you can physically step off. Empty air is not that: it is a state you are
+// in, so it hurts on a clock rather than scaling an output, and it stops the instant you breathe.
+// A multiplier is imperceptible in its top half and a cliff in its bottom; a DoT is legible at
+// every level because it is the same red pulse every time and it only exists at zero.
+//
+// A HALF-SECOND CADENCE, not STATUS_TICK's 0.25. Two reasons, and both are about being read:
+//   - hurtPlayer floors a DoT hit at 1 HP and ROUNDS it, so a tick has to be big enough that the
+//     config number is the damage actually delivered. drown.dps 6 x 0.5 = 3 exactly; at 0.25 it
+//     would be 1.5 -> 2, i.e. a config saying 6 and a game doing 8.
+//   - render.js's `hurt` case scales its shake/vignette/flash by the hit's fraction of maxHP, so
+//     two bigger beats a second read as drowning where four small ones read as static.
+// The tell itself is entirely the shipped one: {type:'hurt', dmg, dot:true} already draws a red
+// vignette + shake + flash, and main.js already silences `e.dot` for audio. NO new event type, on
+// purpose — an event with no consumer in render.js or SFX_FOR_EVENT is the freeze scar, and a
+// chime twice a second for as long as you are empty is the nagging SUBMISSION's expiry was denied.
+export const DROWN_TICK = 0.5            // s between drowning ticks while the bar is empty
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
 // Kills give light back — but ONLY once bought. Owner ruling, and a reversal of the first cut which

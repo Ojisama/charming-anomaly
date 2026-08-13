@@ -14700,12 +14700,21 @@ function testSurfHumidity() {
   // above would stay green while the two streamers were quietly reading the same occupancy roll.
   // Read the salts straight out of the source instead (the run UG.k idiom: a render-side contract
   // with no other guard gets checked as source text) — direct, and immune to (f)'s blind spot.
+  // v7.x: streamShafts' salts are no longer literals — one streamer serves three chapters' refill
+  // circles, so the block comes from the SPEC (`const s0 = spec.salt ?? 20`, then s0+1/s0+2/s0+3).
+  // The extractor resolves that base rather than matching digits, because a regex that silently
+  // matched nothing is exactly how this assertion would go quietly blind (hence the >0 guard below,
+  // which is what caught this when the form changed).
   const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
   const shaftsFn = src.slice(src.indexOf('export function streamShafts'), src.indexOf('function stepShafts'))
   const sandbarsFn = src.slice(src.indexOf('export function streamSandbars'), src.indexOf('export function onSandbar'))
-  const saltsOf = (text) => [...text.matchAll(/obstacleCellHash\([^,]+,[^,]+,[^,]+,\s*(\d+)\)/g)].map((m) => Number(m[1]))
-  const shaftSalts = new Set(saltsOf(shaftsFn))
-  const sandbarSalts = saltsOf(sandbarsFn)
+  const baseM = shaftsFn.match(/const s0 = spec\.salt \?\? (\d+)/)
+  assert.ok(baseM, 'streamShafts no longer derives its salt block from spec.salt — the extractor below cannot resolve s0')
+  const shaftBase = Number(baseM[1])
+  const saltsOf = (text, base) => [...text.matchAll(/obstacleCellHash\([^,]+,[^,]+,[^,]+,\s*(?:(\d+)|s0(?:\s*\+\s*(\d+))?)\s*\)/g)]
+    .map((m) => (m[1] != null ? Number(m[1]) : base + Number(m[2] ?? 0)))
+  const shaftSalts = new Set(saltsOf(shaftsFn, shaftBase))
+  const sandbarSalts = saltsOf(sandbarsFn, 0)
   const saltOverlap = sandbarSalts.filter((s) => shaftSalts.has(s))
   assert.ok(shaftSalts.size > 0 && sandbarSalts.length > 0, 'salt extraction found nothing — the source slice markers moved')
   assert.strictEqual(saltOverlap.length, 0,

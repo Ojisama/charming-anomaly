@@ -147,6 +147,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul,
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -256,6 +257,7 @@ export function stepSim(run, input, dt) {
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
+  if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
@@ -616,8 +618,16 @@ function stepPlayerMovement(run, input, dt) {
   const lane = CHAPTERS[run.chapter].lane === true
   const ax = lane ? laneAxes(CHAPTERS[run.chapter]) : null
   if (ax) {
+    // THE BURST (v7.x, The Reef). The one thing allowed to touch the scroll rate, and it is allowed
+    // because it is the player's own button rather than a force acting on them — every other site
+    // in this file that could move the player along the lane (the obstacle push-out, the UFO's pull
+    // beam) is forbidden from doing so, because the scroll is what the mode guarantees. run._burstT
+    // is set by stepRepulse and ticked at the bottom of this branch; it is 0 for every chapter that
+    // does not declare `burst`, so this multiplier is 1 everywhere else including The Beyond.
+    const burstMul = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
-    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter])
+    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter]) * burstMul
+    if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else {
     p.vx = ix * speed
     p.vy = iy * speed
@@ -1182,6 +1192,15 @@ function stepRepulse(run, input, dt) {
   // cooldown feel arbitrary" - pushing REPULSE_RADIUS here would draw the 340px floor ring around
   // a 620px shove, which is that exact complaint with a bigger gap.
   run.events.push({ type: 'repulse', x: p.x, y: p.y, r: radius, charged: t })
+  // THE BURST (v7.x, The Reef — CHAPTERS[].burst). The same press, the same cooldown and the same
+  // `t`: a chapter declaring `burst` gets a forward dash on top of the shove, its DURATION bought
+  // with the charge that was already spent above. Set here rather than in stepPlayerMovement so the
+  // whole cast is one place, and read there because the lane owns the forward velocity — see the
+  // burstMul line in that function, and BURST_* in config.js for why the length and not the speed
+  // is what the bar buys. At t = 0 this is still BURST_DUR_MIN, never 0: spec §8.2's no-spiral floor
+  // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
+  // the coral is solid "trapped" is a thing that can actually happen.
+  if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
   const radSq = radius * radius
   const lax = laneAxes(ch)
   for (const e of run.enemies) {
@@ -2779,6 +2798,15 @@ export function stepTide(run, dt) {
 // actually reads as itself (no houses at sea) — see run._districtSeed's doc in state.js for why
 // reading that field here is still safe for the seeded test suite (drawn once at createRun, same as
 // always; reading an EXISTING value costs nothing from the shared Math.random stream at step time).
+// THE SALT REGISTRY. Every streamed field takes its own block, and a collision is SILENT — two
+// fields land in exactly the same cells, which reads as "the mechanic spawns on top of the other
+// one" and never as an error. Claimed so far:
+//   0-4   streamObstacles (occupancy, radius, x, y, kind)
+//   11-14 streamEddies     15-17 streamTraps
+//   20-23 refill circles: The Shelf's shafts, The Surf's tide pools (streamShafts' default)
+//   30-32 streamSandbars
+//   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
+// Next free block: 44+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -3014,19 +3042,21 @@ function streamEddies(run) {
   }
 }
 
-// -- Refill circles (v7.x Book 2: The Shelf's sun shafts, The Surf's tide pools) -------
+// -- Refill circles (v7.x Book 2: Shelf sun shafts, Surf tide pools, Reef air pockets) -
 // The fourth copy of streamObstacles' streaming idiom (obstacles -> eddies -> traps -> here): own
 // cell size (spec.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
-// run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts (20
-// occupancy, 21 x jitter, 22 y jitter, 23 drift phase) so a roll here can never collide with an
-// obstacle's (0-4), an eddy's (11-14) or a trap's (15-17) at the same cell. ZERO Math.random() at
-// step time - the same hard rule all three others state (the AA.c/runStarOnly scar).
+// run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Its salt block comes from
+// the SPEC (spec.salt, default 20 — see the s0 note below): 20-23 for the shafts and the pools,
+// 40-43 for the air pockets, so a roll here can never collide with an obstacle's (0-4), an eddy's
+// (11-14), a trap's (15-17) or a sandbar's (30-32) at the same cell. ZERO Math.random() at step
+// time - the same hard rule all three others state (the AA.c/runStarOnly scar).
 //
-// GENERALISED (v7.x, run US.c) to feed run.shafts from either chapter's signature via refillSpec()
+// GENERALISED (v7.x, run US.c) to feed run.shafts from any chapter's signature via refillSpec()
 // (config.js): The Shelf's shafts ARE its signature (refillSpec returns it unchanged — asserted by
 // identity, because the Shelf's tune was measured against that exact object), while The Surf's tide
-// pools live at signature.pools. Same cell/hash-salt geometry either way, so a pool and a shaft are
-// mechanically the same circle with a different name; only The Shelf's own signature carries drift
+// pools live at signature.pools and The Reef's air pockets at signature.pockets. Same cell/hash-salt
+// geometry every time, so a pool, a pocket and a shaft are mechanically the same circle with
+// different names and different art; only The Shelf's own signature carries drift
 // (driftAmp/driftHz), which is why stepShafts below still gates on sig.type === 'shafts'.
 //
 // THIS FUNCTION DECIDES EXISTENCE ONLY. It early-returns whenever the player has not crossed a cell
@@ -3066,20 +3096,39 @@ export function streamShafts(run) {
   const seed = run._obstacleSeed
   const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
   const amp = spec.driftAmp ?? 0
+  // THE SALT BLOCK IS THE SPEC'S, NOT THIS FUNCTION'S (v7.x, The Reef). One streamer now serves
+  // three chapters' refill circles, and a salt is what keeps a field from landing in the same cells
+  // as another field — so it has to be a property of the FIELD, not of whichever function happens
+  // to materialise it. Defaults to 20 so The Shelf's shafts and The Surf's pools keep the exact
+  // block the registry above records for them (and their tunes, which were measured against those
+  // hashes, come out bit-identical); The Reef's air pockets declare 40, the block reserved for them.
+  const s0 = spec.salt ?? 20
+  // A LANE HAS WALLS, AND A REFILL CIRCLE OUTSIDE THEM IS A LIE (v7.x, The Reef). The streaming
+  // grid covers a 1400px disc around the player; the lane is only ~860px wide, so two whole cell
+  // rows either side of it materialise circles the player is CLAMPED away from and can only watch
+  // scroll past. On the one chapter whose bar has a single refill source that is not scenery, it is
+  // the picture of "the bar cannot be filled" — the exact misreading the Surf's own tune block was
+  // rewritten to avoid, arrived at from the geometry instead of from the rate. Dropped when WHOLLY
+  // outside, so a circle the player can reach the rim of still exists and still counts.
+  // Inert for every non-lane chapter, and no lane chapter but this one declares a refill spec.
+  const laneCh = CHAPTERS[run.chapter].lane === true
+  const lax = laneCh ? laneAxes(CHAPTERS[run.chapter]) : null
+  const laneHW = laneCh ? laneHalfWidth(run.viewRadius) : 0
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j
       if (live.has(key)) continue
-      if (obstacleCellHash(i, j, seed, 20) >= spec.chance) continue
+      if (obstacleCellHash(i, j, seed, s0) >= spec.chance) continue
       const slack = Math.max(0, cs / 2 - spec.r - 20 - amp) // see the driftAmp note above
-      const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 21) - 0.5) * 2 * slack
-      const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 22) - 0.5) * 2 * slack
+      const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 1) - 0.5) * 2 * slack
+      const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 2) - 0.5) * 2 * slack
       if (Math.hypot(bx, by) < spec.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (lax && Math.abs(lax.cross === 'x' ? bx : by) - spec.r > laneHW) continue // see the lane note above
       if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
       // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the
       // whole field does not pulse in unison. Stored, not re-derived, because x/y are recomputed
       // every frame and a per-frame hash would be the one avoidable cost in that loop.
-      const phase = obstacleCellHash(i, j, seed, 23) * Math.PI * 2
+      const phase = obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2
       run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase, _cell: key })
     }
   }
@@ -3184,6 +3233,36 @@ export function stepCharge(run, dt) {
     if (Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r) { c += res.refill * dt; break }
   }
   run.charge = Math.max(0, Math.min(res.max, c))
+}
+
+// -- Drowning (v7.x, The Reef) --------------------------------------------------------
+// The Reef's second job for its bar: an EMPTY bar hurts, on a clock, until you breathe. Gated on
+// resource.drown so every other chapter returns on line two, like stepCharge itself.
+//
+// Returns true if the player died, matching stepPools/stepTraps/stepLeaks' contract — it is called
+// from stepSim's `if (stepX(...)) return` group for that reason, and NOT folded into stepCharge,
+// which has no way to report a death and runs long before the damage steps.
+//
+// The accumulator lives on the run rather than on an entity because there is only ever one drowning
+// player, and it is RESET the moment the bar comes off zero: a partial tick banked before you
+// reached a pocket must not be spent on the next time you run dry, minutes later.
+//
+// THE TELL IS THE SHIPPED ONE, deliberately. hurtPlayer pushes {type:'hurt', dmg, dot:true}, which
+// render.js's `hurt` case already turns into a red vignette + shake + flash scaled by the hit's
+// share of maxHP, and which main.js already silences for audio (`if (e.dot) continue`). Publishing
+// into a contract field render.js already reads is the whole of the fix the freeze scar taught —
+// a new {type:'drown'} event would have needed a consumer in two files to be anything but silence.
+function stepDrown(run, dt) {
+  const res = CHAPTERS[run.chapter].resource
+  if (!res || !res.drown) return false
+  if (run.charge > 0) { run._drownAcc = 0; return false }
+  run._drownAcc = (run._drownAcc ?? 0) + dt
+  let died = false
+  while (run._drownAcc >= DROWN_TICK) {
+    run._drownAcc -= DROWN_TICK
+    if (!died && hurtPlayer(run, res.drown.dps * DROWN_TICK, true, 'drown')) died = true
+  }
+  return died
 }
 
 // -- Snap traps (v6.5 undergrowth identity: streamed) ---------------------------------
@@ -3348,6 +3427,48 @@ function resolveSeparationPair(run, i, j) {
 // distance checks/frame. Comparing squared distances skips the sqrt on every non-overlapping pair
 // (the overwhelming majority) and only pays for it on the rare branch that actually needs the unit
 // normal to push something out. Ships to phones; not optional (design doc §1).
+// -- Solid terrain IN A LANE (v7.x, The Reef — CHAPTERS[].laneSolid) -------------------
+// Coral heads you have to go round, in a mode whose whole premise is that you cannot stop and
+// cannot back up. Three restrictions, each answering one half of the shipped `if (lane) return`
+// above (see its comment, and CHAPTERS.reef.laneSolid's):
+//
+//   1. THE PLAYER ONLY. The enemy loop stays off in every lane chapter, so a marching rank still
+//      crosses a bommie in formation. That is not an omission — a rank shoved apart by terrain
+//      stops reading as a rank, which is the second thing the original early return protected.
+//   2. RESOLVED ACROSS THE LANE. The forward coordinate is never written here, so a wall cannot
+//      move you along the lane in EITHER direction: not backward (the ~10% of frames the shipped
+//      comment describes, which locally reverses the one constant the mode guarantees) and not
+//      forward, which would be a free Burst. Solving for the cross offset that puts the player on
+//      the circle AT THEIR CURRENT FORWARD POSITION is the exact fixed point of iterating the old
+//      radial push with the forward component clamped, so it is that clamp, converged, in one step.
+//   3. ONLY WHERE YOU COULD HAVE GONE ROUND. A coral whose circle reaches outside the lane walls is
+//      scenery. Making it solid would put a stretch of corridor behind a wall with no gap — the
+//      structural trap the no-spiral floor forbids — and it would fight stepPlayerMovement's wall
+//      clamp for the player's position every single frame, since the clamp runs earlier in the step
+//      and would not get another turn.
+// The final clamp is belt and braces for the boundary case where a coral sits exactly at the edge
+// of the reachable band: the lane wall outranks the coral, always.
+function stepLaneSolid(run) {
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.laneSolid) return
+  const ax = laneAxes(ch)
+  const p = run.player
+  const hw = laneHalfWidth(run.viewRadius)
+  for (const o of run.obstacles) {
+    if (Math.abs(o[ax.cross]) + o.r > hw) continue      // pokes out of the lane -> scenery (3)
+    const minSep = o.r + PLAYER.radius
+    const dF = p[ax.fwd] - o[ax.fwd]
+    if (Math.abs(dF) >= minSep) continue
+    const dC = p[ax.cross] - o[ax.cross]
+    const need = Math.sqrt(minSep * minSep - dF * dF)
+    if (Math.abs(dC) >= need) continue
+    // Dead centre picks the +cross side rather than a random one, for the same reason the repulse's
+    // dead-centre shove picks the lane's own heading: a coincidence should not be a coin flip.
+    const side = dC < 0 ? -1 : 1
+    p[ax.cross] = Math.max(-hw, Math.min(hw, o[ax.cross] + side * need))
+  }
+}
+
 function stepObstacles(run) {
   if (!run.obstacles || run.obstacles.length === 0) return
   // v5.18: in the lane (beyond) the obstacles are PLANETS — distant bodies you scroll past, not
@@ -3356,7 +3477,11 @@ function stepObstacles(run) {
   // the lane on ~10% of frames when they held a strafe into a planet's belly, locally reversing the
   // one thing this chapter guarantees is constant (LANE_SCROLL_SPEED). It also kept marchers from
   // holding rank, since a rank crossing a planet was shoved apart sideways.
-  if (CHAPTERS[run.chapter].lane) return
+  // v7.x: BOTH of those are still true, so a lane chapter that wants terrain (The Reef's coral,
+  // CHAPTERS[].laneSolid) gets stepLaneSolid instead of this function's radial push — the player
+  // only, resolved across the lane only, and only for coral you could have gone round. It is gated
+  // on its own chapter field and never on `lane`, so The Beyond takes the bare return it always did.
+  if (CHAPTERS[run.chapter].lane) { stepLaneSolid(run); return }
   const p = run.player
   // v5.8 kaiju redesign: crushable structures (CHAPTERS[chapter].crush) don't push the PLAYER —
   // they pop on contact instead (stepCrush, below), so treating them as terrain for the player
@@ -3416,11 +3541,22 @@ function stepObstacles(run) {
 // and this function's own splice below removes the cell from `live`, so the very next cell-boundary
 // scan (~1.2s later at PLAYER.baseSpeed/OBSTACLE_CELL, nowhere near a 1900px walk) re-rolled the
 // identical building right back in. The claim was simply wrong, confirmed by playtest.
+// v7.x: THE REEF'S BURST IS THE THIRD ENTRY POINT TO THIS PATH, and reuses it whole rather than
+// copying it — the splice, the permanent run._crushed record, the {type:'crush'} event, the
+// CRUSH_XP gem and the _obstacleRev bump are all things a coral head shattering needs and all
+// things this function already gets right (the v5.9.1 re-roll bug above is the reason a second
+// copy would be a liability). Gated on the chapter declaring `burst` AND a live dash, so outside
+// the dash's third of a second a reef obstacle is ordinary solid terrain (stepLaneSolid) and
+// nothing is destructible at all. The two rampage lines stay behind `crush`: run.rampage is the
+// kaiju's meter, ui.js hides its bar for any chapter without `crush`, and a hidden bar filling in
+// the background is exactly the kind of state that surfaces two versions later as a mystery.
 function stepCrush(run) {
-  if (!CHAPTERS[run.chapter].crush) return
+  const ch = CHAPTERS[run.chapter]
+  const bursting = ch.burst === true && (run._burstT ?? 0) > 0
+  if (!ch.crush && !bursting) return
   if (!run.obstacles || run.obstacles.length === 0) return
   const p = run.player
-  const crushR = PLAYER.radius * (run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
+  const crushR = PLAYER.radius * (bursting ? BURST_CRUSH_MUL : run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
   let changed = false
   for (let i = run.obstacles.length - 1; i >= 0; i--) {
     const o = run.obstacles[i]
@@ -3432,8 +3568,10 @@ function stepCrush(run) {
     changed = true
     run.events.push({ type: 'crush', x: o.x, y: o.y, kind: o.kind })
     run.gems.push({ x: o.x, y: o.y, xp: CRUSH_XP }) // same drop path dealDamage uses for a kill
-    run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
-    run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
+    if (ch.crush) {
+      run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
+      run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
+    }
   }
   // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural cell
   // crossing re-triggers streamObstacles — syncObstacles only rebuilds when _obstacleRev changes
