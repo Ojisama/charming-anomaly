@@ -134,3 +134,25 @@ single policy alone.
 
 The same caution applies to The Trawl for a different reason: there the honest model is "run from the
 net", which is a heading, not a circle.
+
+---
+
+## ⚠ FIX BEFORE ADDING CHAPTERS: run XX cannot see Book 2
+
+run XX's French coverage walk enumerates `CHAPTER_ORDER`, which is **Book 1 only**
+(`BOOKS.book1.chapters`). So `surf` and `shelf` names, taglines and roster names are **already exempt
+from it today**, and three more chapters would ship untranslated with the suite fully green.
+
+This is the FOURTH time this exemption has shipped untranslated strings — CLAUDE.md already records
+two City enemies in v6.3, every weapon mod in v6.6.26, and the whole elements redesign in v7.55. The
+pattern is always the same: the walk's denominator is narrower than the thing being claimed.
+
+The honest denominator is `Object.keys(CHAPTERS)`. Widen it, watch it go RED against the strings that
+are genuinely missing, then write the French — in that order, per CLAUDE.md's own instruction.
+
+Two further sweeps have the same narrow denominator and fall back to generic copy rather than
+failing: the endings/unlock lines, and a Book-2-scoped anomaly assertion that fails with a misleading
+message. And several counted assertions will go legitimately red when chapters are added — the
+daily-chapter coupon-collector check over a fixed number of dates is the clearest. **Print the
+denominator in every sweep's PASS line** so the next person can tell a real red from an arithmetic
+one.
