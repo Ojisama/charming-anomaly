@@ -827,16 +827,12 @@ const CONFIG = {
   // Deliberately terser than the English: these are reference pages, read mid-run. PV, not
   // "points de vie" — the abbreviation this file already standardises on everywhere else.
 
-  "Your hits set enemies burning for {pct}% of that hit’s damage over {secs}s. Best on heavy hits.":
-    "Chaque coup enflamme : {pct}% des dégâts du coup, sur {secs}s. Idéal sur les gros coups.",
   "Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.":
     "Chaque coup enflamme sa cible pour une part de ses dégâts : gros coup, brûlure profonde ; arme rapide, beaucoup de petites brûlures.",
   "A new hit only replaces the burn if it would be stronger.":
     "Seule une brûlure plus forte remplace la précédente.",
   "Yours: {pct}% of each hit, over {secs}s.":
     "Tes stats actuelles : {pct}% de chaque coup, sur {secs}s.",
-  "Damage chills. Take {pct}% of an enemy’s health within {secs}s and it freezes for {freeze}s.":
-    "Tes dégâts givrent. Retire {pct}% des PV d'un ennemi en {secs}s : il gèle {freeze}s.",
   "Damage chills. Chill fills with the health you have just taken off an enemy; a full gauge freezes it.":
     "La jauge de givre se remplit avec les PV que tu viens de retirer. Pleine, elle gèle l'ennemi.",
   "A freeze holds for {freeze}s. Afterwards the enemy resists cold for {resist}s.":
@@ -845,16 +841,12 @@ const CONFIG = {
     "Les gros ennemis ne sont pas immunisés, ils ont juste plus de PV : le même coup en retire une part plus faible. Seules les élites « Ancré » ⚓ ne gèlent jamais.",
   "Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.":
     "Tes stats actuelles : {pct}% des PV en {secs}s pour geler.",
-  "Damage weakens. An enemy you have just worn down takes +{pct}% damage from every source. Venom deals none itself.":
-    "Tes dégâts affaiblissent. Un ennemi fraîchement entamé subit +{pct}% de dégâts de toutes sources. Le venin n'en inflige aucun.",
   "Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.":
     "Tes dégâts affaiblissent : la cible subit plus de dégâts de toutes sources, armes et brûlures comprises.",
   "Venom deals no damage of its own. It makes everything else hurt more.":
     "Le venin n'inflige aucun dégât : il amplifie celui de tout le reste.",
   "Yours: +{pct}% damage taken on an enemy you have just taken half a bar off.":
     "Tes stats actuelles : +{pct}% s'il vient de perdre la moitié de ses PV.",
-  "Arcs to {arcs} enemies for {dmg}% damage, at {range}% range. {spread}% chance to spread burning to each.":
-    "Arcs vers {arcs} ennemis à {dmg}% des dégâts, portée {range}%. {spread}% de chances de propager la brûlure à chacun.",
   "Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.":
     "Chaque coup part en arc vers les ennemis proches, pour une part des dégâts, et peut leur transmettre brûlure et saignement.",
   "More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.":
@@ -869,6 +861,16 @@ const CONFIG = {
     "Les éléments montent donc avec tes armes : plus de dégâts, plus d'effet.",
   "Back":
     "Retour",
+
+  // The cards carry ONLY the figure that decides the pick; the Codex has the rest.
+  "Burns for {pct}% of each hit.":
+    "Brûle pour {pct}% de chaque coup.",
+  "Freezes at {pct}% of a health bar.":
+    "Gèle à {pct}% des PV retirés.",
+  "+{pct}% damage taken.":
+    "+{pct}% de dégâts subis.",
+  "{arcs} arcs for {dmg}% damage.":
+    "{arcs} arcs pour {dmg}% des dégâts.",
 
   // ---- elite affixes (ELITE_AFFIXES). Shown on the elite itself; "Ancré" is the one the
   // element Codex names, since anchored elites are the only ones cold can never freeze.
