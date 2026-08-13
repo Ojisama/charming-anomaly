@@ -3158,6 +3158,13 @@ export const CHAPTER_ORDER = BOOKS.book1.chapters
 // branches on its ledger entry being ABSENT), so sweeping it in here would change shipped
 // behaviour for a refactor that is supposed to change none.
 export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
+
+// Humidity's damage floor (owner ruling 2026-08-13, §5.3 of the design doc — see resourceDamageMul
+// below, beside refillSpec, for the full explanation). Declared here, ahead of CHAPTERS, purely so
+// CHAPTERS.surf.resource can reference the name directly instead of duplicating the number as a
+// second literal — a `const` referenced inside an object literal must already be initialized, and
+// CHAPTERS is built as one literal below.
+export const HUMIDITY_DMG_FLOOR = 0.7
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -4001,7 +4008,11 @@ CHAPTERS.surf = {
   // sandbar multiplies it by signature.bars.drainMul. Numbers are a STARTING POINT to be measured
   // with scripts/charge-probe.mjs across its three spend policies before being called tuned — the
   // Shelf's first two cuts both read as healthy under one policy and were the spiral under another.
-  resource: { name: 'Humidity', drain: 1.6, refill: 20, killRefill: 1.2, max: 100 },
+  //
+  // `damage` is the §5.3 owner-ruling override: only Humidity carries this key, which is what makes
+  // resourceDamageMul() (config.js) a no-op everywhere else. floor reuses HUMIDITY_DMG_FLOOR rather
+  // than a second literal, so the two never drift apart.
+  resource: { name: 'Humidity', drain: 1.6, refill: 20, killRefill: 1.2, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
 
   // ---- render-only. A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above
   // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in
@@ -4797,6 +4808,24 @@ export const lightRadius = (charge, res) => {
 // Shelf's tune was measured against that exact object, and a copy would be a second thing to keep
 // in sync for no gain.
 export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? null))
+
+// How hard you hit, as a function of the chapter bar. OWNER RULING 2026-08-13, overriding the
+// earlier rule that the bar never touches damage — see the design doc's §5.3 for what that rule was
+// protecting and which mitigations replace it. HUMIDITY_DMG_FLOOR itself lives just above CHAPTERS
+// (it is referenced directly inside CHAPTERS.surf.resource, which is built before this point in the
+// file — see the comment there).
+//
+// Opt-in per chapter: only a resource declaring a `damage` block participates, so The Shelf, The
+// Reef and The Trawl are untouched and their census numbers stay comparable with Book 1's.
+//
+// LINEAR from the floor to 1.0, deliberately: the reviewed failure was a multiplier you cannot feel
+// in its top half and fall off a cliff in its bottom, and a curve with a knee is that shape by
+// construction. A straight line at least reports its own state honestly.
+export const resourceDamageMul = (charge, res) => {
+  const d = res?.damage
+  if (!d) return 1
+  return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (res.max || 1))
+}
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
 // Kills give light back — but ONLY once bought. Owner ruling, and a reversal of the first cut which

@@ -142,7 +142,7 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -4145,6 +4145,7 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   const p = run.player
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
   let crit = false
   if (Math.random() < p.critChance + run.passives.critChance + critBonus) {
     dmg *= (p.critDamage + run.passives.critDamage)
@@ -5850,6 +5851,7 @@ function pickBloomSpot(run, castRange) {
 function applyDotDamage(run, enemy, baseDmg) {
   const p = run.player
   const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
   dealDamage(run, enemy, dmg, false, true)
 }
 

@@ -111,6 +111,8 @@ import {
   BREATH_CHARGE_T, LASH_PULL_T,
   // v7.55 Book 2 The Surf: Humidity + tide pools (Run US.c)
   refillSpec,
+  // v7.55 Book 2 The Surf: Humidity drives damage (Run US.d)
+  HUMIDITY_DMG_FLOOR, resourceDamageMul,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge } from '../src/sim.js'
 
@@ -12284,6 +12286,7 @@ try {
   testSurfTide()
   testSurfSandbars()
   testSurfHumidity()
+  testSurfHumidityDamage()
   testDevMenu()
   testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
@@ -14548,6 +14551,53 @@ function testSurfHumidity() {
     `streamSandbars reuses salt(s) ${saltOverlap.join(',')} that streamShafts already owns (${[...shaftSalts].sort((a, b) => a - b).join(',')}) — an occupancy or jitter roll can no longer be told apart`)
 
   console.log(`PASS run US.c (humidity): tide pools refill ${res.refill}/s, open water drains ${openDrain.toFixed(1)}/s and a sandbar ${barDrain.toFixed(1)}/s, and The Shelf's shaft field is unchanged`)
+}
+
+// ---- run US.d (v7.55): Humidity drives damage — owner ruling overriding spec §5.3's own rule ----
+function testSurfHumidityDamage() {
+  const res = CHAPTERS.surf.resource
+
+  // (a) endpoints and monotonicity.
+  assert.strictEqual(resourceDamageMul(res.max, res), 1, 'a full bar must cost nothing')
+  assert.strictEqual(resourceDamageMul(0, res), HUMIDITY_DMG_FLOOR, 'an empty bar must sit on the floor')
+  // Mutation-found gap (2026-08-13): every OTHER sample in this function stays inside [0, res.max],
+  // so a dropped Math.min(1, …) clamp on the fraction is invisible to them — it only shows up once
+  // charge overshoots max, which nothing above ever does. Test that directly, or the clamp has no
+  // guard at all despite the mutation table below claiming it does.
+  assert.strictEqual(resourceDamageMul(res.max * 2, res), 1, 'an over-full charge must not exceed 1')
+  let prev = -Infinity
+  for (let i = 0; i <= 40; i++) {
+    const v = resourceDamageMul((i / 40) * res.max, res)
+    assert.ok(v >= prev, `damage multiplier is not monotonic at charge ${(i / 40) * res.max}`)
+    prev = v
+  }
+
+  // (b) the floor is a NUDGE, not a cliff. The four-reviewer pass that originally banned this found
+  // 40% output in the onboarding chapter put it past Undergrowth's endgame. Anything under 0.6 here
+  // is that finding again.
+  assert.ok(HUMIDITY_DMG_FLOOR >= 0.6,
+    `HUMIDITY_DMG_FLOOR ${HUMIDITY_DMG_FLOOR} re-creates the exact failure this was reviewed for`)
+
+  // (c) EVERY OTHER CHAPTER IS UNAFFECTED. The rule still holds everywhere it was not overridden.
+  for (const id of Object.keys(CHAPTERS)) {
+    const r = CHAPTERS[id].resource
+    if (id === 'surf') continue
+    assert.strictEqual(resourceDamageMul(0, r), 1,
+      `${id}: an empty bar changed damage, but only The Surf's humidity may do that`)
+  }
+
+  // (d) BOTH damage sites route through it. A one-site fix is the silent failure here: half the
+  // weapons would scale and half would not, and nothing would throw. sim.js is not importable as a
+  // module for this check, so assert against its source text — the run UG.k trick.
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const sites = [...src.matchAll(/baseDmg \* p\.damageMul/g)].length
+  const wired = [...src.matchAll(/resourceDamageMul\(run\.charge/g)].length
+  assert.ok(sites >= 2, `expected at least 2 player-damage sites in sim.js, found ${sites}`)
+  assert.strictEqual(wired, sites,
+    `${wired} of ${sites} player-damage sites call resourceDamageMul — every one must, or humidity ` +
+    `scales some weapons and not others with no error`)
+
+  console.log(`PASS run US.d (humidity damage): floor ${HUMIDITY_DMG_FLOOR}, monotonic to 1.0, wired at all ${sites} damage sites, and every other chapter reads 1.0`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------
