@@ -14857,10 +14857,29 @@ function testModalPopBookkeeping() {
 function testUndertowLadder() {
   // (a) The Surf is the gentlest chapter in its book — it is the onboarding chapter now, and The
   // Shelf's numbers were fitted while IT held that job.
+  //
+  // enemyHpMul is in this list because the firming commit NAMES it: the body -> pond step it copies
+  // moves exactly enemyHpMul (+0.10) and maxAliveMul (+0.15) and leaves the other three flat. The
+  // first cut of this scenario asserted the three flat axes and not the one that actually moved, so
+  // reverting CHAPTERS.shelf.balance.enemyHpMul 0.9 -> 0.8 — undoing the whole point of the commit,
+  // and leaving Book 2's ONBOARDING chapter with tougher enemies than its chapter 2 — left the suite
+  // entirely green. AXES is enumerated rather than hand-listed so the PASS line's count cannot drift
+  // away from what is actually checked.
   const surf = CHAPTERS.surf.balance, shelf = CHAPTERS.shelf.balance
-  assert.ok(surf.spawnMul <= shelf.spawnMul, `The Surf must not out-spawn The Shelf (${surf.spawnMul} vs ${shelf.spawnMul})`)
-  assert.ok(surf.enemyDmgMul <= shelf.enemyDmgMul, 'The Surf must not out-damage The Shelf')
-  assert.ok(surf.maxAliveMul <= shelf.maxAliveMul, 'The Surf must not hold a bigger crowd than The Shelf')
+  const AXES = [
+    ['spawnMul', 'out-spawn'],
+    ['enemyDmgMul', 'out-damage'],
+    ['enemyHpMul', 'field tougher enemies than'],
+    ['maxAliveMul', 'hold a bigger crowd than'],
+  ]
+  for (const [key, verb] of AXES) {
+    assert.ok(surf[key] <= shelf[key],
+      `The Surf must not ${verb} The Shelf on ${key} (${surf[key]} vs ${shelf[key]})`)
+  }
+  // …and it must actually be a LADDER, not four ties: the firming commit moved two axes, so at least
+  // one of them has to be strictly gentler or "surf <= shelf" is satisfied by copying the table.
+  assert.ok(AXES.some(([key]) => surf[key] < shelf[key]),
+    'The Surf and The Shelf have identical balance on every axis — the firming step is gone')
 
   // (b) sticky excludes every Undertow chapter. A flat -15% player speed is an unstated tax in a
   // book built on travel, and it is already excluded from beyond/pond/shelf for that reason.
@@ -14873,5 +14892,5 @@ function testUndertowLadder() {
   assert.deepStrictEqual(BOOKS.undertow.chapters, ['surf', 'shelf'], 'the Undertow ladder is wrong')
   assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
 
-  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all three axes, sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
+  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
 }
