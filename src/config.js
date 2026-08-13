@@ -2894,7 +2894,7 @@ export const COMBOS = {
   comboCd: 0.5,
 }
 
-// ---- Elements REDESIGN (v7.53, behind run.newElements) ------------------------------
+// ---- Elements REDESIGN (behind run.newElements) ------------------------------
 // Spec: docs/superpowers/specs/2026-08-13-elements-redesign-design.md.
 //
 // ponytail: this block and the ORIGINAL element constants above both ship, because the redesign is

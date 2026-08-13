@@ -231,7 +231,7 @@ const ui = initUI({
     run.phase = 'playing'
     ui.showScreen('hud')
   },
-  // v7.53: flips the elements-redesign flag (run.newElements — see the "Elements REDESIGN" block
+  // Flips the elements-redesign flag (run.newElements — see the "Elements REDESIGN" block
   // in config.js) so a card can be tested against the live URL without waiting for the redesign to
   // ship for real. Per-run and never persisted (state.js), same as every other dev-only lever here.
   // devCards' output depends on it (makeElementCard branches on run.newElements), so the list is
@@ -242,12 +242,12 @@ const ui = initUI({
     devList = devCards(run)
     ui.showScreen('dev', { cards: devList, newElements: run.newElements })
   },
-  // ---- element codex (v7.53) ------------------------------------------------------------------
-  // Explains the elements-redesign rule to a player, reachable two ways: the title's ⚙ sheet (no
-  // run — every element reads P=0, so the pages show the rule with no "yours" line) and the pause
-  // build sheet (P = this run's own run.elements). ui.js never touches `run` itself, so it hands
-  // back `from` and main.js — the only module that knows whether a run exists — decides where
-  // Close lands, the same split as onPauseToggle's screen memory above.
+  // ---- element codex ---------------------------------------------------------------------------
+  // Explains the elements-redesign rule to a player, from the pause build sheet (P = this run's own
+  // run.elements) and ONLY while that run has the redesign switched on — see the gate in ui.js's
+  // pause render. ui.js never touches `run` itself, so it hands back `from` and main.js — the only
+  // module that knows whether a run exists — decides where Close lands, the same split as
+  // onPauseToggle's screen memory above.
   onCodexOpen(from) {
     ui.showScreen('codex', { elements: from === 'pause' && run ? run.elements : null, from })
   },
@@ -355,7 +355,7 @@ const ui = initUI({
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
 // over a level-up.
-const pauseData = () => ({ mutators: run.mutators, mode: runMode, build: buildReadout(run) })
+const pauseData = () => ({ mutators: run.mutators, mode: runMode, build: buildReadout(run), newElements: run.newElements })
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {

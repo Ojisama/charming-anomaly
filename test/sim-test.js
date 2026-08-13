@@ -109,7 +109,7 @@ import {
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
-  // v7.53 elements redesign (Run EL)
+  // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
@@ -14671,5 +14671,28 @@ function testElementsRedesign() {
       `the element branch returned null and buildLevelUpChoices broke out of the slot loop`)
     assert.ok(elementCards > 10, `only ${elementCards} element cards across ${screens} screens — the bucket is not producing them at all`)
     console.log(`PASS run EL.f (ladder + no truncation): ${elementCards} element cards over ${screens} screens, 0 normal, 0 shorter than control`)
+  }
+
+  // (g) THE CODEX NEVER REACHES A NORMAL RUN. It describes the redesign, so on a run without the
+  // flag it would be explaining rules the game is not playing by — a worse failure than not having
+  // it, because it reads as documentation rather than as a preview. This ships to the live URL with
+  // the flag OFF by default, so the gate is the whole reason it is safe to ship. Source text,
+  // because the alternative is booting a DOM: the button must sit behind `d.newElements`, main.js
+  // must actually put that key in pauseData, and there must be exactly ONE way in (an ungated
+  // entry point elsewhere — the title's ⚙ sheet had one — puts it back in front of everybody).
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const opens = [...uiSrc.matchAll(/data-act="codex-open"/g)]
+    assert.strictEqual(opens.length, 1, `${opens.length} Codex entry points in ui.js — every one of them ` +
+      `needs its own newElements gate, and a screen with no run cannot have one`)
+    const pause = uiSrc.slice(uiSrc.indexOf('setHtml(screens.pause'))
+    const at = pause.indexOf('data-act="codex-open"')
+    assert.ok(at > 0, 'the Codex entry is no longer on the pause screen — it is the only screen with a run to read the flag from')
+    assert.ok(/\$\{d\.newElements \?/.test(pause.slice(Math.max(0, at - 200), at)),
+      'the pause Codex button is not gated on d.newElements — every player now gets a Codex for an element system they are not playing')
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/const pauseData = \(\) => \(\{[^\n]*newElements/.test(mainSrc),
+      'pauseData no longer passes newElements, so the gate above reads undefined and the Codex is hidden from EVERY run, flag or not')
+    console.log('PASS run EL.g (codex gated): exactly one Codex entry, behind d.newElements, and pauseData supplies it')
   }
 }
