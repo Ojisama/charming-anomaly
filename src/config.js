@@ -2987,7 +2987,7 @@ export const elementCardDesc = (id, P) => {
   switch (id) {
     case 'fire':      return { s: 'Burns for {pct}% of each hit.', p: { pct: f.burnPct } }
     case 'cold':      return { s: 'Freezes at {pct}% of a health bar.', p: { pct: f.freezePct } }
-    case 'venom':     return { s: 'Enemies take +{pct}% damage.', p: { pct: f.ampPct } }
+    case 'venom':     return { s: 'The more you have just hurt an enemy, the more damage it takes: +{pct}% at half a bar.', p: { pct: f.ampPct } }
     case 'lightning': return { s: '{arcs} arcs for {dmg}% damage.', p: { arcs: f.arcs, dmg: f.dmgPct } }
     default:          return { s: '', p: {} }
   }

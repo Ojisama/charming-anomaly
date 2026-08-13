@@ -866,9 +866,9 @@ const CONFIG = {
   "Burns for {pct}% of each hit.":
     "Enflamme l'ennemi pour {pct}% des dégâts du coup.",
   "Freezes at {pct}% of a health bar.":
-    "Retire {pct}% de ses PV pour le geler.",
-  "Enemies take +{pct}% damage.":
-    "L'ennemi subit +{pct}% de dégâts.",
+    "Retire {pct}% des PV d'un ennemi pour le geler.",
+  "The more you have just hurt an enemy, the more damage it takes: +{pct}% at half a bar.":
+    "Un ennemi que tu viens de blesser prend plus de dégâts : +{pct}% à mi-vie.",
   "{arcs} arcs for {dmg}% damage.":
     "Des éclairs transmettent {dmg}% des dégâts à {arcs} ennemis proches.",
 
