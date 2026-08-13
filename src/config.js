@@ -1678,7 +1678,8 @@ export const WEAPONS = {
     // Shipped numbers, 240s x 10 seeds at surf d3, eff dps / kills per min, against the whip:
     //   L1  pincer 36 / 51.3   whip 48 / 64.0     — the opener is the weaker end, deliberately
     //   L5  pincer 66 / 82.2   whip 71 / 83.3     — level on kills, 93% on damage
-    // (CHAPTERS.surf still spreads the pond's `balance` table; Task 9 owns the chapter's own.)
+    // (measured while CHAPTERS.surf still spread the pond's `balance` table; Task 9 gave the
+    // chapter its own, gentler tune, so a re-census against it is still owed.)
     levels: [
       { dmg: 40, r: 50, cd: 1.35, knock: 340 },
       { dmg: 50, r: 54, cd: 1.22, knock: 360 },
@@ -4005,10 +4006,13 @@ CHAPTERS.shelf = {
     dark: { from: 0.5, speedFloor: 0.6, dim: 0.86, lightFull: 820, lightEmpty: 210 },
   },
 
-  // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
-  // Book 1's: maxAlive between body's 0.45 and pond's 0.60, HP between body's 0.75 and pond's 0.85.
-  // The coin purse is shared, so this has to read for a 0-card newcomer and an 8-card veteran alike.
-  balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.8, xpMul: 1.25, maxAliveMul: 0.5 },
+  // Book 2's SECOND chapter now (Task 9 gave The Surf the onboarding job this chapter used to
+  // hold), so it firms up by exactly the step Book 1 takes for the same chapter1->chapter2 move —
+  // body -> pond leaves spawnMul/enemyDmgMul/xpMul flat and moves only enemyHpMul (+0.10) and
+  // maxAliveMul (+0.15). Applied to this chapter's own prior numbers (0.75/0.75/0.8/1.25/0.5) that
+  // lands here. The coin purse is shared, so this still has to read for a 0-card newcomer as much
+  // as an 8-card veteran — one step, not a wall.
+  balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.65 },
 
   // ---- render-only. Owner: "this looks too much like the pond ... we're at the SURFACE of the
   // ocean, we're not in a pond, so green is weird. it should be more blue, with waves." ----
@@ -4106,6 +4110,16 @@ CHAPTERS.surf = {
   // resourceDamageMul() (config.js) a no-op everywhere else. floor reuses HUMIDITY_DMG_FLOOR rather
   // than a second literal, so the two never drift apart.
   resource: { name: 'Humidity', drain: 1.6, refill: 20, killRefill: 1.2, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
+
+  // A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above shares pond's
+  // `balance` table BY REFERENCE (see CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles in
+  // shipped code — the same hazard, one field over), so `CHAPTERS.surf.balance.spawnMul = …` in
+  // place would rewrite The Pond's own curve too.
+  //
+  // The Surf is Book 2's onboarding chapter, so it takes the gentle numbers The Shelf held while IT
+  // was chapter 1. Humidity taxes damage on top of everything here (see resourceDamageMul), which is
+  // a pressure no other first chapter carries — hence spawnMul under the pond's own 0.75.
+  balance: { spawnMul: 0.68, enemyDmgMul: 0.7, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
 
   // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
   // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push('pincer')` would hand The
@@ -6714,7 +6728,7 @@ export const MUTATORS = {
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
   // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
   // "Pond identity" plan).
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but

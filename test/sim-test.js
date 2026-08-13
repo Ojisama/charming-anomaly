@@ -12297,6 +12297,7 @@ try {
   testPlayerForms()
   testDevMenu()
   testModalPopBookkeeping()
+  testUndertowLadder()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -14845,4 +14846,32 @@ function testModalPopBookkeeping() {
     `specificity, so it wins the cascade and re-pops anyway — move .no-pop back to the end of the file`)
 
   console.log(`PASS run MP (modal pop bookkeeping): ${keys.length} popups routed through setHtml with unique keys, kill rule last in the cascade`)
+}
+
+// ---- run US.g: the Undertow ladder — The Surf is Book 2's onboarding chapter now ---------------
+// The Surf took over the "chapter 1" job The Shelf held while it was Book 2's only chapter, so The
+// Shelf has to firm up one step and The Surf has to take the gentle numbers. sticky's flat -15%
+// player speed is an unstated tax on a book built entirely around being shoved by the tide, so it
+// has to exclude every Undertow chapter, not just the ones that existed when the exclusion list
+// was written.
+function testUndertowLadder() {
+  // (a) The Surf is the gentlest chapter in its book — it is the onboarding chapter now, and The
+  // Shelf's numbers were fitted while IT held that job.
+  const surf = CHAPTERS.surf.balance, shelf = CHAPTERS.shelf.balance
+  assert.ok(surf.spawnMul <= shelf.spawnMul, `The Surf must not out-spawn The Shelf (${surf.spawnMul} vs ${shelf.spawnMul})`)
+  assert.ok(surf.enemyDmgMul <= shelf.enemyDmgMul, 'The Surf must not out-damage The Shelf')
+  assert.ok(surf.maxAliveMul <= shelf.maxAliveMul, 'The Surf must not hold a bigger crowd than The Shelf')
+
+  // (b) sticky excludes every Undertow chapter. A flat -15% player speed is an unstated tax in a
+  // book built on travel, and it is already excluded from beyond/pond/shelf for that reason.
+  for (const id of BOOKS.undertow.chapters) {
+    assert.ok(MUTATORS.sticky.exclude.includes(id),
+      `MUTATORS.sticky does not exclude ${id} — a travel book cannot take a blanket speed tax`)
+  }
+
+  // (c) the book's ladder is intact and the WIP gate still holds.
+  assert.deepStrictEqual(BOOKS.undertow.chapters, ['surf', 'shelf'], 'the Undertow ladder is wrong')
+  assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
+
+  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all three axes, sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
 }
