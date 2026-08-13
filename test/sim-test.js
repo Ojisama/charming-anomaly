@@ -12441,6 +12441,7 @@ try {
   testSurfHumidityDamage()
   testPincer()
   testPlayerForms()
+  testLaneGolden()
   testDevMenu()
   testModalPopBookkeeping()
   testUndertowLadder()
@@ -14838,6 +14839,66 @@ function testPincer() {
   assert.ok(run.guards.some((q) => q.armed), 'the guard never re-armed')
 
   console.log(`PASS run US.e (pincer): the guard tracks the nearest enemy, stays armed while nothing approaches, and on contact damages and throws — ${snaps} snaps over the re-arm window`)
+}
+
+// ---- run LN: The Beyond's lane is a GOLDEN MASTER ---------------------------------------------
+// The Reef (Book 2 ch 3) is a scroller too, but left-to-right, so `lane` has to gain an axis — and
+// the lane currently hardcodes x as the cross axis and y as the forward axis in five separate
+// places: stepPlayerMovement's velocity and wall clamp, stepFormations' rank spread, stepRocks'
+// spawn and drift, stepLeaks' behind-test, and spawnEnemy's lane branch. Every one of those is an
+// edit to a SHIPPED, TUNED chapter.
+//
+// So the acceptance test for that refactor is not "the Reef works", it is "The Beyond did not move",
+// and that can only be checked against numbers captured before the first edit. These were, on
+// 2026-08-13, from three seeded 180s difficulty-3 runs with an immortal player sweeping the joystick
+// across the lane (Math.sin, so the strafe actually exercises the walls).
+//
+// A FAILURE HERE IS NOT AUTOMATICALLY A BUG — it is the re-phasing trap the suite documents
+// elsewhere: any change to how many randoms get drawn re-rolls every one of these. But the lane axis
+// refactor must draw exactly as many, so for THIS change a red band means a real behavioural
+// difference. If a later, unrelated change moves these legitimately, re-capture and say so.
+function testLaneGolden() {
+  // Declared INSIDE the function on purpose: the scenarios are invoked from a runner that executes
+  // above this point in the file, so a top-level const here is still in its temporal dead zone when
+  // the call happens ("Cannot access 'BEYOND_GOLDEN' before initialization").
+  const BEYOND_GOLDEN = [
+    { seed: 11, px: 59.109, py: -12600, enemies: 98, rocks: 1, kills: 307 },
+    { seed: 22, px: -367.986, py: -12600, enemies: 136, rocks: 1, kills: 287 },
+    { seed: 33, px: -430, py: -12600, enemies: 126, rocks: 1, kills: 275 },
+  ]
+  const meta = makeMeta()
+  for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  for (const g of BEYOND_GOLDEN) {
+    const restore = Math.random
+    Math.random = mulberry32(g.seed)
+    const run = createRun(meta, { chapter: 'beyond', difficulty: 3 })
+    assert.strictEqual(run.chapter, 'beyond', 'golden master did not start in the beyond')
+    run.player.hp = run.player.maxHP = 1e9
+    let a = 0
+    for (let i = 0; i < 180 * 60; i++) {
+      a += 0.9 / 60
+      stepSim(run, { x: Math.sin(a), y: 0 }, 1 / 60)
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+    }
+    Math.random = restore
+    // The forward axis is the load-bearing one: py is exactly 180s x LANE_SCROLL_SPEED, so any
+    // drift here means the scroll rate itself moved, which is the one thing this chapter guarantees.
+    assert.strictEqual(+run.player.y.toFixed(3), g.py,
+      `seed ${g.seed}: the beyond's scroll ended at y=${run.player.y.toFixed(3)}, not ${g.py} — LANE_SCROLL_SPEED or the forward axis moved`)
+    assert.strictEqual(+run.player.x.toFixed(3), g.px,
+      `seed ${g.seed}: the beyond's strafe ended at x=${run.player.x.toFixed(3)}, not ${g.px} — the cross axis or the wall clamp moved`)
+    for (const [k, want] of [['enemies', g.enemies], ['rocks', g.rocks], ['kills', g.kills]]) {
+      const got = k === 'kills' ? run.kills : run[k].length
+      assert.strictEqual(got, want,
+        `seed ${g.seed}: ${k} came out ${got}, not ${want} — the lane refactor changed the beyond`)
+    }
+  }
+  console.log(`PASS run LN (lane golden master): the beyond is unchanged across ${BEYOND_GOLDEN.length} seeded 180s runs — scroll, strafe, formations, rocks and kills all bit-identical`)
 }
 
 // ---- run US.f: the player's own body is per-chapter, not one boolean ---------------------------
