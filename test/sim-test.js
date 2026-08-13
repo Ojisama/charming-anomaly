@@ -14840,16 +14840,15 @@ function testPincer() {
   console.log(`PASS run US.e (pincer): the guard tracks the nearest enemy, stays armed while nothing approaches, and on contact damages and throws — ${snaps} snaps over the re-arm window`)
 }
 
-// ---- run US.f (undertow task 8): the player's own body is per-chapter, not one boolean ----------
-// render.js used to gate the kaiju body/tail rig on a single `chapterHasKaiju` boolean, latched from
-// CHAPTERS.skies.render.kaiju. This generalises it into `playerForm`, read from CHAPTERS[].render
-// .form, so a second chapter (The Surf) can also swap the generic blob for a body of its own — a
-// bristle worm, reusing drawCentipede's rig. render.js is not importable (Pixi + DOM), so this reads
-// it as SOURCE TEXT, the same trick run UG.k uses for a render-side contract with no other guard.
+// ---- run US.f: the player's own body is per-chapter, not one boolean ---------------------------
+// render.js gates the chapter-specific player body on `playerForm`, read from CHAPTERS[].render
+// .form, so any chapter can swap the generic blob for a body of its own — the kaiju for skies, a
+// fish for the whole of Book 2. render.js is not importable (Pixi + DOM), so this reads it as
+// SOURCE TEXT, the same trick run UG.k uses for a render-side contract with no other guard.
 function testPlayerForms() {
   const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
 
-  // (a) the boolean is gone. It survived as ~16 separate mentions (call sites plus comments), so a
+  // (a) no boolean left. It survived as ~16 separate mentions (call sites plus comments), so a
   // partial refactor leaves half the renderer reading a variable that no longer means anything.
   const leftovers = [...src.matchAll(/chapterHasKaiju/g)].length
   assert.strictEqual(leftovers, 0,
@@ -14861,29 +14860,49 @@ function testPlayerForms() {
   assert.ok(!/playerForm\s*===\s*'kaiju'\s*\|\|\s*run\.chapter/.test(src),
     'the form check still branches on a chapter id — that is the boolean with extra steps')
 
-  // (c) every declared form has a draw function.
+  // (c) every declared form has a draw function AND a branch that selects it. A form declared in
+  // config with no branch in syncPlayer renders the generic blob, silently.
   const forms = new Set(Object.keys(CHAPTERS).map((id) => CHAPTERS[id].render?.form).filter(Boolean))
-  assert.ok(forms.has('kaiju') && forms.has('worm'),
-    `expected at least the kaiju and worm forms, found ${[...forms].join(', ')}`)
+  assert.ok(forms.has('kaiju') && forms.has('fish'),
+    `expected at least the kaiju and fish forms, found ${[...forms].join(', ')}`)
   for (const f of forms) {
     const fn = 'draw' + f[0].toUpperCase() + f.slice(1)
     assert.ok(src.includes(fn) || f === 'kaiju',
       `form '${f}' is declared in config but ${fn} does not exist in render.js — the player renders as the generic blob with no error`)
+    assert.ok(src.includes(`playerForm === '${f}'`),
+      `form '${f}' has no branch in render.js — it is declared, drawn, and never selected`)
   }
 
-  // (d) the worm actually slithers. Task 8's first cut reused drawCentipede's static geometry
-  // helpers only — drawWorm took no phase arg and was baked exactly once, so the brief's "keep the
-  // slither" shipped as a single frozen S-curve animated only by the generic hop/breathe
-  // squash-stretch every other player form already gets. A worm holding a fixed curve while it
-  // swims reads as a dead sprite being dragged. Guard both halves of the fix independently: the
-  // draw fn takes a phase (like drawCentipede's own `phase = 0`), and syncPlayer picks a frame out
-  // of a baked array rather than reading one static {tex,ax,ay} bake.
-  assert.ok(/function drawWorm\(g, white, phase/.test(src),
-    'drawWorm has no phase param — the worm cannot slither, only a static bake')
-  assert.ok(/T\.wormBody\[wIdx\]/.test(src),
-    'syncPlayer does not index into a baked worm phase array — the worm form is back to one static texture')
+  // (d) the fish actually swims. The animated-body contract is two independent halves and either
+  // one alone ships a frozen sprite being dragged across the floor: the draw fn takes a `phase`
+  // (like drawCentipede's own `phase = 0`) so a RING of frames can be baked from it, and syncPlayer
+  // picks a frame out of that array rather than reading one static {tex,ax,ay} bake.
+  assert.ok(/function drawFish\(g, white, phase/.test(src),
+    'drawFish has no phase param — the fish cannot swim, only a static bake')
+  assert.ok(/T\.fishBody\[wIdx\]/.test(src),
+    'syncPlayer does not index into a baked fish phase array — the fish form is back to one static texture')
 
-  console.log(`PASS run US.f (player forms): ${forms.size} chapter-specific player bodies declared in config, each with a draw fn, and no chapterHasKaiju left; the worm's slither phases are baked and flipped through, not a single static frame`)
+  // (e) the growth arc scales the body AND its shadow together. formScale is Book 2's "you grow in
+  // each chapter" and it lives in exactly two places; applying it to the body alone leaves the fish
+  // standing on the previous chapter's footprint, which throws nothing and is invisible in a still
+  // of any single chapter — you only see it by comparing two.
+  assert.ok(/formScale\s*=\s*chapterRender\.formScale/.test(src),
+    'render.js never latches formScale from the chapter render block')
+  assert.ok(/sx \* formScale/.test(src),
+    'the fish body is not scaled by formScale — every chapter draws the same size fish')
+  assert.ok(/shadowSquash \* formScale/.test(src),
+    'the fish SHADOW is not scaled by formScale — a grown fish stands on the footprint of the chapter before it')
+
+  // (f) formScale is optional and defaults to 1, or every chapter with no growth step draws a
+  // zero-scaled (invisible) player.
+  for (const id of Object.keys(CHAPTERS)) {
+    const fs = CHAPTERS[id].render?.formScale
+    assert.ok(fs === undefined || (typeof fs === 'number' && fs > 0),
+      `CHAPTERS.${id}.render.formScale is ${fs} — must be a positive number or absent`)
+  }
+
+  const scaled = Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].render?.formScale != null).length
+  console.log(`PASS run US.f (player forms): ${forms.size} chapter-specific player bodies over ${Object.keys(CHAPTERS).length} chapters, each drawn, branched and phase-baked; formScale honoured on body and shadow (${scaled} chapter(s) set it)`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------

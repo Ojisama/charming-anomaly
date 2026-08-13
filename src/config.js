@@ -3897,7 +3897,7 @@ export const CHAPTERS = {
       // render.js's syncPlayer for the branch. See SKIES_KAIJU below (art direction §5-adjacent,
       // same "counts + palette in config.js, geometry hardcoded in render.js" split as
       // SKIES_STRUCTURE_ART) for the palette and detail counts. PLAYER.radius (22) stays the sim
-      // hitbox — nothing here is read by sim.js. (CHAPTERS.surf.render.form === 'worm' is the same
+      // hitbox — nothing here is read by sim.js. (CHAPTERS.surf.render.form === 'fish' is the same
       // idiom's second user — see that chapter's own render block.)
       form: 'kaiju',
       storm: true,          // v5.6.18: gates the night-thunderstorm overlay (cloud-shadows,
@@ -4339,19 +4339,25 @@ CHAPTERS.surf = {
   // crab still owns a hue the sand cannot reach, and the tide pools (deep blue) read as holes.
   //
   // playerTint is 0xffffff and not the pond's cyan: syncPlayer forces white for a chapter with its
-  // own `form`, so the worm's rust-coral bake shows as drawn — but the level-up MINIME copies read
+  // own `form`, so the fish's rust-coral bake shows as drawn — but the level-up MINIME copies read
   // chapterRender.playerTint directly, and pond's 0xb0f0ff turned those into teal ghosts of a
-  // red worm. Same rule as skies, which sets its own for exactly this reason.
+  // red fish. Same rule as skies, which sets its own for exactly this reason.
   //
-  // form: 'worm' (v5.11 kaiju redesign, generalised for undertow): the player is a bristle worm
-  // here, not the generic cross-chapter blob — see render.js's drawWorm (in this chapter's own
-  // roster section) and the playerForm branches in syncPlayer. Same idiom CHAPTERS.skies.render's
-  // `form: 'kaiju'` uses.
-  // tail: false overrides pond's inherited `tail: true` — the worm's own tapered trunk already ends
-  // in a tail, so pond's separate trailing flagellum sprite would double up on one.
+  // form: 'fish' (v5.11 kaiju redesign, generalised for undertow): the player is a small fish here,
+  // not the generic cross-chapter blob — see render.js's drawFish (in this chapter's own roster
+  // section) and the playerForm branches in syncPlayer. Same idiom CHAPTERS.skies.render's
+  // `form: 'kaiju'` uses. ONE body serves all of Book 2; `formScale` is the book's "you grow in each
+  // chapter" arc and The Surf, being the smallest you ever are, leaves it at its default 1.
+  // tail: false overrides pond's inherited `tail: true` — the fish's own body already ends in a
+  // caudal fin, so pond's separate trailing flagellum sprite would double up on one.
   render: {
     cast: ['sandhopper', 'shorecrab', 'gull'],
-    form: 'worm',
+    form: 'fish',
+    // Blown sand, not motes. render.js's ambient dust sprite is a white radial dot shared by every
+    // chapter; over this floor it reads as smudges on a lens, and it is the single biggest thing
+    // that made the first cut of this beach look dirty rather than bright. A warm grain darker than
+    // the sand turns the same 14 sprites into wind.
+    dust: { tint: 0x8a6f45, alpha: 0.45 },
     bgColor: 0xbca27a,     // damp warm sand between the floor blotches
     floorTint: 0xe0c79c,   // sun-bleached wash over the wrack and marram (see BIOME_SURF)
     playerTint: 0xffffff,
@@ -4439,13 +4445,18 @@ export const TIDE_VIS = { ...CURRENT_VIS, speedMul: 2.2, tint: 0xffffff, alpha: 
 // signature.pools.r, so the drawn extent is the tested extent (the same rule the web decal and the
 // eddy ring state — a refill circle you can see the edge of is a circle you can learn by eye), and
 // the damp collar fills the band between the water's edge and it.
+// THE PALETTE IS WARM-BIASED ON PURPOSE. The first cut wore an aquarium teal with a bright cyan
+// meniscus, and against pale sand that is the only saturated thing on screen — it read as a portal,
+// not as water standing in a hole. What fixes it is not desaturating the water but warming
+// everything that TOUCHES the sand: a wide damp collar and a wet-sand meniscus, so the eye crosses
+// from beach to pool through two intermediate steps instead of one hard edge.
 export const TIDE_POOL_VIS = {
-  collar: 0x8f7a5c, collarA: 0.34,   // damp sand ring the water has pulled back from
-  water: 0x14607e, waterA: 0.66,     // the standing water itself — deep enough to read as a HOLE
-  shallow: 0x2f96ad, shallowA: 0.40, // the shelf inside it, offset so a pool is not a bullseye
-  rim: 0xcdeefb, rimA: 0.55, rimW: 3,// the bright meniscus, ON r
+  collar: 0x7d6746, collarA: 0.42,   // damp sand ring the water has pulled back from
+  water: 0x1d5f6b, waterA: 0.72,     // the standing water itself — deep enough to read as a HOLE
+  shallow: 0x63a08f, shallowA: 0.34, // the shelf inside it, offset so a pool is not a bullseye
+  rim: 0xf2e7cd, rimA: 0.5, rimW: 3, // the meniscus, ON r — wet sand, not a cyan ring
   waterFrac: 0.9,                    // water edge as a fraction of r; collar spans this..1
-  sheen: 0xbfe8ff, sheenA: 0.20, sheenFrac: 1.15, // sky caught on the surface (additive, breathing)
+  sheen: 0xd8ecd8, sheenA: 0.10, sheenFrac: 1.15, // sky caught on the surface (additive, breathing)
   breathe: 0.06,                     // ± fraction the sheen's size wanders — calm water, not a pulse
 }
 
@@ -4455,11 +4466,13 @@ export const TIDE_POOL_VIS = {
 // half and a cliff in its bottom" unless the player can see the place that caused it.
 // The rim is drawn at exactly `r`, same drawn-extent-is-tested-extent contract as the pool above.
 export const SANDBAR_VIS = {
-  sand: 0xf0e2bc, sandA: 0.9,        // DRY sand — deliberately a value step above the damp floor
-  crown: 0xfaf1da, crownA: 0.5,      // the driest, highest part, offset off centre
-  ripple: 0xc19c62, rippleA: 0.42,   // wind ripples: what makes a pale blob read as SAND from above
-  damp: 0x8a7148, dampA: 0.42, dampW: 5, // the wet margin at the waterline — the edge you step over
-  speck: 0xa88a56, speckA: 0.5,      // shell grit
+  sand: 0xe8d9b0, sandA: 0.9,        // DRY sand — deliberately a value step above the damp floor
+  crown: 0xf3e8c9, crownA: 0.3,      // the driest, highest part, offset off centre
+  // The ripples have to survive being the ONLY texture on the patch without becoming contour lines:
+  // at 0.42 on a brown they drew a topographic map, which is a different thing from wind on sand.
+  ripple: 0xc8ad80, rippleA: 0.22,   // wind ripples: what makes a pale blob read as SAND from above
+  damp: 0x8a7148, dampA: 0.5, dampW: 5, // the wet margin at the waterline — the edge you step over
+  speck: 0xa88a56, speckA: 0.36,     // shell grit
   ripples: 7,                        // ripple lines across the patch
   specks: 26,
 }

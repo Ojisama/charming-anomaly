@@ -21,6 +21,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
+
 const DARK = 0x3b3345
 const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
 // v7.55: both Pincer claw states bake with their finger tips exactly this far from the drawing
@@ -253,12 +254,17 @@ export function createRenderer(app) {
   // currently skies and city). Same `storm || X` idiom as chapterHasRain; read by updateRuins.
   let chapterHasRuins = false
   // v5.11 kaiju redesign, generalised (undertow): which chapter-specific player body the active
-  // chapter draws — CHAPTERS[].render.form, e.g. 'kaiju' for skies, 'worm' for surf — in place of
+  // chapter draws — CHAPTERS[].render.form, e.g. 'kaiju' for skies, 'fish' for Book 2 — in place of
   // the generic cross-chapter blob. null for a chapter that declares no form. Read by
   // syncPlayer/updateRampage/lightPlatesForBreath; every site checks the SPECIFIC form it owns
   // (playerForm === 'kaiju'), so a chapter with no form — or a future form neither of them draws —
   // renders the generic blob exactly as before this pass.
   let playerForm = null
+  // How big the `fish` form is drawn in the active chapter (CHAPTERS[].render.formScale, default 1)
+  // — Book 2's "you grow in each chapter" arc. Latched in reset() beside playerForm; read by
+  // syncPlayer for the body AND its shadow, which must scale together or the fish stands on the
+  // footprint of the chapter before it.
+  let formScale = 1
   // v6.5 undergrowth: screen-space falling leaves (CHAPTERS[].render.leaves — currently only
   // `undergrowth`). Same latch pattern as chapterHasStorm; read by updateLeaves.
   let chapterHasLeaves = false
@@ -1289,66 +1295,100 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 2.1, r)
   }
 
-  // bristle worm: The Surf's PLAYER form (CHAPTERS.surf.render.form === 'worm', see playerForm in
-  // syncPlayer) — not part of run.roster, this beach's three creatures are the trio above. Reuses
-  // drawCentipede's rig wholesale (see that function's own comment, below in the loam section): one
-  // tapered trunk over spine(t), a paired appendage per segment, raking in a metachronal wave — a
-  // bristle worm and a centipede are the same drawing at the joint level, a long segmented body with
-  // one appendage pair per segment. What changes for the swim: the appendage — a SHORT paddle-stub
-  // parapodium fanned into three bristle ticks, not the centipede's long jointed leg ending in a
-  // claw-tipped foot ("shorten the parapodia") — the head (soft twin palps, not the forward venom
-  // forcipules a land hunter carries: a worm noses its way, it doesn't strike), and the palette (a
-  // marine rust-coral, not the forest-floor amber — "retint"). ANIMATED like the centipede too: the
-  // `phase` arg shifts spine(t)'s sine (same "minus phase moves crests head->tail" convention, and
-  // the same metachronal `Math.sin(i*0.9 - phase)` rowing the parapodia), and buildTextures bakes
-  // WORM_PHASES frames from it. The player rig has no `.frames`/`_animFrame` object the way
+  // BOOK 2'S PLAYER: a small fish (CHAPTERS[].render.form === 'fish', see playerForm in
+  // syncPlayer) — not part of run.roster, this beach's three creatures are the trio above.
+  //
+  // ONE BODY FOR THE WHOLE BOOK, deliberately. The arc is "you grow in each chapter", which is a
+  // SIZE and tint step per chapter (render.formScale), not five separate animals — five bakes would
+  // be five chances for the player to stop recognising themselves between chapters, which is the
+  // one sprite in the game that must never happen to.
+  //
+  // THREE THINGS MAKE IT READ AS A SWIMMER rather than a crawler, and they are the whole drawing:
+  // the undulation RAMPS toward the tail instead of running uniformly (see spine below), the body is
+  // fusiform with a narrow peduncle instead of near-constant width, and the propulsion is one hinged
+  // forked caudal fin rather than a row of legs.
+  //
+  // ANIMATED like the centipede: the `phase` arg shifts spine(t)'s sine, and buildTextures bakes
+  // FISH_PHASES frames from it. The player rig has no `.frames`/`_animFrame` object the way
   // syncEnemies' ROSTER_LOOKS path does (that machinery exists per-enemy-sprite, and there is only
-  // ever one player) — syncPlayer instead indexes T.wormBody/T.wormFlash directly off animT, the
+  // ever one player) — syncPlayer instead indexes T.fishBody/T.fishFlash directly off animT, the
   // same "pick a rung by hand" idiom the STILLNESS morph ladder (T.playerStill) already uses. This
   // still sits under the hop/breathe squash-stretch every other player form gets — the phase flip
   // and the squash-stretch are two independent transforms, not one replacing the other.
-  const WORM_R = 26
-  const WORM_PHASES = 6
-  function drawWorm(g, white, phase = 0) {
-    const r = WORM_R
+  const FISH_R = 26
+  const FISH_PHASES = 6
+  function drawFish(g, white, phase = 0) {
+    const r = FISH_R
     const f = (c) => white ? 0xffffff : c
-    const bodyLit = f(0xe08a6e), bodyMid = f(0xcf6b52), bodyShade = f(0x8a3a2c)
-    const line = f(0x5c2418), bristle = f(0xffe0b0)
-    const lw = Math.max(2.4, r * 0.13)
-    const frontX = r * 0.9
-    const len = r * 3.2                                    // stockier than the centipede's 4.4r
-    const undA = r * 0.3                                   // a touch more S-wag — it swims, not scurries
-    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.6 - phase) * undA]
-    const body = (t) => r * 0.46 * bulge(0.06 + 0.88 * t, 0.42)
-    const N = 16                                            // parapodia run the whole body, not just mid-trunk
-    for (let i = 0; i < N; i++) {
-      const t = 0.06 + 0.88 * (i / (N - 1))
-      const [x, y] = spine(t)
-      const w = body(t)
-      const ph = Math.sin(i * 0.9 - phase)      // metachronal wave, rowing with the slither
-      for (const s of [-1, 1]) {
-        // parapodium: a short stub base plus three bristle ticks fanning off it — SHORTER reach
-        // than the centipede's jointed leg, and the bristle tuft (not a leg silhouette) is the tell.
-        const bx = x, by = y + s * w * 0.72
-        for (let k = -1; k <= 1; k++) {
-          const a = (Math.PI / 2) * s + k * 0.45 + ph * 0.16 * s
-          g.moveTo(bx, by).lineTo(bx + Math.cos(a) * r * 0.26, by + Math.sin(a) * r * 0.26)
-            .stroke({ width: 1.6, color: bristle, alpha: 0.85 })
-        }
-        g.circle(bx, by, r * 0.05).fill(bodyShade)
-      }
+    const bodyLit = f(0xf2a184), bodyMid = f(0xd97a5c), bodyShade = f(0x8a3a2c)
+    const line = f(0x5c2418), finFill = f(0xe0906c), finEdge = f(0x7a3122)
+    const lw = Math.max(2.2, r * 0.11)
+    const noseX = r * 1.5
+    const len = r * 2.55
+    // The undulation, and the reason it is not a plain sine: a swimming fish holds its head almost
+    // still and throws its tail, so the amplitude RAMPS with t^1.9 instead of running at one
+    // amplitude down the whole body. A uniform sine is what makes a fish read as an eel.
+    const spine = (t) => [noseX - t * len, Math.sin(t * Math.PI * 1.35 - phase) * r * 0.4 * Math.pow(t, 1.9)]
+    // The width profile IS the silhouette, and it is the difference between a fish and a tadpole:
+    // a short rounded snout rising to the widest point a third back, then a LONG taper to a peduncle
+    // thin enough that the caudal fin reads as a separate blade rather than as the end of the body.
+    // The two halves meet at t = 0.30 with both terms equal to 1, so the outline is continuous.
+    // Two numbers do all the work here. The 0.4 is WHERE the fish is widest, and pulling it back
+    // from a third to two fifths is what gives the head length — at 0.32 the head was wider than it
+    // was long, which reads as a frog. The 0.62 exponent rounds the snout: a linear rise gives a
+    // wedge, a high exponent gives a spike, and spineOutline closes whatever width is left at t=0
+    // with a straight segment, so any width at the tip reads as a chopped hexagon rather than a nose.
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.4), 0.62)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.4) / 0.64), 1.15)
+      return r * 0.58 * Math.max(0.09, t < 0.4 ? rise : fall)
     }
-    // twin head palps — soft and short, replacing the centipede's forward venom forcipules
+
+    // Tail: hinged just SHORT of the peduncle tip (0.96, so fin and body overlap and no seam opens
+    // between them) and swung by the spine's own local angle, so the fin follows the body instead of
+    // being a shape stuck on the back. Deeply forked — the fork is most of what says "fish" at the
+    // 26px this is actually drawn at.
+    const [tx, ty] = spine(0.96)
+    const [ax, ay] = spine(0.84)
+    const ta = Math.atan2(ty - ay, tx - ax)
+    const lobe = r * 1.18
+    const tip = (da, k) => [tx + Math.cos(ta + da) * lobe * k, ty + Math.sin(ta + da) * lobe * k]
+    g.poly([tx, ty, ...tip(0.46, 1), ...tip(0, 0.36), ...tip(-0.46, 1)])
+      .fill({ color: finFill, alpha: 0.95 }).stroke({ width: lw * 0.8, color: finEdge })
+
+    // Pectorals: one pair, set behind the widest point and swept back along the body rather than
+    // out from it — a fin held out square reads as a wing. They scull against the tail beat
+    // (opposite sign of the same phase) so the whole animal moves as one thing.
+    const pt = 0.42
+    const [ptx, pty] = spine(pt)
+    const pw = body(pt)
     for (const s of [-1, 1]) {
-      taperStroke(g, [[r * 1.0, s * r * 0.1], [r * 1.3, s * r * 0.22]], r * 0.07, r * 0.02, line)
+      const beat = Math.sin(-phase) * 0.12 * s
+      const bx = ptx, by = pty + s * pw * 0.66
+      g.poly([
+        bx + r * 0.2, by,
+        bx - r * 0.34, by + s * (r * 0.44 + beat * r),
+        bx - r * 0.46, by + s * r * 0.08,
+      ]).fill({ color: finFill, alpha: 0.9 }).stroke({ width: lw * 0.55, color: finEdge })
     }
-    g.poly(spineOutline(spine, body, 40)).fill(bodyMid).stroke({ width: lw, color: line })
-    g.poly(radialOutline((a) => r * 0.34 * (1 - 0.1 * Math.cos(a)), 32, 1, 0.9, r * 0.94, 0))
-      .fill(bodyMid).stroke({ width: lw, color: line })
+
+    g.poly(spineOutline(spine, body, 44)).fill(bodyMid).stroke({ width: lw, color: line })
+
     if (!white) {
-      g.poly(spineOutline(spine, (t) => body(t) * 0.3, 28)).fill({ color: bodyShade, alpha: 0.4 })
-      g.ellipse(-r * 0.6, -r * 0.06, r * 1.3, r * 0.16).fill({ color: bodyLit, alpha: 0.22 })
-      for (const s of [-1, 1]) darkEye(g, r * 1.0, s * r * 0.13, r * 0.05, r * 0.05, 0x1a0d05, true)
+      // Countershading read from above: the dorsal ridge is the darkest line on the animal and it
+      // runs the midline, which is the single cue that says "seen from the top" rather than "seen
+      // from the side" — the projection question the tornado failed.
+      g.poly(spineOutline(spine, (t) => body(t) * 0.22, 30, 0.1, 0.9))
+        .fill({ color: bodyShade, alpha: 0.6 })
+      // ONE pale gill stroke and nothing else. An earlier cut carried three lateral bars and a
+      // shoulder highlight on top of the ridge; at the 26px this is drawn at they stopped being
+      // pattern and became mud, which is the usual fate of interior detail on a small sprite.
+      const [gx, gy] = spine(0.26)
+      g.ellipse(gx, gy, r * 0.05, body(0.26) * 0.6).fill({ color: bodyLit, alpha: 0.45 })
+      // Both eyes are visible from overhead — that is the plan view stating itself. On the snout,
+      // where a fish's are, not back on the shoulders where they read as a frog's.
+      const [ex, ey] = spine(0.16)
+      for (const s of [-1, 1]) darkEye(g, ex, ey + s * body(0.16) * 0.58, r * 0.085, r * 0.085, 0x1a0d05, true)
     }
   }
 
@@ -2942,25 +2982,24 @@ export function createRenderer(app) {
       g.ellipse(0, 0, pr * 0.82, pr * 0.3).fill({ color: 0x000000, alpha: 0.12 })
       T.playerShadow = bake(g)
     }
-    // The Surf's player body (drawWorm, defined above in that chapter's roster section) — baked
-    // here alongside the generic blob it replaces, same "build once regardless of chapter, swap in
-    // syncPlayer at use time" contract T.kaijuBody follows for skies. WORM_PHASES frames (the
-    // centipede's own `phases: 6` slither idiom — see drawWorm's comment), so T.wormBody/T.wormFlash
-    // are arrays here, not single {tex,ax,ay} bakes; syncPlayer indexes them off animT. A dedicated
-    // elongated shadow, not the round T.playerShadow above: the worm's trunk runs long on x, and the
-    // round disc would sit visibly narrower than the body it's meant to ground. The shadow itself
-    // does NOT flip per phase — same call drawCentipede's own groundShadow makes (a fixed ellipse
-    // regardless of phase), since a slithering trunk's footprint envelope barely moves.
-    T.wormBody = []
-    T.wormFlash = []
-    for (let wp = 0; wp < WORM_PHASES; wp++) {
-      const ang = (wp / WORM_PHASES) * Math.PI * 2
-      const bg = new Graphics(); drawWorm(bg, false, ang); T.wormBody.push(bake(bg))
-      const wg = new Graphics(); drawWorm(wg, true, ang); T.wormFlash.push(bake(wg))
+    // Book 2's player body (drawFish, defined above in The Surf's roster section) — baked here
+    // alongside the generic blob it replaces, same "build once regardless of chapter, swap in
+    // syncPlayer at use time" contract T.kaijuBody follows for skies. FISH_PHASES frames, so
+    // T.fishBody/T.fishFlash are arrays here, not single {tex,ax,ay} bakes; syncPlayer indexes them
+    // off animT. A dedicated elongated shadow, not the round T.playerShadow above: the fish runs
+    // long on x, and the round disc would sit visibly narrower than the body it grounds. The shadow
+    // does NOT flip per phase — a swimming body's footprint envelope barely moves, so one fixed
+    // ellipse is the honest shape and six of them would be six identical bakes.
+    T.fishBody = []
+    T.fishFlash = []
+    for (let wp = 0; wp < FISH_PHASES; wp++) {
+      const ang = (wp / FISH_PHASES) * Math.PI * 2
+      const bg = new Graphics(); drawFish(bg, false, ang); T.fishBody.push(bake(bg))
+      const wg = new Graphics(); drawFish(wg, true, ang); T.fishFlash.push(bake(wg))
     }
-    T.wormShadow = (() => {
+    T.fishShadow = (() => {
       const g = new Graphics()
-      g.ellipse(0, 0, WORM_R * 1.55, WORM_R * 0.42).fill({ color: 0x000000, alpha: 0.2 })
+      g.ellipse(0, 0, FISH_R * 1.5, FISH_R * 0.46).fill({ color: 0x000000, alpha: 0.2 })
       return bake(g)
     })()
 
@@ -7693,9 +7732,11 @@ export function createRenderer(app) {
   ]
   const BIOME_SURF = {
     big: BIG_SURF, mid: MID_SURF, detail: DETAIL_SURF,
-    // A weed-fouled boulder in the wash: warm wet stone, near-black foot ring for the collision
-    // contract against a light floor (the same dark-ring-on-pale-floor rule every biome follows).
-    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6a5c46, foot: 0x241d12 },
+    // A weed-fouled boulder in the wash: warm wet stone over a dark WARM foot ring for the collision
+    // contract. Every other biome's foot is near-black, which is right over their dark floors and
+    // punches a manhole in this one — the ring only has to clear the contrast the footprint audit
+    // asks for, and against sand at luminance ~0.38 a warm 0x3d3324 clears it without going black.
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6a5c46, foot: 0x3d3324 },
   }
   const BIOMES = {
     body: BIOME_BODY,
@@ -8470,6 +8511,12 @@ export function createRenderer(app) {
     })
   }
 
+  // Per-chapter dust look (CHAPTERS[].render.dust, {tint, alpha}), or null for the white default.
+  // The mote texture is a WHITE radial dot, which is right over the dark floors every Book 1 chapter
+  // has and reads as smears on a lens over The Surf's pale sand — the same "a mote in the floor's
+  // own value is the wrong mote" problem updateLeaves' tint comment already documents, arrived at
+  // from the opposite side. Latched in reset().
+  let dustLook = null
   function updateDustMotes(dt) {
     if (dt <= 0) return // frozen behind modals, same rule as particles
     dustT += dt
@@ -8482,7 +8529,7 @@ export function createRenderer(app) {
       if (m.x > 1.08) m.x -= 1.16
       if (m.y < -0.08) m.y += 1.16
       m.s.position.set(m.x * w, m.y * h)
-      m.s.alpha = 0.2 + 0.1 * Math.sin(dustT * 2 + i)
+      m.s.alpha = (0.2 + 0.1 * Math.sin(dustT * 2 + i)) * (dustLook?.alpha ?? 1)
     }
   }
 
@@ -13203,21 +13250,21 @@ export function createRenderer(app) {
       // creature's mass rather than dead-centre.
       const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
       pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
-    } else if (playerForm === 'worm') {
-      // the bristle worm (drawWorm, near drawKaijuBody above): WORM_PHASES baked slither frames,
-      // flipped through on animT — the same speed (`animT * 10`) syncEnemies uses for the
-      // centipede's ROSTER_LOOKS phases, so the two share a cadence. syncEnemies keys its flip off
-      // a per-sprite `_animFrame` because a pack of centipedes must not slither in lockstep; the
-      // player rig has no such per-entity state (there's only ever one), so the frame is picked
-      // directly here. A plain straight-down shadow like the generic blob's — the worm has no
-      // chapter light direction of its own the way SKIES_SHADOW gives skies.
-      const wIdx = Math.floor(animT * 10) % WORM_PHASES
-      const wBody = T.wormBody[wIdx], wFlash = T.wormFlash[wIdx]
+    } else if (playerForm === 'fish') {
+      // Book 2's fish (drawFish, near drawKaijuBody above): FISH_PHASES baked swim frames, flipped
+      // through on animT — the same speed (`animT * 10`) syncEnemies uses for the centipede's
+      // ROSTER_LOOKS phases, so the two share a cadence. syncEnemies keys its flip off a per-sprite
+      // `_animFrame` because a pack must not swim in lockstep; the player rig has no such per-entity
+      // state (there's only ever one), so the frame is picked directly here. A plain straight-down
+      // shadow like the generic blob's — this chapter has no light direction of its own the way
+      // SKIES_SHADOW gives skies.
+      const wIdx = Math.floor(animT * 10) % FISH_PHASES
+      const wBody = T.fishBody[wIdx], wFlash = T.fishFlash[wIdx]
       if (pBody.texture !== wBody.tex) {
         pBody.texture = wBody.tex; pBody.anchor.set(wBody.ax, wBody.ay)
         pFlash.texture = wFlash.tex; pFlash.anchor.set(wFlash.ax, wFlash.ay)
         pHot.texture = wFlash.tex; pHot.anchor.set(wFlash.ax, wFlash.ay)
-        pShadow.texture = T.wormShadow.tex; pShadow.anchor.set(T.wormShadow.ax, T.wormShadow.ay)
+        pShadow.texture = T.fishShadow.tex; pShadow.anchor.set(T.fishShadow.ax, T.fishShadow.ay)
       }
       pShadow.position.set(0, PLAYER.radius * 0.95)
     } else {
@@ -13242,14 +13289,14 @@ export function createRenderer(app) {
       pShadow.position.set(0, PLAYER.radius * 0.95)
     }
 
-    // per-chapter blob tint (white = identity for body) + optional tail. The kaiju AND worm bakes
+    // per-chapter blob tint (white = identity for body) + optional tail. The kaiju AND fish bakes
     // both carry their OWN final palette rather than a tint-multiplied base — same "plans carry
     // their own palette, tint bypassed" rule the top-down structure bakes use (STRUCTURE_SKINS'
     // topDown entries set clumpA.tint = 0xffffff, above) — otherwise a uniform multiply by
     // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
-    // pale sclera or the worm's bristle-tuft highlights toward the same hue as the body fill, right
+    // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
-    pBody.tint = (playerForm === 'kaiju' || playerForm === 'worm') ? 0xffffff : chapterRender.playerTint
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish') ? 0xffffff : chapterRender.playerTint
     // BERSERK (v7.14): the skin runs hot while the window is open. Strongest on the frame you are
     // hit and fading with _berserkT, so the wash IS the timer — no chrome, nothing to read.
     // An alpha-blended red silhouette, NOT a tint on pBody: see pHot's own note at the rig.
@@ -13378,24 +13425,27 @@ export function createRenderer(app) {
       // leave the tail rooted at an unscaled hip offset.
       bodyC.scale.set(sx * SKIES_KAIJU.bodyScale, sy * SKIES_KAIJU.bodyScale)
       bodyC.rotation = (p.facingAngle == null ? 0 : p.facingAngle) + Math.PI / 2
-    } else if (playerForm === 'worm') {
-      // drawWorm's head already sits at local +x (spine(t) runs frontX -> frontX - len, the same
+    } else if (playerForm === 'fish') {
+      // drawFish's nose already sits at local +x (spine(t) runs noseX -> noseX - len, the same
       // "head at +x" convention drawCentipede uses for the enemy version) — unlike the kaiju's -y
       // head this needs no rotation offset at all, facingAngle points it directly. No bodyScale
-      // knob either: the worm is drawn at its final on-screen size, same as the kaiju bake, but
+      // knob either: the fish is drawn at its final on-screen size, same as the kaiju bake, but
       // without a chapter-wide resize multiplier to go with it.
-      bodyC.scale.set(sx, sy)
+      // "You grow in each chapter" (the book's arc) is THIS number and nothing else — one bake,
+      // scaled per chapter by CHAPTERS[].render.formScale, defaulting to 1 for The Surf.
+      bodyC.scale.set(sx * formScale, sy * formScale)
       bodyC.rotation = p.facingAngle == null ? 0 : p.facingAngle
     } else {
       bodyC.scale.set(p.facing * sx, sy)
       bodyC.rotation = 0   // restores the flip-only rig's implicit "never rotates" if a PRIOR run
-                           // this session drew a rotating form (kaiju/worm rotate bodyC above)
+                           // this session drew a rotating form (kaiju/fish rotate bodyC above)
     }
     bodyC.y = by
     // The shadow is a sibling of bodyC, not a child, so it needs the same bodyScale applied by hand
     // — otherwise shrinking the kaiju would leave it standing on its old, much larger shadow.
     const shadowSquash = 1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0)
-    pShadow.scale.set(playerForm === 'kaiju' ? shadowSquash * SKIES_KAIJU.bodyScale : shadowSquash)
+    pShadow.scale.set(playerForm === 'kaiju' ? shadowSquash * SKIES_KAIJU.bodyScale
+      : playerForm === 'fish' ? shadowSquash * formScale : shadowSquash)
 
     // pupil tracking (local +x flips with the body toward facing)
     if (playerForm === 'kaiju') {
@@ -13409,8 +13459,8 @@ export function createRenderer(app) {
       const lookY = eyeR * 0.15 + Math.sin(animT * 1.3) * eyeR * 0.1
       pupilL.position.set(-eyeOffX + lookX, eyeOffY + lookY)
       pupilR.position.set(eyeOffX + lookX, eyeOffY + lookY)
-    } else if (playerForm === 'worm') {
-      // the ocelli are baked straight into drawWorm (like drawCentipede's enemy version below it) —
+    } else if (playerForm === 'fish') {
+      // the eyes are baked straight into drawFish (like drawCentipede's enemy version below it) —
       // no live tracking pupil the way the round blob and the kaiju's sclera-and-pupil eyes get.
       pupilL.scale.set(0)
       pupilR.scale.set(0)
@@ -14341,6 +14391,7 @@ export function createRenderer(app) {
     chapterHasRain = !!(chapterRender.storm || chapterRender.rain)
     chapterHasRuins = !!(chapterRender.storm || chapterRender.ruins)
     playerForm = chapterRender.form ?? null
+    formScale = chapterRender.formScale ?? 1
     chapterHasLeaves = !!chapterRender.leaves
     // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
@@ -14370,6 +14421,8 @@ export function createRenderer(app) {
     // prop/obstacle set for this chapter — a chapter with no biome entry falls back to the green
     // one, so a future CHAPTERS id renders (bushes and all) before it gets art of its own
     chapterBiome = (run && BIOMES[run.chapter]) || BIOMES.body
+    dustLook = chapterRender.dust ?? null
+    for (const m of dustMotes) { m.s.tint = dustLook?.tint ?? 0xffffff; m.s.alpha *= dustLook?.alpha ?? 1 }
     R.background.color = chapterRender.bgColor
     clearWorld()
     if (run) {
