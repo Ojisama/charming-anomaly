@@ -12186,6 +12186,7 @@ try {
   testSubmission()
   testDevMenu()
   testModalPopBookkeeping()
+  testElementsRedesign()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -14355,4 +14356,185 @@ function testModalPopBookkeeping() {
     `specificity, so it wins the cascade and re-pops anyway — move .no-pop back to the end of the file`)
 
   console.log(`PASS run MP (modal pop bookkeeping): ${keys.length} popups routed through setHtml with unique keys, kill rule last in the cascade`)
+}
+
+// ---- run EL: the elements redesign, behind run.newElements ---------------------------------
+// Every status is bought with damage relative to the enemy's OWN health:
+//     recent = HP the player removed in the last EL_WINDOW seconds / enemy.maxHP
+// These guard the four things that were got WRONG on paper before any of it was built — two
+// adversarial reviews found all four, and none of them would have failed a test that asserted
+// state rather than effect.
+function testElementsRedesign() {
+  const el = (over = {}, opts = {}) => {
+    Math.random = mulberry32(opts.seed ?? 77001)
+    const run = createRun(makeMeta(), { chapter: opts.chapter ?? 'undergrowth', difficulty: 3 })
+    run.newElements = true
+    run.player.maxHP = run.player.hp = 1e9
+    Object.assign(run.elements, over)
+    return run
+  }
+  const playStill = (run, secs, each, takeUps) => play(run, secs, each, { x: 0, y: 0 }, takeUps)
+  // takeUps: ACCEPT level-ups. A rig that refuses them never grows the player's damage, so on a
+  // late tank no hit is ever a large enough share of its health to matter — which reads as "the
+  // mechanic does not work" when it is the rig that is wrong. Scenarios asserting the ABSENCE of an
+  // effect must refuse them instead, or a stray fire pick invents the thing they are ruling out.
+  const play = (run, secs, each, input = { x: 0.4, y: 0.2 }, takeUps = false) => {
+    for (let i = 0; i < Math.round(secs * 60); i++) {
+      if (run.phase === 'levelup') {
+        if (takeUps && run.levelUpChoices?.length) applyChoice(run, 0)
+        else run.phase = 'playing'
+        continue
+      }
+      if (run.phase !== 'playing') break
+      stepSim(run, input, 1 / 60)
+      each?.(run)
+      run.events.length = 0
+    }
+  }
+
+  // (a) THE WINDOW REALLY HOLDS EL_WINDOW SECONDS. The ring buffer must advance BEFORE it clears,
+  // or it evicts the bucket just written and holds 0.5s instead of 3s — which reads as "the design
+  // is 6x too weak" rather than as a bug. Measured as an EFFECT: with no cold to consume it, a
+  // dying enemy's window climbs most of the way to 1.0, because 1.0 is exactly its whole health.
+  {
+    const run = el({})
+    let peak = 0
+    play(run, 45, (r) => { for (const e of r.enemies) if (!e._dead) peak = Math.max(peak, e._elVenom?.total ?? 0) })
+    assert.ok(peak > 0.5, `element window peaked at ${peak.toFixed(3)} — it is holding a fraction of EL_WINDOW, ` +
+      `which is what happens when the ring buffer clears the bucket it just wrote instead of the oldest`)
+    assert.ok(peak <= 1.0001, `window reached ${peak.toFixed(3)} > 1.0, which is more than the enemy's whole health`)
+    console.log(`PASS run EL.a (window depth): peak ${peak.toFixed(3)} of a health bar, and never above 1.0`)
+  }
+
+  // (b) NORMALISED BY THE ENEMY'S OWN HEALTH — the one rule the whole design rests on. Measured
+  // by holding EVERYTHING else identical: same seed, same pinned enemy in the same spot taking the
+  // same weapon damage, and only its maxHP differs. The window must scale as 1/maxHP exactly.
+  //
+  // Averaging windows across a real fight does NOT show this and will mislead you: ordinary enemies
+  // die young and spend their frames at a low window while elites survive and hold a steady state,
+  // so elites come out HIGHER on a frame average even though the normaliser is working perfectly.
+  {
+    const windowFor = (maxHP) => {
+      Math.random = mulberry32(4242)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
+      run.newElements = true
+      run.player.maxHP = run.player.hp = 1e9
+      for (let i = 0; i < 300; i++) {
+        if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        run.events.length = 0
+      }
+      const e = run.enemies.find((x) => !x._dead)
+      assert.ok(e, 'no enemy alive to pin')
+      const px = run.player.x, py = run.player.y
+      for (let i = 0; i < 180; i++) {
+        // Pinned in weapon reach and topped up every frame, so it can never die and the denominator
+        // stays honest. Weapons do not read maxHP, so both arms take the identical damage sequence.
+        e.x = px + 40; e.y = py; e.maxHP = maxHP; e.hp = maxHP; e._dead = false
+        if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        run.events.length = 0
+      }
+      return e._elVenom.total
+    }
+    const small = windowFor(200), big = windowFor(2000)
+    assert.ok(small > 0 && big > 0, `window did not fill at all (small ${small}, big ${big})`)
+    const ratio = small / big
+    assert.ok(ratio > 9 && ratio < 11, `a 10x tougher enemy filled its window ${ratio.toFixed(2)}x slower, not ~10x — ` +
+      `the window is not being divided by the enemy's own maxHP`)
+    console.log(`PASS run EL.b (normalised): 10x the maxHP fills the window ${ratio.toFixed(2)}x slower, same damage`)
+  }
+
+  // (c) HAZARDS DO NOT FEED IT. City traffic and garden's mower deal a fixed fraction of the
+  // target's OWN maxHP (0.5), roadkill its whole bar, the pounce trap 0.25 — the denominator
+  // cancels, so one car pass would hand every enemy in the chapter half a freeze meter, elites
+  // included, for nothing. Asserted as SOURCE TEXT, not behaviour: the observable signature of a
+  // hazard hit (a large single-step jump) is indistinguishable from a big player hit on a low-HP
+  // drone, which is a legitimate 0.75 of a health bar in early city. The grep is exact where the
+  // measurement is ambiguous.
+  {
+    const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    const sig = src.match(/function dealDamage\(([^)]*)\)/)
+    assert.ok(sig && /hazard/.test(sig[1]), 'dealDamage no longer takes a `hazard` parameter — ' +
+      'maxHP-proportional chapter damage would feed the element window')
+    const vehicle = /dealDamage\(run, e, toEnemy, false, false, true\)/.test(src)
+    assert.ok(vehicle, 'the traffic/mower vehicle hit no longer passes hazard=true — a car pass now ' +
+      'fills every enemy element window by TRAFFIC_ENEMY_HP_FRAC of its own health')
+    const trap = /POUNCE_TRAP_HP_FRAC\)[^)]*, false, false, true\)/.test(src.replace(/\s+/g, ' '))
+    assert.ok(trap, 'the pounce trap no longer passes hazard=true — it deals POUNCE_TRAP_HP_FRAC of maxHP')
+    console.log('PASS run EL.c (hazards excluded): dealDamage takes `hazard`, and the vehicle and trap sites both pass it')
+  }
+
+  // (d) ONLY `anchored` IS UNFREEZABLE. Owner ruling: an `unshakeable` tank is an ordinary heavy
+  // enemy for cold — it resists by having more health, which is the whole point of normalising.
+  {
+    const run = el({ cold: 9 })
+    let anchoredFrozen = 0, anchoredSeen = 0, tankFrozen = 0, tankSeen = 0
+    // 180s, not 90: WAVE_TABLE gates `tank` behind t=140s, so a shorter run cannot see the very
+    // enemies this assertion is about and the tank half passes vacuously at 0/0.
+    playStill(run, 180, (r) => {
+      for (const e of r.enemies) {
+        if (e._dead) continue
+        const anch = e.affixes && e.affixes.includes('anchored')
+        const unsh = e.flags && e.flags.includes('unshakeable')
+        if (anch) { anchoredSeen++; if ((e._elFrozen ?? 0) > 0) anchoredFrozen++ }
+        else if (unsh) { tankSeen++; if ((e._elFrozen ?? 0) > 0) tankFrozen++ }
+      }
+    }, true)
+    assert.strictEqual(anchoredFrozen, 0, `an \`anchored\` enemy was frozen on ${anchoredFrozen} frames — it must never freeze`)
+    assert.ok(tankSeen > 0, 'no `unshakeable` tank was ever seen — run past WAVE_TABLE\'s t=140s gate or this proves nothing')
+    {
+      assert.ok(tankFrozen > 0, `no \`unshakeable\` tank ever froze across ${tankSeen} frames — the owner's ruling is that ` +
+        `only \`anchored\` is exempt, so a tank must be freezable given enough damage`)
+    }
+    console.log(`PASS run EL.d (freeze exemption): anchored 0/${anchoredSeen} frames frozen, unshakeable tanks ${tankFrozen}/${tankSeen}`)
+  }
+
+  // (e) VENOM DEALS NO DAMAGE. It is pure weakening — the amp is the entire card. With no fire and
+  // no bleed source, any dot-flagged hit at all means a DoT crept back in.
+  {
+    const run = el({ venom: 4 })
+    let dotHits = 0
+    for (let i = 0; i < 60 * 60; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0.4, y: 0.2 }, 1 / 60)
+      for (const ev of run.events) if (ev.type === 'hit' && ev.dot) dotHits++
+      run.events.length = 0
+    }
+    assert.strictEqual(dotHits, 0, `venom produced ${dotHits} damage-over-time hits — it must deal no damage of its own`)
+    console.log('PASS run EL.e (venom is weakening only): 0 DoT hits over 60s at venom P=4')
+  }
+
+  // (f) THE LADDER DECLINES `normal`, AND THE SCREEN STILL FILLS. The element branch of rollCard is
+  // the one branch with no fallback: without a re-roll on its own table it returns null on 58.5% of
+  // element slots, rollCard returns null, and buildLevelUpChoices BREAKS out of the slot loop,
+  // truncating the screen. Compared against the SAME SEED with the flag off rather than against a
+  // fixed number — the screen is 2 cards on a fresh run and grows with shop slots, so any literal
+  // here would be asserting the wrong thing.
+  {
+    let elementCards = 0, normals = 0, short = 0, screens = 0
+    for (let s2 = 0; s2 < 400; s2++) {
+      const build = (flag) => {
+        Math.random = mulberry32(90000 + s2)
+        const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
+        run.newElements = flag
+        run.player.level = 6
+        return buildLevelUpChoices(run)
+      }
+      const control = build(false), cards = build(true)
+      screens++
+      if (cards.length < control.length) short++
+      for (const c of cards) {
+        if (c.kind !== 'element') continue
+        elementCards++
+        if (c.rarity === 'normal') normals++
+      }
+    }
+    assert.strictEqual(normals, 0, `${normals} of ${elementCards} element cards rolled \`normal\` — the redesign's ladder starts at rare`)
+    assert.strictEqual(short, 0, `${short} of ${screens} level-up screens came back shorter than the same seed with the flag off — ` +
+      `the element branch returned null and buildLevelUpChoices broke out of the slot loop`)
+    assert.ok(elementCards > 10, `only ${elementCards} element cards across ${screens} screens — the bucket is not producing them at all`)
+    console.log(`PASS run EL.f (ladder + no truncation): ${elementCards} element cards over ${screens} screens, 0 normal, 0 shorter than control`)
+  }
 }

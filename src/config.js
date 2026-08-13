@@ -2894,6 +2894,121 @@ export const COMBOS = {
   comboCd: 0.5,
 }
 
+// ---- Elements REDESIGN (v7.53, behind run.newElements) ------------------------------
+// Spec: docs/superpowers/specs/2026-08-13-elements-redesign-design.md.
+//
+// ponytail: this block and the ORIGINAL element constants above both ship, because the redesign is
+// gated on run.newElements (seven taps on the HUD coin badge -> "New elements") so it can be
+// playtested against the live URL without reaching players. REMOVE THE LOSER once the owner has
+// decided — two live element systems is scaffolding, not a design.
+//
+// The whole model in one line: every status is bought with damage relative to the enemy's OWN
+// health, so a hit that is huge to a drone is small to a tank with no special case anywhere.
+//
+//    recent = (HP the PLAYER removed from this enemy in the last EL_WINDOW seconds) / enemy.maxHP
+//
+// and each element reads that one number at CONSTANT x sqrt(P), where P is its accumulated potency.
+// sqrt because the first pick must be the biggest card you ever take (steepest slope at zero) while
+// no later pick is ever worth zero — and on the integer ladder below it is legible: P1 = x1,
+// P4 = x2, P9 = x3.
+export const EL_WINDOW = 3          // s of damage history every element reads
+export const EL_BUCKETS = 6         // ring-buffer resolution: 0.5s each. See stepElementWindows.
+export const EL_FIRE_SHARE = 0.35   // burn per hit, as a share of THAT hit's damage
+export const EL_COLD_MUL = 2        // slow per unit of `recent`; 1/(2*sqrt(P)) of a health bar freezes
+export const EL_FREEZE_T = 2        // s a freeze holds
+export const EL_FREEZE_RESIST = 0.25  // post-freeze, cold accumulates at this rate...
+export const EL_FREEZE_RESIST_T = 5   // ...for this long. Applied to INTAKE, never to the threshold:
+// scaling the threshold instead is arithmetically "cannot freeze at any rarity", which is the bug
+// an adversarial review caught in revision 2 of the spec.
+export const EL_VENOM_MUL = 0.6     // damage-taken amp per unit of `recent`. Venom deals NO damage.
+export const EL_LIGHT_SHARE = 0.30  // arc damage, as a share of the hit
+export const EL_LIGHT_RANGE = 0.15  // arc range bonus per sqrt(P)
+export const EL_LIGHT_FORWARD = 0.35 // chance per sqrt(P) to forward the source's ignite/bleed
+export const EL_BUCKET_WEIGHT = 7.5 // BUCKET_WEIGHTS.element under the flag (18 -> 7.5): elements
+// become a FIND rather than routine, and the freed weight goes to the base-attribute buckets.
+
+/** The redesign's potency ladder. No `normal` tier — an element card is always rare or better. */
+export const EL_VALUES = { rare: 1, epic: 2, legendary: 3, mythic: 4 }
+
+export const elScale = (P) => Math.sqrt(Math.max(0, P))
+
+/**
+ * Every player-facing number for one element at a given potency — ONE source, read by the level-up
+ * card AND by the Codex, so the two can never drift apart. Pure: no `run`, no config lookups beyond
+ * this file's own constants (the `hasWeaponAt` precedent for a config.js helper).
+ * Percentages are returned already rounded for display; the sim never reads these.
+ */
+export const elementFacts = (id, P) => {
+  const k = elScale(P)
+  switch (id) {
+    case 'fire':
+      return { burnPct: Math.round(EL_FIRE_SHARE * k * 100) }
+    case 'cold':
+      // The freeze lands once you have removed this share of an enemy's health inside the window.
+      return { mul: EL_COLD_MUL * k, freezePct: Math.round(100 / (EL_COLD_MUL * k)), freezeT: EL_FREEZE_T }
+    case 'venom':
+      // Quoted at half a health bar, which is the honest "typical", not the ceiling.
+      return { ampPct: Math.round(EL_VENOM_MUL * k * 0.5 * 100), maxAmpPct: Math.round(EL_VENOM_MUL * k * 100) }
+    case 'lightning':
+      return {
+        arcs: 1 + Math.floor(k),
+        dmgPct: Math.round(EL_LIGHT_SHARE * k * 100),
+        rangePct: Math.round((1 + EL_LIGHT_RANGE * k) * 100),
+        forwardPct: Math.round(Math.min(1, EL_LIGHT_FORWARD * k) * 100),
+      }
+    default:
+      return {}
+  }
+}
+
+/** The level-up card's description under the flag: the effect in the element's own units. */
+export const elementCardDesc = (id, P) => {
+  const f = elementFacts(id, P)
+  switch (id) {
+    case 'fire':      return `Your hits set enemies burning for ${f.burnPct}% of their damage over ${EL_WINDOW}s. Best on heavy hits.`
+    case 'cold':      return `Damage chills. Take ${f.freezePct}% of an enemy's health within ${EL_WINDOW}s and it freezes for ${f.freezeT}s.`
+    case 'venom':     return `Damage weakens. A worn-down enemy takes up to +${f.ampPct}% damage from every source. Deals none itself.`
+    case 'lightning': return `Arcs to ${f.arcs} enemies for ${f.dmgPct}% damage, at ${f.rangePct}% range. ${f.forwardPct}% chance to spread burning to each.`
+    default:          return ''
+  }
+}
+
+/** Codex body for one element: the rule, then where the player currently stands. */
+export const elementCodex = (id, P) => {
+  const f = elementFacts(id, P)
+  switch (id) {
+    case 'fire': return [
+      'Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.',
+      'A new hit only replaces the burn if it would be stronger.',
+      P > 0 ? `Yours: ${f.burnPct}% of each hit, over ${EL_WINDOW}s.` : null,
+    ].filter(Boolean)
+    case 'cold': return [
+      'Damage chills. Chill is how much of an enemy’s health you have taken off recently — when it reaches 100%, the enemy freezes.',
+      `A freeze holds for ${EL_FREEZE_T}s. Afterwards the enemy resists cold for ${EL_FREEZE_RESIST_T}s.`,
+      'Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.',
+      P > 0 ? `Yours: take ${f.freezePct}% of an enemy’s health within ${EL_WINDOW}s to freeze it.` : null,
+    ].filter(Boolean)
+    case 'venom': return [
+      'Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.',
+      'Venom deals no damage of its own. It makes everything else hurt more.',
+      P > 0 ? `Yours: up to +${f.ampPct}% damage taken on a half-worn enemy.` : null,
+    ].filter(Boolean)
+    case 'lightning': return [
+      'Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.',
+      'More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.',
+      P > 0 ? `Yours: ${f.arcs} arcs, ${f.dmgPct}% damage, ${f.rangePct}% range, ${f.forwardPct}% to spread.` : null,
+    ].filter(Boolean)
+    default: return []
+  }
+}
+
+/** The Codex's opening page — the one rule the whole system hangs off. */
+export const ELEMENT_CODEX_INTRO = [
+  'Elements read one number: how much of an enemy’s own health you have taken off in the last three seconds.',
+  'That is why a hit which devastates a drone barely troubles a tank — the same damage is a smaller share of a bigger health bar. Nothing is immune; big things simply need more.',
+  'It is also why elements grow with your weapons. As your damage climbs, so does everything they do.',
+]
+
 // ---- Enemies -----------------------------------------------------------------
 export const ENEMIES = {
   drone: { hp: 20, speed: 90,  dmg: 8,  radius: 16, xp: 1, coinChance: 0.10 },
