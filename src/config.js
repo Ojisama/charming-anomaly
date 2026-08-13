@@ -4057,11 +4057,13 @@ CHAPTERS.shelf = {
     // 130px of clear disc, the same 130 the old 210px outer radius gave — since that end is the one
     // the owner picked off a shot on 2026-08-13. It is about one second of warning at a normal
     // enemy approach speed, and you are at 0.6x on top of it.
-    // dim 1.0 (owner, 2026-08-13, "much darker when light = 0", picked off a 4-way shot): the far
-    // field is the tint and nothing else. It is only ever the FAR field — the radius is what the
-    // player reads — so an opaque outside costs no legibility near you and makes running dry
-    // actually frightening.
-    dark: { from: 0.5, speedFloor: 0.6, dim: 1.0, coreFull: 1, coreEmpty: 0.28 },
+    // dim 1.0 (owner, 2026-08-13, "much darker when light = 0", picked off a 4-way shot): at an
+    // EMPTY bar the far field is the tint and nothing else. It is only ever the FAR field — the
+    // radius is what the player reads — so an opaque outside costs no legibility near you and makes
+    // running dry actually frightening. Reached by a linear ramp from `from` down (owner picked
+    // "barely visible, deepens steadily" over an early-biting and a late-slamming curve), which is
+    // what makes the whole bottom half of the bar a readout instead of just its last quarter.
+    dark: { from: 0.5, speedFloor: 0.6, dim: 1.0, coreFull: 1, coreEmpty: 0.28, closeIn: 0.25 },
   },
 
   // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
@@ -4849,9 +4851,15 @@ export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_
 //   from       - charge FRACTION at and above which nothing happens at all. Above this the chapter
 //                plays exactly like a chapter with no dark at all.
 //   speedFloor - player move-speed multiplier at charge 0 (sim; see stepPlayer's slowMul MIN).
-//   dim        - alpha of the darkness OUTSIDE your light (RENDER ONLY, but it lives here and not
-//                in the `render` block on purpose: it must share `from` with the slow or the two
-//                cues drift apart and the dimming becomes decoration).
+//   dim        - alpha of the darkness OUTSIDE your light AT AN EMPTY BAR; it is scaled by
+//                darkness() on the way to the screen, so it reads 0 at `from` and ramps to this.
+//                (RENDER ONLY, but it lives here and not in the `render` block on purpose: it must
+//                share `from` with the slow or the two cues drift apart and the dimming becomes
+//                decoration.)
+//   closeIn    - exponent bending the shrink between coreFull and coreEmpty (1 = linear). Under 1
+//                the light drops away fast just below `from`, which is the only thing that puts
+//                dark on screen while the bar still has room to fall — see lightCore() for the
+//                screen geometry that makes a linear shrink unreadable.
 //   coreFull   - the FULLY-LIT core radius at and above `from`, as a multiple of the screen's
 //                half-diagonal. 1 means "the clear disc exactly reaches the farthest corner", i.e.
 //                no dark at all. See lightCore() below for why it is a multiple and not a px count.
@@ -4868,10 +4876,23 @@ export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_
 // hip in equal measure, where a radius always leaves the metre around you at full strength and
 // takes the horizon, which is the trade a survivors-like can actually be played against.
 //
-// dim is therefore a CONSTANT here rather than a ramp: the radius is the whole readout, and the
-// far field is simply what lies outside it. One curve still drives everything, because the radius
-// interpolates on darkness() rather than on raw charge — so the light starts closing in at exactly
-// the instant the slow starts biting, and both bottom out together at an empty bar.
+// The radius is the PRIMARY readout, and the far field's alpha ramps underneath it: render.js
+// paints the dark at `dim x darkness(charge, res)`, so `dim` is the depth at an EMPTY bar rather
+// than a constant opacity. Both quantities ride the one curve, so they start together at `from` and
+// bottom out together at zero.
+//
+// The alpha has to move because a radius alone cannot be read for the top half of the drainable
+// range, and that is geometry, not tuning. At `from` the lit core exactly covers the screen (that
+// is what coreFull 1 means), so until it shrinks BELOW the screen's half-diagonal there is nothing
+// to see — measured on a 390x844 phone after the radius was made screen-relative, mean luminance
+// went 85.5 -> 82.5 between a half bar and 30%, under 4% across two fifths of the range. Owner,
+// twice: "only full dark or full light, with a threshold", then "the light fix still doesn't work".
+//
+// This is NOT the flat sheet the block above rejects. That one ramped a uniform screen-wide alpha
+// INSTEAD OF a radius, which says the sun went out and costs you the enemy on your hip as much as
+// the horizon. Here the radius still closes in and still leaves the metre around you at full
+// strength; the alpha only decides how black the OUTSIDE of it is, which is the part the player
+// was never able to read.
 //
 // WHICH drawback is an owner ruling, taken 2026-08-12 against three alternatives. Move speed, not
 // damage and not accuracy, because weapons auto-fire: a slow player still kills at the same rate,
@@ -4908,7 +4929,13 @@ export const darkness = (charge, res) => {
 export const lightCore = (charge, res, corner) => {
   const d = res?.dark
   if (!d) return Infinity
-  return corner * (d.coreFull - (d.coreFull - d.coreEmpty) * darkness(charge, res))
+  // closeIn bends the shrink. It is NOT decoration: a circle on a 390x844 phone that leaves no dark
+  // corner (465px) is 2.38x the radius that would visibly darken the nearest edge (195px), so a
+  // LINEAR shrink spends the whole top half of the drainable range crossing radii that are all
+  // equally invisible. Measured mean screen darkness at 40% of the bar: 0.001 linear, 0.055 at
+  // closeIn 0.25. Under 1 the light drops away fast the moment you cross `from` and then eases,
+  // which is what puts the readout on screen while the bar still has somewhere to fall.
+  return corner * (d.coreFull - (d.coreFull - d.coreEmpty) * Math.pow(darkness(charge, res), d.closeIn ?? 1))
 }
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------

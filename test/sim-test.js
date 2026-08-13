@@ -4763,9 +4763,17 @@ function runDark() {
     assert.strictEqual(lightCore(res.max * d.from, res, PHONE), d.coreFull * PHONE,
       'the light must still be at full reach AT the threshold — it starts closing exactly where the slow starts')
     assert.strictEqual(lightCore(0, res, PHONE), d.coreEmpty * PHONE, 'an empty bar lights only coreEmpty')
+    // FRONT-LOADED, and this is the assertion the whole chapter's legibility rests on. A circle that
+    // leaves no dark corner on a 390x844 phone is 2.38x the radius that would darken the nearest
+    // edge (465px vs 195px), so a light shrinking LINEARLY spends the top half of the drainable
+    // range crossing radii that are all equally invisible — mean screen darkness 0.001 at 40% of the
+    // bar, which the owner reported three times running as the dark being on/off. By the time the
+    // bar is halfway from `from` to empty the light must already have given up most of its travel.
     const mid = lightCore(res.max * d.from * 0.5, res, PHONE)
-    assert.ok(Math.abs(mid - ((d.coreFull + d.coreEmpty) / 2) * PHONE) < 1e-9,
-      `halfway to empty must light the midpoint radius, got ${mid}`)
+    const travelled = (d.coreFull * PHONE - mid) / ((d.coreFull - d.coreEmpty) * PHONE)
+    assert.ok(travelled >= 0.65,
+      `halfway to empty the light must have closed at least 65% of its travel (linear gives 0.50 and is unreadable), got ${travelled.toFixed(2)}`)
+    assert.ok(d.closeIn > 0 && d.closeIn <= 1, `closeIn must bend the shrink forward, never back (got ${d.closeIn})`)
     // DEVICE PARITY, the bug this shape exists to make impossible: at every level of the bar the
     // two screens must light the SAME FRACTION of themselves. Asserting px would pass the old
     // world-px version at exactly one screen size and fail it everywhere else, which is how it
@@ -4870,6 +4878,24 @@ function runDark() {
   // which is the entire failure this run exists to prevent.
   {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    // TWO quantities ride the bar, not one. The radius alone cannot be read for the top half of the
+    // drainable range: at `from` the lit core exactly covers the screen by construction, so nothing
+    // shows until it shrinks below the half-diagonal — measured at under 4% of mean screen luminance
+    // between a half bar and 30% on a phone, which the owner reported twice as "only full dark or
+    // full light". The far field's alpha must therefore ramp too, on the SAME curve so the two cues
+    // and the move-speed slow can never come apart.
+    assert.ok(/const a = res\?\.dark \? res\.dark\.dim \* darkness\(run\.charge, res\) : 0/.test(src),
+      'the far field must be dim x darkness(bar), not a constant — a constant alpha makes the top half of the bar invisible')
+    // ...and that expression must still be 0 at and above `from` (so the chapter plays clean up
+    // there) and exactly `dim` at an empty bar (the depth the owner picked off a shot).
+    assert.strictEqual(d.dim * darkness(res.max, res), 0, 'a full bar must paint no far field at all')
+    assert.strictEqual(d.dim * darkness(res.max * d.from, res), 0, 'the far field must start from nothing AT the threshold, not pop in')
+    // `dim * darkness(0, res) === d.dim` would be a tautology (darkness is 1 at zero), so this
+    // asserts the OWNER RULING instead: 2026-08-13, "much darker when light = 0", picked near-black
+    // off a 4-way shot. An empty bar's far field is the tint at full opacity and nothing else, which
+    // a depth under 1 silently gives up. Retuning this is a decision, not a detail — if it moves,
+    // it moves here too, on purpose.
+    assert.ok(d.dim >= 1, `an empty bar must black the far field out completely (owner ruling), got dim ${d.dim}`)
     assert.ok(/const core = lightCore\(run\.charge, res, corner\)/.test(src),
       'render.js must size the light from lightCore(run.charge, res, corner), so the shrinking light and the slow cannot drift apart')
     // ...and the early-out must be the SAME quantity compared against itself. `R * SOME_FRAC >= corner`
@@ -4913,7 +4939,7 @@ function runDark() {
       'the dark must sit directly above `world` and below the damage vignette/flash, or it takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): one curve drives both — the light you emit closes from ${d.coreFull}x to ${d.coreEmpty}x the screen half-diagonal and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, linear, MIN-composed with the latch slow, pond untouched, player and shafts SUBTRACTED from the lightmap and no cut() left to overlap`)
+  console.log(`PASS run DK (the dark): one curve drives both — the light you emit closes from ${d.coreFull}x to ${d.coreEmpty}x the screen half-diagonal and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, front-loaded (closeIn ${d.closeIn}), MIN-composed with the latch slow, pond untouched, player and shafts SUBTRACTED from the lightmap and no cut() left to overlap`)
 }
 runDark()
 

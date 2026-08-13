@@ -8434,8 +8434,14 @@ export function createRenderer(app) {
   function updateDark(run, cx, cy) {
     const cfg = CHAPTERS[run.chapter]
     const res = cfg?.resource
-    const a = res?.dark ? res.dark.dim : 0
-    if (a <= 0.004) { darkLayer.visible = false; return }  // no dark in this chapter: no per-frame rebuild
+    // TWO things move with the bar, not one: the light's RADIUS closes in (lightCore below) and the
+    // far field DEEPENS. Both ride darkness(), so they still start together at `from` and bottom out
+    // together at an empty bar — see the dim note in config.js for why a constant alpha could not
+    // express what the player is being asked to read.
+    const a = res?.dark ? res.dark.dim * darkness(run.charge, res) : 0
+    // Covers both "this chapter has no dark" and "the bar is above the threshold" — darkness() is 0
+    // at and above `from`, so the layer costs nothing per frame in either case.
+    if (a <= 0.004) { darkLayer.visible = false; return }
     const w = app.screen.width, h = app.screen.height
     // The player is the lamp. Screen space, via the same (world + c) convention every cull below
     // uses — NOT viewW()/2, which is only the player's position in the chapters that centre the
