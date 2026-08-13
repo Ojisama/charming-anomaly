@@ -72,7 +72,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightCore, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -4753,52 +4753,54 @@ function runDark() {
   // instead, the light would start closing in at a full bar while the slow waited until half — two
   // schedules, and the player unable to tell which state they are in from the picture.
   {
-    // Measured in SCREEN half-diagonals, and the two devices below are the assertion that matters:
-    // a fixed world-px radius shipped a chapter whose dark was invisible for the top half of the
-    // bar on a phone and permanently on at a full bar on a desktop. Same bar level, same fraction
-    // of the screen lit, whatever the screen.
-    const PHONE = Math.hypot(390, 844) / 2      // 465px
-    const DESK = Math.hypot(1280, 800) / 2      // 755px
-    assert.strictEqual(lightCore(res.max, res, PHONE), d.coreFull * PHONE, 'a full bar lights coreFull x the half-diagonal')
-    assert.strictEqual(lightCore(res.max * d.from, res, PHONE), d.coreFull * PHONE,
-      'the light must still be at full reach AT the threshold — it starts closing exactly where the slow starts')
-    assert.strictEqual(lightCore(0, res, PHONE), d.coreEmpty * PHONE, 'an empty bar lights only coreEmpty')
-    // FRONT-LOADED, and this is the assertion the whole chapter's legibility rests on. A circle that
-    // leaves no dark corner on a 390x844 phone is 2.38x the radius that would darken the nearest
-    // edge (465px vs 195px), so a light shrinking LINEARLY spends the top half of the drainable
-    // range crossing radii that are all equally invisible — mean screen darkness 0.001 at 40% of the
-    // bar, which the owner reported three times running as the dark being on/off. By the time the
-    // bar is halfway from `from` to empty the light must already have given up most of its travel.
-    const mid = lightCore(res.max * d.from * 0.5, res, PHONE)
-    const travelled = (d.coreFull * PHONE - mid) / ((d.coreFull - d.coreEmpty) * PHONE)
-    assert.ok(travelled >= 0.65,
-      `halfway to empty the light must have closed at least 65% of its travel (linear gives 0.50 and is unreadable), got ${travelled.toFixed(2)}`)
-    assert.ok(d.closeIn > 0 && d.closeIn <= 1, `closeIn must bend the shrink forward, never back (got ${d.closeIn})`)
-    // DEVICE PARITY, the bug this shape exists to make impossible: at every level of the bar the
-    // two screens must light the SAME FRACTION of themselves. Asserting px would pass the old
-    // world-px version at exactly one screen size and fail it everywhere else, which is how it
-    // shipped — the ratio is what has to hold.
+    // MEASURED AGAINST THE SCREEN'S LONGEST SIDE, and LINEAR IN THE RAW BAR. Owner spec, after
+    // three shipped attempts that all anchored on the half-diagonal and gated on `from`: "base
+    // light radius at 100% bar filled is the biggest dimension of the screen, then it reduces down
+    // linearly to 10% that radius".
+    const PHONE = Math.max(390, 844)      // 844px
+    const DESK = Math.max(1280, 800)      // 1280px
+    assert.strictEqual(lightRadius(res.max, res, PHONE), d.radiusFull * PHONE, 'a full bar lights radiusFull x the longest side')
+    assert.strictEqual(lightRadius(0, res, PHONE), d.radiusEmpty * PHONE, 'an empty bar lights only radiusEmpty')
+    // NOT GATED ON `from`. This is the assertion the whole chapter's legibility rests on, and the
+    // one every previous version failed: a light pinned at full reach until half a bar spends the
+    // top half of the range showing nothing, because a radius that covers the screen's CORNERS is
+    // 2.38x the one that covers its nearest EDGE (465px vs 195px on a phone) and every radius in
+    // that band looks identical. Measured then: 85.5 mean luminance at 50% of the bar, 85.3 at 40%.
+    // Spending Light must move the picture at 90% of the bar as surely as at 20%.
+    assert.ok(lightRadius(res.max * 0.9, res, PHONE) < lightRadius(res.max, res, PHONE) - 1,
+      'the light must already be shrinking at 90% of the bar — gating it on `from` is what made three versions unreadable')
+    // ...and LINEARLY, so the rate never surprises: the midpoint of the bar lights the midpoint
+    // radius, to floating-point.
+    const mid = lightRadius(res.max * 0.5, res, PHONE)
+    assert.ok(Math.abs(mid - ((d.radiusFull + d.radiusEmpty) / 2) * PHONE) < 1e-9,
+      `half a bar must light the midpoint radius, got ${mid}`)
+    // DEVICE PARITY: at every level of the bar the two screens must light the same FRACTION of
+    // their own longest side. Asserting px would pass the original world-px version at exactly one
+    // screen size and fail it everywhere else, which is how that bug shipped.
     for (let c = res.max; c >= 0; c -= res.max / 20) {
-      assert.ok(Math.abs(lightCore(c, res, PHONE) / PHONE - lightCore(c, res, DESK) / DESK) < 1e-9,
+      assert.ok(Math.abs(lightRadius(c, res, PHONE) / PHONE - lightRadius(c, res, DESK) / DESK) < 1e-9,
         `phone and desktop must light the same fraction of the screen (charge ${c})`)
     }
-    // coreFull >= 1: the clear disc reaches the farthest corner at and above `from`, so above the
-    // threshold the chapter really does play like a chapter with no dark — on EVERY screen. Below
-    // 1 the corners sit vignetted at a full bar, which is what the desktop shipped.
-    assert.ok(d.coreFull >= 1, 'at and above `from` the lit core must cover the whole screen')
+    // radiusFull >= 1: at a full bar the rim is at least a screen away, so the chapter opens with
+    // no dark on it whatever the aspect ratio.
+    assert.ok(d.radiusFull >= 1, 'a full bar must put the light\'s rim off-screen on any aspect ratio')
     // Monotone shrinking, sampled — a non-monotone radius would read as the light flickering back
     // out as you get worse, and no endpoint check can catch it.
     let prev = Infinity
     for (let c = res.max; c >= 0; c -= res.max / 40) {
-      const r = lightCore(c, res, PHONE)
+      const r = lightRadius(c, res, PHONE)
       assert.ok(r <= prev + 1e-9, `light radius must never grow as the bar empties (charge ${c})`)
       prev = r
     }
-    assert.ok(d.coreEmpty > 0 && d.coreEmpty < d.coreFull, 'an empty bar must still light SOMETHING, and less than a full one')
+    assert.ok(d.radiusEmpty > 0 && d.radiusEmpty < d.radiusFull, 'an empty bar must still light SOMETHING, and less than a full one')
+    // Out-of-range charge must not invert the light (a refill overshoot past res.max would otherwise
+    // grow the radius past radiusFull, and a negative would push it under radiusEmpty).
+    assert.strictEqual(lightRadius(res.max * 2, res, PHONE), d.radiusFull * PHONE, 'an overfull bar clamps to radiusFull')
+    assert.strictEqual(lightRadius(-10, res, PHONE), d.radiusEmpty * PHONE, 'a negative bar clamps to radiusEmpty')
     // A chapter with no dark lights everything. Infinity and not 0: the renderer's "does my light
     // already cover the corner" early-out has to say yes, and a 0 would black the screen out.
-    assert.strictEqual(lightCore(0, CHAPTERS.pond.resource ?? undefined, PHONE), Infinity, 'no resource -> unbounded light')
-    assert.strictEqual(lightCore(50, { max: 100 }, PHONE), Infinity, 'a resource with no dark block -> unbounded light')
+    assert.strictEqual(lightRadius(0, CHAPTERS.pond.resource ?? undefined, PHONE), Infinity, 'no resource -> unbounded light')
+    assert.strictEqual(lightRadius(50, { max: 100 }, PHONE), Infinity, 'a resource with no dark block -> unbounded light')
   }
 
   // (b) THE SLOW IS REAL, and measured as DISTANCE TRAVELLED rather than by reading a multiplier
@@ -4884,26 +4886,18 @@ function runDark() {
     // between a half bar and 30% on a phone, which the owner reported twice as "only full dark or
     // full light". The far field's alpha must therefore ramp too, on the SAME curve so the two cues
     // and the move-speed slow can never come apart.
-    assert.ok(/const a = res\?\.dark \? res\.dark\.dim \* darkness\(run\.charge, res\) : 0/.test(src),
-      'the far field must be dim x darkness(bar), not a constant — a constant alpha makes the top half of the bar invisible')
-    // ...and that expression must still be 0 at and above `from` (so the chapter plays clean up
-    // there) and exactly `dim` at an empty bar (the depth the owner picked off a shot).
-    assert.strictEqual(d.dim * darkness(res.max, res), 0, 'a full bar must paint no far field at all')
-    assert.strictEqual(d.dim * darkness(res.max * d.from, res), 0, 'the far field must start from nothing AT the threshold, not pop in')
-    // `dim * darkness(0, res) === d.dim` would be a tautology (darkness is 1 at zero), so this
-    // asserts the OWNER RULING instead: 2026-08-13, "much darker when light = 0", picked near-black
-    // off a 4-way shot. An empty bar's far field is the tint at full opacity and nothing else, which
-    // a depth under 1 silently gives up. Retuning this is a decision, not a detail — if it moves,
-    // it moves here too, on purpose.
-    assert.ok(d.dim >= 1, `an empty bar must black the far field out completely (owner ruling), got dim ${d.dim}`)
-    assert.ok(/const core = lightCore\(run\.charge, res, corner\)/.test(src),
-      'render.js must size the light from lightCore(run.charge, res, corner), so the shrinking light and the slow cannot drift apart')
-    // ...and the early-out must be the SAME quantity compared against itself. `R * SOME_FRAC >= corner`
-    // is what let a px radius and a screen size disagree; core-vs-corner cannot.
-    assert.ok(/if \(core >= corner\) \{ darkLayer\.visible = false/.test(src),
-      'the dark must switch off exactly when the lit core covers the corner — compared in one unit, not px against a fraction of px')
-    assert.ok(/const R = core \/ LIGHT_CORE_FRAC/.test(src),
-      'the outer radius must be derived from the core through the sharpness knob, not tuned separately')
+    // The far field's alpha is a CONSTANT. Owner, 2026-08-13, rejecting a ramped one in play: "I
+    // want the light radius to fade, not the whole screen." Ramping it also measured as a no-op —
+    // at a large radius there is barely any far field for an alpha to act on, and the mid-bar came
+    // back LIGHTER than without it (84.3 mean luminance at 30% against 82.5).
+    assert.ok(/const a = res\?\.dark \? res\.dark\.dim : 0/.test(src),
+      'the far field must be a flat dim — ramping it was rejected in play and measured as a no-op')
+    // ...and dim 1: an empty bar's far field is the tint and nothing else (owner, 2026-08-13,
+    // "much darker when light = 0", picked near-black off a 4-way shot). Retuning this is a
+    // decision, not a detail — if it moves, it moves here too, on purpose.
+    assert.ok(d.dim >= 1, `the far field must be fully opaque (owner ruling), got dim ${d.dim}`)
+    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\)\)/.test(src),
+      "render.js must size the light from lightRadius(charge, res, longest side) — the screen's longest side is the unit the chapter states its light in")
     // The lights are punched OUT of a lightmap. Painting them over instead is the flat-sheet version
     // the owner rejected: additive light on a dimmed scene raises its brightness but cannot
     // un-flatten it, so a painted shaft is one you can see LESS inside.
@@ -4928,8 +4922,8 @@ function runDark() {
     // comparison in one unit, so a sharpness change cannot move how much of the screen is dark.
     assert.ok(/const LIGHT_CORE_FRAC = /.test(src)
       && /LIGHT_CORE_FRAC \+ \(1 - LIGHT_CORE_FRAC\)/.test(src)
-      && /const R = core \/ LIGHT_CORE_FRAC/.test(src),
-      'ONE LIGHT_CORE_FRAC must position the falloff ramp AND derive the outer radius from the core')
+      && /R \* LIGHT_CORE_FRAC >= corner/.test(src),
+      'ONE LIGHT_CORE_FRAC must both position the falloff ramp and gate the early-out')
     // The construct this replaced, kept as a tripwire: Graphics.cut() cannot take holes that overlap
     // each other, and the player's circle overlapping a shaft's is the chapter, not an edge case.
     // It shipped at v7.55 as a hard-edged wedge of night across the whole viewport.
@@ -4939,7 +4933,7 @@ function runDark() {
       'the dark must sit directly above `world` and below the damage vignette/flash, or it takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): one curve drives both — the light you emit closes from ${d.coreFull}x to ${d.coreEmpty}x the screen half-diagonal and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, front-loaded (closeIn ${d.closeIn}), MIN-composed with the latch slow, pond untouched, player and shafts SUBTRACTED from the lightmap and no cut() left to overlap`)
+  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts SUBTRACTED from the lightmap and no cut() left to overlap`)
 }
 runDark()
 
