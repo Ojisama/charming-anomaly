@@ -223,6 +223,7 @@ export function stepSim(run, input, dt) {
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
+  stepTide(run, dt)       // Book 2 surf signature: alternating surge/backwash (no-op elsewhere)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop sun-shaft cells (no-op outside The Shelf)
@@ -2575,6 +2576,30 @@ function stepCurrents(run, dt) {
     const ef = currentForce(run, e.x, e.y)
     e.x += ef.fx * dt
     e.y += ef.fy * dt
+  }
+}
+
+// The Surf's tide (Book 2 chapter 1). A chapter-gated no-op exactly like stepCurrents above: a
+// chapter that is not the tide returns on the second line.
+//
+// run._realTime, NOT run.time — the same reason stepShafts gives: the Time Debt anomaly advances
+// run.time at TIME_DEBT_MUL (1.5x) and its `chapter` is null, so deriving the phase from run.time
+// would multiply the surge by 1.5 and break the ceiling the number was chosen against.
+//
+// It moves the ENEMIES too. Water that shoves only the player is a control tax; water that shoves
+// everything is weather, and it is also the only thing that makes the backwash readable — the crowd
+// drifting with you is the tell that you are not simply being nerfed.
+export function stepTide(run, dt) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'tide') return
+  const s = Math.sin((run._realTime / sig.period) * Math.PI * 2)
+  const fx = Math.cos(sig.axis) * sig.surge * s * dt
+  const fy = Math.sin(sig.axis) * sig.surge * s * dt
+  const p = run.player
+  p.x += fx; p.y += fy
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    e.x += fx; e.y += fy
   }
 }
 

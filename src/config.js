@@ -3973,6 +3973,17 @@ CHAPTERS.surf = {
     { id: 'gull',       archetype: 'fast',   name: 'Gull',        hpMul: 0.8, speedMul: 1.15, flags: ['diveBomb'] },
   ],
 
+  // The tide. `surge` is peak lateral speed in px/s and `period` a full surge->backwash cycle; the
+  // push is a sine, so it is zero-mean and cannot walk the player off the map over a 300s run.
+  // axis is radians — 0 means the shore runs along y and the water shoves you along +/- x.
+  //
+  // 46 px/s sits inside the two hard numbers the joystick imposes (see CHAPTERS.shelf.signature's
+  // block for the full derivation): above 33, the DEADZONE 0.15 x baseSpeed 220 floor, or the
+  // player cannot express a slow correction against it; and far under 220, or the surge is not a
+  // push but a wall. It is deliberately felt rather than fought — chapter 1 teaches "the map is not
+  // neutral" and then lets you win the argument.
+  signature: { type: 'tide', surge: 46, period: 14, axis: 0 },
+
   // ---- render-only. A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above
   // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in
   // place would rewrite The Pond's render block too (see CHAPTERS.shelf.obstacles === CHAPTERS

@@ -110,7 +110,7 @@ import {
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -12279,6 +12279,7 @@ try {
   testDetonationScaling()
   testDescPlaceholder()
   testSubmission()
+  testSurfTide()
   testDevMenu()
   testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
@@ -14341,6 +14342,46 @@ function testSubmission() {
   assert.strictEqual(a2.hp, hpAtTurn,
     `the player's own weapons took ${hpAtTurn - a2.hp} HP off their ally over 10s at point-blank range`)
   console.log(`PASS run SB.c (friendly fire): a ${Math.round(10 / dt)}-frame point-blank barrage at x20 damage took 0 HP off the ally`)
+}
+
+// ---- run US.a (v7.55): The Surf's tide — alternating lateral surge and backwash ------
+function testSurfTide() {
+  Math.random = mulberry32(20260813)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+  assert.strictEqual(run.chapter, 'surf', 'probe did not land on The Surf')
+
+  const sig = CHAPTERS.surf.signature
+  assert.strictEqual(sig.type, 'tide', 'The Surf must declare the tide signature')
+
+  // (a) the push REVERSES. Sample the surge across one full period and require both signs — a
+  // one-way drift is a current, which the pond already has; the whole point is surge and backwash.
+  const at = (t) => { run._realTime = t; const x0 = run.player.x; stepTide(run, 1 / 60); return run.player.x - x0 }
+  let maxPush = -Infinity, minPush = Infinity
+  for (let i = 0; i <= 60; i++) maxPush = Math.max(maxPush, at((i / 60) * sig.period))
+  for (let i = 0; i <= 60; i++) minPush = Math.min(minPush, at((i / 60) * sig.period))
+  assert.ok(maxPush > 0 && minPush < 0,
+    `tide must push both ways over its period, saw max ${maxPush.toFixed(3)} min ${minPush.toFixed(3)}`)
+
+  // (b) it must be OUTSWIMMABLE. baseSpeed is 220 and the joystick's expressible set is {0} u [33,220],
+  // so a surge at or above baseSpeed would pin the player against it with no counter-input available.
+  const peak = Math.max(Math.abs(maxPush), Math.abs(minPush)) * 60
+  assert.ok(peak < 220 * 0.5,
+    `peak tide surge ${peak.toFixed(1)} px/s is more than half baseSpeed — the player cannot fight it`)
+  assert.ok(peak > 33,
+    `peak tide surge ${peak.toFixed(1)} px/s is under the joystick's 33 px/s floor — it cannot be felt`)
+
+  // (c) every other chapter is untouched.
+  const pond = createRun(meta, { chapter: 'pond', difficulty: 1 })
+  const px = pond.player.x, py = pond.player.y
+  pond._realTime = 3
+  stepTide(pond, 1 / 60)
+  assert.strictEqual(pond.player.x, px, 'stepTide moved the player in a non-tide chapter')
+  assert.strictEqual(pond.player.y, py, 'stepTide moved the player in a non-tide chapter')
+
+  console.log(`PASS run US.a (the tide): surge reverses across a ${sig.period}s period, peaks at ${peak.toFixed(0)} px/s — over the joystick floor, under half baseSpeed — and is a no-op outside The Surf`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------
