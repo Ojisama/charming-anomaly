@@ -2498,6 +2498,20 @@ export function createRenderer(app) {
   // per-frame lightmap rather than uploaded. Filled in with the other bakes below; see its block
   // there for the profile, and updateDark for what subtracts it.
   const LIGHT_BLOB = document.createElement('canvas')
+  // THE SHARPNESS KNOB. How much of the light's radius is fully lit before the falloff starts;
+  // raise it and the transition from your light to the dark gets shorter and harder-edged.
+  //
+  // ONE const for two readers that must not drift: the bake's first ramp stop, and updateDark's
+  // early-out (a fully-lit core that already covers the farthest corner means there is nothing to
+  // draw). Those were two hardcoded 0.45s with a comment explaining that a texture cannot be asked
+  // its own profile — true, but both live in this file, so they can share the number instead.
+  const LIGHT_CORE_FRAC = 0.62
+  // The falloff's shape, as DARKNESS at evenly-spaced samples from the core out to the rim. Held as
+  // a shape and positioned by LIGHT_CORE_FRAC so the sharpness knob moves where the ramp happens
+  // without changing what it looks like — an eased ramp rather than a straight line, because a
+  // linear one reads as a grey ring at its own midpoint (Mach banding: the eye finds the second
+  // derivative) and the point of a falloff is that you cannot say where it starts.
+  const DARK_RAMP = [0, 0.09, 0.36, 0.73, 1]
   // ---- lifted shadow + crown textures (see the groundShadow/eliteCrown note above) --------------
   // ONE shadow disc for the whole roster: a flat alpha fill with no stroke, so squashing it per
   // creature to (spec.rx, spec.ry) is exact — nothing to distort. Baked big (SHADOW_TEX_R) because
@@ -2776,12 +2790,8 @@ export function createRenderer(app) {
     // A raw CANVAS, not a Texture — it is drawImage'd into another canvas every frame rather than
     // handed to the GPU. It is also the only bake here that is never uploaded.
     //
-    // Solid out to 0.45 and then a hand-eased ramp rather than a straight line: a linear alpha ramp
-    // over a radius reads as a visible grey ring at its own midpoint (Mach banding — the eye finds
-    // the second derivative), and the point of a falloff is that you cannot say where it starts.
-    // The stops are a smoothstep sampled at 5 points, which is under half a percent off the curve
-    // and costs nothing. Kept as 1 - the old darkness ramp, to the digit, so the light the chapter
-    // was tuned and played against is unchanged.
+    // Solid out to LIGHT_CORE_FRAC and then DARK_RAMP's eased ramp to nothing at the rim — see both
+    // of those for the shape and for the knob that positions it.
     //
     // The DISC fill matters, and cost a round: a radial gradient clamps to its last stop past its
     // outer radius, so filling the square would leave the four corners at the rim's value. When the
@@ -2793,9 +2803,11 @@ export function createRenderer(app) {
       LIGHT_BLOB.width = LIGHT_BLOB.height = 512
       const ctx = LIGHT_BLOB.getContext('2d')
       const grad = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
-      for (const [t, a] of [[0, 1], [0.45, 1], [0.59, 0.91], [0.72, 0.64], [0.86, 0.27], [1, 0]]) {
-        grad.addColorStop(t, `rgba(255,255,255,${a})`)
-      }
+      grad.addColorStop(0, 'rgba(255,255,255,1)')
+      DARK_RAMP.forEach((d, i) => {
+        const t = LIGHT_CORE_FRAC + (1 - LIGHT_CORE_FRAC) * (i / (DARK_RAMP.length - 1))
+        grad.addColorStop(t, `rgba(255,255,255,${1 - d})`)
+      })
       ctx.fillStyle = grad
       ctx.beginPath()
       ctx.arc(256, 256, 256, 0, Math.PI * 2)
@@ -8414,10 +8426,6 @@ export function createRenderer(app) {
   // The dark (see darkLayer's block up in the stage setup for WHY it is shaped this way).
   // Reads run.charge through the same darkness() curve sim.js uses for the move-speed penalty, so
   // "the screen dimmed" and "I am slow" can never drift apart into two separate mysteries.
-  // Fraction of LIGHT_BLOB's radius that is still fully opaque, i.e. fully lit. Duplicated from the
-  // bake's last solid stop on purpose — updateDark needs it to know when the light covers the whole
-  // viewport and the whole layer can be skipped, and a canvas cannot be asked.
-  const DARK_CLEAR_FRAC = 0.45
   function updateDark(run, cx, cy) {
     const cfg = CHAPTERS[run.chapter]
     const res = cfg?.resource
@@ -8433,7 +8441,7 @@ export function createRenderer(app) {
     // full bar on a phone, and the reason nothing below has to care how large lightFull gets.
     const corner = Math.max(Math.hypot(px, py), Math.hypot(w - px, py),
                             Math.hypot(px, h - py), Math.hypot(w - px, h - py))
-    if (R * DARK_CLEAR_FRAC >= corner) { darkLayer.visible = false; return }
+    if (R * LIGHT_CORE_FRAC >= corner) { darkLayer.visible = false; return }
     darkLayer.visible = true
 
     // The lightmap, in its own tiny space. The buffer tracks the screen's ASPECT, so the single

@@ -4865,10 +4865,19 @@ function runDark() {
     assert.ok(/arc\(sx \* s, sy \* s, sh\.r \* s/.test(sub),
       'each shaft must be subtracted at its OWN radius, inside the same destination-out pass, or standing in one stops clearing the dark')
     // The stamp's alpha IS the light, so the ramp has to run opaque core -> transparent rim. Baked
-    // the other way round (the darkness ramp) destination-out erases the rim and keeps the middle,
-    // i.e. a black disc centred on the player, and nothing else here would notice.
-    assert.ok(/\[\[0, 1\], \[0\.45, 1\]/.test(src) && /\[1, 0\]\]/.test(src),
-      'LIGHT_BLOB must be opaque at the core and transparent at the rim — it is subtracted, so its alpha is the LIGHT and not the dark')
+    // the other way round (the darkness ramp straight) destination-out erases the rim and keeps the
+    // middle, i.e. a black disc centred on the player, and nothing else here would notice.
+    assert.ok(/const DARK_RAMP = \[0, [\d., ]*1\]/.test(src),
+      'DARK_RAMP is the DARKNESS profile and must run 0 at the core to 1 at the rim')
+    assert.ok(/addColorStop\(t, `rgba\(255,255,255,\$\{1 - d\}\)`\)/.test(src),
+      'the stamp must be baked as 1 - DARK_RAMP: it is SUBTRACTED, so its alpha is the LIGHT, not the dark')
+    // The sharpness knob has two readers and they must not drift: it positions the bake's ramp, and
+    // it gates the "the light already covers the whole screen, skip the layer" early-out. Two
+    // hardcoded copies is what this file used to have.
+    assert.ok(/const LIGHT_CORE_FRAC = /.test(src)
+      && /LIGHT_CORE_FRAC \+ \(1 - LIGHT_CORE_FRAC\)/.test(src)
+      && /R \* LIGHT_CORE_FRAC >= corner/.test(src),
+      'ONE LIGHT_CORE_FRAC must both position the falloff ramp and gate the early-out, or the layer gets skipped at a radius where the light does not actually reach the corner')
     // The construct this replaced, kept as a tripwire: Graphics.cut() cannot take holes that overlap
     // each other, and the player's circle overlapping a shaft's is the chapter, not an edge case.
     // It shipped at v7.55 as a hard-edged wedge of night across the whole viewport.
