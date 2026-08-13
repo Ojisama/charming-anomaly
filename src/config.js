@@ -1634,6 +1634,59 @@ export const WEAPONS = {
       { dmg: 22, tick: 0.14, rate: 4.5, duration: 3.0, rotSpeed: 3.1, width: 46, length: 430 },
     ],
   },
+  // ---- The Surf native (v7.55, Book 2 chapter 1) ----
+  pincer: {
+    name: 'Pincer',
+    desc: 'Holds a claw out at the nearest enemy and snaps whatever reaches it.',
+    icon: '🦀', rarity: 'normal',
+    // THE ONLY WEAPON IN THE GAME THAT DOES NOT FIRE ON A TIMER. Every other one of the 23 runs
+    // through fireOnTimer: a `rate`/`interval` elapses and something is emitted. This one holds a
+    // PERSISTENT guard (run.guards) out toward the nearest enemy and does nothing at all until
+    // something comes inside it — so its output is a function of what the crowd does, not of how
+    // long the player has waited. That is why there is no `rate` here and why `cd` is not one under
+    // another name: `rate` would put a cadence row on the build sheet ("Every 2.60s") for a weapon
+    // that can sit armed for a whole minute, which is a lie about the one thing that makes it
+    // different. See stepPincerWeapon/stepGuards in sim.js.
+    //   dmg    the snap, dealt to EVERYTHING inside the claw (see stepGuards for why not one body)
+    //   r      the claw's catch radius, and also its drawn size — the art spans exactly 2r, so the
+    //          sprite states the reach rather than approximating it. Its CENTRE is held
+    //          PINCER_HOLD_FRAC × r out from the player, so a bigger claw is also a claw held
+    //          further out, and total reach is r × (1 + PINCER_HOLD_FRAC) = 118px at L1 to 155 at L5
+    //   cd     seconds to re-arm after a snap. NOT divided by the global fire rate — see
+    //          stepGuards in sim.js for why an attack-speed stat has no meaning here
+    //   knock  the yank. Deliberately the largest knockback in the game (chitterShriek's nova is
+    //          280 at L5): "it gets yanked away" is half of what the player buys, and a shove that
+    //          only moves a body a claw's width would read as a failed parry.
+    //
+    // THIS LADDER IS MEASURED, AND EVERY INTUITION ABOUT IT WAS WRONG. The first cut was a big slow
+    // parry — 34-80 damage on a 2.6-1.8s re-arm — and it measured at 15 effective dps against the
+    // Flagella Whip's 66 (weapon-census, surf L5). Three findings, in the order they landed:
+    //   1. SINGLE-TARGET WAS THE WHOLE HOLE. One body per snap threw away 56% of every hit as
+    //      overkill and left the other seven of a pack untouched. Snapping everything in the claw
+    //      took it 15 -> 55 in one change.
+    //   2. `dmg` IS NEARLY A DEAD KNOB. A knob grid at L5 moved damage 80 -> 110 for +4 eff dps:
+    //      waste eats it, because the claw already hits harder than a body has HP left.
+    //   3. `cd` AND `r` ARE THE LEVERS, and only the kiting rig can see the first one. On the
+    //      census's drifting rig a shorter re-arm bought nothing (output looked bound by how fast
+    //      bodies wandered in); kiting, where the crowd is permanently in the claw, cd 1.7 -> 0.9
+    //      went 39 -> 62 eff dps. Grid at L5, drift/kite eff dps: cd0.9 r58 63/71, cd0.9 r66 66/76,
+    //      cd1.1 r58 51/65. So: a claw that recovers fast and reaches wide, not one that hits huge.
+    // There is deliberately NO trade being claimed against "but it holds the crowd off": that was
+    // measured too (median nearest-enemy distance, immortal + kiting, back half of the run) and it
+    // is FALSE — the pincer holds the crowd at 45px where the whip holds it at 57 and the bloom at
+    // 65, because killing things is the better denial. It has no hidden half to be paid in.
+    // Shipped numbers, 240s x 10 seeds at surf d3, eff dps / kills per min, against the whip:
+    //   L1  pincer 36 / 51.3   whip 48 / 64.0     — the opener is the weaker end, deliberately
+    //   L5  pincer 66 / 82.2   whip 71 / 83.3     — level on kills, 93% on damage
+    // (CHAPTERS.surf still spreads the pond's `balance` table; Task 9 owns the chapter's own.)
+    levels: [
+      { dmg: 40, r: 50, cd: 1.35, knock: 340 },
+      { dmg: 50, r: 54, cd: 1.22, knock: 360 },
+      { dmg: 60, r: 58, cd: 1.10, knock: 385 },
+      { dmg: 70, r: 62, cd: 1.00, knock: 415 },
+      { dmg: 80, r: 66, cd: 0.90, knock: 450 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -2198,6 +2251,27 @@ export const WEAPON_MODS = {
     hyperSweep:   { name: 'More Arms',    desc: 'extra arm(s) per cast',             icon: '🔷', kind: 'tier' },
     collapse:    { name: 'Collapse',     desc: 'damage when the sweep ends',       icon: '🌋', base: 0.80, kind: 'pct' },
   },
+  // ---- The Surf native (v7.55) ----
+  // FOUR mods, one per thing the weapon can honestly be tuned on, and no fifth. crusher/longArm/
+  // riptide fold into levels[] via WEAPON_STAT_MODS (sim.js); backClaw is behavioral, read where
+  // the guards are laid out (stepPincerWeapon).
+  //
+  // There is deliberately NO re-arm-speed mod. `cd` is an interval, so a pct pick folded into it
+  // would SLOW the claw — the trap WEAPON_RATE_MODS exists to route around — and routing around it
+  // means the build sheet's `cd` row would report the unmodded number, since that map only feeds
+  // the cadence row this weapon does not have. Back Claw is the honest version of the same want:
+  // it buys more parries, spatially rather than temporally, and it is the one mod you can see.
+  // NOT 'Riptide': MUTATORS.riptide already ships under that display name (the pond's doubled
+  // current shove), and two different cards reading "Riptide" is the kind of collision only a grep
+  // finds. 'claw reach & size' likewise says BOTH numbers the pick moves, because r is the catch
+  // radius AND — through PINCER_HOLD_FRAC — how far out the claw is held; naming one would be the
+  // rainbow.wideBeam defect (a card whose second effect nobody can check).
+  pincer: {
+    crusher:  { name: 'Crusher Claw', desc: 'pinch damage',        icon: '🦞', base: 0.35, kind: 'pct' },
+    longArm:  { name: 'Long Arm',     desc: 'claw reach & size',   icon: '📏', base: 0.30, kind: 'pct' },
+    backwash: { name: 'Backwash',     desc: 'how far the snap throws', icon: '🌊', base: 0.40, kind: 'pct' },
+    backClaw: { name: 'Back Claw',    desc: 'a second claw guards your back', icon: '🦀', kind: 'switch' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -2713,6 +2787,23 @@ export const PRISM_SPREAD = 1.4      // rad, ~80deg corner to corner
 // a continuous fan behind whatever it is cutting through.
 export const PRISM_FLASH_T = 0.26
 
+// ---- Surf weapons (v7.55: Pincer) -------------------------------------------------------------
+// The claw is not centred on the player — it is HELD OUT, between you and what is coming, which is
+// the whole picture the owner described ("you put it in towards the nearest enemy like a shield").
+// The offset is a fraction of the claw's own catch radius rather than a fixed number of pixels so
+// that Long Arm (+r) extends the REACH as well as the catch zone; a flat offset would just grow a
+// blob around the same spot, which is the "same hit, bigger" shape a reach mod must never have.
+// It is deliberately GREATER THAN 1, and that is a design decision as much as an art one:
+//   - the catch circle then sits almost entirely IN FRONT of the player (from 0.35r to 2.35r along
+//     the aim), so the claw guards the direction it is pointed instead of being a bubble centred on
+//     you. "Like a shield" is the owner's word for it, and a shield you can walk behind is a
+//     different object from an aura;
+//   - the claw is a small thing at the end of a thin limb rather than a slab across the whole
+//     viewport. The first cut held a 62px claw 46px out, and at 2r of drawn claw that is 160px of
+//     solid orange across a 390px phone — it read as a starfish, and the player vanished under it.
+// At L1: a 68px hold on a 50px claw, so 118px of total reach — inside the Flagella Whip's 130. At
+// L5 it is 89 + 66 = 155, still under the whip's 175.
+export const PINCER_HOLD_FRAC = 1.35
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
   const out = []
@@ -4013,6 +4104,16 @@ CHAPTERS.surf = {
   // resourceDamageMul() (config.js) a no-op everywhere else. floor reuses HUMIDITY_DMG_FLOOR rather
   // than a second literal, so the two never drift apart.
   resource: { name: 'Humidity', drain: 1.6, refill: 20, killRefill: 1.2, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
+
+  // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
+  // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push('pincer')` would hand The
+  // Pond a crab claw and nothing would throw (the same hazard the render block below documents, and
+  // the reason CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is `true` in shipped code).
+  // The design's "two reused from the pond, plus new Pincer": the whip and the bloom, which give the
+  // chapter one melee arc and one zoner beside the parry — three different SHAPES, where the cysts
+  // would have been a second thing you plant and wait for. Pincer is the starter, so a player's
+  // first minutes in Book 2 are spent learning the one weapon nothing else in the game behaves like.
+  weapons: ['pincer', 'flagella', 'bloom'], starter: 'pincer',
 
   // ---- render-only. A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above
   // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in

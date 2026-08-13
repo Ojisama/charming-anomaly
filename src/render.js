@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -23,6 +23,10 @@ import { currentForce } from './sim.js'
 
 const DARK = 0x3b3345
 const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
+// v7.55: both Pincer claw states bake with their finger tips exactly this far from the drawing
+// origin, so placeGuard's `r / CLAW_BAKE_R` scale lands them on the guard's real catch radius — the
+// sprite states the weapon's reach instead of approximating it.
+const CLAW_BAKE_R = 20
 // The hydrant is drawn at this many px ACROSS-ish regardless of the zone's damage radius. It is an
 // object, not a zone: it must not grow when the weapon levels. See syncJets.
 const HYDRANT_PX = 36
@@ -4498,6 +4502,66 @@ export function createRenderer(app) {
       g.circle(0, 0, 4).fill({ color: g2, alpha: 0.8 })
       T.trapSprung = bake(g)
     }
+    // Pincer claws (v7.55 surf weapon, run.guards). PLAN VIEW, like every creature and weapon in the
+    // game except the standing buildings — this is a crab claw seen from directly overhead, not a
+    // claw drawn side-on and rotated. (v6.8 shipped the Trash Tornado as a side elevation and it
+    // cost a whole version to undo; the question to ask of the frame is not "does it look like a
+    // claw" but "is this the same viewpoint as the sprites around it".)
+    //
+    // Two states, swapped in placeGuard exactly the way the snap trap's are, and for the same
+    // reason: ARMED vs SPENT has to be readable at a glance while you are being chased, so the
+    // SILHOUETTES differ rather than just the tint — fingers OPEN in a V against fingers SHUT into
+    // a point. Both are baked pointing +x with the drawing origin at the CENTRE of the catch circle,
+    // so placeGuard can set rotation = g.angle and scale = r / CLAW_BAKE_R and the finger tips land
+    // on the real catch radius. The sprite therefore states the weapon's actual reach.
+    {
+      const shell = 0xe8763c   // warm carapace orange — reads on teal water AND on wet sand, and
+      const lit = 0xffc08a     // sits apart from every enemy tint in the surf roster
+      const line = 0x7a2f12
+      // A crab claw is LONG AND NARROW and it is ASYMMETRIC: a heavy fixed finger (the pollex, an
+      // extension of the palm) with a thinner hooked one (the dactyl) hinging down onto it. Drawing
+      // it as two mirrored spikes off a round palm gives a bow tie — which is what the first cut of
+      // this was, and it read as an orange starfish across the whole viewport rather than as
+      // something being held.
+      const claw = (open) => {
+        const g = new Graphics()
+        const R = CLAW_BAKE_R
+        // The limb, running all the way back to exactly where the player is: the guard sits
+        // PINCER_HOLD_FRAC × r out and the bake is scaled by r, so -PINCER_HOLD_FRAC × R IS the
+        // player's centre. Kept THIN and slightly darker on purpose — it is the only part of the
+        // sprite that is not the weapon, and a fat one reads as a second finger pointing backwards.
+        taperStroke(g, [[-R * PINCER_HOLD_FRAC, 0], [-R * 0.75, 0], [-R * 0.42, 0]],
+          R * 0.11, R * 0.2, 0xc55c29, 4)
+        // Propodus (the palm): a broad teardrop. This is where the mass of the claw belongs.
+        g.ellipse(-R * 0.12, 0, R * 0.5, R * 0.34).fill(shell).stroke({ width: 1.5, color: line })
+        // The two fingers, and they are NOT mirrored: a crab's dactyl (upper) is the thin hooked one
+        // that swings, the pollex (lower) is a heavy near-straight extension of the palm. Mirroring
+        // them is what turned the first cut into a bow tie.
+        // OPEN: a V with the tips apart — that gap is the catch. SHUT: closed onto the axis into a
+        // point, so the SILHOUETTE says "spent" before the tint does.
+        const dac = open ? -R * 0.44 : -R * 0.05
+        const pol = open ? R * 0.2 : R * 0.03
+        taperStroke(g, [[R * 0.18, -R * 0.16], [R * 0.6, dac * 0.62], [R, dac]], R * 0.2, R * 0.05, shell, 4)
+        taperStroke(g, [[R * 0.2, R * 0.13], [R * 0.65, pol * 0.72], [R, pol]], R * 0.27, R * 0.07, shell, 4)
+        // The crushing edge: teeth on the inside faces only, and the one detail that survives being
+        // drawn at phone size.
+        for (let i = 0; i < 3; i++) {
+          const t = 0.3 + i * 0.22
+          g.circle(R * (0.2 + t * 0.72), (-R * 0.12) + (dac + R * 0.12) * t * 0.75, R * 0.05).fill({ color: line, alpha: 0.5 })
+          g.circle(R * (0.22 + t * 0.72), (R * 0.1) + (pol - R * 0.1) * t * 0.75, R * 0.055).fill({ color: line, alpha: 0.5 })
+        }
+        // The shut state needs a SEAM. Without it the two closed fingers merge into one smooth
+        // paddle and the sprite reads as a spoon rather than as a claw that has already fired —
+        // exactly the note trapSprung's own seam line exists for.
+        if (!open) g.moveTo(R * 0.2, R * 0.01).lineTo(R * 0.98, R * 0.02).stroke({ width: 1.3, color: line, alpha: 0.75 })
+        // Top highlight: the camera looks straight down, so the lit face is the upper surface of the
+        // palm — a plan view's only shading cue, and the same one every creature bake uses.
+        g.ellipse(-R * 0.2, -R * 0.08, R * 0.28, R * 0.14).fill({ color: lit, alpha: 0.6 })
+        return bake(g)
+      }
+      T.clawOpen = claw(true)
+      T.clawShut = claw(false)
+    }
     {
       // traffic car (city signature, run.lanes): top-down, nose +x, drawn at the real
       // TRAFFIC_CAR_LEN × TRAFFIC_CAR_W hitbox so what sweeps you is what you saw coming.
@@ -6692,6 +6756,9 @@ export function createRenderer(app) {
   const shieldG = new Graphics()
   const affixLayer = new Container() // per-elite affix icon badges (Text), see syncAffixBadges
   const playerC = new Container()
+  // v7.55 surf: the Pincer's held claws. Directly above playerC because the claw is held OUT — it is
+  // a thing in front of you, over the crowd it is guarding against, and under the projectiles.
+  const guardLayer = new Container()
   const bulletLayer = new Container()
   const rockLayer = new Container()   // v5.21 lane: drifting asteroids (run.rocks)
   const boomerangLayer = new Container()
@@ -6714,7 +6781,7 @@ export function createRenderer(app) {
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
-    bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
+    bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC, guardLayer,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -9527,6 +9594,7 @@ export function createRenderer(app) {
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
     trap: 0, debris: 0, shot: 0, jet: 0,
+    guard: 0,   // v7.55 surf: Pincer claws (run.guards)
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -10362,6 +10430,39 @@ export function createRenderer(app) {
   // v5.21 lane: an asteroid. Reuses T.asteroid — the same rock already scattered as this chapter's
   // baked obstacle furniture, which is the point: the hazard IS the local debris, not a new species.
   // Tumble comes from rk.rot (sim-owned, so it survives a pause and matches across a re-render).
+  // Pincer claws (v7.55 surf, run.guards {x,y,angle,r,armed,cd,rearm}). A FLAT sprite pool — one
+  // Sprite per claw, no independently-transformed parts — so it belongs in reset()'s flat list and
+  // must NOT get a `.root.visible` line (putting a flat pool in the rig block, or a rig in the flat
+  // list, is the silent failure CLAUDE.md documents: a dead property set on a plain object and last
+  // run's claws still on screen).
+  //
+  // The whole point of this weapon is that it is a TELEGRAPH you can read before anything happens,
+  // so the two states have to be legible at rest, not only at the payoff:
+  //   ARMED  fingers open in a V, full brightness, breathing — the snap trap's "it is hot" idiom.
+  //   SPENT  fingers shut, dimmed, and brightening as its cooldown closes, so "this one is nearly
+  //          live again" is readable without a number. Identical treatment to placeTrap's re-arm
+  //          tell, deliberately: they are the same question asked of two different objects.
+  const guardPool = []
+  function placeGuard(s, g) {
+    const look = g.armed ? T.clawOpen : T.clawShut
+    if (s.texture !== look.tex) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
+    s.position.set(g.x, g.y)
+    s.rotation = g.angle
+    const sc = (g.r || CLAW_BAKE_R) / CLAW_BAKE_R
+    if (g.armed) {
+      // A small clench-and-release, keyed off the claw's own position so two claws (backClaw) do not
+      // pulse in lockstep and read as one object.
+      s.scale.set(sc * (1 + 0.035 * Math.sin(animT * 3.4 + (g.x + g.y) * 0.03)))
+      s.tint = 0xffffff
+      s.alpha = 1
+    } else {
+      const k = g.rearm > 0 ? 1 - Math.max(0, Math.min(1, g.cd / g.rearm)) : 1
+      s.scale.set(sc * (0.88 + 0.12 * k))   // it also re-opens toward full size as it recovers
+      s.tint = mix(0x6f6156, 0xffffff, k)
+      s.alpha = 0.5 + k * 0.5
+    }
+  }
+
   const rockPool = []
   function placeRock(s, rk) {
     if (s.texture !== T.asteroid.tex) { s.texture = T.asteroid.tex; s.anchor.set(T.asteroid.ax, T.asteroid.ay) }
@@ -12383,6 +12484,25 @@ export function createRenderer(app) {
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
           addShake(2, 0.1)
           break
+        // v7.55 surf: a Pincer claw closing. x,y is the CLAW, not the player — the burst has to land
+        // where the pinch happened or the parry reads as a thing the player did rather than a thing
+        // that arrived. Two rings collapsing INWARD is not available (spawnRing expands), so the
+        // read is carried by the second, smaller ring and by grit thrown outward along the claw's
+        // own axis — the direction the body was just yanked. A heavier shake than the rake's: this
+        // fires seconds apart, not several times a second, and it is the weapon's whole payoff.
+        case 'pinch': {
+          spawnRing(e.x, e.y, e.r * 0.9, 0.26, T.novaWarm, 0xffd3a3)
+          spawnRing(e.x, e.y, e.r * 0.45, 0.16, T.novaWarm, 0xfff2e0)
+          for (let i = 0; i < 7; i++) {
+            const a = e.angle + (Math.random() - 0.5) * 1.5
+            const sp = 130 + Math.random() * 180
+            spawnParticle(T.fx.spark_04, e.x + Math.cos(e.angle) * e.r * 0.5, e.y + Math.sin(e.angle) * e.r * 0.5,
+              Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + Math.random() * 0.18, 0.1,
+              i % 2 ? 0xffd3a3 : 0xe8763c, 0.05, 2.4)
+          }
+          addShake(3.4, 0.14)
+          break
+        }
         case 'roar':
           // v5.6.16: sonic wavefronts through the wedge + a shove-weight shake (see spawnRoar)
           spawnRoar(e.x, e.y, e.angle, e.range, e.arc)
@@ -12586,6 +12706,7 @@ export function createRenderer(app) {
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
       boomerangPool, minePool, homingPool, trapPool, shotPool,
+      guardPool,   // v7.55 surf: FLAT (one Sprite per Pincer claw) — belongs here, not in the rigs below
     ]) {
       for (const s of pool) s.visible = false
     }
@@ -13430,6 +13551,9 @@ export function createRenderer(app) {
     syncWebs(run.webs || [])
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
+    // v7.55 surf: the Pincer's claws. Guarded with `|| []` like every field above — a save or a test
+    // run predating this weapon has no run.guards at all.
+    syncPool(guardPool, guardLayer, run.guards || [], 'guard', T.clawOpen, placeGuard)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run))
     syncEnemies(run)
     syncBlooms(run)

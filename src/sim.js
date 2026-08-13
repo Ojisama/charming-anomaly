@@ -150,6 +150,8 @@ import {
   PULSAR_ARMS, PULSAR_COLLAPSE_MUL, PULSAR_COLLAPSE_PULL,
   PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
   PULSAR_FAN_ARC, PULSAR_FAN_SWEEP, PULSAR_FAN_RATE,
+  // v7.55 The Surf: the Pincer's held claw (see stepPincerWeapon/stepGuards)
+  PINCER_HOLD_FRAC,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -4454,6 +4456,10 @@ const WEAPON_STAT_MODS = {
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
   pulsarSweep: { wideSweep: [['width', 'length'], 'pct'], sustainSweep: ['duration', 'pct'] },
+  // v7.55 surf native. All three of the Pincer's stat mods fold plainly; backClaw is behavioral
+  // (read where the claws are laid out, stepPincerWeapon). There is no rate mod because there is no
+  // rate — see WEAPONS.pincer in config.js.
+  pincer:        { crusher: ['dmg', 'pct'], longArm: ['r', 'pct'], backwash: ['knock', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -4520,7 +4526,11 @@ export function buildReadout(run) {
     // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
     // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
     // gets above.
-    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // v7.55: `knock` and `cd` added for the Pincer, right after `r` so it emits dmg, r, knock, cd
+    // and stops — it has no `rate`/`interval`, so it is the one weapon with no cadence row, which is
+    // the point of it (see WEAPONS.pincer). Both keys are unique to the Pincer's levels[] (every
+    // other knockback stat in the game is spelled `knockback`), so no other weapon gains a row here.
+    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'knock', 'cd', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -4591,6 +4601,9 @@ function stepWeapons(run, dt) {
     else if (w.id === 'debrisToss') stepDebrisWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'realityShard') stepShardWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'pulsarSweep') stepPulsarWeapon(run, w, stats, fireRateMul, dt)
+    // The one weapon that takes no fireRateMul, and the omission is deliberate and visible here
+    // rather than swallowed by an ignored parameter — see stepPincerWeapon.
+    else if (w.id === 'pincer') stepPincerWeapon(run, w, stats)
   }
 
   stepBullets(run, dt)
@@ -4610,6 +4623,10 @@ function stepWeapons(run, dt) {
   // its new spot when the breath decides where to jump.
   stepDrags(run, dt)
   stepArcs(run, dt)
+  // v7.55 surf: the Pincer's trigger. Runs AFTER stepPincerWeapon has placed the claws this frame,
+  // so a snap is tested against where the guard actually is, and after stepDrags for the same reason
+  // that moves bodies first — the scan must see this frame's positions, not last frame's.
+  stepGuards(run, dt)
 
   turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
@@ -7173,6 +7190,109 @@ function firePulsar(run, stats) {
     collapseBonus: mods?.collapse ?? 0,
   })
   run.events.push({ type: 'beam' })
+}
+
+// -- Pincer (v7.55 surf starter — THE PARRY) --------------------------------------------------
+// Read this before changing anything here: THIS WEAPON HAS NO TIMER, AND THAT IS THE FEATURE.
+// The other 23 weapons all run through fireOnTimer — an interval elapses, something is emitted, and
+// the player's only input into that is where they are standing. The Pincer holds a claw out toward
+// the nearest enemy and does NOTHING until something comes inside it. Its output is therefore a
+// function of what the crowd does, and a player who kites perfectly gets nothing from it at all.
+//
+// The two halves are split the way the bloom's and the lure's are — a placement site called from
+// the weapon dispatch, and a stepper called from the entity block below it:
+//   stepPincerWeapon  lays the claws out (this frame's aim, position, reach) and NOTHING else. It
+//                     never damages, never arms, never disarms.
+//   stepGuards        the trigger: a proximity scan over run.enemies, plus the re-arm countdown.
+//
+// If you are here to add a `fireOnTimer` call, or an accumulator that snaps when it fills: that is
+// weapon #24 of the kind this one exists not to be, and run US.e part (b) is the assertion that
+// catches it (a stationary enemy far away must leave the guard armed for as long as it sits there).
+function stepPincerWeapon(run, w, stats) {
+  const p = run.player
+  // NO fireRateMul. Every other step function takes it and divides its interval by it; there is no
+  // interval here to divide, and folding it into `cd` would make "attack speed" a stat on a weapon
+  // with no attack cadence — and would silently make the build sheet's `cd` row (which divides by
+  // nothing, unlike the `every` row) wrong. The Pincer's cadence is set by the enemy, and the knobs
+  // that move it are reach and re-arm, both on the card.
+  const target = nearestEnemy(run)
+  // fireFlagella's hard-won aim rule (v5.1.2): the nearest enemy first, because a kiting player's
+  // heading points AWAY from the swarm; the last move direction only as a fallback.
+  let angle
+  if (target) angle = Math.atan2(target.y - p.y, target.x - p.x)
+  else if (p.facingAngle != null) angle = p.facingAngle
+  else angle = p.facing >= 0 ? 0 : Math.PI
+
+  // backClaw: a second claw at your back. The list is one shared LOCAL count used for both the
+  // layout loop AND the angle it spaces them by — the two-sites-one-count rule in CLAUDE.md; three
+  // claws laid out on one angle would render exactly like no change at all.
+  const backClaw = (run.weaponMods.pincer?.backClaw ?? 0) > 0
+  const angles = []
+  for (const a of ipecacAngles(run, angle)) {
+    angles.push(a)
+    if (backClaw) angles.push(a + Math.PI)
+  }
+
+  // RESIZED IN PLACE, never rebuilt: `armed` and `cd` are the whole state of this weapon, and a
+  // fresh object every frame is a claw that forgets it ever snapped, i.e. no cooldown at all.
+  while (run.guards.length < angles.length) run.guards.push({ x: p.x, y: p.y, angle: 0, r: 0, armed: true, cd: 0, rearm: 0, dmg: 0, knock: 0 })
+  if (run.guards.length > angles.length) run.guards.length = angles.length
+
+  for (let i = 0; i < angles.length; i++) {
+    const g = run.guards[i]
+    g.angle = angles[i]
+    g.r = stats.r
+    g.dmg = stats.dmg
+    g.knock = stats.knock
+    // The re-arm DURATION, snapshotted alongside dmg/knock so the scan below is self-contained.
+    // `cd` is the live countdown; `rearm` is what it is reset to. Two fields because a claw that is
+    // currently closed still has to know how long its own cooldown was.
+    g.rearm = stats.cd
+    // Held OUT, between the player and what is coming — not centred on them. The offset scales with
+    // the claw's own radius (PINCER_HOLD_FRAC) so Long Arm buys reach, not just a fatter blob.
+    const hold = stats.r * PINCER_HOLD_FRAC
+    g.x = p.x + Math.cos(g.angle) * hold
+    g.y = p.y + Math.sin(g.angle) * hold
+  }
+}
+
+// The trigger and the re-arm. A claw closes on EVERYTHING whose centre is inside it, not on the one
+// nearest body — the claw is a shield, and a guard that removes one enemy from a pack of eight while
+// the other seven walk past it is not guarding anything. It is also what makes the weapon's damage
+// survive contact with a crowd: measured single-target, the pincer threw away 56% of every snap as
+// overkill on a body that was already dying (weapon-census, surf L5), which is what a big number on
+// a long cooldown always does. `r` is small (46-58px) and offset forward, so in a sparse field this
+// is still exactly one body and in a crush it is three or four — the weapon scales with the thing it
+// exists to answer, without ever becoming a nova on a timer.
+// `cd` is the only clock in it, and it does not start until a snap has happened, so an armed claw
+// over an empty beach stays armed indefinitely.
+function stepGuards(run, dt) {
+  if (run.guards.length === 0) return
+  for (const g of run.guards) {
+    if (!g.armed) {
+      g.cd -= dt
+      if (g.cd <= 0) { g.cd = 0; g.armed = true }
+      continue
+    }
+    const rSq = g.r * g.r
+    let caught = 0
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e)) continue   // SUBMISSION: never pinch your own ally
+      const dx = e.x - g.x, dy = e.y - g.y
+      if (dx * dx + dy * dy > rSq) continue
+      applyDamage(run, e, g.dmg)
+      // Away from the PLAYER, not from the claw — "it gets yanked away" means away from you, and a
+      // shove along the claw's own axis would fling a body that came in from the side sideways past
+      // you. shoveFromPlayer is also what makes an anchored elite take the hit and hold its ground,
+      // the same contract every other knockback in the game keeps.
+      shoveFromPlayer(run, e, g.knock)
+      caught++
+    }
+    if (caught === 0) continue
+    g.armed = false
+    g.cd = g.rearm
+    run.events.push({ type: 'pinch', x: g.x, y: g.y, angle: g.angle, r: g.r })
+  }
 }
 
 // ---- Pickups ------------------------------------------------------------------------

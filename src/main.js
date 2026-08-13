@@ -387,6 +387,11 @@ const SFX_FOR_EVENT = {
   // 'zap', which audio.js already throttles for exactly this reason (see shoot/hit/zap). The `tail`
   // event has never had an entry and still doesn't: the lash is heard through the hits it lands.
   breath: 'beam', arc: 'zap',
+  // v7.55 surf: the Pincer's snap. It borrows 'crush' — the skies' structure-destroyed voice — which
+  // is the right register for a shell closing on something, and is already throttled in audio.js.
+  // No new synth: the claw fires seconds apart at best, and the event carries its own weight through
+  // the hit sfx that lands with it.
+  pinch: 'crush',
 }
 
 function endRun(victory) {

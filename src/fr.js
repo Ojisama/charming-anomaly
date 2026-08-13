@@ -28,6 +28,11 @@ const UI = {
   // ('cast rate' -> 'cadence de lancer'), where bigger means faster. This row is a raw interval.
   // 'délai entre élites/voitures/obus' is the established house term for exactly this.
   'Every': 'Délai',
+  // v7.55 The Pincer. 'Projection' is the noun the shove is already called in this dictionary,
+  // and 'Réarme' keeps the single-word column rule the block above sets out — the row carries a
+  // seconds value beside it, so the verb alone reads as a delay without saying 'en'.
+  'Throw': 'Projection',
+  'Re-arms in': 'Réarme',
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
                          // '6.3 dég. x3' puts two dots three characters apart at 11px
   'LV': 'NIV',
@@ -513,6 +518,11 @@ const CONFIG = {
   'Splinters of elsewhere that skip through space as they fly.': 'Des éclats d\'ailleurs qui ricochent à travers l\'espace en volant.',
   'Pulsar Sweep': 'Rayon Pulsar',
   'Two lasers sweep back and forth across the way ahead.': 'Deux lasers balaient la voie devant toi.',
+  // The Surf (Book 2 chapter 1). 'Pince' is the crab's claw, not 'Pincer' (which in French is the
+  // verb 'to pinch' and would read as an instruction). 'broie' rather than 'pince' for the snap:
+  // the card promises a crush and a throw, and 'pince tout ce qui l'atteint' is limp beside it.
+  'Pincer': 'Pince',
+  'Holds a claw out at the nearest enemy and snaps whatever reaches it.': 'Tend une pince vers l\'ennemi le plus proche et broie tout ce qui l\'atteint.',
   'Membrane Piercer': 'Perce-Membrane',
   'antigen pierce': 'perforation d\'antigène',
   'Split Strain': 'Souche Divisée',
@@ -795,6 +805,17 @@ const CONFIG = {
   'extra arm(s) per cast': 'bras bonus par lancer',
   'Collapse': 'Effondrement',
   'damage when the sweep ends': 'dégâts à la fin du balayage',
+  // Pincer mods (v7.55). 'Contre-Courant' for Backwash rather than 'Ressac': 'Le Ressac' is
+  // already this chapter's own name, and a mod card sharing the chapter's title reads as a
+  // chapter modifier rather than as a weapon upgrade.
+  'Crusher Claw': 'Pince Broyeuse',
+  'pinch damage': 'dégâts de la pince',
+  'Long Arm': 'Bras Long',
+  'claw reach & size': 'portée et taille de la pince',
+  'Backwash': 'Contre-Courant',
+  'how far the snap throws': 'distance de projection',
+  'Back Claw': 'Pince Arrière',
+  'a second claw guards your back': 'une seconde pince protège tes arrières',
   'Power Gel': 'Gel de Puissance',
   '+5% damage': '+5% dégâts',
   'Twitchy': 'Nerveux',

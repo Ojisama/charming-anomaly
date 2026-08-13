@@ -1292,7 +1292,13 @@ function testAnomalySlate() {
       // is what makes IPECAC's three forks distinguishable here — they anchor on three different
       // enemies, so the shape key below separates them. (This list is a set of QUOTED STRINGS, the
       // exact thing an identifier rename sweep cannot see — see CLAUDE.md's rename rule.)
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs']
+      // v7.55: 'guards' added for the Pincer. Its claws are laid out at ipecacAngles, so the three
+      // sick ones sit at 120° from each other around the player and the shape key separates them —
+      // and without this entry the weapon spawns into no list this block watches, which reads as
+      // "fixture spawned nothing" rather than as a missing patch. That is the CLAUDE.md rename trap
+      // in its other direction: a list of QUOTED STRINGS no identifier sweep and no new-weapon
+      // checklist can see.
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'guards']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -12287,6 +12293,7 @@ try {
   testSurfSandbars()
   testSurfHumidity()
   testSurfHumidityDamage()
+  testPincer()
   testDevMenu()
   testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
@@ -14598,6 +14605,90 @@ function testSurfHumidityDamage() {
     `scales some weapons and not others with no error`)
 
   console.log(`PASS run US.d (humidity damage): floor ${HUMIDITY_DMG_FLOOR}, monotonic to 1.0, wired at all ${sites} damage sites, and every other chapter reads 1.0`)
+}
+
+// ---- run US.e (v7.55): Pincer — the parry ------------------------------------------------------
+// The one weapon in the game that fires on being APPROACHED rather than on a timer. Every assertion
+// below exists to stop it being rebuilt as weapon #24 of the fireOnTimer kind, which would still
+// look right on screen: a timer that happens to check proximity snaps at the same moments a parry
+// does whenever the crowd is on you, and only diverges when nothing is near — which is what (b)
+// samples and nothing else can.
+function testPincer() {
+  Math.random = mulberry32(20260816)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+  // run.weapons is an ARRAY of {id, level} (state.js createRun) — the brief's `{ pincer: 1 }` object
+  // literal would have made stepWeapons' `for (const w of run.weapons)` iterate nothing at all and
+  // buildReadout's .map throw. Same shape every other weapon scenario in this file uses.
+  run.weapons = [{ id: 'pincer', level: 1 }]
+  run.charge = 100
+  run.enemies.length = 0
+
+  // (a) the guard exists and FACES the nearest enemy, not the player's heading.
+  const bag = makeStatusEnemy(run, { x: run.player.x + 200, y: run.player.y, hp: 1e6, speed: 0 })
+  run.enemies.push(bag)
+  advance(run, 0.5, 1 / 60, { x: 0, y: 0, skill: false })
+  assert.ok(run.guards.length > 0, 'pincer produced no guard')
+  const g = run.guards[0]
+  assert.ok(Math.abs(Math.atan2(0, 200) - g.angle) < 0.35,
+    `the guard must point at the nearest enemy, angle was ${g.angle.toFixed(2)}`)
+
+  // (b) IT TRIGGERS ON BEING APPROACHED, not on a timer. A stationary enemy far away must leave the
+  // guard armed indefinitely — that is the whole shape, and a fireOnTimer weapon would fail here.
+  const armedAfterWait = run.guards[0].armed
+  assert.strictEqual(armedAfterWait, true, 'the guard disarmed with nothing near it — this is a timer, not a parry')
+
+  // (a2) ...and it TRACKS, which (a) on its own cannot show. MUTATION-FOUND (2026-08-13): taking the
+  // angle from p.facingAngle instead of from nearestEnemy passed the ENTIRE suite. The fixture above
+  // puts the target due east of a player who has never moved, so the aim rule and both of its
+  // fallbacks (p.facingAngle, then p.facing) all answer 0 and the assertion cannot separate them.
+  // So: move the target somewhere no fallback points, and walk the OTHER way at the same time.
+  bag.x = run.player.x; bag.y = run.player.y + 240
+  advance(run, 0.3, 1 / 60, { x: -1, y: 0, skill: false })
+  const want = Math.atan2(bag.y - run.player.y, bag.x - run.player.x)
+  const got = run.guards[0].angle
+  const off = Math.abs(Math.atan2(Math.sin(want - got), Math.cos(want - got)))
+  assert.ok(off < 0.35,
+    `the guard must TRACK the nearest enemy: target bears ${want.toFixed(2)} rad while the player ` +
+    `walks west, and the claw points ${got.toFixed(2)} — off by ${off.toFixed(2)}. A heading-derived ` +
+    `aim reads about ${Math.PI.toFixed(2)} here, and a no-aim fallback 0`)
+  assert.strictEqual(run.guards[0].armed, true, 'the guard disarmed while the target sat 240px away')
+
+  // (c) an enemy that reaches it takes damage AND is thrown outward.
+  const e = bag
+  e.x = run.player.x + g.r * 0.5; e.y = run.player.y
+  const hpBefore = e.hp
+  const distBefore = Math.hypot(e.x - run.player.x, e.y - run.player.y)
+  advance(run, 0.2, 1 / 60, { x: 0, y: 0, skill: false })
+  assert.ok(e.hp < hpBefore, 'reaching the guard dealt no damage')
+  assert.ok(Math.hypot(e.x - run.player.x, e.y - run.player.y) > distBefore * 1.5,
+    'the enemy was not yanked away from the player')
+
+  // (d) it re-arms rather than being spent for the run.
+  // The brief sampled `armed` once at the end of a 6s window, and that is a FALSE NEGATIVE against a
+  // guard that is re-arming perfectly: (c) leaves a 1e6-HP punching bag parked inside the claw, so
+  // every re-arm is followed by a snap on the very next frame and the boolean reads false at almost
+  // any instant you pick. Measured on the shipped implementation — 2 snaps over the window, 2.03s
+  // still on the clock at t=6. So COUNT the re-arms instead (a claw spent for the run snaps exactly
+  // once, ever), then clear the field and require it to come back armed with nothing to catch.
+  // Both halves still go red under the "cd never resets armed" mutation.
+  let snaps = 0
+  for (let i = 0; i < Math.round(6 / (1 / 60)); i++) {
+    if (run.phase === 'levelup') { applyChoice(run, pickNonElementIndex(run)); run.phase = 'playing'; continue }
+    if (run.phase !== 'playing') break
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    for (const ev of run.events) if (ev.type === 'pinch') snaps++
+    run.events.length = 0
+  }
+  assert.ok(snaps >= 2,
+    `the guard snapped ${snaps} time(s) over 6s with a body sitting in it — it is spent for the run, not re-arming`)
+  run.enemies.length = 0
+  advance(run, WEAPONS.pincer.levels[0].cd + 0.5, 1 / 60, { x: 0, y: 0, skill: false })
+  assert.ok(run.guards.some((q) => q.armed), 'the guard never re-armed')
+
+  console.log(`PASS run US.e (pincer): the guard tracks the nearest enemy, stays armed while nothing approaches, and on contact damages and throws — ${snaps} snaps over the re-arm window`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------

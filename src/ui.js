@@ -1818,6 +1818,11 @@ export function initUI(hooks) {
     // v7.23 skies: Atomic Breath. Both are also registered in buildReadout's ordered whitelist
     // (sim.js) — a stat needs BOTH sites or it is silently absent from the build sheet.
     jumps: 'Forks', arcRange: 'Fork range', duration: 'Burns for', hooks: 'Aircraft hooked',
+    // v7.55 surf: the Pincer. Both are also registered in buildReadout's ordered whitelist (sim.js)
+    // — a stat needs BOTH sites or it is silently absent from the build sheet. `cd` is the ONLY
+    // cadence this weapon has (it emits no `every` row at all, because it has no interval to fire
+    // on), so "Re-arms in" has to carry that meaning on its own.
+    knock: 'Throw', cd: 'Re-arms in',
   }
   const STAT_MAX_ROWS = 5
   // French writes 1,00 s — comma decimal, NBSP before the unit. The dictionary cannot fix a number,

@@ -1129,6 +1129,23 @@ function generateWells(sig) {
  *   angle and one length; a fork is a chain of segments between bodies, all live at once). x/y
  *   track the ROOT body so IPECAC's extra forks — which anchor on different enemies via rootRank —
  *   are distinguishable. Damage decays BREATH_JUMP_DMG_MUL per jump. See fireBreath/stepArcs.
+ * guards[i]: { x, y, angle, r, armed, cd, rearm, dmg, knock } — a Pincer claw (v7.55, The Surf). THE ONLY
+ *   weapon entity in the game that is not produced by a timer: stepPincerWeapon REWRITES this list
+ *   every frame while the weapon is owned (one entry, two with the backClaw mod, ×3 under IPECAC),
+ *   holding each claw PINCER_HOLD_FRAC × r out from the player along `angle` — which tracks
+ *   nearestEnemy, so the guard is always between the player and whatever is closest. `armed` starts
+ *   true and STAYS true for as long as nothing comes within r of the claw's centre; the trigger is
+ *   stepGuards' proximity scan over run.enemies, never an elapsed interval. On a snap the nearest
+ *   body inside takes `dmg` (applyDamage — one enemy, no pierce, no splash), is shoved `knock` px/s
+ *   away from the PLAYER (shoveFromPlayer, so an anchored elite takes the hit and holds), an
+ *   {type:'pinch', x, y, angle, r} event is emitted, and the claw sets armed=false / cd=rearm
+ *   (`rearm` being levels[].cd, snapshotted each frame beside dmg/knock; `cd` is the live
+ *   countdown). cd then counts DOWN in stepGuards and re-arms at 0. The armed/cd pair survives the
+ *   per-frame rewrite (the list is resized in place, never rebuilt) — a claw that forgot it had
+ *   snapped would be a weapon with no cooldown at all. See WEAPONS.pincer/stepPincerWeapon/stepGuards.
+ *   {type:'pinch', x, y, angle, r}  one claw closing. x,y = the CLAW's centre (not the player's:
+ *                                   the burst has to land where the pinch happened), angle = the
+ *                                   direction it is pointing, r = its catch radius.
  *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
@@ -1584,6 +1601,10 @@ export function createRun(meta, opts = {}) {
     // falloutBonus, nodes }, where `nodes` is the polyline player->body->body rebuilt every tick.
     drags: [],
     arcs: [],
+    // v7.55 The Surf. guards: the Pincer's held claws — { x, y, angle, r, armed, cd, dmg, knock }.
+    // Empty unless the weapon is owned; stepPincerWeapon resizes it in place rather than rebuilding
+    // it, because `armed`/`cd` are the weapon's whole state (see the doc block above).
+    guards: [],
     kills: 0,
     coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect
     levelUpChoices: null,
