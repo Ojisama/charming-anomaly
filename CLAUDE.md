@@ -227,6 +227,13 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   in that file (v7.7 lost a comment fix this way and only caught it from `git status`). Either
   extract a throwaway tree (`git archive <ref> | tar -x -C <tmp>`) and mutate there, or re-read
   `git status --short` after every revert.
+  **Every mutation must be DISTINCT as well as applied.** A harness that skips on a missing anchor
+  still cannot see two entries whose `from`/`to` are the same edit under different labels — that is
+  a passing check that checks nothing, and it inflates the count you then quote as proof. v7.62
+  shipped a four-mutation table where two entries both just deleted the `flushSpawns(run)` line, one
+  of them captioned "the flush moves to the BOTTOM"; it was caught by re-reading the harness, not by
+  running it. Diff the entries, and prefer a mutation that expresses the pathology (move the call)
+  over one that merely removes the code.
 - **A new weapon STAT has to be registered twice, and fails silently otherwise.** Adding a key to a
   weapon's `levels[]` is not enough for it to appear on the pause build sheet: `buildReadout`
   (sim.js) only copies keys on its own hardcoded whitelist array, and `STAT_LABEL` (ui.js) supplies
@@ -377,6 +384,15 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   - **A scene that throws renders nothing, which looks exactly like "the effect is invisible".**
     Paint the caught exception into the page so the screenshot carries it, and read that before
     re-shooting anything.
+- **ANYTHING THAT READS THE VIEWPORT IS NOT VERIFIED UNTIL IT HAS BEEN SHOT AT TWO VIEWPORTS.**
+  `fx-probe.mjs` defaults to a 390x844 phone; pass `--w 1280 --h 800` for the second. The phone's
+  half-diagonal is 465px and the desktop's is 755px, so any quantity compared against the screen —
+  a radius, a cull margin, a vignette, an early-out — can be a different mechanic on each, and the
+  one you shot will look correct. v7.58 shipped a full-bar early-out for The Shelf's dark with a
+  config comment calling it a considered decision; it was measured on the phone alone, where it is
+  right, and on a desktop the same code left the corners vignetted at a full bar. It came back as a
+  bug report within the hour (v7.60 fixed it by stating the light in screen half-diagonals). Assert
+  the RATIO in the suite, never px: px passes at exactly one screen size, which is how it shipped.
 - Enemies that render as white silhouettes are `hitFlash`, not a bug — a pinned cast being struck
   every frame never stops flashing. Clear it, or you cannot judge an effect against the sprites it
   sits over. Same class of trap: a final `sync` handed the whole warm-up's `run.events` buries the
