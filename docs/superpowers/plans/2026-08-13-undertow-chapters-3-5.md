@@ -111,3 +111,26 @@ Reserved here so the three chapters cannot collide with each other while being b
 | 40-42 | Reef | air pockets |
 | 45-47 | Trawl | anything streamed (the net itself is not a streamed field) |
 | 50-52 | Deep | wreck field / weak points |
+
+---
+
+## ⚠ The charge probe's movement models are INVALID in a lane
+
+`scripts/charge-probe.mjs` is already chapter-generic (`--chapter <id>`, geometry via `refillSpec`),
+and its two movement policies are `kite` (walk a wide circle) and `seek` (walk toward the nearest
+refill when low). **Neither is expressible in a lane chapter**: the joystick there gives one axis, and
+the forward rate is fixed by `LANE_SCROLL_SPEED`. A `kite` run in The Reef is not a cautious player,
+it is a player pressing a direction the game does not have.
+
+The chapter's own file already documents the general form of this trap for The Shelf — the kiting
+circle's radius is `speed/0.35/2π`, so slowing the player SHRINKS the sampled area below the spacing
+of the thing being sampled, and `%inLight` collapsed for reasons that were a property of walking in a
+circle rather than of the chapter. In a lane the distortion is total rather than partial.
+
+So before any Air tune is quoted for The Reef, the probe needs a **lane movement policy**: forward is
+not a choice, and the only decision is where to sit across the lane (hold centre / steer toward the
+nearest air pocket / ignore it). Report the pair, exactly as the Shelf's block insists, and never a
+single policy alone.
+
+The same caution applies to The Trawl for a different reason: there the honest model is "run from the
+net", which is a heading, not a circle.
