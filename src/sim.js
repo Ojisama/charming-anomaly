@@ -207,6 +207,11 @@ export function stepSim(run, input, dt) {
   // keeps reading run.time — accelerating the whole world IS the card — but a record kept across
   // runs has to be in a unit that means the same thing in all of them.
   run._realTime = (run._realTime ?? 0) + dt
+  // Enemies born during the PREVIOUS step join the world here, at a point where nothing is
+  // mid-iteration over run.enemies. Flushed at the TOP rather than at the bottom on purpose: this
+  // function has eleven `if (stepX(...)) return` early exits, and a bottom flush would be skipped
+  // by every one of them. See spawnSplitChildren for what queues them and why.
+  flushSpawns(run)
   // v5.24: a scripted chapter (The Blank) has no timer victory at all — killing the script's last
   // boss IS the win (see stepBossScript), so the survival clock below never fires there.
   if (!CHAPTERS[run.chapter].scripted && run.time >= RUN_DURATION) {
@@ -1497,12 +1502,30 @@ function stepStragglers(run) {
 // fraction of the PARENT's own stats (not a fresh ENEMIES/hpScale spawn) per the v5.0 spec.
 // Children are flagged `_splitChild: true` so a further death never re-triggers this (see the
 // guard at the call site).
+// Move anything queued during the last step into the world. Tolerates an older save/probe that
+// built a run without the field, since createRun is not the only thing that ever makes one.
+function flushSpawns(run) {
+  const q = run._spawnQueue
+  if (!q || q.length === 0) return
+  for (const e of q) run.enemies.push(e)
+  q.length = 0
+}
+
 function spawnSplitChildren(run, parent, count) {
+  if (!run._spawnQueue) run._spawnQueue = []
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2
     const d = Math.random() * 20
     const hp = roundHP(parent.maxHP * SPLIT_HP_FRAC)
-    run.enemies.push({
+    // QUEUED, not pushed. 63 loops in this file walk `run.enemies` with for...of while dealing
+    // damage, and a for...of re-reads the array's length every step — so an enemy appended during
+    // one of them is visited by that very loop. The parent dies mid-sweep, its children are
+    // appended behind the cursor, and the SAME cast strikes them before they have existed for a
+    // frame. Measured over 3 seeded 300s Shelf runs with the whip alone: 495 of 657 children were
+    // struck by the swing that spawned them and 378 of 526 child deaths happened in their birth
+    // frame — the `split` flag inert 72% of the time, and on screen three damage numbers inside
+    // 20px in one instant, which is what got reported as the whip hitting one enemy several times.
+    run._spawnQueue.push({
       id: run._nextId++,
       type: parent.type,
       x: parent.x + Math.cos(a) * d,

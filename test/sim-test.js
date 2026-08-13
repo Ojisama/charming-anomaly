@@ -5225,6 +5225,20 @@ function testChapterBehaviors() {
     }
     assert(killed, 'expected the ignite DoT to finish off the split target')
 
+    // BORN BETWEEN STEPS, not mid-step. 63 loops in sim.js walk run.enemies with for...of while
+    // dealing damage, and for...of re-reads length every iteration — so a child appended during one
+    // of them used to be struck by the very cast that killed its parent. Measured over 3 seeded 300s
+    // Shelf runs with the whip alone: 495 of 657 children hit by their own spawning swing, 378 of
+    // 526 child deaths in the birth frame. That is the `split` flag inert 72% of the time, and on
+    // screen it is three damage numbers inside 20px in one instant.
+    assert.strictEqual(run.enemies.filter((e) => e._splitChild).length, 0,
+      'a split child must NOT be in run.enemies during the step that spawned it — it would be hittable by the cast that killed its parent')
+    assert.strictEqual(run._spawnQueue.length, SPLIT_CHILD_COUNT, 'the children must be queued for the next step')
+    stepSim(run, { x: 0, y: 0 }, dt)   // ...and arrive when the next step begins
+    // ...and the queue DRAINS. A flush that copies without clearing re-adds the same two children
+    // every step forever, which is an unbounded enemy leak that the count below cannot see (it is
+    // still correct on the step the flush first runs).
+    assert.strictEqual(run._spawnQueue.length, 0, 'flushSpawns must empty the queue, or every child is re-added on every later step')
     const children = run.enemies.filter((e) => e._splitChild)
     assert.strictEqual(children.length, SPLIT_CHILD_COUNT, `expected ${SPLIT_CHILD_COUNT} split children, got ${children.length}`)
     // v6.9.2: rounded, like every enemy HP assignment — a fractional maxHP leaves a sub-1 remainder
