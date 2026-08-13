@@ -4388,6 +4388,10 @@ CHAPTERS.reef = {
   name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
   lane: true,
   laneAxis: 'x',
+  // 45 rather than the shared 70 — see laneScrollFor's block. Measured, not felt: on a 390x844 phone
+  // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
+  // chapter would give HALF The Beyond's reaction time on the device the game ships to.
+  laneScroll: 45,
 
   // BORROWED ARSENAL — placeholder until Squid Ink and Oxygen Tank land. Picked for the LANE rather
   // than for the theme, because a scroller only works if the starter can answer things arriving from
@@ -5102,6 +5106,31 @@ export const TYPE_ARCHETYPE = Object.fromEntries(Object.entries(ARCHETYPE_TYPE).
 // It also reads better: a slow forward drift against a quick strafe is the Space Invaders feel,
 // where all your agility is sideways.
 export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane, always
+// PER-CHAPTER OVERRIDE (CHAPTERS[].laneScroll), because the axis changed what 70 MEANS.
+//
+// What a lane chapter actually owes the player is SECONDS OF WARNING — how long between a thing
+// appearing at the leading edge and reaching them — and that is `viewport-ahead / scroll`, not the
+// scroll alone. The player sits at LANE_CAMERA_FRAC (0.8) of the viewport along the forward axis, so
+// the distance ahead is 0.8 x the screen extent ALONG THAT AXIS. Rotating the lane 90 degrees on a
+// portrait phone therefore swaps which screen dimension pays for warning, and measured on a 390x844
+// phone at zoom 1.000 (scripts/fx-probe.mjs, both chapters, same frame):
+//
+//     The Beyond (y): 675 world px ahead  -> 9.6s at 70 px/s
+//     The Reef   (x): 312 world px ahead  -> 4.5s at 70 px/s
+//
+// The ratio is exactly the screen's aspect (844/390 = 2.16 against 9.6/4.5 = 2.13), which is the
+// proof that this is a property of the DEVICE and the axis, not of the chapter's tuning. Half the
+// reaction time on the platform this game actually ships to is not a difficulty choice.
+//
+// So The Reef scrolls slower, chosen against the warning it buys rather than against how it feels:
+// 312/45 = 6.9s, most of The Beyond's, without going glacial on a wide screen.
+//
+// ponytail: the principled fix is to stop storing px/s at all and derive the scroll from a shared
+// LANE_WARNING_SECONDS and the live viewport, which would make every device and both axes agree by
+// construction. It is not done here because it MOVES THE BEYOND on any viewport that is not this
+// phone (640 px ahead on a 1280x800 desktop would give it 66 px/s, not 70), and The Beyond is
+// shipped and tuned. Doing it means re-capturing run LN's golden master with a stated reason.
+export const laneScrollFor = (ch) => ch?.laneScroll ?? LANE_SCROLL_SPEED
 export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base speed — it is all you have
 
 // THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had

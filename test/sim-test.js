@@ -71,7 +71,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
@@ -14943,7 +14943,12 @@ function testLaneAxis() {
   assert.strictEqual(laneAxes(CHAPTERS.beyond).dir, -1, 'The Beyond advances -y')
   assert.strictEqual(laneAxes(CHAPTERS.reef).dir, 1, 'The Reef advances +x')
 
-  // (a) FORWARD IS +x, AT EXACTLY LANE_SCROLL_SPEED. Not "roughly", not "faster with move speed" —
+  // (a) FORWARD IS +x, AT EXACTLY THE CHAPTER'S OWN SCROLL. Against laneScrollFor(reef) rather than
+  // the shared LANE_SCROLL_SPEED on purpose: The Reef overrides it (an x-lane on a portrait phone has
+  // less than half a y-lane's distance ahead of the player, so 70 would buy half the warning), and an
+  // assertion pinned to the shared constant would have to be edited every time a chapter tunes its
+  // own — which is the edit that quietly turns a guard into a rubber stamp. Not "roughly", not
+  // "faster with move speed" —
   // the scroll rate is the one thing this chapter mode guarantees, which is why LN pins the same
   // property on the other axis. The stick is held hard the WRONG way (full -x) to prove the forward
   // component is not the joystick's: pushing back must not slow the advance by a single pixel.
@@ -14952,9 +14957,9 @@ function testLaneAxis() {
     const x0 = run.player.x, y0 = run.player.y
     const steps = Math.round(2 / dt)
     for (let i = 0; i < steps; i++) { stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
-    const want = LANE_SCROLL_SPEED * steps * dt
+    const want = laneScrollFor(CHAPTERS.reef) * steps * dt
     assert.ok(Math.abs((run.player.x - x0) - want) < 1e-6,
-      `expected the reef to advance +x at exactly LANE_SCROLL_SPEED, moved ${(run.player.x - x0).toFixed(3)} vs ${want.toFixed(3)}`)
+      `expected the reef to advance +x at exactly its own laneScroll (${laneScrollFor(CHAPTERS.reef)}), moved ${(run.player.x - x0).toFixed(3)} vs ${want.toFixed(3)}`)
     assert.ok(Math.abs(run.player.y - y0) < 1e-9,
       `the stick's x must do NOTHING in an x-lane — it moved the player across the lane to y=${run.player.y.toFixed(3)}`)
     assert.strictEqual(run.player.facingAngle, 0, 'an x-lane faces +x (angle 0), so a weapon with nothing to aim at fires up the lane')
@@ -14988,7 +14993,7 @@ function testLaneAxis() {
       for (let i = 0; i < steps; i++) { stepSim(run, { x: 0, y: dir }, dt); run.events.length = 0 }
       assert.ok(Math.abs(run.player.y - dir * hw) < 1e-6,
         `expected the player pinned to the lane wall at y=${(dir * hw).toFixed(1)}, got ${run.player.y.toFixed(1)} — the clamp is on the wrong axis`)
-      assert.ok(run.player.x - x0 > LANE_SCROLL_SPEED * 11,
+      assert.ok(run.player.x - x0 > laneScrollFor(CHAPTERS.reef) * 11,
         `the FORWARD axis must never be clamped — the player only advanced ${(run.player.x - x0).toFixed(0)}px in 12s`)
     }
   }
@@ -15043,7 +15048,7 @@ function testLaneAxis() {
       'render.js still anchors the lane camera on one hardcoded axis — an x-lane would frame the player centred')
   }
 
-  console.log(`PASS run LX (the lane has an axis): the reef scrolls +x at ${LANE_SCROLL_SPEED}px/s under a stick that cannot touch it, strafes on y at x${LANE_STRAFE_MUL}, clamps to both y walls, spawns everything ahead, and the camera reads the axis`)
+  console.log(`PASS run LX (the lane has an axis): the reef scrolls +x at ${laneScrollFor(CHAPTERS.reef)}px/s (the beyond keeps ${LANE_SCROLL_SPEED}) under a stick that cannot touch it, strafes on y at x${LANE_STRAFE_MUL}, clamps to both y walls, spawns everything ahead, and the camera reads the axis`)
 }
 
 // ---- run US.f: the player's own body is per-chapter, not one boolean ---------------------------
