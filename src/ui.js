@@ -1862,6 +1862,11 @@ export function initUI(hooks) {
   function cardDescHtml(c) {
     const cfg = c.kind === 'mod' ? WEAPON_MODS[c.weapon]?.[c.id] : null
     if (cfg && !cfg.descFor) return modEffectText(cfg, c.bonus)
+    // An element card under the redesign carries its TEMPLATE and numbers (see elementCardDesc in
+    // config.js) rather than a finished sentence, so the dictionary has one key per card instead of
+    // one per value the numbers can take. c.desc holds the composed English for everything that
+    // wants a plain string, and is the fallback for the old element system's cards.
+    if (c.descT) return tt(c.descT.s, c.descT.p)
     return tCardDesc(c.desc)
   }
   function modLine(weaponId, m) {
@@ -2074,7 +2079,7 @@ export function initUI(hooks) {
     const sections = Object.keys(ELEMENTS).map((id) => {
       const cfg = ELEMENTS[id]
       const P = elements?.[id] ?? 0
-      const body = elementCodex(id, P).map((p) => `<p class="codex-p">${esc(t(p))}</p>`).join('')
+      const body = elementCodex(id, P).map((p) => `<p class="codex-p">${esc(tt(p.s, p.p))}</p>`).join('')
       return `
         <section class="codex-sec">
           <h3 class="codex-sec-title">${cfg.icon} ${esc(t(cfg.name))}</h3>

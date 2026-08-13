@@ -110,7 +110,7 @@ import {
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
   // elements redesign (Run EL)
-  EL_WINDOW, EL_BUCKETS,
+  EL_WINDOW, EL_BUCKETS, EL_VALUES, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
 
@@ -11510,9 +11510,35 @@ function testFrenchDictionary() {
   for (const byMod of Object.values(WEAPON_MODS ?? {})) {
     for (const v of Object.values(byMod ?? {})) { need(v?.name); need(v?.desc); need(v?.title) }
   }
+  // ELITE_AFFIXES is shown on the elite itself and no walk above reached it, so all seven names
+  // had always shipped in English — found while translating the Codex line that names one of them.
+  for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  // The elements redesign's copy lives in FUNCTIONS, not a table, so every walk above is blind to
+  // it — the third time this exemption has bitten (two City enemies in v6.3, every weapon mod in
+  // v6.6.26). It shipped to the live URL with the card and the whole Codex untranslated, and this
+  // assert was green the entire time. What is needed is the TEMPLATE, not the sentence: elements
+  // interpolate their own numbers, so a composed string has a different key at every potency and
+  // could never be translated at all (see elText/tt). Walking the ladder covers the `P > 0` lines.
+  const maxP = MAX_ELEMENT_PICKS * Math.max(...Object.values(EL_VALUES))
+  for (const id of Object.keys(ELEMENTS)) {
+    for (let P = 0; P <= maxP; P++) {
+      need(elementCardDesc(id, P).s)
+      for (const l of elementCodex(id, P)) need(l.s)
+    }
+  }
+  for (const s of ELEMENT_CODEX_INTRO) need(s)
   assert.deepStrictEqual([...missing], [], `config.js strings with no French entry (they ship in English): ${JSON.stringify([...missing])}`)
+
+  // A translated TEMPLATE must carry the SAME placeholders as its key. tt() fills {k} from the
+  // params the call site passes, so a dropped or misspelled one either prints literal braces to
+  // the player or silently loses the number — and the sentence still reads fine in review, which
+  // is why this needs a machine. Checked across the whole dictionary, not just the new keys.
+  const holes = (str) => [...str.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',')
+  const badTemplates = Object.entries(FR).filter(([k, val]) => holes(k) !== holes(val))
+    .map(([k, val]) => `${k}  ->  ${val}`)
+  assert.deepStrictEqual(badTemplates, [], `French values whose {placeholders} do not match their key: ${JSON.stringify(badTemplates, null, 1)}`)
 
   // (d) the reverse direction (v6.6.9, owner directive "remove unused / shadowed keys"): a key no
   // source file can produce is dead weight that reads as coverage. It costs nothing at runtime,

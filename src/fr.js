@@ -819,6 +819,65 @@ const CONFIG = {
   'Shocks arc damage to nearby foes. Combo: detonates 🔥 ignites, spreads ❄️ chill, copies ☠️ venom.': 'Électrocute les ennemis proches par arcs de dégâts. Combo : détone les brûlures 🔥, propage le froid ❄️, copie le venin ☠️.',
   'Venom Infusion': 'Infusion de Venin',
   'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.': 'Un poison cumulatif qui amplifie tous les dégâts subis. Combo : amplification doublée sur ❄️, brûlure plus rapide avec 🔥.',
+
+  // ---- elements redesign: the level-up cards and the Codex (run.newElements). The English is
+  // a TEMPLATE with {placeholders}, not a finished sentence, so word order here is French's own
+  // business — see elementCardDesc/elementCodex in config.js and tt() in i18n.js.
+
+  "Your hits set enemies burning for {pct}% of their damage over {secs}s. Best on heavy hits.":
+    "Tes coups enflamment les ennemis pour {pct}% de leurs dégâts sur {secs}s. Idéal sur les gros coups.",
+  "Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.":
+    "Chaque coup enflamme sa cible. La brûlure est une part de ce coup : un gros coup brûle profond, une arme rapide enflamme beaucoup de cibles superficiellement.",
+  "A new hit only replaces the burn if it would be stronger.":
+    "Un nouveau coup ne remplace la brûlure que s'il fait mieux.",
+  "Yours: {pct}% of each hit, over {secs}s.":
+    "Tes stats actuelles : {pct}% de chaque coup, sur {secs}s.",
+  "Damage chills. Take {pct}% of an enemy’s health within {secs}s and it freezes for {freeze}s.":
+    "Les dégâts refroidissent. Retire {pct}% de la vie d'un ennemi en {secs}s et il gèle pendant {freeze}s.",
+  "Damage chills. Chill is how much of an enemy’s health you have taken off recently — when it reaches 100%, the enemy freezes.":
+    "Les dégâts refroidissent. Le froid, c'est la part de vie que tu as retirée récemment à un ennemi : à 100%, il gèle.",
+  "A freeze holds for {freeze}s. Afterwards the enemy resists cold for {resist}s.":
+    "Un gel dure {freeze}s. Ensuite l'ennemi résiste au froid pendant {resist}s.",
+  "Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.":
+    "Les gros ennemis ne sont pas immunisés : ils ont simplement plus de vie, donc le même coup en représente une part plus faible. Seules les élites ancrées ⚓ ne gèlent jamais.",
+  "Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.":
+    "Tes stats actuelles : retire {pct}% de la vie d'un ennemi en {secs}s pour le geler.",
+  "Damage weakens. A worn-down enemy takes up to +{pct}% damage from every source. Deals none itself.":
+    "Les dégâts affaiblissent. Un ennemi entamé subit jusqu'à +{pct}% de dégâts, quelle qu'en soit la source. N'en inflige aucun lui-même.",
+  "Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.":
+    "Les dégâts affaiblissent. Un ennemi affaibli subit plus de dégâts de partout : tes armes, tes brûlures, tout.",
+  "Venom deals no damage of its own. It makes everything else hurt more.":
+    "Le venin n'inflige aucun dégât par lui-même. Il rend tout le reste plus douloureux.",
+  "Yours: up to +{pct}% damage taken on a half-worn enemy.":
+    "Tes stats actuelles : jusqu'à +{pct}% de dégâts subis sur un ennemi à moitié entamé.",
+  "Arcs to {arcs} enemies for {dmg}% damage, at {range}% range. {spread}% chance to spread burning to each.":
+    "Arcs vers {arcs} ennemis pour {dmg}% des dégâts, à {range}% de portée. {spread}% de chances de propager la brûlure à chacun.",
+  "Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.":
+    "Tes coups jaillissent en arcs vers les ennemis proches pour une part des dégâts, et peuvent propager ce que subit le premier : brûlure, saignement.",
+  "More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.":
+    "Plus de foudre, c'est plus d'arcs, plus longs, plus puissants, et plus de chances de propager.",
+  "Yours: {arcs} arcs, {dmg}% damage, {range}% range, {spread}% to spread.":
+    "Tes stats actuelles : {arcs} arcs, {dmg}% de dégâts, {range}% de portée, {spread}% de propagation.",
+  "Elements read one number: how much of an enemy’s own health you have taken off in the last three seconds.":
+    "Les éléments ne lisent qu'un seul chiffre : la part de sa propre vie que tu as retirée à un ennemi dans les trois dernières secondes.",
+  "That is why a hit which devastates a drone barely troubles a tank — the same damage is a smaller share of a bigger health bar. Nothing is immune; big things simply need more.":
+    "C'est pourquoi un coup qui ravage un drone dérange à peine un colosse : les mêmes dégâts représentent une part plus faible d'une barre de vie plus grande. Rien n'est immunisé ; les gros ennemis en demandent simplement plus.",
+  "It is also why elements grow with your weapons. As your damage climbs, so does everything they do.":
+    "C'est aussi pourquoi les éléments grandissent avec tes armes. Plus tes dégâts montent, plus tout ce qu'ils font monte avec eux.",
+  "Back":
+    "Retour",
+
+
+  // ---- elite affixes (ELITE_AFFIXES). Shown on the elite itself; "Ancré" is the one the
+  // element Codex names, since anchored elites are the only ones cold can never freeze.
+  'Shielded': 'Blindé',
+  'Splitter': 'Diviseur',
+  'Volatile': 'Instable',
+  'Cheerleader': 'Meneuse',
+  'Anchored': 'Ancré',
+  'Frenzied': 'Enragé',
+  'Gilded': 'Doré',
+
   'Overtime Shift': 'Heures Sup\'',
   'Way more anomalies, way more XP.': 'Beaucoup plus d\'anomalies, beaucoup plus d\'XP.',
   'Bulky Batch': 'Lot Costaud',
