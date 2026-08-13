@@ -2961,42 +2961,53 @@ export const elementFacts = (id, P) => {
   }
 }
 
+// Player-visible element copy is a TEMPLATE plus its numbers, never a finished sentence — the
+// dictionary is keyed by the English source (see i18n.js), so a sentence with its numbers already
+// baked in has a different key every time the player levels up and can never be translated. The
+// first cut of this shipped composed strings and was untranslatable by construction: `t()` fell
+// through to English for every element card and every Codex page, in every language.
+// `s` is the key and `p` its parameters; ui.js renders with tt(), which lets the translation put
+// the numbers wherever French wants them. elText() composes the English for everything that needs
+// a plain string (the card's own `desc`, the dev-menu filter, the tests).
+export const elText = ({ s, p }) => s.replace(/\{(\w+)\}/g, (_, k) => p[k] ?? `{${k}}`)
+
 /** The level-up card's description under the flag: the effect in the element's own units. */
 export const elementCardDesc = (id, P) => {
   const f = elementFacts(id, P)
   switch (id) {
-    case 'fire':      return `Your hits set enemies burning for ${f.burnPct}% of their damage over ${EL_WINDOW}s. Best on heavy hits.`
-    case 'cold':      return `Damage chills. Take ${f.freezePct}% of an enemy's health within ${EL_WINDOW}s and it freezes for ${f.freezeT}s.`
-    case 'venom':     return `Damage weakens. A worn-down enemy takes up to +${f.ampPct}% damage from every source. Deals none itself.`
-    case 'lightning': return `Arcs to ${f.arcs} enemies for ${f.dmgPct}% damage, at ${f.rangePct}% range. ${f.forwardPct}% chance to spread burning to each.`
-    default:          return ''
+    case 'fire':      return { s: 'Your hits set enemies burning for {pct}% of their damage over {secs}s. Best on heavy hits.', p: { pct: f.burnPct, secs: EL_WINDOW } }
+    case 'cold':      return { s: 'Damage chills. Take {pct}% of an enemy’s health within {secs}s and it freezes for {freeze}s.', p: { pct: f.freezePct, secs: EL_WINDOW, freeze: f.freezeT } }
+    case 'venom':     return { s: 'Damage weakens. A worn-down enemy takes up to +{pct}% damage from every source. Deals none itself.', p: { pct: f.ampPct } }
+    case 'lightning': return { s: 'Arcs to {arcs} enemies for {dmg}% damage, at {range}% range. {spread}% chance to spread burning to each.', p: { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct } }
+    default:          return { s: '', p: {} }
   }
 }
 
-/** Codex body for one element: the rule, then where the player currently stands. */
+/** Codex body for one element: the rule, then where the player currently stands. Same {s,p} shape. */
 export const elementCodex = (id, P) => {
   const f = elementFacts(id, P)
+  const line = (s, p = {}) => ({ s, p })
   switch (id) {
     case 'fire': return [
-      'Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.',
-      'A new hit only replaces the burn if it would be stronger.',
-      P > 0 ? `Yours: ${f.burnPct}% of each hit, over ${EL_WINDOW}s.` : null,
+      line('Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.'),
+      line('A new hit only replaces the burn if it would be stronger.'),
+      P > 0 ? line('Yours: {pct}% of each hit, over {secs}s.', { pct: f.burnPct, secs: EL_WINDOW }) : null,
     ].filter(Boolean)
     case 'cold': return [
-      'Damage chills. Chill is how much of an enemy’s health you have taken off recently — when it reaches 100%, the enemy freezes.',
-      `A freeze holds for ${EL_FREEZE_T}s. Afterwards the enemy resists cold for ${EL_FREEZE_RESIST_T}s.`,
-      'Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.',
-      P > 0 ? `Yours: take ${f.freezePct}% of an enemy’s health within ${EL_WINDOW}s to freeze it.` : null,
+      line('Damage chills. Chill is how much of an enemy’s health you have taken off recently — when it reaches 100%, the enemy freezes.'),
+      line('A freeze holds for {freeze}s. Afterwards the enemy resists cold for {resist}s.', { freeze: EL_FREEZE_T, resist: EL_FREEZE_RESIST_T }),
+      line('Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.'),
+      P > 0 ? line('Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.', { pct: f.freezePct, secs: EL_WINDOW }) : null,
     ].filter(Boolean)
     case 'venom': return [
-      'Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.',
-      'Venom deals no damage of its own. It makes everything else hurt more.',
-      P > 0 ? `Yours: up to +${f.ampPct}% damage taken on a half-worn enemy.` : null,
+      line('Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.'),
+      line('Venom deals no damage of its own. It makes everything else hurt more.'),
+      P > 0 ? line('Yours: up to +{pct}% damage taken on a half-worn enemy.', { pct: f.ampPct }) : null,
     ].filter(Boolean)
     case 'lightning': return [
-      'Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.',
-      'More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.',
-      P > 0 ? `Yours: ${f.arcs} arcs, ${f.dmgPct}% damage, ${f.rangePct}% range, ${f.forwardPct}% to spread.` : null,
+      line('Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.'),
+      line('More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.'),
+      P > 0 ? line('Yours: {arcs} arcs, {dmg}% damage, {range}% range, {spread}% to spread.', { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct }) : null,
     ].filter(Boolean)
     default: return []
   }

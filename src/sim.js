@@ -80,7 +80,7 @@ import {
   // Elements redesign, live only while run.newElements — see the EL_* block in config.js.
   EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
   EL_FREEZE_RESIST_T, EL_VENOM_MUL, EL_LIGHT_SHARE, EL_LIGHT_RANGE, EL_LIGHT_FORWARD,
-  EL_BUCKET_WEIGHT, EL_VALUES, elScale, elementCardDesc,
+  EL_BUCKET_WEIGHT, EL_VALUES, elScale, elementCardDesc, elText,
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
@@ -7601,8 +7601,11 @@ function makeElementCard(run, id, rarity) {
     const bonus = EL_VALUES[rarity]
     if (bonus == null) return null
     // The card states what the player will HAVE after taking it, not what the tier is worth.
-    const desc = elementCardDesc(id, (run.elements?.[id] ?? 0) + bonus)
-    return { kind: 'element', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
+    // `descT` is the template + its numbers (config.js), which is what ui.js translates through
+    // tt(); `desc` is the same sentence composed in English, for every consumer that wants a plain
+    // string — the dev-menu filter, buildReadout, the tests.
+    const descT = elementCardDesc(id, (run.elements?.[id] ?? 0) + bonus)
+    return { kind: 'element', id, title: cfg.name, desc: elText(descT), descT, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
   }
   const mult = RARITIES[rarity].mult
   const bonus = cfg.base * mult
