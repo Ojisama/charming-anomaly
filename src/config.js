@@ -4092,9 +4092,9 @@ CHAPTERS.surf = {
     type: 'tide', surge: 46, period: 14, axis: 0,
     // Sandbars: dry ground you can walk onto. `slowMul` composes with every other slow by MIN (see
     // the slow-composition note in sim.js), so it is the FLOOR the chapter can impose, never a stack.
-    // drainMul multiplies the resource drain while you stand on one — the sandbar is the only place
-    // Humidity falls fast, which is what makes it a place rather than a clock.
-    bars: { cell: 620, chance: 0.42, r: 150, minDist: 380, slowMul: 0.62, drainMul: 4 },
+    // drainMul multiplies the resource drain while you stand on one. See `resource` below for the
+    // measured split between this and the ambient drain, and for why the first tune was a clock.
+    bars: { cell: 620, chance: 0.42, r: 150, minDist: 380, slowMul: 0.62, drainMul: 24 },
 
     // Tide pools: the refill. Same vocabulary as the shelf's shafts and the pond's eddies — cell is
     // the grid, chance a DIRECT per-cell occupancy probability, minDist spawn-ring clearance from
@@ -4104,14 +4104,40 @@ CHAPTERS.surf = {
   },
 
   // Humidity. `drain` is the ambient cost of being out of the water at all, and standing on a
-  // sandbar multiplies it by signature.bars.drainMul. Numbers are a STARTING POINT to be measured
-  // with scripts/charge-probe.mjs across its three spend policies before being called tuned — the
-  // Shelf's first two cuts both read as healthy under one policy and were the spiral under another.
+  // sandbar multiplies it by signature.bars.drainMul.
+  //
+  // THE SPLIT BETWEEN THOSE TWO IS THE WHOLE DESIGN, and the first cut had it backwards. §5.3
+  // accepts a bar that drives damage only because "the sandbar is a PLACE, so the player can always
+  // see the cause and step off it" — which is false the moment the ambient drain is the bigger
+  // number. At 1.6/s ambient x4 on the bar, scripts/charge-probe.mjs measured a kiting player at
+  // 15.5% sandbar occupancy losing 1.6/s no matter where they stood against 0.74/s from the sand:
+  // 68% of the loss was a CLOCK the player could do nothing about.
+  //
+  // THE FIX IS NOT "MAKE THE SAND HURT MORE" — the sandbar's cost barely moved (6.4/s -> 7.2/s).
+  // What changed is that standing ANYWHERE ELSE is now nearly free, which is what turns the bar from
+  // a countdown into a map. Measured, 300s x 3 seeded runs, all three spend policies, all four
+  // movement/thief rows (scripts/charge-probe.mjs --chapter surf), before -> after:
+  //   - the ambient share of a kiting player's loss: 68% -> 22%. The sand is now 78% of it.
+  //   - base kite hoard (pure supply vs drain, a player ignoring the mechanic): mean 31.1 -> 56.7,
+  //     and the time pinned at zero 29% -> 1%. That is the headline: the floor stopped being the
+  //     resting state, so the multiplier now lives in its top half where a player can feel it move.
+  //   - base seek hoard (a player working the pools): 76.7 -> 89.2, %atMax 2% -> 8%.
+  //   - a kiting player who ACTUALLY avoids the sand loses only 0.3/s against a passive 1.6/s of
+  //     pool coverage, i.e. pins at full. Avoiding sandbars is now a real, sufficient strategy, and
+  //     that is the "place, not a clock" claim being literally true rather than asserted.
+  // The ambient drain is NOT zero on purpose: over 300s it is still 90 points, so a player who
+  // never touches a pool ends the run dry. It is a slope, not a countdown.
+  //
+  // ⚠ The `full` and `greedy` spend rows stay low (12.7 and 4.7 mean) and that is NOT this tune
+  // failing: PULSE_CHARGE_COST is 45 of 100 on a ~6s cooldown, so a player who uses the button is
+  // spending up to 7.5/s — five times the whole drain — and the button and the damage multiplier
+  // are simply competing for one bar. That is a DESIGN question for the owner (which of the two the
+  // bar is for), not a number to retune here, and it is unresolved.
   //
   // `damage` is the §5.3 owner-ruling override: only Humidity carries this key, which is what makes
   // resourceDamageMul() (config.js) a no-op everywhere else. floor reuses HUMIDITY_DMG_FLOOR rather
   // than a second literal, so the two never drift apart.
-  resource: { name: 'Humidity', drain: 1.6, refill: 20, killRefill: 1.2, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
+  resource: { name: 'Humidity', drain: 0.3, refill: 20, killRefill: 1.2, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
 
   // A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above shares pond's
   // `balance` table BY REFERENCE (see CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles in
