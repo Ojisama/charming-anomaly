@@ -109,10 +109,12 @@ import {
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
-  // v7.55 Book 2 The Surf: Humidity + tide pools (Run US.c)
+  // Book 2 The Surf: Humidity + tide pools (Run US.c)
   refillSpec,
-  // v7.55 Book 2 The Surf: Humidity drives damage (Run US.d)
+  // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul,
+  // elements redesign (Run EL)
+  EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge } from '../src/sim.js'
 
@@ -4761,26 +4763,54 @@ function runDark() {
   // instead, the light would start closing in at a full bar while the slow waited until half — two
   // schedules, and the player unable to tell which state they are in from the picture.
   {
-    assert.strictEqual(lightRadius(res.max, res), d.lightFull, 'a full bar lights lightFull')
-    assert.strictEqual(lightRadius(res.max * d.from, res), d.lightFull,
-      'the light must still be at full reach AT the threshold — it starts closing exactly where the slow starts')
-    assert.strictEqual(lightRadius(0, res), d.lightEmpty, 'an empty bar lights only lightEmpty')
-    const mid = lightRadius(res.max * d.from * 0.5, res)
-    assert.ok(Math.abs(mid - (d.lightFull + d.lightEmpty) / 2) < 1e-9,
-      `halfway to empty must light the midpoint radius, got ${mid}`)
+    // MEASURED AGAINST THE SCREEN'S LONGEST SIDE, and LINEAR IN THE RAW BAR. Owner spec, after
+    // three shipped attempts that all anchored on the half-diagonal and gated on `from`: "base
+    // light radius at 100% bar filled is the biggest dimension of the screen, then it reduces down
+    // linearly to 10% that radius".
+    const PHONE = Math.max(390, 844)      // 844px
+    const DESK = Math.max(1280, 800)      // 1280px
+    assert.strictEqual(lightRadius(res.max, res, PHONE), d.radiusFull * PHONE, 'a full bar lights radiusFull x the longest side')
+    assert.strictEqual(lightRadius(0, res, PHONE), d.radiusEmpty * PHONE, 'an empty bar lights only radiusEmpty')
+    // NOT GATED ON `from`. This is the assertion the whole chapter's legibility rests on, and the
+    // one every previous version failed: a light pinned at full reach until half a bar spends the
+    // top half of the range showing nothing, because a radius that covers the screen's CORNERS is
+    // 2.38x the one that covers its nearest EDGE (465px vs 195px on a phone) and every radius in
+    // that band looks identical. Measured then: 85.5 mean luminance at 50% of the bar, 85.3 at 40%.
+    // Spending Light must move the picture at 90% of the bar as surely as at 20%.
+    assert.ok(lightRadius(res.max * 0.9, res, PHONE) < lightRadius(res.max, res, PHONE) - 1,
+      'the light must already be shrinking at 90% of the bar — gating it on `from` is what made three versions unreadable')
+    // ...and LINEARLY, so the rate never surprises: the midpoint of the bar lights the midpoint
+    // radius, to floating-point.
+    const mid = lightRadius(res.max * 0.5, res, PHONE)
+    assert.ok(Math.abs(mid - ((d.radiusFull + d.radiusEmpty) / 2) * PHONE) < 1e-9,
+      `half a bar must light the midpoint radius, got ${mid}`)
+    // DEVICE PARITY: at every level of the bar the two screens must light the same FRACTION of
+    // their own longest side. Asserting px would pass the original world-px version at exactly one
+    // screen size and fail it everywhere else, which is how that bug shipped.
+    for (let c = res.max; c >= 0; c -= res.max / 20) {
+      assert.ok(Math.abs(lightRadius(c, res, PHONE) / PHONE - lightRadius(c, res, DESK) / DESK) < 1e-9,
+        `phone and desktop must light the same fraction of the screen (charge ${c})`)
+    }
+    // radiusFull >= 1: at a full bar the rim is at least a screen away, so the chapter opens with
+    // no dark on it whatever the aspect ratio.
+    assert.ok(d.radiusFull >= 1, 'a full bar must put the light\'s rim off-screen on any aspect ratio')
     // Monotone shrinking, sampled — a non-monotone radius would read as the light flickering back
     // out as you get worse, and no endpoint check can catch it.
     let prev = Infinity
     for (let c = res.max; c >= 0; c -= res.max / 40) {
-      const r = lightRadius(c, res)
+      const r = lightRadius(c, res, PHONE)
       assert.ok(r <= prev + 1e-9, `light radius must never grow as the bar empties (charge ${c})`)
       prev = r
     }
-    assert.ok(d.lightEmpty > 0 && d.lightEmpty < d.lightFull, 'an empty bar must still light SOMETHING, and less than a full one')
+    assert.ok(d.radiusEmpty > 0 && d.radiusEmpty < d.radiusFull, 'an empty bar must still light SOMETHING, and less than a full one')
+    // Out-of-range charge must not invert the light (a refill overshoot past res.max would otherwise
+    // grow the radius past radiusFull, and a negative would push it under radiusEmpty).
+    assert.strictEqual(lightRadius(res.max * 2, res, PHONE), d.radiusFull * PHONE, 'an overfull bar clamps to radiusFull')
+    assert.strictEqual(lightRadius(-10, res, PHONE), d.radiusEmpty * PHONE, 'a negative bar clamps to radiusEmpty')
     // A chapter with no dark lights everything. Infinity and not 0: the renderer's "does my light
     // already cover the corner" early-out has to say yes, and a 0 would black the screen out.
-    assert.strictEqual(lightRadius(0, CHAPTERS.pond.resource ?? undefined), Infinity, 'no resource -> unbounded light')
-    assert.strictEqual(lightRadius(50, { max: 100 }), Infinity, 'a resource with no dark block -> unbounded light')
+    assert.strictEqual(lightRadius(0, CHAPTERS.pond.resource ?? undefined, PHONE), Infinity, 'no resource -> unbounded light')
+    assert.strictEqual(lightRadius(50, { max: 100 }, PHONE), Infinity, 'a resource with no dark block -> unbounded light')
   }
 
   // (b) THE SLOW IS REAL, and measured as DISTANCE TRAVELLED rather than by reading a multiplier
@@ -4854,26 +4884,80 @@ function runDark() {
       'a chapter with no resource must move identically whatever its (inert) charge field says')
   }
 
-  // (e) the RENDER side reads the same curve. render.js is not importable here (Vite-only
-  // import.meta.glob), so this is the run UG.k source-text trick: the scrim's alpha must be the
-  // product of darkness() and the chapter's own dim, and the holes must be cut from run.shafts.
-  // A scrim that invented its own ramp would pass every assertion above and still drift from the
-  // slow on screen, which is the entire failure this run exists to prevent.
+  // (e) the RENDER side reads the same curve, and every light SUBTRACTS. render.js is not importable
+  // here (Vite-only import.meta.glob), so this is the run UG.k source-text trick. A dark that
+  // invented its own ramp would pass every assertion above and still drift from the slow on screen,
+  // which is the entire failure this run exists to prevent.
   {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(/const R = lightRadius\(run\.charge, res\)/.test(src),
-      'render.js must size the light from lightRadius(run.charge, res), so the shrinking light and the slow cannot drift apart')
-    assert.ok(/darkScrim\.circle\(px, py, R\)\.cut\(\)/.test(src),
-      'the player must be a CUT hole of radius R in the scrim — a radial gradient painted over an un-cut sheet dims the metre around you too, which is the flat-sheet version the owner rejected')
-    assert.ok(/darkGlow\.width = darkGlow\.height = R \* 2/.test(src),
-      'the falloff sprite must span exactly 2R, or its opaque rim lands somewhere other than the cut edge and the seam shows')
-    assert.ok(/darkScrim\.circle\([^)]*\)\.cut\(\)/.test(src),
-      'the shafts must be CUT from the scrim, not painted over it — additive light cannot un-flatten a dimmed scene, so a painted shaft is one you see LESS inside')
+    // TWO quantities ride the bar, not one. The radius alone cannot be read for the top half of the
+    // drainable range: at `from` the lit core exactly covers the screen by construction, so nothing
+    // shows until it shrinks below the half-diagonal — measured at under 4% of mean screen luminance
+    // between a half bar and 30% on a phone, which the owner reported twice as "only full dark or
+    // full light". The far field's alpha must therefore ramp too, on the SAME curve so the two cues
+    // and the move-speed slow can never come apart.
+    // The far field's alpha is a CONSTANT. Owner, 2026-08-13, rejecting a ramped one in play: "I
+    // want the light radius to fade, not the whole screen." Ramping it also measured as a no-op —
+    // at a large radius there is barely any far field for an alpha to act on, and the mid-bar came
+    // back LIGHTER than without it (84.3 mean luminance at 30% against 82.5).
+    assert.ok(/const a = res\?\.dark \? res\.dark\.dim : 0/.test(src),
+      'the far field must be a flat dim — ramping it was rejected in play and measured as a no-op')
+    // ...and dim 1: an empty bar's far field is the tint and nothing else (owner, 2026-08-13,
+    // "much darker when light = 0", picked near-black off a 4-way shot). Retuning this is a
+    // decision, not a detail — if it moves, it moves here too, on purpose.
+    assert.ok(d.dim >= 1, `the far field must be fully opaque (owner ruling), got dim ${d.dim}`)
+    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\)\)/.test(src),
+      "render.js must size the light from lightRadius(charge, res, longest side) — the screen's longest side is the unit the chapter states its light in")
+    // NO ALPHA ANYWHERE IN THE PATH, and this is the assertion the chapter's existence rests on.
+    // The lightmap used to be a white canvas with the lights punched out by `destination-out`, drawn
+    // as a translucent tinted sprite — the whole effect lived in a canvas ALPHA channel that then had
+    // to survive being uploaded as a texture. On the owner's phone it did not: at 88/100 Light the
+    // screen was solid black with no lit disc at all, while the sun shafts (arc+fill) rendered
+    // perfectly. Four releases were spent moving where the layer switches on, which only moved where
+    // the blackout started. Darkness is carried as OPAQUE COLOUR and composited with multiply.
+    assert.ok(/darkSprite\.blendMode = 'multiply'/.test(src),
+      'the lightmap must be composited with multiply — white leaves the scene alone, the tint crushes it')
+    assert.ok(/getContext\('2d', \{ alpha: false \}\)/.test(src),
+      'the lightmap canvas must be opaque: an alpha channel here is the thing that did not survive on the owner\'s device')
+    assert.ok(/darkSprite\.alpha = 1/.test(src) && /darkSprite\.tint = 0xffffff/.test(src),
+      'the dark sprite must be neither faded nor tinted — the colour IS the darkness, and doing either puts the effect back on the broken channel')
+    assert.ok(!/globalCompositeOperation/.test(src),
+      'no canvas compositing operator may come back: destination-out is what carried the effect in alpha')
+    assert.ok(!/LIGHT_BLOB/.test(src),
+      'the pre-baked offscreen lamp must stay deleted — its drawImage is the operation that produced nothing on the owner\'s device')
+    // The player's lamp and the shafts must both be plain fills, i.e. the SAME primitive that was
+    // observed to render there. A stamp of any kind reintroduces the failure.
+    assert.ok(/createRadialGradient\(px \* s, py \* s, 0, px \* s, py \* s, lampR\)/.test(src),
+      'the player lamp must be a per-frame radial gradient centred on the player')
+    assert.ok(/arc\(px \* s, py \* s, lampR, 0, Math\.PI \* 2\)/.test(src),
+      'the lamp must be filled as a DISC — a radial gradient clamps past its outer radius, so a rect would paint the rim colour into the corners')
+    assert.ok(/arc\(sx \* s, sy \* s, sh\.r \* s/.test(src),
+      'each shaft must be filled at its OWN radius, or standing in one stops clearing the dark')
+    // DARK_RAMP is still the darkness profile, now read as a COLOUR ramp: rgbAt(1 - d) runs white at
+    // the core to the tint at the rim. Inverted, the lamp would paint a dark disc on a lit field.
+    assert.ok(/const DARK_RAMP = \[0, [\d., ]*1\]/.test(src),
+      'DARK_RAMP is the DARKNESS profile and must run 0 at the core to 1 at the rim')
+    assert.ok(/grad\.addColorStop\(t, rgbAt\(1 - d\)\)/.test(src),
+      'the ramp must be read as 1 - DARK_RAMP: rgbAt takes how LIT a stop is, not how dark')
+    // The sharpness knob has two readers and they must not drift: it positions the bake's ramp, and
+    // it turns the chapter's core radius into the outer one the stamp is drawn at. Two hardcoded
+    // copies is what this file used to have. It must NOT reach the early-out any more — the whole
+    // point of stating the light as a fraction of the screen is that "is the screen lit?" is one
+    // comparison in one unit, so a sharpness change cannot move how much of the screen is dark.
+    assert.ok(/const LIGHT_CORE_FRAC = /.test(src)
+      && /LIGHT_CORE_FRAC \+ \(1 - LIGHT_CORE_FRAC\)/.test(src)
+      && /R \* LIGHT_CORE_FRAC >= corner/.test(src),
+      'ONE LIGHT_CORE_FRAC must both position the falloff ramp and gate the early-out')
+    // The construct this replaced, kept as a tripwire: Graphics.cut() cannot take holes that overlap
+    // each other, and the player's circle overlapping a shaft's is the chapter, not an edge case.
+    // It shipped at v7.55 as a hard-edged wedge of night across the whole viewport.
+    assert.ok(!/\.cut\(\)/.test(src.replace(/^\s*\/\/.*$/gm, '')),
+      'no Graphics.cut() in render.js: overlapping holes triangulate into straight-edged garbage, which is how the dark shipped broken')
     assert.ok(src.includes('app.stage.addChild(world, darkLayer,'),
-      'the scrim must sit directly above `world` and below the damage vignette/flash, or the dark takes the safety cues with it')
+      'the dark must sit directly above `world` and below the damage vignette/flash, or it takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): one curve drives both — the light you emit closes from ${d.lightFull}px to ${d.lightEmpty}px and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, linear, MIN-composed with the latch slow, pond untouched, scrim cuts the player and its shafts`)
+  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
 }
 runDark()
 
@@ -4931,7 +5015,29 @@ function runRosterArt() {
   }
   assert.ok(thumbs >= 12, `expected a cast per chapter card, counted only ${thumbs}`)
 
-  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, and all ${thumbs} title-card thumbnails exist on disk`)
+  // THE JELLY IS THE ONE SIDE-ELEVATION BODY IN THE GAME, AND IT ONLY WORKS AT lean 90.
+  // Everything else is drawn in plan view, so the pair (view, lean) is normally decided once and
+  // never revisited. Here it is load-bearing: the art puts the apex at +x and streams the mouth,
+  // the oral arms and every tentacle to -x, which is legal ONLY because lean 90 lets syncEnemies
+  // aim that axis at the player. Drop it back to 0 — the value every other radial body uses, and
+  // the value this entry itself carried until the redesign — and the bell stops turning while the
+  // tentacles keep pointing one fixed compass direction regardless of where the animal is going.
+  // Nothing else in the suite or the renderer would notice: no throw, no missing texture, just a
+  // creature swimming sideways forever. Hence a text assert, the run UG.k trick.
+  const jelly = block.match(/^ {4}jelly:\s*\{[^}]*\}/m)
+  assert.ok(jelly, 'ROSTER_LOOKS must still declare a jelly entry')
+  assert.ok(/lean:\s*90/.test(jelly[0]),
+    'the jelly is drawn in side elevation with its apex at +x — it must be lean 90, or the body never turns and the tentacles trail in a fixed screen direction')
+  const jd = src.slice(src.indexOf('function drawJelly('))
+  const jdEnd = jd.indexOf('\n  }\n')
+  assert.ok(jdEnd > 0, 'could not find the end of drawJelly')
+  const jbody = jd.slice(0, jdEnd)
+  // The apex must be FORWARD and the mouth AFT. Swap the signs and the art is still a jellyfish,
+  // still renders, and now swims backwards — tentacles first into the player.
+  assert.ok(/const xf = r \* 0\.\d+/.test(jbody) && /const xa = -r \* 0\.\d+/.test(jbody),
+    'drawJelly must keep the apex at +x (xf) and the mouth plane at -x (xa) — reversed, it swims tentacles-first')
+
+  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }
 runRosterArt()
 
@@ -5185,6 +5291,20 @@ function testChapterBehaviors() {
     }
     assert(killed, 'expected the ignite DoT to finish off the split target')
 
+    // BORN BETWEEN STEPS, not mid-step. 63 loops in sim.js walk run.enemies with for...of while
+    // dealing damage, and for...of re-reads length every iteration — so a child appended during one
+    // of them used to be struck by the very cast that killed its parent. Measured over 3 seeded 300s
+    // Shelf runs with the whip alone: 495 of 657 children hit by their own spawning swing, 378 of
+    // 526 child deaths in the birth frame. That is the `split` flag inert 72% of the time, and on
+    // screen it is three damage numbers inside 20px in one instant.
+    assert.strictEqual(run.enemies.filter((e) => e._splitChild).length, 0,
+      'a split child must NOT be in run.enemies during the step that spawned it — it would be hittable by the cast that killed its parent')
+    assert.strictEqual(run._spawnQueue.length, SPLIT_CHILD_COUNT, 'the children must be queued for the next step')
+    stepSim(run, { x: 0, y: 0 }, dt)   // ...and arrive when the next step begins
+    // ...and the queue DRAINS. A flush that copies without clearing re-adds the same two children
+    // every step forever, which is an unbounded enemy leak that the count below cannot see (it is
+    // still correct on the step the flush first runs).
+    assert.strictEqual(run._spawnQueue.length, 0, 'flushSpawns must empty the queue, or every child is re-added on every later step')
     const children = run.enemies.filter((e) => e._splitChild)
     assert.strictEqual(children.length, SPLIT_CHILD_COUNT, `expected ${SPLIT_CHILD_COUNT} split children, got ${children.length}`)
     // v6.9.2: rounded, like every enemy HP assignment — a fractional maxHP leaves a sub-1 remainder
@@ -11518,9 +11638,35 @@ function testFrenchDictionary() {
   for (const byMod of Object.values(WEAPON_MODS ?? {})) {
     for (const v of Object.values(byMod ?? {})) { need(v?.name); need(v?.desc); need(v?.title) }
   }
+  // ELITE_AFFIXES is shown on the elite itself and no walk above reached it, so all seven names
+  // had always shipped in English — found while translating the Codex line that names one of them.
+  for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  // The elements redesign's copy lives in FUNCTIONS, not a table, so every walk above is blind to
+  // it — the third time this exemption has bitten (two City enemies in v6.3, every weapon mod in
+  // v6.6.26). It shipped to the live URL with the card and the whole Codex untranslated, and this
+  // assert was green the entire time. What is needed is the TEMPLATE, not the sentence: elements
+  // interpolate their own numbers, so a composed string has a different key at every potency and
+  // could never be translated at all (see elText/tt). Walking the ladder covers the `P > 0` lines.
+  const maxP = MAX_ELEMENT_PICKS * Math.max(...Object.values(EL_VALUES))
+  for (const id of Object.keys(ELEMENTS)) {
+    for (let P = 0; P <= maxP; P++) {
+      need(elementCardDesc(id, P).s)
+      for (const l of elementCodex(id, P)) need(l.s)
+    }
+  }
+  for (const s of ELEMENT_CODEX_INTRO) need(s)
   assert.deepStrictEqual([...missing], [], `config.js strings with no French entry (they ship in English): ${JSON.stringify([...missing])}`)
+
+  // A translated TEMPLATE must carry the SAME placeholders as its key. tt() fills {k} from the
+  // params the call site passes, so a dropped or misspelled one either prints literal braces to
+  // the player or silently loses the number — and the sentence still reads fine in review, which
+  // is why this needs a machine. Checked across the whole dictionary, not just the new keys.
+  const holes = (str) => [...str.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',')
+  const badTemplates = Object.entries(FR).filter(([k, val]) => holes(k) !== holes(val))
+    .map(([k, val]) => `${k}  ->  ${val}`)
+  assert.deepStrictEqual(badTemplates, [], `French values whose {placeholders} do not match their key: ${JSON.stringify(badTemplates, null, 1)}`)
 
   // (d) the reverse direction (v6.6.9, owner directive "remove unused / shadowed keys"): a key no
   // source file can produce is dead weight that reads as coverage. It costs nothing at runtime,
@@ -12298,6 +12444,7 @@ try {
   testDevMenu()
   testModalPopBookkeeping()
   testUndertowLadder()
+  testElementsRedesign()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -14893,4 +15040,382 @@ function testUndertowLadder() {
   assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
 
   console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
+}
+
+// ---- run EL: the elements redesign, behind run.newElements ---------------------------------
+// Every status is bought with damage relative to the enemy's OWN health:
+//     recent = HP the player removed in the last EL_WINDOW seconds / enemy.maxHP
+// These guard the four things that were got WRONG on paper before any of it was built — two
+// adversarial reviews found all four, and none of them would have failed a test that asserted
+// state rather than effect.
+function testElementsRedesign() {
+  const el = (over = {}, opts = {}) => {
+    Math.random = mulberry32(opts.seed ?? 77001)
+    const run = createRun(makeMeta(), { chapter: opts.chapter ?? 'undergrowth', difficulty: 3 })
+    run.newElements = true
+    run.player.maxHP = run.player.hp = 1e9
+    Object.assign(run.elements, over)
+    return run
+  }
+  const playStill = (run, secs, each, takeUps) => play(run, secs, each, { x: 0, y: 0 }, takeUps)
+  // takeUps: ACCEPT level-ups. A rig that refuses them never grows the player's damage, so on a
+  // late tank no hit is ever a large enough share of its health to matter — which reads as "the
+  // mechanic does not work" when it is the rig that is wrong. Scenarios asserting the ABSENCE of an
+  // effect must refuse them instead, or a stray fire pick invents the thing they are ruling out.
+  const play = (run, secs, each, input = { x: 0.4, y: 0.2 }, takeUps = false) => {
+    for (let i = 0; i < Math.round(secs * 60); i++) {
+      if (run.phase === 'levelup') {
+        if (takeUps && run.levelUpChoices?.length) applyChoice(run, 0)
+        else run.phase = 'playing'
+        continue
+      }
+      if (run.phase !== 'playing') break
+      stepSim(run, input, 1 / 60)
+      each?.(run)
+      run.events.length = 0
+    }
+  }
+
+  // (a) THE WINDOW REALLY HOLDS EL_WINDOW SECONDS. The ring buffer must advance BEFORE it clears,
+  // or it evicts the bucket just written and holds one 0.5s slice instead of 3s — which reads as
+  // "the design is 6x too weak" rather than as a bug.
+  //
+  // A PEAK OVER A LIVE CROWD CANNOT SEE THIS, and the first cut of this scenario asserted exactly
+  // that: one player hit on a low-HP drone is over half of its health bar by itself, so the peak
+  // clears any threshold with the ring buffer broken, and the assertion's own message named a bug
+  // it could not detect. Measured against the DAMAGE TRACE instead — on a pinned enemy topped up
+  // every frame, the window must equal the damage of the last EL_WINDOW seconds and nothing older.
+  // The window drops its oldest bucket every EL_WINDOW/EL_BUCKETS, so at any instant it holds
+  // between EL_WINDOW - one bucket and EL_WINDOW seconds; both ends are checked.
+  {
+    Math.random = mulberry32(4242)
+    const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
+    run.newElements = true
+    run.player.maxHP = run.player.hp = 1e9
+    const stepped = () => {
+      if (run.phase === 'levelup') { run.phase = 'playing'; return false }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      return true
+    }
+    for (let i = 0; i < 300; i++) stepped()
+    const e = run.enemies.find((x) => !x._dead)
+    assert.ok(e, 'no enemy alive to pin')
+    const px = run.player.x, py = run.player.y, MAXHP = 2000
+    const per = EL_WINDOW / EL_BUCKETS
+    const trace = []
+    const sum = (secs) => trace.slice(-Math.round(secs * 60)).reduce((a, b) => a + b, 0)
+    let peak = 0, minFill = Infinity, maxFill = 0
+    for (let i = 0; i < 600; i++) {
+      e.x = px + 40; e.y = py; e.maxHP = MAXHP; e.hp = MAXHP; e._dead = false
+      if (!stepped()) continue
+      trace.push(Math.max(0, (MAXHP - e.hp) / MAXHP))     // HP the player removed this frame
+      const obs = e._elVenom.total
+      peak = Math.max(peak, obs)
+      if (trace.length < 240) continue                    // let the window prime first
+      const lo = sum(EL_WINDOW - per), hi = sum(EL_WINDOW)
+      if (hi <= 0) continue
+      minFill = Math.min(minFill, obs / lo)               // < 1 means it is dropping damage too early
+      maxFill = Math.max(maxFill, obs / hi)               // > 1 means it is keeping damage too long
+    }
+    assert.ok(minFill > 0.98, `the window held only ${minFill.toFixed(2)}x the damage of the last ` +
+      `${(EL_WINDOW - per).toFixed(1)}s — it is evicting early, which is what happens when the ring buffer ` +
+      `clears the bucket it just wrote instead of the oldest one`)
+    assert.ok(maxFill < 1.02, `the window held ${maxFill.toFixed(2)}x the damage of the last ${EL_WINDOW}s — ` +
+      `it is keeping damage past its expiry`)
+    assert.ok(peak > 0 && peak <= 1.0001, `window reached ${peak.toFixed(3)}, which is more than the enemy's whole health`)
+    console.log(`PASS run EL.a (window depth): holds the last ${(EL_WINDOW - per).toFixed(1)}-${EL_WINDOW}s of damage exactly ` +
+      `(${minFill.toFixed(2)}-${maxFill.toFixed(2)}x), peak ${peak.toFixed(3)} of a health bar`)
+  }
+
+  // (b) NORMALISED BY THE ENEMY'S OWN HEALTH — the one rule the whole design rests on. Measured
+  // by holding EVERYTHING else identical: same seed, same pinned enemy in the same spot taking the
+  // same weapon damage, and only its maxHP differs. The window must scale as 1/maxHP exactly.
+  //
+  // Averaging windows across a real fight does NOT show this and will mislead you: ordinary enemies
+  // die young and spend their frames at a low window while elites survive and hold a steady state,
+  // so elites come out HIGHER on a frame average even though the normaliser is working perfectly.
+  {
+    const windowFor = (maxHP) => {
+      Math.random = mulberry32(4242)
+      const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
+      run.newElements = true
+      run.player.maxHP = run.player.hp = 1e9
+      for (let i = 0; i < 300; i++) {
+        if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        run.events.length = 0
+      }
+      const e = run.enemies.find((x) => !x._dead)
+      assert.ok(e, 'no enemy alive to pin')
+      const px = run.player.x, py = run.player.y
+      for (let i = 0; i < 180; i++) {
+        // Pinned in weapon reach and topped up every frame, so it can never die and the denominator
+        // stays honest. Weapons do not read maxHP, so both arms take the identical damage sequence.
+        e.x = px + 40; e.y = py; e.maxHP = maxHP; e.hp = maxHP; e._dead = false
+        if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+        stepSim(run, { x: 0, y: 0 }, 1 / 60)
+        run.events.length = 0
+      }
+      return e._elVenom.total
+    }
+    const small = windowFor(200), big = windowFor(2000)
+    assert.ok(small > 0 && big > 0, `window did not fill at all (small ${small}, big ${big})`)
+    const ratio = small / big
+    assert.ok(ratio > 9 && ratio < 11, `a 10x tougher enemy filled its window ${ratio.toFixed(2)}x slower, not ~10x — ` +
+      `the window is not being divided by the enemy's own maxHP`)
+    console.log(`PASS run EL.b (normalised): 10x the maxHP fills the window ${ratio.toFixed(2)}x slower, same damage`)
+  }
+
+  // (c) HAZARDS DO NOT FEED IT. City traffic and garden's mower deal a fixed fraction of the
+  // target's OWN maxHP (0.5), roadkill its whole bar, the pounce trap 0.25 — the denominator
+  // cancels, so one car pass would hand every enemy in the chapter half a freeze meter, elites
+  // included, for nothing. Asserted as SOURCE TEXT, not behaviour: the observable signature of a
+  // hazard hit (a large single-step jump) is indistinguishable from a big player hit on a low-HP
+  // drone, which is a legitimate 0.75 of a health bar in early city. The grep is exact where the
+  // measurement is ambiguous.
+  {
+    const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    const sig = src.match(/function dealDamage\(([^)]*)\)/)
+    assert.ok(sig && /hazard/.test(sig[1]), 'dealDamage no longer takes a `hazard` parameter — ' +
+      'maxHP-proportional chapter damage would feed the element window')
+    const vehicle = /dealDamage\(run, e, toEnemy, false, false, true\)/.test(src)
+    assert.ok(vehicle, 'the traffic/mower vehicle hit no longer passes hazard=true — a car pass now ' +
+      'fills every enemy element window by TRAFFIC_ENEMY_HP_FRAC of its own health')
+    const trap = /POUNCE_TRAP_HP_FRAC\)[^)]*, false, false, true\)/.test(src.replace(/\s+/g, ' '))
+    assert.ok(trap, 'the pounce trap no longer passes hazard=true — it deals POUNCE_TRAP_HP_FRAC of maxHP')
+    console.log('PASS run EL.c (hazards excluded): dealDamage takes `hazard`, and the vehicle and trap sites both pass it')
+  }
+
+  // (d) ONLY `anchored` IS UNFREEZABLE. Owner ruling: an `unshakeable` tank is an ordinary heavy
+  // enemy for cold — it resists by having more health, which is the whole point of normalising.
+  {
+    const run = el({ cold: 9 })
+    let anchoredFrozen = 0, anchoredSeen = 0, tankFrozen = 0, tankSeen = 0
+    // 180s, not 90: WAVE_TABLE gates `tank` behind t=140s, so a shorter run cannot see the very
+    // enemies this assertion is about and the tank half passes vacuously at 0/0.
+    playStill(run, 180, (r) => {
+      for (const e of r.enemies) {
+        if (e._dead) continue
+        const anch = e.affixes && e.affixes.includes('anchored')
+        const unsh = e.flags && e.flags.includes('unshakeable')
+        if (anch) { anchoredSeen++; if ((e._elFrozen ?? 0) > 0) anchoredFrozen++ }
+        else if (unsh) { tankSeen++; if ((e._elFrozen ?? 0) > 0) tankFrozen++ }
+      }
+    }, true)
+    assert.strictEqual(anchoredFrozen, 0, `an \`anchored\` enemy was frozen on ${anchoredFrozen} frames — it must never freeze`)
+    assert.ok(tankSeen > 0, 'no `unshakeable` tank was ever seen — run past WAVE_TABLE\'s t=140s gate or this proves nothing')
+    {
+      assert.ok(tankFrozen > 0, `no \`unshakeable\` tank ever froze across ${tankSeen} frames — the owner's ruling is that ` +
+        `only \`anchored\` is exempt, so a tank must be freezable given enough damage`)
+    }
+    console.log(`PASS run EL.d (freeze exemption): anchored 0/${anchoredSeen} frames frozen, unshakeable tanks ${tankFrozen}/${tankSeen}`)
+  }
+
+  // (e) VENOM DEALS NO DAMAGE. It is pure weakening — the amp is the entire card. With no fire and
+  // no bleed source, any dot-flagged hit at all means a DoT crept back in.
+  {
+    const run = el({ venom: 4 })
+    let dotHits = 0
+    for (let i = 0; i < 60 * 60; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0.4, y: 0.2 }, 1 / 60)
+      for (const ev of run.events) if (ev.type === 'hit' && ev.dot) dotHits++
+      run.events.length = 0
+    }
+    assert.strictEqual(dotHits, 0, `venom produced ${dotHits} damage-over-time hits — it must deal no damage of its own`)
+    console.log('PASS run EL.e (venom is weakening only): 0 DoT hits over 60s at venom P=4')
+  }
+
+  // (f) THE LADDER DECLINES `normal`, AND THE SCREEN STILL FILLS. The element branch of rollCard is
+  // the one branch with no fallback: without a re-roll on its own table it returns null on 58.5% of
+  // element slots, rollCard returns null, and buildLevelUpChoices BREAKS out of the slot loop,
+  // truncating the screen. Compared against the SAME SEED with the flag off rather than against a
+  // fixed number — the screen is 2 cards on a fresh run and grows with shop slots, so any literal
+  // here would be asserting the wrong thing.
+  {
+    let elementCards = 0, normals = 0, short = 0, screens = 0
+    for (let s2 = 0; s2 < 400; s2++) {
+      const build = (flag) => {
+        Math.random = mulberry32(90000 + s2)
+        const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
+        run.newElements = flag
+        run.player.level = 6
+        return buildLevelUpChoices(run)
+      }
+      const control = build(false), cards = build(true)
+      screens++
+      if (cards.length < control.length) short++
+      for (const c of cards) {
+        if (c.kind !== 'element') continue
+        elementCards++
+        if (c.rarity === 'normal') normals++
+      }
+    }
+    assert.strictEqual(normals, 0, `${normals} of ${elementCards} element cards rolled \`normal\` — the redesign's ladder starts at rare`)
+    assert.strictEqual(short, 0, `${short} of ${screens} level-up screens came back shorter than the same seed with the flag off — ` +
+      `the element branch returned null and buildLevelUpChoices broke out of the slot loop`)
+    assert.ok(elementCards > 10, `only ${elementCards} element cards across ${screens} screens — the bucket is not producing them at all`)
+    console.log(`PASS run EL.f (ladder + no truncation): ${elementCards} element cards over ${screens} screens, 0 normal, 0 shorter than control`)
+  }
+
+  // (g) THE CODEX NEVER REACHES A NORMAL RUN. It describes the redesign, so on a run without the
+  // flag it would be explaining rules the game is not playing by — a worse failure than not having
+  // it, because it reads as documentation rather than as a preview. This ships to the live URL with
+  // the flag OFF by default, so the gate is the whole reason it is safe to ship. Source text,
+  // because the alternative is booting a DOM: the button must sit behind `d.newElements`, main.js
+  // must actually put that key in pauseData, and there must be exactly ONE way in (an ungated
+  // entry point elsewhere — the title's ⚙ sheet had one — puts it back in front of everybody).
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const opens = [...uiSrc.matchAll(/data-act="codex-open"/g)]
+    assert.strictEqual(opens.length, 1, `${opens.length} Codex entry points in ui.js — every one of them ` +
+      `needs its own newElements gate, and a screen with no run cannot have one`)
+    const pause = uiSrc.slice(uiSrc.indexOf('setHtml(screens.pause'))
+    const at = pause.indexOf('data-act="codex-open"')
+    assert.ok(at > 0, 'the Codex entry is no longer on the pause screen — it is the only screen with a run to read the flag from')
+    assert.ok(/\$\{d\.newElements \?/.test(pause.slice(Math.max(0, at - 200), at)),
+      'the pause Codex button is not gated on d.newElements — every player now gets a Codex for an element system they are not playing')
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/const pauseData = \(\) => \(\{[^\n]*newElements/.test(mainSrc),
+      'pauseData no longer passes newElements, so the gate above reads undefined and the Codex is hidden from EVERY run, flag or not')
+    console.log('PASS run EL.g (codex gated): exactly one Codex entry, behind d.newElements, and pauseData supplies it')
+  }
+
+  // (h) AN ELEMENT UPGRADE SHOWS WHAT IT MOVES. The card carries the numbers it would replace, so
+  // the player can read the pick as a delta rather than as an absolute they have to remember. Two
+  // halves, both silent when broken: sim must attach `prev` (and must NOT on a first pick, where
+  // there is no old value and elScale(0) = 0 divides cold's threshold by zero), and the renderer
+  // must actually strike it — a `.lv-was` rule deleted from the stylesheet leaves the old figure
+  // sitting in the sentence looking like part of it, which is worse than not showing it at all.
+  {
+    const run = el({})
+    const fireCard = (r) => devCards(r).find((c) => c.kind === 'element' && c.id === 'fire')
+    const first = fireCard(run)
+    assert.ok(first?.descT, 'no element card came back from devCards under the flag')
+    assert.ok(!first.descT.prev, 'a FIRST element pick carries a `prev` — there is no old value to strike, ' +
+      'and elementFacts at potency 0 divides by zero for cold')
+    run.elements.fire = 2
+    run.elementPicks.fire = 1
+    const upgrade = fireCard(run)
+    assert.ok(upgrade.descT.prev, 'an element UPGRADE carries no `prev`, so the card cannot show what it replaces')
+    assert.notStrictEqual(upgrade.descT.p.pct, upgrade.descT.prev.pct,
+      `the burn share reads ${upgrade.descT.p.pct} both before and after the pick — the card would strike a ` +
+      `number through and print the same one beside it`)
+    // A param that does NOT move between potencies must still be there and still be equal, so the
+    // renderer leaves it plain instead of striking a number and printing the same one beside it.
+    // Lightning's arc COUNT is that param at this step (1 + floor(sqrt(P)) is 2 at both 2 and 3).
+    // This replaced an assertion on fire's `secs`, which went VACUOUS the moment the card stopped
+    // printing a duration: undefined === undefined passes and guards nothing.
+    const boltCard = (r) => devCards(r).find((c) => c.kind === 'element' && c.id === 'lightning')
+    run.elements.lightning = 2
+    run.elementPicks.lightning = 1
+    const bolt = boltCard(run)
+    assert.ok(bolt?.descT?.prev, 'no lightning upgrade card to read')
+    assert.strictEqual(bolt.descT.prev.arcs, bolt.descT.p.arcs,
+      `the arc count reads ${bolt.descT.prev.arcs} -> ${bolt.descT.p.arcs} across a step that adds no arc`)
+    // EVERY placeholder the template uses must have a value. tt() leaves an unmatched {key} in the
+    // string verbatim, so dropping a param while leaving it in the sentence prints literal braces
+    // to the player — which is exactly what shortening these cards risked.
+    for (const id of Object.keys(ELEMENTS)) {
+      const { s, p } = elementCardDesc(id, 3)
+      for (const m of s.matchAll(/\{(\w+)\}/g)) {
+        assert.ok(p[m[1]] !== undefined, `${id}'s card says {${m[1]}} but passes no such value — the player sees the braces`)
+      }
+    }
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/<s class="lv-was">/.test(uiSrc), 'the level-up card no longer strikes the replaced figure')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.ok(/^\.lv-was\b/m.test(css), '.lv-was has no rule in styles.css — the old figure renders as ordinary ' +
+      'text inside the sentence, reading as part of it')
+    console.log(`PASS run EL.h (upgrade delta): first pick has no prev, an upgrade reads ${upgrade.descT.prev.pct} -> ${upgrade.descT.p.pct}, and both halves of the strike are wired`)
+  }
+
+  // (i) THE PLAYER'S OWN FIGURES ARE NOT ANOTHER SENTENCE OF EXPLANATION. Each Codex page ends with
+  // one line about THIS run, and it is set apart so it does not read as more prose. Marked on the
+  // data (`mine`), never matched on the text — a renderer that spotted it by its French prefix
+  // would silently stop working in English, and vice versa.
+  {
+    const withP = Object.keys(ELEMENTS).map((id) => elementCodex(id, 2))
+    for (const page of withP) {
+      const marked = page.filter((l) => l.mine)
+      assert.strictEqual(marked.length, 1, `a Codex page has ${marked.length} lines marked as the player's own`)
+      assert.strictEqual(page[page.length - 1].mine, true, 'the player-figures line is not last on its page')
+    }
+    for (const id of Object.keys(ELEMENTS)) {
+      assert.ok(!elementCodex(id, 0).some((l) => l.mine),
+        `${id} marks a player-figures line at potency 0, where the player has none`)
+    }
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/codex-p--mine/.test(uiSrc), 'renderCodex no longer sets the class that sets those figures apart')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.ok(/^\.codex-p--mine\b/m.test(css), '.codex-p--mine has no rule — the line renders as ordinary body text')
+    console.log(`PASS run EL.i (codex own-figures line): 1 per page, always last, absent at potency 0, class and rule both present`)
+  }
+
+  // (j) THE FREEZE IS VISIBLE. render.js does not know run.newElements exists — it tints and holds
+  // the pose off the contract fields `frozen` and `chill`. The redesign kept its state in private
+  // `_el*` fields only, so a frozen enemy just stopped dead: no ice tint, no held animation, and
+  // the {type:'freeze'} event has no consumer anywhere. That is indistinguishable, while playing,
+  // from cold being broken — which is exactly how a missing tell gets reported as a missing
+  // mechanic. Asserted from BOTH ends: sim publishes, and render still reads.
+  {
+    const run = el({ cold: 4 })
+    let frozenFrames = 0, unpublished = 0, chilledFrames = 0
+    play(run, 60, (r) => {
+      for (const e of r.enemies) {
+        if (e._dead) continue
+        if ((e._elFrozen ?? 0) > 0) { frozenFrames++; if (!((e.frozen ?? 0) > 0)) unpublished++ }
+        else if ((e.chill ?? 0) > 0) chilledFrames++
+      }
+    })
+    assert.ok(frozenFrames > 0, 'nothing froze at cold potency 4 over 60s — this scenario cannot see the tell it guards')
+    assert.strictEqual(unpublished, 0, `${unpublished} of ${frozenFrames} frozen-enemy frames left render's own ` +
+      `\`frozen\` field at 0, so those enemies froze with no tint and no held pose`)
+    assert.ok(chilledFrames > 0, 'no enemy ever published a `chill` value, so the pre-freeze tint never appears')
+    const rnd = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/const frozen = e\.frozen/.test(rnd) && /const chill = e\.chill/.test(rnd),
+      'render.js no longer reads the frozen/chill contract fields — publishing them from sim is now a no-op')
+    console.log(`PASS run EL.j (freeze is visible): ${frozenFrames} frozen frames, all published to render's contract fields, ${chilledFrames} chilled`)
+  }
+
+  // (k) A BURN TICK IS READABLE, AND NEVER ZERO. At the shared STATUS_TICK a burn was 12 ticks of
+  // ~4% of the hit: "1" on a median hit, and 3.1% of all ticks rounded to 0 and dealt NOTHING —
+  // measured over a 300s run, and reported from play as "the fire numbers are wrong". Owner's
+  // call: half as many ticks, and a floor of EL_BURN_MIN so a small burn can never print 0.
+  // Measured on a pinned enemy parked out of every weapon's reach, so the only damage it takes is
+  // its own burn — in a real crowd a second weapon's hit is indistinguishable from a tick.
+  {
+    const run = el({ fire: 2 })
+    for (let i = 0; i < 240; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+    }
+    const e = run.enemies.find((x) => !x._dead)
+    assert.ok(e, 'no enemy to pin')
+    const far = () => { e.x = run.player.x + 4000; e.y = run.player.y + 4000; e.maxHP = 1e6; e.hp = 1e6 }
+    far()
+    e.igniteDps = 0.02          // a burn so small every tick would round to 0 without the floor
+    e.ignite = EL_WINDOW
+    e._igniteAcc = 0
+    const ticks = []
+    for (let i = 0; i < Math.round((EL_WINDOW + 1) * 60); i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      far()
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      // ONLY the pinned enemy's ticks: it is parked 4000px away, and every other enemy in the
+      // crowd is burning too — collecting all of them counted 9 ticks for a 6-tick burn.
+      for (const ev of run.events) if (ev.type === 'hit' && ev.dot && Math.abs(ev.x - e.x) < 1) ticks.push(ev.dmg)
+      run.events.length = 0
+    }
+    assert.strictEqual(ticks.length, Math.round(EL_WINDOW / EL_BURN_TICK),
+      `a burn produced ${ticks.length} ticks over ${EL_WINDOW}s, not ${EL_WINDOW / EL_BURN_TICK} — it is not ticking at EL_BURN_TICK`)
+    const zero = ticks.filter((d) => d < EL_BURN_MIN)
+    assert.strictEqual(zero.length, 0,
+      `${zero.length} of ${ticks.length} burn ticks came in under EL_BURN_MIN (${JSON.stringify(ticks)}) — ` +
+      `a tick that rounds to 0 deals nothing and reads as the element being broken`)
+    console.log(`PASS run EL.k (burn ticks): ${ticks.length} ticks over ${EL_WINDOW}s at ${EL_BURN_TICK}s each, none below ${EL_BURN_MIN} (${ticks.join(',')})`)
+  }
 }

@@ -215,7 +215,7 @@ const ui = initUI({
     if (!run || run.phase !== 'playing') return
     devList = devCards(run)
     run.phase = 'paused'
-    ui.showScreen('dev', { cards: devList })
+    ui.showScreen('dev', { cards: devList, newElements: run.newElements })
   },
   onDevTake(i) {
     if (!run || run.phase !== 'paused') return
@@ -224,12 +224,36 @@ const ui = initUI({
     // chooser is a level-up-screen flow, not something to rebuild here.
     devTake(run, devList[i])
     devList = devCards(run)
-    ui.showScreen('dev', { cards: devList })
+    ui.showScreen('dev', { cards: devList, newElements: run.newElements })
   },
   onDevClose() {
     if (!run || run.phase !== 'paused') return
     run.phase = 'playing'
     ui.showScreen('hud')
+  },
+  // Flips the elements-redesign flag (run.newElements — see the "Elements REDESIGN" block
+  // in config.js) so a card can be tested against the live URL without waiting for the redesign to
+  // ship for real. Per-run and never persisted (state.js), same as every other dev-only lever here.
+  // devCards' output depends on it (makeElementCard branches on run.newElements), so the list is
+  // rebuilt exactly like a take.
+  onDevToggleElements() {
+    if (!run || run.phase !== 'paused') return
+    run.newElements = !run.newElements
+    devList = devCards(run)
+    ui.showScreen('dev', { cards: devList, newElements: run.newElements })
+  },
+  // ---- element codex ---------------------------------------------------------------------------
+  // Explains the elements-redesign rule to a player, from the pause build sheet (P = this run's own
+  // run.elements) and ONLY while that run has the redesign switched on — see the gate in ui.js's
+  // pause render. ui.js never touches `run` itself, so it hands back `from` and main.js — the only
+  // module that knows whether a run exists — decides where Close lands, the same split as
+  // onPauseToggle's screen memory above.
+  onCodexOpen(from) {
+    ui.showScreen('codex', { elements: from === 'pause' && run ? run.elements : null, from })
+  },
+  onCodexClose(from) {
+    if (from === 'pause' && run) ui.showScreen('pause', pauseData())
+    else ui.showScreen('title')
   },
   onDifficulty(d) {
     // Belt-and-braces with the UI: never let a locked level (above the SELECTED chapter's
@@ -331,7 +355,7 @@ const ui = initUI({
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
 // over a level-up.
-const pauseData = () => ({ mutators: run.mutators, mode: runMode, build: buildReadout(run) })
+const pauseData = () => ({ mutators: run.mutators, mode: runMode, build: buildReadout(run), newElements: run.newElements })
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {

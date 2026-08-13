@@ -497,6 +497,14 @@ function generateWells(sig) {
  *                                            burst at (x,y), main.js plays a sfx
  *   { type:'dead' } / { type:'victory' }     run ended (phase already set)
  *
+ * _spawnQueue[i]: an enemy built DURING a step and held back until the next one begins (sim.js
+ *   flushSpawns, called at the top of stepSim). Only the `split` flag fills it today. It exists
+ *   because 63 loops in sim.js walk run.enemies with for...of while dealing damage, and for...of
+ *   re-reads the array's length every iteration — so anything appended mid-loop is visited by that
+ *   same loop. A splitter's children were therefore struck by the cast that killed their parent:
+ *   measured at 495 of 657 children over 3 seeded 300s Shelf runs, with 378 of 526 child deaths
+ *   landing in the birth frame. Anything else that ever spawns an enemy mid-step belongs here too.
+ *
  * enemies[i]: { id, type, x, y, hp, maxHP, radius, speed, dmg, elite, xp,
  *               hitFlash (s remaining), orbCd (s until orbit can hit again), kb: {x,y} knockback velocity,
  *               holePull: 0..1 vortex suction strength this frame (0 = unaffected, 1 = at a black
@@ -844,9 +852,10 @@ function generateWells(sig) {
  *        same bar — PULSE_CHARGE_COST is 45 of 100 — which is a live design question, not a
  *        settled one; see the branch's final-fix report;
  *     2. THE DARK — below resource.dark.from the LIGHT YOU EMIT closes in from resource.dark
- *        .lightFull to .lightEmpty (render.js updateDark cuts a hole of that radius in a scrim at
- *        .dim and feathers its rim), and the player slows toward resource.dark.speedFloor (sim.js
- *        stepPlayer). Both read the ONE curve darkness(charge, res) in config.js — lightRadius()
+ *        .coreFull to .coreEmpty, both MULTIPLES OF THE SCREEN'S HALF-DIAGONAL rather than px
+ *        (render.js updateDark subtracts a stamp of that radius from a per-frame lightmap it then
+ *        paints at .dim), and the player slows toward resource.dark.speedFloor (sim.js
+ *        stepPlayer). Both read the ONE curve darkness(charge, res) in config.js — lightCore()
  *        interpolates on it rather than on raw charge for exactly that reason — so the closing
  *        light and the slow start at the same instant and bottom out together, and the player can
  *        read their condition off the screen without consulting the rail. The first cut ramped the
@@ -1466,6 +1475,12 @@ export function createRun(meta, opts = {}) {
     weaponModPicks: Object.fromEntries(Object.keys(WEAPON_MODS).map((wid) =>
       [wid, Object.fromEntries(Object.keys(WEAPON_MODS[wid]).map((mid) => [mid, 0]))])),
     // elemental infusions (see ELEMENTS/COMBOS in config.js), offered always
+    // TEST GATE: the elements redesign runs only while this is true. Per-run and OFF by
+    // default — seven taps on the HUD coin badge opens the dev screen, whose first row toggles it.
+    // Deliberately not persisted: a flag that survives a reload is one you forget is on.
+    // ponytail: temporary. When the redesign is accepted or dropped, this field and the loser's
+    // code path both go — see the EL_* block in config.js.
+    newElements: false,
     elements: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     elementPicks: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     // v6.7.6 anomalies (see ANOMALIES in config.js and the doc block above): {id: true} for every
@@ -1490,7 +1505,8 @@ export function createRun(meta, opts = {}) {
     _realTime: 0,
     // MARTYR's pending detonations, queued by hurtPlayer and drained by stepMartyr in the same
     // frame. A queue rather than an inline blast because hurtPlayer runs INSIDE other functions'
-    // array walks (stepBombs' `for (const b of run.bombs)`) and dealDamage appends to run.enemies.
+    // array walks (stepBombs' `for (const b of run.bombs)`). The same reasoning is why a split's
+    // children go through _spawnQueue above rather than straight into run.enemies.
     _martyrBursts: [],
     // MINIMES' spawn countdown, and WILDFIRE's per-enemy jump budget lives on the enemy
     // (_fireJumps), re-armed by applyIgnite on every real weapon hit.
@@ -1506,6 +1522,8 @@ export function createRun(meta, opts = {}) {
     // It counts PURCHASES, never builds: see the note on the field in the doc block above.
     _screenRerolls: 0,
     enemies: [],
+    // Enemies born DURING a step, held back until the next one begins. See flushSpawns (sim.js).
+    _spawnQueue: [],
     bullets: [],
     novas: [],
     orbs: [],

@@ -132,6 +132,21 @@ One sprite per entity goes through `syncPool`. An entity needing independently-t
 
 `sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block in `state.js` (lines 438-1115)** — read it before adding entities or events; keep it in sync when you change the `run` shape.
 
+**A NEW MECHANIC IS INVISIBLE UNTIL IT REACHES A CONTRACT FIELD, and invisible is
+indistinguishable from broken.** render.js tints, holds poses and spawns status particles off
+NAMED fields it reads straight from the enemy — `frozen`, `chill`, `venom`, `ignite`, `fearT`,
+`stunT` (the "Elemental status (contract fields, guarded)" block). It never learns about your
+flag: the v7.5x elements redesign kept freeze in a private `_elFrozen`, and `grep -n "_elFrozen"
+src/render.js` returned nothing, so frozen enemies simply stopped dead — no ice tint, no held
+animation — and the `{type:'freeze'}` event sim pushed had no consumer in render.js *or*
+`SFX_FOR_EVENT`. On screen that is exactly what "cold does nothing" looks like, and it shipped to
+the live URL that way. So: **publish into the existing contract field rather than teaching
+render.js a new one** — sim owns those fields, render only reads them, and a one-line publish
+restores the whole tell. Before shipping any new status, grep render.js for the field you are
+actually setting. A missing tell is also worth a deliberate decision on SOUND: `SFX_FOR_EVENT`
+gets a new entry only if the event is rare enough to bear one (freezes fire dozens of times a
+minute, which is why SUBMISSION's expiry has no sound either).
+
 ### The chapter system (v5.0+)
 
 `CHAPTERS[id]` (config.js, ordered by `CHAPTER_ORDER`) defines each biome: its `weapons` pool (scopes the level-up weapon offers), `starter` weapon, enemy `roster` (mapped to base archetypes `normal`/`fast`/`tank` via `hpMul`/`speedMul`/behavior `flags`), `eliteFlags`, a `signature` mechanic (e.g. `currents`, `pheromones`, `predators`, `gravity`, `traffic`), `obstacles`, and a **render-only** `render` block (tints/bg, zero sim effect). Enemy behavior flags (`latch`, `split`, `dashBurst`, `diveBomb`, `pounce`, `missileVolley`, …) are chapter-agnostic strings that sim.js reads — the flag vocabulary is documented inline in `state.js`'s doc block and each flag's tuning block in config.js.
@@ -155,6 +170,12 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   (`node scripts/ship.mjs "…" --patch`): `--patch`/`--major` override the default minor bump,
   `--dry-run` prints the version and subject and touches nothing. Chores use `chore: …` and stay on
   your branch. Ship prints the exact `scripts/deploy-watch.sh "vX.Y.Z · <sha>"` to verify with.
+  **Ship amends HEAD with `git commit --amend -m`, which replaces the WHOLE message — any BODY on
+  that commit is destroyed.** So write the reasoning where it survives: on the commits below the
+  release, or push the branch first (the pre-amend commit stays reachable there) and ship after.
+  Also expect the retry path to fire for real: it merged `main` and renumbered twice in one
+  afternoon while another session was shipping, which is working as designed — check
+  `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
   Why it exists: an agent that picks a number when it STARTS work picks it hours before `main` is
   next read, and on 2026-08-09 `v6.7.6` and `v6.7.7` each shipped twice — a published duplicate is
   unfixable without rewriting history. ship closes that window to the seconds between fetch and
@@ -227,6 +248,13 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   in that file (v7.7 lost a comment fix this way and only caught it from `git status`). Either
   extract a throwaway tree (`git archive <ref> | tar -x -C <tmp>`) and mutate there, or re-read
   `git status --short` after every revert.
+  **Every mutation must be DISTINCT as well as applied.** A harness that skips on a missing anchor
+  still cannot see two entries whose `from`/`to` are the same edit under different labels — that is
+  a passing check that checks nothing, and it inflates the count you then quote as proof. v7.62
+  shipped a four-mutation table where two entries both just deleted the `flushSpawns(run)` line, one
+  of them captioned "the flush moves to the BOTTOM"; it was caught by re-reading the harness, not by
+  running it. Diff the entries, and prefer a mutation that expresses the pathology (move the call)
+  over one that merely removes the code.
 - **A new weapon STAT has to be registered twice, and fails silently otherwise.** Adding a key to a
   weapon's `levels[]` is not enough for it to appear on the pause build sheet: `buildReadout`
   (sim.js) only copies keys on its own hardcoded whitelist array, and `STAT_LABEL` (ui.js) supplies
@@ -247,11 +275,42 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   took a whole version to undo. A screenshot does not catch this on its own: the v6.8 capture was
   read for "does it look like a tornado" and passed. Ask the second question explicitly — *is this
   the same viewpoint as the sprites around it?* — because the answer is in the same image.
+  **The rule is about a FLOOR, and v7.70 established the exception that follows from that.** Owner:
+  "it's a top down game but those chapters are in the water so the jellyfish can be sideways." An
+  animal hanging in a water column has no floor to lie on, so a side elevation reads as a body at a
+  depth rather than as a prop lying down — the tornado failed the mirror-image test, being
+  ground-attached and drawn as though it were not. The Shelf's Moon Jelly is therefore the one
+  side-on creature in the game, deliberately; do not "fix" it back to plan view. **A side-on body
+  costs a matching `lean`, and getting that pair wrong fails silently:** the jelly puts its apex at
+  +x and streams everything to -x, which is bilaterally symmetric about the forward axis and so
+  earns `lean: 90` (it swims bell-first at you, tentacles behind, using the existing facing code).
+  Bell-UP with tentacles hanging down would instead have a distinct UP, i.e. `lean: 30`. Pick the
+  wrong one and nothing throws — the body just never turns while its trailing parts point in one
+  fixed screen direction. Run RA asserts both halves for the jelly.
 - **UI that depicts a game entity uses the game's art, not a lookalike.** render.js already draws every creature (`ROSTER_LOOKS`), every weapon and every prop; if a menu needs to show one, route the real thing out (the `src/cast/*.png` bake is the worked example) rather than reaching for an emoji or a stand-in shape. v6.7.1 shipped 🐜🐝🕷️ per chapter and the tardigrade came out as 🐻 — a bear — while `drawTardigrade` sat in render.js the whole time. Emoji only survive where the glyph *is* the thing (a coin, a lock).
 - **Say when something is a stand-in.** If you do ship a placeholder or an approximation, name it as one in the commit and the report. That 🐻 shipped under a code comment calling it "the cheapest honest answer", which read as a considered decision and cost a review round-trip to undo.
 - `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
+- **PLAYER-VISIBLE COPY THAT CONTAINS A NUMBER MUST BE A `tt()` TEMPLATE, and the French coverage
+  assert only sees config TABLES.** Two separate traps that landed together in v7.55, where the
+  whole elements redesign shipped to the live URL untranslatable and the suite was green:
+  - `t()` is keyed by the **exact English source string** (i18n.js — the English IS the key). A
+    sentence built with its numbers already in it therefore has a *different key every time the
+    value changes*, and no dictionary can ever hold enough of them: every element card and every
+    Codex page fell through to English in every language. `tt('…{pct}% over {secs}s…', {pct, secs})`
+    is the fix and predates the bug by a year — the key is the TEMPLATE, which is also what lets the
+    translation put the numbers where French wants them. Keep a plain-string composer next to it
+    (`elText`) for the consumers that need one (a card's own `desc`, the dev-menu filter, tests) so
+    the two can never drift. Placeholder parity is asserted across the whole dictionary in run XX;
+    a misspelt `{pct}` prints literal braces to the player and reads perfectly in review.
+  - run XX's coverage walk enumerates config **tables** (`WEAPONS`, `ELEMENTS`, `ANOMALIES`,
+    `WEAPON_MODS`, `ELITE_AFFIXES`, …) reading `name`/`desc`/`title`/`from`. **Copy that lives in a
+    function or a bare const is exempt from it by construction** — as `elementCardDesc`,
+    `elementCodex` and `ELEMENT_CODEX_INTRO` were. This is the THIRD time that exemption has
+    shipped untranslated strings (two City enemies in v6.3, every weapon mod in v6.6.26). When you
+    add player-visible strings anywhere, add them to that walk in the same commit and watch it go
+    red before you write the French.
 - **Editing `src/fr.js` by exact-string match fails on the NBSP.** French values carry U+00A0
   before `: ; ! ?` (`'Nouveau !'`, `'MONTÉE DE NIVEAU !'`, `'achat : 🪙 {n}'`), and it is
   indistinguishable from a space on screen — an anchor that includes one of those lines will not
@@ -377,6 +436,15 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   - **A scene that throws renders nothing, which looks exactly like "the effect is invisible".**
     Paint the caught exception into the page so the screenshot carries it, and read that before
     re-shooting anything.
+- **ANYTHING THAT READS THE VIEWPORT IS NOT VERIFIED UNTIL IT HAS BEEN SHOT AT TWO VIEWPORTS.**
+  `fx-probe.mjs` defaults to a 390x844 phone; pass `--w 1280 --h 800` for the second. The phone's
+  half-diagonal is 465px and the desktop's is 755px, so any quantity compared against the screen —
+  a radius, a cull margin, a vignette, an early-out — can be a different mechanic on each, and the
+  one you shot will look correct. v7.58 shipped a full-bar early-out for The Shelf's dark with a
+  config comment calling it a considered decision; it was measured on the phone alone, where it is
+  right, and on a desktop the same code left the corners vignetted at a full bar. It came back as a
+  bug report within the hour (v7.60 fixed it by stating the light in screen half-diagonals). Assert
+  the RATIO in the suite, never px: px passes at exactly one screen size, which is how it shipped.
 - Enemies that render as white silhouettes are `hitFlash`, not a bug — a pinned cast being struck
   every frame never stops flashing. Clear it, or you cannot judge an effect against the sprites it
   sits over. Same class of trap: a final `sync` handed the whole warm-up's `run.events` buries the

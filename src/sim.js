@@ -77,6 +77,10 @@ import {
   CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
   SHOCK_ARC_FRAC, SHOCK_RANGE, SHOCK_CD,
   VENOM_MAX_STACKS, VENOM_DURATION, VENOM_DOT_PER_STACK, VENOM_AMP_PER_STACK,
+  // Elements redesign, live only while run.newElements — see the EL_* block in config.js.
+  EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
+  EL_FREEZE_RESIST_T, EL_VENOM_MUL, EL_LIGHT_SHARE, EL_LIGHT_RANGE, EL_LIGHT_FORWARD,
+  EL_BUCKET_WEIGHT, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
@@ -205,6 +209,11 @@ export function stepSim(run, input, dt) {
   // keeps reading run.time — accelerating the whole world IS the card — but a record kept across
   // runs has to be in a unit that means the same thing in all of them.
   run._realTime = (run._realTime ?? 0) + dt
+  // Enemies born during the PREVIOUS step join the world here, at a point where nothing is
+  // mid-iteration over run.enemies. Flushed at the TOP rather than at the bottom on purpose: this
+  // function has eleven `if (stepX(...)) return` early exits, and a bottom flush would be skipped
+  // by every one of them. See spawnSplitChildren for what queues them and why.
+  flushSpawns(run)
   // v5.24: a scripted chapter (The Blank) has no timer victory at all — killing the script's last
   // boss IS the win (see stepBossScript), so the survival clock below never fires there.
   if (!CHAPTERS[run.chapter].scripted && run.time >= RUN_DURATION) {
@@ -1288,8 +1297,64 @@ function freshEnemyFields() {
     fearT: 0, fearCd: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
     _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
+    // Elements redesign (run.newElements only). Two rolling windows of PLAYER damage as a share of
+    // this enemy's own maxHP: cold clears its own on freeze, which is exactly why they are not
+    // shared. `_elFrozen` / `_elResist` are the freeze and its aftermath.
+    _elCold: newElWindow(), _elVenom: newElWindow(), _elFrozen: 0, _elResist: 0,
   }
 }
+
+// ---- Elements redesign: the rolling window --------------------------------------------------
+// `total` is the sum of everything added in the last EL_WINDOW seconds, each contribution expiring
+// on its own clock. A single decaying float cannot do this: exponential decay is proportional to
+// the running total, so one crit makes every small contribution beside it evaporate early while the
+// crit itself outlives its own window — and this game has crits and mixed weapon weights.
+function newElWindow() { return { total: 0, b: [0, 0, 0, 0, 0, 0], head: 0, acc: 0 } }
+
+// Null-safe on purpose: the suite hand-builds enemy fixtures that never went through
+// freshEnemyFields, and a status helper must not be the thing that throws on one.
+function elAdd(w, x) { if (!w) return; w.b[w.head] += x; w.total += x }
+
+// ADVANCE FIRST, then clear what is NOW the oldest bucket. Subtracting before advancing evicts the
+// bucket just written, which silently shortens the window to one bucket (0.5s instead of 3s) and
+// makes every threshold in the design unreachable by 6x. Run EL.a guards this.
+function elStep(w, dt) {
+  if (!w) return
+  w.acc += dt
+  const per = EL_WINDOW / EL_BUCKETS
+  while (w.acc >= per) {
+    w.acc -= per
+    w.head = (w.head + 1) % EL_BUCKETS
+    w.total -= w.b[w.head]
+    w.b[w.head] = 0
+  }
+  if (w.total < 0) w.total = 0        // float residue only
+}
+
+function elClear(w) { if (!w) return; w.b.fill(0); w.total = 0; w.acc = 0 }
+
+const elP = (run, id) => (run.elements?.[id] ?? 0)
+
+/** Cold's slow, 0..1. 1 IS frozen — there is no separate threshold. */
+function elSlow(run, e) {
+  if ((e._elFrozen ?? 0) > 0) return 1
+  const P = elP(run, 'cold')
+  if (P <= 0) return 0
+  return Math.min(1, (e._elCold?.total ?? 0) * EL_COLD_MUL * elScale(P) * alignmentMul(run))
+}
+
+/** Venom's damage-taken amp. Venom deals no damage of its own; this is the whole card. */
+function elVenomAmp(run, e) {
+  const P = elP(run, 'venom')
+  if (P <= 0) return 0
+  return (e._elVenom?.total ?? 0) * EL_VENOM_MUL * elScale(P) * alignmentMul(run)
+}
+
+// Only ANCHORED elites can never be frozen (owner ruling 2026-08-13). `unshakeable` tanks are
+// ordinary heavy enemies here — they resist by having more health, which is the entire point of
+// normalising by maxHP, and giving them a second exemption would re-create the special case the
+// redesign exists to delete.
+function elNeverFreezes(e) { return !!(e.affixes && e.affixes.includes('anchored')) }
 
 // opts: { type, x, y, forceNormal } — lets splitter deaths spawn wisps at a fixed position
 // (never elite, but still time-scaled like any other spawn). Called with no opts by the
@@ -1445,12 +1510,30 @@ function stepStragglers(run) {
 // fraction of the PARENT's own stats (not a fresh ENEMIES/hpScale spawn) per the v5.0 spec.
 // Children are flagged `_splitChild: true` so a further death never re-triggers this (see the
 // guard at the call site).
+// Move anything queued during the last step into the world. Tolerates an older save/probe that
+// built a run without the field, since createRun is not the only thing that ever makes one.
+function flushSpawns(run) {
+  const q = run._spawnQueue
+  if (!q || q.length === 0) return
+  for (const e of q) run.enemies.push(e)
+  q.length = 0
+}
+
 function spawnSplitChildren(run, parent, count) {
+  if (!run._spawnQueue) run._spawnQueue = []
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2
     const d = Math.random() * 20
     const hp = roundHP(parent.maxHP * SPLIT_HP_FRAC)
-    run.enemies.push({
+    // QUEUED, not pushed. 63 loops in this file walk `run.enemies` with for...of while dealing
+    // damage, and a for...of re-reads the array's length every step — so an enemy appended during
+    // one of them is visited by that very loop. The parent dies mid-sweep, its children are
+    // appended behind the cursor, and the SAME cast strikes them before they have existed for a
+    // frame. Measured over 3 seeded 300s Shelf runs with the whip alone: 495 of 657 children were
+    // struck by the swing that spawned them and 378 of 526 child deaths happened in their birth
+    // frame — the `split` flag inert 72% of the time, and on screen three damage numbers inside
+    // 20px in one instant, which is what got reported as the whip hitting one enemy several times.
+    run._spawnQueue.push({
       id: run._nextId++,
       type: parent.type,
       x: parent.x + Math.cos(a) * d,
@@ -1548,7 +1631,9 @@ function stepEnemyMovement(run, dt) {
     // speed while bloomSlowT is up — the same ceiling chill/freeze already have here; not worth a
     // second guard in every one of those machines for a debuff this soft.
     const bloomMul = (e.bloomSlowT || 0) > 0 ? (1 - BLOOM_SLOW) : 1
-    const slowMul = e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) * bloomMul
+    const slowMul = run.newElements
+      ? (1 - elSlow(run, e)) * bloomMul       // 1.0 slow IS the freeze; no separate branch
+      : (e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) * bloomMul)
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -1872,7 +1957,7 @@ function stepPounce(run, e, tx, ty, dt, slowMul, spdMul) {
           const rr = tr.r + e.radius
           if ((e.x - tr.x) ** 2 + (e.y - tr.y) ** 2 > rr * rr) continue
           springTrap(run, tr)
-          dealDamage(run, e, Math.max(SNAP_TRAP_DMG * 2, e.maxHP * POUNCE_TRAP_HP_FRAC), false)
+          dealDamage(run, e, Math.max(SNAP_TRAP_DMG * 2, e.maxHP * POUNCE_TRAP_HP_FRAC), false, false, true)
           break
         }
       }
@@ -3718,7 +3803,7 @@ function stepLanePasses(run, dt) {
       const roadkill = !e.elite && TRAFFIC_ROADKILL.includes(e.rosterId)
       const toEnemy = roadkill ? e.maxHP
         : lane.enemyFrac > 0 ? Math.max(1, e.maxHP * lane.enemyFrac) : lane.dmg
-      dealDamage(run, e, toEnemy, false)
+      dealDamage(run, e, toEnemy, false, false, true)   // hazard: never feeds the element window
       const kb = lane.kb ?? TRAFFIC_KB
       e.kb.x += cos * kb
       e.kb.y += sin * kb
@@ -3995,7 +4080,13 @@ function roundHP(v) { return Math.max(1, Math.round(v)) }
 // 'hit' event, and handle death/xp/coin drops. Used by applyDamage after it rolls the
 // player's multipliers/crit, and directly by effects (like star blasts) that derive
 // their damage from an already-rolled hit and shouldn't re-roll crit/multipliers.
-function dealDamage(run, enemy, dmg, crit, dot = false) {
+// `hazard` marks damage the PLAYER did not deal — chapter vehicles, the pounce trap. Under the
+// elements redesign it is excluded from the damage window: those sources deal a fixed fraction of
+// the target's OWN maxHP (traffic and the mower 0.5, roadkill 1.0, the trap 0.25), so the
+// denominator cancels and one car pass would hand every enemy in the chapter half a freeze meter,
+// elites included, for free. Measured before the flag existed: 23.7% of city's damage events remove
+// >=25% of an enemy's maxHP in a single step, against 6.3% in undergrowth.
+function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   // Untouchable windows (v5.4): an owl overhead / a ghosted flicker eats nothing at all — no
   // number, no flash, no status, no death. Checked before everything else, including DoT ticks.
   if (damageImmune(enemy)) return
@@ -4006,7 +4097,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
   }
   // Venom: amplifies ALL damage the enemy takes; Brittle (cold+venom) doubles the amp
   // while the enemy is chilled/frozen.
-  if (enemy.venom > 0) {
+  if (run.newElements) {
+    // Redesign: the amp is derived from the damage window, not from stacks, and there is no
+    // Brittle (combos are off under the flag).
+    const amp = elVenomAmp(run, enemy)
+    if (amp > 0) dmg *= (1 + amp)
+  } else if (enemy.venom > 0) {
     let amp = enemy.venom * VENOM_AMP_PER_STACK
     if (enemy.chill > 0 || enemy.frozen > 0) amp *= COMBOS.brittleAmpMul
     dmg *= (1 + amp)
@@ -4020,6 +4116,21 @@ function dealDamage(run, enemy, dmg, crit, dot = false) {
   dmg = Math.round(dmg)
 
   enemy.hp -= dmg
+  // Elements redesign: EVERY player damage source feeds the window — weapon hits, burn ticks, arc
+  // damage, allies. That is deliberate and load-bearing: feeding it only from applyDamage let a
+  // fire build kill enemies without filling any window, which stopped a fire+cold build freezing
+  // anything at all. The numerator is HP actually removed, after the shield affix, the venom amp
+  // and the rounding above.
+  if (run.newElements && !hazard && enemy.maxHP > 0) {
+    const frac = dmg / enemy.maxHP
+    elAdd(enemy._elVenom, frac)
+    // Cold accumulates at a reduced rate while the enemy is resisting, and not at all while it is
+    // already frozen. Reducing the INTAKE is what makes the resist window a delay rather than an
+    // impossibility — scaling the threshold instead means "cannot freeze at any rarity".
+    if ((enemy._elFrozen ?? 0) <= 0) {
+      elAdd(enemy._elCold, frac * ((enemy._elResist ?? 0) > 0 ? EL_FREEZE_RESIST : 1))
+    }
+  }
   // DoT ticks don't white-flash: with ignite/venom up they fire every STATUS_TICK and
   // the enemy would strobe white permanently
   if (!dot) enemy.hitFlash = 0.12
@@ -4328,8 +4439,63 @@ function applyShock(run, enemy, potency, dmgDealt) {
   }
 }
 
+// ---- Elements redesign: what a hit does -------------------------------------------------------
+// Only fire and lightning act ON THE HIT. Cold and venom are read from the damage window, which
+// dealDamage already filled — so they need no application step at all, and they respond to every
+// damage source rather than only to weapon hits.
+function applyElementsNew(run, enemy, dmgDealt) {
+  const am = alignmentMul(run)
+  const fire = elP(run, 'fire')
+  if (fire > 0) {
+    // The strongest burn wins. A chip hit landing after a crit must not downgrade the fire, and
+    // owner's call: heavy hits burn deep, fast weapons burn many things shallowly.
+    const dps = (EL_FIRE_SHARE * elScale(fire) * am * dmgDealt) / EL_WINDOW
+    if (dps > (enemy.igniteDps ?? 0)) { enemy.igniteDps = dps; enemy.ignite = EL_WINDOW }
+    enemy._fireJumps = WILDFIRE_JUMPS   // unconditional, exactly as the original path does
+  }
+  const light = elP(run, 'lightning')
+  if (light > 0) elArc(run, enemy, light * am, dmgDealt)
+}
+
+// Lightning: arcs to the nearest enemies for a share of the hit, and rolls to forward whatever the
+// source is suffering. Chill and venom are deliberately NOT forwarded — the arc's own damage lands
+// in each target's window against ITS maxHP, so they spread correctly and automatically. Copying
+// them instead would carry a magnitude computed against one health bar onto a different one.
+function elArc(run, source, P, dmgDealt) {
+  if (source._shockCd > 0) return
+  const k = elScale(P)
+  const arcs = 1 + Math.floor(k)
+  const range = SHOCK_RANGE * (1 + EL_LIGHT_RANGE * k)
+  const rangeSq = range * range
+  const near = []
+  for (const e of run.enemies) {
+    if (e === source || e._dead || isAlly(e)) continue
+    const dx = e.x - source.x, dy = e.y - source.y
+    const dSq = dx * dx + dy * dy
+    if (dSq <= rangeSq) near.push({ e, dSq })
+  }
+  if (near.length === 0) return
+  source._shockCd = SHOCK_CD
+  near.sort((a, b) => a.dSq - b.dSq)
+  const targets = near.slice(0, arcs).map((n) => n.e)
+
+  const arcDmg = Math.round(EL_LIGHT_SHARE * k * dmgDealt)
+  const fwd = Math.min(1, EL_LIGHT_FORWARD * k)
+  for (const t of targets) {
+    if (arcDmg > 0) dealDamage(run, t, arcDmg, false)
+    // Forward the DAMAGE-shaped afflictions only. Both are absolute dps, so they carry across
+    // without needing to be re-derived against the target's health.
+    if (Math.random() < fwd) {
+      if ((source.igniteDps ?? 0) > (t.igniteDps ?? 0)) { t.igniteDps = source.igniteDps; t.ignite = EL_WINDOW }
+      if ((source.bleedDps ?? 0) > (t.bleedDps ?? 0)) { t.bleedDps = source.bleedDps; t.bleed = source.bleed }
+    }
+  }
+  run.events.push({ type: 'shockarc', points: [[source.x, source.y], ...targets.map((t) => [t.x, t.y])] })
+}
+
 // Entry point called by applyDamage after every real weapon hit lands.
 function applyElements(run, enemy, dmgDealt) {
+  if (run.newElements) return applyElementsNew(run, enemy, dmgDealt)
   const pot = run.elements
   const preChill = enemy.chill > 0 || enemy.frozen > 0
   const preIgnite = enemy.ignite > 0
@@ -4357,6 +4523,59 @@ function stepStatuses(run, dt) {
 
     for (const k of Object.keys(e._comboCd)) e._comboCd[k] = Math.max(0, e._comboCd[k] - dt)
     if (e._shockCd > 0) e._shockCd = Math.max(0, e._shockCd - dt)
+
+    // Elements redesign: age both damage windows, run the freeze, and skip the old chill/venom
+    // bookkeeping entirely (venom deals no damage here, and chill is derived, not stored).
+    if (run.newElements) {
+      elStep(e._elCold, dt)
+      elStep(e._elVenom, dt)
+      if (e._elFrozen > 0) {
+        e._elFrozen = Math.max(0, e._elFrozen - dt)
+        if (e._elFrozen <= 0) e._elResist = EL_FREEZE_RESIST_T
+      } else {
+        if (e._elResist > 0) e._elResist = Math.max(0, e._elResist - dt)
+        // 100% slow IS frozen — there is no second threshold to cross.
+        if (!elNeverFreezes(e) && elSlow(run, e) >= 1) {
+          e._elFrozen = EL_FREEZE_T
+          elClear(e._elCold)          // consume it outright; a scalar "spent" marker ratchets
+          run.events.push({ type: 'freeze', x: e.x, y: e.y })
+        }
+      }
+      // PUBLISH TO THE CONTRACT FIELDS render.js already reads (`frozen`, `chill` — see the
+      // "Elemental status" block there). Without this the redesign is INVISIBLE: render.js has no
+      // idea run.newElements exists, so a frozen enemy simply stopped dead with no ice tint and no
+      // held pose, which reads as the freeze not working rather than as the freeze having no tell.
+      // Safe because every other reader of these two fields is either behind `run.newElements`
+      // (the movement slow) or on the old path this branch replaces (the Brittle combo amp,
+      // applyElements, and the decay below that this `continue` skips).
+      // `chill` carries the SLOW FRACTION here, not the old system's remaining seconds; render
+      // only tests it against 0, and a fraction is the thing a future tell would want to scale by.
+      e.frozen = e._elFrozen ?? 0
+      e.chill = e.frozen > 0 ? 0 : elSlow(run, e)
+      if (e.ignite > 0) {
+        // The burn has its own tick (EL_BURN_TICK, twice STATUS_TICK) and its own floor. At the
+        // shared 0.25s a burn was 12 ticks of ~4% of the hit — "1" on a median hit, and 3.1% of
+        // ticks rounded to nothing at all. Fewer, bigger ticks print the same total in numbers a
+        // player can read; the floor stops a small burn silently dealing zero.
+        e.ignite = Math.max(0, e.ignite - dt)
+        e._igniteAcc = (e._igniteAcc || 0) + dt
+        while (!e._dead && e._igniteAcc >= EL_BURN_TICK) {
+          e._igniteAcc -= EL_BURN_TICK
+          dealDamage(run, e, Math.max(EL_BURN_MIN, e.igniteDps * EL_BURN_TICK), false, true)
+        }
+        if (e.ignite <= 0) { e.igniteDps = 0; e._igniteAcc = 0 }
+      }
+      if (e.bleed > 0) {
+        e.bleed = Math.max(0, e.bleed - dt)
+        e._bleedAcc = (e._bleedAcc || 0) + dt
+        while (!e._dead && e._bleedAcc >= STATUS_TICK) {
+          e._bleedAcc -= STATUS_TICK
+          dealDamage(run, e, e.bleedDps * STATUS_TICK, false, true)
+        }
+        if (e.bleed <= 0) { e.bleedDps = 0; e._bleedAcc = 0 }
+      }
+      continue
+    }
 
     const acidBurn = e.ignite > 0 && e.venom > 0 // fire+venom: both DoTs tick faster together
     const tickMul = acidBurn ? COMBOS.acidBurnTickMul : 1
@@ -4670,6 +4889,11 @@ function turnDeadElites(run) {
     e.hp = roundHP(e.maxHP)
     e.allyT = SUBMISSION_DURATION
     e.hitFlash = 0            // it is not being struck, it is changing sides
+    // Elements redesign: an ally is skipped by stepStatuses, so nothing would ever age its damage
+    // windows or tick its freeze down. An elite killed quickly dies with a nearly-full cold window,
+    // which reads as 100% slow — the card's product is an ally that REACHES the swarm, so it would
+    // hand you a statue for the whole 20s loan. Clear the element state as it changes sides.
+    elClear(e._elCold); elClear(e._elVenom); e._elFrozen = 0; e._elResist = 0
     // STRIP THE FLAGS THAT ONLY EVER POINT AT THE PLAYER. One line and one config list instead of a
     // seven-row suppress-or-retarget table: every chapter's eliteFlags is in here, so without it a
     // turned elite keeps shelling you (skies), laying soap pools under you (pond), abducting you
@@ -7639,9 +7863,29 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
 // bonus. Rounding is display-only: the applied bonus stays exact so the badge can't shift balance.
 function makeElementCard(run, id, rarity) {
   const cfg = ELEMENTS[id]
+  const picks = run.elementPicks[id] ?? 0
+  if (run.newElements) {
+    // The redesign's ladder is a flat integer one and DECLINES `normal` — an element card is
+    // always rare or better, which is most of how total potency comes down. Returning null for a
+    // tier the card does not offer is the makePassiveCard idiom; rollCard re-rolls on this table.
+    const bonus = EL_VALUES[rarity]
+    if (bonus == null) return null
+    // The card states what the player will HAVE after taking it, not what the tier is worth.
+    // `descT` is the template + its numbers (config.js), which is what ui.js translates through
+    // tt(); `desc` is the same sentence composed in English, for every consumer that wants a plain
+    // string — the dev-menu filter, buildReadout, the tests.
+    const now = run.elements?.[id] ?? 0
+    const descT = elementCardDesc(id, now + bonus)
+    // `prev` is the SAME template's numbers at the potency the player has right now, so the card can
+    // strike the old figure through and show the new one beside it. Only on an upgrade: at potency 0
+    // there is no old value, and elScale(0) is 0, which makes cold's threshold divide by zero.
+    // Which numbers moved is left to the renderer — it compares per placeholder, so a figure the
+    // pick does not change (the 3s window, lightning's arc count on a small step) stays plain.
+    if (now > 0) descT.prev = elementCardDesc(id, now).p
+    return { kind: 'element', id, title: cfg.name, desc: elText(descT), descT, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
+  }
   const mult = RARITIES[rarity].mult
   const bonus = cfg.base * mult
-  const picks = run.elementPicks[id] ?? 0
   const desc = `+${Math.round(bonus * 10) / 10} potency — ${cfg.desc}`
   return { kind: 'element', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
 }
@@ -7894,7 +8138,12 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   // applied EXACTLY once — folding it in here AND keeping a per-id gate double-counts. The
   // multiplier itself was re-priced against this reader (config.js): the same x3 that saturated
   // against the old per-id filter measures 38.6% of all cards elemental against this one.
-  if (elementOpts.length > 0) buckets.element = BUCKET_WEIGHTS.element * (run.mods?.elementWeightMul ?? 1)
+  // Under the redesign an element card is a FIND, not routine: 18 -> 7.5. The freed weight is not
+  // redistributed by hand — pickWeighted normalises over whatever it is given, so the other buckets
+  // (defence and utility, the base attributes) absorb it in proportion for free.
+  if (elementOpts.length > 0) {
+    buckets.element = (run.newElements ? EL_BUCKET_WEIGHT : BUCKET_WEIGHTS.element) * (run.mods?.elementWeightMul ?? 1)
+  }
 
   if (Object.keys(buckets).length === 0) return null
 
@@ -8019,6 +8268,15 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   }
 
   const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]
+  if (run.newElements) {
+    // The element declines `normal`, which is 58.5% of rarity rolls — and the element branch is the
+    // one branch with no fallback, so without this the slot returns null and buildLevelUpChoices
+    // BREAKS out of the loop, truncating the screen. Re-roll on the card's own table, renormalised,
+    // exactly as the passive branch does for armor/regen.
+    return makeElementCard(run, eid, rarity)
+      ?? makeElementCard(run, eid, pickWeighted(
+        Object.fromEntries(Object.keys(EL_VALUES).map((r) => [r, rarityWeights[r] ?? 0]))))
+  }
   return makeElementCard(run, eid, rarity)
 }
 

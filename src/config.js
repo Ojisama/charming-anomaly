@@ -2986,6 +2986,146 @@ export const COMBOS = {
   comboCd: 0.5,
 }
 
+// ---- Elements REDESIGN (behind run.newElements) ------------------------------
+// Spec: docs/superpowers/specs/2026-08-13-elements-redesign-design.md.
+//
+// ponytail: this block and the ORIGINAL element constants above both ship, because the redesign is
+// gated on run.newElements (seven taps on the HUD coin badge -> "New elements") so it can be
+// playtested against the live URL without reaching players. REMOVE THE LOSER once the owner has
+// decided — two live element systems is scaffolding, not a design.
+//
+// The whole model in one line: every status is bought with damage relative to the enemy's OWN
+// health, so a hit that is huge to a drone is small to a tank with no special case anywhere.
+//
+//    recent = (HP the PLAYER removed from this enemy in the last EL_WINDOW seconds) / enemy.maxHP
+//
+// and each element reads that one number at CONSTANT x sqrt(P), where P is its accumulated potency.
+// sqrt because the first pick must be the biggest card you ever take (steepest slope at zero) while
+// no later pick is ever worth zero — and on the integer ladder below it is legible: P1 = x1,
+// P4 = x2, P9 = x3.
+export const EL_WINDOW = 3          // s of damage history every element reads
+export const EL_BUCKETS = 6         // ring-buffer resolution: 0.5s each. See stepElementWindows.
+export const EL_FIRE_SHARE = 0.35   // burn per hit, as a share of THAT hit's damage
+export const EL_COLD_MUL = 2        // slow per unit of `recent`; 1/(2*sqrt(P)) of a health bar freezes
+export const EL_FREEZE_T = 2        // s a freeze holds
+export const EL_FREEZE_RESIST = 0.25  // post-freeze, cold accumulates at this rate...
+export const EL_FREEZE_RESIST_T = 5   // ...for this long. Applied to INTAKE, never to the threshold:
+// scaling the threshold instead is arithmetically "cannot freeze at any rarity", which is the bug
+// an adversarial review caught in revision 2 of the spec.
+export const EL_VENOM_MUL = 0.6     // damage-taken amp per unit of `recent`. Venom deals NO damage.
+export const EL_LIGHT_SHARE = 0.30  // arc damage, as a share of the hit
+export const EL_LIGHT_RANGE = 0.15  // arc range bonus per sqrt(P)
+export const EL_LIGHT_FORWARD = 0.35 // chance per sqrt(P) to forward the source's ignite/bleed
+export const EL_BUCKET_WEIGHT = 7.5 // BUCKET_WEIGHTS.element under the flag (18 -> 7.5): elements
+// become a FIND rather than routine, and the freed weight goes to the base-attribute buckets.
+// The burn's own tick, twice the length of the shared STATUS_TICK. A burn is a share of ONE hit
+// spread over EL_WINDOW, so at 0.25s it landed 12 ticks of ~4% of the hit each: on a median hit
+// that is 1.06, printed as "1", and 3.1% of all ticks rounded to 0 and dealt NOTHING (measured
+// over a 300s run). Halving the tick count doubles each number without touching the total.
+export const EL_BURN_TICK = 0.5
+// ...and a tick never deals less than this. Owner's call: a burn that prints 0 reads as broken,
+// and rounding down was silently deleting a slice of every small burn. Note it is a floor on the
+// tick, so a very small hit now burns for slightly MORE than its share — deliberate, so that fire
+// is never a dead card on a weak weapon.
+export const EL_BURN_MIN = 1
+
+/** The redesign's potency ladder. No `normal` tier — an element card is always rare or better. */
+export const EL_VALUES = { rare: 1, epic: 2, legendary: 3, mythic: 4 }
+
+export const elScale = (P) => Math.sqrt(Math.max(0, P))
+
+/**
+ * Every player-facing number for one element at a given potency — ONE source, read by the level-up
+ * card AND by the Codex, so the two can never drift apart. Pure: no `run`, no config lookups beyond
+ * this file's own constants (the `hasWeaponAt` precedent for a config.js helper).
+ * Percentages are returned already rounded for display; the sim never reads these.
+ */
+export const elementFacts = (id, P) => {
+  const k = elScale(P)
+  switch (id) {
+    case 'fire':
+      return { burnPct: Math.round(EL_FIRE_SHARE * k * 100) }
+    case 'cold':
+      // The freeze lands once you have removed this share of an enemy's health inside the window.
+      return { mul: EL_COLD_MUL * k, freezePct: Math.round(100 / (EL_COLD_MUL * k)), freezeT: EL_FREEZE_T }
+    case 'venom':
+      // Quoted at half a health bar, which is the honest "typical", not the ceiling.
+      return { ampPct: Math.round(EL_VENOM_MUL * k * 0.5 * 100), maxAmpPct: Math.round(EL_VENOM_MUL * k * 100) }
+    case 'lightning':
+      return {
+        arcs: 1 + Math.floor(k),
+        dmgPct: Math.round(EL_LIGHT_SHARE * k * 100),
+        rangePct: Math.round((1 + EL_LIGHT_RANGE * k) * 100),
+        forwardPct: Math.round(Math.min(1, EL_LIGHT_FORWARD * k) * 100),
+      }
+    default:
+      return {}
+  }
+}
+
+// Player-visible element copy is a TEMPLATE plus its numbers, never a finished sentence — the
+// dictionary is keyed by the English source (see i18n.js), so a sentence with its numbers already
+// baked in has a different key every time the player levels up and can never be translated. The
+// first cut of this shipped composed strings and was untranslatable by construction: `t()` fell
+// through to English for every element card and every Codex page, in every language.
+// `s` is the key and `p` its parameters; ui.js renders with tt(), which lets the translation put
+// the numbers wherever French wants them. elText() composes the English for everything that needs
+// a plain string (the card's own `desc`, the dev-menu filter, the tests).
+export const elText = ({ s, p }) => s.replace(/\{(\w+)\}/g, (_, k) => p[k] ?? `{${k}}`)
+
+/** The level-up card's description under the flag: the effect in the element's own units. */
+export const elementCardDesc = (id, P) => {
+  const f = elementFacts(id, P)
+  switch (id) {
+    case 'fire':      return { s: 'Burns for {pct}% of each hit.', p: { pct: f.burnPct } }
+    case 'cold':      return { s: 'Freezes at {pct}% of a health bar.', p: { pct: f.freezePct } }
+    case 'venom':     return { s: 'The more you have just hurt an enemy, the more damage it takes: +{pct}% at half a bar.', p: { pct: f.ampPct } }
+    case 'lightning': return { s: '{arcs} arcs for {dmg}% damage.', p: { arcs: f.arcs, dmg: f.dmgPct } }
+    default:          return { s: '', p: {} }
+  }
+}
+
+/** Codex body for one element: the rule, then where the player currently stands. Same {s,p} shape. */
+export const elementCodex = (id, P) => {
+  const f = elementFacts(id, P)
+  const line = (s, p = {}) => ({ s, p })
+  // `mine` marks the one line that is about THIS run rather than about the rule. The Codex sets it
+  // apart visually (see .codex-p--mine) so it does not read as another sentence of explanation —
+  // a flag on the data, not a pattern match on the text, which would break the moment it is translated.
+  const mine = (s, p = {}) => ({ s, p, mine: true })
+  switch (id) {
+    case 'fire': return [
+      line('Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.'),
+      line('A new hit only replaces the burn if it would be stronger.'),
+      P > 0 ? mine('Yours: {pct}% of each hit, over {secs}s.', { pct: f.burnPct, secs: EL_WINDOW }) : null,
+    ].filter(Boolean)
+    case 'cold': return [
+      line('Damage chills. Chill fills with the health you have just taken off an enemy; a full gauge freezes it.'),
+      line('A freeze holds for {freeze}s. Afterwards the enemy resists cold for {resist}s.', { freeze: EL_FREEZE_T, resist: EL_FREEZE_RESIST_T }),
+      line('Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.'),
+      P > 0 ? mine('Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.', { pct: f.freezePct, secs: EL_WINDOW }) : null,
+    ].filter(Boolean)
+    case 'venom': return [
+      line('Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.'),
+      line('Venom deals no damage of its own. It makes everything else hurt more.'),
+      P > 0 ? mine('Yours: +{pct}% damage taken on an enemy you have just taken half a bar off.', { pct: f.ampPct }) : null,
+    ].filter(Boolean)
+    case 'lightning': return [
+      line('Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.'),
+      line('More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.'),
+      P > 0 ? mine('Yours: {arcs} arcs, {dmg}% damage, {range}% range, {spread}% to spread.', { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct }) : null,
+    ].filter(Boolean)
+    default: return []
+  }
+}
+
+/** The Codex's opening page — the one rule the whole system hangs off. */
+export const ELEMENT_CODEX_INTRO = [
+  'Elements read one number: how much of an enemy’s own health you have taken off in the last three seconds.',
+  'That is why a hit which devastates a drone barely troubles a tank — the same damage is a smaller share of a bigger health bar. Nothing is immune for being big; big things simply need more.',
+  'It is also why elements grow with your weapons. As your damage climbs, so does everything they do.',
+]
+
 // ---- Enemies -----------------------------------------------------------------
 export const ENEMIES = {
   drone: { hp: 20, speed: 90,  dmg: 8,  radius: 16, xp: 1, coinChance: 0.10 },
@@ -3998,12 +4138,28 @@ CHAPTERS.shelf = {
   //         damage doubles because you never leave. A slower refill is not a harder chapter.
   resource: {
     name: 'Light', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
-    // lightFull 820 vs lightEmpty 210: the falloff is clear inside ~45% of the radius, so a full bar
-    // leaves ~370px of untouched world around you — past the corner of a 390x844 phone (464px from
-    // centre) only as a faint shade, which is what "you are the lamp" should look like when the lamp
-    // is full. At an empty bar the clear disc is ~95px and everything is gone by 210: about one
-    // second of warning at a normal enemy approach speed, and you are at 0.6x on top of it.
-    dark: { from: 0.5, speedFloor: 0.6, dim: 0.86, lightFull: 820, lightEmpty: 210 },
+    // radiusFull 1 / radiusEmpty 0.1 are MULTIPLES OF THE SCREEN'S LONGEST SIDE, straight from the
+    // owner's spec: "base light radius at 100% bar filled is the biggest dimension of the screen,
+    // then it reduces down linearly to 10% that radius". On a 390x844 phone that is 844px -> 84px.
+    //
+    // It took three shipped attempts to get here and every one of them failed the same way, so the
+    // reason is worth keeping. All three gated the light on `from` (half a bar) and expressed it
+    // against the HALF-DIAGONAL, which is the radius at which a circle just covers the screen's
+    // corners. That radius is 2.38x the one that covers the nearest EDGE (465px vs 195px on a
+    // phone), so a light large enough to leave no dark corner is far larger than the screen in
+    // every other direction, and shrinking it through that band changes nothing anyone can see:
+    // measured mean luminance 85.5 at 50% of the bar, 85.3 at 40%, 84.6 at 35%. Reported three
+    // times — "only full dark or full light, with a threshold at somewhere around 41%", then "the
+    // light fix still doesn't work", then the spec above.
+    //
+    // Anchoring on the LONGEST SIDE and running linearly across the WHOLE bar fixes both halves of
+    // that: the rim is off-screen at a full bar (so the chapter opens clean on any aspect ratio) and
+    // it is inside the screen for most of the range, so every point of Light spent moves something.
+    // dim 1.0 (owner, 2026-08-13, "much darker when light = 0", picked off a 4-way shot): outside
+    // the light there is the tint and nothing else. CONSTANT — an attempt to ramp it was rejected in
+    // play ("I want the light radius to fade, not the whole screen") and had measured as a no-op
+    // besides. The radius is what the player reads; the far field is just what lies beyond it.
+    dark: { from: 0.5, speedFloor: 0.6, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
   // Book 2's SECOND chapter now (Task 9 gave The Surf the onboarding job this chapter used to
@@ -4034,11 +4190,17 @@ CHAPTERS.shelf = {
     tailTint: 0x8fe3ff,
     eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8],
 
-    // The colour of the dark (render.js updateDark). Deep ocean blue-black rather than pure black:
-    // black reads as a screen fade — a UI event — where a blue-black reads as depth, which is the
-    // thing Book 2 is descending into. The CURVE it is multiplied by lives with the mechanic, in
-    // resource.dark, because sim.js reads that same curve for the move-speed penalty.
-    darkTint: 0x02131f,
+    // The colour of the dark (render.js updateDark). Blue-black rather than pure black: black reads
+    // as a screen fade — a UI event — where a blue-black reads as depth, which is the thing Book 2
+    // is descending into. The CURVE it is multiplied by lives with the mechanic, in resource.dark,
+    // because sim.js reads that same curve for the move-speed penalty.
+    //
+    // Taken down from 0x02131f to here (owner, 2026-08-13). With `dim` now 1.0 this IS the far
+    // field's colour rather than a wash over the water, so the tint alone decides how black the
+    // chapter goes, and 0x02131f left it reading as murky water instead of no light at all. The
+    // blue is deliberately kept — it survives the drop (there is still 5x more blue than red in it)
+    // and it is the whole reason this is not a fade to black.
+    darkTint: 0x00060b,
 
     // SWELL (v7.x): the waves. Drawn sine crest lines running along world x and travelling +y —
     // see updateSwell in render.js for why this is a Graphics and not the pooled sprite field it
@@ -4976,19 +5138,30 @@ export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_
 // ---- THE DARK (v7.x Book 2, owner directive) --------------------------------------------------
 // The bar is no longer only the Pulse's ammo. Owner's words: "if we're stealing light, then our
 // surroundings should be dark, and darker the less light we have", plus a drawback while you are
-// down there. Both are driven off ONE curve, `darkness(charge, res)` below, because a player has to
-// be able to read their own condition off the screen without consulting the rail: it gets darker
-// and you get slower AT THE SAME RATE, so "the world dimmed" and "I am slow" are one fact.
+// down there. The SLOW rides `darkness(charge, res)` below, which is 0 until the bar falls under
+// `from` and then ramps — a penalty that only bites once you are genuinely low.
 //
-// The chapter declares `resource.dark = { from, speedFloor, dim, lightFull, lightEmpty }`:
-//   from       - charge FRACTION at and above which nothing happens at all. Above this the chapter
-//                plays exactly like a chapter with no dark at all.
-//   speedFloor - player move-speed multiplier at charge 0 (sim; see stepPlayer's slowMul MIN).
-//   dim        - alpha of the darkness OUTSIDE your light (RENDER ONLY, but it lives here and not
-//                in the `render` block on purpose: it must share `from` with the slow or the two
-//                cues drift apart and the dimming becomes decoration).
-//   lightFull  - radius in world px that you light at and above `from`.
-//   lightEmpty - ...and at an empty bar. See lightRadius() below.
+// THE LIGHT DOES NOT. Owner, 2026-08-13, after three attempts that all gated it on `from`: "I want
+// the light radius to fade, not the whole screen. Base light radius at 100% bar filled is the
+// biggest dimension of the screen, then it reduces down linearly to 10% that radius." So the radius
+// is a plain linear function of the RAW bar across its whole range, and it is the one thing the
+// player reads continuously — every point of Light spent is visible immediately, rather than the
+// top half of the bar doing nothing while the threshold waits.
+//
+// The two schedules are therefore deliberately different, which reverses an earlier ruling that
+// they must be one fact. That ruling is what produced three shipped versions in which the light was
+// unreadable for the top half of the bar; the slow keeps `from` because a penalty wants a
+// threshold, and the readout does not.
+//
+// The chapter declares `resource.dark = { from, speedFloor, dim, radiusFull, radiusEmpty }`:
+//   from        - charge FRACTION at and above which THE SLOW does nothing. It does NOT gate the
+//                 light: see radiusFull.
+//   speedFloor  - player move-speed multiplier at charge 0 (sim; see stepPlayer's slowMul MIN).
+//   dim         - alpha of the darkness OUTSIDE your light. A CONSTANT: the radius is the readout
+//                 and the far field is simply what lies beyond it. (RENDER ONLY, but it lives here
+//                 with the rest of the mechanic rather than in the `render` block.)
+//   radiusFull  - the light's radius AT A FULL BAR, as a multiple of the screen's LONGEST SIDE.
+//   radiusEmpty - ...and at an empty bar. Linear between the two, in raw charge.
 //
 // YOU ARE THE LAMP (owner, 2026-08-12, revising the first cut). The first version ramped the alpha
 // of a UNIFORM screen-wide sheet, which is the wrong picture twice over: "I thought the light
@@ -5001,10 +5174,12 @@ export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_
 // hip in equal measure, where a radius always leaves the metre around you at full strength and
 // takes the horizon, which is the trade a survivors-like can actually be played against.
 //
-// dim is therefore a CONSTANT here rather than a ramp: the radius is the whole readout, and the
-// far field is simply what lies outside it. One curve still drives everything, because the radius
-// interpolates on darkness() rather than on raw charge — so the light starts closing in at exactly
-// the instant the slow starts biting, and both bottom out together at an empty bar.
+// `dim` is a CONSTANT, and an attempt to ramp it was rejected in play: "I want the light radius to
+// fade, not the whole screen". Fading the far field's alpha is the flat sheet the paragraph above
+// rejects wearing a second coat — it dims the horizon and the enemy on your hip together, and it
+// measured as doing nothing anyway, because at a large radius there is almost no far field for an
+// alpha to act on (mean screen luminance at 30% of the bar came back LIGHTER: 84.3 against 82.5).
+// The radius is the whole readout. The far field is just what lies outside it.
 //
 // WHICH drawback is an owner ruling, taken 2026-08-12 against three alternatives. Move speed, not
 // damage and not accuracy, because weapons auto-fire: a slow player still kills at the same rate,
@@ -5022,15 +5197,27 @@ export const darkness = (charge, res) => {
   return (d.from - frac) / d.from   // 0 at the threshold, 1 at an empty bar
 }
 
-// How far you light the world, in WORLD px, measured to where the falloff reaches full `dim`.
-// Interpolates on darkness() and not on raw charge/max, which is what keeps the shrinking light and
-// the slow one fact rather than two: above `from` the radius is pinned at lightFull, and it starts
-// closing at the same instant the slow starts. Infinity (not 0) for a chapter with no dark block —
-// "this chapter lights everything" is the identity here, and a 0 would black the screen out.
-export const lightRadius = (charge, res) => {
+// How far the light reaches, in screen px, given `maxDim` — the screen's LONGEST SIDE. Linear in
+// the raw bar from radiusFull down to radiusEmpty, per the owner's spec (see THE DARK above).
+//
+// MEASURED AGAINST THE SCREEN, not in world px, and that part is a shipped bug rather than a
+// preference: a fixed world radius is compared against a screen that is 844px tall on a phone and
+// 1280px wide on a desktop, so one number meant "the light never reaches the edge" on one device
+// and "the light always covers everything" on the other. Every dark chapter wants the same FRACTION
+// of the screen lit, so the fraction is the thing to write down.
+//
+// The longest side, specifically, and not the half-diagonal: it is the dimension the player can
+// actually name ("about a screen"), and at radiusFull 1 it puts the rim comfortably off-screen at a
+// full bar on every aspect ratio, so the chapter opens clean everywhere.
+//
+// RAW charge, not darkness(): the light is a continuous readout of the bar and must move at 90% as
+// visibly as at 20%. Infinity (not 0) for a chapter with no dark block — "this chapter lights
+// everything" is the identity here, and a 0 would black the screen out.
+export const lightRadius = (charge, res, maxDim) => {
   const d = res?.dark
   if (!d) return Infinity
-  return d.lightFull - (d.lightFull - d.lightEmpty) * darkness(charge, res)
+  const frac = res.max > 0 ? Math.min(1, Math.max(0, charge / res.max)) : 1
+  return maxDim * (d.radiusEmpty + (d.radiusFull - d.radiusEmpty) * frac)
 }
 
 // Where a chapter's refill circles come from. run.shafts is the ONE list of "streamed circles you

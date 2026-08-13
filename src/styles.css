@@ -541,7 +541,7 @@ body {
 }
 
 /* ---- modals (level-up / pause / summary) ---- */
-.screen--pause, .screen--summary, .screen--dev {
+.screen--pause, .screen--summary, .screen--dev, .screen--codex {
   background: rgba(53, 53, 74, 0.45);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
@@ -646,6 +646,9 @@ body {
 .lv-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .lv-card-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.02rem; }
 .lv-card-desc { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
+/* The figure an element pick replaces (see elDescHtml). Quieter than the new one so the eye lands
+   on what you WILL have, with the old value there only as the reference point. */
+.lv-was { opacity: 0.55; text-decoration-thickness: 0.09em; }
 /* v6.7.6: an anomaly card's `from:` line — the fiction that says why THIS card showed up now
    (ANOMALIES in config.js). A wrapping block, deliberately not a .tag: tag is a nowrap pill sized
    for "Lv 3", and these are sentences. Only anomalies set c.from today, hence no tier selector. */
@@ -1814,6 +1817,38 @@ body {
   color: var(--ink-soft);
   background: var(--cream);
 }
+/* run.newElements toggle, pinned above the card list. Deliberately NOT a .lv-card or a
+   .btn — a flat coloured switch reads as chrome at a glance, where either of those would look like
+   the 191st card in the list below it. min-height 44px so it is unmissable on a phone; the ON/OFF
+   pill is the whole state, not colour alone, so it survives a screenshot in grayscale. */
+.dev-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  background: var(--cream-soft);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.92rem;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.dev-toggle-state {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #d8d3c8;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+.dev-toggle--on { border-color: var(--mint-dark); background: #e3f9f1; }
+.dev-toggle--on .dev-toggle-state { background: var(--mint); color: var(--ink); }
 /* v6.6.21: a flex item's default min-height is its CONTENT, so the anomalies box above refused to
    yield a pixel — at difficulty 5 it held 230px and starved .bd to 15px for 109px of rows. The
    build readout was in the DOM, correct, and invisible on any phone. Both regions shrink and
@@ -1847,6 +1882,38 @@ body {
 .bd-eff-i { width: 15px; text-align: center; flex: 0 0 auto; }
 .bd-eff-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bd-eff-t b { color: var(--mint-dark); font-weight: 800; }
+
+/* ---- element codex ------------------------------------------------------------------
+   A scrollable read: the intro rule, then one section per element. Bounded like .modal--pause and
+   .modal--dev (a 320px phone must never let this push its own Back button off-screen), and its
+   body is the one place in this modal that overrides the base .modal centering — paragraphs read
+   left-aligned, the title stays centred by inheriting nothing from here. */
+.modal--codex { max-height: 100%; }
+.codex-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  min-height: 0;    /* same flex-item trap as .dev-list/.bd above — without it this never scrolls */
+  text-align: left;
+}
+.codex-intro { display: flex; flex-direction: column; gap: 8px; }
+.codex-p { margin: 0; font-size: 0.85rem; line-height: 1.45; overflow-wrap: break-word; color: var(--ink-soft); }
+/* The line about THIS run, not about the rule (elementCodex marks it `mine`). Bold AND full-ink
+   against the softer explanation above it — the same body/emphasis split .lv-card-desc uses.
+   The soft colour on .codex-p is what makes this pair work: with both at var(--ink) the colour
+   here was a no-op and weight alone carried the whole distinction. */
+.codex-p--mine { font-weight: 800; color: var(--ink); }
+.codex-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--cream-soft);
+  border: 1.5px solid var(--cream-edge);
+}
+.codex-sec-title { margin: 0; font-size: 1rem; font-weight: 900; }
 
 /* ---- pre-run brief (v7.1): header row, two labelled sections, trade rows ---- */
 .brief { gap: 10px; padding: 16px 16px 14px; }
