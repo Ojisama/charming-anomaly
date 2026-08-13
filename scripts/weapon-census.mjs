@@ -213,7 +213,16 @@ const pad = (s, n) => String(s).padStart(n)
 
 console.log(`chapter ${CHAPTER}, difficulty ${DIFFICULTY}, ${SECS}s x ${SEEDS.length} seeds, one weapon equipped, all offers refused`)
 if (CHAPTERS[CHAPTER]?.resource) {
-  console.log(`resource: ${CHAPTERS[CHAPTER].resource.name} — this chapter's bar amplifies the Pulse, so the 'charge' column below is the state every other number was measured against`)
+  const res = CHAPTERS[CHAPTER].resource
+  // v7.55 §5.3: Humidity (The Surf) is the first resource to declare a `damage` block, so its raw
+  // and eff dps columns are not just "measured while the Pulse happened to be amplified" like every
+  // other resource chapter — they are SCALED BY CHARGE, every step, via resourceDamageMul. Say so
+  // explicitly, or a reader compares this table's dps against a non-resource chapter's and calls
+  // the difference a weapon problem when it is the bar.
+  const dmgNote = res.damage
+    ? `DRIVES YOUR DAMAGE (floor ${res.damage.floor} at empty, 1.0 at full — owner ruling, see config.js's resourceDamageMul) and amplifies`
+    : 'amplifies'
+  console.log(`resource: ${res.name} — this chapter's bar ${dmgNote} the Pulse, so the 'charge' column below is the state every other number${res.damage ? ' (raw dps and eff dps especially)' : ''} was measured against`)
 }
 if (Object.keys(MODS).length) console.log(`mods: ${JSON.stringify(MODS)}`)
 

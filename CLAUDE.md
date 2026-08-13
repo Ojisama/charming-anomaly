@@ -275,6 +275,18 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   took a whole version to undo. A screenshot does not catch this on its own: the v6.8 capture was
   read for "does it look like a tornado" and passed. Ask the second question explicitly — *is this
   the same viewpoint as the sprites around it?* — because the answer is in the same image.
+  **The rule is about a FLOOR, and v7.70 established the exception that follows from that.** Owner:
+  "it's a top down game but those chapters are in the water so the jellyfish can be sideways." An
+  animal hanging in a water column has no floor to lie on, so a side elevation reads as a body at a
+  depth rather than as a prop lying down — the tornado failed the mirror-image test, being
+  ground-attached and drawn as though it were not. The Shelf's Moon Jelly is therefore the one
+  side-on creature in the game, deliberately; do not "fix" it back to plan view. **A side-on body
+  costs a matching `lean`, and getting that pair wrong fails silently:** the jelly puts its apex at
+  +x and streams everything to -x, which is bilaterally symmetric about the forward axis and so
+  earns `lean: 90` (it swims bell-first at you, tentacles behind, using the existing facing code).
+  Bell-UP with tentacles hanging down would instead have a distinct UP, i.e. `lean: 30`. Pick the
+  wrong one and nothing throws — the body just never turns while its trailing parts point in one
+  fixed screen direction. Run RA asserts both halves for the jelly.
 - **UI that depicts a game entity uses the game's art, not a lookalike.** render.js already draws every creature (`ROSTER_LOOKS`), every weapon and every prop; if a menu needs to show one, route the real thing out (the `src/cast/*.png` bake is the worked example) rather than reaching for an emoji or a stand-in shape. v6.7.1 shipped 🐜🐝🕷️ per chapter and the tardigrade came out as 🐻 — a bear — while `drawTardigrade` sat in render.js the whole time. Emoji only survive where the glyph *is* the thing (a coin, a lock).
 - **Say when something is a stand-in.** If you do ship a placeholder or an approximation, name it as one in the commit and the report. That 🐻 shipped under a code comment calling it "the cheapest honest answer", which read as a considered decision and cost a review round-trip to undo.
 - `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.

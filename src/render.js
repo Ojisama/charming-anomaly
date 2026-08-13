@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_HOLD_FRAC, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -19,10 +19,14 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
 } from './config.js'
-import { currentForce } from './sim.js'
+import { currentForce, tideForce } from './sim.js'
 
 const DARK = 0x3b3345
 const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
+// v7.55: both Pincer claw states bake with their finger tips exactly this far from the drawing
+// origin, so placeGuard's `r / CLAW_BAKE_R` scale lands them on the guard's real catch radius — the
+// sprite states the weapon's reach instead of approximating it.
+const CLAW_BAKE_R = 20
 // The hydrant is drawn at this many px ACROSS-ish regardless of the zone's damage radius. It is an
 // object, not a zone: it must not grow when the weapon levels. See syncJets.
 const HYDRANT_PX = 36
@@ -212,25 +216,34 @@ function cellHash(i, j, salt) {
 export function createRenderer(app) {
   const R = app.renderer
 
-  // Active chapter palette + whether this chapter's signature is drift currents. Set once per
-  // reset(run); read by the floor populate* callbacks, syncPlayer, obstacle/enemy tinting and
+  // Active chapter palette + which MOVING-WATER field this chapter's signature is, if any. Set once
+  // per reset(run); read by the floor populate* callbacks, syncPlayer, obstacle/enemy tinting and
   // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
   let chapterRender = BODY_RENDER
-  let chapterHasCurrents = false
+  // 'currents' (the pond's drift field), 'tide' (The Surf's alternating surge) or null. A STRING
+  // rather than the boolean it started as, because both chapters draw the same pooled streak field
+  // off a different force function — see updateCurrents, which samples currentForce or tideForce on
+  // this. flowVis is the matching visual block (CURRENT_VIS / TIDE_VIS), latched here so the merge
+  // and the per-sprite tint happen once per run instead of once per streak per frame.
+  let flowKind = null
+  let flowVis = CURRENT_VIS
   // v6.4 pond signature: whether the active chapter's currents also stream eddies (run.eddies —
-  // CHAPTERS[id].signature.eddies). Same latch pattern as chapterHasCurrents; read by updateEddies.
+  // CHAPTERS[id].signature.eddies). Same latch pattern as flowKind; read by updateEddies.
   let chapterHasEddies = false
-  // v7.x Book 2: whether the active chapter streams sun shafts (CHAPTERS[].signature.type ===
-  // 'shafts' — currently The Shelf only). Same latch pattern as chapterHasEddies; read by
-  // updateShafts.
-  let chapterHasShafts = false
+  // v7.x Book 2: which REFILL CIRCLE look the active chapter draws into run.shafts — 'shaft' (The
+  // Shelf's sun shafts) or 'pool' (The Surf's tide pools), null for a chapter with no refill
+  // geometry at all. Driven by refillSpec() (config.js), the same function streamShafts uses to
+  // decide existence, so a chapter can never stream circles the renderer then refuses to draw:
+  // that is exactly what shipped when this was `signature.type === 'shafts'` and The Surf's pools
+  // — its entire refill mechanic — were invisible. Read by updateShafts.
+  let refillLook = null
   // v7.x Book 2: the active chapter's swell block (CHAPTERS[].render.swell) or null. A CONFIG
   // OBJECT rather than a boolean, unlike its neighbours here, because updateSwell reads six numbers
   // off it every frame and re-deriving them from run.chapter per crest per frame is the kind of
   // thing that quietly costs a chapter its frame budget.
   let swellCfg = null
   // Whether the active chapter wears the night-thunderstorm overlay (CHAPTERS[].render.storm —
-  // currently only `skies`). Same latch pattern as chapterHasCurrents; read by updateStorm.
+  // currently only `skies`). Same latch pattern as flowKind; read by updateStorm.
   let chapterHasStorm = false
   // v6.3: whether the active chapter draws SCREEN-space rain (CHAPTERS[].render.storm OR .rain —
   // currently skies [storm implies rain] and city [rain alone, no clouds]). updateRain reads this
@@ -239,12 +252,13 @@ export function createRenderer(app) {
   // v6.3: whether crush leaves a permanent ruin decal (CHAPTERS[].render.storm OR .ruins —
   // currently skies and city). Same `storm || X` idiom as chapterHasRain; read by updateRuins.
   let chapterHasRuins = false
-  // v5.11 kaiju redesign: whether the active chapter draws the dedicated kaiju body/tail rig
-  // (CHAPTERS[].render.kaiju — currently only `skies`) instead of the generic cross-chapter blob.
-  // Same latch pattern as chapterHasStorm; read by syncPlayer/updateRampage. Every other chapter
-  // (including pond/undergrowth, which also set `tail: true`) never sees this flag flip true, so
-  // their rig is byte-identical to before this pass.
-  let chapterHasKaiju = false
+  // v5.11 kaiju redesign, generalised (undertow): which chapter-specific player body the active
+  // chapter draws — CHAPTERS[].render.form, e.g. 'kaiju' for skies, 'worm' for surf — in place of
+  // the generic cross-chapter blob. null for a chapter that declares no form. Read by
+  // syncPlayer/updateRampage/lightPlatesForBreath; every site checks the SPECIFIC form it owns
+  // (playerForm === 'kaiju'), so a chapter with no form — or a future form neither of them draws —
+  // renders the generic blob exactly as before this pass.
+  let playerForm = null
   // v6.5 undergrowth: screen-space falling leaves (CHAPTERS[].render.leaves — currently only
   // `undergrowth`). Same latch pattern as chapterHasStorm; read by updateLeaves.
   let chapterHasLeaves = false
@@ -818,11 +832,15 @@ export function createRenderer(app) {
   // take it and the third goes pale and cold.
   //   copepod = MID WARM   (saturated amber, the loudest body in the water)
   //   krill   = PALE WARM  (translucent coral, lighter and two thirds the size)
-  //   jelly   = PALE COLD  (near-white bell, the biggest and the faintest)
-  // EYE COUNT is the backup read, and it is the one that survives the dark: this chapter dims its
-  // own world, and hue is the first thing a 0.86 scrim takes. The copepod has ONE median eye, the
-  // krill has TWO on stalks, the jelly has none at all — three silhouettes still tellable apart at
-  // the edge of your light, where they are all the same blue-grey.
+  //   jelly   = COLD LIGHT (dark bell, lit rim, the biggest and the only one that EMITS)
+  // The jelly's column was "near-white bell, the faintest" until it went side-on: a lantern is the
+  // opposite reading, and it is the better one for the same reason the rule was written. This
+  // chapter dims its OWN world, so the question is what survives the scrim — and a body that emits
+  // survives it completely, while the palest reflector is the first thing it takes.
+  // EYE COUNT is the backup read, and it needs no light at all: the copepod has ONE median eye, the
+  // krill has TWO on stalks, the jelly has none — three silhouettes still tellable apart at the edge
+  // of your lamp. The jelly now also has the only non-plan-view silhouette in the chapter (see
+  // drawJelly for why a water column earns that), which is a third, shape-only read on top.
   //
   // Every flag is inherited unchanged from the pond roster (split / dashBurst / phase+unshakeable):
   // this is an art change, and the spawn economy the refill sweep was tuned against is untouched.
@@ -984,70 +1002,354 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 1.05, r)
   }
 
-  // moon jelly: the one plan-view animal in nature — from directly overhead a moon jelly IS its
-  // icon, a translucent disc with four horseshoe gonads in a clover and a fringe of hair-fine
-  // marginal tentacles. Radially symmetric, so ROSTER_LOOKS gives it lean 0: it has no front to
-  // turn, and faking one would be the only wrong thing you could do to this drawing.
+  // MOON JELLY, side elevation. Owner: "I want some design with tentacles. It's a top down game but
+  // those chapters are in the water so the jellyfish can be sideways." That is an exception to the
+  // plan-view rule in CLAUDE.md rather than a breach of it: the rule exists because the camera looks
+  // at a FLOOR, and an animal hanging in a water column has no floor to lie on. (The v6.8 tornado
+  // failed the mirror-image test — a ground-attached thing drawn as though it were not.)
   //
-  // It carries the tardigrade's `phase` (see PHASE_* in config.js) and is a far better home for it:
-  // the flag ghosts a body through obstacles and out of damage for 1.0s in every 2.6s, and a jelly
-  // is ALREADY the translucent thing you cannot get hold of. The low fill alpha here is the same
-  // fact drawn — solid enough to read against dark water, thin enough that the ghost frames are a
-  // difference of degree rather than a costume change.
+  // ORIENTATION IS LOAD-BEARING. The apex points +x, the axis ROSTER_LOOKS aims at the player, and
+  // the mouth and every tentacle trail to -x — so the body is bilaterally symmetric about the
+  // forward axis, and lean 90 is legal by the same argument as the tadpole's. It therefore swims
+  // bell-first at you with its tentacles streaming behind, which is how a jelly actually moves, and
+  // it costs no new facing code: just a nose the existing machinery can already aim. Bell-UP with
+  // tentacles hanging down would instead be a distinct UP, i.e. lean 30, and would drift sideways.
+  //
+  // The bake anchors on the drawing ORIGIN (see bake()), so the trailing tentacles hang off the back
+  // without dragging the sprite off its hit circle. The bell stays centred on the origin for that
+  // reason — r = 26 is the hitbox, and the tentacles are overhang exactly like the tadpole's tail.
+  //
+  // It is a LANTERN: dark body, lit rim, a bead of light at every tentacle tip. This chapter dims
+  // its own world (The Shelf's Light bar), and a creature that EMITS rather than reflects is the one
+  // still readable at the edge of your lamp. That inverts the role it used to play in the cast, so
+  // the art-direction block above is written to match rather than left to contradict it.
+  //
+  // It carries the tardigrade's `phase` (PHASE_* in config.js), ghosting through obstacles and out
+  // of damage for 1.0s in every 2.6s, and a jelly is already the translucent thing you cannot get
+  // hold of. The low fill alpha is that fact drawn: solid enough to read against dark water, thin
+  // enough that the ghost frames are a difference of degree rather than a costume change.
   function drawJelly(g, elite, white) {
     const r = 26
-    const f = (c) => white ? 0xffffff : c
-    const line = f(0x6fb6d2)
-    // A near-circle. The first cut lobed the margin 6% on an 8-fold cosine and hung a stiff fringe
-    // off it, and the two together read as a SNOWFLAKE — regular radial spikes on a scalloped disc
-    // is the shape of a virus capsid or a sea urchin, not of anything soft.
-    const bell = (a) => r * (0.97 + 0.025 * Math.cos(a * 8))
-    groundShadow(r * 0.95, r * 0.85)
-    // MARGINAL TENTACLES: a moon jelly's are hair-fine and there are hundreds, so this is FUZZ and
-    // not a comb — thin, short, faint, and dense enough that no single one is countable. Under the
-    // bell so the roots are hidden. The irregular length is what stops the eye locking onto a
-    // period; at 96 hairs the gaps stop being spikes and start being an edge.
-    for (let i = 0; i < 96; i++) {
-      const a = (i / 96) * Math.PI * 2
-      const rad = bell(a)
-      const lenT = r * (0.07 + 0.075 * ((i * 5) % 4) / 3)
-      taperStroke(g, [[Math.cos(a) * rad * 0.94, Math.sin(a) * rad * 0.94],
-        [Math.cos(a) * (rad + lenT), Math.sin(a) * (rad + lenT)]], Math.max(0.8, r * 0.028), 0.5,
-      white ? 0xffffff : 0x9ad4ea, 1)
+    const xf = r * 0.78     // apex, forward
+    const xa = -r * 0.36    // mouth plane, aft
+    const hw = r * 0.90     // half-width at the margin
+    const N = 30
+    const FILL = 0x123a52
+    const LINE = 0x7fe7ff
+    const TENT = 0x6fd8f5
+    const TIP = 0xeaffff
+    const ARM = 0xffc4ee
+    const CANAL = 0x8fe4ff
+    const GONAD = 0xffb0e4
+    groundShadow(r * 0.78, r * 0.72)
+    // Bell profile: half-width 0 at the apex (t=0) to hw at the margin (t=1). (2t - t^2)^0.5 is
+    // exactly a half-ellipse, i.e. a DOME — round at the apex, falling away at the sides. The first
+    // cut used sin((pi/2) * t^0.6), which comes to a point and reads as a leaf.
+    const prof = (t) => hw * Math.pow(Math.max(0, 2 * t - t * t), 0.46)
+    // The mouth is barely concave, and it is STROKED SEPARATELY from the dome. The first cut bulged
+    // it 0.24r forward and stroked it at the dome's full weight as one closed outline, which drew a
+    // hard bright arc across the middle of the body: the bell then read as a clam, split into a lens
+    // and a crescent. Only the dome gets the heavy line.
+    const mouthX = (s) => xa + r * 0.24 * (1 - (2 * s - 1) ** 2)
+    const dome = []
+    for (let i = N; i >= 0; i--) { const t = i / N; dome.push(xf + (xa - xf) * t, -prof(t)) }
+    for (let i = 0; i <= N; i++) { const t = i / N; dome.push(xf + (xa - xf) * t, prof(t)) }
+    const mouth = []
+    for (let i = 1; i < 14; i++) { const s = 1 - i / 14; mouth.push(mouthX(s), -hw + 2 * hw * s) }
+    const outline = [...dome, ...mouth]
+
+    // TENTACLES first, so the translucent bell sits over their roots and they emerge from under it.
+    // FORESHORTENING IS WHAT MAKES THE RIM READ AS A CIRCLE. The margin is a ring seen edge-on, so
+    // the tentacles near y=0 are the ones on its near and far side, pointing away from the camera —
+    // they project SHORT. Giving them all one length drew a flat parallel curtain, i.e. a broom.
+    // Length scales with |y0|/hw, and the short middle ones are drawn first so the long rim ones
+    // pass in front of them.
+    const hash = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x) }
+    const tent = []
+    for (let i = 0; i < 16; i++) {
+      const s = (i + 0.5) / 16
+      const y0 = -hw + 2 * hw * s
+      tent.push({ y0, s, fore: Math.abs(y0) / hw })
+    }
+    tent.sort((a, b) => a.fore - b.fore)
+    for (let i = 0; i < tent.length; i++) {
+      const { y0, s, fore } = tent[i]
+      const x0 = mouthX(s) * 0.5 + xa * 0.5
+      const L = r * 1.9 * (0.28 + 0.72 * fore) * (0.7 + 0.3 * hash(i))
+      const ph = hash(i + 7) * Math.PI * 2
+      const pts = []
+      for (let k = 0; k <= 9; k++) {
+        const t = k / 9
+        pts.push([x0 - L * t, y0 * (1 - 0.06 * t) + Math.sin(ph + t * 7) * r * 0.10 * t * fore])
+      }
+      taperStroke(g, pts, r * 0.032, r * 0.008, white ? 0xffffff : TENT, 2)
+      if (!white) g.circle(pts[9][0], pts[9][1], r * 0.045).fill({ color: TIP, alpha: 0.9 })
+    }
+    // Four oral arms, of which three read in profile: broad ruffled ribbons off the mouth. They have
+    // to stay visibly WIDER than the tentacles or they are simply three more tentacles.
+    for (let i = 0; i < 3; i++) {
+      const y0 = (i - 1) * hw * 0.36
+      const spine = (t) => [xa - r * 1.15 * t, y0 * (1 + 0.3 * t) + Math.sin(t * Math.PI * 2.2 + i * 2.1) * r * 0.11 * t]
+      g.poly(spineOutline(spine, (t) => r * (0.012 + 0.11 * (1 - t * 0.8)), 18))
+        .fill({ color: white ? 0xffffff : ARM, alpha: white ? 1 : 0.5 })
     }
     if (white) {
-      g.poly(radialOutline(bell, 72)).fill(0xffffff).stroke({ width: Math.max(2.4, r * 0.1), color: 0xffffff })
-    } else {
-      g.poly(radialOutline(bell, 72)).fill({ color: 0xdff4ff, alpha: 0.58 }).stroke({ width: Math.max(2, r * 0.075), color: line, alpha: 0.85 })
-      g.circle(0, 0, r * 0.82).stroke({ width: 1.1, color: 0x8fd0e6, alpha: 0.4 }) // ring canal
-      // THE CLOVER — four horseshoe gonads, and the whole species read. Each is a C with its gap
-      // facing OUT, and the four sit far enough apart (centres at 0.44r, arcs of 0.2r) that the
-      // water shows between them. The first cut had them at 0.36r with a fatter stroke: they closed
-      // ranks into one continuous four-armed swirl, which reads as a PINWHEEL, and a pinwheel is a
-      // thing with rotational motion — the exact wrong idea for an animal that just drifts.
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2 + Math.PI / 4
-        const cx = Math.cos(a) * r * 0.44
-        const cy = Math.sin(a) * r * 0.44
-        const pts = []
-        for (let k = 0; k <= 18; k++) {
-          const b = a + Math.PI + (-1.05 + (k / 18) * 2.1)
-          pts.push([cx + Math.cos(b) * r * 0.2, cy + Math.sin(b) * r * 0.2])
-        }
-        taperStroke(g, pts, r * 0.085, r * 0.085, 0xc79ae4, 1)
-      }
-      // Four SHORT oral arms hanging straight down from the mouth, on the axes BETWEEN the gonads.
-      // Straight, not hooked: the first cut curled each one 0.5rad off its own axis, which handed
-      // the gonads a matching set of swirl arms and doubled down on the pinwheel. The 45deg offset
-      // is the second half of that fix — arms sharing the gonads' axes pointed straight into each
-      // horseshoe's gap and the eight together closed up into one asterisk.
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2
-        taperStroke(g, [[0, 0], [Math.cos(a) * r * 0.17, Math.sin(a) * r * 0.17]], r * 0.09, r * 0.035, 0xefe2ff, 3)
-      }
-      g.circle(0, 0, r * 0.08).fill({ color: 0xe4d6f7, alpha: 0.8 }) // manubrium
+      g.poly(outline).fill(0xffffff).stroke({ width: Math.max(2.4, r * 0.1), color: 0xffffff })
+      if (elite) eliteCrown(-r * 1.02, r)
+      return
     }
-    if (elite) eliteCrown(-r * 1.12, r)
+    for (let k = 0; k < 3; k++) {
+      g.poly(dome, false).stroke({ width: r * (0.10 + 0.07 * k), color: LINE, alpha: 0.08 })
+    }
+    g.poly(outline).fill({ color: FILL, alpha: 0.55 })
+    g.poly(mouth, false).stroke({ width: Math.max(1, r * 0.03), color: LINE, alpha: 0.35 })
+    g.poly(dome, false).stroke({ width: Math.max(1.6, r * 0.055), color: LINE, alpha: 0.85 })
+    // Two of the four radial canals run the bell's length edge-on, with a gonad horseshoe on each —
+    // the plan view's clover, turned 90deg. The horseshoes are arcs of their OWN circle rather than
+    // chords of the bell profile, which is what stopped them reading as two isolated dashes.
+    for (const sgn of [-1, 1]) {
+      const canal = []
+      for (let i = 3; i <= N - 3; i++) { const t = i / N; canal.push([xf + (xa - xf) * t, sgn * prof(t) * 0.60]) }
+      taperStroke(g, canal, r * 0.028, r * 0.028, CANAL, 1)
+      const gx = xf + (xa - xf) * 0.46
+      const gy = sgn * hw * 0.40
+      const arc = []
+      for (let i = 0; i <= 16; i++) {
+        const b = Math.PI * 0.18 + (i / 16) * Math.PI * 1.28
+        arc.push([gx + Math.cos(b) * r * 0.21, gy + sgn * Math.sin(b) * r * 0.17])
+      }
+      taperStroke(g, arc, r * 0.095, r * 0.095, GONAD, 2)
+    }
+    if (elite) eliteCrown(-r * 1.02, r)
+  }
+
+  // --- Surf chapter (Book 2 ch 1, pale sand) ---
+  // Beach sand is pale and warm, so this cast is the opposite problem from the Shelf's plankton
+  // above: nothing here can be a pale warm body without vanishing into the floor. Two go one hue
+  // further than the sand can follow, the third goes the other direction entirely:
+  //   shorecrab  = DEEP RED-ORANGE  (the loudest, darkest body on the beach — a real shore crab's
+  //                own colouring, and the one hue sand never reaches)
+  //   sandhopper = MID GREY-BROWN   (close to the sand's hue but a full step down in VALUE, so it
+  //                reads as a shadow moving across the beach rather than more sand)
+  //   gull       = NEAR-WHITE COLD  (the one creature the warm floor cannot touch at all — it wins
+  //                by contrast, not by finding a colour nothing else owns)
+  // BACKUP READ — what each keeps once colour and detail have both dissolved to a dot at range:
+  // the crab's two raised claws, the hopper's long trailing jump-legs, the gull's notched wingtips.
+
+  // sandhopper (Talitrus saltator, "beach flea"): a small amphipod, plan view. A gently arched,
+  // segmented body with short antennae up front and short walking legs down both flanks — ordinary
+  // crustacean furniture, all of it deliberately understated. The one limb drawn LOUD is the pair of
+  // long, thick uropods kicked out behind the tail: the actual jumping legs, and the reason this
+  // animal is called a hopper at all. Everything else here can blur into the sand; those cannot.
+  function drawSandhopper(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x3c3220)
+    const noseX = r * 0.8
+    const len = r * 1.7             // nose +0.8r -> tail -0.9r
+    const H = r * 0.34
+    // a shallow dorsal arch, deepest at the third segment and tapering hard toward the tail
+    const spine = (t) => [noseX - t * len, -Math.sin(t * Math.PI) * r * 0.06]
+    const body = (t) => H * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.32 ? 0.3 : 0.65)
+    groundShadow(r * 1.0, H + r * 0.24)
+    // short paired antennae, held forward and low
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[noseX - r * 0.02, s * H * 0.36], [noseX + r * 0.36, s * r * 0.3]],
+        Math.max(1.2, r * 0.08), 0.6, line, 3)
+    }
+    // seven short pereopod pairs down the flanks — busy and stubby, nothing here competes with the tail
+    for (let i = 0; i < 7; i++) {
+      const t = 0.14 + i * 0.1
+      const [x] = spine(t)
+      const w = body(t)
+      for (const s of [-1, 1]) {
+        taperStroke(g, [[x, s * w * 0.55], [x - r * 0.04, s * (w + r * 0.14)]], Math.max(1, r * 0.05), 0.5, line, 2)
+      }
+    }
+    // THE TELL: a pair of long, thick uropods kicked back off the tail, drawn heavier and longer
+    // than every other limb on the body so they read as the one weapon even at 12px
+    const [tx, ty] = spine(1)
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[tx, ty + s * H * 0.16], [tx - r * 0.5, ty + s * r * 0.36], [tx - r * 0.92, ty + s * r * 0.56]],
+        Math.max(1.7, r * 0.12), 0.75, line, 4)
+    }
+    g.poly(spineOutline(spine, body, 30)).fill(f(0x8a7a5e)).stroke({ width: Math.max(2, r * 0.13), color: line })
+    if (!white) {
+      g.ellipse(noseX - r * 0.34, -H * 0.32, r * 0.42, H * 0.3).fill({ color: 0xb8a578, alpha: 0.4 }) // dorsal sheen
+      g.beginPath()
+      for (const t of [0.3, 0.5, 0.7, 0.86]) { // segment creases
+        const [x, y] = spine(t)
+        const w = body(t)
+        g.moveTo(x, y - w * 0.85).lineTo(x, y + w * 0.85)
+      }
+      g.stroke({ width: 1.1, color: 0x5c4c30, alpha: 0.6 })
+      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.08, s * H * 0.44, r * 0.075, r * 0.07, 0x1c150c, s > 0)
+    }
+    if (elite) eliteCrown(-r * 0.95, r)
+  }
+
+  // shore crab: plan view, and the one animal on this roster whose real gait is SIDEWAYS rather
+  // than nose-forward — which is exactly why ROSTER_LOOKS gives it lean 0 instead of turning to
+  // square up at the player the way everything else here does. A carapace WIDER than it is long
+  // (the trait that separates it from every other rounded tank in this game), eight walking legs
+  // fanned to the flanks, and two big claws held forward, raised clear of the shell and closing to
+  // a point — the backup read that survives once the deep red-orange has gone to grey.
+  function drawShorecrab(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x4a1206)
+    const claw = f(0xc1391b)
+    groundShadow(r * 1.05, r * 0.85)
+    // eight walking legs, four pairs fanned down the flanks, jointed and splayed, shorter toward
+    // the rear the way a real crab's are
+    const legSets = [
+      [[0.52, 0.18], [0.92, 0.62], [1.1, 0.98]],
+      [[0.3, 0.2], [0.5, 0.78], [0.42, 1.14]],
+      [[0.06, 0.2], [-0.22, 0.8], [-0.5, 1.12]],
+      [[-0.2, 0.18], [-0.62, 0.7], [-0.94, 0.92]],
+    ]
+    for (const s of [-1, 1]) {
+      for (const set of legSets) {
+        const p = set.map(([lx, ly]) => [lx * r * 0.62, s * ly * r * 0.62])
+        taperStroke(g, [[p[0][0], p[0][1] * 0.5], ...p], r * 0.15, r * 0.04, line, 3)
+      }
+    }
+    // THE TELL: two big claws held forward, well clear of the carapace, each closing to an open
+    // pincer point
+    for (const s of [-1, 1]) {
+      const shoulder = [r * 0.5, s * r * 0.34]
+      const elbow = [r * 0.98, s * r * 0.62]
+      const pincerBase = [r * 1.28, s * r * 0.46]
+      taperStroke(g, [shoulder, elbow, pincerBase], r * 0.22, r * 0.16, claw, 4)
+      for (const a of [-0.36, 0.14]) { // two pincer tips, open
+        const ang = Math.atan2(pincerBase[1] - elbow[1], pincerBase[0] - elbow[0]) + a
+        taperStroke(g, [pincerBase, [pincerBase[0] + Math.cos(ang) * r * 0.4, pincerBase[1] + Math.sin(ang) * r * 0.4]],
+          r * 0.14, r * 0.03, claw, 3)
+      }
+    }
+    // eyestalks: short and close-set, well forward
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 0.32, s * r * 0.14], [r * 0.46, s * r * 0.2]], Math.max(1.3, r * 0.05), 0.8, f(0x7a1e0c), 2)
+      darkEye(g, r * 0.48, s * r * 0.2, r * 0.07, r * 0.065, 0x1c0a04, true)
+    }
+    // carapace: a broad, flattened oval — WIDER (±y) than it is long (±x)
+    g.poly(radialOutline((a) => r * (0.62 + 0.04 * Math.cos(a * 2)), 40, 0.82, 1.02))
+      .fill(f(0xb8341c)).stroke({ width: Math.max(2.6, r * 0.12), color: line })
+    if (!white) {
+      g.ellipse(-r * 0.06, -r * 0.14, r * 0.42, r * 0.26).fill({ color: 0xe0693a, alpha: 0.35 }) // dorsal sheen
+      g.beginPath() // the H-shaped cervical/branchiocardiac grooves a real crab shell carries
+      g.moveTo(-r * 0.02, -r * 0.4).lineTo(-r * 0.02, r * 0.4)
+      g.moveTo(-r * 0.02, 0).lineTo(r * 0.3, -r * 0.22)
+      g.moveTo(-r * 0.02, 0).lineTo(r * 0.3, r * 0.22)
+      g.stroke({ width: 1.3, color: 0x7a1e0c, alpha: 0.55 })
+    }
+    if (elite) eliteCrown(-r * 1.1, r)
+  }
+
+  // gull: the one FLIER on this roster, and the one plan-view animal that is ALREADY its own icon
+  // from directly overhead — a gliding gull is a spread-wing silhouette, not a side profile (the
+  // wrong projection this repo shipped once already, on a tornado, and lost a whole version undoing).
+  // Near-white body, the one cold creature against two warm ones, with a hard dark wingtip on each
+  // side and a NOTCH bitten into the trailing edge at the wrist — the carpal bend a gliding gull
+  // shows from above. That notch is the backup read: colour and the body both dissolve to a pale
+  // dot at range, but two dark marks a fixed distance apart, each with a bite out of it, do not.
+  function drawGull(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0xb7bbb2)
+    groundShadow(r * 1.45, r * 0.5)
+    // ONE wing, mirrored ±y: root at the shoulder, a leading edge swept back through the wrist to
+    // the tip, then a trailing edge pulled IN at the notch before closing back to the root
+    const wing = (s) => {
+      const root = [r * 0.5, s * r * 0.2]
+      const wrist = [-r * 0.3, s * r * 1.3]
+      const tip = [-r * 1.7, s * r * 2.5]
+      const notch = [-r * 1.0, s * r * 1.65] // pulled inward — the bite in the trailing edge
+      g.poly([...root, ...wrist, ...tip, ...notch]).fill(f(0xf2f0e8)).stroke({ width: Math.max(1.3, r * 0.09), color: line })
+      if (!white) {
+        // dark wingtip: the outer portion, over-painted so the wing base stays pale
+        const mid = [wrist[0] + (tip[0] - wrist[0]) * 0.55, wrist[1] + (tip[1] - wrist[1]) * 0.55]
+        g.poly([...mid, ...tip, ...notch]).fill({ color: 0x2c2e30, alpha: 0.92 })
+      }
+    }
+    wing(-1)
+    wing(1)
+    // body: a small torpedo, nose right
+    const spine = (t) => [r * 0.85 - t * r * 1.75, 0]
+    const bodyW = (t) => r * 0.26 * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.4 ? 0.4 : 0.7)
+    g.poly(spineOutline(spine, bodyW, 24)).fill(f(0xf7f6f1)).stroke({ width: Math.max(1.4, r * 0.1), color: line })
+    for (const s of [-1, 1]) { // shallow forked tail
+      taperStroke(g, [[-r * 0.9, 0], [-r * 1.3, s * r * 0.32]], r * 0.1, 0.5, f(0xe8e6de), 3)
+    }
+    if (!white) {
+      g.ellipse(r * 0.2, -r * 0.06, r * 0.3, r * 0.12).fill({ color: 0xffffff, alpha: 0.4 }) // dorsal sheen
+      darkEye(g, r * 0.62, 0, r * 0.06, r * 0.06, 0x1a1a1a, true)
+    }
+    taperStroke(g, [[r * 0.82, 0], [r * 1.1, 0]], r * 0.07, 0.5, f(0xd8a23a)) // beak, the one warm mark
+    if (elite) eliteCrown(-r * 2.1, r)
+  }
+
+  // bristle worm: The Surf's PLAYER form (CHAPTERS.surf.render.form === 'worm', see playerForm in
+  // syncPlayer) — not part of run.roster, this beach's three creatures are the trio above. Reuses
+  // drawCentipede's rig wholesale (see that function's own comment, below in the loam section): one
+  // tapered trunk over spine(t), a paired appendage per segment, raking in a metachronal wave — a
+  // bristle worm and a centipede are the same drawing at the joint level, a long segmented body with
+  // one appendage pair per segment. What changes for the swim: the appendage — a SHORT paddle-stub
+  // parapodium fanned into three bristle ticks, not the centipede's long jointed leg ending in a
+  // claw-tipped foot ("shorten the parapodia") — the head (soft twin palps, not the forward venom
+  // forcipules a land hunter carries: a worm noses its way, it doesn't strike), and the palette (a
+  // marine rust-coral, not the forest-floor amber — "retint"). ANIMATED like the centipede too: the
+  // `phase` arg shifts spine(t)'s sine (same "minus phase moves crests head->tail" convention, and
+  // the same metachronal `Math.sin(i*0.9 - phase)` rowing the parapodia), and buildTextures bakes
+  // WORM_PHASES frames from it. The player rig has no `.frames`/`_animFrame` object the way
+  // syncEnemies' ROSTER_LOOKS path does (that machinery exists per-enemy-sprite, and there is only
+  // ever one player) — syncPlayer instead indexes T.wormBody/T.wormFlash directly off animT, the
+  // same "pick a rung by hand" idiom the STILLNESS morph ladder (T.playerStill) already uses. This
+  // still sits under the hop/breathe squash-stretch every other player form gets — the phase flip
+  // and the squash-stretch are two independent transforms, not one replacing the other.
+  const WORM_R = 26
+  const WORM_PHASES = 6
+  function drawWorm(g, white, phase = 0) {
+    const r = WORM_R
+    const f = (c) => white ? 0xffffff : c
+    const bodyLit = f(0xe08a6e), bodyMid = f(0xcf6b52), bodyShade = f(0x8a3a2c)
+    const line = f(0x5c2418), bristle = f(0xffe0b0)
+    const lw = Math.max(2.4, r * 0.13)
+    const frontX = r * 0.9
+    const len = r * 3.2                                    // stockier than the centipede's 4.4r
+    const undA = r * 0.3                                   // a touch more S-wag — it swims, not scurries
+    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.6 - phase) * undA]
+    const body = (t) => r * 0.46 * bulge(0.06 + 0.88 * t, 0.42)
+    const N = 16                                            // parapodia run the whole body, not just mid-trunk
+    for (let i = 0; i < N; i++) {
+      const t = 0.06 + 0.88 * (i / (N - 1))
+      const [x, y] = spine(t)
+      const w = body(t)
+      const ph = Math.sin(i * 0.9 - phase)      // metachronal wave, rowing with the slither
+      for (const s of [-1, 1]) {
+        // parapodium: a short stub base plus three bristle ticks fanning off it — SHORTER reach
+        // than the centipede's jointed leg, and the bristle tuft (not a leg silhouette) is the tell.
+        const bx = x, by = y + s * w * 0.72
+        for (let k = -1; k <= 1; k++) {
+          const a = (Math.PI / 2) * s + k * 0.45 + ph * 0.16 * s
+          g.moveTo(bx, by).lineTo(bx + Math.cos(a) * r * 0.26, by + Math.sin(a) * r * 0.26)
+            .stroke({ width: 1.6, color: bristle, alpha: 0.85 })
+        }
+        g.circle(bx, by, r * 0.05).fill(bodyShade)
+      }
+    }
+    // twin head palps — soft and short, replacing the centipede's forward venom forcipules
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 1.0, s * r * 0.1], [r * 1.3, s * r * 0.22]], r * 0.07, r * 0.02, line)
+    }
+    g.poly(spineOutline(spine, body, 40)).fill(bodyMid).stroke({ width: lw, color: line })
+    g.poly(radialOutline((a) => r * 0.34 * (1 - 0.1 * Math.cos(a)), 32, 1, 0.9, r * 0.94, 0))
+      .fill(bodyMid).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly(spineOutline(spine, (t) => body(t) * 0.3, 28)).fill({ color: bodyShade, alpha: 0.4 })
+      g.ellipse(-r * 0.6, -r * 0.06, r * 1.3, r * 0.16).fill({ color: bodyLit, alpha: 0.22 })
+      for (const s of [-1, 1]) darkEye(g, r * 1.0, s * r * 0.13, r * 0.05, r * 0.05, 0x1a0d05, true)
+    }
   }
 
   // --- Garden chapter (lawn green) ---
@@ -2370,7 +2672,18 @@ export function createRenderer(app) {
     // re-tune. A missing key here is SILENT — syncEnemies falls through to a generic archetype blob.
     copepod: { archetype: 'normal', draw: drawCopepod, lean: 90 },     // top-down: antennae, legs, setae and egg sacs all ±y mirrored
     krill: { archetype: 'fast', draw: drawKrill, lean: 90 },           // top-down: stalked eyes, leg rows and tail fan all ±y mirrored
-    jelly: { archetype: 'tank', draw: drawJelly, lean: 0 },            // radial bell — no front to turn, so nothing to lean
+    // side elevation: apex +x, mouth and tentacles -x, mirrored about that axis — so it rotates
+    // freely and always swims bell-first at you, tentacles streaming behind. See drawJelly.
+    jelly: { archetype: 'tank', draw: drawJelly, lean: 90 },
+    // v7.x The Surf (Book 2 chapter 1). A new roster, not a repaint — every flag here is new
+    // (unshakeable, diveBomb) rather than carried over the way the Shelf's are. A missing key here
+    // is SILENT — syncEnemies falls through to a generic archetype blob.
+    // All three are PLAN VIEW: the water-column exception the jelly above takes (see CLAUDE.md)
+    // is for animals that swim in open water with a bell-first heading. These three are on or over
+    // the sand — two crawl and one flies above it — so the overhead camera is the honest one.
+    sandhopper: { archetype: 'normal', draw: drawSandhopper, lean: 90 }, // top-down: antennae, legs and the long jump-uropods all ±y mirrored
+    shorecrab: { archetype: 'tank', draw: drawShorecrab, lean: 0 },      // claws forward but never squares up to you — a crab's gait is sideways, and it's unshakeable besides
+    gull: { archetype: 'fast', draw: drawGull, lean: 90 },               // top-down: wings, wingtips and the forked tail all ±y mirrored
     ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
     spider: { archetype: 'tank', draw: drawSpider, lean: 90 },         // top-down: 8 legs + pedipalps + 8 eyes, all ±y mirrored
@@ -2629,6 +2942,27 @@ export function createRenderer(app) {
       g.ellipse(0, 0, pr * 0.82, pr * 0.3).fill({ color: 0x000000, alpha: 0.12 })
       T.playerShadow = bake(g)
     }
+    // The Surf's player body (drawWorm, defined above in that chapter's roster section) — baked
+    // here alongside the generic blob it replaces, same "build once regardless of chapter, swap in
+    // syncPlayer at use time" contract T.kaijuBody follows for skies. WORM_PHASES frames (the
+    // centipede's own `phases: 6` slither idiom — see drawWorm's comment), so T.wormBody/T.wormFlash
+    // are arrays here, not single {tex,ax,ay} bakes; syncPlayer indexes them off animT. A dedicated
+    // elongated shadow, not the round T.playerShadow above: the worm's trunk runs long on x, and the
+    // round disc would sit visibly narrower than the body it's meant to ground. The shadow itself
+    // does NOT flip per phase — same call drawCentipede's own groundShadow makes (a fixed ellipse
+    // regardless of phase), since a slithering trunk's footprint envelope barely moves.
+    T.wormBody = []
+    T.wormFlash = []
+    for (let wp = 0; wp < WORM_PHASES; wp++) {
+      const ang = (wp / WORM_PHASES) * Math.PI * 2
+      const bg = new Graphics(); drawWorm(bg, false, ang); T.wormBody.push(bake(bg))
+      const wg = new Graphics(); drawWorm(wg, true, ang); T.wormFlash.push(bake(wg))
+    }
+    T.wormShadow = (() => {
+      const g = new Graphics()
+      g.ellipse(0, 0, WORM_R * 1.55, WORM_R * 0.42).fill({ color: 0x000000, alpha: 0.2 })
+      return bake(g)
+    })()
 
     // bullet star, orbit spark, nova ring: built in buildFxTextures() below (fx sprites)
     // gems vs coins: gems flat yellow, coins gold with shine arc + inner circle
@@ -4317,6 +4651,66 @@ export function createRenderer(app) {
       g.circle(0, 0, 4).fill({ color: g2, alpha: 0.8 })
       T.trapSprung = bake(g)
     }
+    // Pincer claws (v7.55 surf weapon, run.guards). PLAN VIEW, like every creature and weapon in the
+    // game except the standing buildings — this is a crab claw seen from directly overhead, not a
+    // claw drawn side-on and rotated. (v6.8 shipped the Trash Tornado as a side elevation and it
+    // cost a whole version to undo; the question to ask of the frame is not "does it look like a
+    // claw" but "is this the same viewpoint as the sprites around it".)
+    //
+    // Two states, swapped in placeGuard exactly the way the snap trap's are, and for the same
+    // reason: ARMED vs SPENT has to be readable at a glance while you are being chased, so the
+    // SILHOUETTES differ rather than just the tint — fingers OPEN in a V against fingers SHUT into
+    // a point. Both are baked pointing +x with the drawing origin at the CENTRE of the catch circle,
+    // so placeGuard can set rotation = g.angle and scale = r / CLAW_BAKE_R and the finger tips land
+    // on the real catch radius. The sprite therefore states the weapon's actual reach.
+    {
+      const shell = 0xe8763c   // warm carapace orange — reads on teal water AND on wet sand, and
+      const lit = 0xffc08a     // sits apart from every enemy tint in the surf roster
+      const line = 0x7a2f12
+      // A crab claw is LONG AND NARROW and it is ASYMMETRIC: a heavy fixed finger (the pollex, an
+      // extension of the palm) with a thinner hooked one (the dactyl) hinging down onto it. Drawing
+      // it as two mirrored spikes off a round palm gives a bow tie — which is what the first cut of
+      // this was, and it read as an orange starfish across the whole viewport rather than as
+      // something being held.
+      const claw = (open) => {
+        const g = new Graphics()
+        const R = CLAW_BAKE_R
+        // The limb, running all the way back to exactly where the player is: the guard sits
+        // PINCER_HOLD_FRAC × r out and the bake is scaled by r, so -PINCER_HOLD_FRAC × R IS the
+        // player's centre. Kept THIN and slightly darker on purpose — it is the only part of the
+        // sprite that is not the weapon, and a fat one reads as a second finger pointing backwards.
+        taperStroke(g, [[-R * PINCER_HOLD_FRAC, 0], [-R * 0.75, 0], [-R * 0.42, 0]],
+          R * 0.11, R * 0.2, 0xc55c29, 4)
+        // Propodus (the palm): a broad teardrop. This is where the mass of the claw belongs.
+        g.ellipse(-R * 0.12, 0, R * 0.5, R * 0.34).fill(shell).stroke({ width: 1.5, color: line })
+        // The two fingers, and they are NOT mirrored: a crab's dactyl (upper) is the thin hooked one
+        // that swings, the pollex (lower) is a heavy near-straight extension of the palm. Mirroring
+        // them is what turned the first cut into a bow tie.
+        // OPEN: a V with the tips apart — that gap is the catch. SHUT: closed onto the axis into a
+        // point, so the SILHOUETTE says "spent" before the tint does.
+        const dac = open ? -R * 0.44 : -R * 0.05
+        const pol = open ? R * 0.2 : R * 0.03
+        taperStroke(g, [[R * 0.18, -R * 0.16], [R * 0.6, dac * 0.62], [R, dac]], R * 0.2, R * 0.05, shell, 4)
+        taperStroke(g, [[R * 0.2, R * 0.13], [R * 0.65, pol * 0.72], [R, pol]], R * 0.27, R * 0.07, shell, 4)
+        // The crushing edge: teeth on the inside faces only, and the one detail that survives being
+        // drawn at phone size.
+        for (let i = 0; i < 3; i++) {
+          const t = 0.3 + i * 0.22
+          g.circle(R * (0.2 + t * 0.72), (-R * 0.12) + (dac + R * 0.12) * t * 0.75, R * 0.05).fill({ color: line, alpha: 0.5 })
+          g.circle(R * (0.22 + t * 0.72), (R * 0.1) + (pol - R * 0.1) * t * 0.75, R * 0.055).fill({ color: line, alpha: 0.5 })
+        }
+        // The shut state needs a SEAM. Without it the two closed fingers merge into one smooth
+        // paddle and the sprite reads as a spoon rather than as a claw that has already fired —
+        // exactly the note trapSprung's own seam line exists for.
+        if (!open) g.moveTo(R * 0.2, R * 0.01).lineTo(R * 0.98, R * 0.02).stroke({ width: 1.3, color: line, alpha: 0.75 })
+        // Top highlight: the camera looks straight down, so the lit face is the upper surface of the
+        // palm — a plan view's only shading cue, and the same one every creature bake uses.
+        g.ellipse(-R * 0.2, -R * 0.08, R * 0.28, R * 0.14).fill({ color: lit, alpha: 0.6 })
+        return bake(g)
+      }
+      T.clawOpen = claw(true)
+      T.clawShut = claw(false)
+    }
     {
       // traffic car (city signature, run.lanes): top-down, nose +x, drawn at the real
       // TRAFFIC_CAR_LEN × TRAFFIC_CAR_W hitbox so what sweeps you is what you saw coming.
@@ -5144,9 +5538,9 @@ export function createRenderer(app) {
 
     // ---- v5.11 kaiju redesign — the PLAYER's own body/tail (spec: "the one thing on screen the
     // player looks at constantly" was still the generic cross-chapter blob, ~44px on screen next to
-    // a tower drawing up to 96px). Gated on CHAPTERS.skies.render.kaiju (chapterHasKaiju below);
-    // every other chapter's rig — including pond/undergrowth, which also set `tail: true` — never
-    // reads any of this and stays byte-identical.
+    // a tower drawing up to 96px). Gated on CHAPTERS.skies.render.form === 'kaiju' (playerForm
+    // below); every other chapter's rig — including pond/undergrowth, which also set `tail: true` —
+    // never reads any of this and stays byte-identical.
     //
     // Same "identical geometry between the coloured and white bakes" contract drawEnemy/roster use:
     // `white` forces every fill to 0xffffff so the two textures share bounds (and therefore bake()'s
@@ -6456,6 +6850,11 @@ export function createRenderer(app) {
   //   beacon over the swarm; stripG is a telegraph Graphics like bombG (see redrawStrips).
   const trailLayer = new Container()
   const webLayer = new Container()
+  // v7.x Book 2 surf: the dry patches (run.sandbars). Same no-gate rule as its neighbours — the
+  // array is empty in every chapter but The Surf. Deliberately the DEEPEST of the ground-patch
+  // layers after the mown stripes: a sandbar is the ground itself, so a web, a pheromone trail or a
+  // tide pool drawn over one has to sit on top of it, never under.
+  const sandLayer = new Container()
   const lureLayer = new Container()
   const stripG = new Graphics()
   // v5.4 chapter-4-7 field layers. Like the garden/pond layers above these need no chapter gate —
@@ -6548,6 +6947,9 @@ export function createRenderer(app) {
   const shieldG = new Graphics()
   const affixLayer = new Container() // per-elite affix icon badges (Text), see syncAffixBadges
   const playerC = new Container()
+  // v7.55 surf: the Pincer's held claws. Directly above playerC because the claw is held OUT — it is
+  // a thing in front of you, over the crowd it is guarding against, and under the projectiles.
+  const guardLayer = new Container()
   const bulletLayer = new Container()
   const rockLayer = new Container()   // v5.21 lane: drifting asteroids (run.rocks)
   const boomerangLayer = new Container()
@@ -6565,12 +6967,12 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
+    mownG, sandLayer, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
-    bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC,
+    bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC, guardLayer,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -7258,9 +7660,47 @@ export function createRenderer(app) {
     // Reef rock, not a submerged hedge: cool blue-grey stone with a near-black foot.
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x2f4d5c, foot: 0x122029 },
   }
+  // ---- The Surf (v7.x Book 2 ch 1) — the tide line ---------------------------------------------
+  // A retint of the shelf's own trick (shape-neutral prop PNGs re-read as something else), not new
+  // art. On a beach the plants are WRACK — weed the tide threw up and left to dry — plus marram
+  // tufts back off the water, so the flat `cluster_*` rafts become wrack piles and the uprights stay
+  // upright. Registering this at all is the point: chapterBiome falls back to BIOMES.body for an
+  // unknown id, and until this line existed The Surf drew VILLI, PLATELETS and plasma motes on its
+  // beach — the exact failure BIOME_SHELF's comment warns about, one chapter later.
+  //
+  // Contrast follows the same rule as its two neighbours: the decor family sits BELOW the effective
+  // floor (bgColor 0xbca27a under floorTint 0xe0c79c) so it never competes with the roster, and the
+  // one pale member is sea foam. Everything is warm-dominant (R >= G > B), which is what separates
+  // this family from The Shelf's blue-dominant one at a glance.
+  const WRACK_TINTS = [0x6b5a30, 0x5c4d29]         // dried weed thrown up by the tide
+  const WRACK_DARK_TINTS = [0x4f4324, 0x453a1f]    // the older, deeper pile
+  const MARRAM_TINTS = [0x7d7a3e, 0x6d6a35]        // dune grass, olive rather than lawn-green
+  const BIG_SURF = [
+    { name: 'bush_a', tints: WRACK_DARK_TINTS, upright: false, size: [88, 140] },
+    { name: 'cluster_b', tints: WRACK_TINTS, upright: false, size: [86, 132] },
+  ]
+  const MID_SURF = [
+    { name: 'grass_c', tints: MARRAM_TINTS, upright: true, size: [30, 50] },
+    { name: 'grass_d', tints: MARRAM_TINTS, upright: true, size: [30, 50] },
+    { name: 'cluster_a', tints: WRACK_TINTS, upright: false, size: [48, 76] },
+    { name: 'cluster_c', tints: WRACK_DARK_TINTS, upright: false, size: [48, 76] },
+  ]
+  const DETAIL_SURF = [
+    { name: 'scatter_a', tint: 0xfaf2e2, alpha: 0.55, size: [22, 40] }, // foam / shell grit
+    { name: 'scatter_b', tint: 0xefe1c6, alpha: 0.45, size: [18, 34] },
+    { name: 'leaf', tint: 0x5c4d29, alpha: 0.6, size: [16, 30] },       // a scrap of dried weed
+    { name: 'pebble', baked: true, scale: [0.7, 1.4] },
+  ]
+  const BIOME_SURF = {
+    big: BIG_SURF, mid: MID_SURF, detail: DETAIL_SURF,
+    // A weed-fouled boulder in the wash: warm wet stone, near-black foot ring for the collision
+    // contract against a light floor (the same dark-ring-on-pale-floor rule every biome follows).
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6a5c46, foot: 0x241d12 },
+  }
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
+    surf: BIOME_SURF,
     // v7.x Book 2 — open water, its own family now (see BIOME_SHELF above). Load-bearing, not
     // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
     // The Shelf draws villi and platelets under a blue tint.
@@ -8099,16 +8539,26 @@ export function createRenderer(app) {
     }
   }
 
-  // Current streaks (pond signature): world-space flow streaks that sample the REAL drift field
-  // (sim.js currentForce) and advect along it — exaggerated (CURRENT_VIS.speedMul) so the gentle
-  // sim push reads as an obvious water flow. Each streak is a double-stacked soft trace glyph
-  // (one layer washes out on the light floor) rotated to the local flow direction and stretched by
-  // speed, in a teal-white tint. Streaks fade in, live a few seconds while advecting, then fade out
-  // and respawn in view; they also respawn on straying past the viewport (+margin). Pooled — only
-  // transform/alpha touched per frame. currentLayer stays on the stage; world coords are converted
-  // to screen with the frame's camera offset (cx,cy: screen = world + (cx,cy)).
+  // Flow streaks (the pond's `currents` signature, and The Surf's `tide`): world-space streaks that
+  // sample the REAL force field the sim pushes everything with and advect along it — exaggerated
+  // (flowVis.speedMul) so the gentle sim push reads as an obvious water flow. Each streak is a
+  // double-stacked soft trace glyph (one layer washes out on the light floor) rotated to the local
+  // flow direction and stretched by speed. Streaks fade in, live a few seconds while advecting, then
+  // fade out and respawn in view; they also respawn on straying past the viewport (+margin). Pooled
+  // — only transform/alpha touched per frame. currentLayer stays on the stage; world coords are
+  // converted to screen with the frame's camera offset (cx,cy: screen = world + (cx,cy)).
+  //
+  // ONE pool, two chapters (v7.x). The tide shipped with no visual at all: a 46 px/s lateral shove
+  // with nothing on screen reads as the controls fighting you, where the design (§5.2) asks it to
+  // read as WEATHER. The only thing that differs is the force function and the palette, so the tide
+  // borrows this field rather than growing a second one — flowKind picks tideForce over currentForce
+  // and TIDE_VIS over CURRENT_VIS, both latched in reset(). The streaks REVERSE when the surge does,
+  // which is the tell that there is a backwash and not just a wind.
   const currentStreaks = []
-  let currentTexReady = false
+  // Which vis block the pool's sprite SCALES are currently built for (lenPx/widthPx differ between
+  // the pond and the tide), or null before the fx textures have loaded. Re-derived whenever it
+  // disagrees with flowVis, which is how one pool serves two chapters across a quit-to-title.
+  let currentTexVis = null
   let rippleTimer = 0
   for (let i = 0; i < CURRENT_VIS.count; i++) {
     const g = new Container()
@@ -8128,35 +8578,44 @@ export function createRenderer(app) {
       p.y = -cy + Math.random() * h
     } else { p.x = atX; p.y = atY }
     p.age = 0
-    p.life = CURRENT_VIS.life * (1 + (Math.random() * 2 - 1) * CURRENT_VIS.lifeJitter)
+    p.life = flowVis.life * (1 + (Math.random() * 2 - 1) * flowVis.lifeJitter)
     p.spawned = true
   }
 
+  // The active chapter's flow field at a world point, in px/s. The tide is UNIFORM (one surge for
+  // the whole map) so it ignores x/y; the pond's varies per point. Sampled by the streaks below and
+  // by the crowd's rock in syncEnemies, so both read the same water the sim is pushing with.
+  function flowAt(run, x, y) {
+    if (flowKind === 'tide') return tideForce(run)
+    if (flowKind === 'currents') return currentForce(run, x, y)
+    return { fx: 0, fy: 0 }
+  }
+
   function updateCurrents(run, dt, cx, cy) {
-    if (!chapterHasCurrents) { currentLayer.visible = false; return }
+    if (!flowKind) { currentLayer.visible = false; return }
     currentLayer.visible = true
-    if (!currentTexReady && T.fx && T.fx.trace_05) {
-      const lx = fxScale(T.fx.trace_05, CURRENT_VIS.lenPx)
-      const ly = fxScale(T.fx.trace_05, CURRENT_VIS.widthPx)
+    if (currentTexVis !== flowVis && T.fx && T.fx.trace_05) {
+      const lx = fxScale(T.fx.trace_05, flowVis.lenPx)
+      const ly = fxScale(T.fx.trace_05, flowVis.widthPx)
       for (const p of currentStreaks) {
         p.a.texture = p.b.texture = T.fx.trace_05
         p.a.scale.set(lx, ly)
         p.b.scale.set(lx * 0.9, ly * 0.85)
       }
-      currentTexReady = true
+      currentTexVis = flowVis
     }
-    if (!currentTexReady || dt <= 0) return
+    if (currentTexVis !== flowVis || dt <= 0) return
     const w = app.screen.width
     const h = app.screen.height
-    const mg = CURRENT_VIS.margin
+    const mg = flowVis.margin
 
     for (const p of currentStreaks) {
       if (!p.spawned) respawnStreak(p, cx, cy, w, h)
       p.age += dt
       // advect along the exaggerated real field
-      const f = currentForce(run, p.x, p.y)
-      const vx = f.fx * CURRENT_VIS.speedMul
-      const vy = f.fy * CURRENT_VIS.speedMul
+      const f = flowAt(run, p.x, p.y)
+      const vx = f.fx * flowVis.speedMul
+      const vy = f.fy * flowVis.speedMul
       p.x += vx * dt
       p.y += vy * dt
       const speed = Math.hypot(vx, vy)
@@ -8168,12 +8627,12 @@ export function createRenderer(app) {
       if (p.age >= p.life || off) { respawnStreak(p, cx, cy, w, h); continue }
       // fade envelope: in over fadeIn, out over the last fadeOut
       let env = 1
-      if (p.age < CURRENT_VIS.fadeIn) env = p.age / CURRENT_VIS.fadeIn
-      else if (p.age > p.life - CURRENT_VIS.fadeOut) env = Math.max(0, (p.life - p.age) / CURRENT_VIS.fadeOut)
+      if (p.age < flowVis.fadeIn) env = p.age / flowVis.fadeIn
+      else if (p.age > p.life - flowVis.fadeOut) env = Math.max(0, (p.life - p.age) / flowVis.fadeOut)
       p.g.position.set(sx, sy)
       p.g.rotation = p.ang
-      p.g.scale.set(1 + speed * CURRENT_VIS.stretchPerSpeed, 1) // stretch length with speed
-      p.g.alpha = CURRENT_VIS.alpha * env * (p.boost || 1)
+      p.g.scale.set(1 + speed * flowVis.stretchPerSpeed, 1) // stretch length with speed
+      p.g.alpha = flowVis.alpha * env * (p.boost || 1)
       p.g.visible = true
     }
 
@@ -8181,9 +8640,9 @@ export function createRenderer(app) {
     // streamline (seeded in view, each offset downstream) with a brief brightness boost — a moving
     // arrow emphasising flow direction. Cheap: it just re-seeds existing pooled streaks.
     for (const p of currentStreaks) if (p.boost) p.boost = Math.max(1, p.boost - dt * 1.2)
-    if (CURRENT_VIS.rippleEvery > 0 && currentStreaks.length >= 3) {
+    if (flowVis.rippleEvery > 0 && currentStreaks.length >= 3) {
       rippleTimer += dt
-      if (rippleTimer >= CURRENT_VIS.rippleEvery) {
+      if (rippleTimer >= flowVis.rippleEvery) {
         rippleTimer = 0
         let ox, oy, dx, dy
         // v6.4: bias the train onto an in-view eddy's ring when one exists — a moving arrow tracing
@@ -8210,14 +8669,14 @@ export function createRenderer(app) {
         } else {
           ox = -cx + Math.random() * w
           oy = -cy + Math.random() * h
-          const f = currentForce(run, ox, oy)
+          const f = flowAt(run, ox, oy)
           const sp = Math.hypot(f.fx, f.fy) || 1
           dx = f.fx / sp
           dy = f.fy / sp
         }
         for (let k = 0; k < 3; k++) {
           const p = currentStreaks[(Math.floor(Math.random() * currentStreaks.length) + k) % currentStreaks.length]
-          respawnStreak(p, cx, cy, w, h, ox + dx * k * CURRENT_VIS.lenPx * 0.9, oy + dy * k * CURRENT_VIS.lenPx * 0.9)
+          respawnStreak(p, cx, cy, w, h, ox + dx * k * flowVis.lenPx * 0.9, oy + dy * k * flowVis.lenPx * 0.9)
           p.boost = 2
         }
       }
@@ -8286,53 +8745,92 @@ export function createRenderer(app) {
     for (const ev of eddyPool) ev.root.visible = false
   }
 
-  // ---------------------------------------------------------------- sun shafts (v7.x Book 2)
-  // The Shelf's refill pools, drawn as a soft lit disc with a rim so the boundary is legible — a
-  // player has to be able to tell "am I IN it" at a glance, because standing in it IS the mechanic
-  // (sim.js's stepCharge tests centre-to-centre against exactly this radius).
+  // ------------------------------------------------- refill circles (v7.x Book 2): shafts + pools
+  // Both chapters' refill circles live in run.shafts (sim.js streamShafts feeds it from refillSpec),
+  // and both are drawn as a disc with a rim ON exactly the tested radius, because standing in it IS
+  // the mechanic (stepCharge tests centre-to-centre against that radius) and a player has to be able
+  // to tell "am I IN it" at a glance.
   //
-  // A pooled DECAL, not a rig: two display objects that never transform independently of each
-  // other. That is why the pool is a flat array and why clearShafts hides the SPRITES rather than a
+  // They must not LOOK the same, though, and for a while The Surf's did not look like anything at
+  // all: this function early-returned on `signature.type === 'shafts'`, so the tide pools — the only
+  // way to refill Humidity, which drives the chapter's damage — drew nothing whatsoever. The gate is
+  // now refillLook (see reset), which asks the same refillSpec() question the streamer asks.
+  //   'shaft' — The Shelf. A warm additive column of light. `body` is unused and stays cleared.
+  //   'pool'  — The Surf. A hole in wet sand with water standing in it: a damp collar, a dark water
+  //             body, an off-centre shallow shelf, a bright meniscus, and one soft additive sheen
+  //             for the sky caught on the surface. Drawn from directly overhead like everything
+  //             else; the water is DARKER than the sand around it, which is what makes it read as a
+  //             hole rather than as a glowing marker.
+  //
+  // A pooled DECAL, not a rig: three display objects that never transform independently of each
+  // other. That is why the pool is a flat array and why clearShafts hides the CHILDREN rather than a
   // `.root` — a rig left in the flat list of reset() sets a dead property on a plain object and the
   // previous run's entities stay on screen, with no throw and no warning.
   const shaftPool = []
   function acquireShaft() {
+    // Child order IS the stacking order: the water body must sit under its own sheen, so `body` is
+    // added first and the additive glow second. A shaft never draws into `body` at all.
+    const body = new Graphics()
     const glow = new Sprite(T.fx.light_01)
     glow.anchor.set(0.5)
-    glow.tint = 0xfff0c0
     glow.blendMode = 'add'
     const ring = new Graphics()
-    shaftLayer.addChild(glow, ring)
-    return { glow, ring, _r: 0 }
+    shaftLayer.addChild(body, glow, ring)
+    return { body, glow, ring, _r: 0, _look: null }
   }
   function updateShafts(run) {
-    if (!chapterHasShafts) { shaftLayer.visible = false; return }
+    if (!refillLook) { shaftLayer.visible = false; return }
     shaftLayer.visible = true
+    const pool = refillLook === 'pool'
+    const P = TIDE_POOL_VIS
     const list = run.shafts
     while (shaftPool.length < list.length) shaftPool.push(acquireShaft())
     for (let i = 0; i < shaftPool.length; i++) {
       const sv = shaftPool[i]
       const on = i < list.length
+      sv.body.visible = on
       sv.glow.visible = on
       sv.ring.visible = on
       if (!on) continue
       const sh = list[i]
+      sv.body.position.set(sh.x, sh.y)
       sv.glow.position.set(sh.x, sh.y)
       sv.ring.position.set(sh.x, sh.y)
-      sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 2.1))
-      // Breathe, out of phase per shaft (i, not animT alone) so a field of them does not pulse in
-      // unison — the same trick placeEddy uses for its twirl layers.
-      sv.glow.alpha = 0.62 + 0.10 * Math.sin(animT * 1.1 + i * 1.7)
-      if (sv._r !== sh.r) {  // rim redrawn only when the radius changes, same cache as the eddy ring
+      // Breathe, out of phase per circle (i, not animT alone) so a field of them does not pulse in
+      // unison — the same trick placeEddy uses for its twirl layers. The pool's is slower and
+      // shallower, and it wanders the SIZE rather than only the alpha: calm water, not a beacon.
+      if (pool) {
+        const b = 1 + P.breathe * Math.sin(animT * 0.55 + i * 1.7)
+        sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * P.sheenFrac * b))
+        sv.glow.alpha = P.sheenA * (0.85 + 0.15 * Math.sin(animT * 0.8 + i * 2.3))
+      } else {
+        sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 2.1))
+        sv.glow.alpha = 0.62 + 0.10 * Math.sin(animT * 1.1 + i * 1.7)
+      }
+      // Geometry redrawn only when the radius (or the chapter's look) changes, the same cache the
+      // eddy ring uses. Neither field's radius moves today, so in practice this runs once per circle.
+      if (sv._r !== sh.r || sv._look !== refillLook) {
         sv._r = sh.r
+        sv._look = refillLook
+        sv.body.clear()
         sv.ring.clear()
-        sv.ring.circle(0, 0, sh.r).stroke({ width: 4, color: 0xffe9a8, alpha: 0.55 })
+        if (pool) {
+          const wr = sh.r * P.waterFrac
+          sv.glow.tint = P.sheen
+          sv.body.circle(0, 0, sh.r).fill({ color: P.collar, alpha: P.collarA })
+          sv.body.circle(0, 0, wr).fill({ color: P.water, alpha: P.waterA })
+          sv.body.circle(-wr * 0.14, wr * 0.11, wr * 0.58).fill({ color: P.shallow, alpha: P.shallowA })
+          sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+        } else {
+          sv.glow.tint = 0xfff0c0
+          sv.ring.circle(0, 0, sh.r).stroke({ width: 4, color: 0xffe9a8, alpha: 0.55 })
+        }
       }
     }
   }
   function clearShafts() {
     shaftLayer.visible = false
-    for (const sv of shaftPool) { sv.glow.visible = false; sv.ring.visible = false }
+    for (const sv of shaftPool) { sv.body.visible = false; sv.glow.visible = false; sv.ring.visible = false }
   }
 
   // ---------------------------------------------------------------- swell (v7.x Book 2)
@@ -9358,7 +9856,7 @@ export function createRenderer(app) {
   // fill on the sim's own charge clock — so the plates read as "winding up to something", not as
   // "rampage is on".
   function lightPlatesForBreath(run) {
-    if (!chapterHasKaiju) return false
+    if (playerForm !== 'kaiju') return false
     const a = (run.arcs || []).find((x) => x.charge > 0)
     if (!a) return false
     const R = SKIES_FX.rampage
@@ -9412,7 +9910,9 @@ export function createRenderer(app) {
     bullet: 0, nova: 0, orb: 0, gem: 0, coin: 0,
     boomerang: 0, mine: 0, homing: 0, hole: 0, beam: 0,
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
+    sand: 0,    // v7.x surf: sandbars (run.sandbars) — a flat syncPool, see placeSandbar
     trap: 0, debris: 0, shot: 0, jet: 0,
+    guard: 0,   // v7.55 surf: Pincer claws (run.guards)
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -10108,6 +10608,74 @@ export function createRenderer(app) {
     prevCount.web = n
   }
 
+  // Sandbars (v7.x Book 2 / The Surf — run.sandbars, {x,y,r,_cell}): dry ground you can walk onto,
+  // where you move at signature.bars.slowMul and Humidity falls at bars.drainMul. run.webs above is
+  // the idiom this copies exactly — a ground patch that slows you, baked ONCE and scaled per patch,
+  // rotated by a position hash so a field of them is not stamped.
+  //
+  // It ships as a renderer at all because of the design's §5.3: Humidity drives this chapter's
+  // damage, and the named mitigation for that — the reason the owner's override was accepted — is
+  // that "the sandbar is a PLACE, so the player can always see the cause and step off it". An
+  // invisible sandbar is a global damage debuff with no cause on screen, which is precisely the
+  // thing §5.3 says must not happen.
+  //
+  // The drawing, from directly overhead like everything else. A beach seen from above is not a
+  // blob, it is a TEXTURE — so the read is carried by wind ripples and shell grit, not by the
+  // silhouette, and the irregularity lives INSIDE the tested radius rather than on it:
+  //   - the wet apron fills the whole tested disc and its waterline stroke sits at EXACTLY r, so
+  //     drawn extent == tested extent (the web decal's and the eddy ring's contract);
+  //   - the dry sand is a wobbled blob inside that, and the driest crown a smaller one off-centre,
+  //     which is also what a real bar looks like: wet all round, dry in the middle.
+  const SAND_BAKE_RIM = 300 // bake radius (2x the shipped bars.r of 150) so ripples survive scaling
+  const sandbarTex = (() => {
+    const V = SANDBAR_VIS
+    const RIM = SAND_BAKE_RIM
+    const g = new Graphics()
+    // Wobbled outline: three harmonics at coprime-ish frequencies so the shape never repeats around
+    // the circle. Returns a flat point list for Graphics.poly.
+    const blob = (mean, ox, oy, seed) => {
+      const N = 48
+      const pts = []
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2
+        const rr = mean * (1 + 0.065 * Math.sin(a * 3 + seed) + 0.04 * Math.sin(a * 5 + seed * 1.7) + 0.028 * Math.sin(a * 7 + seed * 2.9))
+        pts.push(ox + Math.cos(a) * rr, oy + Math.sin(a) * rr)
+      }
+      return pts
+    }
+    g.circle(0, 0, RIM).fill({ color: V.damp, alpha: 0.16 })                       // the wet apron
+    g.circle(0, 0, RIM).stroke({ width: V.dampW, color: V.damp, alpha: V.dampA })  // waterline, ON r
+    g.poly(blob(RIM * 0.86, 0, 0, 1.3)).fill({ color: V.sand, alpha: V.sandA })
+    g.poly(blob(RIM * 0.5, -RIM * 0.1, -RIM * 0.08, 4.1)).fill({ color: V.crown, alpha: V.crownA })
+    // Wind ripples: near-parallel wavy lines, each cut to the chord of the dry area at its own y so
+    // none of them runs off the sand. The whole sprite is rotated per patch, so drawing them all
+    // along one axis here costs nothing in variety.
+    const RR = RIM * 0.82
+    for (let k = 0; k < V.ripples; k++) {
+      const y = -RR + ((k + 0.5) / V.ripples) * RR * 2
+      const half = Math.sqrt(Math.max(0, RR * RR - y * y)) * 0.92
+      if (half < 14) continue
+      g.moveTo(-half, y + Math.sin(-half * 0.02 + k) * 5)
+      for (let x = -half + 10; x <= half; x += 10) g.lineTo(x, y + Math.sin(x * 0.02 + k) * 5)
+    }
+    g.stroke({ width: 3, color: V.ripple, alpha: V.rippleA, cap: 'round' })
+    // Shell grit, on a fixed hash so it is baked once and never flickers.
+    for (let k = 0; k < V.specks; k++) {
+      const a = hash(k * 3.7 + 0.5) * Math.PI * 2
+      const d = Math.sqrt(hash(k * 5.1 + 2.2)) * RIM * 0.78
+      g.circle(Math.cos(a) * d, Math.sin(a) * d, 2 + hash(k * 7.3 + 4.4) * 3)
+    }
+    g.fill({ color: V.speck, alpha: V.speckA })
+    return bake(g)
+  })()
+  const sandPool = []
+  function placeSandbar(s, b) {
+    s.position.set(b.x, b.y)
+    const ph = hash(b.x * 0.11 + b.y * 0.07) // fixed per-patch seed — no stamped tiling
+    s.rotation = ph * Math.PI * 2
+    s.scale.set(Math.max(b.r, 1) / SAND_BAKE_RIM) // the waterline lands at EXACTLY r
+  }
+
   // Pheromone Lure decoys (run.lures, {x,y,t,dur,...}): a cute beacon the swarm converges on — soft
   // amber glow + a pulsing double-stacked gold star, floated over the crowd so it POPS. Fades in over
   // its first moments; the one-shot burst on expiry renders via the {type:'explode'} event elsewhere.
@@ -10245,6 +10813,39 @@ export function createRenderer(app) {
   // WEAPON_MODS.clawRake.ambushPredator is held (ambushHeld/ambushPX/ambushPY, same per-frame
   // latch), mirroring the armed-or-sprung contract slashClaws' own scan uses (sim.js).
   const trapPool = []
+  // Pincer claws (v7.55 surf, run.guards {x,y,angle,r,armed,cd,rearm}). A FLAT sprite pool — one
+  // Sprite per claw, no independently-transformed parts — so it belongs in reset()'s flat list and
+  // must NOT get a `.root.visible` line (putting a flat pool in the rig block, or a rig in the flat
+  // list, is the silent failure CLAUDE.md documents: a dead property set on a plain object and last
+  // run's claws still on screen).
+  //
+  // The whole point of this weapon is that it is a TELEGRAPH you can read before anything happens,
+  // so the two states have to be legible at rest, not only at the payoff:
+  //   ARMED  fingers open in a V, full brightness, breathing — the snap trap's "it is hot" idiom.
+  //   SPENT  fingers shut, dimmed, and brightening as its cooldown closes, so "this one is nearly
+  //          live again" is readable without a number. Identical treatment to placeTrap's re-arm
+  //          tell, deliberately: they are the same question asked of two different objects.
+  const guardPool = []
+  function placeGuard(s, g) {
+    const look = g.armed ? T.clawOpen : T.clawShut
+    if (s.texture !== look.tex) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
+    s.position.set(g.x, g.y)
+    s.rotation = g.angle
+    const sc = (g.r || CLAW_BAKE_R) / CLAW_BAKE_R
+    if (g.armed) {
+      // A small clench-and-release, keyed off the claw's own position so two claws (backClaw) do not
+      // pulse in lockstep and read as one object.
+      s.scale.set(sc * (1 + 0.035 * Math.sin(animT * 3.4 + (g.x + g.y) * 0.03)))
+      s.tint = 0xffffff
+      s.alpha = 1
+    } else {
+      const k = g.rearm > 0 ? 1 - Math.max(0, Math.min(1, g.cd / g.rearm)) : 1
+      s.scale.set(sc * (0.88 + 0.12 * k))   // it also re-opens toward full size as it recovers
+      s.tint = mix(0x6f6156, 0xffffff, k)
+      s.alpha = 0.5 + k * 0.5
+    }
+  }
+
   // v5.21 lane: an asteroid. Reuses T.asteroid — the same rock already scattered as this chapter's
   // baked obstacle furniture, which is the point: the hazard IS the local debris, not a new species.
   // Tumble comes from rk.rot (sim-owned, so it survives a pause and matches across a re-render).
@@ -11514,7 +12115,7 @@ export function createRenderer(app) {
       // worse the more you took. The arc CENTRE stays on the player because that is where inSector
       // tests from, so the wedge on screen is still the honest hitbox, and a band at the mouth's
       // radius passes through the mouth anyway. Body radius outside skies (the Blank has no kaiju).
-      const roarStart = chapterHasKaiju ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
+      const roarStart = playerForm === 'kaiju' ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
       const a0 = rp.angle - rp.arc / 2
       const a1 = rp.angle + rp.arc / 2
 
@@ -11769,7 +12370,7 @@ export function createRenderer(app) {
   // already drives spawnWhip's arc-swoosh at the hit site (handleEvents); this makes the anatomical
   // tail itself visibly crack at the same moment, instead of only an effect appearing where it
   // lands. Harmless outside skies: tailLash isn't in any other chapter's weapon pool, so the `tail`
-  // event never fires there and this timer just sits at 0, unread (chapterHasKaiju gates its use).
+  // event never fires there and this timer just sits at 0, unread (playerForm === 'kaiju' gates its use).
   let kaijuSwipeT = 0
   let vignetteA = 0
   let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
@@ -12051,7 +12652,7 @@ export function createRenderer(app) {
       // by facingAngle + PI/2, which works out to a plain forward offset along facingAngle once the
       // container scale is applied. Only the first node moves; every jump after it is a real body.
       const pts = a.nodes.map((n) => [n.x, n.y])
-      if (chapterHasKaiju && p.facingAngle != null) {
+      if (playerForm === 'kaiju' && p.facingAngle != null) {
         const m = SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale
         pts[0] = [p.x + Math.cos(p.facingAngle) * m, p.y + Math.sin(p.facingAngle) * m]
       }
@@ -12269,6 +12870,25 @@ export function createRenderer(app) {
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
           addShake(2, 0.1)
           break
+        // v7.55 surf: a Pincer claw closing. x,y is the CLAW, not the player — the burst has to land
+        // where the pinch happened or the parry reads as a thing the player did rather than a thing
+        // that arrived. Two rings collapsing INWARD is not available (spawnRing expands), so the
+        // read is carried by the second, smaller ring and by grit thrown outward along the claw's
+        // own axis — the direction the body was just yanked. A heavier shake than the rake's: this
+        // fires seconds apart, not several times a second, and it is the weapon's whole payoff.
+        case 'pinch': {
+          spawnRing(e.x, e.y, e.r * 0.9, 0.26, T.novaWarm, 0xffd3a3)
+          spawnRing(e.x, e.y, e.r * 0.45, 0.16, T.novaWarm, 0xfff2e0)
+          for (let i = 0; i < 7; i++) {
+            const a = e.angle + (Math.random() - 0.5) * 1.5
+            const sp = 130 + Math.random() * 180
+            spawnParticle(T.fx.spark_04, e.x + Math.cos(e.angle) * e.r * 0.5, e.y + Math.sin(e.angle) * e.r * 0.5,
+              Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + Math.random() * 0.18, 0.1,
+              i % 2 ? 0xffd3a3 : 0xe8763c, 0.05, 2.4)
+          }
+          addShake(3.4, 0.14)
+          break
+        }
         case 'roar':
           // v5.6.16: sonic wavefronts through the wedge + a shove-weight shake (see spawnRoar)
           spawnRoar(e.x, e.y, e.angle, e.range, e.arc)
@@ -12472,6 +13092,8 @@ export function createRenderer(app) {
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
       boomerangPool, minePool, homingPool, trapPool, shotPool,
+      guardPool,   // v7.55 surf: FLAT (one Sprite per Pincer claw) — belongs here, not in the rigs below
+      sandPool,    // v7.x surf: FLAT (one Sprite per dry patch) — likewise, not a rig
     ]) {
       for (const s of pool) s.visible = false
     }
@@ -12562,12 +13184,13 @@ export function createRenderer(app) {
   function syncPlayer(p, dt, rampageT = 0, buffs = null) {
     playerC.position.set(p.x, p.y)
 
-    // v5.11 kaiju redesign: swap the whole body/flash/shadow onto the dedicated kaiju bake for
-    // skies (chapterHasKaiju) and back onto the generic cross-chapter blob for every other chapter —
-    // same texture-swap-if-changed idiom pRampageGlow uses below. The anchor travels WITH the
-    // texture (bake()'s own {ax,ay}) since the kaiju's silhouette isn't centred the way the round
-    // blob is; guard on pBody alone (all three always swap together) to keep this a single check.
-    if (chapterHasKaiju) {
+    // v5.11 kaiju redesign, generalised (undertow): swap the whole body/flash/shadow onto the
+    // active chapter's dedicated bake (playerForm) and back onto the generic cross-chapter blob for
+    // every chapter that declares no form — same texture-swap-if-changed idiom pRampageGlow uses
+    // below. The anchor travels WITH the texture (bake()'s own {ax,ay}) since a dedicated
+    // silhouette isn't centred the way the round blob is; guard on pBody alone (all three always
+    // swap together) to keep this a single check.
+    if (playerForm === 'kaiju') {
       if (pBody.texture !== T.kaijuBody.tex) {
         pBody.texture = T.kaijuBody.tex; pBody.anchor.set(T.kaijuBody.ax, T.kaijuBody.ay)
         pFlash.texture = T.kaijuFlash.tex; pFlash.anchor.set(T.kaijuFlash.ax, T.kaijuFlash.ay)
@@ -12576,10 +13199,27 @@ export function createRenderer(app) {
       }
       // the region's ONE light direction (SKIES_SHADOW), scaled off the shadow's own reference
       // size (SKIES_KAIJU.shadowRx), instead of the generic blob's small straight-down disc (the
-      // `else` branch below, unchanged). +20 nudges it toward the tail/hip so it settles under the
+      // generic branch below, unchanged). +20 nudges it toward the tail/hip so it settles under the
       // creature's mass rather than dead-centre.
       const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
       pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
+    } else if (playerForm === 'worm') {
+      // the bristle worm (drawWorm, near drawKaijuBody above): WORM_PHASES baked slither frames,
+      // flipped through on animT — the same speed (`animT * 10`) syncEnemies uses for the
+      // centipede's ROSTER_LOOKS phases, so the two share a cadence. syncEnemies keys its flip off
+      // a per-sprite `_animFrame` because a pack of centipedes must not slither in lockstep; the
+      // player rig has no such per-entity state (there's only ever one), so the frame is picked
+      // directly here. A plain straight-down shadow like the generic blob's — the worm has no
+      // chapter light direction of its own the way SKIES_SHADOW gives skies.
+      const wIdx = Math.floor(animT * 10) % WORM_PHASES
+      const wBody = T.wormBody[wIdx], wFlash = T.wormFlash[wIdx]
+      if (pBody.texture !== wBody.tex) {
+        pBody.texture = wBody.tex; pBody.anchor.set(wBody.ax, wBody.ay)
+        pFlash.texture = wFlash.tex; pFlash.anchor.set(wFlash.ax, wFlash.ay)
+        pHot.texture = wFlash.tex; pHot.anchor.set(wFlash.ax, wFlash.ay)
+        pShadow.texture = T.wormShadow.tex; pShadow.anchor.set(T.wormShadow.ax, T.wormShadow.ay)
+      }
+      pShadow.position.set(0, PLAYER.radius * 0.95)
     } else {
       // STILLNESS picks a rung of the morph ladder; rung 0 IS the plain body, so a run without the
       // card takes exactly the old texture. Compared against the CHOSEN look rather than against
@@ -12602,13 +13242,14 @@ export function createRenderer(app) {
       pShadow.position.set(0, PLAYER.radius * 0.95)
     }
 
-    // per-chapter blob tint (white = identity for body) + optional tail. The kaiju bake carries its
-    // OWN final palette (SKIES_KAIJU) rather than a tint-multiplied base — same "plans carry their
-    // own palette, tint bypassed" rule the top-down structure bakes use (STRUCTURE_SKINS' topDown
-    // entries set clumpA.tint = 0xffffff, above) — otherwise a uniform multiply by playerTint
-    // (0x7ad07a) would push the pale cyan sclera toward the same green as the body fill, right when
-    // eye contrast matters most.
-    pBody.tint = chapterHasKaiju ? 0xffffff : chapterRender.playerTint
+    // per-chapter blob tint (white = identity for body) + optional tail. The kaiju AND worm bakes
+    // both carry their OWN final palette rather than a tint-multiplied base — same "plans carry
+    // their own palette, tint bypassed" rule the top-down structure bakes use (STRUCTURE_SKINS'
+    // topDown entries set clumpA.tint = 0xffffff, above) — otherwise a uniform multiply by
+    // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
+    // pale sclera or the worm's bristle-tuft highlights toward the same hue as the body fill, right
+    // when that contrast matters most.
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'worm') ? 0xffffff : chapterRender.playerTint
     // BERSERK (v7.14): the skin runs hot while the window is open. Strongest on the frame you are
     // hit and fading with _berserkT, so the wash IS the timer — no chrome, nothing to read.
     // An alpha-blended red silhouette, NOT a tint on pBody: see pHot's own note at the rig.
@@ -12618,7 +13259,7 @@ export function createRenderer(app) {
       : 0
     if (chapterRender.tail) {
       pTail.visible = true
-      if (chapterHasKaiju) {
+      if (playerForm === 'kaiju') {
         // the articulated kaiju tail (T.kaijuTailSeg): three CHAINED segments, each rooted at the
         // previous one's tip (not all fanned from one point the way the generic flagellum's tailA/
         // tailB share pTail's own origin below) — see T.kaijuTailSeg's own comment.
@@ -12700,7 +13341,7 @@ export function createRenderer(app) {
       // v5.11: scaled up again for the kaiju's own bigger silhouette — sized off PLAYER.radius like
       // before, this used to be a halo well outside the OLD ~44px body; against the new one it would
       // read as swallowed inside it instead of surrounding it.
-      const glowMul = chapterHasKaiju ? SKIES_KAIJU.bloomScale : 1
+      const glowMul = playerForm === 'kaiju' ? SKIES_KAIJU.bloomScale : 1
       pRampageGlow.scale.set(fxScale(T.rampageBloom, PLAYER.radius * (2.6 + 0.3 * pulse) * glowMul))
     } else {
       pRampageGlow.visible = false
@@ -12722,7 +13363,7 @@ export function createRenderer(app) {
       sy = 1 + 0.035 * w
       by = 0
     }
-    if (chapterHasKaiju) {
+    if (playerForm === 'kaiju') {
       // v5.11: the kaiju body ROTATES to face p.facingAngle instead of just flipping L/R — a
       // directional silhouette (head, jaw, limbs, a tail rooted at the rear) needs an actual
       // facing, unlike the round symmetric blob every other chapter's flip-only rig was built for.
@@ -12737,19 +13378,27 @@ export function createRenderer(app) {
       // leave the tail rooted at an unscaled hip offset.
       bodyC.scale.set(sx * SKIES_KAIJU.bodyScale, sy * SKIES_KAIJU.bodyScale)
       bodyC.rotation = (p.facingAngle == null ? 0 : p.facingAngle) + Math.PI / 2
+    } else if (playerForm === 'worm') {
+      // drawWorm's head already sits at local +x (spine(t) runs frontX -> frontX - len, the same
+      // "head at +x" convention drawCentipede uses for the enemy version) — unlike the kaiju's -y
+      // head this needs no rotation offset at all, facingAngle points it directly. No bodyScale
+      // knob either: the worm is drawn at its final on-screen size, same as the kaiju bake, but
+      // without a chapter-wide resize multiplier to go with it.
+      bodyC.scale.set(sx, sy)
+      bodyC.rotation = p.facingAngle == null ? 0 : p.facingAngle
     } else {
       bodyC.scale.set(p.facing * sx, sy)
       bodyC.rotation = 0   // restores the flip-only rig's implicit "never rotates" if a PRIOR run
-                           // this session was skies (chapterHasKaiju's rig rotates bodyC above)
+                           // this session drew a rotating form (kaiju/worm rotate bodyC above)
     }
     bodyC.y = by
     // The shadow is a sibling of bodyC, not a child, so it needs the same bodyScale applied by hand
     // — otherwise shrinking the kaiju would leave it standing on its old, much larger shadow.
     const shadowSquash = 1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0)
-    pShadow.scale.set(chapterHasKaiju ? shadowSquash * SKIES_KAIJU.bodyScale : shadowSquash)
+    pShadow.scale.set(playerForm === 'kaiju' ? shadowSquash * SKIES_KAIJU.bodyScale : shadowSquash)
 
     // pupil tracking (local +x flips with the body toward facing)
-    if (chapterHasKaiju) {
+    if (playerForm === 'kaiju') {
       // bigger head, further-set eyes (drawKaijuBody's sclera circles, radius 13 at ±22,-96) — same
       // tracking motion, just rescaled off the kaiju's own eye geometry instead of PLAYER.radius.
       const eyeR = 13, eyeOffX = 22, eyeOffY = -96
@@ -12760,6 +13409,11 @@ export function createRenderer(app) {
       const lookY = eyeR * 0.15 + Math.sin(animT * 1.3) * eyeR * 0.1
       pupilL.position.set(-eyeOffX + lookX, eyeOffY + lookY)
       pupilR.position.set(eyeOffX + lookX, eyeOffY + lookY)
+    } else if (playerForm === 'worm') {
+      // the ocelli are baked straight into drawWorm (like drawCentipede's enemy version below it) —
+      // no live tracking pupil the way the round blob and the kaiju's sclera-and-pupil eyes get.
+      pupilL.scale.set(0)
+      pupilR.scale.set(0)
     } else {
       pupilL.scale.set(1)
       pupilR.scale.set(1)
@@ -13052,13 +13706,17 @@ export function createRenderer(app) {
       // frozen and stun both halt walk/idle animation (here: the wisp's rotation wobble)
       const wobble = (e.type === 'wisp' && frozen <= 0 && stun <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
       // v6.4 pond identity: currents visibly rock the swarm — a small rotation wobble scaled by the
-      // LOCAL field strength (currentForce, the same field the sim itself pushes everyone with), so
+      // LOCAL field strength (flowAt, the same field the sim itself pushes everyone with), so
       // an enemy sitting in an eddy's core rocks harder than one out at the ambient drift's calm
       // spots. Same frozen/stun hold the wisp wobble above already respects — subtle by design, the
       // water rocks the swarm, it doesn't shake it.
+      // v7.x: The Surf's tide gets it too, and there it carries more than flavour. stepTide moves
+      // the CROWD by the same vector it moves the player, and the design says that is what makes the
+      // surge read as weather rather than as a control tax — the crowd rocking on the surge and
+      // going still at slack water is what says "the water did that", not "the stick is fighting me".
       let currentWobble = 0
-      if (chapterHasCurrents && frozen <= 0 && stun <= 0) {
-        const cf = currentForce(run, e.x, e.y)
+      if (flowKind && frozen <= 0 && stun <= 0) {
+        const cf = flowAt(run, e.x, e.y)
         currentWobble = Math.min(1, Math.hypot(cf.fx, cf.fy) / 60) * 0.10 * Math.sin(animT * 4 + e.id)
       }
       // look.spin (the blank's Antibody): slow constant self-rotation for radially-symmetric,
@@ -13314,8 +13972,14 @@ export function createRenderer(app) {
     syncPools(run.pools || [])
     syncTrails(run.trails || [])
     syncWebs(run.webs || [])
+    // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
+    // the chapter has no run.sandbars at all.
+    syncPool(sandPool, sandLayer, run.sandbars || [], 'sand', sandbarTex, placeSandbar)
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
+    // v7.55 surf: the Pincer's claws. Guarded with `|| []` like every field above — a save or a test
+    // run predating this weapon has no run.guards at all.
+    syncPool(guardPool, guardLayer, run.guards || [], 'guard', T.clawOpen, placeGuard)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run))
     syncEnemies(run)
     syncBlooms(run)
@@ -13655,16 +14319,28 @@ export function createRenderer(app) {
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null
     chapterRender = cfg?.render ?? BODY_RENDER
-    chapterHasCurrents = cfg?.signature?.type === 'currents'
-    chapterHasEddies = !!(cfg?.signature?.type === 'currents' && cfg?.signature?.eddies)
-    chapterHasShafts = cfg?.signature?.type === 'shafts'
+    // The pond drifts, The Surf surges; every other chapter draws no flow field at all. Re-tinting
+    // the whole streak pool here (rather than at construction, where it used to be fixed to the
+    // pond's teal) is what lets one pool serve both looks.
+    const sigType = cfg?.signature?.type
+    flowKind = sigType === 'currents' ? 'currents' : sigType === 'tide' ? 'tide' : null
+    flowVis = flowKind === 'tide' ? TIDE_VIS : CURRENT_VIS
+    for (const p of currentStreaks) { p.a.tint = flowVis.tint; p.b.tint = flowVis.tint }
+    chapterHasEddies = !!(sigType === 'currents' && cfg?.signature?.eddies)
+    // refillSpec() and not signature.type: The Shelf's shafts ARE its signature, The Surf's pools
+    // hang off signature.pools, and streamShafts fills run.shafts from whichever one exists. Asking
+    // the same question the streamer asks is what keeps "the sim made a circle" and "the renderer
+    // draws a circle" from being two independent chapter tests that can disagree.
+    refillLook = cfg?.signature && refillSpec(cfg.signature)
+      ? (sigType === 'shafts' ? 'shaft' : 'pool')
+      : null
     swellCfg = cfg?.render?.swell ?? null
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);
     // city opts into rain/ruins individually without the clouds `storm` alone would also switch on.
     chapterHasRain = !!(chapterRender.storm || chapterRender.rain)
     chapterHasRuins = !!(chapterRender.storm || chapterRender.ruins)
-    chapterHasKaiju = !!chapterRender.kaiju
+    playerForm = chapterRender.form ?? null
     chapterHasLeaves = !!chapterRender.leaves
     // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking

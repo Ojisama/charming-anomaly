@@ -109,10 +109,14 @@ import {
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
+  // Book 2 The Surf: Humidity + tide pools (Run US.c)
+  refillSpec,
+  // Book 2 The Surf: Humidity drives damage (Run US.d)
+  HUMIDITY_DMG_FLOOR, resourceDamageMul,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -1290,7 +1294,13 @@ function testAnomalySlate() {
       // is what makes IPECAC's three forks distinguishable here — they anchor on three different
       // enemies, so the shape key below separates them. (This list is a set of QUOTED STRINGS, the
       // exact thing an identifier rename sweep cannot see — see CLAUDE.md's rename rule.)
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs']
+      // v7.55: 'guards' added for the Pincer. Its claws are laid out at ipecacAngles, so the three
+      // sick ones sit at 120° from each other around the player and the shape key separates them —
+      // and without this entry the weapon spawns into no list this block watches, which reads as
+      // "fixture spawned nothing" rather than as a missing patch. That is the CLAUDE.md rename trap
+      // in its other direction: a list of QUOTED STRINGS no identifier sweep and no new-weapon
+      // checklist can see.
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'guards']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -4978,7 +4988,7 @@ function runRosterArt() {
   assert.ok(looks.size >= 30, `expected a full look table, parsed only ${looks.size} keys — the regex has drifted from the file`)
 
   // EVERY chapter that exists, not CHAPTER_ORDER — which is BOOKS.book1.chapters and therefore
-  // excludes both the hidden Blank and the whole `downward` book. The first cut of this run used
+  // excludes both the hidden Blank and the whole `undertow` book. The first cut of this run used
   // CHAPTER_ORDER and silently skipped The Shelf, i.e. the exact chapter it was written for: a
   // mutation deleting the copepod's look passed it green. Object.keys is the honest denominator.
   const ALL_IDS = Object.keys(CHAPTERS)
@@ -5005,7 +5015,29 @@ function runRosterArt() {
   }
   assert.ok(thumbs >= 12, `expected a cast per chapter card, counted only ${thumbs}`)
 
-  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, and all ${thumbs} title-card thumbnails exist on disk`)
+  // THE JELLY IS THE ONE SIDE-ELEVATION BODY IN THE GAME, AND IT ONLY WORKS AT lean 90.
+  // Everything else is drawn in plan view, so the pair (view, lean) is normally decided once and
+  // never revisited. Here it is load-bearing: the art puts the apex at +x and streams the mouth,
+  // the oral arms and every tentacle to -x, which is legal ONLY because lean 90 lets syncEnemies
+  // aim that axis at the player. Drop it back to 0 — the value every other radial body uses, and
+  // the value this entry itself carried until the redesign — and the bell stops turning while the
+  // tentacles keep pointing one fixed compass direction regardless of where the animal is going.
+  // Nothing else in the suite or the renderer would notice: no throw, no missing texture, just a
+  // creature swimming sideways forever. Hence a text assert, the run UG.k trick.
+  const jelly = block.match(/^ {4}jelly:\s*\{[^}]*\}/m)
+  assert.ok(jelly, 'ROSTER_LOOKS must still declare a jelly entry')
+  assert.ok(/lean:\s*90/.test(jelly[0]),
+    'the jelly is drawn in side elevation with its apex at +x — it must be lean 90, or the body never turns and the tentacles trail in a fixed screen direction')
+  const jd = src.slice(src.indexOf('function drawJelly('))
+  const jdEnd = jd.indexOf('\n  }\n')
+  assert.ok(jdEnd > 0, 'could not find the end of drawJelly')
+  const jbody = jd.slice(0, jdEnd)
+  // The apex must be FORWARD and the mouth AFT. Swap the signs and the art is still a jellyfish,
+  // still renders, and now swims backwards — tentacles first into the player.
+  assert.ok(/const xf = r \* 0\.\d+/.test(jbody) && /const xa = -r \* 0\.\d+/.test(jbody),
+    'drawJelly must keep the apex at +x (xf) and the mouth plane at -x (xa) — reversed, it swims tentacles-first')
+
+  console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }
 runRosterArt()
 
@@ -12413,8 +12445,15 @@ try {
   testDetonationScaling()
   testDescPlaceholder()
   testSubmission()
+  testSurfTide()
+  testSurfSandbars()
+  testSurfHumidity()
+  testSurfHumidityDamage()
+  testPincer()
+  testPlayerForms()
   testDevMenu()
   testModalPopBookkeeping()
+  testUndertowLadder()
   testElementsRedesign()
   console.log('ALL TESTS PASSED')
 } catch (err) {
@@ -14478,6 +14517,385 @@ function testSubmission() {
   console.log(`PASS run SB.c (friendly fire): a ${Math.round(10 / dt)}-frame point-blank barrage at x20 damage took 0 HP off the ally`)
 }
 
+// ---- run US.a (v7.55): The Surf's tide — alternating lateral surge and backwash ------
+function testSurfTide() {
+  Math.random = mulberry32(20260813)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+  assert.strictEqual(run.chapter, 'surf', 'probe did not land on The Surf')
+
+  const sig = CHAPTERS.surf.signature
+  assert.strictEqual(sig.type, 'tide', 'The Surf must declare the tide signature')
+
+  // (a) the push REVERSES. Sample the surge across one full period and require both signs — a
+  // one-way drift is a current, which the pond already has; the whole point is surge and backwash.
+  const at = (t) => { run._realTime = t; const x0 = run.player.x; stepTide(run, 1 / 60); return run.player.x - x0 }
+  let maxPush = -Infinity, minPush = Infinity
+  for (let i = 0; i <= 60; i++) maxPush = Math.max(maxPush, at((i / 60) * sig.period))
+  for (let i = 0; i <= 60; i++) minPush = Math.min(minPush, at((i / 60) * sig.period))
+  assert.ok(maxPush > 0 && minPush < 0,
+    `tide must push both ways over its period, saw max ${maxPush.toFixed(3)} min ${minPush.toFixed(3)}`)
+
+  // (b) it must be OUTSWIMMABLE. baseSpeed is 220 and the joystick's expressible set is {0} u [33,220],
+  // so a surge at or above baseSpeed would pin the player against it with no counter-input available.
+  const peak = Math.max(Math.abs(maxPush), Math.abs(minPush)) * 60
+  assert.ok(peak < 220 * 0.5,
+    `peak tide surge ${peak.toFixed(1)} px/s is more than half baseSpeed — the player cannot fight it`)
+  assert.ok(peak > 33,
+    `peak tide surge ${peak.toFixed(1)} px/s is under the joystick's 33 px/s floor — it cannot be felt`)
+
+  // (c) every other chapter is untouched.
+  const pond = createRun(meta, { chapter: 'pond', difficulty: 1 })
+  const px = pond.player.x, py = pond.player.y
+  pond._realTime = 3
+  stepTide(pond, 1 / 60)
+  assert.strictEqual(pond.player.x, px, 'stepTide moved the player in a non-tide chapter')
+  assert.strictEqual(pond.player.y, py, 'stepTide moved the player in a non-tide chapter')
+
+  console.log(`PASS run US.a (the tide): surge reverses across a ${sig.period}s period, peaks at ${peak.toFixed(0)} px/s — over the joystick floor, under half baseSpeed — and is a no-op outside The Surf`)
+}
+
+// ---- run US.b (v7.55): The Surf's sandbars — streamed dry patches that slow the player ---------
+function testSurfSandbars() {
+  Math.random = mulberry32(20260814)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+
+  // (a) the field materializes as the player roams, and drops behind them.
+  run.player.x = 4000; run.player.y = 4000
+  streamSandbars(run)
+  assert.ok(run.sandbars.length > 0, 'no sandbars materialized after crossing a cell boundary')
+  const far = run.sandbars.length
+  run.player.x = 40000; run.player.y = 40000
+  streamSandbars(run)
+  assert.ok(!run.sandbars.some((b) => Math.hypot(b.x - 40000, b.y - 40000) > OBSTACLE_DROP_RADIUS),
+    'sandbars from the old position were not dropped')
+  assert.ok(far > 0 && run.sandbars.length > 0, 'the field went empty after a long walk')
+
+  // (b) it is DETERMINISTIC — no Math.random at step time. Same seed, same field.
+  const snapshot = run.sandbars.map((b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`).sort().join('|')
+  run.sandbars.length = 0
+  run._sandCellI = null; run._sandCellJ = null
+  Math.random = () => { throw new Error('streamSandbars consumed Math.random at step time') }
+  streamSandbars(run)
+  Math.random = mulberry32(1)
+  assert.strictEqual(run.sandbars.map((b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`).sort().join('|'), snapshot,
+    'the sandbar field is not reproducible from the run seed')
+
+  // (c) onSandbar is a position test, not a proximity guess.
+  const b = run.sandbars[0]
+  run.player.x = b.x; run.player.y = b.y
+  assert.strictEqual(onSandbar(run), true, 'standing dead centre on a sandbar read as off it')
+  run.player.x = b.x + b.r + 5; run.player.y = b.y
+  assert.strictEqual(onSandbar(run), false, 'standing outside the radius read as on it')
+
+  // (d) the slow actually reaches the player, and composes by MIN like every other slow.
+  // The tide pushes on the same axis as our input and run._realTime keeps advancing, so both
+  // halves must sample the SAME tide phase or this measures surge as much as slow. Enemies are
+  // cleared for the same reason — contact shoves the player.
+  const before = { x: b.x, y: b.y }
+  const runHalf = () => {
+    run.player.x = before.x; run.player.y = before.y
+    run._realTime = 0
+    run.enemies.length = 0
+    advance(run, 0.5, 1 / 60, { x: 1, y: 0, skill: false })
+    return Math.hypot(run.player.x - before.x, run.player.y - before.y)
+  }
+  const onBar = runHalf()
+  run.sandbars.length = 0
+  const offBar = runHalf()
+  assert.ok(onBar < offBar * 0.9,
+    `a sandbar must slow the player: travelled ${onBar.toFixed(1)}px on it vs ${offBar.toFixed(1)}px off it`)
+
+  console.log(`PASS run US.b (sandbars): ${far} patches streamed deterministically from the run seed, dropped behind the player, and standing on one costs ${(100 - (onBar / offBar) * 100).toFixed(0)}% of your travel`)
+}
+
+// ---- run US.c (v7.55): Humidity — the bar, and tide pools as its refill geometry ---------------
+function testSurfHumidity() {
+  Math.random = mulberry32(20260815)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+
+  // (a) The Shelf's refill field is IDENTICAL after the generalisation. This is a regression guard
+  // on shipped, tuned, measured behaviour — the whole reason refillSpec exists rather than a rewrite.
+  const shelf = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+  shelf.player.x = 5000; shelf.player.y = 5000
+  streamShafts(shelf)
+  const shelfField = shelf.shafts.map((s) => `${s.bx.toFixed(2)},${s.by.toFixed(2)},${s.r}`).sort().join('|')
+  assert.ok(shelf.shafts.length > 0, 'The Shelf lost its shaft field')
+  assert.strictEqual(refillSpec(CHAPTERS.shelf.signature), CHAPTERS.shelf.signature,
+    'refillSpec must return the shafts signature ITSELF, or the Shelf tune is reading a different object')
+
+  // (b) The Surf streams refill circles from its own `pools` block into the same list.
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+  run.player.x = 5000; run.player.y = 5000
+  streamShafts(run)
+  assert.ok(run.shafts.length > 0, 'The Surf materialized no tide pools')
+  assert.strictEqual(run.shafts[0].r, CHAPTERS.surf.signature.pools.r, 'tide pools ignored their own radius')
+
+  // (c) the bar fills in a pool and falls outside one.
+  const res = CHAPTERS.surf.resource
+  const pool = run.shafts[0]
+  run.charge = 50
+  run.player.x = pool.x; run.player.y = pool.y
+  run.sandbars.length = 0
+  stepCharge(run, 1)
+  assert.ok(run.charge > 50, `standing in a tide pool must refill: ${run.charge}`)
+  run.player.x = pool.x + pool.r + 400; run.player.y = pool.y
+  const dry = run.charge
+  stepCharge(run, 1)
+  assert.ok(run.charge < dry, `outside a pool the bar must fall: ${run.charge}`)
+
+  // (d) A SANDBAR drains faster than open water — the whole reason the patch is a place and not a
+  // clock. Compare the two drains directly rather than asserting the bar merely moved.
+  run.shafts.length = 0
+  run.sandbars.length = 0
+  run.charge = 80
+  stepCharge(run, 1)
+  const openDrain = 80 - run.charge
+  run.charge = 80
+  run.sandbars.push({ x: run.player.x, y: run.player.y, r: 150, _cell: 'test' })
+  stepCharge(run, 1)
+  const barDrain = 80 - run.charge
+  assert.ok(barDrain > openDrain * 2,
+    `a sandbar must dry you out much faster: ${barDrain.toFixed(2)}/s on it vs ${openDrain.toFixed(2)}/s in water`)
+
+  // (e) The Shelf's field is still byte-identical after all of the above touched the same code path.
+  // Re-seed to the SAME starting seed first: createRun draws _obstacleSeed AND _driftSeed from
+  // Math.random every call (state.js), so the intervening createRun('surf', …) above already
+  // consumed 2 draws the live stream never gives back. Comparing against a shelf2 drawn from a
+  // DIFFERENT stream position would measure the RNG re-phasing exactly this repo's own CLAUDE.md
+  // warns about (a red herring under a different name), not whether streamShafts stayed pure —
+  // "two identical runs" means two runs seeded identically, not two draws off one moving stream.
+  Math.random = mulberry32(20260815)
+  const shelf2 = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+  shelf2.player.x = 5000; shelf2.player.y = 5000
+  streamShafts(shelf2)
+  assert.strictEqual(shelf2.shafts.map((s) => `${s.bx.toFixed(2)},${s.by.toFixed(2)},${s.r}`).sort().join('|'), shelfField,
+    'The Shelf field changed between two identical runs — the generalisation is not seed-stable')
+
+  // (f) The two streamers must not agree. Both run over The Surf now, and if their occupancy salts
+  // collided, every refill pool would sit exactly on a sandbar — the refill point always on the
+  // worst ground, with nothing to signal it. Compare CENTRES, not counts: a count matches happily
+  // when two fields are identical.
+  // (c)/(d) above emptied run.shafts and left a synthetic ('test'-keyed) sandbar in run.sandbars —
+  // clear both real arrays AND their streaming cursors so streamShafts/streamSandbars do a full
+  // re-materialization at the player's current cell, rather than comparing against that leftover
+  // fixture or a stale "already scanned this cell" no-op.
+  run.shafts.length = 0; run.sandbars.length = 0
+  run._shaftCellI = null; run._shaftCellJ = null
+  run._sandCellI = null; run._sandCellJ = null
+  streamShafts(run)
+  streamSandbars(run)
+  const poolAt = new Set(run.shafts.map((s) => `${Math.round(s.bx)},${Math.round(s.by)}`))
+  const coincident = run.sandbars.filter((b) => poolAt.has(`${Math.round(b.x)},${Math.round(b.y)}`)).length
+  assert.ok(run.shafts.length > 0 && run.sandbars.length > 0, 'need both fields populated to compare them')
+  assert.strictEqual(coincident, 0,
+    `${coincident} of ${run.sandbars.length} sandbars sit exactly on a tide pool — the two streamers' hash salts have collided`)
+
+  // (g) The geometric check above is a real regression guard, but it is structurally BLIND to a
+  // PARTIAL salt collision: pools (cell 700) and sandbars (cell 620) sit on different-pitch grids
+  // and use different jitter salts (21/22 vs 31/32), so even a shared OCCUPANCY salt only
+  // correlates which cells exist — it cannot land two jittered centres on the same pixel, and (f)
+  // above would stay green while the two streamers were quietly reading the same occupancy roll.
+  // Read the salts straight out of the source instead (the run UG.k idiom: a render-side contract
+  // with no other guard gets checked as source text) — direct, and immune to (f)'s blind spot.
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const shaftsFn = src.slice(src.indexOf('export function streamShafts'), src.indexOf('function stepShafts'))
+  const sandbarsFn = src.slice(src.indexOf('export function streamSandbars'), src.indexOf('export function onSandbar'))
+  const saltsOf = (text) => [...text.matchAll(/obstacleCellHash\([^,]+,[^,]+,[^,]+,\s*(\d+)\)/g)].map((m) => Number(m[1]))
+  const shaftSalts = new Set(saltsOf(shaftsFn))
+  const sandbarSalts = saltsOf(sandbarsFn)
+  const saltOverlap = sandbarSalts.filter((s) => shaftSalts.has(s))
+  assert.ok(shaftSalts.size > 0 && sandbarSalts.length > 0, 'salt extraction found nothing — the source slice markers moved')
+  assert.strictEqual(saltOverlap.length, 0,
+    `streamSandbars reuses salt(s) ${saltOverlap.join(',')} that streamShafts already owns (${[...shaftSalts].sort((a, b) => a - b).join(',')}) — an occupancy or jitter roll can no longer be told apart`)
+
+  console.log(`PASS run US.c (humidity): tide pools refill ${res.refill}/s, open water drains ${openDrain.toFixed(1)}/s and a sandbar ${barDrain.toFixed(1)}/s, and The Shelf's shaft field is unchanged`)
+}
+
+// ---- run US.d (v7.55): Humidity drives damage — owner ruling overriding spec §5.3's own rule ----
+function testSurfHumidityDamage() {
+  const res = CHAPTERS.surf.resource
+
+  // (a) endpoints and monotonicity.
+  assert.strictEqual(resourceDamageMul(res.max, res), 1, 'a full bar must cost nothing')
+  assert.strictEqual(resourceDamageMul(0, res), HUMIDITY_DMG_FLOOR, 'an empty bar must sit on the floor')
+  // Mutation-found gap (2026-08-13): every OTHER sample in this function stays inside [0, res.max],
+  // so a dropped Math.min(1, …) clamp on the fraction is invisible to them — it only shows up once
+  // charge overshoots max, which nothing above ever does. Test that directly, or the clamp has no
+  // guard at all despite the mutation table below claiming it does.
+  assert.strictEqual(resourceDamageMul(res.max * 2, res), 1, 'an over-full charge must not exceed 1')
+  let prev = -Infinity
+  for (let i = 0; i <= 40; i++) {
+    const v = resourceDamageMul((i / 40) * res.max, res)
+    assert.ok(v >= prev, `damage multiplier is not monotonic at charge ${(i / 40) * res.max}`)
+    prev = v
+  }
+
+  // (b) the floor is a NUDGE, not a cliff. The four-reviewer pass that originally banned this found
+  // 40% output in the onboarding chapter put it past Undergrowth's endgame. Anything under 0.6 here
+  // is that finding again.
+  assert.ok(HUMIDITY_DMG_FLOOR >= 0.6,
+    `HUMIDITY_DMG_FLOOR ${HUMIDITY_DMG_FLOOR} re-creates the exact failure this was reviewed for`)
+
+  // (c) EVERY OTHER CHAPTER IS UNAFFECTED. The rule still holds everywhere it was not overridden.
+  for (const id of Object.keys(CHAPTERS)) {
+    const r = CHAPTERS[id].resource
+    if (id === 'surf') continue
+    assert.strictEqual(resourceDamageMul(0, r), 1,
+      `${id}: an empty bar changed damage, but only The Surf's humidity may do that`)
+  }
+
+  // (d) BOTH damage sites route through it. A one-site fix is the silent failure here: half the
+  // weapons would scale and half would not, and nothing would throw. sim.js is not importable as a
+  // module for this check, so assert against its source text — the run UG.k trick.
+  const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const sites = [...src.matchAll(/baseDmg \* p\.damageMul/g)].length
+  const wired = [...src.matchAll(/resourceDamageMul\(run\.charge/g)].length
+  assert.ok(sites >= 2, `expected at least 2 player-damage sites in sim.js, found ${sites}`)
+  assert.strictEqual(wired, sites,
+    `${wired} of ${sites} player-damage sites call resourceDamageMul — every one must, or humidity ` +
+    `scales some weapons and not others with no error`)
+
+  console.log(`PASS run US.d (humidity damage): floor ${HUMIDITY_DMG_FLOOR}, monotonic to 1.0, wired at all ${sites} damage sites, and every other chapter reads 1.0`)
+}
+
+// ---- run US.e (v7.55): Pincer — the parry ------------------------------------------------------
+// The one weapon in the game that fires on being APPROACHED rather than on a timer. Every assertion
+// below exists to stop it being rebuilt as weapon #24 of the fireOnTimer kind, which would still
+// look right on screen: a timer that happens to check proximity snaps at the same moments a parry
+// does whenever the crowd is on you, and only diverges when nothing is near — which is what (b)
+// samples and nothing else can.
+function testPincer() {
+  Math.random = mulberry32(20260816)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+  // run.weapons is an ARRAY of {id, level} (state.js createRun) — the brief's `{ pincer: 1 }` object
+  // literal would have made stepWeapons' `for (const w of run.weapons)` iterate nothing at all and
+  // buildReadout's .map throw. Same shape every other weapon scenario in this file uses.
+  run.weapons = [{ id: 'pincer', level: 1 }]
+  run.charge = 100
+  run.enemies.length = 0
+
+  // (a) the guard exists and FACES the nearest enemy, not the player's heading.
+  const bag = makeStatusEnemy(run, { x: run.player.x + 200, y: run.player.y, hp: 1e6, speed: 0 })
+  run.enemies.push(bag)
+  advance(run, 0.5, 1 / 60, { x: 0, y: 0, skill: false })
+  assert.ok(run.guards.length > 0, 'pincer produced no guard')
+  const g = run.guards[0]
+  assert.ok(Math.abs(Math.atan2(0, 200) - g.angle) < 0.35,
+    `the guard must point at the nearest enemy, angle was ${g.angle.toFixed(2)}`)
+
+  // (b) IT TRIGGERS ON BEING APPROACHED, not on a timer. A stationary enemy far away must leave the
+  // guard armed indefinitely — that is the whole shape, and a fireOnTimer weapon would fail here.
+  const armedAfterWait = run.guards[0].armed
+  assert.strictEqual(armedAfterWait, true, 'the guard disarmed with nothing near it — this is a timer, not a parry')
+
+  // (a2) ...and it TRACKS, which (a) on its own cannot show. MUTATION-FOUND (2026-08-13): taking the
+  // angle from p.facingAngle instead of from nearestEnemy passed the ENTIRE suite. The fixture above
+  // puts the target due east of a player who has never moved, so the aim rule and both of its
+  // fallbacks (p.facingAngle, then p.facing) all answer 0 and the assertion cannot separate them.
+  // So: move the target somewhere no fallback points, and walk the OTHER way at the same time.
+  bag.x = run.player.x; bag.y = run.player.y + 240
+  advance(run, 0.3, 1 / 60, { x: -1, y: 0, skill: false })
+  const want = Math.atan2(bag.y - run.player.y, bag.x - run.player.x)
+  const got = run.guards[0].angle
+  const off = Math.abs(Math.atan2(Math.sin(want - got), Math.cos(want - got)))
+  assert.ok(off < 0.35,
+    `the guard must TRACK the nearest enemy: target bears ${want.toFixed(2)} rad while the player ` +
+    `walks west, and the claw points ${got.toFixed(2)} — off by ${off.toFixed(2)}. A heading-derived ` +
+    `aim reads about ${Math.PI.toFixed(2)} here, and a no-aim fallback 0`)
+  assert.strictEqual(run.guards[0].armed, true, 'the guard disarmed while the target sat 240px away')
+
+  // (c) an enemy that reaches it takes damage AND is thrown outward.
+  const e = bag
+  e.x = run.player.x + g.r * 0.5; e.y = run.player.y
+  const hpBefore = e.hp
+  const distBefore = Math.hypot(e.x - run.player.x, e.y - run.player.y)
+  advance(run, 0.2, 1 / 60, { x: 0, y: 0, skill: false })
+  assert.ok(e.hp < hpBefore, 'reaching the guard dealt no damage')
+  assert.ok(Math.hypot(e.x - run.player.x, e.y - run.player.y) > distBefore * 1.5,
+    'the enemy was not yanked away from the player')
+
+  // (d) it re-arms rather than being spent for the run.
+  // The brief sampled `armed` once at the end of a 6s window, and that is a FALSE NEGATIVE against a
+  // guard that is re-arming perfectly: (c) leaves a 1e6-HP punching bag parked inside the claw, so
+  // every re-arm is followed by a snap on the very next frame and the boolean reads false at almost
+  // any instant you pick. Measured on the shipped implementation — 2 snaps over the window, 2.03s
+  // still on the clock at t=6. So COUNT the re-arms instead (a claw spent for the run snaps exactly
+  // once, ever), then clear the field and require it to come back armed with nothing to catch.
+  // Both halves still go red under the "cd never resets armed" mutation.
+  let snaps = 0
+  for (let i = 0; i < Math.round(6 / (1 / 60)); i++) {
+    if (run.phase === 'levelup') { applyChoice(run, pickNonElementIndex(run)); run.phase = 'playing'; continue }
+    if (run.phase !== 'playing') break
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    for (const ev of run.events) if (ev.type === 'pinch') snaps++
+    run.events.length = 0
+  }
+  assert.ok(snaps >= 2,
+    `the guard snapped ${snaps} time(s) over 6s with a body sitting in it — it is spent for the run, not re-arming`)
+  run.enemies.length = 0
+  advance(run, WEAPONS.pincer.levels[0].cd + 0.5, 1 / 60, { x: 0, y: 0, skill: false })
+  assert.ok(run.guards.some((q) => q.armed), 'the guard never re-armed')
+
+  console.log(`PASS run US.e (pincer): the guard tracks the nearest enemy, stays armed while nothing approaches, and on contact damages and throws — ${snaps} snaps over the re-arm window`)
+}
+
+// ---- run US.f (undertow task 8): the player's own body is per-chapter, not one boolean ----------
+// render.js used to gate the kaiju body/tail rig on a single `chapterHasKaiju` boolean, latched from
+// CHAPTERS.skies.render.kaiju. This generalises it into `playerForm`, read from CHAPTERS[].render
+// .form, so a second chapter (The Surf) can also swap the generic blob for a body of its own — a
+// bristle worm, reusing drawCentipede's rig. render.js is not importable (Pixi + DOM), so this reads
+// it as SOURCE TEXT, the same trick run UG.k uses for a render-side contract with no other guard.
+function testPlayerForms() {
+  const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+
+  // (a) the boolean is gone. It survived as ~16 separate mentions (call sites plus comments), so a
+  // partial refactor leaves half the renderer reading a variable that no longer means anything.
+  const leftovers = [...src.matchAll(/chapterHasKaiju/g)].length
+  assert.strictEqual(leftovers, 0,
+    `${leftovers} references to chapterHasKaiju remain — the form refactor is half-applied`)
+
+  // (b) the generalised read exists and is driven by config, not by a chapter id literal.
+  assert.ok(/playerForm\s*=\s*chapterRender\.form/.test(src),
+    'render.js does not read the player form from the chapter render block')
+  assert.ok(!/playerForm\s*===\s*'kaiju'\s*\|\|\s*run\.chapter/.test(src),
+    'the form check still branches on a chapter id — that is the boolean with extra steps')
+
+  // (c) every declared form has a draw function.
+  const forms = new Set(Object.keys(CHAPTERS).map((id) => CHAPTERS[id].render?.form).filter(Boolean))
+  assert.ok(forms.has('kaiju') && forms.has('worm'),
+    `expected at least the kaiju and worm forms, found ${[...forms].join(', ')}`)
+  for (const f of forms) {
+    const fn = 'draw' + f[0].toUpperCase() + f.slice(1)
+    assert.ok(src.includes(fn) || f === 'kaiju',
+      `form '${f}' is declared in config but ${fn} does not exist in render.js — the player renders as the generic blob with no error`)
+  }
+
+  // (d) the worm actually slithers. Task 8's first cut reused drawCentipede's static geometry
+  // helpers only — drawWorm took no phase arg and was baked exactly once, so the brief's "keep the
+  // slither" shipped as a single frozen S-curve animated only by the generic hop/breathe
+  // squash-stretch every other player form already gets. A worm holding a fixed curve while it
+  // swims reads as a dead sprite being dragged. Guard both halves of the fix independently: the
+  // draw fn takes a phase (like drawCentipede's own `phase = 0`), and syncPlayer picks a frame out
+  // of a baked array rather than reading one static {tex,ax,ay} bake.
+  assert.ok(/function drawWorm\(g, white, phase/.test(src),
+    'drawWorm has no phase param — the worm cannot slither, only a static bake')
+  assert.ok(/T\.wormBody\[wIdx\]/.test(src),
+    'syncPlayer does not index into a baked worm phase array — the worm form is back to one static texture')
+
+  console.log(`PASS run US.f (player forms): ${forms.size} chapter-specific player bodies declared in config, each with a draw fn, and no chapterHasKaiju left; the worm's slither phases are baked and flipped through, not a single static frame`)
+}
+
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------
 // The dev screen exists so a card can be tested without replaying until the pool offers it, which
 // is only true if the list is actually complete. Both halves of that fail SILENTLY:
@@ -14585,6 +15003,53 @@ function testModalPopBookkeeping() {
     `specificity, so it wins the cascade and re-pops anyway — move .no-pop back to the end of the file`)
 
   console.log(`PASS run MP (modal pop bookkeeping): ${keys.length} popups routed through setHtml with unique keys, kill rule last in the cascade`)
+}
+
+// ---- run US.g: the Undertow ladder — The Surf is Book 2's onboarding chapter now ---------------
+// The Surf took over the "chapter 1" job The Shelf held while it was Book 2's only chapter, so The
+// Shelf has to firm up one step and The Surf has to take the gentle numbers. sticky's flat -15%
+// player speed is an unstated tax on a book built entirely around being shoved by the tide, so it
+// has to exclude every Undertow chapter, not just the ones that existed when the exclusion list
+// was written.
+function testUndertowLadder() {
+  // (a) The Surf is the gentlest chapter in its book — it is the onboarding chapter now, and The
+  // Shelf's numbers were fitted while IT held that job.
+  //
+  // enemyHpMul is in this list because the firming commit NAMES it: the body -> pond step it copies
+  // moves exactly enemyHpMul (+0.10) and maxAliveMul (+0.15) and leaves the other three flat. The
+  // first cut of this scenario asserted the three flat axes and not the one that actually moved, so
+  // reverting CHAPTERS.shelf.balance.enemyHpMul 0.9 -> 0.8 — undoing the whole point of the commit,
+  // and leaving Book 2's ONBOARDING chapter with tougher enemies than its chapter 2 — left the suite
+  // entirely green. AXES is enumerated rather than hand-listed so the PASS line's count cannot drift
+  // away from what is actually checked.
+  const surf = CHAPTERS.surf.balance, shelf = CHAPTERS.shelf.balance
+  const AXES = [
+    ['spawnMul', 'out-spawn'],
+    ['enemyDmgMul', 'out-damage'],
+    ['enemyHpMul', 'field tougher enemies than'],
+    ['maxAliveMul', 'hold a bigger crowd than'],
+  ]
+  for (const [key, verb] of AXES) {
+    assert.ok(surf[key] <= shelf[key],
+      `The Surf must not ${verb} The Shelf on ${key} (${surf[key]} vs ${shelf[key]})`)
+  }
+  // …and it must actually be a LADDER, not four ties: the firming commit moved two axes, so at least
+  // one of them has to be strictly gentler or "surf <= shelf" is satisfied by copying the table.
+  assert.ok(AXES.some(([key]) => surf[key] < shelf[key]),
+    'The Surf and The Shelf have identical balance on every axis — the firming step is gone')
+
+  // (b) sticky excludes every Undertow chapter. A flat -15% player speed is an unstated tax in a
+  // book built on travel, and it is already excluded from beyond/pond/shelf for that reason.
+  for (const id of BOOKS.undertow.chapters) {
+    assert.ok(MUTATORS.sticky.exclude.includes(id),
+      `MUTATORS.sticky does not exclude ${id} — a travel book cannot take a blanket speed tax`)
+  }
+
+  // (c) the book's ladder is intact and the WIP gate still holds.
+  assert.deepStrictEqual(BOOKS.undertow.chapters, ['surf', 'shelf'], 'the Undertow ladder is wrong')
+  assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
+
+  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
 }
 
 // ---- run EL: the elements redesign, behind run.newElements ---------------------------------

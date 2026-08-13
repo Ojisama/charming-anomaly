@@ -820,22 +820,37 @@ function generateWells(sig) {
  *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
- * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2 (The Shelf): streamed pools of light
- *   the player stands in to refill `charge`. Same _obstacleSeed cell-hash idiom as eddies above,
- *   own salts (20 occupancy, 21 x jitter, 22 y jitter, 23 drift phase) and own _shaftCellI/
- *   _shaftCellJ cursor. Gated on CHAPTERS[chapter].signature.type === 'shafts' ([] everywhere
- *   else). UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
+ * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2: streamed REFILL CIRCLES the player
+ *   stands in to refill `charge`. ONE list fed from either of two places, decided by refillSpec()
+ *   (config.js): The Shelf's sun shafts (its signature IS the refill spec: cell/chance/r/minDist/
+ *   driftAmp/driftHz sit directly on it) and, since v7.x run US.c, The Surf's tide pools
+ *   (CHAPTERS.surf.signature.pools — no drift, since a pool is a hole in the sand rather than
+ *   something that moves). Same _obstacleSeed cell-hash idiom as eddies above, own salts (20
+ *   occupancy, 21 x jitter, 22 y jitter, 23 drift phase) and own _shaftCellI/_shaftCellJ cursor —
+ *   shared by BOTH chapters' refill circles, since only one of them is ever streaming at a time.
+ *   UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
  *   early-returns unless the player crossed a cell boundary, so it structurally cannot move
- *   anything — stepShafts does that every frame. bx/by are the streamed BASE position and x/y the
- *   drifted one; drift is a pure function of run._realTime and `phase`, storing no state and
- *   consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
- * charge: number — the chapter resource bar (CHAPTERS[chapter].resource; The Shelf's 'Light').
- *   Drains passively, refills inside a shaft and (with Light Thief bought) per kill, clamped to
- *   [0, resource.max]. 0 and untouched in every chapter without a resource.
- *   It drives THREE things, and the third arrived later (v7.x, owner directive) — the first cut of
- *   this field was the Pulse's ammo and nothing else:
+ *   anything — stepShafts does that every frame, gated on signature.type === 'shafts' so only The
+ *   Shelf's field drifts. bx/by are the streamed BASE position and x/y the drifted (or, on The
+ *   Surf, identical) one; drift is a pure function of run._realTime and `phase`, storing no state
+ *   and consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
+ * sandbars[i]: { x, y, r, _cell } — Book 2 / The Surf: streamed dry patches (CHAPTERS.surf.signature
+ *   .bars) the player slows on. The FIFTH copy of the same _obstacleSeed streaming idiom (obstacles
+ *   -> eddies -> traps -> shafts -> here), own salts (30 occupancy, 31 x jitter, 32 y jitter) and own
+ *   _sandCellI/_sandCellJ cursor. Gated on CHAPTERS[chapter].signature.type === 'tide' && .bars
+ *   ([] everywhere else). A sandbar never moves, so unlike a shaft it has no drift and no per-frame
+ *   stepper — sim.js's onSandbar reads the list directly, centre-to-centre against `r`, exactly like
+ *   stepCharge's shaft test. Zero RNG at step time, like every streamer above.
+ * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Shelf's 'Light' and
+ *   The Surf's 'Humidity'). Drains passively, refills inside a refill circle (run.shafts: a shaft
+ *   here, a tide pool there) and (with Light Thief bought) per kill, clamped to [0, resource.max].
+ *   0 and untouched in every chapter without a resource.
+ *   It drives THREE things, and each arrived separately:
  *     1. the Pulse's strength (PULSE_* in config.js; an empty bar still fires the shipped
- *        REPULSE_* shove, which is the floor that keeps the resource from being self-denying);
+ *        REPULSE_* shove, which is the floor that keeps the resource from being self-denying).
+ *        Every chapter with a resource. NOTE that on The Surf this now competes with (3) for the
+ *        same bar — PULSE_CHARGE_COST is 45 of 100 — which is a live design question, not a
+ *        settled one; see the branch's final-fix report;
  *     2. THE DARK — below resource.dark.from the LIGHT YOU EMIT closes in from resource.dark
  *        .coreFull to .coreEmpty, both MULTIPLES OF THE SCREEN'S HALF-DIAGONAL rather than px
  *        (render.js updateDark subtracts a stamp of that radius from a per-frame lightmap it then
@@ -845,9 +860,21 @@ function generateWells(sig) {
  *        light and the slow start at the same instant and bottom out together, and the player can
  *        read their condition off the screen without consulting the rail. The first cut ramped the
  *        alpha of a uniform screen-wide sheet instead; owner: "you are the source light, you emit
- *        the light, but the less light you have, the less far you emit";
- *     3. nothing else. It still scales no damage and no fire rate — deliberately, because those
- *        cut the kill rate, and the kill rate is what Light Thief pays out on.
+ *        the light, but the less light you have, the less far you emit". Gated on `resource.dark`,
+ *        which only The Shelf declares;
+ *     3. YOUR DAMAGE, on the chapters whose `resource` declares a `damage` block — currently The
+ *        Surf's Humidity alone. resourceDamageMul(charge, res) (config.js) scales linearly from
+ *        `damage.floor` at an empty bar to 1.0 at a full one, and both player-damage sites in sim.js
+ *        multiply by it; it returns 1 for every chapter with no `damage` block, so this is inert
+ *        elsewhere. THIS OVERRIDES THE RULE THE FIELD SHIPPED UNDER. The first cut of this doc said
+ *        the bar "scales no damage and no fire rate — deliberately, because those cut the kill rate,
+ *        and the kill rate is what Light Thief pays out on", and that reasoning is still correct for
+ *        Light. The Surf is an explicit owner ruling, recorded in the design at §5.3 of
+ *        docs/superpowers/specs/2026-08-13-book-2-undertow-design.md, which also names what the
+ *        original rule was protecting and the mitigations the exception is conditional on: a TUNED
+ *        floor constant (HUMIDITY_DMG_FLOOR), and a drain tied to the SANDBARS rather than to the
+ *        clock so the player can always see the cause and step off it. Do not "restore" the old
+ *        sentence — read §5.3 first, and if the ruling is ever reversed it is reversed there.
  * killRefill: number — light per kill, snapshotted at createRun from meta.lightThief (the permanent
  *   Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
@@ -1126,6 +1153,31 @@ function generateWells(sig) {
  *   angle and one length; a fork is a chain of segments between bodies, all live at once). x/y
  *   track the ROOT body so IPECAC's extra forks — which anchor on different enemies via rootRank —
  *   are distinguishable. Damage decays BREATH_JUMP_DMG_MUL per jump. See fireBreath/stepArcs.
+ * guards[i]: { x, y, angle, r, armed, cd, rearm, dmg, knock } — a Pincer claw (v7.55, The Surf). THE ONLY
+ *   weapon entity in the game that is not produced by a timer: stepPincerWeapon REWRITES this list
+ *   every frame while the weapon is owned (one entry, two with the backClaw mod, ×3 under IPECAC),
+ *   holding each claw PINCER_HOLD_FRAC × r out from the player along `angle` — which tracks
+ *   nearestEnemy, so the guard is always between the player and whatever is closest. `armed` starts
+ *   true and STAYS true for as long as nothing comes within r of the claw's centre; the trigger is
+ *   stepGuards' proximity scan over run.enemies, never an elapsed interval. On a snap EVERY enemy
+ *   inside `r` takes `dmg` (applyDamage, once each — no pierce/splash needed since the claw already
+ *   covers every body inside it), and each is shoved `knock` px/s away from the PLAYER
+ *   (shoveFromPlayer, so an anchored elite takes the hit and holds). This is an AREA snap, not
+ *   single-target, because it measured that way first: hitting one body per snap left it at 15 eff
+ *   dps against the Flagella Whip's 66 (weapon-census, surf L5), most of every hit wasted as overkill
+ *   while the rest of an eight-body pack went untouched — and the claw does not buy that back through
+ *   crowd-denial either, so it is not a deliberate trade: kiting-rig median nearest-enemy distance
+ *   measured 45px for the pincer against 57/65 for the whip/bloom, no better a wall than either.
+ *   Snapping everything inside the claw took it 15 -> 55 in one change (see WEAPONS.pincer in
+ *   config.js for the full measurement history). An
+ *   {type:'pinch', x, y, angle, r} event is emitted, and the claw sets armed=false / cd=rearm
+ *   (`rearm` being levels[].cd, snapshotted each frame beside dmg/knock; `cd` is the live
+ *   countdown). cd then counts DOWN in stepGuards and re-arms at 0. The armed/cd pair survives the
+ *   per-frame rewrite (the list is resized in place, never rebuilt) — a claw that forgot it had
+ *   snapped would be a weapon with no cooldown at all. See WEAPONS.pincer/stepPincerWeapon/stepGuards.
+ *   {type:'pinch', x, y, angle, r}  one claw closing. x,y = the CLAW's centre (not the player's:
+ *                                   the burst has to land where the pinch happened), angle = the
+ *                                   direction it is pointing, r = its catch radius.
  *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
@@ -1501,11 +1553,19 @@ export function createRun(meta, opts = {}) {
     // chapter carries the field, but only a 'currents' signature with a sig.eddies block ever
     // populates it.
     eddies: [],
-    // v7.x Book 2: sun shafts (sim.js streamShafts/stepShafts), the same _obstacleSeed streaming
+    // v7.x Book 2: REFILL CIRCLES (sim.js streamShafts/stepShafts), the same _obstacleSeed streaming
     // idiom as obstacles/eddies above with its OWN salts and its OWN cell cursor. Unconditional
-    // like eddies, so every chapter carries the field, but only a 'shafts' signature ever fills it.
+    // like eddies, so every chapter carries the field, but only a signature refillSpec() recognises
+    // ever fills it — The Shelf's sun shafts and The Surf's tide pools, which are the same circle
+    // with two names and two looks (render.js's refillLook draws either). Kept as `shafts` rather
+    // than renamed: the field name is quoted as a string in the test suite and in this doc block,
+    // which is one of the two silent failure modes CLAUDE.md's rename rule describes.
     shafts: [],
-    // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf only). Starts FULL: the
+    sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
+    _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
+    _sandCellJ: null,
+    // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf's Light and The Surf's
+    // Humidity; see the charge doc above for what each one drives). Starts FULL: the
     // first minute of a run should teach the drain, not open on an empty bar the player has not
     // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
     // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
@@ -1587,6 +1647,10 @@ export function createRun(meta, opts = {}) {
     // falloutBonus, nodes }, where `nodes` is the polyline player->body->body rebuilt every tick.
     drags: [],
     arcs: [],
+    // v7.55 The Surf. guards: the Pincer's held claws — { x, y, angle, r, armed, cd, rearm, dmg, knock }.
+    // Empty unless the weapon is owned; stepPincerWeapon resizes it in place rather than rebuilding
+    // it, because `armed`/`cd` are the weapon's whole state (see the doc block above).
+    guards: [],
     kills: 0,
     coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect
     levelUpChoices: null,

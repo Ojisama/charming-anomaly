@@ -146,7 +146,7 @@ import {
   LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -154,6 +154,8 @@ import {
   PULSAR_ARMS, PULSAR_COLLAPSE_MUL, PULSAR_COLLAPSE_PULL,
   PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
   PULSAR_FAN_ARC, PULSAR_FAN_SWEEP, PULSAR_FAN_RATE,
+  // v7.55 The Surf: the Pincer's held claw (see stepPincerWeapon/stepGuards)
+  PINCER_HOLD_FRAC,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -232,10 +234,12 @@ export function stepSim(run, input, dt) {
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
+  stepTide(run, dt)       // Book 2 surf signature: alternating surge/backwash (no-op elsewhere)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop sun-shaft cells (no-op outside The Shelf)
   stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
+  streamSandbars(run)     // Book 2 surf: materialize/drop dry patches (no-op elsewhere)
   stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
@@ -590,7 +594,11 @@ function stepPlayerMovement(run, input, dt) {
   // than the same web anywhere else, which is a difficulty change nobody asked for.
   const _dres = CHAPTERS[run.chapter].resource
   const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres) : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul)
+  // THE SANDBARS (Book 2 / The Surf): dry ground is a floor on speed, same MIN composition as the
+  // dark above and for the same reason — multiplying would silently stack with latch/web/the dark.
+  const _sig = CHAPTERS[run.chapter].signature
+  const sandMul = _sig && _sig.type === 'tide' && onSandbar(run) ? _sig.bars.slowMul : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
@@ -2671,6 +2679,42 @@ function stepCurrents(run, dt) {
   }
 }
 
+// The Surf's tide (Book 2 chapter 1). A chapter-gated no-op exactly like stepCurrents above: a
+// chapter that is not the tide returns on the second line.
+//
+// run._realTime, NOT run.time — the same reason stepShafts gives: the Time Debt anomaly advances
+// run.time at TIME_DEBT_MUL (1.5x) and its `chapter` is null, so deriving the phase from run.time
+// would multiply the surge by 1.5 and break the ceiling the number was chosen against.
+//
+// It moves the ENEMIES too. Water that shoves only the player is a control tax; water that shoves
+// everything is weather, and it is also the only thing that makes the backwash readable — the crowd
+// drifting with you is the tell that you are not simply being nerfed.
+// The instantaneous surge, in px/s, as a vector — currentForce's counterpart for this chapter, and
+// exported for the same reason currentForce is: render.js samples it to advect the flow streaks and
+// to rock the crowd, so "the water is moving" on screen and "the water moved me" in the sim are one
+// number rather than two that can drift apart. {fx:0, fy:0} for any chapter that is not the tide,
+// so a caller needs no chapter branch of its own.
+export function tideForce(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'tide') return { fx: 0, fy: 0 }
+  const s = Math.sin((run._realTime / sig.period) * Math.PI * 2)
+  return { fx: Math.cos(sig.axis) * sig.surge * s, fy: Math.sin(sig.axis) * sig.surge * s }
+}
+
+export function stepTide(run, dt) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'tide') return
+  const { fx: sx, fy: sy } = tideForce(run)
+  const fx = sx * dt
+  const fy = sy * dt
+  const p = run.player
+  p.x += fx; p.y += fy
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    e.x += fx; e.y += fy
+  }
+}
+
 // -- Obstacles (v5.0; streamed v5.6.13) ------------------------------------------------
 // Circular colliders (run.obstacles) push the player and every enemy out of overlap;
 // projectiles are never affected (not checked here or anywhere bullets/novas/etc. move).
@@ -2938,13 +2982,20 @@ function streamEddies(run) {
   }
 }
 
-// -- Sun shafts (v7.x Book 2 / The Shelf: streamed pools of light) --------------------
+// -- Refill circles (v7.x Book 2: The Shelf's sun shafts, The Surf's tide pools) -------
 // The fourth copy of streamObstacles' streaming idiom (obstacles -> eddies -> traps -> here): own
-// cell size (sig.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
+// cell size (spec.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
 // run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts (20
-// occupancy, 21 x jitter, 22 y jitter, 23 drift phase) so a shaft's roll can never collide with an
+// occupancy, 21 x jitter, 22 y jitter, 23 drift phase) so a roll here can never collide with an
 // obstacle's (0-4), an eddy's (11-14) or a trap's (15-17) at the same cell. ZERO Math.random() at
 // step time - the same hard rule all three others state (the AA.c/runStarOnly scar).
+//
+// GENERALISED (v7.x, run US.c) to feed run.shafts from either chapter's signature via refillSpec()
+// (config.js): The Shelf's shafts ARE its signature (refillSpec returns it unchanged — asserted by
+// identity, because the Shelf's tune was measured against that exact object), while The Surf's tide
+// pools live at signature.pools. Same cell/hash-salt geometry either way, so a pool and a shaft are
+// mechanically the same circle with a different name; only The Shelf's own signature carries drift
+// (driftAmp/driftHz), which is why stepShafts below still gates on sig.type === 'shafts'.
 //
 // THIS FUNCTION DECIDES EXISTENCE ONLY. It early-returns whenever the player has not crossed a cell
 // boundary, exactly like streamEddies, so anything it computes is computed ONCE per materialization
@@ -2959,13 +3010,16 @@ function streamEddies(run) {
 // drift share it, and the sum has to stay inside the cell or a shaft's collider reaches into the
 // neighbour and overlaps that cell's own shaft. (A density artifact, not a correctness break - the
 // cell bookkeeping keys `live` on _cell, which drift never touches, so a drifted shaft can neither
-// duplicate nor be re-rolled. But it is free to be correct here.)
-function streamShafts(run) {
+// duplicate nor be re-rolled. But it is free to be correct here.) The Surf's pools declare no
+// driftAmp, so `amp` below is 0 there and the whole slack budget goes to jitter, exactly like the
+// three non-drifting streamers.
+export function streamShafts(run) {
   const sig = CHAPTERS[run.chapter].signature
-  if (!sig || sig.type !== 'shafts') return
+  const spec = refillSpec(sig)
+  if (!spec) return
   if (run._obstacleSeed == null) return
   const p = run.player
-  const cs = sig.cell
+  const cs = spec.cell
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
   if (ci === run._shaftCellI && cj === run._shaftCellJ) return // same cell as last scan - field unchanged
   run._shaftCellI = ci; run._shaftCellJ = cj
@@ -2979,22 +3033,22 @@ function streamShafts(run) {
 
   const seed = run._obstacleSeed
   const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
-  const amp = sig.driftAmp ?? 0
+  const amp = spec.driftAmp ?? 0
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j
       if (live.has(key)) continue
-      if (obstacleCellHash(i, j, seed, 20) >= sig.chance) continue
-      const slack = Math.max(0, cs / 2 - sig.r - 20 - amp) // see the driftAmp note above
+      if (obstacleCellHash(i, j, seed, 20) >= spec.chance) continue
+      const slack = Math.max(0, cs / 2 - spec.r - 20 - amp) // see the driftAmp note above
       const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 21) - 0.5) * 2 * slack
       const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 22) - 0.5) * 2 * slack
-      if (Math.hypot(bx, by) < sig.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (Math.hypot(bx, by) < spec.minDist) continue // spawn-ring clearance from the run ORIGIN
       if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
       // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the
       // whole field does not pulse in unison. Stored, not re-derived, because x/y are recomputed
       // every frame and a per-frame hash would be the one avoidable cost in that loop.
       const phase = obstacleCellHash(i, j, seed, 23) * Math.PI * 2
-      run.shafts.push({ x: bx, y: by, bx, by, r: sig.r, phase, _cell: key })
+      run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase, _cell: key })
     }
   }
 }
@@ -3024,16 +3078,74 @@ function stepShafts(run) {
   }
 }
 
+// Sandbars (Book 2 / The Surf). The FIFTH copy of streamObstacles' streaming idiom (obstacles ->
+// eddies -> traps -> shafts -> here): own cell size (sig.bars.cell), own _sandCellI/_sandCellJ
+// cursor, same run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts
+// (30 occupancy, 31 x jitter, 32 y jitter) so a sandbar's roll can never collide with an obstacle's
+// (0-4), an eddy's (11-14), a trap's (15-17) or a shaft's (20-23) at the same cell.
+//
+// ZERO Math.random() at step time — the same hard rule the other four state, and run US.b asserts it
+// by making Math.random throw. A sandbar never moves, so unlike a shaft it spends the whole jitter
+// budget and has no per-frame step of its own.
+export function streamSandbars(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  const spec = sig && sig.type === 'tide' ? sig.bars : null
+  if (!spec) return
+  if (run._obstacleSeed == null) return
+  const p = run.player
+  const cs = spec.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._sandCellI && cj === run._sandCellJ) return
+  run._sandCellI = ci; run._sandCellJ = cj
+
+  for (let k = run.sandbars.length - 1; k >= 0; k--) {
+    if (Math.hypot(run.sandbars[k].x - p.x, run.sandbars[k].y - p.y) > OBSTACLE_DROP_RADIUS) run.sandbars.splice(k, 1)
+  }
+  const live = new Set()
+  for (const b of run.sandbars) live.add(b._cell)
+
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      if (obstacleCellHash(i, j, seed, 30) >= spec.chance) continue
+      const slack = Math.max(0, cs / 2 - spec.r - 20)
+      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 31) - 0.5) * 2 * slack
+      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 32) - 0.5) * 2 * slack
+      if (Math.hypot(x, y) < spec.minDist) continue
+      if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      run.sandbars.push({ x, y, r: spec.r, _cell: key })
+    }
+  }
+}
+
+// Is the player standing on dry ground? Centre-to-centre against the patch radius, exactly like
+// stepCharge's shaft test — standing ON it, not brushing its edge.
+export function onSandbar(run) {
+  const p = run.player
+  for (const b of run.sandbars) if (Math.hypot(b.x - p.x, b.y - p.y) <= b.r) return true
+  return false
+}
+
 // The chapter resource bar (v7.x Book 2). A chapter-gated no-op exactly like stepCurrents and
 // streamTraps - a chapter that declares no `resource` returns on the first line and its run.charge
 // stays the 0 createRun gave it, which is what lets this live in main from day one with no flag.
 //
-// Drains passively and refills while the player stands in a shaft. Kill refills arrive separately,
-// at the kill site, because they are not a per-frame quantity.
-function stepCharge(run, dt) {
+// Drains passively and refills while the player stands in a shaft (or, on The Surf, a tide pool —
+// both live in run.shafts, see streamShafts' generalisation). Kill refills arrive separately, at the
+// kill site, because they are not a per-frame quantity.
+//
+// dryMul (v7.x, run US.c): The Surf's sandbars multiply the drain while you stand on one, via
+// signature.bars.drainMul — onSandbar(run) is the same position test streamSandbars/stepPlayer use.
+// Gated on sig.type === 'tide' so The Shelf (no sandbars, no `bars` block) never reads this at all.
+export function stepCharge(run, dt) {
   const res = CHAPTERS[run.chapter].resource
   if (!res) return
-  let c = run.charge - res.drain * dt
+  const sig = CHAPTERS[run.chapter].signature
+  const dryMul = sig && sig.type === 'tide' && onSandbar(run) ? sig.bars.drainMul : 1
+  let c = run.charge - res.drain * dryMul * dt
   const p = run.player
   for (const sh of run.shafts) {
     // Centre-to-centre against the shaft radius: standing IN the light, not brushing its edge.
@@ -4166,6 +4278,7 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   const p = run.player
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
   let crit = false
   if (Math.random() < p.critChance + run.passives.critChance + critBonus) {
     dmg *= (p.critDamage + run.passives.critDamage)
@@ -4582,6 +4695,10 @@ const WEAPON_STAT_MODS = {
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
   pulsarSweep: { wideSweep: [['width', 'length'], 'pct'], sustainSweep: ['duration', 'pct'] },
+  // v7.55 surf native. All three of the Pincer's stat mods fold plainly; backClaw is behavioral
+  // (read where the claws are laid out, stepPincerWeapon). There is no rate mod because there is no
+  // rate — see WEAPONS.pincer in config.js.
+  pincer:        { crusher: ['dmg', 'pct'], longArm: ['r', 'pct'], backwash: ['knock', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -4648,7 +4765,11 @@ export function buildReadout(run) {
     // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
     // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
     // gets above.
-    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // v7.55: `knock` and `cd` added for the Pincer, right after `r` so it emits dmg, r, knock, cd
+    // and stops — it has no `rate`/`interval`, so it is the one weapon with no cadence row, which is
+    // the point of it (see WEAPONS.pincer). Both keys are unique to the Pincer's levels[] (every
+    // other knockback stat in the game is spelled `knockback`), so no other weapon gains a row here.
+    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'knock', 'cd', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -4719,6 +4840,9 @@ function stepWeapons(run, dt) {
     else if (w.id === 'debrisToss') stepDebrisWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'realityShard') stepShardWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'pulsarSweep') stepPulsarWeapon(run, w, stats, fireRateMul, dt)
+    // The one weapon that takes no fireRateMul, and the omission is deliberate and visible here
+    // rather than swallowed by an ignored parameter — see stepPincerWeapon.
+    else if (w.id === 'pincer') stepPincerWeapon(run, w, stats)
   }
 
   stepBullets(run, dt)
@@ -4738,6 +4862,10 @@ function stepWeapons(run, dt) {
   // its new spot when the breath decides where to jump.
   stepDrags(run, dt)
   stepArcs(run, dt)
+  // v7.55 surf: the Pincer's trigger. Runs AFTER stepPincerWeapon has placed the claws this frame,
+  // so a snap is tested against where the guard actually is, and after stepDrags for the same reason
+  // that moves bodies first — the scan must see this frame's positions, not last frame's.
+  stepGuards(run, dt)
 
   turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
@@ -5984,6 +6112,7 @@ function pickBloomSpot(run, castRange) {
 function applyDotDamage(run, enemy, baseDmg) {
   const p = run.player
   const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
   dealDamage(run, enemy, dmg, false, true)
 }
 
@@ -7305,6 +7434,109 @@ function firePulsar(run, stats) {
     collapseBonus: mods?.collapse ?? 0,
   })
   run.events.push({ type: 'beam' })
+}
+
+// -- Pincer (v7.55 surf starter — THE PARRY) --------------------------------------------------
+// Read this before changing anything here: THIS WEAPON HAS NO TIMER, AND THAT IS THE FEATURE.
+// The other 23 weapons all run through fireOnTimer — an interval elapses, something is emitted, and
+// the player's only input into that is where they are standing. The Pincer holds a claw out toward
+// the nearest enemy and does NOTHING until something comes inside it. Its output is therefore a
+// function of what the crowd does, and a player who kites perfectly gets nothing from it at all.
+//
+// The two halves are split the way the bloom's and the lure's are — a placement site called from
+// the weapon dispatch, and a stepper called from the entity block below it:
+//   stepPincerWeapon  lays the claws out (this frame's aim, position, reach) and NOTHING else. It
+//                     never damages, never arms, never disarms.
+//   stepGuards        the trigger: a proximity scan over run.enemies, plus the re-arm countdown.
+//
+// If you are here to add a `fireOnTimer` call, or an accumulator that snaps when it fills: that is
+// weapon #24 of the kind this one exists not to be, and run US.e part (b) is the assertion that
+// catches it (a stationary enemy far away must leave the guard armed for as long as it sits there).
+function stepPincerWeapon(run, w, stats) {
+  const p = run.player
+  // NO fireRateMul. Every other step function takes it and divides its interval by it; there is no
+  // interval here to divide, and folding it into `cd` would make "attack speed" a stat on a weapon
+  // with no attack cadence — and would silently make the build sheet's `cd` row (which divides by
+  // nothing, unlike the `every` row) wrong. The Pincer's cadence is set by the enemy, and the knobs
+  // that move it are reach and re-arm, both on the card.
+  const target = nearestEnemy(run)
+  // fireFlagella's hard-won aim rule (v5.1.2): the nearest enemy first, because a kiting player's
+  // heading points AWAY from the swarm; the last move direction only as a fallback.
+  let angle
+  if (target) angle = Math.atan2(target.y - p.y, target.x - p.x)
+  else if (p.facingAngle != null) angle = p.facingAngle
+  else angle = p.facing >= 0 ? 0 : Math.PI
+
+  // backClaw: a second claw at your back. The list is one shared LOCAL count used for both the
+  // layout loop AND the angle it spaces them by — the two-sites-one-count rule in CLAUDE.md; three
+  // claws laid out on one angle would render exactly like no change at all.
+  const backClaw = (run.weaponMods.pincer?.backClaw ?? 0) > 0
+  const angles = []
+  for (const a of ipecacAngles(run, angle)) {
+    angles.push(a)
+    if (backClaw) angles.push(a + Math.PI)
+  }
+
+  // RESIZED IN PLACE, never rebuilt: `armed` and `cd` are the whole state of this weapon, and a
+  // fresh object every frame is a claw that forgets it ever snapped, i.e. no cooldown at all.
+  while (run.guards.length < angles.length) run.guards.push({ x: p.x, y: p.y, angle: 0, r: 0, armed: true, cd: 0, rearm: 0, dmg: 0, knock: 0 })
+  if (run.guards.length > angles.length) run.guards.length = angles.length
+
+  for (let i = 0; i < angles.length; i++) {
+    const g = run.guards[i]
+    g.angle = angles[i]
+    g.r = stats.r
+    g.dmg = stats.dmg
+    g.knock = stats.knock
+    // The re-arm DURATION, snapshotted alongside dmg/knock so the scan below is self-contained.
+    // `cd` is the live countdown; `rearm` is what it is reset to. Two fields because a claw that is
+    // currently closed still has to know how long its own cooldown was.
+    g.rearm = stats.cd
+    // Held OUT, between the player and what is coming — not centred on them. The offset scales with
+    // the claw's own radius (PINCER_HOLD_FRAC) so Long Arm buys reach, not just a fatter blob.
+    const hold = stats.r * PINCER_HOLD_FRAC
+    g.x = p.x + Math.cos(g.angle) * hold
+    g.y = p.y + Math.sin(g.angle) * hold
+  }
+}
+
+// The trigger and the re-arm. A claw closes on EVERYTHING whose centre is inside it, not on the one
+// nearest body — the claw is a shield, and a guard that removes one enemy from a pack of eight while
+// the other seven walk past it is not guarding anything. It is also what makes the weapon's damage
+// survive contact with a crowd: measured single-target, the pincer threw away 56% of every snap as
+// overkill on a body that was already dying (weapon-census, surf L5), which is what a big number on
+// a long cooldown always does. `r` is small (50-66px) and offset forward, so in a sparse field this
+// is still exactly one body and in a crush it is three or four — the weapon scales with the thing it
+// exists to answer, without ever becoming a nova on a timer.
+// `cd` is the only clock in it, and it does not start until a snap has happened, so an armed claw
+// over an empty beach stays armed indefinitely.
+function stepGuards(run, dt) {
+  if (run.guards.length === 0) return
+  for (const g of run.guards) {
+    if (!g.armed) {
+      g.cd -= dt
+      if (g.cd <= 0) { g.cd = 0; g.armed = true }
+      continue
+    }
+    const rSq = g.r * g.r
+    let caught = 0
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e)) continue   // SUBMISSION: never pinch your own ally
+      const dx = e.x - g.x, dy = e.y - g.y
+      if (dx * dx + dy * dy > rSq) continue
+      applyDamage(run, e, g.dmg)
+      // Away from the PLAYER, not from the claw — "it gets yanked away" means away from you, and a
+      // shove along the claw's own axis would fling a body that came in from the side sideways past
+      // you. shoveFromPlayer is also what makes an anchored elite take the hit and hold its ground,
+      // the same contract every other knockback in the game keeps.
+      shoveFromPlayer(run, e, g.knock)
+      caught++
+    }
+    if (caught === 0) continue
+    g.armed = false
+    g.cd = g.rearm
+    run.events.push({ type: 'pinch', x: g.x, y: g.y, angle: g.angle, r: g.r })
+  }
 }
 
 // ---- Pickups ------------------------------------------------------------------------
