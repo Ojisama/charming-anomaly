@@ -4405,6 +4405,17 @@ function stepStatuses(run, dt) {
           run.events.push({ type: 'freeze', x: e.x, y: e.y })
         }
       }
+      // PUBLISH TO THE CONTRACT FIELDS render.js already reads (`frozen`, `chill` — see the
+      // "Elemental status" block there). Without this the redesign is INVISIBLE: render.js has no
+      // idea run.newElements exists, so a frozen enemy simply stopped dead with no ice tint and no
+      // held pose, which reads as the freeze not working rather than as the freeze having no tell.
+      // Safe because every other reader of these two fields is either behind `run.newElements`
+      // (the movement slow) or on the old path this branch replaces (the Brittle combo amp,
+      // applyElements, and the decay below that this `continue` skips).
+      // `chill` carries the SLOW FRACTION here, not the old system's remaining seconds; render
+      // only tests it against 0, and a fraction is the thing a future tell would want to scale by.
+      e.frozen = e._elFrozen ?? 0
+      e.chill = e.frozen > 0 ? 0 : elSlow(run, e)
       if (e.ignite > 0) {
         e.ignite = Math.max(0, e.ignite - dt)
         e._igniteAcc = (e._igniteAcc || 0) + dt
@@ -7604,7 +7615,14 @@ function makeElementCard(run, id, rarity) {
     // `descT` is the template + its numbers (config.js), which is what ui.js translates through
     // tt(); `desc` is the same sentence composed in English, for every consumer that wants a plain
     // string — the dev-menu filter, buildReadout, the tests.
-    const descT = elementCardDesc(id, (run.elements?.[id] ?? 0) + bonus)
+    const now = run.elements?.[id] ?? 0
+    const descT = elementCardDesc(id, now + bonus)
+    // `prev` is the SAME template's numbers at the potency the player has right now, so the card can
+    // strike the old figure through and show the new one beside it. Only on an upgrade: at potency 0
+    // there is no old value, and elScale(0) is 0, which makes cold's threshold divide by zero.
+    // Which numbers moved is left to the renderer — it compares per placeholder, so a figure the
+    // pick does not change (the 3s window, lightning's arc count on a small step) stays plain.
+    if (now > 0) descT.prev = elementCardDesc(id, now).p
     return { kind: 'element', id, title: cfg.name, desc: elText(descT), descT, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
   }
   const mult = RARITIES[rarity].mult

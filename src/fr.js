@@ -820,53 +820,55 @@ const CONFIG = {
   'Venom Infusion': 'Infusion de Venin',
   'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.': 'Un poison cumulatif qui amplifie tous les dégâts subis. Combo : amplification doublée sur ❄️, brûlure plus rapide avec 🔥.',
 
+
   // ---- elements redesign: the level-up cards and the Codex (run.newElements). The English is
   // a TEMPLATE with {placeholders}, not a finished sentence, so word order here is French's own
   // business — see elementCardDesc/elementCodex in config.js and tt() in i18n.js.
+  // Deliberately terser than the English: these are reference pages, read mid-run. PV, not
+  // "points de vie" — the abbreviation this file already standardises on everywhere else.
 
-  "Your hits set enemies burning for {pct}% of their damage over {secs}s. Best on heavy hits.":
-    "Tes coups enflamment les ennemis pour {pct}% de leurs dégâts sur {secs}s. Idéal sur les gros coups.",
+  "Your hits set enemies burning for {pct}% of that hit’s damage over {secs}s. Best on heavy hits.":
+    "Chaque coup enflamme : {pct}% des dégâts du coup, sur {secs}s. Idéal sur les gros coups.",
   "Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.":
-    "Chaque coup enflamme sa cible. La brûlure est une part de ce coup : un gros coup brûle profond, une arme rapide enflamme beaucoup de cibles superficiellement.",
+    "Chaque coup enflamme sa cible pour une part de ses dégâts : gros coup, brûlure profonde ; arme rapide, beaucoup de petites brûlures.",
   "A new hit only replaces the burn if it would be stronger.":
-    "Un nouveau coup ne remplace la brûlure que s'il fait mieux.",
+    "Seule une brûlure plus forte remplace la précédente.",
   "Yours: {pct}% of each hit, over {secs}s.":
     "Tes stats actuelles : {pct}% de chaque coup, sur {secs}s.",
   "Damage chills. Take {pct}% of an enemy’s health within {secs}s and it freezes for {freeze}s.":
-    "Les dégâts refroidissent. Retire {pct}% de la vie d'un ennemi en {secs}s et il gèle pendant {freeze}s.",
-  "Damage chills. Chill is how much of an enemy’s health you have taken off recently — when it reaches 100%, the enemy freezes.":
-    "Les dégâts refroidissent. Le froid, c'est la part de vie que tu as retirée récemment à un ennemi : à 100%, il gèle.",
+    "Tes dégâts givrent. Retire {pct}% des PV d'un ennemi en {secs}s : il gèle {freeze}s.",
+  "Damage chills. Chill fills with the health you have just taken off an enemy; a full gauge freezes it.":
+    "La jauge de givre se remplit avec les PV que tu viens de retirer. Pleine, elle gèle l'ennemi.",
   "A freeze holds for {freeze}s. Afterwards the enemy resists cold for {resist}s.":
-    "Un gel dure {freeze}s. Ensuite l'ennemi résiste au froid pendant {resist}s.",
+    "Le gel dure {freeze}s, puis {resist}s de résistance au givre.",
   "Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.":
-    "Les gros ennemis ne sont pas immunisés : ils ont simplement plus de vie, donc le même coup en représente une part plus faible. Seules les élites ancrées ⚓ ne gèlent jamais.",
+    "Les gros ennemis ne sont pas immunisés, ils ont juste plus de PV : le même coup en retire une part plus faible. Seules les élites « Ancré » ⚓ ne gèlent jamais.",
   "Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.":
-    "Tes stats actuelles : retire {pct}% de la vie d'un ennemi en {secs}s pour le geler.",
-  "Damage weakens. A worn-down enemy takes up to +{pct}% damage from every source. Deals none itself.":
-    "Les dégâts affaiblissent. Un ennemi entamé subit jusqu'à +{pct}% de dégâts, quelle qu'en soit la source. N'en inflige aucun lui-même.",
+    "Tes stats actuelles : {pct}% des PV en {secs}s pour geler.",
+  "Damage weakens. An enemy you have just worn down takes +{pct}% damage from every source. Venom deals none itself.":
+    "Tes dégâts affaiblissent. Un ennemi fraîchement entamé subit +{pct}% de dégâts de toutes sources. Le venin n'en inflige aucun.",
   "Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.":
-    "Les dégâts affaiblissent. Un ennemi affaibli subit plus de dégâts de partout : tes armes, tes brûlures, tout.",
+    "Tes dégâts affaiblissent : la cible subit plus de dégâts de toutes sources, armes et brûlures comprises.",
   "Venom deals no damage of its own. It makes everything else hurt more.":
-    "Le venin n'inflige aucun dégât par lui-même. Il rend tout le reste plus douloureux.",
-  "Yours: up to +{pct}% damage taken on a half-worn enemy.":
-    "Tes stats actuelles : jusqu'à +{pct}% de dégâts subis sur un ennemi à moitié entamé.",
+    "Le venin n'inflige aucun dégât : il amplifie celui de tout le reste.",
+  "Yours: +{pct}% damage taken on an enemy you have just taken half a bar off.":
+    "Tes stats actuelles : +{pct}% s'il vient de perdre la moitié de ses PV.",
   "Arcs to {arcs} enemies for {dmg}% damage, at {range}% range. {spread}% chance to spread burning to each.":
-    "Arcs vers {arcs} ennemis pour {dmg}% des dégâts, à {range}% de portée. {spread}% de chances de propager la brûlure à chacun.",
+    "Arcs vers {arcs} ennemis à {dmg}% des dégâts, portée {range}%. {spread}% de chances de propager la brûlure à chacun.",
   "Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.":
-    "Tes coups jaillissent en arcs vers les ennemis proches pour une part des dégâts, et peuvent propager ce que subit le premier : brûlure, saignement.",
+    "Chaque coup part en arc vers les ennemis proches, pour une part des dégâts, et peut leur transmettre brûlure et saignement.",
   "More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.":
-    "Plus de foudre, c'est plus d'arcs, plus longs, plus puissants, et plus de chances de propager.",
+    "Plus de foudre : plus d'arcs, plus longs, plus forts, et plus de propagation.",
   "Yours: {arcs} arcs, {dmg}% damage, {range}% range, {spread}% to spread.":
-    "Tes stats actuelles : {arcs} arcs, {dmg}% de dégâts, {range}% de portée, {spread}% de propagation.",
+    "Tes stats actuelles : {arcs} arcs, {dmg}% de dégâts, portée {range}%, {spread}% de propagation.",
   "Elements read one number: how much of an enemy’s own health you have taken off in the last three seconds.":
-    "Les éléments ne lisent qu'un seul chiffre : la part de sa propre vie que tu as retirée à un ennemi dans les trois dernières secondes.",
-  "That is why a hit which devastates a drone barely troubles a tank — the same damage is a smaller share of a bigger health bar. Nothing is immune; big things simply need more.":
-    "C'est pourquoi un coup qui ravage un drone dérange à peine un colosse : les mêmes dégâts représentent une part plus faible d'une barre de vie plus grande. Rien n'est immunisé ; les gros ennemis en demandent simplement plus.",
+    "Les éléments ne lisent qu'un chiffre : la part de ses propres PV que tu as retirée à un ennemi ces 3 dernières secondes.",
+  "That is why a hit which devastates a drone barely troubles a tank — the same damage is a smaller share of a bigger health bar. Nothing is immune for being big; big things simply need more.":
+    "Un coup qui pulvérise un petit ennemi entame à peine un gros : mêmes dégâts, part plus faible de ses PV. Rien n'est immunisé par sa taille.",
   "It is also why elements grow with your weapons. As your damage climbs, so does everything they do.":
-    "C'est aussi pourquoi les éléments grandissent avec tes armes. Plus tes dégâts montent, plus tout ce qu'ils font monte avec eux.",
+    "Les éléments montent donc avec tes armes : plus de dégâts, plus d'effet.",
   "Back":
     "Retour",
-
 
   // ---- elite affixes (ELITE_AFFIXES). Shown on the elite itself; "Ancré" is the one the
   // element Codex names, since anchored elites are the only ones cold can never freeze.

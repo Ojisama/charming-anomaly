@@ -14721,4 +14721,82 @@ function testElementsRedesign() {
       'pauseData no longer passes newElements, so the gate above reads undefined and the Codex is hidden from EVERY run, flag or not')
     console.log('PASS run EL.g (codex gated): exactly one Codex entry, behind d.newElements, and pauseData supplies it')
   }
+
+  // (h) AN ELEMENT UPGRADE SHOWS WHAT IT MOVES. The card carries the numbers it would replace, so
+  // the player can read the pick as a delta rather than as an absolute they have to remember. Two
+  // halves, both silent when broken: sim must attach `prev` (and must NOT on a first pick, where
+  // there is no old value and elScale(0) = 0 divides cold's threshold by zero), and the renderer
+  // must actually strike it — a `.lv-was` rule deleted from the stylesheet leaves the old figure
+  // sitting in the sentence looking like part of it, which is worse than not showing it at all.
+  {
+    const run = el({})
+    const fireCard = (r) => devCards(r).find((c) => c.kind === 'element' && c.id === 'fire')
+    const first = fireCard(run)
+    assert.ok(first?.descT, 'no element card came back from devCards under the flag')
+    assert.ok(!first.descT.prev, 'a FIRST element pick carries a `prev` — there is no old value to strike, ' +
+      'and elementFacts at potency 0 divides by zero for cold')
+    run.elements.fire = 2
+    run.elementPicks.fire = 1
+    const upgrade = fireCard(run)
+    assert.ok(upgrade.descT.prev, 'an element UPGRADE carries no `prev`, so the card cannot show what it replaces')
+    assert.notStrictEqual(upgrade.descT.p.pct, upgrade.descT.prev.pct,
+      `the burn share reads ${upgrade.descT.p.pct} both before and after the pick — the card would strike a ` +
+      `number through and print the same one beside it`)
+    assert.strictEqual(upgrade.descT.prev.secs, upgrade.descT.p.secs,
+      'the window length changed with potency — it is a constant, and the renderer only strikes what differs')
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/<s class="lv-was">/.test(uiSrc), 'the level-up card no longer strikes the replaced figure')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.ok(/^\.lv-was\b/m.test(css), '.lv-was has no rule in styles.css — the old figure renders as ordinary ' +
+      'text inside the sentence, reading as part of it')
+    console.log(`PASS run EL.h (upgrade delta): first pick has no prev, an upgrade reads ${upgrade.descT.prev.pct} -> ${upgrade.descT.p.pct}, and both halves of the strike are wired`)
+  }
+
+  // (i) THE PLAYER'S OWN FIGURES ARE NOT ANOTHER SENTENCE OF EXPLANATION. Each Codex page ends with
+  // one line about THIS run, and it is set apart so it does not read as more prose. Marked on the
+  // data (`mine`), never matched on the text — a renderer that spotted it by its French prefix
+  // would silently stop working in English, and vice versa.
+  {
+    const withP = Object.keys(ELEMENTS).map((id) => elementCodex(id, 2))
+    for (const page of withP) {
+      const marked = page.filter((l) => l.mine)
+      assert.strictEqual(marked.length, 1, `a Codex page has ${marked.length} lines marked as the player's own`)
+      assert.strictEqual(page[page.length - 1].mine, true, 'the player-figures line is not last on its page')
+    }
+    for (const id of Object.keys(ELEMENTS)) {
+      assert.ok(!elementCodex(id, 0).some((l) => l.mine),
+        `${id} marks a player-figures line at potency 0, where the player has none`)
+    }
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/codex-p--mine/.test(uiSrc), 'renderCodex no longer sets the class that sets those figures apart')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.ok(/^\.codex-p--mine\b/m.test(css), '.codex-p--mine has no rule — the line renders as ordinary body text')
+    console.log(`PASS run EL.i (codex own-figures line): 1 per page, always last, absent at potency 0, class and rule both present`)
+  }
+
+  // (j) THE FREEZE IS VISIBLE. render.js does not know run.newElements exists — it tints and holds
+  // the pose off the contract fields `frozen` and `chill`. The redesign kept its state in private
+  // `_el*` fields only, so a frozen enemy just stopped dead: no ice tint, no held animation, and
+  // the {type:'freeze'} event has no consumer anywhere. That is indistinguishable, while playing,
+  // from cold being broken — which is exactly how a missing tell gets reported as a missing
+  // mechanic. Asserted from BOTH ends: sim publishes, and render still reads.
+  {
+    const run = el({ cold: 4 })
+    let frozenFrames = 0, unpublished = 0, chilledFrames = 0
+    play(run, 60, (r) => {
+      for (const e of r.enemies) {
+        if (e._dead) continue
+        if ((e._elFrozen ?? 0) > 0) { frozenFrames++; if (!((e.frozen ?? 0) > 0)) unpublished++ }
+        else if ((e.chill ?? 0) > 0) chilledFrames++
+      }
+    })
+    assert.ok(frozenFrames > 0, 'nothing froze at cold potency 4 over 60s — this scenario cannot see the tell it guards')
+    assert.strictEqual(unpublished, 0, `${unpublished} of ${frozenFrames} frozen-enemy frames left render's own ` +
+      `\`frozen\` field at 0, so those enemies froze with no tint and no held pose`)
+    assert.ok(chilledFrames > 0, 'no enemy ever published a `chill` value, so the pre-freeze tint never appears')
+    const rnd = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/const frozen = e\.frozen/.test(rnd) && /const chill = e\.chill/.test(rnd),
+      'render.js no longer reads the frozen/chill contract fields — publishing them from sim is now a no-op')
+    console.log(`PASS run EL.j (freeze is visible): ${frozenFrames} frozen frames, all published to render's contract fields, ${chilledFrames} chilled`)
+  }
 }

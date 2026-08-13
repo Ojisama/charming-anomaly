@@ -2975,9 +2975,9 @@ export const elText = ({ s, p }) => s.replace(/\{(\w+)\}/g, (_, k) => p[k] ?? `{
 export const elementCardDesc = (id, P) => {
   const f = elementFacts(id, P)
   switch (id) {
-    case 'fire':      return { s: 'Your hits set enemies burning for {pct}% of their damage over {secs}s. Best on heavy hits.', p: { pct: f.burnPct, secs: EL_WINDOW } }
+    case 'fire':      return { s: 'Your hits set enemies burning for {pct}% of that hit’s damage over {secs}s. Best on heavy hits.', p: { pct: f.burnPct, secs: EL_WINDOW } }
     case 'cold':      return { s: 'Damage chills. Take {pct}% of an enemy’s health within {secs}s and it freezes for {freeze}s.', p: { pct: f.freezePct, secs: EL_WINDOW, freeze: f.freezeT } }
-    case 'venom':     return { s: 'Damage weakens. A worn-down enemy takes up to +{pct}% damage from every source. Deals none itself.', p: { pct: f.ampPct } }
+    case 'venom':     return { s: 'Damage weakens. An enemy you have just worn down takes +{pct}% damage from every source. Venom deals none itself.', p: { pct: f.ampPct } }
     case 'lightning': return { s: 'Arcs to {arcs} enemies for {dmg}% damage, at {range}% range. {spread}% chance to spread burning to each.', p: { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct } }
     default:          return { s: '', p: {} }
   }
@@ -2987,27 +2987,31 @@ export const elementCardDesc = (id, P) => {
 export const elementCodex = (id, P) => {
   const f = elementFacts(id, P)
   const line = (s, p = {}) => ({ s, p })
+  // `mine` marks the one line that is about THIS run rather than about the rule. The Codex sets it
+  // apart visually (see .codex-p--mine) so it does not read as another sentence of explanation —
+  // a flag on the data, not a pattern match on the text, which would break the moment it is translated.
+  const mine = (s, p = {}) => ({ s, p, mine: true })
   switch (id) {
     case 'fire': return [
       line('Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.'),
       line('A new hit only replaces the burn if it would be stronger.'),
-      P > 0 ? line('Yours: {pct}% of each hit, over {secs}s.', { pct: f.burnPct, secs: EL_WINDOW }) : null,
+      P > 0 ? mine('Yours: {pct}% of each hit, over {secs}s.', { pct: f.burnPct, secs: EL_WINDOW }) : null,
     ].filter(Boolean)
     case 'cold': return [
-      line('Damage chills. Chill is how much of an enemy’s health you have taken off recently — when it reaches 100%, the enemy freezes.'),
+      line('Damage chills. Chill fills with the health you have just taken off an enemy; a full gauge freezes it.'),
       line('A freeze holds for {freeze}s. Afterwards the enemy resists cold for {resist}s.', { freeze: EL_FREEZE_T, resist: EL_FREEZE_RESIST_T }),
       line('Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.'),
-      P > 0 ? line('Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.', { pct: f.freezePct, secs: EL_WINDOW }) : null,
+      P > 0 ? mine('Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.', { pct: f.freezePct, secs: EL_WINDOW }) : null,
     ].filter(Boolean)
     case 'venom': return [
       line('Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.'),
       line('Venom deals no damage of its own. It makes everything else hurt more.'),
-      P > 0 ? line('Yours: up to +{pct}% damage taken on a half-worn enemy.', { pct: f.ampPct }) : null,
+      P > 0 ? mine('Yours: +{pct}% damage taken on an enemy you have just taken half a bar off.', { pct: f.ampPct }) : null,
     ].filter(Boolean)
     case 'lightning': return [
       line('Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.'),
       line('More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.'),
-      P > 0 ? line('Yours: {arcs} arcs, {dmg}% damage, {range}% range, {spread}% to spread.', { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct }) : null,
+      P > 0 ? mine('Yours: {arcs} arcs, {dmg}% damage, {range}% range, {spread}% to spread.', { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct }) : null,
     ].filter(Boolean)
     default: return []
   }
@@ -3016,7 +3020,7 @@ export const elementCodex = (id, P) => {
 /** The Codex's opening page — the one rule the whole system hangs off. */
 export const ELEMENT_CODEX_INTRO = [
   'Elements read one number: how much of an enemy’s own health you have taken off in the last three seconds.',
-  'That is why a hit which devastates a drone barely troubles a tank — the same damage is a smaller share of a bigger health bar. Nothing is immune; big things simply need more.',
+  'That is why a hit which devastates a drone barely troubles a tank — the same damage is a smaller share of a bigger health bar. Nothing is immune for being big; big things simply need more.',
   'It is also why elements grow with your weapons. As your damage climbs, so does everything they do.',
 ]
 

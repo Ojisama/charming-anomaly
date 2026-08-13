@@ -1866,8 +1866,19 @@ export function initUI(hooks) {
     // config.js) rather than a finished sentence, so the dictionary has one key per card instead of
     // one per value the numbers can take. c.desc holds the composed English for everything that
     // wants a plain string, and is the fallback for the old element system's cards.
-    if (c.descT) return tt(c.descT.s, c.descT.p)
+    if (c.descT) return elDescHtml(c.descT)
     return tCardDesc(c.desc)
+  }
+  // An element upgrade shows what the pick MOVES: the figure the player has now, struck through,
+  // then the one they would have. Compared per placeholder rather than per sentence, so only the
+  // numbers that actually change get the treatment — the window seconds, and lightning's arc count
+  // on a step that does not add one, stay plain. Substituted INTO the template, which means the
+  // French decides where they land; `prev` is absent on a first pick (see makeElementCard).
+  // Numbers only — every value here comes from elementFacts, so there is no user text to escape.
+  function elDescHtml({ s, p, prev }) {
+    const shown = Object.fromEntries(Object.entries(p).map(([k, v]) => [k,
+      prev && prev[k] !== v ? `<s class="lv-was">${prev[k]}</s>&nbsp;→&nbsp;${v}` : v]))
+    return tt(s, shown)
   }
   function modLine(weaponId, m) {
     const cfg = WEAPON_MODS[weaponId]?.[m.id]
@@ -2079,7 +2090,8 @@ export function initUI(hooks) {
     const sections = Object.keys(ELEMENTS).map((id) => {
       const cfg = ELEMENTS[id]
       const P = elements?.[id] ?? 0
-      const body = elementCodex(id, P).map((p) => `<p class="codex-p">${esc(tt(p.s, p.p))}</p>`).join('')
+      const body = elementCodex(id, P)
+        .map((p) => `<p class="codex-p${p.mine ? ' codex-p--mine' : ''}">${esc(tt(p.s, p.p))}</p>`).join('')
       return `
         <section class="codex-sec">
           <h3 class="codex-sec-title">${cfg.icon} ${esc(t(cfg.name))}</h3>

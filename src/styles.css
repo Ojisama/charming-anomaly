@@ -646,6 +646,9 @@ body {
 .lv-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .lv-card-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.02rem; }
 .lv-card-desc { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
+/* The figure an element pick replaces (see elDescHtml). Quieter than the new one so the eye lands
+   on what you WILL have, with the old value there only as the reference point. */
+.lv-was { opacity: 0.55; text-decoration-thickness: 0.09em; }
 /* v6.7.6: an anomaly card's `from:` line — the fiction that says why THIS card showed up now
    (ANOMALIES in config.js). A wrapping block, deliberately not a .tag: tag is a nowrap pill sized
    for "Lv 3", and these are sentences. Only anomalies set c.from today, hence no tier selector. */
@@ -1895,7 +1898,12 @@ body {
   text-align: left;
 }
 .codex-intro { display: flex; flex-direction: column; gap: 8px; }
-.codex-p { margin: 0; font-size: 0.85rem; line-height: 1.45; overflow-wrap: break-word; }
+.codex-p { margin: 0; font-size: 0.85rem; line-height: 1.45; overflow-wrap: break-word; color: var(--ink-soft); }
+/* The line about THIS run, not about the rule (elementCodex marks it `mine`). Bold AND full-ink
+   against the softer explanation above it — the same body/emphasis split .lv-card-desc uses.
+   The soft colour on .codex-p is what makes this pair work: with both at var(--ink) the colour
+   here was a no-op and weight alone carried the whole distinction. */
+.codex-p--mine { font-weight: 800; color: var(--ink); }
 .codex-sec {
   display: flex;
   flex-direction: column;
