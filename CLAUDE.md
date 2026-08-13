@@ -132,6 +132,21 @@ One sprite per entity goes through `syncPool`. An entity needing independently-t
 
 `sim.js` never calls render or audio directly. It **pushes event objects** (`{type:'hit'|'kill'|'shoot'|'explode'|'levelup'|…}`) onto `run.events`; `main.js` drains them once per frame and fans them out to the renderer (visual bursts) and `SFX_FOR_EVENT` (audio). Adding a new visible/audible effect = emit an event in sim, then handle it in render.js and the `SFX_FOR_EVENT` map. **The authoritative list of every event shape and every `run.*` field lives in the giant doc block in `state.js` (lines 438-1115)** — read it before adding entities or events; keep it in sync when you change the `run` shape.
 
+**A NEW MECHANIC IS INVISIBLE UNTIL IT REACHES A CONTRACT FIELD, and invisible is
+indistinguishable from broken.** render.js tints, holds poses and spawns status particles off
+NAMED fields it reads straight from the enemy — `frozen`, `chill`, `venom`, `ignite`, `fearT`,
+`stunT` (the "Elemental status (contract fields, guarded)" block). It never learns about your
+flag: the v7.5x elements redesign kept freeze in a private `_elFrozen`, and `grep -n "_elFrozen"
+src/render.js` returned nothing, so frozen enemies simply stopped dead — no ice tint, no held
+animation — and the `{type:'freeze'}` event sim pushed had no consumer in render.js *or*
+`SFX_FOR_EVENT`. On screen that is exactly what "cold does nothing" looks like, and it shipped to
+the live URL that way. So: **publish into the existing contract field rather than teaching
+render.js a new one** — sim owns those fields, render only reads them, and a one-line publish
+restores the whole tell. Before shipping any new status, grep render.js for the field you are
+actually setting. A missing tell is also worth a deliberate decision on SOUND: `SFX_FOR_EVENT`
+gets a new entry only if the event is rare enough to bear one (freezes fire dozens of times a
+minute, which is why SUBMISSION's expiry has no sound either).
+
 ### The chapter system (v5.0+)
 
 `CHAPTERS[id]` (config.js, ordered by `CHAPTER_ORDER`) defines each biome: its `weapons` pool (scopes the level-up weapon offers), `starter` weapon, enemy `roster` (mapped to base archetypes `normal`/`fast`/`tank` via `hpMul`/`speedMul`/behavior `flags`), `eliteFlags`, a `signature` mechanic (e.g. `currents`, `pheromones`, `predators`, `gravity`, `traffic`), `obstacles`, and a **render-only** `render` block (tints/bg, zero sim effect). Enemy behavior flags (`latch`, `split`, `dashBurst`, `diveBomb`, `pounce`, `missileVolley`, …) are chapter-agnostic strings that sim.js reads — the flag vocabulary is documented inline in `state.js`'s doc block and each flag's tuning block in config.js.
@@ -155,6 +170,12 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   (`node scripts/ship.mjs "…" --patch`): `--patch`/`--major` override the default minor bump,
   `--dry-run` prints the version and subject and touches nothing. Chores use `chore: …` and stay on
   your branch. Ship prints the exact `scripts/deploy-watch.sh "vX.Y.Z · <sha>"` to verify with.
+  **Ship amends HEAD with `git commit --amend -m`, which replaces the WHOLE message — any BODY on
+  that commit is destroyed.** So write the reasoning where it survives: on the commits below the
+  release, or push the branch first (the pre-amend commit stays reachable there) and ship after.
+  Also expect the retry path to fire for real: it merged `main` and renumbered twice in one
+  afternoon while another session was shipping, which is working as designed — check
+  `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
   Why it exists: an agent that picks a number when it STARTS work picks it hours before `main` is
   next read, and on 2026-08-09 `v6.7.6` and `v6.7.7` each shipped twice — a published duplicate is
   unfixable without rewriting history. ship closes that window to the seconds between fetch and
@@ -259,6 +280,25 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
+- **PLAYER-VISIBLE COPY THAT CONTAINS A NUMBER MUST BE A `tt()` TEMPLATE, and the French coverage
+  assert only sees config TABLES.** Two separate traps that landed together in v7.55, where the
+  whole elements redesign shipped to the live URL untranslatable and the suite was green:
+  - `t()` is keyed by the **exact English source string** (i18n.js — the English IS the key). A
+    sentence built with its numbers already in it therefore has a *different key every time the
+    value changes*, and no dictionary can ever hold enough of them: every element card and every
+    Codex page fell through to English in every language. `tt('…{pct}% over {secs}s…', {pct, secs})`
+    is the fix and predates the bug by a year — the key is the TEMPLATE, which is also what lets the
+    translation put the numbers where French wants them. Keep a plain-string composer next to it
+    (`elText`) for the consumers that need one (a card's own `desc`, the dev-menu filter, tests) so
+    the two can never drift. Placeholder parity is asserted across the whole dictionary in run XX;
+    a misspelt `{pct}` prints literal braces to the player and reads perfectly in review.
+  - run XX's coverage walk enumerates config **tables** (`WEAPONS`, `ELEMENTS`, `ANOMALIES`,
+    `WEAPON_MODS`, `ELITE_AFFIXES`, …) reading `name`/`desc`/`title`/`from`. **Copy that lives in a
+    function or a bare const is exempt from it by construction** — as `elementCardDesc`,
+    `elementCodex` and `ELEMENT_CODEX_INTRO` were. This is the THIRD time that exemption has
+    shipped untranslated strings (two City enemies in v6.3, every weapon mod in v6.6.26). When you
+    add player-visible strings anywhere, add them to that walk in the same commit and watch it go
+    red before you write the French.
 - **Editing `src/fr.js` by exact-string match fails on the NBSP.** French values carry U+00A0
   before `: ; ! ?` (`'Nouveau !'`, `'MONTÉE DE NIVEAU !'`, `'achat : 🪙 {n}'`), and it is
   indistinguishable from a space on screen — an anchor that includes one of those lines will not
