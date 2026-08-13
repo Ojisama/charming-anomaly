@@ -1814,7 +1814,7 @@ body {
   color: var(--ink-soft);
   background: var(--cream);
 }
-/* v7.53: run.newElements toggle, pinned above the card list. Deliberately NOT a .lv-card or a
+/* run.newElements toggle, pinned above the card list. Deliberately NOT a .lv-card or a
    .btn — a flat coloured switch reads as chrome at a glance, where either of those would look like
    the 191st card in the list below it. min-height 44px so it is unmissable on a phone; the ON/OFF
    pill is the whole state, not colour alone, so it survives a screenshot in grayscale. */
@@ -1880,7 +1880,7 @@ body {
 .bd-eff-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bd-eff-t b { color: var(--mint-dark); font-weight: 800; }
 
-/* ---- element codex (v7.53) ------------------------------------------------------------------
+/* ---- element codex ------------------------------------------------------------------
    A scrollable read: the intro rule, then one section per element. Bounded like .modal--pause and
    .modal--dev (a 320px phone must never let this push its own Back button off-screen), and its
    body is the one place in this modal that overrides the base .modal centering — paragraphs read

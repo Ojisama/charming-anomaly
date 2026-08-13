@@ -77,7 +77,7 @@ import {
   CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
   SHOCK_ARC_FRAC, SHOCK_RANGE, SHOCK_CD,
   VENOM_MAX_STACKS, VENOM_DURATION, VENOM_DOT_PER_STACK, VENOM_AMP_PER_STACK,
-  // Elements redesign (v7.53), live only while run.newElements — see the EL_* block in config.js.
+  // Elements redesign, live only while run.newElements — see the EL_* block in config.js.
   EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
   EL_FREEZE_RESIST_T, EL_VENOM_MUL, EL_LIGHT_SHARE, EL_LIGHT_RANGE, EL_LIGHT_FORWARD,
   EL_BUCKET_WEIGHT, EL_VALUES, elScale, elementCardDesc,
