@@ -95,3 +95,19 @@ reachable through the dev gate and reads as a broken game rather than as an abse
 
 Mod budget (spec §7): **~4 mods per weapon, and cut a weapon rather than invent mods.** Cut order if
 needed: Net Toss first, then Longline.
+
+---
+
+## Salt allocations for the new streamed fields
+
+`obstacleCellHash(i, j, seed, salt)` — a collision is SILENT: two fields occupy exactly the same
+cells, which reads as "the mechanic spawns on top of the other one" and never as an error. Claimed
+blocks today are 0-4 (obstacles), 11-14 (eddies), 15-17 (traps), 20-23 (shafts), 30-32 (sandbars).
+
+Reserved here so the three chapters cannot collide with each other while being built in sequence:
+
+| Block | Chapter | Field |
+|---|---|---|
+| 40-42 | Reef | air pockets |
+| 45-47 | Trawl | anything streamed (the net itself is not a streamed field) |
+| 50-52 | Deep | wreck field / weak points |
