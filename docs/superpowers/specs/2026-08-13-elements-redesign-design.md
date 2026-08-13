@@ -1,6 +1,31 @@
 # Elements redesign — impact, not potency
 
 **Date:** 2026-08-13 · **Revision 2**, after adversarial review (findings and their resolutions in §17).
+
+> ## STATUS: SHIPPED BEHIND A FLAG — read this before the body
+>
+> Implemented in `2e4b8fb` behind **`run.newElements`**, off by default and per-run: seven taps on
+> the HUD coin badge, then **New elements**. Both element systems are live side by side; the loser
+> gets deleted outright once the owner has played it.
+>
+> **The body below is the design argument, and it is out of date in nine places.** Later owner
+> rulings and a second adversarial review both landed after it was written. What actually shipped:
+>
+> | | body says | shipped |
+> |---|---|---|
+> | Cold's identity | space / control | **a finisher** — its meter fills with the damage you deal, so it locks down what you are already killing |
+> | Unfreezable | every `resistsCC` enemy | **only `anchored` elites.** `unshakeable` tanks freeze; they resist by having more health |
+> | Freeze rate | a demanding threshold | **85–99% of enemies, deliberately.** Measured; owner accepted it as what cold does |
+> | Hazard damage | fills the window | **excluded.** Traffic, mower and pounce trap pass `hazard=true`; they deal a fixed share of the target's own maxHP, so one car pass would freeze the chapter |
+> | Windows | one shared per enemy | **two** (`_elCold`, `_elVenom`) — cold clears its own on a freeze, which a shared window plus a scalar "spent" marker cannot do without ratcheting |
+> | Post-freeze resist | scales the slow | **scales the intake.** Scaling the product the threshold reads from is arithmetically "cannot freeze at any rarity" |
+> | Ring buffer | subtracted before advancing | **advances first.** The body's order evicts the bucket it just wrote — a 0.5 s window, not 3 s, and every threshold 6× out |
+> | Combos | parked | **all six off under the flag** |
+> | Help screen | unnamed | **Codex**, reachable from the title ⚙ sheet and from pause |
+>
+> Guarded by six `run EL` scenarios in `test/sim-test.js`, each mutation-proved. Constants are
+> starting values; nothing here has been balanced. French copy is deliberately absent — owner writes
+> it, and the new card/Codex strings are English-only until he does.
 **Replaces:** `2026-08-07-dot-rework-and-sim-fixes-design.md` (Track A), deleted 2026-08-13 by owner
 call. Its element rework was sized against the old ~5.9% element share and is re-derived here; its
 two still-live non-element bugs are carried forward in Appendix A.
