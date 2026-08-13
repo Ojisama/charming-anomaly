@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightCore,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -2501,10 +2501,15 @@ export function createRenderer(app) {
   // THE SHARPNESS KNOB. How much of the light's radius is fully lit before the falloff starts;
   // raise it and the transition from your light to the dark gets shorter and harder-edged.
   //
-  // ONE const for two readers that must not drift: the bake's first ramp stop, and updateDark's
-  // early-out (a fully-lit core that already covers the farthest corner means there is nothing to
-  // draw). Those were two hardcoded 0.45s with a comment explaining that a texture cannot be asked
-  // its own profile — true, but both live in this file, so they can share the number instead.
+  // ONE const for two readers that must not drift: the bake's first ramp stop, and updateDark
+  // turning the chapter's CORE radius into the outer one the stamp is drawn at. Those were two
+  // hardcoded 0.45s with a comment explaining that a texture cannot be asked its own profile —
+  // true, but both live in this file, so they can share the number instead.
+  //
+  // It is a SHAPE knob and nothing else. The early-out that used to read it ("is the core already
+  // covering the corner?") now compares the core against the corner directly, because the chapter
+  // states its light AS a fraction of the screen (lightCore, config.js) — so moving this changes
+  // how hard the edge is and cannot change how much of the screen is lit.
   const LIGHT_CORE_FRAC = 0.62
   // The falloff's shape, as DARKNESS at evenly-spaced samples from the core out to the rim. Held as
   // a shape and positioned by LIGHT_CORE_FRAC so the sharpness knob moves where the ramp happens
@@ -8436,13 +8441,18 @@ export function createRenderer(app) {
     // uses — NOT viewW()/2, which is only the player's position in the chapters that centre the
     // camera (a lane chapter sits them low, see cy above).
     const px = run.player.x + cx, py = run.player.y + cy
-    const R = lightRadius(run.charge, res)
-    // Nothing to draw once the fully-lit core alone covers the farthest corner. The cheap exit for a
-    // full bar on a phone, and the reason nothing below has to care how large lightFull gets.
+    // The screen's half-diagonal from the player, which is BOTH the scale the light is measured in
+    // and the early-out's yardstick — one quantity, so "the core covers the corner" and "there is
+    // nothing to draw" cannot drift into two different numbers the way a px radius and a screen size
+    // did (see lightCore in config.js).
     const corner = Math.max(Math.hypot(px, py), Math.hypot(w - px, py),
                             Math.hypot(px, h - py), Math.hypot(w - px, h - py))
-    if (R * LIGHT_CORE_FRAC >= corner) { darkLayer.visible = false; return }
+    const core = lightCore(run.charge, res, corner)
+    if (core >= corner) { darkLayer.visible = false; return }   // fully lit to the farthest corner
     darkLayer.visible = true
+    // The outer radius, where the falloff has reached full `dim`. LIGHT_CORE_FRAC is the falloff's
+    // SHAPE and lives with the bake it positions; the core is the part the chapter tunes.
+    const R = core / LIGHT_CORE_FRAC
 
     // The lightmap, in its own tiny space. The buffer tracks the screen's ASPECT, so the single
     // scale `s` below serves both axes and a light stays round instead of going oval on a phone.

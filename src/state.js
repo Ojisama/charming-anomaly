@@ -829,9 +829,10 @@ function generateWells(sig) {
  *     1. the Pulse's strength (PULSE_* in config.js; an empty bar still fires the shipped
  *        REPULSE_* shove, which is the floor that keeps the resource from being self-denying);
  *     2. THE DARK — below resource.dark.from the LIGHT YOU EMIT closes in from resource.dark
- *        .lightFull to .lightEmpty (render.js updateDark cuts a hole of that radius in a scrim at
- *        .dim and feathers its rim), and the player slows toward resource.dark.speedFloor (sim.js
- *        stepPlayer). Both read the ONE curve darkness(charge, res) in config.js — lightRadius()
+ *        .coreFull to .coreEmpty, both MULTIPLES OF THE SCREEN'S HALF-DIAGONAL rather than px
+ *        (render.js updateDark subtracts a stamp of that radius from a per-frame lightmap it then
+ *        paints at .dim), and the player slows toward resource.dark.speedFloor (sim.js
+ *        stepPlayer). Both read the ONE curve darkness(charge, res) in config.js — lightCore()
  *        interpolates on it rather than on raw charge for exactly that reason — so the closing
  *        light and the slow start at the same instant and bottom out together, and the player can
  *        read their condition off the screen without consulting the rail. The first cut ramped the
