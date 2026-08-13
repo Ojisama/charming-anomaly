@@ -109,6 +109,8 @@ import {
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
+  // v7.53 elements redesign (Run EL)
+  EL_WINDOW, EL_BUCKETS,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
 
@@ -14393,17 +14395,55 @@ function testElementsRedesign() {
   }
 
   // (a) THE WINDOW REALLY HOLDS EL_WINDOW SECONDS. The ring buffer must advance BEFORE it clears,
-  // or it evicts the bucket just written and holds 0.5s instead of 3s — which reads as "the design
-  // is 6x too weak" rather than as a bug. Measured as an EFFECT: with no cold to consume it, a
-  // dying enemy's window climbs most of the way to 1.0, because 1.0 is exactly its whole health.
+  // or it evicts the bucket just written and holds one 0.5s slice instead of 3s — which reads as
+  // "the design is 6x too weak" rather than as a bug.
+  //
+  // A PEAK OVER A LIVE CROWD CANNOT SEE THIS, and the first cut of this scenario asserted exactly
+  // that: one player hit on a low-HP drone is over half of its health bar by itself, so the peak
+  // clears any threshold with the ring buffer broken, and the assertion's own message named a bug
+  // it could not detect. Measured against the DAMAGE TRACE instead — on a pinned enemy topped up
+  // every frame, the window must equal the damage of the last EL_WINDOW seconds and nothing older.
+  // The window drops its oldest bucket every EL_WINDOW/EL_BUCKETS, so at any instant it holds
+  // between EL_WINDOW - one bucket and EL_WINDOW seconds; both ends are checked.
   {
-    const run = el({})
-    let peak = 0
-    play(run, 45, (r) => { for (const e of r.enemies) if (!e._dead) peak = Math.max(peak, e._elVenom?.total ?? 0) })
-    assert.ok(peak > 0.5, `element window peaked at ${peak.toFixed(3)} — it is holding a fraction of EL_WINDOW, ` +
-      `which is what happens when the ring buffer clears the bucket it just wrote instead of the oldest`)
-    assert.ok(peak <= 1.0001, `window reached ${peak.toFixed(3)} > 1.0, which is more than the enemy's whole health`)
-    console.log(`PASS run EL.a (window depth): peak ${peak.toFixed(3)} of a health bar, and never above 1.0`)
+    Math.random = mulberry32(4242)
+    const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
+    run.newElements = true
+    run.player.maxHP = run.player.hp = 1e9
+    const stepped = () => {
+      if (run.phase === 'levelup') { run.phase = 'playing'; return false }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      return true
+    }
+    for (let i = 0; i < 300; i++) stepped()
+    const e = run.enemies.find((x) => !x._dead)
+    assert.ok(e, 'no enemy alive to pin')
+    const px = run.player.x, py = run.player.y, MAXHP = 2000
+    const per = EL_WINDOW / EL_BUCKETS
+    const trace = []
+    const sum = (secs) => trace.slice(-Math.round(secs * 60)).reduce((a, b) => a + b, 0)
+    let peak = 0, minFill = Infinity, maxFill = 0
+    for (let i = 0; i < 600; i++) {
+      e.x = px + 40; e.y = py; e.maxHP = MAXHP; e.hp = MAXHP; e._dead = false
+      if (!stepped()) continue
+      trace.push(Math.max(0, (MAXHP - e.hp) / MAXHP))     // HP the player removed this frame
+      const obs = e._elVenom.total
+      peak = Math.max(peak, obs)
+      if (trace.length < 240) continue                    // let the window prime first
+      const lo = sum(EL_WINDOW - per), hi = sum(EL_WINDOW)
+      if (hi <= 0) continue
+      minFill = Math.min(minFill, obs / lo)               // < 1 means it is dropping damage too early
+      maxFill = Math.max(maxFill, obs / hi)               // > 1 means it is keeping damage too long
+    }
+    assert.ok(minFill > 0.98, `the window held only ${minFill.toFixed(2)}x the damage of the last ` +
+      `${(EL_WINDOW - per).toFixed(1)}s — it is evicting early, which is what happens when the ring buffer ` +
+      `clears the bucket it just wrote instead of the oldest one`)
+    assert.ok(maxFill < 1.02, `the window held ${maxFill.toFixed(2)}x the damage of the last ${EL_WINDOW}s — ` +
+      `it is keeping damage past its expiry`)
+    assert.ok(peak > 0 && peak <= 1.0001, `window reached ${peak.toFixed(3)}, which is more than the enemy's whole health`)
+    console.log(`PASS run EL.a (window depth): holds the last ${(EL_WINDOW - per).toFixed(1)}-${EL_WINDOW}s of damage exactly ` +
+      `(${minFill.toFixed(2)}-${maxFill.toFixed(2)}x), peak ${peak.toFixed(3)} of a health bar`)
   }
 
   // (b) NORMALISED BY THE ENEMY'S OWN HEALTH — the one rule the whole design rests on. Measured
