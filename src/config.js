@@ -2253,7 +2253,7 @@ export const WEAPON_MODS = {
   },
   // ---- The Surf native (v7.55) ----
   // FOUR mods, one per thing the weapon can honestly be tuned on, and no fifth. crusher/longArm/
-  // riptide fold into levels[] via WEAPON_STAT_MODS (sim.js); backClaw is behavioral, read where
+  // backwash fold into levels[] via WEAPON_STAT_MODS (sim.js); backClaw is behavioral, read where
   // the guards are laid out (stepPincerWeapon).
   //
   // There is deliberately NO re-arm-speed mod. `cd` is an interval, so a pct pick folded into it

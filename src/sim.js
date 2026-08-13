@@ -7261,7 +7261,7 @@ function stepPincerWeapon(run, w, stats) {
 // the other seven walk past it is not guarding anything. It is also what makes the weapon's damage
 // survive contact with a crowd: measured single-target, the pincer threw away 56% of every snap as
 // overkill on a body that was already dying (weapon-census, surf L5), which is what a big number on
-// a long cooldown always does. `r` is small (46-58px) and offset forward, so in a sparse field this
+// a long cooldown always does. `r` is small (50-66px) and offset forward, so in a sparse field this
 // is still exactly one body and in a crush it is three or four — the weapon scales with the thing it
 // exists to answer, without ever becoming a nova on a timer.
 // `cd` is the only clock in it, and it does not start until a snap has happened, so an armed claw

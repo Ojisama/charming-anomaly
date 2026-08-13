@@ -10427,9 +10427,6 @@ export function createRenderer(app) {
   // WEAPON_MODS.clawRake.ambushPredator is held (ambushHeld/ambushPX/ambushPY, same per-frame
   // latch), mirroring the armed-or-sprung contract slashClaws' own scan uses (sim.js).
   const trapPool = []
-  // v5.21 lane: an asteroid. Reuses T.asteroid — the same rock already scattered as this chapter's
-  // baked obstacle furniture, which is the point: the hazard IS the local debris, not a new species.
-  // Tumble comes from rk.rot (sim-owned, so it survives a pause and matches across a re-render).
   // Pincer claws (v7.55 surf, run.guards {x,y,angle,r,armed,cd,rearm}). A FLAT sprite pool — one
   // Sprite per claw, no independently-transformed parts — so it belongs in reset()'s flat list and
   // must NOT get a `.root.visible` line (putting a flat pool in the rig block, or a rig in the flat
@@ -10463,6 +10460,9 @@ export function createRenderer(app) {
     }
   }
 
+  // v5.21 lane: an asteroid. Reuses T.asteroid — the same rock already scattered as this chapter's
+  // baked obstacle furniture, which is the point: the hazard IS the local debris, not a new species.
+  // Tumble comes from rk.rot (sim-owned, so it survives a pause and matches across a re-render).
   const rockPool = []
   function placeRock(s, rk) {
     if (s.texture !== T.asteroid.tex) { s.texture = T.asteroid.tex; s.anchor.set(T.asteroid.ax, T.asteroid.ay) }

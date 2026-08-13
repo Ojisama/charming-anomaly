@@ -1135,9 +1135,17 @@ function generateWells(sig) {
  *   holding each claw PINCER_HOLD_FRAC × r out from the player along `angle` — which tracks
  *   nearestEnemy, so the guard is always between the player and whatever is closest. `armed` starts
  *   true and STAYS true for as long as nothing comes within r of the claw's centre; the trigger is
- *   stepGuards' proximity scan over run.enemies, never an elapsed interval. On a snap the nearest
- *   body inside takes `dmg` (applyDamage — one enemy, no pierce, no splash), is shoved `knock` px/s
- *   away from the PLAYER (shoveFromPlayer, so an anchored elite takes the hit and holds), an
+ *   stepGuards' proximity scan over run.enemies, never an elapsed interval. On a snap EVERY enemy
+ *   inside `r` takes `dmg` (applyDamage, once each — no pierce/splash needed since the claw already
+ *   covers every body inside it), and each is shoved `knock` px/s away from the PLAYER
+ *   (shoveFromPlayer, so an anchored elite takes the hit and holds). This is an AREA snap, not
+ *   single-target, because it measured that way first: hitting one body per snap left it at 15 eff
+ *   dps against the Flagella Whip's 66 (weapon-census, surf L5), most of every hit wasted as overkill
+ *   while the rest of an eight-body pack went untouched — and the claw does not buy that back through
+ *   crowd-denial either, so it is not a deliberate trade: kiting-rig median nearest-enemy distance
+ *   measured 45px for the pincer against 57/65 for the whip/bloom, no better a wall than either.
+ *   Snapping everything inside the claw took it 15 -> 55 in one change (see WEAPONS.pincer in
+ *   config.js for the full measurement history). An
  *   {type:'pinch', x, y, angle, r} event is emitted, and the claw sets armed=false / cd=rearm
  *   (`rearm` being levels[].cd, snapshotted each frame beside dmg/knock; `cd` is the live
  *   countdown). cd then counts DOWN in stepGuards and re-arms at 0. The armed/cd pair survives the
@@ -1601,7 +1609,7 @@ export function createRun(meta, opts = {}) {
     // falloutBonus, nodes }, where `nodes` is the polyline player->body->body rebuilt every tick.
     drags: [],
     arcs: [],
-    // v7.55 The Surf. guards: the Pincer's held claws — { x, y, angle, r, armed, cd, dmg, knock }.
+    // v7.55 The Surf. guards: the Pincer's held claws — { x, y, angle, r, armed, cd, rearm, dmg, knock }.
     // Empty unless the weapon is owned; stepPincerWeapon resizes it in place rather than rebuilding
     // it, because `armed`/`cd` are the weapon's whole state (see the doc block above).
     guards: [],
