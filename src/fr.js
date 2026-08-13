@@ -864,13 +864,13 @@ const CONFIG = {
 
   // The cards carry ONLY the figure that decides the pick; the Codex has the rest.
   "Burns for {pct}% of each hit.":
-    "Brûle pour {pct}% de chaque coup.",
+    "Enflamme l'ennemi pour {pct}% des dégâts du coup.",
   "Freezes at {pct}% of a health bar.":
-    "Gèle à {pct}% des PV retirés.",
-  "+{pct}% damage taken.":
-    "+{pct}% de dégâts subis.",
+    "Retire {pct}% de ses PV pour le geler.",
+  "Enemies take +{pct}% damage.":
+    "L'ennemi subit +{pct}% de dégâts.",
   "{arcs} arcs for {dmg}% damage.":
-    "{arcs} arcs pour {dmg}% des dégâts.",
+    "Frappe {arcs} ennemis à {dmg}% des dégâts.",
 
   // ---- elite affixes (ELITE_AFFIXES). Shown on the elite itself; "Ancré" is the one the
   // element Codex names, since anchored elites are the only ones cold can never freeze.
