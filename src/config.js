@@ -3737,26 +3737,28 @@ export const CHAPTERS = {
       cast: ['jet', 'helicopter', 'tankColumn'],
       bgColor: 0x2a3240,    // dark storm indigo-grey sky showing between the rubble
       floorTint: 0x717c88,  // wet-asphalt cool grey multiply — rain-slicked night wreckage
-      // playerTint/tailTint: read only when `kaiju` (below) is false — render.js's syncPlayer
+      // playerTint/tailTint: read only when `form` (below) isn't 'kaiju' — render.js's syncPlayer
       // bypasses BOTH for the dedicated kaiju bake (SKIES_KAIJU carries its own final palette
       // directly, the same "plans carry their own palette" rule the top-down structures use).
       // Kept here, rather than deleted, as the schema every other chapter's render block follows
-      // and as the fallback if `kaiju` were ever turned off.
+      // and as the fallback if `form` were ever cleared.
       playerTint: 0x7ad07a, // classic rubber-suit kaiju green
       tail: true,
       tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailLash's business end)
-      // v5.11 kaiju redesign: the player was STILL the generic cross-chapter blob — identical
-      // silhouette to body/pond/garden/undergrowth/city/beyond, just retinted, at ~44px on screen
-      // (2 x PLAYER.radius) next to a tower that now draws up to 96px (SKIES_STRUCTURE_ART.tower).
-      // `kaiju: true` gates a SKIES-ONLY body/tail rig in render.js (chapterHasKaiju, mirroring the
-      // chapterHasStorm/chapterHasDistricts latch pattern) — a real top-down silhouette (shoulders,
-      // jawed head, fore/hind limbs, a baked dorsal-plate spine) at a size that actually dwarfs a
-      // tower, plus a proper segmented tail replacing the generic flagellum (T.fx.trace_05) that
-      // pond/undergrowth's `tail: true` still uses UNCHANGED — see render.js's syncPlayer for the
-      // branch. See SKIES_KAIJU below (art direction §5-adjacent, same "counts + palette in
-      // config.js, geometry hardcoded in render.js" split as SKIES_STRUCTURE_ART) for the palette
-      // and detail counts. PLAYER.radius (22) stays the sim hitbox — nothing here is read by sim.js.
-      kaiju: true,
+      // v5.11 kaiju redesign, generalised (undertow): the player was STILL the generic cross-chapter
+      // blob — identical silhouette to body/pond/garden/undergrowth/city/beyond, just retinted, at
+      // ~44px on screen (2 x PLAYER.radius) next to a tower that now draws up to 96px
+      // (SKIES_STRUCTURE_ART.tower). `form: 'kaiju'` gates a SKIES-ONLY body/tail rig in render.js
+      // (playerForm, mirroring the chapterHasStorm/chapterHasDistricts latch pattern) — a real
+      // top-down silhouette (shoulders, jawed head, fore/hind limbs, a baked dorsal-plate spine) at
+      // a size that actually dwarfs a tower, plus a proper segmented tail replacing the generic
+      // flagellum (T.fx.trace_05) that pond/undergrowth's `tail: true` still uses UNCHANGED — see
+      // render.js's syncPlayer for the branch. See SKIES_KAIJU below (art direction §5-adjacent,
+      // same "counts + palette in config.js, geometry hardcoded in render.js" split as
+      // SKIES_STRUCTURE_ART) for the palette and detail counts. PLAYER.radius (22) stays the sim
+      // hitbox — nothing here is read by sim.js. (CHAPTERS.surf.render.form === 'worm' is the same
+      // idiom's second user — see that chapter's own render block.)
+      form: 'kaiju',
       storm: true,          // v5.6.18: gates the night-thunderstorm overlay (cloud-shadows,
                              // parallax clouds, rain — STORM_VIS below, render.js updateStorm)
       districts: true,      // v5.7.x: gates the per-cell Voronoi district floor/prop system
@@ -4119,9 +4121,16 @@ CHAPTERS.surf = {
   // shares the pond's render object BY REFERENCE, so writing `CHAPTERS.surf.render.cast = […]` in
   // place would rewrite The Pond's render block too (see CHAPTERS.shelf.obstacles === CHAPTERS
   // .pond.obstacles in shipped code — shelf only avoids the same trap because it overrides render
-  // wholesale, exactly as this does). cast is the only thing this chapter needs from render right
-  // now; the rest of the beach look (tints, swell) is a later task's.
-  render: { ...CHAPTERS.pond.render, cast: ['sandhopper', 'shorecrab', 'gull'] },
+  // wholesale, exactly as this does). cast, form and tail are all this task adds; the rest of the
+  // beach look (tints, swell) is a later task's.
+  //
+  // form: 'worm' (v5.11 kaiju redesign, generalised for undertow): the player is a bristle worm
+  // here, not the generic cross-chapter blob — see render.js's drawWorm (in this chapter's own
+  // roster section) and the playerForm branches in syncPlayer. Same idiom CHAPTERS.skies.render's
+  // `form: 'kaiju'` uses.
+  // tail: false overrides pond's inherited `tail: true` — the worm's own tapered trunk already ends
+  // in a tail, so pond's separate trailing flagellum sprite would double up on one.
+  render: { ...CHAPTERS.pond.render, cast: ['sandhopper', 'shorecrab', 'gull'], form: 'worm', tail: false },
 }
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
@@ -5271,7 +5280,7 @@ export const SKIES_STRUCTURE_ART = {
 // ---- KAIJU ART (v5.11) — render-only, skies-only ------------------------------------------------
 // The player was the one thing in the chapter that DIDN'T get the top-down redraw: the same generic
 // blob every other chapter tints, at ~44px on screen (2 x PLAYER.radius) next to a tower that now
-// draws up to 96px (SKIES_STRUCTURE_ART.tower, above). CHAPTERS.skies.render.kaiju gates a dedicated
+// draws up to 96px (SKIES_STRUCTURE_ART.tower, above). CHAPTERS.skies.render.form === 'kaiju' gates a dedicated
 // body/tail rig in render.js — same "palette + detail counts live here, the actual polygon
 // coordinates are hardcoded in render.js" split SKIES_STRUCTURE_ART already uses (its geometry is
 // specific enough — a jaw, a dorsal ridge, four limbs — that a data-driven layout would just be a

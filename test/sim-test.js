@@ -12294,6 +12294,7 @@ try {
   testSurfHumidity()
   testSurfHumidityDamage()
   testPincer()
+  testPlayerForms()
   testDevMenu()
   testModalPopBookkeeping()
   console.log('ALL TESTS PASSED')
@@ -14689,6 +14690,40 @@ function testPincer() {
   assert.ok(run.guards.some((q) => q.armed), 'the guard never re-armed')
 
   console.log(`PASS run US.e (pincer): the guard tracks the nearest enemy, stays armed while nothing approaches, and on contact damages and throws — ${snaps} snaps over the re-arm window`)
+}
+
+// ---- run US.f (undertow task 8): the player's own body is per-chapter, not one boolean ----------
+// render.js used to gate the kaiju body/tail rig on a single `chapterHasKaiju` boolean, latched from
+// CHAPTERS.skies.render.kaiju. This generalises it into `playerForm`, read from CHAPTERS[].render
+// .form, so a second chapter (The Surf) can also swap the generic blob for a body of its own — a
+// bristle worm, reusing drawCentipede's rig. render.js is not importable (Pixi + DOM), so this reads
+// it as SOURCE TEXT, the same trick run UG.k uses for a render-side contract with no other guard.
+function testPlayerForms() {
+  const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+
+  // (a) the boolean is gone. It survived as ~16 separate mentions (call sites plus comments), so a
+  // partial refactor leaves half the renderer reading a variable that no longer means anything.
+  const leftovers = [...src.matchAll(/chapterHasKaiju/g)].length
+  assert.strictEqual(leftovers, 0,
+    `${leftovers} references to chapterHasKaiju remain — the form refactor is half-applied`)
+
+  // (b) the generalised read exists and is driven by config, not by a chapter id literal.
+  assert.ok(/playerForm\s*=\s*chapterRender\.form/.test(src),
+    'render.js does not read the player form from the chapter render block')
+  assert.ok(!/playerForm\s*===\s*'kaiju'\s*\|\|\s*run\.chapter/.test(src),
+    'the form check still branches on a chapter id — that is the boolean with extra steps')
+
+  // (c) every declared form has a draw function.
+  const forms = new Set(Object.keys(CHAPTERS).map((id) => CHAPTERS[id].render?.form).filter(Boolean))
+  assert.ok(forms.has('kaiju') && forms.has('worm'),
+    `expected at least the kaiju and worm forms, found ${[...forms].join(', ')}`)
+  for (const f of forms) {
+    const fn = 'draw' + f[0].toUpperCase() + f.slice(1)
+    assert.ok(src.includes(fn) || f === 'kaiju',
+      `form '${f}' is declared in config but ${fn} does not exist in render.js — the player renders as the generic blob with no error`)
+  }
+
+  console.log(`PASS run US.f (player forms): ${forms.size} chapter-specific player bodies declared in config, each with a draw fn, and no chapterHasKaiju left`)
 }
 
 // ---- run DV (v7.12): the hidden dev menu lists EVERY card, and takes them the real way ---------

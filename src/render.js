@@ -243,12 +243,13 @@ export function createRenderer(app) {
   // v6.3: whether crush leaves a permanent ruin decal (CHAPTERS[].render.storm OR .ruins —
   // currently skies and city). Same `storm || X` idiom as chapterHasRain; read by updateRuins.
   let chapterHasRuins = false
-  // v5.11 kaiju redesign: whether the active chapter draws the dedicated kaiju body/tail rig
-  // (CHAPTERS[].render.kaiju — currently only `skies`) instead of the generic cross-chapter blob.
-  // Same latch pattern as chapterHasStorm; read by syncPlayer/updateRampage. Every other chapter
-  // (including pond/undergrowth, which also set `tail: true`) never sees this flag flip true, so
-  // their rig is byte-identical to before this pass.
-  let chapterHasKaiju = false
+  // v5.11 kaiju redesign, generalised (undertow): which chapter-specific player body the active
+  // chapter draws — CHAPTERS[].render.form, e.g. 'kaiju' for skies, 'worm' for surf — in place of
+  // the generic cross-chapter blob. null for a chapter that declares no form. Read by
+  // syncPlayer/updateRampage/lightPlatesForBreath; every site checks the SPECIFIC form it owns
+  // (playerForm === 'kaiju'), so a chapter with no form — or a future form neither of them draws —
+  // renders the generic blob exactly as before this pass.
+  let playerForm = null
   // v6.5 undergrowth: screen-space falling leaves (CHAPTERS[].render.leaves — currently only
   // `undergrowth`). Same latch pattern as chapterHasStorm; read by updateLeaves.
   let chapterHasLeaves = false
@@ -1218,6 +1219,62 @@ export function createRenderer(app) {
     }
     taperStroke(g, [[r * 0.82, 0], [r * 1.1, 0]], r * 0.07, 0.5, f(0xd8a23a)) // beak, the one warm mark
     if (elite) eliteCrown(-r * 2.1, r)
+  }
+
+  // bristle worm: The Surf's PLAYER form (CHAPTERS.surf.render.form === 'worm', see playerForm in
+  // syncPlayer) — not part of run.roster, this beach's three creatures are the trio above. Reuses
+  // drawCentipede's rig wholesale (see that function's own comment, below in the loam section): one
+  // tapered trunk over spine(t), a paired appendage per segment, raking in a metachronal wave — a
+  // bristle worm and a centipede are the same drawing at the joint level, a long segmented body with
+  // one appendage pair per segment. What changes for the swim: the appendage — a SHORT paddle-stub
+  // parapodium fanned into three bristle ticks, not the centipede's long jointed leg ending in a
+  // claw-tipped foot ("shorten the parapodia") — the head (soft twin palps, not the forward venom
+  // forcipules a land hunter carries: a worm noses its way, it doesn't strike), and the palette (a
+  // marine rust-coral, not the forest-floor amber — "retint"). No phase param and no baked slither
+  // frames: unlike the enemy centipede (ROSTER_LOOKS' `phases: 6`), this is a single static bake
+  // like the kaiju's own player body, animated the same way every OTHER player form already is —
+  // syncPlayer's hop/breathe squash-stretch — not a swapped texture.
+  const WORM_R = 26
+  function drawWorm(g, white) {
+    const r = WORM_R
+    const f = (c) => white ? 0xffffff : c
+    const bodyLit = f(0xe08a6e), bodyMid = f(0xcf6b52), bodyShade = f(0x8a3a2c)
+    const line = f(0x5c2418), bristle = f(0xffe0b0)
+    const lw = Math.max(2.4, r * 0.13)
+    const frontX = r * 0.9
+    const len = r * 3.2                                    // stockier than the centipede's 4.4r
+    const undA = r * 0.3                                   // a touch more S-wag — it swims, not scurries
+    const spine = (t) => [frontX - t * len, Math.sin(t * Math.PI * 2.6) * undA]
+    const body = (t) => r * 0.46 * bulge(0.06 + 0.88 * t, 0.42)
+    const N = 16                                            // parapodia run the whole body, not just mid-trunk
+    for (let i = 0; i < N; i++) {
+      const t = 0.06 + 0.88 * (i / (N - 1))
+      const [x, y] = spine(t)
+      const w = body(t)
+      for (const s of [-1, 1]) {
+        // parapodium: a short stub base plus three bristle ticks fanning off it — SHORTER reach
+        // than the centipede's jointed leg, and the bristle tuft (not a leg silhouette) is the tell.
+        const bx = x, by = y + s * w * 0.72
+        for (let k = -1; k <= 1; k++) {
+          const a = (Math.PI / 2) * s + k * 0.45
+          g.moveTo(bx, by).lineTo(bx + Math.cos(a) * r * 0.26, by + Math.sin(a) * r * 0.26)
+            .stroke({ width: 1.6, color: bristle, alpha: 0.85 })
+        }
+        g.circle(bx, by, r * 0.05).fill(bodyShade)
+      }
+    }
+    // twin head palps — soft and short, replacing the centipede's forward venom forcipules
+    for (const s of [-1, 1]) {
+      taperStroke(g, [[r * 1.0, s * r * 0.1], [r * 1.3, s * r * 0.22]], r * 0.07, r * 0.02, line)
+    }
+    g.poly(spineOutline(spine, body, 40)).fill(bodyMid).stroke({ width: lw, color: line })
+    g.poly(radialOutline((a) => r * 0.34 * (1 - 0.1 * Math.cos(a)), 32, 1, 0.9, r * 0.94, 0))
+      .fill(bodyMid).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly(spineOutline(spine, (t) => body(t) * 0.3, 28)).fill({ color: bodyShade, alpha: 0.4 })
+      g.ellipse(-r * 0.6, -r * 0.06, r * 1.3, r * 0.16).fill({ color: bodyLit, alpha: 0.22 })
+      for (const s of [-1, 1]) darkEye(g, r * 1.0, s * r * 0.13, r * 0.05, r * 0.05, 0x1a0d05, true)
+    }
   }
 
   // --- Garden chapter (lawn green) ---
@@ -2791,6 +2848,18 @@ export function createRenderer(app) {
       g.ellipse(0, 0, pr * 0.82, pr * 0.3).fill({ color: 0x000000, alpha: 0.12 })
       T.playerShadow = bake(g)
     }
+    // The Surf's player body (drawWorm, defined above in that chapter's roster section) — baked
+    // here alongside the generic blob it replaces, same "build once regardless of chapter, swap in
+    // syncPlayer at use time" contract T.kaijuBody follows for skies. A dedicated elongated shadow,
+    // not the round T.playerShadow above: the worm's trunk runs long on x, and the round disc would
+    // sit visibly narrower than the body it's meant to ground.
+    T.wormBody = (() => { const g = new Graphics(); drawWorm(g, false); return bake(g) })()
+    T.wormFlash = (() => { const g = new Graphics(); drawWorm(g, true); return bake(g) })()
+    T.wormShadow = (() => {
+      const g = new Graphics()
+      g.ellipse(0, 0, WORM_R * 1.55, WORM_R * 0.42).fill({ color: 0x000000, alpha: 0.2 })
+      return bake(g)
+    })()
 
     // bullet star, orbit spark, nova ring: built in buildFxTextures() below (fx sprites)
     // gems vs coins: gems flat yellow, coins gold with shine arc + inner circle
@@ -5389,9 +5458,9 @@ export function createRenderer(app) {
 
     // ---- v5.11 kaiju redesign — the PLAYER's own body/tail (spec: "the one thing on screen the
     // player looks at constantly" was still the generic cross-chapter blob, ~44px on screen next to
-    // a tower drawing up to 96px). Gated on CHAPTERS.skies.render.kaiju (chapterHasKaiju below);
-    // every other chapter's rig — including pond/undergrowth, which also set `tail: true` — never
-    // reads any of this and stays byte-identical.
+    // a tower drawing up to 96px). Gated on CHAPTERS.skies.render.form === 'kaiju' (playerForm
+    // below); every other chapter's rig — including pond/undergrowth, which also set `tail: true` —
+    // never reads any of this and stays byte-identical.
     //
     // Same "identical geometry between the coloured and white bakes" contract drawEnemy/roster use:
     // `white` forces every fill to 0xffffff so the two textures share bounds (and therefore bake()'s
@@ -9539,7 +9608,7 @@ export function createRenderer(app) {
   // fill on the sim's own charge clock — so the plates read as "winding up to something", not as
   // "rampage is on".
   function lightPlatesForBreath(run) {
-    if (!chapterHasKaiju) return false
+    if (playerForm !== 'kaiju') return false
     const a = (run.arcs || []).find((x) => x.charge > 0)
     if (!a) return false
     const R = SKIES_FX.rampage
@@ -11729,7 +11798,7 @@ export function createRenderer(app) {
       // worse the more you took. The arc CENTRE stays on the player because that is where inSector
       // tests from, so the wedge on screen is still the honest hitbox, and a band at the mouth's
       // radius passes through the mouth anyway. Body radius outside skies (the Blank has no kaiju).
-      const roarStart = chapterHasKaiju ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
+      const roarStart = playerForm === 'kaiju' ? SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale : PLAYER.radius
       const a0 = rp.angle - rp.arc / 2
       const a1 = rp.angle + rp.arc / 2
 
@@ -11984,7 +12053,7 @@ export function createRenderer(app) {
   // already drives spawnWhip's arc-swoosh at the hit site (handleEvents); this makes the anatomical
   // tail itself visibly crack at the same moment, instead of only an effect appearing where it
   // lands. Harmless outside skies: tailLash isn't in any other chapter's weapon pool, so the `tail`
-  // event never fires there and this timer just sits at 0, unread (chapterHasKaiju gates its use).
+  // event never fires there and this timer just sits at 0, unread (playerForm === 'kaiju' gates its use).
   let kaijuSwipeT = 0
   let vignetteA = 0
   let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
@@ -12266,7 +12335,7 @@ export function createRenderer(app) {
       // by facingAngle + PI/2, which works out to a plain forward offset along facingAngle once the
       // container scale is applied. Only the first node moves; every jump after it is a real body.
       const pts = a.nodes.map((n) => [n.x, n.y])
-      if (chapterHasKaiju && p.facingAngle != null) {
+      if (playerForm === 'kaiju' && p.facingAngle != null) {
         const m = SKIES_KAIJU.muzzle * SKIES_KAIJU.bodyScale
         pts[0] = [p.x + Math.cos(p.facingAngle) * m, p.y + Math.sin(p.facingAngle) * m]
       }
@@ -12797,12 +12866,13 @@ export function createRenderer(app) {
   function syncPlayer(p, dt, rampageT = 0, buffs = null) {
     playerC.position.set(p.x, p.y)
 
-    // v5.11 kaiju redesign: swap the whole body/flash/shadow onto the dedicated kaiju bake for
-    // skies (chapterHasKaiju) and back onto the generic cross-chapter blob for every other chapter —
-    // same texture-swap-if-changed idiom pRampageGlow uses below. The anchor travels WITH the
-    // texture (bake()'s own {ax,ay}) since the kaiju's silhouette isn't centred the way the round
-    // blob is; guard on pBody alone (all three always swap together) to keep this a single check.
-    if (chapterHasKaiju) {
+    // v5.11 kaiju redesign, generalised (undertow): swap the whole body/flash/shadow onto the
+    // active chapter's dedicated bake (playerForm) and back onto the generic cross-chapter blob for
+    // every chapter that declares no form — same texture-swap-if-changed idiom pRampageGlow uses
+    // below. The anchor travels WITH the texture (bake()'s own {ax,ay}) since a dedicated
+    // silhouette isn't centred the way the round blob is; guard on pBody alone (all three always
+    // swap together) to keep this a single check.
+    if (playerForm === 'kaiju') {
       if (pBody.texture !== T.kaijuBody.tex) {
         pBody.texture = T.kaijuBody.tex; pBody.anchor.set(T.kaijuBody.ax, T.kaijuBody.ay)
         pFlash.texture = T.kaijuFlash.tex; pFlash.anchor.set(T.kaijuFlash.ax, T.kaijuFlash.ay)
@@ -12811,10 +12881,21 @@ export function createRenderer(app) {
       }
       // the region's ONE light direction (SKIES_SHADOW), scaled off the shadow's own reference
       // size (SKIES_KAIJU.shadowRx), instead of the generic blob's small straight-down disc (the
-      // `else` branch below, unchanged). +20 nudges it toward the tail/hip so it settles under the
+      // generic branch below, unchanged). +20 nudges it toward the tail/hip so it settles under the
       // creature's mass rather than dead-centre.
       const shOff = SKIES_KAIJU.shadowRx * SKIES_KAIJU.bodyScale
       pShadow.position.set(SKIES_SHADOW.dx * shOff, SKIES_SHADOW.dy * shOff + 20 * SKIES_KAIJU.bodyScale)
+    } else if (playerForm === 'worm') {
+      // the bristle worm (drawWorm, near drawKaijuBody above): one static bake like the kaiju's,
+      // but a plain straight-down shadow like the generic blob's — the worm has no chapter light
+      // direction of its own the way SKIES_SHADOW gives skies.
+      if (pBody.texture !== T.wormBody.tex) {
+        pBody.texture = T.wormBody.tex; pBody.anchor.set(T.wormBody.ax, T.wormBody.ay)
+        pFlash.texture = T.wormFlash.tex; pFlash.anchor.set(T.wormFlash.ax, T.wormFlash.ay)
+        pHot.texture = T.wormFlash.tex; pHot.anchor.set(T.wormFlash.ax, T.wormFlash.ay)
+        pShadow.texture = T.wormShadow.tex; pShadow.anchor.set(T.wormShadow.ax, T.wormShadow.ay)
+      }
+      pShadow.position.set(0, PLAYER.radius * 0.95)
     } else {
       // STILLNESS picks a rung of the morph ladder; rung 0 IS the plain body, so a run without the
       // card takes exactly the old texture. Compared against the CHOSEN look rather than against
@@ -12837,13 +12918,14 @@ export function createRenderer(app) {
       pShadow.position.set(0, PLAYER.radius * 0.95)
     }
 
-    // per-chapter blob tint (white = identity for body) + optional tail. The kaiju bake carries its
-    // OWN final palette (SKIES_KAIJU) rather than a tint-multiplied base — same "plans carry their
-    // own palette, tint bypassed" rule the top-down structure bakes use (STRUCTURE_SKINS' topDown
-    // entries set clumpA.tint = 0xffffff, above) — otherwise a uniform multiply by playerTint
-    // (0x7ad07a) would push the pale cyan sclera toward the same green as the body fill, right when
-    // eye contrast matters most.
-    pBody.tint = chapterHasKaiju ? 0xffffff : chapterRender.playerTint
+    // per-chapter blob tint (white = identity for body) + optional tail. The kaiju AND worm bakes
+    // both carry their OWN final palette rather than a tint-multiplied base — same "plans carry
+    // their own palette, tint bypassed" rule the top-down structure bakes use (STRUCTURE_SKINS'
+    // topDown entries set clumpA.tint = 0xffffff, above) — otherwise a uniform multiply by
+    // playerTint (0x7ad07a for skies; still pond's inherited cyan for surf) would push the kaiju's
+    // pale sclera or the worm's bristle-tuft highlights toward the same hue as the body fill, right
+    // when that contrast matters most.
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'worm') ? 0xffffff : chapterRender.playerTint
     // BERSERK (v7.14): the skin runs hot while the window is open. Strongest on the frame you are
     // hit and fading with _berserkT, so the wash IS the timer — no chrome, nothing to read.
     // An alpha-blended red silhouette, NOT a tint on pBody: see pHot's own note at the rig.
@@ -12853,7 +12935,7 @@ export function createRenderer(app) {
       : 0
     if (chapterRender.tail) {
       pTail.visible = true
-      if (chapterHasKaiju) {
+      if (playerForm === 'kaiju') {
         // the articulated kaiju tail (T.kaijuTailSeg): three CHAINED segments, each rooted at the
         // previous one's tip (not all fanned from one point the way the generic flagellum's tailA/
         // tailB share pTail's own origin below) — see T.kaijuTailSeg's own comment.
@@ -12935,7 +13017,7 @@ export function createRenderer(app) {
       // v5.11: scaled up again for the kaiju's own bigger silhouette — sized off PLAYER.radius like
       // before, this used to be a halo well outside the OLD ~44px body; against the new one it would
       // read as swallowed inside it instead of surrounding it.
-      const glowMul = chapterHasKaiju ? SKIES_KAIJU.bloomScale : 1
+      const glowMul = playerForm === 'kaiju' ? SKIES_KAIJU.bloomScale : 1
       pRampageGlow.scale.set(fxScale(T.rampageBloom, PLAYER.radius * (2.6 + 0.3 * pulse) * glowMul))
     } else {
       pRampageGlow.visible = false
@@ -12957,7 +13039,7 @@ export function createRenderer(app) {
       sy = 1 + 0.035 * w
       by = 0
     }
-    if (chapterHasKaiju) {
+    if (playerForm === 'kaiju') {
       // v5.11: the kaiju body ROTATES to face p.facingAngle instead of just flipping L/R — a
       // directional silhouette (head, jaw, limbs, a tail rooted at the rear) needs an actual
       // facing, unlike the round symmetric blob every other chapter's flip-only rig was built for.
@@ -12972,19 +13054,27 @@ export function createRenderer(app) {
       // leave the tail rooted at an unscaled hip offset.
       bodyC.scale.set(sx * SKIES_KAIJU.bodyScale, sy * SKIES_KAIJU.bodyScale)
       bodyC.rotation = (p.facingAngle == null ? 0 : p.facingAngle) + Math.PI / 2
+    } else if (playerForm === 'worm') {
+      // drawWorm's head already sits at local +x (spine(t) runs frontX -> frontX - len, the same
+      // "head at +x" convention drawCentipede uses for the enemy version) — unlike the kaiju's -y
+      // head this needs no rotation offset at all, facingAngle points it directly. No bodyScale
+      // knob either: the worm is drawn at its final on-screen size, same as the kaiju bake, but
+      // without a chapter-wide resize multiplier to go with it.
+      bodyC.scale.set(sx, sy)
+      bodyC.rotation = p.facingAngle == null ? 0 : p.facingAngle
     } else {
       bodyC.scale.set(p.facing * sx, sy)
       bodyC.rotation = 0   // restores the flip-only rig's implicit "never rotates" if a PRIOR run
-                           // this session was skies (chapterHasKaiju's rig rotates bodyC above)
+                           // this session drew a rotating form (kaiju/worm rotate bodyC above)
     }
     bodyC.y = by
     // The shadow is a sibling of bodyC, not a child, so it needs the same bodyScale applied by hand
     // — otherwise shrinking the kaiju would leave it standing on its old, much larger shadow.
     const shadowSquash = 1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0)
-    pShadow.scale.set(chapterHasKaiju ? shadowSquash * SKIES_KAIJU.bodyScale : shadowSquash)
+    pShadow.scale.set(playerForm === 'kaiju' ? shadowSquash * SKIES_KAIJU.bodyScale : shadowSquash)
 
     // pupil tracking (local +x flips with the body toward facing)
-    if (chapterHasKaiju) {
+    if (playerForm === 'kaiju') {
       // bigger head, further-set eyes (drawKaijuBody's sclera circles, radius 13 at ±22,-96) — same
       // tracking motion, just rescaled off the kaiju's own eye geometry instead of PLAYER.radius.
       const eyeR = 13, eyeOffX = 22, eyeOffY = -96
@@ -12995,6 +13085,11 @@ export function createRenderer(app) {
       const lookY = eyeR * 0.15 + Math.sin(animT * 1.3) * eyeR * 0.1
       pupilL.position.set(-eyeOffX + lookX, eyeOffY + lookY)
       pupilR.position.set(eyeOffX + lookX, eyeOffY + lookY)
+    } else if (playerForm === 'worm') {
+      // the ocelli are baked straight into drawWorm (like drawCentipede's enemy version below it) —
+      // no live tracking pupil the way the round blob and the kaiju's sclera-and-pupil eyes get.
+      pupilL.scale.set(0)
+      pupilR.scale.set(0)
     } else {
       pupilL.scale.set(1)
       pupilR.scale.set(1)
@@ -13902,7 +13997,7 @@ export function createRenderer(app) {
     // city opts into rain/ruins individually without the clouds `storm` alone would also switch on.
     chapterHasRain = !!(chapterRender.storm || chapterRender.rain)
     chapterHasRuins = !!(chapterRender.storm || chapterRender.ruins)
-    chapterHasKaiju = !!chapterRender.kaiju
+    playerForm = chapterRender.form ?? null
     chapterHasLeaves = !!chapterRender.leaves
     // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
