@@ -4898,23 +4898,37 @@ function runDark() {
     assert.ok(d.dim >= 1, `the far field must be fully opaque (owner ruling), got dim ${d.dim}`)
     assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\)\)/.test(src),
       "render.js must size the light from lightRadius(charge, res, longest side) — the screen's longest side is the unit the chapter states its light in")
-    // The lights are punched OUT of a lightmap. Painting them over instead is the flat-sheet version
-    // the owner rejected: additive light on a dimmed scene raises its brightness but cannot
-    // un-flatten it, so a painted shaft is one you can see LESS inside.
-    assert.ok(/darkCtx\.globalCompositeOperation = 'destination-out'/.test(src),
-      "the lights must be subtracted from the lightmap ('destination-out'), not painted over the world")
-    const sub = src.slice(src.indexOf("darkCtx.globalCompositeOperation = 'destination-out'"))
-    assert.ok(/drawImage\(LIGHT_BLOB, \(px - R\) \* s, \(py - R\) \* s, R \* 2 \* s, R \* 2 \* s\)/.test(sub),
-      'the player stamp must span exactly 2R and be centred on the player, or the light you emit stops agreeing with the radius the slow is read from')
-    assert.ok(/arc\(sx \* s, sy \* s, sh\.r \* s/.test(sub),
-      'each shaft must be subtracted at its OWN radius, inside the same destination-out pass, or standing in one stops clearing the dark')
-    // The stamp's alpha IS the light, so the ramp has to run opaque core -> transparent rim. Baked
-    // the other way round (the darkness ramp straight) destination-out erases the rim and keeps the
-    // middle, i.e. a black disc centred on the player, and nothing else here would notice.
+    // NO ALPHA ANYWHERE IN THE PATH, and this is the assertion the chapter's existence rests on.
+    // The lightmap used to be a white canvas with the lights punched out by `destination-out`, drawn
+    // as a translucent tinted sprite — the whole effect lived in a canvas ALPHA channel that then had
+    // to survive being uploaded as a texture. On the owner's phone it did not: at 88/100 Light the
+    // screen was solid black with no lit disc at all, while the sun shafts (arc+fill) rendered
+    // perfectly. Four releases were spent moving where the layer switches on, which only moved where
+    // the blackout started. Darkness is carried as OPAQUE COLOUR and composited with multiply.
+    assert.ok(/darkSprite\.blendMode = 'multiply'/.test(src),
+      'the lightmap must be composited with multiply — white leaves the scene alone, the tint crushes it')
+    assert.ok(/getContext\('2d', \{ alpha: false \}\)/.test(src),
+      'the lightmap canvas must be opaque: an alpha channel here is the thing that did not survive on the owner\'s device')
+    assert.ok(/darkSprite\.alpha = 1/.test(src) && /darkSprite\.tint = 0xffffff/.test(src),
+      'the dark sprite must be neither faded nor tinted — the colour IS the darkness, and doing either puts the effect back on the broken channel')
+    assert.ok(!/globalCompositeOperation/.test(src),
+      'no canvas compositing operator may come back: destination-out is what carried the effect in alpha')
+    assert.ok(!/LIGHT_BLOB/.test(src),
+      'the pre-baked offscreen lamp must stay deleted — its drawImage is the operation that produced nothing on the owner\'s device')
+    // The player's lamp and the shafts must both be plain fills, i.e. the SAME primitive that was
+    // observed to render there. A stamp of any kind reintroduces the failure.
+    assert.ok(/createRadialGradient\(px \* s, py \* s, 0, px \* s, py \* s, lampR\)/.test(src),
+      'the player lamp must be a per-frame radial gradient centred on the player')
+    assert.ok(/arc\(px \* s, py \* s, lampR, 0, Math\.PI \* 2\)/.test(src),
+      'the lamp must be filled as a DISC — a radial gradient clamps past its outer radius, so a rect would paint the rim colour into the corners')
+    assert.ok(/arc\(sx \* s, sy \* s, sh\.r \* s/.test(src),
+      'each shaft must be filled at its OWN radius, or standing in one stops clearing the dark')
+    // DARK_RAMP is still the darkness profile, now read as a COLOUR ramp: rgbAt(1 - d) runs white at
+    // the core to the tint at the rim. Inverted, the lamp would paint a dark disc on a lit field.
     assert.ok(/const DARK_RAMP = \[0, [\d., ]*1\]/.test(src),
       'DARK_RAMP is the DARKNESS profile and must run 0 at the core to 1 at the rim')
-    assert.ok(/addColorStop\(t, `rgba\(255,255,255,\$\{1 - d\}\)`\)/.test(src),
-      'the stamp must be baked as 1 - DARK_RAMP: it is SUBTRACTED, so its alpha is the LIGHT, not the dark')
+    assert.ok(/grad\.addColorStop\(t, rgbAt\(1 - d\)\)/.test(src),
+      'the ramp must be read as 1 - DARK_RAMP: rgbAt takes how LIT a stop is, not how dark')
     // The sharpness knob has two readers and they must not drift: it positions the bake's ramp, and
     // it turns the chapter's core radius into the outer one the stamp is drawn at. Two hardcoded
     // copies is what this file used to have. It must NOT reach the early-out any more — the whole
@@ -4933,7 +4947,7 @@ function runDark() {
       'the dark must sit directly above `world` and below the damage vignette/flash, or it takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts SUBTRACTED from the lightmap and no cut() left to overlap`)
+  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
 }
 runDark()
 
