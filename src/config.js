@@ -3150,7 +3150,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  downward: { name: 'Downward', chapters: ['shelf'], hidden: [], wip: true },
+  undertow: { name: 'Undertow', chapters: ['shelf'], hidden: [], wip: true },
 }
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
@@ -3787,7 +3787,7 @@ CHAPTERS.blank = {
             ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
 }
 
-// v7.x Book 2 ("Downward"), phase 1 — The Shelf, WEARING THE POND'S CLOTHES. Literally: this is a
+// v7.x Book 2 ("Undertow"), phase 1 — The Shelf, WEARING THE POND'S CLOTHES. Literally: this is a
 // spread of CHAPTERS.pond with a new name, so every roster entry, weapon, tint and balance number
 // it has is A STAND-IN AND NOT A DESIGN. Written as a spread rather than a 45-line copy on purpose
 // — a copy drifts silently and starts reading like a decision, whereas this cannot be mistaken for

@@ -4894,7 +4894,7 @@ function runRosterArt() {
   assert.ok(looks.size >= 30, `expected a full look table, parsed only ${looks.size} keys — the regex has drifted from the file`)
 
   // EVERY chapter that exists, not CHAPTER_ORDER — which is BOOKS.book1.chapters and therefore
-  // excludes both the hidden Blank and the whole `downward` book. The first cut of this run used
+  // excludes both the hidden Blank and the whole `undertow` book. The first cut of this run used
   // CHAPTER_ORDER and silently skipped The Shelf, i.e. the exact chapter it was written for: a
   // mutation deleting the copepod's look passed it green. Object.keys is the honest denominator.
   const ALL_IDS = Object.keys(CHAPTERS)
