@@ -41,10 +41,14 @@ if (run.shafts.length > 0) {
 // cloudShadowLayer, entitiesLayer]; index 1 is the swell, now a single Graphics redrawn per frame
 // (so `crests` reads 1/1 when it is drawing — it counts display objects, not wave crests).
 const _swell = app.stage.children[0]?.children[1]
-// ...and whether the DARK is up, read off the render state rather than off run.charge: stage
-// child 1 is darkLayer and its child 1 is the falloff sprite, whose width is exactly 2R. "the bar
-// is at 30" is a sim fact; "your light reaches 400px" is the thing the frame is being asked about,
-// and the two only agree while updateDark is actually running.
+// ...and whether the DARK is up, read off the render state rather than off run.charge: stage child
+// 1 is darkLayer. "the bar is at 30" is a sim fact; "the dark is on screen" is the thing the frame
+// is being asked about, and the two only agree while updateDark is actually running.
+//
+// The RADIUS is no longer readable here and printing one would be a lie. The dark used to be a
+// falloff sprite scaled to exactly 2R, so its width was the light's diameter; it is now a single
+// screen-sized sprite over a computed lightmap, and its width is the screen. Judge the reach off
+// the frame itself — that is what the frame is for.
 const _dark = app.stage.children[1]
 // SHORT keys on purpose: the note is a non-wrapping <pre> pinned to the page, so a long JSON line
 // runs off the right edge of the capture and the value you came to read is the part that is gone.
@@ -56,12 +60,14 @@ H.note([
   'crests=' + (_swell?.children.filter((c) => c.visible).length ?? 0) + '/' + (_swell?.children.length ?? 0),
 ].join(' '))
 
-// Re-noted every frame by the scrub below, since the light radius is the thing that MOVES here.
+// Re-noted every frame by the scrub below, since the dark is the thing that MOVES here. `dim` is
+// the sprite's own alpha: darkVis true with dim 0 is a layer that is up and painting nothing, which
+// looks exactly like a working full bar and is not the same bug.
 const noteAt = () => H.note([
   run.chapter,
   'charge=' + Math.round(run.charge),
   'darkVis=' + _dark?.visible,
-  'lightR=' + Math.round((_dark?.children[1]?.width ?? 0) / 2),
+  'dim=' + (_dark?.children[0]?.alpha ?? 0).toFixed(2),
   'shafts=' + run.shafts.length,
 ].join(' '))
 

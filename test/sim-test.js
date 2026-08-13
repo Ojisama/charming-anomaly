@@ -4846,26 +4846,48 @@ function runDark() {
       'a chapter with no resource must move identically whatever its (inert) charge field says')
   }
 
-  // (e) the RENDER side reads the same curve. render.js is not importable here (Vite-only
-  // import.meta.glob), so this is the run UG.k source-text trick: the scrim's alpha must be the
-  // product of darkness() and the chapter's own dim, and the holes must be cut from run.shafts.
-  // A scrim that invented its own ramp would pass every assertion above and still drift from the
-  // slow on screen, which is the entire failure this run exists to prevent.
+  // (e) the RENDER side reads the same curve, and every light SUBTRACTS. render.js is not importable
+  // here (Vite-only import.meta.glob), so this is the run UG.k source-text trick. A dark that
+  // invented its own ramp would pass every assertion above and still drift from the slow on screen,
+  // which is the entire failure this run exists to prevent.
   {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
     assert.ok(/const R = lightRadius\(run\.charge, res\)/.test(src),
       'render.js must size the light from lightRadius(run.charge, res), so the shrinking light and the slow cannot drift apart')
-    assert.ok(/darkScrim\.circle\(px, py, R\)\.cut\(\)/.test(src),
-      'the player must be a CUT hole of radius R in the scrim — a radial gradient painted over an un-cut sheet dims the metre around you too, which is the flat-sheet version the owner rejected')
-    assert.ok(/darkGlow\.width = darkGlow\.height = R \* 2/.test(src),
-      'the falloff sprite must span exactly 2R, or its opaque rim lands somewhere other than the cut edge and the seam shows')
-    assert.ok(/darkScrim\.circle\([^)]*\)\.cut\(\)/.test(src),
-      'the shafts must be CUT from the scrim, not painted over it — additive light cannot un-flatten a dimmed scene, so a painted shaft is one you see LESS inside')
+    // The lights are punched OUT of a lightmap. Painting them over instead is the flat-sheet version
+    // the owner rejected: additive light on a dimmed scene raises its brightness but cannot
+    // un-flatten it, so a painted shaft is one you can see LESS inside.
+    assert.ok(/darkCtx\.globalCompositeOperation = 'destination-out'/.test(src),
+      "the lights must be subtracted from the lightmap ('destination-out'), not painted over the world")
+    const sub = src.slice(src.indexOf("darkCtx.globalCompositeOperation = 'destination-out'"))
+    assert.ok(/drawImage\(LIGHT_BLOB, \(px - R\) \* s, \(py - R\) \* s, R \* 2 \* s, R \* 2 \* s\)/.test(sub),
+      'the player stamp must span exactly 2R and be centred on the player, or the light you emit stops agreeing with the radius the slow is read from')
+    assert.ok(/arc\(sx \* s, sy \* s, sh\.r \* s/.test(sub),
+      'each shaft must be subtracted at its OWN radius, inside the same destination-out pass, or standing in one stops clearing the dark')
+    // The stamp's alpha IS the light, so the ramp has to run opaque core -> transparent rim. Baked
+    // the other way round (the darkness ramp straight) destination-out erases the rim and keeps the
+    // middle, i.e. a black disc centred on the player, and nothing else here would notice.
+    assert.ok(/const DARK_RAMP = \[0, [\d., ]*1\]/.test(src),
+      'DARK_RAMP is the DARKNESS profile and must run 0 at the core to 1 at the rim')
+    assert.ok(/addColorStop\(t, `rgba\(255,255,255,\$\{1 - d\}\)`\)/.test(src),
+      'the stamp must be baked as 1 - DARK_RAMP: it is SUBTRACTED, so its alpha is the LIGHT, not the dark')
+    // The sharpness knob has two readers and they must not drift: it positions the bake's ramp, and
+    // it gates the "the light already covers the whole screen, skip the layer" early-out. Two
+    // hardcoded copies is what this file used to have.
+    assert.ok(/const LIGHT_CORE_FRAC = /.test(src)
+      && /LIGHT_CORE_FRAC \+ \(1 - LIGHT_CORE_FRAC\)/.test(src)
+      && /R \* LIGHT_CORE_FRAC >= corner/.test(src),
+      'ONE LIGHT_CORE_FRAC must both position the falloff ramp and gate the early-out, or the layer gets skipped at a radius where the light does not actually reach the corner')
+    // The construct this replaced, kept as a tripwire: Graphics.cut() cannot take holes that overlap
+    // each other, and the player's circle overlapping a shaft's is the chapter, not an edge case.
+    // It shipped at v7.55 as a hard-edged wedge of night across the whole viewport.
+    assert.ok(!/\.cut\(\)/.test(src.replace(/^\s*\/\/.*$/gm, '')),
+      'no Graphics.cut() in render.js: overlapping holes triangulate into straight-edged garbage, which is how the dark shipped broken')
     assert.ok(src.includes('app.stage.addChild(world, darkLayer,'),
-      'the scrim must sit directly above `world` and below the damage vignette/flash, or the dark takes the safety cues with it')
+      'the dark must sit directly above `world` and below the damage vignette/flash, or it takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): one curve drives both — the light you emit closes from ${d.lightFull}px to ${d.lightEmpty}px and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, linear, MIN-composed with the latch slow, pond untouched, scrim cuts the player and its shafts`)
+  console.log(`PASS run DK (the dark): one curve drives both — the light you emit closes from ${d.lightFull}px to ${d.lightEmpty}px and the player slows to x${d.speedFloor} below ${(d.from * 100).toFixed(0)}/${res.max}, linear, MIN-composed with the latch slow, pond untouched, player and shafts SUBTRACTED from the lightmap and no cut() left to overlap`)
 }
 runDark()
 

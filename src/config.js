@@ -4032,7 +4032,11 @@ CHAPTERS.shelf = {
     // centre) only as a faint shade, which is what "you are the lamp" should look like when the lamp
     // is full. At an empty bar the clear disc is ~95px and everything is gone by 210: about one
     // second of warning at a normal enemy approach speed, and you are at 0.6x on top of it.
-    dark: { from: 0.5, speedFloor: 0.6, dim: 0.86, lightFull: 820, lightEmpty: 210 },
+    // dim 1.0 (owner, 2026-08-13, "much darker when light = 0", picked off a 4-way shot): the far
+    // field is the tint and nothing else. It is only ever the FAR field — the radius is what the
+    // player reads, and at a full bar the falloff barely reaches the corner of a phone — so an
+    // opaque outside costs no legibility near you and makes running dry actually frightening.
+    dark: { from: 0.5, speedFloor: 0.6, dim: 1.0, lightFull: 820, lightEmpty: 210 },
   },
 
   // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
@@ -4060,11 +4064,17 @@ CHAPTERS.shelf = {
     tailTint: 0x8fe3ff,
     eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8],
 
-    // The colour of the dark (render.js updateDark). Deep ocean blue-black rather than pure black:
-    // black reads as a screen fade — a UI event — where a blue-black reads as depth, which is the
-    // thing Book 2 is descending into. The CURVE it is multiplied by lives with the mechanic, in
-    // resource.dark, because sim.js reads that same curve for the move-speed penalty.
-    darkTint: 0x02131f,
+    // The colour of the dark (render.js updateDark). Blue-black rather than pure black: black reads
+    // as a screen fade — a UI event — where a blue-black reads as depth, which is the thing Book 2
+    // is descending into. The CURVE it is multiplied by lives with the mechanic, in resource.dark,
+    // because sim.js reads that same curve for the move-speed penalty.
+    //
+    // Taken down from 0x02131f to here (owner, 2026-08-13). With `dim` now 1.0 this IS the far
+    // field's colour rather than a wash over the water, so the tint alone decides how black the
+    // chapter goes, and 0x02131f left it reading as murky water instead of no light at all. The
+    // blue is deliberately kept — it survives the drop (there is still 5x more blue than red in it)
+    // and it is the whole reason this is not a fade to black.
+    darkTint: 0x00060b,
 
     // SWELL (v7.x): the waves. Drawn sine crest lines running along world x and travelling +y —
     // see updateSwell in render.js for why this is a Graphics and not the pooled sprite field it

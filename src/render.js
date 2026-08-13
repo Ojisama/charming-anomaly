@@ -2494,6 +2494,24 @@ export function createRenderer(app) {
   }
 
   const T = {}
+  // The one bake that is a CANVAS and not a Texture: The Dark's lamp stamp, drawImage'd into the
+  // per-frame lightmap rather than uploaded. Filled in with the other bakes below; see its block
+  // there for the profile, and updateDark for what subtracts it.
+  const LIGHT_BLOB = document.createElement('canvas')
+  // THE SHARPNESS KNOB. How much of the light's radius is fully lit before the falloff starts;
+  // raise it and the transition from your light to the dark gets shorter and harder-edged.
+  //
+  // ONE const for two readers that must not drift: the bake's first ramp stop, and updateDark's
+  // early-out (a fully-lit core that already covers the farthest corner means there is nothing to
+  // draw). Those were two hardcoded 0.45s with a comment explaining that a texture cannot be asked
+  // its own profile — true, but both live in this file, so they can share the number instead.
+  const LIGHT_CORE_FRAC = 0.62
+  // The falloff's shape, as DARKNESS at evenly-spaced samples from the core out to the rim. Held as
+  // a shape and positioned by LIGHT_CORE_FRAC so the sharpness knob moves where the ramp happens
+  // without changing what it looks like — an eased ramp rather than a straight line, because a
+  // linear one reads as a grey ring at its own midpoint (Mach banding: the eye finds the second
+  // derivative) and the point of a falloff is that you cannot say where it starts.
+  const DARK_RAMP = [0, 0.09, 0.36, 0.73, 1]
   // ---- lifted shadow + crown textures (see the groundShadow/eliteCrown note above) --------------
   // ONE shadow disc for the whole roster: a flat alpha fill with no stroke, so squashing it per
   // creature to (spec.rx, spec.ry) is exact — nothing to distort. Baked big (SHADOW_TEX_R) because
@@ -2763,28 +2781,37 @@ export function createRenderer(app) {
       T.vignette = Texture.from(c)
     }
 
-    // THE DARK'S FALLOFF (v7.x Book 2) — the soft rim of the light you emit. White, so one bake
-    // serves any chapter's darkTint; INVERTED against every other gradient here (transparent in the
-    // middle, opaque at the rim) because this is the darkness, not the light. updateDark cuts a hard
-    // hole of radius R in the scrim and drops this over it at exactly 2R across, so the sprite's
-    // fully-opaque edge meets the untouched scrim at the same alpha and the seam disappears.
+    // THE LIGHT YOU EMIT (v7.x Book 2) — the player's lamp, as a stamp to subtract from the dark.
+    // OPAQUE in the middle and transparent at the rim, which is the shape of the LIGHT and not of
+    // the darkness: updateDark punches it out of a white lightmap with `destination-out`, and that
+    // operator reads the source's ALPHA, so "how much light is here" has to be what the alpha says.
+    // White because destination-out ignores colour entirely and one bake then serves every chapter.
     //
-    // Clear out to 0.45 and then a hand-eased ramp rather than a straight line: a linear alpha ramp
-    // over a radius reads as a visible grey ring at its own midpoint (Mach banding — the eye finds
-    // the second derivative), and the point of a falloff is that you cannot say where it starts.
-    // The stops are a smoothstep sampled at 5 points, which is under half a percent off the curve
-    // and costs nothing.
+    // A raw CANVAS, not a Texture — it is drawImage'd into another canvas every frame rather than
+    // handed to the GPU. It is also the only bake here that is never uploaded.
+    //
+    // Solid out to LIGHT_CORE_FRAC and then DARK_RAMP's eased ramp to nothing at the rim — see both
+    // of those for the shape and for the knob that positions it.
+    //
+    // The DISC fill matters, and cost a round: a radial gradient clamps to its last stop past its
+    // outer radius, so filling the square would leave the four corners at the rim's value. When the
+    // rim is opaque that paints the dark twice over the corners and the sprite's own bounding box
+    // shows up as hard straight seams at px/py +/- R (measured at charge 0: steps at device y=424
+    // and y=1264 for R=210, colour-solving to 0.86 vs 0.98 of the tint over the same water). Here
+    // the rim is alpha 0, so the corners are transparent either way and the disc is belt and braces.
     {
-      const c = document.createElement('canvas')
-      c.width = c.height = 512
-      const ctx = c.getContext('2d')
+      LIGHT_BLOB.width = LIGHT_BLOB.height = 512
+      const ctx = LIGHT_BLOB.getContext('2d')
       const grad = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
-      for (const [t, a] of [[0, 0], [0.45, 0], [0.59, 0.09], [0.72, 0.36], [0.86, 0.73], [1, 1]]) {
-        grad.addColorStop(t, `rgba(255,255,255,${a})`)
-      }
+      grad.addColorStop(0, 'rgba(255,255,255,1)')
+      DARK_RAMP.forEach((d, i) => {
+        const t = LIGHT_CORE_FRAC + (1 - LIGHT_CORE_FRAC) * (i / (DARK_RAMP.length - 1))
+        grad.addColorStop(t, `rgba(255,255,255,${1 - d})`)
+      })
       ctx.fillStyle = grad
-      ctx.fillRect(0, 0, 512, 512)
-      T.darkFalloff = Texture.from(c)
+      ctx.beginPath()
+      ctx.arc(256, 256, 256, 0, Math.PI * 2)
+      ctx.fill()
     }
 
     // storm blob (skies overlay, v5.6.18): a plain soft white radial gradient, center to fully
@@ -6362,23 +6389,39 @@ export function createRenderer(app) {
   // less light you have, the less far you emit." So the darkness is not a sheet whose alpha ramps,
   // it is a HOLE whose radius shrinks, and the player is standing in the hole.
   //
-  // TWO OBJECTS, because Pixi has no soft-edged hole. Graphics.cut() punches a hard circle and
-  // nothing else does; a canvas gradient feathers but cannot subtract. So:
-  //   darkScrim  a flat rect at `dim`, with a HARD circle of radius R cut at the player and one
-  //              cut per sun shaft.
-  //   darkGlow   T.darkFalloff (transparent core -> opaque rim), tinted the same colour, laid over
-  //              the player's hole at exactly 2R across so its opaque rim lands on the cut edge.
-  // Inside R the scrim is absent and only the sprite is painting; at R the sprite is fully opaque
-  // and the scrim resumes at the same alpha, so the two meet with no seam. The falloff profile is
-  // baked into the texture, not into config — see T.darkFalloff for the shape and why it is eased.
+  // ONE SPRITE over a per-frame LIGHTMAP, and the singular is the whole point. The darkness this
+  // chapter wants is one field:
   //
-  // ponytail: a shaft whose disc overlaps the falloff RING gets shaded by the sprite even though it
-  // is cut out of the scrim, because the sprite draws after (and over) every cut. It reads as a
-  // shaft sitting at the edge of your light, which is true, so it stays. The fix if it ever matters
-  // is an erase-blend render group, which costs a render target per frame for a rim artefact.
+  //     D(p) = dim * falloff(|p - player| / R)   , and 0 inside any sun shaft
   //
-  // One Graphics, redrawn per frame — the same per-frame-rebuild idiom the enemy telegraphs already
-  // use, and there are only ever a handful of shafts in view.
+  // and a field is not something you can assemble by stacking translucent objects. Two objects
+  // composite as 1-(1-a1)(1-a2), so wherever their coverages disagree you get a seam, and the seam
+  // sits on the boundary of whichever object is disagreeing — its circle, or, far worse, its SQUARE.
+  // v7.55 shipped this as a scrim plus a falloff sprite and had a straight-edged artefact from each:
+  //   - the scrim's holes were Graphics.cut(). cut()'s own doc says a hole must lie wholly inside
+  //     the shape, but the rule it does not state is the one that bit: earcut wants holes that do
+  //     not overlap EACH OTHER, and the player's circle overlapping a shaft's is not an edge case
+  //     here, it is the chapter. Three mutually-overlapping discs triangulated into a hard wedge of
+  //     night across the whole viewport, which is how it was reported from play.
+  //   - the falloff SPRITE was square and unclipped, and a radial gradient clamps past its outer
+  //     radius, so its corners sat at alpha 1 over scrim that was already solid. The dark went down
+  //     twice (0.86 -> 0.98) and the sprite's bounding box showed as hard seams at px/py +/- R.
+  // Clipping that sprite instead of rebuilding is the tempting repair and it does not work: the box
+  // edge just moves INSIDE the shaft pools, as a straight line across the one place the chapter is
+  // supposed to play normally. Any fix that moves an edge rather than removing it is the tell that
+  // the construct, not the tuning, is wrong.
+  //
+  // So the alpha is computed instead of composited. A small offscreen canvas is filled white and the
+  // lights are punched out of it with `destination-out` — soft for the player (LIGHT_BLOB), hard
+  // discs for the shafts — which leaves exactly 1 - light in its alpha channel, overlaps and all,
+  // because destination-out is a multiply on alpha and multiplication does not care what order or
+  // how many. Tint it with the chapter's dark and draw it over the screen at `dim`. No seam can
+  // exist: there is one coverage.
+  //
+  // The buffer is DELIBERATELY tiny (DARK_MAP_W px wide, ~3-4x smaller than the screen) and stretched
+  // up. The field it holds is a gradient plus a few discs, so the upscale costs nothing visible, and
+  // it keeps the per-frame texture upload at a few tens of KB. It also softens the shaft rim by a
+  // couple of px, which the shaft's own painted ring (updateShafts, drawn UNDER this) reads through.
   //
   // A STAGE child sitting directly above `world`, and both halves of that matter:
   //   - above `world`, so it dims the floor, the props, the roster and the player as one flat
@@ -6388,16 +6431,20 @@ export function createRenderer(app) {
   //     a dark chapter turns into an unfair one, and the whole point is that the dark costs you
   //     information about the CROWD, not about your own health.
   //
-  // The shafts are cut HOLES (Graphics.cut()), not brighter sprites painted over the top. That is
-  // a gameplay requirement and not a look: additive light over a flattened scene raises its
+  // The shafts REMOVE darkness, they are not brighter sprites painted over the top. That is a
+  // gameplay requirement and not a look: additive light over a flattened scene raises its
   // brightness but cannot un-flatten it, so a shaft drawn that way is a glowing disc you can see
-  // LESS inside — the exact opposite of what standing in the light is for. A cut hole shows the
-  // untouched world, so the lit pool is the one place the chapter plays normally.
+  // LESS inside — the exact opposite of what standing in the light is for. Punching the alpha out
+  // shows the untouched world, so the lit pool is the one place the chapter plays normally.
+  const DARK_MAP_W = 128
   const darkLayer = new Container()
-  const darkScrim = new Graphics()
-  const darkGlow = new Sprite(Texture.EMPTY)   // T.darkFalloff, assigned on first use (see updateDark)
-  darkGlow.anchor.set(0.5)
-  darkLayer.addChild(darkScrim, darkGlow)
+  const darkCanvas = document.createElement('canvas')
+  const darkCtx = darkCanvas.getContext('2d')
+  darkCanvas.width = DARK_MAP_W
+  darkCanvas.height = DARK_MAP_W
+  const darkTex = Texture.from(darkCanvas)
+  const darkSprite = new Sprite(darkTex)
+  darkLayer.addChild(darkSprite)
   darkLayer.visible = false
 
   // ---- SWELL (v7.x Book 2) ---------------------------------------------------------------------
@@ -8376,13 +8423,9 @@ export function createRenderer(app) {
     swellG.clear()
   }
 
-  // The dark scrim (see darkLayer's block up in the stage setup for WHY it is shaped this way).
+  // The dark (see darkLayer's block up in the stage setup for WHY it is shaped this way).
   // Reads run.charge through the same darkness() curve sim.js uses for the move-speed penalty, so
   // "the screen dimmed" and "I am slow" can never drift apart into two separate mysteries.
-  // Fraction of T.darkFalloff's radius that is still fully transparent. Duplicated from the bake's
-  // first non-zero stop on purpose — the scrim needs it to know when the light covers the whole
-  // viewport and the whole layer can be skipped, and a texture cannot be asked.
-  const DARK_CLEAR_FRAC = 0.45
   function updateDark(run, cx, cy) {
     const cfg = CHAPTERS[run.chapter]
     const res = cfg?.resource
@@ -8394,37 +8437,47 @@ export function createRenderer(app) {
     // camera (a lane chapter sits them low, see cy above).
     const px = run.player.x + cx, py = run.player.y + cy
     const R = lightRadius(run.charge, res)
-    // Nothing to draw once the CLEAR core alone covers the farthest corner. This is the cheap exit
-    // for a full bar on a phone, and it is also what bounds `m` below: past here R is at most a
-    // screen diagonal, so the oversize rect stays a sane size instead of scaling with lightFull.
+    // Nothing to draw once the fully-lit core alone covers the farthest corner. The cheap exit for a
+    // full bar on a phone, and the reason nothing below has to care how large lightFull gets.
     const corner = Math.max(Math.hypot(px, py), Math.hypot(w - px, py),
                             Math.hypot(px, h - py), Math.hypot(w - px, h - py))
-    if (R * DARK_CLEAR_FRAC >= corner) { darkLayer.visible = false; return }
+    if (R * LIGHT_CORE_FRAC >= corner) { darkLayer.visible = false; return }
     darkLayer.visible = true
-    // The scrim is drawn OVERSIZE by twice the largest shaft radius. cut() documents that a hole
-    // which is not wholly inside its shape "will fail to cut correctly", and a shaft straddling the
-    // screen edge is exactly that case — at margin >= 2r, any shaft still touching the viewport is
-    // wholly inside the padded rect, and any shaft skipped below is wholly off it. Derived from the
-    // chapter's own radius rather than hardcoded, so retuning signature.r cannot silently reintroduce
-    // a rim of un-cut scrim sliding in from the edge of the screen.
-    // ...and the player's own circle is the biggest hole of the lot, so the margin is the larger of
-    // the two radii. Bounded by the corner test above, which already returned for any R big enough
-    // to matter.
-    const m = Math.max(cfg.signature?.r ?? 0, R) * 2 + 80
-    const tint = cfg.render?.darkTint ?? 0x02131f
-    darkScrim.clear()
-    darkScrim.rect(-m, -m, w + m * 2, h + m * 2).fill({ color: tint, alpha: a })
-    darkScrim.circle(px, py, R).cut()
+
+    // The lightmap, in its own tiny space. The buffer tracks the screen's ASPECT, so the single
+    // scale `s` below serves both axes and a light stays round instead of going oval on a phone.
+    // The texture source has to be resized alongside the canvas or it keeps sampling the old frame
+    // after a device rotation; the 2D context's own state is wiped by the resize, and everything
+    // below re-sets what it needs anyway.
+    const bh = Math.max(1, Math.round(DARK_MAP_W * h / w))
+    if (darkCanvas.height !== bh) {
+      darkCanvas.height = bh
+      darkTex.source.resize(DARK_MAP_W, bh)
+    }
+    const s = DARK_MAP_W / w   // screen px -> buffer px
+    darkCtx.globalCompositeOperation = 'source-over'
+    darkCtx.fillStyle = '#fff'
+    darkCtx.fillRect(0, 0, DARK_MAP_W, bh)
+    // Every light is now SUBTRACTED from that, so what survives in the alpha channel is the shadow.
+    // destination-out multiplies the destination's alpha by (1 - source alpha), so two lights over
+    // the same pixel compose by multiplication — order-free, count-free, and with no boundary
+    // anywhere for a seam to sit on. That is the entire reason this is a canvas and not three
+    // stacked display objects; see darkLayer's block for the three seams that were the alternative.
+    darkCtx.globalCompositeOperation = 'destination-out'
+    darkCtx.drawImage(LIGHT_BLOB, (px - R) * s, (py - R) * s, R * 2 * s, R * 2 * s)
     for (const sh of run.shafts) {
       const sx = sh.x + cx, sy = sh.y + cy
-      if (sx - sh.r < -m || sx + sh.r > w + m || sy - sh.r < -m || sy + sh.r > h + m) continue
-      darkScrim.circle(sx, sy, sh.r).cut()
+      if (sx + sh.r < 0 || sx - sh.r > w || sy + sh.r < 0 || sy - sh.r > h) continue
+      // Hard discs, not blobs: a shaft is a pool of full daylight with an edge you can stand on the
+      // wrong side of, and sim.js tests that radius exactly (stepCharge).
+      darkCtx.beginPath()
+      darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
+      darkCtx.fill()
     }
-    if (darkGlow.texture !== T.darkFalloff) darkGlow.texture = T.darkFalloff
-    darkGlow.position.set(px, py)
-    darkGlow.width = darkGlow.height = R * 2
-    darkGlow.tint = tint
-    darkGlow.alpha = a
+    darkTex.source.update()
+    darkSprite.setSize(w, h)
+    darkSprite.tint = cfg.render?.darkTint ?? 0x02131f
+    darkSprite.alpha = a
   }
 
   // ---------------------------------------------------------------- storm overlay
