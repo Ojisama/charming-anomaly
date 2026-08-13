@@ -2985,10 +2985,10 @@ export const elText = ({ s, p }) => s.replace(/\{(\w+)\}/g, (_, k) => p[k] ?? `{
 export const elementCardDesc = (id, P) => {
   const f = elementFacts(id, P)
   switch (id) {
-    case 'fire':      return { s: 'Your hits set enemies burning for {pct}% of that hit’s damage over {secs}s. Best on heavy hits.', p: { pct: f.burnPct, secs: EL_WINDOW } }
-    case 'cold':      return { s: 'Damage chills. Take {pct}% of an enemy’s health within {secs}s and it freezes for {freeze}s.', p: { pct: f.freezePct, secs: EL_WINDOW, freeze: f.freezeT } }
-    case 'venom':     return { s: 'Damage weakens. An enemy you have just worn down takes +{pct}% damage from every source. Venom deals none itself.', p: { pct: f.ampPct } }
-    case 'lightning': return { s: 'Arcs to {arcs} enemies for {dmg}% damage, at {range}% range. {spread}% chance to spread burning to each.', p: { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct } }
+    case 'fire':      return { s: 'Burns for {pct}% of each hit.', p: { pct: f.burnPct } }
+    case 'cold':      return { s: 'Freezes at {pct}% of a health bar.', p: { pct: f.freezePct } }
+    case 'venom':     return { s: '+{pct}% damage taken.', p: { pct: f.ampPct } }
+    case 'lightning': return { s: '{arcs} arcs for {dmg}% damage.', p: { arcs: f.arcs, dmg: f.dmgPct } }
     default:          return { s: '', p: {} }
   }
 }

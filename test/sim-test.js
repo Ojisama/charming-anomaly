@@ -14838,8 +14838,27 @@ function testElementsRedesign() {
     assert.notStrictEqual(upgrade.descT.p.pct, upgrade.descT.prev.pct,
       `the burn share reads ${upgrade.descT.p.pct} both before and after the pick — the card would strike a ` +
       `number through and print the same one beside it`)
-    assert.strictEqual(upgrade.descT.prev.secs, upgrade.descT.p.secs,
-      'the window length changed with potency — it is a constant, and the renderer only strikes what differs')
+    // A param that does NOT move between potencies must still be there and still be equal, so the
+    // renderer leaves it plain instead of striking a number and printing the same one beside it.
+    // Lightning's arc COUNT is that param at this step (1 + floor(sqrt(P)) is 2 at both 2 and 3).
+    // This replaced an assertion on fire's `secs`, which went VACUOUS the moment the card stopped
+    // printing a duration: undefined === undefined passes and guards nothing.
+    const boltCard = (r) => devCards(r).find((c) => c.kind === 'element' && c.id === 'lightning')
+    run.elements.lightning = 2
+    run.elementPicks.lightning = 1
+    const bolt = boltCard(run)
+    assert.ok(bolt?.descT?.prev, 'no lightning upgrade card to read')
+    assert.strictEqual(bolt.descT.prev.arcs, bolt.descT.p.arcs,
+      `the arc count reads ${bolt.descT.prev.arcs} -> ${bolt.descT.p.arcs} across a step that adds no arc`)
+    // EVERY placeholder the template uses must have a value. tt() leaves an unmatched {key} in the
+    // string verbatim, so dropping a param while leaving it in the sentence prints literal braces
+    // to the player — which is exactly what shortening these cards risked.
+    for (const id of Object.keys(ELEMENTS)) {
+      const { s, p } = elementCardDesc(id, 3)
+      for (const m of s.matchAll(/\{(\w+)\}/g)) {
+        assert.ok(p[m[1]] !== undefined, `${id}'s card says {${m[1]}} but passes no such value — the player sees the braces`)
+      }
+    }
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
     assert.ok(/<s class="lv-was">/.test(uiSrc), 'the level-up card no longer strikes the replaced figure')
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
