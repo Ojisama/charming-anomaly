@@ -110,7 +110,7 @@ import {
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
   BREATH_CHARGE_T, LASH_PULL_T,
   // elements redesign (Run EL)
-  EL_WINDOW, EL_BUCKETS, EL_VALUES, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
+  EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake } from '../src/sim.js'
 
@@ -14860,5 +14860,44 @@ function testElementsRedesign() {
     assert.ok(/const frozen = e\.frozen/.test(rnd) && /const chill = e\.chill/.test(rnd),
       'render.js no longer reads the frozen/chill contract fields — publishing them from sim is now a no-op')
     console.log(`PASS run EL.j (freeze is visible): ${frozenFrames} frozen frames, all published to render's contract fields, ${chilledFrames} chilled`)
+  }
+
+  // (k) A BURN TICK IS READABLE, AND NEVER ZERO. At the shared STATUS_TICK a burn was 12 ticks of
+  // ~4% of the hit: "1" on a median hit, and 3.1% of all ticks rounded to 0 and dealt NOTHING —
+  // measured over a 300s run, and reported from play as "the fire numbers are wrong". Owner's
+  // call: half as many ticks, and a floor of EL_BURN_MIN so a small burn can never print 0.
+  // Measured on a pinned enemy parked out of every weapon's reach, so the only damage it takes is
+  // its own burn — in a real crowd a second weapon's hit is indistinguishable from a tick.
+  {
+    const run = el({ fire: 2 })
+    for (let i = 0; i < 240; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+    }
+    const e = run.enemies.find((x) => !x._dead)
+    assert.ok(e, 'no enemy to pin')
+    const far = () => { e.x = run.player.x + 4000; e.y = run.player.y + 4000; e.maxHP = 1e6; e.hp = 1e6 }
+    far()
+    e.igniteDps = 0.02          // a burn so small every tick would round to 0 without the floor
+    e.ignite = EL_WINDOW
+    e._igniteAcc = 0
+    const ticks = []
+    for (let i = 0; i < Math.round((EL_WINDOW + 1) * 60); i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      far()
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      // ONLY the pinned enemy's ticks: it is parked 4000px away, and every other enemy in the
+      // crowd is burning too — collecting all of them counted 9 ticks for a 6-tick burn.
+      for (const ev of run.events) if (ev.type === 'hit' && ev.dot && Math.abs(ev.x - e.x) < 1) ticks.push(ev.dmg)
+      run.events.length = 0
+    }
+    assert.strictEqual(ticks.length, Math.round(EL_WINDOW / EL_BURN_TICK),
+      `a burn produced ${ticks.length} ticks over ${EL_WINDOW}s, not ${EL_WINDOW / EL_BURN_TICK} — it is not ticking at EL_BURN_TICK`)
+    const zero = ticks.filter((d) => d < EL_BURN_MIN)
+    assert.strictEqual(zero.length, 0,
+      `${zero.length} of ${ticks.length} burn ticks came in under EL_BURN_MIN (${JSON.stringify(ticks)}) — ` +
+      `a tick that rounds to 0 deals nothing and reads as the element being broken`)
+    console.log(`PASS run EL.k (burn ticks): ${ticks.length} ticks over ${EL_WINDOW}s at ${EL_BURN_TICK}s each, none below ${EL_BURN_MIN} (${ticks.join(',')})`)
   }
 }

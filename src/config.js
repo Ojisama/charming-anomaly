@@ -2926,6 +2926,16 @@ export const EL_LIGHT_RANGE = 0.15  // arc range bonus per sqrt(P)
 export const EL_LIGHT_FORWARD = 0.35 // chance per sqrt(P) to forward the source's ignite/bleed
 export const EL_BUCKET_WEIGHT = 7.5 // BUCKET_WEIGHTS.element under the flag (18 -> 7.5): elements
 // become a FIND rather than routine, and the freed weight goes to the base-attribute buckets.
+// The burn's own tick, twice the length of the shared STATUS_TICK. A burn is a share of ONE hit
+// spread over EL_WINDOW, so at 0.25s it landed 12 ticks of ~4% of the hit each: on a median hit
+// that is 1.06, printed as "1", and 3.1% of all ticks rounded to 0 and dealt NOTHING (measured
+// over a 300s run). Halving the tick count doubles each number without touching the total.
+export const EL_BURN_TICK = 0.5
+// ...and a tick never deals less than this. Owner's call: a burn that prints 0 reads as broken,
+// and rounding down was silently deleting a slice of every small burn. Note it is a floor on the
+// tick, so a very small hit now burns for slightly MORE than its share — deliberate, so that fire
+// is never a dead card on a weak weapon.
+export const EL_BURN_MIN = 1
 
 /** The redesign's potency ladder. No `normal` tier — an element card is always rare or better. */
 export const EL_VALUES = { rare: 1, epic: 2, legendary: 3, mythic: 4 }
