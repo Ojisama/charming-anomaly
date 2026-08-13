@@ -4023,16 +4023,31 @@ CHAPTERS.shelf = {
   //         damage doubles because you never leave. A slower refill is not a harder chapter.
   resource: {
     name: 'Light', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
-    // lightFull 820 vs lightEmpty 210: the falloff is clear inside ~45% of the radius, so a full bar
-    // leaves ~370px of untouched world around you — past the corner of a 390x844 phone (464px from
-    // centre) only as a faint shade, which is what "you are the lamp" should look like when the lamp
-    // is full. At an empty bar the clear disc is ~95px and everything is gone by 210: about one
-    // second of warning at a normal enemy approach speed, and you are at 0.6x on top of it.
+    // coreFull 1 / coreEmpty 0.28 are MULTIPLES OF THE SCREEN'S HALF-DIAGONAL, not world px, and
+    // that is the fix for a bug the owner reported as "only full dark or full light, with a
+    // threshold around 41% of the bar". A radius in world px is compared against a screen whose
+    // size the number knows nothing about, so the mechanic read differently per device and neither
+    // reading was the intended one (both measured, fx-probe, luminance off the framebuffer):
+    //   390x844 phone (half-diagonal 465px)  the old core was 508px, already past the corner, and
+    //     stayed past it down to 42% of the bar — so the top HALF of the drainable range changed
+    //     nothing at all (meanLum 85.5 at 50%, 45% and 40% alike) and every visible thing happened
+    //     in the bottom fifth. The layer does flip on at ~41%, which is the threshold that got
+    //     reported, but it flips on drawing nothing.
+    //   1280x800 desktop (half-diagonal 755px)  the core NEVER reached the corner, so the dark was
+    //     on permanently and the corners sat vignetted at a FULL bar — flatly against the rule two
+    //     paragraphs up that at and above `from` the chapter plays like a chapter with no dark.
+    // Expressed against the half-diagonal both readings collapse into the intended one on every
+    // device: coreFull 1 means the fully-lit core exactly covers the farthest corner at `from`, so
+    // the dark is absent above the threshold and starts ramping the instant the bar drops below it.
+    // coreEmpty 0.28 is chosen to LEAVE THE PHONE'S EMPTY BAR EXACTLY AS IT SHIPPED — 0.28 x 465 =
+    // 130px of clear disc, the same 130 the old 210px outer radius gave — since that end is the one
+    // the owner picked off a shot on 2026-08-13. It is about one second of warning at a normal
+    // enemy approach speed, and you are at 0.6x on top of it.
     // dim 1.0 (owner, 2026-08-13, "much darker when light = 0", picked off a 4-way shot): the far
     // field is the tint and nothing else. It is only ever the FAR field — the radius is what the
-    // player reads, and at a full bar the falloff barely reaches the corner of a phone — so an
-    // opaque outside costs no legibility near you and makes running dry actually frightening.
-    dark: { from: 0.5, speedFloor: 0.6, dim: 1.0, lightFull: 820, lightEmpty: 210 },
+    // player reads — so an opaque outside costs no legibility near you and makes running dry
+    // actually frightening.
+    dark: { from: 0.5, speedFloor: 0.6, dim: 1.0, coreFull: 1, coreEmpty: 0.28 },
   },
 
   // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
@@ -4816,15 +4831,17 @@ export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_
 // be able to read their own condition off the screen without consulting the rail: it gets darker
 // and you get slower AT THE SAME RATE, so "the world dimmed" and "I am slow" are one fact.
 //
-// The chapter declares `resource.dark = { from, speedFloor, dim, lightFull, lightEmpty }`:
+// The chapter declares `resource.dark = { from, speedFloor, dim, coreFull, coreEmpty }`:
 //   from       - charge FRACTION at and above which nothing happens at all. Above this the chapter
 //                plays exactly like a chapter with no dark at all.
 //   speedFloor - player move-speed multiplier at charge 0 (sim; see stepPlayer's slowMul MIN).
 //   dim        - alpha of the darkness OUTSIDE your light (RENDER ONLY, but it lives here and not
 //                in the `render` block on purpose: it must share `from` with the slow or the two
 //                cues drift apart and the dimming becomes decoration).
-//   lightFull  - radius in world px that you light at and above `from`.
-//   lightEmpty - ...and at an empty bar. See lightRadius() below.
+//   coreFull   - the FULLY-LIT core radius at and above `from`, as a multiple of the screen's
+//                half-diagonal. 1 means "the clear disc exactly reaches the farthest corner", i.e.
+//                no dark at all. See lightCore() below for why it is a multiple and not a px count.
+//   coreEmpty  - ...and at an empty bar.
 //
 // YOU ARE THE LAMP (owner, 2026-08-12, revising the first cut). The first version ramped the alpha
 // of a UNIFORM screen-wide sheet, which is the wrong picture twice over: "I thought the light
@@ -4858,15 +4875,26 @@ export const darkness = (charge, res) => {
   return (d.from - frac) / d.from   // 0 at the threshold, 1 at an empty bar
 }
 
-// How far you light the world, in WORLD px, measured to where the falloff reaches full `dim`.
+// The radius of the FULLY-LIT core around the player, in screen px, given `corner` — the distance
+// from the player to the farthest corner of the screen. The falloff to full `dim` happens outside
+// this; render.js owns its shape (LIGHT_CORE_FRAC / DARK_RAMP) and derives the outer radius from
+// what comes back here.
+//
+// MEASURED AGAINST THE SCREEN, not in world px, and the difference is a shipped bug rather than a
+// preference — see the coreFull/coreEmpty note on CHAPTERS.shelf.resource for the two devices it
+// broke in opposite directions. A fixed world radius is compared against a half-diagonal that is
+// 465px on a phone and 755px on a desktop, so the same number is "the light never reaches the
+// corner" on one and "the light always covers the screen" on the other. Every dark chapter wants
+// the same FRACTION of the screen lit, so that fraction is the thing to write down.
+//
 // Interpolates on darkness() and not on raw charge/max, which is what keeps the shrinking light and
-// the slow one fact rather than two: above `from` the radius is pinned at lightFull, and it starts
+// the slow one fact rather than two: above `from` the core is pinned at coreFull, and it starts
 // closing at the same instant the slow starts. Infinity (not 0) for a chapter with no dark block —
 // "this chapter lights everything" is the identity here, and a 0 would black the screen out.
-export const lightRadius = (charge, res) => {
+export const lightCore = (charge, res, corner) => {
   const d = res?.dark
   if (!d) return Infinity
-  return d.lightFull - (d.lightFull - d.lightEmpty) * darkness(charge, res)
+  return corner * (d.coreFull - (d.coreFull - d.coreEmpty) * darkness(charge, res))
 }
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
