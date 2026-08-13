@@ -5279,9 +5279,19 @@ function testChapterBehaviors() {
     // that dealDamage's integer subtraction can never clear (see roundHP in sim.js).
     const expectedHp = Math.max(1, Math.round(parent.maxHP * SPLIT_HP_FRAC))
     const expectedRadius = parent.radius * SPLIT_RADIUS_FRAC
+    // XP scales with the child's health, like every other stat it inherits. A child carrying the
+    // parent's FULL xp made a splitter worth 3 kills of xp for 1.9 kills of health — the only
+    // enemy in the game whose xp-per-point-of-health is not 1, and it front-loaded its chapters
+    // hard enough to be reported from play (The Shelf at level 10.5 by 180s against undergrowth's
+    // 8.5, then 5 levels behind by 300s).
+    const expectedXp = parent.xp * SPLIT_HP_FRAC
     for (const c of children) {
       assert(Math.abs(c.maxHP - expectedHp) < 1e-6, `expected child maxHP ${expectedHp}, got ${c.maxHP}`)
       assert(Math.abs(c.radius - expectedRadius) < 1e-6, `expected child radius ${expectedRadius}, got ${c.radius}`)
+      assert(Math.abs(c.xp - expectedXp) < 1e-6,
+        `expected child xp ${expectedXp} (the parent's ${parent.xp} scaled by SPLIT_HP_FRAC), got ${c.xp} — ` +
+        `a child worth its parent's whole xp on ${SPLIT_HP_FRAC} of its health is ` +
+        `${((1 + SPLIT_CHILD_COUNT) / (1 + SPLIT_CHILD_COUNT * SPLIT_HP_FRAC)).toFixed(2)}x the xp per point of health`)
     }
 
     // No re-split: isolate one child (drop its sibling so nothing else can be hit), kill it the
