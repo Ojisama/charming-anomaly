@@ -870,7 +870,7 @@ const CONFIG = {
   "Enemies take +{pct}% damage.":
     "L'ennemi subit +{pct}% de dégâts.",
   "{arcs} arcs for {dmg}% damage.":
-    "Frappe {arcs} ennemis à {dmg}% des dégâts.",
+    "Des éclairs transmettent {dmg}% des dégâts à {arcs} ennemis proches.",
 
   // ---- elite affixes (ELITE_AFFIXES). Shown on the elite itself; "Ancré" is the one the
   // element Codex names, since anchored elites are the only ones cold can never freeze.
