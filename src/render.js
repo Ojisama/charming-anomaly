@@ -11352,6 +11352,16 @@ export function createRenderer(app) {
     s.position.set(g.x, g.y)
     s.rotation = g.angle
     const sc = (g.r || CLAW_BAKE_R) / CLAW_BAKE_R
+    // SPENT IS NOT OFF, and the sprite must not say it is (v7.78). The claw blocks every frame
+    // whether or not it can bite, so the two things this used to dim — SIZE and OPACITY — are now
+    // both lies, and they were on screen ~95% of the run:
+    //   - scale. The bake puts the fingertips exactly on g.r so the sprite states the weapon's real
+    //     reach. Shrinking to 0.88 while spent drew the wall 12% short of where it actually stands.
+    //   - alpha. Half-transparent is this game's vocabulary for "not currently a thing" (a ghosted
+    //     phase flicker, an expiring zone). A barrier nothing can cross must not use it.
+    // What is left to carry ARMED vs SPENT is the SILHOUETTE — a gape held open against two fingers
+    // shut — which is what the two bakes were made for, plus a cooling of the shell that warms back
+    // up as the bite recovers. Both states are full size and fully opaque.
     if (g.armed) {
       // A small clench-and-release, keyed off the claw's own position so two claws (backClaw) do not
       // pulse in lockstep and read as one object.
@@ -11360,9 +11370,14 @@ export function createRenderer(app) {
       s.alpha = 1
     } else {
       const k = g.rearm > 0 ? 1 - Math.max(0, Math.min(1, g.cd / g.rearm)) : 1
-      s.scale.set(sc * (0.88 + 0.12 * k))   // it also re-opens toward full size as it recovers
-      s.tint = mix(0x6f6156, 0xffffff, k)
-      s.alpha = 0.5 + k * 0.5
+      s.scale.set(sc)
+      // A cooled carapace, NOT a dark one. Shot at 0x9c8c86 first and that multiplies the shell to
+      // ~61% brightness, which on a sprite you are looking at ~95% of the time still half-reads as
+      // "off" — the exact impression this whole change exists to kill. The floor is high enough
+      // that the claw stays an orange claw; the shut silhouette carries "cannot bite", and the
+      // warmth returning on top of it is the recharge tell.
+      s.tint = mix(0xc9b6ab, 0xffffff, k)
+      s.alpha = 1
     }
   }
 

@@ -37,7 +37,7 @@ import {
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
-  MAX_DIFFICULTY, PLAYER, PINCER_ARC,
+  MAX_DIFFICULTY, PLAYER, PINCER_ARC, PINCER_BLOCK_BAND,
   BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -14928,7 +14928,52 @@ function testPincer() {
   assert.strictEqual(edge.probeLostHp, 0,
     'a body just outside the arc half-angle was damaged — PINCER_ARC is not bounding anything')
 
-  console.log(`PASS run US.e (pincer): the guard is an arc of ${(PINCER_ARC * 2 * 180 / Math.PI).toFixed(0)} deg anchored to the player, tracks the nearest enemy, stays armed while nothing approaches, catches a body pressed against you in front but not behind, and damages and throws on contact — ${snaps} snaps over the re-arm window`)
+  // (f) THE WALL, AND THAT IT HOLDS WHILE THE CLAW IS SPENT (v7.78 owner ruling). The block is the
+  // shield and the bite is a separate thing on a cooldown; before this the cooldown gated BOTH, and
+  // the claw was armed 4% of a real run, so bodies walked through it at will. The claw is forced
+  // SPENT on every frame here on purpose — that is what separates "a wall" from "a wall that is
+  // down whenever it matters", and a block re-gated behind `g.armed` passes every other assertion
+  // in this scenario.
+  const wallProbe = (blocked) => {
+    Math.random = mulberry32(20260817)
+    const r2 = createRun(meta, { chapter: 'surf', difficulty: 1 })
+    r2.weapons = blocked ? [{ id: 'pincer', level: 1 }] : []
+    r2.enemies.length = 0
+    const walker = makeStatusEnemy(r2, { x: r2.player.x + 300, y: r2.player.y, hp: 1e6, speed: 0 })
+    r2.enemies.push(walker)
+    let closest = 1e9
+    for (let i = 0; i < 240; i++) {
+      if (r2.phase === 'levelup') { applyChoice(r2, pickNonElementIndex(r2)); r2.phase = 'playing'; continue }
+      // Walk it in by hand rather than trusting enemy steering: the question is whether the barrier
+      // stops a body crossing it, and a fixture that depends on the AI's approach speed measures the
+      // AI too. 6px/frame is ~360px/s, faster than anything in the roster actually moves.
+      const dx = r2.player.x - walker.x, dy = r2.player.y - walker.y
+      const d = Math.hypot(dx, dy)
+      if (d > 6) { walker.x += (dx / d) * 6; walker.y += (dy / d) * 6 }
+      walker.kb.x = walker.kb.y = 0   // no free ride from the snap's knockback
+      for (const gd of r2.guards) { gd.armed = false; gd.cd = 99; gd.rearm = 99 }
+      stepSim(r2, { x: 0, y: 0, skill: false }, 1 / 60)
+      r2.events.length = 0
+      closest = Math.min(closest, Math.hypot(walker.x - r2.player.x, walker.y - r2.player.y))
+    }
+    return { closest, r: r2.guards[0]?.r ?? 0 }
+  }
+  const walled = wallProbe(true)
+  const open = wallProbe(false)
+  assert.ok(open.closest < 20,
+    `the control walked to ${open.closest.toFixed(0)}px — the fixture never reaches the player, so it cannot show a wall`)
+  const floor = walled.r - PINCER_BLOCK_BAND
+  assert.ok(walled.closest >= floor,
+    `a body crossed the SPENT claw: it got to ${walled.closest.toFixed(0)}px, inside the wall's inner face at ${floor.toFixed(0)}px (claw reaches ${walled.r})`)
+  // ...and it is held at the FACE, not merely somewhere inside the band. MUTATION-FOUND: snapping
+  // bodies to `inner` instead of to g.r builds the wall 40px closer than the sprite's fingertips
+  // and passes the floor check above, which would put the barrier somewhere the player cannot see.
+  assert.ok(walled.closest <= walled.r + 2,
+    `the wall is not at the claw's face: a body settled at ${walled.closest.toFixed(0)}px against a reach of ${walled.r}px`)
+  assert.ok(walled.closest > open.closest + 30,
+    `the claw made no difference to how close a body got (${walled.closest.toFixed(0)}px vs ${open.closest.toFixed(0)}px unguarded)`)
+
+  console.log(`PASS run US.e (pincer): the guard is an arc of ${(PINCER_ARC * 2 * 180 / Math.PI).toFixed(0)} deg anchored to the player, tracks the nearest enemy, stays armed while nothing approaches, catches a body pressed against you in front but not behind, damages and throws on contact (${snaps} snaps over the re-arm window), and WALLS a body out at ${walled.closest.toFixed(0)}px while SPENT where an unguarded one reaches ${open.closest.toFixed(0)}px`)
 }
 
 // ---- run LN: The Beyond's lane is a GOLDEN MASTER ---------------------------------------------

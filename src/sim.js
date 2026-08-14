@@ -157,6 +157,7 @@ import {
   PULSAR_FAN_ARC, PULSAR_FAN_SWEEP, PULSAR_FAN_RATE,
   // v7.55 The Surf: the Pincer's held claw (see stepPincerWeapon/stepGuards)
   PINCER_ARC,
+  PINCER_BLOCK_BAND,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -7689,36 +7690,69 @@ function stepPincerWeapon(run, w, stats) {
   }
 }
 
-// The trigger and the re-arm. A claw closes on EVERYTHING whose centre is inside it, not on the one
-// nearest body — the claw is a shield, and a guard that removes one enemy from a pack of eight while
-// the other seven walk past it is not guarding anything. It is also what makes the weapon's damage
-// survive contact with a crowd: measured single-target, the pincer threw away 56% of every snap as
-// overkill on a body that was already dying (weapon-census, surf L5), which is what a big number on
-// a long cooldown always does. `r` is small (50-66px) and offset forward, so in a sparse field this
-// is still exactly one body and in a crush it is three or four — the weapon scales with the thing it
-// exists to answer, without ever becoming a nova on a timer.
-// `cd` is the only clock in it, and it does not start until a snap has happened, so an armed claw
-// over an empty beach stays armed indefinitely.
+// TWO THINGS IN ONE WEDGE, AND ONLY ONE OF THEM HAS A COOLDOWN (owner ruling 2026-08-14). This is
+// the distinction the weapon shipped without, and shipping without it is why it did not read as a
+// shield:
+//   THE BLOCK runs EVERY FRAME, armed or spent. Nothing can walk through the claw's face. This is
+//     the shield, it is never down, and it is what the player is actually holding.
+//   THE BITE runs only when armed, and `cd` is its clock alone. Damage plus the big yank.
+// A spent claw is therefore still a wall — it just cannot bite for a moment. Before v7.78 `cd`
+// gated BOTH, and the measurement of what that meant is worth keeping because nothing in the weapon
+// census could see it (output was at parity with the Flagella Whip the whole time). Over 240s at
+// surf d3, immortal, 3 seeds, pincer L1 as the only weapon:
+//   - the claw was ARMED 4.2% of the run. It fired the instant it recovered and was spent the rest
+//     of the time, so what the player looked at was the greyed-out sprite ~96% of the time.
+//   - 877 contact hits standing your ground, against 896 for a player carrying NO WEAPON AT ALL.
+//     As a shield it was worth 2%. 874 of those 877 came from inside the guarded wedge — bodies
+//     walked straight through the thing pointed at them.
+//   - one snap moved a body 22-34px (16px by the sixth, as CC diminishing returns bit) against a
+//     claw reaching 82px, so the shove could not even clear the guard it was defending.
+// A claw closes on EVERYTHING whose centre is inside it, not on the one nearest body — a guard that
+// removes one enemy from a pack of eight while the other seven walk past it is not guarding
+// anything. It is also what makes the weapon's damage survive contact with a crowd: measured
+// single-target, the pincer threw away 56% of every snap as overkill on a body that was already
+// dying (weapon-census, surf L5), which is what a big number on a long cooldown always does.
+// `cd` does not start until a snap has happened, so an armed claw over an empty beach stays armed
+// indefinitely — and a claw that never bites still holds its wedge the entire time.
 function stepGuards(run, dt) {
   if (run.guards.length === 0) return
   for (const g of run.guards) {
-    if (!g.armed) {
-      g.cd -= dt
-      if (g.cd <= 0) { g.cd = 0; g.armed = true }
-      continue
-    }
     const rSq = g.r * g.r
     const half = g.arc ?? PINCER_ARC
+    // The wall's inner face. See PINCER_BLOCK_BAND for why the barrier has a thickness and why a
+    // body already past it is deliberately left alone.
+    const inner = Math.max(0, g.r - PINCER_BLOCK_BAND)
     let caught = 0
     for (const e of run.enemies) {
       if (e._dead || isAlly(e)) continue   // SUBMISSION: never pinch your own ally
       const dx = e.x - g.x, dy = e.y - g.y
-      if (dx * dx + dy * dy > rSq) continue
+      const dSq = dx * dx + dy * dy
+      if (dSq > rSq) continue
       // Inside the FAN, not merely inside the circle. Normalised through atan2(sin, cos) rather than
       // by subtracting and comparing: a raw difference wraps at ±pi, and a guard facing just past
       // that seam would silently stop catching the bodies right in front of it.
       const d = Math.atan2(dy, dx) - g.angle
       if (Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) > half) continue
+
+      // ---- THE BLOCK. Every frame, armed or spent. ----
+      // Snapped to the face, not eased toward it: stepEnemySeparation learned this the hard way and
+      // says so in its own doc — a crowd converging on the player closes faster per frame than a
+      // partial resolve pushes back out, so a soft push equilibrates the pack INSIDE the barrier,
+      // which is the exact bug this is here to fix. Anchored/unshakeable bodies walk through, the
+      // same contract they keep at every knockback site in the file: an elite shoulders your guard
+      // aside, and that is the counter.
+      const dist = Math.sqrt(dSq)
+      if (!resistsCC(e) && dist >= inner && dist > 1e-6) {
+        // 0.998 rather than 1: parked at exactly g.r the body's next `dSq > rSq` test is a coin
+        // flip on float error, and a guard that drops its own held body every other frame cannot
+        // bite it reliably.
+        const k = (g.r * 0.998) / dist
+        e.x = g.x + dx * k
+        e.y = g.y + dy * k
+      }
+
+      // ---- THE BITE. Only when armed. ----
+      if (!g.armed) continue
       applyDamage(run, e, g.dmg)
       // Away from the PLAYER, not from the claw — "it gets yanked away" means away from you, and a
       // shove along the claw's own axis would fling a body that came in from the side sideways past
@@ -7726,6 +7760,11 @@ function stepGuards(run, dt) {
       // the same contract every other knockback in the game keeps.
       shoveFromPlayer(run, e, g.knock)
       caught++
+    }
+    if (!g.armed) {
+      g.cd -= dt
+      if (g.cd <= 0) { g.cd = 0; g.armed = true }
+      continue
     }
     if (caught === 0) continue
     g.armed = false

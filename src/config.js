@@ -1637,13 +1637,13 @@ export const WEAPONS = {
   // ---- The Surf native (v7.55, Book 2 chapter 1) ----
   pincer: {
     name: 'Pincer',
-    desc: 'Guards the side you face with an open claw, and snaps whatever reaches it.',
+    desc: 'A claw nothing can walk through guards the side you face, and snaps what it catches.',
     icon: '🦀', rarity: 'normal',
     // THE ONLY WEAPON IN THE GAME THAT DOES NOT FIRE ON A TIMER. Every other one of the 23 runs
     // through fireOnTimer: a `rate`/`interval` elapses and something is emitted. This one holds a
-    // PERSISTENT guard (run.guards) out toward the nearest enemy and does nothing at all until
-    // something comes inside it — so its output is a function of what the crowd does, not of how
-    // long the player has waited. That is why there is no `rate` here and why `cd` is not one under
+    // PERSISTENT guard (run.guards) out toward the nearest enemy: it blocks continuously, and it
+    // deals no DAMAGE until something comes inside it — so its output is a function of what the
+    // crowd does, not of how long the player has waited. That is why there is no `rate` here and why `cd` is not one under
     // another name: `rate` would put a cadence row on the build sheet ("Every 2.60s") for a weapon
     // that can sit armed for a whole minute, which is a lie about the one thing that makes it
     // different. See stepPincerWeapon/stepGuards in sim.js.
@@ -1653,16 +1653,21 @@ export const WEAPONS = {
     //          stepGuards tests (the same drawn-extent-is-tested-extent rule the tide pool and the
     //          sandbar rim both keep) and its LENGTH comes out at 0.54r — two thirds of the fish at
     //          L1, growing with the weapon, which is the size the owner specified from a fiddler
-    //          crab photo. The radius is the half the art states; the ±PINCER_ARC spread is the
-    //          half it does not, deliberately — four cuts established that anything drawn that wide
-    //          stops reading as a claw (a filled crescent is a plate, tips joined by an arc is a
-    //          bow, fingers laid along the arc is a blade, two fingers splayed to the edges is a
-    //          pair of tweezers). The claw shows you WHICH SIDE is guarded; the arc is how wide
-    //          that side is. The guard is an ARC of half-angle PINCER_ARC centred on the player and
-    //          rotated to face the nearest enemy — see that constant for the measurements that
-    //          killed the previous held-out disc.
-    //   cd     seconds to re-arm after a snap. NOT divided by the global fire rate — see
-    //          stepGuards in sim.js for why an attack-speed stat has no meaning here
+    //          crab photo. r is ALSO where the wall stands: nothing crosses that radius inside the
+    //          wedge, armed or spent, so the fingertips are the barrier and not just a drawing of
+    //          one. The radius is the half the art states; the ±PINCER_ARC spread is the half it
+    //          does not — four cuts established that anything drawn that wide stops reading as a
+    //          claw (a filled crescent is a plate, tips joined by an arc is a bow, fingers laid
+    //          along the arc is a blade, two fingers splayed to the edges is a pair of tweezers).
+    //          That gap USED to be enormous and is now small: at ±70° the sprite hid 140° of live
+    //          hitbox, at ±40° it hides 80°, which is roughly the claw's own drawn spread. The claw
+    //          shows you WHICH SIDE is guarded; the arc is how wide that side is. The guard is an
+    //          ARC of half-angle PINCER_ARC centred on the player and rotated to face the nearest
+    //          enemy — see that constant for the measurements that killed the held-out disc, and
+    //          for why the wedge narrowed when the guard became a wall.
+    //   cd     seconds to re-arm THE BITE after a snap — not the guard, which never goes down (see
+    //          stepGuards). NOT divided by the global fire rate — see stepGuards in sim.js for why
+    //          an attack-speed stat has no meaning here
     //   knock  the yank. Deliberately the largest knockback in the game (chitterShriek's nova is
     //          280 at L5): "it gets yanked away" is half of what the player buys, and a shove that
     //          only moves a body a claw's width would read as a failed parry.
@@ -1680,15 +1685,29 @@ export const WEAPONS = {
     //      bodies wandered in); kiting, where the crowd is permanently in the claw, cd 1.7 -> 0.9
     //      went 39 -> 62 eff dps. Grid at L5, drift/kite eff dps: cd0.9 r58 63/71, cd0.9 r66 66/76,
     //      cd1.1 r58 51/65. So: a claw that recovers fast and reaches wide, not one that hits huge.
-    // There is deliberately NO trade being claimed against "but it holds the crowd off": that was
-    // measured too (median nearest-enemy distance, immortal + kiting, back half of the run) and it
-    // is FALSE — the pincer holds the crowd at 45px where the whip holds it at 57 and the bloom at
-    // 65, because killing things is the better denial. It has no hidden half to be paid in.
-    // Shipped numbers, 240s x 10 seeds at surf d3, eff dps / kills per min, against the whip:
-    //   L1  pincer 36 / 51.3   whip 48 / 64.0     — the opener is the weaker end, deliberately
-    //   L5  pincer 66 / 82.2   whip 71 / 83.3     — level on kills, 93% on damage
-    // (measured while CHAPTERS.surf still spread the pond's `balance` table; Task 9 gave the
-    // chapter its own, gentler tune, so a re-census against it is still owed.)
+    // THE WEAPON NOW HAS A SECOND HALF, and until v7.78 it did not. The old note here said flatly
+    // that no trade was being claimed for "but it holds the crowd off", because that had been
+    // measured and was FALSE (the pincer held the crowd at 45px where the whip held it at 57 and
+    // the bloom at 65 — killing things was the better denial). That reading was correct about the
+    // weapon as it then was: `cd` gated the block as well as the bite, so the guard was down 95% of
+    // a real run and blocked nothing. Now the wall is permanent and the trade is real, so the
+    // damage column has to be read next to it. Contact hits over 240s, immortal, 3 seeds, pincer as
+    // the only weapon, against a NO-WEAPON control (the honest denominator — "hits prevented" means
+    // nothing without it):
+    //                  before   after   unarmed
+    //   L1 kiting        228      131      317      the claw removes 59% of contact, was 28%
+    //   L1 standing      877      523      896      42%, was 2% — i.e. it did nothing at all
+    //   L5 kiting        190      116      317
+    //   L5 standing      735      559      896
+    // Damage, all three surf natives in ONE census invocation (so the RANKING is valid; comparing
+    // across invocations re-phases the RNG and is the trap CLAUDE.md documents), 240s x 5 seeds at
+    // surf d3, L5, eff dps / kills per min:
+    //   pincer 57 / 66.1   whip 63 / 72.8   bloom 120 / 115.6
+    // So the pincer sits at 90% of the whip on damage and 91% on kills, and buys a wall with the
+    // difference. The pre-v7.78 figure was 66 / 82.2, but that was measured while CHAPTERS.surf
+    // still spread the pond's `balance` table — Task 9 gave the chapter its own gentler tune — so
+    // 66 -> 57 must NOT be read as the price of the narrower arc. Those two numbers come from
+    // different worlds; only the three-weapon row above is a clean comparison.
     levels: [
       { dmg: 40, r:  82, cd: 1.35, knock: 340 },
       { dmg: 50, r:  89, cd: 1.22, knock: 360 },
@@ -2815,8 +2834,20 @@ export const PRISM_FLASH_T = 0.26
 // At L1: a 68px hold on a 50px claw, so 118px of total reach — inside the Flagella Whip's 130. At
 // L5 it is 89 + 66 = 155, still under the whip's 175.
 // THE GUARD IS AN ARC ANCHORED TO YOU, not a disc held out in front (owner ruling 2026-08-14,
-// replacing the held-out claw). Half-angle in radians, so the guard spans 2x this: 1.22 rad is a
-// ~140 degree fan across the side you are facing.
+// replacing the held-out claw). Half-angle in radians, so the guard spans 2x this: 0.70 rad is an
+// ~80 degree wedge across the side you are facing.
+//
+// WHY 80 DEGREES AND NOT THE 140 IT SHIPPED AT (owner ruling 2026-08-14, the same one that made the
+// guard a WALL — see stepGuards). A barrier nothing can walk through is a much stronger object than
+// a fan that pulses once a second, and the owner chose to pay for it in COVERAGE rather than in
+// damage: the wedge is now 22% of the circle instead of 39%, so the other 78% is genuinely open and
+// which way you face is a decision. Two things follow that are worth stating before someone widens
+// it again:
+//   - the backClaw mod stops being a luxury. At 140 degrees a front-and-back pair covered 78% of
+//     the circle and the gaps were slivers; at 80 it covers 44% and there are two real holes.
+//   - the BITE narrows with the block, because they are one wedge. Snapping everything inside the
+//     claw is what took this weapon from 15 to 55 effective dps (finding #1 below), and that sweep
+//     is now 43% smaller. That cost is real and is NOT pre-paid anywhere in the ladder below.
 //
 // WHY THE OLD SHAPE WAS THE BUG, measured over 6 seeded 240s kiting runs at surf d3 before the
 // change. The claw was a disc of radius r whose CENTRE sat 1.35r out toward the nearest enemy, so it
@@ -2832,7 +2863,24 @@ export const PRISM_FLASH_T = 0.26
 //
 // An arc anchored to the player fixes both by construction: it always covers the half you face,
 // including bodies already on you, and it can never point at something outside its own reach.
-export const PINCER_ARC = 1.22
+export const PINCER_ARC = 0.70
+
+// THE THICKNESS OF THE WALL, in px, and it exists for the reason every thin barrier in every engine
+// needs a thickness: a body that crosses the whole face in one step would tunnel through a
+// zero-width test. Only bodies within this band of the claw's FACE (g.r - BAND .. g.r) are pushed
+// back out to it. That is not a performance dodge, it is the mechanic:
+//   - anything walking in from outside is caught, always. `dt` is clamped to 0.05s in main.js and
+//     the fastest thing in the game moves a few hundred px/s, so nothing covers 40px in one step —
+//     the wall cannot be tunnelled.
+//   - anything ALREADY past the face is left alone, and that is the point. The claw auto-aims at the
+//     nearest enemy, so ejecting everything inside the wedge would make it a 360-degree panic button
+//     with no cooldown: eject the closest body, the next-closest becomes the target, eject that one,
+//     and at 60fps the player is untouchable in every direction — which would make the narrow arc
+//     the owner chose as this weapon's price cost nothing at all. A wall you can be caught BEHIND is
+//     what keeps facing a decision.
+// So: you cannot walk through the claw. If you are already inside it, you are inside it, and only
+// the snap will move you.
+export const PINCER_BLOCK_BAND = 40
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
   const out = []
