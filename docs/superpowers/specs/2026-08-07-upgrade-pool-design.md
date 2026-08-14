@@ -629,11 +629,14 @@ next level-up resets. Keeps the "rerolling is just calling it again" contract in
 >
 > | rerolls | normal (of tiered cards) | epic+ | mean rarity mult | cost, run's FIRST rerolled screen |
 > |---|---|---|---|---|
-> | 0 | 58.9% | 10.5% | 1.432 | — |
-> | 1 | 54.4% | 11.9% | 1.484 | 10 |
-> | 2 | 50.6% | 12.8% | 1.525 | 25 |
-> | 3 | 45.8% | 13.9% | 1.574 | 48 |
-> | 4 | 46.0% | 14.2% | 1.580 (cap exact) | 82 |
+> | 0 | 53.4% | 11.8% | 1.495 | — |
+> | 1 | 49.6% | 13.2% | 1.547 | 10 |
+> | 2 | 45.4% | 13.9% | 1.583 | 25 |
+> | 3 | 41.3% | 15.1% | 1.636 | 48 |
+> | 4 | 41.2% | 15.3% | 1.627 (cap exact, within noise) | 82 |
+>
+> Re-measured at v7.79, when the elements rework became the default: the element bucket went
+> 18 -> 7.5 and an element card now declines `normal` and re-rolls, so every row moved down.
 >
 > **That cost column is a first-screen price, and the cap is not in the same unit as it.**
 > `rerollCost` escalates on `run._rerolls` (per RUN); the decay reads `run._screenRerolls` (per

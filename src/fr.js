@@ -650,8 +650,6 @@ const CONFIG = {
   'volley rate': 'cadence de volée',
   'Barbed Needles': 'Aiguilles Barbelées',
   'needle pierce': 'perforation des aiguilles',
-  'Venom Tips': 'Pointes Venimeuses',
-  'needles inject 1 venom stack': 'les aiguilles injectent 1 charge de venin',
   'Hive Mind': 'Esprit Ruche',
   'every 4th volley fires all around': '1 volée sur 4 tire tout autour',
   'Wider Taunt': 'Provocation Élargie',
@@ -833,16 +831,12 @@ const CONFIG = {
   'Coin Nose': 'Flair à Pièces',
   '+10% coins found': '+10% pièces',
   'Fire Infusion': 'Infusion de Feu',
-  'Ignites enemies for burn damage over time. Combo: shatters chilled foes, detonates with ⚡.': 'Enflamme les ennemis pour des dégâts de brûlure sur la durée. Combo : brise les ennemis gelés, détone avec ⚡.',
   'Cold Infusion': 'Infusion de Givre',
-  'Chills and freezes enemies. Combo: shatters with 🔥, chilling arcs with ⚡.': 'Refroidit et gèle les ennemis. Combo : éclate avec 🔥, arcs glaçants avec ⚡.',
   'Lightning Infusion': 'Infusion de Foudre',
-  'Shocks arc damage to nearby foes. Combo: detonates 🔥 ignites, spreads ❄️ chill, copies ☠️ venom.': 'Électrocute les ennemis proches par arcs de dégâts. Combo : détone les brûlures 🔥, propage le froid ❄️, copie le venin ☠️.',
   'Venom Infusion': 'Infusion de Venin',
-  'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.': 'Un poison cumulatif qui amplifie tous les dégâts subis. Combo : amplification doublée sur ❄️, brûlure plus rapide avec 🔥.',
 
 
-  // ---- elements redesign: the level-up cards and the Codex (run.newElements). The English is
+  // ---- elements: the level-up cards and the Codex. The English is
   // a TEMPLATE with {placeholders}, not a finished sentence, so word order here is French's own
   // business — see elementCardDesc/elementCodex in config.js and tt() in i18n.js.
   // Deliberately terser than the English: these are reference pages, read mid-run. PV, not

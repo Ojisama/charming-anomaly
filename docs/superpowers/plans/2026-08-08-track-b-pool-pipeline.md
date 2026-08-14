@@ -877,9 +877,10 @@ git commit -m "v6.7.3: rerolling a level-up nudges rarity upward but never buys 
 > **Measured** (body/3, tier-eligible, 20000 screens/row; PB4 asserts these literals and
 > `node scripts/pool-probe.mjs body 3 40 random --rerolls=N` regenerates them off the shipped
 > pipeline — v6.7.11 added that flag, because before it nothing checked in could measure the pool a
-> rerolling player actually plays): mean rarity multiplier 1.432 -> 1.574 over 3 rerolls (+9.9%),
-> epic+ 10.5% -> 13.9%, normal 58.9% -> 45.8% of tiered cards, and rr=4 identical to rr=3 (the cap
-> is exact). Anomaly rate 8.63% -> 8.56% (1% relative). Inert at zero:
+> rerolling player actually plays): mean rarity multiplier 1.495 -> 1.636 over 3 rerolls (+9.4%),
+> epic+ 11.8% -> 15.1%, normal 53.4% -> 41.3% of tiered cards, and rr=4 equal to rr=3 (the cap
+> is exact). Re-measured at v7.79 — the elements rework took the element bucket to 7.5 and made an
+> element card decline `normal`, moving every row down from the v6.7 figures. Anomaly rate 8.63% -> 8.56% (1% relative). Inert at zero:
 > `node scripts/pool-probe.mjs body 2 40 random --compare` is **byte-identical** before and after
 > (same md5), as is the mortal rig `body 2 40 dps --survival --diff=3 --compare`.
 >

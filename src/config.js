@@ -80,17 +80,21 @@ export const UPGRADE_RARITY = 'upgrade'
 // of its own — at the cap the ordinary table reads 51.2/50/12/6/3, i.e. the rarity roll comes up
 // `normal` 41.90% of the time against 58.48% at base (exact, and run PB4 pins it against the
 // element bucket, which adopts the rolled tier verbatim).
-// DELIVERED, measured on the shipped roll (body/3, tier-eligible, 20000 screens per row; run PB4
-// asserts every row and `pool-probe body 3 40 random --rerolls=N` regenerates them off the real
-// pipeline). "normal" is the share of TIERED cards, i.e. excluding weapon upgrades, which carry
+// DELIVERED, measured on the shipped roll (body/3, tier-eligible, 6000 seeded screens per row —
+// run PB4's own `sample`, which asserts every row). Not `pool-probe --rerolls=N`: at 40 runs it
+// swings 3.6pts row to row, wider than the cap effect this table exists to show.
+// "normal" is the share of TIERED cards, i.e. excluding weapon upgrades, which carry
 // UPGRADE_RARITY and no tier at all:
 //     rerolls   normal   epic+   mean rarity mult
-//        0      58.9%    10.5%        1.432
-//        1      54.4%    11.9%        1.484
-//        2      50.6%    12.8%        1.525
-//        3      45.8%    13.9%        1.574
-//        4      46.0%    14.2%        1.580   (identical to 3: the cap is exact)
-// So three rerolls are worth +9.9% on the average card and +32% relative on epic-or-better. A
+//        0      53.4%    11.8%        1.495
+//        1      49.6%    13.2%        1.547
+//        2      45.4%    13.9%        1.583
+//        3      41.3%    15.1%        1.636
+//        4      41.2%    15.3%        1.627   (equal to 3 within noise: the cap is exact)
+// v7.79 moved every row down: the elements rework took the element bucket from 18 to 7.5 AND made
+// an element card decline `normal` outright, so the pool carries fewer normal cards before a
+// single reroll is bought.
+// So three rerolls are worth +9.4% on the average card and +28% relative on epic-or-better. A
 // nudge, deliberately: the reroll's real product is a different SET of cards, and this is the
 // consolation for the one you buy and still don't like.
 // WHAT IT COSTS IS A RUN NUMBER, WHICH THE CAP IS NOT. rerollCost escalates on run._rerolls (the
@@ -163,7 +167,10 @@ export const REROLL_RARITY_CAP = 3       // rerolls of one screen past which the
 //     at parity by the note above) or to element (which is the mutator `unstable`'s subject:
 //     element 18 -> 22 measured 35.3% elemental cards under unstable, against the 37% the plan
 //     names as the pathology, and would have forced elementWeightMul to be re-priced with it).
-export const BUCKET_WEIGHTS = { defense: 19, utility: 21, mod: 25, weapon: 17, element: 18 }
+//   v7.79 — element 18 -> 7.5, shipped with the elements rework. Each element card is now worth
+//     far more (the ladder starts at rare and there are only four of them), so at 18 the slate
+//     was routine; at 7.5 an element is a FIND, and the freed weight goes to the base attributes.
+export const BUCKET_WEIGHTS = { defense: 19, utility: 21, mod: 25, weapon: 17, element: 7.5 }
 export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP']
 // Inside the weapon bucket, an UPGRADE of an owned weapon competes at this flat weight while a
 // `New!` card competes at its weapon's inherent rarity weight (times newWeaponChance — see
@@ -2005,14 +2012,13 @@ export const WEAPON_MODS = {
   // piercingNeedles fold into stinger's levels[] via WEAPON_STAT_MODS; longNeedles (range AND
   // speed) and rapid (attack
   // rate — dividing it into the levels[] `rate` would SLOW it, like flagella.frenzy) are read at the
-  // fire site. venomTips/hive are behavioral (needle hit site / volley fire site).
+  // fire site. hive is behavioral (volley fire site).
   stinger: {
     sharper:     { name: 'Sharper Tips', desc: 'needle damage',        icon: '🗡️', base: 0.25, kind: 'pct' },
     volley:      { name: 'Wider Volley', desc: 'needles per volley',   icon: '🎯', base: 2,    kind: 'flat' },
     longNeedles: { name: 'Long Needles', desc: 'needle range & speed', icon: '📏', base: 0.30, kind: 'pct' },
     rapid:       { name: 'Rapid Fire',   desc: 'volley rate',          icon: '🚀', base: 0.25, kind: 'pct' },
     piercingNeedles: { name: 'Barbed Needles', desc: 'needle pierce', icon: '🪝', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
-    venomTips:   { name: 'Venom Tips',   desc: 'needles inject 1 venom stack', icon: '☠️', kind: 'switch' },
     hive:        { name: 'Hive Mind',    desc: 'every 4th volley fires all around', icon: '🐝', kind: 'switch' },
   },
   // widerTaunt/longerLure fold into lure's levels[] via WEAPON_STAT_MODS; bigBurst (burst dmg AND
@@ -2433,7 +2439,7 @@ export const TIDE_DMG_BONUS = 0.35 // tideCarried: tick damage bonus per pick
 // ---- Garden weapons (v5.3: Stinger + Pheromone Lure; Boomerang Leaf = boomerang re-theme) --------
 // Stinger (garden native, needle-cone — see WEAPONS.stinger + stepStingerWeapon in sim.js): each
 // needle is a run.bullets projectile tagged weapon:'stinger' so stepBullets can apply stinger-only
-// behaviour (venomTips) without touching star's split/chain (disabled per-needle).
+// behaviour without touching star's split/chain (disabled per-needle).
 export const STINGER_R = 7            // px, needle hit radius (added to enemy radius)
 export const STINGER_HIVE_EVERY = 4   // hive (behavioral): every Nth volley fires in all directions
 // Pheromone Lure (garden native, taunt decoy + burst — see WEAPONS.lure + stepLureWeapon/stepLures
@@ -2845,23 +2851,14 @@ export const prismLadder = (first) => {
 // potency = base * RARITIES[rarity].mult, added per pick. run.elements[id] accumulates
 // potency; run.elementPicks[id] counts picks (max MAX_ELEMENT_PICKS). desc is the tail of the
 // level-up card description (a short combo hint) — makeElementCard prefixes the rolled potency.
+// A card's description is NOT here: it depends on the potency the player will have after taking
+// it, so elementCardDesc(id, P) builds it as a {template, numbers} pair further down. Only the
+// name and the icon are fixed per element.
 export const ELEMENTS = {
-  fire: {
-    name: 'Fire Infusion', icon: '🔥', base: 1,
-    desc: 'Ignites enemies for burn damage over time. Combo: shatters chilled foes, detonates with ⚡.',
-  },
-  cold: {
-    name: 'Cold Infusion', icon: '❄️', base: 1,
-    desc: 'Chills and freezes enemies. Combo: shatters with 🔥, chilling arcs with ⚡.',
-  },
-  lightning: {
-    name: 'Lightning Infusion', icon: '⚡', base: 1,
-    desc: 'Shocks arc damage to nearby foes. Combo: detonates 🔥 ignites, spreads ❄️ chill, copies ☠️ venom.',
-  },
-  venom: {
-    name: 'Venom Infusion', icon: '☠️', base: 1,
-    desc: 'Stacking poison that amplifies all damage taken. Combo: doubled amp on ❄️, faster burn with 🔥.',
-  },
+  fire:      { name: 'Fire Infusion',      icon: '🔥' },
+  cold:      { name: 'Cold Infusion',      icon: '❄️' },
+  lightning: { name: 'Lightning Infusion', icon: '⚡' },
+  venom:     { name: 'Venom Infusion',     icon: '☠️' },
 }
 // At the cap `eligibleElementIds` drops the id from the pool, so this is the point an elemental
 // build stops being offered the thing it committed to.
@@ -2963,64 +2960,25 @@ export const newWeaponChance = (invested) => Math.max(NEW_WEAPON_FADE_MIN, Math.
 // above). Do not read "rarity gates acquisition" as describing this line.
 export const NEW_WEAPON_MIN_RATE = 0.05
 
-// Shared DoT tick period for ignite/venom (finer than 3s duration so damage reads smoothly
-// without spamming a 'hit' event every single simulation frame).
+// Shared DoT tick period (finer than the effect's duration so damage reads smoothly without
+// spamming a 'hit' event every single simulation frame). The burn has its own, coarser
+// EL_BURN_TICK; bleed and the player's own DoTs use this one.
 export const STATUS_TICK = 0.25
 
-// Ignite (fire): a hit deals (IGNITE_DOT_FRAC * potency) of its OWN dealt damage as a DoT
-// spread over IGNITE_DURATION seconds. Reapplying refreshes (replaces) duration + DPS.
+// applyIgnite's burn: a hit deals (IGNITE_DOT_FRAC * potency) of its OWN dealt damage as a DoT
+// spread over IGNITE_DURATION seconds. Reapplying refreshes (replaces) duration + DPS. The fire
+// ELEMENT no longer comes through here (it sets igniteDps itself, off EL_FIRE_SHARE) — this is
+// now the fallout anomaly's burn, and the shape WILDFIRE re-lights with.
 export const IGNITE_DOT_FRAC = 0.35
 export const IGNITE_DURATION = 3
 
-// Chill (cold): slow = min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency)
-// for CHILL_DURATION seconds. CHILL_STACK_TO_FREEZE chilling hits landing within an
-// still-active chill window freeze the enemy (full stop) for FREEZE_DURATION, followed by
-// FREEZE_IMMUNITY seconds where chill still slows but can't build back toward a freeze
-// (prevents a perma-freeze lock). Elites/type 'tank' never freeze; the freeze converts into
-// a stronger slow instead (chillSlow multiplied by ELITE_FREEZE_SLOW_MUL, capped at 100%).
-export const CHILL_SLOW_BASE = 0.30
-export const CHILL_SLOW_PER_POTENCY = 0.06
-export const CHILL_SLOW_CAP = 0.70
-export const CHILL_DURATION = 2
-export const CHILL_STACK_TO_FREEZE = 3
-export const FREEZE_DURATION = 0.9
-export const FREEZE_IMMUNITY = 3
-export const ELITE_FREEZE_SLOW_MUL = 1.6
-
-// Shock (lightning): a hit arcs (SHOCK_ARC_FRAC * potency) of its own dealt damage to exactly
-// run.elementPicks.lightning nearest OTHER enemies within SHOCK_RANGE of the hit enemy — one
-// arc target per lightning pick (not per potency point). SHOCK_CD is a per-source-enemy
-// internal cooldown so continuous weapons (orbit, beam) don't spam arcs every tick.
-export const SHOCK_ARC_FRAC = 0.30
+// Lightning's arcs: SHOCK_RANGE is the base reach (elArc scales it by potency) and SHOCK_CD a
+// per-source-enemy cooldown, so continuous weapons (orbit, beam) can't spam arcs every tick.
 export const SHOCK_RANGE = 140
 export const SHOCK_CD = 0.3
 
-// Venom: each hit adds a stack (max VENOM_MAX_STACKS), refreshing duration to VENOM_DURATION.
-// Per-second DoT = VENOM_DOT_PER_STACK * potency * stacks. Damage amp = VENOM_AMP_PER_STACK
-// per stack, applied to ALL damage the enemy takes (see COMBOS.brittleAmpMul for chilled foes).
-export const VENOM_MAX_STACKS = 8
-export const VENOM_DURATION = 4
-export const VENOM_DOT_PER_STACK = 1.5
-export const VENOM_AMP_PER_STACK = 0.02
-
-// ---- Combos (element x element reactions) ------------------------------------------
-// comboCd: per-enemy, per-combo internal cooldown so ticking weapons can't machine-gun
-// the same reaction every frame.
-export const COMBOS = {
-  shatterMul: 1.2, shatterRadius: 90,     // fire+cold Shatter
-  overloadRadius: 80,                     // fire+lightning Overload
-  acidBurnTickMul: 1.5,                   // fire+venom Acid Burn (both DoTs tick faster)
-  brittleAmpMul: 2,                       // cold+venom Brittle (venom amp doubled on chilled foes)
-  comboCd: 0.5,
-}
-
-// ---- Elements REDESIGN (behind run.newElements) ------------------------------
+// ---- Elements ----------------------------------------------------------------------
 // Spec: docs/superpowers/specs/2026-08-13-elements-redesign-design.md.
-//
-// ponytail: this block and the ORIGINAL element constants above both ship, because the redesign is
-// gated on run.newElements (seven taps on the HUD coin badge -> "New elements") so it can be
-// playtested against the live URL without reaching players. REMOVE THE LOSER once the owner has
-// decided — two live element systems is scaffolding, not a design.
 //
 // The whole model in one line: every status is bought with damage relative to the enemy's OWN
 // health, so a hit that is huge to a drone is small to a tank with no special case anywhere.
@@ -3044,8 +3002,6 @@ export const EL_VENOM_MUL = 0.6     // damage-taken amp per unit of `recent`. Ve
 export const EL_LIGHT_SHARE = 0.30  // arc damage, as a share of the hit
 export const EL_LIGHT_RANGE = 0.15  // arc range bonus per sqrt(P)
 export const EL_LIGHT_FORWARD = 0.35 // chance per sqrt(P) to forward the source's ignite/bleed
-export const EL_BUCKET_WEIGHT = 7.5 // BUCKET_WEIGHTS.element under the flag (18 -> 7.5): elements
-// become a FIND rather than routine, and the freed weight goes to the base-attribute buckets.
 // The burn's own tick, twice the length of the shared STATUS_TICK. A burn is a share of ONE hit
 // spread over EL_WINDOW, so at 0.25s it landed 12 ticks of ~4% of the hit each: on a median hit
 // that is 1.06, printed as "1", and 3.1% of all ticks rounded to 0 and dealt NOTHING (measured

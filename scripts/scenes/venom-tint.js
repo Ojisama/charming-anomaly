@@ -3,11 +3,10 @@
 //   node scripts/fx-probe.mjs --scene scripts/scenes/venom-tint.js --out /tmp/venom
 //
 // The dose is written straight onto `e.venom` — the contract field render.js reads — AFTER the
-// last tick, because under run.newElements stepStatuses republishes it from the enemy's own damage
-// window every frame and would overwrite anything set earlier. Nothing steps after a scene returns
-// (fx-probe does clean() then render()), so the pinned doses survive to the capture.
+// last tick, because stepStatuses republishes it from the enemy's own damage window every frame
+// and would overwrite anything set earlier. Nothing steps after a scene returns (fx-probe does
+// clean() then render()), so the pinned doses survive to the capture.
 
-run.newElements = true
 run.elements.venom = 4
 
 H.breed(12)

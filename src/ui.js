@@ -2005,13 +2005,10 @@ export function initUI(hooks) {
         <h2 class="modal-title">${t('Paused')}</h2>
         ${mutatorBlock}
         ${buildBlockHtml(d.build)}
-        <!-- Opt-in entry to the element Codex (see renderCodex), carrying this run's own potency so
-             its pages print "yours" alongside the rule. data-from tells the close button which
-             screen to land back on — see the 'codex-open'/'codex-close' cases.
-             ONLY while run.newElements is on: the Codex describes the redesign, so on a normal run
-             it would be explaining rules the game is not playing by. Same reason there is no entry
-             on the title screen, where there is no run to read the flag from. -->
-        ${d.newElements ? `<button class="btn btn--soft" data-act="codex-open" data-from="pause">📖 ${t('Codex')}</button>` : ''}
+        <!-- Entry to the element Codex (see renderCodex), carrying this run's own potency so its
+             pages print "yours" alongside the rule. data-from tells the close button which screen
+             to land back on — see the 'codex-open'/'codex-close' cases. -->
+        <button class="btn btn--soft" data-act="codex-open" data-from="pause">📖 ${t('Codex')}</button>
         <button class="btn btn--big" data-act="resume">▶&nbsp; ${t('Resume')}</button>
         <button class="btn btn--soft" data-act="quit">${t('Quit to menu')}</button>
         ${buildStampHtml()}
@@ -2065,17 +2062,9 @@ export function initUI(hooks) {
     // Without carrying the scroll across, testing the third anomaly means scrolling back down to it
     // every single time.
     const scroll = devListEl ? devListEl.scrollTop : 0
-    // run.newElements gates the elements redesign (config.js) — flip it here to test a card's
-    // NEW wording/rule without replaying to find one. main.js flips the flag, rebuilds devList (card
-    // text depends on it) and re-shows this screen, same round-trip as a card take.
-    const on = !!d.newElements
     setHtml(screens.dev, `
       <div class="modal modal--dev" data-pop="dev">
         <h2 class="modal-title">DEV</h2>
-        <button class="dev-toggle${on ? ' dev-toggle--on' : ''}" data-act="dev-toggle-elements">
-          <span>🧪 New elements</span>
-          <span class="dev-toggle-state">${on ? 'ON' : 'OFF'}</span>
-        </button>
         <input class="dev-filter" id="dev-filter" type="text" placeholder="name, or anomaly / mod / passive…" autocomplete="off" value="${devFilter.replace(/"/g, '&quot;')}">
         <p class="dev-count"></p>
         <div class="dev-list"></div>
@@ -2445,9 +2434,6 @@ export function initUI(hooks) {
         break
       }
       case 'dev-close': playSfx('click'); hooks.onDevClose?.(); break
-      // Flips run.newElements. main.js owns the flag AND rebuilds devList (card text reads
-      // it), then re-shows this screen — so the row and the cards under it update on the same tap.
-      case 'dev-toggle-elements': playSfx('click'); hooks.onDevToggleElements?.(); break
       // Opt-in element Codex (see renderCodex): opened from the title's ⚙ sheet or the pause build
       // sheet, data-from says which so Close can return to it — main.js resolves the destination
       // (it's the only module that knows whether a run exists to go back to).

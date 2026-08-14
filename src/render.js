@@ -18,7 +18,6 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
-  VENOM_MAX_STACKS, // the classic path's e.venom ceiling — the divisor that turns stacks into a 0..1 dose
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -3339,7 +3338,7 @@ export function createRenderer(app) {
       T.novaWarm = bake(g)
     }
     // neutral-white ring, same geometry as novaWarm, for spawnRing's optional tint param
-    // (elemental combo bursts like 'shatter' recolor this live instead of baking one per hue)
+    // (tinted bursts recolor this live instead of baking one per hue)
     {
       const g = new Graphics()
       g.circle(0, 0, 64).stroke({ width: 10, color: 0xffffff })
@@ -12772,7 +12771,7 @@ export function createRenderer(app) {
 
   // look: baked {tex,ax,ay} to draw (defaults to the warm explosion ring); tint: applied
   // on top (defaults to white = baked colors as-is). Both optional/backward-compatible —
-  // existing explosionBurst() calls are untouched; elemental bursts (e.g. 'shatter') pass
+  // existing explosionBurst() calls are untouched; tinted bursts pass
   // T.novaRing (neutral white) + a saturated tint so the same geometry can be recolored.
   function spawnRing(x, y, maxR = 90, dur = 0.35, look = T.novaWarm, tint = 0xffffff) {
     const rg = rings[ringCursor]
@@ -13493,25 +13492,6 @@ export function createRenderer(app) {
           beamSparkle(run.player.x, run.player.y)
           addShake(2, 0.12)
           break
-        case 'shatter': {
-          // icy burst: neutral ring recolored ice-blue + shard particles flung outward
-          const radius = e.radius || 60
-          spawnRing(e.x, e.y, radius, 0.35, T.novaRing, 0x9fd8ff)
-          const n = 6 + (Math.random() * 3 | 0) // 6-8
-          for (let i = 0; i < n; i++) {
-            const a = Math.random() * Math.PI * 2
-            const sp = 90 + Math.random() * 130
-            spawnParticle(T.fx.star_08, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
-              0.3 + Math.random() * 0.15, 0.1 + Math.random() * 0.05, 0x9fd8ff, -0.15, 3)
-          }
-          addShake(2, 0.12)
-          break
-        }
-        case 'overload':
-          // fiery burst: reuse the (already radius-scaled) explosion visuals
-          explosionBurst(e.x, e.y, e.radius || 90)
-          addShake(e.radius && e.radius < 80 ? 1.5 : 3, 0.16)
-          break
         case 'shriek': // v6.2: the scream is no longer a recolored slime wave — staggered violet panic rings
           for (let i = 0; i < 3; i++) spawnRing(e.x, e.y, e.radius * (0.5 + i * 0.28), 0.3 + i * 0.09, T.nova, 0xb06cf0)
           addShake(2, 0.12)
@@ -13520,26 +13500,8 @@ export function createRenderer(app) {
           spawnRing(e.x, e.y, 26, 0.22, T.nova, 0xb9a8f0)
           spawnArc([[e.x, e.y], [e.tx, e.ty]], 0xb9a8f0, 0xffffff, 0.18, 5, 0.7)
           break
-        case 'frostarc':
-          if (e.points && e.points.length > 1) {
-            spawnArc(e.points, 0x59b7ff, 0xffffff, 0.25)
-            for (const [ax, ay] of e.points) {
-              spawnParticle(T.fx.flare_01, ax, ay, 0, 0, 0.22, 0.09, 0x9fd8ff, -0.1, 0)
-            }
-          }
-          addShake(1.5, 0.1)
-          break
-        case 'conduct':
-          if (e.points && e.points.length > 1) {
-            spawnArc(e.points, 0x4fae4f, 0xe3f7df, 0.25)
-            for (const [ax, ay] of e.points) {
-              spawnParticle(T.fx.circle_05, ax, ay, 0, 0, 0.22, 0.09, 0x4fae4f, -0.1, 0)
-            }
-          }
-          addShake(1.5, 0.1)
-          break
         case 'shockarc':
-          // plain lightning-infusion arc (no combo): violet outer, bright yellow core
+          // the lightning infusion's arc: violet outer, bright yellow core
           if (e.points && e.points.length > 1) {
             spawnArc(e.points, 0x8a7bff, 0xffe94d, 0.2)
             const [lx, ly] = e.points[e.points.length - 1]
@@ -14224,10 +14186,9 @@ export function createRenderer(app) {
       const frozen = e.frozen || 0
       const chill = e.chill || 0
       const venom = e.venom || 0
-      // The venom DOSE, 0..1, normalised across both element systems: `venom` is a stack count on
-      // the classic path and the redesign's damage-taken amp (0..~1) under run.newElements. One
-      // number, so the tint and the drip particles can both scale by how poisoned the thing is.
-      const venomK = venom <= 0 ? 0 : Math.min(1, run.newElements ? venom : venom / VENOM_MAX_STACKS)
+      // The venom DOSE, 0..1: `venom` carries the damage-taken amp, which sim publishes every
+      // step. One number, so the tint and the drip particles both scale by how poisoned it is.
+      const venomK = Math.min(1, Math.max(0, venom))
       const ignite = e.ignite || 0
       // v5.4 behavioural statuses (same guarded-contract rule): enrage = the flashlight cone turned
       // this thing up, stun = it can't act, fear = it's running from you.
