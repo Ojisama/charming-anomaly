@@ -5494,6 +5494,13 @@ export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COS
 // x3: this is a lance, not a wrecking ball. It reads off stepCrush, the shipped permanent-removal
 // path (splice + run._crushed + {type:'crush'} + a CRUSH_XP gem), so a burst through coral pays the
 // same XP a kaiju gets for a shed and nothing new had to be invented for it.
+//
+// IT MUST STAY ABOVE 1, and by more than one frame of dash. stepObstacles (and so stepLaneSolid,
+// which makes reef coral solid at o.r + PLAYER.radius) runs BEFORE stepCrush in stepSim's ordered
+// list, so if the shatter reach were not the larger of the two the player would be shouldered
+// sideways by the coral on the frame before it broke — a dash that visibly bounces off the thing it
+// is about to destroy. The gap here is 55 - 22 = 33px against 6.8px of dash per 1/60 frame (20px at
+// main.js's 0.05 clamp), so the coral is always gone several frames before the push-out could fire.
 export const BURST_CRUSH_MUL = 2.5
 
 // ---- THE DARK (v7.x Book 2, owner directive) --------------------------------------------------
