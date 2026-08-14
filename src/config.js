@@ -1637,7 +1637,7 @@ export const WEAPONS = {
   // ---- The Surf native (v7.55, Book 2 chapter 1) ----
   pincer: {
     name: 'Pincer',
-    desc: 'Holds a claw out at the nearest enemy and snaps whatever reaches it.',
+    desc: 'Guards the side you face with an open claw, and snaps whatever reaches it.',
     icon: '🦀', rarity: 'normal',
     // THE ONLY WEAPON IN THE GAME THAT DOES NOT FIRE ON A TIMER. Every other one of the 23 runs
     // through fireOnTimer: a `rate`/`interval` elapses and something is emitted. This one holds a

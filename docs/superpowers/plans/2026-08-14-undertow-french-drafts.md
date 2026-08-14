@@ -52,3 +52,19 @@ a military breach), **Ruée** (a rush/charge) and **Élan** (momentum, gentler).
 | `Backwash` | **Contre-Courant** | Ressac | B is the literal word BUT it is now the French name of The Surf itself (Le Ressac), so it would collide. |
 
 Twelve Pincer strings in total are drafted and waiting on these two head words.
+
+---
+
+## Applied without a ruling, because leaving it would have been worse
+
+The Pincer's card copy changed with the 2026-08-14 shield-arc redesign ("held out at the nearest
+enemy" is simply no longer what it does). `t()` is keyed by the exact English source string, so
+changing the English ORPHANS the French entry and the card falls back to English for every French
+player — which is a worse outcome than a translation you have not signed off. So both moved together:
+
+| English (new) | French (applied, wants your eye) |
+|---|---|
+| `Guards the side you face with an open claw, and snaps whatever reaches it.` | `Protège le côté où vous regardez avec une pince ouverte et broie tout ce qui l'atteint.` |
+
+Alternative if that reads stiff: `Pare du côté visé avec une pince ouverte et broie tout ce qui
+l'atteint.` — shorter and more "parry", but *parer* is fencing rather than crab.

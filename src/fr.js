@@ -522,7 +522,7 @@ const CONFIG = {
   // verb 'to pinch' and would read as an instruction). 'broie' rather than 'pince' for the snap:
   // the card promises a crush and a throw, and 'pince tout ce qui l'atteint' is limp beside it.
   'Pincer': 'Pince',
-  'Holds a claw out at the nearest enemy and snaps whatever reaches it.': 'Tend une pince vers l\'ennemi le plus proche et broie tout ce qui l\'atteint.',
+  'Guards the side you face with an open claw, and snaps whatever reaches it.': 'Protège le côté où vous regardez avec une pince ouverte et broie tout ce qui l\'atteint.',
   'Membrane Piercer': 'Perce-Membrane',
   'antigen pierce': 'perforation d\'antigène',
   'Split Strain': 'Souche Divisée',
