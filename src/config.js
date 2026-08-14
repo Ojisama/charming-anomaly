@@ -2012,7 +2012,7 @@ export const WEAPON_MODS = {
   // piercingNeedles fold into stinger's levels[] via WEAPON_STAT_MODS; longNeedles (range AND
   // speed) and rapid (attack
   // rate — dividing it into the levels[] `rate` would SLOW it, like flagella.frenzy) are read at the
-  // fire site. hive is behavioral (volley fire site).
+  // fire site. hive and necroticTips are behavioral (volley fire site / needle hit site).
   stinger: {
     sharper:     { name: 'Sharper Tips', desc: 'needle damage',        icon: '🗡️', base: 0.25, kind: 'pct' },
     volley:      { name: 'Wider Volley', desc: 'needles per volley',   icon: '🎯', base: 2,    kind: 'flat' },
@@ -2020,6 +2020,7 @@ export const WEAPON_MODS = {
     rapid:       { name: 'Rapid Fire',   desc: 'volley rate',          icon: '🚀', base: 0.25, kind: 'pct' },
     piercingNeedles: { name: 'Barbed Needles', desc: 'needle pierce', icon: '🪝', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
     hive:        { name: 'Hive Mind',    desc: 'every 4th volley fires all around', icon: '🐝', kind: 'switch' },
+    necroticTips:{ name: 'Necrotic Tips', desc: 'needles leave a bleeding wound', icon: '☠️', kind: 'switch' },
   },
   // widerTaunt/longerLure fold into lure's levels[] via WEAPON_STAT_MODS; bigBurst (burst dmg AND
   // radius) and fastLure (plant rate) are read at the plant/burst site. twinLure (+decoy, a flat
@@ -2416,6 +2417,10 @@ export const FLAGELLA_CYCLONE_EVERY = 3
 // dot-flagged every STATUS_TICK (like ignite). Reapplying refreshes (replaces) it. One normal
 // pick (bonus 0.5) bleeds ~1.5× the hit; investment/rarity ramps it toward the 3× headline.
 export const BARBED_DMG_MUL = 3
+// The stinger's Necrotic Tips reuses that same bleed at a fixed strength, because it is a SWITCH
+// and has no accumulating bonus to scale. Priced at one Barbed Lash pick (0.50) — a needle volley
+// refreshes rather than stacks, exactly like barbed, so the whole volley is worth one bleed.
+export const NECROTIC_BLEED_FRAC = 0.5
 export const BARBED_DURATION = 3
 
 // Toxin Bloom (rare AoE zoner — see WEAPONS.bloom above and stepBloomWeapon/stepBlooms in sim.js):
