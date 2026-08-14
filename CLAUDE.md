@@ -136,7 +136,7 @@ One sprite per entity goes through `syncPool`. An entity needing independently-t
 indistinguishable from broken.** render.js tints, holds poses and spawns status particles off
 NAMED fields it reads straight from the enemy — `frozen`, `chill`, `venom`, `ignite`, `fearT`,
 `stunT` (the "Elemental status (contract fields, guarded)" block). It never learns about your
-flag: the v7.5x elements redesign kept freeze in a private `_elFrozen`, and `grep -n "_elFrozen"
+flag: the v7.5x elements rework kept freeze in a private `_elFrozen`, and `grep -n "_elFrozen"
 src/render.js` returned nothing, so frozen enemies simply stopped dead — no ice tint, no held
 animation — and the `{type:'freeze'}` event sim pushed had no consumer in render.js *or*
 `SFX_FOR_EVENT`. On screen that is exactly what "cold does nothing" looks like, and it shipped to

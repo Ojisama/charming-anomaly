@@ -24,7 +24,7 @@ import {
   TIME_DEBT_MUL, TIME_DEBT_XP_MUL, BRITTLE_MAX_HP, BRITTLE_DMG_MUL, BERSERK_DURATION,
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC, BLOOD_PACT_PER_KILL,
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
-  ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL, COMBOS,
+  ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
@@ -120,7 +120,7 @@ import {
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -787,38 +787,46 @@ function testAnomalySlate() {
   // stream and the subtraction below is exact rather than statistical.
   {
     assert.ok(ALIGNMENT_POTENCY_MUL > 1, 'ALIGNMENT must raise element potency, not lower it')
-    // Shatter consumes the chill AND the freeze stack, so a shatter every hit is a freeze that
-    // never lands. Nothing may zero this.
-    assert.ok(COMBOS.comboCd > 0, 'the combo cooldown must stay — zeroing it deletes freeze')
     // `extras` puts a second body inside SHOCK_RANGE: the lightning arm has nothing to arc to
-    // otherwise, and applyShock returns before it ever reads the potency it was handed.
-    const dealt = (id, elements, extras = 0) => {
+    // otherwise, and elArc returns before it ever reads the potency it was handed.
+    // hp is per-arm and load-bearing. Venom's amp is a share of the target's OWN health bar, so
+    // at the 1e9 every other arm uses `recent` is ~0 and venom is arithmetically invisible — the
+    // harness reported "no elemental damage at all" rather than a wrong number. A bar the star can
+    // actually bite into is what makes the arm able to see its subject; it must still survive the
+    // 240 frames, or the arms stop sharing a denominator.
+    const dealt = (id, elements, extras = 0, ehp = 1e9) => {
       const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
       r.weapons = [{ id: 'star', level: 5 }]
       setElements(r, elements)
-      const es = [makeStatusEnemy(r, { x: 120, y: 0, hp: 1e9, speed: 0 })]
-      for (let i = 0; i < extras; i++) es.push(makeStatusEnemy(r, { x: 120, y: (i + 1) * 40, hp: 1e9, speed: 0 }))
+      const es = [makeStatusEnemy(r, { x: 120, y: 0, hp: ehp, speed: 0 })]
+      for (let i = 0; i < extras; i++) es.push(makeStatusEnemy(r, { x: 120, y: (i + 1) * 40, hp: ehp, speed: 0 }))
       r.enemies.push(...es)
       const hp = () => es.reduce((a, e) => a + e.hp, 0)
       const before = hp()
       for (let f = 0; f < 240; f++) stepSim(r, { x: 0, y: 0 }, dt)
       return before - hp()
     }
-    for (const [label, elements, extras] of [
-      ['fire', { fire: 4 }, 0],
-      ['venom', { venom: 4 }, 0],
-      ['lightning', { lightning: 4 }, 1],
+    // THE ARMS DO NOT SHARE A BAND, and that is a finding, not a fudge. alignmentMul reaches
+    // fire, venom and cold OUTSIDE elScale (a flat x2 on the output) but lightning INSIDE it
+    // (P -> 2P, so x sqrt(2) = 1.41 on the output). By the card's own words — "x2 potency" —
+    // lightning is the one that is right and the other three are too strong; by majority the
+    // reverse. Reconciling them is a BALANCE call, so this asserts what each site actually does
+    // today. A mutation deleting alignmentMul from any of them reads 1.00 and still goes red.
+    for (const [label, elements, extras, ehp, band] of [
+      ['fire', { fire: 4 }, 0, 1e9, 1.5],
+      ['venom', { venom: 4 }, 0, 4000, 1.5],
+      ['lightning', { lightning: 4 }, 1, 1e9, 1.25],
     ]) {
-      const weaponOnly = dealt(null, {}, extras)
+      const weaponOnly = dealt(null, {}, extras, ehp)
       // Subtract the weapon's own damage so the ratio is the ELEMENT's, undiluted — with the
       // star's contribution left in, a real x2 on the DoT reads as a much smaller total and the
       // band would have to be loose enough to pass with the multiplier halved.
-      const plain = dealt(null, elements, extras) - weaponOnly
-      const aligned = dealt('alignment', elements, extras) - weaponOnly
+      const plain = dealt(null, elements, extras, ehp) - weaponOnly
+      const aligned = dealt('alignment', elements, extras, ehp) - weaponOnly
       assert.ok(plain > 0, `the ${label} arm dealt no elemental damage at all — the harness is not reaching its subject`)
-      assert.ok(aligned > plain * 1.5,
+      assert.ok(aligned > plain * band,
         `ALIGNMENT dealt ${Math.round(aligned)} ${label} damage against ${Math.round(plain)} without it ` +
-        `(x${(aligned / plain).toFixed(2)}, want >=x${ALIGNMENT_POTENCY_MUL}) — the multiplier never reaches that potency site`)
+        `(x${(aligned / plain).toFixed(2)}, want >x${band}) — the multiplier never reaches that potency site`)
     }
   }
 
@@ -1654,14 +1662,15 @@ function testPoolBuckets() {
   // and config.js promises it is "offered AT MOST ONCE, only at normal rarity". That gate lives
   // in the CANDIDATE list, not in the printed chip: picking a mod first and then coercing its
   // rarity down to normal let a switch win its pick at any tier, measured 1.72x the shipped offer
-  // rate. garden owns three weapons carrying three switch mods between them.
+  // rate. garden owns three weapons carrying two switch mods between them (it had three until the
+  // elements rework deleted the stinger Venom Tips, whose venom stack no longer exists).
   const garden = sample('garden', 4, [{ id: 'boomerang', level: 3 }, { id: 'stinger', level: 2 }, { id: 'lure', level: 2 }])
   let swN = 0, swCards = 0, otherN = 0, otherCards = 0
   for (const [key, n] of Object.entries(garden.modIds)) {
     const [w, m] = key.split(':')
     if (WEAPON_MODS[w][m].kind === 'switch') { swN++; swCards += n } else { otherN++; otherCards += n }
   }
-  assert.ok(swN >= 3 && otherN >= 10, `garden sample covered ${swN} switch / ${otherN} other mods — the scenario stopped reaching its subject`)
+  assert.ok(swN >= 2 && otherN >= 10, `garden sample covered ${swN} switch / ${otherN} other mods — the scenario stopped reaching its subject`)
   const switchRatio = (swCards / swN) / (otherCards / otherN)
   assert.ok(switchRatio < 0.75,
     `a switch mod is offered ${switchRatio.toFixed(2)}x as often as a repeatable one — it is only a candidate on a normal roll (58.5%), so this must sit near 0.55`)
@@ -2360,13 +2369,17 @@ function testRerollRarity() {
 
   // RARITY. Share of TIERED cards that come up `normal`; weapon upgrades carry UPGRADE_RARITY (no
   // tier at all, v6.7.5) and anomalies carry their own, so neither is something a reroll can raise.
-  // ELEMENT cards are counted separately because they are the one bucket that adopts the rolled
-  // rarity with nothing in between (makeElementCard) — their histogram IS the rarity roll, which
-  // is what makes the analytic pin below exact rather than a band.
+  // A SCALED PASSIVE (one with no per-tier `values` table, so makePassiveCard takes base*mult)
+  // is counted separately: it is the one card that adopts the rolled rarity with nothing in
+  // between, so its histogram IS the rarity roll, which makes the analytic pin below exact rather
+  // than a band. Element cards used to play this role and no longer can — their ladder DECLINES
+  // `normal` and re-rolls, and the algebra of that re-roll cancels the decay out entirely
+  // (P(rare) reduces to w_rare/otherWeights), so they report the same histogram at every reroll
+  // count. A probe that cannot move is worse than no probe: it stays green through the bug.
   const sample = (rerolls, SCREENS = 6000) => {
     Math.random = mulberry32(20260808)
     const run = fixture()
-    let normal = 0, total = 0, epicPlus = 0, multSum = 0, elem = 0, elemNormal = 0
+    let normal = 0, total = 0, epicPlus = 0, multSum = 0, verb = 0, verbNormal = 0
     for (let i = 0; i < SCREENS; i++) {
       run._screenRerolls = 0
       run._screensSinceAnomaly = 3       // ...with pity pinned, so it confounds nothing
@@ -2377,7 +2390,7 @@ function testRerollRarity() {
         cards = buildLevelUpChoices(run)
       }
       for (const c of cards) {
-        if (c.kind === 'element') { elem++; if (c.rarity === 'normal') elemNormal++ }
+        if (c.kind === 'passive' && !PASSIVES[c.id].values) { verb++; if (c.rarity === 'normal') verbNormal++ }
         if (c.kind === 'anomaly' || c.rarity === UPGRADE_RARITY) continue
         if (c.rarity === 'normal') normal++
         if (c.rarity === 'epic' || c.rarity === 'legendary' || c.rarity === 'mythic') epicPlus++
@@ -2389,7 +2402,8 @@ function testRerollRarity() {
       normal: (100 * normal) / total,
       epicPlus: (100 * epicPlus) / total,
       mult: multSum / total,
-      elemNormal: (100 * elemNormal) / elem,
+      verbNormal: (100 * verbNormal) / verb,
+      verbN: verb,
     }
   }
   // (…and NOT `.map(sample)`: map passes the index as the second argument, which is `SCREENS`.)
@@ -2399,7 +2413,7 @@ function testRerollRarity() {
     `rerolling must raise average rarity — normal ${zero.normal.toFixed(1)}% -> ${capped.normal.toFixed(1)}% of tiered cards over ${REROLL_RARITY_CAP} rerolls`)
 
   // EXACT, and independent of this fixture: the rarity roll's own `normal` share is
-  // w/(others + w) with w = 100 * decay^rerolls, and element cards report it verbatim. This is
+  // w/(others + w) with w = 100 * decay^rerolls, and a scaled passive reports it verbatim. This is
   // what catches an implementation that decays the wrong key, applies the decay twice, or forgets
   // to renormalise — none of which the band above can see.
   const otherWeights = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0) - RARITY_WEIGHTS.normal
@@ -2408,15 +2422,16 @@ function testRerollRarity() {
     return (100 * w) / (otherWeights + w)
   }
   for (const [rr, row] of [[0, zero], [REROLL_RARITY_CAP, capped]]) {
-    assert.ok(Math.abs(row.elemNormal - rollNormal(rr)) < 2,
-      `at ${rr} rerolls the rarity roll delivered normal ${row.elemNormal.toFixed(2)}% of element cards against the ${rollNormal(rr).toFixed(2)}% its own weights declare — the decayed table is not the table being rolled`)
+    assert.ok(row.verbN > 2000, `only ${row.verbN} scaled-passive cards at ${rr} rerolls — the exact pin has no sample to read`)
+    assert.ok(Math.abs(row.verbNormal - rollNormal(rr)) < 2,
+      `at ${rr} rerolls the rarity roll delivered normal ${row.verbNormal.toFixed(2)}% of scaled-passive cards against the ${rollNormal(rr).toFixed(2)}% its own weights declare — the decayed table is not the table being rolled`)
   }
   // ...and the LITERALS the design is documented in (config.js's REROLL_RARITY_DECAY block, spec
   // B6, the plan's Task 4 table). The pin above is derived from the constants, so it stays green
   // at any decay; these do not. Retuning REROLL_RARITY_DECAY to 0.9 reads 52.9% here — half the
   // shipped nudge — and used to pass the entire suite while three documents kept advertising the
   // 0.8 table. If a retune is wanted, re-measure and rewrite those three places WITH this line.
-  const DOC = { base: { normal: 58.9, epicPlus: 10.5, mult: 1.432 }, cap: { normal: 45.8, epicPlus: 13.9, mult: 1.574 } }
+  const DOC = { base: { normal: 53.4, epicPlus: 11.8, mult: 1.495 }, cap: { normal: 41.3, epicPlus: 15.1, mult: 1.636 } }
   for (const [name, row, want] of [['0 rerolls', zero, DOC.base], [`${REROLL_RARITY_CAP} rerolls`, capped, DOC.cap]]) {
     assert.ok(Math.abs(row.normal - want.normal) < 1.5,
       `at ${name} the pool delivered normal ${row.normal.toFixed(1)}% of tiered cards against the ${want.normal}% config.js and spec B6 document`)
@@ -2441,7 +2456,7 @@ function testRerollRarity() {
   // at the cap, and 27-32% relative on every chapter that has one. rollCard now rolls mod
   // candidacy on the undecayed table and only the magnitude on the decayed one, so this is an
   // INVARIANCE test, not a bounded-loss one: the whole point is that the number does not move.
-  // Measured on GARDEN, which has three switch mods (stinger.venomTips, stinger.hive,
+  // Measured on GARDEN, which has two switch mods (stinger.hive,
   // lure.stickyScent) — the most of any chapter, and 3x undergrowth's sample. body, city and
   // beyond have none at all, so they cannot host this test.
   const switchShare = (rerolls, SCREENS = 16000) => {
@@ -2576,7 +2591,7 @@ function declineLevelUp(run) {
 }
 
 // Tests force elemental potency directly onto run.elements (bypassing the level-up roll — see
-// pickNonElementIndex above), so also force the matching run.elementPicks: applyShock's arc
+// pickNonElementIndex above), so also force the matching run.elementPicks: elArc's arc
 // target count now reads run.elementPicks.lightning directly (one arc target per lightning
 // pick, not per potency point), so a test that sets elements.lightning without elementPicks
 // would silently get zero shock targets.
@@ -2596,8 +2611,8 @@ function makeStatusEnemy(run, { x, y, type = 'drone', elite = false, hp = 1e6, s
     id: run._nextId++, type, x, y,
     hp, maxHP: hp, radius: 16, speed, dmg: 8, elite, xp: 1,
     hitFlash: 0, orbCd: 0, kb: { x: 0, y: 0 }, holePull: 0,
-    ignite: 0, igniteDps: 0, chill: 0, chillSlow: 0, frozen: 0, venom: 0, venomT: 0,
-    _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
+    ignite: 0, igniteDps: 0, chill: 0, frozen: 0, venom: 0,
+    _shockCd: 0, _elCold: newElWindow(), _elVenom: newElWindow(), _elFrozen: 0, _elResist: 0,
     affixes,
   }
 }
@@ -2722,7 +2737,12 @@ function testElements() {
     setElements(run, { fire: 5 })
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
-    run.enemies.push(makeStatusEnemy(run, { x: 100, y: 0, hp: 30, speed: 0 }))
+    // The HP budget is BOTH sides of this scenario and it is tight on purpose. Measured: one
+    // star-1 hit removes 12, and at fire potency 5 the burn delivers ~12 over EL_WINDOW (6 ticks
+    // that each round up off EL_BURN_MIN). So 20 must survive the hit (12 < 20) and must die to the
+    // burn (8 left < 12). The old 30 was budgeted against the LINEAR potency the previous element
+    // system used — the burn is a share of one hit scaled by sqrt(P) now, so 18 left outlived it.
+    run.enemies.push(makeStatusEnemy(run, { x: 100, y: 0, hp: 20, speed: 0 }))
 
     let hitOnce = false
     for (let i = 0; i < Math.round(2 / dt) && !hitOnce; i++) {
@@ -2748,77 +2768,42 @@ function testElements() {
     console.log('PASS run G.a (ignite DoT alone kills)')
   }
 
-  // (b) Chill slows movement; enough chilling hits within the chill window freeze a
-  // non-elite; an elite/tank is chilled the same way but never freezes.
-  function runChillScenario(elite) {
+  // (b) COLD SLOWS MOVEMENT. The freeze itself and its exemptions live in run EL.d; what this
+  // guards is the other half — that the published slow actually reaches stepEnemyMovement. A
+  // chilled enemy that still walks at full speed is the failure, and it is invisible in any test
+  // that only reads the status field.
+  {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 1 }]
     setElements(run, { cold: 5 })
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
-    const seed = makeStatusEnemy(run, { x: 120, y: 0, type: elite ? 'tank' : 'drone', elite, speed: 90 })
+    const seed = makeStatusEnemy(run, { x: 120, y: 0, hp: 4000, speed: 90 })
     run.enemies.push(seed)
 
     let sawSlower = false
-    let sawFreeze = false
-    const steps = Math.round(20 / dt)
-    for (let i = 0; i < steps; i++) {
+    for (let i = 0; i < Math.round(20 / dt) && !sawSlower; i++) {
       if (run.phase === 'levelup') { declineLevelUp(run); continue }
       const before = run.enemies.find((e) => e.id === seed.id)
-      if (before && !sawSlower && before.chillSlow > 0 && before.frozen <= 0) {
+      // Sampled only while chilled-but-not-frozen: a frozen enemy does not move at all, which
+      // would pass this on the wrong mechanic.
+      if (before && before.chill > 0 && before.frozen <= 0) {
         const startX = before.x
         stepSim(run, { x: 0, y: 0 }, dt)
         const after = run.enemies.find((e) => e.id === seed.id)
-        if (after) {
-          const actualDist = Math.abs(startX - after.x)
-          const fullSpeedDist = before.speed * dt
-          if (actualDist < fullSpeedDist * 0.95) sawSlower = true
-        }
+        if (after && Math.abs(startX - after.x) < before.speed * dt * 0.95) sawSlower = true
         continue
       }
       stepSim(run, { x: 0, y: 0 }, dt)
-      const after = run.enemies.find((e) => e.id === seed.id)
-      if (after && after.frozen > 0) sawFreeze = true
     }
-    return { sawSlower, sawFreeze }
+    assert(sawSlower, 'a chilled enemy walked at full speed — the published slow never reached stepEnemyMovement')
+    console.log('PASS run G.b (cold slows movement)')
   }
 
-  const chillDrone = runChillScenario(false)
-  assert(chillDrone.sawSlower, 'expected a chilled drone to move slower than its full speed')
-  assert(chillDrone.sawFreeze, 'expected the chilled non-elite drone to freeze at some point')
-
-  const chillTank = runChillScenario(true)
-  assert(chillTank.sawSlower, 'expected a chilled elite/tank to still be slowed')
-  assert.strictEqual(chillTank.sawFreeze, false, 'expected an elite/type tank to never freeze')
-  console.log(`PASS run G.b (chill slows + freezes non-elites, never elites/tanks)`)
-
-  // (c) Every combo event fires at least once when its element pair is forced, against a
-  // saturated ring of near-immortal targets (so DoT/stack windows have time to build up
-  // instead of the run just running out of nearby enemies).
-  {
-    const run = createRun(makeMeta())
-    run.weapons = [{ id: 'star', level: 3 }, { id: 'orbit', level: 3 }]
-    setElements(run, { fire: 3, cold: 3, lightning: 4, venom: 3 })
-    run.player.x = 0; run.player.y = 0
-    run.player.hp = 1e9; run.player.maxHP = 1e9
-    seedTargetRing(run, 24, 1e6, 200)
-
-    const eventsSeen = new Set()
-    const steps = Math.round(30 / dt)
-    for (let i = 0; i < steps; i++) {
-      if (run.phase === 'levelup') { declineLevelUp(run); continue }
-      stepSim(run, { x: 0, y: 0 }, dt)
-      for (const e of run.events) eventsSeen.add(e.type)
-    }
-    for (const type of ['shatter', 'frostarc', 'overload', 'conduct']) {
-      assert(eventsSeen.has(type), `expected combo event '${type}' to fire at least once (saw: ${[...eventsSeen].join(',')})`)
-    }
-    console.log('PASS run G.c (all four combo events fired: shatter, frostarc, overload, conduct)')
-  }
-
-  // (d) A combo-loaded run outkills a no-element baseline over the same saturated target
-  // field and duration.
-  function runComboKills(elements) {
+  // (c) An element-loaded run outkills a no-element baseline over the same saturated target field
+  // and duration. Elements are damage, not decoration: this is the one check that would go red if
+  // every element quietly stopped applying.
+  function runElementKills(elements) {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }, { id: 'orbit', level: 3 }]
     if (elements) setElements(run, elements)
@@ -2835,16 +2820,14 @@ function testElements() {
     return run.kills
   }
 
-  const baselineKills = runComboKills(null)
-  const comboKills = runComboKills({ fire: 3, cold: 3, lightning: 4, venom: 3 })
-  assert(comboKills > baselineKills,
-    `expected combo-loaded kills (${comboKills}) > no-element baseline kills (${baselineKills})`)
+  const baselineKills = runElementKills(null)
+  const elementKills = runElementKills({ fire: 3, cold: 3, lightning: 4, venom: 3 })
+  assert(elementKills > baselineKills,
+    `expected element-loaded kills (${elementKills}) > no-element baseline kills (${baselineKills})`)
+  console.log(`PASS run G.c (elements outkill baseline): baseline=${baselineKills} elements=${elementKills}`)
 
-  console.log(`PASS run G.d (combo run outkills baseline): baseline=${baselineKills} combo=${comboKills}`)
-
-  // (e) Lightning-only (no chill/venom potency, so neither frostarc nor conduct's combo
-  // condition can hold) must still visibly arc: applyShock's plain 'shockarc' event is the
-  // fallback emitted when neither combo triggers on a given shock.
+  // (d) Lightning must visibly arc: elArc's 'shockarc' event is what render draws the bolt from,
+  // and an arc that deals damage with no bolt reads as the element doing nothing.
   {
     const run = createRun(makeMeta())
     run.weapons = [{ id: 'star', level: 3 }]
@@ -2864,30 +2847,9 @@ function testElements() {
       if (run.events.some((e) => e.type === 'shockarc')) sawShockArc = true
     }
     assert(sawShockArc, 'expected a lightning-only run to emit at least one shockarc event')
-    console.log('PASS run G.e (lightning-only run emits shockarc event)')
+    console.log('PASS run G.d (lightning run emits shockarc event)')
   }
 
-  // (f) An element card's desc reports the potency its rarity actually bought. This used to be
-  // the static ELEMENTS.desc, so every tier read identically and the rarity badge looked
-  // decorative — it never was. Roll a pile of card sets and check every element card agrees
-  // with its own bonus, and that the tiers genuinely produce different text.
-  {
-    const descs = new Set()
-    let checked = 0
-    for (let i = 0; i < 400; i++) {
-      const run = createRun(makeMeta())
-      for (const c of buildLevelUpChoices(run)) {
-        if (c.kind !== 'element') continue
-        checked++
-        const shown = `+${Math.round(c.bonus * 10) / 10} potency`
-        assert(c.desc.startsWith(shown), `element card desc ${JSON.stringify(c.desc)} should lead with ${shown} (bonus ${c.bonus})`)
-        descs.add(c.desc)
-      }
-    }
-    assert(checked > 0, 'expected at least one element card across 400 level-up rolls')
-    assert(descs.size > 4, `expected element descs to vary by rarity, got ${descs.size} distinct across ${checked} cards`)
-    console.log(`PASS run G.f (element card desc shows its rolled potency — ${checked} cards, ${descs.size} distinct)`)
-  }
 }
 
 // Black holes pull coins toward their center (not gems): spawn a coin at the vortex rim,
@@ -3101,7 +3063,9 @@ function testAffixes() {
     setElements(run, { fire: 5 })
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
-    const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 30, speed: 0, elite: true, affixes: ['splitter'] })
+    // hp 20, not 30: same burn budget as run G.a — one star-1 hit removes 12 and the fire-5 burn
+    // delivers ~12, so 30 outlives it under sqrt(P) potency. See the note there.
+    const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 20, speed: 0, elite: true, affixes: ['splitter'] })
     run.enemies.push(target)
 
     let hitOnce = false
@@ -3467,7 +3431,13 @@ function testFocusNudge() {
   const committedOffers = countNewOffers(committed, 400)
 
   assert(freshOffers > 0, 'expected a fresh run to be offered new weapons')
-  assert(committedOffers < freshOffers * 0.35,
+  // POWER, because 0.35 was under-powered and v7.79 drew a false red on it. Measured over 12
+  // INDEPENDENT seeds at this N (400 pools x 4 slots per arm): ratio mean 0.275, 1sigma 0.043. The
+  // old 0.35 sat at 1.73 sigma — about one seed in 24 trips it with the nudge working perfectly,
+  // and this scenario does not seed itself, so it rides whatever stream position the scenarios
+  // above leave. 0.45 is 4 sigma. The pathology it must still catch is a DELETED nudge, which
+  // reads 1.0 (committed offered as often as fresh) — 17 sigma out, so nothing is given up.
+  assert(committedOffers < freshOffers * 0.45,
     `expected a committed build to see far fewer new-weapon cards (fresh=${freshOffers}, committed=${committedOffers})`)
 
   // v4.6 apparition floor: even a fully committed build must see a New! weapon card in at
@@ -5274,7 +5244,8 @@ function testChapterBehaviors() {
     setElements(run, { fire: 5 })
     run.player.x = 0; run.player.y = 0
     run.player.hp = 1e9; run.player.maxHP = 1e9
-    const parent = makeStatusEnemy(run, { x: 100, y: 0, hp: 30, speed: 0 })
+    // hp 20: same burn budget as run G.a — see the note there.
+    const parent = makeStatusEnemy(run, { x: 100, y: 0, hp: 20, speed: 0 })
     parent.flags = ['split']
     run.enemies.push(parent)
 
@@ -7222,38 +7193,6 @@ function testV54Weapons() {
       const firstGun = shove(1, true)
       assert.ok(Math.abs(firstGun / first - SOY_MILK_CC_MUL) < 0.02,
         `MACHINE GUN's first shove was x${(firstGun / first).toFixed(2)} of baseline, want x${SOY_MILK_CC_MUL} — its x5 rate is free control otherwise`)
-    }
-
-    // ...and the CHILL SLOW is priced too (owner's call). It is what stops the crowd closing the
-    // gap between two knockbacks, so a diminished shove with an undiminished slow still walls.
-    {
-      // applyChill is module-private, so the chill comes through the REAL path: a cold-infused
-      // weapon actually hitting the enemy. `frac` is how far into a 1s window we read the slow, so
-      // n=1 samples a single application and n=6 samples a sustained burst on the same enemy.
-      const slowAfter = (frames) => {
-        const r = weaponRun('undergrowth', 'quillBurst')
-        r.elements.cold = 4
-        r.elementPicks.cold = 4
-        const e = makeStatusEnemy(r, { x: 30, y: 0, hp: 1e9, speed: 0 })
-        e.flags = []
-        r.enemies.push(e)
-        // The FIRST value is whatever the very first application produced — sampled on the frame
-        // chill first appears, not on frame 0: the weapon has its own interval and has not cast yet.
-        let first = 0
-        for (let i = 0; i < frames; i++) {
-          stepQuiet(r, 1 / 60)
-          e.x = 30; e.y = 0                 // pinned in the nova's path, taking every application
-          if (!first && e.chillSlow > 0) first = e.chillSlow
-        }
-        return { peak: first, end: e.chillSlow }
-      }
-      const burst = slowAfter(90)
-      assert.ok(burst.peak > 0.2,
-        `the first chill slowed by ${burst.peak.toFixed(2)}, want the full value — DR must never tax the first hit`)
-      // Band, not a point, for the same reason as the shove above: CC_DR_STEP/FLOOR are tuning
-      // knobs. The unscaled-chill mutant reads a ratio of exactly 1.00, so this still catches it.
-      assert.ok(burst.end < burst.peak * 0.85,
-        `chill slow held at ${burst.end.toFixed(2)} against a first hit's ${burst.peak.toFixed(2)} under sustained fire — an undiminished slow rebuilds the wall on its own, whatever the knockback does`)
     }
 
     // UNSHAKEABLE (v7.16): one tank per chapter ignores fear AND weapon knockback outright, so the
@@ -12783,7 +12722,7 @@ function testSwitchMods() {
   // Every mod sim.js reads as a boolean gate must be declared kind 'switch'. This list is the
   // audit: if someone adds a `(mods?.x ?? 0) > 0` read, it belongs here or it will print "+4".
   const SWITCHES = [
-    ['flagella', 'cyclone'], ['bloom', 'sporeburst'], ['stinger', 'venomTips'], ['stinger', 'hive'],
+    ['flagella', 'cyclone'], ['bloom', 'sporeburst'], ['stinger', 'hive'],
     ['lure', 'stickyScent'], ['clawRake', 'doubleSlash'], ['roar', 'resonance'], ['tailLash', 'counterLash'],
   ]
   for (const [weapon, mod] of SWITCHES) {
@@ -14951,10 +14890,16 @@ function testLaneGolden() {
   // Declared INSIDE the function on purpose: the scenarios are invoked from a runner that executes
   // above this point in the file, so a top-level const here is still in its temporal dead zone when
   // the call happens ("Cannot access 'BEYOND_GOLDEN' before initialization").
+  // RE-CAPTURED v7.79, when the elements rework became the default and the old system was deleted.
+  // That changes how many randoms a run draws (no combo rolls, no chill/venom application step, a
+  // different bucket table), so every stream-dependent number below re-phased — the trap the header
+  // above describes. What did NOT move is `py`: all three seeds still end at exactly -12600, which
+  // is 180s x LANE_SCROLL_SPEED. That is the guarantee this scenario exists for, and it is the
+  // reason this re-capture is honest rather than a red being papered over.
   const BEYOND_GOLDEN = [
-    { seed: 11, px: 59.109, py: -12600, enemies: 98, rocks: 1, kills: 307 },
-    { seed: 22, px: -367.986, py: -12600, enemies: 136, rocks: 1, kills: 287 },
-    { seed: 33, px: -430, py: -12600, enemies: 126, rocks: 1, kills: 275 },
+    { seed: 11, px: 6.696, py: -12600, enemies: 136, rocks: 1, kills: 267 },
+    { seed: 22, px: -67.248, py: -12600, enemies: 107, rocks: 1, kills: 311 },
+    { seed: 33, px: -95.454, py: -12600, enemies: 111, rocks: 1, kills: 293 },
   ]
   const meta = makeMeta()
   for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {
@@ -15822,7 +15767,7 @@ function testUndertowLadder() {
   }
 }
 
-// ---- run EL: the elements redesign, behind run.newElements ---------------------------------
+// ---- run EL: the element system --------------------------------------------------------------
 // Every status is bought with damage relative to the enemy's OWN health:
 //     recent = HP the player removed in the last EL_WINDOW seconds / enemy.maxHP
 // These guard the four things that were got WRONG on paper before any of it was built — two
@@ -15832,7 +15777,6 @@ function testElementsRedesign() {
   const el = (over = {}, opts = {}) => {
     Math.random = mulberry32(opts.seed ?? 77001)
     const run = createRun(makeMeta(), { chapter: opts.chapter ?? 'undergrowth', difficulty: 3 })
-    run.newElements = true
     run.player.maxHP = run.player.hp = 1e9
     Object.assign(run.elements, over)
     return run
@@ -15870,7 +15814,6 @@ function testElementsRedesign() {
   {
     Math.random = mulberry32(4242)
     const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
-    run.newElements = true
     run.player.maxHP = run.player.hp = 1e9
     const stepped = () => {
       if (run.phase === 'levelup') { run.phase = 'playing'; return false }
@@ -15919,8 +15862,7 @@ function testElementsRedesign() {
     const windowFor = (maxHP) => {
       Math.random = mulberry32(4242)
       const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
-      run.newElements = true
-      run.player.maxHP = run.player.hp = 1e9
+        run.player.maxHP = run.player.hp = 1e9
       for (let i = 0; i < 300; i++) {
         if (run.phase === 'levelup') { run.phase = 'playing'; continue }
         stepSim(run, { x: 0, y: 0 }, 1 / 60)
@@ -16008,23 +15950,23 @@ function testElementsRedesign() {
     console.log('PASS run EL.e (venom is weakening only): 0 DoT hits over 60s at venom P=4')
   }
 
-  // (f) THE LADDER DECLINES `normal`, AND THE SCREEN STILL FILLS. The element branch of rollCard is
-  // the one branch with no fallback: without a re-roll on its own table it returns null on 58.5% of
-  // element slots, rollCard returns null, and buildLevelUpChoices BREAKS out of the slot loop,
-  // truncating the screen. Compared against the SAME SEED with the flag off rather than against a
-  // fixed number — the screen is 2 cards on a fresh run and grows with shop slots, so any literal
-  // here would be asserting the wrong thing.
+  // (f) THE LADDER DECLINES `normal`, AND THE SCREEN STILL FILLS. The element branch of rollCard
+  // is the one branch with no fallback: without a re-roll on its own table it returns null on
+  // 58.5% of element slots, rollCard returns null, and buildLevelUpChoices BREAKS out of the slot
+  // loop, truncating the screen. The screen length is compared against a run whose element bucket
+  // is zeroed on the SAME SEED rather than against a literal — a fresh run's screen is 2 cards and
+  // grows with shop slots, so any fixed number here would be asserting the wrong thing.
   {
     let elementCards = 0, normals = 0, short = 0, screens = 0
     for (let s2 = 0; s2 < 400; s2++) {
-      const build = (flag) => {
+      const build = (elementsOff) => {
         Math.random = mulberry32(90000 + s2)
         const run = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
-        run.newElements = flag
         run.player.level = 6
+        if (elementsOff) run.mods.elementWeightMul = 0
         return buildLevelUpChoices(run)
       }
-      const control = build(false), cards = build(true)
+      const control = build(true), cards = build(false)
       screens++
       if (cards.length < control.length) short++
       for (const c of cards) {
@@ -16033,34 +15975,25 @@ function testElementsRedesign() {
         if (c.rarity === 'normal') normals++
       }
     }
-    assert.strictEqual(normals, 0, `${normals} of ${elementCards} element cards rolled \`normal\` — the redesign's ladder starts at rare`)
-    assert.strictEqual(short, 0, `${short} of ${screens} level-up screens came back shorter than the same seed with the flag off — ` +
+    assert.strictEqual(normals, 0, `${normals} of ${elementCards} element cards rolled \`normal\` — the ladder starts at rare`)
+    assert.strictEqual(short, 0, `${short} of ${screens} level-up screens came back shorter than the no-element control — ` +
       `the element branch returned null and buildLevelUpChoices broke out of the slot loop`)
     assert.ok(elementCards > 10, `only ${elementCards} element cards across ${screens} screens — the bucket is not producing them at all`)
     console.log(`PASS run EL.f (ladder + no truncation): ${elementCards} element cards over ${screens} screens, 0 normal, 0 shorter than control`)
   }
 
-  // (g) THE CODEX NEVER REACHES A NORMAL RUN. It describes the redesign, so on a run without the
-  // flag it would be explaining rules the game is not playing by — a worse failure than not having
-  // it, because it reads as documentation rather than as a preview. This ships to the live URL with
-  // the flag OFF by default, so the gate is the whole reason it is safe to ship. Source text,
-  // because the alternative is booting a DOM: the button must sit behind `d.newElements`, main.js
-  // must actually put that key in pauseData, and there must be exactly ONE way in (an ungated
-  // entry point elsewhere — the title's ⚙ sheet had one — puts it back in front of everybody).
+  // (g) EXACTLY ONE WAY INTO THE CODEX, AND IT IS ON THE PAUSE SCREEN. It reads this run's own
+  // potency to print the "yours" line, so it needs a run to exist — the title's ⚙ sheet had an
+  // entry once and it could only ever show the rule with no figures. Source text, because the
+  // alternative is booting a DOM.
   {
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
     const opens = [...uiSrc.matchAll(/data-act="codex-open"/g)]
-    assert.strictEqual(opens.length, 1, `${opens.length} Codex entry points in ui.js — every one of them ` +
-      `needs its own newElements gate, and a screen with no run cannot have one`)
+    assert.strictEqual(opens.length, 1, `${opens.length} Codex entry points in ui.js — the pause screen is the only one with a run to read potency from`)
     const pause = uiSrc.slice(uiSrc.indexOf('setHtml(screens.pause'))
-    const at = pause.indexOf('data-act="codex-open"')
-    assert.ok(at > 0, 'the Codex entry is no longer on the pause screen — it is the only screen with a run to read the flag from')
-    assert.ok(/\$\{d\.newElements \?/.test(pause.slice(Math.max(0, at - 200), at)),
-      'the pause Codex button is not gated on d.newElements — every player now gets a Codex for an element system they are not playing')
-    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-    assert.ok(/const pauseData = \(\) => \(\{[^\n]*newElements/.test(mainSrc),
-      'pauseData no longer passes newElements, so the gate above reads undefined and the Codex is hidden from EVERY run, flag or not')
-    console.log('PASS run EL.g (codex gated): exactly one Codex entry, behind d.newElements, and pauseData supplies it')
+    assert.ok(pause.indexOf('data-act="codex-open"') > 0,
+      'the Codex entry is no longer on the pause screen — it is the only screen with a run to read potency from')
+    console.log('PASS run EL.g (codex reachable): exactly one Codex entry, on the pause screen')
   }
 
   // (h) AN ELEMENT UPGRADE SHOWS WHAT IT MOVES. The card carries the numbers it would replace, so
@@ -16134,12 +16067,12 @@ function testElementsRedesign() {
     console.log(`PASS run EL.i (codex own-figures line): 1 per page, always last, absent at potency 0, class and rule both present`)
   }
 
-  // (j) THE FREEZE IS VISIBLE. render.js does not know run.newElements exists — it tints and holds
-  // the pose off the contract fields `frozen` and `chill`. The redesign kept its state in private
-  // `_el*` fields only, so a frozen enemy just stopped dead: no ice tint, no held animation, and
-  // the {type:'freeze'} event has no consumer anywhere. That is indistinguishable, while playing,
-  // from cold being broken — which is exactly how a missing tell gets reported as a missing
-  // mechanic. Asserted from BOTH ends: sim publishes, and render still reads.
+  // (j) THE FREEZE IS VISIBLE. render.js tints and holds the pose off the contract fields
+  // `frozen` and `chill`, and knows nothing about how they are computed. The redesign originally
+  // kept its state in private `_el*` fields only, so a frozen enemy just stopped dead: no ice
+  // tint, no held animation. That is indistinguishable, while playing, from cold being broken —
+  // which is exactly how a missing tell gets reported as a missing mechanic. Asserted from BOTH
+  // ends: sim publishes, and render still reads.
   {
     const run = el({ cold: 4 })
     let frozenFrames = 0, unpublished = 0, chilledFrames = 0

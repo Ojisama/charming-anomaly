@@ -31,7 +31,7 @@ import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS,
-  ELEMENTS, MAX_ELEMENT_PICKS, COMBOS,
+  ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
   // measured 16.1% legendary in the shim's first draft (F1). The floor only ever REMOVES keys from
@@ -73,14 +73,11 @@ import {
   ORBIT_NOVA_RADIUS, UNDERTOW_VAC_RADIUS_PER_STACK, TSUNAMI_EVERY,
   MINE_CRAWL_SPEED, WISP_NOVA_RADIUS, SWARM_DMG_FRAC, SWARM_LIFE, CRUNCH_DMG_MUL,
   STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
-  CHILL_SLOW_BASE, CHILL_SLOW_PER_POTENCY, CHILL_SLOW_CAP, CHILL_DURATION,
-  CHILL_STACK_TO_FREEZE, FREEZE_DURATION, FREEZE_IMMUNITY, ELITE_FREEZE_SLOW_MUL,
-  SHOCK_ARC_FRAC, SHOCK_RANGE, SHOCK_CD,
-  VENOM_MAX_STACKS, VENOM_DURATION, VENOM_DOT_PER_STACK, VENOM_AMP_PER_STACK,
-  // Elements redesign, live only while run.newElements — see the EL_* block in config.js.
+  SHOCK_RANGE, SHOCK_CD,
+  // The element system — see the EL_* block in config.js.
   EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
   EL_FREEZE_RESIST_T, EL_VENOM_MUL, EL_LIGHT_SHARE, EL_LIGHT_RANGE, EL_LIGHT_FORWARD,
-  EL_BUCKET_WEIGHT, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
+  EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
   ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
@@ -1337,20 +1334,22 @@ function freshEnemyFields() {
     orbCd: 0,
     kb: { x: 0, y: 0 },
     holePull: 0,
-    // Elemental status (see ELEMENTS/COMBOS in config.js; ticked by stepStatuses).
+    // Elemental status (see ELEMENTS in config.js; ticked by stepStatuses). `chill` and `venom`
+    // are PUBLISHED here for render.js, derived every step from the windows below — they are not
+    // state anything writes to directly.
     ignite: 0, igniteDps: 0,
-    chill: 0, chillSlow: 0, frozen: 0,
-    venom: 0, venomT: 0,
+    chill: 0, frozen: 0,
+    venom: 0,
     // Bleed DoT (v5.0, flagella's barbed mod — see applyBleed): dot-flagged, ticks like ignite.
     bleed: 0, bleedDps: 0,
     // Status effects (v5.4, see the enemies[] contract in state.js): fear inverts the seek, stun
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
     fearT: 0, fearCd: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
-    _chillStack: 0, _freezeImmuneT: 0, _shockCd: 0, _comboCd: {},
-    // Elements redesign (run.newElements only). Two rolling windows of PLAYER damage as a share of
-    // this enemy's own maxHP: cold clears its own on freeze, which is exactly why they are not
-    // shared. `_elFrozen` / `_elResist` are the freeze and its aftermath.
+    _shockCd: 0,
+    // Two rolling windows of PLAYER damage as a share of this enemy's own maxHP: cold clears its
+    // own on freeze, which is exactly why they are not shared. `_elFrozen` / `_elResist` are the
+    // freeze and its aftermath.
     _elCold: newElWindow(), _elVenom: newElWindow(), _elFrozen: 0, _elResist: 0,
   }
 }
@@ -1360,7 +1359,10 @@ function freshEnemyFields() {
 // on its own clock. A single decaying float cannot do this: exponential decay is proportional to
 // the running total, so one crit makes every small contribution beside it evaporate early while the
 // crit itself outlives its own window — and this game has crits and mixed weapon weights.
-function newElWindow() { return { total: 0, b: [0, 0, 0, 0, 0, 0], head: 0, acc: 0 } }
+// Exported so test fixtures can build a REAL window instead of a literal of the same shape:
+// the two drifted (`head` vs `i`) and the copy produced NaN totals, which reads as "venom does
+// nothing" rather than as an error.
+export function newElWindow() { return { total: 0, b: [0, 0, 0, 0, 0, 0], head: 0, acc: 0 } }
 
 // Null-safe on purpose: the suite hand-builds enemy fixtures that never went through
 // freshEnemyFields, and a status helper must not be the thing that throws on one.
@@ -1699,9 +1701,7 @@ function stepEnemyMovement(run, dt) {
     // speed while bloomSlowT is up — the same ceiling chill/freeze already have here; not worth a
     // second guard in every one of those machines for a debuff this soft.
     const bloomMul = (e.bloomSlowT || 0) > 0 ? (1 - BLOOM_SLOW) : 1
-    const slowMul = run.newElements
-      ? (1 - elSlow(run, e)) * bloomMul       // 1.0 slow IS the freeze; no separate branch
-      : (e.frozen > 0 ? 0 : (1 - (e.chillSlow || 0)) * bloomMul)
+    const slowMul = (1 - elSlow(run, e)) * bloomMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -2658,7 +2658,7 @@ function stepContactDamage(run) {
 
 // -- Pools: acidPool/soapTrail elite flags (v5.0) -------------------------------------
 // Shared array + step for both flags (see run.pools in state.js) — pools only ever damage the
-// PLAYER, ticked at STATUS_TICK cadence like other DoTs (see applyIgnite/applyVenomStack below).
+// PLAYER, ticked at STATUS_TICK cadence like the enemy DoTs (see applyIgnite below).
 // @returns true if the player died this frame (phase set to 'dead').
 function stepPools(run, dt) {
   if (!run.pools || run.pools.length === 0) return false
@@ -4286,18 +4286,10 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {
     dmg *= SHIELD_DMG_MUL
   }
-  // Venom: amplifies ALL damage the enemy takes; Brittle (cold+venom) doubles the amp
-  // while the enemy is chilled/frozen.
-  if (run.newElements) {
-    // Redesign: the amp is derived from the damage window, not from stacks, and there is no
-    // Brittle (combos are off under the flag).
-    const amp = elVenomAmp(run, enemy)
-    if (amp > 0) dmg *= (1 + amp)
-  } else if (enemy.venom > 0) {
-    let amp = enemy.venom * VENOM_AMP_PER_STACK
-    if (enemy.chill > 0 || enemy.frozen > 0) amp *= COMBOS.brittleAmpMul
-    dmg *= (1 + amp)
-  }
+  // Venom amplifies ALL damage the enemy takes. Derived from the damage window, not stored as
+  // stacks — which is why it responds to every source rather than only to weapon hits.
+  const amp = elVenomAmp(run, enemy)
+  if (amp > 0) dmg *= (1 + amp)
   // panicRout (v5.4 chitterShriek mod): a FLEEING enemy takes amplified damage from EVERY source —
   // applied here alongside the venom amp, so DoT ticks and combo bursts get it too.
   if ((enemy.fearT || 0) > 0) {
@@ -4307,12 +4299,11 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   dmg = Math.round(dmg)
 
   enemy.hp -= dmg
-  // Elements redesign: EVERY player damage source feeds the window — weapon hits, burn ticks, arc
-  // damage, allies. That is deliberate and load-bearing: feeding it only from applyDamage let a
-  // fire build kill enemies without filling any window, which stopped a fire+cold build freezing
-  // anything at all. The numerator is HP actually removed, after the shield affix, the venom amp
-  // and the rounding above.
-  if (run.newElements && !hazard && enemy.maxHP > 0) {
+  // EVERY player damage source feeds the window — weapon hits, burn ticks, arc damage, allies.
+  // That is deliberate and load-bearing: feeding it only from applyDamage let a fire build kill
+  // enemies without filling any window, which stopped a fire+cold build freezing anything at all.
+  // The numerator is HP actually removed, after the shield affix, the venom amp and the rounding.
+  if (!hazard && enemy.maxHP > 0) {
     const frac = dmg / enemy.maxHP
     elAdd(enemy._elVenom, frac)
     // Cold accumulates at a reduced rate while the enemy is resisting, and not at all while it is
@@ -4473,21 +4464,10 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   return dmg
 }
 
-// ---- Elemental status + combos (see ELEMENTS/COMBOS in config.js) -----------------------
-// Applied once per real weapon hit (from applyDamage), using that hit's final dealt damage
-// as the basis for ignite/shock potency. DoT ticks and combo bursts deal their damage via
-// dealDamage directly (not applyDamage) so they don't re-roll crit/player multipliers or
-// recursively re-trigger elemental application.
-
-function comboReady(enemy, name) {
-  return (enemy._comboCd[name] || 0) <= 0
-}
-
-// Unconditional, and load-bearing: shatter consumes the chill AND the freeze stack, so a shatter
-// on every hit is a freeze that never lands.
-function triggerCombo(enemy, name) {
-  enemy._comboCd[name] = COMBOS.comboCd
-}
+// ---- Elemental status ------------------------------------------------------------------
+// Applied once per real weapon hit (from applyDamage), using that hit's final dealt damage as
+// the basis. DoT ticks and arc damage deal their damage via dealDamage directly (not
+// applyDamage) so they don't re-roll crit/player multipliers or recursively re-apply elements.
 
 function applyIgnite(enemy, potency, dmgDealt) {
   enemy.ignite = IGNITE_DURATION
@@ -4500,141 +4480,11 @@ function applyIgnite(enemy, potency, dmgDealt) {
   enemy._fireJumps = WILDFIRE_JUMPS
 }
 
-// Shared by the primary hit and Frost Arc's arc targets.
-function applyChill(run, enemy, potency) {
-  const wasChilling = enemy.chill > 0 && enemy.frozen <= 0
-  // v7.17: the SLOW is diminished like every other control (owner's call — it is what stops the
-  // crowd closing the gap between two knockbacks, so leaving it out leaves most of the ring
-  // standing). The chill WINDOW is not scaled: a shorter window would just re-arm the freeze
-  // stack faster. `resistsCC` enemies take the damage and the DoT and no slow at all.
-  if (resistsCC(enemy)) return
-  const k = ccScale(run, enemy)
-  const slow = Math.min(CHILL_SLOW_CAP, CHILL_SLOW_BASE + CHILL_SLOW_PER_POTENCY * potency) * k
-  enemy.chill = CHILL_DURATION
-  if (enemy.frozen > 0) return // already frozen; window refreshed, no restacking needed
-  spendCC(run, enemy)
-
-  if (enemy._freezeImmuneT > 0) {
-    enemy.chillSlow = slow
-    enemy._chillStack = 0
-    return
-  }
-
-  enemy._chillStack = wasChilling ? enemy._chillStack + 1 : 1
-  if (enemy._chillStack >= CHILL_STACK_TO_FREEZE) {
-    enemy._chillStack = 0
-    if (enemy.elite || enemy.type === 'tank') {
-      // Elites/tanks never freeze — a stronger slow instead.
-      enemy.chillSlow = Math.min(1, slow * ELITE_FREEZE_SLOW_MUL)
-    } else {
-      enemy.chillSlow = slow
-      enemy.frozen = FREEZE_DURATION * k
-    }
-  } else {
-    enemy.chillSlow = slow
-  }
-}
-
-// Shared by the primary hit and Conduct's arc targets.
-function applyVenomStack(enemy, stacks = 1) {
-  enemy.venom = Math.min(VENOM_MAX_STACKS, enemy.venom + stacks)
-  enemy.venomT = VENOM_DURATION
-}
-
-// fire+cold Shatter: fire landing on a chilled/frozen enemy (or cold landing on an ignited
-// one) bursts AoE damage in COMBOS.shatterRadius, consuming the chill/freeze.
-function triggerShatter(run, enemy, dmgDealt) {
-  triggerCombo(enemy, 'shatter')
-  const dmg = Math.round(dmgDealt * COMBOS.shatterMul)
-  const radSq = COMBOS.shatterRadius * COMBOS.shatterRadius
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    const dx = e.x - enemy.x, dy = e.y - enemy.y
-    if (dx * dx + dy * dy <= radSq) dealDamage(run, e, dmg, false)
-  }
-  enemy.chill = 0
-  enemy.frozen = 0
-  enemy.chillSlow = 0
-  enemy._chillStack = 0
-  run.events.push({ type: 'shatter', x: enemy.x, y: enemy.y, radius: COMBOS.shatterRadius })
-}
-
-// fire+lightning Overload: a shock arc landing on an ignited enemy detonates its remaining
-// ignite damage instantly as an AoE burst in COMBOS.overloadRadius, consuming the ignite.
-function triggerOverload(run, enemy) {
-  triggerCombo(enemy, 'overload')
-  const remaining = Math.round(enemy.igniteDps * enemy.ignite)
-  enemy.ignite = 0
-  enemy.igniteDps = 0
-  if (remaining > 0) {
-    const radSq = COMBOS.overloadRadius * COMBOS.overloadRadius
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      const dx = e.x - enemy.x, dy = e.y - enemy.y
-      if (dx * dx + dy * dy <= radSq) dealDamage(run, e, remaining, false)
-    }
-  }
-  run.events.push({ type: 'overload', x: enemy.x, y: enemy.y, radius: COMBOS.overloadRadius })
-}
-
-// Shock (lightning): arcs a share of this hit's dealt damage to nearby enemies, and carries
-// Overload/Frost Arc/Conduct depending on the source enemy's/targets' current status.
-function applyShock(run, enemy, potency, dmgDealt) {
-  if (enemy._shockCd > 0) return // per-source cooldown so continuous weapons don't spam arcs
-  const rangeSq = SHOCK_RANGE * SHOCK_RANGE
-  const nearby = []
-  for (const e of run.enemies) {
-    if (e === enemy || e._dead) continue
-    const dx = e.x - enemy.x, dy = e.y - enemy.y
-    const dSq = dx * dx + dy * dy
-    if (dSq <= rangeSq) nearby.push({ e, dSq })
-  }
-  const maxTargets = run.elementPicks.lightning ?? 0
-  if (nearby.length === 0 || maxTargets <= 0) return
-  enemy._shockCd = SHOCK_CD
-
-  nearby.sort((a, b) => a.dSq - b.dSq)
-  const targets = nearby.slice(0, maxTargets).map((n) => n.e)
-
-  const arcDmg = Math.round(SHOCK_ARC_FRAC * potency * dmgDealt)
-  const sourceChilled = enemy.chill > 0 || enemy.frozen > 0
-  const sourceVenomStacks = enemy.venom
-
-  const frostPoints = []
-  const conductPoints = []
-  for (const t of targets) {
-    if (arcDmg > 0) dealDamage(run, t, arcDmg, false)
-
-    if (t.ignite > 0 && comboReady(t, 'overload')) triggerOverload(run, t)
-
-    if (sourceChilled && comboReady(enemy, 'frostarc')) {
-      applyChill(run, t, potency)
-      frostPoints.push([t.x, t.y])
-    }
-    if (sourceVenomStacks > 0 && comboReady(enemy, 'conduct')) {
-      applyVenomStack(t, sourceVenomStacks)
-      conductPoints.push([t.x, t.y])
-    }
-  }
-  // Exactly one arc-visual event per shock: frostarc/conduct already carry the arc's shape
-  // (source + every target) when their combo fires, so only fall back to the plain shockarc
-  // visual when neither combo triggered this hit — otherwise the arc would double-render.
-  if (frostPoints.length > 0) {
-    triggerCombo(enemy, 'frostarc')
-    run.events.push({ type: 'frostarc', points: [[enemy.x, enemy.y], ...frostPoints] })
-  } else if (conductPoints.length > 0) {
-    triggerCombo(enemy, 'conduct')
-    run.events.push({ type: 'conduct', points: [[enemy.x, enemy.y], ...conductPoints] })
-  } else {
-    run.events.push({ type: 'shockarc', points: [[enemy.x, enemy.y], ...targets.map((t) => [t.x, t.y])] })
-  }
-}
-
-// ---- Elements redesign: what a hit does -------------------------------------------------------
+// ---- Elements: what a hit does -------------------------------------------------------
 // Only fire and lightning act ON THE HIT. Cold and venom are read from the damage window, which
 // dealDamage already filled — so they need no application step at all, and they respond to every
 // damage source rather than only to weapon hits.
-function applyElementsNew(run, enemy, dmgDealt) {
+function applyElements(run, enemy, dmgDealt) {
   const am = alignmentMul(run)
   const fire = elP(run, 'fire')
   if (fire > 0) {
@@ -4685,120 +4535,55 @@ function elArc(run, source, P, dmgDealt) {
 }
 
 // Entry point called by applyDamage after every real weapon hit lands.
-function applyElements(run, enemy, dmgDealt) {
-  if (run.newElements) return applyElementsNew(run, enemy, dmgDealt)
-  const pot = run.elements
-  const preChill = enemy.chill > 0 || enemy.frozen > 0
-  const preIgnite = enemy.ignite > 0
-
-  // fire+cold Shatter: both directions, but only one burst per hit.
-  if (pot.fire > 0 && preChill && comboReady(enemy, 'shatter')) {
-    triggerShatter(run, enemy, dmgDealt)
-  } else if (pot.cold > 0 && preIgnite && comboReady(enemy, 'shatter')) {
-    triggerShatter(run, enemy, dmgDealt)
-  }
-
-  const am = alignmentMul(run)
-  if (pot.fire > 0) applyIgnite(enemy, pot.fire * am, dmgDealt)
-  if (pot.cold > 0) applyChill(run, enemy, pot.cold * am)
-  if (pot.venom > 0) applyVenomStack(enemy)   // stacks, not potency — the DoT reads it in stepStatuses
-  if (pot.lightning > 0) applyShock(run, enemy, pot.lightning * am, dmgDealt)
-}
-
-// Ticks ignite/venom DoTs (fire+venom Acid Burn speeds both up together), decays chill/freeze
-// and their windows/cooldowns. Chill/freeze's movement effect lives in stepEnemyMovement.
+// Ages both damage windows, runs the freeze, and ticks the burn and bleed DoTs. Cold's movement
+// effect lives in stepEnemyMovement; venom has no tick at all, because it deals no damage.
 function stepStatuses(run, dt) {
-  const potVenom = run.elements.venom * alignmentMul(run)
   for (const e of run.enemies) {
-    if (e._dead || isAlly(e)) continue   // SUBMISSION: chain slot: an ally next to the shocked body is the nearest thing there is
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: an ally next to a shocked body is the nearest thing there is
 
-    for (const k of Object.keys(e._comboCd)) e._comboCd[k] = Math.max(0, e._comboCd[k] - dt)
     if (e._shockCd > 0) e._shockCd = Math.max(0, e._shockCd - dt)
 
-    // Elements redesign: age both damage windows, run the freeze, and skip the old chill/venom
-    // bookkeeping entirely (venom deals no damage here, and chill is derived, not stored).
-    if (run.newElements) {
-      elStep(e._elCold, dt)
-      elStep(e._elVenom, dt)
-      if (e._elFrozen > 0) {
-        e._elFrozen = Math.max(0, e._elFrozen - dt)
-        if (e._elFrozen <= 0) e._elResist = EL_FREEZE_RESIST_T
-      } else {
-        if (e._elResist > 0) e._elResist = Math.max(0, e._elResist - dt)
-        // 100% slow IS frozen — there is no second threshold to cross.
-        if (!elNeverFreezes(e) && elSlow(run, e) >= 1) {
-          e._elFrozen = EL_FREEZE_T
-          elClear(e._elCold)          // consume it outright; a scalar "spent" marker ratchets
-          run.events.push({ type: 'freeze', x: e.x, y: e.y })
-        }
+    elStep(e._elCold, dt)
+    elStep(e._elVenom, dt)
+    if (e._elFrozen > 0) {
+      e._elFrozen = Math.max(0, e._elFrozen - dt)
+      if (e._elFrozen <= 0) e._elResist = EL_FREEZE_RESIST_T
+    } else {
+      if (e._elResist > 0) e._elResist = Math.max(0, e._elResist - dt)
+      // 100% slow IS frozen — there is no second threshold to cross.
+      if (!elNeverFreezes(e) && elSlow(run, e) >= 1) {
+        e._elFrozen = EL_FREEZE_T
+        elClear(e._elCold)          // consume it outright; a scalar "spent" marker ratchets
+        run.events.push({ type: 'freeze', x: e.x, y: e.y })
       }
-      // PUBLISH TO THE CONTRACT FIELDS render.js already reads (`frozen`, `chill` — see the
-      // "Elemental status" block there). Without this the redesign is INVISIBLE: render.js has no
-      // idea run.newElements exists, so a frozen enemy simply stopped dead with no ice tint and no
-      // held pose, which reads as the freeze not working rather than as the freeze having no tell.
-      // Safe because every other reader of these two fields is either behind `run.newElements`
-      // (the movement slow) or on the old path this branch replaces (the Brittle combo amp,
-      // applyElements, and the decay below that this `continue` skips).
-      // `chill` carries the SLOW FRACTION here, not the old system's remaining seconds; render
-      // only tests it against 0, and a fraction is the thing a future tell would want to scale by.
-      e.frozen = e._elFrozen ?? 0
-      e.chill = e.frozen > 0 ? 0 : elSlow(run, e)
-      // Venom is the third publish, and it was missed: render.js saw `venom: 0` for the whole run,
-      // so nothing ever turned green and no drip particles spawned — the freeze bug above, one
-      // field over, and it reads on screen as "venom does nothing". Carries the AMP (0..~1), not
-      // the old system's 0..8 stack count; render normalises per system and deepens the green by it.
-      e.venom = elVenomAmp(run, e)
-      if (e.ignite > 0) {
-        // The burn has its own tick (EL_BURN_TICK, twice STATUS_TICK) and its own floor. At the
-        // shared 0.25s a burn was 12 ticks of ~4% of the hit — "1" on a median hit, and 3.1% of
-        // ticks rounded to nothing at all. Fewer, bigger ticks print the same total in numbers a
-        // player can read; the floor stops a small burn silently dealing zero.
-        e.ignite = Math.max(0, e.ignite - dt)
-        e._igniteAcc = (e._igniteAcc || 0) + dt
-        while (!e._dead && e._igniteAcc >= EL_BURN_TICK) {
-          e._igniteAcc -= EL_BURN_TICK
-          dealDamage(run, e, Math.max(EL_BURN_MIN, e.igniteDps * EL_BURN_TICK), false, true)
-        }
-        if (e.ignite <= 0) { e.igniteDps = 0; e._igniteAcc = 0 }
-      }
-      if (e.bleed > 0) {
-        e.bleed = Math.max(0, e.bleed - dt)
-        e._bleedAcc = (e._bleedAcc || 0) + dt
-        while (!e._dead && e._bleedAcc >= STATUS_TICK) {
-          e._bleedAcc -= STATUS_TICK
-          dealDamage(run, e, e.bleedDps * STATUS_TICK, false, true)
-        }
-        if (e.bleed <= 0) { e.bleedDps = 0; e._bleedAcc = 0 }
-      }
-      continue
     }
 
-    const acidBurn = e.ignite > 0 && e.venom > 0 // fire+venom: both DoTs tick faster together
-    const tickMul = acidBurn ? COMBOS.acidBurnTickMul : 1
+    // PUBLISH TO THE CONTRACT FIELDS render.js reads (`frozen`, `chill`, `venom` — see the
+    // "Elemental status" block there). These three are DERIVED, not stored: nothing else writes
+    // them. Miss one and that status becomes invisible, which on screen is indistinguishable from
+    // the mechanic being broken — it has happened twice, to freeze and then to venom.
+    // `chill` carries the SLOW FRACTION and `venom` the damage-taken AMP, both 0..1-ish; render
+    // scales its tint by them, so they are the thing a tell wants, not a countdown.
+    e.frozen = e._elFrozen ?? 0
+    e.chill = e.frozen > 0 ? 0 : elSlow(run, e)
+    e.venom = elVenomAmp(run, e)
 
     if (e.ignite > 0) {
+      // The burn has its own tick (EL_BURN_TICK, twice STATUS_TICK) and its own floor. At the
+      // shared 0.25s a burn was 12 ticks of ~4% of the hit — "1" on a median hit, and 3.1% of
+      // ticks rounded to nothing at all. Fewer, bigger ticks print the same total in numbers a
+      // player can read; the floor stops a small burn silently dealing zero.
       e.ignite = Math.max(0, e.ignite - dt)
-      e._igniteAcc = (e._igniteAcc || 0) + dt * tickMul
-      while (!e._dead && e._igniteAcc >= STATUS_TICK) {
-        e._igniteAcc -= STATUS_TICK
-        dealDamage(run, e, e.igniteDps * STATUS_TICK, false, true)
+      e._igniteAcc = (e._igniteAcc || 0) + dt
+      while (!e._dead && e._igniteAcc >= EL_BURN_TICK) {
+        e._igniteAcc -= EL_BURN_TICK
+        dealDamage(run, e, Math.max(EL_BURN_MIN, e.igniteDps * EL_BURN_TICK), false, true)
       }
       if (e.ignite <= 0) { e.igniteDps = 0; e._igniteAcc = 0 }
     }
 
-    if (e.venom > 0) {
-      e.venomT = Math.max(0, e.venomT - dt)
-      e._venomAcc = (e._venomAcc || 0) + dt * tickMul
-      const perSecond = VENOM_DOT_PER_STACK * potVenom * e.venom
-      while (!e._dead && e._venomAcc >= STATUS_TICK) {
-        e._venomAcc -= STATUS_TICK
-        dealDamage(run, e, perSecond * STATUS_TICK, false, true)
-      }
-      if (e.venomT <= 0) { e.venom = 0; e._venomAcc = 0 }
-    }
-
-    // Bleed (v5.0, flagella's barbed mod): a plain dot-flagged DoT, same tick shape as ignite —
-    // no combo interactions, no element potency, just BARBED_DURATION seconds of bleedDps.
+    // Bleed (v5.0, flagella's barbed mod): a plain dot-flagged DoT, no element potency, just
+    // BARBED_DURATION seconds of bleedDps. Lightning can forward it (see elArc).
     if (e.bleed > 0) {
       e.bleed = Math.max(0, e.bleed - dt)
       e._bleedAcc = (e._bleedAcc || 0) + dt
@@ -4808,17 +4593,6 @@ function stepStatuses(run, dt) {
       }
       if (e.bleed <= 0) { e.bleedDps = 0; e._bleedAcc = 0 }
     }
-
-    if (e.chill > 0) {
-      e.chill = Math.max(0, e.chill - dt)
-      if (e.chill <= 0) { e.chillSlow = 0; e._chillStack = 0 }
-    }
-
-    if (e.frozen > 0) {
-      e.frozen = Math.max(0, e.frozen - dt)
-      if (e.frozen <= 0) e._freezeImmuneT = FREEZE_IMMUNITY
-    }
-    if (e._freezeImmuneT > 0) e._freezeImmuneT = Math.max(0, e._freezeImmuneT - dt)
   }
 }
 
@@ -5245,11 +5019,6 @@ function stepBullets(run, dt) {
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, b.dmg)
-        // Venom Tips (v5.3 stinger's venomTips mod, snapshotted as b._venomTips at fire time):
-        // a needle injects 1 venom stack WITHOUT needing the venom element card — reuses the
-        // element system's applyVenomStack (its DoT scales with venom potency, but the stacks
-        // still amplify all damage the enemy takes even at zero potency; see dealDamage/stepStatuses).
-        if (b._venomTips && !e._dead) applyVenomStack(e, 1)
         b.hitIds.add(e.id)
         b.pierce--
         justHit = e
@@ -6371,9 +6140,8 @@ function stepBlooms(run, dt) {
 // Every `rate` seconds (rapid divides that interval, like the global fire rate) fires a tight cone
 // of `count` needle projectiles into run.bullets, aimed at the nearest enemy. Needles reuse the
 // bullet system (stepBullets) but are tagged weapon:'stinger' and carry disabled split/chain/
-// chain budgets so star's mods never touch them. longNeedles scales range AND speed; venomTips
-// injects a venom stack per needle hit (stepBullets); hive fires the whole volley in all directions
-// every STINGER_HIVE_EVERY-th cast.
+// chain budgets so star's mods never touch them. longNeedles scales range AND speed; hive fires
+// the whole volley in all directions every STINGER_HIVE_EVERY-th cast.
 function stepStingerWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.stinger?.rapid ?? 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireStinger(run, stats))
@@ -6392,7 +6160,6 @@ function fireStinger(run, stats) {
   const range = stats.range * longMul
   const life = range / speed
   const count = ipecacN(run, stats.count) // volley (+needles) already folded in via effectiveWeaponStats
-  const venomOn = (run.weaponMods.stinger?.venomTips ?? 0) > 0
 
   // hive: every STINGER_HIVE_EVERY-th volley opens from the tight cone to a full 360° spread.
   const hiveOn = (run.weaponMods.stinger?.hive ?? 0) > 0
@@ -6419,7 +6186,6 @@ function fireStinger(run, stats) {
       speed,
       hitIds: new Set(),
       weapon: 'stinger',
-      _venomTips: venomOn,
       // Disable star's bullet behaviours on needles (they share run.bullets/stepBullets).
       _shard: false, _splitDone: true, _chainsLeft: 0,
     })
@@ -8061,16 +7827,13 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
 }
 
 // An element card adopts whatever rarity was rolled for its slot, same as passives.
-// ELEMENTS.desc carries only the combo hint, so the potency the rarity actually bought gets
-// prefixed here — same shape as makePassiveCard/makeWeaponModCard, which both build desc from
-// bonus. Rounding is display-only: the applied bonus stays exact so the badge can't shift balance.
 function makeElementCard(run, id, rarity) {
   const cfg = ELEMENTS[id]
   const picks = run.elementPicks[id] ?? 0
-  if (run.newElements) {
-    // The redesign's ladder is a flat integer one and DECLINES `normal` — an element card is
-    // always rare or better, which is most of how total potency comes down. Returning null for a
-    // tier the card does not offer is the makePassiveCard idiom; rollCard re-rolls on this table.
+  {
+    // The ladder is a flat integer one and DECLINES `normal` — an element card is always rare or
+    // better, which is most of how total potency comes down. Returning null for a tier the card
+    // does not offer is the makePassiveCard idiom; rollCard re-rolls on this table.
     const bonus = EL_VALUES[rarity]
     if (bonus == null) return null
     // The card states what the player will HAVE after taking it, not what the tier is worth.
@@ -8087,10 +7850,6 @@ function makeElementCard(run, id, rarity) {
     if (now > 0) descT.prev = elementCardDesc(id, now).p
     return { kind: 'element', id, title: cfg.name, desc: elText(descT), descT, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
   }
-  const mult = RARITIES[rarity].mult
-  const bonus = cfg.base * mult
-  const desc = `+${Math.round(bonus * 10) / 10} potency — ${cfg.desc}`
-  return { kind: 'element', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon, bonus }
 }
 
 // Which anomaly cards may be offered right now. Computed BEFORE the tier's roll (see
@@ -8345,7 +8104,7 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   // redistributed by hand — pickWeighted normalises over whatever it is given, so the other buckets
   // (defence and utility, the base attributes) absorb it in proportion for free.
   if (elementOpts.length > 0) {
-    buckets.element = (run.newElements ? EL_BUCKET_WEIGHT : BUCKET_WEIGHTS.element) * (run.mods?.elementWeightMul ?? 1)
+    buckets.element = BUCKET_WEIGHTS.element * (run.mods?.elementWeightMul ?? 1)
   }
 
   if (Object.keys(buckets).length === 0) return null
@@ -8471,16 +8230,13 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   }
 
   const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]
-  if (run.newElements) {
-    // The element declines `normal`, which is 58.5% of rarity rolls — and the element branch is the
-    // one branch with no fallback, so without this the slot returns null and buildLevelUpChoices
-    // BREAKS out of the loop, truncating the screen. Re-roll on the card's own table, renormalised,
-    // exactly as the passive branch does for armor/regen.
-    return makeElementCard(run, eid, rarity)
-      ?? makeElementCard(run, eid, pickWeighted(
-        Object.fromEntries(Object.keys(EL_VALUES).map((r) => [r, rarityWeights[r] ?? 0]))))
-  }
+  // The element declines `normal`, which is 58.5% of rarity rolls — and the element branch is the
+  // one branch with no fallback, so without this the slot returns null and buildLevelUpChoices
+  // BREAKS out of the loop, truncating the screen. Re-roll on the card's own table, renormalised,
+  // exactly as the passive branch does for armor/regen.
   return makeElementCard(run, eid, rarity)
+    ?? makeElementCard(run, eid, pickWeighted(
+      Object.fromEntries(Object.keys(EL_VALUES).map((r) => [r, rarityWeights[r] ?? 0]))))
 }
 
 // The pool-exhaustion card's tier. It is not a rolled tier at all, but it PRINTS one — and hard
