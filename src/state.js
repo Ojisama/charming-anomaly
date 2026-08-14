@@ -556,12 +556,18 @@ function generateWells(sig) {
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
  *
- *               Elemental status (see ELEMENTS/COMBOS in config.js, ticked by stepStatuses):
- *               ignite (s of burn DoT remaining, 0 = none), igniteDps (current burn rate),
- *               chill (s of active slow window remaining), chillSlow (0..1 current slow
- *               fraction, applied as a speed multiplier in stepEnemyMovement), frozen (s of
- *               full-stop remaining; elites/type 'tank' never freeze — see ELITE_FREEZE_SLOW_MUL),
- *               venom (stacks 0..8), venomT (s remaining before stacks clear).
+ *               Elemental status (see ELEMENTS + the EL_* block in config.js, ticked by
+ *               stepStatuses): ignite (s of burn DoT remaining, 0 = none), igniteDps (current
+ *               burn rate).
+ *               chill, frozen and venom are DERIVED, not stored — stepStatuses publishes them
+ *               every step from the enemy's own damage windows, and nothing else writes them.
+ *               chill (0..1 slow FRACTION, applied as a speed multiplier in stepEnemyMovement),
+ *               frozen (s of full-stop remaining; only `anchored` elites can never freeze — a
+ *               big enemy resists by having more health, not by exemption), venom (0..~1
+ *               damage-taken AMP, deals no damage of its own). render.js tints and spawns status
+ *               particles off exactly these three names, and scales the tint by the last two —
+ *               a status that is computed but not published here is invisible on screen, which
+ *               has read as "the mechanic is broken" twice (freeze, then venom).
  *               bleed (v5.0, s of bleed DoT remaining, 0 = none), bleedDps (current bleed rate) —
  *               a plain dot-flagged DoT applied by the Flagella Whip's barbed mod (see applyBleed
  *               in sim.js), ticked like ignite with no combo/element interaction.
@@ -624,8 +630,10 @@ function generateWells(sig) {
  *                 BLOOM_SLOW_T every frame stepBlooms finds the enemy inside a cloud's radius
  *                 (guarded by damageImmune — a ghosted phase flicker ignores the cloud like it
  *                 ignores everything else); decays like the other three once outside.
- *               Sim-internal only (not a render contract, do not rely on these): _chillStack,
- *               _freezeImmuneT, _shockCd, _comboCd, _bleedAcc, _debrisCd (Trash Tornado's
+ *               Sim-internal only (not a render contract, do not rely on these): _elCold/_elVenom
+ *               (the rolling damage windows the three derived fields above are computed from),
+ *               _elFrozen/_elResist (the freeze and its aftermath),
+ *               _shockCd, _bleedAcc, _debrisCd (Trash Tornado's
  *               per-enemy funnel cooldown, the run.debris analogue of orbCd). }
  * bullets[i]: { x, y, vx, vy, dmg, pierce, life, r, speed, hitIds:Set<enemyId>,
  *               _shard (true for Split Stars shards; they never re-split), _splitDone,
@@ -736,32 +744,25 @@ function generateWells(sig) {
  * v5.3 garden weapons (see WEAPONS.stinger/lure + WEAPON_MODS in config.js, stepStingerWeapon/
  * stepLureWeapon/stepLures in sim.js):
  *   Stinger needles are ordinary run.bullets entries (see bullets[] above) but tagged
- *   weapon:'stinger' and _venomTips (snapshot of the venomTips mod — stepBullets injects 1 venom
- *   stack per hit when set), with star's split/chain budgets zeroed so those never apply.
+ *   weapon:'stinger' and _necrotic (snapshot of the necroticTips mod — stepBullets leaves a bleed
+ *   per hit when set), with star's split/chain budgets zeroed so those never apply.
  *   {type:'shoot', weapon:'stinger'}  a stinger volley fired.
  *   {type:'lure', x, y}               a Pheromone Lure decoy was planted (x,y = player, for sfx;
  *                                     the decoys live in run.lures above). A lure's burst emits an
  *                                     {type:'explode', x, y, radius} at the decoy (see stepLures).
  *
- * Shock arc visual (see applyShock in sim.js): every lightning shock arc emits exactly one of
- * the three events below — frostarc/conduct when their combo triggers on that shock, otherwise
- * the plain {type:'shockarc', points:[[x,y],…]} (polyline: source enemy, then each arc target)
- * — never more than one per shock, so the arc never double-renders.
+ * Shock arc visual (see elArc in sim.js): every lightning arc emits exactly one
+ *   {type:'shockarc', points:[[x,y],…]} (polyline: source enemy, then each arc target) — one per
+ *   shock, so the arc never double-renders.
+ *   {type:'freeze', x, y}                cold: the moment an enemy's chill gauge fills and it
+ *                                        locks. Deliberately has NO sfx entry — freezes fire
+ *                                        dozens of times a minute on a cold build.
  *
- * Combo events (see COMBOS in config.js, emitted by stepStatuses' shock/status handling):
- *   {type:'shatter', x, y, radius}       fire+cold: fire hitting a chilled/frozen enemy (or cold
- *                                        hitting an ignited one) bursts AoE damage, consuming the
- *                                        chill/freeze.
- *   {type:'frostarc', points:[[x,y],…]}  cold+lightning: a shock arc launched from a chilled
- *                                        enemy also chills every enemy it hits. points is a
- *                                        polyline (source, then each target), same shape as shockarc.
- *   {type:'overload', x, y, radius}      fire+lightning: a shock arc landing on an ignited enemy
- *                                        detonates its remaining ignite damage instantly as an
- *                                        AoE burst, consuming the ignite.
- *   {type:'conduct', points:[[x,y],…]}   lightning+venom: a shock arc launched from a venomed
- *                                        enemy copies its venom stacks onto every arc target.
- *                                        points is a polyline, same shape as shockarc.
- *   (fire+venom Acid Burn and cold+venom Brittle are passive DoT/amp modifiers with no event.)
+ * There are no element x element COMBO events. The old system's shatter/frostarc/overload/conduct
+ * were deleted with it: elements now compose through one shared number (how much of an enemy's own
+ * health you have just removed), so a pair interacts by both reading a fuller window rather than by
+ * a special case per pair. `overload` survives as an ANOMALY id, which is unrelated — it reaches
+ * render as `e.src === 'overload'` on a hurt event, never as an event type.
  *
  * mutators (v4.0): run.mutators is the array of MUTATORS ids (see config.js) selected before
  * the run started — opts.mutators passed to createRun, e.g. from the Daily Anomaly
@@ -1244,7 +1245,7 @@ function generateWells(sig) {
  *   owning weapon (choice.weapon, a weapon id) is owned. run.weaponMods[weapon][id] accumulates
  *   applied bonus; run.weaponModPicks[weapon][id] counts picks (max MAX_WEAPON_MOD_PICKS),
  *   mirroring passives/passivePicks.
- *   kind 'element': elemental infusions (see ELEMENTS/COMBOS in config.js), offered always.
+ *   kind 'element': elemental infusions (see ELEMENTS in config.js), offered always.
  *   run.elements[id] accumulates applied potency; run.elementPicks[id] counts picks (max
  *   MAX_ELEMENT_PICKS), mirroring passives/passivePicks.
  *   kind 'anomaly' (v6.7.6, see ANOMALIES in config.js): the sixth rarity tier. Carries NO bonus
@@ -1499,13 +1500,12 @@ export function createRun(meta, opts = {}) {
       [wid, Object.fromEntries(Object.keys(WEAPON_MODS[wid]).map((mid) => [mid, 0]))])),
     weaponModPicks: Object.fromEntries(Object.keys(WEAPON_MODS).map((wid) =>
       [wid, Object.fromEntries(Object.keys(WEAPON_MODS[wid]).map((mid) => [mid, 0]))])),
-    // elemental infusions (see ELEMENTS/COMBOS in config.js), offered always
+    // elemental infusions (see ELEMENTS in config.js), offered always
     // TEST GATE: the elements redesign runs only while this is true. Per-run and OFF by
     // default — seven taps on the HUD coin badge opens the dev screen, whose first row toggles it.
     // Deliberately not persisted: a flag that survives a reload is one you forget is on.
     // ponytail: temporary. When the redesign is accepted or dropped, this field and the loser's
     // code path both go — see the EL_* block in config.js.
-    newElements: false,
     elements: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     elementPicks: Object.fromEntries(Object.keys(ELEMENTS).map((id) => [id, 0])),
     // v6.7.6 anomalies (see ANOMALIES in config.js and the doc block above): {id: true} for every
