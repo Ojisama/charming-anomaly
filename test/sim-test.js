@@ -15393,7 +15393,14 @@ function testReefAirBurst() {
     // The shipped hand-placed-enemy helper, then stunned solid: stepEnemyMovement checks stunT
     // above every behaviour, so ANY movement this enemy shows can only have come from the obstacle
     // push-out. Hand-rolling the object instead is how this case first read as a crash.
-    const e = makeStatusEnemy(run, { x: o.x, y: o.y, speed: 0 })
+    //
+    // OVERLAPPING BUT OFF-CENTRE, and that is the difference between this case working and this
+    // case asserting nothing. The first cut parked the enemy on the obstacle's exact centre, where
+    // the separation is 0 and every push-out in this file has to special-case the missing direction
+    // — a mutation that re-enabled the enemy loop SURVIVED, because its own `d < 1e-6` guard
+    // skipped the single body the test had placed. Offset by 0.4r/0.2r it is unambiguously inside
+    // the circle and unambiguously to one side of its centre.
+    const e = makeStatusEnemy(run, { x: o.x + o.r * 0.4, y: o.y + o.r * 0.2, speed: 0 })
     e.flags = []
     e.stunT = 99
     run.enemies.push(e)
