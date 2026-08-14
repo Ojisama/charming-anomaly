@@ -118,7 +118,7 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul,
   // elements redesign (Run EL)
-  EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
+  EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
 
@@ -806,16 +806,16 @@ function testAnomalySlate() {
       for (let f = 0; f < 240; f++) stepSim(r, { x: 0, y: 0 }, dt)
       return before - hp()
     }
-    // THE ARMS DO NOT SHARE A BAND, and that is a finding, not a fudge. alignmentMul reaches
-    // fire, venom and cold OUTSIDE elScale (a flat x2 on the output) but lightning INSIDE it
-    // (P -> 2P, so x sqrt(2) = 1.41 on the output). By the card's own words — "x2 potency" —
-    // lightning is the one that is right and the other three are too strong; by majority the
-    // reverse. Reconciling them is a BALANCE call, so this asserts what each site actually does
-    // today. A mutation deleting alignmentMul from any of them reads 1.00 and still goes red.
-    for (const [label, elements, extras, ehp, band] of [
-      ['fire', { fire: 4 }, 0, 1e9, 1.5],
-      ['venom', { venom: 4 }, 0, 4000, 1.5],
-      ['lightning', { lightning: 4 }, 1, 1e9, 1.25],
+    // ONE BAND FOR ALL FOUR, which is the point: ALIGNMENT is "x2 potency" and potency is read
+    // at sqrt, so every element must move by x sqrt(2) = 1.41 on its output. They disagreed until
+    // v7.80 — fire, venom and cold applied the multiplier OUTSIDE elScale (a flat x2) while
+    // lightning applied it inside — and nothing caught it, because the only test of it ran on the
+    // old element system where potency was linear and the two forms agreed. 1.25 is the band: the
+    // pathology is a DELETED alignmentMul, which reads exactly 1.00.
+    for (const [label, elements, extras, ehp] of [
+      ['fire', { fire: 4 }, 0, 1e9],
+      ['venom', { venom: 4 }, 0, 4000],
+      ['lightning', { lightning: 4 }, 1, 1e9],
     ]) {
       const weaponOnly = dealt(null, {}, extras, ehp)
       // Subtract the weapon's own damage so the ratio is the ELEMENT's, undiluted — with the
@@ -824,9 +824,9 @@ function testAnomalySlate() {
       const plain = dealt(null, elements, extras, ehp) - weaponOnly
       const aligned = dealt('alignment', elements, extras, ehp) - weaponOnly
       assert.ok(plain > 0, `the ${label} arm dealt no elemental damage at all — the harness is not reaching its subject`)
-      assert.ok(aligned > plain * band,
+      assert.ok(aligned > plain * 1.25,
         `ALIGNMENT dealt ${Math.round(aligned)} ${label} damage against ${Math.round(plain)} without it ` +
-        `(x${(aligned / plain).toFixed(2)}, want >x${band}) — the multiplier never reaches that potency site`)
+        `(x${(aligned / plain).toFixed(2)}, want >x1.25) — the multiplier never reaches that potency site`)
     }
   }
 
@@ -1662,15 +1662,14 @@ function testPoolBuckets() {
   // and config.js promises it is "offered AT MOST ONCE, only at normal rarity". That gate lives
   // in the CANDIDATE list, not in the printed chip: picking a mod first and then coercing its
   // rarity down to normal let a switch win its pick at any tier, measured 1.72x the shipped offer
-  // rate. garden owns three weapons carrying two switch mods between them (it had three until the
-  // elements rework deleted the stinger Venom Tips, whose venom stack no longer exists).
+  // rate. garden owns three weapons carrying three switch mods between them.
   const garden = sample('garden', 4, [{ id: 'boomerang', level: 3 }, { id: 'stinger', level: 2 }, { id: 'lure', level: 2 }])
   let swN = 0, swCards = 0, otherN = 0, otherCards = 0
   for (const [key, n] of Object.entries(garden.modIds)) {
     const [w, m] = key.split(':')
     if (WEAPON_MODS[w][m].kind === 'switch') { swN++; swCards += n } else { otherN++; otherCards += n }
   }
-  assert.ok(swN >= 2 && otherN >= 10, `garden sample covered ${swN} switch / ${otherN} other mods — the scenario stopped reaching its subject`)
+  assert.ok(swN >= 3 && otherN >= 10, `garden sample covered ${swN} switch / ${otherN} other mods — the scenario stopped reaching its subject`)
   const switchRatio = (swCards / swN) / (otherCards / otherN)
   assert.ok(switchRatio < 0.75,
     `a switch mod is offered ${switchRatio.toFixed(2)}x as often as a repeatable one — it is only a candidate on a normal roll (58.5%), so this must sit near 0.55`)
@@ -2456,7 +2455,7 @@ function testRerollRarity() {
   // at the cap, and 27-32% relative on every chapter that has one. rollCard now rolls mod
   // candidacy on the undecayed table and only the magnitude on the decayed one, so this is an
   // INVARIANCE test, not a bounded-loss one: the whole point is that the number does not move.
-  // Measured on GARDEN, which has two switch mods (stinger.hive,
+  // Measured on GARDEN, which has three switch mods (stinger.hive, stinger.necroticTips,
   // lure.stickyScent) — the most of any chapter, and 3x undergrowth's sample. body, city and
   // beyond have none at all, so they cannot host this test.
   const switchShare = (rerolls, SCREENS = 16000) => {
@@ -12722,7 +12721,7 @@ function testSwitchMods() {
   // Every mod sim.js reads as a boolean gate must be declared kind 'switch'. This list is the
   // audit: if someone adds a `(mods?.x ?? 0) > 0` read, it belongs here or it will print "+4".
   const SWITCHES = [
-    ['flagella', 'cyclone'], ['bloom', 'sporeburst'], ['stinger', 'hive'],
+    ['flagella', 'cyclone'], ['bloom', 'sporeburst'], ['stinger', 'hive'], ['stinger', 'necroticTips'],
     ['lure', 'stickyScent'], ['clawRake', 'doubleSlash'], ['roar', 'resonance'], ['tailLash', 'counterLash'],
   ]
   for (const [weapon, mod] of SWITCHES) {
@@ -16166,5 +16165,48 @@ function testElementsRedesign() {
     assert.ok(/const venomK = /.test(rnd) && /s\.tint = mix\([^)]*venomK\)/.test(rnd),
       'the venom tint is no longer a mix() over the dose, so an enemy at one stack looks exactly like one at eight')
     console.log(`PASS run EL.l (venom is visible): ${ampedFrames} venomed frames, all published, dose ranges ${lo.toFixed(3)}..${hi.toFixed(3)}, tint ramps`)
+  }
+
+  // (m) NECROTIC TIPS BLEEDS. The stinger's switch mod, which replaced Venom Tips when the venom
+  // stack it injected stopped existing. Asserted as DAMAGE TAKEN over a fixed window against an
+  // identical control run, not as "bleedDps was set" — a DoT whose field is written and never
+  // ticked reads green on every state assertion there is. The target is parked out of the needles'
+  // reach after the first volley lands, so the only difference between the arms is the bleed.
+  {
+    const dt = 1 / 60
+    const dealt = (necrotic) => {
+      Math.random = mulberry32(5150)
+      const run = createRun(makeMeta(), { chapter: 'garden' })
+      run.weapons = [{ id: 'stinger', level: 3 }]
+      if (necrotic) run.weaponMods.stinger = { ...run.weaponMods.stinger, necroticTips: 1 }
+      run.player.x = 0; run.player.y = 0
+      run.player.hp = run.player.maxHP = 1e9
+      const e = makeStatusEnemy(run, { x: 120, y: 0, hp: 1e6, speed: 0 })
+      run.enemies.push(e)
+      // Let exactly one volley land...
+      let landed = false
+      for (let i = 0; i < Math.round(4 / dt) && !landed; i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.events.some((x) => x.type === 'hit')) landed = true
+        run.events.length = 0
+      }
+      assert(landed, 'no stinger needle ever reached the target — the fixture is not measuring anything')
+      // ...then take the weapon away and move the target out of reach, so nothing but the DoT
+      // can remove another point of health.
+      run.weapons = []; run.bullets = []
+      const before = e.hp
+      for (let i = 0; i < Math.round(BARBED_DURATION + 1) * 60; i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+      }
+      return before - e.hp
+    }
+    const plain = dealt(false)
+    const bleeding = dealt(true)
+    assert.strictEqual(plain, 0, `the control arm took ${plain} damage after the weapon was removed — something other than the bleed is ticking`)
+    assert.ok(bleeding > 0, 'Necrotic Tips left no bleed at all — the mod is wired to nothing')
+    console.log(`PASS run EL.m (necrotic tips): ${bleeding} bleed damage over ${BARBED_DURATION}s against a control that took ${plain}`)
   }
 }

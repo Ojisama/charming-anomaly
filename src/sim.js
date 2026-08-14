@@ -72,7 +72,7 @@ import {
   MINE_CLUSTER_SCATTER_MIN, MINE_CLUSTER_SCATTER_MAX, MINE_STUN, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, UNDERTOW_VAC_RADIUS_PER_STACK, TSUNAMI_EVERY,
   MINE_CRAWL_SPEED, WISP_NOVA_RADIUS, SWARM_DMG_FRAC, SWARM_LIFE, CRUNCH_DMG_MUL,
-  STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION,
+  STATUS_TICK, IGNITE_DOT_FRAC, IGNITE_DURATION, NECROTIC_BLEED_FRAC,
   SHOCK_RANGE, SHOCK_CD,
   // The element system — see the EL_* block in config.js.
   EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
@@ -1388,19 +1388,25 @@ function elClear(w) { if (!w) return; w.b.fill(0); w.total = 0; w.acc = 0 }
 
 const elP = (run, id) => (run.elements?.[id] ?? 0)
 
+// ALIGNMENT IS POTENCY, SO IT GOES INSIDE elScale — `elScale(P * am)`, never `elScale(P) * am`.
+// The card says "x2 potency", and under a sqrt ladder that is x1.41 on the output, not x2. Three
+// of the four elements had it outside and were therefore x1.41 too strong under the card while
+// lightning was correct; nothing caught it because the only test of it ran on the old element
+// system, where potency was linear and the two forms agreed. Any element added later reads this.
+
 /** Cold's slow, 0..1. 1 IS frozen — there is no separate threshold. */
 function elSlow(run, e) {
   if ((e._elFrozen ?? 0) > 0) return 1
   const P = elP(run, 'cold')
   if (P <= 0) return 0
-  return Math.min(1, (e._elCold?.total ?? 0) * EL_COLD_MUL * elScale(P) * alignmentMul(run))
+  return Math.min(1, (e._elCold?.total ?? 0) * EL_COLD_MUL * elScale(P * alignmentMul(run)))
 }
 
 /** Venom's damage-taken amp. Venom deals no damage of its own; this is the whole card. */
 function elVenomAmp(run, e) {
   const P = elP(run, 'venom')
   if (P <= 0) return 0
-  return (e._elVenom?.total ?? 0) * EL_VENOM_MUL * elScale(P) * alignmentMul(run)
+  return (e._elVenom?.total ?? 0) * EL_VENOM_MUL * elScale(P * alignmentMul(run))
 }
 
 // Only ANCHORED elites can never be frozen (owner ruling 2026-08-13). `unshakeable` tanks are
@@ -4490,7 +4496,7 @@ function applyElements(run, enemy, dmgDealt) {
   if (fire > 0) {
     // The strongest burn wins. A chip hit landing after a crit must not downgrade the fire, and
     // owner's call: heavy hits burn deep, fast weapons burn many things shallowly.
-    const dps = (EL_FIRE_SHARE * elScale(fire) * am * dmgDealt) / EL_WINDOW
+    const dps = (EL_FIRE_SHARE * elScale(fire * am) * dmgDealt) / EL_WINDOW
     if (dps > (enemy.igniteDps ?? 0)) { enemy.igniteDps = dps; enemy.ignite = EL_WINDOW }
     enemy._fireJumps = WILDFIRE_JUMPS   // unconditional, exactly as the original path does
   }
@@ -5019,6 +5025,10 @@ function stepBullets(run, dt) {
       const rad = b.r + e.radius
       if (dx * dx + dy * dy <= rad * rad) {
         applyDamage(run, e, b.dmg)
+        // Necrotic Tips (stinger switch mod, snapshotted as b._necrotic at fire time): the needle
+        // leaves flagella's bleed behind. Reuses applyBleed verbatim rather than growing a second
+        // DoT — which also means lightning can forward it, since elArc carries bleed.
+        if (b._necrotic && !e._dead) applyBleed(e, b.dmg, NECROTIC_BLEED_FRAC)
         b.hitIds.add(e.id)
         b.pierce--
         justHit = e
@@ -6141,7 +6151,8 @@ function stepBlooms(run, dt) {
 // of `count` needle projectiles into run.bullets, aimed at the nearest enemy. Needles reuse the
 // bullet system (stepBullets) but are tagged weapon:'stinger' and carry disabled split/chain/
 // chain budgets so star's mods never touch them. longNeedles scales range AND speed; hive fires
-// the whole volley in all directions every STINGER_HIVE_EVERY-th cast.
+// the whole volley in all directions every STINGER_HIVE_EVERY-th cast; necroticTips leaves a bleed
+// on every needle hit (stepBullets).
 function stepStingerWeapon(run, w, stats, fireRateMul, dt) {
   const rapid = run.weaponMods.stinger?.rapid ?? 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + rapid)), dt, () => fireStinger(run, stats))
@@ -6160,6 +6171,7 @@ function fireStinger(run, stats) {
   const range = stats.range * longMul
   const life = range / speed
   const count = ipecacN(run, stats.count) // volley (+needles) already folded in via effectiveWeaponStats
+  const necroticOn = (run.weaponMods.stinger?.necroticTips ?? 0) > 0
 
   // hive: every STINGER_HIVE_EVERY-th volley opens from the tight cone to a full 360° spread.
   const hiveOn = (run.weaponMods.stinger?.hive ?? 0) > 0
@@ -6186,6 +6198,7 @@ function fireStinger(run, stats) {
       speed,
       hitIds: new Set(),
       weapon: 'stinger',
+      _necrotic: necroticOn,
       // Disable star's bullet behaviours on needles (they share run.bullets/stepBullets).
       _shard: false, _splitDone: true, _chainsLeft: 0,
     })

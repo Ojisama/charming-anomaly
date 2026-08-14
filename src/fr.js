@@ -651,6 +651,8 @@ const CONFIG = {
   'Barbed Needles': 'Aiguilles Barbelées',
   'needle pierce': 'perforation des aiguilles',
   'Hive Mind': 'Esprit Ruche',
+  'Necrotic Tips': 'Pointes Nécrosantes',
+  'needles leave a bleeding wound': 'les aiguilles laissent une plaie qui saigne',
   'every 4th volley fires all around': '1 volée sur 4 tire tout autour',
   'Wider Taunt': 'Provocation Élargie',
   'lure aggro radius': 'rayon d\'aggro du leurre',

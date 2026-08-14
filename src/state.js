@@ -744,7 +744,8 @@ function generateWells(sig) {
  * v5.3 garden weapons (see WEAPONS.stinger/lure + WEAPON_MODS in config.js, stepStingerWeapon/
  * stepLureWeapon/stepLures in sim.js):
  *   Stinger needles are ordinary run.bullets entries (see bullets[] above) but tagged
- *   weapon:'stinger', with star's split/chain budgets zeroed so those never apply.
+ *   weapon:'stinger' and _necrotic (snapshot of the necroticTips mod — stepBullets leaves a bleed
+ *   per hit when set), with star's split/chain budgets zeroed so those never apply.
  *   {type:'shoot', weapon:'stinger'}  a stinger volley fired.
  *   {type:'lure', x, y}               a Pheromone Lure decoy was planted (x,y = player, for sfx;
  *                                     the decoys live in run.lures above). A lure's burst emits an
