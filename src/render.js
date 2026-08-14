@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, PINCER_ARC, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, CORAL_CRUSH,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, CORAL_CRUSH,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -4994,92 +4994,103 @@ export function createRenderer(app) {
     //
     // Two states, swapped in placeGuard exactly the way the snap trap's are, and for the same
     // reason: ARMED vs SPENT has to be readable at a glance while you are being chased, so the
-    // SILHOUETTES differ rather than just the tint — fingers OPEN in a V against fingers SHUT into
-    // a point. Both are baked pointing +x with the drawing origin at the CENTRE of the catch circle,
+    // SILHOUETTES differ rather than just the tint — a gape held wide open against two fingers shut
+    // onto each other. Both are baked pointing +x with the drawing origin at the PLAYER'S centre,
     // so placeGuard can set rotation = g.angle and scale = r / CLAW_BAKE_R and the finger tips land
     // on the real catch radius. The sprite therefore states the weapon's actual reach.
     {
-      const shell = 0xe8763c   // warm carapace orange — reads on teal water AND on wet sand, and
-      const lit = 0xffc08a     // sits apart from every enemy tint in the surf roster
+      const shell = 0xe8763c   // warm carapace orange for the palm — reads on teal water AND on wet
+      const lit = 0xffc08a     // sand, and sits apart from every enemy tint in the surf roster
       const line = 0x7a2f12
-      // A crab claw is LONG AND NARROW and it is ASYMMETRIC: a heavy fixed finger (the pollex, an
-      // extension of the palm) with a thinner hooked one (the dactyl) hinging down onto it. Drawing
-      // it as two mirrored spikes off a round palm gives a bow tie — which is what the first cut of
-      // this was, and it read as an orange starfish across the whole viewport rather than as
-      // something being held.
-      // THE GUARD, drawn as a crab claw held BROADSIDE across the side you face — which is what a
-      // crab actually does with its major cheliped when it is guarding rather than reaching.
+      const nail = 0xf6bd85    // the FINGERS are paler than the palm, as a fiddler's actually are;
+      const tooth = 0xfff0d8   // that two-tone is most of what makes the gape legible at phone size
+      // A FIDDLER'S MAJOR CHELIPED, plan view, pointing +x. It is a compact heavy object, not a
+      // spread: one fat palm carrying a thick fixed finger, with a slimmer one hinged above it and
+      // a gape between them. Owner's reference photo and his measurement — "a big pincer, about 2
+      // thirds the size of the body, rotating around the player towards the nearest enemy".
       //
-      // The previous bake drew the claw pointing away from the player with a long limb running back
-      // to the body, and at phone size that reads as a carrot: one orange mass with a stem. Owner:
-      // "doesn't look like a crab shield". Two things fix it. The claw is turned so its OPENING
-      // faces outward across the whole arc instead of end-on, so the silhouette is a crescent rather
-      // than a spike; and the limb is a stub, because the long one was the stem.
-      //
-      // Drawn at CLAW_BAKE_R as the REACH unit and scaled by g.r / CLAW_BAKE_R, so the crescent's
-      // outer edge lands on exactly the radius stepGuards tests — the drawn-extent-is-tested-extent
-      // rule the tide pool rim and the sandbar waterline both keep. A guard you can see the edge of
-      // is a guard you can learn by eye.
+      // THE SIZE IS A RATIO, NOT A CONSTANT, and it is the whole reason this is drawn from `x0`
+      // rather than from the origin. The claw occupies x in [0.46R, R], so at placeGuard's scale of
+      // r / CLAW_BAKE_R its LENGTH is 0.54r — 44px at the L1 reach of 82, which is two thirds of the
+      // fish's own 66px, and it grows to 59px as the weapon levels. The tips still land exactly on
+      // the radius stepGuards tests, so the sprite states its own reach; what it does not draw is
+      // the ±PINCER_ARC spread, because a claw that wide stops being a claw (three cuts proved it:
+      // a filled crescent is a plate, tips joined by an arc is a bow, fingers laid along the arc is
+      // a blade). The arc is the SIDE the claw is on, and the claw is what you read it from.
       const claw = (open) => {
         const g = new Graphics()
         const R = CLAW_BAKE_R
-        // SHUT closes the gape AND pulls the tips in: the silhouette says "spent" before the tint
-        // does, which is the same job trapSprung's seam line does for the snap trap.
-        const A = open ? PINCER_ARC : PINCER_ARC * 0.34
-        const RR = open ? R : R * 0.86
-        const baseR = R * 0.3                 // where the palm sits, close in to the body
+        const x0 = R * 0.46             // the wrist, clear of the fish's flank
+        const L = R - x0                // claw length; the fingertips land on the tested radius
+        const px = x0 + L * 0.55        // the palm's front, where the fingers leave it
+        const pd = L * 0.19             // palm half-depth: a 1.4:1 mass, a fiddler's own proportion
+        // BOTH fingers hinge, and the gape straddles the claw's axis rather than opening upward off
+        // it — a claw whose lower half is a fixed baseline reads as a hand. The dactyl swings twice
+        // as far as the pollex, which is the asymmetry that keeps this a claw and not pliers.
+        const sP = open ? 0.26 : 0.03
+        const sD = open ? 0.50 : 0.03
 
-        // THE GAPE IS THE WHOLE READ, and two earlier cuts of this sprite failed on exactly that.
-        // A claw is legible because of the GAP between its two fingers; join their tips with an arc
-        // and you have drawn a bow, join them along their length and you have drawn a blade. So
-        // there is deliberately NO connecting crescent here — the two fingers diverge from a palm
-        // near the player out to ±PINCER_ARC, and the empty space between them IS the guard. That
-        // also makes the sprite state the tested extent rather than decorate it: the tips land on
-        // exactly the radius and bearing stepGuards checks.
-        const finger = (sgn, w0, w1, bow) => {
+        // Carpus stub, angled back to the body so the claw is CARRIED rather than floating. Short
+        // and thin: the pre-v7.75 bake ran a long thick limb back to the player, and at phone size
+        // that stem turned the whole sprite into a carrot.
+        taperStroke(g, [[x0 - L * 0.30, L * 0.13], [x0 + L * 0.16, L * 0.03]],
+          L * 0.09, L * 0.15, 0xc55c29, 4)
+
+        // A finger: swung about its hinge, and outlined by laying a fatter dark stroke under the
+        // pale one. Built from ONE description at two angles, so open and shut cannot disagree about
+        // where the tips are — and the tips are what stepGuards tests. `hook` curves the centreline
+        // back toward the axis, which is what makes the gape a LENS; two straight fingers at an
+        // angle are a pair of tweezers, and that is exactly how the cut before this one read.
+        const finger = (hxx, hyy, th, len, hook, w0, w1) => {
+          const c = Math.cos(th), sn = Math.sin(th)
           const pts = []
-          for (let i = 0; i <= 5; i++) {
-            const t = i / 5
-            const a = sgn * A * (0.18 + 0.82 * t)          // starts near the axis, ends at the edge
-            const rad = baseR + (RR - baseR) * Math.pow(t, bow)
-            pts.push([Math.cos(a) * rad, Math.sin(a) * rad])
+          for (let i = 0; i <= 4; i++) {
+            const u = i / 4
+            const sx = len * u, sy = hook * Math.pow(u, 1.5)
+            pts.push([hxx + sx * c - sy * sn, hyy + sx * sn + sy * c])
           }
-          taperStroke(g, pts, w0, w1, shell, 4)
+          taperStroke(g, pts, w0 + L * 0.05, w1 + L * 0.045, line, 6)
+          taperStroke(g, pts, w0, w1, nail, 6)
+          return pts
         }
-        // The stub limb. SHORT and thin: the previous bake ran a long thick one back to the player
-        // and at phone size that stem turned the whole sprite into a carrot — owner's words,
-        // "doesn't look like a crab shield".
-        taperStroke(g, [[0, 0], [baseR * 0.85, 0]], R * 0.038, R * 0.055, 0xc55c29, 4)
-        // NOT mirrored, and this is the difference between a claw and a pair of tongs: the dactyl
-        // (upper) is the thin hooked finger that swings, the pollex (lower) the heavy near-straight
-        // extension of the palm. Mirroring them is what turned the very first cut into a bow tie.
-        finger(-1, R * 0.055, R * 0.02, 0.78)   // dactyl: thinner, and it hooks harder
-        finger(1, R * 0.085, R * 0.04, 1.0)     // pollex: heavier, straighter sweep
-        // Propodus (the palm): the hinge both fingers open from, at the near end where a claw's is.
-        g.ellipse(baseR * 1.05, 0, R * 0.075, R * 0.095).fill(shell).stroke({ width: 2.2, color: line })
-        // The crushing edge: teeth on the INNER faces only, pointing across the gape at the gap a
-        // body has to cross. The one interior detail that survives being drawn at phone size.
-        for (const sgn of [-1, 1]) {
-          for (let i = 1; i <= 4; i++) {
-            const t = 0.25 + 0.2 * i
-            const a = sgn * A * (0.18 + 0.82 * t)
-            const rad = baseR + (RR - baseR) * Math.pow(t, sgn < 0 ? 0.78 : 1.0)
-            const inset = (sgn < 0 ? R * 0.05 : R * 0.075) * 0.55
-            g.circle(Math.cos(a) * rad - Math.cos(a + sgn * 1.57) * inset,
-              Math.sin(a) * rad - Math.sin(a + sgn * 1.57) * inset, R * 0.015)
-              .fill({ color: line, alpha: 0.6 })
+        // POLLEX — heavier, swings least, hooks up toward the axis so its tip meets the dactyl's.
+        const pol = finger(px - L * 0.08, L * 0.05, sP, L * 0.53, -L * 0.09, L * 0.125, L * 0.028)
+        // DACTYL — slimmer, swings furthest, hooks down onto the pollex.
+        const dac = finger(px - L * 0.11, -L * 0.09, -sD, L * 0.56, L * 0.16, L * 0.105, L * 0.024)
+
+        // PALM last, so it covers both finger roots and they read as growing out of it. A smooth
+        // oval mass narrowing at both ends — two earlier cuts baked a hexagon and then a brick,
+        // both because the depth profile was flat across its middle instead of curved.
+        const dep = (t) => pd * Math.pow(Math.sin(Math.PI * (0.06 + 0.80 * t)), 0.85)
+        const pal = []
+        const N = 20
+        for (let i = 0; i <= N; i++) { const t = i / N; pal.push(x0 + (px - x0) * t, -dep(t) * 0.94) }
+        for (let i = N; i >= 0; i--) { const t = i / N; pal.push(x0 + (px - x0) * t, dep(t) * 1.06) }
+        g.poly(pal).fill(shell).stroke({ width: 2.6, color: line })
+
+        // Teeth on both cutting faces, pointing across the gape at the gap a body has to cross —
+        // read straight off the finger centrelines so they cannot drift off the fingers when the
+        // swing changes. Shutting the claw hides them, which is its own tell.
+        for (const [pts, sgn] of [[pol, -1], [dac, 1]]) {
+          for (let i = 1; i <= 3; i++) {
+            const a = pts[i], b = pts[i + 1]
+            const nx = -(b[1] - a[1]), ny = b[0] - a[0]
+            const nl = Math.hypot(nx, ny) || 1
+            const w = L * (0.088 - 0.020 * i)
+            g.circle(a[0] + (nx / nl) * w * sgn, a[1] + (ny / nl) * w * sgn, L * 0.025)
+              .fill({ color: tooth, alpha: 0.9 })
           }
         }
-        // Top highlight along the heavy finger: the camera looks straight down, so the lit face is
-        // the upper surface — a plan view's only shading cue, and the one every creature bake uses.
+        // Granulation and the top highlight. The camera looks straight down, so the lit face is the
+        // upper surface — a plan view's only shading cue, and the one every creature bake uses.
+        for (let i = 0; i < 4; i++) {
+          const t = 0.30 + 0.15 * i
+          g.circle(x0 + (px - x0) * t, dep(t) * (0.18 + 0.24 * (i % 2)), L * 0.022)
+            .fill({ color: line, alpha: 0.22 })
+        }
         const hi = []
-        for (let i = 0; i <= 10; i++) {
-          const t = i / 10
-          const a = A * (0.2 + 0.7 * t)
-          const rad = (baseR + (RR - baseR) * t) + R * 0.02
-          hi.push(Math.cos(a) * rad, Math.sin(a) * rad)
-        }
-        g.poly(hi).stroke({ width: R * 0.018, color: lit, alpha: 0.55 })
+        for (let i = 0; i <= 10; i++) { const t = 0.12 + 0.66 * (i / 10); hi.push(x0 + (px - x0) * t, -dep(t) * 0.5) }
+        g.poly(hi).stroke({ width: L * 0.05, color: lit, alpha: 0.55 })
         return bake(g)
       }
       T.clawOpen = claw(true)

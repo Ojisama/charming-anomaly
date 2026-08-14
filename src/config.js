@@ -1648,12 +1648,19 @@ export const WEAPONS = {
     // that can sit armed for a whole minute, which is a lie about the one thing that makes it
     // different. See stepPincerWeapon/stepGuards in sim.js.
     //   dmg    the snap, dealt to EVERYTHING inside the claw (see stepGuards for why not one body)
-    //   r      the guard's REACH from the player's own centre, and also its drawn size — the art's
-    //          outer edge is drawn at exactly r, so the sprite states the tested extent rather than
-    //          approximating it (the same drawn-extent-is-tested-extent rule the tide pool and the
-    //          sandbar rim both keep). The guard is an ARC of half-angle PINCER_ARC centred on the
-    //          player and rotated to face the nearest enemy — see that constant for the measurements
-    //          that killed the previous held-out disc.
+    //   r      the guard's REACH from the player's own centre, and also its drawn size: the claw
+    //          sprite is baked to span 0.46r..r, so its FINGERTIPS land on exactly the radius
+    //          stepGuards tests (the same drawn-extent-is-tested-extent rule the tide pool and the
+    //          sandbar rim both keep) and its LENGTH comes out at 0.54r — two thirds of the fish at
+    //          L1, growing with the weapon, which is the size the owner specified from a fiddler
+    //          crab photo. The radius is the half the art states; the ±PINCER_ARC spread is the
+    //          half it does not, deliberately — four cuts established that anything drawn that wide
+    //          stops reading as a claw (a filled crescent is a plate, tips joined by an arc is a
+    //          bow, fingers laid along the arc is a blade, two fingers splayed to the edges is a
+    //          pair of tweezers). The claw shows you WHICH SIDE is guarded; the arc is how wide
+    //          that side is. The guard is an ARC of half-angle PINCER_ARC centred on the player and
+    //          rotated to face the nearest enemy — see that constant for the measurements that
+    //          killed the previous held-out disc.
     //   cd     seconds to re-arm after a snap. NOT divided by the global fire rate — see
     //          stepGuards in sim.js for why an attack-speed stat has no meaning here
     //   knock  the yank. Deliberately the largest knockback in the game (chitterShriek's nova is
