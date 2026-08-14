@@ -16198,4 +16198,40 @@ function testElementsRedesign() {
       `a tick that rounds to 0 deals nothing and reads as the element being broken`)
     console.log(`PASS run EL.k (burn ticks): ${ticks.length} ticks over ${EL_WINDOW}s at ${EL_BURN_TICK}s each, none below ${EL_BURN_MIN} (${ticks.join(',')})`)
   }
+
+  // (l) VENOM IS VISIBLE — the same missing publish as (j), one field over, and it shipped.
+  // render.js tints and drips off the contract field `venom`; the redesign kept its amp in a
+  // private `_elVenom` window, so venomed enemies never turned green and no drip particle ever
+  // spawned. Reported from play as "venom is not visible on enemies". Both ends asserted: sim
+  // publishes a non-zero amp, and render still reads that field AND scales the green by it — a
+  // flat tint cannot answer the second half of the report ("greener the more they're affected").
+  {
+    const run = el({ venom: 4 })
+    let ampedFrames = 0, unpublished = 0
+    const doses = []
+    play(run, 60, (r) => {
+      for (const e of r.enemies) {
+        if (e._dead) continue
+        if ((e._elVenom?.total ?? 0) > 0) {
+          ampedFrames++
+          if (!((e.venom ?? 0) > 0)) unpublished++
+          else doses.push(e.venom)
+        }
+      }
+    })
+    assert.ok(ampedFrames > 0, 'nothing was venomed at venom potency 4 over 60s — this scenario cannot see the tell it guards')
+    assert.strictEqual(unpublished, 0, `${unpublished} of ${ampedFrames} venomed-enemy frames left render's own ` +
+      `\`venom\` field at 0, so those enemies were poisoned with no green tint and no drip`)
+    // The dose has to VARY, or "greener the more they're affected" is unrepresentable however
+    // render draws it: a publish pinned to one value passes the assert above and still ships a
+    // flat tint.
+    const lo = Math.min(...doses), hi = Math.max(...doses)
+    assert.ok(hi > lo * 1.5, `every venomed frame published the same dose (${lo}..${hi}) — the tint has nothing to ramp over`)
+    const rnd = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/const venom = e\.venom/.test(rnd),
+      'render.js no longer reads the `venom` contract field — publishing it from sim is now a no-op')
+    assert.ok(/const venomK = /.test(rnd) && /s\.tint = mix\([^)]*venomK\)/.test(rnd),
+      'the venom tint is no longer a mix() over the dose, so an enemy at one stack looks exactly like one at eight')
+    console.log(`PASS run EL.l (venom is visible): ${ampedFrames} venomed frames, all published, dose ranges ${lo.toFixed(3)}..${hi.toFixed(3)}, tint ramps`)
+  }
 }

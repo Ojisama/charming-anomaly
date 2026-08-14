@@ -4743,6 +4743,11 @@ function stepStatuses(run, dt) {
       // only tests it against 0, and a fraction is the thing a future tell would want to scale by.
       e.frozen = e._elFrozen ?? 0
       e.chill = e.frozen > 0 ? 0 : elSlow(run, e)
+      // Venom is the third publish, and it was missed: render.js saw `venom: 0` for the whole run,
+      // so nothing ever turned green and no drip particles spawned — the freeze bug above, one
+      // field over, and it reads on screen as "venom does nothing". Carries the AMP (0..~1), not
+      // the old system's 0..8 stack count; render normalises per system and deepens the green by it.
+      e.venom = elVenomAmp(run, e)
       if (e.ignite > 0) {
         // The burn has its own tick (EL_BURN_TICK, twice STATUS_TICK) and its own floor. At the
         // shared 0.25s a burn was 12 ticks of ~4% of the hit — "1" on a median hit, and 3.1% of
