@@ -12456,6 +12456,7 @@ try {
   testSurfHumidityDamage()
   testPincer()
   testPlayerForms()
+  testMultitouchControls()
   testLaneGolden()
   testLaneAxis()
   testReefAirBurst()
@@ -15442,6 +15443,65 @@ function testReefAirBurst() {
   }
 
   console.log(`PASS run RF (The Reef's Air and Burst): the bar is decided by which side of the lane you commit to (0 vs ${res.max} over 150s), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full, and the coral is solid across the lane only`)
+}
+
+// ---- run MT: the in-run controls do not depend on a compatibility click ------------------------
+// Bug report, 2026-08-14: "when using the joystick to control I can't use the action button."
+//
+// `click` on a touch device is SYNTHESISED from the touch sequence, and the joystick calls
+// preventDefault() on its own touchstart (input.js — it must, or the page pans and text-selects
+// under the thumb). That suppresses the compatibility mouse events for the rest of the session, so
+// a second finger on the skill button lands its touchstart and no click is ever generated. Measured
+// over CDP with two real touch points on a 390x844 phone, before the fix:
+//
+//     button alone           -> touchstart 1, click 1
+//     joystick held, button  -> touchstart 1, click 0
+//
+// ui.js and input.js are not importable here (DOM), so this reads them as SOURCE TEXT — the run UG.k
+// trick, which is the only guard available for a contract that lives entirely in event wiring. It is
+// deliberately about the SHAPE of the fix rather than its text: the HUD must bind a touch handler
+// covering both controls you press while steering, and it must preventDefault (which is what stops
+// the single-finger case from ALSO firing the compatibility click and double-firing the skill).
+function testMultitouchControls() {
+  const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const input = readFileSync(new URL('../src/input.js', import.meta.url), 'utf8')
+
+  // (a) the premise: the joystick still preventDefaults its touchstart. If this ever stops being
+  // true the bug disappears on its own — and so does the reason this test exists, so it should be
+  // re-read rather than silently kept passing.
+  // Scoped to the touchstart handler's OWN body, not "preventDefault appears somewhere nearby": the
+  // first cut used a windowed regex and matched the touchMOVE handler's preventDefault a few lines
+  // below, so deleting the touchstart one left the check green. A mutation that is not caught means
+  // the assertion is blind, not that the mutation was unimportant.
+  const joyTouchStart = input.match(/addEventListener\('touchstart',[\s\S]*?\}, \{ passive: false \}\)/)
+  assert.ok(joyTouchStart, 'input.js has no non-passive joystick touchstart handler at all')
+  assert.ok(/preventDefault\(\)/.test(joyTouchStart[0]),
+    'input.js no longer preventDefaults its joystick touchstart — re-read run MT, its premise is gone')
+
+  // (b) the HUD binds a touchstart handler. Bound on the HUD, not the document, so menus and cards
+  // keep the click path where fire-on-release is correct.
+  const m = ui.match(/screens\.hud\.addEventListener\('touchstart'[\s\S]{0,700}?\}, \{ passive: false \}\)/)
+  assert.ok(m, 'ui.js does not bind a non-passive touchstart on the HUD — the skill button is back on the compatibility click and dies while the joystick is held')
+  const handler = m[0]
+
+  // (c) it covers BOTH controls a player presses while steering. The pause button is the same bug:
+  // it was equally dead mid-joystick and is equally invisible in any single-finger test.
+  assert.ok(/skill-btn/.test(handler), 'the HUD touch handler does not match the skill button')
+  assert.ok(/data-act="pause"/.test(handler), 'the HUD touch handler does not match the pause button — pause is dead while steering, same bug')
+
+  // (d) it preventDefaults. Without this the single-finger case fires BOTH this handler and the
+  // compatibility click, i.e. the skill costs its charge twice — a regression that only shows up
+  // when NO joystick is held, which is the opposite of the case anyone would retest.
+  assert.ok(/preventDefault\(\)/.test(handler),
+    'the HUD touch handler does not preventDefault — the single-finger case will double-fire')
+
+  // (e) the level-up guard is still what makes a stray tap safe: the skill button is
+  // pointer-events:none under that modal, so a touch handler cannot reach it either.
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+  assert.ok(/#ui\.lv-open \.skill-btn \{ pointer-events: none; \}/.test(css),
+    'the lv-open skill-btn guard is gone — a tap beside the level-up cards can now fire the skill through the touch path')
+
+  console.log('PASS run MT (multitouch controls): the HUD binds a non-passive touchstart covering the skill AND pause buttons with preventDefault, so neither depends on a compatibility click the joystick suppresses')
 }
 
 // ---- run US.f: the player's own body is per-chapter, not one boolean ---------------------------

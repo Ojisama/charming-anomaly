@@ -2237,6 +2237,39 @@ export function initUI(hooks) {
   })
 
   // ---- one delegated click handler for every screen ---------------------------
+  // ---- THE IN-RUN CONTROLS CANNOT RIDE THE DELEGATED CLICK (v7.x, multitouch bug report) --------
+  // "when using the joystick to control I can't use the action button."
+  //
+  // `click` on a touch device is a COMPATIBILITY event synthesised from the touch sequence, and the
+  // joystick calls preventDefault() on its own touchstart (input.js — it has to, or the page pans
+  // and text-selects under the thumb). That suppresses the compatibility mouse events for the rest
+  // of that touch session, so a SECOND finger on the skill button lands its touchstart on the button
+  // and no click is ever generated. Measured over CDP with two real touch points on a 390x844 phone:
+  //
+  //     button alone            -> touchstart 1, click 1
+  //     joystick held, button   -> touchstart 1, click 0
+  //
+  // The joystick itself is not at fault and was already multitouch-aware: it ignores a second finger
+  // and skips any touch that starts on a button. The break is entirely on the receiving side.
+  //
+  // So the two controls you press WHILE STEERING listen for the touch directly. preventDefault here
+  // is doing a second job as well as stopping the page scrolling: it suppresses the compatibility
+  // click that WOULD have fired in the single-finger case, so el.click() below cannot double-fire.
+  // Firing on press rather than on release is also simply better for a game button.
+  //
+  // Delegated off the HUD rather than bound per element so a future in-run control is covered by
+  // construction. Everything else — menus, cards, the shop — keeps the click path, where fire-on-
+  // release is the correct behaviour and no joystick is ever held.
+  //
+  // The level-up guard still holds: `#ui.lv-open .skill-btn` is pointer-events:none (styles.css), so
+  // a stray tap beside the cards cannot reach this handler either.
+  screens.hud.addEventListener('touchstart', (e) => {
+    const el = e.target.closest('.skill-btn, [data-act="pause"]')
+    if (!el) return
+    e.preventDefault()
+    el.click()
+  }, { passive: false })
+
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev]')
     if (!el) return
