@@ -1648,10 +1648,12 @@ export const WEAPONS = {
     // that can sit armed for a whole minute, which is a lie about the one thing that makes it
     // different. See stepPincerWeapon/stepGuards in sim.js.
     //   dmg    the snap, dealt to EVERYTHING inside the claw (see stepGuards for why not one body)
-    //   r      the claw's catch radius, and also its drawn size — the art spans exactly 2r, so the
-    //          sprite states the reach rather than approximating it. Its CENTRE is held
-    //          PINCER_HOLD_FRAC × r out from the player, so a bigger claw is also a claw held
-    //          further out, and total reach is r × (1 + PINCER_HOLD_FRAC) = 118px at L1 to 155 at L5
+    //   r      the guard's REACH from the player's own centre, and also its drawn size — the art's
+    //          outer edge is drawn at exactly r, so the sprite states the tested extent rather than
+    //          approximating it (the same drawn-extent-is-tested-extent rule the tide pool and the
+    //          sandbar rim both keep). The guard is an ARC of half-angle PINCER_ARC centred on the
+    //          player and rotated to face the nearest enemy — see that constant for the measurements
+    //          that killed the previous held-out disc.
     //   cd     seconds to re-arm after a snap. NOT divided by the global fire rate — see
     //          stepGuards in sim.js for why an attack-speed stat has no meaning here
     //   knock  the yank. Deliberately the largest knockback in the game (chitterShriek's nova is
@@ -1681,11 +1683,11 @@ export const WEAPONS = {
     // (measured while CHAPTERS.surf still spread the pond's `balance` table; Task 9 gave the
     // chapter its own, gentler tune, so a re-census against it is still owed.)
     levels: [
-      { dmg: 40, r: 50, cd: 1.35, knock: 340 },
-      { dmg: 50, r: 54, cd: 1.22, knock: 360 },
-      { dmg: 60, r: 58, cd: 1.10, knock: 385 },
-      { dmg: 70, r: 62, cd: 1.00, knock: 415 },
-      { dmg: 80, r: 66, cd: 0.90, knock: 450 },
+      { dmg: 40, r:  82, cd: 1.35, knock: 340 },
+      { dmg: 50, r:  89, cd: 1.22, knock: 360 },
+      { dmg: 60, r:  96, cd: 1.10, knock: 385 },
+      { dmg: 70, r: 103, cd: 1.00, knock: 415 },
+      { dmg: 80, r: 110, cd: 0.90, knock: 450 },
     ],
   },
 }
@@ -2264,9 +2266,10 @@ export const WEAPON_MODS = {
   // it buys more parries, spatially rather than temporally, and it is the one mod you can see.
   // NOT 'Riptide': MUTATORS.riptide already ships under that display name (the pond's doubled
   // current shove), and two different cards reading "Riptide" is the kind of collision only a grep
-  // finds. 'claw reach & size' likewise says BOTH numbers the pick moves, because r is the catch
-  // radius AND — through PINCER_HOLD_FRAC — how far out the claw is held; naming one would be the
-  // rainbow.wideBeam defect (a card whose second effect nobody can check).
+  // finds. 'claw reach & size' likewise says BOTH numbers the pick moves, because r is the guard's
+  // reach AND its drawn size — the crescent is baked at the reach unit and scaled by r, so a wider
+  // guard is a visibly bigger claw. Naming only one would be the rainbow.wideBeam defect (a card
+  // whose second effect nobody can check).
   pincer: {
     crusher:  { name: 'Crusher Claw', desc: 'pinch damage',        icon: '🦞', base: 0.35, kind: 'pct' },
     longArm:  { name: 'Long Arm',     desc: 'claw reach & size',   icon: '📏', base: 0.30, kind: 'pct' },
@@ -2804,7 +2807,25 @@ export const PRISM_FLASH_T = 0.26
 //     solid orange across a 390px phone — it read as a starfish, and the player vanished under it.
 // At L1: a 68px hold on a 50px claw, so 118px of total reach — inside the Flagella Whip's 130. At
 // L5 it is 89 + 66 = 155, still under the whip's 175.
-export const PINCER_HOLD_FRAC = 1.35
+// THE GUARD IS AN ARC ANCHORED TO YOU, not a disc held out in front (owner ruling 2026-08-14,
+// replacing the held-out claw). Half-angle in radians, so the guard spans 2x this: 1.22 rad is a
+// ~140 degree fan across the side you are facing.
+//
+// WHY THE OLD SHAPE WAS THE BUG, measured over 6 seeded 240s kiting runs at surf d3 before the
+// change. The claw was a disc of radius r whose CENTRE sat 1.35r out toward the nearest enemy, so it
+// covered a band from 0.35r to 2.35r along that ray and nothing off it:
+//   - the nearest enemy — the body the claw was literally aimed at — was inside the claw only
+//     20.5% of the time at L1 and 27.5% at L5. It spent three quarters of its life armed, pointing
+//     at something it could not reach.
+//   - of the enemies actually OVERLAPPING the player, 33% (L1) to 45% (L5) were outside it, because
+//     a disc pointing one way cannot cover a body being touched from several.
+// So it was neither a shield (it did not cover you) nor a reach weapon (it did not reach what it
+// aimed at), and the weapon census could not see any of that: output was fine (66 effective dps
+// against the Flagella Whip's 71). What was broken was the loop between aiming and hitting.
+//
+// An arc anchored to the player fixes both by construction: it always covers the half you face,
+// including bodies already on you, and it can never point at something outside its own reach.
+export const PINCER_ARC = 1.22
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
   const out = []

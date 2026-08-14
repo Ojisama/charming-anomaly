@@ -156,7 +156,7 @@ import {
   PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
   PULSAR_FAN_ARC, PULSAR_FAN_SWEEP, PULSAR_FAN_RATE,
   // v7.55 The Surf: the Pincer's held claw (see stepPincerWeapon/stepGuards)
-  PINCER_HOLD_FRAC,
+  PINCER_ARC,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -7675,11 +7675,12 @@ function stepPincerWeapon(run, w, stats) {
     // `cd` is the live countdown; `rearm` is what it is reset to. Two fields because a claw that is
     // currently closed still has to know how long its own cooldown was.
     g.rearm = stats.cd
-    // Held OUT, between the player and what is coming — not centred on them. The offset scales with
-    // the claw's own radius (PINCER_HOLD_FRAC) so Long Arm buys reach, not just a fatter blob.
-    const hold = stats.r * PINCER_HOLD_FRAC
-    g.x = p.x + Math.cos(g.angle) * hold
-    g.y = p.y + Math.sin(g.angle) * hold
+    // ANCHORED TO THE PLAYER. The guard is an arc swept about your own centre, so `r` is reach from
+    // you and Long Arm buys a wider guard rather than a claw parked further away. See PINCER_ARC in
+    // config.js for the measurements that retired the held-out disc this replaced.
+    g.arc = PINCER_ARC
+    g.x = p.x
+    g.y = p.y
   }
 }
 
@@ -7702,11 +7703,17 @@ function stepGuards(run, dt) {
       continue
     }
     const rSq = g.r * g.r
+    const half = g.arc ?? PINCER_ARC
     let caught = 0
     for (const e of run.enemies) {
       if (e._dead || isAlly(e)) continue   // SUBMISSION: never pinch your own ally
       const dx = e.x - g.x, dy = e.y - g.y
       if (dx * dx + dy * dy > rSq) continue
+      // Inside the FAN, not merely inside the circle. Normalised through atan2(sin, cos) rather than
+      // by subtracting and comparing: a raw difference wraps at ±pi, and a guard facing just past
+      // that seam would silently stop catching the bodies right in front of it.
+      const d = Math.atan2(dy, dx) - g.angle
+      if (Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) > half) continue
       applyDamage(run, e, g.dmg)
       // Away from the PLAYER, not from the claw — "it gets yanked away" means away from you, and a
       // shove along the claw's own axis would fling a body that came in from the side sideways past

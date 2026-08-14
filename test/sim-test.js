@@ -37,7 +37,7 @@ import {
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
-  MAX_DIFFICULTY, PLAYER,
+  MAX_DIFFICULTY, PLAYER, PINCER_ARC,
   BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -14851,10 +14851,23 @@ function testPincer() {
   // still on the clock at t=6. So COUNT the re-arms instead (a claw spent for the run snaps exactly
   // once, ever), then clear the field and require it to come back armed with nothing to catch.
   // Both halves still go red under the "cd never resets armed" mutation.
+  // The bag is RE-PARKED inside the guard every frame. It was not, and did not need to be, while the
+  // guard was a disc held out ahead: the snap's knockback shoved a body a little further out and the
+  // disc still covered it. An arc anchored to the player reaches r from YOU, and the yank is the
+  // largest knockback in the game by design, so one snap throws the bag clear and a speed-0 punching
+  // bag never comes back — which reads as "spent for the run" and is really "working exactly as
+  // specified". Parking it keeps this assertion about the RE-ARM and nothing else.
   let snaps = 0
   for (let i = 0; i < Math.round(6 / (1 / 60)); i++) {
     if (run.phase === 'levelup') { applyChoice(run, pickNonElementIndex(run)); run.phase = 'playing'; continue }
     if (run.phase !== 'playing') break
+    const gg = run.guards[0]
+    if (gg) {
+      e.x = run.player.x + Math.cos(gg.angle) * gg.r * 0.5
+      e.y = run.player.y + Math.sin(gg.angle) * gg.r * 0.5
+      e.kb.x = e.kb.y = 0
+      e.hp = e.maxHP
+    }
     stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
     for (const ev of run.events) if (ev.type === 'pinch') snaps++
     run.events.length = 0
@@ -14865,7 +14878,57 @@ function testPincer() {
   advance(run, WEAPONS.pincer.levels[0].cd + 0.5, 1 / 60, { x: 0, y: 0, skill: false })
   assert.ok(run.guards.some((q) => q.armed), 'the guard never re-armed')
 
-  console.log(`PASS run US.e (pincer): the guard tracks the nearest enemy, stays armed while nothing approaches, and on contact damages and throws — ${snaps} snaps over the re-arm window`)
+  // (e) THE GUARD IS AN ARC ANCHORED TO YOU, and this is the whole 2026-08-14 redesign. The old
+  // shape was a disc whose centre sat 1.35r out toward the nearest enemy, covering a band from 0.35r
+  // to 2.35r along one ray and nothing off it. Measured over 6 seeded 240s kiting runs before the
+  // change: of the enemies actually OVERLAPPING the player, 33% (L1) to 45% (L5) were outside it —
+  // "can't touch enemies on you", which is the bug this replaced.
+  //
+  // THE AIM HAS TO BE PINNED BY A DECOY, and getting that wrong is why the first two cuts of this
+  // case were wrong rather than the code. The guard tracks the NEAREST body, so a lone probe parked
+  // behind the player is not a body outside the arc — it is a body the guard simply turns to face,
+  // and "it was caught" is then correct behaviour being asserted as a failure. So: a decoy at
+  // contact range in FRONT holds the facing, and the probe is judged on its OWN hp rather than on
+  // the shared pinch event, which cannot say which body it came from.
+  const arcProbe = (bearing) => {
+    const decoy = makeStatusEnemy(run, { x: run.player.x + 40, y: run.player.y, hp: 1e6, speed: 0 })
+    const probe = makeStatusEnemy(run, { x: run.player.x, y: run.player.y + 400, hp: 1e6, speed: 0 })
+    const near = PLAYER.radius + probe.radius - 2
+    let decoyHit = false
+    for (let i = 0; i < 120; i++) {
+      if (run.phase === 'levelup') { applyChoice(run, pickNonElementIndex(run)); run.phase = 'playing'; continue }
+      run.enemies.length = 0
+      run.enemies.push(decoy, probe)
+      // decoy dead ahead (+x) and NEARER, so the guard's facing is pinned to 0 every frame
+      decoy.x = run.player.x + 34; decoy.y = run.player.y
+      probe.x = run.player.x + Math.cos(bearing) * near
+      probe.y = run.player.y + Math.sin(bearing) * near
+      decoy.kb.x = decoy.kb.y = 0; probe.kb.x = probe.kb.y = 0
+      decoy.hp = decoy.maxHP
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      if (run.events.some((ev) => ev.type === 'pinch')) decoyHit = true
+      run.events.length = 0
+    }
+    return { decoyHit, probeLostHp: probe.maxHP - probe.hp }
+  }
+
+  // in front, pressed against the player: caught. This is the reported bug.
+  const front = arcProbe(0)
+  assert.ok(front.decoyHit, 'the guard never fired at all — the fixture is not exercising it')
+  assert.ok(front.probeLostHp > 0,
+    'a body overlapping the player IN FRONT was not damaged — the guard does not cover your own body')
+  // directly behind, same distance, with the facing pinned forward: NOT caught, or this is a ring
+  // and "the side you are facing" means nothing.
+  const back = arcProbe(Math.PI)
+  assert.ok(back.decoyHit, 'the guard never fired at all in the rear case — the fixture is not exercising it')
+  assert.strictEqual(back.probeLostHp, 0,
+    'a body directly BEHIND the player was damaged — the guard is a full circle, not an arc')
+  // and the arc has to END somewhere: just outside its half-angle is outside.
+  const edge = arcProbe(PINCER_ARC + 0.3)
+  assert.strictEqual(edge.probeLostHp, 0,
+    'a body just outside the arc half-angle was damaged — PINCER_ARC is not bounding anything')
+
+  console.log(`PASS run US.e (pincer): the guard is an arc of ${(PINCER_ARC * 2 * 180 / Math.PI).toFixed(0)} deg anchored to the player, tracks the nearest enemy, stays armed while nothing approaches, catches a body pressed against you in front but not behind, and damages and throws on contact — ${snaps} snaps over the re-arm window`)
 }
 
 // ---- run LN: The Beyond's lane is a GOLDEN MASTER ---------------------------------------------

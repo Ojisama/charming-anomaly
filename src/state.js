@@ -1181,7 +1181,7 @@ function generateWells(sig) {
  * guards[i]: { x, y, angle, r, armed, cd, rearm, dmg, knock } — a Pincer claw (v7.55, The Surf). THE ONLY
  *   weapon entity in the game that is not produced by a timer: stepPincerWeapon REWRITES this list
  *   every frame while the weapon is owned (one entry, two with the backClaw mod, ×3 under IPECAC),
- *   holding each claw PINCER_HOLD_FRAC × r out from the player along `angle` — which tracks
+ *   holding each claw PINCER_ARC × r out from the player along `angle` — which tracks
  *   nearestEnemy, so the guard is always between the player and whatever is closest. `armed` starts
  *   true and STAYS true for as long as nothing comes within r of the claw's centre; the trigger is
  *   stepGuards' proximity scan over run.enemies, never an elapsed interval. On a snap EVERY enemy
