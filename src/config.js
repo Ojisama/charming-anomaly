@@ -3076,7 +3076,6 @@ export const elementFacts = (id, P) => {
       return {
         arcs: 1 + Math.floor(k),
         dmgPct: Math.round(EL_LIGHT_SHARE * k * 100),
-        rangePct: Math.round((1 + EL_LIGHT_RANGE * k) * 100),
         forwardPct: Math.round(Math.min(1, EL_LIGHT_FORWARD * k) * 100),
       }
     default:
@@ -3098,10 +3097,10 @@ export const elText = ({ s, p }) => s.replace(/\{(\w+)\}/g, (_, k) => p[k] ?? `{
 export const elementCardDesc = (id, P) => {
   const f = elementFacts(id, P)
   switch (id) {
-    case 'fire':      return { s: 'Burns for {pct}% of each hit.', p: { pct: f.burnPct } }
-    case 'cold':      return { s: 'Freezes at {pct}% of a health bar.', p: { pct: f.freezePct } }
-    case 'venom':     return { s: 'The more you have just hurt an enemy, the more damage it takes: +{pct}% at half a bar.', p: { pct: f.ampPct } }
-    case 'lightning': return { s: '{arcs} arcs for {dmg}% damage.', p: { arcs: f.arcs, dmg: f.dmgPct } }
+    case 'fire':      return { s: 'Burns for {pct}% of the hit.', p: { pct: f.burnPct } }
+    case 'cold':      return { s: 'Take {pct}% of an enemy’s health to freeze it. Less than that slows it.', p: { pct: f.freezePct } }
+    case 'venom':     return { s: 'Wounded enemies take more damage: +{pct}% at half health.', p: { pct: f.ampPct } }
+    case 'lightning': return { s: 'Arcs transfer {dmg}% of the damage and its afflictions to {arcs} nearby enemies.', p: { arcs: f.arcs, dmg: f.dmgPct } }
     default:          return { s: '', p: {} }
   }
 }
@@ -3116,25 +3115,31 @@ export const elementCodex = (id, P) => {
   const mine = (s, p = {}) => ({ s, p, mine: true })
   switch (id) {
     case 'fire': return [
-      line('Every hit sets its target burning. The burn is a share of that hit, so one heavy hit burns deep and a fast weapon lights many things shallowly.'),
+      // An enemy carries ONE burn, never a stack of them — which is exactly what the replacement
+      // rule below says, so the page must not also imply that a fast weapon layers them up.
+      line('Every hit sets its target burning, for a share of that hit.'),
       line('A new hit only replaces the burn if it would be stronger.'),
-      P > 0 ? mine('Yours: {pct}% of each hit, over {secs}s.', { pct: f.burnPct, secs: EL_WINDOW }) : null,
+      P > 0 ? mine('Yours: {pct}% of the hit, over {secs}s.', { pct: f.burnPct, secs: EL_WINDOW }) : null,
     ].filter(Boolean)
     case 'cold': return [
       line('Damage chills. Chill fills with the health you have just taken off an enemy; a full gauge freezes it.'),
       line('A freeze holds for {freeze}s. Afterwards the enemy resists cold for {resist}s.', { freeze: EL_FREEZE_T, resist: EL_FREEZE_RESIST_T }),
-      line('Big enemies are not immune — they simply have more health, so the same hit is a smaller share of it. Only anchored elites can never be frozen.'),
       P > 0 ? mine('Yours: take {pct}% of an enemy’s health within {secs}s to freeze it.', { pct: f.freezePct, secs: EL_WINDOW }) : null,
     ].filter(Boolean)
     case 'venom': return [
       line('Damage weakens. A weakened enemy takes more damage from every source — your weapons, your burns, everything.'),
       line('Venom deals no damage of its own. It makes everything else hurt more.'),
-      P > 0 ? mine('Yours: +{pct}% damage taken on an enemy you have just taken half a bar off.', { pct: f.ampPct }) : null,
+      P > 0 ? mine('Yours: +{pct}% for an enemy at half health.', { pct: f.ampPct }) : null,
     ].filter(Boolean)
     case 'lightning': return [
-      line('Your hits arc to nearby enemies for a share of the damage, and can spread whatever the first enemy is suffering — burning, bleeding.'),
-      line('More lightning means more arcs, longer arcs, harder arcs and a better chance to spread.'),
-      P > 0 ? mine('Yours: {arcs} arcs, {dmg}% damage, {range}% range, {spread}% to spread.', { arcs: f.arcs, dmg: f.dmgPct, range: f.rangePct, spread: f.forwardPct }) : null,
+      // Only burning and bleeding are COPIED (elArc, sim.js). Chill and weakening reach the arc's
+      // targets anyway, because the arc deals real damage into each one's own window — so the page
+      // says that instead of listing them as things lightning "spreads", which would be a lie about
+      // the mechanic and would also read as "arcs chill even for zero damage".
+      line('Your hits arc to nearby enemies for a share of the damage, and can pass on the burning and bleeding the first one is suffering.'),
+      line('The arc deals real damage, so it chills and weakens its targets like anything else does.'),
+      line('More lightning means more arcs, longer arcs, harder arcs and a better chance to pass afflictions on.'),
+      P > 0 ? mine('Yours: {arcs} arcs, {dmg}% damage, {spread}% to pass afflictions on.', { arcs: f.arcs, dmg: f.dmgPct, spread: f.forwardPct }) : null,
     ].filter(Boolean)
     default: return []
   }
