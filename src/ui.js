@@ -1151,7 +1151,7 @@ export function initUI(hooks) {
     // are cached and only the rail's height is repainted every frame — a per-frame textContent
     // write is the expensive half.
     chaosShown: undefined, chaosSecs: -1, chaosBonus: -1,
-    chargeShown: undefined, chargeNum: -1, chargeArmed: undefined,
+    chargeShown: undefined, chargeNum: -1, chargeArmed: undefined, chargeLaneX: undefined,
   }
 
   function updateHUD(run, events) {
@@ -1312,6 +1312,14 @@ export function initUI(hooks) {
     if (!!res !== last.chargeShown) {
       last.chargeShown = !!res
       hud.chargeWrap.style.display = res ? '' : 'none'
+    }
+    // An x-lane parks the player 20% from the LEFT rather than from the bottom, which is exactly
+    // where this rail lives — see the charge--lanex rule in styles.css for the measured overlap.
+    // Latched rather than set per frame: it can only change between runs.
+    const laneX = CHAPTERS[run.chapter].laneAxis === 'x'
+    if (laneX !== last.chargeLaneX) {
+      last.chargeLaneX = laneX
+      hud.chargeWrap.querySelector('.chaos-vrail--charge').classList.toggle('charge--lanex', laneX)
     }
     if (res) paintCharge(run.charge, res.max)
   }

@@ -1752,6 +1752,16 @@ body {
    same thumb as the skill button whose ammo it is. Only the position and the colour differ; every
    size, radius and chip rule above is shared, which is the point of reusing the markup. */
 .chaos-vrail--charge { left: 16px; right: auto; }
+/* AN X-LANE PUTS THE PLAYER WHERE THE RAIL IS. LANE_CAMERA_FRAC parks them 20% along the forward
+   axis, which is 20% from the BOTTOM in a y-lane (fine — the rail is at top 30%) and 20% from the
+   LEFT in an x-lane, i.e. CSS x 78 on a 390px phone with a body ~124px long. The rail sits at x
+   26-38, so it does not merely crowd the player there, it is drawn through them, and no left-edge
+   position can avoid that: the fish is wider than the margin. It overlaps vertically too, the rail
+   spanning 30-54% of the height against a vertically-centred player.
+   Pushing it below the player's band is the whole fix. 56% clears the fish (which ends near 54%)
+   and still ends well above the skill button (~85%), so the bar stays on the same thumb as the
+   button whose ammo it is — which is the reason it is on the left at all. */
+.chaos-vrail--charge.charge--lanex { top: 56%; }
 /* Amber, deliberately not the violet/red the chaos rail owns: two batteries on screen at once must
    never be told apart by position alone, since a left-handed player moves the button, not the rail. */
 .chaos-vrail--charge .chaos-vrail-track i { background: #ffb347; }
