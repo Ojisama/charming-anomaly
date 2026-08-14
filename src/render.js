@@ -10213,7 +10213,7 @@ export function createRenderer(app) {
       spawnSmoke(tex.tex, x, y, Math.cos(a) * sp * k, Math.sin(a) * sp * k,
         C.chunkT, (0.5 + Math.random() * 0.45) * k,
         Math.random() < 0.45 ? C.chunkTintDark : C.chunkTint,
-        0, 1.6, C.chunkGrav, (Math.random() - 0.5) * 8)
+        0, 0.9, C.chunkGrav, (Math.random() - 0.5) * 8)
     }
     for (let i = 0; i < C.silt; i++) {
       const a = Math.random() * Math.PI * 2

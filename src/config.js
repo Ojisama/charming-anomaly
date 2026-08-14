@@ -4712,10 +4712,18 @@ export const AIR_POCKET_VIS = {
 // fake gravity rather than drifting, plus a SILT puff that hangs and a few BUBBLES that rise — the
 // three things that actually happen when you break rock in water. No ledger entry and no scar: the
 // coral is simply gone, which is what run._crushed already guarantees in the sim.
+//
+// ⚠ THE CHUNKS ARE THE COLOUR OF THE INSIDE, NOT OF THE OUTSIDE, and that is a legibility fix
+// arrived at from a screenshot rather than from taste. A first cut threw chunks in the bommie's own
+// surface plum (0x8f3a56 over a 0x0a3358 floor); they drew, they were the right shape, and they
+// were INVISIBLE — dark warm on dark cold, at 25px, for half a second. The honest picture is also
+// the readable one: coral is a white calcium skeleton with a thin living skin, so breaking one open
+// shows bone. Same lesson as the tide pool being darker than its sand — pick the value from what
+// the material actually is, then check it against the floor it lands on.
 export const CORAL_CRUSH = {
-  chunks: 9, chunkSpeed: 120, chunkSpread: 170, chunkT: 0.55, chunkGrav: 210,
-  chunkTint: 0x8f3a56, chunkTintDark: 0x4a1730,
-  silt: 4, siltSpeed: 44, siltT: 1.1, siltTint: 0x7d5a63,
+  chunks: 9, chunkSpeed: 150, chunkSpread: 190, chunkT: 0.6, chunkGrav: 190,
+  chunkTint: 0xf7e3d8, chunkTintDark: 0xd79aa6,   // bone, and bone still wearing some of its skin
+  silt: 4, siltSpeed: 50, siltT: 1.2, siltTint: 0xc0aa9e,
   bubbles: 6, bubbleRise: 95, bubbleT: 0.9, bubbleTint: 0xdff2ff,
   ringT: 0.34, ringTint: 0xe4f4ff,   // the extent ring, drawn at the coral's own radius
 }
