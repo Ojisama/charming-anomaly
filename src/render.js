@@ -18,6 +18,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
+  VENOM_MAX_STACKS, // the classic path's e.venom ceiling — the divisor that turns stacks into a 0..1 dose
 } from './config.js'
 import { currentForce } from './sim.js'
 
@@ -13103,6 +13104,10 @@ export function createRenderer(app) {
       const frozen = e.frozen || 0
       const chill = e.chill || 0
       const venom = e.venom || 0
+      // The venom DOSE, 0..1, normalised across both element systems: `venom` is a stack count on
+      // the classic path and the redesign's damage-taken amp (0..~1) under run.newElements. One
+      // number, so the tint and the drip particles can both scale by how poisoned the thing is.
+      const venomK = venom <= 0 ? 0 : Math.min(1, run.newElements ? venom : venom / VENOM_MAX_STACKS)
       const ignite = e.ignite || 0
       // v5.4 behavioural statuses (same guarded-contract rule): enrage = the flashlight cone turned
       // this thing up, stun = it can't act, fear = it's running from you.
@@ -13140,7 +13145,11 @@ export function createRenderer(app) {
       if (e.hitFlash > 0) s.tint = chapterIsVoid ? (chapterRender.ink ?? 0xffffff) : 0xffffff
       else if (frozen > 0) s.tint = 0x9fd8ff
       else if (chill > 0) s.tint = 0xc4e4ff
-      else if (venom > 0) s.tint = 0xa8e6a0
+      // venom ramps with the dose: a flat tint made "a bit poisoned" and "about to melt" look
+      // identical. The LOW end is deliberately the old flat value — a ramp starting near white
+      // reads as no tint at all on the first stack, which is the very complaint this fixes — so
+      // the ramp only ever goes deeper than what shipped before, never fainter.
+      else if (venom > 0) s.tint = mix(0xa8e6a0, 0x46a52f, venomK)
       else if (ignite > 0) s.tint = 0xffc09a
       // Behavioural statuses rank BELOW the elemental ones (those are ticking damage — the more
       // urgent read) but above the elite shimmer. Among themselves: enrage first, because it's the
@@ -13189,7 +13198,7 @@ export function createRenderer(app) {
           s._venomT += frameDt
           if (s._venomT >= 0.4) {
             s._venomT -= 0.4
-            const stacks = Math.min(venom, 8)
+            const stacks = venomK * 8
             spawnParticle(T.fx.circle_05, e.x, e.y + e.radius * 0.25, 0, -18 - stacks * 3,
               0.45, 0.05 + stacks * 0.006, 0x4fae4f, 0.06, 0.35)
           }
