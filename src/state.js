@@ -523,7 +523,8 @@ function generateWells(sig) {
  *               chapter-agnostic behavior-flag ids, set once at spawn by spawnEnemy (sim.js) —
  *               ARCHETYPE_TYPE maps the roster entry matching this enemy's spawn type (drone/
  *               wisp/tank) to an archetype ('normal'/'fast'/'tank'), a random roster entry of
- *               that archetype is picked (hpMul/speedMul applied to hp/maxHP/speed), and its
+ *               that archetype is picked (hpMul/speedMul applied to hp/maxHP/speed, xpMul to xp
+ *               — what the kill is WORTH, which moves independently of how tough it is), and its
  *               `flags` are copied in; elites additionally get CHAPTERS[chapter].eliteFlags
  *               appended (so an elite can carry both its roster's own flags and its chapter's
  *               elite-only ones). Always present (possibly []), safe to check unconditionally.

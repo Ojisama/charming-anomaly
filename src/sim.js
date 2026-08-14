@@ -1519,7 +1519,10 @@ function spawnEnemy(run, opts = {}) {
     affixes,
     flags,
     rosterId: roster?.id ?? null,
-    xp: base.xp,
+    // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
+    // this creature is WORTH, independent of how much health it has. They are separate on
+    // purpose — a chapter can make something cheaper to kill and still pay well for it.
+    xp: base.xp * (roster?.xpMul ?? 1),
     ...freshEnemyFields(),
   })
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
@@ -1600,7 +1603,15 @@ function spawnSplitChildren(run, parent, count) {
       affixes: [],
       flags: parent.flags,
       rosterId: parent.rosterId,
-      xp: parent.xp,
+      // XP TRACKS HEALTH, exactly as hp and radius above do. Inheriting the parent's FULL xp on a
+      // SPLIT_HP_FRAC body made one splitter worth 3 kills of xp for 1.9 kills of health — 1.58x
+      // the xp-per-point-of-health of every other enemy in the game, and the only place that ratio
+      // is not 1. Measured: split children were 45% of the xp in both chapters that field them
+      // (pond, shelf), and the effect was a FRONT LOAD rather than a bigger total — The Shelf ran
+      // level 10.5 at 180s against undergrowth's 8.5 and city's 8.0, then finished 5 levels behind
+      // them. At this fraction its 180s level is 8.5, level with the pack. Zeroing it instead put
+      // the chapter below body, the poorest in the game, at every mark.
+      xp: parent.xp * SPLIT_HP_FRAC,
       _splitChild: true,
       ...freshEnemyFields(),
     })

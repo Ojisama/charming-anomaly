@@ -5316,9 +5316,19 @@ function testChapterBehaviors() {
     // that dealDamage's integer subtraction can never clear (see roundHP in sim.js).
     const expectedHp = Math.max(1, Math.round(parent.maxHP * SPLIT_HP_FRAC))
     const expectedRadius = parent.radius * SPLIT_RADIUS_FRAC
+    // XP scales with the child's health, like every other stat it inherits. A child carrying the
+    // parent's FULL xp made a splitter worth 3 kills of xp for 1.9 kills of health — the only
+    // enemy in the game whose xp-per-point-of-health is not 1, and it front-loaded its chapters
+    // hard enough to be reported from play (The Shelf at level 10.5 by 180s against undergrowth's
+    // 8.5, then 5 levels behind by 300s).
+    const expectedXp = parent.xp * SPLIT_HP_FRAC
     for (const c of children) {
       assert(Math.abs(c.maxHP - expectedHp) < 1e-6, `expected child maxHP ${expectedHp}, got ${c.maxHP}`)
       assert(Math.abs(c.radius - expectedRadius) < 1e-6, `expected child radius ${expectedRadius}, got ${c.radius}`)
+      assert(Math.abs(c.xp - expectedXp) < 1e-6,
+        `expected child xp ${expectedXp} (the parent's ${parent.xp} scaled by SPLIT_HP_FRAC), got ${c.xp} — ` +
+        `a child worth its parent's whole xp on ${SPLIT_HP_FRAC} of its health is ` +
+        `${((1 + SPLIT_CHILD_COUNT) / (1 + SPLIT_CHILD_COUNT * SPLIT_HP_FRAC)).toFixed(2)}x the xp per point of health`)
     }
 
     // No re-split: isolate one child (drop its sibling so nothing else can be hit), kill it the
@@ -15653,6 +15663,40 @@ function testUndertowLadder() {
   assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
 
   console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
+
+  // (d) THE MOON JELLY TUNE, and the roster lever it introduced. Owner's ask: -25% health, +25% xp.
+  // Pinned as that arithmetic rather than as bare literals, the way the centipede cut is (run UG.a),
+  // so the INTENT survives a future re-tune of the pre-change numbers.
+  //
+  // The second half is the one that fails silently: xpMul is a NEW roster field, and a new field
+  // nothing reads is indistinguishable from a balance change that did nothing. hpMul and speedMul
+  // were already applied in spawnEnemy; xp was `base.xp` flat. So this spawns a real jelly and
+  // reads the xp off it, rather than trusting the table.
+  {
+    const jelly = CHAPTERS.shelf.roster.find((r) => r.id === 'jelly')
+    assert.ok(jelly, 'the Moon Jelly is gone from The Shelf roster')
+    assert.ok(Math.abs(jelly.hpMul - 2.5 * 0.75) < 1e-9,
+      `expected jelly hpMul = 2.5 x 0.75 = 1.875 ("jelly -25% hp"), got ${jelly.hpMul}`)
+    assert.ok(Math.abs((jelly.xpMul ?? 1) - 1.25) < 1e-9,
+      `expected jelly xpMul 1.25 ("jelly +25% xp"), got ${jelly.xpMul}`)
+
+    Math.random = mulberry32(31337)
+    const run = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    let seen = null
+    for (let i = 0; i < 300 * 60 && !seen; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      seen = run.enemies.find((e) => e.rosterId === 'jelly' && !e._dead && !e.elite) ?? null
+    }
+    assert.ok(seen, 'no ordinary Moon Jelly spawned in 300s, so this scenario proved nothing')
+    const expected = ENEMIES[ARCHETYPE_TYPE.tank].xp * 1.25
+    assert.ok(Math.abs(seen.xp - expected) < 1e-9,
+      `a spawned Moon Jelly carries xp ${seen.xp}, not ${expected} — the roster's xpMul is not reaching ` +
+      `the enemy, so the +25% is a number in a table that nothing reads`)
+    console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75), xpMul ${jelly.xpMul}, and a spawned jelly really carries ${seen.xp} xp`)
+  }
 }
 
 // ---- run EL: the elements redesign, behind run.newElements ---------------------------------

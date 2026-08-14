@@ -4091,7 +4091,10 @@ CHAPTERS.shelf = {
   roster: [
     { id: 'copepod', archetype: 'normal', name: 'Copepod',    hpMul: 1,   speedMul: 0.9, flags: ['split'] },
     { id: 'krill',   archetype: 'fast',   name: 'Krill',      hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
-    { id: 'jelly',   archetype: 'tank',   name: 'Moon Jelly', hpMul: 2.5, speedMul: 0.6, flags: ['phase', 'unshakeable'] },
+    // -25% health, +25% xp (owner's tune): a moon jelly was the longest thing in the chapter to
+    // chew through and paid a tank's flat rate for it. xpMul is separate from hpMul precisely
+    // so the two can move in opposite directions like this.
+    { id: 'jelly',   archetype: 'tank',   name: 'Moon Jelly', hpMul: 1.875, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'] },
   ],
 
   signature: { type: 'shafts', cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
