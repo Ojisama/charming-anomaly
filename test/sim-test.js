@@ -105,6 +105,8 @@ import {
   // v6.6.5 early spawn boost
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
   LANE_SPAWN_MUL, LANE_EARLY_BOOST, LANE_EARLY_UNTIL, laneEarlyMul, FORMATION_INTERVAL, FORMATION_COLS,
+  // v7.x The Reef: Air (the bar) and Burst (the button) — run RF
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -12446,6 +12448,7 @@ try {
   testPlayerForms()
   testLaneGolden()
   testLaneAxis()
+  testReefAirBurst()
   testDevMenu()
   testModalPopBookkeeping()
   testUndertowLadder()
@@ -15058,6 +15061,370 @@ function testLaneAxis() {
   }
 
   console.log(`PASS run LX (the lane has an axis): the reef scrolls +x at ${laneScrollFor(CHAPTERS.reef)}px/s (the beyond keeps ${LANE_SCROLL_SPEED}) under a stick that cannot touch it, strafes on y at x${LANE_STRAFE_MUL}, clamps to both y walls, spawns everything ahead, and the camera reads the axis`)
+}
+
+// ---- run RF: The Reef's Air (the bar) and Burst (the button) -----------------------------------
+// Spec §5.2 asks every Undertow chapter for one gimmick, one button and one second job for its bar.
+// The gimmick (`lane`) is run LX's. This is the other two, and EVERY case below is written as an
+// EFFECT — a difference in HP lost, in distance travelled, in where the player ends up — because
+// each of these mechanics has a state field that moves whether or not the mechanic does anything.
+// `run.charge` falls on its own; `run._burstT` counts down whether or not it is ever read; an
+// obstacle list changes length for half a dozen reasons. A test asserting any of those passes with
+// the feature deleted.
+//
+// The three silent failures this guards, all of which render fine and throw nothing:
+//   - the pockets exist but sit where the lane cannot reach them, so the bar only ever falls;
+//   - the Burst sets its timer and nothing reads it, so the button is the Pulse with extra steps;
+//   - the coral goes solid the shipped way, and the radial push-out shoves the player back DOWN a
+//     lane whose whole promise is that it does not.
+function testReefAirBurst() {
+  const dt = 1 / 60
+  const res = CHAPTERS.reef.resource
+  const LAX = laneAxes(CHAPTERS.reef)
+  const scroll = laneScrollFor(CHAPTERS.reef)
+
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  // An EMPTY world: every case below measures the player, and a crowd contributes contact damage,
+  // knockback and rocks to exactly the quantities being read. Cleared after every step rather than
+  // by spawnMul alone, because the lane runs two spawners (see LANE_SPAWN_MUL's block) and only one
+  // of them is on that knob.
+  const quiet = (run) => { run.enemies.length = 0; run.rocks.length = 0; run.events.length = 0 }
+  const reefRun = (seed = 20260814) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'reef', 'run RF did not start in the reef — the WIP gate or the meta is wrong, and every number below would be another chapter')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    return run
+  }
+  // What a player working the mechanic actually does: steer across the lane at the nearest pocket
+  // ahead. Deliberately the same model scripts/charge-probe.mjs uses for its `pocket` row, so the
+  // suite and the probe are asserting the same claim about the same chapter.
+  const towardPockets = (run) => {
+    const p = run.player
+    let best = null, bd = Infinity
+    for (const sh of run.shafts) {
+      const ahead = (sh[LAX.fwd] - p[LAX.fwd]) * LAX.dir
+      if (ahead < -sh.r || ahead > bd) continue
+      bd = ahead; best = sh
+    }
+    const want = best ? best[LAX.cross] : 0
+    const v = Math.abs(want - p[LAX.cross]) < 8 ? 0 : want > p[LAX.cross] ? 1 : -1
+    return LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v }
+  }
+
+  // (a) THE POCKETS ARE THE ONLY REFILL, AND TAKING ONE MEANS LEAVING THE MIDDLE. Two 150s runs off
+  // the SAME seed with the SAME everything except where the stick points: hold the centre line and
+  // the bar dies, work the pockets and it lives. That difference — not the geometry it comes from —
+  // is the whole "a slope, not a countdown" claim, and it is what a probe row can only suggest.
+  {
+    const steps = Math.round(150 / dt)
+    const centre = reefRun()
+    let centreInPocket = 0
+    for (let i = 0; i < steps; i++) {
+      stepSim(centre, { x: 0, y: 0 }, dt)
+      quiet(centre)
+      const p = centre.player
+      if (centre.shafts.some((sh) => Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r)) centreInPocket++
+    }
+    const seek = reefRun()
+    let seekInPocket = 0, seekMin = Infinity
+    for (let i = 0; i < steps; i++) {
+      stepSim(seek, towardPockets(seek), dt)
+      quiet(seek)
+      const p = seek.player
+      if (seek.shafts.some((sh) => Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r)) seekInPocket++
+      seekMin = Math.min(seekMin, seek.charge)
+    }
+    assert.strictEqual(centre.charge, 0,
+      `a player who never leaves the centre of the lane must run out of Air — ended on ${centre.charge.toFixed(1)}`)
+    assert.strictEqual(centreInPocket, 0,
+      `${centreInPocket} frames of refill without ever crossing the lane — a pocket is reachable from the centre line, so committing to a side is not a decision`)
+    assert.ok(seek.charge > res.max * 0.5,
+      `a player working the pockets must end well above half a bar, ended on ${seek.charge.toFixed(1)} of ${res.max}`)
+    assert.ok(seekMin > 0,
+      `working the pockets still bottomed the bar out (min ${seekMin.toFixed(1)}) — the refill cannot keep up with the drain at all`)
+    assert.ok(seekInPocket > 0.10 * steps,
+      `only ${(100 * seekInPocket / steps).toFixed(1)}% of the run was spent in a pocket — the field is too sparse to be worked`)
+    console.log(`PASS run RF.a (Air is a map, not a clock): 150s holding the centre ends on 0 with 0 refill frames; 150s working the pockets ends on ${seek.charge.toFixed(0)}/${res.max}, never below ${seekMin.toFixed(0)}, ${(100 * seekInPocket / steps).toFixed(1)}% of it inside one`)
+  }
+
+  // (b) EVERY POCKET IS REACHABLE. The streaming grid covers a 1400px disc and the lane is ~860px
+  // wide, so two whole cell rows either side of it will happily materialise circles the player is
+  // CLAMPED away from. Nothing throws, the renderer draws them faithfully, and the chapter reads as
+  // "the bar cannot be filled" — which is the same misreading (a) exists to disprove, arrived at
+  // from the geometry rather than the rate. Measured at four positions down the lane, so this is
+  // the field and not one lucky cell.
+  {
+    const run = reefRun()
+    const hw = laneHalfWidth(run.viewRadius)
+    let checked = 0, unreachable = 0, onCentre = 0
+    for (const along of [3000, 9000, 15000, 21000]) {
+      run.player[LAX.fwd] = along * LAX.dir
+      run.shafts.length = 0
+      run._shaftCellI = null; run._shaftCellJ = null
+      streamShafts(run)
+      for (const sh of run.shafts) {
+        checked++
+        if (Math.abs(sh[LAX.cross]) - sh.r > hw) unreachable++
+        if (Math.abs(sh[LAX.cross]) <= sh.r) onCentre++
+      }
+    }
+    assert.ok(checked > 12, `only ${checked} pockets streamed across 4 positions — this case would pass vacuously`)
+    assert.strictEqual(unreachable, 0,
+      `${unreachable} of ${checked} pockets lie entirely outside the lane walls (±${hw.toFixed(0)}) — the player can only watch them scroll past`)
+    assert.strictEqual(onCentre, 0,
+      `${onCentre} of ${checked} pockets cover the centre line — those refill a player who never commits to a side, which is the property (a) measures`)
+    console.log(`PASS run RF.b (the field fits the lane): ${checked} pockets across 4 positions, 0 outside the ±${hw.toFixed(0)} walls and 0 covering the centre line`)
+  }
+
+  // (c) DROWNING IS DAMAGE, IT ONLY EXISTS AT EMPTY, AND IT STOPS WHEN YOU BREATHE. Measured as HP
+  // off the player over a fixed window in an emptied world, three windows in one run: empty (hurts),
+  // still empty (hurts again, so it is not a one-shot), and refilling inside a pocket (stops). The
+  // `dot` flag on every event is asserted too — that flag IS the tell, since render.js's `hurt` case
+  // draws the vignette off it and main.js silences the sound off it.
+  {
+    const run = reefRun()
+    const burn = (secs) => {
+      const hp0 = run.player.hp
+      let events = 0, dots = 0, srcs = 0
+      for (let i = 0; i < Math.round(secs / dt); i++) {
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const e of run.events) if (e.type === 'hurt') { events++; if (e.dot) dots++; if (e.src === 'drown') srcs++ }
+        quiet(run)
+      }
+      return { lost: hp0 - run.player.hp, events, dots, srcs }
+    }
+    run.charge = 0
+    const w1 = burn(4)
+    const w2 = burn(4)
+    assert.ok(w1.lost >= res.drown.dps * 3 && w1.lost <= res.drown.dps * 5,
+      `4s on an empty bar must cost about ${res.drown.dps * 4} HP, cost ${w1.lost}`)
+    assert.ok(w2.lost >= res.drown.dps * 3,
+      `drowning stopped after the first window (${w2.lost} HP over the second 4s) — it is a one-shot, not damage over time`)
+    assert.strictEqual(w1.events, w1.dots,
+      `${w1.events - w1.dots} drowning hits arrived without dot:true — render.js's hurt case and main.js's audio gate both read that flag, so they would fire as if you had been struck`)
+    assert.strictEqual(w1.events, w1.srcs, 'every drowning hit must name itself in e.src')
+    // Breathe. Parked in a pocket, the bar climbs off zero and the damage must stop with it — the
+    // half that makes this a state you can leave rather than a timer that has expired.
+    run._shaftCellI = null; run._shaftCellJ = null
+    streamShafts(run)
+    assert.ok(run.shafts.length > 0, 'no pocket streamed to breathe in — the rest of this case cannot run')
+    const sh = run.shafts[0]
+    run.player.x = sh.x; run.player.y = sh.y
+    for (let i = 0; i < Math.round(1 / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.player.x = sh.x; run.player.y = sh.y; quiet(run) }
+    assert.ok(run.charge > 0, `standing in a pocket for a second left the bar on ${run.charge.toFixed(1)} — nothing refilled`)
+    const hp0 = run.player.hp
+    for (let i = 0; i < Math.round(3 / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.player.x = sh.x; run.player.y = sh.y; quiet(run) }
+    assert.strictEqual(run.player.hp, hp0,
+      `still drowning with ${run.charge.toFixed(1)} Air in the bar — the damage is on a clock rather than on the bar`)
+    // And nowhere else. The Shelf's bar goes to zero routinely and must never cost HP for it.
+    Math.random = mulberry32(20260814)
+    const shelf = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+    shelf.player.hp = shelf.player.maxHP = 100000
+    shelf.mods.spawnMul = 0
+    shelf.charge = 0
+    const shelfHp = shelf.player.hp
+    for (let i = 0; i < Math.round(6 / dt); i++) { stepSim(shelf, { x: 0, y: 0 }, dt); quiet(shelf) }
+    assert.strictEqual(shelf.player.hp, shelfHp,
+      `an empty Light bar cost The Shelf ${shelfHp - shelf.player.hp} HP — drowning is not gated on the resource declaring it`)
+    console.log(`PASS run RF.c (drowning): ${w1.lost} then ${w2.lost} HP over two 4s windows at an empty bar, every hit flagged dot, 0 HP once the bar came off zero, and 0 HP on The Shelf's own empty bar`)
+  }
+
+  // (d) THE BURST IS A DASH, AND AN EMPTY BAR STILL GETS ONE. Three runs off one seed with identical
+  // input, differing only in the button: not pressed, pressed at 0, pressed at a full bar. Measured
+  // as DISTANCE ALONG THE LANE over the same window, which is the only thing the dash can be — a
+  // burst that sets its timer and is never read moves the player exactly as far as not pressing.
+  // The no-press control is also pinned to the exact scroll, so this cannot pass by the whole
+  // chapter having sped up.
+  {
+    const advance = (charge, press) => {
+      const run = reefRun()
+      run.obstacles.length = 0
+      run._obstacleSeed = null
+      run.charge = charge
+      const p0 = run.player[LAX.fwd]
+      for (let i = 0; i < Math.round(1.2 / dt); i++) {
+        stepSim(run, { x: 0, y: 0, skill: press && i === 0 }, dt)
+        quiet(run)
+      }
+      return (run.player[LAX.fwd] - p0) * LAX.dir
+    }
+    const none = advance(0, false)
+    const empty = advance(0, true)
+    const full = advance(res.max, true)
+    assert.ok(Math.abs(none - scroll * 1.2) < 1e-6,
+      `the no-press control must advance at exactly laneScroll (${scroll}), moved ${none.toFixed(3)} vs ${(scroll * 1.2).toFixed(3)}`)
+    assert.ok(empty > none + 50,
+      `pressing on an EMPTY bar bought ${(empty - none).toFixed(1)}px — the no-spiral floor is gone, so a player with no charge is stuck behind whatever is in front of them`)
+    assert.ok(full > empty + 50,
+      `a full bar dashed ${(full - empty).toFixed(1)}px further than an empty one — the charge buys nothing, so the bar is not the button's ammunition`)
+    // Against the constants, so a retune moves this with config.js instead of leaving a literal.
+    // ONE FRAME of slack, and no more: the timer is spent before it is decremented, so a duration
+    // that is a whole number of frames leaves a float residue (0.30 - 18/60 is 2.7e-17, not 0) and
+    // the dash runs a 19th frame. That is 6px at these numbers, it is harmless, and a fat tolerance
+    // here would hide the thing this pair is actually for — that the LENGTH is what the bar buys.
+    const want = (dur) => scroll * (BURST_SPEED_MUL - 1) * dur
+    const frame = scroll * (BURST_SPEED_MUL - 1) * dt
+    assert.ok(Math.abs((empty - none) - want(BURST_DUR_MIN)) <= frame + 0.5,
+      `an empty-bar dash should buy ${want(BURST_DUR_MIN).toFixed(0)}px, bought ${(empty - none).toFixed(0)}`)
+    assert.ok(Math.abs((full - none) - want(BURST_DUR_AT_FULL)) <= frame + 0.5,
+      `a full-bar dash should buy ${want(BURST_DUR_AT_FULL).toFixed(0)}px, bought ${(full - none).toFixed(0)}`)
+    // The Beyond presses the same button and must not move: it declares no `burst`, and run LN's
+    // golden master is the wider proof, but a config slip here is worth naming on its own.
+    Math.random = mulberry32(20260814)
+    const beyond = createRun(meta, { chapter: 'beyond', difficulty: 1 })
+    beyond.player.hp = beyond.player.maxHP = 100000
+    beyond.mods.spawnMul = 0
+    beyond.obstacles.length = 0
+    beyond._obstacleSeed = null
+    beyond.charge = 100
+    const bax = laneAxes(CHAPTERS.beyond)
+    const b0 = beyond.player[bax.fwd]
+    for (let i = 0; i < Math.round(1.2 / dt); i++) { stepSim(beyond, { x: 0, y: 0, skill: i === 0 }, dt); quiet(beyond) }
+    assert.ok(Math.abs((beyond.player[bax.fwd] - b0) * bax.dir - LANE_SCROLL_SPEED * 1.2) < 1e-6,
+      'The Beyond dashed — `burst` has leaked onto a chapter that never declared it')
+    console.log(`PASS run RF.d (the dash): 1.2s advance ${none.toFixed(0)}px unpressed, ${empty.toFixed(0)}px on an EMPTY bar (+${(empty - none).toFixed(0)}), ${full.toFixed(0)}px on a full one (+${(full - none).toFixed(0)}); The Beyond's own press moves it not one pixel`)
+  }
+
+  // (e) THE BURST SHATTERS CORAL, AND ONLY THE BURST DOES. Same coral, same seed, same 1.2s: with
+  // the button it is gone and with it a {type:'crush'} event, a gem and a permanent _crushed entry;
+  // without the button it is still standing. Both halves matter — a reef where merely touching
+  // coral destroys it is the "structure with HP is a shelter pocket" failure in reverse, and it
+  // would pass any test that only looked at the pressed run.
+  {
+    const plant = (run) => {
+      const p = run.player
+      const o = { r: 80, _cell: 'rf-test', kind: STRUCTURE_KINDS[0] }
+      o[LAX.fwd] = p[LAX.fwd] + LAX.dir * 150
+      o[LAX.cross] = p[LAX.cross]
+      run.obstacles.length = 0
+      run.obstacles.push(o)
+      run._obstacleSeed = null   // freeze the field so streamObstacles cannot add or drop anything
+      return o
+    }
+    const idle = reefRun()
+    plant(idle)
+    let idleCrush = 0
+    for (let i = 0; i < Math.round(1.2 / dt); i++) {
+      stepSim(idle, { x: 0, y: 0 }, dt)
+      for (const e of idle.events) if (e.type === 'crush') idleCrush++
+      quiet(idle)
+    }
+    assert.strictEqual(idle.obstacles.length, 1, 'the coral vanished without anyone pressing the button')
+    assert.strictEqual(idleCrush, 0, 'a crush fired with the button untouched')
+
+    const burst = reefRun()
+    const o = plant(burst)
+    burst.charge = res.max
+    // The XP, not run.gems: a lane sets magnet = Infinity (stepPickups), so the gem the crush path
+    // drops is collected within the frame and asserting on the array finds nothing. The pickup is
+    // the effect anyway — the gem is only how it gets there.
+    const xp0 = burst.player.xp
+    let crushes = 0, crushAt = null
+    for (let i = 0; i < Math.round(1.2 / dt); i++) {
+      stepSim(burst, { x: 0, y: 0, skill: i === 0 }, dt)
+      for (const e of burst.events) if (e.type === 'crush') { crushes++; crushAt = e }
+      quiet(burst)
+    }
+    assert.strictEqual(burst.obstacles.length, 0, 'the Burst went through the coral and left it standing')
+    assert.strictEqual(crushes, 1, `expected exactly one crush event, got ${crushes}`)
+    assert.ok(crushAt && crushAt.x === o.x && crushAt.y === o.y,
+      'the crush event does not carry the coral position — render.js draws the shatter there and would put it on the player instead')
+    assert.ok(burst._crushed.has('rf-test'),
+      'the shattered cell was not recorded in run._crushed — streamObstacles re-rolls the identical coral back in at the next cell crossing (the v5.9.1 bug)')
+    assert.ok(burst.player.xp - xp0 >= CRUSH_XP,
+      `shattering the coral paid ${burst.player.xp - xp0} XP, not the CRUSH_XP ${CRUSH_XP} the shipped path drops — the Burst is removing obstacles by some other route`)
+    console.log('PASS run RF.e (the Burst shatters): one press removes the coral permanently (crush event at the right place, CRUSH_XP paid, _crushed entry banked); the same 1.2s with the button untouched leaves it standing')
+  }
+
+  // (f) THE CORAL IS SOLID ACROSS THE LANE AND NOWHERE ELSE. This is the case that guards the reason
+  // stepObstacles has refused to collide in a lane since v5.18: its radial push-out shoves the
+  // player back DOWN the lane, reversing the one constant the mode guarantees. Measured as the
+  // forward advance against a coral-free control, and it has to be EXACT — a push that only
+  // sometimes costs a few pixels is precisely the shipped bug, and any tolerance hides it.
+  {
+    const strafeInto = (place) => {
+      const run = reefRun()
+      run.obstacles.length = 0
+      run._obstacleSeed = null
+      if (place) run.obstacles.push(place(run))
+      const p0 = run.player[LAX.fwd]
+      for (let i = 0; i < Math.round(3 / dt); i++) { stepSim(run, LAX.cross === 'x' ? { x: 1, y: 0 } : { x: 0, y: 1 }, dt); quiet(run) }
+      return { fwd: (run.player[LAX.fwd] - p0) * LAX.dir, cross: run.player[LAX.cross] }
+    }
+    const control = strafeInto(null)
+    // A coral wholly inside the lane, sitting on the path a strafing player takes.
+    const inside = strafeInto((run) => {
+      const o = { r: 90, _cell: 'rf-in', kind: STRUCTURE_KINDS[0] }
+      o[LAX.fwd] = run.player[LAX.fwd] + LAX.dir * 100
+      o[LAX.cross] = 150
+      return o
+    })
+    // ...and one whose circle reaches past the wall. Scenery, deliberately: making it solid seals
+    // the corridor, because the player cannot go round something that ends outside the lane.
+    const straddling = strafeInto((run) => {
+      const hw = laneHalfWidth(run.viewRadius)
+      const o = { r: 120, _cell: 'rf-out', kind: STRUCTURE_KINDS[0] }
+      o[LAX.fwd] = run.player[LAX.fwd] + LAX.dir * 100
+      o[LAX.cross] = hw - 20
+      return o
+    })
+    assert.strictEqual(inside.fwd, control.fwd,
+      `a solid coral changed the forward advance (${inside.fwd.toFixed(4)} vs ${control.fwd.toFixed(4)}) — the push-out is moving the player along the lane, which is the v5.18 bug this chapter turned collision back on around`)
+    assert.ok(Math.abs(inside.cross - control.cross) > 20,
+      `the strafing player ended at the same place across the lane with and without a coral in the way (${inside.cross.toFixed(1)} vs ${control.cross.toFixed(1)}) — the coral is not solid at all`)
+    assert.strictEqual(straddling.cross, control.cross,
+      `a coral reaching past the lane wall pushed the player (${straddling.cross.toFixed(1)} vs ${control.cross.toFixed(1)}) — it is a stretch of corridor with no way through`)
+    // And the crowd still passes straight through, which is what keeps a rank a rank.
+    const run = reefRun()
+    run.obstacles.length = 0
+    run._obstacleSeed = null
+    const o = { r: 90, _cell: 'rf-e', kind: STRUCTURE_KINDS[0] }
+    o[LAX.fwd] = run.player[LAX.fwd] + LAX.dir * 400
+    o[LAX.cross] = 0
+    run.obstacles.push(o)
+    // The shipped hand-placed-enemy helper, then stunned solid: stepEnemyMovement checks stunT
+    // above every behaviour, so ANY movement this enemy shows can only have come from the obstacle
+    // push-out. Hand-rolling the object instead is how this case first read as a crash.
+    const e = makeStatusEnemy(run, { x: o.x, y: o.y, speed: 0 })
+    e.flags = []
+    e.stunT = 99
+    run.enemies.push(e)
+    const ex = e.x, ey = e.y
+    stepSim(run, { x: 0, y: 0 }, dt)
+    run.rocks.length = 0; run.events.length = 0
+    assert.ok(e.x === ex && e.y === ey,
+      `a stunned enemy standing inside a coral was pushed to (${e.x.toFixed(1)}, ${e.y.toFixed(1)}) — the enemy half of stepObstacles is running in the lane, and a rank crossing a bommie will be shoved apart`)
+    console.log(`PASS run RF.f (solid, across the lane only): forward advance identical to ${control.fwd.toFixed(4)}px with and without coral, cross moved ${Math.abs(inside.cross - control.cross).toFixed(0)}px by an in-lane coral and 0px by one reaching past the wall, and the crowd still passes through`)
+  }
+
+  // (g) THE RENDER SIDE. render.js is not importable (Pixi + DOM), so this is run UG.k's source-text
+  // trick, and the shape it looks for is the three-link chain where any broken link is a SILENT
+  // no-op: the look is DECLARED for this signature, the config block is READ, and the crush event
+  // BRANCHES before it reaches the skies' own dust-and-ruins path. Miss the last one and a coral
+  // head shatters into brick shards and leaves a permanent baked ruin on the sea floor.
+  {
+    const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/sigType === 'air' \? 'pocket'/.test(src),
+      "render.js never resolves refillLook to 'pocket' for the air signature — The Reef streams pockets the renderer then refuses to draw, exactly as The Surf's tide pools shipped invisible")
+    assert.ok(/pocket \? AIR_POCKET_VIS/.test(src) && /const pocket = refillLook === 'pocket'/.test(src),
+      'updateShafts never reads AIR_POCKET_VIS — the pocket would draw with the tide pool palette, i.e. a dark hole where the air is')
+    assert.ok(/chapterHasBurst = cfg\?\.burst === true/.test(src),
+      'render.js never latches chapterHasBurst from the chapter config, so the crush branch below can never be taken')
+    assert.ok(/if \(chapterHasBurst\) \{ coralShatter\(/.test(src),
+      "the 'crush' event does not branch on chapterHasBurst — a shattered coral head would throw brick dust and leave a baked ruin")
+    assert.ok(/function coralShatter\(/.test(src), 'coralShatter is called but never defined')
+    console.log('PASS run RF.g (the reef draws its own): refillLook resolves pocket, updateShafts reads AIR_POCKET_VIS, and the crush event branches to coralShatter before the skies dust path')
+  }
+
+  console.log(`PASS run RF (The Reef's Air and Burst): the bar is decided by which side of the lane you commit to (0 vs ${res.max} over 150s), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full, and the coral is solid across the lane only`)
 }
 
 // ---- run US.f: the player's own body is per-chapter, not one boolean ---------------------------
