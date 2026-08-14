@@ -1634,6 +1634,62 @@ export const WEAPONS = {
       { dmg: 22, tick: 0.14, rate: 4.5, duration: 3.0, rotSpeed: 3.1, width: 46, length: 430 },
     ],
   },
+  // ---- The Surf native (v7.55, Book 2 chapter 1) ----
+  pincer: {
+    name: 'Pincer',
+    desc: 'Guards the side you face with an open claw, and snaps whatever reaches it.',
+    icon: '🦀', rarity: 'normal',
+    // THE ONLY WEAPON IN THE GAME THAT DOES NOT FIRE ON A TIMER. Every other one of the 23 runs
+    // through fireOnTimer: a `rate`/`interval` elapses and something is emitted. This one holds a
+    // PERSISTENT guard (run.guards) out toward the nearest enemy and does nothing at all until
+    // something comes inside it — so its output is a function of what the crowd does, not of how
+    // long the player has waited. That is why there is no `rate` here and why `cd` is not one under
+    // another name: `rate` would put a cadence row on the build sheet ("Every 2.60s") for a weapon
+    // that can sit armed for a whole minute, which is a lie about the one thing that makes it
+    // different. See stepPincerWeapon/stepGuards in sim.js.
+    //   dmg    the snap, dealt to EVERYTHING inside the claw (see stepGuards for why not one body)
+    //   r      the guard's REACH from the player's own centre, and also its drawn size — the art's
+    //          outer edge is drawn at exactly r, so the sprite states the tested extent rather than
+    //          approximating it (the same drawn-extent-is-tested-extent rule the tide pool and the
+    //          sandbar rim both keep). The guard is an ARC of half-angle PINCER_ARC centred on the
+    //          player and rotated to face the nearest enemy — see that constant for the measurements
+    //          that killed the previous held-out disc.
+    //   cd     seconds to re-arm after a snap. NOT divided by the global fire rate — see
+    //          stepGuards in sim.js for why an attack-speed stat has no meaning here
+    //   knock  the yank. Deliberately the largest knockback in the game (chitterShriek's nova is
+    //          280 at L5): "it gets yanked away" is half of what the player buys, and a shove that
+    //          only moves a body a claw's width would read as a failed parry.
+    //
+    // THIS LADDER IS MEASURED, AND EVERY INTUITION ABOUT IT WAS WRONG. The first cut was a big slow
+    // parry — 34-80 damage on a 2.6-1.8s re-arm — and it measured at 15 effective dps against the
+    // Flagella Whip's 66 (weapon-census, surf L5). Three findings, in the order they landed:
+    //   1. SINGLE-TARGET WAS THE WHOLE HOLE. One body per snap threw away 56% of every hit as
+    //      overkill and left the other seven of a pack untouched. Snapping everything in the claw
+    //      took it 15 -> 55 in one change.
+    //   2. `dmg` IS NEARLY A DEAD KNOB. A knob grid at L5 moved damage 80 -> 110 for +4 eff dps:
+    //      waste eats it, because the claw already hits harder than a body has HP left.
+    //   3. `cd` AND `r` ARE THE LEVERS, and only the kiting rig can see the first one. On the
+    //      census's drifting rig a shorter re-arm bought nothing (output looked bound by how fast
+    //      bodies wandered in); kiting, where the crowd is permanently in the claw, cd 1.7 -> 0.9
+    //      went 39 -> 62 eff dps. Grid at L5, drift/kite eff dps: cd0.9 r58 63/71, cd0.9 r66 66/76,
+    //      cd1.1 r58 51/65. So: a claw that recovers fast and reaches wide, not one that hits huge.
+    // There is deliberately NO trade being claimed against "but it holds the crowd off": that was
+    // measured too (median nearest-enemy distance, immortal + kiting, back half of the run) and it
+    // is FALSE — the pincer holds the crowd at 45px where the whip holds it at 57 and the bloom at
+    // 65, because killing things is the better denial. It has no hidden half to be paid in.
+    // Shipped numbers, 240s x 10 seeds at surf d3, eff dps / kills per min, against the whip:
+    //   L1  pincer 36 / 51.3   whip 48 / 64.0     — the opener is the weaker end, deliberately
+    //   L5  pincer 66 / 82.2   whip 71 / 83.3     — level on kills, 93% on damage
+    // (measured while CHAPTERS.surf still spread the pond's `balance` table; Task 9 gave the
+    // chapter its own, gentler tune, so a re-census against it is still owed.)
+    levels: [
+      { dmg: 40, r:  82, cd: 1.35, knock: 340 },
+      { dmg: 50, r:  89, cd: 1.22, knock: 360 },
+      { dmg: 60, r:  96, cd: 1.10, knock: 385 },
+      { dmg: 70, r: 103, cd: 1.00, knock: 415 },
+      { dmg: 80, r: 110, cd: 0.90, knock: 450 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -2198,6 +2254,28 @@ export const WEAPON_MODS = {
     hyperSweep:   { name: 'More Arms',    desc: 'extra arm(s) per cast',             icon: '🔷', kind: 'tier' },
     collapse:    { name: 'Collapse',     desc: 'damage when the sweep ends',       icon: '🌋', base: 0.80, kind: 'pct' },
   },
+  // ---- The Surf native (v7.55) ----
+  // FOUR mods, one per thing the weapon can honestly be tuned on, and no fifth. crusher/longArm/
+  // backwash fold into levels[] via WEAPON_STAT_MODS (sim.js); backClaw is behavioral, read where
+  // the guards are laid out (stepPincerWeapon).
+  //
+  // There is deliberately NO re-arm-speed mod. `cd` is an interval, so a pct pick folded into it
+  // would SLOW the claw — the trap WEAPON_RATE_MODS exists to route around — and routing around it
+  // means the build sheet's `cd` row would report the unmodded number, since that map only feeds
+  // the cadence row this weapon does not have. Back Claw is the honest version of the same want:
+  // it buys more parries, spatially rather than temporally, and it is the one mod you can see.
+  // NOT 'Riptide': MUTATORS.riptide already ships under that display name (the pond's doubled
+  // current shove), and two different cards reading "Riptide" is the kind of collision only a grep
+  // finds. 'claw reach & size' likewise says BOTH numbers the pick moves, because r is the guard's
+  // reach AND its drawn size — the crescent is baked at the reach unit and scaled by r, so a wider
+  // guard is a visibly bigger claw. Naming only one would be the rainbow.wideBeam defect (a card
+  // whose second effect nobody can check).
+  pincer: {
+    crusher:  { name: 'Crusher Claw', desc: 'pinch damage',        icon: '🦞', base: 0.35, kind: 'pct' },
+    longArm:  { name: 'Long Arm',     desc: 'claw reach & size',   icon: '📏', base: 0.30, kind: 'pct' },
+    backwash: { name: 'Backwash',     desc: 'how far the snap throws', icon: '🌊', base: 0.40, kind: 'pct' },
+    backClaw: { name: 'Back Claw',    desc: 'a second claw guards your back', icon: '🦀', kind: 'switch' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -2713,6 +2791,41 @@ export const PRISM_SPREAD = 1.4      // rad, ~80deg corner to corner
 // a continuous fan behind whatever it is cutting through.
 export const PRISM_FLASH_T = 0.26
 
+// ---- Surf weapons (v7.55: Pincer) -------------------------------------------------------------
+// The claw is not centred on the player — it is HELD OUT, between you and what is coming, which is
+// the whole picture the owner described ("you put it in towards the nearest enemy like a shield").
+// The offset is a fraction of the claw's own catch radius rather than a fixed number of pixels so
+// that Long Arm (+r) extends the REACH as well as the catch zone; a flat offset would just grow a
+// blob around the same spot, which is the "same hit, bigger" shape a reach mod must never have.
+// It is deliberately GREATER THAN 1, and that is a design decision as much as an art one:
+//   - the catch circle then sits almost entirely IN FRONT of the player (from 0.35r to 2.35r along
+//     the aim), so the claw guards the direction it is pointed instead of being a bubble centred on
+//     you. "Like a shield" is the owner's word for it, and a shield you can walk behind is a
+//     different object from an aura;
+//   - the claw is a small thing at the end of a thin limb rather than a slab across the whole
+//     viewport. The first cut held a 62px claw 46px out, and at 2r of drawn claw that is 160px of
+//     solid orange across a 390px phone — it read as a starfish, and the player vanished under it.
+// At L1: a 68px hold on a 50px claw, so 118px of total reach — inside the Flagella Whip's 130. At
+// L5 it is 89 + 66 = 155, still under the whip's 175.
+// THE GUARD IS AN ARC ANCHORED TO YOU, not a disc held out in front (owner ruling 2026-08-14,
+// replacing the held-out claw). Half-angle in radians, so the guard spans 2x this: 1.22 rad is a
+// ~140 degree fan across the side you are facing.
+//
+// WHY THE OLD SHAPE WAS THE BUG, measured over 6 seeded 240s kiting runs at surf d3 before the
+// change. The claw was a disc of radius r whose CENTRE sat 1.35r out toward the nearest enemy, so it
+// covered a band from 0.35r to 2.35r along that ray and nothing off it:
+//   - the nearest enemy — the body the claw was literally aimed at — was inside the claw only
+//     20.5% of the time at L1 and 27.5% at L5. It spent three quarters of its life armed, pointing
+//     at something it could not reach.
+//   - of the enemies actually OVERLAPPING the player, 33% (L1) to 45% (L5) were outside it, because
+//     a disc pointing one way cannot cover a body being touched from several.
+// So it was neither a shield (it did not cover you) nor a reach weapon (it did not reach what it
+// aimed at), and the weapon census could not see any of that: output was fine (66 effective dps
+// against the Flagella Whip's 71). What was broken was the loop between aiming and hitting.
+//
+// An arc anchored to the player fixes both by construction: it always covers the half you face,
+// including bodies already on you, and it can never point at something outside its own reach.
+export const PINCER_ARC = 1.22
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
   const out = []
@@ -3290,7 +3403,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  downward: { name: 'Downward', chapters: ['shelf'], hidden: [], wip: true },
+  undertow: { name: 'Undertow', chapters: ['surf', 'shelf', 'reef'], hidden: [], wip: true },
 }
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
@@ -3298,6 +3411,13 @@ export const CHAPTER_ORDER = BOOKS.book1.chapters
 // branches on its ledger entry being ABSENT), so sweeping it in here would change shipped
 // behaviour for a refactor that is supposed to change none.
 export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
+
+// Humidity's damage floor (owner ruling 2026-08-13, §5.3 of the design doc — see resourceDamageMul
+// below, beside refillSpec, for the full explanation). Declared here, ahead of CHAPTERS, purely so
+// CHAPTERS.surf.resource can reference the name directly instead of duplicating the number as a
+// second literal — a `const` referenced inside an object literal must already be initialized, and
+// CHAPTERS is built as one literal below.
+export const HUMIDITY_DMG_FLOOR = 0.7
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -3779,26 +3899,28 @@ export const CHAPTERS = {
       cast: ['jet', 'helicopter', 'tankColumn'],
       bgColor: 0x2a3240,    // dark storm indigo-grey sky showing between the rubble
       floorTint: 0x717c88,  // wet-asphalt cool grey multiply — rain-slicked night wreckage
-      // playerTint/tailTint: read only when `kaiju` (below) is false — render.js's syncPlayer
+      // playerTint/tailTint: read only when `form` (below) isn't 'kaiju' — render.js's syncPlayer
       // bypasses BOTH for the dedicated kaiju bake (SKIES_KAIJU carries its own final palette
       // directly, the same "plans carry their own palette" rule the top-down structures use).
       // Kept here, rather than deleted, as the schema every other chapter's render block follows
-      // and as the fallback if `kaiju` were ever turned off.
+      // and as the fallback if `form` were ever cleared.
       playerTint: 0x7ad07a, // classic rubber-suit kaiju green
       tail: true,
       tailTint: 0x5fb05f,   // a heavier, darker kaiju tail (tailLash's business end)
-      // v5.11 kaiju redesign: the player was STILL the generic cross-chapter blob — identical
-      // silhouette to body/pond/garden/undergrowth/city/beyond, just retinted, at ~44px on screen
-      // (2 x PLAYER.radius) next to a tower that now draws up to 96px (SKIES_STRUCTURE_ART.tower).
-      // `kaiju: true` gates a SKIES-ONLY body/tail rig in render.js (chapterHasKaiju, mirroring the
-      // chapterHasStorm/chapterHasDistricts latch pattern) — a real top-down silhouette (shoulders,
-      // jawed head, fore/hind limbs, a baked dorsal-plate spine) at a size that actually dwarfs a
-      // tower, plus a proper segmented tail replacing the generic flagellum (T.fx.trace_05) that
-      // pond/undergrowth's `tail: true` still uses UNCHANGED — see render.js's syncPlayer for the
-      // branch. See SKIES_KAIJU below (art direction §5-adjacent, same "counts + palette in
-      // config.js, geometry hardcoded in render.js" split as SKIES_STRUCTURE_ART) for the palette
-      // and detail counts. PLAYER.radius (22) stays the sim hitbox — nothing here is read by sim.js.
-      kaiju: true,
+      // v5.11 kaiju redesign, generalised (undertow): the player was STILL the generic cross-chapter
+      // blob — identical silhouette to body/pond/garden/undergrowth/city/beyond, just retinted, at
+      // ~44px on screen (2 x PLAYER.radius) next to a tower that now draws up to 96px
+      // (SKIES_STRUCTURE_ART.tower). `form: 'kaiju'` gates a SKIES-ONLY body/tail rig in render.js
+      // (playerForm, mirroring the chapterHasStorm/chapterHasDistricts latch pattern) — a real
+      // top-down silhouette (shoulders, jawed head, fore/hind limbs, a baked dorsal-plate spine) at
+      // a size that actually dwarfs a tower, plus a proper segmented tail replacing the generic
+      // flagellum (T.fx.trace_05) that pond/undergrowth's `tail: true` still uses UNCHANGED — see
+      // render.js's syncPlayer for the branch. See SKIES_KAIJU below (art direction §5-adjacent,
+      // same "counts + palette in config.js, geometry hardcoded in render.js" split as
+      // SKIES_STRUCTURE_ART) for the palette and detail counts. PLAYER.radius (22) stays the sim
+      // hitbox — nothing here is read by sim.js. (CHAPTERS.surf.render.form === 'fish' is the same
+      // idiom's second user — see that chapter's own render block.)
+      form: 'kaiju',
       storm: true,          // v5.6.18: gates the night-thunderstorm overlay (cloud-shadows,
                              // parallax clouds, rain — STORM_VIS below, render.js updateStorm)
       districts: true,      // v5.7.x: gates the per-cell Voronoi district floor/prop system
@@ -3927,7 +4049,7 @@ CHAPTERS.blank = {
             ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
 }
 
-// v7.x Book 2 ("Downward"), phase 1 — The Shelf, WEARING THE POND'S CLOTHES. Literally: this is a
+// v7.x Book 2 ("Undertow"), phase 1 — The Shelf, WEARING THE POND'S CLOTHES. Literally: this is a
 // spread of CHAPTERS.pond with a new name, so every roster entry, weapon, tint and balance number
 // it has is A STAND-IN AND NOT A DESIGN. Written as a spread rather than a 45-line copy on purpose
 // — a copy drifts silently and starts reading like a decision, whereas this cannot be mistaken for
@@ -3990,7 +4112,10 @@ CHAPTERS.shelf = {
   roster: [
     { id: 'copepod', archetype: 'normal', name: 'Copepod',    hpMul: 1,   speedMul: 0.9, flags: ['split'] },
     { id: 'krill',   archetype: 'fast',   name: 'Krill',      hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
-    { id: 'jelly',   archetype: 'tank',   name: 'Moon Jelly', hpMul: 2.5, speedMul: 0.6, flags: ['phase', 'unshakeable'] },
+    // -25% health, +25% xp (owner's tune): a moon jelly was the longest thing in the chapter to
+    // chew through and paid a tank's flat rate for it. xpMul is separate from hpMul precisely
+    // so the two can move in opposite directions like this.
+    { id: 'jelly',   archetype: 'tank',   name: 'Moon Jelly', hpMul: 1.875, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'] },
   ],
 
   signature: { type: 'shafts', cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
@@ -4061,10 +4186,13 @@ CHAPTERS.shelf = {
     dark: { from: 0.5, speedFloor: 0.6, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
-  // Book 2's opening chapter, so it sits at the bottom of its OWN ladder rather than partway up
-  // Book 1's: maxAlive between body's 0.45 and pond's 0.60, HP between body's 0.75 and pond's 0.85.
-  // The coin purse is shared, so this has to read for a 0-card newcomer and an 8-card veteran alike.
-  balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.8, xpMul: 1.25, maxAliveMul: 0.5 },
+  // Book 2's SECOND chapter now (Task 9 gave The Surf the onboarding job this chapter used to
+  // hold), so it firms up by exactly the step Book 1 takes for the same chapter1->chapter2 move —
+  // body -> pond leaves spawnMul/enemyDmgMul/xpMul flat and moves only enemyHpMul (+0.10) and
+  // maxAliveMul (+0.15). Applied to this chapter's own prior numbers (0.75/0.75/0.8/1.25/0.5) that
+  // lands here. The coin purse is shared, so this still has to read for a 0-card newcomer as much
+  // as an 8-card veteran — one step, not a wall.
+  balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.65 },
 
   // ---- render-only. Owner: "this looks too much like the pond ... we're at the SURFACE of the
   // ocean, we're not in a pond, so green is weird. it should be more blue, with waves." ----
@@ -4118,6 +4246,350 @@ CHAPTERS.shelf = {
              light: 0xdaf0ff, lightA: 0.08, dark: 0x06304f, darkA: 0.10 },
   },
 }
+// Book 2 chapter 1. Spreads pond for the same reason The Shelf does — a working balance table and
+// obstacle field to start from — then overrides everything that makes it a beach: its own roster,
+// signature (the tide, its sandbars and its tide pools), Humidity, arsenal, balance table and
+// render block. Nothing but `obstacles`, `eliteFlags` and the chapter-agnostic scaffolding is
+// still the pond's.
+CHAPTERS.surf = {
+  ...CHAPTERS.pond,
+  name: 'The Surf',
+  tagline: 'the tide decides',
+  icon: '🏖️',
+  // The `normal` lane is deliberately FLAGLESS. An onboarding chapter needs one enemy that simply
+  // walks at you: with a flag on all three there is no baseline against which the other two read as
+  // special. (The first draft gave the sandhopper dashBurst and had no plain enemy at all.)
+  roster: [
+    { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9, speedMul: 1,    flags: [] },
+    { id: 'shorecrab',  archetype: 'tank',   name: 'Shore Crab',  hpMul: 2.2, speedMul: 0.75, flags: ['unshakeable'] },
+    { id: 'gull',       archetype: 'fast',   name: 'Gull',        hpMul: 0.8, speedMul: 1.15, flags: ['diveBomb'] },
+  ],
+
+  // The tide. `surge` is peak lateral speed in px/s and `period` a full surge->backwash cycle; the
+  // push is a sine, so it is zero-mean and cannot walk the player off the map over a 300s run.
+  // axis is radians — 0 means the shore runs along y and the water shoves you along +/- x.
+  //
+  // 46 px/s sits inside the two hard numbers the joystick imposes (see CHAPTERS.shelf.signature's
+  // block for the full derivation): above 33, the DEADZONE 0.15 x baseSpeed 220 floor, or the
+  // player cannot express a slow correction against it; and far under 220, or the surge is not a
+  // push but a wall. It is deliberately felt rather than fought — chapter 1 teaches "the map is not
+  // neutral" and then lets you win the argument.
+  signature: {
+    type: 'tide', surge: 46, period: 14, axis: 0,
+    // Sandbars: dry ground you can walk onto. `slowMul` composes with every other slow by MIN (see
+    // the slow-composition note in sim.js), so it is the FLOOR the chapter can impose, never a stack.
+    // drainMul multiplies the resource drain while you stand on one. See `resource` below for the
+    // measured split between this and the ambient drain, and for why the first tune was a clock.
+    bars: { cell: 620, chance: 0.42, r: 150, minDist: 380, slowMul: 0.62, drainMul: 24 },
+
+    // Tide pools: the refill. Same vocabulary as the shelf's shafts and the pond's eddies — cell is
+    // the grid, chance a DIRECT per-cell occupancy probability, minDist spawn-ring clearance from
+    // the run ORIGIN. No drift: a pool is a hole in the sand, and the thing that moves in this
+    // chapter is the water, not the ground.
+    pools: { cell: 700, chance: 0.55, r: 165, minDist: 420 },
+  },
+
+  // Humidity. `drain` is the ambient cost of being out of the water at all, and standing on a
+  // sandbar multiplies it by signature.bars.drainMul.
+  //
+  // THE SPLIT BETWEEN THOSE TWO IS THE WHOLE DESIGN, and the first cut had it backwards. §5.3
+  // accepts a bar that drives damage only because "the sandbar is a PLACE, so the player can always
+  // see the cause and step off it" — which is false the moment the ambient drain is the bigger
+  // number. At 1.6/s ambient x4 on the bar, scripts/charge-probe.mjs measured a kiting player at
+  // 15.5% sandbar occupancy losing 1.6/s no matter where they stood against 0.74/s from the sand:
+  // 68% of the loss was a CLOCK the player could do nothing about.
+  //
+  // THE FIX IS NOT "MAKE THE SAND HURT MORE" — the sandbar's cost barely moved (6.4/s -> 7.2/s).
+  // What changed is that standing ANYWHERE ELSE is now nearly free, which is what turns the bar from
+  // a countdown into a map. Measured, 300s x 3 seeded runs, all three spend policies, all four
+  // movement/thief rows (scripts/charge-probe.mjs --chapter surf), before -> after:
+  //   - the ambient share of a kiting player's loss: 68% -> 22%. The sand is now 78% of it.
+  //   - base kite hoard (pure supply vs drain, a player ignoring the mechanic): mean 31.1 -> 56.7,
+  //     and the time pinned at zero 29% -> 1%. That is the headline: the floor stopped being the
+  //     resting state, so the multiplier now lives in its top half where a player can feel it move.
+  //   - base seek hoard (a player working the pools): 76.7 -> 89.2, %atMax 2% -> 8%.
+  //   - a kiting player who ACTUALLY avoids the sand loses only 0.3/s against a passive 1.6/s of
+  //     pool coverage, i.e. pins at full. Avoiding sandbars is now a real, sufficient strategy, and
+  //     that is the "place, not a clock" claim being literally true rather than asserted.
+  // The ambient drain is NOT zero on purpose: over 300s it is still 90 points, so a player who
+  // never touches a pool ends the run dry. It is a slope, not a countdown.
+  //
+  // ⚠ The `full` and `greedy` spend rows stay low (12.7 and 4.7 mean) and that is NOT this tune
+  // failing: PULSE_CHARGE_COST is 45 of 100 on a ~6s cooldown, so a player who uses the button is
+  // spending up to 7.5/s — five times the whole drain — and the button and the damage multiplier
+  // are simply competing for one bar. That is a DESIGN question for the owner (which of the two the
+  // bar is for), not a number to retune here, and it is unresolved.
+  //
+  // `damage` is the §5.3 owner-ruling override: only Humidity carries this key, which is what makes
+  // resourceDamageMul() (config.js) a no-op everywhere else. floor reuses HUMIDITY_DMG_FLOOR rather
+  // than a second literal, so the two never drift apart.
+  resource: { name: 'Humidity', drain: 0.3, refill: 20, killRefill: 1.2, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
+
+  // A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above shares pond's
+  // `balance` table BY REFERENCE (see CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles in
+  // shipped code — the same hazard, one field over), so `CHAPTERS.surf.balance.spawnMul = …` in
+  // place would rewrite The Pond's own curve too.
+  //
+  // The Surf is Book 2's onboarding chapter, so it takes the gentle numbers The Shelf held while IT
+  // was chapter 1. Humidity taxes damage on top of everything here (see resourceDamageMul), which is
+  // a pressure no other first chapter carries — hence spawnMul under the pond's own 0.75.
+  balance: { spawnMul: 0.68, enemyDmgMul: 0.7, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
+
+  // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
+  // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push('pincer')` would hand The
+  // Pond a crab claw and nothing would throw (the same hazard the render block below documents, and
+  // the reason CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is `true` in shipped code).
+  // The design's "two reused from the pond, plus new Pincer": the whip and the bloom, which give the
+  // chapter one melee arc and one zoner beside the parry — three different SHAPES, where the cysts
+  // would have been a second thing you plant and wait for. Pincer is the starter, so a player's
+  // first minutes in Book 2 are spent learning the one weapon nothing else in the game behaves like.
+  weapons: ['pincer', 'flagella', 'bloom'], starter: 'pincer',
+
+  // ---- render-only. Written WHOLESALE rather than spread from the pond's, exactly as The Shelf's
+  // is: `...CHAPTERS.pond` above shares the pond's render object BY REFERENCE, so writing
+  // `CHAPTERS.surf.render.cast = […]` in place would rewrite The Pond's render block too (see
+  // CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles in shipped code).
+  //
+  // THE BEACH PALETTE. This chapter wore the pond's teal (0x2e6258 / 0x66c2a9) for four commits
+  // while its three creatures were deliberately baked against pale warm sand — see the "Surf
+  // chapter (Book 2 ch 1, pale sand)" block in render.js, whose whole contrast argument (the crab
+  // is the one hue sand never reaches, the hopper a step down in VALUE from it, the gull the cold
+  // near-white the warm floor cannot touch) was true of a floor that did not exist yet.
+  //
+  // DAMP sand, not dry, and that is load-bearing rather than flavour: the sandbars are DRY sand, and
+  // a pale patch on a pale floor is a patch nobody can see. Wet sand really is a value step darker
+  // than dry, so the floor takes the darker warm tan and SANDBAR_VIS keeps the bright one — the
+  // mechanic and the physics want the same picture. The gull still wins on value from above, the
+  // crab still owns a hue the sand cannot reach, and the tide pools (deep blue) read as holes.
+  //
+  // playerTint is 0xffffff and not the pond's cyan: syncPlayer forces white for a chapter with its
+  // own `form`, so the fish's rust-coral bake shows as drawn — but the level-up MINIME copies read
+  // chapterRender.playerTint directly, and pond's 0xb0f0ff turned those into teal ghosts of a
+  // red fish. Same rule as skies, which sets its own for exactly this reason.
+  //
+  // form: 'fish' (v5.11 kaiju redesign, generalised for undertow): the player is a small fish here,
+  // not the generic cross-chapter blob — see render.js's drawFish (in this chapter's own roster
+  // section) and the playerForm branches in syncPlayer. Same idiom CHAPTERS.skies.render's
+  // `form: 'kaiju'` uses. ONE body serves all of Book 2; `formScale` is the book's "you grow in each
+  // chapter" arc and The Surf, being the smallest you ever are, leaves it at its default 1.
+  // tail: false overrides pond's inherited `tail: true` — the fish's own body already ends in a
+  // caudal fin, so pond's separate trailing flagellum sprite would double up on one.
+  render: {
+    cast: ['sandhopper', 'shorecrab', 'gull'],
+    form: 'fish',
+    // Blown sand, not motes. render.js's ambient dust sprite is a white radial dot shared by every
+    // chapter; over this floor it reads as smudges on a lens, and it is the single biggest thing
+    // that made the first cut of this beach look dirty rather than bright. A warm grain darker than
+    // the sand turns the same 14 sprites into wind.
+    dust: { tint: 0x8a6f45, alpha: 0.45 },
+    bgColor: 0xbca27a,     // damp warm sand between the floor blotches
+    floorTint: 0xe0c79c,   // sun-bleached wash over the wrack and marram (see BIOME_SURF)
+    playerTint: 0xffffff,
+    tail: false,
+    eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8], // soapTrail elites, inherited with the pond's flag
+  },
+}
+// Book 2 chapter 3 — THE FIRST LEFT-TO-RIGHT SCROLLER. Written as a WHOLE literal rather than
+// `{ ...CHAPTERS.shelf }`, deliberately: the spread shares every nested object BY REFERENCE
+// (CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is literally true in shipped code), and
+// this chapter overrides every one of them anyway — so spreading would buy nothing but the standing
+// risk that a later edit "modifies" one in place and silently rewrites The Shelf's. It also means
+// The Shelf's `resource` (Light) and `signature` (sun shafts) do NOT leak in, which is the whole
+// difference between a shell to build on and a copy of chapter 2 that scrolls.
+//
+// THE LANE, SIDEWAYS. `lane: true` is what The Beyond has always meant — the view auto-scrolls, you
+// hold station on screen, and the joystick gives you nothing but the two directions ACROSS the
+// corridor. `laneAxis: 'x'` is the only new thing: forward is +x instead of -y, so the reef streams
+// past from the right and your strafe is up and down. Everything the lane already owns follows the
+// axis through laneAxes() (config.js, beside laneHalfWidth): the walls, the ranks, the drifting
+// rock, the leak line, the camera's trailing-edge anchor. `lane` stays the BOOLEAN true — sim.js
+// compares it with strict equality in two places, so the direction had to be its own field.
+//
+// ⚠ EVERYTHING BELOW MARKED "borrowed" IS A STAND-IN, not a design. The chapter's own art, its two
+// native weapons (Squid Ink, Oxygen Tank) and its signature mechanic are all later tasks; this
+// exists so the x-lane is playable and testable today.
+CHAPTERS.reef = {
+  name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
+  lane: true,
+  laneAxis: 'x',
+  // 45 rather than the shared 70 — see laneScrollFor's block. Measured, not felt: on a 390x844 phone
+  // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
+  // chapter would give HALF The Beyond's reaction time on the device the game ships to.
+  laneScroll: 45,
+
+  // BORROWED ARSENAL — placeholder until Squid Ink and Oxygen Tank land. Picked for the LANE rather
+  // than for the theme, because a scroller only works if the starter can answer things arriving from
+  // ahead: the stinger is a forward cone at the nearest enemy, the quill ring does not care which way
+  // you face at all, and the Pulsar Sweep is the one weapon in the game that already knows what a
+  // lane is (firePulsar anchors its fan to the chapter's forward heading instead of to nearestEnemy —
+  // which is now this chapter's +x rather than The Beyond's -y, off the same laneAxes descriptor).
+  weapons: ['stinger', 'quillBurst', 'pulsarSweep'], starter: 'stinger',
+
+  // The cast. All three flags already exist in sim.js and are chapter-agnostic, so this roster is
+  // real behaviour rather than a placeholder: the damselfish is the deliberately FLAGLESS baseline
+  // (the same argument CHAPTERS.surf's roster makes — with a flag on all three, none of them reads
+  // as special), the moray latches and slows you, and the lionfish pounces.
+  //
+  // Each has its own baked body in render.js's ROSTER_LOOKS (drawMoray/drawDamselfish/drawLionfish),
+  // all three in PLAN VIEW, and each drawing telegraphs its flag: the moray's gape, the lionfish's
+  // fan (which folds flat on the leap, off the pounce state machine), and the damselfish's plain
+  // barred spindle. See that block for the palette argument.
+  roster: [
+    { id: 'damselfish', archetype: 'normal', name: 'Damselfish', hpMul: 1,   speedMul: 1,    flags: [] },
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2, speedMul: 0.7,  flags: ['latch'] },
+    { id: 'lionfish',   archetype: 'fast',   name: 'Lionfish',   hpMul: 0.9, speedMul: 1.15, flags: ['pounce'] },
+  ],
+  eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with The Surf and The Shelf
+
+  // AIR POCKETS. The signature carries no mechanic of its own — the LANE is this chapter's gimmick
+  // — it carries the geometry of the one thing that refills the bar, in the same vocabulary as the
+  // Shelf's shafts, the Surf's tide pools, the pond's eddies and the undergrowth's traps: `cell` is
+  // the grid, `chance` a DIRECT per-cell occupancy probability, `r` the radius that is both drawn
+  // and tested, `minDist` spawn-ring clearance from the run ORIGIN. refillSpec() finds it, so
+  // streamShafts materialises it, render.js draws it and scripts/charge-probe.mjs measures it with
+  // no chapter name anywhere in any of the three.
+  //
+  // `salt` is REQUIRED HERE and is the one field the other two refill specs do not set. Salts are
+  // the streamers' anti-collision registry (sim.js, above obstacleCellHash): 0-4 obstacles, 11-14
+  // eddies, 15-17 traps, 20-23 shafts/pools, 30-32 sandbars. A collision is SILENT — two fields
+  // land in identical cells and it reads as "the mechanic spawns on top of the other one", never as
+  // an error — so this chapter claims block 40, reserved for it in the Book 2 plan, rather than
+  // inheriting streamShafts' 20 because it happens to be the function doing the streaming.
+  //
+  // THE REFILL IS A FIGHT, which §5.2 requires of every one of them, and here it falls out of the
+  // arithmetic rather than being asserted. Jitter slack is cell/2 - r - 20 = 170, so a pocket's
+  // centre sits at |cross| in [150, 490] and its inner edge at |cross| in [20, 360]: there is NO
+  // pocket on the centre line. Taking one means committing to a side of a lane you cannot stop in,
+  // while the scroll carries you through it in at most 2r/laneScroll = 5.8s and everything that
+  // wants to kill you keeps arriving from ahead. Run RF.a pins the no-pocket-on-the-centre-line
+  // property, because it is the whole of that claim and it is one bad `chance` away from being
+  // false.
+  signature: {
+    type: 'air',
+    pockets: { cell: 640, chance: 0.5, r: 130, minDist: 420, salt: 40 },
+  },
+
+  // AIR. Ambient drain, always — you are a fish carrying a lungful through a reef, and the clock
+  // is the chapter. Refill ONLY at the pockets above; there is no second source and no passive
+  // trickle, which is what makes the pockets worth crossing the lane for.
+  //
+  // A SLOPE, NOT A COUNTDOWN, which is the lesson The Surf's own resource block was rewritten
+  // around: a bar that falls at a rate the player cannot argue with is a timer wearing a resource's
+  // clothes. Here the argument is the pockets, and the check is that the two poles come out on
+  // OPPOSITE SIDES of empty.
+  //
+  // MEASURED — scripts/charge-probe.mjs --chapter reef, 300s x 3 seeded runs, difficulty 1,
+  // immortal. Its `kite`/`seek` policies CANNOT BE EXPRESSED IN A LANE (the stick has no forward
+  // component here), so the probe grew two lane policies for this chapter and the pair is the
+  // answer — `centre` holds the middle and never commits to a side, `pocket` steers at the nearest
+  // reachable pocket ahead. Never quote one alone:
+  //
+  //   policy               mean  %at0  %atMax  %inPocket   the reading
+  //   base centre hoard    12.2    76       0        0.0   ignore it and you drown
+  //   base pocket hoard    88.1     0       9       21.2   work it and the bar cycles, 24..100
+  //   base pocket full     18.3    28       0       26.3   ...and spend it on the button as well
+  //   thief centre hoard   20.7    17       0        0.0   Light Thief roughly halves the drowning
+  //   thief pocket hoard   96.0     0      15       17.6
+  //
+  // The two hoard rows are the headline: 76% of the run at zero against 0%, off the same tune, on
+  // the same seeds, decided entirely by whether the player commits to a side of the lane. That is
+  // the bar being a map rather than a clock, stated as a measurement instead of as an intention.
+  // The `centre` row is not a strawman — %inPocket is exactly 0.0 because the jitter budget puts
+  // every pocket's centre at |cross| >= 150, so a player who never leaves the middle physically
+  // cannot touch one.
+  //
+  // ⚠ THE BUTTON AND THE SECOND JOB SHARE ONE BAR, and `pocket full` is where that shows: a player
+  // who spends PULSE_CHARGE_COST (45 of 100, ~6s cooldown) whenever they can afford it drives the
+  // bar into a 0..45 sawtooth and spends 28% of the run drowning. That is NOT this tune failing —
+  // it is the same unresolved design question CHAPTERS.surf.resource records, and it is arguably
+  // healthier here: on The Surf the cost is a damage multiplier nobody can feel, where here it is a
+  // trade the player can name ("I spent my air on a dash, now I am drowning"). Light Thief is the
+  // shipped mitigation and prices itself accordingly (28% -> 11%).
+  //
+  // killRefill 0.2 AND NOT THE SHELF'S 1.5, because the chapter kills six times as fast: the lane
+  // runs two spawners and the probe measures ~4.8 kills/s here against ~0.8 on The Shelf. At 1.2 it
+  // paid 5.8/s against a 1.4/s drain and simply ABOLISHED the bar — `thief centre hoard` pinned at
+  // 100 with the player never touching a pocket, i.e. the purchase deleting the chapter's mechanic
+  // rather than changing how it is played. Read a killRefill against its chapter's KILL RATE, never
+  // against another chapter's number.
+  //
+  // `drown` is this bar's second job (§5.2): at empty you take drown.dps as damage over time until
+  // you breathe. See DROWN_TICK's block for why it is a DoT and not a damage multiplier, and for
+  // why it deliberately introduces no new event.
+  //
+  // killRefill is shop-gated exactly as The Shelf's and The Surf's are (meta.lightThief ->
+  // run.killRefill at createRun), so the numbers above have to work with it at ZERO.
+  resource: { name: 'Air', drain: 1.4, refill: 9, killRefill: 0.2, max: 100, drown: { dps: 4 } },
+
+  // Coral heads: bigger than the pond's pebbles, far smaller than The Beyond's planets, and spaced
+  // so you meet one every few seconds rather than a field of them.
+  obstacles: { count: 8, cell: 620, minR: 70, maxR: 150, minDist: 420 },
+
+  // THE CORAL IS SOLID, and only here. `stepObstacles` early-returns for every `lane` chapter, and
+  // its comment names exactly what that protects: the radial push-out was shoving the player back
+  // DOWN the lane on ~10% of frames, locally reversing the one constant the mode guarantees, and it
+  // broke rank by shoving formations apart sideways. Both are still true, so this field turns
+  // collision on under three restrictions rather than lifting the early return:
+  //   1. THE PLAYER ONLY. Enemies keep passing through, so a marching rank still holds its shape —
+  //      that half of the old comment is not a bug to be fixed, it is the reason ranks read as ranks.
+  //   2. ACROSS THE LANE ONLY. The push-out resolves on the cross axis, so a wall may shoulder you
+  //      sideways and can never move you along the lane in EITHER direction — not backward (the
+  //      shipped bug) and not forward either, which would be a free Burst.
+  //   3. ONLY WHERE YOU COULD HAVE GONE ROUND. A coral whose circle pokes out of the lane is
+  //      scenery; solidity there would be a stretch of corridor with no gap, i.e. the structural
+  //      trap §8.2 forbids, and it would fight the wall clamp for the player's position every frame.
+  // ⚠ It is a per-chapter field and NOT a widening of `lane`, so The Beyond comes out bit-identical
+  // — run LN is the proof, and it must stay a captured golden master rather than be re-baselined.
+  laneSolid: true,
+
+  // The button. See BURST_* above for the cast; the flag is here so the chapter reads as a set with
+  // `lane` and `laneSolid` — the lane denies you the forward axis, the coral makes that denial cost
+  // something, and this is what buys it back.
+  burst: true,
+
+  // ⚠ UNMEASURED FIRST CUT. It mirrors the step Book 1 takes from its own chapter 2 to its chapter 3
+  // (pond -> garden: the damage and xp cushions come off, spawnMul +0.01, enemyHpMul +0.05,
+  // maxAliveMul +0.10) applied to The Shelf's numbers, which is the same argument CHAPTERS.shelf's
+  // own balance block makes for its position in the ladder. It has NOT been through a headless probe.
+  // Read it alongside the lane's own pressure, which multiplies on top and is not in this table:
+  // LANE_SPAWN_MUL thins the ordinary ring stream to 0.55 and stepFormations adds ranks beside it.
+  balance: { spawnMul: 0.76, enemyHpMul: 0.95, maxAliveMul: 0.75 },
+
+  // ---- render-only (ZERO sim effect) ----
+  // DEEPER WATER THAN THE SHELF'S, ON PURPOSE. bgColor/floorTint are the pair render.js composites
+  // into the "effective floor" every prop and creature is judged against (the model in
+  // scripts/obstacle-contrast.mjs): The Shelf's 0x18567f/0x9fd6f0 lands at WCAG luminance 0.210,
+  // these land at 0.150 — one clear step darker, i.e. deeper water. That step is what buys the reef
+  // its own identity, because the chapter's decor is WARM (coral reds, magentas, violets — see
+  // BIOME_REEF in render.js) and warm decor needs a floor that is unambiguously cold and dark to sit
+  // on. Keeping The Shelf's floor and only retinting the props would have read as The Shelf with red
+  // weeds in it.
+  //   ⚠ floorTint is a MULTIPLY, and it multiplies the PROPS too. At 0xa9cfe0 = (0.66, 0.81, 0.88)
+  //   every warm prop tint loses a third of its red before it reaches the screen, so BIOME_REEF's raw
+  //   tints are authored several steps hotter than the colour they are meant to end up as. Cool the
+  //   tint further and the corals cannot read as coral at all; warm it and the water stops being blue.
+  // form: 'fish' + formScale — ONE body serves all of Book 2 and grows a step per chapter (The Surf
+  // leaves it at the default 1, The Shelf is next). playerTint MUST stay white with a `form`:
+  // syncPlayer forces white for the body itself, but the level-up MINIME copies read this value
+  // directly and a tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
+  render: {
+    // The chapter's own three, normal/fast/tank like every other card. These are baked into
+    // src/cast/<id>.png by `node scripts/bake-cast.mjs` — hand-run, and nothing warns you if they
+    // go stale, so re-run it whenever one of the three draw fns changes.
+    cast: ['damselfish', 'lionfish', 'moray'],
+    form: 'fish',
+    formScale: 1.3,
+    bgColor: 0x0a3358,
+    floorTint: 0xa9cfe0,
+    playerTint: 0xffffff,
+    tail: false,
+    // COOL, and deliberately so on the one warm chapter in the book. The iridescence multiplies the
+    // creature's own bake, so a warm cycle on a warm reef is the one combination that could let an
+    // elite melt into the coral behind it; aqua and mint cannot. A first cut ran coral/rose/aqua and
+    // turned the elite damselfish — the chapter's only achromatic body — pink.
+    eliteIridescent: [0xc4f0ff, 0xd9fff0, 0xffd9e8],
+  },
+}
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -4162,6 +4634,122 @@ export const EDDY_VIS = {
   ringWidth: 3,
   pulseAmp: 0.08,        // subtle alpha breathing so a stationary eddy doesn't look static
   pulseRate: 3.0,        // rad/s
+}
+
+// ---- The Surf's three visible mechanics (v7.x Book 2, render.js) ----------------------------
+// All three of the chapter's map mechanics shipped as SIM ONLY: the tide shoved you, the sandbars
+// slowed and dried you, and the tide pools refilled Humidity, with nothing on screen for any of
+// them. The design's own §6.1 asks this chapter to teach "the map is not neutral", and §5.3's named
+// mitigation for letting the bar drive damage is that "the sandbar is a PLACE, so the player can
+// always see the cause and step off it" — neither survives an invisible map. These are the numbers
+// behind the three renderers, here rather than in render.js because every tunable in this repo is.
+
+// The surge, drawn. The tide reuses the pond's flow-streak field (render.js updateCurrents) rather
+// than inventing a second one — same pool, same fade envelopes, sampling tideForce(run) instead of
+// currentForce(). Spread over CURRENT_VIS so only what the beach actually changes is stated here.
+//   - speedMul 2.2 (vs the pond's 3.6): the tide's 46 px/s peak is already three times the pond's
+//     ambient drift, so the pond's exaggeration would have the water outrunning the player.
+//   - tint: pale blue-white foam, not the pond's green-cyan — this is the open surface, and the
+//     floor it draws over is sand rather than weed.
+//   - the streaks REVERSE with the surge, which is the whole point: a cue that only ever pointed
+//     one way would read as a wind, not as a tide with a backwash.
+//   - the streaks are BIGGER and far more opaque than the pond's, and that is not a taste call: the
+//     pond's tint is a saturated teal-white on a dark murky floor, where this draws over pale sand.
+//     Measured against the beach's effective floor (bgColor 0xbca27a, luminance ~0.38), the pond's
+//     own 0.5 alpha lands a contrast of about 1.5x — under the >=2x the obstacle-footprint audit
+//     asks of anything whose job is to be noticed. 0.72 on white takes it to ~2.0x. The first cut
+//     shipped the pond's numbers and the surge was, on screen, a scatter of faint flecks.
+export const TIDE_VIS = { ...CURRENT_VIS, speedMul: 2.2, tint: 0xffffff, alpha: 0.72, lenPx: 74, widthPx: 15, rippleEvery: 2.6 }
+
+// Tide pools (render.js updateShafts, the `pool` look). The Shelf's shafts and The Surf's pools are
+// the same circle in the sim — both live in run.shafts, both come from refillSpec() — and must not
+// be the same circle on screen: a shaft is a warm additive column of light, a pool is a hole in wet
+// sand with water standing in it. Drawn as a body of water rather than a glow, seen from directly
+// overhead like everything else in this game.
+// waterFrac is the ONE number with a contract behind it: the stroked rim sits at exactly
+// signature.pools.r, so the drawn extent is the tested extent (the same rule the web decal and the
+// eddy ring state — a refill circle you can see the edge of is a circle you can learn by eye), and
+// the damp collar fills the band between the water's edge and it.
+// THE PALETTE IS WARM-BIASED ON PURPOSE. The first cut wore an aquarium teal with a bright cyan
+// meniscus, and against pale sand that is the only saturated thing on screen — it read as a portal,
+// not as water standing in a hole. What fixes it is not desaturating the water but warming
+// everything that TOUCHES the sand: a wide damp collar and a wet-sand meniscus, so the eye crosses
+// from beach to pool through two intermediate steps instead of one hard edge.
+export const TIDE_POOL_VIS = {
+  collar: 0x7d6746, collarA: 0.42,   // damp sand ring the water has pulled back from
+  water: 0x1d5f6b, waterA: 0.72,     // the standing water itself — deep enough to read as a HOLE
+  shallow: 0x63a08f, shallowA: 0.34, // the shelf inside it, offset so a pool is not a bullseye
+  rim: 0xf2e7cd, rimA: 0.5, rimW: 3, // the meniscus, ON r — wet sand, not a cyan ring
+  waterFrac: 0.9,                    // water edge as a fraction of r; collar spans this..1
+  sheen: 0xd8ecd8, sheenA: 0.10, sheenFrac: 1.15, // sky caught on the surface (additive, breathing)
+  breathe: 0.06,                     // ± fraction the sheen's size wanders — calm water, not a pulse
+}
+
+// Sandbars (render.js syncSandbars). run.webs is the idiom — a ground patch that slows you, baked
+// once and scaled per patch — and the reason a sandbar has to READ as ground rather than as an
+// overlay is §5.3: humidity drives damage, and a damage multiplier is "imperceptible in its top
+// half and a cliff in its bottom" unless the player can see the place that caused it.
+// The rim is drawn at exactly `r`, same drawn-extent-is-tested-extent contract as the pool above.
+export const SANDBAR_VIS = {
+  sand: 0xe8d9b0, sandA: 0.9,        // DRY sand — deliberately a value step above the damp floor
+  crown: 0xf3e8c9, crownA: 0.3,      // the driest, highest part, offset off centre
+  // The ripples have to survive being the ONLY texture on the patch without becoming contour lines:
+  // at 0.42 on a brown they drew a topographic map, which is a different thing from wind on sand.
+  ripple: 0xc8ad80, rippleA: 0.22,   // wind ripples: what makes a pale blob read as SAND from above
+  damp: 0x8a7148, dampA: 0.5, dampW: 5, // the wet margin at the waterline — the edge you step over
+  speck: 0xa88a56, speckA: 0.36,     // shell grit
+  ripples: 7,                        // ripple lines across the patch
+  specks: 26,
+}
+
+// Air pockets (v7.x, The Reef — render.js updateShafts, refillLook 'pocket'). The third look on
+// the ONE refill-circle pool, beside the Shelf's shaft and the Surf's tide pool, and the third
+// answer to the same drawn-extent-IS-tested-extent contract: the rim sits at exactly `r`, because
+// stepCharge tests centre-to-centre against that radius and the player has to be able to tell "am I
+// IN it" at a glance while the lane carries them through it.
+//
+// PLAN VIEW OF TRAPPED AIR, which is the one thing on this list that is not a colour choice. A
+// pocket held under a coral overhang, looked at from directly above, is a MIRROR — total internal
+// reflection makes it a hard silver disc with a bright meniscus, not a soft glow. So it is drawn as
+// a near-white body with a crisp white rim and one offset lobe, over a dark collar for the rock's
+// shadow. That silver is also the one value the chapter cannot otherwise produce: The Reef's floor
+// is deep cold blue (bgColor 0x0a3358) and every prop on it is warm coral, so a bright achromatic
+// disc cannot be confused with either. RAW final colours — shaftLayer lives in entitiesLayer and is
+// never multiplied by render.floorTint, exactly like the eddy and tide-pool decals.
+export const AIR_POCKET_VIS = {
+  shade: 0x0d2b44, shadeA: 0.55,     // the overhang's shadow: the collar the air is trapped under
+  air: 0xe4f4ff, airA: 0.82,         // the air itself — a silver mirror, hard-edged, not a glow
+  lobe: 0xffffff, lobeA: 0.55,       // the brighter blob inside it, offset so it is not a bullseye
+  rim: 0xffffff, rimA: 0.9, rimW: 3, // the meniscus, ON r — the edge the mechanic is tested against
+  airFrac: 0.86,                     // air edge as a fraction of r; the shade collar spans this..1
+  sheen: 0xbfe9ff, sheenA: 0.18, sheenFrac: 1.15, // additive spill onto the water around it
+  breathe: 0.05,                     // ± fraction the sheen's size wanders — trapped air, not a beacon
+}
+
+// A coral head shattering under a Burst (v7.x, The Reef — render.js coralShatter, driven by the
+// SHIPPED {type:'crush'} event that stepCrush already emits). The skies' own crush FX cannot serve
+// this: it is a dust skirt, brick shards and a warm interior spill, and it leaves a permanent RUIN
+// in the render-local ledger — three things that mean something about a demolished building and
+// nothing at all about coral underwater, where there is no dust and no window light.
+//
+// So: hard angular CHUNKS in the bommie's own plum-red (BIOME_REEF.obstacle.tint), which sink under
+// fake gravity rather than drifting, plus a SILT puff that hangs and a few BUBBLES that rise — the
+// three things that actually happen when you break rock in water. No ledger entry and no scar: the
+// coral is simply gone, which is what run._crushed already guarantees in the sim.
+//
+// ⚠ THE CHUNKS ARE THE COLOUR OF THE INSIDE, NOT OF THE OUTSIDE, and that is a legibility fix
+// arrived at from a screenshot rather than from taste. A first cut threw chunks in the bommie's own
+// surface plum (0x8f3a56 over a 0x0a3358 floor); they drew, they were the right shape, and they
+// were INVISIBLE — dark warm on dark cold, at 25px, for half a second. The honest picture is also
+// the readable one: coral is a white calcium skeleton with a thin living skin, so breaking one open
+// shows bone. Same lesson as the tide pool being darker than its sand — pick the value from what
+// the material actually is, then check it against the floor it lands on.
+export const CORAL_CRUSH = {
+  chunks: 9, chunkSpeed: 150, chunkSpread: 190, chunkT: 0.6, chunkGrav: 190,
+  chunkTint: 0xf7e3d8, chunkTintDark: 0xd79aa6,   // bone, and bone still wearing some of its skin
+  silt: 4, siltSpeed: 50, siltT: 1.2, siltTint: 0xc0aa9e,
+  bubbles: 6, bubbleRise: 95, bubbleT: 0.9, bubbleTint: 0xdff2ff,
+  ringT: 0.34, ringTint: 0xe4f4ff,   // the extent ring, drawn at the coral's own radius
 }
 
 // Night-thunderstorm overlay (skies chapter, v5.6.18, render.js updateStorm): three cosmetic,
@@ -4695,6 +5283,31 @@ export const TYPE_ARCHETYPE = Object.fromEntries(Object.entries(ARCHETYPE_TYPE).
 // It also reads better: a slow forward drift against a quick strafe is the Space Invaders feel,
 // where all your agility is sideways.
 export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane, always
+// PER-CHAPTER OVERRIDE (CHAPTERS[].laneScroll), because the axis changed what 70 MEANS.
+//
+// What a lane chapter actually owes the player is SECONDS OF WARNING — how long between a thing
+// appearing at the leading edge and reaching them — and that is `viewport-ahead / scroll`, not the
+// scroll alone. The player sits at LANE_CAMERA_FRAC (0.8) of the viewport along the forward axis, so
+// the distance ahead is 0.8 x the screen extent ALONG THAT AXIS. Rotating the lane 90 degrees on a
+// portrait phone therefore swaps which screen dimension pays for warning, and measured on a 390x844
+// phone at zoom 1.000 (scripts/fx-probe.mjs, both chapters, same frame):
+//
+//     The Beyond (y): 675 world px ahead  -> 9.6s at 70 px/s
+//     The Reef   (x): 312 world px ahead  -> 4.5s at 70 px/s
+//
+// The ratio is exactly the screen's aspect (844/390 = 2.16 against 9.6/4.5 = 2.13), which is the
+// proof that this is a property of the DEVICE and the axis, not of the chapter's tuning. Half the
+// reaction time on the platform this game actually ships to is not a difficulty choice.
+//
+// So The Reef scrolls slower, chosen against the warning it buys rather than against how it feels:
+// 312/45 = 6.9s, most of The Beyond's, without going glacial on a wide screen.
+//
+// ponytail: the principled fix is to stop storing px/s at all and derive the scroll from a shared
+// LANE_WARNING_SECONDS and the live viewport, which would make every device and both axes agree by
+// construction. It is not done here because it MOVES THE BEYOND on any viewport that is not this
+// phone (640 px ahead on a 1280x800 desktop would give it 66 px/s, not 70), and The Beyond is
+// shipped and tuned. Doing it means re-capturing run LN's golden master with a stated reason.
+export const laneScrollFor = (ch) => ch?.laneScroll ?? LANE_SCROLL_SPEED
 export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base speed — it is all you have
 
 // THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had
@@ -4702,12 +5315,52 @@ export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base 
 // of every rank was off-screen, so ~65% of all damage taken came from invaders the player never saw,
 // and measured survival was 15-18 seconds. Space Invaders has walls for exactly this reason — the
 // formation spans the play area, the play area is what you can see, and every threat is therefore
-// legible. The lane is centred on world x = 0 and the player is clamped to it.
+// legible. The lane is centred on world CROSS-AXIS 0 (x for The Beyond, y for The Reef) and the
+// player is clamped to it.
 // laneHalfWidth() shrinks the lane on a narrow viewport so a rank is ALWAYS fully visible: the
 // guarantee "you can see everything that can hurt you" outranks a fixed world width.
+//
+// ONE NUMBER FOR BOTH AXES, and that is a decision rather than an oversight. viewRadius is the half
+// DIAGONAL (main.js), so it is orientation-blind by construction: an x-lane and a y-lane get the
+// same world-width lane on the same device, which is what keeps every constant measured against it
+// — LANE_HALF_W, FORMATION_COLS' pitch, ROCK_SPREAD_MUL — meaning the same thing in both chapters.
+// ponytail: the honest cross-axis extent is run.viewW/viewH (state.js), and feeding the lane the
+// one it is actually measured ACROSS would deliver the "fully visible" guarantee above literally
+// rather than approximately — today a portrait phone (viewRadius 465, half-width 195) gets a
+// ±418px y-lane more than twice as wide as the screen, which is a pre-existing gap this comment is
+// only now naming. Upgrade path: pass laneAxes(ch).cross's half-extent instead, and re-shoot BOTH
+// chapters at BOTH viewports (the shipped Beyond numbers move the moment you do, so it needs the
+// golden master re-captured with a stated reason).
 export const LANE_HALF_W = 430           // px, half the lane's width at full size
 export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of the viewport radius
 export const laneHalfWidth = (viewRadius) => Math.min(LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
+
+// THE LANE HAS AN AXIS (v7.x). The Beyond scrolls bottom-to-top; The Reef (Book 2 ch 3) scrolls
+// left-to-right. `lane: true` still means "this chapter is a scroller" and is compared with STRICT
+// equality in at least two places in sim.js, so the DIRECTION is a separate optional chapter field,
+// `laneAxis: 'x'` — absent means The Beyond's original 'y'. Do NOT turn `lane` into an object.
+//
+// laneAxes() is the ONE description of "forward" every lane site reads, instead of the same ternary
+// written out at each of them:
+//   fwd / cross      the position FIELD NAMES. Everything the lane does is either ALONG the lane
+//                    (the scroll, the leak line, how far ahead a rank materialises) or ACROSS it
+//                    (the strafe, the walls, a rank's columns, a rock's sideways drift).
+//   vFwd / vCross    the matching velocity fields on run.player.
+//   dir              +1/-1, which way along `fwd` the player advances. Multiplying a coordinate by
+//                    it gives a SIGNED "how far up the lane is this", which is the question the
+//                    leak test and the rock cull actually ask (see stepLeaks in sim.js).
+//   angle / fx, fy   that same heading as radians and as a unit vector — p.facingAngle, the Pulsar
+//                    Sweep's fan anchor, and the repulse shove's dead-centre fallback.
+// Takes the CHAPTER OBJECT, not an id, so render.js can hand it the `cfg` it has already resolved
+// (including the null it holds on the title screen). Anything that is not an x-lane reads 'y',
+// which is exactly the (0, -1) the non-lane callers hardcoded before.
+export const LANE_AXIS_Y = Object.freeze({
+  fwd: 'y', cross: 'x', vFwd: 'vy', vCross: 'vx', dir: -1, angle: -Math.PI / 2, fx: 0, fy: -1,
+})
+export const LANE_AXIS_X = Object.freeze({
+  fwd: 'x', cross: 'y', vFwd: 'vx', vCross: 'vy', dir: 1, angle: 0, fx: 1, fy: 0,
+})
+export const laneAxes = (ch) => (ch?.laneAxis === 'x' ? LANE_AXIS_X : LANE_AXIS_Y)
 
 // march: the Space Invaders half of the roster. The enemy IGNORES the player entirely and advances
 // DOWN the lane in rank at its own speed, swaying side to side on a shared phase so a wave reads as
@@ -4835,6 +5488,45 @@ export const PULSE_CHARGE_COST = 45      // charge a full-strength pulse spends;
 export const PULSE_RADIUS_AT_FULL = 620  // px at a full spend (floor REPULSE_RADIUS 340)
 export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_FORCE 880)
 
+// ---- BURST (v7.x, The Reef — chapters declaring `burst: true`) ---------------------------------
+// The Reef's half of the same button. One press, one cooldown, one spend: the Pulse's shove above
+// fires exactly as it always does, and a `burst` chapter ALSO gets a forward dash that shatters
+// whatever coral it goes through. Not a second button and not a second bar — the design's rule is
+// one gimmick, one button, one second job for the bar, and a chapter that spent its press on a
+// choice between two casts would be spending it on a menu.
+//
+// WHY A DASH IS THE RIGHT ANSWER HERE and a bigger shove is not: the lane already denies you the
+// forward axis. Every other chapter's answer to "something is in my face" is to walk somewhere
+// else; here the only two things you own are a strafe and this button. The Pulse buys sideways
+// room, so the Burst buys the axis you cannot otherwise touch — which is also what makes the coral
+// mean anything (see CHAPTERS.reef.laneSolid).
+//
+// THE FLOOR IS THE DURATION, not the existence of the dash. spec §8.2's no-spiral rule says a
+// player with no charge must never be structurally trapped, only slowed, and that has to be
+// re-verified per chapter rather than assumed — so an empty bar still dashes, just BURST_DUR_MIN
+// instead of BURST_DUR_AT_FULL, and still shatters what it touches. Run RF.c pins that.
+// At laneScroll 45 x BURST_SPEED_MUL 9 = 405 px/s:
+//   empty bar  0.30s -> 122px travelled, 108px of it bought (13.5px was the scroll anyway)
+//   full bar   0.75s -> 304px travelled, 270px bought — one whole coral head's diameter (maxR 150)
+// The speed is FIXED across that range on purpose: a dash whose speed changed with the bar would be
+// a different move at every charge level, where a dash whose LENGTH changes is the same move, more
+// of it.
+export const BURST_SPEED_MUL = 9         // x the chapter's own laneScroll while the dash is live
+export const BURST_DUR_MIN = 0.30        // s of dash on an EMPTY bar — the no-spiral floor
+export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COST spend
+// Shatter reach while dashing, x PLAYER.radius (22) -> 55px. Deliberately under the rampage's own
+// x3: this is a lance, not a wrecking ball. It reads off stepCrush, the shipped permanent-removal
+// path (splice + run._crushed + {type:'crush'} + a CRUSH_XP gem), so a burst through coral pays the
+// same XP a kaiju gets for a shed and nothing new had to be invented for it.
+//
+// IT MUST STAY ABOVE 1, and by more than one frame of dash. stepObstacles (and so stepLaneSolid,
+// which makes reef coral solid at o.r + PLAYER.radius) runs BEFORE stepCrush in stepSim's ordered
+// list, so if the shatter reach were not the larger of the two the player would be shouldered
+// sideways by the coral on the frame before it broke — a dash that visibly bounces off the thing it
+// is about to destroy. The gap here is 55 - 22 = 33px against 6.8px of dash per 1/60 frame (20px at
+// main.js's 0.05 clamp), so the coral is always gone several frames before the push-out could fire.
+export const BURST_CRUSH_MUL = 2.5
+
 // ---- THE DARK (v7.x Book 2, owner directive) --------------------------------------------------
 // The bar is no longer only the Pulse's ammo. Owner's words: "if we're stealing light, then our
 // surroundings should be dark, and darker the less light we have", plus a drawback while you are
@@ -4919,6 +5611,62 @@ export const lightRadius = (charge, res, maxDim) => {
   const frac = res.max > 0 ? Math.min(1, Math.max(0, charge / res.max)) : 1
   return maxDim * (d.radiusEmpty + (d.radiusFull - d.radiusEmpty) * frac)
 }
+
+// Where a chapter's refill circles come from. run.shafts is the ONE list of "streamed circles you
+// stand in to refill", and three chapters fill it from different places: The Shelf's shafts ARE its
+// signature (cell/chance/r/minDist sit directly on it), while The Surf's tide pools and The Reef's
+// air pockets are sub-blocks, because those signatures already own something else (the surge and
+// the sandbars; the lane).
+//
+// Returning the signature OBJECT ITSELF for shafts — not a copy — is deliberate and asserted: the
+// Shelf's tune was measured against that exact object, and a copy would be a second thing to keep
+// in sync for no gain.
+//
+// ONE function, THREE readers — streamShafts (sim.js, which decides existence), reset/updateShafts
+// (render.js, which decides what the circle looks like) and scripts/charge-probe.mjs. Adding a
+// chapter's refill geometry here is what keeps those three from becoming three independent chapter
+// tests that can disagree; that is not hypothetical, it is exactly how The Surf's tide pools — its
+// entire refill mechanic — shipped invisible behind a `signature.type === 'shafts'` test in
+// render.js while the sim was streaming them fine.
+export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? sig?.pockets ?? null))
+
+// How hard you hit, as a function of the chapter bar. OWNER RULING 2026-08-13, overriding the
+// earlier rule that the bar never touches damage — see the design doc's §5.3 for what that rule was
+// protecting and which mitigations replace it. HUMIDITY_DMG_FLOOR itself lives just above CHAPTERS
+// (it is referenced directly inside CHAPTERS.surf.resource, which is built before this point in the
+// file — see the comment there).
+//
+// Opt-in per chapter: only a resource declaring a `damage` block participates, so The Shelf, The
+// Reef and The Trawl are untouched and their census numbers stay comparable with Book 1's.
+//
+// LINEAR from the floor to 1.0, deliberately: the reviewed failure was a multiplier you cannot feel
+// in its top half and fall off a cliff in its bottom, and a curve with a knee is that shape by
+// construction. A straight line at least reports its own state honestly.
+export const resourceDamageMul = (charge, res) => {
+  const d = res?.damage
+  if (!d) return 1
+  return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (res.max || 1))
+}
+
+// ---- DROWNING (v7.x, The Reef — resources declaring a `drown` block) ---------------------------
+// The Reef's second job for its bar, and the opposite SHAPE from The Surf's. §5.3 spends the book's
+// one licence for a bar that drives damage on Humidity, and spends it on an onboarding chapter
+// whose cause is a place you can physically step off. Empty air is not that: it is a state you are
+// in, so it hurts on a clock rather than scaling an output, and it stops the instant you breathe.
+// A multiplier is imperceptible in its top half and a cliff in its bottom; a DoT is legible at
+// every level because it is the same red pulse every time and it only exists at zero.
+//
+// A HALF-SECOND CADENCE, not STATUS_TICK's 0.25. Two reasons, and both are about being read:
+//   - hurtPlayer floors a DoT hit at 1 HP and ROUNDS it, so a tick has to be big enough that the
+//     config number is the damage actually delivered. drown.dps 6 x 0.5 = 3 exactly; at 0.25 it
+//     would be 1.5 -> 2, i.e. a config saying 6 and a game doing 8.
+//   - render.js's `hurt` case scales its shake/vignette/flash by the hit's fraction of maxHP, so
+//     two bigger beats a second read as drowning where four small ones read as static.
+// The tell itself is entirely the shipped one: {type:'hurt', dmg, dot:true} already draws a red
+// vignette + shake + flash, and main.js already silences `e.dot` for audio. NO new event type, on
+// purpose — an event with no consumer in render.js or SFX_FOR_EVENT is the freeze scar, and a
+// chime twice a second for as long as you are empty is the nagging SUBMISSION's expiry was denied.
+export const DROWN_TICK = 0.5            // s between drowning ticks while the bar is empty
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
 // Kills give light back — but ONLY once bought. Owner ruling, and a reversal of the first cut which
@@ -5263,7 +6011,7 @@ export const SKIES_STRUCTURE_ART = {
 // ---- KAIJU ART (v5.11) — render-only, skies-only ------------------------------------------------
 // The player was the one thing in the chapter that DIDN'T get the top-down redraw: the same generic
 // blob every other chapter tints, at ~44px on screen (2 x PLAYER.radius) next to a tower that now
-// draws up to 96px (SKIES_STRUCTURE_ART.tower, above). CHAPTERS.skies.render.kaiju gates a dedicated
+// draws up to 96px (SKIES_STRUCTURE_ART.tower, above). CHAPTERS.skies.render.form === 'kaiju' gates a dedicated
 // body/tail rig in render.js — same "palette + detail counts live here, the actual polygon
 // coordinates are hardcoded in render.js" split SKIES_STRUCTURE_ART already uses (its geometry is
 // specific enough — a jaw, a dorsal ridge, four limbs — that a data-driven layout would just be a
@@ -6697,7 +7445,7 @@ export const MUTATORS = {
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
   // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
   // "Pond identity" plan).
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but

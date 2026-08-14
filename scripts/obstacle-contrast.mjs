@@ -36,6 +36,8 @@ const CHAP = [
   // someone adds it. That is the trap: the audit prints a clean six-row table and says nothing
   // about the seventh biome at all.
   { id: 'shelf',       bg: 0x18567f, tint: 0x9fd6f0, foot: 0x122029 },
+  { id: 'surf',        bg: 0xbca27a, tint: 0xe0c79c, foot: 0x3d3324 },
+  { id: 'reef',        bg: 0x0a3358, tint: 0xa9cfe0, foot: 0x1c0a1a },
   { id: 'garden',      bg: 0x4e8240, tint: 0xaad066, foot: 0x243617 },
   { id: 'undergrowth', bg: 0x2b2417, tint: 0x8a7a4e, foot: 0xffffff },
   { id: 'city',        bg: 0x2c2f38, tint: 0x9aa0ac, foot: 0x161a20 },

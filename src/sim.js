@@ -143,10 +143,11 @@ import {
   STRUCTURE_RADIUS,
   // v5.4 beyond
   PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
-  LANE_SCROLL_SPEED, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul,
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -154,6 +155,8 @@ import {
   PULSAR_ARMS, PULSAR_COLLAPSE_MUL, PULSAR_COLLAPSE_PULL,
   PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
   PULSAR_FAN_ARC, PULSAR_FAN_SWEEP, PULSAR_FAN_RATE,
+  // v7.55 The Surf: the Pincer's held claw (see stepPincerWeapon/stepGuards)
+  PINCER_ARC,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -232,10 +235,12 @@ export function stepSim(run, input, dt) {
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
+  stepTide(run, dt)       // Book 2 surf signature: alternating surge/backwash (no-op elsewhere)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop sun-shaft cells (no-op outside The Shelf)
   stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
+  streamSandbars(run)     // Book 2 surf: materialize/drop dry patches (no-op elsewhere)
   stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
@@ -252,6 +257,7 @@ export function stepSim(run, input, dt) {
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
+  if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
@@ -590,30 +596,50 @@ function stepPlayerMovement(run, input, dt) {
   // than the same web anywhere else, which is a difficulty change nobody asked for.
   const _dres = CHAPTERS[run.chapter].resource
   const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres) : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul)
+  // THE SANDBARS (Book 2 / The Surf): dry ground is a floor on speed, same MIN composition as the
+  // dark above and for the same reason — multiplying would silently stack with latch/web/the dark.
+  const _sig = CHAPTERS[run.chapter].signature
+  const sandMul = _sig && _sig.type === 'tide' && onSandbar(run) ? _sig.bars.slowMul : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
-  // v5.18 THE LANE (beyond only — see CHAPTERS.beyond.lane). You do not roam here: you advance up
-  // the lane at a fixed rate forever and the joystick gives you nothing but left and right. Because
+  // v5.18 THE LANE (see CHAPTERS.beyond.lane). You do not roam here: you advance up the lane at a
+  // fixed rate forever and the joystick gives you nothing but the two directions across it. Because
   // the camera already tracks the player in every chapter, advancing the player IS the auto-scroll —
   // the world slides past while you hold station on screen, for the cost of this branch and nothing
   // else. The forward rate is LANE_SCROLL_SPEED and not `speed`, so move-speed upgrades buy a faster
   // strafe and never a faster scroll.
+  // v7.x: WHICH axis is forward comes from laneAxes (config.js) — The Beyond runs -y, The Reef +x.
   // No early return: the lane only changes the three expressions below, so it is folded into them
   // rather than branching past the per-frame ticks at the bottom of this function. (Rev.1 DID
   // return early and re-implemented those ticks, which is the classic trap — the next per-frame
   // player timer someone appends down there would silently never fire in this chapter.)
   const lane = CHAPTERS[run.chapter].lane === true
-  p.vx = ix * speed * (lane ? LANE_STRAFE_MUL : 1)
-  p.vy = lane ? -LANE_SCROLL_SPEED : iy * speed
+  const ax = lane ? laneAxes(CHAPTERS[run.chapter]) : null
+  if (ax) {
+    // THE BURST (v7.x, The Reef). The one thing allowed to touch the scroll rate, and it is allowed
+    // because it is the player's own button rather than a force acting on them — every other site
+    // in this file that could move the player along the lane (the obstacle push-out, the UFO's pull
+    // beam) is forbidden from doing so, because the scroll is what the mode guarantees. run._burstT
+    // is set by stepRepulse and ticked at the bottom of this branch; it is 0 for every chapter that
+    // does not declare `burst`, so this multiplier is 1 everywhere else including The Beyond.
+    const burstMul = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
+    p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
+    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter]) * burstMul
+    if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
+  } else {
+    p.vx = ix * speed
+    p.vy = iy * speed
+  }
   p.x += p.vx * dt
   p.y += p.vy * dt
-  // The walls. Clamped to a lane that shrinks to fit a narrow viewport, so a rank spanning the lane
-  // is always fully on screen — see laneHalfWidth's doc in config.js for why that is load-bearing.
-  if (lane) {
+  // The walls, ACROSS the lane. Clamped to a lane that shrinks to fit a narrow viewport, so a rank
+  // spanning the lane is always fully on screen — see laneHalfWidth's doc in config.js for why that
+  // is load-bearing (and for what it still only approximates).
+  if (ax) {
     const hw = laneHalfWidth(run.viewRadius)
-    p.x = Math.max(-hw, Math.min(hw, p.x))
+    p[ax.cross] = Math.max(-hw, Math.min(hw, p[ax.cross]))
   }
   // p.vx/p.vy above ARE the snapshot the skies' artillery flag leads its shells with
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read —
@@ -626,7 +652,7 @@ function stepPlayerMovement(run, input, dt) {
   // the Flagella Whip falls back to it only when no enemy exists to aim at (see fireFlagella).
   // Stays null until the player first moves. In the lane you always face up it, so a weapon with
   // nothing to shoot at fires forward rather than at wherever you last strafed.
-  if (lane) p.facingAngle = -Math.PI / 2
+  if (ax) p.facingAngle = ax.angle
   else if (len > 1e-6) p.facingAngle = Math.atan2(iy, ix)
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
@@ -740,23 +766,31 @@ function stepFormations(run, dt) {
   // Extra rows come from the same curve that drives ordinary spawning: 1 row early, up to 3 late.
   const rows = Math.max(1, Math.min(3, Math.round(spawnRate(run.time) * run.mods.spawnMul / 3)))
   const p = run.player
-  // Columns are spread across the LANE and anchored to world x, not to the player. That is what
-  // makes a strafe a decision: the gaps are always in the same places, so you are choosing which
-  // gap to be in rather than watching a wall re-centre on you (which is what rev.1 did).
+  // Columns are spread ACROSS the lane and anchored to the world's cross axis, not to the player.
+  // That is what makes a strafe a decision: the gaps are always in the same places, so you are
+  // choosing which gap to be in rather than watching a wall re-centre on you (which is what rev.1
+  // did). Rows stack back up the lane, AHEAD of the player — `ahead` is that first row's distance.
+  const ax = laneAxes(CHAPTERS[run.chapter])
   const hw = laneHalfWidth(run.viewRadius)
   const pitch = (hw * 2) / FORMATION_COLS
+  const ahead = Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
   for (let row = 0; row < rows; row++) {
     // Alternate rows are offset by half a column — a brick pattern, so holding one gap all the way
     // through a multi-row wave never works.
     const offset = (row % 2) * pitch * 0.5
     for (let col = 0; col < FORMATION_COLS; col++) {
       if (run.enemies.length >= maxAliveFor(run.mods)) return
-      const x = -hw + pitch * (col + 0.5) + offset
-      const y = p.y - Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL) - row * FORMATION_ROW_PX
+      const cross = -hw + pitch * (col + 0.5) + offset
+      const fwd = p[ax.fwd] + ax.dir * ahead + ax.dir * (row * FORMATION_ROW_PX)
       // rosterId: a rank is rank-and-file invaders, never whatever the archetype pool happens to
       // roll. Elites arrive on their own timer through the ordinary spawn path, where they get the
-      // chapter's eliteFlags and read as the exception they are.
-      spawnEnemy(run, { type: ARCHETYPE_TYPE.normal, x, y, forceNormal: true, rosterId: 'invader' })
+      // chapter's eliteFlags and read as the exception they are. A lane chapter with no 'invader'
+      // entry (The Reef, until it has a marcher of its own) falls through spawnEnemy's ordinary
+      // roster pick, so the rank arrives as that chapter's own `normal` — still a block from ahead.
+      spawnEnemy(run, {
+        type: ARCHETYPE_TYPE.normal, forceNormal: true, rosterId: 'invader',
+        [ax.cross]: cross, [ax.fwd]: fwd,
+      })
     }
   }
 }
@@ -1158,7 +1192,17 @@ function stepRepulse(run, input, dt) {
   // cooldown feel arbitrary" - pushing REPULSE_RADIUS here would draw the 340px floor ring around
   // a 620px shove, which is that exact complaint with a bigger gap.
   run.events.push({ type: 'repulse', x: p.x, y: p.y, r: radius, charged: t })
+  // THE BURST (v7.x, The Reef — CHAPTERS[].burst). The same press, the same cooldown and the same
+  // `t`: a chapter declaring `burst` gets a forward dash on top of the shove, its DURATION bought
+  // with the charge that was already spent above. Set here rather than in stepPlayerMovement so the
+  // whole cast is one place, and read there because the lane owns the forward velocity — see the
+  // burstMul line in that function, and BURST_* in config.js for why the length and not the speed
+  // is what the bar buys. At t = 0 this is still BURST_DUR_MIN, never 0: spec §8.2's no-spiral floor
+  // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
+  // the coral is solid "trapped" is a thing that can actually happen.
+  if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
   const radSq = radius * radius
+  const lax = laneAxes(ch)
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y
@@ -1166,9 +1210,11 @@ function stepRepulse(run, input, dt) {
     if (dsq > radSq) continue
     const d = Math.sqrt(dsq)
     // Dead centre has no direction to push along; shove it up-lane rather than picking a random one,
-    // so an enemy sitting exactly on the player still goes the way everything else does.
-    const ux = d > 1e-6 ? dx / d : 0
-    const uy = d > 1e-6 ? dy / d : -1
+    // so an enemy sitting exactly on the player still goes the way everything else does. laneAxes
+    // reads 'y' for the non-lane `resource` chapters that also have this button, which is exactly
+    // the (0, -1) this line hardcoded before them.
+    const ux = d > 1e-6 ? dx / d : lax.fx
+    const uy = d > 1e-6 ? dy / d : lax.fy
     const falloff = 1 - d / radius
     e.kb.x += ux * force * falloff
     e.kb.y += uy * force * falloff
@@ -1182,16 +1228,24 @@ function stepRepulse(run, input, dt) {
 function stepRocks(run, dt) {
   if (!CHAPTERS[run.chapter].lane) return false
   const p = run.player
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  // Signed "how far up the lane", whichever axis this chapter runs on: bigger = further ahead.
+  // Multiplying by ±1 is exact, so on The Beyond's -y lane every comparison below is the same
+  // comparison it has always been, with both sides negated.
+  const along = (o) => o[ax.fwd] * ax.dir
   run._rockAcc = (run._rockAcc ?? ROCK_INTERVAL) - dt
   if (run._rockAcc <= 0) {
     run._rockAcc += ROCK_INTERVAL
     if (run.rocks.length < ROCK_MAX_LIVE) {
       const hw = laneHalfWidth(run.viewRadius) * ROCK_SPREAD_MUL
+      const cross = -hw + Math.random() * hw * 2
+      const fwd = p[ax.fwd] + ax.dir * Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
       run.rocks.push({
-        x: -hw + Math.random() * hw * 2,
-        y: p.y - Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL),
+        [ax.cross]: cross,
+        [ax.fwd]: fwd,
         r: ROCK_MIN_R + Math.random() * (ROCK_MAX_R - ROCK_MIN_R),
-        vx: (Math.random() - 0.5) * 2 * ROCK_DRIFT_X,
+        // vCross, not vx: the wander is ACROSS the lane, which is y in an x-lane chapter.
+        vCross: (Math.random() - 0.5) * 2 * ROCK_DRIFT_X,
         rot: Math.random() * Math.PI * 2,
         spin: (Math.random() - 0.5) * 2 * ROCK_SPIN,
         _acc: 0,
@@ -1200,8 +1254,9 @@ function stepRocks(run, dt) {
   }
   let died = false
   for (const rk of run.rocks) {
-    rk.x += rk.vx * dt
-    rk.y += ROCK_SPEED * dt
+    rk[ax.cross] += rk.vCross * dt
+    // DOWN the lane, i.e. against the player's own advance — which is what makes a rock overtake.
+    rk[ax.fwd] += -ax.dir * ROCK_SPEED * dt
     rk.rot += rk.spin * dt
     rk._acc += dt
     // Grind on the DoT cadence, not per frame: 60 fractional hits a second is unreadable and floods
@@ -1226,17 +1281,21 @@ function stepRocks(run, dt) {
     }
   }
   // Drop rocks once they are well behind — same threshold a leaked marcher uses.
-  run.rocks = run.rocks.filter((rk) => rk.y < p.y + LANE_LEAK_BEHIND_PX + rk.r)
+  run.rocks = run.rocks.filter((rk) => along(rk) > along(p) - LANE_LEAK_BEHIND_PX - rk.r)
   return died
 }
 
 function stepLeaks(run) {
   if (!CHAPTERS[run.chapter].lane) return false
   const p = run.player
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  // See stepRocks: signed distance up the lane, so "behind the player" is one comparison whichever
+  // axis the chapter runs on.
+  const along = (o) => o[ax.fwd] * ax.dir
   for (const e of run.enemies) {
     if (e._dead) continue
     if (!e.flags || !e.flags.includes('march')) continue
-    if (e.y < p.y + LANE_LEAK_BEHIND_PX) continue
+    if (along(e) > along(p) - LANE_LEAK_BEHIND_PX) continue
     e._dead = true
     run.events.push({ type: 'leak', x: e.x, y: e.y })
     // THE INVULNERABILITY GATE, and it has to be HERE rather than inside hurtPlayer: hurtPlayer
@@ -1402,9 +1461,12 @@ function spawnEnemy(run, opts = {}) {
     // behind: the shmup contract, and the one that makes "you can only strafe" a game rather than a
     // countdown. Anything that does get past you is now genuinely past you.
     if (CHAPTERS[run.chapter].lane) {
+      const ax = laneAxes(CHAPTERS[run.chapter])
       const hw = laneHalfWidth(run.viewRadius)
-      x = -hw + Math.random() * hw * 2
-      y = p.y - (run.viewRadius + SPAWN_RING)
+      const cross = -hw + Math.random() * hw * 2
+      const fwd = p[ax.fwd] + ax.dir * (run.viewRadius + SPAWN_RING)
+      x = ax.fwd === 'x' ? fwd : cross
+      y = ax.fwd === 'y' ? fwd : cross
     } else {
       // opts.gapArc/gapDir (the blank's wave rings): leave ONE wedge of the ring empty — a door.
       // Drawing from the allowed arc and rotating it past the gap keeps the rest of the ring
@@ -1457,7 +1519,10 @@ function spawnEnemy(run, opts = {}) {
     affixes,
     flags,
     rosterId: roster?.id ?? null,
-    xp: base.xp,
+    // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
+    // this creature is WORTH, independent of how much health it has. They are separate on
+    // purpose — a chapter can make something cheaper to kill and still pay well for it.
+    xp: base.xp * (roster?.xpMul ?? 1),
     ...freshEnemyFields(),
   })
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
@@ -1538,7 +1603,15 @@ function spawnSplitChildren(run, parent, count) {
       affixes: [],
       flags: parent.flags,
       rosterId: parent.rosterId,
-      xp: parent.xp,
+      // XP TRACKS HEALTH, exactly as hp and radius above do. Inheriting the parent's FULL xp on a
+      // SPLIT_HP_FRAC body made one splitter worth 3 kills of xp for 1.9 kills of health — 1.58x
+      // the xp-per-point-of-health of every other enemy in the game, and the only place that ratio
+      // is not 1. Measured: split children were 45% of the xp in both chapters that field them
+      // (pond, shelf), and the effect was a FRONT LOAD rather than a bigger total — The Shelf ran
+      // level 10.5 at 180s against undergrowth's 8.5 and city's 8.0, then finished 5 levels behind
+      // them. At this fraction its 180s level is 8.5, level with the pack. Zeroing it instead put
+      // the chapter below body, the poorest in the game, at every mark.
+      xp: parent.xp * SPLIT_HP_FRAC,
       _splitChild: true,
       ...freshEnemyFields(),
     })
@@ -1577,6 +1650,9 @@ function stepEnemyMovement(run, dt) {
   const hasTrails = pheromones && run.trails && run.trails.length > 0
   const hasLures = run.lures && run.lures.length > 0
   const followRadSq = PHEROMONE_FOLLOW_RADIUS * PHEROMONE_FOLLOW_RADIUS
+  // v7.x: which way is "down the lane" for the `march` machine below. Hoisted out of the per-enemy
+  // loop — it is one frozen lookup per frame, and non-lane chapters simply never reach the branch.
+  const laneAx = laneAxes(CHAPTERS[run.chapter])
 
   for (const e of run.enemies) {
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
@@ -1694,7 +1770,7 @@ function stepEnemyMovement(run, dt) {
     } else if (e.flags && e.flags.includes('standoff')) {
       stepStandoff(e, tx, ty, dt, slowMul, enrageMul)
     } else if (e.flags && e.flags.includes('march')) {
-      stepMarch(e, tx, dt, slowMul, enrageMul)
+      stepMarch(e, tx, ty, dt, slowMul, enrageMul, laneAx)
     } else if (e.elite && e.flags && e.flags.includes('pullBeam') && e._beamState === 'beam') {
       // pullBeam (v5.4 beyond's UFO elites): the UFO holds still while its beam is open. The beam
       // itself (drag + DoT) is stepPullBeams' business — this branch is only its movement.
@@ -2186,24 +2262,26 @@ function fireEnemyMissile(run, e) {
 
 // march (v5.18, The Beyond's lane): the Space Invaders half. It advances DOWN the lane at a fixed
 // fraction of its own speed, shuffling side to side. The sway phase is seeded from the enemy's spawn
-// x (not its id and not Math.random), so every invader in a rank spawned across the same row shares
-// a phase relationship and the block reads as ONE marching formation rather than a crowd of
-// individuals wobbling.
-// v5.19: it now also CONVERGES on the player horizontally, but at MARCH_HOME_MUL of its march speed
-// — roughly a seventh of the player's strafe. That keeps the original contract intact: a rank is
-// still always dodgeable by anyone who commits to a gap (which is what makes LANE_LEAK_DMG a fair
+// CROSS coordinate (not its id and not Math.random), so every invader in a rank spawned across the
+// same row shares a phase relationship and the block reads as ONE marching formation rather than a
+// crowd of individuals wobbling.
+// v5.19: it now also CONVERGES on the player ACROSS the lane, but at MARCH_HOME_MUL of its march
+// speed — roughly a seventh of the player's strafe. That keeps the original contract intact: a rank
+// is still always dodgeable by anyone who commits to a gap (which is what makes LANE_LEAK_DMG a fair
 // punishment), it just no longer slides harmlessly past a player who stands still. The homing is
-// deliberately x-only; steering the descent too would make ranks converge into a column and destroy
-// the formation read.
-function stepMarch(e, tx, dt, slowMul, spdMul) {
-  if (e._marchPhase === undefined) e._marchPhase = e.x * 0.01
+// deliberately CROSS-only; steering the descent too would make ranks converge into a column and
+// destroy the formation read.
+// v7.x: `ax` (laneAxes, config.js) is which axis all of that runs on — 'down the lane' is -ax.dir.
+function stepMarch(e, tx, ty, dt, slowMul, spdMul, ax) {
+  const tCross = ax.cross === 'x' ? tx : ty
+  if (e._marchPhase === undefined) e._marchPhase = e[ax.cross] * 0.01
   e._marchPhase += MARCH_SWAY_RATE * dt
   const spd = e.speed * spdMul * MARCH_SPEED_MUL
-  e.y += spd * slowMul * dt
-  const hx = tx - e.x
+  e[ax.fwd] += -ax.dir * spd * slowMul * dt
+  const hx = tCross - e[ax.cross]
   // Deadband: without it a rank sitting on the player's column jitters across it every frame.
-  if (Math.abs(hx) > 1) e.x += Math.sign(hx) * spd * MARCH_HOME_MUL * slowMul * dt
-  e.x += Math.cos(e._marchPhase) * MARCH_SWAY_PX * MARCH_SWAY_RATE * slowMul * dt
+  if (Math.abs(hx) > 1) e[ax.cross] += Math.sign(hx) * spd * MARCH_HOME_MUL * slowMul * dt
+  e[ax.cross] += Math.cos(e._marchPhase) * MARCH_SWAY_PX * MARCH_SWAY_RATE * slowMul * dt
 }
 
 // standoff (v5.24 blank's antibody): holds a mid-range distance band instead of chasing — closes
@@ -2663,6 +2741,42 @@ function stepCurrents(run, dt) {
   }
 }
 
+// The Surf's tide (Book 2 chapter 1). A chapter-gated no-op exactly like stepCurrents above: a
+// chapter that is not the tide returns on the second line.
+//
+// run._realTime, NOT run.time — the same reason stepShafts gives: the Time Debt anomaly advances
+// run.time at TIME_DEBT_MUL (1.5x) and its `chapter` is null, so deriving the phase from run.time
+// would multiply the surge by 1.5 and break the ceiling the number was chosen against.
+//
+// It moves the ENEMIES too. Water that shoves only the player is a control tax; water that shoves
+// everything is weather, and it is also the only thing that makes the backwash readable — the crowd
+// drifting with you is the tell that you are not simply being nerfed.
+// The instantaneous surge, in px/s, as a vector — currentForce's counterpart for this chapter, and
+// exported for the same reason currentForce is: render.js samples it to advect the flow streaks and
+// to rock the crowd, so "the water is moving" on screen and "the water moved me" in the sim are one
+// number rather than two that can drift apart. {fx:0, fy:0} for any chapter that is not the tide,
+// so a caller needs no chapter branch of its own.
+export function tideForce(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'tide') return { fx: 0, fy: 0 }
+  const s = Math.sin((run._realTime / sig.period) * Math.PI * 2)
+  return { fx: Math.cos(sig.axis) * sig.surge * s, fy: Math.sin(sig.axis) * sig.surge * s }
+}
+
+export function stepTide(run, dt) {
+  const sig = CHAPTERS[run.chapter].signature
+  if (!sig || sig.type !== 'tide') return
+  const { fx: sx, fy: sy } = tideForce(run)
+  const fx = sx * dt
+  const fy = sy * dt
+  const p = run.player
+  p.x += fx; p.y += fy
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    e.x += fx; e.y += fy
+  }
+}
+
 // -- Obstacles (v5.0; streamed v5.6.13) ------------------------------------------------
 // Circular colliders (run.obstacles) push the player and every enemy out of overlap;
 // projectiles are never affected (not checked here or anywhere bullets/novas/etc. move).
@@ -2695,6 +2809,15 @@ function stepCurrents(run, dt) {
 // actually reads as itself (no houses at sea) — see run._districtSeed's doc in state.js for why
 // reading that field here is still safe for the seeded test suite (drawn once at createRun, same as
 // always; reading an EXISTING value costs nothing from the shared Math.random stream at step time).
+// THE SALT REGISTRY. Every streamed field takes its own block, and a collision is SILENT — two
+// fields land in exactly the same cells, which reads as "the mechanic spawns on top of the other
+// one" and never as an error. Claimed so far:
+//   0-4   streamObstacles (occupancy, radius, x, y, kind)
+//   11-14 streamEddies     15-17 streamTraps
+//   20-23 refill circles: The Shelf's shafts, The Surf's tide pools (streamShafts' default)
+//   30-32 streamSandbars
+//   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
+// Next free block: 44+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -2930,13 +3053,22 @@ function streamEddies(run) {
   }
 }
 
-// -- Sun shafts (v7.x Book 2 / The Shelf: streamed pools of light) --------------------
+// -- Refill circles (v7.x Book 2: Shelf sun shafts, Surf tide pools, Reef air pockets) -
 // The fourth copy of streamObstacles' streaming idiom (obstacles -> eddies -> traps -> here): own
-// cell size (sig.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
-// run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts (20
-// occupancy, 21 x jitter, 22 y jitter, 23 drift phase) so a shaft's roll can never collide with an
-// obstacle's (0-4), an eddy's (11-14) or a trap's (15-17) at the same cell. ZERO Math.random() at
-// step time - the same hard rule all three others state (the AA.c/runStarOnly scar).
+// cell size (spec.cell), own _shaftCellI/_shaftCellJ cursor independent of the other three, same
+// run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Its salt block comes from
+// the SPEC (spec.salt, default 20 — see the s0 note below): 20-23 for the shafts and the pools,
+// 40-43 for the air pockets, so a roll here can never collide with an obstacle's (0-4), an eddy's
+// (11-14), a trap's (15-17) or a sandbar's (30-32) at the same cell. ZERO Math.random() at step
+// time - the same hard rule all three others state (the AA.c/runStarOnly scar).
+//
+// GENERALISED (v7.x, run US.c) to feed run.shafts from any chapter's signature via refillSpec()
+// (config.js): The Shelf's shafts ARE its signature (refillSpec returns it unchanged — asserted by
+// identity, because the Shelf's tune was measured against that exact object), while The Surf's tide
+// pools live at signature.pools and The Reef's air pockets at signature.pockets. Same cell/hash-salt
+// geometry every time, so a pool, a pocket and a shaft are mechanically the same circle with
+// different names and different art; only The Shelf's own signature carries drift
+// (driftAmp/driftHz), which is why stepShafts below still gates on sig.type === 'shafts'.
 //
 // THIS FUNCTION DECIDES EXISTENCE ONLY. It early-returns whenever the player has not crossed a cell
 // boundary, exactly like streamEddies, so anything it computes is computed ONCE per materialization
@@ -2951,13 +3083,16 @@ function streamEddies(run) {
 // drift share it, and the sum has to stay inside the cell or a shaft's collider reaches into the
 // neighbour and overlaps that cell's own shaft. (A density artifact, not a correctness break - the
 // cell bookkeeping keys `live` on _cell, which drift never touches, so a drifted shaft can neither
-// duplicate nor be re-rolled. But it is free to be correct here.)
-function streamShafts(run) {
+// duplicate nor be re-rolled. But it is free to be correct here.) The Surf's pools declare no
+// driftAmp, so `amp` below is 0 there and the whole slack budget goes to jitter, exactly like the
+// three non-drifting streamers.
+export function streamShafts(run) {
   const sig = CHAPTERS[run.chapter].signature
-  if (!sig || sig.type !== 'shafts') return
+  const spec = refillSpec(sig)
+  if (!spec) return
   if (run._obstacleSeed == null) return
   const p = run.player
-  const cs = sig.cell
+  const cs = spec.cell
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
   if (ci === run._shaftCellI && cj === run._shaftCellJ) return // same cell as last scan - field unchanged
   run._shaftCellI = ci; run._shaftCellJ = cj
@@ -2971,22 +3106,41 @@ function streamShafts(run) {
 
   const seed = run._obstacleSeed
   const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
-  const amp = sig.driftAmp ?? 0
+  const amp = spec.driftAmp ?? 0
+  // THE SALT BLOCK IS THE SPEC'S, NOT THIS FUNCTION'S (v7.x, The Reef). One streamer now serves
+  // three chapters' refill circles, and a salt is what keeps a field from landing in the same cells
+  // as another field — so it has to be a property of the FIELD, not of whichever function happens
+  // to materialise it. Defaults to 20 so The Shelf's shafts and The Surf's pools keep the exact
+  // block the registry above records for them (and their tunes, which were measured against those
+  // hashes, come out bit-identical); The Reef's air pockets declare 40, the block reserved for them.
+  const s0 = spec.salt ?? 20
+  // A LANE HAS WALLS, AND A REFILL CIRCLE OUTSIDE THEM IS A LIE (v7.x, The Reef). The streaming
+  // grid covers a 1400px disc around the player; the lane is only ~860px wide, so two whole cell
+  // rows either side of it materialise circles the player is CLAMPED away from and can only watch
+  // scroll past. On the one chapter whose bar has a single refill source that is not scenery, it is
+  // the picture of "the bar cannot be filled" — the exact misreading the Surf's own tune block was
+  // rewritten to avoid, arrived at from the geometry instead of from the rate. Dropped when WHOLLY
+  // outside, so a circle the player can reach the rim of still exists and still counts.
+  // Inert for every non-lane chapter, and no lane chapter but this one declares a refill spec.
+  const laneCh = CHAPTERS[run.chapter].lane === true
+  const lax = laneCh ? laneAxes(CHAPTERS[run.chapter]) : null
+  const laneHW = laneCh ? laneHalfWidth(run.viewRadius) : 0
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j
       if (live.has(key)) continue
-      if (obstacleCellHash(i, j, seed, 20) >= sig.chance) continue
-      const slack = Math.max(0, cs / 2 - sig.r - 20 - amp) // see the driftAmp note above
-      const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 21) - 0.5) * 2 * slack
-      const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 22) - 0.5) * 2 * slack
-      if (Math.hypot(bx, by) < sig.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (obstacleCellHash(i, j, seed, s0) >= spec.chance) continue
+      const slack = Math.max(0, cs / 2 - spec.r - 20 - amp) // see the driftAmp note above
+      const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 1) - 0.5) * 2 * slack
+      const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 2) - 0.5) * 2 * slack
+      if (Math.hypot(bx, by) < spec.minDist) continue // spawn-ring clearance from the run ORIGIN
+      if (lax && Math.abs(lax.cross === 'x' ? bx : by) - spec.r > laneHW) continue // see the lane note above
       if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
       // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the
       // whole field does not pulse in unison. Stored, not re-derived, because x/y are recomputed
       // every frame and a per-frame hash would be the one avoidable cost in that loop.
-      const phase = obstacleCellHash(i, j, seed, 23) * Math.PI * 2
-      run.shafts.push({ x: bx, y: by, bx, by, r: sig.r, phase, _cell: key })
+      const phase = obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2
+      run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase, _cell: key })
     }
   }
 }
@@ -3016,22 +3170,110 @@ function stepShafts(run) {
   }
 }
 
+// Sandbars (Book 2 / The Surf). The FIFTH copy of streamObstacles' streaming idiom (obstacles ->
+// eddies -> traps -> shafts -> here): own cell size (sig.bars.cell), own _sandCellI/_sandCellJ
+// cursor, same run._obstacleSeed, same OBSTACLE_STREAM_RADIUS/OBSTACLE_DROP_RADIUS. Own hash salts
+// (30 occupancy, 31 x jitter, 32 y jitter) so a sandbar's roll can never collide with an obstacle's
+// (0-4), an eddy's (11-14), a trap's (15-17) or a shaft's (20-23) at the same cell.
+//
+// ZERO Math.random() at step time — the same hard rule the other four state, and run US.b asserts it
+// by making Math.random throw. A sandbar never moves, so unlike a shaft it spends the whole jitter
+// budget and has no per-frame step of its own.
+export function streamSandbars(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  const spec = sig && sig.type === 'tide' ? sig.bars : null
+  if (!spec) return
+  if (run._obstacleSeed == null) return
+  const p = run.player
+  const cs = spec.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._sandCellI && cj === run._sandCellJ) return
+  run._sandCellI = ci; run._sandCellJ = cj
+
+  for (let k = run.sandbars.length - 1; k >= 0; k--) {
+    if (Math.hypot(run.sandbars[k].x - p.x, run.sandbars[k].y - p.y) > OBSTACLE_DROP_RADIUS) run.sandbars.splice(k, 1)
+  }
+  const live = new Set()
+  for (const b of run.sandbars) live.add(b._cell)
+
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      if (obstacleCellHash(i, j, seed, 30) >= spec.chance) continue
+      const slack = Math.max(0, cs / 2 - spec.r - 20)
+      const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, 31) - 0.5) * 2 * slack
+      const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 32) - 0.5) * 2 * slack
+      if (Math.hypot(x, y) < spec.minDist) continue
+      if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      run.sandbars.push({ x, y, r: spec.r, _cell: key })
+    }
+  }
+}
+
+// Is the player standing on dry ground? Centre-to-centre against the patch radius, exactly like
+// stepCharge's shaft test — standing ON it, not brushing its edge.
+export function onSandbar(run) {
+  const p = run.player
+  for (const b of run.sandbars) if (Math.hypot(b.x - p.x, b.y - p.y) <= b.r) return true
+  return false
+}
+
 // The chapter resource bar (v7.x Book 2). A chapter-gated no-op exactly like stepCurrents and
 // streamTraps - a chapter that declares no `resource` returns on the first line and its run.charge
 // stays the 0 createRun gave it, which is what lets this live in main from day one with no flag.
 //
-// Drains passively and refills while the player stands in a shaft. Kill refills arrive separately,
-// at the kill site, because they are not a per-frame quantity.
-function stepCharge(run, dt) {
+// Drains passively and refills while the player stands in a shaft (or, on The Surf, a tide pool —
+// both live in run.shafts, see streamShafts' generalisation). Kill refills arrive separately, at the
+// kill site, because they are not a per-frame quantity.
+//
+// dryMul (v7.x, run US.c): The Surf's sandbars multiply the drain while you stand on one, via
+// signature.bars.drainMul — onSandbar(run) is the same position test streamSandbars/stepPlayer use.
+// Gated on sig.type === 'tide' so The Shelf (no sandbars, no `bars` block) never reads this at all.
+export function stepCharge(run, dt) {
   const res = CHAPTERS[run.chapter].resource
   if (!res) return
-  let c = run.charge - res.drain * dt
+  const sig = CHAPTERS[run.chapter].signature
+  const dryMul = sig && sig.type === 'tide' && onSandbar(run) ? sig.bars.drainMul : 1
+  let c = run.charge - res.drain * dryMul * dt
   const p = run.player
   for (const sh of run.shafts) {
     // Centre-to-centre against the shaft radius: standing IN the light, not brushing its edge.
     if (Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r) { c += res.refill * dt; break }
   }
   run.charge = Math.max(0, Math.min(res.max, c))
+}
+
+// -- Drowning (v7.x, The Reef) --------------------------------------------------------
+// The Reef's second job for its bar: an EMPTY bar hurts, on a clock, until you breathe. Gated on
+// resource.drown so every other chapter returns on line two, like stepCharge itself.
+//
+// Returns true if the player died, matching stepPools/stepTraps/stepLeaks' contract — it is called
+// from stepSim's `if (stepX(...)) return` group for that reason, and NOT folded into stepCharge,
+// which has no way to report a death and runs long before the damage steps.
+//
+// The accumulator lives on the run rather than on an entity because there is only ever one drowning
+// player, and it is RESET the moment the bar comes off zero: a partial tick banked before you
+// reached a pocket must not be spent on the next time you run dry, minutes later.
+//
+// THE TELL IS THE SHIPPED ONE, deliberately. hurtPlayer pushes {type:'hurt', dmg, dot:true}, which
+// render.js's `hurt` case already turns into a red vignette + shake + flash scaled by the hit's
+// share of maxHP, and which main.js already silences for audio (`if (e.dot) continue`). Publishing
+// into a contract field render.js already reads is the whole of the fix the freeze scar taught —
+// a new {type:'drown'} event would have needed a consumer in two files to be anything but silence.
+function stepDrown(run, dt) {
+  const res = CHAPTERS[run.chapter].resource
+  if (!res || !res.drown) return false
+  if (run.charge > 0) { run._drownAcc = 0; return false }
+  run._drownAcc = (run._drownAcc ?? 0) + dt
+  let died = false
+  while (run._drownAcc >= DROWN_TICK) {
+    run._drownAcc -= DROWN_TICK
+    if (!died && hurtPlayer(run, res.drown.dps * DROWN_TICK, true, 'drown')) died = true
+  }
+  return died
 }
 
 // -- Snap traps (v6.5 undergrowth identity: streamed) ---------------------------------
@@ -3196,6 +3438,48 @@ function resolveSeparationPair(run, i, j) {
 // distance checks/frame. Comparing squared distances skips the sqrt on every non-overlapping pair
 // (the overwhelming majority) and only pays for it on the rare branch that actually needs the unit
 // normal to push something out. Ships to phones; not optional (design doc §1).
+// -- Solid terrain IN A LANE (v7.x, The Reef — CHAPTERS[].laneSolid) -------------------
+// Coral heads you have to go round, in a mode whose whole premise is that you cannot stop and
+// cannot back up. Three restrictions, each answering one half of the shipped `if (lane) return`
+// above (see its comment, and CHAPTERS.reef.laneSolid's):
+//
+//   1. THE PLAYER ONLY. The enemy loop stays off in every lane chapter, so a marching rank still
+//      crosses a bommie in formation. That is not an omission — a rank shoved apart by terrain
+//      stops reading as a rank, which is the second thing the original early return protected.
+//   2. RESOLVED ACROSS THE LANE. The forward coordinate is never written here, so a wall cannot
+//      move you along the lane in EITHER direction: not backward (the ~10% of frames the shipped
+//      comment describes, which locally reverses the one constant the mode guarantees) and not
+//      forward, which would be a free Burst. Solving for the cross offset that puts the player on
+//      the circle AT THEIR CURRENT FORWARD POSITION is the exact fixed point of iterating the old
+//      radial push with the forward component clamped, so it is that clamp, converged, in one step.
+//   3. ONLY WHERE YOU COULD HAVE GONE ROUND. A coral whose circle reaches outside the lane walls is
+//      scenery. Making it solid would put a stretch of corridor behind a wall with no gap — the
+//      structural trap the no-spiral floor forbids — and it would fight stepPlayerMovement's wall
+//      clamp for the player's position every single frame, since the clamp runs earlier in the step
+//      and would not get another turn.
+// The final clamp is belt and braces for the boundary case where a coral sits exactly at the edge
+// of the reachable band: the lane wall outranks the coral, always.
+function stepLaneSolid(run) {
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.laneSolid) return
+  const ax = laneAxes(ch)
+  const p = run.player
+  const hw = laneHalfWidth(run.viewRadius)
+  for (const o of run.obstacles) {
+    if (Math.abs(o[ax.cross]) + o.r > hw) continue      // pokes out of the lane -> scenery (3)
+    const minSep = o.r + PLAYER.radius
+    const dF = p[ax.fwd] - o[ax.fwd]
+    if (Math.abs(dF) >= minSep) continue
+    const dC = p[ax.cross] - o[ax.cross]
+    const need = Math.sqrt(minSep * minSep - dF * dF)
+    if (Math.abs(dC) >= need) continue
+    // Dead centre picks the +cross side rather than a random one, for the same reason the repulse's
+    // dead-centre shove picks the lane's own heading: a coincidence should not be a coin flip.
+    const side = dC < 0 ? -1 : 1
+    p[ax.cross] = Math.max(-hw, Math.min(hw, o[ax.cross] + side * need))
+  }
+}
+
 function stepObstacles(run) {
   if (!run.obstacles || run.obstacles.length === 0) return
   // v5.18: in the lane (beyond) the obstacles are PLANETS — distant bodies you scroll past, not
@@ -3204,7 +3488,11 @@ function stepObstacles(run) {
   // the lane on ~10% of frames when they held a strafe into a planet's belly, locally reversing the
   // one thing this chapter guarantees is constant (LANE_SCROLL_SPEED). It also kept marchers from
   // holding rank, since a rank crossing a planet was shoved apart sideways.
-  if (CHAPTERS[run.chapter].lane) return
+  // v7.x: BOTH of those are still true, so a lane chapter that wants terrain (The Reef's coral,
+  // CHAPTERS[].laneSolid) gets stepLaneSolid instead of this function's radial push — the player
+  // only, resolved across the lane only, and only for coral you could have gone round. It is gated
+  // on its own chapter field and never on `lane`, so The Beyond takes the bare return it always did.
+  if (CHAPTERS[run.chapter].lane) { stepLaneSolid(run); return }
   const p = run.player
   // v5.8 kaiju redesign: crushable structures (CHAPTERS[chapter].crush) don't push the PLAYER —
   // they pop on contact instead (stepCrush, below), so treating them as terrain for the player
@@ -3264,11 +3552,22 @@ function stepObstacles(run) {
 // and this function's own splice below removes the cell from `live`, so the very next cell-boundary
 // scan (~1.2s later at PLAYER.baseSpeed/OBSTACLE_CELL, nowhere near a 1900px walk) re-rolled the
 // identical building right back in. The claim was simply wrong, confirmed by playtest.
+// v7.x: THE REEF'S BURST IS THE THIRD ENTRY POINT TO THIS PATH, and reuses it whole rather than
+// copying it — the splice, the permanent run._crushed record, the {type:'crush'} event, the
+// CRUSH_XP gem and the _obstacleRev bump are all things a coral head shattering needs and all
+// things this function already gets right (the v5.9.1 re-roll bug above is the reason a second
+// copy would be a liability). Gated on the chapter declaring `burst` AND a live dash, so outside
+// the dash's third of a second a reef obstacle is ordinary solid terrain (stepLaneSolid) and
+// nothing is destructible at all. The two rampage lines stay behind `crush`: run.rampage is the
+// kaiju's meter, ui.js hides its bar for any chapter without `crush`, and a hidden bar filling in
+// the background is exactly the kind of state that surfaces two versions later as a mystery.
 function stepCrush(run) {
-  if (!CHAPTERS[run.chapter].crush) return
+  const ch = CHAPTERS[run.chapter]
+  const bursting = ch.burst === true && (run._burstT ?? 0) > 0
+  if (!ch.crush && !bursting) return
   if (!run.obstacles || run.obstacles.length === 0) return
   const p = run.player
-  const crushR = PLAYER.radius * (run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
+  const crushR = PLAYER.radius * (bursting ? BURST_CRUSH_MUL : run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
   let changed = false
   for (let i = run.obstacles.length - 1; i >= 0; i--) {
     const o = run.obstacles[i]
@@ -3280,8 +3579,10 @@ function stepCrush(run) {
     changed = true
     run.events.push({ type: 'crush', x: o.x, y: o.y, kind: o.kind })
     run.gems.push({ x: o.x, y: o.y, xp: CRUSH_XP }) // same drop path dealDamage uses for a kill
-    run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
-    run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
+    if (ch.crush) {
+      run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
+      run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
+    }
   }
   // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural cell
   // crossing re-triggers streamObstacles — syncObstacles only rebuilds when _obstacleRev changes
@@ -3873,6 +4174,8 @@ function stepEnemyShots(run, dt) {
 function stepPullBeams(run, dt) {
   const p = run.player
   let playerDied = false
+  // null outside a lane chapter — see the drag below, which is the only thing that reads it.
+  const ax = CHAPTERS[run.chapter].lane ? laneAxes(CHAPTERS[run.chapter]) : null
   for (const e of run.enemies) {
     if (e._dead || !e.elite || !e.flags || !e.flags.includes('pullBeam')) continue
 
@@ -3887,12 +4190,12 @@ function stepPullBeams(run, dt) {
     const dx = e.x - p.x, dy = e.y - p.y
     const d = Math.hypot(dx, dy)
     if (d > PULL_BEAM_RANGE || d <= 1e-6) continue
-    p.x += (dx / d) * PULL_BEAM_FORCE * dt
-    // v5.18: in the lane (beyond), the lane OWNS the y axis — the player advances at exactly
+    // v5.18: in a lane the lane OWNS the FORWARD axis — the player advances at exactly
     // LANE_SCROLL_SPEED and nothing is allowed to change that, or the scroll rate stops being the
-    // one predictable thing in the chapter. So an abduction beam drags you sideways only, which is
-    // also the only axis you can fight it on. Everywhere else it pulls in both, unchanged.
-    if (!CHAPTERS[run.chapter].lane) p.y += (dy / d) * PULL_BEAM_FORCE * dt
+    // one predictable thing in the chapter. So an abduction beam drags you ACROSS the lane only,
+    // which is also the only axis you can fight it on. Everywhere else it pulls in both, unchanged.
+    if (!ax || ax.cross === 'x') p.x += (dx / d) * PULL_BEAM_FORCE * dt
+    if (!ax || ax.cross === 'y') p.y += (dy / d) * PULL_BEAM_FORCE * dt
 
     e._beamAcc = (e._beamAcc ?? 0) + dt
     while (e._beamAcc >= STATUS_TICK) {
@@ -4158,6 +4461,7 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   const p = run.player
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
   let crit = false
   if (Math.random() < p.critChance + run.passives.critChance + critBonus) {
     dmg *= (p.critDamage + run.passives.critDamage)
@@ -4579,6 +4883,10 @@ const WEAPON_STAT_MODS = {
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
   pulsarSweep: { wideSweep: [['width', 'length'], 'pct'], sustainSweep: ['duration', 'pct'] },
+  // v7.55 surf native. All three of the Pincer's stat mods fold plainly; backClaw is behavioral
+  // (read where the claws are laid out, stepPincerWeapon). There is no rate mod because there is no
+  // rate — see WEAPONS.pincer in config.js.
+  pincer:        { crusher: ['dmg', 'pct'], longArm: ['r', 'pct'], backwash: ['knock', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -4645,7 +4953,11 @@ export function buildReadout(run) {
     // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
     // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
     // gets above.
-    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // v7.55: `knock` and `cd` added for the Pincer, right after `r` so it emits dmg, r, knock, cd
+    // and stops — it has no `rate`/`interval`, so it is the one weapon with no cadence row, which is
+    // the point of it (see WEAPONS.pincer). Both keys are unique to the Pincer's levels[] (every
+    // other knockback stat in the game is spelled `knockback`), so no other weapon gains a row here.
+    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'knock', 'cd', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -4716,6 +5028,9 @@ function stepWeapons(run, dt) {
     else if (w.id === 'debrisToss') stepDebrisWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'realityShard') stepShardWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'pulsarSweep') stepPulsarWeapon(run, w, stats, fireRateMul, dt)
+    // The one weapon that takes no fireRateMul, and the omission is deliberate and visible here
+    // rather than swallowed by an ignored parameter — see stepPincerWeapon.
+    else if (w.id === 'pincer') stepPincerWeapon(run, w, stats)
   }
 
   stepBullets(run, dt)
@@ -4735,6 +5050,10 @@ function stepWeapons(run, dt) {
   // its new spot when the breath decides where to jump.
   stepDrags(run, dt)
   stepArcs(run, dt)
+  // v7.55 surf: the Pincer's trigger. Runs AFTER stepPincerWeapon has placed the claws this frame,
+  // so a snap is tested against where the guard actually is, and after stepDrags for the same reason
+  // that moves bodies first — the scan must see this frame's positions, not last frame's.
+  stepGuards(run, dt)
 
   turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
@@ -5981,6 +6300,7 @@ function pickBloomSpot(run, castRange) {
 function applyDotDamage(run, enemy, baseDmg) {
   const p = run.player
   const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
   dealDamage(run, enemy, dmg, false, true)
 }
 
@@ -7291,7 +7611,7 @@ function firePulsar(run, stats) {
   // fan is anchored to straight-ahead rather than to aimAngle's nearest-enemy pick, which could
   // (and did) lock onto a straggler already behind the player.
   const lane = CHAPTERS[run.chapter].lane === true
-  const baseAngle = lane ? -Math.PI / 2 : aimAngle(run)
+  const baseAngle = lane ? laneAxes(CHAPTERS[run.chapter]).angle : aimAngle(run)
   run.beams.push({
     angle: baseAngle, baseAngle, fan: lane ? PULSAR_FAN_ARC : 0,
     life: stats.duration, duration: stats.duration, dmg: stats.dmg,
@@ -7302,6 +7622,116 @@ function firePulsar(run, stats) {
     collapseBonus: mods?.collapse ?? 0,
   })
   run.events.push({ type: 'beam' })
+}
+
+// -- Pincer (v7.55 surf starter — THE PARRY) --------------------------------------------------
+// Read this before changing anything here: THIS WEAPON HAS NO TIMER, AND THAT IS THE FEATURE.
+// The other 23 weapons all run through fireOnTimer — an interval elapses, something is emitted, and
+// the player's only input into that is where they are standing. The Pincer holds a claw out toward
+// the nearest enemy and does NOTHING until something comes inside it. Its output is therefore a
+// function of what the crowd does, and a player who kites perfectly gets nothing from it at all.
+//
+// The two halves are split the way the bloom's and the lure's are — a placement site called from
+// the weapon dispatch, and a stepper called from the entity block below it:
+//   stepPincerWeapon  lays the claws out (this frame's aim, position, reach) and NOTHING else. It
+//                     never damages, never arms, never disarms.
+//   stepGuards        the trigger: a proximity scan over run.enemies, plus the re-arm countdown.
+//
+// If you are here to add a `fireOnTimer` call, or an accumulator that snaps when it fills: that is
+// weapon #24 of the kind this one exists not to be, and run US.e part (b) is the assertion that
+// catches it (a stationary enemy far away must leave the guard armed for as long as it sits there).
+function stepPincerWeapon(run, w, stats) {
+  const p = run.player
+  // NO fireRateMul. Every other step function takes it and divides its interval by it; there is no
+  // interval here to divide, and folding it into `cd` would make "attack speed" a stat on a weapon
+  // with no attack cadence — and would silently make the build sheet's `cd` row (which divides by
+  // nothing, unlike the `every` row) wrong. The Pincer's cadence is set by the enemy, and the knobs
+  // that move it are reach and re-arm, both on the card.
+  const target = nearestEnemy(run)
+  // fireFlagella's hard-won aim rule (v5.1.2): the nearest enemy first, because a kiting player's
+  // heading points AWAY from the swarm; the last move direction only as a fallback.
+  let angle
+  if (target) angle = Math.atan2(target.y - p.y, target.x - p.x)
+  else if (p.facingAngle != null) angle = p.facingAngle
+  else angle = p.facing >= 0 ? 0 : Math.PI
+
+  // backClaw: a second claw at your back. The list is one shared LOCAL count used for both the
+  // layout loop AND the angle it spaces them by — the two-sites-one-count rule in CLAUDE.md; three
+  // claws laid out on one angle would render exactly like no change at all.
+  const backClaw = (run.weaponMods.pincer?.backClaw ?? 0) > 0
+  const angles = []
+  for (const a of ipecacAngles(run, angle)) {
+    angles.push(a)
+    if (backClaw) angles.push(a + Math.PI)
+  }
+
+  // RESIZED IN PLACE, never rebuilt: `armed` and `cd` are the whole state of this weapon, and a
+  // fresh object every frame is a claw that forgets it ever snapped, i.e. no cooldown at all.
+  while (run.guards.length < angles.length) run.guards.push({ x: p.x, y: p.y, angle: 0, r: 0, armed: true, cd: 0, rearm: 0, dmg: 0, knock: 0 })
+  if (run.guards.length > angles.length) run.guards.length = angles.length
+
+  for (let i = 0; i < angles.length; i++) {
+    const g = run.guards[i]
+    g.angle = angles[i]
+    g.r = stats.r
+    g.dmg = stats.dmg
+    g.knock = stats.knock
+    // The re-arm DURATION, snapshotted alongside dmg/knock so the scan below is self-contained.
+    // `cd` is the live countdown; `rearm` is what it is reset to. Two fields because a claw that is
+    // currently closed still has to know how long its own cooldown was.
+    g.rearm = stats.cd
+    // ANCHORED TO THE PLAYER. The guard is an arc swept about your own centre, so `r` is reach from
+    // you and Long Arm buys a wider guard rather than a claw parked further away. See PINCER_ARC in
+    // config.js for the measurements that retired the held-out disc this replaced.
+    g.arc = PINCER_ARC
+    g.x = p.x
+    g.y = p.y
+  }
+}
+
+// The trigger and the re-arm. A claw closes on EVERYTHING whose centre is inside it, not on the one
+// nearest body — the claw is a shield, and a guard that removes one enemy from a pack of eight while
+// the other seven walk past it is not guarding anything. It is also what makes the weapon's damage
+// survive contact with a crowd: measured single-target, the pincer threw away 56% of every snap as
+// overkill on a body that was already dying (weapon-census, surf L5), which is what a big number on
+// a long cooldown always does. `r` is small (50-66px) and offset forward, so in a sparse field this
+// is still exactly one body and in a crush it is three or four — the weapon scales with the thing it
+// exists to answer, without ever becoming a nova on a timer.
+// `cd` is the only clock in it, and it does not start until a snap has happened, so an armed claw
+// over an empty beach stays armed indefinitely.
+function stepGuards(run, dt) {
+  if (run.guards.length === 0) return
+  for (const g of run.guards) {
+    if (!g.armed) {
+      g.cd -= dt
+      if (g.cd <= 0) { g.cd = 0; g.armed = true }
+      continue
+    }
+    const rSq = g.r * g.r
+    const half = g.arc ?? PINCER_ARC
+    let caught = 0
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e)) continue   // SUBMISSION: never pinch your own ally
+      const dx = e.x - g.x, dy = e.y - g.y
+      if (dx * dx + dy * dy > rSq) continue
+      // Inside the FAN, not merely inside the circle. Normalised through atan2(sin, cos) rather than
+      // by subtracting and comparing: a raw difference wraps at ±pi, and a guard facing just past
+      // that seam would silently stop catching the bodies right in front of it.
+      const d = Math.atan2(dy, dx) - g.angle
+      if (Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) > half) continue
+      applyDamage(run, e, g.dmg)
+      // Away from the PLAYER, not from the claw — "it gets yanked away" means away from you, and a
+      // shove along the claw's own axis would fling a body that came in from the side sideways past
+      // you. shoveFromPlayer is also what makes an anchored elite take the hit and hold its ground,
+      // the same contract every other knockback in the game keeps.
+      shoveFromPlayer(run, e, g.knock)
+      caught++
+    }
+    if (caught === 0) continue
+    g.armed = false
+    g.cd = g.rearm
+    run.events.push({ type: 'pinch', x: g.x, y: g.y, angle: g.angle, r: g.r })
+  }
 }
 
 // ---- Pickups ------------------------------------------------------------------------

@@ -42,10 +42,15 @@
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun } from '../src/state.js'
-import { stepSim, applyChoice } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness } from '../src/config.js'
+import { stepSim, applyChoice, onSandbar } from '../src/sim.js'
+import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor } from '../src/config.js'
 
-const CHAPTER = 'shelf'
+// --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
+// (Humidity, tide pools via the generalised streamShafts) as The Shelf's Light, so the probe reads
+// the geometry through refillSpec() below instead of Shelf-specific field names, and defaults to
+// 'shelf' unchanged for every call this file already documents.
+const argChapter = process.argv.indexOf('--chapter')
+const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'shelf'
 const DIFFICULTY = 1
 const DURATION = 300
 const DT = 1 / 60
@@ -66,6 +71,8 @@ const meta = {
 
 const res = CHAPTERS[CHAPTER].resource
 const sig = CHAPTERS[CHAPTER].signature
+const spec = refillSpec(sig) // the refill-circle geometry, whichever chapter (Shelf's shafts / Surf's pools)
+if (!res || !spec) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
 
 // Spend policies. ONE policy cannot tell "the bar cannot fill" apart from "this player spent it
 // all": a greedy player pins the bar at zero under every tune there is, which is exactly what the
@@ -90,7 +97,13 @@ const POLICIES = {
 const MOVES = {
   kite: () => null,                                         // the slowly-turning walk, unchanged
   seek: (run) => {
-    if (darkness(run.charge, res) <= 0) return null          // above the threshold, no reason to
+    // The trigger itself is chapter-conditional (v7.x): Shelf's `dark` curve says exactly when
+    // there's a reason to seek. The Surf has no dark block — Ruling D leaves its drawback to a
+    // later task — but the bar is already live as the Pulse's ammo (stepSim gates that on `res`
+    // alone, not on `dark`), so a rational player still wants it above half. Below half is an
+    // arbitrary but reasonable stand-in for a chapter that hasn't shipped its own gate yet.
+    const wantSeek = res.dark ? darkness(run.charge, res) > 0 : run.charge < res.max * 0.5
+    if (!wantSeek) return null
     const p = run.player
     let best = null, bd = Infinity
     for (const sh of run.shafts) {
@@ -98,6 +111,54 @@ const MOVES = {
       if (d < bd) { bd = d; best = sh }
     }
     return best ? Math.atan2(best.y - p.y, best.x - p.x) : null
+  },
+}
+
+// ---- LANE MOVEMENT (v7.x, The Reef) -----------------------------------------------------------
+// NEITHER POLICY ABOVE CAN BE EXPRESSED IN A LANE, and running one anyway returns confident
+// nonsense rather than an error — which is why this whole block exists before any Reef number was
+// quoted. In a lane chapter (CHAPTERS[].lane) stepPlayerMovement throws away the forward component
+// of the stick entirely and pins the forward velocity to the chapter's own laneScroll: a `kite` run
+// in The Reef is not a cautious player, it is a player pressing a direction the game does not have,
+// and it would measure as "the mechanic is unreachable" for every tune there is.
+//
+// The only decision a lane gives you is WHERE TO SIT ACROSS IT, so these two policies are the
+// honest poles of that one decision, and the pair is the answer — never one alone:
+//   centre — hold the middle and ignore the pockets. Not a strawman: the jitter budget puts every
+//            pocket's centre at |cross| >= 150 (see CHAPTERS.reef.signature's block), so a player
+//            who never commits to a side literally cannot touch one. This row is what the chapter
+//            does to someone who has not learned it yet.
+//   pocket — steer at the nearest pocket AHEAD whose cross the player could still reach in the time
+//            the scroll leaves them, and hold centre when there is none. The upper bound on a
+//            player working the mechanic, and deliberately not "seek only when low": in a lane you
+//            pass a refill once and never again, so waiting until the bar is low is not caution, it
+//            is having already skipped the three that would have saved you.
+// Both return an INPUT VECTOR rather than a heading: only the cross component survives the lane,
+// and building it explicitly off laneAxes is what stops this rig quietly measuring the wrong axis.
+const laneCh = CHAPTERS[CHAPTER].lane === true
+const LAX = laneAxes(CHAPTERS[CHAPTER])
+const crossInput = (v) => (LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v })
+// A dead band, so the rig does not chatter across the centre line at 60Hz and read as a player
+// vibrating. 8px is well under the pocket radius, so it costs nothing that matters.
+const towardCross = (from, to) => crossInput(Math.abs(to - from) < 8 ? 0 : to > from ? 1 : -1)
+const LANE_MOVES = {
+  centre: (run) => towardCross(run.player[LAX.cross], 0),
+  pocket: (run) => {
+    const p = run.player
+    if (run.charge >= res.max - 0.01) return towardCross(p[LAX.cross], 0)
+    const strafe = p.speed * 1.25            // LANE_STRAFE_MUL; how fast the cross axis can close
+    let best = null, bd = Infinity
+    for (const sh of run.shafts) {
+      // AHEAD, in the lane's own signed sense — a pocket level with or behind the player is gone,
+      // because nothing in this mode can turn round. `dir` makes that one comparison on either axis.
+      const ahead = (sh[LAX.fwd] - p[LAX.fwd]) * LAX.dir
+      if (ahead < -sh.r) continue
+      // Reachable: the cross gap has to close in the time the scroll leaves before it goes past.
+      const secs = Math.max(0.01, (ahead + sh.r) / laneScrollFor(CHAPTERS[CHAPTER]))
+      if (Math.abs(sh[LAX.cross] - p[LAX.cross]) > strafe * secs + sh.r) continue
+      if (ahead < bd) { bd = ahead; best = sh }
+    }
+    return towardCross(p[LAX.cross], best ? best[LAX.cross] : 0)
   },
 }
 
@@ -109,7 +170,7 @@ const MOVES = {
 // re-phasing trap — every seeded probe in this repo has fallen for it at least once).
 const results = {}
 for (const thief of [false, true]) {
-for (const [mname, aimAt] of Object.entries(MOVES)) {
+for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : MOVES)) {
 for (const [pname, wants] of Object.entries(POLICIES)) {
   const rows = []
   for (let r = 0; r < RUNS; r++) {
@@ -119,7 +180,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
     if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
 
     let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0
-    let dark = 0, darkSum = 0
+    let dark = 0, darkSum = 0, onBar = 0
     let sum = 0, min = Infinity, max = -Infinity
     let heading = 0
     const samples = []
@@ -129,8 +190,13 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       const ready = (run.repulseCd ?? 0) <= 0
       const skill = ready && wants(run)
       if (skill) { pulses++; if (run.charge >= PULSE_CHARGE_COST) charged++ }
-      const aim = aimAt(run) ?? heading                    // seek the light when low, else kite
-      stepSim(run, { x: Math.cos(aim), y: Math.sin(aim), skill }, DT)
+      // Free-roam policies return a HEADING (or null for "keep kiting"); the lane policies return
+      // an input VECTOR, because only the cross component of the stick survives stepPlayerMovement
+      // there and building it from an angle would be one more place to get the axis wrong.
+      const want = moveAt(run)
+      const move = laneCh ? want
+        : (() => { const aim = want ?? heading; return { x: Math.cos(aim), y: Math.sin(aim) } })()
+      stepSim(run, { x: move.x, y: move.y, skill }, DT)
       run.events.length = 0                                // drain, exactly as main.js does
       if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
       // Immortal: the rig measures the bar, not this walk's survival. Restored AFTER the step so
@@ -140,6 +206,9 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
 
       const pl = run.player
       if (run.shafts.some((sh) => Math.hypot(sh.x - pl.x, sh.y - pl.y) <= sh.r)) inShaft++
+      // Sandbars (v7.x Surf only — onSandbar is a no-op false for any chapter with no run.sandbars
+      // entries, so this column reads 0 for The Shelf without a chapter-type branch here).
+      if (onSandbar(run)) onBar++
       steps++
       const c = run.charge
       sum += c; min = Math.min(min, c); max = Math.max(max, c)
@@ -158,7 +227,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
     Math.random = orig
     rows.push({ mean: sum / steps, min, max, inShaft: inShaft / steps, atZero: atZero / steps,
                 atMax: atMax / steps, armed: armed / steps, dark: dark / steps, meanDark: darkSum / steps,
-                pulses, charged, kills: run.kills, secs: steps * DT, samples })
+                onBar: onBar / steps, pulses, charged, kills: run.kills, secs: steps * DT, samples })
   }
   results[`${thief ? 'thief' : 'base '} ${mname.padEnd(4)} ${pname}`] = rows
 }
@@ -167,13 +236,22 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
 
 const avg = (rows, k) => rows.reduce((a, x) => a + x[k], 0) / rows.length
 console.log(`chapter=${CHAPTER} difficulty=${DIFFICULTY} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
-console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-shaft  kill +${res.killRefill} (Light Thief only)  max ${res.max}`)
-console.log(`dark:     below ${(res.dark.from * 100).toFixed(0)}/${res.max} the screen dims (to alpha ${res.dark.dim}) and you slow (to x${res.dark.speedFloor}), linearly to empty`)
-console.log(`shafts:   cell ${sig.cell} chance ${sig.chance} r ${sig.r}  drift ${sig.driftAmp}px x ${sig.driftHz}rad/s = ${(sig.driftAmp * sig.driftHz).toFixed(1)} px/s peak`)
-console.log(`coverage: ${(100 * sig.chance * Math.PI * sig.r * sig.r / (sig.cell * sig.cell)).toFixed(1)}% of the plane is lit (chance x pi r^2 / cell^2)`)
+console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle  kill +${res.killRefill} (Light Thief only)  max ${res.max}`)
+if (res.dark) {
+  console.log(`dark:     below ${(res.dark.from * 100).toFixed(0)}/${res.max} the screen dims (to alpha ${res.dark.dim}) and you slow (to x${res.dark.speedFloor}), linearly to empty`)
+} else {
+  console.log('dark:     none — this chapter declares no resource.dark block')
+}
+console.log(`refill:   cell ${spec.cell} chance ${spec.chance} r ${spec.r}` +
+  (spec.driftAmp ? `  drift ${spec.driftAmp}px x ${spec.driftHz}rad/s = ${(spec.driftAmp * spec.driftHz).toFixed(1)} px/s peak` : '  no drift'))
+console.log(`coverage: ${(100 * spec.chance * Math.PI * spec.r * spec.r / (spec.cell * spec.cell)).toFixed(1)}% of the plane refills (chance x pi r^2 / cell^2)`)
+if (sig.bars) {
+  console.log(`sandbars: cell ${sig.bars.cell} chance ${sig.bars.chance} r ${sig.bars.r}  slowMul x${sig.bars.slowMul}  drainMul x${sig.bars.drainMul}` +
+    ` — ${(100 * sig.bars.chance * Math.PI * sig.bars.r * sig.bars.r / (sig.bars.cell * sig.bars.cell)).toFixed(1)}% of the plane is dry ground`)
+}
 console.log(`pulse:    costs ${PULSE_CHARGE_COST}; a full bar is ${(res.max / PULSE_CHARGE_COST).toFixed(1)} charged pulses`)
 console.log('')
-console.log('policy              mean    %at0   %atMax  %armed  %inLight   %DARK  meanDark  pulses  charged  kills   secs')
+console.log('policy              mean    %at0   %atMax  %armed  %inLight   %DARK  meanDark   %onBar  pulses  charged  kills   secs')
 for (const [pname, rows] of Object.entries(results)) {
   console.log(
     pname.padEnd(19) +
@@ -184,11 +262,16 @@ for (const [pname, rows] of Object.entries(results)) {
     (avg(rows, 'inShaft') * 100).toFixed(1).padStart(10) +
     (avg(rows, 'dark') * 100).toFixed(0).padStart(8) +
     avg(rows, 'meanDark').toFixed(2).padStart(10) +
+    (avg(rows, 'onBar') * 100).toFixed(1).padStart(9) +
     avg(rows, 'pulses').toFixed(0).padStart(8) +
     avg(rows, 'charged').toFixed(0).padStart(9) +
     avg(rows, 'kills').toFixed(0).padStart(7) +
     avg(rows, 'secs').toFixed(0).padStart(7))
 }
 console.log('')
-for (const k of ['base  seek full', 'base  kite full', 'thief seek full'])
-  console.log(`${k.padEnd(16)} charge every 10s, run 1:`, results[k][0].samples.join(' '))
+// The SHAPE of the bar over one run, which no column above can show: a mean of 50 is a bar that
+// cycles and a bar pinned at 50, and those are different mechanics. Keys are derived rather than
+// hardcoded, because the movement policies are chapter-conditional now (see LANE_MOVES) and a
+// hardcoded 'base  seek full' throws on any lane chapter.
+for (const k of Object.keys(results).filter((k) => k.endsWith('full') || k.endsWith('hoard')))
+  console.log(`${k.padEnd(19)} charge every 10s, run 1:`, results[k][0].samples.join(' '))
