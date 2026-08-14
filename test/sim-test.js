@@ -117,6 +117,8 @@ import {
   refillSpec,
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul,
+  // Book 2 The Surf: the Shore Crab's guard (Run US.i)
+  CRAB_GUARD_ARC,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
@@ -12393,6 +12395,7 @@ try {
   testSurfHumidity()
   testSurfHumidityDamage()
   testPincer()
+  testCrabGuard()
   testPlayerForms()
   testMultitouchControls()
   testLaneGolden()
@@ -15809,6 +15812,152 @@ function testUndertowLadder() {
       `the enemy, so the +25% is a number in a table that nothing reads`)
     console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75), xpMul ${jelly.xpMul}, and a spawned jelly really carries ${seen.xp} xp`)
   }
+}
+
+// ---- run US.i: the Shore Crab's guard ---------------------------------------------------------
+// A tank that refuses DIRECT damage inside a 120-degree arc, half the time. Every assertion below
+// guards a half of the mechanic that fails SILENTLY and reads, on screen, as something else:
+// a guard that never blocks is "this enemy is just tanky"; a guard that blocks everything is "my
+// weapon is broken"; and a guard that eats the STATUS as well as the damage removes the only
+// counter the design has while still looking exactly right from every angle.
+//
+// Damage is driven through a REAL WEAPON and stepSim rather than by reaching into sim.js: neither
+// applyDamage nor dealDamage is exported, and widening that surface for a test would be the wrong
+// trade — the shipped path is also the one worth asserting.
+function testCrabGuard() {
+  // The crab sits due EAST of the player and never moves, so "in front" and "behind" are simple.
+  const rig = () => {
+    Math.random = mulberry32(52001)
+    const run = createRun(makeMeta(), { chapter: 'surf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    run.weapons = [{ id: 'flagella', level: 5 }]
+    run.enemies.length = 0
+    const e = makeStatusEnemy(run, { x: run.player.x + 70, y: run.player.y, hp: 1e6, speed: 0 })
+    e.flags = ['guard', 'unshakeable']   // unshakeable so knockback cannot drift it out of reach
+    e.rosterId = 'shorecrab'
+    run.enemies.push(e)
+    return { run, e }
+  }
+  // Hold the crab in a chosen state across the whole sample, so each assertion is about ONE thing
+  // and not about where its own clock happened to be. `pin` re-latches every frame: the sim would
+  // otherwise flip the window mid-sample and the result would be a blend of both states.
+  const sample = (run, e, secs, { guarding, angle }) => {
+    const hp0 = e.hp
+    let blocks = 0, hits = 0
+    for (let i = 0; i < Math.round(secs * 60); i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      e.guarding = guarding
+      e._guardT = 99
+      if (guarding) e.guardAngle = angle
+      e.kb.x = e.kb.y = 0
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      for (const ev of run.events) {
+        if (ev.type === 'guardblock') blocks++
+        if (ev.type === 'hit' && !ev.dot) hits++
+      }
+      run.events.length = 0
+    }
+    return { lost: hp0 - e.hp, blocks, hits }
+  }
+
+  // (a) THE ARC BLOCKS — and the FLANK is the counter. Same latched bearing in both halves; only
+  // the player moves. If the guard were a bubble, or if guardAngle tracked the player every frame,
+  // the second half would block too and the whole "get round it" design would be unreachable.
+  {
+    const { run, e } = rig()
+    const front = Math.atan2(run.player.y - e.y, run.player.x - e.x)   // toward the player: due west
+    const inArc = sample(run, e, 3, { guarding: true, angle: front })
+    assert.strictEqual(inArc.lost, 0, `a guarded crab lost ${inArc.lost} hp through the front of its arc`)
+    assert.ok(inArc.blocks > 0, 'the fixture never landed a shot at all — it proves nothing about the guard')
+    assert.strictEqual(inArc.hits, 0, 'a blocked hit ALSO pushed a `hit` event, floating a damage number the player never dealt')
+
+    // teleport the player to the far side; the guard keeps the bearing it latched
+    run.player.x = e.x + (e.x - run.player.x)
+    const behind = sample(run, e, 3, { guarding: true, angle: front })
+    assert.ok(behind.lost > 0, 'a guarded crab was still immune from BEHIND its arc — this is a bubble, not an arc')
+  }
+
+  // (a2) THE BEARING IS LATCHED ON THE RAISE, NOT TRACKED. MUTATION-FOUND: (a) pins guardAngle
+  // itself every frame in order to isolate the arc, so it CANNOT see a stepCrabGuard that re-aims
+  // continuously — and a tracking guard is a 360-degree guard with extra arithmetic, which silently
+  // deletes flanking as a counter while every other assertion here still passes. So: let the crab's
+  // own clock raise the guard, then walk the player round it and require the bearing to hold.
+  {
+    const { run, e } = rig()
+    let raised = false
+    for (let i = 0; i < 60 * 12 && !raised; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      if (e.guarding) raised = true
+    }
+    assert.ok(raised, 'the crab never raised its guard on its own clock in 12s — the stepper is not running')
+    const latched = e.guardAngle
+    assert.ok(latched != null, 'the guard came up without latching a bearing')
+    // teleport the player to the far side and keep stepping WHILE IT IS STILL GUARDING
+    run.player.x = e.x + (e.x - run.player.x)
+    run.player.y = e.y + (e.y - run.player.y)
+    for (let i = 0; i < 12 && e.guarding; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+    }
+    assert.strictEqual(e.guardAngle, latched,
+      'guardAngle moved while the guard was up — it is tracking the player, so there is no side to get round')
+  }
+
+  // (b) OPEN TAKES FULL DAMAGE. Without this, a permanent immunity passes every other assertion.
+  {
+    const { run, e } = rig()
+    const open = sample(run, e, 3, { guarding: false })
+    assert.ok(open.lost > 0, 'an OPEN crab refused damage')
+    assert.strictEqual(open.blocks, 0, 'an OPEN crab still blocked something')
+  }
+
+  // (c) DoTs GO THROUGH THE GUARD, and (d) STATUS LANDS WHILE IT IS UP. These are one scenario
+  // because they are one counter: fire is only an answer to this enemy if BOTH hold. A `dot` flag
+  // dropped on the path, or a status application skipped while blocking, turns "bring a fire build"
+  // into advice that cannot be taken — with no visible symptom either way.
+  {
+    const { run, e } = rig()
+    run.elements.fire = 1
+    const front = Math.atan2(run.player.y - e.y, run.player.x - e.x)
+    const burn = sample(run, e, 4, { guarding: true, angle: front })
+    assert.ok((e.ignite || 0) > 0 && (e.igniteDps || 0) > 0,
+      'shooting a GUARDED crab lit no fire — status must land even though the damage bounces, or the counter is unreachable')
+    assert.ok(burn.lost > 0,
+      'a burn on a guarded crab removed no health — the dot flag is being blocked, so the advertised counter does not exist')
+  }
+
+  // (e) IT ALTERNATES ~50/50 AND OUT OF PHASE. A guard stuck permanently on, or a whole wave
+  // raising in unison, passes every assertion above.
+  {
+    Math.random = mulberry32(52002)
+    const run = createRun(makeMeta(), { chapter: 'surf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    run.weapons = []
+    run.enemies.length = 0
+    const pack = []
+    for (let i = 0; i < 12; i++) {
+      const e2 = makeStatusEnemy(run, { x: run.player.x + 300 + i * 40, y: run.player.y, hp: 1e6, speed: 0 })
+      e2.flags = ['guard']
+      pack.push(e2)
+      run.enemies.push(e2)
+    }
+    let guardedFrames = 0, frames = 0
+    const midRun = new Set()
+    for (let i = 0; i < 1200; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      for (const e2 of pack) { frames++; if (e2.guarding) guardedFrames++ }
+      if (i === 600) for (const e2 of pack) midRun.add(!!e2.guarding)
+    }
+    const pct = (guardedFrames / frames) * 100
+    assert.ok(pct > 40 && pct < 60, `the guard should be up about half the time, measured ${pct.toFixed(1)}%`)
+    assert.strictEqual(midRun.size, 2,
+      'every crab in the pack was in the SAME state at once — the spawn phase is not randomised, so a wave raises in unison')
+    assert.ok(pack.every((e2) => e2.guardAngle != null), 'a crab raised its guard without latching a bearing')
+  }
+  console.log(`PASS run US.i (shore crab guard): a ${(CRAB_GUARD_ARC * 2 * 180 / Math.PI).toFixed(0)} deg arc refuses direct damage and pushes guardblock instead of hit, is flankable, passes DoTs, still takes status while blocking, and alternates ~50/50 out of phase across a pack`)
 }
 
 // ---- run EL: the element system --------------------------------------------------------------

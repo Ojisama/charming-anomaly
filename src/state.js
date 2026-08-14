@@ -1046,12 +1046,24 @@ function generateWells(sig) {
  * 'strafe' (jet — bank -> telegraph -> run; fires {type:'strafeLock'} once per pass, see below),
  * 'missileVolley' (helicopter -> run.enemyShots), 'artillery' (tank columns AND AA
  * elites -> run.bombs), 'flyover' (city pigeon — passes straight through run.obstacles and nothing
- * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites).
+ * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites),
+ * 'guard' (The Surf's Shore Crab: alternates guarded <-> open, refusing DIRECT damage inside a
+ * 120-degree arc while guarded — see stepCrabGuard/guardBlocks in sim.js and the CRAB_GUARD_*
+ * block in config.js).
  * RETIRED v6.9: 'blink' (a crawl punctuated by a burst — it read as teleporting through two
  * rewrites; see the retirement note in config.js before reaching for that shape again).
  * Their phase state lives on sim-internal `_`-prefixed fields following the diveBomb idiom; the
- * two render.js may read are `e._phaseSolid` (bool, phase's alpha) and `e._coneAngle` (rad,
- * flashlightCone's sweep heading).
+ * ones render.js may read are `e._phaseSolid` (bool, phase's alpha), `e._coneAngle` (rad,
+ * flashlightCone's sweep heading), and the guard's PUBLISHED pair `e.guarding` (bool) /
+ * `e.guardAngle` (rad, the bearing the guard was raised at and holds for that window). Those two
+ * carry no underscore precisely because they are a render contract, not internals: ROSTER_LOOKS
+ * .shorecrab reads `guarding` through poseOf to pick the bake and `guardAngle` through faceDir to
+ * turn the body. A guard kept private would step, refuse damage, and never appear on screen.
+ * {type:'guardblock', x, y, angle}: a direct hit refused by a Shore Crab's raised claw. Pushed
+ *   INSTEAD OF {type:'hit'}, never alongside it — a blocked shot removed no HP, and floating its
+ *   damage number would be a lie about the one thing the player needs to read. angle = the guard's
+ *   held bearing, so the spark can be thrown back along the side that is covered. No SFX entry, and
+ *   that is deliberate: it fires on every refused hit, which for a fast weapon is several a second.
  * {type:'strafeLock', x, y, angle, len} (v5.9.1 bugfix, see sim.js's stepStrafe): fired ONCE, the
  *   instant a 'strafe' jet's bank ends and its heading locks — the start of STRAFE_TELEGRAPH_T s of
  *   holding position before the fast run. x,y = the jet's (stationary, for the telegraph's

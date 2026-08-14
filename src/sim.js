@@ -139,7 +139,10 @@ import {
   // v5.9.2 (per-kind structure radius — see STRUCTURE_RADIUS's doc in config.js)
   STRUCTURE_RADIUS,
   // v5.4 beyond
-  PHASE_SOLID_T, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
+  PHASE_SOLID_T,
+  CRAB_GUARD_T,
+  CRAB_OPEN_T,
+  CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
@@ -1740,6 +1743,10 @@ function stepEnemyMovement(run, dt) {
       stepPhaseWindow(e, dt)
       if (!e._phaseSolid) flagSpeedMul *= PHASE_GHOST_SPEED_MUL
     }
+    // guard flag (The Surf's Shore Crab): windows it guarded <-> open. Nothing about its MOVEMENT
+    // changes — unlike a ghost, a guarding crab keeps walking at you — so this site only advances
+    // the clock. The damage refusal lives in dealDamage, keyed off e.guarding.
+    if (e.flags && e.flags.includes('guard')) stepCrabGuard(run, e, dt)
     // Status effects (v5.4, see state.js): enrage is a plain speed multiplier; fear and stun
     // REPLACE the movement outright below. All guarded — other chapters never set these.
     const enrageMul = (e.enrageT || 0) > 0 ? FLASHLIGHT_SPEED_MUL : 1
@@ -2325,6 +2332,64 @@ function stepPhaseWindow(e, dt) {
     e._phaseSolid = !e._phaseSolid
     e._phaseT += e._phaseSolid ? PHASE_SOLID_T : PHASE_GHOST_T
   }
+}
+
+// guard (The Surf's Shore Crab): alternates guarded <-> open forever on guarding/_guardT, phase
+// randomised at spawn so a pack does not raise in unison. See the CRAB_GUARD_* block in config.js
+// for the rulings this implements.
+//
+// `guarding` and `guardAngle` are PUBLISHED CONTRACT FIELDS, not private state, and that is why
+// they are named without an underscore: render.js reads both by name — `guarding` picks the pose
+// through ROSTER_LOOKS.shorecrab.poseOf, `guardAngle` turns the body through faceDir. A guard kept
+// in a private `_guarding` would step, refuse damage, and be completely invisible on screen, which
+// is indistinguishable from the weapon being broken. (The v7.5x elements redesign shipped exactly
+// that bug with `_elFrozen`.)
+//
+// The bearing is LATCHED on the raise and held for the window — see the arc note in config.js for
+// why an arc that re-aims every frame is not an arc at all.
+function stepCrabGuard(run, e, dt) {
+  if (e.guarding === undefined) {
+    // Always start OPEN: a crab that spawned mid-guard would be untouchable from the instant it
+    // appeared, before the player could even read it.
+    e.guarding = false
+    // ...but randomise the first window across the WHOLE CYCLE, not across the open window alone.
+    // Offsets drawn from [0, CRAB_OPEN_T) span only half the period, so every crab's state is the
+    // same function of time shifted by less than half a cycle — and the pack RE-SYNCHRONISES on a
+    // timer: at t = CRAB_OPEN_T every one of them is guarded together, whatever it drew. Run US.i
+    // part (e) caught exactly that, sampling at 10s. Drawing from the full cycle is the fix, and
+    // costs one longer opening window.
+    // The tardigrade's `phase` flag has this same shape (`_phaseT = Math.random() * PHASE_SOLID_T`
+    // against a SOLID_T + GHOST_T cycle) and therefore the same periodic lockstep. Left alone here
+    // deliberately — it is a different chapter's tuned creature and not this change's business.
+    e._guardT = Math.random() * (CRAB_GUARD_T + CRAB_OPEN_T)
+  }
+  e._guardT -= dt
+  if (e._guardT > 0) return
+  e.guarding = !e.guarding
+  e._guardT += e.guarding ? CRAB_GUARD_T : CRAB_OPEN_T
+  // Latched on the raise, and only on the raise.
+  if (e.guarding) e.guardAngle = Math.atan2(run.player.y - e.y, run.player.x - e.x)
+  // No event for the raise itself: the pose swap and the body squaring up ARE the telegraph, and an
+  // event nothing consumes is dead weight. `guardblock` (dealDamage) is the one that must exist,
+  // because a shot that produces nothing at all reads as a broken weapon.
+  // NO SOUND for either, deliberately: a block fires on every refused hit, which for a fast weapon
+  // is several a second, and SFX_FOR_EVENT is for events rare enough to bear one.
+}
+
+// Is this enemy refusing direct damage right now?
+//
+// THE SOURCE OF A HIT IS THE PLAYER'S OWN POSITION, not the projectile's. dealDamage has no source
+// argument and threading one through all 26 damage sites would be a far larger and riskier change
+// than this mechanic is worth — but more importantly the player's position is the RIGHT source,
+// because it is the thing the player controls and the thing the counter is about. "Get round its
+// side" has to be answerable by moving, and a shot fired from where you used to be standing is an
+// edge case nobody can see. Where a weapon's projectile physically is does not enter into it.
+function guardBlocks(run, e, dot) {
+  if (!e.guarding) return false
+  if (dot) return false          // burns, bleeds and poisons go straight through — the counter
+  if (e.guardAngle == null) return false
+  const d = Math.atan2(run.player.y - e.y, run.player.x - e.x) - e.guardAngle
+  return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) <= CRAB_GUARD_ARC
 }
 
 // -- flashlightCone (v5.4 undergrowth's exterminator elites) ----------------------------
@@ -4305,7 +4370,13 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   }
   dmg = Math.round(dmg)
 
-  enemy.hp -= dmg
+  // THE SHORE CRAB'S GUARD. Only the HP removal is refused; everything below still runs, and that
+  // is the mechanic rather than an oversight. The element WINDOW keeps filling (so cold and venom
+  // build on a guarded crab), and applyDamage calls applyElements with the full pre-block `dmg`
+  // regardless of what came off — so a shot into a raised claw still lights the fire that kills it.
+  // Zeroing the window here instead would leave the advertised counter reachable only in theory.
+  const blocked = guardBlocks(run, enemy, dot)
+  if (!blocked) enemy.hp -= dmg
   // EVERY player damage source feeds the window — weapon hits, burn ticks, arc damage, allies.
   // That is deliberate and load-bearing: feeding it only from applyDamage let a fire build kill
   // enemies without filling any window, which stopped a fire+cold build freezing anything at all.
@@ -4322,8 +4393,14 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   }
   // DoT ticks don't white-flash: with ignite/venom up they fire every STATUS_TICK and
   // the enemy would strobe white permanently
-  if (!dot) enemy.hitFlash = 0.12
-  run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit, dot })
+  if (!dot && !blocked) enemy.hitFlash = 0.12
+  // A blocked hit gets its OWN event, not a `hit` carrying dmg. Pushing `hit` would float the
+  // damage number the player did not deal — the single most misleading thing this could do, and
+  // measuring damage off `hit` events is already a documented trap in this repo. It also has to be
+  // SOME event: a shot that vanishes silently reads as the weapon being broken, which is exactly
+  // the failure the elements redesign shipped. render.js and SFX_FOR_EVENT both consume this.
+  if (blocked) run.events.push({ type: 'guardblock', x: enemy.x, y: enemy.y, angle: enemy.guardAngle })
+  else run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit, dot })
 
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true

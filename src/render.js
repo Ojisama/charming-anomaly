@@ -1214,65 +1214,425 @@ export function createRenderer(app) {
   // (the trait that separates it from every other rounded tank in this game), eight walking legs
   // fanned to the flanks, and two big claws held forward, raised clear of the shell and closing to
   // a point — the backup read that survives once the deep red-orange has gone to grey.
-  function drawShorecrab(g, elite, white) {
+  // THE CLAW, painted into any Graphics rather than baked into one texture — the Pincer weapon and
+  // the Shore Crab's guard are the same drawing at different sizes, and a second hand-drawn claw
+  // would drift from this one the first time either is touched.
+  //   R    the claw's reach: it occupies x in [0.46R, R], so its LENGTH is 0.54R. Size is a RATIO,
+  //        which is what lets the weapon state its own tested radius (placeGuard scales by
+  //        r / CLAW_BAKE_R and the fingertips land on the catch radius) while the crab picks an R
+  //        that simply matches its own body.
+  //   rot/ox/oy  where to put it. Every coordinate goes through P(), so the caller can hold the
+  //        claw ACROSS its body instead of pointing along the facing — a shield is perpendicular to
+  //        the threat, which is the note that killed four cuts of the weapon's art.
+  //   white  the silhouette pass used by the cast bake, same contract as every draw* above.
+  //   col  the palette. Defaults to the WEAPON's warm orange, which was chosen to read on teal water
+  //        and to sit apart from every enemy tint in the surf roster — so a creature holding this
+  //        claw must override it, or it wears another species' colours and reads as clipped on.
+  function paintClaw(g, R, open, { rot = 0, ox = 0, oy = 0, white = false, col = null } = {}) {
+    const f = (c) => white ? 0xffffff : c
+    const c0 = col || { shell: 0xe8763c, lit: 0xffc08a, line: 0x7a2f12, nail: 0xf6bd85, tooth: 0xfff0d8, stub: 0xc55c29 }
+    const shell = f(c0.shell)
+    const lit = f(c0.lit)
+    const line = f(c0.line)
+    const nail = f(c0.nail)    // the FINGERS are paler than the palm, as a fiddler's actually are;
+    const tooth = f(c0.tooth)  // that two-tone is most of what makes the gape legible at phone size
+    const cs = Math.cos(rot), sr = Math.sin(rot)
+    const P = (x, y) => [ox + x * cs - y * sr, oy + x * sr + y * cs]
+    const x0 = R * 0.46             // the wrist, clear of the body carrying it
+    const L = R - x0                // claw length; for the weapon, the tips land on the tested radius
+    const px = x0 + L * 0.55        // the palm's front, where the fingers leave it
+    const pd = L * 0.19             // palm half-depth: a 1.4:1 mass, a fiddler's own proportion
+    // BOTH fingers hinge, and the gape straddles the claw's axis rather than opening upward off
+    // it — a claw whose lower half is a fixed baseline reads as a hand. The dactyl swings twice
+    // as far as the pollex, which is the asymmetry that keeps this a claw and not pliers.
+    const sP = open ? 0.26 : 0.03
+    const sD = open ? 0.50 : 0.03
+
+    // Carpus stub, angled back to the body so the claw is CARRIED rather than floating. Short
+    // and thin: the pre-v7.75 bake ran a long thick limb back to the player, and at phone size
+    // that stem turned the whole sprite into a carrot.
+    taperStroke(g, [P(x0 - L * 0.30, L * 0.13), P(x0 + L * 0.16, L * 0.03)],
+      L * 0.09, L * 0.15, f(c0.stub), 4)
+
+    // A finger: swung about its hinge, and outlined by laying a fatter dark stroke under the
+    // pale one. Built from ONE description at two angles, so open and shut cannot disagree about
+    // where the tips are. `hook` curves the centreline back toward the axis, which is what makes
+    // the gape a LENS; two straight fingers at an angle are a pair of tweezers.
+    const finger = (hxx, hyy, th, len, hook, w0, w1) => {
+      const c = Math.cos(th), sn = Math.sin(th)
+      const pts = []
+      for (let i = 0; i <= 4; i++) {
+        const u = i / 4
+        const sx = len * u, sy = hook * Math.pow(u, 1.5)
+        pts.push(P(hxx + sx * c - sy * sn, hyy + sx * sn + sy * c))
+      }
+      taperStroke(g, pts, w0 + L * 0.05, w1 + L * 0.045, line, 6)
+      taperStroke(g, pts, w0, w1, nail, 6)
+      return pts
+    }
+    // POLLEX — heavier, swings least, hooks up toward the axis so its tip meets the dactyl's.
+    const pol = finger(px - L * 0.08, L * 0.05, sP, L * 0.53, -L * 0.09, L * 0.125, L * 0.028)
+    // DACTYL — slimmer, swings furthest, hooks down onto the pollex.
+    const dac = finger(px - L * 0.11, -L * 0.09, -sD, L * 0.56, L * 0.16, L * 0.105, L * 0.024)
+
+    // PALM last, so it covers both finger roots and they read as growing out of it. A smooth
+    // oval mass narrowing at both ends — two earlier cuts baked a hexagon and then a brick,
+    // both because the depth profile was flat across its middle instead of curved.
+    const dep = (t) => pd * Math.pow(Math.sin(Math.PI * (0.06 + 0.80 * t)), 0.85)
+    const pal = []
+    const N = 20
+    for (let i = 0; i <= N; i++) { const t = i / N; pal.push(...P(x0 + (px - x0) * t, -dep(t) * 0.94)) }
+    for (let i = N; i >= 0; i--) { const t = i / N; pal.push(...P(x0 + (px - x0) * t, dep(t) * 1.06)) }
+    g.poly(pal).fill(shell).stroke({ width: Math.max(1.4, L * 0.044), color: line })
+
+    // Teeth on both cutting faces, pointing across the gape at the gap a body has to cross —
+    // read straight off the finger centrelines so they cannot drift off the fingers when the
+    // swing changes. Shutting the claw hides them, which is its own tell.
+    for (const [pts, sgn] of [[pol, -1], [dac, 1]]) {
+      for (let i = 1; i <= 3; i++) {
+        const a = pts[i], b = pts[i + 1]
+        const nx = -(b[1] - a[1]), ny = b[0] - a[0]
+        const nl = Math.hypot(nx, ny) || 1
+        const w = L * (0.088 - 0.020 * i)
+        g.circle(a[0] + (nx / nl) * w * sgn, a[1] + (ny / nl) * w * sgn, L * 0.025)
+          .fill({ color: tooth, alpha: 0.9 })
+      }
+    }
+    if (white) return
+    // Granulation and the top highlight. The camera looks straight down, so the lit face is the
+    // upper surface — a plan view's only shading cue, and the one every creature bake uses.
+    for (let i = 0; i < 4; i++) {
+      const t = 0.30 + 0.15 * i
+      const c = P(x0 + (px - x0) * t, dep(t) * (0.18 + 0.24 * (i % 2)))
+      g.circle(c[0], c[1], L * 0.022).fill({ color: line, alpha: 0.22 })
+    }
+    const hi = []
+    for (let i = 0; i <= 10; i++) { const t = 0.12 + 0.66 * (i / 10); hi.push(...P(x0 + (px - x0) * t, -dep(t) * 0.5)) }
+    g.poly(hi).stroke({ width: L * 0.05, color: lit, alpha: 0.55 })
+  }
+
+  // The crab's own claw palette: the weapon's warm orange belongs to the weapon.
+  const CRAB_CLAW_COL = { shell: 0xc1391b, lit: 0xe0693a, line: 0x4a1206, nail: 0xd9705a, tooth: 0xffe8dc, stub: 0x9c2a12 }
+
+  // ---- Shore Crab, TWO POSES (v7.76) --------------------------------------------------------
+  // The crab alternates GUARDED (direct hits do nothing) and OPEN on a timer, so the player has to
+  // read the state off the sprite in a crowd, on a phone, while being chased. That read is carried
+  // by the SILHOUETTE'S ASPECT, never by interior detail — at 50px there is no interior:
+  //   GUARDED  DEEP and NARROW. One unbroken convex wall of shell thrown across the front, legs
+  //            drawn in under the body, no face. Bounds run long in +x and short in ±y.
+  //   OPEN     WIDE and SHALLOW. Both claws swung out to the flanks and GAPING, legs fanned, the
+  //            whole dorsal shell bare with its sheen and its eyes on top. Bounds run short in +x
+  //            and long in ±y.
+  // Those two outlines cannot be confused at any size, which is the only property that survives a
+  // phone screen. Everything below is in service of one of them.
+  //
+  // Draw ORDER carries the depth, because a plan view has no other way to say "raised":
+  //   guarded  shell first, claws painted OVER it -> the claws are held above the body.
+  //   open     claws first, shell painted OVER their roots -> the claws are down beside the body.
+  // That is the same observation the old guard comment made, used in both directions.
+
+  // ONE CHELA of the guard, and NOT paintClaw. The weapon's claw is drawn along its own axis and a
+  // shut one tapers to a point; a point is not cover, which is why both cuts that reused it were
+  // rejected. This one is built on an ARC: the wrist sits out at the shoulder, the arc bows FORWARD
+  // and runs INWARD to a blunt tip a little past the centreline, so the mirrored pair OVERLAP in
+  // the middle and each tip is hidden behind the other one. What is left in silhouette is a single
+  // continuous bowed wall with no notch and no arrowhead. It still reads as a claw rather than a
+  // plank because the mass is a chela's — fat at the wrist, the paler fingers occupying the inner
+  // third, split by a dark shut seam — and because the arm carrying it is visible at the outer end.
+  const CRAB_CHELA_W = [0.30, 0.33, 0.32, 0.28, 0.22, 0.13] // half-depth / r, sampled along t=0..1
+  // arc = [wrist, control, tip] in units of r, written for s=+1; the y of the tip is the OVERLAP,
+  // i.e. how far past the centreline this chela reaches into its twin's half.
+  function crabChelaSpine(r, s, arc) {
+    const [P0, P1, P2] = arc.map(([x, y]) => [r * x, s * r * y])
+    return (t) => {
+      const u = 1 - t
+      return [u * u * P0[0] + 2 * u * t * P1[0] + t * t * P2[0],
+        u * u * P0[1] + 2 * u * t * P1[1] + t * t * P2[1]]
+    }
+  }
+  function crabChelaDep(r, k, w = CRAB_CHELA_W) {
+    return (t) => {
+      const u = Math.min(0.9999, Math.max(0, t)) * (w.length - 1)
+      const i = Math.floor(u)
+      return r * k * (w[i] + (w[i + 1] - w[i]) * (u - i))
+    }
+  }
+  // The half-depth profile WITH THE PINCER NOTCH, and the notch is the whole point. Every smooth
+  // egg-shaped chela this file tried read as half a bivalve — a crab sitting in a cracked shell —
+  // because a smooth taper is a shell's outline and a claw's is not. A real chela steps DOWN where
+  // the fingers leave the palm, from a fat rounded manus to a pair of slim ones, and that single
+  // step is what the eye uses to name the shape. Two of them held across the front therefore read
+  // as knuckles bridged by crossed fingers, not as one plank and not as an opening shell.
+  // The wrist end is BLUNT (0.23, not the 0.16 the first cut used). A palm that narrows to a neck
+  // before the arm meets it leaves a concave wedge between the two, and a concave wedge on a red
+  // shell reads as a chip knocked out of it.
+  const CRAB_PALM_W = [0.23, 0.30, 0.34, 0.33, 0.30]   // u = 0 .. 0.56, the manus
+  const CRAB_FINGER_W = [0.17, 0.145, 0.105, 0.05]     // u = 0.56 .. 1, past the notch
+  const CRAB_NOTCH_U = 0.56
+  function crabNotchDep(r, k, fw = CRAB_FINGER_W) {
+    const lerp = (w, v) => {
+      const u = Math.min(0.9999, Math.max(0, v)) * (w.length - 1)
+      const i = Math.floor(u)
+      return w[i] + (w[i + 1] - w[i]) * (u - i)
+    }
+    return (t) => r * k * (t < CRAB_NOTCH_U
+      ? lerp(CRAB_PALM_W, t / CRAB_NOTCH_U)
+      : lerp(fw, (t - CRAB_NOTCH_U) / (1 - CRAB_NOTCH_U)))
+  }
+  // The outward normal at t: the side of the arc facing AWAY from the body. Used for the lit
+  // leading edge, which is the single strongest "this is hard armour" cue a plan view has.
+  function crabChelaRim(spine, dep, t0, t1, n, push) {
+    const pts = []
+    for (let i = 0; i <= n; i++) {
+      const t = t0 + (t1 - t0) * (i / n)
+      const [x, y] = spine(t)
+      const [ax, ay] = spine(Math.max(0, t - 0.01))
+      const [bx, by] = spine(Math.min(1, t + 0.01))
+      const dx = bx - ax, dy = by - ay
+      const m = Math.hypot(dx, dy) || 1
+      let nx = -dy / m, ny = dx / m
+      if (nx * x + ny * y < 0) { nx = -nx; ny = -ny }
+      pts.push(x + nx * dep(t) * push, y + ny * dep(t) * push)
+    }
+    return pts
+  }
+
+  // The Shore Crab's two poses, as tuning for ONE draw function. Both were picked off a contact
+  // sheet at true gameplay size; what separates them is SILHOUETTE ASPECT, because at ~50px on a
+  // phone there is no interior detail left to read. Guarded is a compact, forward-massed block with
+  // nothing protruding; open is a wide spiky star. Three further tells stack on that same pair so
+  // the state survives a crowd: guarded has no face and a shaded shell, open has both eyestalks up
+  // on a bright bare one, and DRAW ORDER carries depth in each direction — guarded paints the
+  // chelae OVER the shell, open paints the shell over the wrists, which in a plan view is the only
+  // way to say "claws down".
+  //
+  // Do not "improve" these by adding interior contrast. A lit rim laid just inside each palm's dark
+  // outline was tried four times and read as a CRACKED SHELL the crab was sitting in — it looks
+  // like craftsmanship at 3x zoom and destroys the read at the size the game is played at, which is
+  // why `bare: 1` is set. Same lesson as the Pincer's own art: detail above gameplay size is a lie.
+  // How fast the crab swings round as it raises the guard, rad/s. Slow enough that the turn READS
+  // as a telegraph rather than a snap: at ~2.6 rad/s a half-turn takes about half a second, which
+  // is the window a player has to notice and stop shooting.
+  const CRAB_SQUARE_UP_RATE = 2.6
+  const CRAB_OPEN = { openTh: 1.22, openR: 52, legK: 0.82, flat: 1 }
+  const CRAB_GUARD = {
+    arc: [[0.16, 0.72], [0.64, 0.60], [0.76, -0.22]],
+    fw: [0.21, 0.19, 0.155, 0.09],
+    notch: 1, chela: 0xd6431e, shade: 0.46, flat: 1, legK: 0.72, dome: 1, pale: 0.40, bare: 1,
+    chelaK: 1.06, armX: 0.10, armY: 0.50,
+  }
+  function drawShorecrabPose(g, elite, white, guard, o = {}) {
     const r = 26
     const f = (c) => white ? 0xffffff : c
     const line = f(0x4a1206)
-    const claw = f(0xc1391b)
+    const shellC = f(0xb8341c)
+    const chelaC = f(o.chela || 0xcb3d1c)
+    const nailC = f(o.nail || 0xe58a5f)
+    const litC = f(o.lit || 0xf79a63)
+    const k = o.chelaK || 1                       // guard scale knob
+    const legK = guard ? (o.legK || 0.60) : (o.legK || 0.78)
     groundShadow(r * 1.05, r * 0.85)
-    // eight walking legs, four pairs fanned down the flanks, jointed and splayed, shorter toward
-    // the rear the way a real crab's are
+
+    // Eight walking legs. Guarded pulls them IN (a braced crab plants low and short); open fans
+    // them wide, and they are what makes the open silhouette spiky rather than a disc.
     const legSets = [
-      [[0.52, 0.18], [0.92, 0.62], [1.1, 0.98]],
-      [[0.3, 0.2], [0.5, 0.78], [0.42, 1.14]],
-      [[0.06, 0.2], [-0.22, 0.8], [-0.5, 1.12]],
-      [[-0.2, 0.18], [-0.62, 0.7], [-0.94, 0.92]],
+      [[0.52, 0.18], [0.92, 0.62], [1.10, 0.98]],
+      [[0.30, 0.20], [0.50, 0.78], [0.42, 1.14]],
+      [[0.06, 0.20], [-0.22, 0.80], [-0.50, 1.12]],
+      [[-0.20, 0.18], [-0.62, 0.70], [-0.94, 0.92]],
     ]
+    const spread = guard ? 0.86 : 1.16            // how far the fan swings toward ±y
     for (const s of [-1, 1]) {
       for (const set of legSets) {
-        const p = set.map(([lx, ly]) => [lx * r * 0.62, s * ly * r * 0.62])
-        taperStroke(g, [[p[0][0], p[0][1] * 0.5], ...p], r * 0.15, r * 0.04, line, 3)
+        const p = set.map(([lx, ly]) => [lx * r * legK, s * ly * r * legK * spread])
+        taperStroke(g, [[p[0][0], p[0][1] * 0.5], ...p], r * 0.14, r * 0.035, line, 3)
       }
     }
-    // THE TELL: two big claws held forward, well clear of the carapace, each closing to an open
-    // pincer point
-    for (const s of [-1, 1]) {
-      const shoulder = [r * 0.5, s * r * 0.34]
-      const elbow = [r * 0.98, s * r * 0.62]
-      const pincerBase = [r * 1.28, s * r * 0.46]
-      taperStroke(g, [shoulder, elbow, pincerBase], r * 0.22, r * 0.16, claw, 4)
-      for (const a of [-0.36, 0.14]) { // two pincer tips, open
-        const ang = Math.atan2(pincerBase[1] - elbow[1], pincerBase[0] - elbow[0]) + a
-        taperStroke(g, [pincerBase, [pincerBase[0] + Math.cos(ang) * r * 0.4, pincerBase[1] + Math.sin(ang) * r * 0.4]],
-          r * 0.14, r * 0.03, claw, 3)
+
+    // --- OPEN: claws down and thrown out to the flanks, GAPING ---------------------------------
+    // paintClaw is the right drawing here and the wrong one for the guard: a gape is exactly what
+    // "you can hit me" wants, and the claw pointing outward off the shoulder is not covering
+    // anything. Painted BEFORE the carapace so the shell laps over the wrists — that occlusion is
+    // the plan view saying the claws are DOWN.
+    if (!guard) {
+      for (const s of [-1, 1]) {
+        const R = o.openR || 48
+        const th = s * (o.openTh || 1.02)         // out and a little forward, not along the facing
+        const sx = r * 0.26, sy = s * r * 0.44
+        paintClaw(g, R, true, {
+          rot: th,
+          ox: sx - Math.cos(th) * R * 0.46,       // back it off so the WRIST lands on the shoulder
+          oy: sy - Math.sin(th) * R * 0.46,
+          white, col: CRAB_CLAW_COL,
+        })
       }
     }
-    // eyestalks: short and close-set, well forward
-    for (const s of [-1, 1]) {
-      taperStroke(g, [[r * 0.32, s * r * 0.14], [r * 0.46, s * r * 0.2]], Math.max(1.3, r * 0.05), 0.8, f(0x7a1e0c), 2)
-      darkEye(g, r * 0.48, s * r * 0.2, r * 0.07, r * 0.065, 0x1c0a04, true)
-    }
-    // carapace: a broad, flattened oval — WIDER (±y) than it is long (±x)
-    g.poly(radialOutline((a) => r * (0.62 + 0.04 * Math.cos(a * 2)), 40, 0.82, 1.02))
-      .fill(f(0xb8341c)).stroke({ width: Math.max(2.6, r * 0.12), color: line })
+
+    // --- the carapace: broad, flattened, WIDER across (±y) than long (±x) ----------------------
+    // The flattening is the trait that separates this from every other rounded tank in the game,
+    // and at 50px a 0.82:1.02 oval still reads as a circle — v13 pushes it to 0.74:1.08.
+    const sx = o.flat ? 0.74 : 0.82
+    const sy = o.flat ? 1.08 : 1.02
+    g.poly(radialOutline((a) => r * (0.62 + 0.04 * Math.cos(a * 2)), 40, sx, sy))
+      .fill(shellC).stroke({ width: Math.max(2.6, r * 0.12), color: line })
     if (!white) {
-      g.ellipse(-r * 0.06, -r * 0.14, r * 0.42, r * 0.26).fill({ color: 0xe0693a, alpha: 0.35 }) // dorsal sheen
+      // Open wears a brighter dorsal sheen than guarded does: the bare back catching the light IS
+      // the vulnerable read, and under the claws that same back is in shade.
+      g.ellipse(-r * 0.06, -r * 0.14, r * 0.42 * sx, r * 0.26)
+        .fill({ color: 0xe0693a, alpha: guard ? 0.22 : 0.45 })
       g.beginPath() // the H-shaped cervical/branchiocardiac grooves a real crab shell carries
       g.moveTo(-r * 0.02, -r * 0.4).lineTo(-r * 0.02, r * 0.4)
       g.moveTo(-r * 0.02, 0).lineTo(r * 0.3, -r * 0.22)
       g.moveTo(-r * 0.02, 0).lineTo(r * 0.3, r * 0.22)
       g.stroke({ width: 1.3, color: 0x7a1e0c, alpha: 0.55 })
     }
+
+    // --- OPEN: the face. Eyestalks up ON TOP of the shell, past its front rim ------------------
+    // Guarded has no face at all — the claws are in front of it and a crab withdraws its stalks
+    // behind them. Face vs no face is a second, independent read on the same pair of bakes.
+    if (!guard) {
+      for (const s of [-1, 1]) {
+        taperStroke(g, [[r * 0.34, s * r * 0.16], [r * 0.60, s * r * 0.26]], Math.max(1.4, r * 0.055), 0.9, f(0x7a1e0c), 2)
+        // drawn in BOTH passes at identical geometry — the white twin's bounds have to match the
+        // normal one's or the baked anchor moves when a crab takes a hit
+        darkEye(g, r * 0.62, s * r * 0.27, r * 0.085, r * 0.08, f(0x1c0a04), true)
+      }
+    }
+
+    // --- GUARDED: the wall ---------------------------------------------------------------------
+    if (guard && o.pcR) {
+      if (!white && o.shade) {
+        g.poly(radialOutline((a) => r * (0.62 + 0.04 * Math.cos(a * 2)), 40, sx, sy))
+          .fill({ color: 0x3a0d03, alpha: o.shade * 0.5 })
+      }
+      // -1 is drawn LAST so its fingertip lands on its twin's palm rather than on the sand: an
+      // exposed shut tip is the point that stopped every earlier cut reading as cover.
+      for (const sd of [1, -1]) {
+        const th = -sd * o.pcTh
+        const wx = r * o.pcX, wy = sd * r * o.pcY
+        paintClaw(g, o.pcR, false, {
+          rot: th,
+          ox: wx - Math.cos(th) * o.pcR * 0.46,   // back it off so the WRIST sits at (wx, wy)
+          oy: wy - Math.sin(th) * o.pcR * 0.46,
+          white, col: CRAB_CLAW_COL,
+        })
+      }
+    } else if (guard) {
+      const arc = o.arc || [[0.34, 0.62], [1.02, 0.50], [0.88, -0.26]]
+      const spine = (s) => crabChelaSpine(r, s, arc)
+      const dep = o.notch ? crabNotchDep(r, k, o.fw) : crabChelaDep(r, k, o.w)
+      // 1. the whole back drops into shade under the raised claws, and the strip directly beneath
+      //    them goes darker still. The camera looks straight down, so a raised thing shades what is
+      //    under it — the offset is small and INWARD, never a cast shadow thrown to one side.
+      if (!white && o.shade) {
+        g.poly(radialOutline((a) => r * (0.62 + 0.04 * Math.cos(a * 2)), 40, sx, sy))
+          .fill({ color: 0x3a0d03, alpha: o.shade * 0.5 })
+        for (const s of [-1, 1]) {
+          const sp = spine(s)
+          g.poly(spineOutline((t) => { const [x, y] = sp(t); return [x - r * 0.13, y] }, (t) => dep(t) * 0.92, 22))
+            .fill({ color: 0x3a0d03, alpha: o.shade })
+        }
+      }
+      // 1b. the eyes, BEFORE the claws, so a slit guard leaves them peering out between the two
+      //     and a merged one buries them — the same drawing, hidden or not by the pose itself.
+      if (o.peek && !white) {
+        for (const s of [-1, 1]) {
+          taperStroke(g, [[r * 0.30, s * r * 0.10], [r * 0.62, s * r * 0.13]], Math.max(1.4, r * 0.055), 0.9, f(0x7a1e0c), 2)
+          darkEye(g, r * 0.66, s * r * 0.14, r * 0.085, r * 0.08, 0x1c0a04, true)
+        }
+      }
+      // 2. both arms, then both chelae — two passes so no arm lands on top of a claw. The arm is
+      //    SHORT and its far end is under the chela: it exists to say the wall is carried, and a
+      //    long one just crosses the sprite as a dark bar (v10 did exactly that).
+      for (const s of [-1, 1]) {
+        const [wx, wy] = spine(s)(0)
+        const sh = [r * (o.armX || 0.06), s * r * (o.armY || 0.40)]
+        taperStroke(g, [sh, [wx, wy]], r * 0.24, r * 0.19, line, 4)
+        taperStroke(g, [sh, [wx, wy]], r * 0.15, r * 0.12, f(0xa32c12), 4)
+      }
+      for (const s of [-1, 1]) {
+        const sp = spine(s)
+        g.poly(spineOutline(sp, dep, o.notch ? 54 : 26)).fill(chelaC).stroke({ width: Math.max(2.6, r * 0.115), color: line })
+        // The SHUT GAPE. Two fingers pressed together still leave a hairline you can see, and it
+        // runs the full length of the finger section to a tiny dark wedge at the tip. This plus
+        // the notch is the entire claw read at 50px; the granulation and the teeth are decoration.
+        if (o.notch && !white) {
+          const gape = []
+          for (let i = 0; i <= 10; i++) {
+            const t = CRAB_NOTCH_U + (1 - CRAB_NOTCH_U) * (i / 10)
+            const [x, y] = sp(t)
+            const [ax, ay] = sp(Math.max(0, t - 0.01))
+            const [bx, by] = sp(Math.min(1, t + 0.01))
+            const m = Math.hypot(bx - ax, by - ay) || 1
+            gape.push(x + (-(by - ay) / m) * dep(t) * 0.16, y + ((bx - ax) / m) * dep(t) * 0.16)
+          }
+          g.poly(gape, false).stroke({ width: Math.max(1.5, r * 0.055), color: 0x4a1206, alpha: 0.9, cap: 'round' })
+          const [tx0, ty0] = sp(0.995)
+          g.circle(tx0, ty0, r * 0.045).fill({ color: 0x4a1206, alpha: 0.8 })
+        }
+        // The FINGERS: the inner third, paler, split by the shut seam. This two-tone is the whole
+        // reason the wall reads as a pair of claws rather than a plank — but it must NOT be a
+        // second outlined shape. v10 gave it its own dark stroke and the two mirrored pale ends
+        // met at the centreline as a bright wedge with a black edge, which read as a HOLE in the
+        // guard. Here it is an unstroked wash inset behind the chela's own outline.
+        if (o.splitFingers) {
+          g.poly(spineOutline(sp, (t) => dep(t) * 0.9, 14, 0.54, 1))
+            .fill(nailC).stroke({ width: Math.max(1.8, r * 0.08), color: line })
+        } else if (!white) {
+          // The fingers are PALER than the palm, as a real chela's are — but as an unstroked wash
+          // inset well inside the outline. v10 gave it its own dark stroke and the two mirrored
+          // pale ends met at the centreline as a bright black-edged wedge, which read as a HOLE.
+          const t0 = o.notch ? CRAB_NOTCH_U + 0.02 : (o.pale ? 0.60 : 0.50)
+          g.poly(spineOutline(sp, (t) => dep(t) * (o.pale ? 0.62 : 0.80), 14, t0, 0.99))
+            .fill({ color: nailC, alpha: o.pale || 0.55 })
+        }
+        if (!white) {
+          if (!o.notch) {
+            const seam = []
+            for (let i = 0; i <= 8; i++) { const t = 0.48 + 0.51 * (i / 8); seam.push(...sp(t)) }
+            g.poly(seam, false).stroke({ width: Math.max(1.4, r * 0.05), color: 0x4a1206, alpha: 0.85, cap: 'round' })
+          }
+          // the carpus joint: one crease across the fat end, the mark that says this is a limb
+          // The decoration `bare` drops, and the reason it is a knob rather than a deletion: at 3x
+          // zoom all three of these read as craftsmanship, and all three are why the guard kept
+          // coming back as a CRACKED SHELL. The rim especially — a pale line laid just inside a
+          // dark outline is exactly the broken lip of a shell.
+          if (!o.bare) {
+            const [jx, jy] = sp(0.14)          // the carpus crease across the fat end
+            const [bx, by] = sp(0.20)
+            const jm = Math.hypot(bx - jx, by - jy) || 1
+            const jn = [-(by - jy) / jm, (bx - jx) / jm]
+            g.beginPath()
+              .moveTo(jx + jn[0] * dep(0.14) * 0.85, jy + jn[1] * dep(0.14) * 0.85)
+              .lineTo(jx - jn[0] * dep(0.14) * 0.85, jy - jn[1] * dep(0.14) * 0.85)
+              .stroke({ width: Math.max(1.2, r * 0.045), color: 0x7a1e0c, alpha: 0.6 })
+            g.poly(crabChelaRim(sp, dep, 0.05, o.notch ? CRAB_NOTCH_U - 0.04 : 0.90, 14, 0.74), false)
+              .stroke({ width: Math.max(2, r * 0.08), color: litC, alpha: 0.8, cap: 'round' })
+            for (let i = 0; i < 3; i++) {      // tubercles on the palm
+              const t = 0.24 + 0.13 * i
+              const [x, y] = sp(t)
+              g.circle(x, y, r * 0.032).fill({ color: 0x7a1e0c, alpha: 0.35 })
+            }
+          }
+          // A lit dome on the palm — the same overhead-light cue every carapace in this file wears,
+          // and the one that says the claw is a raised hard shell rather than a flat cut-out. It is
+          // a soft blob with no edge of its own, so it survives the strip above.
+          if (o.dome) {
+            const [dx0, dy0] = sp(0.30)
+            g.ellipse(dx0, dy0, dep(0.30) * 0.66, dep(0.30) * 0.50)
+              .fill({ color: litC, alpha: o.bare ? 0.26 : 0.32 })
+          }
+        }
+      }
+    }
     if (elite) eliteCrown(-r * 1.1, r)
   }
 
-  // gull: the one FLIER on this roster, and the one plan-view animal that is ALREADY its own icon
-  // from directly overhead — a gliding gull is a spread-wing silhouette, not a side profile (the
-  // wrong projection this repo shipped once already, on a tornado, and lost a whole version undoing).
-  // Near-white body, the one cold creature against two warm ones, with a hard dark wingtip on each
-  // side and a NOTCH bitten into the trailing edge at the wrist — the carpal bend a gliding gull
-  // shows from above. That notch is the backup read: colour and the body both dissolve to a pale
-  // dot at range, but two dark marks a fixed distance apart, each with a bite out of it, do not.
+  // THE SHORE CRAB, two poses. `pose` is the plain index ROSTER_LOOKS `poses: 2` hands the draw fn
+  // (0 open, 1 guarded); syncEnemies picks it through poseOf off the sim's `guarding` field.
+  function drawShorecrab(g, elite, white, pose) {
+    return drawShorecrabPose(g, elite, white, pose === 1, pose === 1 ? CRAB_GUARD : CRAB_OPEN)
+  }
   function drawGull(g, elite, white) {
     const r = 12
     const f = (c) => white ? 0xffffff : c
@@ -3017,7 +3377,23 @@ export function createRenderer(app) {
     // is for animals that swim in open water with a bell-first heading. These three are on or over
     // the sand — two crawl and one flies above it — so the overhead camera is the honest one.
     sandhopper: { archetype: 'normal', draw: drawSandhopper, lean: 90 }, // top-down: antennae, legs and the long jump-uropods all ±y mirrored
-    shorecrab: { archetype: 'tank', draw: drawShorecrab, lean: 0 },      // claws forward but never squares up to you — a crab's gait is sideways, and it's unshakeable besides
+    // TWO POSES, chosen by the sim's `guarding` field, not by a timer — the pose IS the state, and
+    // a player who cannot see which one they are shooting is being asked to waste damage blind.
+    // lean 90 (bilaterally symmetric about the forward axis) rather than the 0 this carried before:
+    // 0 means "no forward axis, it would just tumble", and a crab that never rotates cannot show
+    // WHICH SIDE its 120-degree guard is covering. It only ever swings while guarding — turnRate 0
+    // freezes the held heading the rest of the time, so the squaring-up motion happens on the raise
+    // and nowhere else (owner ruling: "it squares up only while guarding"), and an open crab
+    // visibly stops tracking you as you move around it.
+    shorecrab: {
+      archetype: 'tank', draw: drawShorecrab, lean: 90, poses: 2,
+      poseOf: (e) => (e.guarding ? 1 : 0),
+      // The bearing the guard was RAISED at, held for that window — see stepCrabGuard. Guarded with
+      // `!= null` rather than a truth test: angle 0 is a legal bearing (due east) and would
+      // otherwise fall through to face-the-player on a quarter of all raises.
+      faceDir: (e) => (e.guarding && e.guardAngle != null ? [Math.cos(e.guardAngle), Math.sin(e.guardAngle)] : null),
+      turnRate: (e) => (e.guarding ? CRAB_SQUARE_UP_RATE : 0),
+    },
     gull: { archetype: 'fast', draw: drawGull, lean: 90 },               // top-down: wings, wingtips and the forked tail all ±y mirrored
     ant: { archetype: 'normal', draw: drawAnt, lean: 90 },             // top-down: 6 legs, 2 antennae, 2 eyes, all ±y mirrored
     wasp: { archetype: 'fast', draw: drawWasp, lean: 90 },             // top-down: wings/legs/eyes all in ±y pairs
@@ -5018,78 +5394,7 @@ export function createRenderer(app) {
       // a blade). The arc is the SIDE the claw is on, and the claw is what you read it from.
       const claw = (open) => {
         const g = new Graphics()
-        const R = CLAW_BAKE_R
-        const x0 = R * 0.46             // the wrist, clear of the fish's flank
-        const L = R - x0                // claw length; the fingertips land on the tested radius
-        const px = x0 + L * 0.55        // the palm's front, where the fingers leave it
-        const pd = L * 0.19             // palm half-depth: a 1.4:1 mass, a fiddler's own proportion
-        // BOTH fingers hinge, and the gape straddles the claw's axis rather than opening upward off
-        // it — a claw whose lower half is a fixed baseline reads as a hand. The dactyl swings twice
-        // as far as the pollex, which is the asymmetry that keeps this a claw and not pliers.
-        const sP = open ? 0.26 : 0.03
-        const sD = open ? 0.50 : 0.03
-
-        // Carpus stub, angled back to the body so the claw is CARRIED rather than floating. Short
-        // and thin: the pre-v7.75 bake ran a long thick limb back to the player, and at phone size
-        // that stem turned the whole sprite into a carrot.
-        taperStroke(g, [[x0 - L * 0.30, L * 0.13], [x0 + L * 0.16, L * 0.03]],
-          L * 0.09, L * 0.15, 0xc55c29, 4)
-
-        // A finger: swung about its hinge, and outlined by laying a fatter dark stroke under the
-        // pale one. Built from ONE description at two angles, so open and shut cannot disagree about
-        // where the tips are — and the tips are what stepGuards tests. `hook` curves the centreline
-        // back toward the axis, which is what makes the gape a LENS; two straight fingers at an
-        // angle are a pair of tweezers, and that is exactly how the cut before this one read.
-        const finger = (hxx, hyy, th, len, hook, w0, w1) => {
-          const c = Math.cos(th), sn = Math.sin(th)
-          const pts = []
-          for (let i = 0; i <= 4; i++) {
-            const u = i / 4
-            const sx = len * u, sy = hook * Math.pow(u, 1.5)
-            pts.push([hxx + sx * c - sy * sn, hyy + sx * sn + sy * c])
-          }
-          taperStroke(g, pts, w0 + L * 0.05, w1 + L * 0.045, line, 6)
-          taperStroke(g, pts, w0, w1, nail, 6)
-          return pts
-        }
-        // POLLEX — heavier, swings least, hooks up toward the axis so its tip meets the dactyl's.
-        const pol = finger(px - L * 0.08, L * 0.05, sP, L * 0.53, -L * 0.09, L * 0.125, L * 0.028)
-        // DACTYL — slimmer, swings furthest, hooks down onto the pollex.
-        const dac = finger(px - L * 0.11, -L * 0.09, -sD, L * 0.56, L * 0.16, L * 0.105, L * 0.024)
-
-        // PALM last, so it covers both finger roots and they read as growing out of it. A smooth
-        // oval mass narrowing at both ends — two earlier cuts baked a hexagon and then a brick,
-        // both because the depth profile was flat across its middle instead of curved.
-        const dep = (t) => pd * Math.pow(Math.sin(Math.PI * (0.06 + 0.80 * t)), 0.85)
-        const pal = []
-        const N = 20
-        for (let i = 0; i <= N; i++) { const t = i / N; pal.push(x0 + (px - x0) * t, -dep(t) * 0.94) }
-        for (let i = N; i >= 0; i--) { const t = i / N; pal.push(x0 + (px - x0) * t, dep(t) * 1.06) }
-        g.poly(pal).fill(shell).stroke({ width: 2.6, color: line })
-
-        // Teeth on both cutting faces, pointing across the gape at the gap a body has to cross —
-        // read straight off the finger centrelines so they cannot drift off the fingers when the
-        // swing changes. Shutting the claw hides them, which is its own tell.
-        for (const [pts, sgn] of [[pol, -1], [dac, 1]]) {
-          for (let i = 1; i <= 3; i++) {
-            const a = pts[i], b = pts[i + 1]
-            const nx = -(b[1] - a[1]), ny = b[0] - a[0]
-            const nl = Math.hypot(nx, ny) || 1
-            const w = L * (0.088 - 0.020 * i)
-            g.circle(a[0] + (nx / nl) * w * sgn, a[1] + (ny / nl) * w * sgn, L * 0.025)
-              .fill({ color: tooth, alpha: 0.9 })
-          }
-        }
-        // Granulation and the top highlight. The camera looks straight down, so the lit face is the
-        // upper surface — a plan view's only shading cue, and the one every creature bake uses.
-        for (let i = 0; i < 4; i++) {
-          const t = 0.30 + 0.15 * i
-          g.circle(x0 + (px - x0) * t, dep(t) * (0.18 + 0.24 * (i % 2)), L * 0.022)
-            .fill({ color: line, alpha: 0.22 })
-        }
-        const hi = []
-        for (let i = 0; i <= 10; i++) { const t = 0.12 + 0.66 * (i / 10); hi.push(x0 + (px - x0) * t, -dep(t) * 0.5) }
-        g.poly(hi).stroke({ width: L * 0.05, color: lit, alpha: 0.55 })
+        paintClaw(g, CLAW_BAKE_R, open)
         return bake(g)
       }
       T.clawOpen = claw(true)
@@ -13297,6 +13602,22 @@ export function createRenderer(app) {
         case 'hit':
           spawnDamage(e.x, e.y, e.dmg, e.crit, e.dot)
           break
+        // A shot that bounced off a Shore Crab's raised claw. This exists because the alternative is
+        // NOTHING happening on screen, and nothing-happening is indistinguishable from a broken
+        // weapon — which is precisely how the elements redesign shipped a dead freeze. Deliberately
+        // NOT a damage number: the player dealt no damage, and a floating 0 is worse than a spark.
+        // A short pale spray thrown back ALONG the guard's own bearing, so the tell also says which
+        // side is covered — the information the player needs is "go round", not "you missed".
+        case 'guardblock': {
+          const a0 = e.angle ?? 0
+          for (let i = 0; i < 3; i++) {
+            const a = a0 + (Math.random() - 0.5) * 1.1
+            const sp = 70 + Math.random() * 70
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a0) * 12, e.y + Math.sin(a0) * 12,
+              Math.cos(a) * sp, Math.sin(a) * sp, 0.16 + Math.random() * 0.1, 0.05, 0xffe8cf, 0.1, 2)
+          }
+          break
+        }
         case 'kill':
           killPoof(e.x, e.y, e.etype, e.elite)
           break

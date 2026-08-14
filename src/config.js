@@ -4282,7 +4282,7 @@ CHAPTERS.surf = {
   // special. (The first draft gave the sandhopper dashBurst and had no plain enemy at all.)
   roster: [
     { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9, speedMul: 1,    flags: [] },
-    { id: 'shorecrab',  archetype: 'tank',   name: 'Shore Crab',  hpMul: 2.2, speedMul: 0.75, flags: ['unshakeable'] },
+    { id: 'shorecrab',  archetype: 'tank',   name: 'Shore Crab',  hpMul: 2.2, speedMul: 0.75, flags: ['unshakeable', 'guard'] }, // raises its claw half the time — see the CRAB_GUARD_* block
     { id: 'gull',       archetype: 'fast',   name: 'Gull',        hpMul: 0.8, speedMul: 1.15, flags: ['diveBomb'] },
   ],
 
@@ -7197,6 +7197,35 @@ export const SKIES_LIGHT = {
 export const PHASE_SOLID_T = 1.6
 export const PHASE_GHOST_T = 1.0
 export const PHASE_GHOST_SPEED_MUL = 1.4  // it hurries while it can't be punished
+
+// guard (v7.x The Surf: the Shore Crab). State on e.guarding (bool) / e._guardT (s left in the
+// current window) / e.guardAngle (the bearing the guard was raised at). Alternates
+// CRAB_GUARD_T guarded <-> CRAB_OPEN_T open, forever, phase-randomised at spawn like `phase` above
+// so a wave does not raise in unison.
+//   open:     an ordinary enemy in every respect.
+//   guarded:  DIRECT damage does nothing — no number, no crit. Everything else about it is normal:
+//             it is solid, it still deals contact damage, it still gets shoved. That is the whole
+//             distinction from `phase`, whose contract is "eats nothing, deals nothing": a ghost is
+//             absent, a guarding crab is ARMOURED and still coming at you.
+//
+// TWO THINGS DELIBERATELY GET THROUGH THE GUARD, and they are what make this a puzzle rather than a
+// wait (owner ruling 2026-08-14: "status lands, damage bounces, but the shield is up like 50% of
+// the time not 100, so when it's not up regular hits work"):
+//   - DoT TICKS. dealDamage's `dot` flag already exists and is already threaded from every burn,
+//     bleed and poison site, so a fire build kills a crab through its own guard.
+//   - STATUS APPLICATION. Your shot still lands ignite/venom/chill while the guard is up; only the
+//     raw damage bounces. Without this the counter is unreachable by construction — you cannot
+//     light something you cannot hit, and "bring a DoT" would be advice a player can never take.
+//
+// THE ARC IS 120 DEGREES AND IT DOES NOT TRACK YOU (owner ruling: "the side facing you, 120deg").
+// CRAB_GUARD_ARC is the HALF-angle, so the guard spans 2x it. The bearing is latched when the guard
+// RAISES and held for that window, which is the only reading under which the angle means anything:
+// an arc that re-aims every frame is a 360-degree guard with extra arithmetic, and there would be
+// no way round it. Latched, moving is the counter — and it is why render.js turns the crab as it
+// raises rather than leaving it at lean 0.
+export const CRAB_GUARD_T = 2.0        // s guarded
+export const CRAB_OPEN_T = 2.0         // s open — a 50/50 duty cycle, as specified
+export const CRAB_GUARD_ARC = 1.047    // half-angle, rad (60 deg -> a 120 deg guard)
 
 // pullBeam (beyond's UFO elites): an abduction beam. State on e._beamState ('idle'|'beam') /
 // e._beamT. Every PULL_BEAM_INTERVAL s it opens a beam for PULL_BEAM_T seconds: while open, if the
