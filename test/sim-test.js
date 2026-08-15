@@ -124,6 +124,24 @@ import {
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
 
+// THE DENOMINATOR FOR ANY "every chapter a player can reach" SWEEP. Every chapter of every
+// SHIPPED book, plus The Blank — hidden rather than unfinished, and reachable by winning.
+//
+// It is DERIVED from BOOKS[].wip rather than written down, and that is the whole point. Writing
+// `CHAPTER_ORDER` means writing `BOOKS.book1.chapters`, which is correct today and silently wrong
+// the moment a second book ships: the sweep keeps passing while covering a strictly smaller set
+// than it claims. That is how v7.55 shipped the entire elements redesign untranslatable with a
+// green suite, and CLAUDE.md's own rule about this ("print the denominator in every sweep's log
+// line") does not help when the denominator is right but the SET it is drawn from has moved.
+//
+// Today this returns exactly CHAPTER_ORDER + blank, so nothing changes. The day `undertow` loses
+// its wip flag, every sweep using it starts demanding French names, endings and unlock lines for
+// The Surf, The Shelf and The Reef — before those chapters reach a player, not after.
+const shippedChapterIds = () => [
+  ...Object.values(BOOKS).filter((b) => !b.wip).flatMap((b) => b.chapters),
+  'blank',
+]
+
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
 // pass/fail on outcomes (like "leveled up by exactly 120s") that are close to
@@ -9201,11 +9219,30 @@ function testRemaster() {
   // (d) Reword tables: every chapter (incl. blank) has both ending lines; unlock lines cover
   // every non-first CHAPTER_ORDER chapter.
   {
-    for (const id of [...CHAPTER_ORDER, 'blank']) {
-      assert(CHAPTER_ENDINGS[id]?.victory && CHAPTER_ENDINGS[id]?.death, `CHAPTER_ENDINGS missing ${id}`)
+    const shipped = shippedChapterIds()
+    // The denominator must be DERIVED, and this is what proves it still is. A full-suite mutation
+    // cannot reach here — flipping undertow's wip flag trips three earlier guards in runBooks
+    // (`wip.length > 0`, isWipChapter, the dailyChapter sweep) — so assert the relationship
+    // directly: every wip chapter is excluded, and there is at least one, or the exclusion is
+    // vacuous and someone could hardcode this list again without a single test noticing.
+    const wipIds = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
+    assert(wipIds.length > 0, 'no book is wip, so this sweep cannot show its denominator responds to anything')
+    for (const id of wipIds) {
+      assert(!shipped.includes(id), `wip chapter '${id}' is inside the shipped denominator`)
+      assert(Object.hasOwn(CHAPTERS, id), `wip chapter '${id}' is not a real CHAPTERS entry`)
     }
-    for (const id of CHAPTER_ORDER.slice(1)) assert(CHAPTER_UNLOCK_LINES[id], `CHAPTER_UNLOCK_LINES missing ${id}`)
-    console.log('PASS run JJ.d (reword tables): endings + unlock lines complete')
+    for (const id of shipped) {
+      assert(CHAPTER_ENDINGS[id]?.victory && CHAPTER_ENDINGS[id]?.death,
+        `CHAPTER_ENDINGS missing ${id} — a player who wins or dies there gets the generic 'You escaped! 🎉' fallback`)
+    }
+    // Unlock lines belong to every chapter you ARRIVE at, i.e. every shipped one that is not the
+    // first of its own book. The Blank is unlocked by winning rather than by the ladder, so it is
+    // exempt — as is each book's opener, which nothing unlocks.
+    const openers = new Set(Object.values(BOOKS).filter((b) => !b.wip).map((b) => b.chapters[0]))
+    for (const id of shipped.filter((i) => i !== 'blank' && !openers.has(i))) {
+      assert(CHAPTER_UNLOCK_LINES[id], `CHAPTER_UNLOCK_LINES missing ${id}`)
+    }
+    console.log(`PASS run JJ.d (reword tables): endings + unlock lines complete across ${shipped.length} shipped chapters [${shipped.join(' ')}]`)
   }
   console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events, reword tables')
 }
@@ -11585,7 +11622,10 @@ function testFrenchDictionary() {
   // finished string exists only at runtime and never appears as a literal in any src/*.js.
   const produced = new Set()
   const need = (s) => { if (typeof s !== 'string' || !s) return; produced.add(s); if (!FR[s]) missing.add(s) }
-  for (const id of CHAPTER_ORDER.concat(['blank'])) {
+  // Derived, not written down — see shippedChapterIds. A roster name is player-visible copy, and
+  // this walk is the only thing that requires French for one.
+  const frChapters = shippedChapterIds()
+  for (const id of frChapters) {
     const ch = CHAPTERS[id]
     if (!ch) continue
     need(ch.name); need(ch.tagline)
@@ -12423,6 +12463,7 @@ try {
   testElementsRedesign()
   testEventConsumers()
   testSpawnQueueInvariant()
+  testPoolClearing()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -16862,4 +16903,44 @@ function testSpawnQueueInvariant() {
   }
 
   console.log('PASS run SQ (spawn queue): run.enemies.push confined to spawnEnemy + flushSpawns, no index-back-to-find-it, both corpse-spawn paths deferred')
+}
+
+// ---- run CP: every flat sprite pool is cleared between runs -----------------------------------
+// clearWorld is a hand-maintained registry: a pool is hidden between runs ONLY by being named in
+// one of its two lists, and nothing ever checked that every pool is named. rockPool was in
+// neither, so The Beyond's asteroids stayed on screen into whatever the player started next.
+// CLAUDE.md already documents the sharper half of this trap — a RIG left in the flat list sets a
+// dead property on a plain object, no throw, and last run's entities simply persist — and the code
+// carries three defensive comments about it. Defensive comments do not fail a build.
+//
+// The rule asserted here is the one that is mechanically checkable: syncPool is the flat-pool
+// helper, so every array handed to it must appear in the flat clear list, and none of them may
+// also appear in the rig block. render.js is not importable (Pixi + DOM), so this is run UG.k's
+// source-text idiom.
+function testPoolClearing() {
+  const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+
+  // Flat pools are exactly the arrays syncPool is called with. `pool` is syncPool's own parameter
+  // name at its declaration, not a pool.
+  const flat = [...new Set([...src.matchAll(/syncPool\((\w+),/g)].map((m) => m[1]))]
+    .filter((n) => n !== 'pool').sort()
+  assert.ok(flat.length >= 12, `expected a dozen-odd flat pools, found ${flat.length} — the syncPool call shape has changed and this assertion is now blind`)
+
+  // The flat clear block: `for (const pool of [ ...names... ]) { for (const s of pool) s.visible = false }`
+  const block = src.match(/for \(const pool of \[([\s\S]*?)\]\) \{\s*for \(const s of pool\) s\.visible = false/)
+  assert.ok(block, "clearWorld's flat-pool loop is gone or reshaped — run CP can no longer see which pools get cleared")
+  const cleared = new Set([...block[1].matchAll(/(\w+Pool)/g)].map((m) => m[1]))
+
+  const unclear = flat.filter((p) => !cleared.has(p))
+  assert.deepStrictEqual(unclear, [],
+    `${unclear.length} flat pool(s) go through syncPool but are never hidden by clearWorld: [${unclear.join(', ')}]. ` +
+    `Their sprites survive into the next run — the player starts a new chapter with the last one's entities on screen.`)
+
+  // A pool in BOTH blocks is the silent-failure CLAUDE.md documents, from the other direction:
+  // whichever loop runs second decides, and for a rig the flat loop sets a dead property.
+  const rigCleared = new Set([...src.matchAll(/for \(const \w+ of (\w+Pool)\) \w+\.root\.visible = false/g)].map((m) => m[1]))
+  const both = flat.filter((p) => rigCleared.has(p))
+  assert.deepStrictEqual(both, [], `[${both.join(', ')}] appear in BOTH the flat and the rig clear lists — one of the two is setting a dead property`)
+
+  console.log(`PASS run CP (pool clearing): all ${flat.length} flat pools named in clearWorld, ${rigCleared.size} rig pools cleared via .root, no pool in both lists`)
 }

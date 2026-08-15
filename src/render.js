@@ -10999,6 +10999,9 @@ export function createRenderer(app) {
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
     sand: 0,    // v7.x surf: sandbars (run.sandbars) — a flat syncPool, see placeSandbar
     trap: 0, debris: 0, shot: 0, jet: 0,
+    rock: 0,    // beyond: asteroids (run.rocks). Absent until now, which worked only by accident —
+                // syncPool writes prevCount[key] on its first call, so the surplus-hiding loop
+                // `i < prevCount[key]` compared against undefined and skipped on frame one alone.
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -14159,6 +14162,9 @@ export function createRenderer(app) {
       bulletPool, novaPool, orbPool, gemPool, coinPool,
       boomerangPool, minePool, homingPool, trapPool, shotPool,
       sandPool,    // v7.x surf: FLAT (one Sprite per dry patch) — likewise, not a rig
+      rockPool,    // beyond: FLAT (one Sprite per asteroid). Was in NEITHER list — the lane's rocks
+                   // stayed on screen into whatever came next, because a pool is only ever hidden
+                   // by being named here and nothing checks that every pool is.
     ]) {
       for (const s of pool) s.visible = false
     }
