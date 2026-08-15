@@ -4840,26 +4840,71 @@ export const TIDE_VIS = { ...CURRENT_VIS, speedMul: 2.2, tint: 0xffffff, alpha: 
 
 // Tide pools (render.js updateShafts, the `pool` look). The Shelf's shafts and The Surf's pools are
 // the same circle in the sim — both live in run.shafts, both come from refillSpec() — and must not
-// be the same circle on screen: a shaft is a warm additive column of light, a pool is a hole in wet
-// sand with water standing in it. Drawn as a body of water rather than a glow, seen from directly
-// overhead like everything else in this game.
-// waterFrac is the ONE number with a contract behind it: the stroked rim sits at exactly
-// signature.pools.r, so the drawn extent is the tested extent (the same rule the web decal and the
-// eddy ring state — a refill circle you can see the edge of is a circle you can learn by eye), and
-// the damp collar fills the band between the water's edge and it.
-// THE PALETTE IS WARM-BIASED ON PURPOSE. The first cut wore an aquarium teal with a bright cyan
-// meniscus, and against pale sand that is the only saturated thing on screen — it read as a portal,
-// not as water standing in a hole. What fixes it is not desaturating the water but warming
-// everything that TOUCHES the sand: a wide damp collar and a wet-sand meniscus, so the eye crosses
-// from beach to pool through two intermediate steps instead of one hard edge.
+// be the same circle on screen: a shaft is a warm additive column of light, a pool is a dip in the
+// ground. Seen from directly overhead like everything else in this game.
+//
+// A DEPRESSION IN THE SEA FLOOR, READ BY VALUE ALONE (owner, 2026-08-15: "the little pools colors
+// should be inverted, darker = deeper at the center. Also make them less defined since we're already
+// underwater, maybe several steps").
+//
+// The first cut was a tide pool on a DRY beach: a bright meniscus rim, a damp collar, and a pale
+// shelf sitting off-centre inside the dark water. Every one of those details is a waterLINE — the
+// edge where air meets water — and once the whole chapter went under, there is no waterline here to
+// draw. What is left is bathymetry: ground that goes down, seen through water that is already there.
+//
+// So the pool is now STEPS, concentric and each darker than the last, because that is exactly how a
+// depth is read on a chart and how it looks in life — light travels less far back up to you from
+// deeper ground. Concentric is the point rather than a simplification: the off-centre shelf existed
+// to stop the old pool reading as a bullseye, and a bullseye is precisely what a hole IS when the
+// only cue left is depth. Value alone does the whole job; no outline is needed and none is drawn.
+//
+// `steps` runs OUTSIDE IN, each entry {frac, color, alpha} with frac as a fraction of r. The first
+// must sit at 1.0 or the pool would not reach the radius stepCharge tests against — the
+// drawn-extent-IS-tested-extent contract every refill circle in this file keeps, since the player
+// has to be able to tell "am I in it" at a glance. What that contract does NOT require is a hard
+// edge, and this look deliberately spends its outermost step on a wide, low-contrast shoulder: the
+// pool fades into the sand instead of being stamped on it.
 export const TIDE_POOL_VIS = {
-  collar: 0x7d6746, collarA: 0.42,   // damp sand ring the water has pulled back from
-  water: 0x1d5f6b, waterA: 0.72,     // the standing water itself — deep enough to read as a HOLE
-  shallow: 0x63a08f, shallowA: 0.34, // the shelf inside it, offset so a pool is not a bullseye
-  rim: 0xf2e7cd, rimA: 0.5, rimW: 3, // the meniscus, ON r — wet sand, not a cyan ring
-  waterFrac: 0.9,                    // water edge as a fraction of r; collar spans this..1
-  sheen: 0xd8ecd8, sheenA: 0.10, sheenFrac: 1.15, // sky caught on the surface (additive, breathing)
+  // SIX steps, and the alpha ramp is gentle on purpose. Three or four with big jumps between them
+  // draws a bullseye — the boundaries become the subject, which is "more defined", the opposite of
+  // the ask. The eye finds an EDGE far more readily than it finds a contrast, so the way to make a
+  // shape soft without blurring it is to give it more edges that each say less. Each step also stays
+  // close in hue to the one outside it and to the floor itself: a saturated blue on a desaturated
+  // beach reads as a portal cut in the ground rather than as ground.
+  steps: [
+    { frac: 1.00, color: 0x5f7a7d, alpha: 0.15 }, // the shoulder — barely there, just a cooling of the sand
+    { frac: 0.88, color: 0x52707a, alpha: 0.19 },
+    { frac: 0.75, color: 0x466674, alpha: 0.23 },
+    { frac: 0.61, color: 0x3a5b6c, alpha: 0.27 },
+    { frac: 0.46, color: 0x2f5062, alpha: 0.31 },
+    { frac: 0.30, color: 0x264657, alpha: 0.35 }, // the deep middle
+  ],
+  sheen: 0xbfe0e8, sheenA: 0.055, sheenFrac: 0.95, // light on the water over it (additive, breathing)
   breathe: 0.06,                     // ± fraction the sheen's size wanders — calm water, not a pulse
+}
+
+// Splash rings (render.js, The Surf). What a body hitting shallow water actually leaves behind:
+// concentric rings spreading OUT and slowing as they go, not a puff. Used by the gull strike
+// (owner, 2026-08-15: "when seagulls hits, there should be a little splash/ripple") and available to
+// anything else that lands hard on this chapter.
+//
+// The rings are STAGGERED rather than simultaneous — one wave front per `stagger` seconds — because
+// a single expanding circle reads as a shockwave decal, and it is the second ring chasing the first
+// that says "water". They also EASE OUT (see the sqrt in stepSplashes): a real ring travels fastest
+// at birth and spends itself, so a linear ring reads as an expanding UI element.
+export const SPLASH_VIS = {
+  rings: 3,          // wave fronts per splash
+  stagger: 0.085,    // s between one ring being born and the next
+  life: 0.62,        // s a ring lives
+  rMax: 2.35,        // furthest radius, as a multiple of the impact radius
+  r0: 0.22,          // radius a ring is born at, same units
+  width: 3.2,        // px stroke at birth; thins as it spreads, like a real front losing height
+  color: 0xdff4ff,   // near-white with the water's own blue in it
+  alpha: 0.62,
+  crown: 0xffffff,   // the bright disc of thrown-up water at the point of contact
+  crownA: 0.5,
+  crownLife: 0.20,
+  drops: 11,         // droplets thrown clear of the surface
 }
 
 // Sandbars (render.js syncSandbars). run.webs is the idiom — a ground patch that slows you, baked
@@ -4867,9 +4912,17 @@ export const TIDE_POOL_VIS = {
 // overlay is §5.3: humidity drives damage, and a damage multiplier is "imperceptible in its top
 // half and a cliff in its bottom" unless the player can see the place that caused it.
 // The rim is drawn at exactly `r`, same drawn-extent-is-tested-extent contract as the pool above.
+// HEADROOM FOR THE WATER (2026-08-15). These values are chosen for what the sandbar looks like
+// AFTER `render.water` has added its blue over the top, not for what they look like on their own —
+// the wash is additive and lands on the brightest thing in the chapter hardest. At the old
+// 0xe8d9b0/0.9 the bar clipped to flat white and took its own ripples and shell grit with it, which
+// is the one patch of the beach that cannot afford to lose texture: it is dry sand, and reading as
+// dry sand is the whole mechanic (see signature.bars — standing here multiplies the Humidity drain
+// by 24). Taken down a step so the wash has somewhere to go. It is STILL brighter than the floor
+// around it, which is the only comparison that matters.
 export const SANDBAR_VIS = {
-  sand: 0xe8d9b0, sandA: 0.9,        // DRY sand — deliberately a value step above the damp floor
-  crown: 0xf3e8c9, crownA: 0.3,      // the driest, highest part, offset off centre
+  sand: 0xd6c290, sandA: 0.9,        // DRY sand — deliberately a value step above the damp floor
+  crown: 0xe2d3aa, crownA: 0.3,      // the driest, highest part, offset off centre
   // The ripples have to survive being the ONLY texture on the patch without becoming contour lines:
   // at 0.42 on a brown they drew a topographic map, which is a different thing from wind on sand.
   ripple: 0xc8ad80, rippleA: 0.22,   // wind ripples: what makes a pale blob read as SAND from above

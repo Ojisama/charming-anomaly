@@ -118,7 +118,9 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
-  CRAB_GUARD_ARC, GULL_RADIUS, GULL_FUSE, GULL_DMG,
+  CRAB_GUARD_ARC,
+  // Book 2 The Surf: the beach floor's look (Run US.j)
+  TIDE_POOL_VIS, SPLASH_VIS, GULL_RADIUS, GULL_FUSE, GULL_DMG,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
@@ -4992,15 +4994,20 @@ function runDark() {
     // It shipped at v7.55 as a hard-edged wedge of night across the whole viewport.
     assert.ok(!/\.cut\(\)/.test(src.replace(/^\s*\/\/.*$/gm, '')),
       'no Graphics.cut() in render.js: overlapping holes triangulate into straight-edged garbage, which is how the dark shipped broken')
-    // The clause this actually protects is "the dark is over the WORLD and under the safety cues",
-    // not a literal adjacency: The Surf's water wash (waterWash) now sits between them, and it has
-    // to — the dark is a lighting scrim, so it must fall on the already-watered scene rather than be
-    // washed over by it. Both are still above `world` and both still below idleLayer's damage
-    // numbers, the vignette and the flash, which is the whole contract.
-    assert.ok(/app\.stage\.addChild\(world,(?: waterWash,)? darkLayer,/.test(src),
-      'the dark must sit above `world` (below only the water wash) and below the damage vignette/flash, or it takes the safety cues with it')
-    assert.ok(src.indexOf('darkLayer,') < src.indexOf('idleLayer, dustLayer'),
-      'the dark must stay below the damage numbers')
+    // The clause this protects is "the dark is over the WORLD and under the safety cues", NOT a
+    // literal adjacency — a literal one has already gone red twice for changes that kept the
+    // contract perfectly (The Surf's water wash, then its above-the-waterline layer, both of which
+    // belong between the two). Assert the ORDER, which is the actual rule.
+    const stage = src.slice(src.indexOf('app.stage.addChild('))
+    const at = (name) => {
+      const i = stage.indexOf(name)
+      assert.ok(i >= 0, `${name} is not on the stage — the layer order assertion below cannot see it`)
+      return i
+    }
+    assert.ok(at('world,') < at('darkLayer,'), 'the dark must sit above `world`')
+    assert.ok(at('darkLayer,') < at('idleLayer,'), 'the dark must stay below the damage numbers')
+    assert.ok(at('darkLayer,') < at('lightningFlash,') && at('darkLayer,') < at('vignette'),
+      'the dark must stay below the damage vignette/flash, or it takes the safety cues with it')
   }
 
   console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
@@ -14677,7 +14684,7 @@ function testSurfSandbars() {
   console.log(`PASS run US.b (sandbars): ${far} patches streamed deterministically from the run seed, dropped behind the player, and standing on one costs ${(100 - (onBar / offBar) * 100).toFixed(0)}% of your travel`)
 }
 
-// ---- run US.j (2026-08-15): The Surf's floor — no obstacles, and no patch that is two things -----
+// ---- run US.k (2026-08-15): The Surf's floor — no obstacles, and no patch that is two things -----
 // Two owner asks that turned out to share one failure mode: a chapter can lose a whole streamed
 // field without anything throwing, because every streamer early-returns on a null run._obstacleSeed.
 function testSurfFloor() {
@@ -14752,7 +14759,48 @@ function testSurfFloor() {
   assert.ok(/addChild\(world, waterWash/.test(rsrc),
     'the wash must sit directly above `world` — over the scene, under the damage numbers and the vignette')
 
-  console.log(`PASS run US.j (the beach floor): 0 obstacles with the seed still live, 0 of ${B.length} sandbars overlap any of ${P.length} tide pools across a 6000px box (${nearMisses} near-misses prove the fields interleave), and the water wash is declared additive and drawn over the world`)
+  // (f) DEEPER IS DARKER, and the pool is soft. The owner's rule ("darker = deeper at the center")
+  // is a property of the DATA, so it gets a real assertion rather than an eye: a step list is
+  // exactly the kind of table that survives being reordered or recoloured by hand with nothing to
+  // catch it, and inverted depth cues are close to invisible in review — a bullseye looks
+  // deliberate whichever way round it runs.
+  const steps = TIDE_POOL_VIS.steps
+  assert.ok(steps.length >= 5, `a "several steps" pool needs several: found ${steps.length}`)
+  assert.strictEqual(steps[0].frac, 1,
+    'the outermost step must sit at exactly r — drawn extent IS tested extent, since stepCharge refills on that radius')
+  const lum = (c) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)
+  for (let i = 1; i < steps.length; i++) {
+    assert.ok(steps[i].frac < steps[i - 1].frac, `step ${i} is not inside step ${i - 1} — the list must run outside in`)
+    assert.ok(lum(steps[i].color) < lum(steps[i - 1].color),
+      `step ${i} is LIGHTER than the one around it (${lum(steps[i].color).toFixed(0)} vs ${lum(steps[i - 1].color).toFixed(0)}) — deeper must be darker`)
+  }
+  // "Less defined" is a real constraint, not a mood: an outline defeats every soft step behind it,
+  // because the eye finds an edge long before it finds a contrast.
+  assert.ok(!('rim' in TIDE_POOL_VIS) && !('rimW' in TIDE_POOL_VIS),
+    'the tide pool must have no stroked rim — an outline is the definition the steps exist to avoid')
+  const poolBranch = rsrc.slice(rsrc.indexOf('} else if (pool) {'), rsrc.indexOf('} else {', rsrc.indexOf('} else if (pool) {')))
+  assert.ok(poolBranch.includes('P.steps') && !poolBranch.includes('.stroke('),
+    'the pool must draw its steps and stroke nothing')
+
+  // (g) ABOVE THE WATERLINE. A gull flies over the surface, so the wash must not reach it — while
+  // its shadow, cast on the sea floor, must stay under the water with everything else. The two are
+  // the same texture, so this is only ever true by PARENTAGE, and parentage is exactly what a later
+  // refactor moves without noticing.
+  assert.ok(/addChild\(world, waterWash, aboveWater,/.test(rsrc),
+    'aboveWater must sit directly over the water wash, or the thing it exists to exempt is not exempt')
+  assert.ok(/aboveWater\.addChild\(rec\.sp\)/.test(rsrc) && /particleLayer\.addChild\(rec\.sh\)/.test(rsrc),
+    'the gull BIRD belongs above the water and its SHADOW below it')
+  assert.ok(/aboveWater\.position\.copyFrom\(world\.position\)/.test(rsrc) && /aboveWater\.scale\.copyFrom\(world\.scale\)/.test(rsrc),
+    'aboveWater must copy the camera transform, or its children are pinned to the screen instead of the beach')
+  // (h) …and it lands in water. The splash is spawned by the strike itself, not by a chapter hook.
+  // Sliced to gullStrike's own body, because `spawnSplash(x, y, radius)` is ALSO how the function is
+  // declared — a whole-file regex for it passes with every call site deleted, which is what a
+  // mutation run caught this doing.
+  const strikeFn = rsrc.slice(rsrc.indexOf('function gullStrike('), rsrc.indexOf('function syncAboveWater('))
+  assert.ok(strikeFn.includes('spawnSplash('), 'a gull strike must throw a splash')
+  assert.ok(SPLASH_VIS.rings >= 2, 'one ring reads as a shockwave decal; it takes a second one chasing it to read as water')
+
+  console.log(`PASS run US.k (the beach floor): 0 obstacles with the seed still live, 0 of ${B.length} sandbars overlap any of ${P.length} tide pools across a 6000px box (${nearMisses} near-misses prove the fields interleave), the water wash is additive and over the world, the pool is ${steps.length} rimless steps darkening inward, and the gull flies above the wash while its shadow stays under it`)
 }
 
 // ---- run US.c (v7.55): Humidity — the bar, and tide pools as its refill geometry ---------------
