@@ -4330,7 +4330,21 @@ CHAPTERS.surf = {
     // the slow-composition note in sim.js), so it is the FLOOR the chapter can impose, never a stack.
     // drainMul multiplies the resource drain while you stand on one. See `resource` below for the
     // measured split between this and the ambient drain, and for why the first tune was a clock.
-    bars: { cell: 620, chance: 0.42, r: 150, minDist: 380, slowMul: 0.62, drainMul: 24 },
+    //
+    // `chance` IS NOT THE DENSITY YOU GET — it is the density before streamSandbars drops every bar
+    // that would touch a tide pool (owner, 2026-08-15: the two must not overlap; see the block above
+    // streamSandbars for why the sandbar is the one that yields). At the shipped pool field that
+    // rule rejects a third of them, so the raw roll had to come up to keep the beach the same beach.
+    // Measured with the streamers themselves, 3 seeds over a 9000px box, area coverage by 120k-point
+    // Monte Carlo — the honest metric here, since a bar dropped for overlapping is not a bar that
+    // shrank, and counting bars would have read the change as 40% worse than it is:
+    //   overlap rule OFF, chance 0.42 (as shipped): 7.53% of the map is dry sand — 219 of 697 bars
+    //                                               touching a pool, the worst pair concentric.
+    //   overlap rule ON,  chance 0.42:              5.82%, 0 overlaps  <- the hazard quietly thinned
+    //   overlap rule ON,  chance 0.52:              7.52%, 0 overlaps  <- shipped
+    // So the beach a player walks is unchanged in how much of it is dry, which is what the whole
+    // Humidity tune below was measured against, and no patch of it is two things at once any more.
+    bars: { cell: 620, chance: 0.52, r: 150, minDist: 380, slowMul: 0.62, drainMul: 24 },
 
     // Tide pools: the refill. Same vocabulary as the shelf's shafts and the pond's eddies — cell is
     // the grid, chance a DIRECT per-cell occupancy probability, minDist spawn-ring clearance from
@@ -4401,6 +4415,18 @@ CHAPTERS.surf = {
   // what the chapter's OTHER two slots are for.
   weapons: ['breaker', 'skippingShell', 'barnacles'], starter: 'breaker',
 
+  // NO OBSTACLES ON THE BEACH (owner, 2026-08-15). Overriding the pond's pebble-and-stalk field with
+  // the same `null` the intro chapter uses ("keeps the open field") rather than an empty table —
+  // streamObstacles early-returns on a falsy cfg, so this costs nothing per frame and run.obstacles
+  // simply stays [].
+  //
+  // It is also the one chapter where the furniture was fighting the floor. Everything the ground
+  // does here is already a circle you read and act on — a sandbar to stay off, a tide pool to stand
+  // in — and a scattered field of collidable rocks put a THIRD kind of circle among them that looks
+  // like the other two from above and means something else entirely. The signature is the map, so
+  // the map is what the floor should be saying.
+  obstacles: null,
+
   // ---- render-only. Written WHOLESALE rather than spread from the pond's, exactly as The Shelf's
   // is: `...CHAPTERS.pond` above shares the pond's render object BY REFERENCE, so writing
   // `CHAPTERS.surf.render.cast = […]` in place would rewrite The Pond's render block too (see
@@ -4443,6 +4469,33 @@ CHAPTERS.surf = {
     playerTint: 0xffffff,
     tail: false,
     eliteIridescent: [0xbfe8ff, 0xffd9f2, 0xd9ffe8], // soapTrail elites, inherited with the pond's flag
+
+    // YOU ARE STANDING IN THE WATER (owner, 2026-08-15: "a light blueish tint to make it more
+    // obvious this is a bit underwater"). A flat wash of this colour over the whole world — see
+    // waterWash in render.js for why it is a layer between the camera and the scene rather than a
+    // recolouring of the floor, and for what deliberately sits above it.
+    //
+    // `add`, AND THAT IS THE WHOLE TRICK — arrived at by measuring the floor rather than by taste,
+    // after three shipped-looking variants that all came out grey. The damp sand is (188,162,122):
+    // its blue channel is its SMALLEST. Any overlay that only darkens — a normal blend toward blue,
+    // a multiply by a cyan — pulls red and green down toward blue but can never lift blue past
+    // green, so the floor's route to "blue" runs through grey and it stops at the grey. Shot at four
+    // strengths and two hues before that was obvious in the arithmetic; adding light is the only
+    // cheap operation that can make blue the dominant channel, and it is also the physical one, since
+    // shallow water scatters skylight back up at you rather than filtering it out.
+    //
+    // The tint is therefore the light being ADDED, not the colour the floor becomes: a blue with
+    // some green in it, because pure blue over warm sand goes violet.
+    //
+    // 0.36 is the strength at which the sand is still sand, bracketed on one identical frame: 0.16
+    // is indistinguishable from no water at all, 0.28 reads wet, and 0.45 is where the sand is gone,
+    // the sandbar has blown out to white and the chapter's whole contrast argument has gone with it.
+    // Landed on 0.28 and taken up on the owner's "a tad bit more blue" — which is what this number
+    // is for, since it trades "obviously wet" against a floor whose job is to keep three creatures
+    // and two kinds of circle readable. The one number here that wants an eye rather than a rule:
+    //   node scripts/fx-probe.mjs --scene scripts/scenes/surf-floor.js --chapter surf
+    // puts both circles and the cast in one frame to judge it on, at either viewport.
+    water: { tint: 0x0062dd, alpha: 0.36, blend: 'add' },
   },
 }
 // Book 2 chapter 3 — THE FIRST LEFT-TO-RIGHT SCROLLER. Written as a WHOLE literal rather than
@@ -5685,6 +5738,21 @@ export const lightRadius = (charge, res, maxDim) => {
 // entire refill mechanic — shipped invisible behind a `signature.type === 'shafts'` test in
 // render.js while the sim was streaming them fine.
 export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? sig?.pockets ?? null))
+
+// DOES THIS CHAPTER NEED run._obstacleSeed? Five streamers hash off that one seed — obstacles,
+// eddies, traps, refill circles and sandbars — but createRun used to draw it for the FIRST of them
+// alone, `CHAPTERS[chapter].obstacles ? … : null`, back when it was the only one. That held right up
+// until a chapter wanted a streamed floor and no furniture on it: The Surf turned `obstacles` off
+// (owner, 2026-08-15) and lost its sandbars AND its tide pools in the same line — the whole
+// signature, the whole resource economy — because every streamer early-returns on a null seed.
+// Silently, and nowhere near the edit: nothing throws, the chapter just comes up as bare sand.
+//
+// So the predicate names what actually consumes the seed. Every chapter that has any of these today
+// also has obstacles, so this returns exactly what the old expression did everywhere except The
+// Surf — which matters beyond tidiness, because the draw is a Math.random() call and a chapter that
+// starts or stops making it re-phases its entire run.
+export const usesObstacleSeed = (ch) => !!ch.obstacles || !!refillSpec(ch.signature) ||
+  !!(ch.signature && (ch.signature.eddies || ch.signature.traps || ch.signature.bars))
 
 // How hard you hit, as a function of the chapter bar. OWNER RULING 2026-08-13, overriding the
 // earlier rule that the bar never touches damage — see the design doc's §5.3 for what that rule was

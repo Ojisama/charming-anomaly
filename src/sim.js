@@ -3159,6 +3159,39 @@ function streamEddies(run) {
 // duplicate nor be re-rolled. But it is free to be correct here.) The Surf's pools declare no
 // driftAmp, so `amp` below is 0 there and the whole slack budget goes to jitter, exactly like the
 // three non-drifting streamers.
+// WHERE A REFILL CIRCLE IS, AS A PURE FUNCTION OF ITS CELL — the single definition of the field's
+// geometry, so a second field can ask about it without materialising it. Returns null when the cell
+// holds no circle at all (occupancy roll, or the spawn-ring clearance), which is why the caller can
+// treat "no return value" as "nothing here" rather than having to re-run the gates itself.
+//
+// THE SALT BLOCK IS THE SPEC'S, NOT THIS FUNCTION'S (v7.x, The Reef). One streamer serves three
+// chapters' refill circles, and a salt is what keeps a field from landing in the same cells as
+// another field — so it has to be a property of the FIELD, not of whichever function happens to
+// materialise it. Defaults to 20 so The Shelf's shafts and The Surf's pools keep the exact block the
+// registry above records for them (and their tunes, which were measured against those hashes, come
+// out bit-identical); The Reef's air pockets declare 40, the block reserved for them.
+//
+// The two gates it does NOT apply are the two that are about the OBSERVER rather than the field:
+// the lane clamp (which needs the run's viewRadius) and the streaming radius (which needs the
+// player). Both live in streamShafts. So a circle this returns is one that exists in the world; the
+// caller decides whether it is close enough to care about.
+export function refillCircleAt(i, j, seed, spec) {
+  const s0 = spec.salt ?? 20
+  if (obstacleCellHash(i, j, seed, s0) >= spec.chance) return null
+  const cs = spec.cell
+  // Jitter slack subtracts driftAmp, which the non-drifting fields have no reason to do: their
+  // circles never move, so they may spend the whole cs/2 - r - 20 budget on jitter. Where a field
+  // drifts, jitter and drift share it, and the sum has to stay inside the cell.
+  const slack = Math.max(0, cs / 2 - spec.r - 20 - (spec.driftAmp ?? 0))
+  const x = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 1) - 0.5) * 2 * slack
+  const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 2) - 0.5) * 2 * slack
+  if (Math.hypot(x, y) < spec.minDist) return null // spawn-ring clearance from the run ORIGIN
+  // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the whole
+  // field does not pulse in unison. Stored by the caller, not re-derived, because x/y are recomputed
+  // every frame and a per-frame hash would be the one avoidable cost in that loop.
+  return { x, y, r: spec.r, phase: obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2 }
+}
+
 export function streamShafts(run) {
   const sig = CHAPTERS[run.chapter].signature
   const spec = refillSpec(sig)
@@ -3179,14 +3212,6 @@ export function streamShafts(run) {
 
   const seed = run._obstacleSeed
   const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
-  const amp = spec.driftAmp ?? 0
-  // THE SALT BLOCK IS THE SPEC'S, NOT THIS FUNCTION'S (v7.x, The Reef). One streamer now serves
-  // three chapters' refill circles, and a salt is what keeps a field from landing in the same cells
-  // as another field — so it has to be a property of the FIELD, not of whichever function happens
-  // to materialise it. Defaults to 20 so The Shelf's shafts and The Surf's pools keep the exact
-  // block the registry above records for them (and their tunes, which were measured against those
-  // hashes, come out bit-identical); The Reef's air pockets declare 40, the block reserved for them.
-  const s0 = spec.salt ?? 20
   // A LANE HAS WALLS, AND A REFILL CIRCLE OUTSIDE THEM IS A LIE (v7.x, The Reef). The streaming
   // grid covers a 1400px disc around the player; the lane is only ~860px wide, so two whole cell
   // rows either side of it materialise circles the player is CLAMPED away from and can only watch
@@ -3202,18 +3227,12 @@ export function streamShafts(run) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j
       if (live.has(key)) continue
-      if (obstacleCellHash(i, j, seed, s0) >= spec.chance) continue
-      const slack = Math.max(0, cs / 2 - spec.r - 20 - amp) // see the driftAmp note above
-      const bx = (i + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 1) - 0.5) * 2 * slack
-      const by = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, s0 + 2) - 0.5) * 2 * slack
-      if (Math.hypot(bx, by) < spec.minDist) continue // spawn-ring clearance from the run ORIGIN
+      const c = refillCircleAt(i, j, seed, spec)
+      if (!c) continue
+      const bx = c.x, by = c.y
       if (lax && Math.abs(lax.cross === 'x' ? bx : by) - spec.r > laneHW) continue // see the lane note above
       if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
-      // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the
-      // whole field does not pulse in unison. Stored, not re-derived, because x/y are recomputed
-      // every frame and a per-frame hash would be the one avoidable cost in that loop.
-      const phase = obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2
-      run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase, _cell: key })
+      run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase: c.phase, _cell: key })
     }
   }
 }
@@ -3252,6 +3271,20 @@ function stepShafts(run) {
 // ZERO Math.random() at step time — the same hard rule the other four state, and run US.b asserts it
 // by making Math.random throw. A sandbar never moves, so unlike a shaft it spends the whole jitter
 // budget and has no per-frame step of its own.
+//
+// DRY SAND AND A TIDE POOL CANNOT BE THE SAME GROUND (owner, 2026-08-15). The two fields are
+// independent grids with their own cell sizes (620 vs 700) and their own hash salts, which is what
+// keeps their ROLLS from colliding — and says nothing whatever about where the circles land. They
+// overlapped constantly, and an overlap is not a cosmetic blemish here: the sand multiplies the
+// Humidity drain by 24 while a pool refills it at 20/s, so the overlap region is the one patch of
+// the chapter where the two halves of the mechanic are fighting over the same pixel and the player
+// cannot tell from the floor which one they are standing in.
+//
+// THE SANDBAR YIELDS, NEVER THE POOL. The pools are the refill, and the entire Humidity tune in
+// CHAPTERS.surf.resource was measured against that exact field (see its block: 300s x 3 seeds x
+// three spend policies x four movement rows). Thinning it would invalidate every one of those
+// numbers. Thinning the sandbars only makes the hazard rarer, which is a knob — `bars.chance` —
+// that can be turned back up, and was: see its comment for the measured before/after.
 export function streamSandbars(run) {
   const sig = CHAPTERS[run.chapter].signature
   const spec = sig && sig.type === 'tide' ? sig.bars : null
@@ -3281,9 +3314,39 @@ export function streamSandbars(run) {
       const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 32) - 0.5) * 2 * slack
       if (Math.hypot(x, y) < spec.minDist) continue
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      if (overlapsPool(x, y, spec.r, sig, seed)) continue // see the block above this function
       run.sandbars.push({ x, y, r: spec.r, _cell: key })
     }
   }
+}
+
+// Would a sandbar of radius `r` centred here touch any tide pool? See the block above
+// streamSandbars for why the sandbar is the one that gives way.
+//
+// The cell range is EXACT rather than a guessed 3x3, and that is worth the two lines: refillCircleAt
+// bounds a pool's jitter by cs/2 - poolR - 20, so a pool circle lies wholly inside its own cell, so
+// any pool reaching this point sits in a cell that the disc of radius (r + poolR) touches. Deriving
+// the range from the radii means the test cannot silently start missing pools if either radius or
+// the pool cell size is ever retuned — the failure mode a hardcoded neighbourhood would have, and a
+// quiet one, since it would only reappear as the occasional overlap this exists to remove.
+//
+// Consumes no Math.random and materialises nothing: it re-derives the pool field from the same seed
+// and hashes streamShafts uses, so it agrees with the pools the player actually sees whether or not
+// those cells have been streamed in yet.
+function overlapsPool(x, y, r, sig, seed) {
+  const pools = sig && sig.pools
+  if (!pools) return false
+  const reach = r + pools.r
+  const cs = pools.cell
+  const i0 = Math.floor((x - reach) / cs), i1 = Math.floor((x + reach) / cs)
+  const j0 = Math.floor((y - reach) / cs), j1 = Math.floor((y + reach) / cs)
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const c = refillCircleAt(i, j, seed, pools)
+      if (c && Math.hypot(c.x - x, c.y - y) < reach) return true
+    }
+  }
+  return false
 }
 
 // Is the player standing on dry ground? Centre-to-centre against the patch radius, exactly like

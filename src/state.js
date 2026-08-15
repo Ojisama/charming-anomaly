@@ -6,7 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed,
+  pickWorldSeed, usesObstacleSeed,
 } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -1469,7 +1469,7 @@ export function createRun(meta, opts = {}) {
   // from the SAME draw _obstacleSeed uses, rather than spending a second Math.random() call — no
   // draw happens between here and where _obstacleSeed used to sit, so the order this consumes the
   // shared stream in is unchanged (see _districtSeed's doc block above).
-  const obstacleSeed = CHAPTERS[chapter].obstacles ? (Math.random() * 0x7fffffff) | 0 : null
+  const obstacleSeed = usesObstacleSeed(CHAPTERS[chapter]) ? (Math.random() * 0x7fffffff) | 0 : null
   return {
     phase: 'playing',
     time: 0,

@@ -7390,6 +7390,24 @@ export function createRenderer(app) {
   // — the safety cue — still visibly wins.
   const lightningFlash = new Sprite(Texture.WHITE)
   lightningFlash.alpha = 0
+  // ---- THE WATER (v7.x Book 2 / The Surf) ------------------------------------------------------
+  // A flat screen-space wash of colour over the world, from CHAPTERS[id].render.water. Same
+  // Texture.WHITE + fitScreen idiom as lightningFlash directly above; a chapter that declares no
+  // `water` never shows it, so this is inert everywhere but the beach.
+  //
+  // WHY A WASH AND NOT A DARKER PALETTE. The Surf is ankle-deep, not the open ocean — the chapter
+  // below it (The Reef) gets its depth from bgColor alone, because down there the water IS the
+  // scene. Here the sand has to stay sand and stay warm, and only look like it is being seen THROUGH
+  // something. Retinting the floor cannot do that: it would recolour the ground and leave the fish,
+  // the crowd and the props sitting on top of it in dry air. A layer between the camera and the
+  // whole world is what "a bit underwater" actually is, and it costs one sprite.
+  //
+  // ABOVE `world` AND BELOW EVERYTHING ELSE ON THE STAGE (see the addChild below), which is the same
+  // rule darkLayer states for itself: floating damage numbers (idleLayer), the blown sand, and the
+  // red damage vignette are safety and readability cues that live between the player and the screen,
+  // not between the player and the sea floor. Tinting them would be dimming the instruments.
+  const waterWash = new Sprite(Texture.WHITE)
+  waterWash.alpha = 0
   // v5.0 pond biome layers (empty/hidden for body): ambient current motes live on the stage
   // (screen space, like dust); obstacles + hazard pools read as ground decals under the roster;
   // toxin blooms hang over enemies but under the player; whip flashes sit over the weapons.
@@ -7513,7 +7531,7 @@ export function createRenderer(app) {
   // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
   // blend-mode/texture transition — three sub-containers, three draw calls.
   world.addChild(floorLayer, swellLayer, cloudShadowLayer, entitiesLayer)
-  app.stage.addChild(world, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
+  app.stage.addChild(world, waterWash, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -13327,6 +13345,10 @@ export function createRenderer(app) {
       lightningFlash.width = w
       lightningFlash.height = h
     }
+    if (waterWash.width !== w || waterWash.height !== h) {
+      waterWash.width = w
+      waterWash.height = h
+    }
   }
 
   // ------------------------------------------------------------------ events
@@ -15292,6 +15314,13 @@ export function createRenderer(app) {
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null
     chapterRender = cfg?.render ?? BODY_RENDER
+    // The water wash (see waterWash's block in the stage setup). Set here and never touched again:
+    // it is a property of the chapter, not of the frame, so unlike the dark it has nothing to
+    // recompute. The title screen (run == null) falls back to BODY_RENDER, which declares no water.
+    const water = chapterRender.water
+    waterWash.tint = water?.tint ?? 0xffffff
+    waterWash.alpha = water?.alpha ?? 0
+    waterWash.blendMode = water?.blend ?? 'normal'
     // The pond drifts, The Surf surges; every other chapter draws no flow field at all. Re-tinting
     // the whole streak pool here (rather than at construction, where it used to be fixed to the
     // pond's teal) is what lets one pool serve both looks.

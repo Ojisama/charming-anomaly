@@ -4931,8 +4931,15 @@ function runDark() {
     // It shipped at v7.55 as a hard-edged wedge of night across the whole viewport.
     assert.ok(!/\.cut\(\)/.test(src.replace(/^\s*\/\/.*$/gm, '')),
       'no Graphics.cut() in render.js: overlapping holes triangulate into straight-edged garbage, which is how the dark shipped broken')
-    assert.ok(src.includes('app.stage.addChild(world, darkLayer,'),
-      'the dark must sit directly above `world` and below the damage vignette/flash, or it takes the safety cues with it')
+    // The clause this actually protects is "the dark is over the WORLD and under the safety cues",
+    // not a literal adjacency: The Surf's water wash (waterWash) now sits between them, and it has
+    // to — the dark is a lighting scrim, so it must fall on the already-watered scene rather than be
+    // washed over by it. Both are still above `world` and both still below idleLayer's damage
+    // numbers, the vignette and the flash, which is the whole contract.
+    assert.ok(/app\.stage\.addChild\(world,(?: waterWash,)? darkLayer,/.test(src),
+      'the dark must sit above `world` (below only the water wash) and below the damage vignette/flash, or it takes the safety cues with it')
+    assert.ok(src.indexOf('darkLayer,') < src.indexOf('idleLayer, dustLayer'),
+      'the dark must stay below the damage numbers')
   }
 
   console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
@@ -12394,6 +12401,7 @@ try {
   testSubmission()
   testSurfTide()
   testSurfSandbars()
+  testSurfFloor()
   testSurfHumidity()
   testSurfHumidityDamage()
   testSurfWeapons()
@@ -14566,6 +14574,84 @@ function testSurfSandbars() {
   console.log(`PASS run US.b (sandbars): ${far} patches streamed deterministically from the run seed, dropped behind the player, and standing on one costs ${(100 - (onBar / offBar) * 100).toFixed(0)}% of your travel`)
 }
 
+// ---- run US.j (2026-08-15): The Surf's floor — no obstacles, and no patch that is two things -----
+// Two owner asks that turned out to share one failure mode: a chapter can lose a whole streamed
+// field without anything throwing, because every streamer early-returns on a null run._obstacleSeed.
+function testSurfFloor() {
+  Math.random = mulberry32(20260815)
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'surf', difficulty: 3 })
+  assert.strictEqual(run.chapter, 'surf', 'probe did not land on The Surf')
+
+  // (a) NO OBSTACLES — the owner ask — asserted as an empty field after streaming, not just as a
+  // null in the table. `obstacles: null` is what turns streamObstacles off, and reading the config
+  // back would pass with the streamer still filling run.obstacles from somewhere else.
+  assert.strictEqual(CHAPTERS.surf.obstacles, null, 'The Surf must declare no obstacle field')
+  advance(run, 2, 1 / 60, { x: 1, y: 0, skill: false })
+  assert.strictEqual(run.obstacles.length, 0, 'obstacles streamed into a chapter that declares none')
+
+  // (b) …AND THE FLOOR SURVIVED IT. This is the assertion that matters: run._obstacleSeed feeds five
+  // streamers, and used to be drawn only for chapters with obstacles, so turning obstacles off took
+  // the sandbars and the tide pools with it — the chapter's signature AND its entire resource
+  // economy — with no error anywhere. The chapter simply came up as bare sand.
+  assert.ok(run._obstacleSeed != null,
+    'The Surf lost run._obstacleSeed — its sandbars and tide pools are silently gone (see usesObstacleSeed)')
+
+  // (c) A SANDBAR AND A TIDE POOL NEVER SHARE GROUND (owner, 2026-08-15). Swept over a wide box so
+  // the sample is a field and not one lucky cell: the two grids are 620 and 700 apart, so a handful
+  // of cells could agree by chance while the fields at large still collided.
+  const bars = new Map(), pools = new Map()
+  for (let y = -3000; y <= 3000; y += 400) {
+    for (let x = -3000; x <= 3000; x += 400) {
+      run.player.x = x; run.player.y = y
+      streamShafts(run); streamSandbars(run)
+      for (const b of run.sandbars) bars.set(b._cell, b)
+      for (const s of run.shafts) pools.set(s._cell, s)
+    }
+  }
+  const B = [...bars.values()], P = [...pools.values()]
+  assert.ok(B.length >= 40 && P.length >= 40,
+    `need both fields populated to compare them — got ${B.length} sandbars and ${P.length} tide pools`)
+
+  let overlaps = 0, worst = 0, nearMisses = 0
+  for (const b of B) {
+    for (const p of P) {
+      const d = Math.hypot(p.x - b.x, p.y - b.y), reach = b.r + p.r
+      if (d < reach) { overlaps++; worst = Math.max(worst, reach - d) }
+      else if (d < reach * 1.35) nearMisses++
+    }
+  }
+  assert.strictEqual(overlaps, 0,
+    `${overlaps} of ${B.length} sandbars overlap a tide pool (deepest ${worst.toFixed(0)}px) — dry sand and a refill cannot be the same ground`)
+
+  // (d) THE RULE IS NOT VACUOUS. Zero overlaps is also what a chapter with no sandbars reports, and
+  // what a field so sparse that two circles could never meet reports. Near-misses prove the two
+  // fields are interleaved tightly enough that the rejection is doing real work every run — without
+  // this, thinning `bars.chance` to nothing would read as a pass.
+  assert.ok(nearMisses >= 10,
+    `only ${nearMisses} sandbar/pool pairs come close at all — the fields are too sparse for (c) to mean anything`)
+
+  // (e) THE WATER IS DECLARED AND ACTUALLY READ. render.js owns the look, so this is the run UG.k
+  // idiom — a render-side contract with no other guard is checked as source text. A chapter render
+  // key that nothing consumes is this repo's most-repeated bug (the `_elFrozen` scar, where a whole
+  // status shipped invisible), and it is invisible from the config side: `water` would sit in the
+  // table reading perfectly while the beach stayed dry.
+  const water = CHAPTERS.surf.render.water
+  assert.ok(water && water.alpha > 0, 'The Surf must declare a water wash')
+  assert.strictEqual(water.blend, 'add',
+    'the wash must ADD light: the sand is (188,162,122), so nothing that only darkens can make blue its dominant channel — it goes grey instead')
+  const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  for (const key of ['chapterRender.water', 'waterWash.alpha', 'waterWash.blendMode', 'waterWash.tint']) {
+    assert.ok(rsrc.includes(key), `render.js never reads ${key} — the water wash is declared but not drawn`)
+  }
+  assert.ok(/addChild\(world, waterWash/.test(rsrc),
+    'the wash must sit directly above `world` — over the scene, under the damage numbers and the vignette')
+
+  console.log(`PASS run US.j (the beach floor): 0 obstacles with the seed still live, 0 of ${B.length} sandbars overlap any of ${P.length} tide pools across a 6000px box (${nearMisses} near-misses prove the fields interleave), and the water wash is declared additive and drawn over the world`)
+}
+
 // ---- run US.c (v7.55): Humidity — the bar, and tide pools as its refill geometry ---------------
 function testSurfHumidity() {
   Math.random = mulberry32(20260815)
@@ -14663,10 +14749,15 @@ function testSurfHumidity() {
   // matched nothing is exactly how this assertion would go quietly blind (hence the >0 guard below,
   // which is what caught this when the form changed).
   const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-  const shaftsFn = src.slice(src.indexOf('export function streamShafts'), src.indexOf('function stepShafts'))
-  const sandbarsFn = src.slice(src.indexOf('export function streamSandbars'), src.indexOf('export function onSandbar'))
+  // v7.x: the refill circles' hashes moved OUT of streamShafts into refillCircleAt, so that a second
+  // field could ask where a pool is without materialising it (streamSandbars' no-overlap rule). The
+  // slice follows them — reading streamShafts alone would now find zero hashes, and the >0 guard
+  // below is the only reason that came back as a failure instead of a silently green comparison of
+  // an empty set against another empty set.
+  const shaftsFn = src.slice(src.indexOf('export function refillCircleAt'), src.indexOf('function stepShafts'))
+  const sandbarsFn = src.slice(src.indexOf('export function streamSandbars'), src.indexOf('function overlapsPool'))
   const baseM = shaftsFn.match(/const s0 = spec\.salt \?\? (\d+)/)
-  assert.ok(baseM, 'streamShafts no longer derives its salt block from spec.salt — the extractor below cannot resolve s0')
+  assert.ok(baseM, 'refillCircleAt no longer derives its salt block from spec.salt — the extractor below cannot resolve s0')
   const shaftBase = Number(baseM[1])
   const saltsOf = (text, base) => [...text.matchAll(/obstacleCellHash\([^,]+,[^,]+,[^,]+,\s*(?:(\d+)|s0(?:\s*\+\s*(\d+))?)\s*\)/g)]
     .map((m) => (m[1] != null ? Number(m[1]) : base + Number(m[2] ?? 0)))
