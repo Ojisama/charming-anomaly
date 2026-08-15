@@ -4312,7 +4312,13 @@ CHAPTERS.surf = {
   roster: [
     { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9, speedMul: 1,    flags: [] },
     { id: 'shorecrab',  archetype: 'tank',   name: 'Shore Crab',  hpMul: 2.2, speedMul: 0.75, flags: ['unshakeable', 'guard'] }, // raises its claw half the time — see the CRAB_GUARD_* block
-    { id: 'gull',       archetype: 'fast',   name: 'Gull',        hpMul: 0.8, speedMul: 1.15, flags: ['diveBomb'] },
+    // The GULL used to hold this slot as a diveBomb enemy. It is now a HAZARD, not a creature
+    // (owner ruling: "this should rather be a trap like thunder in the skies... this is not an
+    // enemy per say") — see the GULL_* block below and stepGullStrike in sim.js. Taking it out left
+    // the chapter with no `fast` entry at all, and an empty archetype pool does not fail loudly:
+    // spawnEnemy's `rosterPool` comes back empty and every fast spawn falls through to the generic
+    // pink wisp blob, which by t=260 is 6/11 of everything on screen. The Sea Roach is that slot.
+    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.8, speedMul: 1.15, flags: ['dashBurst'] },
   ],
 
   // The tide. `surge` is peak lateral speed in px/s and `period` a full surge->backwash cycle; the
@@ -4324,6 +4330,11 @@ CHAPTERS.surf = {
   // player cannot express a slow correction against it; and far under 220, or the surge is not a
   // push but a wall. It is deliberately felt rather than fought — chapter 1 teaches "the map is not
   // neutral" and then lets you win the argument.
+  //
+  // GULLS. A chapter-declared HAZARD, not the signature — a chapter gets exactly one `signature` and
+  // The Surf's is the tide. Declaring it as its own flag is the same idiom `resource`, `crush` and
+  // `dispatch` use, and it is a no-op in every chapter that does not set it. See the GULL_* block.
+  gulls: true,
   signature: {
     type: 'tide', surge: 46, period: 14, axis: 0,
     // Sandbars: dry ground you can walk onto. `slowMul` composes with every other slow by MIN (see
@@ -4457,7 +4468,9 @@ CHAPTERS.surf = {
   // tail: false overrides pond's inherited `tail: true` — the fish's own body already ends in a
   // caudal fin, so pond's separate trailing flagellum sprite would double up on one.
   render: {
-    cast: ['sandhopper', 'shorecrab', 'gull'],
+    // The cast is the chapter's three ENEMIES, so the gull comes out with it: it is a hazard now,
+    // and a title card promising a bird you never fight is a lie about what the chapter is.
+    cast: ['sandhopper', 'shorecrab', 'searoach'],
     form: 'fish',
     // Blown sand, not motes. render.js's ambient dust sprite is a white radial dot shared by every
     // chapter; over this floor it reads as smudges on a lens, and it is the single biggest thing
@@ -7326,6 +7339,37 @@ export const PHASE_GHOST_SPEED_MUL = 1.4  // it hurries while it can't be punish
 // an arc that re-aims every frame is a 360-degree guard with extra arithmetic, and there would be
 // no way round it. Latched, moving is the counter — and it is why render.js turns the crab as it
 // raises rather than leaving it at lean 0.
+// ---- The Surf's gulls (v7.x): a HAZARD, not an enemy -------------------------------------------
+// Owner: "this should rather be a trap like thunder in the skies. A telegraph seagull shadow that
+// gets bigger and darker as the seagull plunges towards you, then you see a big bird plunging and
+// taking off immediately. This is not an enemy per say."
+//
+// So it reuses run.bombs, exactly as the skies' bombardment does — the telegraph -> blast contract
+// already exists and is the same one the thunder rides (see BOMBARDMENT_* above; LIGHTNING re-skins
+// that same entity without touching sim). No new run.* array: the designing-an-enemy skill asks for
+// a stated reason before adding one, and there is none here.
+//
+// TWO THINGS FALL OUT OF stepBombs FOR FREE, and they are why this shape was chosen:
+//   - a bomb already damages the PLAYER and EVERY ENEMY inside its radius. The owner's rule is that
+//     a gull "targets any enemy or you, they want to feed" — so the entity's existing
+//     explode-both-sides contract IS the design, with nothing added.
+//   - it already carries a `src` discriminator that render branches on, so the gull gets its own
+//     look without a second entity or a special case in the sim.
+// A gull is therefore a THIRD PARTY on the beach rather than an attack aimed at the player: it eats
+// whatever it lands on, which is also what stops it being pure denial — a strike that lands on the
+// crowd chasing you is doing your work.
+export const GULL_RATE = 3.4        // s between plunges (the chapter declares `gulls: true`)
+export const GULL_FUSE = 1.3        // s of shadow before it lands — one beat longer than the sky's
+                                    // 1.2, because this one you can WALK out of rather than dodge
+export const GULL_RADIUS = 62       // px. Deliberately under BOMBARDMENT_RADIUS (85): the owner
+                                    // asked for a small radius, and a bird is a point threat where
+                                    // a shell is an area one
+export const GULL_DMG = 16
+// How often the plunge aims at the PLAYER rather than at some enemy. Not 50/50: gulls outnumber you
+// on their own beach and most of what is alive down there is not you, so a mostly-ambient hazard
+// that occasionally has your name on it reads as wildlife rather than as artillery.
+export const GULL_PLAYER_SHARE = 0.35
+
 export const CRAB_GUARD_T = 2.0        // s guarded
 export const CRAB_OPEN_T = 2.0         // s open — a 50/50 duty cycle, as specified
 export const CRAB_GUARD_ARC = 1.047    // half-angle, rad (60 deg -> a 120 deg guard)

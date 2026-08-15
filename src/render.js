@@ -27,6 +27,13 @@ const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig
 // The hydrant is drawn at this many px ACROSS-ish regardless of the zone's damage radius. It is an
 // object, not a zone: it must not grow when the weapon levels. See syncJets.
 const HYDRANT_PX = 36
+// The Surf's gull STRIKE bakes at this radius — module scope, not beside stepGullDives where it is
+// read, because buildTextures() runs long before the bottom of createRenderer's body evaluates and a
+// `const` down there is still in its temporal dead zone when the bake asks for it (a blank page, not
+// a warning). GULL_DIVE_SPAN is the spread pose's wingspan in bake px, which is what the strike
+// scales off so the folded stoop does not appear to shrink the bird.
+const GULL_DIVE_R = 34
+const GULL_DIVE_SPAN = 2.42 * 2 * GULL_DIVE_R
 const MAX_PARTICLES = 200
 const MAX_DMG_TEXTS = 30
 
@@ -1625,6 +1632,114 @@ export function createRenderer(app) {
   function drawShorecrab(g, elite, white, pose) {
     return drawShorecrabPose(g, elite, white, pose === 1, pose === 1 ? CRAB_GUARD : CRAB_OPEN)
   }
+  // SEA ROACH (Ligia) — The Surf's `fast` slot, taking over from the gull when that became a hazard.
+  // The animal was chosen for its SILHOUETTE, because at ~40px on a phone, in a crowd, a creature is
+  // an outline and a value and nothing else. The crab is a wide round disc; the hopper is a short
+  // arched stub. This is built to be neither, out of four things and no interior detail:
+  //   1. ONE LONG STREAK — 3.6:1 body, parallel-sided and flat, never an egg. Nothing else on this
+  //      beach is longer than it is wide.
+  //   2. A V AT EACH END — antennae thrown forward past the nose and biramous uropods thrown back
+  //      past the telson, both nearly half the body long again. A shape that forks at BOTH ends
+  //      cannot be read as a disc or as a stub even when it is twelve grey pixels.
+  //   3. A LEG FRINGE THAT RAKES BACK — seven kneed pairs, the front ones reaching ahead and each
+  //      one behind it swept further back. That rake is the whole "this thing is quick" read, and it
+  //      is present in a still frame, which is where the player actually judges it.
+  //   4. DARK COLD SLATE. The crab owns deep red-orange and the hopper owns a mid grey-brown one
+  //      step under the sand; this goes three steps under and the other way round the wheel, so it
+  //      is the only cold body on a warm floor. Ligia's own colour, as it happens.
+  // Deliberately NOT here: mottling, banding, a lit dorsal ridge. Every one of those was what turned
+  // the Shore Crab's guard into a cracked shell — detail above gameplay size is a lie.
+  // The Sea Roach's palette. COLD SLATE against a warm beach: the Shore Crab owns deep red-orange
+  // and the sand is pale warm ochre, so the one thing neither of them can be is grey-blue. Colour is
+  // doing real work here because the silhouette alone (long, low, many-legged) has to survive at
+  // ~40px next to a round crab.
+  const ROACH_LOOK = { shell: 0x545c5e, line: 0x191f22, lit: 0x8b9793, eye: 0x0b0f11, wide: 1.00, ant: 1.00 }
+  function drawSeaRoach(g, elite, white) {
+    const r = 13
+    const P = ROACH_LOOK
+    const f = (c) => white ? 0xffffff : c
+    const line = f(P.line)
+    const shell = f(P.shell)
+    const headX = r * 1.06
+    const tailX = -r * 1.78
+    const SEG = 7
+    const segX = (i) => headX + (tailX - headX) * (i / SEG)
+    // Half-width: blunt at the head, widest at the third tergite, tapering to the telson. The low
+    // exponent keeps the middle nearly parallel-sided instead of bulging — an isopod is a plank.
+    const wAt = (u) => r * 0.40 * P.wide * Math.pow(Math.max(0, Math.sin(Math.PI * (0.16 + 0.76 * u))), 0.40)
+    groundShadow(r * 2.0, r * 0.7)
+
+    // LEGS. Long, kneed, and raked progressively backward down the body.
+    for (const sd of [-1, 1]) {
+      for (let i = 0; i < SEG; i++) {
+        const u = (i + 0.5) / SEG
+        const bx = headX + (tailX - headX) * u
+        const rake = -0.42 + i * 0.29
+        taperStroke(g, [
+          [bx, sd * wAt(u) * 0.8],
+          [bx - rake * r * 0.26, sd * r * 0.76],
+          [bx - rake * r * 0.50, sd * r * (1.00 + i * 0.035)],
+        ], r * 0.115, r * 0.03, line, 3)
+      }
+    }
+    // ANTENNAE — the front V, held splayed forward the way a running Ligia carries them. Thick at
+    // the base so they are still two strokes and not two hairs once the sprite is 40px.
+    for (const sd of [-1, 1]) {
+      taperStroke(g, [
+        [headX - r * 0.12, sd * r * 0.20],
+        [headX + r * 0.60, sd * r * 0.50 * P.ant],
+        [headX + r * 1.14 * P.ant, sd * r * 0.60 * P.ant],
+        [headX + r * 1.44 * P.ant, sd * r * 0.38 * P.ant],
+      ], r * 0.125, r * 0.022, line, 4)
+    }
+    // UROPODS — the back V, and BIRAMOUS: two rami a side, so the tail ends in four points. This is
+    // the half of the shape the player sees most, because a `fast` enemy spends its life running at
+    // you and this is what is pointing back down its own wake.
+    for (const sd of [-1, 1]) {
+      taperStroke(g, [[tailX + r * 0.16, sd * r * 0.16], [tailX - r * 0.44, sd * r * 0.46], [tailX - r * 0.90 * P.ant, sd * r * 0.64 * P.ant]],
+        r * 0.10, r * 0.022, line, 4)
+      taperStroke(g, [[tailX + r * 0.14, sd * r * 0.09], [tailX - r * 0.40, sd * r * 0.17], [tailX - r * 0.74 * P.ant, sd * r * 0.19]],
+        r * 0.075, r * 0.02, line, 3)
+    }
+
+    // BODY. Traced tergite by tergite rather than swept as one smooth profile: each plate's lateral
+    // edge flares out and back before the next one starts narrower, which leaves a row of shallow
+    // notches down both flanks. That sawtooth is what separates this outline from the hopper's
+    // continuous arch when both are grey — it survives as texture on the edge long after the
+    // individual notches are sub-pixel.
+    const FLARE = 1.14, TUCK = 0.90
+    const pts = []
+    for (let i = 0; i < SEG; i++) {
+      pts.push(segX(i), -wAt(i / SEG) * TUCK)
+      pts.push(segX(i + 1), -wAt((i + 1) / SEG) * FLARE)
+    }
+    pts.push(tailX - r * 0.30, -wAt(1) * 0.40)   // telson, a short rounded wedge
+    pts.push(tailX - r * 0.44, 0)
+    pts.push(tailX - r * 0.30, wAt(1) * 0.40)
+    for (let i = SEG - 1; i >= 0; i--) {
+      pts.push(segX(i + 1), wAt((i + 1) / SEG) * FLARE)
+      pts.push(segX(i), wAt(i / SEG) * TUCK)
+    }
+    pts.push(headX + r * 0.22, wAt(0) * 0.58)    // head cap
+    pts.push(headX + r * 0.32, 0)
+    pts.push(headX + r * 0.22, -wAt(0) * 0.58)
+    g.poly(pts).fill(shell).stroke({ width: Math.max(1.7, r * 0.12), color: line })
+
+    if (!white) {
+      for (let i = 1; i < SEG; i++) {                  // tergite creases
+        const x = segX(i)
+        const h = wAt(i / SEG) * 0.86
+        g.beginPath().moveTo(x, -h).lineTo(x, h).stroke({ width: 1, color: P.line, alpha: 0.55 })
+      }
+      // ONE highlight: a soft dorsal sheen over the head and shoulders. No edge of its own, so it
+      // cannot read as a crack the way an inset rim does.
+      g.ellipse(headX - r * 0.42, 0, r * 0.44, wAt(0.12) * 0.52).fill({ color: P.lit, alpha: 0.20 })
+      // Ligia's eyes are huge and sit on the head's outer corners, facing sideways.
+      for (const sd of [-1, 1]) darkEye(g, headX - r * 0.02, sd * wAt(0) * 0.62, r * 0.10, r * 0.085, P.eye, sd > 0)
+    }
+    if (elite) eliteCrown(-r * 1.4, r)
+  }
+
   function drawGull(g, elite, white) {
     const r = 12
     const f = (c) => white ? 0xffffff : c
@@ -3368,7 +3483,8 @@ export function createRenderer(app) {
     // All three are PLAN VIEW: the water-column exception the jelly above takes (see CLAUDE.md)
     // is for animals that swim in open water with a bell-first heading. These three are on or over
     // the sand — two crawl and one flies above it — so the overhead camera is the honest one.
-    sandhopper: { archetype: 'normal', draw: drawSandhopper, lean: 90 }, // top-down: antennae, legs and the long jump-uropods all ±y mirrored
+    sandhopper: { archetype: 'normal', draw: drawSandhopper, lean: 90 },
+    searoach: { archetype: 'fast', draw: drawSeaRoach, lean: 90 },   // top-down: a flat many-legged sprinter, legs and antennae +/-y mirrored // top-down: antennae, legs and the long jump-uropods all ±y mirrored
     // TWO POSES, chosen by the sim's `guarding` field, not by a timer — the pose IS the state, and
     // a player who cannot see which one they are shooting is being asked to waste damage blind.
     // lean 90 (bilaterally symmetric about the forward axis) rather than the 0 this carried before:
@@ -3569,6 +3685,16 @@ export function createRenderer(app) {
       // pair — the blank's script spawns everything forceNormal, so it's unreachable anyway
       T.roster[id + '_elite'] = ROSTER_LOOKS[id].noElite ? T.roster[id] : makeRosterLook(id, true)
     }
+
+    // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
+    // roster gull: the strike is drawn ~140px across, and that texture would be a 6x magnification —
+    // every edge visibly stepped. See stepGullDives for the beat these cycle on.
+    //   0 stoop (wings folded, feet thrown forward)  1 downstroke (spread)  2 upstroke (foreshortened)
+    T.gullDive = [[0.86, 0.62, true], [0, 1, false], [0, 0.56, false]].map(([sw, sp, feet]) => {
+      const g = new Graphics()
+      drawGullPose(g, GULL_DIVE_R, sw, sp, feet, false)
+      return bake(g)
+    })
 
     // player body (eye whites, blush, smile baked; pupils are live sprites)
     const pr = PLAYER.radius
@@ -13894,6 +14020,11 @@ export function createRenderer(app) {
         case 'explode': {
           // A seam zipping shut is not a detonation — it never reaches the skies branches below.
           if (e.rift) { riftBurst(e.x, e.y, e.radius, e.a, e.d); break }
+          // THE GULL LANDS. Not a detonation drawer at all: the whole point of this hazard is that
+          // the thing arriving is an ANIMAL, so what plays here is the bird, hitting and leaving in
+          // one motion ("a big bird plunging and taking off immediately"). The descent is already on
+          // screen as the shadow; this is only the last beat of it.
+          if (e.src === 'gull') { gullStrike(e.x, e.y, e.radius); break }
           // v5.10.1: THREE separate detonation drawers in skies, not one re-tinted burst. Which one
           // is decided by object identity, not by guessing from timing: justStruck holds the
           // run.bombs entries that vanished this frame (with `src` still on them, set explicitly by
@@ -14481,12 +14612,230 @@ export function createRenderer(app) {
       // v5.24 the blank (src:'trail' — the Antibody detonating your own recorded path): same
       // urgency ramp, but violet. The warm red above was tuned against dark floors and washes out
       // on the white void; the violet is the player's own hue — it IS your trail coming back.
+      // THE SURF'S GULLS (src:'gull') get a SHADOW, not a danger circle — owner's brief is "a
+      // telegraph seagull shadow that gets bigger and darker as the seagull plunges towards you".
+      // It is deliberately not the red rim every other hazard wears: this threat is not the beach
+      // warning you, it is a bird you can see coming, and a shadow is the only telegraph in the game
+      // that is also a diegetic object. Physically a descending bird's shadow would SHRINK and
+      // sharpen; the owner asked for bigger-and-darker and that is the right call for a game — the
+      // growth is what says "filling up", and a shrinking telegraph reads as a threat receding.
+      if (b.src === 'gull') {
+        drawGullShadow(b, urgency)
+        continue
+      }
       const color = b.src === 'trail' ? 0x8a5fe0 : 0xff6b81
       bombG.circle(b.x, b.y, b.radius).fill({ color, alpha: fillA })
       bombG.circle(b.x, b.y, b.radius).stroke({ width: 1.5 + urgency * 1.5, color, alpha: rimA })
     }
     if (chapterHasStorm) drawSkiesBombs(run)
     else clearSkiesBombs()
+  }
+
+  // ---- The Surf's gull hazard (v7.x) -----------------------------------------------------------
+  // THE TELEGRAPH: the bird's own shadow on the sand, growing and darkening as it drops. It is the
+  // only telegraph in the game that is a diegetic object rather than a warning, so it carries no
+  // rim, no pulse and no colour that sand cannot make — everything that would make it read as UI.
+  // Three properties do the work instead:
+  //   PLANFORM — a real gull from above: a curved leading edge, a notched trailing edge, a head in
+  //     front of the wings and a forked tail behind. The old cut was two straight-edged triangles
+  //     and an ellipse, which reads as a bat, or as a paper dart, or as nothing.
+  //   THE BEAT — the wings flap while the bird is still high and LOCK SWEPT BACK as it commits, so
+  //     the SHAPE tells you how long you have, independently of size and darkness. From overhead a
+  //     raised wing simply projects shorter, so the beat is a span modulation and nothing else moves.
+  //   PENUMBRA — a cast shadow has a soft edge that TIGHTENS as the caster nears the ground. Four
+  //     nested fills at falling alpha do it; the halo is wide and faint at the top of the dive and
+  //     collapses onto a hard core at the bottom. That sharpening is a second clock on the same
+  //     event, and it is the part that makes the shape feel like it is coming down rather than
+  //     merely being scaled up.
+  // Physically a descending bird's shadow SHRINKS. The owner asked for bigger-and-darker and that is
+  // the right call for a game: growth is what says "filling up", and a shrinking telegraph reads as
+  // a threat receding.
+  const GULL_SHADOW_INK = 0x2a2114
+  const GULL_SHADOW_LAYERS = [[0.34, 0.13], [0.20, 0.28], [0.09, 0.52], [0, 1]]
+  // Half of the planform, nose to tail, on the +y side, in units of R. `sweep` folds the wings back
+  // along the body (1 = a stoop), `span` foreshortens them (the wingbeat, seen from above).
+  function gullPlanformHalf(sweep, span) {
+    const tip = [-0.30 - 0.46 * sweep, 0.98 * span]
+    const shoulder = [0.34, 0.10]
+    const ctrl = [0.30 - 0.30 * sweep, 0.60 * span]        // leading edge bows FORWARD
+    const half = [[0.66, 0], shoulder]
+    for (let i = 1; i <= 6; i++) {                         // quadratic leading edge
+      const u = i / 6, v = 1 - u
+      half.push([v * v * shoulder[0] + 2 * v * u * ctrl[0] + u * u * tip[0],
+        v * v * shoulder[1] + 2 * v * u * ctrl[1] + u * u * tip[1]])
+    }
+    half.push([-0.26 - 0.24 * sweep, 0.46 * span])         // the notch in the trailing edge
+    half.push([-0.18, 0.13])                               // wing root, trailing
+    half.push([-0.48, 0.17])                               // tail, forked
+    half.push([-0.78, 0.11])
+    half.push([-0.64, 0])
+    return half
+  }
+  function drawGullShadow(b, urgency) {
+    // Committed to the stoop over the second half of the fuse: wings fold, the beat stops.
+    const stoop = Math.max(0, (urgency - 0.42) / 0.58)
+    const sweep = stoop * stoop * 0.9
+    const beat = 1 - stoop
+    const phase = (b.x * 0.031 + b.y * 0.027) % 1
+    const span = 1 - beat * 0.34 * (1 - Math.abs(Math.cos(animT * 4.6 + phase * 6.283)))
+    const rot = ((b.x * 0.013 + b.y * 0.011) % 1) * Math.PI * 2
+    const cs = Math.cos(rot), sn = Math.sin(rot)
+    const R = b.radius * (0.34 + 0.66 * urgency)
+    const ink = 0.07 + 0.30 * urgency
+    const soft = 1.30 - 0.78 * urgency                     // the penumbra tightens as it drops
+    const half = gullPlanformHalf(sweep, span)
+    for (const [spread, aMul] of GULL_SHADOW_LAYERS) {
+      const k = R * (1 + spread * soft)
+      const pts = []
+      for (const [x, y] of half) pts.push(b.x + (x * k) * cs - (y * k) * sn, b.y + (x * k) * sn + (y * k) * cs)
+      for (let i = half.length - 2; i >= 1; i--) {
+        const [x, y] = half[i]
+        pts.push(b.x + (x * k) * cs + (y * k) * sn, b.y + (x * k) * sn - (y * k) * cs)
+      }
+      bombG.poly(pts).fill({ color: GULL_SHADOW_INK, alpha: ink * aMul })
+    }
+  }
+
+  // ---- The Surf's gull strike (v7.x) ----------------------------------------------------------
+  // THE PAYOFF: the bird itself. A gull is a HAZARD, not an enemy (sim: stepGullStrike -> run.bombs
+  // with src:'gull'), so it has no entity to sync and no sprite pool of its own. What it needs is
+  // one short animation at the moment of impact — the bird is already at the ground when this fires,
+  // because the shadow carried the whole descent, so this is "hit and gone" and not the dive.
+  //
+  // GROWING = CLOSER, because the camera is overhead: a bird climbing away from the ground SHRINKS.
+  // That is the one cue that makes an overhead bird read as vertical motion at all, and it is why
+  // the sprite scales DOWN here while the telegraph shadow scales UP. Two more carry it with that:
+  //   ITS OWN SHADOW, left lagging on the sand and shrinking behind it. A plan view has no horizon,
+  //     so the gap opening between a body and its shadow is the only way to say "off the ground".
+  //   A WINGBEAT. Three baked poses — the stoop it arrives in (wings folded, feet thrown forward),
+  //     then a downstroke/upstroke pair alternating at ~4.5Hz. A bird that left on one fixed pose
+  //     read as a sprite being tweened away, which is what the first cut did.
+  // Baked at GULL_DIVE_R (not scaled up off the 12px roster gull, whose texture at the size this
+  // wants is a 6x magnification and visibly soft), so every frame of this is a DOWNSCALE.
+  function drawGullPose(g, r, sweep, span, feet, white) {
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0xa8ada4)
+    const half = gullPlanformHalf(sweep, span)
+    // FEET first, under everything: two orange legs thrown forward past the head with the toes
+    // splayed. Only the stoop wears them, and they are most of why that pose reads as a STRIKE
+    // rather than as a gull that happens to be narrow.
+    if (feet) {
+      for (const sd of [-1, 1]) {
+        const hx = r * 1.15, hy = sd * r * 0.42
+        taperStroke(g, [[r * 0.30, sd * r * 0.16], [r * 0.80, sd * r * 0.34], [hx, hy]], r * 0.11, r * 0.07, f(0xdd9a2c), 3)
+        for (const t of [-0.5, 0, 0.5]) {
+          taperStroke(g, [[hx, hy], [hx + r * 0.34 * Math.cos(t + sd * 0.25), hy + r * 0.34 * Math.sin(t + sd * 0.25)]],
+            r * 0.06, r * 0.03, f(0xe8a83c), 2)
+        }
+      }
+    }
+    // WINGS. Drawn as the planform's own outline so the shadow and the bird are literally the same
+    // shape — the thing that landed is the thing you were watching.
+    for (const sd of [-1, 1]) {
+      const pts = []
+      for (const [x, y] of half) pts.push(x * r * 2.5, sd * y * r * 2.5)
+      // close the half back along the body centreline
+      pts.push(-r * 1.6, 0)
+      g.poly(pts).fill(f(0xf4f2ea)).stroke({ width: Math.max(1.6, r * 0.055), color: line })
+      if (!white) {
+        // dark primaries: the outer third of the wing, over-painted. It is the one hard value break
+        // on a near-white bird over pale sand, and without it the whole silhouette dissolves.
+        const outer = half.slice(4, 10).map(([x, y]) => [x * r * 2.5, sd * y * r * 2.5])
+        g.poly(outer.flat()).fill({ color: 0x33373a, alpha: 0.9 })
+      }
+    }
+    // BODY over the wing roots — a torpedo, nose +x, so the two wings read as attached to it.
+    g.poly(spineOutline((t) => [r * 1.05 - t * r * 2.35, 0],
+      (t) => r * 0.30 * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.4 ? 0.4 : 0.7), 26))
+      .fill(f(0xfaf9f4)).stroke({ width: Math.max(1.6, r * 0.06), color: line })
+    if (!white) {
+      g.ellipse(r * 0.24, 0, r * 0.42, r * 0.15).fill({ color: 0xffffff, alpha: 0.5 })
+      darkEye(g, r * 0.74, -r * 0.09, r * 0.075, r * 0.07, 0x191b1c, true)
+      darkEye(g, r * 0.74, r * 0.09, r * 0.075, r * 0.07, 0x191b1c, false)
+    }
+    taperStroke(g, [[r * 0.96, 0], [r * 1.34, 0]], r * 0.08, r * 0.03, f(0xd8a23a), 3) // beak
+  }
+  const gullDives = []
+  const gullFree = []
+  function gullStrike(x, y, radius) {
+    let rec = gullFree.pop()
+    if (!rec) {
+      rec = { sp: new Sprite(Texture.EMPTY), sh: new Sprite(Texture.EMPTY) }
+      rec.sh.anchor.set(0.5)
+      // shadow UNDER the bird: added first so it can never paint over it
+      particleLayer.addChild(rec.sh)
+      particleLayer.addChild(rec.sp)
+    }
+    rec.sp.visible = true
+    rec.sp.tint = 0xffffff
+    rec.sh.visible = true
+    rec.sh.tint = GULL_SHADOW_INK
+    // A heading it leaves along, derived from the impact point so two strikes do not fly off in
+    // lockstep. It banks away rather than straight up: a bird that took off vertically would read
+    // as a helicopter.
+    const a = ((x * 0.017 + y * 0.013) % 1) * Math.PI * 2
+    rec.x = x; rec.y = y
+    rec.ca = Math.cos(a); rec.sa = Math.sin(a)
+    rec.t = 0; rec.life = 0.55
+    // The whole animation is sized off the blast: wingspan 2.3x the radius, i.e. a bird that clearly
+    // overhangs the crater it just made. Fixed off the SPREAD pose so the stoop does not appear to
+    // shrink the animal when it opens its wings.
+    rec.k = (radius * 2.3) / GULL_DIVE_SPAN
+    gullDives.push(rec)
+    // SAND. It hit a beach: a flat ring of thrown grains plus a couple of soft puffs off the point
+    // of contact. Without it the bird looks composited over the floor rather than landed on it.
+    if (T.fx && T.fx.circle_05) {
+      for (let i = 0; i < 16; i++) {
+        const ga = (i / 16) * Math.PI * 2 + Math.random() * 0.35
+        const gv = 160 + Math.random() * 200
+        spawnSmoke(T.fx.circle_05, x, y, Math.cos(ga) * gv, Math.sin(ga) * gv,
+          0.28 + Math.random() * 0.18, fxScale(T.fx.circle_05, 5 + Math.random() * 6),
+          0xe9d6b0, -0.02, 2.6, 0, 0, 1.3)
+      }
+      for (let i = 0; i < 5; i++) {
+        const ga = Math.random() * Math.PI * 2
+        spawnSmoke(T.fx.circle_05, x + Math.cos(ga) * radius * 0.28, y + Math.sin(ga) * radius * 0.28,
+          Math.cos(ga) * 60, Math.sin(ga) * 60, 0.40, fxScale(T.fx.circle_05, radius * 0.5),
+          0xdcc7a0, 0.30, 1.8, 0, 0.5, 0.65)
+      }
+    }
+    addShake(2.6, 0.13)
+  }
+  function stepGullDives(dt) {
+    for (let i = gullDives.length - 1; i >= 0; i--) {
+      const d = gullDives[i]
+      d.t += dt
+      const k = Math.min(1, d.t / d.life)
+      if (k >= 1) {
+        d.sp.visible = false
+        d.sh.visible = false
+        gullFree.push(d)
+        gullDives.splice(i, 1)
+        continue
+      }
+      // POSE: the stoop it arrives in, then a beat. The first swap is what sells "and immediately
+      // took off" — one pose held through the whole exit reads as a decal being tweened.
+      const pose = d.t < 0.13 ? 0 : 1 + (Math.floor((d.t - 0.13) / 0.11) % 2)
+      const look = T.gullDive[pose]
+      if (d.sp.texture !== look.tex) { d.sp.texture = look.tex; d.sp.anchor.set(look.ax, look.ay) }
+      if (d.sh.texture !== look.tex) d.sh.texture = look.tex
+      // It hangs for a beat on contact and then accelerates out — a bird that started at full speed
+      // never looks like it touched anything.
+      const off = 620 * Math.pow(Math.max(0, k - 0.06) / 0.94, 1.8)
+      const bx = d.x + d.ca * off
+      const by = d.y + d.sa * off
+      const sc = d.k * (1.06 - 0.62 * k)
+      d.sp.scale.set(sc)
+      d.sp.position.set(bx, by)
+      d.sp.rotation = Math.atan2(d.sa, d.ca)
+      d.sp.alpha = k < 0.72 ? 1 : 1 - (k - 0.72) / 0.28
+      // Its shadow, left behind ON THE GROUND and shrinking: the gap between the two IS the altitude.
+      d.sh.anchor.set(look.ax, look.ay)
+      d.sh.scale.set(d.k * (1.0 - 0.72 * k))
+      d.sh.position.set(d.x + d.ca * off * 0.42, d.y + d.sa * off * 0.42)
+      d.sh.rotation = d.sp.rotation
+      d.sh.alpha = 0.34 * (1 - k) * (1 - k)
+    }
   }
 
   function syncEnemies(run) {
@@ -14979,6 +15328,7 @@ export function createRenderer(app) {
     updateClaws(dt)
     updateRoars(dt)
     updateParticles(dt)
+    stepGullDives(dt)   // The Surf: the bird taking off after a strike (no-op elsewhere)
     updateSmoke(dt)   // the second, separately-capped pool (missile ribbon, crush dust, clods)
     updateRings(dt)
     updateDamage(dt)
@@ -15310,6 +15660,14 @@ export function createRenderer(app) {
 
   // ------------------------------------------------------------------- reset
   function reset(run) {
+    // Gull strikes in flight when a run ends. These are NOT in the flat-pool list below — that list
+    // does `s.visible = false` over plain sprite arrays, and gullDives holds {sp, sh, ...} records
+    // (TWO sprites each — the bird and the shadow it left on the sand), so adding it there would set
+    // a dead property on an object literal, throw nothing, and leave last run's birds hanging over
+    // the new one. Same trap the rig pools carry, opposite direction. The WHOLE RECORD goes back on
+    // the free list, not d.sp: recycling the sprite alone orphans its shadow, visible, forever.
+    for (const d of gullDives) { d.sp.visible = false; d.sh.visible = false; gullFree.push(d) }
+    gullDives.length = 0
     // Latch the per-chapter palette BEFORE clearing/repainting so the floor repopulates and the
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null

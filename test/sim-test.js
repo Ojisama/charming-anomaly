@@ -118,7 +118,7 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
-  CRAB_GUARD_ARC,
+  CRAB_GUARD_ARC, GULL_RADIUS, GULL_FUSE, GULL_DMG,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
@@ -12406,6 +12406,7 @@ try {
   testSurfHumidityDamage()
   testSurfWeapons()
   testCrabGuard()
+  testSurfGulls()
   testPlayerForms()
   testMultitouchControls()
   testLaneGolden()
@@ -16127,6 +16128,148 @@ function testCrabGuard() {
     assert.ok(pack.every((e2) => e2.guardAngle != null), 'a crab raised its guard without latching a bearing')
   }
   console.log(`PASS run US.i (shore crab guard): a ${(CRAB_GUARD_ARC * 2 * 180 / Math.PI).toFixed(0)} deg arc refuses direct damage and pushes guardblock instead of hit, is flankable, passes DoTs, still takes status while blocking, and alternates ~50/50 out of phase across a pack`)
+}
+
+// ---- run US.j: The Surf's gulls — a hazard, not an enemy --------------------------------------
+// The gull stopped being a creature and became a trap on run.bombs (owner: "this should rather be a
+// trap like thunder in the skies... this is not an enemy per say"). Each assertion below guards a
+// half that fails SILENTLY, and two of them guard things that are only true because this rides the
+// EXISTING bomb entity — which is exactly the kind of correctness that quietly rots when someone
+// later "tidies" the push site.
+function testSurfGulls() {
+  const rig = (seed = 91001) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(makeMeta(), { chapter: 'surf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    run.weapons = []
+    run.enemies.length = 0
+    run.bombs.length = 0
+    return run
+  }
+  const spin = (run, secs, each) => {
+    for (let i = 0; i < Math.round(secs * 60); i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      if (run.phase !== 'playing') break
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      each?.(run)
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+    }
+  }
+
+  // (a) THE GULL IS NOT AN ENEMY ANY MORE. Asserted against the roster rather than by spawning:
+  // leaving a stale 'gull' entry in would put a diveBomb creature back on the beach alongside the
+  // hazard, and nothing else here would notice.
+  const ids = CHAPTERS.surf.roster.map((r) => r.id)
+  assert.ok(!ids.includes('gull'), `the gull is still in The Surf's roster as an enemy: ${ids.join(',')}`)
+  // ...and the `fast` slot it vacated is FILLED. An empty archetype pool does not throw: spawnEnemy
+  // falls through to the generic archetype blob, so the chapter would silently spend its late game
+  // spawning placeholder wisps. This is the assertion that catches that.
+  const fast = CHAPTERS.surf.roster.filter((r) => r.archetype === 'fast')
+  assert.strictEqual(fast.length, 1, `The Surf must have exactly one fast enemy, has ${fast.length}`)
+
+  // (b) IT ACTUALLY FIRES, on its own clock, in this chapter and no other.
+  {
+    const run = rig()
+    let seen = 0
+    spin(run, 12, (r) => { seen += r.bombs.filter((b) => b.src === 'gull').length ? 1 : 0 })
+    assert.ok(seen > 0, 'no gull ever plunged in 12s of The Surf')
+    const other = createRun(makeMeta(), { chapter: 'pond', difficulty: 1 })
+    other.player.maxHP = other.player.hp = 1e9
+    let leaked = 0
+    for (let i = 0; i < 60 * 12; i++) {
+      if (other.phase === 'levelup') { other.phase = 'playing'; continue }
+      stepSim(other, { x: 0, y: 0, skill: false }, 1 / 60)
+      leaked += other.bombs.filter((b) => b.src === 'gull').length
+      other.events.length = 0
+      other.player.hp = other.player.maxHP
+    }
+    assert.strictEqual(leaked, 0, 'a gull plunged in a chapter that never declared gulls')
+  }
+
+  // (c) IT FEEDS ON ENEMIES, NOT ONLY ON YOU — the owner's whole rule ("it target any enemy or you,
+  // they want to feed"). This is the assertion that would fail if someone "simplified" the push site
+  // to aim at the player, which is what every other telegraphed hazard in the game does and is
+  // therefore the most likely future regression. Asserted as an EFFECT: an enemy loses health.
+  // Measured off WHERE THE BOMB IS PUT, not off who got hurt. MUTATION-FOUND: counting enemy damage
+  // cannot see this at all — the blast is GULL_RADIUS across and enemies converge on the player, so
+  // a gull that only ever aimed at the player would still catch the crowd standing on top of them
+  // and the damage count would pass. A strike PLACED well outside its own blast radius from the
+  // player is the only evidence that something other than the player was targeted.
+  {
+    const run = rig(91002)
+    let awayFromPlayer = 0, total = 0
+    for (let i = 0; i < 60 * 40; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      if (run.phase !== 'playing') break
+      const before = run.bombs.length
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      for (let b = before; b < run.bombs.length; b++) {
+        const bomb = run.bombs[b]
+        if (bomb.src !== 'gull') continue
+        total++
+        if (Math.hypot(bomb.x - run.player.x, bomb.y - run.player.y) > GULL_RADIUS * 1.5) awayFromPlayer++
+      }
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+    }
+    assert.ok(total > 0, 'no gull plunged at all in 40s')
+    assert.ok(awayFromPlayer > 0,
+      `every one of ${total} plunges landed on the player — the gull hunts you and nothing else, so it is artillery with feathers`)
+  }
+
+  // (d) THE BLAST IS SHARED, not player-only. stepBombs already damages both sides; this pins that
+  // the gull is riding that contract rather than a private damage path that only sees the player.
+  {
+    const run = rig(91003)
+    const near = makeStatusEnemy(run, { x: run.player.x + 10, y: run.player.y, hp: 1e6, speed: 0 })
+    run.enemies.push(near)
+    run.bombs.push({ x: run.player.x, y: run.player.y, radius: GULL_RADIUS, fuse: 0.01, duration: GULL_FUSE, dmg: GULL_DMG, src: 'gull' })
+    const hp0 = near.hp
+    const php0 = run.player.hp
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 30)
+    assert.ok(near.hp < hp0, 'a gull landing on an enemy did it no damage')
+    assert.ok(run.player.hp < php0, 'a gull landing on the player did no damage')
+    assert.ok(run.events.some((ev) => ev.type === 'explode' && ev.src === 'gull'),
+      'the explode event lost its `src` — render cannot tell a gull from any other blast and draws the wrong thing')
+    run.events.length = 0
+  }
+
+  // (e) IT NEVER EATS YOUR ALLY. SUBMISSION's ally is a card the player bought; a hazard that
+  // deletes it would read as the card being broken.
+  //
+  // The crowd is cleared BEFORE each step, not after. Two earlier cuts of this got it wrong in ways
+  // worth recording, because both produced a confident failure that was the fixture's fault:
+  // clearing afterwards leaves the chapter's own spawns in run.enemies at the moment the gull picks,
+  // so it targets a real enemy — and enemies converge on the player, so one of them is regularly
+  // standing within a pixel of wherever the ally was parked, which the position check then reads as
+  // "it targeted the ally". With the list emptied first, the prey pool is the ally and nothing else:
+  // remove the isAlly guard and most plunges land on it, keep the guard and the pool is empty so
+  // every plunge goes to the player. That is the only arrangement in which this assertion has power.
+  {
+    const run = rig(91004)
+    const ally = makeStatusEnemy(run, { x: run.player.x + 260, y: run.player.y, hp: 1e6, speed: 0 })
+    ally.allyT = 999
+    let aimedAtAlly = 0
+    for (let i = 0; i < 40 * 60; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      if (run.phase !== 'playing') break
+      run.enemies.length = 0
+      run.enemies.push(ally)
+      ally.x = run.player.x + 260
+      ally.y = run.player.y
+      const before = run.bombs.length
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      for (let b = before; b < run.bombs.length; b++) {
+        const bomb = run.bombs[b]
+        if (bomb.src === 'gull' && Math.hypot(bomb.x - ally.x, bomb.y - ally.y) < 1) aimedAtAlly++
+      }
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+    }
+    assert.strictEqual(aimedAtAlly, 0, 'a gull targeted the player\'s own ally')
+  }
+  console.log(`PASS run US.j (surf gulls): the gull left the roster and the fast slot is filled, plunges fire on their own clock in surf only, feed on enemies as well as the player, share stepBombs' both-sides blast, carry src through the explode event, and never target your ally`)
 }
 
 // ---- run EL: the element system --------------------------------------------------------------
