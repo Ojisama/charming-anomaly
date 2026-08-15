@@ -30,7 +30,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS,
+  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
@@ -4920,25 +4920,11 @@ export function buildReadout(run) {
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
-    // ORDERED, and ui.js slices to STAT_MAX_ROWS (5) after appending the cadence row `every` — so
-    // where a key sits decides what falls off the sheet. jetDur goes after 'r': the Burst Hydrant
-    // then emits dmg, count, r, jetDur + every = exactly 5. `streams` is deliberately NOT here — a
-    // sixth row would push `every` (the cadence) off, and Split Nozzle already shows up in the mod
-    // list below the table, the same way every behavioural mod does.
-    // v7.23: jumps/arcRange/duration added for Atomic Breath, placed so the breath emits exactly
-    // dmg, jumps, duration, arcRange + every = 5 rows. `duration` is shared: it also surfaces
-    // rainbow's Sustain and pulsarSweep's Held Sweep, which were invisible on the sheet before —
-    // both weapons sit at 4 rows today, so gaining one costs neither of them a row.
-    // v7.26: `arcRange` is deliberately NOT here. The breath now carries both `range` (how far it
-    // reaches for its first target) and `arcRange` (how far it jumps after that), which would make
-    // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
-    // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
-    // gets above.
-    // `skips` sits directly after `r` for the Skipping Shell, which then emits dmg, r, skips +
-    // every = 4 rows. It is unique to that weapon's levels[], so nothing else gains a row. The
-    // Breaker emits dmg, radius + every, and Barnacles dmg, count, jumps, crustDur + every = 5,
-    // exactly at the cap — a sixth key on that weapon would push its cadence row off the bottom.
-    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'skips', 'jetDur', 'crustDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // ORDERED — and the order, the membership and the words now all live in ONE table,
+    // STAT_KEYS in config.js, which is also where the reasoning behind each slot is written down.
+    // This used to be a hardcoded array here and a separate STAT_LABEL map in ui.js, and a stat
+    // needed both or it was silently missing from the build sheet.
+    for (const key of STAT_ROW_KEYS) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
