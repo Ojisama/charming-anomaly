@@ -160,9 +160,10 @@ import {
   PULSAR_ARMS, PULSAR_COLLAPSE_MUL, PULSAR_COLLAPSE_PULL,
   PRISM_DMG_MUL, PRISM_LEN_MUL, PRISM_SPREAD, PRISM_FLASH_T, prismLadder,
   PULSAR_FAN_ARC, PULSAR_FAN_SWEEP, PULSAR_FAN_RATE,
-  // v7.55 The Surf: the Pincer's held claw (see stepPincerWeapon/stepGuards)
-  PINCER_ARC,
-  PINCER_BLOCK_BAND,
+  // The Surf's three natives (see stepBreakerWeapon / stepShellWeapon / stepBarnacleWeapon)
+  BREAKER_BACKWASH_DMG_FRAC,
+  SHELL_RETARGET_R, SHELL_SPLASH_LIFE, SHELL_R,
+  BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -4780,10 +4781,14 @@ const WEAPON_STAT_MODS = {
   debrisToss:    { heavyDebris: ['dmg', 'pct'], bigImpact: ['r', 'pct'], moreDebris: ['count', 'flat'] },
   realityShard:  { keenShard: ['dmg', 'pct'], moreShards: ['count', 'flat'], pierceShard: ['pierce', 'flat'] },
   pulsarSweep: { wideSweep: [['width', 'length'], 'pct'], sustainSweep: ['duration', 'pct'] },
-  // v7.55 surf native. All three of the Pincer's stat mods fold plainly; backClaw is behavioral
-  // (read where the claws are laid out, stepPincerWeapon). There is no rate mod because there is no
-  // rate — see WEAPONS.pincer in config.js.
-  pincer:        { crusher: ['dmg', 'pct'], longArm: ['r', 'pct'], backwash: ['knock', 'pct'] },
+  // The Surf's three natives. Every count mod here folds as 'flat' rather than going through
+  // WEAPON_COUNT_MODS: that map exists for counts read at a fire site, and a count that lives in
+  // levels[] is folded correctly by effectiveWeaponStats — which also means the build sheet reports
+  // it without a second registration. `backwash` and `fastSkim` are the exceptions and both are
+  // registered elsewhere (a switch read at the cast site, and WEAPON_RATE_MODS respectively).
+  breaker:       { swell: ['dmg', 'pct'], longshore: ['radius', 'pct'], broadCrest: ['arc', 'pct'] },
+  skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'] },
+  barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -4850,11 +4855,11 @@ export function buildReadout(run) {
     // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
     // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
     // gets above.
-    // v7.55: `knock` and `cd` added for the Pincer, right after `r` so it emits dmg, r, knock, cd
-    // and stops — it has no `rate`/`interval`, so it is the one weapon with no cadence row, which is
-    // the point of it (see WEAPONS.pincer). Both keys are unique to the Pincer's levels[] (every
-    // other knockback stat in the game is spelled `knockback`), so no other weapon gains a row here.
-    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'knock', 'cd', 'jetDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // `skips` sits directly after `r` for the Skipping Shell, which then emits dmg, r, skips +
+    // every = 4 rows. It is unique to that weapon's levels[], so nothing else gains a row. The
+    // Breaker emits dmg, radius + every, and Barnacles dmg, count, jumps, crustDur + every = 5,
+    // exactly at the cap — a sixth key on that weapon would push its cadence row off the bottom.
+    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'skips', 'jetDur', 'crustDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }
@@ -4925,9 +4930,9 @@ function stepWeapons(run, dt) {
     else if (w.id === 'debrisToss') stepDebrisWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'realityShard') stepShardWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'pulsarSweep') stepPulsarWeapon(run, w, stats, fireRateMul, dt)
-    // The one weapon that takes no fireRateMul, and the omission is deliberate and visible here
-    // rather than swallowed by an ignored parameter — see stepPincerWeapon.
-    else if (w.id === 'pincer') stepPincerWeapon(run, w, stats)
+    else if (w.id === 'breaker') stepBreakerWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'skippingShell') stepShellWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'barnacles') stepBarnacleWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -4947,10 +4952,10 @@ function stepWeapons(run, dt) {
   // its new spot when the breath decides where to jump.
   stepDrags(run, dt)
   stepArcs(run, dt)
-  // v7.55 surf: the Pincer's trigger. Runs AFTER stepPincerWeapon has placed the claws this frame,
-  // so a snap is tested against where the guard actually is, and after stepDrags for the same reason
-  // that moves bodies first — the scan must see this frame's positions, not last frame's.
-  stepGuards(run, dt)
+  // The Surf's Barnacles. LAST of the steppers on purpose — see stepBarnacles for why: it has to
+  // run after everything that can kill a crusted body this frame, and before the dead sweep below
+  // that removes it, or the spread narrows to "only when the crust itself lands the kill".
+  stepBarnacles(run, dt)
 
   turnDeadElites(run) // SUBMISSION: elites killed this frame get up, just before the sweep
   if (run.enemies.some((e) => e._dead)) run.enemies = run.enemies.filter((e) => !e._dead)
@@ -5122,6 +5127,11 @@ function stepBullets(run, dt) {
     // Reality Shard: every blinkEvery seconds a shard SKIPS blinkDist px along its current heading
     // (post any gravity-well curvature), passing over the gap without touching it.
     if (b.weapon === 'shard' && b.life > 0) stepShardBlink(run, b, dt)
+    // The Surf's two CARRIERS. Both deliver something other than a contact hit — the shell leaves a
+    // splash at each touch-down, the larva attaches a crust — so both run their own business here
+    // and then skip the contact scan below (see the `_carrier` guard).
+    if (b.weapon === 'shell' && b.life > 0) stepShellSkip(run, b, dt)
+    if (b.weapon === 'barnacle' && b.life > 0) stepBarnacleFlight(run, b)
     if (b.life <= 0) {
       // recursion: a shard that ran out of LIFE (not one whose pierce was spent) forks. Checked
       // here, on the frame the life expires, so it fires exactly once before the filter drops it.
@@ -5133,6 +5143,11 @@ function stepBullets(run, dt) {
       if (b.life <= 0) continue
     }
     if (b.pierce <= 0) continue
+    // A carrier deals NO contact damage: every point of the Skipping Shell's is in its splashes,
+    // and a barnacle larva delivers a status rather than a hit. Skipping the scan is what stops the
+    // shell being paid for twice on a body it merely flew through, and it costs nothing else —
+    // neither carrier has pierce, chain or rebound behaviour to fall through to below.
+    if (b._carrier) continue
 
     let justHit = null
     for (const e of run.enemies) {
@@ -5277,8 +5292,29 @@ function stepOrbitWeapon(run, stats, fireRateMul) {
 
 // fear (v5.4, the Chitter Shriek's whole point): seconds of flee applied to every enemy the ring
 // touches. 0 (the wave's novas, and every other caller) means the ring only damages and shoves.
-function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0) {
-  run.novas.push({ x, y, r: 0, maxR, dmg, knockback, fear, life: NOVA_LIFE, hit: new Set() })
+//
+// `opts` carries the two fields The Surf's Breaker needs, and BOTH default to the behaviour every
+// other caller already had, so a ring spawned without them is bit-identical to before:
+//   arc/angle  limit the ring to a SECTOR (full cone angle in radians, centred on `angle`), the
+//              same convention inSector uses for roar/flagella/clawRake. Absent = full circle.
+//   carry      px/s^2 of continued outward push on a body the front has already hit, applied while
+//              that body is still inside the live ring. Absent = 0, i.e. the one-shot shove every
+//              other nova deals. This is the field that makes a wave a wave rather than a
+//              ring-shaped bat, and it is bounded by the ring's own life, not by a second knob.
+function spawnNova(run, x, y, maxR, dmg, knockback, fear = 0, opts = null) {
+  run.novas.push({
+    x, y, r: 0, maxR, dmg, knockback, fear, hit: new Set(),
+    arc: opts?.arc ?? null, angle: opts?.angle ?? 0, carry: opts?.carry ?? 0,
+    // A render-only tag. sim does not branch on it; it exists so the renderer can tell a Skipping
+    // Shell's splash from a Cytokine Burst without inferring it from the radius, which is the kind
+    // of guess that silently starts being wrong the first time either weapon is retuned.
+    look: opts?.look ?? null,
+    // `lifeMax` beside `life` so a ring can expand over something other than NOVA_LIFE, and so
+    // stepNovas can still work out how far along it is. The Skipping Shell's splash needs it: a
+    // 46px ring on the default 0.45s life deals its damage nearly half a second after the shell
+    // visibly landed, which on screen reads as the splash missing.
+    life: opts?.life ?? NOVA_LIFE, lifeMax: opts?.life ?? NOVA_LIFE,
+  })
 }
 
 function stepWaveWeapon(run, w, stats, fireRateMul, dt) {
@@ -5344,13 +5380,45 @@ function stepNovas(run, dt) {
     n.life -= dt
     if (n.life <= 0) continue
 
-    const progress = Math.min(1, Math.max(0, 1 - n.life / NOVA_LIFE))
+    const progress = Math.min(1, Math.max(0, 1 - n.life / (n.lifeMax ?? NOVA_LIFE)))
     n.r = n.maxR * progress
 
     for (const e of run.enemies) {
-      if (e._dead || n.hit.has(e.id)) continue
+      if (e._dead) continue
       const dx = e.x - n.x, dy = e.y - n.y
       const dist = Math.hypot(dx, dy)
+      // The Breaker's sector gate. Normalised through atan2(sin, cos) rather than by subtracting
+      // and comparing: a raw difference wraps at ±pi, so a front facing just past that seam would
+      // silently stop catching the bodies directly in front of it. A body at the apex is inside
+      // every sector — its bearing from a point inside itself is arbitrary — which is the same
+      // carve-out inSector makes and for the same reason.
+      if (n.arc != null && dist > e.radius) {
+        const da = Math.atan2(dy, dx) - n.angle
+        const off = Math.abs(Math.atan2(Math.sin(da), Math.cos(da)))
+        // A body merely CLIPPED by the wedge's edge counts: it subtends asin(r/d) either side of
+        // its centre's bearing. Same rule as inSector, so the two cone tests agree.
+        if (off > n.arc / 2 + Math.asin(Math.min(1, e.radius / dist))) continue
+      }
+      // CARRY: a body the front has already hit rides it outward for as long as the crest is on
+      // it. Gated on the BAND rather than just on `hit`, so the push stops the moment the wave has
+      // passed — without that, one hit would shove a body for the nova's whole life no matter how
+      // far behind the crest it fell, which is a tractor beam, not surf. `carry` is an
+      // acceleration and e.kb a velocity that decays at KB_DECAY_RATE, so the ride reaches a
+      // terminal speed instead of flinging bodies off the map.
+      if (n.hit.has(e.id)) {
+        // NOT ccScale'd, and that is the same argument the CC pricing block itself makes: the carry
+        // is the back half of ONE application — the shove this body already paid for on the frame
+        // the crest reached it — not a fresh control landing 27 more times. Scaling it per frame
+        // charges one wave the diminishing-returns price of a whole cast every frame, which
+        // measured the ride down from 183px/s of terminal speed to 137 and made the weapon's one
+        // distinguishing property nearly invisible. resistsCC still gates it, so an anchored elite
+        // takes the damage and never moves, exactly as it does for every other shove in the game.
+        if (n.carry > 0 && dist > 1e-6 && !resistsCC(e)) {
+          e.kb.x += (dx / dist) * n.carry * dt
+          e.kb.y += (dy / dist) * n.carry * dt
+        }
+        continue
+      }
       if (dist <= n.r + e.radius) {
         applyDamage(run, e, n.dmg)
         n.hit.add(e.id)
@@ -7520,151 +7588,270 @@ function firePulsar(run, stats) {
   run.events.push({ type: 'beam' })
 }
 
-// -- Pincer (v7.55 surf starter — THE PARRY) --------------------------------------------------
-// Read this before changing anything here: THIS WEAPON HAS NO TIMER, AND THAT IS THE FEATURE.
-// The other 23 weapons all run through fireOnTimer — an interval elapses, something is emitted, and
-// the player's only input into that is where they are standing. The Pincer holds a claw out toward
-// the nearest enemy and does NOTHING until something comes inside it. Its output is therefore a
-// function of what the crowd does, and a player who kites perfectly gets nothing from it at all.
-//
-// The two halves are split the way the bloom's and the lure's are — a placement site called from
-// the weapon dispatch, and a stepper called from the entity block below it:
-//   stepPincerWeapon  lays the claws out (this frame's aim, position, reach) and NOTHING else. It
-//                     never damages, never arms, never disarms.
-//   stepGuards        the trigger: a proximity scan over run.enemies, plus the re-arm countdown.
-//
-// If you are here to add a `fireOnTimer` call, or an accumulator that snaps when it fills: that is
-// weapon #24 of the kind this one exists not to be, and run US.e part (b) is the assertion that
-// catches it (a stationary enemy far away must leave the guard armed for as long as it sits there).
-function stepPincerWeapon(run, w, stats) {
+// -- The Surf's three natives -------------------------------------------------------------------
+// All three fire on a timer through fireOnTimer, take no resource, and read nothing about how the
+// player is moving. What separates them is the SHAPE each claims (see the block above
+// WEAPONS.breaker in config.js), and each one is built out of an entity the game already has:
+//   breaker        a run.novas ring carrying `arc` + `carry` — a sector-limited front that keeps
+//                  pushing what it has already caught. See spawnNova/stepNovas.
+//   skippingShell  a run.bullets carrier (no contact damage) that leaves a splash nova at every
+//                  touch-down and re-aims from where it landed.
+//   barnacles      run.bullets carriers that attach `e.barnacle` — a published contract field, so
+//                  render.js can draw the crust — which then ticks and spreads on its host's death.
+// None of them needed a new run.* array, which is the same argument The Shelf's doc block makes
+// about reusing run.bombs and run.strips.
+
+// Every one of the three aims the same way, and it is fireFlagella's hard-won rule (v5.1.2): the
+// NEAREST ENEMY first, and the last move direction only as a fallback. A kiting player's heading
+// points away from the swarm, so aiming by facing alone fires every cast into empty sand.
+function surfAim(run) {
   const p = run.player
-  // NO fireRateMul. Every other step function takes it and divides its interval by it; there is no
-  // interval here to divide, and folding it into `cd` would make "attack speed" a stat on a weapon
-  // with no attack cadence — and would silently make the build sheet's `cd` row (which divides by
-  // nothing, unlike the `every` row) wrong. The Pincer's cadence is set by the enemy, and the knobs
-  // that move it are reach and re-arm, both on the card.
   const target = nearestEnemy(run)
-  // fireFlagella's hard-won aim rule (v5.1.2): the nearest enemy first, because a kiting player's
-  // heading points AWAY from the swarm; the last move direction only as a fallback.
-  let angle
-  if (target) angle = Math.atan2(target.y - p.y, target.x - p.x)
-  else if (p.facingAngle != null) angle = p.facingAngle
-  else angle = p.facing >= 0 ? 0 : Math.PI
+  if (target) return Math.atan2(target.y - p.y, target.x - p.x)
+  if (p.facingAngle != null) return p.facingAngle
+  return p.facing >= 0 ? 0 : Math.PI
+}
 
-  // backClaw: a second claw at your back. The list is one shared LOCAL count used for both the
-  // layout loop AND the angle it spaces them by — the two-sites-one-count rule in CLAUDE.md; three
-  // claws laid out on one angle would render exactly like no change at all.
-  const backClaw = (run.weaponMods.pincer?.backClaw ?? 0) > 0
-  const angles = []
-  for (const a of ipecacAngles(run, angle)) {
-    angles.push(a)
-    if (backClaw) angles.push(a + Math.PI)
+// -- Breaker (the chapter's starter) --------------------------------------------------------
+// A wave that rolls out ahead of you and drags what it catches along with it. The front is a nova
+// limited to a sector, so the whole expand-and-damage machine — including the once-per-body `hit`
+// set that stops a growing ring re-hitting as it passes — is the shipped one. The two fields that
+// make it a wave rather than a cone-shaped Cytokine Burst are `arc` and `carry`, both documented at
+// spawnNova.
+//
+// Backwash sends a second, weaker front out the other way. It goes through ipecacAngles like the
+// first, so Bazooka multiplies BOTH — the alternative (front only) would make the mod quietly
+// worthless to a build that took the anomaly.
+function stepBreakerWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const backwash = (run.weaponMods.breaker?.backwash ?? 0) > 0
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+    const aim = surfAim(run)
+    for (const a of ipecacAngles(run, aim)) {
+      spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,
+        { arc: stats.arc, angle: a, carry: stats.carry })
+      if (backwash) {
+        spawnNova(run, p.x, p.y, stats.radius, stats.dmg * BREAKER_BACKWASH_DMG_FRAC, stats.knockback, 0,
+          { arc: stats.arc, angle: a + Math.PI, carry: stats.carry })
+      }
+    }
+    // render.js draws the crest from this event, so it carries the geometry rather than making the
+    // renderer re-derive an aim that has already moved by the time it runs.
+    run.events.push({ type: 'shoot', weapon: 'breaker', x: p.x, y: p.y, angle: aim, maxR: stats.radius, arc: stats.arc, back: backwash })
+  })
+}
+
+// -- Skipping Shell -------------------------------------------------------------------------
+// ONE rule produces both halves of the read. The shell flies, and every `skipEvery` seconds it
+// TOUCHES DOWN: a splash where it lands, and a re-aim at the nearest body it has not already
+// skipped toward. So it visibly bounces along a path AND visibly changes course to chase — a
+// ricochet — out of a single mechanic with a single tuning surface.
+//
+// It is a CARRIER: `_carrier` makes stepBullets skip the contact scan entirely, because every point
+// of this weapon's damage is in the splash. Without that the shell would be paid for twice on any
+// body it happened to fly through, and the two numbers would have to be tuned against each other.
+function stepShellWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const fast = run.weaponMods.skippingShell?.fastSkim ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + fast)), dt, () => {
+    const aim = surfAim(run)
+    const skips = Math.max(1, Math.round(stats.skips))
+    for (const a of ipecacAngles(run, aim)) {
+      run.bullets.push({
+        weapon: 'shell', _carrier: true,
+        x: p.x, y: p.y,
+        vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
+        dmg: stats.dmg, r: stats.r,
+        // `life` is a backstop, not the shell's real end: it dies when its skips run out. Sized so
+        // a shell that somehow never touches down still cannot outlive its own flight budget.
+        life: stats.skipEvery * (skips + 1),
+        pierce: 1, hitIds: new Set(),
+        skips, skipEvery: stats.skipEvery, skipT: stats.skipEvery,
+      })
+    }
+    run.events.push({ type: 'shoot', weapon: 'shell', x: p.x, y: p.y, angle: aim })
+  })
+}
+
+// One touch-down. Called from stepBullets on the frame the timer expires, before the contact scan
+// that carriers skip.
+function stepShellSkip(run, b, dt) {
+  b.skipT -= dt
+  // A touch-down fires on the TIMER *or* on reaching a body, whichever comes first, and the second
+  // half is not optional. The stride between periodic touch-downs is speed x skipEvery — 103px at
+  // L1 — against a 46px splash, so a purely periodic shell lands NEAR its target far more often
+  // than on it: measured, three skips at 160 / 62 / 89px from a body that needed 62, i.e. a throw
+  // that visibly chased its target and then damaged nothing at all. The card promises a hit at
+  // every touch, so a touch has to be able to happen when the shell ARRIVES.
+  let arrived = null
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue
+    const dx = e.x - b.x, dy = e.y - b.y
+    // SHELL_R, not b.r: b.r is how far the SPLASH reaches, and using it here declares arrival
+    // from outside the range the splash can actually cover.
+    const rad = SHELL_R + e.radius
+    if (dx * dx + dy * dy <= rad * rad) { arrived = e; break }
   }
+  if (b.skipT > 0 && !arrived) return
+  // Marked before the re-aim scan below, so the shell bounces ON to something else rather than
+  // sitting on the body it just landed on.
+  if (arrived) b.hitIds.add(arrived.id)
+  // The splash is a plain nova — no sector, no carry — with a SHORT life, because a 46px ring
+  // expanding over the default NOVA_LIFE would deal its damage nearly half a second after the
+  // shell visibly landed. See spawnNova's `life` option.
+  spawnNova(run, b.x, b.y, b.r, b.dmg, 0, 0, { life: SHELL_SPLASH_LIFE, look: 'foam' })
+  run.events.push({ type: 'skip', x: b.x, y: b.y, r: b.r })
+  b.skips--
+  if (b.skips <= 0) { b.life = 0; return }
+  b.skipT = b.skipEvery
+  // Re-aim, nearest-first, within SHELL_RETARGET_R of where it LANDED (not of the player) — that
+  // cap is what keeps it a skimmed stone instead of a fourth homing weapon. `hitIds` is the set of
+  // bodies it has already skipped toward: a carrier never runs the contact scan, so the field is
+  // free and this is the only thing that reads it.
+  let best = null, bestSq = SHELL_RETARGET_R * SHELL_RETARGET_R
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || b.hitIds.has(e.id)) continue
+    const dx = e.x - b.x, dy = e.y - b.y
+    const dSq = dx * dx + dy * dy
+    if (dSq < bestSq) { bestSq = dSq; best = e }
+  }
+  // Nothing in range: it keeps its heading, so a shell thrown into empty sand still skips out and
+  // expires rather than stopping dead where it landed.
+  if (!best) return
+  // NOT marked here. `hitIds` means "already splashed on", and marking a body when the shell merely
+  // AIMS at it spends the target without ever reaching it: the next touch-down then skips straight
+  // past the thing it was flying at, which measured as a throw that visibly chased its target and
+  // damaged nothing. Only arrival marks (see the `arrived` branch above).
+  const a = Math.atan2(best.y - b.y, best.x - b.x)
+  const speed = Math.hypot(b.vx, b.vy) || 1
+  b.vx = Math.cos(a) * speed
+  b.vy = Math.sin(a) * speed
+}
 
-  // RESIZED IN PLACE, never rebuilt: `armed` and `cd` are the whole state of this weapon, and a
-  // fresh object every frame is a claw that forgets it ever snapped, i.e. no cooldown at all.
-  while (run.guards.length < angles.length) run.guards.push({ x: p.x, y: p.y, angle: 0, r: 0, armed: true, cd: 0, rearm: 0, dmg: 0, knock: 0 })
-  if (run.guards.length > angles.length) run.guards.length = angles.length
+// -- Barnacles --------------------------------------------------------------------------------
+// The one weapon that rewards walking INTO a pack. A crust does nothing on a body that was dying
+// anyway; in a crowd, every death re-seeds the next one and the pack grinds itself down.
+//
+// The larvae are carriers too, for the same reason as the shell: they deliver a status, not a hit,
+// so they must not also deal contact damage on the way in.
+function stepBarnacleWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+    const aim = surfAim(run)
+    // ONE local, used as the loop bound AND as the divisor that spaces what the loop spawns. Two
+    // separate expressions here is the failure CLAUDE.md documents across eight weapon sites: the
+    // extra larvae stack on one bearing and it renders identically to no change at all.
+    const count = Math.max(1, Math.round(stats.count))
+    for (const a0 of ipecacAngles(run, aim)) {
+      for (let i = 0; i < count; i++) {
+        const a = a0 + (i - (count - 1) / 2) * BARNACLE_FAN
+        run.bullets.push({
+          weapon: 'barnacle', _carrier: true,
+          x: p.x, y: p.y,
+          vx: Math.cos(a) * stats.speed, vy: Math.sin(a) * stats.speed,
+          dmg: 0, r: BARNACLE_LARVA_R,
+          life: stats.castRange / stats.speed,
+          pierce: 1, hitIds: new Set(),
+          _crust: { dur: stats.crustDur, dmg: stats.dmg, tick: stats.tick, jumps: Math.round(stats.jumps) },
+        })
+      }
+    }
+    run.events.push({ type: 'shoot', weapon: 'barnacle', x: p.x, y: p.y, angle: aim })
+  })
+}
 
-  for (let i = 0; i < angles.length; i++) {
-    const g = run.guards[i]
-    g.angle = angles[i]
-    g.r = stats.r
-    g.dmg = stats.dmg
-    g.knock = stats.knock
-    // The re-arm DURATION, snapshotted alongside dmg/knock so the scan below is self-contained.
-    // `cd` is the live countdown; `rearm` is what it is reset to. Two fields because a claw that is
-    // currently closed still has to know how long its own cooldown was.
-    g.rearm = stats.cd
-    // ANCHORED TO THE PLAYER. The guard is an arc swept about your own centre, so `r` is reach from
-    // you and Long Arm buys a wider guard rather than a claw parked further away. See PINCER_ARC in
-    // config.js for the measurements that retired the held-out disc this replaced.
-    g.arc = PINCER_ARC
-    g.x = p.x
-    g.y = p.y
+// A larva looking for a host. Called from stepBullets in the carrier branch.
+function stepBarnacleFlight(run, b) {
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue   // SUBMISSION: never crust your own ally
+    const dx = e.x - b.x, dy = e.y - b.y
+    const rad = b.r + e.radius
+    if (dx * dx + dy * dy > rad * rad) continue
+    applyBarnacle(run, e, b._crust)
+    b.life = 0
+    return
   }
 }
 
-// TWO THINGS IN ONE WEDGE, AND ONLY ONE OF THEM HAS A COOLDOWN (owner ruling 2026-08-14). This is
-// the distinction the weapon shipped without, and shipping without it is why it did not read as a
-// shield:
-//   THE BLOCK runs EVERY FRAME, armed or spent. Nothing can walk through the claw's face. This is
-//     the shield, it is never down, and it is what the player is actually holding.
-//   THE BITE runs only when armed, and `cd` is its clock alone. Damage plus the big yank.
-// A spent claw is therefore still a wall — it just cannot bite for a moment. Before v7.78 `cd`
-// gated BOTH, and the measurement of what that meant is worth keeping because nothing in the weapon
-// census could see it (output was at parity with the Flagella Whip the whole time). Over 240s at
-// surf d3, immortal, 3 seeds, pincer L1 as the only weapon:
-//   - the claw was ARMED 4.2% of the run. It fired the instant it recovered and was spent the rest
-//     of the time, so what the player looked at was the greyed-out sprite ~96% of the time.
-//   - 877 contact hits standing your ground, against 896 for a player carrying NO WEAPON AT ALL.
-//     As a shield it was worth 2%. 874 of those 877 came from inside the guarded wedge — bodies
-//     walked straight through the thing pointed at them.
-//   - one snap moved a body 22-34px (16px by the sixth, as CC diminishing returns bit) against a
-//     claw reaching 82px, so the shove could not even clear the guard it was defending.
-// A claw closes on EVERYTHING whose centre is inside it, not on the one nearest body — a guard that
-// removes one enemy from a pack of eight while the other seven walk past it is not guarding
-// anything. It is also what makes the weapon's damage survive contact with a crowd: measured
-// single-target, the pincer threw away 56% of every snap as overkill on a body that was already
-// dying (weapon-census, surf L5), which is what a big number on a long cooldown always does.
-// `cd` does not start until a snap has happened, so an armed claw over an empty beach stays armed
-// indefinitely — and a claw that never bites still holds its wedge the entire time.
-function stepGuards(run, dt) {
-  if (run.guards.length === 0) return
-  for (const g of run.guards) {
-    const rSq = g.r * g.r
-    const half = g.arc ?? PINCER_ARC
-    // The wall's inner face. See PINCER_BLOCK_BAND for why the barrier has a thickness and why a
-    // body already past it is deliberately left alone.
-    const inner = Math.max(0, g.r - PINCER_BLOCK_BAND)
-    let caught = 0
-    for (const e of run.enemies) {
-      if (e._dead || isAlly(e)) continue   // SUBMISSION: never pinch your own ally
-      const dx = e.x - g.x, dy = e.y - g.y
-      const dSq = dx * dx + dy * dy
-      if (dSq > rSq) continue
-      // Inside the FAN, not merely inside the circle. Normalised through atan2(sin, cos) rather than
-      // by subtracting and comparing: a raw difference wraps at ±pi, and a guard facing just past
-      // that seam would silently stop catching the bodies right in front of it.
-      const d = Math.atan2(dy, dx) - g.angle
-      if (Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) > half) continue
+// PUBLISHED INTO A CONTRACT FIELD ON THE ENEMY. render.js reads status off a fixed named list of
+// enemy fields (frozen/chill/venom/ignite/fearT/stunT and now `barnacle`) and never learns a new one
+// on its own — a crust kept in a private field is a weapon that grinds bodies down invisibly, which
+// is indistinguishable on screen from a weapon that does nothing. sim owns the field, render only
+// reads it.
+function applyBarnacle(run, e, crust) {
+  // REFRESHED, NEVER STACKED. A second larva on the same body resets the clock and keeps the
+  // stronger tick, but two crusts never tick side by side: stacking turns a slow grind into an
+  // execute, which is the opposite of what this card is for. `next` is deliberately carried over
+  // from the existing crust so a stream of larvae cannot reset the tick timer forever and hold the
+  // damage at zero — the mirror of the bug the fear refractory exists to prevent.
+  const cur = e.barnacle
+  e.barnacle = {
+    t: Math.max(cur?.t ?? 0, crust.dur),
+    // TWO FIELDS, not one: `t` is the live countdown and `dur` is what a full crust is worth. A
+    // crust about to expire still has to know the full figure, or the body it seeds on death
+    // inherits whatever fraction of a second happened to be left on its parent — and the infection
+    // then dies out on timing rather than on its jump budget.
+    dur: Math.max(cur?.dur ?? 0, crust.dur),
+    dmg: Math.max(cur?.dmg ?? 0, crust.dmg),
+    tick: crust.tick,
+    next: cur?.next ?? crust.tick,
+    jumps: Math.max(cur?.jumps ?? 0, crust.jumps),
+  }
+  if (!cur) run.events.push({ type: 'crust', x: e.x, y: e.y })
+}
 
-      // ---- THE BLOCK. Every frame, armed or spent. ----
-      // Snapped to the face, not eased toward it: stepEnemySeparation learned this the hard way and
-      // says so in its own doc — a crowd converging on the player closes faster per frame than a
-      // partial resolve pushes back out, so a soft push equilibrates the pack INSIDE the barrier,
-      // which is the exact bug this is here to fix. Anchored/unshakeable bodies walk through, the
-      // same contract they keep at every knockback site in the file: an elite shoulders your guard
-      // aside, and that is the counter.
-      const dist = Math.sqrt(dSq)
-      if (!resistsCC(e) && dist >= inner && dist > 1e-6) {
-        // 0.998 rather than 1: parked at exactly g.r the body's next `dSq > rSq` test is a coin
-        // flip on float error, and a guard that drops its own held body every other frame cannot
-        // bite it reliably.
-        const k = (g.r * 0.998) / dist
-        e.x = g.x + dx * k
-        e.y = g.y + dy * k
-      }
+// The tick and the spread.
+//
+// RUNS LAST AMONG THE WEAPON STEPPERS, immediately before the dead sweep, and that placement is
+// load-bearing: a host killed by ANY source this frame — this crust's own tick, another weapon, a
+// hazard — is still in run.enemies with `_dead` set, so it can still seed the next body. Move this
+// call up and the spread silently narrows to "only when the crust itself lands the kill", which is
+// a different and much weaker weapon that no test asserting a timer moved would notice.
+function stepBarnacles(run, dt) {
+  const seeds = []
+  for (const e of run.enemies) {
+    const c = e.barnacle
+    if (!c) continue
+    if (e._dead) { seeds.push({ host: e, c }); e.barnacle = null; continue }
+    c.t -= dt
+    c.next -= dt
+    if (c.next <= 0) {
+      c.next += c.tick
+      applyDamage(run, e, c.dmg)
+      if (e._dead) { seeds.push({ host: e, c }); e.barnacle = null; continue }
+    }
+    if (c.t <= 0) e.barnacle = null
+  }
+  // QUEUED, not applied inside the walk above. A for...of over run.enemies visits entries appended
+  // during it, and applyBarnacle writes to bodies in that same array — seeding a new host mid-walk
+  // lets the fresh crust tick on the very frame it landed.
+  for (const s of seeds) spreadBarnacle(run, s.host, s.c)
+}
 
-      // ---- THE BITE. Only when armed. ----
-      if (!g.armed) continue
-      applyDamage(run, e, g.dmg)
-      // Away from the PLAYER, not from the claw — "it gets yanked away" means away from you, and a
-      // shove along the claw's own axis would fling a body that came in from the side sideways past
-      // you. shoveFromPlayer is also what makes an anchored elite take the hit and hold its ground,
-      // the same contract every other knockback in the game keeps.
-      shoveFromPlayer(run, e, g.knock)
-      caught++
-    }
-    if (!g.armed) {
-      g.cd -= dt
-      if (g.cd <= 0) { g.cd = 0; g.armed = true }
-      continue
-    }
-    if (caught === 0) continue
-    g.armed = false
-    g.cd = g.rearm
-    run.events.push({ type: 'pinch', x: g.x, y: g.y, angle: g.angle, r: g.r })
+// One death's worth of spread. NEAREST-FIRST, so a crust walks THROUGH a pack rather than
+// teleporting to its edge, and only onto bodies that are not already crusted.
+//
+// THE CHAIN IS BOUNDED BY DESCENT: each child inherits `jumps - 1`, so a cast's infection is at most
+// jumps deep however dense the crowd is. Letting children inherit the full count instead reads as
+// the same card and is unbounded — one lucky pack would crust the entire field. It is also gated on
+// KILLS rather than on time, so the infection can only advance as fast as the player is actually
+// killing, which is what keeps it from running away from the damage that earned it.
+function spreadBarnacle(run, host, c) {
+  let left = Math.max(0, Math.round(c.jumps))
+  if (left <= 0) return
+  const rSq = BARNACLE_JUMP_R * BARNACLE_JUMP_R
+  const near = []
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || e.barnacle) continue
+    const dx = e.x - host.x, dy = e.y - host.y
+    const dSq = dx * dx + dy * dy
+    if (dSq <= rSq) near.push({ e, dSq })
+  }
+  near.sort((a, b) => a.dSq - b.dSq)
+  for (const n of near) {
+    if (left <= 0) break
+    applyBarnacle(run, n.e, { dur: c.dur, dmg: c.dmg, tick: c.tick, jumps: c.jumps - 1 })
+    left--
   }
 }
 

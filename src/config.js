@@ -1641,86 +1641,130 @@ export const WEAPONS = {
       { dmg: 22, tick: 0.14, rate: 4.5, duration: 3.0, rotSpeed: 3.1, width: 46, length: 430 },
     ],
   },
-  // ---- The Surf native (v7.55, Book 2 chapter 1) ----
-  pincer: {
-    name: 'Pincer',
-    desc: 'A claw nothing can walk through guards the side you face, and snaps what it catches.',
-    icon: '🦀', rarity: 'normal',
-    // THE ONLY WEAPON IN THE GAME THAT DOES NOT FIRE ON A TIMER. Every other one of the 23 runs
-    // through fireOnTimer: a `rate`/`interval` elapses and something is emitted. This one holds a
-    // PERSISTENT guard (run.guards) out toward the nearest enemy: it blocks continuously, and it
-    // deals no DAMAGE until something comes inside it — so its output is a function of what the
-    // crowd does, not of how long the player has waited. That is why there is no `rate` here and why `cd` is not one under
-    // another name: `rate` would put a cadence row on the build sheet ("Every 2.60s") for a weapon
-    // that can sit armed for a whole minute, which is a lie about the one thing that makes it
-    // different. See stepPincerWeapon/stepGuards in sim.js.
-    //   dmg    the snap, dealt to EVERYTHING inside the claw (see stepGuards for why not one body)
-    //   r      the guard's REACH from the player's own centre, and also its drawn size: the claw
-    //          sprite is baked to span 0.46r..r, so its FINGERTIPS land on exactly the radius
-    //          stepGuards tests (the same drawn-extent-is-tested-extent rule the tide pool and the
-    //          sandbar rim both keep) and its LENGTH comes out at 0.54r — two thirds of the fish at
-    //          L1, growing with the weapon, which is the size the owner specified from a fiddler
-    //          crab photo. r is ALSO where the wall stands: nothing crosses that radius inside the
-    //          wedge, armed or spent, so the fingertips are the barrier and not just a drawing of
-    //          one. The radius is the half the art states; the ±PINCER_ARC spread is the half it
-    //          does not — four cuts established that anything drawn that wide stops reading as a
-    //          claw (a filled crescent is a plate, tips joined by an arc is a bow, fingers laid
-    //          along the arc is a blade, two fingers splayed to the edges is a pair of tweezers).
-    //          That gap USED to be enormous and is now small: at ±70° the sprite hid 140° of live
-    //          hitbox, at ±40° it hides 80°, which is roughly the claw's own drawn spread. The claw
-    //          shows you WHICH SIDE is guarded; the arc is how wide that side is. The guard is an
-    //          ARC of half-angle PINCER_ARC centred on the player and rotated to face the nearest
-    //          enemy — see that constant for the measurements that killed the held-out disc, and
-    //          for why the wedge narrowed when the guard became a wall.
-    //   cd     seconds to re-arm THE BITE after a snap — not the guard, which never goes down (see
-    //          stepGuards). NOT divided by the global fire rate — see stepGuards in sim.js for why
-    //          an attack-speed stat has no meaning here
-    //   knock  the yank. Deliberately the largest knockback in the game (chitterShriek's nova is
-    //          280 at L5): "it gets yanked away" is half of what the player buys, and a shove that
-    //          only moves a body a claw's width would read as a failed parry.
-    //
-    // THIS LADDER IS MEASURED, AND EVERY INTUITION ABOUT IT WAS WRONG. The first cut was a big slow
-    // parry — 34-80 damage on a 2.6-1.8s re-arm — and it measured at 15 effective dps against the
-    // Flagella Whip's 66 (weapon-census, surf L5). Three findings, in the order they landed:
-    //   1. SINGLE-TARGET WAS THE WHOLE HOLE. One body per snap threw away 56% of every hit as
-    //      overkill and left the other seven of a pack untouched. Snapping everything in the claw
-    //      took it 15 -> 55 in one change.
-    //   2. `dmg` IS NEARLY A DEAD KNOB. A knob grid at L5 moved damage 80 -> 110 for +4 eff dps:
-    //      waste eats it, because the claw already hits harder than a body has HP left.
-    //   3. `cd` AND `r` ARE THE LEVERS, and only the kiting rig can see the first one. On the
-    //      census's drifting rig a shorter re-arm bought nothing (output looked bound by how fast
-    //      bodies wandered in); kiting, where the crowd is permanently in the claw, cd 1.7 -> 0.9
-    //      went 39 -> 62 eff dps. Grid at L5, drift/kite eff dps: cd0.9 r58 63/71, cd0.9 r66 66/76,
-    //      cd1.1 r58 51/65. So: a claw that recovers fast and reaches wide, not one that hits huge.
-    // THE WEAPON NOW HAS A SECOND HALF, and until v7.78 it did not. The old note here said flatly
-    // that no trade was being claimed for "but it holds the crowd off", because that had been
-    // measured and was FALSE (the pincer held the crowd at 45px where the whip held it at 57 and
-    // the bloom at 65 — killing things was the better denial). That reading was correct about the
-    // weapon as it then was: `cd` gated the block as well as the bite, so the guard was down 95% of
-    // a real run and blocked nothing. Now the wall is permanent and the trade is real, so the
-    // damage column has to be read next to it. Contact hits over 240s, immortal, 3 seeds, pincer as
-    // the only weapon, against a NO-WEAPON control (the honest denominator — "hits prevented" means
-    // nothing without it):
-    //                  before   after   unarmed
-    //   L1 kiting        228      131      317      the claw removes 59% of contact, was 28%
-    //   L1 standing      877      523      896      42%, was 2% — i.e. it did nothing at all
-    //   L5 kiting        190      116      317
-    //   L5 standing      735      559      896
-    // Damage, all three surf natives in ONE census invocation (so the RANKING is valid; comparing
-    // across invocations re-phases the RNG and is the trap CLAUDE.md documents), 240s x 5 seeds at
-    // surf d3, L5, eff dps / kills per min:
-    //   pincer 57 / 66.1   whip 63 / 72.8   bloom 120 / 115.6
-    // So the pincer sits at 90% of the whip on damage and 91% on kills, and buys a wall with the
-    // difference. The pre-v7.78 figure was 66 / 82.2, but that was measured while CHAPTERS.surf
-    // still spread the pond's `balance` table — Task 9 gave the chapter its own gentler tune — so
-    // 66 -> 57 must NOT be read as the price of the narrower arc. Those two numbers come from
-    // different worlds; only the three-weapon row above is a clean comparison.
+  // ---- The Surf natives (Book 2 chapter 1) ----
+  // THREE weapons, and the chapter borrows nothing from The Pond. All three obey the same three
+  // rules, which are owner rulings and apply to any weapon added here later:
+  //   1. FIRE ON A TIMER. This is a survivors-like: a weapon runs on its own clock, not on what the
+  //      crowd happens to do and not on the chapter's own tide.
+  //   2. SPEND NO RESOURCE. The action button and the damage multiplier already compete for the one
+  //      Humidity bar (see CHAPTERS.surf.resource), and a third claimant makes that unreadable.
+  //   3. NEVER COUPLE OUTPUT TO MOVEMENT. Where the player walks is not an input to how hard a
+  //      weapon hits.
+  //
+  // Each claims a SHAPE the other 23 do not have, which is the bar a new weapon clears here —
+  // projectile-at-nearest (5 cards), melee arc and cone (4), nova-from-you (3), planted zone (3),
+  // beam (3) and vortex (3) are all several deep already:
+  //   breaker        a MOVING FRONT that CARRIES. Every other area attack is anchored — centred on
+  //                  you (nova, cone, ring) or on a fixed point (cloud, vortex, hose). Nothing
+  //                  travels across the field taking bodies with it.
+  //   skippingShell  MULTI-IMPACT ALONG A PATH. Atomic Breath forks instantly, the Boomerang
+  //                  returns, Reality Shard blinks over gaps; nothing lands repeatedly as it flies.
+  //   barnacles      ATTACH-AND-SPREAD. Wildfire does this, but it is a late gated anomaly, it is
+  //                  fire-only, and it needs two element picks before it can be offered at all.
+  //
+  // ⚠ THE LEVEL LADDERS BELOW ARE UNMEASURED STARTING POINTS, not tuned numbers. They are pinned to
+  // the nearest shipped relatives (see each block) so the weapons are playable enough to look at;
+  // scripts/weapon-census.mjs against this chapter's own `balance` table is what settles them, and
+  // that pass is still owed. Do not quote these as balance.
+  breaker: {
+    name: 'Breaker',
+    desc: 'A wave rolls out ahead of you, dragging what it catches along with it.',
+    icon: '💦', rarity: 'normal',
+    // The chapter's starter, and the simplest thing a starter can be: a wave comes through and
+    // wrecks what is in the way. It is a run.novas ring with two extra fields — see spawnNova and
+    // stepNovas in sim.js, where a nova carrying `arc` is limited to a sector and a nova carrying
+    // `carry` keeps pushing what it already hit.
+    //   arc     the FULL cone angle in radians, matching roar/flagella/clawRake's convention
+    //           (inSector halves it) — one convention per concept, so a number copied between two
+    //           cone weapons still means the same thing.
+    //           1.6 rad is ~92 degrees at L1, opening to ~126 at L5.
+    //   radius  how far the front travels before it dies. The nova's own NOVA_LIFE sets how long
+    //           that takes, so a longer reach is also a FASTER front — deliberate: a bigger wave
+    //           should look like it is moving harder, not like it is wading.
+    //   carry   px/s^2 of outward push applied every frame to a body the front has ALREADY hit,
+    //           for as long as the front is alive. This is the whole
+    //           difference between this and Cytokine Burst: `knockback` is the one-shot shove every
+    //           nova in the game deals, and `carry` is what makes a body RIDE the wave out instead
+    //           of being batted once. Set it to 0 and this weapon is a cone-shaped Cytokine Burst,
+    //           which is the regression to watch for.
+    //           ⚠ IT HAS TO BE READ AGAINST KB_DECAY_RATE (6/s, sim.js) OR IT DOES NOTHING VISIBLE.
+    //           Knockback is a velocity that decays at that rate, so an acceleration of `carry`
+    //           settles at a terminal speed of carry/6 — the first cut used 260-400, i.e. 43-67
+    //           px/s, against a crest that travels radius/NOVA_LIFE = 467-690 px/s. The body was
+    //           left standing while the wave went past it, which on screen is indistinguishable
+    //           from no carry at all. These numbers put terminal at 183-267 px/s: a real ride, and
+    //           still well under the crest, so a body is overtaken by the wave rather than glued to
+    //           it. Any retune of this stat has to re-do that division.
+    // Pinned against Cytokine Burst (rare: dmg 18-42, interval 2.4-1.5, radius 150-255): this is a
+    // normal-rarity STARTER covering roughly a third of the circle, so it trades the ring's whole
+    // coverage for reach and cadence. Damage sits under the burst's at every level.
     levels: [
-      { dmg: 40, r:  82, cd: 1.35, knock: 340 },
-      { dmg: 50, r:  89, cd: 1.22, knock: 360 },
-      { dmg: 60, r:  96, cd: 1.10, knock: 385 },
-      { dmg: 70, r: 103, cd: 1.00, knock: 415 },
-      { dmg: 80, r: 110, cd: 0.90, knock: 450 },
+      { dmg: 16, interval: 2.00, radius: 210, arc: 1.60, knockback: 120, carry: 1100 },
+      { dmg: 20, interval: 1.85, radius: 230, arc: 1.75, knockback: 135, carry: 1200 },
+      { dmg: 25, interval: 1.70, radius: 255, arc: 1.90, knockback: 150, carry: 1320 },
+      { dmg: 31, interval: 1.55, radius: 280, arc: 2.05, knockback: 170, carry: 1450 },
+      { dmg: 39, interval: 1.40, radius: 310, arc: 2.20, knockback: 190, carry: 1600 },
+    ],
+  },
+  skippingShell: {
+    name: 'Skipping Shell',
+    desc: 'Skims a shell that skips off the sand, splashing at every touch.',
+    icon: '🐚', rarity: 'rare',
+    // ONE rule produces both halves of the read. The shell flies, and every `skipEvery` seconds it
+    // TOUCHES DOWN: a small splash where it lands, and it re-aims at the nearest enemy it has not
+    // already splashed. So it visibly bounces along a path AND it visibly changes course to chase —
+    // which is a ricochet — without two mechanics, two entities or two tuning surfaces. It dies
+    // when its skips run out, not on a timer, so `skips` is the reach knob as much as `speed` is.
+    //   skips      touch-downs remaining. The shell is spawned with this many and spends one each.
+    //   skipEvery  seconds of flight between touch-downs.
+    //   r          splash radius of one touch-down. Whitelisted in buildReadout, so it reaches the
+    //              build sheet; `skips` is whitelisted alongside it for the same reason.
+    // The splash is a run.novas ring (spawnNova, no arc, no carry) rather than a fourth bespoke
+    // AoE — same reason the Shelf reuses run.bombs and run.strips instead of adding arrays.
+    // Pinned against Reality Shard and the Boomerang, the two rare travelling weapons.
+    levels: [
+      { dmg: 20, interval: 1.70, speed: 430, skips: 3, skipEvery: 0.24, r: 46 },
+      { dmg: 25, interval: 1.58, speed: 450, skips: 3, skipEvery: 0.23, r: 50 },
+      { dmg: 31, interval: 1.46, speed: 470, skips: 4, skipEvery: 0.22, r: 54 },
+      { dmg: 38, interval: 1.34, speed: 490, skips: 4, skipEvery: 0.21, r: 59 },
+      { dmg: 47, interval: 1.20, speed: 515, skips: 5, skipEvery: 0.20, r: 65 },
+    ],
+  },
+  barnacles: {
+    name: 'Barnacles',
+    desc: 'Seeds larvae that crust onto what they hit — and jump to the next body when it dies.',
+    icon: '🦪', rarity: 'rare',
+    // The one weapon that rewards walking INTO the pack instead of picking off the stragglers: a
+    // crust does nothing on a body that was going to die anyway, and everything in a crowd where
+    // each death re-seeds the next. See stepBarnacleWeapon (delivery) and stepBarnacles (the tick
+    // and the jump) in sim.js.
+    //   count      larvae per cast, spread across the aim.
+    //   dmg        damage per TICK, not per cast — a crust is a slow grinder, so this number is
+    //              small and the row on the build sheet says so (STAT_LABEL calls it 'crust damage
+    //              per tick'). Reading it as a hit is the misread to guard against.
+    //   crustDur   how long a crust lasts on one body, refreshed by a fresh larva but never stacked
+    //              (see stepBarnacles — stacking turns a 4s grind into an execute). NOT spelled
+    //              `duration`: that key is shared with the beam weapons and is labelled 'Burns for'
+    //              on the build sheet, which is a lie about a shell crust.
+    //   jumps      how many NEW bodies one crust seeds when its host dies, AND how deep the chain
+    //              can run: each child inherits `jumps - 1`, so one cast's infection is at most this
+    //              many generations deep however dense the crowd is. Letting children inherit the
+    //              full count reads as exactly the same card and is unbounded — one lucky pack would
+    //              crust the entire field. It is a level stat and a tier mod rather than a
+    //              percentage because 2 -> 3 is a different weapon and +30% of 2 is not a number.
+    //              The chain is also gated on KILLS, not on time, so it only advances as fast as the
+    //              player is actually killing — which is what stops it outrunning its own damage.
+    // ⚠ A crust is INVISIBLE unless render.js is told about it. The status fields render.js reads
+    // off an enemy are a fixed named list (frozen/chill/venom/ignite/fearT/stunT) and it never
+    // learns a new one on its own — the v7.5x elements rework shipped freeze into a private field
+    // and froze enemies with no ice tint at all. `e.barnacle` is published as a contract field and
+    // drawn as a crust of pale shell lumps; see the status block in render.js.
+    levels: [
+      { dmg: 4, interval: 2.80, count: 2, castRange: 250, speed: 520, crustDur: 3.6, tick: 0.5, jumps: 2 },
+      { dmg: 5, interval: 2.65, count: 2, castRange: 265, speed: 530, crustDur: 3.9, tick: 0.5, jumps: 2 },
+      { dmg: 6, interval: 2.50, count: 3, castRange: 280, speed: 545, crustDur: 4.2, tick: 0.5, jumps: 2 },
+      { dmg: 8, interval: 2.35, count: 3, castRange: 300, speed: 560, crustDur: 4.5, tick: 0.5, jumps: 3 },
+      { dmg: 10, interval: 2.15, count: 4, castRange: 320, speed: 580, crustDur: 5.0, tick: 0.5, jumps: 3 },
     ],
   },
 }
@@ -2287,27 +2331,42 @@ export const WEAPON_MODS = {
     hyperSweep:   { name: 'More Arms',    desc: 'extra arm(s) per cast',             icon: '🔷', kind: 'tier' },
     collapse:    { name: 'Collapse',     desc: 'damage when the sweep ends',       icon: '🌋', base: 0.80, kind: 'pct' },
   },
-  // ---- The Surf native (v7.55) ----
-  // FOUR mods, one per thing the weapon can honestly be tuned on, and no fifth. crusher/longArm/
-  // backwash fold into levels[] via WEAPON_STAT_MODS (sim.js); backClaw is behavioral, read where
-  // the guards are laid out (stepPincerWeapon).
+  // ---- The Surf natives ----
+  // FOUR mods each, and no fifth. The Undertow design budgets ~4 per weapon and says outright to
+  // cut a weapon rather than invent mods: 137 mods ship today and each weapon's count tracks its
+  // number of independently tunable stats almost exactly. This chapter now carries three natives
+  // where it carried one, so it is the heaviest mod load in Book 2 and the place that budget will
+  // break first if any of these grows a fifth.
   //
-  // There is deliberately NO re-arm-speed mod. `cd` is an interval, so a pct pick folded into it
-  // would SLOW the claw — the trap WEAPON_RATE_MODS exists to route around — and routing around it
-  // means the build sheet's `cd` row would report the unmodded number, since that map only feeds
-  // the cadence row this weapon does not have. Back Claw is the honest version of the same want:
-  // it buys more parries, spatially rather than temporally, and it is the one mod you can see.
-  // NOT 'Riptide': MUTATORS.riptide already ships under that display name (the pond's doubled
-  // current shove), and two different cards reading "Riptide" is the kind of collision only a grep
-  // finds. 'claw reach & size' likewise says BOTH numbers the pick moves, because r is the guard's
-  // reach AND its drawn size — the crescent is baked at the reach unit and scaled by r, so a wider
-  // guard is a visibly bigger claw. Naming only one would be the rainbow.wideBeam defect (a card
-  // whose second effect nobody can check).
-  pincer: {
-    crusher:  { name: 'Crusher Claw', desc: 'pinch damage',        icon: '🦞', base: 0.35, kind: 'pct' },
-    longArm:  { name: 'Long Arm',     desc: 'claw reach & size',   icon: '📏', base: 0.30, kind: 'pct' },
-    backwash: { name: 'Backwash',     desc: 'how far the snap throws', icon: '🌊', base: 0.40, kind: 'pct' },
-    backClaw: { name: 'Back Claw',    desc: 'a second claw guards your back', icon: '🦀', kind: 'switch' },
+  // Every rate mod here is registered in WEAPON_RATE_MODS below and divides the interval at its
+  // fire site. Folding a rate pick into `interval` through WEAPON_STAT_MODS would SLOW the weapon —
+  // the trap that map exists to route around.
+  breaker: {
+    swell:      { name: 'Swell',       desc: 'wave damage',        icon: '💥', base: 0.30, kind: 'pct' },
+    longshore:  { name: 'Longshore',   desc: 'how far the wave rolls', icon: '📏', base: 0.25, kind: 'pct' },
+    broadCrest: { name: 'Broad Crest', desc: 'wave width',         icon: '🪭', base: 0.28, kind: 'pct' },
+    // NOT a percentage on `carry`, because a player cannot read a 30% change to an acceleration.
+    // A switch that sends the wave the other way as well is the same want — more of the crowd
+    // moved — expressed as something you can see happen. Read at the cast site (stepBreakerWeapon).
+    backwash:   { name: 'Backwash',    desc: 'a second wave rolls out behind you', icon: '🌊', kind: 'switch' },
+  },
+  skippingShell: {
+    skimmer:    { name: 'Skimmer',     desc: 'shell damage',       icon: '💥', base: 0.30, kind: 'pct' },
+    flatStone:  { name: 'Flat Stone',  desc: 'extra skip(s) per throw', icon: '🥏', kind: 'tier' },
+    wideSplash: { name: 'Wide Splash', desc: 'splash radius',      icon: '💦', base: 0.28, kind: 'pct' },
+    fastSkim:   { name: 'Fast Skim',   desc: 'throw rate',         icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  barnacles: {
+    // 'crust damage' and not 'barnacle damage': the number is per TICK, and naming the thing rather
+    // than the event is what keeps a player from reading it as a hit. The same wording is on the
+    // build-sheet row (STAT_LABEL in ui.js) so the card and the sheet cannot drift.
+    grinder:    { name: 'Grinder',     desc: 'crust damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    encrust:    { name: 'Encrust',     desc: 'how long a crust lasts', icon: '⌛', base: 0.25, kind: 'pct' },
+    spawnfall:  { name: 'Spawnfall',   desc: 'extra larva(e) per cast', icon: '🔷', kind: 'tier' },
+    // The card that turns the weapon on. jumps 1 -> 2 is the difference between "it moved once" and
+    // "the pack ate itself", so it is a tier pick (a flat count, rarity-scaled) rather than a
+    // percentage of a number that is 1. Read at the jump site (stepBarnacles).
+    seedbed:    { name: 'Seedbed',     desc: 'extra jump(s) when a crusted body dies', icon: '🦪', kind: 'tier' },
   },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
@@ -2331,7 +2390,7 @@ export const WEAPON_RATE_MODS = {
   clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
-  atomicBreath: 'quickBreath',
+  atomicBreath: 'quickBreath', skippingShell: 'fastSkim',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
@@ -2828,70 +2887,40 @@ export const PRISM_SPREAD = 1.4      // rad, ~80deg corner to corner
 // a continuous fan behind whatever it is cutting through.
 export const PRISM_FLASH_T = 0.26
 
-// ---- Surf weapons (v7.55: Pincer) -------------------------------------------------------------
-// The claw is not centred on the player — it is HELD OUT, between you and what is coming, which is
-// the whole picture the owner described ("you put it in towards the nearest enemy like a shield").
-// The offset is a fraction of the claw's own catch radius rather than a fixed number of pixels so
-// that Long Arm (+r) extends the REACH as well as the catch zone; a flat offset would just grow a
-// blob around the same spot, which is the "same hit, bigger" shape a reach mod must never have.
-// It is deliberately GREATER THAN 1, and that is a design decision as much as an art one:
-//   - the catch circle then sits almost entirely IN FRONT of the player (from 0.35r to 2.35r along
-//     the aim), so the claw guards the direction it is pointed instead of being a bubble centred on
-//     you. "Like a shield" is the owner's word for it, and a shield you can walk behind is a
-//     different object from an aura;
-//   - the claw is a small thing at the end of a thin limb rather than a slab across the whole
-//     viewport. The first cut held a 62px claw 46px out, and at 2r of drawn claw that is 160px of
-//     solid orange across a 390px phone — it read as a starfish, and the player vanished under it.
-// At L1: a 68px hold on a 50px claw, so 118px of total reach — inside the Flagella Whip's 130. At
-// L5 it is 89 + 66 = 155, still under the whip's 175.
-// THE GUARD IS AN ARC ANCHORED TO YOU, not a disc held out in front (owner ruling 2026-08-14,
-// replacing the held-out claw). Half-angle in radians, so the guard spans 2x this: 0.70 rad is an
-// ~80 degree wedge across the side you are facing.
-//
-// WHY 80 DEGREES AND NOT THE 140 IT SHIPPED AT (owner ruling 2026-08-14, the same one that made the
-// guard a WALL — see stepGuards). A barrier nothing can walk through is a much stronger object than
-// a fan that pulses once a second, and the owner chose to pay for it in COVERAGE rather than in
-// damage: the wedge is now 22% of the circle instead of 39%, so the other 78% is genuinely open and
-// which way you face is a decision. Two things follow that are worth stating before someone widens
-// it again:
-//   - the backClaw mod stops being a luxury. At 140 degrees a front-and-back pair covered 78% of
-//     the circle and the gaps were slivers; at 80 it covers 44% and there are two real holes.
-//   - the BITE narrows with the block, because they are one wedge. Snapping everything inside the
-//     claw is what took this weapon from 15 to 55 effective dps (finding #1 below), and that sweep
-//     is now 43% smaller. That cost is real and is NOT pre-paid anywhere in the ladder below.
-//
-// WHY THE OLD SHAPE WAS THE BUG, measured over 6 seeded 240s kiting runs at surf d3 before the
-// change. The claw was a disc of radius r whose CENTRE sat 1.35r out toward the nearest enemy, so it
-// covered a band from 0.35r to 2.35r along that ray and nothing off it:
-//   - the nearest enemy — the body the claw was literally aimed at — was inside the claw only
-//     20.5% of the time at L1 and 27.5% at L5. It spent three quarters of its life armed, pointing
-//     at something it could not reach.
-//   - of the enemies actually OVERLAPPING the player, 33% (L1) to 45% (L5) were outside it, because
-//     a disc pointing one way cannot cover a body being touched from several.
-// So it was neither a shield (it did not cover you) nor a reach weapon (it did not reach what it
-// aimed at), and the weapon census could not see any of that: output was fine (66 effective dps
-// against the Flagella Whip's 71). What was broken was the loop between aiming and hitting.
-//
-// An arc anchored to the player fixes both by construction: it always covers the half you face,
-// including bodies already on you, and it can never point at something outside its own reach.
-export const PINCER_ARC = 0.70
+// ---- Surf weapon shape constants ---------------------------------------------------------------
+// Backwash (breaker switch mod): the second wave goes out the opposite way at this share of the
+// first's damage. Not 1.0 — the pick doubles the weapon's coverage, and paying nothing for that
+// would make it the only correct first mod on the starter every single run.
+export const BREAKER_BACKWASH_DMG_FRAC = 0.6
 
-// THE THICKNESS OF THE WALL, in px, and it exists for the reason every thin barrier in every engine
-// needs a thickness: a body that crosses the whole face in one step would tunnel through a
-// zero-width test. Only bodies within this band of the claw's FACE (g.r - BAND .. g.r) are pushed
-// back out to it. That is not a performance dodge, it is the mechanic:
-//   - anything walking in from outside is caught, always. `dt` is clamped to 0.05s in main.js and
-//     the fastest thing in the game moves a few hundred px/s, so nothing covers 40px in one step —
-//     the wall cannot be tunnelled.
-//   - anything ALREADY past the face is left alone, and that is the point. The claw auto-aims at the
-//     nearest enemy, so ejecting everything inside the wedge would make it a 360-degree panic button
-//     with no cooldown: eject the closest body, the next-closest becomes the target, eject that one,
-//     and at 60fps the player is untouchable in every direction — which would make the narrow arc
-//     the owner chose as this weapon's price cost nothing at all. A wall you can be caught BEHIND is
-//     what keeps facing a decision.
-// So: you cannot walk through the claw. If you are already inside it, you are inside it, and only
-// the snap will move you.
-export const PINCER_BLOCK_BAND = 40
+// SHELL_RETARGET_R: how far a touch-down looks for its next target. A shell that re-aims at the
+// nearest enemy ANYWHERE would curve back across the whole map and read as a homing shot, which is
+// a shape the game already has three of; capping the search keeps it a skimmed stone that bounces
+// on toward whatever is near where it landed.
+export const SHELL_RETARGET_R = 420
+// How long one touch-down's splash ring takes to reach its full radius. Far under NOVA_LIFE (0.45s)
+// because these are small rings: on the default life a 46px splash lands its damage nearly half a
+// second after the shell visibly touched down, which reads as the splash missing the thing it is
+// drawn on top of. See spawnNova's `life` option.
+export const SHELL_SPLASH_LIFE = 0.14
+// The shell's OWN hit radius, which is not its splash radius. The two were one number in the
+// first cut and that made the weapon deal no damage at all: the shell counted as having ARRIVED at
+// a body 62px away (splash r 46 + body 16) while its splash ring, expanding from zero over its
+// life, only ever reaches ~44px. It landed just short, every time, and looked like it was chasing
+// correctly. A shell is a small thing; it arrives when it touches.
+export const SHELL_R = 10
+
+// Radians between larvae in one Barnacles cast. Wide enough that a 4-larva spread visibly covers
+// more of a pack than a 2-larva one; narrow enough that the cast still reads as aimed.
+export const BARNACLE_FAN = 0.22
+// Hit radius of a larva in flight. Small: it is a seed, and a fat one would attach to the first
+// body in the general direction rather than the one the player aimed at.
+export const BARNACLE_LARVA_R = 8
+
+// BARNACLE_JUMP_R: how far a crust looks for a new host when its own dies. Deliberately short — the
+// spread is a reward for fighting inside a pack, and a long jump would make it work identically on
+// a scattered field, which is the version of this weapon with no decision in it.
+export const BARNACLE_JUMP_R = 190
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
   const out = []
@@ -4368,14 +4397,20 @@ CHAPTERS.surf = {
   balance: { spawnMul: 0.68, enemyDmgMul: 0.7, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
 
   // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
-  // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push('pincer')` would hand The
-  // Pond a crab claw and nothing would throw (the same hazard the render block below documents, and
-  // the reason CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is `true` in shipped code).
-  // The design's "two reused from the pond, plus new Pincer": the whip and the bloom, which give the
-  // chapter one melee arc and one zoner beside the parry — three different SHAPES, where the cysts
-  // would have been a second thing you plant and wait for. Pincer is the starter, so a player's
-  // first minutes in Book 2 are spent learning the one weapon nothing else in the game behaves like.
-  weapons: ['pincer', 'flagella', 'bloom'], starter: 'pincer',
+  // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push(…)` would hand The Pond a
+  // beach weapon and nothing would throw (the same hazard the render block below documents, and the
+  // reason CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is `true` in shipped code).
+  //
+  // THREE NATIVES, NOTHING BORROWED (owner ruling). Book 2's first chapter opens with three weapons
+  // that exist nowhere else, each claiming a shape the other 23 do not have: a moving front that
+  // carries, multi-impact along a path, and attach-and-spread. See the block above WEAPONS.breaker
+  // for why those three and not others. Anything added here later has to clear the same bar — a
+  // fourth aimed projectile or a fifth melee arc is a card this chapter already has in spirit.
+  //
+  // The Breaker is the starter because it is the LEAST clever of the three: a wave comes through and
+  // wrecks what is in the way. That is what a book's first weapon should be — the unusual cards are
+  // what the chapter's OTHER two slots are for.
+  weapons: ['breaker', 'skippingShell', 'barnacles'], starter: 'breaker',
 
   // ---- render-only. Written WHOLESALE rather than spread from the pond's, exactly as The Shelf's
   // is: `...CHAPTERS.pond` above shares the pond's render object BY REFERENCE, so writing

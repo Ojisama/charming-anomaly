@@ -397,11 +397,14 @@ const SFX_FOR_EVENT = {
   // 'zap', which audio.js already throttles for exactly this reason (see shoot/hit/zap). The `tail`
   // event has never had an entry and still doesn't: the lash is heard through the hits it lands.
   breath: 'beam', arc: 'zap',
-  // v7.55 surf: the Pincer's snap. It borrows 'crush' — the skies' structure-destroyed voice — which
-  // is the right register for a shell closing on something, and is already throttled in audio.js.
-  // No new synth: the claw fires seconds apart at best, and the event carries its own weight through
-  // the hit sfx that lands with it.
-  pinch: 'crush',
+  // The Surf. A Skipping Shell touching down borrows 'shoot' — it is a small percussive event
+  // several times per throw, exactly the cadence 'shoot' is already throttled for in audio.js, and
+  // a bespoke voice firing 3-5 times a throw is the audio machine-gunning the crush entry above
+  // exists to avoid.
+  skip: 'shoot',
+  // 'crust' gets NO entry, deliberately, for the same reason SUBMISSION's expiry has none: larvae
+  // take hold several times a second in a crowd, and it is already carried by the hit sfx of the
+  // ticks that follow it. The tell for a crust is visual (the chalky tint in render.js).
 }
 
 function endRun(victory) {

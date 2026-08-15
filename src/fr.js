@@ -28,11 +28,13 @@ const UI = {
   // ('cast rate' -> 'cadence de lancer'), where bigger means faster. This row is a raw interval.
   // 'délai entre élites/voitures/obus' is the established house term for exactly this.
   'Every': 'Délai',
-  // v7.55 The Pincer. 'Projection' is the noun the shove is already called in this dictionary,
-  // and 'Réarme' keeps the single-word column rule the block above sets out — the row carries a
-  // seconds value beside it, so the verb alone reads as a delay without saying 'en'.
-  'Throw': 'Projection',
-  'Re-arms in': 'Réarme',
+  // The Surf's build-sheet rows. 'Ricochets' rather than 'Rebonds' for Skips: a rebond is any
+  // bounce, a ricochet is specifically a flat stone skipping off a surface — and the weapon is
+  // already 'Coquille Ricochet', so the card and the sheet use one word for one thing. 'Croûte'
+  // keeps the single-word column rule the block above sets out; the row carries a seconds value
+  // beside it, so the noun alone reads as a duration without saying 'dure'.
+  'Skips': 'Ricochets',
+  'Crust lasts': 'Croûte',
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
                          // '6.3 dég. x3' puts two dots three characters apart at 11px
   'LV': 'NIV',
@@ -518,11 +520,18 @@ const CONFIG = {
   'Splinters of elsewhere that skip through space as they fly.': 'Des éclats d\'ailleurs qui ricochent à travers l\'espace en volant.',
   'Pulsar Sweep': 'Rayon Pulsar',
   'Two lasers sweep back and forth across the way ahead.': 'Deux lasers balaient la voie devant toi.',
-  // The Surf (Book 2 chapter 1). 'Pince' is the crab's claw, not 'Pincer' (which in French is the
-  // verb 'to pinch' and would read as an instruction). 'broie' rather than 'pince' for the snap:
-  // the card promises a crush and a throw, and 'pince tout ce qui l'atteint' is limp beside it.
-  'Pincer': 'Pince',
-  'A claw nothing can walk through guards the side you face, and snaps what it catches.': 'Une pince infranchissable garde le côté où vous regardez et broie ce qu\'elle attrape.',
+  // The Surf (Book 2 chapter 1) — three natives. 'Déferlante' over 'Rouleau' for Breaker: a rouleau
+  // is the SHAPE of a wave, a déferlante is the wave arriving on you, and this card is about the
+  // arrival. 'Balanes' is the zoological name for acorn barnacles and the word a French player has
+  // actually read on a hull or a rock; 'Bernacles' is the goose barnacle, a different animal.
+  // 'gerbe' for the shell's splash rather than 'éclaboussure': a gerbe is the spray thrown UP by an
+  // impact, which is the thing being drawn, and it is one word instead of five syllables on a card.
+  'Breaker': 'Déferlante',
+  'A wave rolls out ahead of you, dragging what it catches along with it.': 'Une vague déferle devant vous et emporte tout ce qu\'elle attrape.',
+  'Skipping Shell': 'Coquille Ricochet',
+  'Skims a shell that skips off the sand, splashing at every touch.': 'Fait ricocher une coquille sur le sable : une gerbe à chaque rebond.',
+  'Barnacles': 'Balanes',
+  'Seeds larvae that crust onto what they hit — and jump to the next body when it dies.': 'Sème des larves qui s\'incrustent sur ce qu\'elles touchent — et sautent sur le corps suivant à sa mort.',
   'Membrane Piercer': 'Perce-Membrane',
   'antigen pierce': 'perforation d\'antigène',
   'Split Strain': 'Souche Divisée',
@@ -805,17 +814,38 @@ const CONFIG = {
   'extra arm(s) per cast': 'bras bonus par lancer',
   'Collapse': 'Effondrement',
   'damage when the sweep ends': 'dégâts à la fin du balayage',
-  // Pincer mods (v7.55). 'Contre-Courant' for Backwash rather than 'Ressac': 'Le Ressac' is
-  // already this chapter's own name, and a mod card sharing the chapter's title reads as a
-  // chapter modifier rather than as a weapon upgrade.
-  'Crusher Claw': 'Pince Broyeuse',
-  'pinch damage': 'dégâts de la pince',
-  'Long Arm': 'Bras Long',
-  'claw reach & size': 'portée et taille de la pince',
+  // The Surf's mods. 'Contre-Courant' for Backwash rather than 'Ressac': 'Le Ressac' is already
+  // this chapter's own name, and a mod card sharing the chapter's title reads as a chapter
+  // modifier rather than as a weapon upgrade.
+  // 'Dérive Littorale' is the real name of the longshore current, which is what the mod is named
+  // after in English — a player who knows the beach gets the joke in both languages.
+  // 'Naissain' for Seedbed is the French shellfish-farming word for spat, the larvae you seed a bed
+  // with. It is exactly the noun this mod is about and it costs nothing to use the right one.
+  // 'wave damage' is NOT re-added here: Cytokine Burst already ships that exact English key, and
+  // the dictionary is keyed by the English source string, so a second entry is a duplicate that
+  // silently kills the first (run XX asserts this).
+  'Swell': 'Houle',
+  'Longshore': 'Dérive Littorale',
+  'how far the wave rolls': 'jusqu\'où la vague déferle',
+  'Broad Crest': 'Crête Large',
+  'wave width': 'largeur de la vague',
   'Backwash': 'Contre-Courant',
-  'how far the snap throws': 'distance de projection',
-  'Back Claw': 'Pince Arrière',
-  'a second claw guards your back': 'une seconde pince protège tes arrières',
+  'a second wave rolls out behind you': 'une seconde vague déferle derrière vous',
+  'Skimmer': 'Coquille Tranchante',
+  'shell damage': 'dégâts de la coquille',
+  'Flat Stone': 'Galet Plat',
+  'extra skip(s) per throw': 'rebond(s) supplémentaire(s) par lancer',
+  'Wide Splash': 'Grande Gerbe',
+  'splash radius': 'rayon de la gerbe',
+  'Fast Skim': 'Lancer Rapide',
+  'Grinder': 'Râpe',
+  'crust damage per tick': 'dégâts de la croûte par tic',
+  'Encrust': 'Incrustation',
+  'how long a crust lasts': 'durée de la croûte',
+  'Spawnfall': 'Pluie de Larves',
+  'extra larva(e) per cast': 'larve(s) supplémentaire(s) par lancer',
+  'Seedbed': 'Naissain',
+  'extra jump(s) when a crusted body dies': 'saut(s) supplémentaire(s) à la mort d\'un corps incrusté',
   'Power Gel': 'Gel de Puissance',
   '+5% damage': '+5% dégâts',
   'Twitchy': 'Nerveux',
