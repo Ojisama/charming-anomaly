@@ -17178,6 +17178,17 @@ function testVocabularies() {
     `${deadAffixes.length} elite affix(es) can be ROLLED but are never read by sim.js: [${deadAffixes.join(', ')}]. ` +
     `The player sees the affix named on the elite and it does nothing.`)
 
+  // Every affix's TELL is a badge above the sprite, and syncAffixBadges draws `info.icon` with a
+  // literal '?' fallback. So a missing icon is not a crash and not a blank — it is a question mark
+  // hovering over an enemy, which reads as a deliberate mystery affix rather than as a data hole.
+  // Worth pinning precisely because that path is DATA-DRIVEN: the affix ids never appear in
+  // render.js at all, so grepping for them there suggests these affixes have no visual, and they
+  // all do. (This assertion exists because that grep fooled me.)
+  const iconless = Object.entries(ELITE_AFFIXES).filter(([, v]) => !v?.icon).map(([k]) => k)
+  assert.deepStrictEqual(iconless, [], `elite affix(es) with no icon: [${iconless.join(', ')}] — they render as '?' above the enemy`)
+  assert.ok(/t\.text = info \? info\.icon : '\?'/.test(render),
+    "render.js no longer draws affix badges from ELITE_AFFIXES[id].icon — the icon field may now be dead, and this assertion is guarding a contract that moved")
+
   // (c) SFX NAMES. SFX_FOR_EVENT maps an event type to a NAME, and main.js plays it as
   // `SFX[name]?.()` — the optional call is what makes a wrong name silent instead of a crash.
   const sfxStart = main.indexOf('const SFX_FOR_EVENT')
