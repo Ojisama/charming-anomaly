@@ -35,6 +35,21 @@ const UI = {
   // beside it, so the noun alone reads as a duration without saying 'dure'.
   'Skips': 'Ricochets',
   'Crust lasts': 'Croûte',
+  // The five rows that were still rendering in ENGLISH on the French build sheet — they were only
+  // reachable by the coverage walk once STAT_KEYS became a config table, because that walk
+  // enumerates tables and copy living in a bare const is exempt from it by construction.
+  // Owner's wording, game-idiom over literal: 'harponnés' because the Tail Lash is a hook that
+  // drags an aircraft down, not a fastener; 'Bonds' because the Atomic Breath's fork LEAPS to the
+  // next target, and 'Fourches' would name the shape rather than the action. 'Durée' and 'Brûlure'
+  // keep the single-word column rule the block above sets out — a noun beside a seconds value
+  // reads as a duration without a verb, the same reasoning as 'Croûte'.
+  'Aircraft hooked': 'Avions harponnés',
+  'Forks': 'Bonds',
+  // Never a build-sheet ROW (row: false in STAT_KEYS — it would push the cadence off the bottom),
+  // so this one appears in the picked-mods list where the extra width costs nothing.
+  'Fork range': 'Portée des bonds',
+  'Runs for': 'Durée',
+  'Burns for': 'Brûlure',
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
                          // '6.3 dég. x3' puts two dots three characters apart at 11px
   'LV': 'NIV',

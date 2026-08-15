@@ -73,7 +73,7 @@ import {
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
-  STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
+  STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
@@ -123,6 +123,7 @@ import {
   TIDE_POOL_VIS, SPLASH_VIS, GULL_RADIUS, GULL_FUSE, GULL_DMG,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
+  STAT_KEYS,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
 
@@ -11712,6 +11713,12 @@ function testFrenchDictionary() {
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
+  // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
+  // so five of them shipped rendering in English on the French sheet. Merging the two registries
+  // into one table is what makes them visible here at all — the coverage came free with the
+  // deduplication, which is the argument for doing that kind of merge rather than guarding a split.
+  for (const s of STAT_KEYS ?? []) need(s?.label)
   // The elements redesign's copy lives in FUNCTIONS, not a table, so every walk above is blind to
   // it — the third time this exemption has bitten (two City enemies in v6.3, every weapon mod in
   // v6.6.26). It shipped to the live URL with the card and the whole Codex untranslated, and this
@@ -12524,6 +12531,7 @@ try {
   run(testEventConsumers)
   run(testSpawnQueueInvariant)
   run(testPoolClearing)
+  run(testVocabularies)
   console.log('ALL TESTS PASSED')
   runSummary()
 } catch (err) {
@@ -17045,4 +17053,64 @@ function testPoolClearing() {
   assert.deepStrictEqual(both, [], `[${both.join(', ')}] appear in BOTH the flat and the rig clear lists — one of the two is setting a dead property`)
 
   console.log(`PASS run CP (pool clearing): all ${flat.length} flat pools named in clearWorld, ${rigCleared.size} rig pools cleared via .root, no pool in both lists`)
+}
+
+// ---- run VO: the four string vocabularies that fail SILENTLY on a typo -------------------------
+// Every one of these is a bare string in one file matched against a bare string in another, with
+// no import connecting them. A misspelling is not an error in JavaScript — it is a branch that
+// never runs, a sound that never plays, a building that draws as a generic blob. All four are
+// CLEAN today, which is exactly when to nail them down: these are regression guards, not bug
+// reports, and their value is that the next typo is caught in 200ms instead of in play.
+function testVocabularies() {
+  const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const render = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const audio = readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8')
+
+  // (a) BEHAVIOUR FLAGS. A roster entry's flags[] are plain strings that sim tests with
+  // `flags.includes('x')`. Misspell one and the enemy simply has no behaviour — it walks at you
+  // like a drone, which is a plausible-looking enemy rather than a visible fault.
+  const declaredFlags = new Set()
+  for (const ch of Object.values(CHAPTERS)) {
+    for (const r of ch.roster ?? []) for (const f of r.flags ?? []) declaredFlags.add(f)
+    for (const f of ch.eliteFlags ?? []) declaredFlags.add(f)
+  }
+  const readFlags = new Set([...sim.matchAll(/flags\.includes\('(\w+)'\)/g)].map((m) => m[1]))
+  const deadFlags = [...declaredFlags].filter((f) => !readFlags.has(f)).sort()
+  assert.deepStrictEqual(deadFlags, [],
+    `${deadFlags.length} behaviour flag(s) are declared on a roster but never tested for anywhere in sim.js: ` +
+    `[${deadFlags.join(', ')}]. Either it is a typo and that creature has no behaviour at all, or the code ` +
+    `that read it was removed and the roster still advertises it.`)
+
+  // (b) ELITE AFFIXES. Same shape, different array: sim reads these with `affixes.includes('x')`.
+  const readAffixes = new Set([...sim.matchAll(/affixes\.includes\('(\w+)'\)/g)].map((m) => m[1]))
+  const deadAffixes = Object.keys(ELITE_AFFIXES).filter((a) => !readAffixes.has(a)).sort()
+  assert.deepStrictEqual(deadAffixes, [],
+    `${deadAffixes.length} elite affix(es) can be ROLLED but are never read by sim.js: [${deadAffixes.join(', ')}]. ` +
+    `The player sees the affix named on the elite and it does nothing.`)
+
+  // (c) SFX NAMES. SFX_FOR_EVENT maps an event type to a NAME, and main.js plays it as
+  // `SFX[name]?.()` — the optional call is what makes a wrong name silent instead of a crash.
+  const sfxStart = main.indexOf('const SFX_FOR_EVENT')
+  assert.ok(sfxStart >= 0, 'SFX_FOR_EVENT is gone from main.js — run VO can no longer see the sound contract')
+  const sfxBlock = main.slice(sfxStart, main.indexOf('\n}', sfxStart))
+  const wantedSfx = [...new Set([...sfxBlock.matchAll(/:\s*'(\w+)'/g)].map((m) => m[1]))]
+  const haveSfx = new Set([...audio.matchAll(/^\s{2}(\w+)\s*[:(]/gm)].map((m) => m[1]))
+  const missingSfx = wantedSfx.filter((s) => !haveSfx.has(s)).sort()
+  assert.deepStrictEqual(missingSfx, [],
+    `SFX_FOR_EVENT asks for sound(s) audio.js does not define: [${missingSfx.join(', ')}]. ` +
+    `main.js calls these as SFX[name]?.(), so a wrong name is silence, not an error.`)
+
+  // (d) STRUCTURE KINDS. config owns the vocabulary; render.js owns the silhouettes, in a table
+  // inside its closure that nothing imports. A kind with no skin draws as a generic biome blob.
+  const skinBlock = render.slice(render.indexOf('const STRUCTURE_SKINS = {'))
+  const skins = new Set([...skinBlock.slice(0, skinBlock.indexOf('\n  }')).matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]))
+  assert.ok(skins.size >= 5, `expected render.js's STRUCTURE_SKINS to hold the structure vocabulary, parsed ${skins.size}`)
+  const skinless = STRUCTURE_KINDS.filter((k) => !skins.has(k))
+  assert.deepStrictEqual(skinless, [], `structure kind(s) with no STRUCTURE_SKINS entry in render.js: [${skinless.join(', ')}] — they draw as a generic blob`)
+  const radiusless = STRUCTURE_KINDS.filter((k) => STRUCTURE_RADIUS[k] == null)
+  assert.deepStrictEqual(radiusless, [], `structure kind(s) with no STRUCTURE_RADIUS: [${radiusless.join(', ')}] — sim would collide against undefined`)
+
+  console.log(`PASS run VO (vocabularies): ${declaredFlags.size} behaviour flags all read, ${Object.keys(ELITE_AFFIXES).length} affixes all read, ` +
+    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized`)
 }
