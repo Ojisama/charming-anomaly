@@ -9693,9 +9693,18 @@ export function createRenderer(app) {
       // It STEEPENS then breaks: the bands are widest and brightest in the middle of the run, and
       // the whole thing thins out as it dies. A linear fade reads as a ring being switched off.
       const swell = Math.sin(Math.PI * (1 - k)) * 0.65 + 0.35
+      // EVERY ARC STARTS ITS OWN SUBPATH. `arc()` appends to whatever path is already open, so
+      // without the moveTo the renderer joins the end of one arc to the start of the next with a
+      // straight line — and strokes it. With a single crest on screen that join is short, radial and
+      // hidden underneath the bands, which is why it survived every probe here; with two crests
+      // alive at once (the Backwash mod) it becomes a long straight bar drawn clean across the
+      // player. That is exactly what came back from a phone as "a visual glitch with the wave behind
+      // you", and the single-crest probe could not have found it.
       const arcAt = (rad, width, color, alpha) => {
         if (alpha <= 0.01) return
-        breakerG.arc(n.x, n.y, Math.max(1, rad), a0, a1)
+        const rr = Math.max(1, rad)
+        breakerG.moveTo(n.x + Math.cos(a0) * rr, n.y + Math.sin(a0) * rr)
+        breakerG.arc(n.x, n.y, rr, a0, a1)
         breakerG.stroke({ width, color, alpha, cap: 'round' })
       }
       // The back of the wave first (drawn under), then the lit face, then the foam on the crest
@@ -9703,17 +9712,41 @@ export function createRenderer(app) {
       arcAt(r - bw * 0.9, bw * 1.5, 0x2a5f7a, 0.30 * swell * k)   // the shadowed trough behind it
       arcAt(r - bw * 0.1, bw * 1.2, 0x8fd3e8, 0.34 * swell * k)   // the face turned up to the sky
       arcAt(r + bw * 0.45, bw * 0.55, 0xffffff, 0.62 * swell * k) // whitewater along the crest
-      // Broken foam ahead of the crest, thinning as the wave spends itself. Positions are derived
-      // from the nova's own coordinates rather than from Math.random, so a paused frame is stable
-      // and two crests alive at once never flicker against each other.
-      const blobs = 5
-      for (let i = 0; i < blobs; i++) {
-        const t = (i + 0.5) / blobs
+      // BUBBLES, through the whole thickness of the wave and not only ahead of it (owner: "the wave
+      // should have bubbles in it"). Whitewater IS aerated water — the bubbles are what the white in
+      // a breaking wave actually is — so scattering them across the band is what makes the band read
+      // as churning water rather than as a painted ribbon.
+      //
+      // Two kinds, and the mix is the whole trick: most are RINGS, because a bubble seen from above
+      // is a bright rim around a lens of water, and a field of filled dots reads as snow or spray
+      // instead. A few filled ones sit among them as the foam those bubbles are collapsing into.
+      //
+      // Positions are derived from the nova's own coordinates and the bubble's index, NEVER from
+      // Math.random: a bubble that moves every frame reads as static, a paused frame has to hold
+      // still, and two crests alive at once must not flicker against each other.
+      const bubbles = 22
+      for (let i = 0; i < bubbles; i++) {
+        // Golden-angle walk along the arc so the field never falls into visible rows, plus a second
+        // irrational term across the band's thickness so it fills rather than lining up on the crest.
+        const t = ((i * 0.618034) % 1)
         const a = a0 + (a1 - a0) * t
-        const j = Math.sin((n.x + n.y) * 0.013 + i * 2.399 + t * 9.7)
-        const rr = r + bw * (0.9 + j * 0.5)
-        breakerG.circle(n.x + Math.cos(a) * rr, n.y + Math.sin(a) * rr, bw * (0.24 + 0.16 * (1 + j) * 0.5))
-        breakerG.fill({ color: 0xffffff, alpha: 0.30 * k * swell })
+        const seed = (n.x + n.y) * 0.011 + i * 2.399
+        const across = Math.sin(seed * 1.7)                  // -1..1 through the band
+        const rr = r + bw * (across * 1.15 - 0.15)
+        // Small, and biggest near the crest where the water is breaking hardest.
+        const size = bw * (0.10 + 0.13 * Math.abs(Math.sin(seed))) * (1 - Math.abs(across) * 0.45)
+        const bx = n.x + Math.cos(a) * rr, by = n.y + Math.sin(a) * rr
+        // A bubble grows as the wave breaks and pops as it spends itself, so the field thins out on
+        // its own rather than fading uniformly.
+        const bAlpha = k * swell * (0.55 + 0.45 * Math.sin(seed * 2.3))
+        if (bAlpha <= 0.02 || size < 0.4) continue
+        if (i % 4 === 0) {
+          breakerG.circle(bx, by, size)
+          breakerG.fill({ color: 0xffffff, alpha: 0.42 * bAlpha })
+        } else {
+          breakerG.circle(bx, by, size)
+          breakerG.stroke({ width: Math.max(0.8, size * 0.42), color: 0xffffff, alpha: 0.62 * bAlpha })
+        }
       }
     }
   }
