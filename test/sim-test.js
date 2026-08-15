@@ -120,7 +120,8 @@ import {
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
   // Book 2 The Surf: the beach floor's look (Run US.j)
-  TIDE_POOL_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, SANDBAR_VIS, GULL_RADIUS, GULL_FUSE, GULL_DMG,
+  TIDE_POOL_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, SANDBAR_VIS,
+  LOBE_SHAPES, LOBE_DEPTH, lobeFactor, inLobe, GULL_RADIUS, GULL_FUSE, GULL_DMG,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
@@ -14733,16 +14734,36 @@ function testSurfFloor() {
   assert.ok(B.length >= 40 && P.length >= 40,
     `need both fields populated to compare them — got ${B.length} sandbars and ${P.length} tide pools`)
 
-  let overlaps = 0, worst = 0, nearMisses = 0
+  // TESTED BY SAMPLING GROUND, not by comparing radii, and that is the point of this formulation.
+  // The claim is "no patch of ground is both dry sand and a refill". streamSandbars enforces it with
+  // a centre-line reach test, which is exact for convex outlines — and a lobed profile is not always
+  // convex. Re-asserting with the same criterion the code uses would prove only that the code ran.
+  // So this walks actual POINTS through inLobe, the same test stepCharge and onSandbar use on the
+  // player, and asks whether any of them is inside both. That catches a real overlap the centre-line
+  // criterion could let through, which a radius comparison never could.
+  let overlaps = 0, worstPt = null, nearMisses = 0
+  const RINGS = 10, SPOKES = 28
   for (const b of B) {
+    const near = P.filter((p) => Math.hypot(p.x - b.x, p.y - b.y) < b.r + p.r)
     for (const p of P) {
       const d = Math.hypot(p.x - b.x, p.y - b.y), reach = b.r + p.r
-      if (d < reach) { overlaps++; worst = Math.max(worst, reach - d) }
-      else if (d < reach * 1.35) nearMisses++
+      if (d >= reach && d < reach * 1.35) nearMisses++
+    }
+    if (!near.length) continue
+    for (let ri = 1; ri <= RINGS; ri++) {
+      for (let si = 0; si < SPOKES; si++) {
+        const a = (si / SPOKES) * Math.PI * 2
+        const rr = (ri / RINGS) * b.r
+        const x = b.x + Math.cos(a) * rr, y = b.y + Math.sin(a) * rr
+        if (!inLobe(b, x, y)) continue
+        for (const p of near) {
+          if (inLobe(p, x, y)) { overlaps++; worstPt = [Math.round(x), Math.round(y)]; break }
+        }
+      }
     }
   }
   assert.strictEqual(overlaps, 0,
-    `${overlaps} of ${B.length} sandbars overlap a tide pool (deepest ${worst.toFixed(0)}px) — dry sand and a refill cannot be the same ground`)
+    `${overlaps} sampled points across ${B.length} sandbars are inside a tide pool too (e.g. ${worstPt}) — dry sand and a refill cannot be the same ground`)
 
   // (d) THE RULE IS NOT VACUOUS. Zero overlaps is also what a chapter with no sandbars reports, and
   // what a field so sparse that two circles could never meet reports. Near-misses prove the two
@@ -14787,8 +14808,12 @@ function testSurfFloor() {
   assert.ok(!('rim' in TIDE_POOL_VIS) && !('rimW' in TIDE_POOL_VIS),
     'the tide pool must have no stroked rim — an outline is the definition the steps exist to avoid')
   const poolBranch = rsrc.slice(rsrc.indexOf('} else if (pool) {'), rsrc.indexOf('} else {', rsrc.indexOf('} else if (pool) {')))
-  assert.ok(poolBranch.includes('P.steps') && !poolBranch.includes('.stroke('),
-    'the pool must draw its steps and stroke nothing')
+  // `lobePoly`, not `circle`: mutation-found, an earlier form of this only asked that P.steps was
+  // MENTIONED, which stayed true with every step drawn as a circle under a lobed rim — a round hole
+  // with a ragged edge painted on, and the sim still testing the lobes.
+  assert.ok(poolBranch.includes('P.steps') && poolBranch.includes('lobePoly(') && !poolBranch.includes('.circle('),
+    'the pool must draw its steps as the lobed outline, not as circles')
+  assert.ok(!poolBranch.includes('.stroke('), 'the pool must stroke nothing')
 
   // (g) ABOVE THE WATERLINE. A gull flies over the surface, so the wash must not reach it — while
   // its shadow, cast on the sea floor, must stay under the water with everything else. The two are
@@ -14841,6 +14866,36 @@ function testSurfFloor() {
     'The Surf\'s dust must be suspended, not blown — sand does not drift at wind speed through water')
   assert.ok(SANDBAR_VIS.dry != null && /aboveWater\.addChild\(s\)/.test(rsrc),
     'the dry-sand light must be declared and parented above the water, or the sandbar stays submerged')
+
+  // (k) LOBED OUTLINES. The profile must be bounded to [1 - LOBE_DEPTH, 1] — the upper bound keeps a
+  // patch inside its own streaming cell and inside the separation rule's search radius, and the
+  // whole bound follows from the amplitudes summing to 1. Asserted over the actual angles rather
+  // than by trusting the sum, since it is the bound and not the sum that anything depends on.
+  for (let s = 0; s < LOBE_SHAPES.length; s++) {
+    const sum = LOBE_SHAPES[s].reduce((t, h) => t + h[1], 0)
+    assert.ok(Math.abs(sum - 1) < 1e-9, `shape ${s}'s amplitudes sum to ${sum}, not 1 — its profile is not bounded by r`)
+    let lo = Infinity, hi = -Infinity
+    for (let k = 0; k < 720; k++) {
+      const f = lobeFactor(s, (k / 720) * Math.PI * 2, 0)
+      lo = Math.min(lo, f); hi = Math.max(hi, f)
+    }
+    assert.ok(hi <= 1 + 1e-9, `shape ${s} reaches ${hi.toFixed(3)}x r — a patch that exceeds r escapes its cell and the separation rule`)
+    assert.ok(lo >= 1 - LOBE_DEPTH - 1e-9, `shape ${s} pinches to ${lo.toFixed(3)}x r, past LOBE_DEPTH`)
+    // …and it must actually be a LOBE. A shape whose profile never moves is a circle wearing a name.
+    assert.ok(hi - lo > 0.12, `shape ${s} varies by only ${(hi - lo).toFixed(3)} — that is a circle`)
+  }
+  // The patches really wear them, and not all the same one: a field that resolved to one shape would
+  // pass every geometric check above and still be the stamped-disc beach this replaced.
+  assert.ok(B.every((b) => b.shape != null) && P.every((p) => p.shape != null),
+    'every sandbar and tide pool must carry an outline')
+  assert.ok(new Set(B.map((b) => b.shape)).size >= 4 && new Set(P.map((p) => p.shape)).size >= 4,
+    'the field is using too few of the shapes to read as varied')
+  // THE CONTRACT: what is drawn is what is tested. render must derive its outline from lobeFactor
+  // and the patch's own stored rot — not re-hash a rotation of its own, which is what it used to do.
+  assert.ok(/function lobePoly\([\s\S]{0,400}lobeFactor\(shape, a, rot\)/.test(rsrc),
+    'render must build its outline from the same lobeFactor the sim tests position against')
+  assert.ok(/s\.rotation = b\.rot/.test(rsrc) && !/hash\(b\.x \* 0\.11/.test(rsrc),
+    'the sandbar sprite must take the rotation the streamer stored, not hash one of its own')
 
   console.log(`PASS run US.k (the beach floor): 0 obstacles with the seed still live, 0 of ${B.length} sandbars overlap any of ${P.length} tide pools across a 6000px box (${nearMisses} near-misses prove the fields interleave), the water wash is additive and over the world, the pool is ${steps.length} rimless steps darkening inward, and the gull flies above the wash while its shadow stays under it`)
 }
