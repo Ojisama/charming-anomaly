@@ -140,6 +140,11 @@ import {
   STRUCTURE_RADIUS,
   // v5.4 beyond
   PHASE_SOLID_T,
+  GULL_RATE,
+  GULL_FUSE,
+  GULL_RADIUS,
+  GULL_DMG,
+  GULL_PLAYER_SHARE,
   CRAB_GUARD_T,
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
@@ -238,6 +243,7 @@ export function stepSim(run, input, dt) {
   stepCurrents(run, dt)   // v5.0 signature mechanic: drift field (no-op unless the chapter has one)
   stepTide(run, dt)       // Book 2 surf signature: alternating surge/backwash (no-op elsewhere)
   stepBombardment(run, dt) // v5.4 skies signature: rain telegraphed bombs on the player's area
+  stepGullStrike(run, dt) // Book 2 surf: gulls plunge on whatever is alive (no-op elsewhere)
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop sun-shaft cells (no-op outside The Shelf)
   stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
@@ -4138,6 +4144,36 @@ function stepBombardment(run, dt) {
   }
 }
 
+// -- The Surf's gulls (v7.x): a hazard, not an enemy -----------------------------------
+// Every GULL_RATE seconds a gull picks something ALIVE on the beach and drops on it. It rides
+// run.bombs for the same reason the sky's thunder does — the telegraph -> blast contract already
+// exists, and stepBombs already damages the player AND every enemy inside the radius, which is
+// exactly the owner's rule that a gull "targets any enemy or you, they want to feed". Nothing here
+// aims at the player as such: it picks a TARGET, and most of what is alive on that beach is not you.
+//
+// Aimed at where the target IS, with no lead. A gull that predicted your movement would be a
+// homing attack wearing a bird costume; this is a thing that commits to a spot and can be walked
+// out of, which is what makes the shadow a telegraph rather than a countdown to an unavoidable hit.
+function stepGullStrike(run, dt) {
+  if (!CHAPTERS[run.chapter].gulls) return
+  run._gullAcc = (run._gullAcc ?? GULL_RATE) - dt
+  if (run._gullAcc > 0) return
+  run._gullAcc += GULL_RATE
+  if (run.bombs.length >= SHELL_MAX_LIVE) return
+  // Pick the prey. Allies are excluded: SUBMISSION's ally is yours, and a hazard that eats it would
+  // be a card silently destroying itself. Elites are fair game — a gull does not check.
+  const prey = []
+  for (const e of run.enemies) if (!e._dead && !isAlly(e)) prey.push(e)
+  const p = run.player
+  const target = (prey.length === 0 || Math.random() < GULL_PLAYER_SHARE) ? p : prey[Math.floor(Math.random() * prey.length)]
+  run.bombs.push({
+    x: target.x, y: target.y,
+    radius: GULL_RADIUS, fuse: GULL_FUSE, duration: GULL_FUSE,
+    dmg: GULL_DMG,
+    src: 'gull',   // render branches on this — the shadow, and the bird that lands on it
+  })
+}
+
 // -- Gravity signature mechanic (v5.4, e.g. beyond) ------------------------------------
 // Wells (run.wells, seeded once at createRun — see state.js) BEND every projectile in flight, the
 // player's (run.bullets/homingShots/lobs) and the enemies' (run.enemyShots) alike, and touch nothing
@@ -4324,7 +4360,10 @@ function stepBombs(run, dt) {
       if (b.core && e._dead) chained.push(e)
     }
 
-    run.events.push({ type: 'explode', x: b.x, y: b.y, radius: b.radius })
+    // `src` rides the event (additive). The skies already recover it by diffing last frame's
+    // run.bombs against this one; carrying it here is what lets a chapter that is NOT the skies
+    // theme its own detonation — The Surf's gull has to know it was a gull to draw the bird.
+    run.events.push({ type: 'explode', x: b.x, y: b.y, radius: b.radius, src: b.src })
     b._dead = true
   }
   for (const e of chained) run.bombs.push(volatileBomb(run, e.x, e.y))

@@ -960,7 +960,7 @@ const CONFIG = {
   'the tide decides': 'la marée décide',
   'Sand Hopper': 'Puce de mer',
   'Shore Crab': 'Crabe vert',
-  'Gull': 'Mouette',
+  'Sea Roach': 'Cloporte de mer',
   'Copepod': 'Copépode',
   'Krill': 'Krill',
   'Moon Jelly': 'Méduse Lune',
