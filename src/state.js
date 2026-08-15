@@ -1191,31 +1191,39 @@ function generateWells(sig) {
  *   angle and one length; a fork is a chain of segments between bodies, all live at once). x/y
  *   track the ROOT body so IPECAC's extra forks — which anchor on different enemies via rootRank —
  *   are distinguishable. Damage decays BREATH_JUMP_DMG_MUL per jump. See fireBreath/stepArcs.
- * guards[i]: { x, y, angle, r, armed, cd, rearm, dmg, knock } — a Pincer claw (v7.55, The Surf). THE ONLY
- *   weapon entity in the game that is not produced by a timer: stepPincerWeapon REWRITES this list
- *   every frame while the weapon is owned (one entry, two with the backClaw mod, ×3 under IPECAC),
- *   holding each claw PINCER_ARC × r out from the player along `angle` — which tracks
- *   nearestEnemy, so the guard is always between the player and whatever is closest. `armed` starts
- *   true and STAYS true for as long as nothing comes within r of the claw's centre; the trigger is
- *   stepGuards' proximity scan over run.enemies, never an elapsed interval. On a snap EVERY enemy
- *   inside `r` takes `dmg` (applyDamage, once each — no pierce/splash needed since the claw already
- *   covers every body inside it), and each is shoved `knock` px/s away from the PLAYER
- *   (shoveFromPlayer, so an anchored elite takes the hit and holds). This is an AREA snap, not
- *   single-target, because it measured that way first: hitting one body per snap left it at 15 eff
- *   dps against the Flagella Whip's 66 (weapon-census, surf L5), most of every hit wasted as overkill
- *   while the rest of an eight-body pack went untouched — and the claw does not buy that back through
- *   crowd-denial either, so it is not a deliberate trade: kiting-rig median nearest-enemy distance
- *   measured 45px for the pincer against 57/65 for the whip/bloom, no better a wall than either.
- *   Snapping everything inside the claw took it 15 -> 55 in one change (see WEAPONS.pincer in
- *   config.js for the full measurement history). An
- *   {type:'pinch', x, y, angle, r} event is emitted, and the claw sets armed=false / cd=rearm
- *   (`rearm` being levels[].cd, snapshotted each frame beside dmg/knock; `cd` is the live
- *   countdown). cd then counts DOWN in stepGuards and re-arms at 0. The armed/cd pair survives the
- *   per-frame rewrite (the list is resized in place, never rebuilt) — a claw that forgot it had
- *   snapped would be a weapon with no cooldown at all. See WEAPONS.pincer/stepPincerWeapon/stepGuards.
- *   {type:'pinch', x, y, angle, r}  one claw closing. x,y = the CLAW's centre (not the player's:
- *                                   the burst has to land where the pinch happened), angle = the
- *                                   direction it is pointing, r = its catch radius.
+ *
+ * THE SURF's three natives add NO run.* array. Each is built from an entity the game already had,
+ * which is the same argument The Shelf's block below makes about reusing run.bombs/run.strips:
+ *   - Breaker: a run.novas entry carrying `arc` (full cone angle, radians, centred on `angle`) and
+ *     `carry` (px/s^2 of continued outward push). A nova WITHOUT those two behaves exactly as every
+ *     nova always has — the sector gate and the carry are both skipped — so no other weapon moved.
+ *     `carry` is applied only while a body already in the ring's `hit` set sits within
+ *     the ring is alive — which is what makes it a crest carrying a body along rather than a single
+ *     bat. The ride is bounded by the front's own NOVA_LIFE and by knockback's decay, so a body
+ *     caught point-blank simply rides further than one caught at the crest's edge, which is what a
+ *     wave does.
+ *     Novas also now carry `lifeMax` beside `life`, so a ring can expand over something other than
+ *     NOVA_LIFE (the Skipping Shell's splash needs a much shorter one).
+ *   - Skipping Shell and Barnacles: ordinary run.bullets entries tagged weapon:'shell'/'barnacle',
+ *     both flagged `_carrier`. A CARRIER DEALS NO CONTACT DAMAGE — stepBullets skips its hit scan
+ *     entirely — because the shell's damage is all in the splash novas it leaves at each touch-down
+ *     and a larva delivers a status rather than a hit. A shell carries { skips, skipEvery, skipT, r }
+ *     and reuses `hitIds` to mean "already skipped toward" (nothing else reads it on a carrier); a
+ *     larva carries `_crust`, the crust it will apply.
+ *
+ * enemy.barnacle: { t, dur, dmg, tick, next, jumps } — A CONTRACT FIELD, published by applyBarnacle
+ *   and read by render.js to draw the crust, exactly like frozen/chill/venom/ignite/fearT/stunT. A
+ *   status kept in a private field is invisible on screen, and invisible is indistinguishable from
+ *   broken. `t` is the live countdown and `dur` a full crust's worth, kept separately so a body
+ *   seeded by a nearly-expired parent still gets a full crust. REFRESHED, NEVER STACKED: a second
+ *   larva takes the max of each field and carries `next` over, so a stream of larvae can neither
+ *   double the tick rate nor hold the tick timer at zero forever. stepBarnacles ticks it, and on the
+ *   host's death spreadBarnacle seeds up to `jumps` uncrusted bodies within BARNACLE_JUMP_R —
+ *   nearest first, each child inheriting `jumps - 1`, so the chain is bounded by descent however
+ *   dense the crowd is. stepBarnacles runs LAST of the weapon steppers, before the dead sweep, so a
+ *   host killed by any source this frame still seeds.
+ *   {type:'crust', x, y}   a larva has taken hold on a fresh body (not on a refresh).
+ *   {type:'skip', x, y, r} one Skipping Shell touch-down. x,y is where it LANDED, r the splash.
  *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
@@ -1692,10 +1700,6 @@ export function createRun(meta, opts = {}) {
     // falloutBonus, nodes }, where `nodes` is the polyline player->body->body rebuilt every tick.
     drags: [],
     arcs: [],
-    // v7.55 The Surf. guards: the Pincer's held claws — { x, y, angle, r, armed, cd, rearm, dmg, knock }.
-    // Empty unless the weapon is owned; stepPincerWeapon resizes it in place rather than rebuilding
-    // it, because `armed`/`cd` are the weapon's whole state (see the doc block above).
-    guards: [],
     kills: 0,
     coinsEarned: 0, // clamped to COIN_CAP_PER_RUN (config.js, v6.4.2) by stepPickups on every coin collect
     levelUpChoices: null,

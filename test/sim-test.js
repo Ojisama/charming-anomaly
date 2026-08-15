@@ -37,7 +37,7 @@ import {
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
-  MAX_DIFFICULTY, PLAYER, PINCER_ARC, PINCER_BLOCK_BAND,
+  MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -1308,13 +1308,15 @@ function testAnomalySlate() {
       // is what makes IPECAC's three forks distinguishable here — they anchor on three different
       // enemies, so the shape key below separates them. (This list is a set of QUOTED STRINGS, the
       // exact thing an identifier rename sweep cannot see — see CLAUDE.md's rename rule.)
-      // v7.55: 'guards' added for the Pincer. Its claws are laid out at ipecacAngles, so the three
-      // sick ones sit at 120° from each other around the player and the shape key separates them —
+      // The Surf's three natives need no entry beyond 'novas' and 'bullets': the Breaker is a nova
+      // carrying arc/carry, and the Skipping Shell and Barnacles are tagged run.bullets carriers.
+      // Adding no array is the point — see the state.js doc block. Their IPECAC copies sit at 120°
+      // from each other around the player and the shape key separates them —
       // and without this entry the weapon spawns into no list this block watches, which reads as
       // "fixture spawned nothing" rather than as a missing patch. That is the CLAUDE.md rename trap
       // in its other direction: a list of QUOTED STRINGS no identifier sweep and no new-weapon
       // checklist can see.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'guards']
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -12394,7 +12396,7 @@ try {
   testSurfSandbars()
   testSurfHumidity()
   testSurfHumidityDamage()
-  testPincer()
+  testSurfWeapons()
   testCrabGuard()
   testPlayerForms()
   testMultitouchControls()
@@ -14725,196 +14727,272 @@ function testSurfHumidityDamage() {
   console.log(`PASS run US.d (humidity damage): floor ${HUMIDITY_DMG_FLOOR}, monotonic to 1.0, wired at all ${sites} damage sites, and every other chapter reads 1.0`)
 }
 
-// ---- run US.e (v7.55): Pincer — the parry ------------------------------------------------------
-// The one weapon in the game that fires on being APPROACHED rather than on a timer. Every assertion
-// below exists to stop it being rebuilt as weapon #24 of the fireOnTimer kind, which would still
-// look right on screen: a timer that happens to check proximity snaps at the same moments a parry
-// does whenever the crowd is on you, and only diverges when nothing is near — which is what (b)
-// samples and nothing else can.
-function testPincer() {
-  Math.random = mulberry32(20260816)
+// ---- run US.e: The Surf's three natives -------------------------------------------------------
+// One scenario per weapon, and each asserts the EFFECT that makes the weapon what it is rather than
+// a field having been written. The three failure modes it exists to catch are all silent — the
+// weapon still fires, still damages, and still looks broadly right on screen:
+//   breaker        the sector gate stops bounding, so the "wave ahead of you" is a full ring; or
+//                  `carry` stops mattering, so the wave bats bodies once and is a cone-shaped
+//                  Cytokine Burst. Both leave a weapon that kills at almost exactly the same rate.
+//   skippingShell  the shell stops re-aiming, or lands all its splashes on one spot — which renders
+//                  identically to a single bigger splash, the same "same hit, bigger" trap the
+//                  per-cast-count rule in CLAUDE.md documents across eight weapon sites.
+//   barnacles      the crust stops SPREADING and quietly becomes an ordinary damage-over-time. This
+//                  is the one that would survive every test in this file that merely watches a
+//                  timer move, and it is the whole card.
+function testSurfWeapons() {
+  testBreaker()
+  testSkippingShell()
+  testBarnacles()
+}
+
+// Steps the sim while holding the fixture set fixed: any body the chapter spawns is dropped before
+// the next frame, so an assertion about "the enemy in front" cannot be answered by a wanderer that
+// happened to walk into the shot. Returns every event type seen, like `advance`.
+function stepPinned(run, seconds, dt, input, keepIds) {
+  const seen = []
+  const steps = Math.round(seconds / dt)
+  for (let i = 0; i < steps; i++) {
+    stepSim(run, input, dt)
+    for (const e of run.events) seen.push(e)
+    run.events.length = 0
+    run.enemies = run.enemies.filter((e) => keepIds.has(e.id))
+  }
+  return seen
+}
+
+function surfRun(weaponId, level = 1) {
   const meta = makeMeta()
   meta.dev = true
   ensureChapterMeta(meta)
   const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
-  // run.weapons is an ARRAY of {id, level} (state.js createRun) — the brief's `{ pincer: 1 }` object
-  // literal would have made stepWeapons' `for (const w of run.weapons)` iterate nothing at all and
-  // buildReadout's .map throw. Same shape every other weapon scenario in this file uses.
-  run.weapons = [{ id: 'pincer', level: 1 }]
-  run.charge = 100
+  // run.weapons is an ARRAY of {id, level} (state.js createRun); an object literal keyed by id
+  // makes stepWeapons' `for (const w of run.weapons)` iterate nothing at all and buildReadout throw.
+  run.weapons = [{ id: weaponId, level }]
+  run.player.maxHP = run.player.hp = 1e9
   run.enemies.length = 0
+  return run
+}
 
-  // (a) the guard exists and FACES the nearest enemy, not the player's heading.
-  const bag = makeStatusEnemy(run, { x: run.player.x + 200, y: run.player.y, hp: 1e6, speed: 0 })
-  run.enemies.push(bag)
-  advance(run, 0.5, 1 / 60, { x: 0, y: 0, skill: false })
-  assert.ok(run.guards.length > 0, 'pincer produced no guard')
-  const g = run.guards[0]
-  assert.ok(Math.abs(Math.atan2(0, 200) - g.angle) < 0.35,
-    `the guard must point at the nearest enemy, angle was ${g.angle.toFixed(2)}`)
+// (a) THE BREAKER IS A SECTOR, AND IT CARRIES.
+function testBreaker() {
+  Math.random = mulberry32(20260814)
+  const run = surfRun('breaker', 1)
+  const p = run.player
+  const lvl = WEAPONS.breaker.levels[0]
 
-  // (b) IT TRIGGERS ON BEING APPROACHED, not on a timer. A stationary enemy far away must leave the
-  // guard armed indefinitely — that is the whole shape, and a fireOnTimer weapon would fail here.
-  const armedAfterWait = run.guards[0].armed
-  assert.strictEqual(armedAfterWait, true, 'the guard disarmed with nothing near it — this is a timer, not a parry')
+  // Front and back at the SAME distance, so the only thing that can separate them is the sector.
+  // The front body is also what nearestEnemy locks onto, which is what aims the wave: at equal
+  // distance the tie has to be broken deliberately, so the front one sits slightly closer.
+  const front = makeStatusEnemy(run, { x: p.x + 120, y: p.y, hp: 1e6, speed: 0 })
+  const back = makeStatusEnemy(run, { x: p.x - 130, y: p.y, hp: 1e6, speed: 0 })
+  run.enemies.push(front, back)
+  const keep = new Set([front.id, back.id])
+  const frontHp0 = front.hp, backHp0 = back.hp
+  // MEASURED RELATIVE TO THE PLAYER, because this chapter's tide shoves ENEMIES as well as the
+  // player — over this window both drift ~95px along +x together. An absolute-position assertion
+  // here reads the signature mechanic and reports it as the weapon.
+  const backRel0 = back.x - p.x
 
-  // (a2) ...and it TRACKS, which (a) on its own cannot show. MUTATION-FOUND (2026-08-13): taking the
-  // angle from p.facingAngle instead of from nearestEnemy passed the ENTIRE suite. The fixture above
-  // puts the target due east of a player who has never moved, so the aim rule and both of its
-  // fallbacks (p.facingAngle, then p.facing) all answer 0 and the assertion cannot separate them.
-  // So: move the target somewhere no fallback points, and walk the OTHER way at the same time.
-  bag.x = run.player.x; bag.y = run.player.y + 240
-  advance(run, 0.3, 1 / 60, { x: -1, y: 0, skill: false })
-  const want = Math.atan2(bag.y - run.player.y, bag.x - run.player.x)
-  const got = run.guards[0].angle
-  const off = Math.abs(Math.atan2(Math.sin(want - got), Math.cos(want - got)))
-  assert.ok(off < 0.35,
-    `the guard must TRACK the nearest enemy: target bears ${want.toFixed(2)} rad while the player ` +
-    `walks west, and the claw points ${got.toFixed(2)} — off by ${off.toFixed(2)}. A heading-derived ` +
-    `aim reads about ${Math.PI.toFixed(2)} here, and a no-aim fallback 0`)
-  assert.strictEqual(run.guards[0].armed, true, 'the guard disarmed while the target sat 240px away')
+  const events = stepPinned(run, lvl.interval + NOVA_LIFE + 0.1, 1 / 60, { x: 0, y: 0, skill: false }, keep)
+  assert.ok(events.some((e) => e.type === 'shoot' && e.weapon === 'breaker'),
+    'the breaker never fired — the fixture is not exercising the weapon')
+  assert.ok(front.hp < frontHp0, 'the body the wave was aimed at took no damage')
+  assert.strictEqual(back.hp, backHp0,
+    'a body directly BEHIND the player was damaged — `arc` is not bounding the front, so the wave is a full ring')
+  assert.ok(Math.abs((back.x - p.x) - backRel0) < 1,
+    'a body behind the player was pushed — the carry is not sector-gated either')
 
-  // (c) an enemy that reaches it takes damage AND is thrown outward.
-  const e = bag
-  e.x = run.player.x + g.r * 0.5; e.y = run.player.y
-  const hpBefore = e.hp
-  const distBefore = Math.hypot(e.x - run.player.x, e.y - run.player.y)
-  advance(run, 0.2, 1 / 60, { x: 0, y: 0, skill: false })
-  assert.ok(e.hp < hpBefore, 'reaching the guard dealt no damage')
-  assert.ok(Math.hypot(e.x - run.player.x, e.y - run.player.y) > distBefore * 1.5,
-    'the enemy was not yanked away from the player')
+  // THE CARRY. A pure knockback impulse decays monotonically at KB_DECAY_RATE, so an outward speed
+  // that RISES after the hit can only come from the front still pushing. Asserted as the effect
+  // (the body speeds up) rather than as "carry is non-zero", because the second passes with the
+  // number set to something too small to see — which is exactly how the first cut of this shipped,
+  // at a terminal speed of 43px/s against a crest travelling 467.
+  Math.random = mulberry32(20260814)
+  const run2 = surfRun('breaker', 1)
+  const p2 = run2.player
+  const rider = makeStatusEnemy(run2, { x: p2.x + 90, y: p2.y, hp: 1e6, speed: 0 })
+  run2.enemies.push(rider)
+  const keep2 = new Set([rider.id])
+  let firstKb = null, peakKb = 0, hitFrame = -1
+  const steps = Math.round((lvl.interval + NOVA_LIFE + 0.1) * 60)
+  for (let i = 0; i < steps; i++) {
+    stepSim(run2, { x: 0, y: 0, skill: false }, 1 / 60)
+    run2.events.length = 0
+    run2.enemies = run2.enemies.filter((e) => keep2.has(e.id))
+    const kb = Math.hypot(rider.kb.x, rider.kb.y)
+    if (firstKb == null && kb > 0) { firstKb = kb; hitFrame = i }
+    if (firstKb != null) peakKb = Math.max(peakKb, kb)
+  }
+  assert.ok(firstKb != null, 'the wave never shoved the body it hit')
+  assert.ok(peakKb > firstKb * 1.15,
+    `the body's outward speed only ever decayed (first ${firstKb.toFixed(0)}, peak ${peakKb.toFixed(0)}) — ` +
+    'nothing is carrying it, so this is a cone-shaped Cytokine Burst')
+  const ridden = rider.x - (p2.x + 90)
+  assert.ok(ridden > lvl.knockback / 6,
+    `the body moved ${ridden.toFixed(0)}px, no further than one ${lvl.knockback}px/s impulse decaying at KB_DECAY_RATE would take it`)
 
-  // (d) it re-arms rather than being spent for the run.
-  // The brief sampled `armed` once at the end of a 6s window, and that is a FALSE NEGATIVE against a
-  // guard that is re-arming perfectly: (c) leaves a 1e6-HP punching bag parked inside the claw, so
-  // every re-arm is followed by a snap on the very next frame and the boolean reads false at almost
-  // any instant you pick. Measured on the shipped implementation — 2 snaps over the window, 2.03s
-  // still on the clock at t=6. So COUNT the re-arms instead (a claw spent for the run snaps exactly
-  // once, ever), then clear the field and require it to come back armed with nothing to catch.
-  // Both halves still go red under the "cd never resets armed" mutation.
-  // The bag is RE-PARKED inside the guard every frame. It was not, and did not need to be, while the
-  // guard was a disc held out ahead: the snap's knockback shoved a body a little further out and the
-  // disc still covered it. An arc anchored to the player reaches r from YOU, and the yank is the
-  // largest knockback in the game by design, so one snap throws the bag clear and a speed-0 punching
-  // bag never comes back — which reads as "spent for the run" and is really "working exactly as
-  // specified". Parking it keeps this assertion about the RE-ARM and nothing else.
-  let snaps = 0
-  for (let i = 0; i < Math.round(6 / (1 / 60)); i++) {
-    if (run.phase === 'levelup') { applyChoice(run, pickNonElementIndex(run)); run.phase = 'playing'; continue }
-    if (run.phase !== 'playing') break
-    const gg = run.guards[0]
-    if (gg) {
-      e.x = run.player.x + Math.cos(gg.angle) * gg.r * 0.5
-      e.y = run.player.y + Math.sin(gg.angle) * gg.r * 0.5
-      e.kb.x = e.kb.y = 0
-      e.hp = e.maxHP
-    }
+  console.log(`PASS run US.e-1 (breaker): the front is a ${(lvl.arc * 180 / Math.PI).toFixed(0)}deg sector — a body behind the player is neither damaged nor pushed — and a body it catches ACCELERATES outward (${firstKb.toFixed(0)} -> ${peakKb.toFixed(0)} px/s) and rides ${ridden.toFixed(0)}px, past the ${(lvl.knockback / 6).toFixed(0)}px a bare impulse reaches, from frame ${hitFrame}`)
+}
+
+// (b) THE SHELL SKIPS, AND EVERY TOUCH-DOWN IS SOMEWHERE ELSE.
+function testSkippingShell() {
+  Math.random = mulberry32(20260814)
+  const run = surfRun('skippingShell', 1)
+  const p = run.player
+  const lvl = WEAPONS.skippingShell.levels[0]
+
+  // Two bodies far apart along the throw, both unkillable, so the shell has something to re-aim at
+  // and cannot end the test by clearing the field.
+  // The second body is deliberately OFF the line from the player through the first. With both on
+  // the throw axis the shell flies dead straight, every touch-down is collinear, and the re-aim
+  // assertion below cannot tell a chasing shell from a dumb one.
+  // 155px, deliberately NOT near a multiple of the periodic stride (speed x skipEvery = 103px at
+  // L1). At 110 a timer-only shell touches down 7px from this body on its FIRST skip — by pure
+  // coincidence of the fixture — and the arrival assertion below passes with the mechanic deleted.
+  // Sited between two strides, a clock-driven shell can only ever land ~50px away.
+  const near = makeStatusEnemy(run, { x: p.x + 155, y: p.y, hp: 1e6, speed: 0 })
+  const far = makeStatusEnemy(run, { x: p.x + 130, y: p.y + 260, hp: 1e6, speed: 0 })
+  run.enemies.push(near, far)
+  const keep = new Set([near.id, far.id])
+
+  const skips = []
+  let closestTouch = Infinity
+  const stepsN = Math.round((lvl.interval + lvl.skipEvery * (lvl.skips + 2)) * 60)
+  for (let i = 0; i < stepsN; i++) {
     stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-    for (const ev of run.events) if (ev.type === 'pinch') snaps++
+    for (const e of run.events) {
+      if (e.type !== 'skip') continue
+      skips.push(e)
+      // How close this touch-down came to a body, measured NOW — the tide moves every body tens of
+      // px over the window, so a distance read at the end of the run is not the one that mattered.
+      for (const t of [near, far]) closestTouch = Math.min(closestTouch, Math.hypot(e.x - t.x, e.y - t.y))
+    }
     run.events.length = 0
+    run.enemies = run.enemies.filter((e) => keep.has(e.id))
   }
-  assert.ok(snaps >= 2,
-    `the guard snapped ${snaps} time(s) over 6s with a body sitting in it — it is spent for the run, not re-arming`)
-  run.enemies.length = 0
-  advance(run, WEAPONS.pincer.levels[0].cd + 0.5, 1 / 60, { x: 0, y: 0, skill: false })
-  assert.ok(run.guards.some((q) => q.armed), 'the guard never re-armed')
+  assert.strictEqual(skips.length, lvl.skips,
+    `one throw produced ${skips.length} touch-downs, not the ${lvl.skips} on the card`)
 
-  // (e) THE GUARD IS AN ARC ANCHORED TO YOU, and this is the whole 2026-08-14 redesign. The old
-  // shape was a disc whose centre sat 1.35r out toward the nearest enemy, covering a band from 0.35r
-  // to 2.35r along one ray and nothing off it. Measured over 6 seeded 240s kiting runs before the
-  // change: of the enemies actually OVERLAPPING the player, 33% (L1) to 45% (L5) were outside it —
-  // "can't touch enemies on you", which is the bug this replaced.
-  //
-  // THE AIM HAS TO BE PINNED BY A DECOY, and getting that wrong is why the first two cuts of this
-  // case were wrong rather than the code. The guard tracks the NEAREST body, so a lone probe parked
-  // behind the player is not a body outside the arc — it is a body the guard simply turns to face,
-  // and "it was caught" is then correct behaviour being asserted as a failure. So: a decoy at
-  // contact range in FRONT holds the facing, and the probe is judged on its OWN hp rather than on
-  // the shared pinch event, which cannot say which body it came from.
-  const arcProbe = (bearing) => {
-    const decoy = makeStatusEnemy(run, { x: run.player.x + 40, y: run.player.y, hp: 1e6, speed: 0 })
-    const probe = makeStatusEnemy(run, { x: run.player.x, y: run.player.y + 400, hp: 1e6, speed: 0 })
-    const near = PLAYER.radius + probe.radius - 2
-    let decoyHit = false
-    for (let i = 0; i < 120; i++) {
-      if (run.phase === 'levelup') { applyChoice(run, pickNonElementIndex(run)); run.phase = 'playing'; continue }
-      run.enemies.length = 0
-      run.enemies.push(decoy, probe)
-      // decoy dead ahead (+x) and NEARER, so the guard's facing is pinned to 0 every frame
-      decoy.x = run.player.x + 34; decoy.y = run.player.y
-      probe.x = run.player.x + Math.cos(bearing) * near
-      probe.y = run.player.y + Math.sin(bearing) * near
-      decoy.kb.x = decoy.kb.y = 0; probe.kb.x = probe.kb.y = 0
-      decoy.hp = decoy.maxHP
-      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-      if (run.events.some((ev) => ev.type === 'pinch')) decoyHit = true
-      run.events.length = 0
+  // DISTINCT POSITIONS, not a count. A count of 3 passes happily when all three land on the same
+  // pixel, and three splashes sharing a point render as one splash — which is the failure this
+  // whole assertion exists for.
+  const spots = new Set(skips.map((e) => `${Math.round(e.x / 20)},${Math.round(e.y / 20)}`))
+  assert.strictEqual(spots.size, skips.length,
+    `${skips.length} touch-downs landed on only ${spots.size} distinct spots — the shell is splashing in place, which draws as a single splash`)
+
+  // ...and it CHASED: at least one touch-down has to sit off the straight line from the player
+  // through the first target, or the "ricochet" half of the card is decoration. Measured as
+  // perpendicular offset from the initial throw line.
+  const first = skips[0]
+  const ax = first.x - p.x, ay = first.y - p.y
+  const alen = Math.hypot(ax, ay) || 1
+  const offsets = skips.map((e) => Math.abs(((e.x - p.x) * ay - (e.y - p.y) * ax) / alen))
+  assert.ok(Math.max(...offsets) > 40,
+    `every touch-down stayed within ${Math.max(...offsets).toFixed(0)}px of the original throw line — the shell never re-aimed`)
+
+  assert.ok(near.hp < 1e6, 'no touch-down damaged the body the shell was thrown at')
+  // A TOUCH-DOWN HAS TO LAND *ON* A BODY, not merely near enough for the splash to clip it. This is
+  // the assertion that catches a shell whose touch-downs fire on the clock alone, and getting it
+  // wrong is instructive: "did it deal damage" does NOT catch that shell, because at a 103px stride
+  // and a ~60px splash reach a body anywhere along the throw line is clipped sooner or later. Such
+  // a shell still chases, still lands three distinct non-collinear splashes, and still damages
+  // things — it just never touches down where it was aiming. Arrival is what makes the hit
+  // deliberate rather than incidental, so the assertion is about the DISTANCE, not the damage.
+  // The arrival radius the sim actually uses is SHELL_R + the body's own radius; a touch-down
+  // that lands inside it is one that arrived. A timer-only shell measured 46-57px out on this
+  // fixture, so the two are cleanly separable.
+  const arriveR = SHELL_R + near.radius
+  assert.ok(closestTouch <= arriveR,
+    `the nearest touch-down landed ${closestTouch.toFixed(0)}px from any body, further than the ` +
+    `${arriveR}px that counts as arriving — the shell is skipping on its clock and clipping ` +
+    'bodies by accident rather than landing on them')
+
+  console.log(`PASS run US.e-2 (skipping shell): one throw makes ${skips.length} touch-downs at ${spots.size} distinct spots, straying ${Math.max(...offsets).toFixed(0)}px off the throw line as it re-aims, closest touch-down ${closestTouch.toFixed(0)}px from a body`)
+}
+
+// (c) THE CRUST SPREADS ON DEATH — the half that separates this from a damage-over-time.
+function testBarnacles() {
+  Math.random = mulberry32(20260814)
+  const run = surfRun('barnacles', 1)
+  const p = run.player
+  const lvl = WEAPONS.barnacles.levels[0]
+
+  // A host that WILL die to the crust, and neighbours close enough to be seeded, all inside
+  // BARNACLE_JUMP_R of it. The neighbours are unkillable so the test reads the jump and not a
+  // cascade.
+  // ONE close neighbour, not two. The crust has jumps=2 at L1 and seeds NEAREST-FIRST, so with two
+  // bodies in range the budget is spent before the distant one is ever considered — and the range
+  // assertion below then passes with BARNACLE_JUMP_R set to any number at all. With one neighbour
+  // there is a spare jump, and the only thing stopping it reaching the distant body is the radius.
+  const host = makeStatusEnemy(run, { x: p.x + 150, y: p.y, hp: lvl.dmg * 3, speed: 0 })
+  const nb1 = makeStatusEnemy(run, { x: p.x + 150, y: p.y + 60, hp: 1e6, speed: 0 })
+  // A LITERAL distance, not a multiple of BARNACLE_JUMP_R, and that is the whole point of this
+  // fixture. Sited at `BARNACLE_JUMP_R * 2.5` the body MOVES WITH THE KNOB IT IS TESTING: raise the
+  // constant to 19000 and this enemy relocates to 47km away, still out of range, and the assertion
+  // below passes for a spread that now reaches the entire map. Mutation-proved — that version
+  // survived the mutation it was written for. A fixture defined in terms of the quantity under test
+  // measures nothing.
+  const DISTANT_PX = 620
+  const distant = makeStatusEnemy(run, { x: p.x + 150 + DISTANT_PX, y: p.y, hp: 1e6, speed: 0 })
+  // ...and the literal has to stay meaningfully outside the shipped radius, or a later retune
+  // silently turns the assertion into a tautology. This goes red on a legitimate retune too, which
+  // is correct: someone widening the spread past this point should have to look at this test.
+  assert.ok(BARNACLE_JUMP_R * 1.4 < DISTANT_PX,
+    `BARNACLE_JUMP_R is ${BARNACLE_JUMP_R} and this fixture's out-of-range body sits at ${DISTANT_PX}px — ` +
+    'too close together for the range assertion below to mean anything. Move the body out, or ' +
+    'reconsider whether a spread this wide is still "reward for walking into the pack".')
+  run.enemies.push(host, nb1, distant)
+  const keep = new Set([host.id, nb1.id, distant.id])
+
+  // Stepped by hand rather than through stepPinned, because the two assertions that matter are
+  // about the crust AT THE MOMENT IT LANDS. Read at the end of the run instead, `t` has already
+  // ticked down by however long the tail of the loop was, and a child that inherited its parent's
+  // leftovers is indistinguishable from one that got a full crust — which is exactly the bug the
+  // `dur` field exists to prevent, so the assertion has to sample where it can see it.
+  let sawCrust = false, hostTAtDeath = null
+  const seedT = new Map()
+  const steps = Math.round((lvl.interval + lvl.tick * 4 + 0.3) * 60)
+  for (let i = 0; i < steps; i++) {
+    const hostT = host.barnacle?.t ?? null
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    for (const e of run.events) if (e.type === 'crust') sawCrust = true
+    run.events.length = 0
+    if (hostTAtDeath == null && host._dead) hostTAtDeath = hostT
+    for (const e of [nb1, distant]) {
+      if (e.barnacle && !seedT.has(e.id)) seedT.set(e.id, { t: e.barnacle.t, jumps: e.barnacle.jumps })
     }
-    return { decoyHit, probeLostHp: probe.maxHP - probe.hp }
+    run.enemies = run.enemies.filter((e) => keep.has(e.id))
   }
+  assert.ok(sawCrust, 'no larva ever took hold')
+  assert.ok(host._dead, 'the crust never ground its host down — it is not ticking')
 
-  // in front, pressed against the player: caught. This is the reported bug.
-  const front = arcProbe(0)
-  assert.ok(front.decoyHit, 'the guard never fired at all — the fixture is not exercising it')
-  assert.ok(front.probeLostHp > 0,
-    'a body overlapping the player IN FRONT was not damaged — the guard does not cover your own body')
-  // directly behind, same distance, with the facing pinned forward: NOT caught, or this is a ring
-  // and "the side you are facing" means nothing.
-  const back = arcProbe(Math.PI)
-  assert.ok(back.decoyHit, 'the guard never fired at all in the rear case — the fixture is not exercising it')
-  assert.strictEqual(back.probeLostHp, 0,
-    'a body directly BEHIND the player was damaged — the guard is a full circle, not an arc')
-  // and the arc has to END somewhere: just outside its half-angle is outside.
-  const edge = arcProbe(PINCER_ARC + 0.3)
-  assert.strictEqual(edge.probeLostHp, 0,
-    'a body just outside the arc half-angle was damaged — PINCER_ARC is not bounding anything')
+  const seeded = [nb1].filter((e) => seedT.has(e.id))
+  assert.ok(seeded.length > 0,
+    'the host died crusted and no neighbour was seeded — the crust is an ordinary damage-over-time')
+  assert.ok(lvl.jumps > 1,
+    'this fixture needs a spare jump for the range assertion below to mean anything — with jumps=1 ' +
+    'and one neighbour, the budget runs out before the distant body is considered')
+  assert.ok(!seedT.has(distant.id),
+    `a body ${DISTANT_PX}px away was seeded against a ${BARNACLE_JUMP_R}px jump radius — the spread is not bounded`)
 
-  // (f) THE WALL, AND THAT IT HOLDS WHILE THE CLAW IS SPENT (v7.78 owner ruling). The block is the
-  // shield and the bite is a separate thing on a cooldown; before this the cooldown gated BOTH, and
-  // the claw was armed 4% of a real run, so bodies walked through it at will. The claw is forced
-  // SPENT on every frame here on purpose — that is what separates "a wall" from "a wall that is
-  // down whenever it matters", and a block re-gated behind `g.armed` passes every other assertion
-  // in this scenario.
-  const wallProbe = (blocked) => {
-    Math.random = mulberry32(20260817)
-    const r2 = createRun(meta, { chapter: 'surf', difficulty: 1 })
-    r2.weapons = blocked ? [{ id: 'pincer', level: 1 }] : []
-    r2.enemies.length = 0
-    const walker = makeStatusEnemy(r2, { x: r2.player.x + 300, y: r2.player.y, hp: 1e6, speed: 0 })
-    r2.enemies.push(walker)
-    let closest = 1e9
-    for (let i = 0; i < 240; i++) {
-      if (r2.phase === 'levelup') { applyChoice(r2, pickNonElementIndex(r2)); r2.phase = 'playing'; continue }
-      // Walk it in by hand rather than trusting enemy steering: the question is whether the barrier
-      // stops a body crossing it, and a fixture that depends on the AI's approach speed measures the
-      // AI too. 6px/frame is ~360px/s, faster than anything in the roster actually moves.
-      const dx = r2.player.x - walker.x, dy = r2.player.y - walker.y
-      const d = Math.hypot(dx, dy)
-      if (d > 6) { walker.x += (dx / d) * 6; walker.y += (dy / d) * 6 }
-      walker.kb.x = walker.kb.y = 0   // no free ride from the snap's knockback
-      for (const gd of r2.guards) { gd.armed = false; gd.cd = 99; gd.rearm = 99 }
-      stepSim(r2, { x: 0, y: 0, skill: false }, 1 / 60)
-      r2.events.length = 0
-      closest = Math.min(closest, Math.hypot(walker.x - r2.player.x, walker.y - r2.player.y))
-    }
-    return { closest, r: r2.guards[0]?.r ?? 0 }
-  }
-  const walled = wallProbe(true)
-  const open = wallProbe(false)
-  assert.ok(open.closest < 20,
-    `the control walked to ${open.closest.toFixed(0)}px — the fixture never reaches the player, so it cannot show a wall`)
-  const floor = walled.r - PINCER_BLOCK_BAND
-  assert.ok(walled.closest >= floor,
-    `a body crossed the SPENT claw: it got to ${walled.closest.toFixed(0)}px, inside the wall's inner face at ${floor.toFixed(0)}px (claw reaches ${walled.r})`)
-  // ...and it is held at the FACE, not merely somewhere inside the band. MUTATION-FOUND: snapping
-  // bodies to `inner` instead of to g.r builds the wall 40px closer than the sprite's fingertips
-  // and passes the floor check above, which would put the barrier somewhere the player cannot see.
-  assert.ok(walled.closest <= walled.r + 2,
-    `the wall is not at the claw's face: a body settled at ${walled.closest.toFixed(0)}px against a reach of ${walled.r}px`)
-  assert.ok(walled.closest > open.closest + 30,
-    `the claw made no difference to how close a body got (${walled.closest.toFixed(0)}px vs ${open.closest.toFixed(0)}px unguarded)`)
+  // THE CHAIN IS BOUNDED BY DESCENT. A child inheriting the parent's full `jumps` reads as exactly
+  // the same card and is unbounded — one dense pack would crust the whole field.
+  const child = seedT.get(seeded[0].id)
+  assert.strictEqual(child.jumps, lvl.jumps - 1,
+    `a seeded body carries jumps=${child.jumps}, not the parent's ${lvl.jumps} minus one — the infection has no depth limit`)
 
-  console.log(`PASS run US.e (pincer): the guard is an arc of ${(PINCER_ARC * 2 * 180 / Math.PI).toFixed(0)} deg anchored to the player, tracks the nearest enemy, stays armed while nothing approaches, catches a body pressed against you in front but not behind, damages and throws on contact (${snaps} snaps over the re-arm window), and WALLS a body out at ${walled.closest.toFixed(0)}px while SPENT where an unguarded one reaches ${open.closest.toFixed(0)}px`)
+  // ...and the child got a FULL crust, not whatever fraction of a second was left on its parent.
+  // The parent is deliberately still well inside its own duration when it dies (it is ground down
+  // in a few ticks), so `hostTAtDeath` is visibly short of `duration` and the two are separable.
+  assert.ok(child.t > lvl.crustDur - 1 / 30,
+    `a seeded crust started with ${child.t.toFixed(2)}s of its ${lvl.crustDur}s (its parent had ${(hostTAtDeath ?? 0).toFixed(2)}s left) — it inherited its parent's leftovers`)
+  assert.ok(hostTAtDeath != null && hostTAtDeath < lvl.crustDur - 0.2,
+    `the host died with ${(hostTAtDeath ?? 0).toFixed(2)}s of its ${lvl.crustDur}s crust still to run — too close to full for the assertion above to tell a full crust from an inherited one`)
+
+  testBarnacleSpreadOnForeignKill()
+
+  console.log(`PASS run US.e-3 (barnacles): a crust ticks its host down (dead with ${hostTAtDeath.toFixed(2)}s left of ${lvl.crustDur}s), seeds ${seeded.length} of 1 neighbour within ${BARNACLE_JUMP_R}px at a FULL ${child.t.toFixed(2)}s each and jumps=${child.jumps}, and reaches nothing at ${DISTANT_PX}px`)
 }
 
 // ---- run LN: The Beyond's lane is a GOLDEN MASTER ---------------------------------------------
@@ -16403,4 +16481,48 @@ function testElementsRedesign() {
     assert.ok(bleeding > 0, 'Necrotic Tips left no bleed at all — the mod is wired to nothing')
     console.log(`PASS run EL.m (necrotic tips): ${bleeding} bleed damage over ${BARBED_DURATION}s against a control that took ${plain}`)
   }
+}
+
+// (c2) THE SPREAD FIRES ON A DEATH THE CRUST DID NOT CAUSE. stepBarnacles runs last of the weapon
+// steppers and reads `_dead` at the top of its walk precisely so a host killed by ANY source this
+// frame still seeds; drop that branch and the spread narrows to "only when the crust lands the
+// killing tick", which is a materially weaker weapon that the block above cannot see — there, the
+// crust always lands the kill.
+//
+// The host is made unkillable-by-crust the moment it is crusted (its tick is zeroed) and is then
+// killed by a second weapon, so the death arrives from outside the barnacle code entirely.
+function testBarnacleSpreadOnForeignKill() {
+  Math.random = mulberry32(20260814)
+  const run = surfRun('barnacles', 1)
+  const p = run.player
+  const nb = makeStatusEnemy(run, { x: p.x + 150, y: p.y + 60, hp: 1e6, speed: 0 })
+  const host = makeStatusEnemy(run, { x: p.x + 150, y: p.y, hp: 1e6, speed: 0 })
+  run.enemies.push(host, nb)
+  const keep = new Set([host.id, nb.id])
+
+  let neutralised = false, killed = false, nbSeeded = false
+  for (let i = 0; i < 60 * 12; i++) {
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    run.events.length = 0
+    run.enemies = run.enemies.filter((e) => keep.has(e.id))
+    if (!neutralised && host.barnacle) {
+      // The crust can no longer do anything to this body: whatever kills it will not be the crust.
+      host.barnacle.dmg = 0
+      neutralised = true
+    }
+    if (neutralised && !killed && !host._dead) {
+      // A SECOND weapon, added only now, so the kill cannot land before the crust does. The Breaker
+      // is the chapter's own starter and reaches this body from where the player is standing.
+      if (run.weapons.length === 1) run.weapons.push({ id: 'breaker', level: 5 })
+      host.hp = Math.min(host.hp, 20)
+    }
+    if (host._dead) killed = true
+    if (nb.barnacle) nbSeeded = true
+  }
+  assert.ok(neutralised, 'the larva never took hold, so this fixture never tested anything')
+  assert.ok(killed, 'the second weapon never killed the crusted host — the fixture is not exercising a foreign kill')
+  assert.ok(nbSeeded,
+    'a crusted body was killed by another weapon and its crust did not spread — the spread only ' +
+    'fires when the crust itself lands the kill, which is not what the card says')
+  console.log('PASS run US.e-3b (barnacles): a crust whose host is killed by a DIFFERENT weapon still seeds the next body')
 }

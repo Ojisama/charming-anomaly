@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, CORAL_CRUSH,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -24,14 +24,6 @@ import { currentForce, tideForce } from './sim.js'
 
 const DARK = 0x3b3345
 const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
-// v7.55: both Pincer claw states bake with their finger tips exactly this far from the drawing
-// origin, so placeGuard's `r / CLAW_BAKE_R` scale lands them on the guard's real catch radius — the
-// sprite states the weapon's reach instead of approximating it.
-// The guard is baked at its LARGEST shipped reach (L5 r = 110) so placeGuard only ever scales DOWN.
-// This was 20 while the claw's own radius topped out at 66; at the arc's 110 that is a 5.5x
-// magnification of a 20px drawing, and every edge in the sprite came out visibly stepped. Baking at
-// native size costs one texture and is the whole fix.
-const CLAW_BAKE_R = 110
 // The hydrant is drawn at this many px ACROSS-ish regardless of the zone's damage radius. It is an
 // object, not a zone: it must not grow when the weapon levels. See syncJets.
 const HYDRANT_PX = 36
@@ -5361,45 +5353,6 @@ export function createRenderer(app) {
       g.circle(0, 0, 4).fill({ color: g2, alpha: 0.8 })
       T.trapSprung = bake(g)
     }
-    // Pincer claws (v7.55 surf weapon, run.guards). PLAN VIEW, like every creature and weapon in the
-    // game except the standing buildings — this is a crab claw seen from directly overhead, not a
-    // claw drawn side-on and rotated. (v6.8 shipped the Trash Tornado as a side elevation and it
-    // cost a whole version to undo; the question to ask of the frame is not "does it look like a
-    // claw" but "is this the same viewpoint as the sprites around it".)
-    //
-    // Two states, swapped in placeGuard exactly the way the snap trap's are, and for the same
-    // reason: ARMED vs SPENT has to be readable at a glance while you are being chased, so the
-    // SILHOUETTES differ rather than just the tint — a gape held wide open against two fingers shut
-    // onto each other. Both are baked pointing +x with the drawing origin at the PLAYER'S centre,
-    // so placeGuard can set rotation = g.angle and scale = r / CLAW_BAKE_R and the finger tips land
-    // on the real catch radius. The sprite therefore states the weapon's actual reach.
-    {
-      const shell = 0xe8763c   // warm carapace orange for the palm — reads on teal water AND on wet
-      const lit = 0xffc08a     // sand, and sits apart from every enemy tint in the surf roster
-      const line = 0x7a2f12
-      const nail = 0xf6bd85    // the FINGERS are paler than the palm, as a fiddler's actually are;
-      const tooth = 0xfff0d8   // that two-tone is most of what makes the gape legible at phone size
-      // A FIDDLER'S MAJOR CHELIPED, plan view, pointing +x. It is a compact heavy object, not a
-      // spread: one fat palm carrying a thick fixed finger, with a slimmer one hinged above it and
-      // a gape between them. Owner's reference photo and his measurement — "a big pincer, about 2
-      // thirds the size of the body, rotating around the player towards the nearest enemy".
-      //
-      // THE SIZE IS A RATIO, NOT A CONSTANT, and it is the whole reason this is drawn from `x0`
-      // rather than from the origin. The claw occupies x in [0.46R, R], so at placeGuard's scale of
-      // r / CLAW_BAKE_R its LENGTH is 0.54r — 44px at the L1 reach of 82, which is two thirds of the
-      // fish's own 66px, and it grows to 59px as the weapon levels. The tips still land exactly on
-      // the radius stepGuards tests, so the sprite states its own reach; what it does not draw is
-      // the ±PINCER_ARC spread, because a claw that wide stops being a claw (three cuts proved it:
-      // a filled crescent is a plate, tips joined by an arc is a bow, fingers laid along the arc is
-      // a blade). The arc is the SIDE the claw is on, and the claw is what you read it from.
-      const claw = (open) => {
-        const g = new Graphics()
-        paintClaw(g, CLAW_BAKE_R, open)
-        return bake(g)
-      }
-      T.clawOpen = claw(true)
-      T.clawShut = claw(false)
-    }
     {
       // traffic car (city signature, run.lanes): top-down, nose +x, drawn at the real
       // TRAFFIC_CAR_LEN × TRAFFIC_CAR_W hitbox so what sweeps you is what you saw coming.
@@ -7313,6 +7266,36 @@ export function createRenderer(app) {
       c.addChild(tip)
       T.needle = bakeComposite(c)
     }
+    // The Surf's Skipping Shell (run.bullets, weapon:'shell'). A scallop in PLAN VIEW — hinge at the
+    // back, fan opening forward along +x so placeBullet can rotate it to the shell's velocity and
+    // the direction it is skimming is readable. Baked dark-on-pale deliberately: the beach floor is
+    // the lightest surface in the game, so a pale shell has nowhere to go and the first cut of this
+    // (a cream-tinted needle) could not be found in its own screenshot.
+    {
+      const g = new Graphics()
+      const L = 15                       // half-length, hinge to lip
+      const W = 11                       // half-width across the fan
+      // The body: a fan that widens from the hinge to the lip.
+      g.moveTo(-L, 0)
+      g.bezierCurveTo(-L * 0.2, -W * 1.05, L * 0.55, -W, L * 0.92, -W * 0.34)
+      g.bezierCurveTo(L * 1.06, 0, L * 1.06, 0, L * 0.92, W * 0.34)
+      g.bezierCurveTo(L * 0.55, W, -L * 0.2, W * 1.05, -L, 0)
+      g.fill({ color: 0x8a5a48 })
+      g.stroke({ width: 1.6, color: 0x4a2c22, alpha: 0.9 })
+      // Radial ribs, the one detail that says SHELL rather than leaf or blade at this size.
+      for (let i = -2; i <= 2; i++) {
+        const a = (i / 2) * 0.62
+        g.moveTo(-L * 0.82, 0)
+        g.lineTo(-L * 0.82 + Math.cos(a) * L * 1.7, Math.sin(a) * L * 1.7 * 0.62)
+        g.stroke({ width: 1.1, color: 0x5e3a2c, alpha: 0.55 })
+      }
+      // A pale lip along the leading edge: wet shell catches the light, and it is what keeps the
+      // silhouette from closing up into a dark blob when it is moving fast.
+      g.moveTo(L * 0.86, -W * 0.42)
+      g.bezierCurveTo(L * 1.04, 0, L * 1.04, 0, L * 0.86, W * 0.42)
+      g.stroke({ width: 2.2, color: 0xf0dcc0, alpha: 0.85 })
+      T.shell = bake(g)
+    }
     // enemy missile (skies helicopters, run.enemyShots): the only enemy-owned projectile, so it must
     // never be confused with the player's amber stinger needle — cold steel body, hot red exhaust
     // flare behind it, pointing +x natively so placeShot can aim it along its velocity.
@@ -7636,9 +7619,14 @@ export function createRenderer(app) {
   const shieldG = new Graphics()
   const affixLayer = new Container() // per-elite affix icon badges (Text), see syncAffixBadges
   const playerC = new Container()
-  // v7.55 surf: the Pincer's held claws. Directly above playerC because the claw is held OUT — it is
-  // a thing in front of you, over the crowd it is guarding against, and under the projectiles.
-  const guardLayer = new Container()
+  // The Surf's Breaker: its wave crests (run.novas entries carrying `arc`). Directly above playerC
+  // because the wave rolls out from the player over the crowd it is shoving, and under the
+  // projectiles. One Graphics rather than a sprite pool — see drawBreakers for why an arc cannot be
+  // a scaled texture.
+  const breakerG = new Graphics()
+  // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
+  // sprite, so this has to be added after the entity layer, not with the ground effects.
+  const crustG = new Graphics()
   const bulletLayer = new Container()
   const rockLayer = new Container()   // v5.21 lane: drifting asteroids (run.rocks)
   const boomerangLayer = new Container()
@@ -7661,7 +7649,7 @@ export function createRenderer(app) {
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
-    bloomLayer, lureLayer, shieldG, affixLayer, lockLayer, playerC, guardLayer,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, lockLayer, playerC, breakerG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -9632,6 +9620,104 @@ export function createRenderer(app) {
   // envelope, no per-crest bookkeeping) because a swell is a periodic field rather than a set of
   // objects. Crest lines run along world x and travel +y; axis-aligned on purpose, since a rotation
   // would mean re-deriving the visible region in the rotated frame for no read the player can name.
+  // ---- The Surf's Breaker: the wave crest (run.novas entries carrying `arc`) -------------------
+  //
+  // A Graphics redrawn per frame rather than a sprite pool, and the reason is geometric: the crest
+  // is an ARC whose half-angle changes with the weapon's level and with the Broad Crest mod, and a
+  // baked texture can be scaled but not re-swept. Every other option was worse — a wedge baked at
+  // one angle is wrong at every other one, and scattering N foam sprites along the arc makes the
+  // pool churn with the arc's width. At most a handful of crests are ever alive (one per cast, x2
+  // with Backwash, x3 under IPECAC), so the cost is nothing.
+  //
+  // DRAWN AS BANDS OF LIGHT AND SHADOW, NOT AS A STROKED ARC — the same rule updateSwell above
+  // records from the owner ("I don't think they look like waves"), and it is not a stylistic echo:
+  // both are water seen from directly overhead, where a wave is not a line but a strip tilted
+  // toward the sky beside a strip tilted away. A stroked arc reads as a CONTOUR — the outline of a
+  // shape rather than the surface of water — and the chapter's own background waves would then be
+  // drawn in one language and its weapon in another.
+  //
+  // The foam is the exception and it earns it: whitewater on a breaking wave really is a hard bright
+  // edge, and it is what says THIS one is a weapon rather than more scenery.
+  // Barnacle crusts (enemy.barnacle). Drawn as lumps ON the body rather than as a tint alone: see
+  // the block above syncEnemies' status tints for why a tint cannot carry this one on this floor.
+  // One Graphics for every crusted body on screen — a few circles each, and only bodies actually
+  // carrying a crust are visited, so a clean field costs one clear() and nothing else.
+  //
+  // Positions are derived from the enemy's own id, NOT from Math.random: a lump that moves every
+  // frame reads as noise rather than as something growing on the body, and a paused frame has to be
+  // stable.
+  function drawCrusts(run) {
+    crustG.clear()
+    if (!run.enemies) return
+    for (const e of run.enemies) {
+      const c = e.barnacle
+      if (!c || e._dead) continue
+      // Fades in over the crust's first moments and out as it expires, so a body that has just been
+      // seeded and one about to shake it off are not the same picture.
+      const k = Math.max(0, Math.min(1, (c.t || 0) / (c.dur || 1)))
+      const grow = Math.min(1, (1 - k) * 6 + 0.35)     // young crusts are still small
+      const rad = (e.radius || 16)
+      const n = 5
+      for (let i = 0; i < n; i++) {
+        // Golden-angle scatter keyed on the body's id, so no two enemies wear the same pattern and
+        // none of them shifts between frames.
+        const a = e.id * 1.37 + i * 2.399
+        const d = rad * (0.28 + 0.46 * ((i * 7 + e.id) % 5) / 4)
+        const x = e.x + Math.cos(a) * d, y = e.y + Math.sin(a) * d
+        const rr = rad * (0.14 + 0.07 * ((i * 3 + e.id) % 3)) * grow
+        crustG.circle(x, y, rr)
+        crustG.fill({ color: 0xf2ead8, alpha: 0.92 * k })
+        crustG.circle(x, y, rr)
+        crustG.stroke({ width: Math.max(1, rr * 0.34), color: 0x6b5a45, alpha: 0.75 * k })
+        // The volcano mouth every acorn barnacle has. It is one dot, and it is the whole reason
+        // these read as barnacles rather than as blisters or as snow.
+        crustG.circle(x, y, rr * 0.32)
+        crustG.fill({ color: 0x4a3b2c, alpha: 0.8 * k })
+      }
+    }
+  }
+
+  function drawBreakers(run) {
+    breakerG.clear()
+    if (!run.novas || run.novas.length === 0) return
+    for (const n of run.novas) {
+      if (n.arc == null) continue
+      const life = n.lifeMax || NOVA_LIFE
+      const k = Math.max(0, Math.min(1, n.life / life))   // 1 at the cast, 0 as it dies
+      const r = Math.max(2, n.r)
+      const half = n.arc / 2
+      const a0 = n.angle - half, a1 = n.angle + half
+      // Thickness scales with the crest's own radius so a wave that reaches further is a bigger
+      // wave, not the same ribbon stretched around a longer arc.
+      const bw = Math.max(6, r * 0.13)
+      // It STEEPENS then breaks: the bands are widest and brightest in the middle of the run, and
+      // the whole thing thins out as it dies. A linear fade reads as a ring being switched off.
+      const swell = Math.sin(Math.PI * (1 - k)) * 0.65 + 0.35
+      const arcAt = (rad, width, color, alpha) => {
+        if (alpha <= 0.01) return
+        breakerG.arc(n.x, n.y, Math.max(1, rad), a0, a1)
+        breakerG.stroke({ width, color, alpha, cap: 'round' })
+      }
+      // The back of the wave first (drawn under), then the lit face, then the foam on the crest
+      // itself — back to front, so the whitewater sits on top of its own water.
+      arcAt(r - bw * 0.9, bw * 1.5, 0x2a5f7a, 0.30 * swell * k)   // the shadowed trough behind it
+      arcAt(r - bw * 0.1, bw * 1.2, 0x8fd3e8, 0.34 * swell * k)   // the face turned up to the sky
+      arcAt(r + bw * 0.45, bw * 0.55, 0xffffff, 0.62 * swell * k) // whitewater along the crest
+      // Broken foam ahead of the crest, thinning as the wave spends itself. Positions are derived
+      // from the nova's own coordinates rather than from Math.random, so a paused frame is stable
+      // and two crests alive at once never flicker against each other.
+      const blobs = 5
+      for (let i = 0; i < blobs; i++) {
+        const t = (i + 0.5) / blobs
+        const a = a0 + (a1 - a0) * t
+        const j = Math.sin((n.x + n.y) * 0.013 + i * 2.399 + t * 9.7)
+        const rr = r + bw * (0.9 + j * 0.5)
+        breakerG.circle(n.x + Math.cos(a) * rr, n.y + Math.sin(a) * rr, bw * (0.24 + 0.16 * (1 + j) * 0.5))
+        breakerG.fill({ color: 0xffffff, alpha: 0.30 * k * swell })
+      }
+    }
+  }
+
   const swellG = new Graphics()
   swellLayer.addChild(swellG)
   let swellT = 0
@@ -10736,7 +10822,6 @@ export function createRenderer(app) {
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
     sand: 0,    // v7.x surf: sandbars (run.sandbars) — a flat syncPool, see placeSandbar
     trap: 0, debris: 0, shot: 0, jet: 0,
-    guard: 0,   // v7.55 surf: Pincer claws (run.guards)
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -11637,53 +11722,6 @@ export function createRenderer(app) {
   // WEAPON_MODS.clawRake.ambushPredator is held (ambushHeld/ambushPX/ambushPY, same per-frame
   // latch), mirroring the armed-or-sprung contract slashClaws' own scan uses (sim.js).
   const trapPool = []
-  // Pincer claws (v7.55 surf, run.guards {x,y,angle,r,armed,cd,rearm}). A FLAT sprite pool — one
-  // Sprite per claw, no independently-transformed parts — so it belongs in reset()'s flat list and
-  // must NOT get a `.root.visible` line (putting a flat pool in the rig block, or a rig in the flat
-  // list, is the silent failure CLAUDE.md documents: a dead property set on a plain object and last
-  // run's claws still on screen).
-  //
-  // The whole point of this weapon is that it is a TELEGRAPH you can read before anything happens,
-  // so the two states have to be legible at rest, not only at the payoff:
-  //   ARMED  fingers open in a V, full brightness, breathing — the snap trap's "it is hot" idiom.
-  //   SPENT  fingers shut, dimmed, and brightening as its cooldown closes, so "this one is nearly
-  //          live again" is readable without a number. Identical treatment to placeTrap's re-arm
-  //          tell, deliberately: they are the same question asked of two different objects.
-  const guardPool = []
-  function placeGuard(s, g) {
-    const look = g.armed ? T.clawOpen : T.clawShut
-    if (s.texture !== look.tex) { s.texture = look.tex; s.anchor.set(look.ax, look.ay) }
-    s.position.set(g.x, g.y)
-    s.rotation = g.angle
-    const sc = (g.r || CLAW_BAKE_R) / CLAW_BAKE_R
-    // SPENT IS NOT OFF, and the sprite must not say it is (v7.78). The claw blocks every frame
-    // whether or not it can bite, so the two things this used to dim — SIZE and OPACITY — are now
-    // both lies, and they were on screen ~95% of the run:
-    //   - scale. The bake puts the fingertips exactly on g.r so the sprite states the weapon's real
-    //     reach. Shrinking to 0.88 while spent drew the wall 12% short of where it actually stands.
-    //   - alpha. Half-transparent is this game's vocabulary for "not currently a thing" (a ghosted
-    //     phase flicker, an expiring zone). A barrier nothing can cross must not use it.
-    // What is left to carry ARMED vs SPENT is the SILHOUETTE — a gape held open against two fingers
-    // shut — which is what the two bakes were made for, plus a cooling of the shell that warms back
-    // up as the bite recovers. Both states are full size and fully opaque.
-    if (g.armed) {
-      // A small clench-and-release, keyed off the claw's own position so two claws (backClaw) do not
-      // pulse in lockstep and read as one object.
-      s.scale.set(sc * (1 + 0.035 * Math.sin(animT * 3.4 + (g.x + g.y) * 0.03)))
-      s.tint = 0xffffff
-      s.alpha = 1
-    } else {
-      const k = g.rearm > 0 ? 1 - Math.max(0, Math.min(1, g.cd / g.rearm)) : 1
-      s.scale.set(sc)
-      // A cooled carapace, NOT a dark one. Shot at 0x9c8c86 first and that multiplies the shell to
-      // ~61% brightness, which on a sprite you are looking at ~95% of the time still half-reads as
-      // "off" — the exact impression this whole change exists to kill. The floor is high enough
-      // that the claw stays an orange claw; the shut silhouette carries "cannot bite", and the
-      // warmth returning on top of it is the recharge tell.
-      s.tint = mix(0xc9b6ab, 0xffffff, k)
-      s.alpha = 1
-    }
-  }
 
   // v5.21 lane: an asteroid. Reuses T.asteroid — the same rock already scattered as this chapter's
   // baked obstacle furniture, which is the point: the hazard IS the local debris, not a new species.
@@ -13730,23 +13768,33 @@ export function createRenderer(app) {
           spawnWhip(e.x, e.y, e.angle, e.range, e.arc)
           addShake(2, 0.1)
           break
-        // v7.55 surf: a Pincer claw closing. x,y is the CLAW, not the player — the burst has to land
-        // where the pinch happened or the parry reads as a thing the player did rather than a thing
-        // that arrived. Two rings collapsing INWARD is not available (spawnRing expands), so the
-        // read is carried by the second, smaller ring and by grit thrown outward along the claw's
-        // own axis — the direction the body was just yanked. A heavier shake than the rake's: this
-        // fires seconds apart, not several times a second, and it is the weapon's whole payoff.
-        case 'pinch': {
-          spawnRing(e.x, e.y, e.r * 0.9, 0.26, T.novaWarm, 0xffd3a3)
-          spawnRing(e.x, e.y, e.r * 0.45, 0.16, T.novaWarm, 0xfff2e0)
-          for (let i = 0; i < 7; i++) {
-            const a = e.angle + (Math.random() - 0.5) * 1.5
-            const sp = 130 + Math.random() * 180
-            spawnParticle(T.fx.spark_04, e.x + Math.cos(e.angle) * e.r * 0.5, e.y + Math.sin(e.angle) * e.r * 0.5,
-              Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + Math.random() * 0.18, 0.1,
-              i % 2 ? 0xffd3a3 : 0xe8763c, 0.05, 2.4)
+        // The Surf's Skipping Shell touching down. Sand and foam thrown up where it landed, along
+        // the direction it was travelling — a splash that goes UP in a top-down game reads as a
+        // symmetrical puff, so the grit is what carries "it skipped off the sand" rather than "it
+        // exploded here". Small shake only: this fires several times per throw.
+        case 'skip': {
+          // A fast droplet crown, constant across every splash variant so the variants isolate one
+          // variable — how the splash's BODY is drawn (see placeNova).
+          for (let i = 0; i < 11; i++) {
+            const a = (i / 11) * Math.PI * 2 + Math.random() * 0.4
+            const sp = 200 + Math.random() * 210
+            spawnParticle(T.fx.spark_04, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.17 + Math.random() * 0.09, 0.04, i % 3 ? 0xffffff : 0xa8dcee, 0.03, 1.2)
           }
-          addShake(3.4, 0.14)
+          addShake(1.2, 0.06)
+          break
+        }
+        // A larva taking hold. Deliberately tiny and shakeless: this is the START of a slow grind,
+        // not a payoff, and it fires several times a second in a crowd. It exists at all because
+        // without it the only sign a cast connected is a tint change on a body that may be behind
+        // three others.
+        case 'crust': {
+          for (let i = 0; i < 3; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 30 + Math.random() * 50
+            spawnParticle(T.fx.spark_04, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.3, 0.06, 0xe9dcc6, 0.04, 1.4)
+          }
           break
         }
         case 'roar':
@@ -13915,7 +13963,6 @@ export function createRenderer(app) {
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
       boomerangPool, minePool, homingPool, trapPool, shotPool,
-      guardPool,   // v7.55 surf: FLAT (one Sprite per Pincer claw) — belongs here, not in the rigs below
       sandPool,    // v7.x surf: FLAT (one Sprite per dry patch) — likewise, not a rig
     ]) {
       for (const s of pool) s.visible = false
@@ -14526,6 +14573,9 @@ export function createRenderer(app) {
       // step. One number, so the tint and the drip particles both scale by how poisoned it is.
       const venomK = Math.min(1, Math.max(0, venom))
       const ignite = e.ignite || 0
+      // The Surf's Barnacles. A contract field like the four above, and guarded the same way — a
+      // status render.js has not been told about is a weapon that grinds bodies down invisibly.
+      const crust = e.barnacle ? Math.max(0, Math.min(1, (e.barnacle.t || 0) / (e.barnacle.dur || 1))) : 0
       // v5.4 behavioural statuses (same guarded-contract rule): enrage = the flashlight cone turned
       // this thing up, stun = it can't act, fear = it's running from you.
       const fear = e.fearT || 0
@@ -14572,6 +14622,11 @@ export function createRenderer(app) {
       // the ramp only ever goes deeper than what shipped before, never fainter.
       else if (venom > 0) s.tint = mix(0xa8e6a0, 0x46a52f, venomK)
       else if (ignite > 0) s.tint = 0xffc09a
+      // Crusted: chalky shell-white. Ranked with the elemental statuses because it IS ticking
+      // damage, and below them because it is the slowest of the four. Hue-clear of frozen's blue
+      // and stun's grey-brown so a crusted body is never mistaken for a halted one — this weapon's
+      // whole promise is that the pack is being eaten while it keeps walking at you.
+      else if (crust > 0) s.tint = mix(0xbfae95, 0xefe6d4, crust)
       // Behavioural statuses rank BELOW the elemental ones (those are ticking damage — the more
       // urgent read) but above the elite shimmer. Among themselves: enrage first, because it's the
       // only one of the three that makes an enemy MORE dangerous.
@@ -14816,9 +14871,6 @@ export function createRenderer(app) {
     syncPool(sandPool, sandLayer, run.sandbars || [], 'sand', sandbarTex, placeSandbar)
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
-    // v7.55 surf: the Pincer's claws. Guarded with `|| []` like every field above — a save or a test
-    // run predating this weapon has no run.guards at all.
-    syncPool(guardPool, guardLayer, run.guards || [], 'guard', T.clawOpen, placeGuard)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run))
     syncEnemies(run)
     syncBlooms(run)
@@ -14881,6 +14933,8 @@ export function createRenderer(app) {
     updateEddies(run, dt)
     updateShafts(run)
     updateSwell(run, dt, cx, cy)
+    drawBreakers(run)
+    drawCrusts(run)
     updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list
     updateStorm(run, dt, cx, cy)
     updateRain(dt) // v6.3: own top-level call — chapterHasRain no longer implies chapterHasStorm
@@ -14917,6 +14971,28 @@ export function createRenderer(app) {
       s.scale.set(1.7)
       return
     }
+    // The Surf's Skipping Shell. A flat shell skimming edge-on, so it is drawn ALONG its velocity
+    // like the needle and the quill rather than as a symmetrical spark — a shell that does not point
+    // where it is going cannot read as skipping, and this one visibly changes direction at every
+    // touch-down, which is the half of the card a round sprite throws away.
+    if (b.weapon === 'shell') {
+      if (s.texture !== T.shell.tex) { s.texture = T.shell.tex; s.anchor.set(T.shell.ax, T.shell.ay) }
+      s.tint = 0xffffff               // the bake carries its own colour; a tint here would flatten it
+      s.rotation = Math.atan2(b.vy, b.vx)
+      // A slow tumble as it flies, keyed off the shell's own position so two shells in the air never
+      // spin in lockstep and read as one object. Small: it is skimming, not cartwheeling.
+      s.scale.set(1 + 0.10 * Math.sin(animT * 9 + (b.x + b.y) * 0.02), 1)
+      return
+    }
+    // A barnacle larva. Small, pale and round on purpose — it is a seed, and the thing worth looking
+    // at is the crust it becomes on the body, not the delivery.
+    if (b.weapon === 'barnacle') {
+      if (s.texture !== T.bullet.tex) { s.texture = T.bullet.tex; s.anchor.set(T.bullet.ax, T.bullet.ay) }
+      s.tint = 0xe9dcc6
+      s.rotation = 0
+      s.scale.set(0.55)
+      return
+    }
     if (s.texture !== T.bullet.tex) { s.texture = T.bullet.tex; s.anchor.set(T.bullet.ax, T.bullet.ay) }
     // v6.2: four weapons used to fall through to the plain gold star — each now carries its own
     // tint (shard rift-violet, quill bone, trash rust, debris dust). Everything else stays white
@@ -14926,8 +15002,33 @@ export function createRenderer(app) {
     s.scale.set(1 + 0.1 * Math.sin(animT * 7 + i * 2.4)) // slight scale pulse
   }
   function placeNova(s, n) {
+    // A nova carrying `arc` is a Breaker crest and is drawn by drawBreakers. This pool draws FULL
+    // RINGS, so leaving it in would paint a complete circle over a weapon whose entire read is that
+    // it covers only the side you face — and the sector would still be correct in the sim, so the
+    // weapon would measure right and look wrong.
+    if (n.arc != null) { s.visible = false; return }
     s.position.set(n.x, n.y)
-    s.tint = n.fear ? 0xb06cf0 : 0x59b7ff // v6.2: a panic nova reads violet; a slime wave stays sky-blue
+    // A Skipping Shell's touch-down is a DARK MARK, not a bright one, and that inverts what every
+    // other impact in this game does. It is the one treatment with a physical argument behind it:
+    // wet sand really is a value step darker than dry, so water landing on a beach darkens it. The
+    // bright options were all variations on a pale disc against the palest floor in the game, which
+    // is the same trap that made the shell sprite itself invisible — and on this floor they read as
+    // a dust puff rather than as a splash. Owner picked this off a four-way A/B on one pinned frame.
+    //
+    // The chapter is already committed to this reading elsewhere: its sandbars are DRY sand drawn
+    // BRIGHTER than the damp floor (see SANDBAR_VIS and the render block in CHAPTERS.surf), so
+    // "darker means wetter" is a rule the player is being taught by the ground itself.
+    //
+    // The bright half of the effect lives entirely in the droplet crown spawned by the 'skip' event,
+    // which stays white — a dark mark alone would have no impact at all.
+    if (n.look === 'foam') {
+      s.tint = 0x7a6144
+      s.scale.set(Math.max(n.r, 1) / T.novaTexR)
+      s.alpha = 0.42 * Math.max(0, 1 - n.r / n.maxR) + 0.18
+      return
+    }
+    // v6.2: a panic nova reads violet; a slime wave stays sky-blue.
+    s.tint = n.fear ? 0xb06cf0 : 0x59b7ff
     s.scale.set(Math.max(n.r, 1) / T.novaTexR)
     s.alpha = 0.9 * Math.max(0, 1 - n.r / n.maxR) + 0.1
   }
