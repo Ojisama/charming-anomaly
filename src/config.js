@@ -4407,16 +4407,30 @@ CHAPTERS.surf = {
     //   overlap rule OFF, chance 0.42 (as shipped): 7.53% of the map is dry sand — 219 of 697 bars
     //                                               touching a pool, the worst pair concentric.
     //   overlap rule ON,  chance 0.42:              5.82%, 0 overlaps  <- the hazard quietly thinned
-    //   overlap rule ON,  chance 0.52:              7.52%, 0 overlaps  <- shipped
+    //   overlap rule ON,  chance 0.52:              7.52%, 0 overlaps
+    //
+    // AND THE SAME BILL CAME AGAIN WITH THE LOBES (see LOBE_SHAPES). A lobed outline only ever pulls
+    // IN from r, so it costs area — about 30% of it, on both fields, measured the same way. At the
+    // old rolls that put dry ground at 5.23% and the pools at 6.61%, so both rolls come up:
+    //   lobes, chance 0.52 / pools 0.55:  5.23% dry, 6.61% pool
+    //   lobes, chance 0.93 / pools 0.77:  7.60% dry, 9.61% pool  <- shipped, 0 overlaps
+    // 0.93 is a high-looking roll that is not a dense field: it is the roll BEFORE the lobes take
+    // their 30% and before the pools reject their share, and the number that matters — how much of
+    // the map is dry — is the same 7.5% it has been since the hazard was tuned. Pool coverage lands
+    // 2% over its old 9.44%, deliberately on the generous side of the target rather than under it,
+    // because this field's failure mode is a bar the player cannot fill.
     // So the beach a player walks is unchanged in how much of it is dry, which is what the whole
     // Humidity tune below was measured against, and no patch of it is two things at once any more.
-    bars: { cell: 620, chance: 0.52, r: 150, minDist: 380, slowMul: 0.62, drainMul: 24 },
+    bars: { cell: 620, chance: 0.93, r: 150, minDist: 380, slowMul: 0.62, drainMul: 24 },
 
     // Tide pools: the refill. Same vocabulary as the shelf's shafts and the pond's eddies — cell is
     // the grid, chance a DIRECT per-cell occupancy probability, minDist spawn-ring clearance from
     // the run ORIGIN. No drift: a pool is a hole in the sand, and the thing that moves in this
     // chapter is the water, not the ground.
-    pools: { cell: 700, chance: 0.55, r: 165, minDist: 420 },
+    // `blob` opts this field into a lobed outline (LOBE_SHAPES) rather than a disc. Per-field, not
+    // chapter-wide: The Shelf's sun shafts and The Reef's air pockets are round things and stay
+    // round. See `chance` below for what the lobes cost in area and how it was paid back.
+    pools: { cell: 700, chance: 0.77, r: 165, minDist: 420, blob: true },
   },
 
   // Humidity. `drain` is the ambient cost of being out of the water at all, and standing on a
@@ -4897,6 +4911,66 @@ export const TIDE_POOL_VIS = {
   ],
   sheen: 0xbfe0e8, sheenA: 0.055, sheenFrac: 0.95, // light on the water over it (additive, breathing)
   breathe: 0.06,                     // ± fraction the sheen's size wanders — calm water, not a pulse
+}
+
+// ---- LOBED GROUND SHAPES (owner, 2026-08-15: "make pools and sandbars variable shapes, not only
+// circles") --------------------------------------------------------------------------------------
+// A radial profile: the patch's radius as a function of the angle around it, r(theta) = r * factor.
+// Sandbars and tide pools both wear one, so a beach stops being a field of stamped discs.
+//
+// THIS IS NOT A RENDER DETAIL, and that is the whole reason it lives in config rather than in the
+// bake it started in. `onSandbar` and `stepCharge` decide whether you are standing on dry sand or in
+// a refill by comparing a distance against the patch radius, so the moment the DRAWING stops being a
+// circle while the TEST stays one, the edge you can see and the edge you can feel come apart —
+// worst exactly at the lobes, which is where the eye is drawn. Every refill circle in this game
+// keeps the drawn-extent-IS-tested-extent contract; a lobed patch keeps it only if both sides read
+// the same table. So sim and render both call lobeFactor(), and run US.l asserts they agree.
+//
+// A TABLE OF SIX rather than a shape rolled per patch, because the sandbar is a BAKED texture: one
+// bake per shape, picked per patch by cell hash and then rotated by a per-patch angle, which is
+// enough that six never read as six. Rolling a unique shape per patch would mean a Graphics per
+// sandbar and no bake at all — a real cost for variety the rotation already supplies.
+//
+// Each entry is a list of [harmonic, amplitude, phase]. THE AMPLITUDES MUST SUM TO 1: that is what
+// bounds the profile to [1 - LOBE_DEPTH, 1], and the upper bound is load-bearing twice over — a
+// patch that could exceed r would poke out of its own streaming cell (breaking the jitter slack that
+// keeps neighbours apart) and out of the sandbar/tide-pool separation rule, which compares plain
+// radii. Run US.l asserts the sum.
+export const LOBE_DEPTH = 0.34   // how far the profile can pull IN from r; 0 is a circle
+// How many points around each outline the sandbar/tide-pool separation rule samples (sim.js
+// overlapsPool). Runs only at cell crossings and only for pairs whose circles already overlap, so
+// this is not a per-frame cost. 48 puts a sample every 7.5 degrees — at r=165 that is an ~22px arc,
+// comfortably finer than the notch between two adjacent lobes of the highest harmonic in the table.
+export const SEPARATION_SAMPLES = 48
+export const LOBE_SHAPES = [
+  [[2, 0.50, 0.0], [3, 0.32, 1.7], [5, 0.18, 3.9]],
+  [[3, 0.46, 0.9], [4, 0.34, 2.6], [7, 0.20, 0.4]],
+  [[2, 0.58, 2.2], [5, 0.26, 0.7], [7, 0.16, 4.5]],
+  [[3, 0.40, 3.1], [5, 0.36, 1.3], [8, 0.24, 2.0]],
+  [[2, 0.44, 1.5], [4, 0.30, 4.2], [6, 0.26, 2.8]],
+  [[3, 0.52, 5.0], [6, 0.28, 1.9], [9, 0.20, 3.3]],
+]
+// The profile at an angle, as a fraction of r. `rot` turns the shape with its patch, so the same six
+// shapes present a different silhouette per patch; passing the patch's own stored rotation is what
+// keeps sim and render looking at the SAME lobe rather than two independently-derived ones.
+// A patch with no shape (every chapter but The Surf) returns 1 and is exactly the circle it was.
+export function lobeFactor(shapeIdx, theta, rot) {
+  if (shapeIdx == null) return 1
+  const h = LOBE_SHAPES[shapeIdx]
+  if (!h) return 1
+  const t = theta - (rot || 0)
+  let w = 0
+  for (let i = 0; i < h.length; i++) w += h[i][1] * Math.sin(h[i][0] * t + h[i][2])
+  return 1 - LOBE_DEPTH * (1 - w) * 0.5
+}
+// Is (px, py) inside the lobed patch centred on `p`? The one containment test, shared by
+// onSandbar (dry ground) and stepCharge (refill), so the two can never disagree about an edge.
+export function inLobe(p, px, py) {
+  const dx = px - p.x, dy = py - p.y
+  const d = Math.hypot(dx, dy)
+  if (d > p.r) return false                     // cheap reject: the profile never exceeds r
+  if (p.shape == null) return true
+  return d <= p.r * lobeFactor(p.shape, Math.atan2(dy, dx), p.rot)
 }
 
 // CAUSTICS (render.js updateCaustics, The Surf). The moving net of light on a sea floor: sunlight

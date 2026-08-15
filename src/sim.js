@@ -151,7 +151,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
@@ -3206,7 +3206,17 @@ export function refillCircleAt(i, j, seed, spec) {
   // Drift phase from the cell hash, so two neighbouring shafts are never in lockstep and the whole
   // field does not pulse in unison. Stored by the caller, not re-derived, because x/y are recomputed
   // every frame and a per-frame hash would be the one avoidable cost in that loop.
-  return { x, y, r: spec.r, phase: obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2 }
+  const c = { x, y, r: spec.r, phase: obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2 }
+  // Lobed outline, opt-in per FIELD (see LOBE_SHAPES). The Shelf's sun shafts and The Reef's air
+  // pockets stay circles deliberately — a column of light and a trapped bubble are both round
+  // things, and only The Surf's tide pools are a hole in the ground. Both are stored, never
+  // re-derived: render draws the outline from them and the sim tests position against them, and a
+  // second derivation is how the two would drift apart.
+  if (spec.blob) {
+    c.shape = Math.floor(obstacleCellHash(i, j, seed, s0 + 4) * LOBE_SHAPES.length) % LOBE_SHAPES.length
+    c.rot = obstacleCellHash(i, j, seed, s0 + 5) * Math.PI * 2
+  }
+  return c
 }
 
 export function streamShafts(run) {
@@ -3249,7 +3259,7 @@ export function streamShafts(run) {
       const bx = c.x, by = c.y
       if (lax && Math.abs(lax.cross === 'x' ? bx : by) - spec.r > laneHW) continue // see the lane note above
       if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
-      run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase: c.phase, _cell: key })
+      run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase: c.phase, shape: c.shape, rot: c.rot, _cell: key })
     }
   }
 }
@@ -3331,8 +3341,18 @@ export function streamSandbars(run) {
       const y = (j + 0.5) * cs + (obstacleCellHash(i, j, seed, 32) - 0.5) * 2 * slack
       if (Math.hypot(x, y) < spec.minDist) continue
       if (Math.hypot(x - p.x, y - p.y) > OBSTACLE_STREAM_RADIUS) continue
-      if (overlapsPool(x, y, spec.r, sig, seed)) continue // see the block above this function
-      run.sandbars.push({ x, y, r: spec.r, _cell: key })
+      // Salts 33/34 for the outline, in the sandbar's own reserved block (see the registry above
+      // obstacleCellHash) — the rotation is drawn HERE rather than in render, where it used to be
+      // hashed off the patch's world position, because it is now part of the collider and not just
+      // of the picture. Two independent derivations of one shape is exactly the drift this whole
+      // change exists to prevent. Built BEFORE the separation test, which needs the outline.
+      const bar = {
+        x, y, r: spec.r, _cell: key,
+        shape: Math.floor(obstacleCellHash(i, j, seed, 33) * LOBE_SHAPES.length) % LOBE_SHAPES.length,
+        rot: obstacleCellHash(i, j, seed, 34) * Math.PI * 2,
+      }
+      if (overlapsPool(bar, sig, seed)) continue // see the block above this function
+      run.sandbars.push(bar)
     }
   }
 }
@@ -3350,17 +3370,46 @@ export function streamSandbars(run) {
 // Consumes no Math.random and materialises nothing: it re-derives the pool field from the same seed
 // and hashes streamShafts uses, so it agrees with the pools the player actually sees whether or not
 // those cells have been streamed in yet.
-function overlapsPool(x, y, r, sig, seed) {
+function overlapsPool(bar, sig, seed) {
   const pools = sig && sig.pools
   if (!pools) return false
-  const reach = r + pools.r
+  const x = bar.x, y = bar.y
+  // The SEARCH radius stays the plain sum, because the profile never exceeds r — so anything that
+  // could possibly touch is inside this box, whatever shape either patch turns out to wear.
+  const reach = bar.r + pools.r
   const cs = pools.cell
   const i0 = Math.floor((x - reach) / cs), i1 = Math.floor((x + reach) / cs)
   const j0 = Math.floor((y - reach) / cs), j1 = Math.floor((y + reach) / cs)
   for (let i = i0; i <= i1; i++) {
     for (let j = j0; j <= j1; j++) {
       const c = refillCircleAt(i, j, seed, pools)
-      if (c && Math.hypot(c.x - x, c.y - y) < reach) return true
+      if (!c) continue
+      const dx = c.x - x, dy = c.y - y
+      const d = Math.hypot(dx, dy)
+      if (d >= reach) continue
+      // THE TEST ITSELF READS BOTH OUTLINES. Comparing plain radii instead would be conservative and
+      // wrong in a way that shows: a lobed patch pulls in from r over most of its circumference, so
+      // the radius test rejects a great many pairs that visibly do not touch, and it rejects them
+      // from the SANDBAR side only. Measured, it cost the beach a third of its dry ground on top of
+      // what the lobes themselves cost, and the density would have had to be bought back by pushing
+      // the occupancy roll to nearly 1 — i.e. by making every cell hold a bar and then throwing most
+      // of them away, which is a field with no gaps left in it to be a field.
+      //
+      // SAMPLED, NOT MEASURED ALONG THE CENTRE LINE. The centre-line version — each patch's reach
+      // toward the other — is exact for CONVEX outlines and these are not convex: a lobe on one can
+      // reach past a notch on the other while the line between the centres passes through clear
+      // water. That is not theoretical, it shipped for the length of one test run and run US.k's
+      // point sampler found it immediately (one point in ~30k, which is exactly the size of hole a
+      // by-eye check never finds). Walking both outlines through the other's own containment test
+      // catches it, and reuses inLobe so the rule is enforced by the same function that decides
+      // where the player is standing.
+      for (let k = 0; k < SEPARATION_SAMPLES; k++) {
+        const a = (k / SEPARATION_SAMPLES) * Math.PI * 2
+        const br = bar.r * lobeFactor(bar.shape, a, bar.rot)
+        if (inLobe(c, bar.x + Math.cos(a) * br, bar.y + Math.sin(a) * br)) return true
+        const pr = c.r * lobeFactor(c.shape, a, c.rot)
+        if (inLobe(bar, c.x + Math.cos(a) * pr, c.y + Math.sin(a) * pr)) return true
+      }
     }
   }
   return false
@@ -3370,7 +3419,7 @@ function overlapsPool(x, y, r, sig, seed) {
 // stepCharge's shaft test — standing ON it, not brushing its edge.
 export function onSandbar(run) {
   const p = run.player
-  for (const b of run.sandbars) if (Math.hypot(b.x - p.x, b.y - p.y) <= b.r) return true
+  for (const b of run.sandbars) if (inLobe(b, p.x, p.y)) return true
   return false
 }
 
@@ -3393,8 +3442,10 @@ export function stepCharge(run, dt) {
   let c = run.charge - res.drain * dryMul * dt
   const p = run.player
   for (const sh of run.shafts) {
-    // Centre-to-centre against the shaft radius: standing IN the light, not brushing its edge.
-    if (Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r) { c += res.refill * dt; break }
+    // Inside the circle's own outline: standing IN the light, not brushing its edge. inLobe is that
+    // same centre-to-centre test for a round field (every one but The Surf's pools), and follows the
+    // drawn lobes where a field has them — so the water you can see is the water that refills you.
+    if (inLobe(sh, p.x, p.y)) { c += res.refill * dt; break }
   }
   run.charge = Math.max(0, Math.min(res.max, c))
 }

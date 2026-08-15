@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -9786,6 +9786,21 @@ export function createRenderer(app) {
   // other. That is why the pool is a flat array and why clearShafts hides the CHILDREN rather than a
   // `.root` — a rig left in the flat list of reset() sets a dead property on a plain object and the
   // previous run's entities stay on screen, with no throw and no warning.
+  // The lobed outline as a point list for Graphics.poly, sampled from the SAME lobeFactor the sim
+  // tests position against (config.js) — one definition, two consumers, which is the only reason the
+  // edge you can see is the edge you can feel. 64 samples: the profile's fastest harmonic is 9 per
+  // turn, so this is ~7 points per lobe, well past where the polygon stops reading as faceted.
+  const LOBE_SEGMENTS = 64
+  function lobePoly(r, shape, rot, ox = 0, oy = 0) {
+    const pts = []
+    for (let i = 0; i < LOBE_SEGMENTS; i++) {
+      const a = (i / LOBE_SEGMENTS) * Math.PI * 2
+      const rr = r * lobeFactor(shape, a, rot)
+      pts.push(ox + Math.cos(a) * rr, oy + Math.sin(a) * rr)
+    }
+    return pts
+  }
+
   const shaftPool = []
   function acquireShaft() {
     // Child order IS the stacking order: the water body must sit under its own sheen, so `body` is
@@ -9830,9 +9845,15 @@ export function createRenderer(app) {
       }
       // Geometry redrawn only when the radius (or the chapter's look) changes, the same cache the
       // eddy ring uses. Neither field's radius moves today, so in practice this runs once per circle.
-      if (sv._r !== sh.r || sv._look !== refillLook) {
+      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot) {
         sv._r = sh.r
         sv._look = refillLook
+        // The outline is part of the cache key now: two pools at the same radius are no longer the
+        // same drawing. Leaving it out would have redrawn nothing after the first pool and stamped
+        // that one shape across the whole field — with the SIM still testing each pool's own lobes,
+        // so the edge you could see and the edge that refilled you would be different edges.
+        sv._shape = sh.shape
+        sv._rot = sh.rot
         sv.body.clear()
         sv.ring.clear()
         if (pocket) {
@@ -9854,8 +9875,11 @@ export function createRenderer(app) {
           // than either extreme — a faint hard edge reads as a rendering seam rather than as a soft
           // one, because the eye finds an edge long before it finds a contrast.
           sv.glow.tint = P.sheen
+          // Each depth step is the SAME outline scaled down, not a circle inside a lobe — a pool
+          // whose steps were concentric circles under a lobed rim would read as a round hole with a
+          // ragged edge painted on, which is the opposite of ground that dips.
           for (const st of P.steps) {
-            sv.body.circle(0, 0, sh.r * st.frac).fill({ color: st.color, alpha: st.alpha })
+            sv.body.poly(lobePoly(sh.r * st.frac, sh.shape, sh.rot)).fill({ color: st.color, alpha: st.alpha })
           }
         } else {
           sv.glow.tint = 0xfff0c0
@@ -11833,30 +11857,33 @@ export function createRenderer(app) {
   //   - the dry sand is a wobbled blob inside that, and the driest crown a smaller one off-centre,
   //     which is also what a real bar looks like: wet all round, dry in the middle.
   const SAND_BAKE_RIM = 300 // bake radius (2x the shipped bars.r of 150) so ripples survive scaling
-  const sandbarTex = (() => {
+  // ONE BAKE PER SHAPE (owner, 2026-08-15: variable shapes, not only circles). A sandbar used to be
+  // a single texture rotated per patch, so every dry patch on the beach was the same island turned a
+  // different way — which a player reads as one prop stamped repeatedly, exactly the tell the ripple
+  // and grit detail was added to avoid at close range.
+  //
+  // The outline is now LOBE_SHAPES[i], the same table the sim tests standing-on against. A bake per
+  // entry is what lets this stay a plain sprite pool instead of a Graphics per patch: six textures,
+  // picked by cell hash and then turned by the patch's own stored rotation.
+  const sandbarTex = LOBE_SHAPES.map((_, shapeIdx) => {
     const V = SANDBAR_VIS
     const RIM = SAND_BAKE_RIM
     const g = new Graphics()
-    // Wobbled outline: three harmonics at coprime-ish frequencies so the shape never repeats around
-    // the circle. Returns a flat point list for Graphics.poly.
-    const blob = (mean, ox, oy, seed) => {
-      const N = 48
-      const pts = []
-      for (let i = 0; i < N; i++) {
-        const a = (i / N) * Math.PI * 2
-        const rr = mean * (1 + 0.065 * Math.sin(a * 3 + seed) + 0.04 * Math.sin(a * 5 + seed * 1.7) + 0.028 * Math.sin(a * 7 + seed * 2.9))
-        pts.push(ox + Math.cos(a) * rr, oy + Math.sin(a) * rr)
-      }
-      return pts
-    }
-    g.circle(0, 0, RIM).fill({ color: V.damp, alpha: 0.16 })                       // the wet apron
-    g.circle(0, 0, RIM).stroke({ width: V.dampW, color: V.damp, alpha: V.dampA })  // waterline, ON r
-    g.poly(blob(RIM * 0.86, 0, 0, 1.3)).fill({ color: V.sand, alpha: V.sandA })
-    g.poly(blob(RIM * 0.5, -RIM * 0.1, -RIM * 0.08, 4.1)).fill({ color: V.crown, alpha: V.crownA })
+    // The patch outline at this radius, in bake space. rot 0: the per-patch turn is applied to the
+    // SPRITE, so the sim's `rot` and the drawing's rotation are the one same angle.
+    const outline = (mean, ox, oy) => lobePoly(mean, shapeIdx, 0, ox, oy)
+    // The wet apron and the waterline follow the lobes: this is the edge the mechanic is tested on,
+    // so a circle here would be a visible ring that means nothing and a felt edge somewhere else.
+    g.poly(outline(RIM, 0, 0)).fill({ color: V.damp, alpha: 0.16 })                       // the wet apron
+    g.poly(outline(RIM, 0, 0)).stroke({ width: V.dampW, color: V.damp, alpha: V.dampA })  // waterline, ON r
+    g.poly(outline(RIM * 0.86, 0, 0)).fill({ color: V.sand, alpha: V.sandA })
+    g.poly(outline(RIM * 0.5, -RIM * 0.1, -RIM * 0.08)).fill({ color: V.crown, alpha: V.crownA })
     // Wind ripples: near-parallel wavy lines, each cut to the chord of the dry area at its own y so
     // none of them runs off the sand. The whole sprite is rotated per patch, so drawing them all
-    // along one axis here costs nothing in variety.
-    const RR = RIM * 0.82
+    // along one axis here costs nothing in variety. The chord is taken against the INSCRIBED circle
+    // (1 - LOBE_DEPTH of the dry radius) rather than the dry radius itself: a lobed patch pulls in
+    // and a chord measured on the outer radius would run a ripple out over the water at every notch.
+    const RR = RIM * 0.82 * (1 - LOBE_DEPTH)
     for (let k = 0; k < V.ripples; k++) {
       const y = -RR + ((k + 0.5) / V.ripples) * RR * 2
       const half = Math.sqrt(Math.max(0, RR * RR - y * y)) * 0.92
@@ -11866,19 +11893,32 @@ export function createRenderer(app) {
     }
     g.stroke({ width: 3, color: V.ripple, alpha: V.rippleA, cap: 'round' })
     // Shell grit, on a fixed hash so it is baked once and never flickers.
+    // Shell grit, on a fixed hash so it is baked once and never flickers. Pulled inside the patch's
+    // own profile at each speck's angle, for the same reason the ripples are — grit floating on the
+    // water outside a notch is the tell that the outline and the decoration disagree.
     for (let k = 0; k < V.specks; k++) {
       const a = hash(k * 3.7 + 0.5) * Math.PI * 2
-      const d = Math.sqrt(hash(k * 5.1 + 2.2)) * RIM * 0.78
+      const d = Math.sqrt(hash(k * 5.1 + 2.2)) * RIM * 0.78 * lobeFactor(shapeIdx, a, 0)
       g.circle(Math.cos(a) * d, Math.sin(a) * d, 2 + hash(k * 7.3 + 4.4) * 3)
     }
     g.fill({ color: V.speck, alpha: V.speckA })
     return bake(g)
-  })()
+  })
   const sandPool = []
   function placeSandbar(s, b) {
     s.position.set(b.x, b.y)
-    const ph = hash(b.x * 0.11 + b.y * 0.07) // fixed per-patch seed — no stamped tiling
-    s.rotation = ph * Math.PI * 2
+    // Shape AND rotation both come off the patch itself, straight from the streamer. The rotation
+    // used to be hashed here from the patch's world position — a second, independent derivation of
+    // something the sim now also needs, and the classic way two halves of one fact drift apart.
+    //
+    // A bake is a LOOK — `{ tex, ax, ay }` — not a Texture, so swapping one in means the anchor as
+    // well as the texture. Assigning the look straight to `s.texture` throws nothing here and dies
+    // deep inside Pixi's sprite pipe on the next render ("Cannot destructure property 'width' of
+    // 'texture.orig'"), which reads as a renderer bug rather than as a wrong assignment.
+    const look = sandbarTex[b.shape ?? 0] ?? sandbarTex[0]
+    s.texture = look.tex
+    s.anchor.set(look.ax, look.ay)
+    s.rotation = b.rot ?? 0
     s.scale.set(Math.max(b.r, 1) / SAND_BAKE_RIM) // the waterline lands at EXACTLY r
   }
 
@@ -15528,7 +15568,9 @@ export function createRenderer(app) {
     syncWebs(run.webs || [])
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
-    syncPool(sandPool, sandLayer, run.sandbars || [], 'sand', sandbarTex, placeSandbar)
+    // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
+    // placeSandbar swaps in the patch's own.
+    syncPool(sandPool, sandLayer, run.sandbars || [], 'sand', sandbarTex[0], placeSandbar)
     syncDrySand(run.sandbars || [])
     updateWake(run.player.x, run.player.y)
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
