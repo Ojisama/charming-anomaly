@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -7534,6 +7534,21 @@ export function createRenderer(app) {
   // not between the player and the sea floor. Tinting them would be dimming the instruments.
   const waterWash = new Sprite(Texture.WHITE)
   waterWash.alpha = 0
+  // ---- ABOVE THE WATERLINE ---------------------------------------------------------------------
+  // The one place things are drawn that the water is NOT in front of (owner, 2026-08-15: "seagulls
+  // shouldn't have the blue tint, they are above water"). Sits on the STAGE, immediately over
+  // waterWash, so anything parented here is painted after the wash and keeps its own colour.
+  //
+  // Its transform is copied from `world` every frame (syncAboveWater, called from stepGullDives), so
+  // its children are positioned in WORLD coordinates exactly like any other entity — including under
+  // map mode's zoom. Without that copy a bird would be pinned to the screen and slide over the beach
+  // as the camera moved, which reads as a UI element rather than as an animal.
+  //
+  // A gull is the whole reason it exists, and the split inside one strike is the point: the BIRD
+  // goes here, its SHADOW stays down in particleLayer with the rest of the world. The shadow is cast
+  // on the sea floor and is therefore seen through the water; the bird is in the air and is not. The
+  // gap between the two already carried the altitude (see stepGullDives) — now the colour does too.
+  const aboveWater = new Container()
   // v5.0 pond biome layers (empty/hidden for body): ambient current motes live on the stage
   // (screen space, like dust); obstacles + hazard pools read as ground decals under the roster;
   // toxin blooms hang over enemies but under the player; whip flashes sit over the weapons.
@@ -7657,7 +7672,7 @@ export function createRenderer(app) {
   // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
   // blend-mode/texture transition — three sub-containers, three draw calls.
   world.addChild(floorLayer, swellLayer, cloudShadowLayer, entitiesLayer)
-  app.stage.addChild(world, waterWash, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
+  app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -7768,6 +7783,10 @@ export function createRenderer(app) {
   // projectiles. One Graphics rather than a sprite pool — see drawBreakers for why an arc cannot be
   // a scaled texture.
   const breakerG = new Graphics()
+  // Splash rings (see spawnSplash). Beside breakerG because both are the water's SURFACE rather than
+  // anything on the floor, and both therefore belong over the crowd: a ripple you can see a body
+  // through is a ripple under it, which is the one thing it is not.
+  const splashG = new Graphics()
   // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
   // sprite, so this has to be added after the entity layer, not with the ground effects.
   const crustG = new Graphics()
@@ -7793,7 +7812,7 @@ export function createRenderer(app) {
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, lockLayer, playerC, breakerG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, lockLayer, playerC, breakerG, splashG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -9734,12 +9753,16 @@ export function createRenderer(app) {
           sv.body.circle(-ar * 0.16, -ar * 0.13, ar * 0.5).fill({ color: P.lobe, alpha: P.lobeA })
           sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
         } else if (pool) {
-          const wr = sh.r * P.waterFrac
+          // Concentric depth steps, outside in, each darker than the one around it — see
+          // TIDE_POOL_VIS for why the collar, the shelf and the meniscus are gone. `ring` stays
+          // CLEARED and unused: this look has no outline at all, which is the whole "less defined"
+          // ask. Leaving the stroke in at a low alpha was the obvious half-measure and it is worse
+          // than either extreme — a faint hard edge reads as a rendering seam rather than as a soft
+          // one, because the eye finds an edge long before it finds a contrast.
           sv.glow.tint = P.sheen
-          sv.body.circle(0, 0, sh.r).fill({ color: P.collar, alpha: P.collarA })
-          sv.body.circle(0, 0, wr).fill({ color: P.water, alpha: P.waterA })
-          sv.body.circle(-wr * 0.14, wr * 0.11, wr * 0.58).fill({ color: P.shallow, alpha: P.shallowA })
-          sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+          for (const st of P.steps) {
+            sv.body.circle(0, 0, sh.r * st.frac).fill({ color: st.color, alpha: st.alpha })
+          }
         } else {
           sv.glow.tint = 0xfff0c0
           sv.ring.circle(0, 0, sh.r).stroke({ width: 4, color: 0xffe9a8, alpha: 0.55 })
@@ -14755,6 +14778,47 @@ export function createRenderer(app) {
     }
     taperStroke(g, [[r * 0.96, 0], [r * 1.34, 0]], r * 0.08, r * 0.03, f(0xd8a23a), 3) // beak
   }
+  // ---- SPLASH RINGS (v7.x, The Surf) -----------------------------------------------------------
+  // Rings on the water surface, spreading and fading. Drawn into one Graphics rather than pooled as
+  // sprites for the same reason the swell and the Breaker's crest are: there is no ring texture in
+  // src/fx (circle_05 is a filled blob), and fxScale stretches a texture's transparent margin along
+  // with its ink, so a soft disc scaled to a thin annulus is mostly nothing — the failure the swell's
+  // own block records after a sprite version reported 34/34 crests drawing and was invisible.
+  //
+  // World-space, so it scrolls with the beach it is on. See SPLASH_VIS for why the rings are
+  // staggered and why they ease out.
+  const splashes = []
+  function spawnSplash(x, y, radius) {
+    splashes.push({ x, y, radius, t: 0, life: SPLASH_VIS.life + SPLASH_VIS.stagger * SPLASH_VIS.rings })
+  }
+  function stepSplashes(dt) {
+    splashG.clear()
+    if (!splashes.length) return
+    const V = SPLASH_VIS
+    for (let i = splashes.length - 1; i >= 0; i--) {
+      const s = splashes[i]
+      s.t += dt
+      if (s.t >= s.life) { splashes.splice(i, 1); continue }
+      // The crown: the water thrown straight up at the point of contact, gone almost at once. It is
+      // what stops the rings reading as having appeared from nothing.
+      if (s.t < V.crownLife) {
+        const k = s.t / V.crownLife
+        splashG.circle(s.x, s.y, s.radius * (0.30 + 0.55 * k))
+        splashG.fill({ color: V.crown, alpha: V.crownA * (1 - k) * (1 - k) })
+      }
+      for (let r = 0; r < V.rings; r++) {
+        const age = s.t - r * V.stagger
+        if (age <= 0 || age >= V.life) continue
+        const k = age / V.life
+        // sqrt: fast at birth, spending itself as it goes. A linear ring reads as a UI pulse.
+        const rr = s.radius * (V.r0 + (V.rMax - V.r0) * Math.sqrt(k))
+        const fade = (1 - k) * (1 - k)
+        splashG.circle(s.x, s.y, rr)
+        splashG.stroke({ width: Math.max(0.9, V.width * (1 - k * 0.65)), color: V.color, alpha: V.alpha * fade })
+      }
+    }
+  }
+
   const gullDives = []
   const gullFree = []
   function gullStrike(x, y, radius) {
@@ -14762,9 +14826,13 @@ export function createRenderer(app) {
     if (!rec) {
       rec = { sp: new Sprite(Texture.EMPTY), sh: new Sprite(Texture.EMPTY) }
       rec.sh.anchor.set(0.5)
-      // shadow UNDER the bird: added first so it can never paint over it
+      // TWO LAYERS, ONE STRIKE, and the split is physical rather than a stacking trick: the shadow
+      // lies on the sea floor, so it goes in the world with everything else the water is in front
+      // of; the bird is in the air, so it goes in aboveWater and the blue never touches it (see that
+      // container's block). Ordering still holds — the world is painted before aboveWater, so the
+      // shadow can no more paint over the bird than it could when they were siblings.
       particleLayer.addChild(rec.sh)
-      particleLayer.addChild(rec.sp)
+      aboveWater.addChild(rec.sp)
     }
     rec.sp.visible = true
     rec.sp.tint = 0xffffff
@@ -14782,26 +14850,41 @@ export function createRenderer(app) {
     // shrink the animal when it opens its wings.
     rec.k = (radius * 2.3) / GULL_DIVE_SPAN
     gullDives.push(rec)
-    // SAND. It hit a beach: a flat ring of thrown grains plus a couple of soft puffs off the point
-    // of contact. Without it the bird looks composited over the floor rather than landed on it.
+    // IT LANDS IN WATER (owner, 2026-08-15). The beach is ankle-deep, so a strike throws water
+    // first and the bottom second — the rings and the crown carry the impact (spawnSplash), and what
+    // stays here is the spray plus the sand it stirred up off the floor underneath.
+    spawnSplash(x, y, radius)
     if (T.fx && T.fx.circle_05) {
-      for (let i = 0; i < 16; i++) {
-        const ga = (i / 16) * Math.PI * 2 + Math.random() * 0.35
-        const gv = 160 + Math.random() * 200
+      // DROPLETS, thrown clear and slowed hard: water is heavy, so unlike the dry grains this
+      // replaced they decelerate rather than skating on. Near-white with the water's blue in it.
+      for (let i = 0; i < SPLASH_VIS.drops; i++) {
+        const ga = (i / SPLASH_VIS.drops) * Math.PI * 2 + Math.random() * 0.45
+        const gv = 190 + Math.random() * 230
         spawnSmoke(T.fx.circle_05, x, y, Math.cos(ga) * gv, Math.sin(ga) * gv,
-          0.28 + Math.random() * 0.18, fxScale(T.fx.circle_05, 5 + Math.random() * 6),
-          0xe9d6b0, -0.02, 2.6, 0, 0, 1.3)
+          0.30 + Math.random() * 0.20, fxScale(T.fx.circle_05, 5 + Math.random() * 7),
+          SPLASH_VIS.color, -0.03, 3.4, 0, 0, 1.25)
       }
-      for (let i = 0; i < 5; i++) {
+      // The floor it punched through: fewer, slower, dirtier than the old dry burst, and hanging in
+      // the water instead of falling out of the air — stirred sand is the tell that this is SHALLOW.
+      for (let i = 0; i < 6; i++) {
         const ga = Math.random() * Math.PI * 2
-        spawnSmoke(T.fx.circle_05, x + Math.cos(ga) * radius * 0.28, y + Math.sin(ga) * radius * 0.28,
-          Math.cos(ga) * 60, Math.sin(ga) * 60, 0.40, fxScale(T.fx.circle_05, radius * 0.5),
-          0xdcc7a0, 0.30, 1.8, 0, 0.5, 0.65)
+        spawnSmoke(T.fx.circle_05, x + Math.cos(ga) * radius * 0.30, y + Math.sin(ga) * radius * 0.30,
+          Math.cos(ga) * 34, Math.sin(ga) * 34, 0.72, fxScale(T.fx.circle_05, radius * 0.55),
+          0xd9c8a6, 0.34, 0.9, 0, 0.45, 0.5)
       }
     }
     addShake(2.6, 0.13)
   }
+  // aboveWater is a STAGE child, so it gets none of the camera transform `world` carries. Copying it
+  // here is what lets everything inside be positioned in plain world coordinates, and copying the
+  // SCALE as well as the position is what keeps it honest in map mode, where world.scale is mapZoom.
+  function syncAboveWater() {
+    aboveWater.position.copyFrom(world.position)
+    aboveWater.scale.copyFrom(world.scale)
+  }
   function stepGullDives(dt) {
+    syncAboveWater()
+    stepSplashes(dt)
     for (let i = gullDives.length - 1; i >= 0; i--) {
       const d = gullDives[i]
       d.t += dt
@@ -15668,6 +15751,10 @@ export function createRenderer(app) {
     // the free list, not d.sp: recycling the sprite alone orphans its shadow, visible, forever.
     for (const d of gullDives) { d.sp.visible = false; d.sh.visible = false; gullFree.push(d) }
     gullDives.length = 0
+    // Splash rings outlive their bird — they are a plain list redrawn every frame, not sprites, so
+    // they are invisible to the flat-pool sweep below for a different reason and need saying here.
+    splashes.length = 0
+    splashG.clear()
     // Latch the per-chapter palette BEFORE clearing/repainting so the floor repopulates and the
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null
