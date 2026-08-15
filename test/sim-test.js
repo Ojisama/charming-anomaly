@@ -124,6 +124,44 @@ import {
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
 
+// ---- Scenario runner: a filter, and a --fast mode ---------------------------------------------
+// The suite is 71s, and 397 of its 430 assertion blocks finish in 4.4s TOTAL — the whole cost sits
+// in 14 functions that run full 300s sims to measure balance curves. Paying 71s to re-check the
+// difficulty ramp after editing a weapon's arc is what makes the edit-test loop feel slow, and a
+// slow loop is why defects arrive in batches instead of one at a time.
+//
+//   node test/sim-test.js              every scenario (what npm test and CI do — unchanged)
+//   node test/sim-test.js element      only scenarios whose function name matches, case-insensitive
+//   node test/sim-test.js --fast       everything except the 14 heavy balance sims
+//
+// The filter matches the FUNCTION name, which is the unit this file is already organised in.
+// A partial run always says so on the last line: a green suite that quietly checked a third of
+// itself would be worse than a slow one.
+const ONLY = process.argv.slice(2).find((a) => !a.startsWith('-')) || ''
+const FAST = process.argv.includes('--fast')
+// MEASURED, not guessed — the per-block timing is in the commit that added this. Together these
+// are 85% of the wall clock. One list rather than a per-function flag, so there is a single place
+// to look when the suite gets slow again; the count is printed so it cannot rot unnoticed.
+const SLOW_SCENARIOS = new Set([
+  'testVictory', 'testChapterLateRate', 'testAnomalySlate', 'testPoolBuckets', 'testRerollRarity',
+  'testEscalation', 'testMutators', 'testTheBlank', 'testChapterBalance', 'testChapterDensityCap',
+  'testCommitVisibility', 'testIntegerHP', 'testLaneGolden', 'testElementsRedesign',
+])
+let _ran = 0
+let _skipped = 0
+function run(fn) {
+  if (ONLY && !fn.name.toLowerCase().includes(ONLY.toLowerCase())) { _skipped++; return }
+  if (FAST && SLOW_SCENARIOS.has(fn.name)) { _skipped++; return }
+  _ran++
+  fn()
+}
+function runSummary() {
+  if (_skipped === 0) return
+  const why = ONLY ? " (filter '" + ONLY + "')" : (FAST ? ' (--fast: heavy balance sims omitted)' : '')
+  console.log('\n>>> PARTIAL RUN: ' + _ran + ' scenarios ran, ' + _skipped + ' SKIPPED' + why +
+    '. Run `npm test` with no arguments before shipping.')
+}
+
 // THE DENOMINATOR FOR ANY "every chapter a player can reach" SWEEP. Every chapter of every
 // SHIPPED book, plus The Blank — hidden rather than unfinished, and reachable by winning.
 //
@@ -3859,19 +3897,19 @@ function testCrazyMods() {
     console.log(`PASS run O.13 (strobe ray): baseline hits=${baseline} strobed hits=${strobed}`)
   }
 
-  testSupernova()
-  testUndertow()
-  testTsunami()
-  testBackhand()
-  testMagneticMines()
-  testChainReaction()
-  testWispNova()
-  testSwarm()
-  testHungryHole()
-  testCrunch()
-  testFocus()
-  testStrobe()
-  testPrism()
+  run(testSupernova)
+  run(testUndertow)
+  run(testTsunami)
+  run(testBackhand)
+  run(testMagneticMines)
+  run(testChainReaction)
+  run(testWispNova)
+  run(testSwarm)
+  run(testHungryHole)
+  run(testCrunch)
+  run(testFocus)
+  run(testStrobe)
+  run(testPrism)
 }
 
 // ---- Run P: star balance invariants (v4.4) ---------------------------------------
@@ -4504,7 +4542,7 @@ function runBooks() {
 
   console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
 }
-runBooks()
+run(runBooks)
 
 // ---- Run BL: The Shelf's mechanic (v7.x, Book 2 phase 2) --------------------------------
 // The bar, the shafts and the amplified Pulse. Every failure this guards is SILENT: a frozen shaft
@@ -4722,7 +4760,7 @@ function runShelf() {
 
   console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
 }
-runShelf()
+run(runShelf)
 
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
@@ -4967,7 +5005,7 @@ function runDark() {
 
   console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
 }
-runDark()
+run(runDark)
 
 // ---- Run RA: every creature in a roster has art, and every chapter card has a thumbnail ---------
 // TWO SILENT FAILURES, both already documented in render.js's own comments and neither one caught
@@ -5047,7 +5085,7 @@ function runRosterArt() {
 
   console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }
-runRosterArt()
+run(runRosterArt)
 
 // ---- Run LT: Light Thief (v7.x Book 2) ------------------------------------------------------
 // Owner ruling, and a REVERSAL of the first cut: "none by default, only via the shop". So the
@@ -5163,7 +5201,7 @@ function runLightThief() {
 
   console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot) and is dev-gated`)
 }
-runLightThief()
+run(runLightThief)
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —
@@ -5480,7 +5518,22 @@ function testChapterBehaviors() {
   }
 
   // (f) currents signature: a stationary pond player drifts, a stationary body player never does.
+  //
+  // SEEDED, and the threshold is 5 rather than 20. This block drew no seed of its own, so it ran
+  // on whatever Math.random state the scenarios before it happened to leave — and the quantity it
+  // measures is violently phase-dependent: across 16 seeds the same code drifts 18.1px to 158.9px,
+  // and "> 20" fails on 2 of them. It passed only because the full-suite ORDER lands on a phase
+  // where it passes, which means any edit anywhere that changes how many randoms get drawn had a
+  // ~12% chance of turning this red with nothing wrong. That is the false-red trap CLAUDE.md
+  // documents, sitting inside the suite rather than being caused by it, and it is what made
+  // running a subset of scenarios impossible.
+  //
+  // The pathology this guards is "the currents signature does nothing", and its signal is drift
+  // EXACTLY 0 — the body arm asserts that on the next line. So the threshold has no reason to sit
+  // near the measured range at all: 5 is unreachable by noise (the floor over 16 seeds is 18.1)
+  // and still fails completely if currents stop moving the player.
   {
+    Math.random = mulberry32(20250815)
     const pond = createRun(makeMeta(), { chapter: 'pond' })
     pond.weapons = []
     pond.player.x = 0; pond.player.y = 0
@@ -5494,7 +5547,7 @@ function testChapterBehaviors() {
     for (let i = 0; i < steps; i++) stepSim(body, { x: 0, y: 0 }, dt)
     const bodyDrift = Math.hypot(body.player.x, body.player.y)
 
-    assert(pondDrift > 20, `expected a stationary pond-run player to drift > 20px over 3s, got ${pondDrift.toFixed(1)}`)
+    assert(pondDrift > 5, `expected a stationary pond-run player to drift > 5px over 3s, got ${pondDrift.toFixed(1)} — the currents signature is not moving the player at all`)
     assert.strictEqual(bodyDrift, 0, `expected a stationary body-run player to never drift (no signature), got ${bodyDrift}`)
     console.log(`PASS run V.f (currents): pondDrift=${pondDrift.toFixed(1)}px bodyDrift=${bodyDrift.toFixed(1)}px`)
   }
@@ -12357,114 +12410,115 @@ function testForwardCompatibleSave() {
 }
 
 try {
-  testMovementAndCombat()
-  testDeath()
-  testVictory()
-  testNewWeapons()
-  testRaritySanity()
-  testPoolBuckets()
-  testAnomalyTier()
-  testChapterLateRate()
-  testAnomalySlate()
-  testAnomalyPity()
-  testRerollRarity()
-  testStarMods()
-  testAdvancedStarMods()
-  testElements()
-  testHolePullsCoins()
-  testEscalation()
-  testMutators()
-  testAffixes()
-  testWeaponModParity()
-  testFocusNudge()
-  testDifficulty()
-  testCrazyMods()
-  testStarBalance()
-  testGoldSinks()
-  testChoiceSlots()
-  testDifficultyUnlock()
-  testChapters()
-  testChapterRuns()
-  testChapterBehaviors()
-  testPondWeapons()
-  testGarden()
-  testV54Flags()
-  testV54Signatures()
-  testLaneMarch()
-  testLaneSkills()
-  testV54Weapons()
-  testDistricts()
-  testSkiesKaiju()
-  testRoads()
-  testTheBlank()
-  testTheBlankBoss()
-  testChapterAnomalies()
-  testTheBlankPacing()
-  testAntiKite()
-  testRemaster()
-  testCityTerrainWiring()
-  testTrafficLaneSnap()
-  testCoverDestructible()
-  testTrafficMainHydrant()
-  testDispatchAndCoverKind()
-  testTheBlankDifficulty()
-  testAntiTurtle()
-  testPondIdentity()
-  testEarlyCalm()
-  testCoinCap()
-  testOpeningCredit()
-  testChapterBalance()
-  testSaveSlots()
-  testStreamedTrapPredators()
-  testEnemySeparation()
-  testChapterDensityCap()
-  testEarlySpawnBoost()
-  testLaneOpening()
-  testFrenchDictionary()
-  testForwardCompatibleSave()
+  run(testMovementAndCombat)
+  run(testDeath)
+  run(testVictory)
+  run(testNewWeapons)
+  run(testRaritySanity)
+  run(testPoolBuckets)
+  run(testAnomalyTier)
+  run(testChapterLateRate)
+  run(testAnomalySlate)
+  run(testAnomalyPity)
+  run(testRerollRarity)
+  run(testStarMods)
+  run(testAdvancedStarMods)
+  run(testElements)
+  run(testHolePullsCoins)
+  run(testEscalation)
+  run(testMutators)
+  run(testAffixes)
+  run(testWeaponModParity)
+  run(testFocusNudge)
+  run(testDifficulty)
+  run(testCrazyMods)
+  run(testStarBalance)
+  run(testGoldSinks)
+  run(testChoiceSlots)
+  run(testDifficultyUnlock)
+  run(testChapters)
+  run(testChapterRuns)
+  run(testChapterBehaviors)
+  run(testPondWeapons)
+  run(testGarden)
+  run(testV54Flags)
+  run(testV54Signatures)
+  run(testLaneMarch)
+  run(testLaneSkills)
+  run(testV54Weapons)
+  run(testDistricts)
+  run(testSkiesKaiju)
+  run(testRoads)
+  run(testTheBlank)
+  run(testTheBlankBoss)
+  run(testChapterAnomalies)
+  run(testTheBlankPacing)
+  run(testAntiKite)
+  run(testRemaster)
+  run(testCityTerrainWiring)
+  run(testTrafficLaneSnap)
+  run(testCoverDestructible)
+  run(testTrafficMainHydrant)
+  run(testDispatchAndCoverKind)
+  run(testTheBlankDifficulty)
+  run(testAntiTurtle)
+  run(testPondIdentity)
+  run(testEarlyCalm)
+  run(testCoinCap)
+  run(testOpeningCredit)
+  run(testChapterBalance)
+  run(testSaveSlots)
+  run(testStreamedTrapPredators)
+  run(testEnemySeparation)
+  run(testChapterDensityCap)
+  run(testEarlySpawnBoost)
+  run(testLaneOpening)
+  run(testFrenchDictionary)
+  run(testForwardCompatibleSave)
   // BEFORE testSyncDecisions, and that is not cosmetic: run ZZ.f calls freezeSaves(), which is a
   // ONE-WAY latch with no unlatch by design (§3.3 — the only exit is the reload already on its way),
   // so every saveMeta after it silently no-ops. Any future scenario that writes a save belongs above
   // this line.
-  testSaveSummary()
-  testSyncDecisions()
-  testPlaytestSweepAndBlades()
-  testMower()
-  testSwitchMods()
-  testBuildReadout()
-  testAnomalyReroll()
-  testCommitVisibility()
-  testMowClears()
-  testSpiderShare()
-  testStingerPierce()
-  testRedundantMods()
-  testUndergrowthRound()
-  testRoadOff()
-  testIntegerHP()
-  testDetonationScaling()
-  testDescPlaceholder()
-  testSubmission()
-  testSurfTide()
-  testSurfSandbars()
-  testSurfFloor()
-  testSurfHumidity()
-  testSurfHumidityDamage()
-  testSurfWeapons()
-  testCrabGuard()
-  testSurfGulls()
-  testPlayerForms()
-  testMultitouchControls()
-  testLaneGolden()
-  testLaneAxis()
-  testReefAirBurst()
-  testDevMenu()
-  testModalPopBookkeeping()
-  testUndertowLadder()
-  testElementsRedesign()
-  testEventConsumers()
-  testSpawnQueueInvariant()
-  testPoolClearing()
+  run(testSaveSummary)
+  run(testSyncDecisions)
+  run(testPlaytestSweepAndBlades)
+  run(testMower)
+  run(testSwitchMods)
+  run(testBuildReadout)
+  run(testAnomalyReroll)
+  run(testCommitVisibility)
+  run(testMowClears)
+  run(testSpiderShare)
+  run(testStingerPierce)
+  run(testRedundantMods)
+  run(testUndergrowthRound)
+  run(testRoadOff)
+  run(testIntegerHP)
+  run(testDetonationScaling)
+  run(testDescPlaceholder)
+  run(testSubmission)
+  run(testSurfTide)
+  run(testSurfSandbars)
+  run(testSurfFloor)
+  run(testSurfHumidity)
+  run(testSurfHumidityDamage)
+  run(testSurfWeapons)
+  run(testCrabGuard)
+  run(testSurfGulls)
+  run(testPlayerForms)
+  run(testMultitouchControls)
+  run(testLaneGolden)
+  run(testLaneAxis)
+  run(testReefAirBurst)
+  run(testDevMenu)
+  run(testModalPopBookkeeping)
+  run(testUndertowLadder)
+  run(testElementsRedesign)
+  run(testEventConsumers)
+  run(testSpawnQueueInvariant)
+  run(testPoolClearing)
   console.log('ALL TESTS PASSED')
+  runSummary()
 } catch (err) {
   console.error('FAIL:', err.message)
   process.exit(1)
