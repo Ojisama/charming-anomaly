@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node test/sim-test.js",
+    "test:fast": "node test/sim-test.js --fast",
     "ship": "node scripts/ship.mjs"
   },
   "dependencies": {

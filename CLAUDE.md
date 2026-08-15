@@ -12,7 +12,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev        # vite dev server (host:true — reachable from phone on the LAN for touch testing)
 npm run build      # vite build -> dist/
 npm run preview    # serve the built dist/
-npm test           # node test/sim-test.js — headless sim self-check, no framework
+npm test           # node test/sim-test.js — headless sim self-check, no framework. 77s, the ship gate.
+node test/sim-test.js <name>   # ONLY scenarios whose FUNCTION name matches, case-insensitive.
+                   # This is the one to use while iterating: `surf` is 0.09s, `element` 2.4s.
+                   # 397 of the suite's 430 assertion blocks finish in 4.4s TOTAL — the whole cost
+                   # is 14 functions running full 300s sims for balance curves. A partial run
+                   # always prints what it skipped on the last line.
+npm run test:fast  # everything except those 14 — 8.6s for 385 of 430 blocks.
+node scripts/test-isolation.mjs   # does every scenario still pass ALONE? (a couple of minutes)
+                   # Run after adding a scenario, and after any change to how many randoms are
+                   # drawn. An order-coupled scenario makes a filtered run a liar: run V.f never
+                   # seeded, its measured drift ranges 18-159px across phases, and its threshold
+                   # sat at 20 — so it passed only because the full-suite ORDER lands on a passing
+                   # phase, and had a ~12% chance of a mystery red on any unrelated edit.
 node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
 node scripts/bake-cast.mjs           # re-bake src/cast/*.png (title cards' creature thumbnails)
 node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]   # phone-viewport screenshot without the MCP tab
@@ -72,6 +84,31 @@ node scripts/weapon-census.mjs       # what a weapon actually DOES over real run
 ```
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
+
+**Five scenarios lint CROSS-FILE CONTRACTS as source text, and they are the cheapest guards here.**
+An architecture audit over 273 releases found the single largest root-cause class — 28% of every
+defect that reached the live URL — is *one fact authored in two places that drifted apart*, and
+none of those places is an import, so nothing throws. `run EV` (every `{type:'x'}` sim emits has a
+render case, an `SFX_FOR_EVENT` entry, or a written line in `SILENT_BY_DESIGN`), `run SQ`
+(`run.enemies.push` confined to `spawnEnemy` + `flushSpawns`; nothing indexes the array to recover
+what it just made), `run CP` (every array handed to `syncPool` is named in `clearWorld`'s flat
+list, and no pool sits in both lists), `run VO` (roster behaviour flags, elite affixes, sfx names
+and structure kinds all resolve on the other side), and run XX's config-table walk. Add to these
+rather than inventing a new mechanism: they cost ~200ms and they caught four consumerless events,
+a pool that leaked its sprites into the next run, and five untranslated build-sheet rows on the day
+they were written. **The corollary for new copy: put player-visible strings in a config TABLE.**
+run XX enumerates tables, so copy in a function or a bare const is exempt from it by construction —
+that exemption has now shipped untranslated strings four separate times.
+
+**A PROFILER TELLS YOU WHERE TIME GOES, NEVER HOW MUCH A FIX SAVED.** `--cpu-prof` does not tax
+uniformly: it weighs allocation heavily, so optimising away allocations measures far better under
+the profiler than in reality. The separation rewrite read as 25% faster comparing a profiled
+before against an unprofiled after, and was 6.4% with neither side instrumented. Quote the A/B,
+not the profile. And when a change is meant to be behaviour-neutral, PROVE it — extract the old
+tree (`git archive <ref> src | tar -x -C <tmp>`) and diff full end state across several seeded
+runs, rather than inferring it from a green suite. Make the harness assert the old tree really
+contains the old code: pointed at the wrong ref it compares HEAD against itself and prints a
+screenful of reassuring IDENTICALs.
 
 Corollary worth stating, because it is easy to run `npm test` as a ritual: **`scripts/` and `docs/` are not in that import graph.** A harness-only or spec-only diff gets zero coverage from the suite — it will pass whatever you did. The real check for a `scripts/*.mjs` change is running the script; `git status --short` is what tells you whether you strayed into `src/`.
 

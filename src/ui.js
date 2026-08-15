@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST, elementCodex, ELEMENT_CODEX_INTRO } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -1818,20 +1818,10 @@ export function initUI(hooks) {
   let lastPauseData = null
   // Weapon stat keys the readout may carry, in display order, with their labels. A weapon only
   // shows the ones it actually has, capped so the sheet cannot be pushed past the buttons.
-  const STAT_LABEL = {
-    dmg: 'Damage', count: 'Projectiles', orbs: 'Orbs', chunks: 'Tornadoes', maxAlive: 'Max alive',
-    radius: 'Radius', hunt: 'Hunt radius', travelSpeed: 'Travel speed',
-    r: 'Radius', maxR: 'Radius', range: 'Range', length: 'Length', jetDur: 'Runs for',
-    width: 'Width', pierce: 'Pierce', every: 'Every',
-    // v7.23 skies: Atomic Breath. Both are also registered in buildReadout's ordered whitelist
-    // (sim.js) — a stat needs BOTH sites or it is silently absent from the build sheet.
-    jumps: 'Forks', arcRange: 'Fork range', duration: 'Burns for', hooks: 'Aircraft hooked',
-    // The Surf. Both are also registered in buildReadout's ordered whitelist (sim.js) — a stat
-    // needs BOTH sites or it is silently absent from the build sheet, with no warning.
-    // `crustDur` is deliberately not the shared `duration` key: that one is labelled 'Burns for'
-    // for the beam weapons, and a shell crust does not burn.
-    skips: 'Skips', crustDur: 'Crust lasts',
-  }
+  // Derived from config's STAT_KEYS, which is the single ordered table sim.js also reads for WHICH
+  // stats become rows. The words used to live here and the order there, so a new stat needed both
+  // and was silently absent from the sheet if it got one.
+  const STAT_LABEL = Object.fromEntries(STAT_KEYS.map((s) => [s.key, s.label]))
   const STAT_MAX_ROWS = 5
   // French writes 1,00 s — comma decimal, NBSP before the unit. The dictionary cannot fix a number,
   // so the formatter has to know the language. (Raised by the FR review of this panel.) Declared

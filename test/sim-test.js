@@ -73,7 +73,7 @@ import {
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
-  STRUCTURE_KINDS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
+  STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
@@ -123,8 +123,65 @@ import {
   TIDE_POOL_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, SANDBAR_VIS, GULL_RADIUS, GULL_FUSE, GULL_DMG,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
+  STAT_KEYS,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
+
+// ---- Scenario runner: a filter, and a --fast mode ---------------------------------------------
+// The suite is 71s, and 397 of its 430 assertion blocks finish in 4.4s TOTAL — the whole cost sits
+// in 14 functions that run full 300s sims to measure balance curves. Paying 71s to re-check the
+// difficulty ramp after editing a weapon's arc is what makes the edit-test loop feel slow, and a
+// slow loop is why defects arrive in batches instead of one at a time.
+//
+//   node test/sim-test.js              every scenario (what npm test and CI do — unchanged)
+//   node test/sim-test.js element      only scenarios whose function name matches, case-insensitive
+//   node test/sim-test.js --fast       everything except the 14 heavy balance sims
+//
+// The filter matches the FUNCTION name, which is the unit this file is already organised in.
+// A partial run always says so on the last line: a green suite that quietly checked a third of
+// itself would be worse than a slow one.
+const ONLY = process.argv.slice(2).find((a) => !a.startsWith('-')) || ''
+const FAST = process.argv.includes('--fast')
+// MEASURED, not guessed — the per-block timing is in the commit that added this. Together these
+// are 85% of the wall clock. One list rather than a per-function flag, so there is a single place
+// to look when the suite gets slow again; the count is printed so it cannot rot unnoticed.
+const SLOW_SCENARIOS = new Set([
+  'testVictory', 'testChapterLateRate', 'testAnomalySlate', 'testPoolBuckets', 'testRerollRarity',
+  'testEscalation', 'testMutators', 'testTheBlank', 'testChapterBalance', 'testChapterDensityCap',
+  'testCommitVisibility', 'testIntegerHP', 'testLaneGolden', 'testElementsRedesign',
+])
+let _ran = 0
+let _skipped = 0
+function run(fn) {
+  if (ONLY && !fn.name.toLowerCase().includes(ONLY.toLowerCase())) { _skipped++; return }
+  if (FAST && SLOW_SCENARIOS.has(fn.name)) { _skipped++; return }
+  _ran++
+  fn()
+}
+function runSummary() {
+  if (_skipped === 0) return
+  const why = ONLY ? " (filter '" + ONLY + "')" : (FAST ? ' (--fast: heavy balance sims omitted)' : '')
+  console.log('\n>>> PARTIAL RUN: ' + _ran + ' scenarios ran, ' + _skipped + ' SKIPPED' + why +
+    '. Run `npm test` with no arguments before shipping.')
+}
+
+// THE DENOMINATOR FOR ANY "every chapter a player can reach" SWEEP. Every chapter of every
+// SHIPPED book, plus The Blank — hidden rather than unfinished, and reachable by winning.
+//
+// It is DERIVED from BOOKS[].wip rather than written down, and that is the whole point. Writing
+// `CHAPTER_ORDER` means writing `BOOKS.book1.chapters`, which is correct today and silently wrong
+// the moment a second book ships: the sweep keeps passing while covering a strictly smaller set
+// than it claims. That is how v7.55 shipped the entire elements redesign untranslatable with a
+// green suite, and CLAUDE.md's own rule about this ("print the denominator in every sweep's log
+// line") does not help when the denominator is right but the SET it is drawn from has moved.
+//
+// Today this returns exactly CHAPTER_ORDER + blank, so nothing changes. The day `undertow` loses
+// its wip flag, every sweep using it starts demanding French names, endings and unlock lines for
+// The Surf, The Shelf and The Reef — before those chapters reach a player, not after.
+const shippedChapterIds = () => [
+  ...Object.values(BOOKS).filter((b) => !b.wip).flatMap((b) => b.chapters),
+  'blank',
+]
 
 // Sim relies on Math.random() for spawn positions/types, crit, coin drops, and
 // levelup pool picks. Seed it so the self-check is deterministic — no flaky
@@ -3090,6 +3147,11 @@ function testAffixes() {
       if (run.kills > 0) killed = true
     }
     assert(killed, 'expected the ignite DoT to finish off the splitter elite')
+    // The loop breaks on the frame the kill lands, and the affix now QUEUES its wisps (they are
+    // born inside dealDamage, i.e. inside a walk of run.enemies) — so step once more to let
+    // flushSpawns move them into the world, exactly as the next game frame would. Weapons are
+    // already cleared above, so this frame cannot land a hit of its own.
+    stepSim(run, { x: 0, y: 0 }, dt)
     const wisps = run.enemies.filter((e) => e.type === 'wisp' && !e.elite)
     assert(wisps.length >= SPLITTER_COUNT, `expected at least ${SPLITTER_COUNT} splitter wisps, got ${wisps.length}`)
     console.log(`PASS run K.b (splitter): wisps=${wisps.length}`)
@@ -3838,19 +3900,19 @@ function testCrazyMods() {
     console.log(`PASS run O.13 (strobe ray): baseline hits=${baseline} strobed hits=${strobed}`)
   }
 
-  testSupernova()
-  testUndertow()
-  testTsunami()
-  testBackhand()
-  testMagneticMines()
-  testChainReaction()
-  testWispNova()
-  testSwarm()
-  testHungryHole()
-  testCrunch()
-  testFocus()
-  testStrobe()
-  testPrism()
+  run(testSupernova)
+  run(testUndertow)
+  run(testTsunami)
+  run(testBackhand)
+  run(testMagneticMines)
+  run(testChainReaction)
+  run(testWispNova)
+  run(testSwarm)
+  run(testHungryHole)
+  run(testCrunch)
+  run(testFocus)
+  run(testStrobe)
+  run(testPrism)
 }
 
 // ---- Run P: star balance invariants (v4.4) ---------------------------------------
@@ -4483,7 +4545,7 @@ function runBooks() {
 
   console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
 }
-runBooks()
+run(runBooks)
 
 // ---- Run BL: The Shelf's mechanic (v7.x, Book 2 phase 2) --------------------------------
 // The bar, the shafts and the amplified Pulse. Every failure this guards is SILENT: a frozen shaft
@@ -4701,7 +4763,7 @@ function runShelf() {
 
   console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
 }
-runShelf()
+run(runShelf)
 
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
@@ -4951,7 +5013,7 @@ function runDark() {
 
   console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
 }
-runDark()
+run(runDark)
 
 // ---- Run RA: every creature in a roster has art, and every chapter card has a thumbnail ---------
 // TWO SILENT FAILURES, both already documented in render.js's own comments and neither one caught
@@ -5031,7 +5093,7 @@ function runRosterArt() {
 
   console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }
-runRosterArt()
+run(runRosterArt)
 
 // ---- Run LT: Light Thief (v7.x Book 2) ------------------------------------------------------
 // Owner ruling, and a REVERSAL of the first cut: "none by default, only via the shop". So the
@@ -5147,7 +5209,7 @@ function runLightThief() {
 
   console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot) and is dev-gated`)
 }
-runLightThief()
+run(runLightThief)
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —
@@ -5464,7 +5526,22 @@ function testChapterBehaviors() {
   }
 
   // (f) currents signature: a stationary pond player drifts, a stationary body player never does.
+  //
+  // SEEDED, and the threshold is 5 rather than 20. This block drew no seed of its own, so it ran
+  // on whatever Math.random state the scenarios before it happened to leave — and the quantity it
+  // measures is violently phase-dependent: across 16 seeds the same code drifts 18.1px to 158.9px,
+  // and "> 20" fails on 2 of them. It passed only because the full-suite ORDER lands on a phase
+  // where it passes, which means any edit anywhere that changes how many randoms get drawn had a
+  // ~12% chance of turning this red with nothing wrong. That is the false-red trap CLAUDE.md
+  // documents, sitting inside the suite rather than being caused by it, and it is what made
+  // running a subset of scenarios impossible.
+  //
+  // The pathology this guards is "the currents signature does nothing", and its signal is drift
+  // EXACTLY 0 — the body arm asserts that on the next line. So the threshold has no reason to sit
+  // near the measured range at all: 5 is unreachable by noise (the floor over 16 seeds is 18.1)
+  // and still fails completely if currents stop moving the player.
   {
+    Math.random = mulberry32(20250815)
     const pond = createRun(makeMeta(), { chapter: 'pond' })
     pond.weapons = []
     pond.player.x = 0; pond.player.y = 0
@@ -5478,7 +5555,7 @@ function testChapterBehaviors() {
     for (let i = 0; i < steps; i++) stepSim(body, { x: 0, y: 0 }, dt)
     const bodyDrift = Math.hypot(body.player.x, body.player.y)
 
-    assert(pondDrift > 20, `expected a stationary pond-run player to drift > 20px over 3s, got ${pondDrift.toFixed(1)}`)
+    assert(pondDrift > 5, `expected a stationary pond-run player to drift > 5px over 3s, got ${pondDrift.toFixed(1)} — the currents signature is not moving the player at all`)
     assert.strictEqual(bodyDrift, 0, `expected a stationary body-run player to never drift (no signature), got ${bodyDrift}`)
     console.log(`PASS run V.f (currents): pondDrift=${pondDrift.toFixed(1)}px bodyDrift=${bodyDrift.toFixed(1)}px`)
   }
@@ -9203,11 +9280,30 @@ function testRemaster() {
   // (d) Reword tables: every chapter (incl. blank) has both ending lines; unlock lines cover
   // every non-first CHAPTER_ORDER chapter.
   {
-    for (const id of [...CHAPTER_ORDER, 'blank']) {
-      assert(CHAPTER_ENDINGS[id]?.victory && CHAPTER_ENDINGS[id]?.death, `CHAPTER_ENDINGS missing ${id}`)
+    const shipped = shippedChapterIds()
+    // The denominator must be DERIVED, and this is what proves it still is. A full-suite mutation
+    // cannot reach here — flipping undertow's wip flag trips three earlier guards in runBooks
+    // (`wip.length > 0`, isWipChapter, the dailyChapter sweep) — so assert the relationship
+    // directly: every wip chapter is excluded, and there is at least one, or the exclusion is
+    // vacuous and someone could hardcode this list again without a single test noticing.
+    const wipIds = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
+    assert(wipIds.length > 0, 'no book is wip, so this sweep cannot show its denominator responds to anything')
+    for (const id of wipIds) {
+      assert(!shipped.includes(id), `wip chapter '${id}' is inside the shipped denominator`)
+      assert(Object.hasOwn(CHAPTERS, id), `wip chapter '${id}' is not a real CHAPTERS entry`)
     }
-    for (const id of CHAPTER_ORDER.slice(1)) assert(CHAPTER_UNLOCK_LINES[id], `CHAPTER_UNLOCK_LINES missing ${id}`)
-    console.log('PASS run JJ.d (reword tables): endings + unlock lines complete')
+    for (const id of shipped) {
+      assert(CHAPTER_ENDINGS[id]?.victory && CHAPTER_ENDINGS[id]?.death,
+        `CHAPTER_ENDINGS missing ${id} — a player who wins or dies there gets the generic 'You escaped! 🎉' fallback`)
+    }
+    // Unlock lines belong to every chapter you ARRIVE at, i.e. every shipped one that is not the
+    // first of its own book. The Blank is unlocked by winning rather than by the ladder, so it is
+    // exempt — as is each book's opener, which nothing unlocks.
+    const openers = new Set(Object.values(BOOKS).filter((b) => !b.wip).map((b) => b.chapters[0]))
+    for (const id of shipped.filter((i) => i !== 'blank' && !openers.has(i))) {
+      assert(CHAPTER_UNLOCK_LINES[id], `CHAPTER_UNLOCK_LINES missing ${id}`)
+    }
+    console.log(`PASS run JJ.d (reword tables): endings + unlock lines complete across ${shipped.length} shipped chapters [${shipped.join(' ')}]`)
   }
   console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events, reword tables')
 }
@@ -11587,7 +11683,10 @@ function testFrenchDictionary() {
   // finished string exists only at runtime and never appears as a literal in any src/*.js.
   const produced = new Set()
   const need = (s) => { if (typeof s !== 'string' || !s) return; produced.add(s); if (!FR[s]) missing.add(s) }
-  for (const id of CHAPTER_ORDER.concat(['blank'])) {
+  // Derived, not written down — see shippedChapterIds. A roster name is player-visible copy, and
+  // this walk is the only thing that requires French for one.
+  const frChapters = shippedChapterIds()
+  for (const id of frChapters) {
     const ch = CHAPTERS[id]
     if (!ch) continue
     need(ch.name); need(ch.tagline)
@@ -11614,6 +11713,12 @@ function testFrenchDictionary() {
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
+  // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
+  // so five of them shipped rendering in English on the French sheet. Merging the two registries
+  // into one table is what makes them visible here at all — the coverage came free with the
+  // deduplication, which is the argument for doing that kind of merge rather than guarding a split.
+  for (const s of STAT_KEYS ?? []) need(s?.label)
   // The elements redesign's copy lives in FUNCTIONS, not a table, so every walk above is blind to
   // it — the third time this exemption has bitten (two City enemies in v6.3, every weapon mod in
   // v6.6.26). It shipped to the live URL with the card and the whole Codex untranslated, and this
@@ -12319,111 +12424,116 @@ function testForwardCompatibleSave() {
 }
 
 try {
-  testMovementAndCombat()
-  testDeath()
-  testVictory()
-  testNewWeapons()
-  testRaritySanity()
-  testPoolBuckets()
-  testAnomalyTier()
-  testChapterLateRate()
-  testAnomalySlate()
-  testAnomalyPity()
-  testRerollRarity()
-  testStarMods()
-  testAdvancedStarMods()
-  testElements()
-  testHolePullsCoins()
-  testEscalation()
-  testMutators()
-  testAffixes()
-  testWeaponModParity()
-  testFocusNudge()
-  testDifficulty()
-  testCrazyMods()
-  testStarBalance()
-  testGoldSinks()
-  testChoiceSlots()
-  testDifficultyUnlock()
-  testChapters()
-  testChapterRuns()
-  testChapterBehaviors()
-  testPondWeapons()
-  testGarden()
-  testV54Flags()
-  testV54Signatures()
-  testLaneMarch()
-  testLaneSkills()
-  testV54Weapons()
-  testDistricts()
-  testSkiesKaiju()
-  testRoads()
-  testTheBlank()
-  testTheBlankBoss()
-  testChapterAnomalies()
-  testTheBlankPacing()
-  testAntiKite()
-  testRemaster()
-  testCityTerrainWiring()
-  testTrafficLaneSnap()
-  testCoverDestructible()
-  testTrafficMainHydrant()
-  testDispatchAndCoverKind()
-  testTheBlankDifficulty()
-  testAntiTurtle()
-  testPondIdentity()
-  testEarlyCalm()
-  testCoinCap()
-  testOpeningCredit()
-  testChapterBalance()
-  testSaveSlots()
-  testStreamedTrapPredators()
-  testEnemySeparation()
-  testChapterDensityCap()
-  testEarlySpawnBoost()
-  testLaneOpening()
-  testFrenchDictionary()
-  testForwardCompatibleSave()
+  run(testMovementAndCombat)
+  run(testDeath)
+  run(testVictory)
+  run(testNewWeapons)
+  run(testRaritySanity)
+  run(testPoolBuckets)
+  run(testAnomalyTier)
+  run(testChapterLateRate)
+  run(testAnomalySlate)
+  run(testAnomalyPity)
+  run(testRerollRarity)
+  run(testStarMods)
+  run(testAdvancedStarMods)
+  run(testElements)
+  run(testHolePullsCoins)
+  run(testEscalation)
+  run(testMutators)
+  run(testAffixes)
+  run(testWeaponModParity)
+  run(testFocusNudge)
+  run(testDifficulty)
+  run(testCrazyMods)
+  run(testStarBalance)
+  run(testGoldSinks)
+  run(testChoiceSlots)
+  run(testDifficultyUnlock)
+  run(testChapters)
+  run(testChapterRuns)
+  run(testChapterBehaviors)
+  run(testPondWeapons)
+  run(testGarden)
+  run(testV54Flags)
+  run(testV54Signatures)
+  run(testLaneMarch)
+  run(testLaneSkills)
+  run(testV54Weapons)
+  run(testDistricts)
+  run(testSkiesKaiju)
+  run(testRoads)
+  run(testTheBlank)
+  run(testTheBlankBoss)
+  run(testChapterAnomalies)
+  run(testTheBlankPacing)
+  run(testAntiKite)
+  run(testRemaster)
+  run(testCityTerrainWiring)
+  run(testTrafficLaneSnap)
+  run(testCoverDestructible)
+  run(testTrafficMainHydrant)
+  run(testDispatchAndCoverKind)
+  run(testTheBlankDifficulty)
+  run(testAntiTurtle)
+  run(testPondIdentity)
+  run(testEarlyCalm)
+  run(testCoinCap)
+  run(testOpeningCredit)
+  run(testChapterBalance)
+  run(testSaveSlots)
+  run(testStreamedTrapPredators)
+  run(testEnemySeparation)
+  run(testChapterDensityCap)
+  run(testEarlySpawnBoost)
+  run(testLaneOpening)
+  run(testFrenchDictionary)
+  run(testForwardCompatibleSave)
   // BEFORE testSyncDecisions, and that is not cosmetic: run ZZ.f calls freezeSaves(), which is a
   // ONE-WAY latch with no unlatch by design (§3.3 — the only exit is the reload already on its way),
   // so every saveMeta after it silently no-ops. Any future scenario that writes a save belongs above
   // this line.
-  testSaveSummary()
-  testSyncDecisions()
-  testPlaytestSweepAndBlades()
-  testMower()
-  testSwitchMods()
-  testBuildReadout()
-  testAnomalyReroll()
-  testCommitVisibility()
-  testMowClears()
-  testSpiderShare()
-  testStingerPierce()
-  testRedundantMods()
-  testUndergrowthRound()
-  testRoadOff()
-  testIntegerHP()
-  testDetonationScaling()
-  testDescPlaceholder()
-  testSubmission()
-  testSurfTide()
-  testSurfSandbars()
-  testSurfFloor()
-  testSurfHumidity()
-  testSurfHumidityDamage()
-  testSurfWeapons()
-  testCrabGuard()
-  testSurfGulls()
-  testPlayerForms()
-  testMultitouchControls()
-  testLaneGolden()
-  testLaneAxis()
-  testReefAirBurst()
-  testDevMenu()
-  testModalPopBookkeeping()
-  testUndertowLadder()
-  testElementsRedesign()
+  run(testSaveSummary)
+  run(testSyncDecisions)
+  run(testPlaytestSweepAndBlades)
+  run(testMower)
+  run(testSwitchMods)
+  run(testBuildReadout)
+  run(testAnomalyReroll)
+  run(testCommitVisibility)
+  run(testMowClears)
+  run(testSpiderShare)
+  run(testStingerPierce)
+  run(testRedundantMods)
+  run(testUndergrowthRound)
+  run(testRoadOff)
+  run(testIntegerHP)
+  run(testDetonationScaling)
+  run(testDescPlaceholder)
+  run(testSubmission)
+  run(testSurfTide)
+  run(testSurfSandbars)
+  run(testSurfFloor)
+  run(testSurfHumidity)
+  run(testSurfHumidityDamage)
+  run(testSurfWeapons)
+  run(testCrabGuard)
+  run(testSurfGulls)
+  run(testPlayerForms)
+  run(testMultitouchControls)
+  run(testLaneGolden)
+  run(testLaneAxis)
+  run(testReefAirBurst)
+  run(testDevMenu)
+  run(testModalPopBookkeeping)
+  run(testUndertowLadder)
+  run(testElementsRedesign)
+  run(testEventConsumers)
+  run(testSpawnQueueInvariant)
+  run(testPoolClearing)
+  run(testVocabularies)
   console.log('ALL TESTS PASSED')
+  runSummary()
 } catch (err) {
   console.error('FAIL:', err.message)
   process.exit(1)
@@ -16841,4 +16951,200 @@ function testBarnacleSpreadOnForeignKill() {
     'a crusted body was killed by another weapon and its crust did not spread — the spread only ' +
     'fires when the crust itself lands the kill, which is not what the card says')
   console.log('PASS run US.e-3b (barnacles): a crust whose host is killed by a DIFFERENT weapon still seeds the next body')
+}
+
+// ---- run EV: every event sim emits has a consumer -------------------------------------------
+// THE DOMINANT BUG CLASS IN THIS REPO, made mechanical. 28% of the defects that reached the live
+// URL were one fact authored in two places that drifted apart, and the event contract is the
+// purest instance: sim.js pushes {type:'x'} onto run.events, main.js drains it to render.js and
+// to SFX_FOR_EVENT, and NOTHING connects the three. A missing `case` is silent by language
+// design — the mechanic runs, the player sees nothing, and every test still passes. It has
+// shipped at least three times: the roar and tail swipe dropped in v5.6.16, the elements
+// redesign's freeze in v7.5x (CLAUDE.md writes that one up at length), and the four still-dead
+// events this assertion found on the day it was written.
+//
+// The rule is NOT "every event must have a sound" — CLAUDE.md is explicit that a freeze firing
+// dozens of times a minute must not chime. The rule is that silence has to be a DECISION someone
+// wrote down, which is what SILENT_BY_DESIGN is. An event in neither the render switch nor
+// SFX_FOR_EVENT nor that table is an accident, every time.
+function testEventConsumers() {
+  const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const render = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+
+  // Only real emissions: `run.events.push({ type: 'x'`. Matching a bare `type:` would also catch
+  // enemy archetypes ({ type: 'wisp' }) and read as an event that does not exist.
+  const emitted = [...sim.matchAll(/run\.events\.push\(\{\s*type:\s*'(\w+)'/g)].map((m) => m[1])
+  const types = [...new Set(emitted)].sort()
+  assert.ok(types.length > 30, `expected sim to emit a real event vocabulary, found ${types.length} — the regex has drifted from how events are pushed`)
+
+  // A render consumer is a `case 'x':` in handleEvents; an sfx consumer is a key of SFX_FOR_EVENT
+  // (bare, unquoted keys — `arc: 'zap'` — which is exactly why grepping for a quoted name misses).
+  const sfxStart = main.indexOf('const SFX_FOR_EVENT')
+  const sfxBlock = main.slice(sfxStart, main.indexOf('\n}', sfxStart))
+  const hasRender = (t) => new RegExp(`case '${t}':`).test(render)
+  const hasSfx = (t) => new RegExp(`(^|[{,\\s])${t}\\s*:`, 'm').test(sfxBlock)
+
+  // Each entry is a written decision that this event needs no tell of its own. Deleting an entry
+  // must make the assertion fail, so the list can never quietly absorb a real regression.
+  const SILENT_BY_DESIGN = {
+    freeze: 'the tell is the `frozen` contract field render already reads (run EL.j), and CLAUDE.md forbids a sound on something that fires dozens of times a minute',
+    leak: 'stepLeaks calls hurtPlayer(LANE_LEAK_DMG) on the very next line, and `hurt` has both a render case and an sfx entry — the player already sees and hears a marcher getting past them',
+  }
+
+  const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])
+  assert.deepStrictEqual(orphans, [],
+    `${orphans.length} event type(s) are pushed by sim.js and consumed by NOBODY — no case in render.js's ` +
+    `handleEvents, no entry in SFX_FOR_EVENT, no line in SILENT_BY_DESIGN: [${orphans.join(', ')}]. ` +
+    `On screen that is a mechanic firing with no tell, which is indistinguishable from the mechanic being broken. ` +
+    `Give it a visual, give it a sound, or write down why it needs neither.`)
+
+  // The exemption table must not outlive its subjects: an entry for an event nobody emits any more
+  // is a stale licence that would silently cover a future event of the same name.
+  const stale = Object.keys(SILENT_BY_DESIGN).filter((t) => !types.includes(t))
+  assert.deepStrictEqual(stale, [], `SILENT_BY_DESIGN exempts [${stale.join(', ')}], which sim.js no longer emits`)
+
+  const rendered = types.filter(hasRender).length
+  const sounded = types.filter(hasSfx).length
+  console.log(`PASS run EV (event consumers): ${types.length} event types emitted, ${rendered} drawn, ${sounded} sounded, ${Object.keys(SILENT_BY_DESIGN).length} silent by written decision, 0 orphaned`)
+}
+
+// ---- run SQ: nothing is born into run.enemies mid-walk ---------------------------------------
+// v7.62 measured what an immediate push costs: 495 of 657 split children were struck by the very
+// swing that spawned them, because a for...of re-reads the array's length every step and 63 loops
+// in sim.js walk run.enemies while dealing damage. That fix was applied to ONE of the two code
+// paths — the `split` flag — and the elite `splitter` affix thirteen lines above it kept pushing
+// straight into the array for another 22 releases. A local fix to a systemic rule always decays
+// that way, so the rule is now asserted instead of remembered.
+function testSpawnQueueInvariant() {
+  const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+
+  const pushes = [...sim.matchAll(/^.*run\.enemies\.push\(.*$/gm)].map((m) => m[0].trim())
+  assert.strictEqual(pushes.length, 2,
+    `run.enemies.push appears ${pushes.length} times in sim.js; exactly two are legitimate — the one inside ` +
+    `spawnEnemy and the one inside flushSpawns. A third is a birth that bypasses the queue:\n  ${pushes.join('\n  ')}`)
+
+  // Nothing may index the array to find what it just made — that is the pattern deferral breaks,
+  // and it fails by reading a STRANGER's fields rather than by throwing.
+  assert.ok(!/run\.enemies\[run\.enemies\.length - 1\]/.test(sim),
+    'something reads run.enemies[run.enemies.length - 1] to recover the enemy it just spawned. ' +
+    'Under a deferred spawn that is a different enemy entirely, silently. spawnEnemy RETURNS the newborn — use that.')
+
+  // The two callers that run INSIDE a walk of run.enemies must both pass `deferred: true`. Anchor
+  // on each call line itself rather than a slice window: a window is sized to today's comments and
+  // starts passing for the wrong reason the moment someone rewrites the prose around it.
+  const calls = [...sim.matchAll(/^.*spawnEnemy\(run,.*$/gm)].map((m) => m[0].trim())
+  const mustDefer = [
+    ["type: 'wisp'", 'the splitter elite affix, which spawns from inside dealDamage — i.e. from inside whichever weapon sweep landed the killing blow, exactly where the `split` flag was fixed in v7.62'],
+    ['ARCHETYPE_TYPE[SPAWNER_ARCHETYPE]', "the spawner elite flag, which spawns from inside stepEnemyMovement's own for...of over run.enemies"],
+  ]
+  for (const [needle, who] of mustDefer) {
+    const line = calls.find((c) => c.includes(needle))
+    assert.ok(line, `no spawnEnemy call matching ${needle} — this assertion has lost its subject and is guarding nothing`)
+    assert.ok(/deferred:\s*true/.test(line),
+      `${who} calls spawnEnemy without \`deferred: true\`, so its newborn is appended behind the cursor of the ` +
+      `very loop that created it and is acted on before it has lived a frame:\n  ${line}`)
+  }
+
+  console.log('PASS run SQ (spawn queue): run.enemies.push confined to spawnEnemy + flushSpawns, no index-back-to-find-it, both corpse-spawn paths deferred')
+}
+
+// ---- run CP: every flat sprite pool is cleared between runs -----------------------------------
+// clearWorld is a hand-maintained registry: a pool is hidden between runs ONLY by being named in
+// one of its two lists, and nothing ever checked that every pool is named. rockPool was in
+// neither, so The Beyond's asteroids stayed on screen into whatever the player started next.
+// CLAUDE.md already documents the sharper half of this trap — a RIG left in the flat list sets a
+// dead property on a plain object, no throw, and last run's entities simply persist — and the code
+// carries three defensive comments about it. Defensive comments do not fail a build.
+//
+// The rule asserted here is the one that is mechanically checkable: syncPool is the flat-pool
+// helper, so every array handed to it must appear in the flat clear list, and none of them may
+// also appear in the rig block. render.js is not importable (Pixi + DOM), so this is run UG.k's
+// source-text idiom.
+function testPoolClearing() {
+  const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+
+  // Flat pools are exactly the arrays syncPool is called with. `pool` is syncPool's own parameter
+  // name at its declaration, not a pool.
+  const flat = [...new Set([...src.matchAll(/syncPool\((\w+),/g)].map((m) => m[1]))]
+    .filter((n) => n !== 'pool').sort()
+  assert.ok(flat.length >= 12, `expected a dozen-odd flat pools, found ${flat.length} — the syncPool call shape has changed and this assertion is now blind`)
+
+  // The flat clear block: `for (const pool of [ ...names... ]) { for (const s of pool) s.visible = false }`
+  const block = src.match(/for \(const pool of \[([\s\S]*?)\]\) \{\s*for \(const s of pool\) s\.visible = false/)
+  assert.ok(block, "clearWorld's flat-pool loop is gone or reshaped — run CP can no longer see which pools get cleared")
+  const cleared = new Set([...block[1].matchAll(/(\w+Pool)/g)].map((m) => m[1]))
+
+  const unclear = flat.filter((p) => !cleared.has(p))
+  assert.deepStrictEqual(unclear, [],
+    `${unclear.length} flat pool(s) go through syncPool but are never hidden by clearWorld: [${unclear.join(', ')}]. ` +
+    `Their sprites survive into the next run — the player starts a new chapter with the last one's entities on screen.`)
+
+  // A pool in BOTH blocks is the silent-failure CLAUDE.md documents, from the other direction:
+  // whichever loop runs second decides, and for a rig the flat loop sets a dead property.
+  const rigCleared = new Set([...src.matchAll(/for \(const \w+ of (\w+Pool)\) \w+\.root\.visible = false/g)].map((m) => m[1]))
+  const both = flat.filter((p) => rigCleared.has(p))
+  assert.deepStrictEqual(both, [], `[${both.join(', ')}] appear in BOTH the flat and the rig clear lists — one of the two is setting a dead property`)
+
+  console.log(`PASS run CP (pool clearing): all ${flat.length} flat pools named in clearWorld, ${rigCleared.size} rig pools cleared via .root, no pool in both lists`)
+}
+
+// ---- run VO: the four string vocabularies that fail SILENTLY on a typo -------------------------
+// Every one of these is a bare string in one file matched against a bare string in another, with
+// no import connecting them. A misspelling is not an error in JavaScript — it is a branch that
+// never runs, a sound that never plays, a building that draws as a generic blob. All four are
+// CLEAN today, which is exactly when to nail them down: these are regression guards, not bug
+// reports, and their value is that the next typo is caught in 200ms instead of in play.
+function testVocabularies() {
+  const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const render = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const audio = readFileSync(new URL('../src/audio.js', import.meta.url), 'utf8')
+
+  // (a) BEHAVIOUR FLAGS. A roster entry's flags[] are plain strings that sim tests with
+  // `flags.includes('x')`. Misspell one and the enemy simply has no behaviour — it walks at you
+  // like a drone, which is a plausible-looking enemy rather than a visible fault.
+  const declaredFlags = new Set()
+  for (const ch of Object.values(CHAPTERS)) {
+    for (const r of ch.roster ?? []) for (const f of r.flags ?? []) declaredFlags.add(f)
+    for (const f of ch.eliteFlags ?? []) declaredFlags.add(f)
+  }
+  const readFlags = new Set([...sim.matchAll(/flags\.includes\('(\w+)'\)/g)].map((m) => m[1]))
+  const deadFlags = [...declaredFlags].filter((f) => !readFlags.has(f)).sort()
+  assert.deepStrictEqual(deadFlags, [],
+    `${deadFlags.length} behaviour flag(s) are declared on a roster but never tested for anywhere in sim.js: ` +
+    `[${deadFlags.join(', ')}]. Either it is a typo and that creature has no behaviour at all, or the code ` +
+    `that read it was removed and the roster still advertises it.`)
+
+  // (b) ELITE AFFIXES. Same shape, different array: sim reads these with `affixes.includes('x')`.
+  const readAffixes = new Set([...sim.matchAll(/affixes\.includes\('(\w+)'\)/g)].map((m) => m[1]))
+  const deadAffixes = Object.keys(ELITE_AFFIXES).filter((a) => !readAffixes.has(a)).sort()
+  assert.deepStrictEqual(deadAffixes, [],
+    `${deadAffixes.length} elite affix(es) can be ROLLED but are never read by sim.js: [${deadAffixes.join(', ')}]. ` +
+    `The player sees the affix named on the elite and it does nothing.`)
+
+  // (c) SFX NAMES. SFX_FOR_EVENT maps an event type to a NAME, and main.js plays it as
+  // `SFX[name]?.()` — the optional call is what makes a wrong name silent instead of a crash.
+  const sfxStart = main.indexOf('const SFX_FOR_EVENT')
+  assert.ok(sfxStart >= 0, 'SFX_FOR_EVENT is gone from main.js — run VO can no longer see the sound contract')
+  const sfxBlock = main.slice(sfxStart, main.indexOf('\n}', sfxStart))
+  const wantedSfx = [...new Set([...sfxBlock.matchAll(/:\s*'(\w+)'/g)].map((m) => m[1]))]
+  const haveSfx = new Set([...audio.matchAll(/^\s{2}(\w+)\s*[:(]/gm)].map((m) => m[1]))
+  const missingSfx = wantedSfx.filter((s) => !haveSfx.has(s)).sort()
+  assert.deepStrictEqual(missingSfx, [],
+    `SFX_FOR_EVENT asks for sound(s) audio.js does not define: [${missingSfx.join(', ')}]. ` +
+    `main.js calls these as SFX[name]?.(), so a wrong name is silence, not an error.`)
+
+  // (d) STRUCTURE KINDS. config owns the vocabulary; render.js owns the silhouettes, in a table
+  // inside its closure that nothing imports. A kind with no skin draws as a generic biome blob.
+  const skinBlock = render.slice(render.indexOf('const STRUCTURE_SKINS = {'))
+  const skins = new Set([...skinBlock.slice(0, skinBlock.indexOf('\n  }')).matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]))
+  assert.ok(skins.size >= 5, `expected render.js's STRUCTURE_SKINS to hold the structure vocabulary, parsed ${skins.size}`)
+  const skinless = STRUCTURE_KINDS.filter((k) => !skins.has(k))
+  assert.deepStrictEqual(skinless, [], `structure kind(s) with no STRUCTURE_SKINS entry in render.js: [${skinless.join(', ')}] — they draw as a generic blob`)
+  const radiusless = STRUCTURE_KINDS.filter((k) => STRUCTURE_RADIUS[k] == null)
+  assert.deepStrictEqual(radiusless, [], `structure kind(s) with no STRUCTURE_RADIUS: [${radiusless.join(', ')}] — sim would collide against undefined`)
+
+  console.log(`PASS run VO (vocabularies): ${declaredFlags.size} behaviour flags all read, ${Object.keys(ELITE_AFFIXES).length} affixes all read, ` +
+    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized`)
 }

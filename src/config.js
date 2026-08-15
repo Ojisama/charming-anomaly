@@ -2403,6 +2403,61 @@ export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', at
 // map did not exist before; the two v7.23 weapons count different things. Missing entry = 'count'.
 export const WEAPON_COUNT_KEYS = { tailLash: 'hooks', atomicBreath: 'jumps' }
 
+// ---- The pause build sheet's stat rows -------------------------------------------------------
+// ONE ordered table, because this was two: an ordered whitelist array inside buildReadout (sim.js)
+// deciding WHICH stats become rows and in what order, and a separate STAT_LABEL map in ui.js
+// supplying the words. A stat needed both, and missing either made it silently absent from the
+// sheet — no warning, no error, just a row that is not there. Both files' comments said so in
+// almost the same words, which is the tell that the two lists were one list all along.
+//
+// ORDER IS LOAD-BEARING. ui.js appends the cadence row and slices to STAT_MAX_ROWS (5), so where a
+// key sits decides what falls off the bottom. The history is worth keeping because each entry was
+// a real fight for one of five slots:
+//  - jetDur after 'r': the Burst Hydrant then emits dmg, count, r, jetDur + every = exactly 5.
+//  - `streams` is deliberately absent — a sixth row would push `every` off, and Split Nozzle
+//    already shows in the mod list under the table, as every behavioural mod does.
+//  - v7.23 jumps/duration for the Atomic Breath, placed so it emits dmg, jumps, duration + range
+//    + every = 5. `duration` is shared: it also surfaces rainbow's Sustain and pulsarSweep's Held
+//    Sweep, which were invisible before, and both sit at 4 rows so neither loses one.
+//  - v7.26 `arcRange` carries a label but is NOT a row: the breath already has `range` (reach to
+//    its first target), and a sixth row would push the cadence off. Arc Reach still appears in the
+//    picked-mods list, the same treatment `streams` gets.
+//  - v7.55 `knock`/`cd` for the Pincer, after 'r', so it emits dmg, r, knock, cd and stops — it
+//    has no rate/interval, making it the one weapon with no cadence row, which is the point of it.
+//    Both keys are unique to the Pincer's levels[] (every other knockback stat is `knockback`), so
+//    no other weapon gains a row.
+// `row: false` means "label only, never a row" — the entry still needs its French.
+export const STAT_KEYS = [
+  { key: 'dmg', label: 'Damage' },
+  { key: 'count', label: 'Projectiles' },
+  { key: 'hooks', label: 'Aircraft hooked' },
+  { key: 'jumps', label: 'Forks' },
+  { key: 'orbs', label: 'Orbs' },
+  { key: 'chunks', label: 'Tornadoes' },
+  { key: 'maxAlive', label: 'Max alive' },
+  { key: 'radius', label: 'Radius' },
+  { key: 'hunt', label: 'Hunt radius' },
+  { key: 'travelSpeed', label: 'Travel speed' },
+  { key: 'r', label: 'Radius' },
+  // The Skipping Shell then emits dmg, r, skips + every = 4. Unique to that weapon's levels[].
+  { key: 'skips', label: 'Skips' },
+  { key: 'jetDur', label: 'Runs for' },
+  // Deliberately NOT the shared `duration` key: that one reads 'Burns for' for the beam weapons,
+  // and a shell crust does not burn. Barnacles emit dmg, count, jumps, crustDur + every = 5,
+  // exactly at the cap — a sixth key on that weapon would push its cadence row off the bottom.
+  { key: 'crustDur', label: 'Crust lasts' },
+  { key: 'duration', label: 'Burns for' },
+  { key: 'maxR', label: 'Radius' },
+  { key: 'range', label: 'Range' },
+  { key: 'length', label: 'Length' },
+  { key: 'width', label: 'Width' },
+  { key: 'pierce', label: 'Pierce' },
+  { key: 'every', label: 'Every', row: false },      // the cadence, appended by ui after the slice
+  { key: 'arcRange', label: 'Fork range', row: false },
+]
+// The ordered keys buildReadout walks. Derived, so adding a row can never again mean editing sim.
+export const STAT_ROW_KEYS = STAT_KEYS.filter((s) => s.row !== false).map((s) => s.key)
+
 export const MOD_POOL_MAX = 6
 // Per-weapon fairness for the level-up mod pool (v4.4): a single weapon contributes at most this
 // many of its eligible mods (randomly chosen) to the candidate list per level-up. Star is the

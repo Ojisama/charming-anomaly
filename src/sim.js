@@ -30,7 +30,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS,
+  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
@@ -1148,8 +1148,7 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   // zero-clear leftover count would otherwise starve nodes/recruits at the shared ceiling.
   if (!essential && run.enemies.length >= BLANK_MAX_ALIVE) return null
   const roster = CHAPTERS[run.chapter].roster.find((r) => r.id === rosterId)
-  spawnEnemy(run, { type: ARCHETYPE_TYPE[roster.archetype], forceNormal: true, rosterId, ...opts })
-  const e = run.enemies[run.enemies.length - 1]
+  const e = spawnEnemy(run, { type: ARCHETYPE_TYPE[roster.archetype], forceNormal: true, rosterId, ...opts })
   // Re-pin hp/speed/dmg WITHOUT hpScale/dmgScale/speedCreep: those curves ramp toughness against
   // the 300s survival clock, but a scripted fight has no clock — its difficulty is the ladder's
   // job, and a slow clear must not quietly toughen wave 7 (or up-damage it) against the player
@@ -1526,7 +1525,7 @@ function spawnEnemy(run, opts = {}) {
   const flags = roster ? [...roster.flags] : []
   if (isElite) flags.push(...CHAPTERS[run.chapter].eliteFlags)
 
-  run.enemies.push({
+  const born = {
     id: run._nextId++,
     type,
     x, y,
@@ -1543,12 +1542,21 @@ function spawnEnemy(run, opts = {}) {
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
     xp: base.xp * (roster?.xpMul ?? 1),
     ...freshEnemyFields(),
-  })
+  }
+  // `deferred` is mandatory for any caller running INSIDE a walk of run.enemies — see the long
+  // measurement in spawnSplitChildren for what an immediate push does there. It is not the
+  // default because three callers need the enemy to exist right now: stepSpawning's `while
+  // (run.enemies.length < cap)` counts the array to stop, and spawnBlankEnemy/the spawner flag
+  // read the newborn straight back. Those three take the RETURN VALUE instead, so no caller has
+  // to index run.enemies to find what it just made.
+  if (opts.deferred) (run._spawnQueue ??= []).push(born)
+  else run.enemies.push(born)
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
   // a spawner's minions, which always pass forceNormal and so never reach isElite — fires the
   // "pest control has been reported" fiction beat. render.js draws the strobe, main.js plays the
   // siren, ui.js shows the HUD line.
   if (isElite && CHAPTERS[run.chapter].dispatch) run.events.push({ type: 'dispatch', x, y })
+  return born
 }
 
 // Anti-kite straggler recycling (v6.0.1, KITE_* in config.js). Nothing in the game outruns the
@@ -1934,13 +1942,16 @@ function stepEnemyMovement(run, dt) {
       e._spawnT = (e._spawnT ?? SPAWNER_INTERVAL) - dt
       if (e._spawnT <= 0) {
         e._spawnT += SPAWNER_INTERVAL
-        for (let i = 0; i < SPAWNER_COUNT && run.enemies.length < maxAliveFor(run.mods); i++) {
+        // DEFERRED: this runs inside stepEnemyMovement's own `for (const e of run.enemies)`, so an
+        // immediate push is visited by that very walk and the minion moves on its birth frame.
+        // The cap counts the queue as well, or a van would re-fill it every frame from behind.
+        for (let i = 0; i < SPAWNER_COUNT
+             && run.enemies.length + (run._spawnQueue?.length ?? 0) < maxAliveFor(run.mods); i++) {
           const a = Math.random() * Math.PI * 2
           const sd = Math.random() * SPAWNER_SCATTER
           const sx = e.x + Math.cos(a) * sd
           const sy = e.y + Math.sin(a) * sd
-          spawnEnemy(run, { type: ARCHETYPE_TYPE[SPAWNER_ARCHETYPE], x: sx, y: sy, forceNormal: true })
-          const spawned = run.enemies[run.enemies.length - 1]
+          const spawned = spawnEnemy(run, { type: ARCHETYPE_TYPE[SPAWNER_ARCHETYPE], x: sx, y: sy, forceNormal: true, deferred: true })
           run.events.push({ type: 'explode', x: sx, y: sy, radius: spawned.radius * 2 })
         }
       }
@@ -3498,11 +3509,27 @@ function streamTraps(run) {
 // enemy — the blank boss's own marker ("knockback/pull immune — checked by every kb site", see
 // spawnBlankEnemy) — separation is morally a knockback site: shoving the boss off its scripted
 // band/phase movement would be exactly the bug anchored exists to prevent.
-const _sepBuckets = new Map() // cellKey ('ci,cj') -> array of run.enemies INDICES, rebuilt every call
+// THE CELL KEY IS AN INTEGER, NOT 'ci,cj'. This is the hottest function in the sim — 27% of all
+// step time in a profiled 300s city run — and it was spending a large share of that on strings:
+// one concatenation per live enemy per frame to build the key, four more per bucket to look up
+// neighbours, and then indexOf/slice/Number to parse ci and cj back OUT of the key it had just
+// built. Packing the pair into one number removes every one of those, and the cells are carried
+// alongside their buckets so pass 2 never has to recover them at all.
+//
+// Range: ENEMY_SEP_CELL is 64px and the offset is 2^19 cells, i.e. ±33.5 MILLION px from the
+// origin before two distinct cells could collide. A 300s run at the player's 220px/s tops out
+// around 66k px, so this has ~500x headroom; SEP_KEY_SPAN is asserted against SEP_KEY_OFFSET
+// below so the two can never drift apart.
+const _sepBuckets = new Map()  // packed cell key -> array of run.enemies INDICES, rebuilt every call
+const _sepCells = []           // parallel [ci, cj, bucket] triples, so pass 2 needs no key parsing
 const SEP_NEIGHBOR_OFFSETS = [[1, 0], [-1, 1], [0, 1], [1, 1]]
+const SEP_KEY_OFFSET = 1 << 19
+const SEP_KEY_SPAN = 1 << 20
+const sepKey = (ci, cj) => (ci + SEP_KEY_OFFSET) * SEP_KEY_SPAN + (cj + SEP_KEY_OFFSET)
 function stepEnemySeparation(run) {
   const buckets = _sepBuckets
   buckets.clear()
+  _sepCells.length = 0
 
   // Pass 1: bucket every eligible enemy by its cell.
   for (let i = 0; i < run.enemies.length; i++) {
@@ -3513,9 +3540,9 @@ function stepEnemySeparation(run) {
     if (e.affixes && e.affixes.includes('anchored')) continue // knockback/pull immune — checked by every kb site; separation is morally a kb site
     const ci = Math.floor(e.x / ENEMY_SEP_CELL)
     const cj = Math.floor(e.y / ENEMY_SEP_CELL)
-    const key = ci + ',' + cj
+    const key = sepKey(ci, cj)
     let bucket = buckets.get(key)
-    if (!bucket) { bucket = []; buckets.set(key, bucket) }
+    if (!bucket) { bucket = []; buckets.set(key, bucket); _sepCells.push(ci, cj, bucket) }
     bucket.push(i)
   }
   if (buckets.size === 0) return
@@ -3524,22 +3551,22 @@ function stepEnemySeparation(run) {
   // pair once) and against the 4 forward neighbor buckets (each inter-cell pair once — the usual
   // half-neighborhood trick: the other 4 of the 8 neighbors are covered when THEY are the "own"
   // bucket being processed).
-  for (const [key, bucket] of buckets) {
-    const comma = key.indexOf(',')
-    const ci = Number(key.slice(0, comma))
-    const cj = Number(key.slice(comma + 1))
+  for (let c = 0; c < _sepCells.length; c += 3) {
+    const ci = _sepCells[c]
+    const cj = _sepCells[c + 1]
+    const bucket = _sepCells[c + 2]
 
     for (let a = 0; a < bucket.length; a++) {
       for (let b = a + 1; b < bucket.length; b++) {
         resolveSeparationPair(run, bucket[a], bucket[b])
       }
     }
-    for (const [di, dj] of SEP_NEIGHBOR_OFFSETS) {
-      const nBucket = buckets.get((ci + di) + ',' + (cj + dj))
+    for (let n = 0; n < SEP_NEIGHBOR_OFFSETS.length; n++) {
+      const nBucket = buckets.get(sepKey(ci + SEP_NEIGHBOR_OFFSETS[n][0], cj + SEP_NEIGHBOR_OFFSETS[n][1]))
       if (!nBucket) continue
-      for (const ia of bucket) {
-        for (const ib of nBucket) {
-          resolveSeparationPair(run, ia, ib)
+      for (let a = 0; a < bucket.length; a++) {
+        for (let b = 0; b < nBucket.length; b++) {
+          resolveSeparationPair(run, bucket[a], nBucket[b])
         }
       }
     }
@@ -4573,11 +4600,16 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     }
 
     // Splitter (elite affix): spawns SPLITTER_COUNT wisps around the corpse.
+    // DEFERRED for the same reason the `split` flag below queues — this whole branch runs from
+    // dealDamage, i.e. from inside whichever weapon sweep landed the killing blow, and an
+    // immediate push puts the wisps behind that sweep's cursor where the same cast kills them
+    // before they have lived a frame. The two paths were asymmetric until now: the flag was
+    // fixed in v7.62 and the affix, thirteen lines above it, was not.
     if (enemy.elite && enemy.affixes && enemy.affixes.includes('splitter')) {
       for (let i = 0; i < SPLITTER_COUNT; i++) {
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
-        spawnEnemy(run, { type: 'wisp', x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, forceNormal: true })
+        spawnEnemy(run, { type: 'wisp', x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, forceNormal: true, deferred: true })
       }
     }
     // Volatile (elite affix): a timed bomb goes off where the enemy died (see stepBombs).
@@ -4904,25 +4936,11 @@ export function buildReadout(run) {
     const rateMod = WEAPON_RATE_MODS[w.id]
     const rateDiv = globalRate * (1 + (rateMod ? (mods[rateMod] ?? 0) : 0))
     const stats = []
-    // ORDERED, and ui.js slices to STAT_MAX_ROWS (5) after appending the cadence row `every` — so
-    // where a key sits decides what falls off the sheet. jetDur goes after 'r': the Burst Hydrant
-    // then emits dmg, count, r, jetDur + every = exactly 5. `streams` is deliberately NOT here — a
-    // sixth row would push `every` (the cadence) off, and Split Nozzle already shows up in the mod
-    // list below the table, the same way every behavioural mod does.
-    // v7.23: jumps/arcRange/duration added for Atomic Breath, placed so the breath emits exactly
-    // dmg, jumps, duration, arcRange + every = 5 rows. `duration` is shared: it also surfaces
-    // rainbow's Sustain and pulsarSweep's Held Sweep, which were invisible on the sheet before —
-    // both weapons sit at 4 rows today, so gaining one costs neither of them a row.
-    // v7.26: `arcRange` is deliberately NOT here. The breath now carries both `range` (how far it
-    // reaches for its first target) and `arcRange` (how far it jumps after that), which would make
-    // six rows and push `every` — the cadence — off the bottom. Range is the one a player acts on;
-    // Arc Reach still appears in the picked-mods list under the table, the same treatment `streams`
-    // gets above.
-    // `skips` sits directly after `r` for the Skipping Shell, which then emits dmg, r, skips +
-    // every = 4 rows. It is unique to that weapon's levels[], so nothing else gains a row. The
-    // Breaker emits dmg, radius + every, and Barnacles dmg, count, jumps, crustDur + every = 5,
-    // exactly at the cap — a sixth key on that weapon would push its cadence row off the bottom.
-    for (const key of ['dmg', 'count', 'hooks', 'jumps', 'orbs', 'chunks', 'maxAlive', 'radius', 'hunt', 'travelSpeed', 'r', 'skips', 'jetDur', 'crustDur', 'duration', 'maxR', 'range', 'length', 'width', 'pierce']) {
+    // ORDERED — and the order, the membership and the words now all live in ONE table,
+    // STAT_KEYS in config.js, which is also where the reasoning behind each slot is written down.
+    // This used to be a hardcoded array here and a separate STAT_LABEL map in ui.js, and a stat
+    // needed both or it was silently missing from the build sheet.
+    for (const key of STAT_ROW_KEYS) {
       if (base[key] == null || eff[key] == null) continue
       stats.push({ key, value: eff[key], base: base[key] })
     }

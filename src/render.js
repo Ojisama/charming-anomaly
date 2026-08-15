@@ -11116,6 +11116,9 @@ export function createRenderer(app) {
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
     sand: 0,    // v7.x surf: sandbars (run.sandbars) — a flat syncPool, see placeSandbar
     trap: 0, debris: 0, shot: 0, jet: 0,
+    rock: 0,    // beyond: asteroids (run.rocks). Absent until now, which worked only by accident —
+                // syncPool writes prevCount[key] on its first call, so the surplus-hiding loop
+                // `i < prevCount[key]` compared against undefined and skipped on frame one alone.
   }
 
   function syncPool(pool, layer, list, key, tex, apply) {
@@ -14195,6 +14198,15 @@ export function createRenderer(app) {
             spawnParticle(T.fx.flare_01, lx, ly, 0, 0, 0.18, 0.08, 0xffe94d, -0.1, 0)
           }
           break
+        case 'ignitejump':
+          // Fire spreading from a burning body to the next one. The event carried (x,y)->(tx,ty)
+          // from the day it was written and nothing ever drew it, so on screen a second enemy
+          // simply began burning for no visible reason. Unlike the arcs above it emits a PAIR of
+          // points rather than a chain, so build the two-point path here. Palette is the ignite
+          // one already used by the per-frame flame particle (0xff7a30), not a new colour.
+          spawnArc([[e.x, e.y], [e.tx, e.ty]], 0xff7a30, 0xffd8a0, 0.18)
+          spawnParticle(T.fx.flame_05, e.tx, e.ty, 0, -34, 0.35, 0.09, 0xff7a30, 0.15, 0.5)
+          break
         // ---- v5.24 the blank (boss script). Every ring below carries an EXPLICIT tint:
         // spawnRing's default is white, which is invisible on the white void.
         case 'bossSpawn': {
@@ -14267,6 +14279,9 @@ export function createRenderer(app) {
       bulletPool, novaPool, orbPool, gemPool, coinPool,
       boomerangPool, minePool, homingPool, trapPool, shotPool,
       sandPool,    // v7.x surf: FLAT (one Sprite per dry patch) — likewise, not a rig
+      rockPool,    // beyond: FLAT (one Sprite per asteroid). Was in NEITHER list — the lane's rocks
+                   // stayed on screen into whatever came next, because a pool is only ever hidden
+                   // by being named here and nothing checks that every pool is.
     ]) {
       for (const s of pool) s.visible = false
     }
