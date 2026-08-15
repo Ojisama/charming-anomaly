@@ -277,11 +277,23 @@ for (const [w, h, label] of VIEWPORTS) {
     await sleep(150)
     await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 'debug' })
 
+    // ONE retry, and ONLY for a timeout. Boot time against a dev server depends on machine load —
+    // a chapter that passes alone and times out inside a 22-run sweep is the environment, not the
+    // renderer, and a gate that cries wolf gets ignored, which is strictly worse than no gate.
+    // Every other failure here (a throw, a blank canvas, a frozen frame) is deterministic and is
+    // NOT retried: retrying those would be how a real regression gets smoothed away.
     let s = null
-    for (let i = 0; i < Math.ceil(waitMs / 500); i++) {
-      s = await evaluate('window.__smoke || null')
-      if (s) break
-      await sleep(500)
+    for (let attempt = 0; attempt < 2 && !s; attempt++) {
+      if (attempt > 0) {
+        await send('Page.navigate', { url: 'about:blank' })
+        await sleep(300)
+        await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 'debug' })
+      }
+      for (let i = 0; i < Math.ceil(waitMs / 500); i++) {
+        s = await evaluate('window.__smoke || null')
+        if (s) break
+        await sleep(500)
+      }
     }
     const tag = `${chapter}/${label}`
     if (!s) { failures.push(`${tag}: never reached a rendered run within ${waitMs}ms`); rows.push([tag, 'TIMEOUT', '', '', '']); continue }
