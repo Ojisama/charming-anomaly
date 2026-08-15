@@ -4472,11 +4472,14 @@ CHAPTERS.surf = {
     // and a title card promising a bird you never fight is a lie about what the chapter is.
     cast: ['sandhopper', 'shorecrab', 'searoach'],
     form: 'fish',
-    // Blown sand, not motes. render.js's ambient dust sprite is a white radial dot shared by every
-    // chapter; over this floor it reads as smudges on a lens, and it is the single biggest thing
-    // that made the first cut of this beach look dirty rather than bright. A warm grain darker than
-    // the sand turns the same 14 sprites into wind.
-    dust: { tint: 0x8a6f45, alpha: 0.45 },
+    // SUSPENDED, NOT BLOWN. render.js's ambient dust sprite is a white radial dot shared by every
+    // chapter; over this floor it reads as smudges on a lens, so it takes a grain darker than the
+    // sand. What changed with the water is the MOTION: the same 14 sprites were drifting up-right at
+    // a wind's pace across a floor that is now underwater, and sand does not blow through water — it
+    // hangs in it and takes a long time to fall. speedMul cuts them to a fifth, and `sway` adds a
+    // slow lateral wander so they are moved BY something rather than travelling on their own.
+    // Both default to no-ops (1 and 0), so every other chapter's dust is untouched.
+    dust: { tint: 0x8a6f45, alpha: 0.45, speedMul: 0.2, sway: 5 },
     bgColor: 0xbca27a,     // damp warm sand between the floor blotches
     floorTint: 0xe0c79c,   // sun-bleached wash over the wrack and marram (see BIOME_SURF)
     playerTint: 0xffffff,
@@ -4509,6 +4512,11 @@ CHAPTERS.surf = {
     //   node scripts/fx-probe.mjs --scene scripts/scenes/surf-floor.js --chapter surf
     // puts both circles and the cast in one frame to judge it on, at either viewport.
     water: { tint: 0x0062dd, alpha: 0.36, blend: 'add' },
+
+    // The light on the sea floor. Presence turns both the caustics and the player's wake on (see
+    // CAUSTIC_VIS and WAKE_VIS) — one key means "this chapter is under water", so a later underwater
+    // chapter gets the whole set by declaring it rather than by having three flags found for it.
+    caustics: true,
   },
 }
 // Book 2 chapter 3 — THE FIRST LEFT-TO-RIGHT SCROLLER. Written as a WHOLE literal rather than
@@ -4781,7 +4789,15 @@ export const EDDY_VIS = {
 //     own 0.5 alpha lands a contrast of about 1.5x — under the >=2x the obstacle-footprint audit
 //     asks of anything whose job is to be noticed. 0.72 on white takes it to ~2.0x. The first cut
 //     shipped the pond's numbers and the surge was, on screen, a scatter of faint flecks.
-export const TIDE_VIS = { ...CURRENT_VIS, speedMul: 2.2, tint: 0xffffff, alpha: 0.72, lenPx: 74, widthPx: 15, rippleEvery: 2.6 }
+// ⚠ THE CONTRAST ARGUMENT ABOVE INVERTED WHEN THE CHAPTER WENT UNDER WATER. White at 0.72 was
+// picked to clear 2x against damp sand at luminance ~0.38; the floor is now a pale blue-white (an
+// additive wash plus caustics on top of it), so those streaks stopped being foam and became grey
+// lozenges scattered in rows — identified by ablating the layer, after reading the code had blamed
+// the swell. Same lesson the dust look records one block up: a mark in the floor's own value is the
+// wrong mark, and the fix is to cross the floor rather than to push further the way it already went.
+// So the streaks are now DARKER than the beach instead of lighter — displaced water with the depth
+// showing through it, which is what a surge over pale sand actually looks like from above.
+export const TIDE_VIS = { ...CURRENT_VIS, speedMul: 2.2, tint: 0x35708a, alpha: 0.26, lenPx: 74, widthPx: 13, rippleEvery: 2.6 }
 
 // Tide pools (render.js updateShafts, the `pool` look). The Shelf's shafts and The Surf's pools are
 // the same circle in the sim — both live in run.shafts, both come from refillSpec() — and must not
@@ -4828,6 +4844,56 @@ export const TIDE_POOL_VIS = {
   breathe: 0.06,                     // ± fraction the sheen's size wanders — calm water, not a pulse
 }
 
+// CAUSTICS (render.js updateCaustics, The Surf). The moving net of light on a sea floor: sunlight
+// refracted by the moving surface above and focused into bright creases. It is THE signal for
+// "this is underwater" — a flat blue cast says "someone tinted this image", and a cast that MOVES in
+// a pattern the water could have made says the water is there. Everything else in this chapter's
+// realism pass is detail on top of that one cue.
+//
+// Two layers at different scales drifting in DIFFERENT DIRECTIONS, which is the whole trick and the
+// reason one layer is not enough: a single tiled pattern slides across the floor as a rigid sheet,
+// and reads as a texture being scrolled — which is exactly what it is. Two of them crossing make the
+// bright creases appear, brighten, and dissolve in place, and it is that flicker, not the motion,
+// that the eye reads as water. Same reasoning as the swell's two shading bands.
+//
+// Additive, and deliberately faint. Caustics are LIGHT: they can only add. And the floor beneath
+// them still has to keep three creatures and two kinds of circle readable, so this is a shimmer you
+// notice and then stop noticing, exactly the brief the swell was tuned to.
+export const CAUSTIC_VIS = {
+  tint: 0xdff6ff,      // the sky's own light, not a colour of its own
+  tile: 256,           // px of the baked pattern; frequencies below are integer so it tiles seamlessly
+  // THESE ALPHAS ARE MUCH LOWER THAN THEY LOOK LIKE THEY SHOULD BE, and that is the note worth
+  // keeping. The pattern is additive WHITE and its creases sit near full alpha, so the two layers at
+  // 0.16/0.11 — numbers that read as "faint" beside every other alpha in this file — buried the
+  // beach under a bright net and took the crowd's readability with it. An additive layer's alpha is
+  // not a fraction of the result, it is light added on top of a floor that is already pale.
+  layers: [
+    { scale: 1.00, alpha: 0.055, vx: 11, vy: -7 },   // px/s the pattern drifts
+    { scale: 1.45, alpha: 0.040, vx: -8, vy: 13 },
+  ],
+  // Ridge shaping of the baked tile. `sharp` is how tightly the bright crease hugs the zero crossing
+  // (higher = thinner, more caustic-like and less like a plasma cloud); `gamma` shapes the falloff.
+  // Thin is also what keeps the total light down: it is the AREA of the bright part, not its
+  // brightness, that decides how much of the floor this washes out.
+  sharp: 3.4,
+  gamma: 3.4,
+}
+
+// WAKE (render.js, any chapter with `render.water`). Ripples spreading from where a body just was.
+// A fish crossing ankle-deep water and leaving the surface untouched is the single most obvious
+// thing wrong with a still beach, and unlike the caustics it costs nothing new: it reuses the splash
+// rings the gull strike already draws.
+//
+// Emitted per DISTANCE travelled rather than per second, so the trail is a property of moving rather
+// than of time passing — standing still leaves nothing, which is both correct and what stops a
+// stationary player from slowly disappearing under their own ripples.
+export const WAKE_VIS = {
+  every: 30,      // px of travel between rings
+  r: 30,          // impact radius handed to the splash, i.e. how big the ring grows
+  life: 0.85,     // s — longer than a strike's, since nothing is driving it but the water settling
+  alpha: 0.24,    // much fainter than a gull hitting the surface, which is the point of comparison
+}
+
 // Splash rings (render.js, The Surf). What a body hitting shallow water actually leaves behind:
 // concentric rings spreading OUT and slowing as they go, not a puff. Used by the gull strike
 // (owner, 2026-08-15: "when seagulls hits, there should be a little splash/ripple") and available to
@@ -4872,6 +4938,20 @@ export const SANDBAR_VIS = {
   // at 0.42 on a brown they drew a topographic map, which is a different thing from wind on sand.
   ripple: 0xc8ad80, rippleA: 0.22,   // wind ripples: what makes a pale blob read as SAND from above
   damp: 0x8a7148, dampA: 0.5, dampW: 5, // the wet margin at the waterline — the edge you step over
+  // IT BREAKS THE SURFACE (owner, 2026-08-15). A sandbar is dry ground standing out of shallow
+  // water, so it is the one part of this chapter the water is NOT in front of — and the flat blue
+  // wash was treating it as seabed like everything else. This is warm light laid over the bar in the
+  // aboveWater layer, i.e. after the wash, cancelling the blue the wash added and putting the sun
+  // back on it. That it is ADDITIVE is what makes it correct rather than a patch: it also warms
+  // whatever is STANDING on the bar, and a crab up in the sunlight should be lit like one.
+  //   dryFrac keeps the light inside the bar's own radius, so the edge stays a waterline rather than
+  //   a glow bleeding into the sea around it. It is soft-edged (T.fx.light_01), so there is no
+  //   second hard circle competing with the rim the mechanic is actually tested on.
+  // 0.18, not the 0.30 this started at: additive light lands hardest on the brightest thing, and the
+  // bar is already the brightest thing in the chapter — the SAME clipping trap the sand/crown values
+  // above were just taken down a step for, arriving from the other direction. At 0.30 the middle of
+  // every bar went white and lost its ripples again, which is the texture the mechanic reads by.
+  dry: 0xffa851, dryA: 0.18, dryFrac: 0.92,
   speck: 0xa88a56, speckA: 0.36,     // shell grit
   ripples: 7,                        // ripple lines across the patch
   specks: 26,

@@ -120,7 +120,7 @@ import {
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
   // Book 2 The Surf: the beach floor's look (Run US.j)
-  TIDE_POOL_VIS, SPLASH_VIS, GULL_RADIUS, GULL_FUSE, GULL_DMG,
+  TIDE_POOL_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, SANDBAR_VIS, GULL_RADIUS, GULL_FUSE, GULL_DMG,
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
 } from '../src/config.js'
@@ -14697,6 +14697,40 @@ function testSurfFloor() {
   const strikeFn = rsrc.slice(rsrc.indexOf('function gullStrike('), rsrc.indexOf('function syncAboveWater('))
   assert.ok(strikeFn.includes('spawnSplash('), 'a gull strike must throw a splash')
   assert.ok(SPLASH_VIS.rings >= 2, 'one ring reads as a shockwave decal; it takes a second one chasing it to read as water')
+
+  // (i) CAUSTICS. Two layers that must drift in DIFFERENT directions — that crossing is what makes
+  // the creases appear and dissolve in place rather than slide across the floor as a rigid sheet,
+  // and two layers set to the same velocity is a silent way to lose the entire effect while still
+  // rendering twice as much of it.
+  assert.ok(CAUSTIC_VIS.layers.length >= 2, 'caustics need at least two layers to shimmer at all')
+  const [c0, c1] = CAUSTIC_VIS.layers
+  // The ANGLE between the drift vectors, not their signs. A sign test only needs one axis to differ,
+  // so it passes for (11,-7) against (8,13) — vectors 70 degrees apart, fine — and equally for
+  // (11,-7) against (11,-6.9), which is locked. Mutation-found: the sign form survived being handed
+  // two layers that drift together. Normalised dot < 0.9 is about 26 degrees of separation.
+  const dot = (c0.vx * c1.vx + c0.vy * c1.vy) / (Math.hypot(c0.vx, c0.vy) * Math.hypot(c1.vx, c1.vy))
+  assert.ok(dot < 0.9,
+    `the caustic layers drift together (cos ${dot.toFixed(3)}) — they will slide as one sheet instead of crossing`)
+  assert.ok(c0.scale !== c1.scale, 'two caustic layers at the same scale beat into a moire rather than a shimmer')
+  // The tile is only seamless because every frequency in the bake is an INTEGER multiple of the
+  // tile's 2*pi. A non-integer coefficient puts a hard seam every `tile` px in both axes, which on a
+  // scrolling layer reads as the floor being made of panels — and is invisible in a still.
+  const bake = rsrc.slice(rsrc.indexOf('const N = CAUSTIC_VIS.tile'), rsrc.indexOf('T.caustic = Texture.from(c)'))
+  // Both forms the bake uses: a bare axis (`u * 3`) and a summed one (`(u + v) * 2`). Matching only
+  // the first found 4 of the 6 and still read as a pass on a threshold of 4 — the reason the count
+  // is asserted against a number this comment states rather than against "some".
+  const coeffs = [...bake.matchAll(/(?:[uv]|\([uv]\s*[+-]\s*[uv]\))\s*\*\s*([\d.]+)/g)].map((m) => Number(m[1]))
+  assert.ok(coeffs.length >= 6, `caustic bake coefficient scan found only ${coeffs.length} — the slice markers moved`)
+  for (const k of coeffs) assert.ok(Number.isInteger(k), `caustic frequency ${k} is not an integer — the tile will seam`)
+
+  // (j) The wake, and the two chapter-agnostic effects that had to be re-tuned for a floor that is
+  // now under water rather than on a beach.
+  assert.ok(WAKE_VIS.every > 0 && WAKE_VIS.alpha < SPLASH_VIS.alpha,
+    'the wake must be emitted per distance and be fainter than a body hitting the surface')
+  assert.ok(CHAPTERS.surf.render.dust.speedMul < 0.5,
+    'The Surf\'s dust must be suspended, not blown — sand does not drift at wind speed through water')
+  assert.ok(SANDBAR_VIS.dry != null && /aboveWater\.addChild\(s\)/.test(rsrc),
+    'the dry-sand light must be declared and parented above the water, or the sandbar stays submerged')
 
   console.log(`PASS run US.k (the beach floor): 0 obstacles with the seed still live, 0 of ${B.length} sandbars overlap any of ${P.length} tide pools across a 6000px box (${nearMisses} near-misses prove the fields interleave), the water wash is additive and over the world, the pool is ${steps.length} rimless steps darkening inward, and the gull flies above the wash while its shadow stays under it`)
 }

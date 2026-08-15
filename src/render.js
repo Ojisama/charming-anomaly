@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -5834,6 +5834,48 @@ export function createRenderer(app) {
       ctx.fillRect(0, 0, 16, 16)
       T.dustMote = Texture.from(c)
     }
+
+    // CAUSTIC TILE (v7.x, The Surf) — the net of focused sunlight on a sea floor, baked once as a
+    // SEAMLESS tile and then scrolled by two TilingSprites (see updateCaustics and CAUSTIC_VIS).
+    //
+    // The pattern is a sum of three sine waves whose phases are themselves modulated by the other
+    // axis — the cheapest field that folds back on itself the way a refracted wavefront does, rather
+    // than the regular egg-crate that plain sin(x)*sin(y) gives. What turns that field into caustics
+    // is the RIDGE step below: brightness is taken from how close the field is to ZERO, not from its
+    // height, so what gets drawn is the thin crease where the wave changes sign. Focused light is a
+    // caustic BECAUSE it is a fold, and a fold is a zero crossing; shading by height instead gives a
+    // soft plasma cloud, which is the look this went through on the way here.
+    //
+    // SEAMLESS is arithmetic, not luck: every frequency below is an INTEGER multiple of the tile's
+    // own 2π, so the field at x = tile is identical to the field at x = 0 and the tiling has no
+    // visible grid. Change any of those coefficients to a non-integer and a hard seam appears every
+    // `tile` px in both axes — which on a scrolling layer reads as the floor being made of panels.
+    {
+      const N = CAUSTIC_VIS.tile
+      const c = document.createElement('canvas')
+      c.width = c.height = N
+      const ctx = c.getContext('2d')
+      const img = ctx.createImageData(N, N)
+      const d = img.data
+      for (let y = 0; y < N; y++) {
+        const v = (y / N) * Math.PI * 2
+        for (let x = 0; x < N; x++) {
+          const u = (x / N) * Math.PI * 2
+          const s = (Math.sin(u * 3 + Math.sin(v * 2) * 1.6)
+                   + Math.sin(v * 4 + Math.sin(u * 3) * 1.4)
+                   + Math.sin((u + v) * 2 + Math.sin((u - v) * 3) * 1.2)) / 3
+          const ridge = Math.max(0, 1 - Math.abs(s) * CAUSTIC_VIS.sharp)
+          const a = Math.pow(ridge, CAUSTIC_VIS.gamma)
+          const i = (y * N + x) * 4
+          // White with the shape carried in ALPHA, so the layer can be tinted per chapter and its
+          // additive blend adds nothing at all where the pattern is dark.
+          d[i] = d[i + 1] = d[i + 2] = 255
+          d[i + 3] = (a * 255) | 0
+        }
+      }
+      ctx.putImageData(img, 0, 0)
+      T.caustic = Texture.from(c)
+    }
   }
   buildTextures()
 
@@ -7665,13 +7707,56 @@ export function createRenderer(app) {
   // and would cost legibility in a chapter whose whole mechanic is already taking legibility away.
   const swellLayer = new Container()
 
+  // ---- CAUSTICS (v7.x Book 2) -------------------------------------------------------------------
+  // Two tiled, additive copies of the baked caustic pattern drifting across each other. See
+  // CAUSTIC_VIS for why two and why they must drift in different directions.
+  //
+  // A `world` CHILD and UNDER entitiesLayer, both deliberately. In the world because caustics are on
+  // the FLOOR and have to scroll with it — a screen-locked shimmer reads as a filter over the game
+  // rather than as light in it. Under the entities because this is the seabed being lit: the crowd
+  // stays at full contrast, and the two things that are NOT seabed get the right answer for free —
+  // the sandbar and the tide pools both live in entitiesLayer, so no caustic falls on the dry bar
+  // (correct: it is out of the water) and none scribbles over a pool's depth steps.
+  const causticLayer = new Container()
+  const causticTiles = CAUSTIC_VIS.layers.map((L) => {
+    const t = new TilingSprite({ texture: T.caustic, width: 1, height: 1 })
+    t.blendMode = 'add'
+    t.tint = CAUSTIC_VIS.tint
+    t.alpha = L.alpha
+    t.tileScale.set(L.scale)
+    causticLayer.addChild(t)
+    return { t, L }
+  })
+  causticLayer.visible = false
+  let causticT = 0
+  // cx/cy are the camera offset (world.position), so -cx is the world x at the left edge of the
+  // screen. The sprite is parked over the viewport with a margin and resized to it, which keeps the
+  // fill rate at one screen no matter how far the player has walked from the origin.
+  //
+  // tilePosition then CANCELS the sprite's own position. Without that the pattern is anchored to the
+  // sprite's top-left, so it would ride the camera and sit perfectly still relative to the screen
+  // while the sand scrolled underneath it — the one failure that would make this read as a lens
+  // effect instead of as light on the ground, and it looks completely fine in a still frame.
+  function updateCaustics(cx, cy, dt) {
+    if (!causticLayer.visible) return
+    causticT += dt
+    const M = 64
+    const w = viewW() + M * 2, h = viewH() + M * 2
+    for (const { t, L } of causticTiles) {
+      t.position.set(-cx - M, -cy - M)
+      t.width = w
+      t.height = h
+      t.tilePosition.set(-t.x + causticT * L.vx, -t.y + causticT * L.vy)
+    }
+  }
+
   // ---- the light layer (v5.10, spec §7) — the chapter's identity -------------------------------
   // "TOKUSATSU NIGHT — the lights are looking for you." Sits between the cloud shadows and the
   // entities so light cuts THROUGH cloud shadow. blendMode appears nowhere else in this file:
   // additive is a new concept here and it is a CORRECTNESS requirement, not a perf note. Each
   // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
   // blend-mode/texture transition — three sub-containers, three draw calls.
-  world.addChild(floorLayer, swellLayer, cloudShadowLayer, entitiesLayer)
+  world.addChild(floorLayer, swellLayer, causticLayer, cloudShadowLayer, entitiesLayer)
   app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
@@ -9401,10 +9486,19 @@ export function createRenderer(app) {
     dustT += dt
     const w = app.screen.width
     const h = app.screen.height
+    // speedMul/sway (v7.x): the same 14 motes read as WIND at their built-in pace, which is wrong on
+    // a floor that is under water — sand does not blow through water, it hangs in it. Both default
+    // to no-ops so every chapter but the ones that ask keeps the drift it was tuned with.
+    const mul = dustLook?.speedMul ?? 1
+    const sway = dustLook?.sway ?? 0
     for (let i = 0; i < dustMotes.length; i++) {
       const m = dustMotes[i]
-      m.x += (m.vx * dt) / w
-      m.y -= (m.vy * dt) / h // up = decreasing y
+      // The sway is a slow lateral wander, out of phase per mote: suspended grit is moved BY
+      // something, and a straight line at any speed reads as a particle travelling under its own
+      // power. Phase from i so the field never drifts in unison.
+      const s = sway ? Math.sin(dustT * 0.5 + i * 1.9) * sway : 0
+      m.x += ((m.vx * mul + s) * dt) / w
+      m.y -= (m.vy * mul * dt) / h // up = decreasing y
       if (m.x > 1.08) m.x -= 1.16
       if (m.y < -0.08) m.y += 1.16
       m.s.position.set(m.x * w, m.y * h)
@@ -14788,8 +14882,38 @@ export function createRenderer(app) {
   // World-space, so it scrolls with the beach it is on. See SPLASH_VIS for why the rings are
   // staggered and why they ease out.
   const splashes = []
-  function spawnSplash(x, y, radius) {
-    splashes.push({ x, y, radius, t: 0, life: SPLASH_VIS.life + SPLASH_VIS.stagger * SPLASH_VIS.rings })
+  function spawnSplash(x, y, radius, opt) {
+    splashes.push({
+      x, y, radius, t: 0,
+      life: (opt?.life ?? SPLASH_VIS.life) + SPLASH_VIS.stagger * (opt?.rings ?? SPLASH_VIS.rings),
+      rings: opt?.rings ?? SPLASH_VIS.rings,
+      alpha: opt?.alpha ?? SPLASH_VIS.alpha,
+      crown: opt?.crown ?? true,
+      ringLife: opt?.life ?? SPLASH_VIS.life,
+    })
+  }
+
+  // THE PLAYER'S WAKE. Ripples left where the body just was, emitted per DISTANCE rather than per
+  // second (see WAKE_VIS): standing still leaves nothing, which is both true and what stops a
+  // stationary player from disappearing under their own rings.
+  //
+  // One ring and no crown — a crown is water thrown UP, which is what an impact does and swimming
+  // does not. This is the same drawing code as a gull hitting the surface, four times fainter and
+  // with the violent parts turned off, which is the honest relationship between the two events.
+  let wakeOn = false
+  let wakeAcc = 0
+  let wakeX = null, wakeY = null
+  function updateWake(px, py) {
+    if (!wakeOn) return
+    if (wakeX === null) { wakeX = px; wakeY = py; return }
+    const d = Math.hypot(px - wakeX, py - wakeY)
+    // A teleport (a run starting, the Blank's yank) must not fill the beach with a line of rings.
+    if (d > 400) { wakeX = px; wakeY = py; wakeAcc = 0; return }
+    wakeAcc += d
+    wakeX = px; wakeY = py
+    if (wakeAcc < WAKE_VIS.every) return
+    wakeAcc = 0
+    spawnSplash(px, py, WAKE_VIS.r, { rings: 1, crown: false, life: WAKE_VIS.life, alpha: WAKE_VIS.alpha })
   }
   function stepSplashes(dt) {
     splashG.clear()
@@ -14801,20 +14925,20 @@ export function createRenderer(app) {
       if (s.t >= s.life) { splashes.splice(i, 1); continue }
       // The crown: the water thrown straight up at the point of contact, gone almost at once. It is
       // what stops the rings reading as having appeared from nothing.
-      if (s.t < V.crownLife) {
+      if (s.crown && s.t < V.crownLife) {
         const k = s.t / V.crownLife
         splashG.circle(s.x, s.y, s.radius * (0.30 + 0.55 * k))
         splashG.fill({ color: V.crown, alpha: V.crownA * (1 - k) * (1 - k) })
       }
-      for (let r = 0; r < V.rings; r++) {
+      for (let r = 0; r < s.rings; r++) {
         const age = s.t - r * V.stagger
-        if (age <= 0 || age >= V.life) continue
-        const k = age / V.life
+        if (age <= 0 || age >= s.ringLife) continue
+        const k = age / s.ringLife
         // sqrt: fast at birth, spending itself as it goes. A linear ring reads as a UI pulse.
         const rr = s.radius * (V.r0 + (V.rMax - V.r0) * Math.sqrt(k))
         const fade = (1 - k) * (1 - k)
         splashG.circle(s.x, s.y, rr)
-        splashG.stroke({ width: Math.max(0.9, V.width * (1 - k * 0.65)), color: V.color, alpha: V.alpha * fade })
+        splashG.stroke({ width: Math.max(0.9, V.width * (1 - k * 0.65)), color: V.color, alpha: s.alpha * fade })
       }
     }
   }
@@ -14875,6 +14999,39 @@ export function createRenderer(app) {
     }
     addShake(2.6, 0.13)
   }
+  // ---- THE SANDBAR BREAKS THE SURFACE (v7.x) ---------------------------------------------------
+  // A soft warm light laid over each dry patch, in aboveWater — i.e. AFTER the chapter's blue wash,
+  // which is the only place it can undo it. See SANDBAR_VIS.dry for the reasoning; the short version
+  // is that a sandbar is the one piece of ground here that is out of the water, and a flat wash over
+  // the whole screen has no way to know that.
+  //
+  // Additive and soft-edged, which makes it a light rather than a patch: it warms whatever is
+  // STANDING on the bar as well as the bar itself, so a crab up in the sun is lit like one, and it
+  // adds no second hard circle to compete with the rim the mechanic is actually tested against.
+  // One pooled sprite per bar, the same acquire-and-hide idiom as every other flat pool here.
+  const drySandPool = []
+  function syncDrySand(bars) {
+    const V = SANDBAR_VIS
+    const on = wakeOn && V.dry != null   // same "is this chapter underwater" latch as the caustics
+    while (drySandPool.length < bars.length) {
+      const s = new Sprite(T.fx.light_01)
+      s.anchor.set(0.5)
+      s.blendMode = 'add'
+      s.tint = V.dry
+      aboveWater.addChild(s)
+      drySandPool.push(s)
+    }
+    for (let i = 0; i < drySandPool.length; i++) {
+      const s = drySandPool[i]
+      const b = on ? bars[i] : null
+      s.visible = !!b
+      if (!b) continue
+      s.position.set(b.x, b.y)
+      s.alpha = V.dryA
+      s.scale.set(fxScale(s.texture, b.r * V.dryFrac * 2))
+    }
+  }
+
   // aboveWater is a STAGE child, so it gets none of the camera transform `world` carries. Copying it
   // here is what lets everything inside be positioned in plain world coordinates, and copying the
   // SCALE as well as the position is what keeps it honest in map mode, where world.scale is mapZoom.
@@ -15321,6 +15478,7 @@ export function createRenderer(app) {
     world.position.set(cx * mapZoom, cy * mapZoom)
     updateGroundField(cx, cy)
     updateFloorLayer(cx, cy)
+    updateCaustics(cx, cy, dt)
     // v5.10 skies ground enumeration (spec §4.3): junctions and crush ruins are placed
     // ANALYTICALLY from the road grid + the render-local crush ledger, not by an extra
     // FLOOR_LAYERS sweep. (v5.16: updateLamps went with the light layer.)
@@ -15356,6 +15514,8 @@ export function createRenderer(app) {
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     syncPool(sandPool, sandLayer, run.sandbars || [], 'sand', sandbarTex, placeSandbar)
+    syncDrySand(run.sandbars || [])
+    updateWake(run.player.x, run.player.y)
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
     syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run))
@@ -15755,6 +15915,10 @@ export function createRenderer(app) {
     // they are invisible to the flat-pool sweep below for a different reason and need saying here.
     splashes.length = 0
     splashG.clear()
+    // The dry-sand lights are in aboveWater, NOT in the flat-pool sweep below, so they need saying
+    // here too: a chapter change that turns the water off would otherwise leave last run's warm
+    // discs burning over a beach that no longer has sandbars under them.
+    for (const s of drySandPool) s.visible = false
     // Latch the per-chapter palette BEFORE clearing/repainting so the floor repopulates and the
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null
@@ -15766,6 +15930,12 @@ export function createRenderer(app) {
     waterWash.tint = water?.tint ?? 0xffffff
     waterWash.alpha = water?.alpha ?? 0
     waterWash.blendMode = water?.blend ?? 'normal'
+    // One key says "this chapter is under water" and turns on everything that follows from it: the
+    // light on the floor, and the ripples the player pushes across the surface. See CHAPTERS.surf's
+    // `caustics` for why the two are not separate flags.
+    causticLayer.visible = !!chapterRender.caustics
+    wakeOn = !!chapterRender.caustics
+    wakeAcc = 0; wakeX = null
     // The pond drifts, The Surf surges; every other chapter draws no flow field at all. Re-tinting
     // the whole streak pool here (rather than at construction, where it used to be fixed to the
     // pond's teal) is what lets one pool serve both looks.
