@@ -14078,6 +14078,15 @@ export function createRenderer(app) {
             spawnParticle(T.fx.flare_01, lx, ly, 0, 0, 0.18, 0.08, 0xffe94d, -0.1, 0)
           }
           break
+        case 'ignitejump':
+          // Fire spreading from a burning body to the next one. The event carried (x,y)->(tx,ty)
+          // from the day it was written and nothing ever drew it, so on screen a second enemy
+          // simply began burning for no visible reason. Unlike the arcs above it emits a PAIR of
+          // points rather than a chain, so build the two-point path here. Palette is the ignite
+          // one already used by the per-frame flame particle (0xff7a30), not a new colour.
+          spawnArc([[e.x, e.y], [e.tx, e.ty]], 0xff7a30, 0xffd8a0, 0.18)
+          spawnParticle(T.fx.flame_05, e.tx, e.ty, 0, -34, 0.35, 0.09, 0xff7a30, 0.15, 0.5)
+          break
         // ---- v5.24 the blank (boss script). Every ring below carries an EXPLICIT tint:
         // spawnRing's default is white, which is invisible on the white void.
         case 'bossSpawn': {

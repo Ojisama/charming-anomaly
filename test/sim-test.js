@@ -3088,6 +3088,11 @@ function testAffixes() {
       if (run.kills > 0) killed = true
     }
     assert(killed, 'expected the ignite DoT to finish off the splitter elite')
+    // The loop breaks on the frame the kill lands, and the affix now QUEUES its wisps (they are
+    // born inside dealDamage, i.e. inside a walk of run.enemies) — so step once more to let
+    // flushSpawns move them into the world, exactly as the next game frame would. Weapons are
+    // already cleared above, so this frame cannot land a hit of its own.
+    stepSim(run, { x: 0, y: 0 }, dt)
     const wisps = run.enemies.filter((e) => e.type === 'wisp' && !e.elite)
     assert(wisps.length >= SPLITTER_COUNT, `expected at least ${SPLITTER_COUNT} splitter wisps, got ${wisps.length}`)
     console.log(`PASS run K.b (splitter): wisps=${wisps.length}`)
@@ -12416,6 +12421,8 @@ try {
   testModalPopBookkeeping()
   testUndertowLadder()
   testElementsRedesign()
+  testEventConsumers()
+  testSpawnQueueInvariant()
   console.log('ALL TESTS PASSED')
 } catch (err) {
   console.error('FAIL:', err.message)
@@ -16759,4 +16766,100 @@ function testBarnacleSpreadOnForeignKill() {
     'a crusted body was killed by another weapon and its crust did not spread — the spread only ' +
     'fires when the crust itself lands the kill, which is not what the card says')
   console.log('PASS run US.e-3b (barnacles): a crust whose host is killed by a DIFFERENT weapon still seeds the next body')
+}
+
+// ---- run EV: every event sim emits has a consumer -------------------------------------------
+// THE DOMINANT BUG CLASS IN THIS REPO, made mechanical. 28% of the defects that reached the live
+// URL were one fact authored in two places that drifted apart, and the event contract is the
+// purest instance: sim.js pushes {type:'x'} onto run.events, main.js drains it to render.js and
+// to SFX_FOR_EVENT, and NOTHING connects the three. A missing `case` is silent by language
+// design — the mechanic runs, the player sees nothing, and every test still passes. It has
+// shipped at least three times: the roar and tail swipe dropped in v5.6.16, the elements
+// redesign's freeze in v7.5x (CLAUDE.md writes that one up at length), and the four still-dead
+// events this assertion found on the day it was written.
+//
+// The rule is NOT "every event must have a sound" — CLAUDE.md is explicit that a freeze firing
+// dozens of times a minute must not chime. The rule is that silence has to be a DECISION someone
+// wrote down, which is what SILENT_BY_DESIGN is. An event in neither the render switch nor
+// SFX_FOR_EVENT nor that table is an accident, every time.
+function testEventConsumers() {
+  const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const render = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+
+  // Only real emissions: `run.events.push({ type: 'x'`. Matching a bare `type:` would also catch
+  // enemy archetypes ({ type: 'wisp' }) and read as an event that does not exist.
+  const emitted = [...sim.matchAll(/run\.events\.push\(\{\s*type:\s*'(\w+)'/g)].map((m) => m[1])
+  const types = [...new Set(emitted)].sort()
+  assert.ok(types.length > 30, `expected sim to emit a real event vocabulary, found ${types.length} — the regex has drifted from how events are pushed`)
+
+  // A render consumer is a `case 'x':` in handleEvents; an sfx consumer is a key of SFX_FOR_EVENT
+  // (bare, unquoted keys — `arc: 'zap'` — which is exactly why grepping for a quoted name misses).
+  const sfxStart = main.indexOf('const SFX_FOR_EVENT')
+  const sfxBlock = main.slice(sfxStart, main.indexOf('\n}', sfxStart))
+  const hasRender = (t) => new RegExp(`case '${t}':`).test(render)
+  const hasSfx = (t) => new RegExp(`(^|[{,\\s])${t}\\s*:`, 'm').test(sfxBlock)
+
+  // Each entry is a written decision that this event needs no tell of its own. Deleting an entry
+  // must make the assertion fail, so the list can never quietly absorb a real regression.
+  const SILENT_BY_DESIGN = {
+    freeze: 'the tell is the `frozen` contract field render already reads (run EL.j), and CLAUDE.md forbids a sound on something that fires dozens of times a minute',
+    leak: 'stepLeaks calls hurtPlayer(LANE_LEAK_DMG) on the very next line, and `hurt` has both a render case and an sfx entry — the player already sees and hears a marcher getting past them',
+  }
+
+  const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])
+  assert.deepStrictEqual(orphans, [],
+    `${orphans.length} event type(s) are pushed by sim.js and consumed by NOBODY — no case in render.js's ` +
+    `handleEvents, no entry in SFX_FOR_EVENT, no line in SILENT_BY_DESIGN: [${orphans.join(', ')}]. ` +
+    `On screen that is a mechanic firing with no tell, which is indistinguishable from the mechanic being broken. ` +
+    `Give it a visual, give it a sound, or write down why it needs neither.`)
+
+  // The exemption table must not outlive its subjects: an entry for an event nobody emits any more
+  // is a stale licence that would silently cover a future event of the same name.
+  const stale = Object.keys(SILENT_BY_DESIGN).filter((t) => !types.includes(t))
+  assert.deepStrictEqual(stale, [], `SILENT_BY_DESIGN exempts [${stale.join(', ')}], which sim.js no longer emits`)
+
+  const rendered = types.filter(hasRender).length
+  const sounded = types.filter(hasSfx).length
+  console.log(`PASS run EV (event consumers): ${types.length} event types emitted, ${rendered} drawn, ${sounded} sounded, ${Object.keys(SILENT_BY_DESIGN).length} silent by written decision, 0 orphaned`)
+}
+
+// ---- run SQ: nothing is born into run.enemies mid-walk ---------------------------------------
+// v7.62 measured what an immediate push costs: 495 of 657 split children were struck by the very
+// swing that spawned them, because a for...of re-reads the array's length every step and 63 loops
+// in sim.js walk run.enemies while dealing damage. That fix was applied to ONE of the two code
+// paths — the `split` flag — and the elite `splitter` affix thirteen lines above it kept pushing
+// straight into the array for another 22 releases. A local fix to a systemic rule always decays
+// that way, so the rule is now asserted instead of remembered.
+function testSpawnQueueInvariant() {
+  const sim = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+
+  const pushes = [...sim.matchAll(/^.*run\.enemies\.push\(.*$/gm)].map((m) => m[0].trim())
+  assert.strictEqual(pushes.length, 2,
+    `run.enemies.push appears ${pushes.length} times in sim.js; exactly two are legitimate — the one inside ` +
+    `spawnEnemy and the one inside flushSpawns. A third is a birth that bypasses the queue:\n  ${pushes.join('\n  ')}`)
+
+  // Nothing may index the array to find what it just made — that is the pattern deferral breaks,
+  // and it fails by reading a STRANGER's fields rather than by throwing.
+  assert.ok(!/run\.enemies\[run\.enemies\.length - 1\]/.test(sim),
+    'something reads run.enemies[run.enemies.length - 1] to recover the enemy it just spawned. ' +
+    'Under a deferred spawn that is a different enemy entirely, silently. spawnEnemy RETURNS the newborn — use that.')
+
+  // The two callers that run INSIDE a walk of run.enemies must both pass `deferred: true`. Anchor
+  // on each call line itself rather than a slice window: a window is sized to today's comments and
+  // starts passing for the wrong reason the moment someone rewrites the prose around it.
+  const calls = [...sim.matchAll(/^.*spawnEnemy\(run,.*$/gm)].map((m) => m[0].trim())
+  const mustDefer = [
+    ["type: 'wisp'", 'the splitter elite affix, which spawns from inside dealDamage — i.e. from inside whichever weapon sweep landed the killing blow, exactly where the `split` flag was fixed in v7.62'],
+    ['ARCHETYPE_TYPE[SPAWNER_ARCHETYPE]', "the spawner elite flag, which spawns from inside stepEnemyMovement's own for...of over run.enemies"],
+  ]
+  for (const [needle, who] of mustDefer) {
+    const line = calls.find((c) => c.includes(needle))
+    assert.ok(line, `no spawnEnemy call matching ${needle} — this assertion has lost its subject and is guarding nothing`)
+    assert.ok(/deferred:\s*true/.test(line),
+      `${who} calls spawnEnemy without \`deferred: true\`, so its newborn is appended behind the cursor of the ` +
+      `very loop that created it and is acted on before it has lived a frame:\n  ${line}`)
+  }
+
+  console.log('PASS run SQ (spawn queue): run.enemies.push confined to spawnEnemy + flushSpawns, no index-back-to-find-it, both corpse-spawn paths deferred')
 }

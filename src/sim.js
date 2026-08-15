@@ -1148,8 +1148,7 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   // zero-clear leftover count would otherwise starve nodes/recruits at the shared ceiling.
   if (!essential && run.enemies.length >= BLANK_MAX_ALIVE) return null
   const roster = CHAPTERS[run.chapter].roster.find((r) => r.id === rosterId)
-  spawnEnemy(run, { type: ARCHETYPE_TYPE[roster.archetype], forceNormal: true, rosterId, ...opts })
-  const e = run.enemies[run.enemies.length - 1]
+  const e = spawnEnemy(run, { type: ARCHETYPE_TYPE[roster.archetype], forceNormal: true, rosterId, ...opts })
   // Re-pin hp/speed/dmg WITHOUT hpScale/dmgScale/speedCreep: those curves ramp toughness against
   // the 300s survival clock, but a scripted fight has no clock — its difficulty is the ladder's
   // job, and a slow clear must not quietly toughen wave 7 (or up-damage it) against the player
@@ -1526,7 +1525,7 @@ function spawnEnemy(run, opts = {}) {
   const flags = roster ? [...roster.flags] : []
   if (isElite) flags.push(...CHAPTERS[run.chapter].eliteFlags)
 
-  run.enemies.push({
+  const born = {
     id: run._nextId++,
     type,
     x, y,
@@ -1543,12 +1542,21 @@ function spawnEnemy(run, opts = {}) {
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
     xp: base.xp * (roster?.xpMul ?? 1),
     ...freshEnemyFields(),
-  })
+  }
+  // `deferred` is mandatory for any caller running INSIDE a walk of run.enemies — see the long
+  // measurement in spawnSplitChildren for what an immediate push does there. It is not the
+  // default because three callers need the enemy to exist right now: stepSpawning's `while
+  // (run.enemies.length < cap)` counts the array to stop, and spawnBlankEnemy/the spawner flag
+  // read the newborn straight back. Those three take the RETURN VALUE instead, so no caller has
+  // to index run.enemies to find what it just made.
+  if (opts.deferred) (run._spawnQueue ??= []).push(born)
+  else run.enemies.push(born)
   // v6.3 dispatch beat (CHAPTERS[].dispatch, currently city only): a REAL elite birth here — never
   // a spawner's minions, which always pass forceNormal and so never reach isElite — fires the
   // "pest control has been reported" fiction beat. render.js draws the strobe, main.js plays the
   // siren, ui.js shows the HUD line.
   if (isElite && CHAPTERS[run.chapter].dispatch) run.events.push({ type: 'dispatch', x, y })
+  return born
 }
 
 // Anti-kite straggler recycling (v6.0.1, KITE_* in config.js). Nothing in the game outruns the
@@ -1934,13 +1942,16 @@ function stepEnemyMovement(run, dt) {
       e._spawnT = (e._spawnT ?? SPAWNER_INTERVAL) - dt
       if (e._spawnT <= 0) {
         e._spawnT += SPAWNER_INTERVAL
-        for (let i = 0; i < SPAWNER_COUNT && run.enemies.length < maxAliveFor(run.mods); i++) {
+        // DEFERRED: this runs inside stepEnemyMovement's own `for (const e of run.enemies)`, so an
+        // immediate push is visited by that very walk and the minion moves on its birth frame.
+        // The cap counts the queue as well, or a van would re-fill it every frame from behind.
+        for (let i = 0; i < SPAWNER_COUNT
+             && run.enemies.length + (run._spawnQueue?.length ?? 0) < maxAliveFor(run.mods); i++) {
           const a = Math.random() * Math.PI * 2
           const sd = Math.random() * SPAWNER_SCATTER
           const sx = e.x + Math.cos(a) * sd
           const sy = e.y + Math.sin(a) * sd
-          spawnEnemy(run, { type: ARCHETYPE_TYPE[SPAWNER_ARCHETYPE], x: sx, y: sy, forceNormal: true })
-          const spawned = run.enemies[run.enemies.length - 1]
+          const spawned = spawnEnemy(run, { type: ARCHETYPE_TYPE[SPAWNER_ARCHETYPE], x: sx, y: sy, forceNormal: true, deferred: true })
           run.events.push({ type: 'explode', x: sx, y: sy, radius: spawned.radius * 2 })
         }
       }
@@ -4573,11 +4584,16 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     }
 
     // Splitter (elite affix): spawns SPLITTER_COUNT wisps around the corpse.
+    // DEFERRED for the same reason the `split` flag below queues — this whole branch runs from
+    // dealDamage, i.e. from inside whichever weapon sweep landed the killing blow, and an
+    // immediate push puts the wisps behind that sweep's cursor where the same cast kills them
+    // before they have lived a frame. The two paths were asymmetric until now: the flag was
+    // fixed in v7.62 and the affix, thirteen lines above it, was not.
     if (enemy.elite && enemy.affixes && enemy.affixes.includes('splitter')) {
       for (let i = 0; i < SPLITTER_COUNT; i++) {
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
-        spawnEnemy(run, { type: 'wisp', x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, forceNormal: true })
+        spawnEnemy(run, { type: 'wisp', x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, forceNormal: true, deferred: true })
       }
     }
     // Volatile (elite affix): a timed bomb goes off where the enemy died (see stepBombs).
