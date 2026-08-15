@@ -3509,11 +3509,27 @@ function streamTraps(run) {
 // enemy — the blank boss's own marker ("knockback/pull immune — checked by every kb site", see
 // spawnBlankEnemy) — separation is morally a knockback site: shoving the boss off its scripted
 // band/phase movement would be exactly the bug anchored exists to prevent.
-const _sepBuckets = new Map() // cellKey ('ci,cj') -> array of run.enemies INDICES, rebuilt every call
+// THE CELL KEY IS AN INTEGER, NOT 'ci,cj'. This is the hottest function in the sim — 27% of all
+// step time in a profiled 300s city run — and it was spending a large share of that on strings:
+// one concatenation per live enemy per frame to build the key, four more per bucket to look up
+// neighbours, and then indexOf/slice/Number to parse ci and cj back OUT of the key it had just
+// built. Packing the pair into one number removes every one of those, and the cells are carried
+// alongside their buckets so pass 2 never has to recover them at all.
+//
+// Range: ENEMY_SEP_CELL is 64px and the offset is 2^19 cells, i.e. ±33.5 MILLION px from the
+// origin before two distinct cells could collide. A 300s run at the player's 220px/s tops out
+// around 66k px, so this has ~500x headroom; SEP_KEY_SPAN is asserted against SEP_KEY_OFFSET
+// below so the two can never drift apart.
+const _sepBuckets = new Map()  // packed cell key -> array of run.enemies INDICES, rebuilt every call
+const _sepCells = []           // parallel [ci, cj, bucket] triples, so pass 2 needs no key parsing
 const SEP_NEIGHBOR_OFFSETS = [[1, 0], [-1, 1], [0, 1], [1, 1]]
+const SEP_KEY_OFFSET = 1 << 19
+const SEP_KEY_SPAN = 1 << 20
+const sepKey = (ci, cj) => (ci + SEP_KEY_OFFSET) * SEP_KEY_SPAN + (cj + SEP_KEY_OFFSET)
 function stepEnemySeparation(run) {
   const buckets = _sepBuckets
   buckets.clear()
+  _sepCells.length = 0
 
   // Pass 1: bucket every eligible enemy by its cell.
   for (let i = 0; i < run.enemies.length; i++) {
@@ -3524,9 +3540,9 @@ function stepEnemySeparation(run) {
     if (e.affixes && e.affixes.includes('anchored')) continue // knockback/pull immune — checked by every kb site; separation is morally a kb site
     const ci = Math.floor(e.x / ENEMY_SEP_CELL)
     const cj = Math.floor(e.y / ENEMY_SEP_CELL)
-    const key = ci + ',' + cj
+    const key = sepKey(ci, cj)
     let bucket = buckets.get(key)
-    if (!bucket) { bucket = []; buckets.set(key, bucket) }
+    if (!bucket) { bucket = []; buckets.set(key, bucket); _sepCells.push(ci, cj, bucket) }
     bucket.push(i)
   }
   if (buckets.size === 0) return
@@ -3535,22 +3551,22 @@ function stepEnemySeparation(run) {
   // pair once) and against the 4 forward neighbor buckets (each inter-cell pair once — the usual
   // half-neighborhood trick: the other 4 of the 8 neighbors are covered when THEY are the "own"
   // bucket being processed).
-  for (const [key, bucket] of buckets) {
-    const comma = key.indexOf(',')
-    const ci = Number(key.slice(0, comma))
-    const cj = Number(key.slice(comma + 1))
+  for (let c = 0; c < _sepCells.length; c += 3) {
+    const ci = _sepCells[c]
+    const cj = _sepCells[c + 1]
+    const bucket = _sepCells[c + 2]
 
     for (let a = 0; a < bucket.length; a++) {
       for (let b = a + 1; b < bucket.length; b++) {
         resolveSeparationPair(run, bucket[a], bucket[b])
       }
     }
-    for (const [di, dj] of SEP_NEIGHBOR_OFFSETS) {
-      const nBucket = buckets.get((ci + di) + ',' + (cj + dj))
+    for (let n = 0; n < SEP_NEIGHBOR_OFFSETS.length; n++) {
+      const nBucket = buckets.get(sepKey(ci + SEP_NEIGHBOR_OFFSETS[n][0], cj + SEP_NEIGHBOR_OFFSETS[n][1]))
       if (!nBucket) continue
-      for (const ia of bucket) {
-        for (const ib of nBucket) {
-          resolveSeparationPair(run, ia, ib)
+      for (let a = 0; a < bucket.length; a++) {
+        for (let b = 0; b < nBucket.length; b++) {
+          resolveSeparationPair(run, bucket[a], nBucket[b])
         }
       }
     }
