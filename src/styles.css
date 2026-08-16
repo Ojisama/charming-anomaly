@@ -302,6 +302,12 @@ body {
   box-shadow: 0 3px 0 var(--gold-edge);
 }
 .shop-balance b { font-size: 1.25rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+/* v7.x: which book's purse the balance above is. Pushed to the far end of .shop-head by
+   margin-left:auto rather than justify-content:space-between on the header, so it collapses to
+   nothing (no gap left behind) on the sac view, which never renders this span. A returning player
+   who just browsed into Book 2 needs this — its purse resets to 100, and the balance alone would
+   read as book 1's coins having been wiped. */
+.shop-book { margin-left: auto; color: var(--ink-soft); font-weight: 700; font-size: 0.9rem; }
 .shop-rows {
   width: 100%;
   max-width: 540px;
@@ -318,8 +324,13 @@ body {
      (overflow-y below). v6.6 keeps that floor and adds a ceiling: minmax(max-content, 1fr) still
      refuses to squeeze below a row's natural height (so the v6.0.2 bug cannot come back — a
      screen too short for eight honest rows scrolls, it does not clip), but now GROWS the rows to
-     fill a taller screen rather than bunching them at the top with dead space below. */
-  grid-template-rows: repeat(8, minmax(max-content, 1fr));
+     fill a taller screen rather than bunching them at the top with dead space below.
+     v7.x: grid-auto-rows, not a hardcoded repeat(8, ...) — a book's line count is shopLines(bookId).
+     length now, not always 8 (Undertow's is 11), and a fixed repeat(8, ...) left rows past the 8th
+     falling into implicit grid-auto-rows:auto at a DIFFERENT (shorter) height than the first eight.
+     The --sac variant used to carry this same rule as its own override; now that the base rule
+     matches it, that modifier was dropped as a duplicate rather than kept as dead weight. */
+  grid-auto-rows: minmax(max-content, 1fr);
   gap: 4px;
   overflow-y: auto;
   touch-action: pan-y;
@@ -1590,9 +1601,11 @@ body {
   background: #dff5ec;
   animation: counter-pop 0.25s ease-out, ready-pulse 0.9s ease-in-out infinite;
 }
-/* the sacrifice list only holds stats you actually own, so its row count varies — auto rows
-   instead of the shop's fixed repeat(8) */
-.shop-rows--sac { grid-template-rows: none; grid-auto-rows: minmax(max-content, 1fr); }
+/* .shop-rows--sac used to diverge from the base .shop-rows rule (fixed repeat(8) rows there,
+   auto rows here — the sacrifice list only holds stats you actually own, so its count varies).
+   v7.x made the base rule itself grid-auto-rows for the same reason (Undertow's 11 shop lines
+   vs book 1's 8), so this modifier is now a verbatim duplicate and was dropped rather than kept
+   as dead weight. */
 .shop-foot--sac { gap: 10px; }
 .shop-foot--sac .btn { flex: 1; width: auto; min-width: 0; min-height: 46px; padding: 6px 8px; font-size: 0.84rem; }
 /* ---- sacrifice rows: the SHOP row component, reused verbatim ----

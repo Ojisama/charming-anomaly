@@ -11035,7 +11035,9 @@ export function createRenderer(app) {
     const px = run.player.x + cx, py = run.player.y + cy
     // The light, as the chapter states it: a fraction of the screen's LONGEST SIDE, linear in the
     // bar. Screen-relative because a px count means a different mechanic on every device.
-    const R = lightRadius(run.charge, res, Math.max(w, h))
+    // run.chargeMax (v7.x Book 2 Task 9 fix round): Deep Lungs' own ceiling, not the config max —
+    // omitting this pins the light at radiusFull for the whole band above the OLD max, motionless.
+    const R = lightRadius(run.charge, res, Math.max(w, h), run.chargeMax)
     // Nothing to draw once the FULLY-LIT core alone reaches the farthest corner. The falloff runs
     // from LIGHT_CORE_FRAC x R out to R, so that core is the only part guaranteed to be untouched.
     const corner = Math.max(Math.hypot(px, py), Math.hypot(w - px, py),

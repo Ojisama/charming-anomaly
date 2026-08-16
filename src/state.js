@@ -1,13 +1,13 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
 import {
-  PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
+  PLAYER, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
-} from './config.js'
+  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR, unlockLevel, unlockMax } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -149,9 +149,27 @@ let boundSlot = null
 //   load, floored but never capped (R3). Read by the ★ row (ui.js) and saveSummary's `beaten`.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
-// meta.coins / meta.shop / meta.choiceSlots / meta.runs: shared, chapter-agnostic, untouched
-//   by the v4 -> v5 migration below. choiceSlots is floored at 2 and, like maxDifficulty above,
-//   NOT capped on load — createRun clamps what this build actually deals (MAX_CHOICE_SLOTS).
+// meta.coins / meta.shop / meta.choiceSlots / meta.runs: BOOK 1's own purse (v7.x per-book
+//   progression) — the fields it has always used, at the top level, UNCHANGED. choiceSlots is
+//   floored at 2 and, like maxDifficulty above, NOT capped on load — createRun clamps what this
+//   build actually deals (MAX_CHOICE_SLOTS). Untouched by the v4 -> v5 migration below.
+// meta.unlocks: book 1's permanent-unlock flags ({ [id]: true }), read the same way as
+//   meta.books[id].unlocks below — see bookMeta/ensureBookMeta. Empty today (BOOK_UNLOCKS has no
+//   book1 entries yet); it exists so a book-1 unlock, if one ever ships, needs no new field.
+// meta.books[bookId] = { coins, shop: {ONE PER shopLines(bookId) id}, choiceSlots, unlocks } —
+//   book 2+'s own purse, entirely separate from book 1's above (see bookMeta/ensureBookMeta,
+//   config.js's BOOK_ORDER/shopLines/BOOK_UNLOCKS). Absent until a book is actually reached —
+//   ensureBookMeta creates it AT ZERO on first use, never as a payout; the coin GRANT on unlocking
+//   a book goes through grantBook/unlockBook below. Repaired in place, keyed by id, on every read
+//   (R3: a future build's extra shop line or extra book must survive an older build touching this
+//   save).
+// meta.grants[bookId] = true — the monotone record of the 100-coin welcome (grantBook below).
+//   Absent means "never granted", regardless of what the purse currently holds: a purse's
+//   existence and balance are NOT proof of a grant (a UI read can create one at 0, a player can
+//   spend it to 0), so this is the one fact that decides whether the payout still happens. Set
+//   once, in the unlock path only (endRun's book-finale branch in main.js, or loadMeta's
+//   retroactive chain below), and never unset.
+
 // meta.schema: save-format version (see SCHEMA below). A brand-new save is stamped with SCHEMA;
 //   a save that PREDATES the field is by definition format 1, so loadMeta fills in 1 rather than
 //   SCHEMA — an old blob must never be relabelled as this build's format. Nothing reads it yet.
@@ -237,7 +255,13 @@ export function loadMeta() {
       // `??= 0` this replaces on shop levels, whose sum is interpolated by shopFootHtml (:560).
       m.coins = Number(m.coins) || 0
       m.runs = Number(m.runs) || 0
-      for (const id of Object.keys(SHOP)) m.shop[id] = Number(m.shop[id]) || 0
+      // Book 1's OWN top-level `meta.shop` — never `meta.books[…].shop` — so this reads book 1's
+      // line table via shopLines(BOOK_ORDER[0]), same as every other consumer, rather than the
+      // universal table directly. Provably identical today (BOOK_SHOP.book1 must not exist — run
+      // BP asserts it), but reading the universal table's keys straight would silently stop
+      // covering a future book1-specific line while every other call site already had it — the
+      // exact hazard run BP's source-text lint exists to catch.
+      for (const id of Object.keys(shopLines(BOOK_ORDER[0]))) m.shop[id] = Number(m.shop[id]) || 0
       // v4 -> v5 migration (one-time, detected by the absence of meta.chapters): the top-level
       // difficulty ladder (whatever difficulty/maxDifficulty the save already had — see the
       // v4.10 grandfathering this replaces) becomes chapters.body's ladder, then top-level
@@ -281,6 +305,32 @@ export function loadMeta() {
       // on the sacrifice screen. Coerced for the same reason as m.dev above — createRun tests
       // `=== true`, so a truthy-but-not-true value would grant it everywhere else and deny it there.
       m.lightThief = m.lightThief === true
+      // Retroactive BOOK unlock, exactly the same argument as the chapter chain above: a book
+      // that shipped AFTER the player already beat the previous book's finale at
+      // CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load, because endRun could not unlock a book that
+      // did not exist yet. Without this, every veteran is locked out of Book 2 permanently —
+      // including everyone holding The Blank, which requires a Beyond win at 5. unlockBook still
+      // refuses a WIP book unless meta.dev is on (its own gate, read here already coerced above),
+      // so a real player sees and gets nothing until Book 2 actually ships.
+      for (let i = 1; i < BOOK_ORDER.length; i++) {
+        const prevFinale = BOOKS[BOOK_ORDER[i - 1]].chapters.at(-1)
+        const prev = m.chapters?.[prevFinale]
+        const beat = Math.max(Number(prev?.won) || 0, (Number(prev?.maxDifficulty) || 1) - 1)
+        if (beat >= CHAPTER_UNLOCK_DIFFICULTY) unlockBook(m, BOOK_ORDER[i])
+      }
+      // meta.lightThief (Book 1-shaped legacy — see BOOK_UNLOCKS.undertow in config.js and the
+      // design doc §1) copies forward ONCE into its new home, bookMeta(m,'undertow').unlocks.
+      // lightThief — the only place createRun (above in this file) reads it now. Never deletes the
+      // old field (R2 — an older build's onSacrifice still writes it) and never writes back the
+      // other way: copy only when the new location is UNSET, so a value already written at the new
+      // location (a future purchase flow writing there directly) is never clobbered. Without this,
+      // every existing dev save that already spent LIGHT_THIEF_COST levels loses killRefill on the
+      // very next load — silently, because a missing bm.unlocks.lightThief just reads as "unbought"
+      // rather than throwing.
+      if (m.lightThief === true) {
+        const ut = ensureBookMeta(m, 'undertow')
+        if (ut.unlocks.lightThief === undefined) ut.unlocks.lightThief = true
+      }
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
       // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
@@ -295,7 +345,7 @@ export function loadMeta() {
   } catch { /* corrupted save -> fresh */ }
   const fresh = {
     coins: 0,
-    shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])),
+    shop: Object.fromEntries(Object.keys(shopLines(BOOK_ORDER[0])).map((id) => [id, 0])), // book 1's own field — see the loadMeta repair above
     best: { time: 0, kills: 0 },
     runs: 0,
     choiceSlots: 2,
@@ -373,8 +423,8 @@ export function exportSlot(n) {
 // FRESH SAVE, silently, via its `catch { /* corrupted save -> fresh */ }`, for any blob whose shape
 // it does not expect — and `{}`, `null`, `{"coins":5,"chapters":{}}` (no shop key) and
 // `{"coins":5,"shop":"x"}` are all valid JSON that wipe the slot. The mechanism is loadMeta's
-// `for (const id of Object.keys(SHOP)) …` throwing a TypeError when `shop` is absent or not an
-// object, and the catch swallowing it. Reachable with no attacker at all: a truncated response
+// `for (const id of Object.keys(shopLines(BOOK_ORDER[0]))) …` throwing a TypeError when `shop` is
+// absent or not an object, and the catch swallowing it. Reachable with no attacker at all: a truncated response
 // body, or a blob written by a build that changed the shape. A refused import is reported to the
 // player, never silent (§8).
 export function importSlot(n, json) {
@@ -410,9 +460,78 @@ export function resetSave() {
   try { localStorage.removeItem(boundKey ?? slotKey(activeSlot())) } catch { /* private mode */ }
 }
 
-// Effective permanent multipliers/bonuses from shop levels.
-function shopBonus(meta, id) {
-  return SHOP[id].perLevel * (meta.shop[id] ?? 0)
+// The one place that knows where a book's progression lives. Book 1's purse is the top-level
+// meta.coins/meta.shop/meta.choiceSlots it has always used — NOT moved, because R2 forbids
+// deleting a field an older build reads (see the spec's revision history: rev 1 moved them and
+// wiped every save that a pre-change bundle touched). Books 2+ nest under meta.books.
+//
+// It returns `meta` itself for book 1, which is mildly leaky — a caller could reach bm.runs —
+// and that leak is the entire price of never migrating anything.
+export const bookMeta = (meta, bookId) =>
+  bookId === BOOK_ORDER[0] ? meta : (meta.books?.[bookId] ?? null)
+
+// Creates and repairs, mirroring ensureChapterMeta — but note it is NOT swept over every book on
+// load, and it NEVER grants coins. The 100-coin grant is an explicit, monotone act of the unlock
+// path (main.js); tying it to creation makes every accidental read a payout.
+// Repairs IN PLACE, keyed by id: rebuilding the map would delete a future build's book or line
+// (R3 — clamp on use, never on load).
+export function ensureBookMeta(meta, bookId) {
+  if (bookId === BOOK_ORDER[0]) {
+    meta.unlocks ??= {}
+    return meta
+  }
+  // ??= does not fire for a non-nullish non-object (e.g. a tampered/foreign blob's `books: 5`),
+  // and the next line would then assign a property onto a primitive — a TypeError, thrown inside
+  // loadMeta's own `catch { corrupted save -> fresh }` (WIPING the whole save, not just books).
+  // No shipped writer produces this shape, but importSlot validates shop+chapters and NOT this
+  // field, so a synced foreign/tampered blob reaches here untouched. Mirrors the same hardening
+  // already applied to entry.shop/.unlocks three lines below.
+  if (!meta.books || typeof meta.books !== 'object' || Array.isArray(meta.books)) meta.books = {}
+  const entry = (meta.books[bookId] ??= { coins: 0, shop: {}, choiceSlots: 2, unlocks: {} })
+  entry.coins = Number(entry.coins) || 0
+  entry.shop = (entry.shop && typeof entry.shop === 'object' && !Array.isArray(entry.shop)) ? entry.shop : {}
+  for (const id of Object.keys(shopLines(bookId))) entry.shop[id] = Number(entry.shop[id]) || 0
+  entry.choiceSlots = Math.max(2, Number(entry.choiceSlots) || 2)
+  entry.unlocks = (entry.unlocks && typeof entry.unlocks === 'object' && !Array.isArray(entry.unlocks)) ? entry.unlocks : {}
+  return entry
+}
+
+// The 100-coin welcome, recorded rather than inferred. meta.grants[bookId] is monotone and
+// additive: it survives the purse being spent, rebuilt, or created early by an incidental read.
+// Returns true only on the payout, so callers can gate the announcement on the grant itself.
+export function grantBook(meta, bookId) {
+  // Same hazard and same fix as ensureBookMeta's meta.books guard above: ??= does not fire for a
+  // non-nullish non-object, so a tampered/foreign `grants: "x"` would otherwise throw on the next
+  // line, inside loadMeta's save-wipe catch.
+  if (!meta.grants || typeof meta.grants !== 'object' || Array.isArray(meta.grants)) meta.grants = {}
+  if (meta.grants[bookId]) return false
+  const amount = BOOKS[bookId]?.startCoins ?? 0
+  meta.grants[bookId] = true
+  if (amount > 0) ensureBookMeta(meta, bookId).coins += amount
+  return true
+}
+
+// Unlock a book: its first chapter, plus the grant. Idempotent. Refuses a WIP book unless the
+// save is a dev save, which is what keeps Book 2 invisible until it ships.
+export function unlockBook(meta, bookId) {
+  if (!bookId || (BOOKS[bookId]?.wip === true && meta.dev !== true)) return false
+  // Exported — a bookId absent from BOOKS survives the guard above (undefined?.wip is undefined,
+  // not true) and would otherwise throw reading .chapters off undefined. Optional-chain all the
+  // way to the element and refuse rather than crash.
+  const first = BOOKS[bookId]?.chapters?.[0]
+  if (!first) return false
+  const chMeta = ensureChapterMeta(meta, first)
+  const granted = grantBook(meta, bookId)
+  if (chMeta.unlocked && !granted) return false
+  chMeta.unlocked = true
+  return true
+}
+
+// Effective permanent multipliers/bonuses from ONE BOOK's shop levels. The book id is passed
+// explicitly rather than stashed on the entry: bookMeta returns `meta` itself for book 1, so a
+// `_bookId` field would be written onto the save blob.
+function shopBonus(bm, bookId, id) {
+  return (shopLines(bookId)[id]?.perLevel ?? 0) * (bm.shop?.[id] ?? 0)
 }
 
 // Obstacles STREAM around the player (v5.6.13, sim.js streamObstacles) instead of being
@@ -890,6 +1009,24 @@ function generateWells(sig) {
  *        a state, so it hurts on a clock and stops the instant you breathe. It publishes into the
  *        SHIPPED {type:'hurt', dot:true} contract — no new event — so render.js's existing red
  *        vignette/shake/flash is the tell and main.js's `if (e.dot) continue` keeps it silent.
+ * chargeMax: number — the bar's ceiling, as a RUN field (v7.x Book 2 Task 9). Used to be read
+ *   straight from CHAPTERS[chapter].resource.max at both of sim.js's clamp sites (the drain in
+ *   stepCharge and the Light Thief kill-refill at the kill site); now both sites read run.chargeMax
+ *   instead, which is what lets Deep Lungs (BOOK_SHOP.undertow.deepLungs, +8%/level) raise it. Set
+ *   once at createRun from the SAME hoisted local `charge` starts at, so the two can never drift
+ *   apart into "the bar refills past its cap on a kill, then snaps back on the next drain tick" (a
+ *   flicker, not a throw, if only one of the two clamp sites gets the new field). 0 in every
+ *   chapter that declares no resource, same as `charge`.
+ * chargeDrainMul: number — Slow Burn's drain-rate multiplier (BOOK_SHOP.undertow.slowBurn,
+ *   -4%/level), applied in stepCharge to CHAPTERS[chapter].resource.drain. slowBurn stores a
+ *   POSITIVE perLevel and is SUBTRACTED here (`reduction: true` on the line only flips how
+ *   formatShopBonus, ui.js, prints it — it does not touch the sign of the math); floored at
+ *   SLOW_BURN_FLOOR (config.js) so a future higher MAX_SHOP_LEVEL cannot invert drain into refill.
+ *   1 (no-op) unbought, and 1 in every chapter with no resource.
+ * chargeRefillMul: number — Big Gulp's refill-rate multiplier (BOOK_SHOP.undertow.bigGulp,
+ *   +10%/level), applied in stepCharge to CHAPTERS[chapter].resource.refill at the same site the
+ *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach run.killRefill —
+ *   the Light Thief kill bonus is a separate mechanic behind its own unlock, not "a refill pickup".
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
@@ -901,8 +1038,9 @@ function generateWells(sig) {
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
- * killRefill: number — light per kill, snapshotted at createRun from meta.lightThief (the permanent
- *   Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen). 0 unbought, and 0
+ * killRefill: number — light per kill, snapshotted at createRun from bm.unlocks.lightThief (the
+ *   permanent Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen; bm is
+ *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
  *   meta, because sim.js must never see meta — see the plan's R1.
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
@@ -1378,9 +1516,10 @@ function generateWells(sig) {
  *   the purchase also steps _screenRerolls (above), which is the only state that makes the rebuilt
  *   screen differ in distribution from the one it replaced.
  * choiceSlots (v4.8): how many cards buildLevelUpChoices rolls for every level-up this run —
- *   snapshotted from meta.choiceSlots at createRun and clamped THERE into [2, MAX_CHOICE_SLOTS]
- *   (config.js) — R3 clamp-on-use, since meta may legitimately store a higher ceiling written by a
- *   future build (see ensureChapterMeta) — then constant for the run's duration
+ *   snapshotted from bm.choiceSlots (the run's own book — meta itself for book 1, meta.books[id]
+ *   for book 2+, see bookMeta) at createRun and clamped THERE into [2, MAX_CHOICE_SLOTS]
+ *   (config.js) — R3 clamp-on-use, since a book's own entry may legitimately store a higher
+ *   ceiling written by a future build (see ensureBookMeta) — then constant for the run's duration
  *   (unlocking a slot mid-meta-shop never retroactively changes an in-progress run). Permanently
  *   unlocked in the meta shop by sacrificing SHOP levels (see sacrificeCost in config.js and
  *   hooks.onSacrifice in main.js) — applies to every mode, including Daily.
@@ -1423,7 +1562,13 @@ function generateWells(sig) {
  *   panic rings), {type:'blink', x, y, tx, ty} (a realityShard bullet skipped from (x,y) to (tx,ty)).
  */
 export function createRun(meta, opts = {}) {
-  const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')
+  // Hoisted above every shopBonus call: the book decides which purse those bonuses come from,
+  // and shopBonus at the old first-statement position ran 31 lines before `chapter` existed
+  // (see R1's note below, unchanged in meaning — only moved).
+  const chapter = resolveChapterId(opts.chapter)
+  const bookId = bookOf(chapter) ?? BOOK_ORDER[0]
+  const bm = ensureBookMeta(meta, bookId)
+  const maxHP = PLAYER.baseHP + shopBonus(bm, bookId, 'maxHP')
   // Pre-run modifiers (see MUTATORS + difficulty consts in config.js and the doc block above):
   // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP AND enemy-damage tax on
   // top of mutators (v6.3.4 anti-turtle: HP-only difficulty made runs longer, not more dangerous).
@@ -1454,7 +1599,7 @@ export function createRun(meta, opts = {}) {
   // purchase, so a load-time repair would be written back over the newer save. resolveChapterId
   // documents why it tests CHAPTERS membership with Object.hasOwn rather than CHAPTER_ORDER
   // membership or truthiness ('blank' is a real chapter outside the order; '__proto__' is not one).
-  const chapter = resolveChapterId(opts.chapter)
+  // (chapter itself is resolved above, hoisted ahead of the book/shopBonus lookups it now feeds.)
   // v6.4.1/v6.4.3 early-calm (see EARLY_CALM in config.js): explicit-difficulty-1 runs of the
   // onboarding chapters thin the swarm and fatten each kill's xp, per chapter. opts.difficulty
   // (not the defaulted local) on purpose — daily runs and tests omit it and must keep baseline.
@@ -1484,6 +1629,13 @@ export function createRun(meta, opts = {}) {
   // draw happens between here and where _obstacleSeed used to sit, so the order this consumes the
   // shared stream in is unchanged (see _districtSeed's doc block above).
   const obstacleSeed = usesObstacleSeed(CHAPTERS[chapter]) ? (Math.random() * 0x7fffffff) | 0 : null
+  // v7.x Book 2 Task 9 (Deep Lungs): the chapter resource bar's ceiling, hoisted into a local so it
+  // is authored ONCE and shared by both `chargeMax` and the starting `charge` below — a value this
+  // repo's own CLAUDE.md documents as its single largest silently-drifting defect class when
+  // written twice. Used to be read straight from config at both of sim.js's clamp sites (the drain
+  // in stepCharge and the Light Thief kill-refill); now it is a RUN field so Deep Lungs can raise
+  // it, and sim.js reads run.chargeMax at both sites instead of CHAPTERS[chapter].resource.max.
+  const chargeMax = (CHAPTERS[chapter].resource?.max ?? 0) * (1 + shopBonus(bm, bookId, 'deepLungs'))
   return {
     phase: 'playing',
     time: 0,
@@ -1495,24 +1647,24 @@ export function createRun(meta, opts = {}) {
     consumables,
     revives: consumables.includes('revive') ? 1 : 0,
     _rerolls: 0,
-    // R3 clamp-on-use: meta.choiceSlots may legitimately store a future build's higher ceiling
-    // (loadMeta no longer caps it), but sim.js's buildLevelUpChoices must never deal more cards
-    // than the level-up screen is laid out for.
-    choiceSlots: Math.max(2, Math.min(MAX_CHOICE_SLOTS, Number(meta.choiceSlots) || 2)),
+    // R3 clamp-on-use: bm.choiceSlots (this run's book — see bookMeta above) may legitimately
+    // store a future build's higher ceiling (loadMeta/ensureBookMeta no longer cap it), but
+    // sim.js's buildLevelUpChoices must never deal more cards than the level-up screen is laid out for.
+    choiceSlots: Math.max(2, Math.min(MAX_CHOICE_SLOTS, Number(bm.choiceSlots) || 2)),
     player: {
       x: 0, y: 0,
       hp: maxHP, maxHP,
-      speed: PLAYER.baseSpeed * (1 + shopBonus(meta, 'moveSpeed')),
-      magnet: PLAYER.baseMagnet * (1 + shopBonus(meta, 'magnet')),
-      critChance: PLAYER.baseCritChance + shopBonus(meta, 'critChance'),
-      critDamage: PLAYER.baseCritDamage + shopBonus(meta, 'critDamage'),
-      damageMul: 1 + shopBonus(meta, 'damage'),
+      speed: PLAYER.baseSpeed * (1 + shopBonus(bm, bookId, 'moveSpeed')),
+      magnet: PLAYER.baseMagnet * (1 + shopBonus(bm, bookId, 'magnet')),
+      critChance: PLAYER.baseCritChance + shopBonus(bm, bookId, 'critChance'),
+      critDamage: PLAYER.baseCritDamage + shopBonus(bm, bookId, 'critDamage'),
+      damageMul: 1 + shopBonus(bm, bookId, 'damage'),
       // v7.17: the player's own crowd-control price. Its OWN stat rather than a read of damageMul,
       // so damage passives cannot launder a card's discount away and a damage-UP card (BRITTLE, x4)
       // cannot inherit a control buff. Cards set it explicitly — see applyAnomalyOnTake.
       ccMul: 1,
-      fireRateMul: 1 + shopBonus(meta, 'fireRate'),
-      coinGainMul: 1 + shopBonus(meta, 'coinGain'),
+      fireRateMul: 1 + shopBonus(bm, bookId, 'fireRate'),
+      coinGainMul: 1 + shopBonus(bm, bookId, 'coinGain'),
       xp: startXp, level: 1, xpNext: xpForLevel(1),
       invuln: 0,
       slowT: 0,           // s remaining of the latch-flag movement debuff (see doc block above)
@@ -1627,17 +1779,38 @@ export function createRun(meta, opts = {}) {
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
     // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf's Light, The Surf's
-    // Humidity, The Reef's Air; see the charge doc above for what each one drives). Starts FULL: the
-    // first minute of a run should teach the drain, not open on an empty bar the player has not
-    // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
-    // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
-    charge: CHAPTERS[chapter].resource?.max ?? 0,
-    // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (meta.lightThief, bought
-    // for LIGHT_THIEF_COST shop levels). This exists as a run field rather than sim.js reading
-    // meta because sim.js must never see meta at all — it plays what it is handed, which is what
-    // makes a dev-gated chapter playtest as the thing that eventually ships. 0 unbought, and 0 for
-    // every chapter that declares no resource.
-    killRefill: meta.lightThief === true ? (CHAPTERS[chapter].resource?.killRefill ?? 0) : 0,
+    // Humidity, The Reef's Air; see the charge doc above for what each one drives). Starts FULL, at
+    // the (possibly Deep-Lungs-raised) ceiling below: the first minute of a run should teach the
+    // drain, not open on an empty bar the player has not been shown how to fill. 0 for every
+    // chapter that declares no resource, and stepCharge early-outs there, so the field is inert
+    // rather than absent (R2 — one shape for all runs).
+    charge: chargeMax,
+    // v7.x Book 2 Task 9: the ceiling itself, as a RUN field — see the hoisted `chargeMax` local
+    // above for why it is authored once. 0 in every chapter that declares no resource, same as
+    // `charge`. Deep Lungs (BOOK_SHOP.undertow.deepLungs) is the only thing that ever raises it
+    // above CHAPTERS[chapter].resource.max.
+    chargeMax,
+    // v7.x Book 2 Task 9: Slow Burn's drain-rate multiplier, applied in stepCharge (sim.js) to
+    // CHAPTERS[chapter].resource.drain. shopBonus is SUBTRACTED (slowBurn stores a positive
+    // perLevel; `reduction: true` is only a UI sign flag — see ui.js's formatShopBonus), floored at
+    // SLOW_BURN_FLOOR (config.js) so a future MAX_SHOP_LEVEL raise cannot invert drain into refill.
+    // 1 (no-op) unbought, and 1 in every chapter with no resource — stepCharge never reads it there.
+    chargeDrainMul: Math.max(SLOW_BURN_FLOOR, 1 - shopBonus(bm, bookId, 'slowBurn')),
+    // v7.x Book 2 Task 9: Big Gulp's refill-rate multiplier, applied in stepCharge (sim.js) to
+    // CHAPTERS[chapter].resource.refill while the player stands in a shaft/pool/pocket. 1 (no-op)
+    // unbought. Does NOT touch the Light Thief kill-refill (run.killRefill) — that is a separate
+    // mechanic gated on its own unlock, not "a refill pickup".
+    chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
+    // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (bm.unlocks.lightThief,
+    // bought over LIGHT_THIEF_COSTS shop levels — see BOOK_UNLOCKS.undertow in config.js). This
+    // exists as a run field rather than sim.js reading meta because sim.js must never see meta at
+    // all — it plays what it is handed, which is what makes a dev-gated chapter playtest as the
+    // thing that eventually ships. 0 unbought, and 0 for every chapter that declares no resource.
+    // Scales with the Light Thief LEVEL: the chapter's own killRefill is the value at FULL level,
+    // so a maxed ladder is exactly what the old single purchase always gave and the balance ceiling
+    // has not moved. unlockLevel also reads a pre-ladder `true` as full.
+    killRefill: (CHAPTERS[chapter].resource?.killRefill ?? 0)
+      * (unlockLevel(bm, bookId, 'lightThief') / Math.max(1, unlockMax(bookId, 'lightThief'))),
     // v7.x The Reef (see the doc block above): seconds of Burst dash left, and the drowning DoT's
     // part-tick accumulator. The rampage pattern again — every run carries both, and only a chapter
     // declaring `burst` / a `resource.drown` block ever moves them off 0.

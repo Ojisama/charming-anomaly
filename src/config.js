@@ -3298,6 +3298,14 @@ export const EARLY_CALM = {
   body:   { spawnMul: 0.40, xpMul: 2.22 }, // v6.4.3: 0.6·0.67 / 1.67·1.33 — another -33% / +33%
   pond:   { spawnMul: 0.6,  xpMul: 1.67 },
   garden: { spawnMul: 0.6,  xpMul: 1.67 },
+  // v7.x: The Surf is Undertow's first chapter, and per-book progression makes surf/d1 the literal
+  // first run of a campaign — at zero upgrades, where it used to be reached with a stocked book-1
+  // shop. Measured before this change: body d1 ran an effective spawn of 0.30 (balance 0.75 x
+  // EARLY_CALM 0.40) at x2.22 xp; surf ran 0.68 at x1.0 — 2.3x the spawn rate at 45% of the xp,
+  // which was correct only while nobody reached it without a stocked book-1 shop. Owner ruling
+  // 2026-08-16: spawnMul 0.8, xpMul 1.3 — gentler than it was, harder than body/pond (owner:
+  // "Book 2 should be harder, but maybe not that hard").
+  surf:   { spawnMul: 0.8,  xpMul: 1.3 },
 }
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 // The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and
@@ -3722,9 +3730,36 @@ export const MAX_SHOP_LEVEL = 10
 // at 8246, so its entry is headroom rather than a live clamp.
 export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999, coinGain: 9999 }
 export const SHOP_COST_CAP_DEFAULT = 4999
+
+// ---- Book-specific upgrade lines (v7.x) --------------------------------------------
+// Every book gets the eight lines in SHOP. A book may add its own on top. Undertow's three all
+// act on the RESOURCE BAR, which is what makes them book lines rather than chapter ones: all
+// three of its chapters run one (Humidity/Light/Air), so none of them is dead in its own book.
+//
+// `reduction: true` marks a line whose perLevel is a DECREASE. formatShopBonus (ui.js) reads it —
+// without it, -0.04 renders as "+-40%".
+//
+// Slow Burn's floor on chargeDrainMul (state.js createRun): stops a future MAX_SHOP_LEVEL raise
+// from inverting the drain into a refill. At today's 10 levels x 4%/level this never binds (floor
+// is 0.5, the tuned ceiling is 0.6) — it exists for the level cap that hasn't shipped yet.
+export const SLOW_BURN_FLOOR = 0.5
+export const BOOK_SHOP = {
+  undertow: {
+    deepLungs: { name: 'Deep Lungs', desc: '+8% resource capacity', perLevel: 0.08, base: 20, icon: '🫁' },
+    slowBurn:  { name: 'Slow Burn',  desc: '-4% resource drain',    perLevel: 0.04, base: 30, icon: '🕯️', reduction: true },
+    bigGulp:   { name: 'Big Gulp',   desc: '+10% refill per pickup', perLevel: 0.10, base: 25, icon: '💧' },
+  },
+}
+// The line table for one book. EVERY consumer goes through this — never SHOP directly, or a
+// book-specific line is invisible in exactly one place. Run BP's source-text lint guards it.
+export const shopLines = (bookId) => ({ ...SHOP, ...(BOOK_SHOP[bookId] ?? {}) })
+// Every line in the game, for the lookups that are book-agnostic (shopCost). Line ids are
+// globally unique — run BP asserts it — which is what lets shopCost keep its two-arg signature
+// and spares ~6 call sites.
+const ALL_SHOP_LINES = Object.assign({}, SHOP, ...Object.values(BOOK_SHOP))
 export const shopCost = (id, level) => Math.min(
   SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
-  Math.round(SHOP[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
+  Math.round(ALL_SHOP_LINES[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
 )
 
 // Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
@@ -3737,6 +3772,43 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // that number rather than writing it back lower (R3, docs/superpowers/specs/
 // 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
 export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
+
+// Light Thief's costs, hoisted ahead of BOOK_UNLOCKS below (same reason as HUMIDITY_DMG_FLOOR
+// above CHAPTERS: a const referenced inside an object literal must already be initialized).
+// See "Light Thief (v7.x Book 2)" further down in this file for the full rationale.
+//
+// THREE levels, not one purchase (owner ruling): 5, then 10, then 15 sacrificed shop levels. The
+// first rung is cheap enough to try and the last is a real commitment, where a single 15 made it
+// all-or-nothing in a shop where every other line has a ladder.
+export const LIGHT_THIEF_COSTS = [5, 10, 15]
+
+// Sacrifice targets that belong to ONE book, alongside the universal card-slot ladder. This is
+// the seam for "more later": a new permanent unlock is a row here plus a read in state.js, not a
+// new meta field and a new onSacrifice branch. Keyed by book, then by the flag it sets in
+// bookMeta(meta, book).unlocks.
+// `costs` is a LADDER: one entry per level, in the order they are bought. A single-purchase unlock
+// is simply a one-entry array, so there is one shape here and no branch anywhere downstream.
+export const BOOK_UNLOCKS = {
+  undertow: {
+    lightThief: {
+      costs: LIGHT_THIEF_COSTS, icon: '🔦', name: 'Light Thief',
+      desc: 'Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).',
+    },
+  },
+}
+// How many levels an unlock has, the cost of the NEXT one (null when there is none left), and the
+// level a save actually owns.
+export const unlockMax = (bookId, id) => BOOK_UNLOCKS[bookId]?.[id]?.costs.length ?? 0
+export const unlockCost = (bookId, id, level) =>
+  BOOK_UNLOCKS[bookId]?.[id]?.costs[Math.max(0, Math.floor(Number(level) || 0))] ?? null
+// `true` is a save from before the ladder: it paid the single full price and had the whole effect,
+// so it reads as the TOP level. Never take away what was bought. Everything else coerces and
+// clamps, so a tampered value cannot grant a level that does not exist.
+export const unlockLevel = (bm, bookId, id) => {
+  const v = bm?.unlocks?.[id]
+  const max = unlockMax(bookId, id)
+  return v === true ? max : Math.max(0, Math.min(max, Math.floor(Number(v) || 0)))
+}
 
 // End-of-run coin bonus: sqrt(kills) + level reached (owner directive). The sqrt flattens the
 // kill term so a long farm run can't outrun a short deep one, and levelling is paid directly.
@@ -3755,7 +3827,7 @@ export const COIN_CAP_PER_RUN = 999
 // ---- Books (v7.x) ------------------------------------------------------------------
 // A book is a campaign: its own chapters, its own ladder, its own protagonist. Book 1 is the
 // shipped game. A book marked `wip` is hidden from players entirely and reachable only behind
-// meta.dev — see playableChapterId below and titleChapterList in ui.js.
+// meta.dev — see playableChapterId and titleBookshelf below.
 //
 // CHAPTER_ORDER is an ALIAS for book 1's chapters, and that is the whole design of this refactor:
 // every existing read site — slot summaries, the daily draw, the retroactive unlock chain, ~40 test
@@ -3777,8 +3849,12 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'deep'], hidden: [], wip: true },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'deep'], hidden: [], wip: true, startCoins: 100 },
 }
+// Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
+// campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
+// book whose purse lives at the top level of meta (see bookMeta in state.js).
+export const BOOK_ORDER = ['book1', 'undertow']
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
 // every loop (saveSummary and ui.js both say so in their own comments, and ui.js's carousel repair
@@ -4512,7 +4588,7 @@ CHAPTERS.shelf = {
   // about -1.6/s, so it empties in roughly a minute — the drain bites without being a countdown.
   //
   // v7.x REVISION (owner, 2026-08-12), on two counts:
-  //   - `killRefill` is now SHOP-ONLY. It is the value you get once LIGHT_THIEF_COST is paid, and
+  //   - `killRefill` is now SHOP-ONLY. It is the value you get at FULL Light Thief level, and
   //     zero until then — createRun gates it into run.killRefill so sim.js never reads meta. The
   //     first cut had it on by default at 0.5/kill, which was both unbought and invisible: 0.5 of a
   //     100 bar is a rounding error next to a 2.2/s drain. Bought, it is worth roughly a third of
@@ -4747,6 +4823,14 @@ CHAPTERS.surf = {
   // was chapter 1. Humidity taxes damage on top of everything here (see resourceDamageMul), which is
   // a pressure no other first chapter carries — hence spawnMul under the pond's own 0.75.
   balance: { spawnMul: 0.68, enemyDmgMul: 0.7, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
+
+  // 40% fewer Shore Crabs (owner ruling 2026-08-16). CHAPTER-WIDE, at every difficulty, matching
+  // how garden ({tank: 0.73}) and city ({tank: 0.825}) declare theirs — NOT difficulty-1-only.
+  // Making it d1-only is not a config change: sim.js's spawnEnemy reads
+  // CHAPTERS[run.chapter].archetypeMul straight from this table (see waveWeights, sim.js) and never
+  // consults createRun's mods, so a d1 gate would mean plumbing a new run field through every
+  // chapter's spawn path. Say so here so the next reader does not "fix" it into a d1-only cut.
+  archetypeMul: { tank: 0.6 },
 
   // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
   // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push(…)` would hand The Pond a
@@ -6199,6 +6283,26 @@ export const nextChapter = (id) => {
   return i < 0 ? null : (order[i + 1] ?? null)
 }
 
+// Is this chapter the LAST rung of its book's ladder? The book-unlock gate tests this rather than
+// `nextChapter(id) === null`, which is ALSO true of a hidden chapter and of an id no book claims.
+// The Blank is the live counter-example: nextChapter('blank') is null and its ladder caps at 3,
+// which is exactly CHAPTER_UNLOCK_DIFFICULTY, so a null check unlocks the next book off a Blank win.
+export const isBookFinale = (id) => {
+  const chapters = BOOKS[bookOf(id)]?.chapters ?? []
+  return chapters.length > 0 && chapters[chapters.length - 1] === id
+}
+// The book after this one on the shelf, or null past the end AND for any id no book claims.
+// NOT `BOOK_ORDER[BOOK_ORDER.indexOf(bookId) + 1] ?? null` — indexOf(-1) + 1 indexes element 0,
+// so an unclaimed id would silently resolve to BOOK_ORDER[0] ('book1'). Same latent defect
+// nextChapter was fixed for above; caught here by run BP's direct nextBook('nope') coverage
+// before it ever reached a live call site (endRun's book-finale branch is only entered when
+// isBookFinale is true, which is itself false for a bookOf-less id — so this was never triggered
+// in practice, but the function's own contract must hold regardless of who currently guards it).
+export const nextBook = (bookId) => {
+  const i = BOOK_ORDER.indexOf(bookId)
+  return i < 0 ? null : (BOOK_ORDER[i + 1] ?? null)
+}
+
 // The chapter the PLAY path may actually start — the one and only place the WIP gate belongs.
 // Deliberately NOT folded into resolveChapterId: createRun resolves a SECOND time (state.js) and
 // has no meta to consult there, so a dev-aware resolveChapterId would silently downgrade every
@@ -6697,17 +6801,28 @@ export const BREACH_MAX_HOLES = 6        // per pass; a wall cut to lace is not 
 // the same four lines written twice a thousand lines apart and left to drift.
 // The `!block` test comes first so a chapter with no such block never reads res.max, which is what
 // lets both wrappers below be called unconditionally from a hot path.
-const barRamp = (charge, res, block) => {
+//
+// `max` (v7.x Book 2, per-book progression): the CEILING the fraction divides by, defaulted to
+// `res.max` so every existing call keeps meaning what it used to. Deep Lungs (run.chargeMax) can
+// raise a run's own ceiling above `res.max`, and this function has no `run` to read (config.js is
+// pure data + pure helpers, and imports nothing) — so the caller passes its OWN ceiling in rather
+// than this reaching into `run` itself. Without it, a Deep Lungs run's `frac` saturates at 1 for
+// the entire band between res.max and the raised chargeMax: the screen would read "fully lit" and
+// hold there, motionless, for the first slice of every drain — the mechanic's one piece of
+// feedback going silent right when the bar is at its fullest. It is threaded through the RAMP
+// rather than through darkness() alone so The Trawl's tiredness inherits the same fix; the two
+// wrappers share a curve, so they must share its ceiling or they drift the moment one is tuned.
+const barRamp = (charge, res, block, max = res?.max) => {
   if (!block) return 0
-  const frac = res.max > 0 ? charge / res.max : 1
+  const frac = max > 0 ? charge / max : 1
   return frac >= block.from ? 0 : (block.from - frac) / block.from
 }
-export const darkness = (charge, res) => barRamp(charge, res, res?.dark)
+export const darkness = (charge, res, max = res?.max) => barRamp(charge, res, res?.dark, max)
 // How TIRED you are, given `resource.tire` — The Trawl's second job. Same curve as the dark's, and
 // deliberately not the same consequence: the dark takes what you can SEE and this takes what you can
 // OUTRUN, which in a chapter whose signature is a moving wall is the difference between a handicap
 // and a death sentence. See CHAPTERS.trawl.resource for the measured split.
-export const tiredness = (charge, res) => barRamp(charge, res, res?.tire)
+export const tiredness = (charge, res, max = res?.max) => barRamp(charge, res, res?.tire, max)
 
 // How far the light reaches, in screen px, given `maxDim` — the screen's LONGEST SIDE. Linear in
 // the raw bar from radiusFull down to radiusEmpty, per the owner's spec (see THE DARK above).
@@ -6725,10 +6840,14 @@ export const tiredness = (charge, res) => barRamp(charge, res, res?.tire)
 // RAW charge, not darkness(): the light is a continuous readout of the bar and must move at 90% as
 // visibly as at 20%. Infinity (not 0) for a chapter with no dark block — "this chapter lights
 // everything" is the identity here, and a 0 would black the screen out.
-export const lightRadius = (charge, res, maxDim) => {
+//
+// `max` (v7.x Book 2 Task 9 fix round): same reasoning as darkness() above — a fourth, TRAILING
+// parameter (maxDim already owns position 3) so a caller with a run's own chargeMax passes it
+// explicitly, and everything else defaults to res.max exactly as before.
+export const lightRadius = (charge, res, maxDim, max = res?.max) => {
   const d = res?.dark
   if (!d) return Infinity
-  const frac = res.max > 0 ? Math.min(1, Math.max(0, charge / res.max)) : 1
+  const frac = max > 0 ? Math.min(1, Math.max(0, charge / max)) : 1
   return maxDim * (d.radiusEmpty + (d.radiusFull - d.radiusEmpty) * frac)
 }
 
@@ -6777,10 +6896,13 @@ export const usesObstacleSeed = (ch) => !!ch.obstacles || !!refillSpec(ch.signat
 // LINEAR from the floor to 1.0, deliberately: the reviewed failure was a multiplier you cannot feel
 // in its top half and fall off a cliff in its bottom, and a curve with a knee is that shape by
 // construction. A straight line at least reports its own state honestly.
-export const resourceDamageMul = (charge, res) => {
+//
+// `max` (v7.x Book 2 Task 9 fix round): same trailing-default idiom as darkness()/lightRadius()
+// above — defaults to res.max, a caller holding a run passes run.chargeMax instead.
+export const resourceDamageMul = (charge, res, max = res?.max) => {
   const d = res?.damage
   if (!d) return 1
-  return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (res.max || 1))
+  return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (max || 1))
 }
 
 // ---- DROWNING (v7.x, The Reef — resources declaring a `drown` block) ---------------------------
@@ -6813,7 +6935,8 @@ export const DROWN_TICK = 0.5            // s between drowning ticks while the b
 // because that is the game's existing vocabulary for "permanent, and it costs you something you
 // already own". 15 sits deliberately BELOW the 3rd card slot's 20: it is the cheapest thing on that
 // screen, so it is a plausible first sacrifice rather than a late-game luxury.
-export const LIGHT_THIEF_COST = 15
+// LIGHT_THIEF_COSTS itself lives up near SACRIFICE_COSTS (BOOK_UNLOCKS.undertow.lightThief
+// references it directly, and that table is built before this point in the file).
 
 // ---- Asteroids (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) ------------------------
 // Drifting rock that hurts EVERYONE. It is the lane's only neutral party: it damages the player on

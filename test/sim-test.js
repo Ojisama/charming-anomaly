@@ -1,7 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
@@ -40,8 +40,8 @@ import {
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
-  BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE,
-  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
+  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
@@ -74,7 +74,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -209,6 +209,16 @@ function makeMeta() {
     best: { time: 0, kills: 0 },
     runs: 0,
   }
+}
+
+// Stubs localStorage with `blob` (as the raw JSON the save slot would hold) and calls loadMeta() —
+// the pattern the loadMeta-side scenarios already use (see testChoiceSlots/testChapters above),
+// pulled out to a helper because run BP's retroactive-unlock block needs it several times.
+function loadMetaFrom(blob) {
+  globalThis.localStorage = { getItem: () => JSON.stringify(blob), setItem: () => {} }
+  const m = loadMeta()
+  delete globalThis.localStorage
+  return m
 }
 
 function finite(n) {
@@ -4611,9 +4621,660 @@ function runBooks() {
       `a raw per-chapter \`unlocked\` read is back in the title-rendering span — route it through chapterAvailable or a WIP chapter renders locked:\n${rawReads.join('\n')}`)
   }
 
+  // The cross-book carousel assertions that lived here are GONE, deliberately: origin/main deleted
+  // titleChapterList outright and replaced it with titleBookshelf, which groups by book natively
+  // and so already fixes the bug they were written to guard (a book becoming LESS reachable the
+  // day its `wip` flag comes off). Their replacement is main's own titleBookshelf coverage — do
+  // not resurrect these against the deleted function.
   console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the bookcase`)
 }
 run(runBooks)
+
+// ---- Run BP (book progression): per-book shop lines, unlocks and a total shopCost ---------
+function runBookProgression() {
+  // (a) Every book resolves a line table; book-specific lines merge OVER the universal eight.
+  const b1 = shopLines('book1')
+  const ut = shopLines('undertow')
+  assert.strictEqual(Object.keys(b1).length, Object.keys(SHOP).length,
+    'book1 has exactly the eight universal lines — BOOK_SHOP.book1 must not exist')
+  for (const id of Object.keys(SHOP)) assert.ok(ut[id], `undertow is missing universal line '${id}'`)
+  for (const id of ['deepLungs', 'slowBurn', 'bigGulp']) {
+    assert.ok(ut[id], `undertow is missing its own line '${id}'`)
+    assert.ok(!b1[id], `book1 must NOT see undertow's line '${id}'`)
+  }
+
+  // (b) Line ids are globally unique. shopCost resolves against ONE merged table so its
+  // signature never had to change, and that is only sound while ids cannot collide.
+  const seen = new Map()
+  for (const bookId of BOOK_ORDER) {
+    for (const [id, line] of Object.entries(shopLines(bookId))) {
+      const prev = seen.get(id)
+      if (prev && prev !== line) assert.fail(`shop line id '${id}' is defined differently in two books — shopCost cannot resolve it`)
+      seen.set(id, line)
+    }
+  }
+
+  // (c) shopCost resolves for EVERY line of EVERY book at every level, and stays finite.
+  // Before this change it read SHOP[id].base and threw a TypeError on any book-specific line.
+  for (const bookId of BOOK_ORDER) {
+    for (const id of Object.keys(shopLines(bookId))) {
+      for (let lv = 0; lv < MAX_SHOP_LEVEL; lv++) {
+        const c = shopCost(id, lv)
+        assert.ok(Number.isFinite(c) && c > 0, `shopCost('${id}', ${lv}) must be a positive finite number, got ${c}`)
+      }
+    }
+  }
+
+  // (d) Every line carries the fields the shop screen reads, or it renders blank.
+  for (const bookId of BOOK_ORDER) {
+    for (const [id, line] of Object.entries(shopLines(bookId))) {
+      for (const f of ['name', 'desc', 'perLevel', 'base', 'icon']) {
+        assert.ok(line[f] !== undefined, `shop line '${id}' is missing '${f}'`)
+      }
+    }
+  }
+
+  // (e) Only books after the first grant coins, and BOOK_ORDER matches BOOKS.
+  assert.deepStrictEqual(BOOK_ORDER, Object.keys(BOOKS), 'BOOK_ORDER must list every book, in order')
+  assert.ok(!BOOKS[BOOK_ORDER[0]].startCoins, 'the first book must NOT grant startCoins — a fresh save opens at 0')
+  assert.strictEqual(BOOKS.undertow.startCoins, 100, 'undertow grants 100 coins on unlock')
+
+  // (f) Every BOOK_UNLOCKS entry is a real sacrifice target shape.
+  for (const [bookId, table] of Object.entries(BOOK_UNLOCKS)) {
+    assert.ok(BOOK_ORDER.includes(bookId), `BOOK_UNLOCKS names unknown book '${bookId}'`)
+    for (const [id, u] of Object.entries(table)) {
+      for (const f of ['costs', 'icon', 'name', 'desc']) {
+        assert.ok(u[f] !== undefined, `BOOK_UNLOCKS.${bookId}.${id} is missing '${f}'`)
+      }
+      // `costs` is the LADDER: one positive-integer price per level, in buying order. A single-
+      // purchase unlock is a one-entry array, so there is exactly one shape here and nothing
+      // downstream has to branch on "does this one have levels".
+      assert.ok(Array.isArray(u.costs) && u.costs.length > 0,
+        `BOOK_UNLOCKS.${bookId}.${id}.costs must be a non-empty array — a single purchase is [n]`)
+      assert.ok(u.costs.every((c) => Number.isInteger(c) && c > 0),
+        `BOOK_UNLOCKS.${bookId}.${id}.costs must all be positive integers`)
+      assert.deepStrictEqual([...u.costs].sort((a, b) => a - b), u.costs,
+        `BOOK_UNLOCKS.${bookId}.${id}.costs must ascend — a cheaper later rung makes the earlier one a trap`)
+    }
+  }
+  // (g)-(k) live in their own block: `ut` here is ensureBookMeta's return, and the outer scope
+  // already has a `ut` from (a) (shopLines('undertow')) — same function, so a bare re-declaration
+  // would be a SyntaxError, not a name shadowing bug.
+  {
+    // (g) bookMeta: book 1 IS the meta (its fields never moved — R2); other books nest.
+    const m = makeMeta()
+    m.chapters = {}
+    assert.strictEqual(bookMeta(m, 'book1'), m, 'bookMeta(meta, book1) returns meta itself — book 1 keeps its top-level fields')
+    assert.strictEqual(bookMeta(m, 'undertow'), null, 'an absent purse reads null, it is not conjured by a read')
+
+    // (h) ensureBookMeta is a PURE REPAIR. It never grants — that is the unlock path's job (Task 3).
+    const ut = ensureBookMeta(m, 'undertow')
+    assert.strictEqual(ut.coins, 0, 'ensureBookMeta creates a purse at ZERO — creation must not be a payout')
+    assert.strictEqual(ut.choiceSlots, 2, 'a new book starts at 2 card slots')
+    assert.deepStrictEqual(ut.unlocks, {}, 'a new book has no unlocks')
+    for (const id of Object.keys(shopLines('undertow'))) {
+      assert.strictEqual(ut.shop[id], 0, `new purse must carry line '${id}' at 0`)
+    }
+    ut.coins = 55
+    assert.strictEqual(ensureBookMeta(m, 'undertow').coins, 55, 'ensureBookMeta REPAIRS IN PLACE — it must not rebuild the entry')
+
+    // (i) A future build's unknown line and unknown BOOK survive the repair (R3: clamp on use,
+    // never on load). Rebuilding the map instead of repairing it would delete both.
+    m.books.undertow.shop.futureLine = 7
+    m.books.someBook3 = { coins: 12, shop: {}, choiceSlots: 3, unlocks: {} }
+    ensureBookMeta(m, 'undertow')
+    assert.strictEqual(m.books.undertow.shop.futureLine, 7, "a future build's shop line must survive the repair")
+    assert.strictEqual(m.books.someBook3.coins, 12, "a future build's whole BOOK must survive the repair")
+
+    // (j) UPGRADE ISOLATION — the reset is real. This is the assertion the whole design is for.
+    const rich = makeMeta()
+    rich.shop.damage = MAX_SHOP_LEVEL          // book 1 maxed
+    rich.chapters = { surf: { unlocked: true, maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } } }
+    const b1run = createRun(rich, { chapter: 'body' })
+    const utrun = createRun(rich, { chapter: 'surf' })
+    assert.ok(b1run.player.damageMul > 1, 'book 1 upgrades apply in a book 1 chapter')
+    assert.strictEqual(utrun.player.damageMul, 1, "book 1's damage upgrade must NOT apply in an Undertow chapter")
+
+    // (k) SLOT RESET — 4 slots in book 1 does not deal 4 cards in book 2.
+    rich.choiceSlots = MAX_CHOICE_SLOTS
+    assert.strictEqual(createRun(rich, { chapter: 'body' }).choiceSlots, MAX_CHOICE_SLOTS, 'book 1 keeps its slots')
+    assert.strictEqual(createRun(rich, { chapter: 'surf' }).choiceSlots, 2, 'a book 2 run resets to 2 card slots')
+  }
+
+  // (l) THE GATE IS THE LAST CHAPTER, stated as a fact — not "nextChapter returned null", which
+  // is also true of The Blank (hidden, and its ladder tops out at exactly CHAPTER_UNLOCK_DIFFICULTY).
+  assert.strictEqual(nextChapter('blank'), null, 'precondition: The Blank has no next chapter')
+  assert.strictEqual(chapterMaxDifficulty('blank'), CHAPTER_UNLOCK_DIFFICULTY,
+    'precondition: a Blank win at its cap sits exactly at the book-unlock difficulty — this is why a null check is not enough')
+  assert.strictEqual(isBookFinale('beyond'), true, "The Beyond is book 1's finale")
+  assert.strictEqual(isBookFinale('blank'), false, 'The Blank is HIDDEN — winning it must not unlock the next book')
+  assert.strictEqual(isBookFinale('pond'), false, 'a mid-ladder chapter is not a finale')
+  // Undertow's finale is asserted DERIVED, not hardcoded. This line used to read
+  // isBookFinale('reef') === true and went red the moment The Trawl shipped as a fourth Undertow
+  // chapter — the production code was right (it reads chapters.at(-1)) and only the test's guess
+  // was stale. Deriving it means a fifth chapter moves the finale without a false red; the
+  // assertion that still carries weight is the NEGATIVE one below it, which pins that a chapter
+  // demoted out of last place stops being a finale.
+  const utLast = BOOKS.undertow.chapters.at(-1)
+  assert.strictEqual(isBookFinale(utLast), true, `Undertow's finale is its last chapter (${utLast})`)
+  for (const id of BOOKS.undertow.chapters.slice(0, -1)) {
+    assert.strictEqual(isBookFinale(id), false, `'${id}' is not last in Undertow's ladder, so it must not gate the next book`)
+  }
+
+  // (m) THE GRANT IS MONOTONE. Creating a purse pays nothing; granting twice pays once.
+  const g = makeMeta(); g.chapters = {}
+  ensureBookMeta(g, 'undertow')
+  assert.strictEqual(bookMeta(g, 'undertow').coins, 0, 'a purse that exists but was never granted holds 0')
+  assert.strictEqual(grantBook(g, 'undertow'), true, 'the first grant fires')
+  assert.strictEqual(bookMeta(g, 'undertow').coins, 100, 'the grant is BOOKS.undertow.startCoins')
+  assert.strictEqual(grantBook(g, 'undertow'), false, 'the second grant is a no-op')
+  assert.strictEqual(bookMeta(g, 'undertow').coins, 100, 'granting twice must not pay twice')
+  // ...and it survives the purse being spent to zero, which "creation is the grant" could not.
+  bookMeta(g, 'undertow').coins = 0
+  assert.strictEqual(grantBook(g, 'undertow'), false, 'a spent purse must not re-grant')
+
+  // (n) A FRESH SAVE HAS EXACTLY ONE PURSE, and it is book 1. This is the assertion that catches
+  // a fresh-meta literal that helpfully builds every book — which would hand 100 free coins to
+  // every new player and still pass a "purse === startCoins" test.
+  const fresh = makeMeta()
+  assert.ok(!fresh.books || Object.keys(fresh.books).length === 0,
+    'a fresh save must not pre-create any book 2+ purse')
+  assert.ok(!fresh.grants || Object.keys(fresh.grants).length === 0, 'a fresh save has granted nothing')
+
+  // (o) RETROACTIVE UNLOCK. A veteran beat The Beyond at 3+ BEFORE Undertow shipped. endRun can
+  // only fire on a live victory, so without this every existing player is locked out on ship day
+  // — including everyone holding The Blank, which requires a Beyond win at 5. loadMeta already
+  // runs exactly this chain for CHAPTERS (state.js) and its comment says why.
+  //
+  // Ruling (2026-08-16, overrides the original brief here): unlockBook refuses a WIP book unless
+  // meta.dev === true, and Undertow IS wip — so a save with NO dev flag correctly grants NOTHING.
+  // That is the more important half, because it is the path every real player is on until Book 2
+  // ships. Assert both halves: the WIP gate holding for a non-dev save, and the retroactive chain
+  // firing (once, idempotently) for a dev save.
+  const vetBlob = () => ({
+    schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
+    best: { time: 300, kills: 4000 },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+  })
+
+  // (o.1) THE WIP GATE HOLDS for every real player today: no meta.dev, so no grant and no unlock,
+  // no matter how thoroughly book 1 was beaten.
+  const notDev = loadMetaFrom(vetBlob())
+  assert.ok(!notDev.grants?.undertow, 'a non-dev save must NOT retroactively grant a WIP book')
+  assert.ok(!notDev.chapters.surf?.unlocked, "and must NOT unlock a WIP book's first chapter")
+
+  // (o.2) WITH DEV ON, the retroactive grant fires, exactly once, and is idempotent across reloads.
+  const vetDev = vetBlob(); vetDev.dev = true
+  const loaded = loadMetaFrom(vetDev)
+  assert.strictEqual(loaded.grants?.undertow, true, 'a Beyond win at 3+ already in the save grants Undertow on load (dev)')
+  assert.strictEqual(bookMeta(loaded, 'undertow').coins, 100, 'the retroactive grant pays exactly once')
+  assert.strictEqual(loaded.chapters.surf?.unlocked, true, "Undertow's first chapter unlocks retroactively")
+  // Idempotent across loads — the flag, not the purse, is what stops the second payout.
+  bookMeta(loaded, 'undertow').coins = 0
+  const twice = loadMetaFrom(loaded)
+  assert.strictEqual(bookMeta(twice, 'undertow').coins, 0, 'reloading must not re-grant')
+
+  // A dev player who never finished book 1 gets nothing — isolates the difficulty-threshold gate
+  // from the WIP gate (dev is already on here, so only the "beaten at 3+" fact is under test).
+  const rookie = { schema: 1, coins: 0, shop: {}, runs: 3, dev: true, chapters: { body: { unlocked: true, maxDifficulty: 2, difficulty: 1, won: 1 } } }
+  const r = loadMetaFrom(rookie)
+  assert.ok(!r.grants?.undertow, 'a player who has not beaten the finale at 3+ gets no grant')
+  assert.ok(!r.chapters.surf?.unlocked, 'and no Undertow unlock')
+
+  // (p) RULING B — meta.lightThief (Book 1-shaped legacy, design doc §1) copies forward ONCE into
+  // its new home, bookMeta(m,'undertow').unlocks.lightThief, which is the only place createRun
+  // reads it now. The old field must survive untouched (R2: never delete a meta field), and a run
+  // in an Undertow chapter must actually see the effect — not just the copied flag.
+  const thiefBlob = {
+    schema: 1, coins: 10, shop: {}, runs: 5, dev: true, lightThief: true,
+    chapters: { body: { unlocked: true, maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } } },
+  }
+  const withThief = loadMetaFrom(thiefBlob)
+  assert.strictEqual(bookMeta(withThief, 'undertow').unlocks.lightThief, true,
+    "a top-level lightThief:true copies forward into bookMeta(m,'undertow').unlocks.lightThief on load")
+  assert.strictEqual(withThief.lightThief, true, 'the OLD field must survive untouched (R2 — never delete a meta field)')
+  const thiefRun = createRun(withThief, { chapter: 'surf' })
+  assert.ok(thiefRun.killRefill > 0, 'an Undertow run for a save carrying the copied-forward unlock gets a non-zero killRefill')
+
+  // FINDING 2 (review, 2026-08-16): the `=== undefined` guard has no coverage of its own reason
+  // to exist — a mutation deleting it would still pass everything above, because nothing here
+  // ever gives the NEW location a value first. Set it explicitly (a sacrificed-away unlock, or a
+  // future build writing false directly), reload with the OLD field still true, and prove the
+  // copy does not re-fire and stomp it.
+  bookMeta(withThief, 'undertow').unlocks.lightThief = false
+  const reloaded = loadMetaFrom(withThief)
+  assert.strictEqual(reloaded.lightThief, true, 'precondition: the old field is still true going into this reload')
+  assert.strictEqual(bookMeta(reloaded, 'undertow').unlocks.lightThief, false,
+    'once the new location holds an explicit value, the forward-copy must never re-fire and overwrite it')
+
+  // (q) FINDING 1 (review, 2026-08-16) — endRun's book-finale wiring lives entirely in main.js,
+  // which this suite cannot import (no DOM/Pixi), so nothing above would notice a regression to
+  // the old `!next` gate (which also fires for The Blank), a dropped unlockBook call, or a coin
+  // bank reverted to a bare `meta.coins +=` (which silently credits every book's earnings to
+  // book 1's purse). Same source-text trick as run UG.k (render.js hooks): read the function as
+  // TEXT and assert the wiring is actually present, not just declared and unused — nextBook,
+  // imported above, had exactly that problem until this block existed.
+  {
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const start = src.indexOf('function endRun(victory) {')
+    assert.ok(start > 0, 'main.js must still declare function endRun(victory) — this block reads it as text')
+    const end = src.indexOf('\n}\n', start)
+    assert.ok(end > start, 'could not find the end of endRun')
+    const body = src.slice(start, end)
+
+    assert.ok(/\bisBookFinale\(run\.chapter\)/.test(body),
+      `endRun must gate the book-unlock branch on isBookFinale(run.chapter), not a bare "!next" check — that is ALSO true of The Blank (see isBookFinale in config.js). endRun currently reads:\n${body}`)
+    assert.ok(/\bunlockBook\(meta, nb\)/.test(body),
+      `endRun's book-finale branch must actually call unlockBook(meta, nb) — the isBookFinale gate is dead without it. endRun currently reads:\n${body}`)
+    assert.ok(/ensureBookMeta\(meta, bookOf\(run\.chapter\)\s*\?\?\s*BOOK_ORDER\[0\]\)\.coins\s*\+=\s*earned/.test(body),
+      `endRun must bank the run's coins through ensureBookMeta(meta, bookOf(run.chapter) ?? BOOK_ORDER[0]).coins += earned, or a Book 2 run's earnings silently land in meta.coins (book 1's purse). endRun currently reads:\n${body}`)
+    // The regression this whole block exists to catch: reverting the bank to the old
+    // direct-mutation form. A bare `meta.coins +=` anywhere in endRun is that regression,
+    // whether it replaces the ensureBookMeta line above or merely sits beside it.
+    const bareBank = body.split('\n').filter((l) => /meta\.coins\s*\+=/.test(l))
+    assert.deepStrictEqual(bareBank, [],
+      `endRun must not bank coins with a bare "meta.coins +=" — that credits every book's earnings to book 1's purse. Offending line(s):\n${bareBank.join('\n')}`)
+  }
+
+  // (r) nextBook was imported for the finding above and had NO direct coverage of its own —
+  // main.js's usage of it was the only thing exercising it, and that is exactly the invisible
+  // path (q) exists to guard. Prove the import earns its place on its own terms.
+  assert.strictEqual(nextBook('book1'), 'undertow', "nextBook('book1') === 'undertow'")
+  assert.strictEqual(nextBook('undertow'), null, "nextBook('undertow') === null — Undertow is the last shipped book")
+  assert.strictEqual(nextBook('nope'), null, 'nextBook of an id no book claims === null')
+  // FINAL FIX ROUND, FIX 5 — unlockBook is exported and used `BOOKS[bookId].chapters[0]` with no
+  // guard against an id absent from BOOKS: the wip check above (`BOOKS[bookId]?.wip === true`)
+  // reads undefined?.wip as undefined, not true, so an unclaimed id survives that guard and would
+  // throw reading .chapters off undefined. Must refuse, not crash.
+  {
+    const um = makeMeta(); um.chapters = {}
+    assert.strictEqual(unlockBook(um, 'nope'), false, 'unlockBook of an id no book claims must return false, not throw')
+  }
+
+  // (s) OLD-BUILD COMPATIBILITY. The entire architecture is "additive, so no migration". This is
+  // the assertion that says so. Rev 1 of the spec moved book 1's fields into meta.books and
+  // deleted the originals; today's shipped loadMeta reading such a save produced runs 137 -> 0,
+  // The Beyond unlocked -> LOCKED, fr -> en, name erased — and saveMeta then wrote that over the
+  // slot. Reachable by a revert, a tab open from before the deploy, an un-updated device pushing
+  // its blob, or sw.js's offline shell booting a cached bundle.
+  const rev2Save = {
+    schema: 1, runs: 137, chapter: 'beyond', lang: 'fr', name: 'Main',
+    coins: 4200, shop: { damage: 10, fireRate: 10, maxHP: 10 }, choiceSlots: 4,
+    best: { time: 300, kills: 4000 },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+    unlocks: {}, grants: { undertow: true },
+    books: { undertow: { coins: 100, shop: { damage: 3, slowBurn: 2 }, choiceSlots: 2, unlocks: { lightThief: true } } },
+  }
+  // (s1) Book 1 is exactly where an old build looks for it.
+  for (const f of ['coins', 'choiceSlots', 'shop']) {
+    assert.ok(Object.hasOwn(rev2Save, f), `top-level '${f}' must still exist — R2 forbids moving it`)
+  }
+  const back = loadMetaFrom(rev2Save)
+  assert.strictEqual(back.coins, 4200, "book 1's coins survive a load")
+  assert.strictEqual(back.runs, 137, 'runs survive')
+  assert.strictEqual(back.lang, 'fr', 'language survives')
+  assert.strictEqual(back.chapters.beyond.unlocked, true, 'chapter unlocks survive')
+  assert.strictEqual(back.shop.damage, 10, "book 1's shop levels survive")
+  // (s2) And book 2's state survives a round trip through a build that knows nothing about it.
+  assert.strictEqual(back.books.undertow.coins, 100, "book 2's purse survives")
+  assert.strictEqual(back.books.undertow.shop.slowBurn, 2, "book 2's own shop line survives")
+  assert.strictEqual(back.books.undertow.unlocks.lightThief, true, "book 2's unlock survives")
+  assert.strictEqual(back.grants.undertow, true, 'the grant record survives')
+
+  // (t) TASK 5 — main.js's purchase hooks (onBuy, onSacrifice) and ui.js's call sites must route
+  // through an EXPLICIT book id, never a guess. ui.js's browseChapterId (the carousel's centred
+  // card) and meta.chapter deliberately diverge — onChapter only persists for AVAILABLE chapters,
+  // so a locked preview card browses without writing meta.chapter — and inside Book 1 they always
+  // name the same book, so a defaulted/guessed book would work today and break silently the moment
+  // a Book 2 chapter becomes a browsable preview card. main.js cannot recover browseChapterId on
+  // its own (it's a `let` local inside initUI), so the id has to arrive as an explicit parameter.
+  // main.js is source-text-only here (not importable — see the CLAUDE.md note on run UG.k).
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.match(mainSrc, /onBuy\s*\(\s*id\s*,\s*bookId[^)]*\)/, 'onBuy must take an explicit bookId')
+    assert.match(mainSrc, /onSacrifice\s*\(\s*picks\s*,\s*target[^)]*,\s*bookId[^)]*\)/, 'onSacrifice must take an explicit bookId')
+    assert.doesNotMatch(mainSrc, /meta\.shop\[/, 'main.js must not index meta.shop directly — it goes through bookMeta')
+    assert.doesNotMatch(mainSrc, /meta\.coins\s*[-+]=/, 'main.js must not mutate meta.coins directly — it goes through bookMeta')
+
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.match(uiSrc, /onBuy\([^)]*,\s*shopBookId\(\)\)/, 'ui.js must pass its browsed book to onBuy')
+
+    // (t1) The buy call site is only half the wiring — the sacrifice confirm button sits ~260
+    // lines further down its own click-delegation switch, behind independent state
+    // (sacrificePicks/sacrificeTarget), and is exactly as easy to leave passing the OLD 2-arg
+    // call. Name it too rather than trusting the same care was applied twice.
+    assert.match(uiSrc, /onSacrifice\([^)]*,\s*shopBookId\(\)\)/, 'ui.js must pass its browsed book to onSacrifice')
+
+    // (t2) shopBookId must be DERIVED from browseChapterId (the carousel state), not meta.chapter —
+    // that distinction is the entire reason this hook signature exists (see the brief's own
+    // rationale, above). A version reading meta.chapter instead would satisfy every assertion
+    // above, compile, and pass every existing scenario (they never browse Book 2 without also
+    // persisting it) while silently reintroducing the exact bug this task exists to close.
+    assert.match(uiSrc, /shopBookId\s*=\s*\(\)\s*=>\s*bookOf\(browseChapterId\)\s*\?\?\s*BOOK_ORDER\[0\]/,
+      'shopBookId must resolve from browseChapterId, not meta.chapter — a book resolved off meta.chapter would silently diverge from the badge the player is actually looking at')
+
+    // (t3) RULING G — a BOOK_UNLOCKS purchase (e.g. Light Thief) must write ONLY
+    // bookMeta(meta,bookId).unlocks[target], never mirrored back to the legacy top-level
+    // meta.lightThief. Without this, a same-session Light Thief purchase would not reach
+    // createRun's killRefill (which reads bm.unlocks.lightThief since Task 2) until a reload —
+    // the concern Task 3's implementer carried forward into this task.
+    assert.doesNotMatch(mainSrc, /meta\.lightThief\s*=\s*true/,
+      'onSacrifice must never write the legacy top-level meta.lightThief again (ruling G) — the unlock goes through bookMeta(meta,bookId).unlocks[target] only')
+    // The LEVEL, not `true`: unlocks are ladders now (BOOK_UNLOCKS[].costs), and writing `true`
+    // would jump a part-bought ladder straight to the top — unlockLevel reads `true` as full, so
+    // buying rung 1 would silently hand over rungs 2 and 3 as well. Ruling G is unchanged: the
+    // write still goes to bm.unlocks[target] and nowhere else.
+    assert.match(mainSrc, /\(bm\.unlocks\s*\?\?=\s*\{\}\)\[target\]\s*=\s*unlockLevel\(bm, bookId, target\) \+ 1/,
+      'onSacrifice must write the next LEVEL to bm.unlocks[target] — writing `true` maxes a part-bought ladder')
+  }
+
+  // (u) TASK 6 — formatShopBonus (ui.js) must be sign-aware, not a percent-vs-flat discriminator
+  // with a hardcoded '+'. Slow Burn (BOOK_SHOP.undertow.slowBurn) is the first REDUCTION line in
+  // the game: stored as a POSITIVE perLevel with reduction: true, so a bare '+' would render its
+  // sacrifice-view "current -> after" preview as "+-40%" — the screen where the player chooses
+  // what to destroy. formatShopBonus is a private closure and cannot be called from here (ui.js is
+  // not importable — no jsdom, and initUI() touches document.getElementById on its first line), so
+  // this reads the function as TEXT (same idiom as run UG.k / the sacTargets block above) and pins
+  // the EXACT sign expression rather than just the word "reduction" — a mutation that mentions
+  // reduction while mapping the sign backwards (line.reduction ? '+' : '-') would still satisfy a
+  // bare /reduction/ match, which is why this checks the whole ternary, not a keyword.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const start = uiSrc.indexOf('function formatShopBonus(bookId, id, levels) {')
+    assert.ok(start > 0, 'ui.js must still declare function formatShopBonus(bookId, id, levels) {')
+    const end = uiSrc.indexOf('\n}\n', start)
+    assert.ok(end > start, 'could not find the end of formatShopBonus')
+    const body = uiSrc.slice(start, end)
+    assert.doesNotMatch(body, /`\+\$\{Math\.round\(per \* levels \* 100\)\}%`/,
+      'the hardcoded + in formatShopBonus must be sign-aware')
+    assert.match(body, /const sign = line\.reduction \? '-' : '\+'/,
+      "formatShopBonus must map reduction:true to '-' and everything else to '+' — a backwards or missing mapping renders Slow Burn's -4%/level as a gain")
+    assert.match(body, /return per < 1 \? `\$\{sign\}\$\{Math\.round\(per \* levels \* 100\)\}%` : `\$\{sign\}\$\{Math\.round\(per \* levels\)\}`/,
+      'both the percent and flat branches must use the computed sign, not a bare literal')
+
+    // Cross-check the fact the sign logic depends on: Slow Burn really is declared as reduction:true
+    // with a POSITIVE perLevel in config.js (real, importable data) — if that ever flips, the sign
+    // expression above stops meaning what this comment says it means.
+    assert.strictEqual(shopLines('undertow').slowBurn.reduction, true, "config.js must keep slowBurn's reduction: true flag")
+    assert.ok(shopLines('undertow').slowBurn.perLevel > 0, "slowBurn's perLevel must stay POSITIVE — reduction:true is what flips its sign, not a negative perLevel")
+  }
+
+  // (v) TASK 6 — .shop-rows must not hardcode 8 rows: Undertow has 11 lines (8 universal + 3 of
+  // its own, see (a) above). A hardcoded repeat(8, ...) produces TWO defects, not one — overflow
+  // past row 8, and a HEIGHT STEP even where it fits (only the first 8 rows are 1fr; the rest fall
+  // into implicit grid-auto-rows:auto at a shorter height). The --sac variant already used the fix
+  // (grid-auto-rows); the base rule must match it now, so a book's row count is never baked in.
+  {
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.doesNotMatch(css, /grid-template-rows:\s*repeat\(8,/,
+      '.shop-rows hardcodes 8 rows; Undertow has 11 and rows 9-11 fall into grid-auto-rows at a different height')
+    assert.match(css, /\.shop-rows\s*\{[^}]*grid-auto-rows:\s*minmax\(max-content,\s*1fr\)/,
+      '.shop-rows must grow every row uniformly via grid-auto-rows, matching how many lines shopLines(bookId) actually has')
+  }
+
+  // (w) RULING 2 (Task 6 amendment, 2026-08-16) — onBuy had NO id-validity check against
+  // shopLines(bookId), unlike onSacrifice's own picks loop. That was unreachable before this task
+  // (no book-specific shop line ever rendered a data-buy button); Task 6 is what makes one
+  // renderable, so a crafted data-buy for e.g. 'deepLungs' while browsing book 1 must not spend
+  // book 1's coins on a line book 1 does not have (shopCost resolves ids GLOBALLY, so nothing else
+  // would refuse it). main.js is source-text-only here (not importable — see (t) above).
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const start = mainSrc.indexOf('onBuy(id, bookId = BOOK_ORDER[0]) {')
+    assert.ok(start > 0, 'main.js must still declare onBuy(id, bookId = BOOK_ORDER[0]) {')
+    const end = mainSrc.indexOf('\n  },\n', start)
+    assert.ok(end > start, 'could not find the end of onBuy')
+    const body = mainSrc.slice(start, end)
+    const guardAt = body.search(/if \(!shopLines\(bookId\)\[id\]\) return false/)
+    assert.ok(guardAt >= 0,
+      'onBuy must refuse an id absent from shopLines(bookId) — the same style onSacrifice already uses for its own picks')
+    const spendAt = body.search(/bm\.coins\s*-=\s*cost/)
+    assert.ok(spendAt >= 0, 'precondition: onBuy must still spend coins somewhere in its body')
+    assert.ok(guardAt < spendAt, 'the id-validity guard must run BEFORE coins are spent, or an invalid id still costs the player')
+  }
+
+  // (x) FIX ROUND (2026-08-16, owner-supplied French) — French coverage for the book-specific
+  // tables, walked NESTED rather than flat. run XX's own config-table walk does
+  // `for (const v of Object.values(table)) need(v?.name)`, which is exactly the WEAPON_MODS hole
+  // it documents eight lines below itself: pointed at BOOK_SHOP or BOOK_UNLOCKS (both keyed by
+  // book id, THEN by line/unlock id — two levels deep, same shape as WEAPON_MODS[weaponId][modId])
+  // it yields the per-book dicts, whose own .name/.desc are undefined, and a `need()`-style helper
+  // silently skips undefined. That is a green coverage assert that covers nothing for either
+  // table — this walk is written explicitly nested so it cannot fall into that hole.
+  for (const [bookId, table] of Object.entries(BOOK_SHOP)) {
+    for (const [id, line] of Object.entries(table)) {
+      assert.ok(FR[line.name], `BOOK_SHOP.${bookId}.${id}.name ('${line.name}') has no French`)
+      assert.ok(FR[line.desc], `BOOK_SHOP.${bookId}.${id}.desc ('${line.desc}') has no French`)
+    }
+  }
+  // BOOK_UNLOCKS is the same two-levels-deep shape, right next to BOOK_SHOP in config.js — not
+  // named in the fix-round instructions, but the exact same rot this block exists to close, and
+  // it costs nothing new to assert: Light Thief already shipped with French (fr.js:98-99, Task 1).
+  for (const [bookId, table] of Object.entries(BOOK_UNLOCKS)) {
+    for (const [id, u] of Object.entries(table)) {
+      assert.ok(FR[u.name], `BOOK_UNLOCKS.${bookId}.${id}.name ('${u.name}') has no French`)
+      assert.ok(FR[u.desc], `BOOK_UNLOCKS.${bookId}.${id}.desc ('${u.desc}') has no French`)
+    }
+  }
+  // BOOKS[*].name — one level deep (BOOK_ORDER is a flat list of ids), but run XX's config-table
+  // walk never reaches BOOKS at all (it is not in the [WEAPONS, ELEMENTS, ...] literal), so this
+  // was untranslated with no assertion anywhere until this block. Shown on the shop's balance
+  // header (renderShop, ui.js) beside the coin count.
+  for (const b of BOOK_ORDER) {
+    assert.ok(FR[BOOKS[b].name], `BOOKS.${b}.name ('${BOOKS[b].name}') has no French`)
+  }
+
+  // (y) TASK 9 — the three Undertow resource lines act on the run's resource bar (run.charge), in
+  // all three of the book's chapters. deepLungs raises the CEILING: run.charge had no ceiling of
+  // its own before this task — sim.js read CHAPTERS[chapter].resource.max straight from config at
+  // BOTH clamp sites (the drain in stepCharge and the kill-refill at the kill site), so deepLungs
+  // needs a new run.chargeMax field and both sites must read it, not just one.
+  for (const chapter of ['surf', 'shelf', 'reef']) {
+    const base = makeMeta(); base.chapters = {}
+    const r0 = createRun(base, { chapter })
+    const up = makeMeta(); up.chapters = {}
+    ensureBookMeta(up, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    const r1 = createRun(up, { chapter })
+    assert.ok(r1.chargeMax > r0.chargeMax,
+      `deepLungs must raise the resource ceiling in '${chapter}' (${r0.chargeMax} -> ${r1.chargeMax})`)
+    assert.ok(Math.abs(r1.chargeMax / r0.chargeMax - (1 + 0.08 * MAX_SHOP_LEVEL)) < 1e-6,
+      'deepLungs scales linearly at 8% per level')
+    assert.strictEqual(r1.charge, r1.chargeMax, 'the bar starts full at the RAISED ceiling')
+  }
+
+  // The DRAIN clamp (stepCharge, sim.js) must bind at run.chargeMax, not the config max. Called
+  // directly (stepCharge is already imported for run US) with dt small enough that the drain alone
+  // could never explain a big move — so if the bar drops all the way from the raised ceiling down
+  // to the OLD config max in one tick, the only explanation left is the clamp still reading config.
+  {
+    const m = makeMeta(); m.chapters = {}
+    ensureBookMeta(m, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    const run = createRun(m, { chapter: 'shelf' })
+    const configMax = CHAPTERS.shelf.resource.max
+    assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
+    run.shafts.length = 0   // no in-shaft refill masking the drain
+    run.charge = run.chargeMax
+    stepCharge(run, 1 / 60)
+    assert.ok(run.charge > configMax,
+      `the drain clamp must bind at run.chargeMax (${run.chargeMax}), not the config max (${configMax}) — got ${run.charge} after one drain tick from the raised ceiling`)
+  }
+
+  // The KILL-REFILL clamp (the Light Thief bonus, sim.js) must ALSO bind at run.chargeMax — a
+  // SEPARATE line from the drain clamp above, and the brief's own trap: a refill still clamped to
+  // the config max would let the bar refill past its OLD cap on kills and snap back down on the
+  // very next drain tick, a flicker no "does the ceiling move" assertion can see. Proven with a
+  // REAL kill (park a 1-hp enemy on the player, same idiom as run LT), not a hand-set run.charge.
+  // run.charge is reset to just under the OLD config max before every step — safely below BOTH
+  // candidate ceilings — so the drain clamp (proven separately above) can never be what pushes the
+  // peak up; only the kill-refill clamp can.
+  {
+    const m = makeMeta(); m.chapters = {}
+    const bm2 = ensureBookMeta(m, 'undertow')
+    bm2.shop.deepLungs = MAX_SHOP_LEVEL
+    bm2.unlocks.lightThief = true
+    Math.random = mulberry32(1)
+    const run = createRun(m, { chapter: 'shelf', difficulty: 1 })
+    const configMax = CHAPTERS.shelf.resource.max
+    assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
+    run.player.hp = run.player.maxHP = 1e9
+    run.killRefill = 50   // large enough that one kill overshoots the OLD config max on its own
+    let peak = 0
+    for (let i = 0; i < 300; i++) {
+      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
+      run.charge = configMax - 5
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      peak = Math.max(peak, run.charge)
+      run.player.hp = run.player.maxHP
+    }
+    assert.ok(run.kills > 0, `the clamp rig must land at least one kill, got ${run.kills}`)
+    assert.ok(peak > configMax,
+      `a kill's refill must be able to push the bar above the OLD config max (${configMax}) once deepLungs raises the ceiling — peaked at ${peak}, meaning the kill-refill clamp is still reading the config max instead of run.chargeMax`)
+    assert.ok(peak <= run.chargeMax + 1e-6,
+      `kill refill must clamp at run.chargeMax (${run.chargeMax}), peaked at ${peak}`)
+  }
+
+  // slowBurn and bigGulp are RATES — assert the effect over stepped time, not the stored field. A
+  // test that reads run.chargeDrainMul alone passes with the multiplier never applied to anything.
+  {
+    const drainRun = (levels) => {
+      const m = makeMeta(); m.chapters = {}
+      ensureBookMeta(m, 'undertow').shop.slowBurn = levels
+      Math.random = mulberry32(2)
+      const r = createRun(m, { chapter: 'shelf' })
+      r.shafts.length = 0   // no in-shaft refill masking the drain
+      r.charge = r.chargeMax
+      for (let i = 0; i < 60; i++) stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      return r.charge
+    }
+    assert.ok(drainRun(MAX_SHOP_LEVEL) > drainRun(0) + 1e-6,
+      'slowBurn must leave MORE resource after a second of draining — assert the drain, not the multiplier')
+  }
+
+  // bigGulp: stand in a shaft and refill faster with the line bought. Same reasoning — assert the
+  // stepped effect, not run.chargeRefillMul in isolation.
+  {
+    const refillRun = (levels) => {
+      const m = makeMeta(); m.chapters = {}
+      ensureBookMeta(m, 'undertow').shop.bigGulp = levels
+      Math.random = mulberry32(3)
+      const r = createRun(m, { chapter: 'shelf' })
+      r.charge = 0
+      // Plant a shaft directly on the player so every step refills, independent of the streamer.
+      r.shafts = [{ x: 0, y: 0, bx: 0, by: 0, r: 999, phase: 0, _cell: null }]
+      for (let i = 0; i < 60; i++) stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      return r.charge
+    }
+    assert.ok(refillRun(MAX_SHOP_LEVEL) > refillRun(0) + 1e-6,
+      'bigGulp must leave MORE resource after a second in a refill circle — assert the refill, not the multiplier')
+  }
+
+  // (z) TASK 9 FIX ROUND (2026-08-16, coordinator review) — a fourth consumer of the OLD config max:
+  // ui.js's paintCharge, the HUD bar itself. darkness()/lightRadius()/resourceDamageMul() (config.js)
+  // are covered in their own test functions (run DK, run US.d) now that they take an explicit `max`
+  // parameter; this is the one that isn't a pure function reachable from here. ui.js is not
+  // importable (no jsdom, initUI() touches document.getElementById on its first line), so this pins
+  // the call site as source text AND mirrors paintCharge's own clamp formula with REAL numbers from
+  // a Deep-Lungs-maxed run, proving two different charges above the OLD config max paint two
+  // DIFFERENT HUD fractions — a "the ceiling moved" test alone would not catch a bar pinned at 100%
+  // and motionless for the whole band above the old max, which is exactly what shipped before this.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/paintCharge\(run\.charge, run\.chargeMax \?\? res\.max\)/.test(uiSrc),
+      'the HUD paint call must pass run.chargeMax (falling back to res.max only for a run object that predates the field), not res.max unconditionally')
+    // paintCharge's own clamp formula, mirrored exactly below — pinned here so a change to the
+    // shipped formula makes the mirror fail loudly instead of silently drifting from what it copies.
+    assert.ok(/const frac = max > 0 \? Math\.max\(0, Math\.min\(1, charge \/ max\)\) : 0/.test(uiSrc),
+      "paintCharge's clamp formula moved — the mirrored computation below no longer matches the shipped one")
+
+    const m = makeMeta(); m.chapters = {}
+    ensureBookMeta(m, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    const run = createRun(m, { chapter: 'shelf' })
+    const configMax = CHAPTERS.shelf.resource.max
+    assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max')
+    const paintFrac = (charge, max) => (max > 0 ? Math.max(0, Math.min(1, charge / max)) : 0)
+    // Against the OLD max, two different charges above it must collapse to the SAME frac (1) — the
+    // bug. Prove that first, so the next assertion is provably testing the regression.
+    assert.strictEqual(paintFrac(configMax * 1.1, configMax), paintFrac(configMax * 1.7, configMax),
+      'precondition: against the OLD config max both charges must saturate to the SAME frac (1) — that collapse is the bug this fix closes')
+    assert.notStrictEqual(paintFrac(configMax * 1.1, run.chargeMax), paintFrac(configMax * 1.7, run.chargeMax),
+      'two different charges above the OLD config max must paint two DIFFERENT HUD fractions once the call site divides by run.chargeMax')
+  }
+
+  // (aa) TASK 10 — THE SURF IS NOW THE FIRST RUN OF A CAMPAIGN. Measured before this change: body
+  // d1 runs an effective spawn of 0.30 (balance 0.75 x EARLY_CALM 0.40) at x2.22 xp; surf ran 0.68
+  // at x1.0 — 2.3x the spawn rate at 45% of the xp, which was correct only while nobody reached it
+  // without a stocked book-1 shop. Owner ruling 2026-08-16.
+  assert.ok(EARLY_CALM.surf, "The Surf needs an EARLY_CALM entry — it is a book's first chapter now")
+  assert.strictEqual(EARLY_CALM.surf.spawnMul, 0.8, 'owner ruling 2026-08-16')
+  assert.strictEqual(EARLY_CALM.surf.xpMul, 1.3, 'owner ruling 2026-08-16')
+  assert.strictEqual(CHAPTERS.surf.archetypeMul?.tank, 0.6, '40% fewer Shore Crabs (owner ruling 2026-08-16)')
+  // The archetypeMul key must be a real ARCHETYPE, not a WAVE_TABLE spawn type — indexing the
+  // wrong way silently did nothing until v5.5 (see TYPE_ARCHETYPE in config.js). run SP.f asserts
+  // this same vocabulary but only over CHAPTER_ORDER (book 1) — surf is Book 2 and outside that
+  // sweep, so it needs its own check here rather than inheriting SP.f's coverage for free.
+  for (const [archId, mul] of Object.entries(CHAPTERS.surf.archetypeMul)) {
+    assert.ok(['normal', 'fast', 'tank'].includes(archId), `archetypeMul key '${archId}' is not an archetype`)
+    assert.ok(mul > 0 && mul <= 1, `archetypeMul.${archId} must be a reduction in (0,1]`)
+  }
+
+  // (ab) EVERY chapter resolves to a book. bookOf returns null for an unclaimed id, and run.chapter
+  // is a CHAPTERS key, not an ALL_CHAPTER_IDS key — so an orphan chapter banks coins into
+  // meta.books[null], a purse no screen can render. The honest denominator is Object.keys(CHAPTERS),
+  // not CHAPTER_ORDER (book 1 only) and not ALL_CHAPTER_IDS (drops every `hidden` id).
+  const bkAllChapters = Object.keys(CHAPTERS)
+  for (const bkId of bkAllChapters) {
+    assert.ok(bookOf(bkId), `chapter '${bkId}' belongs to no book — add it to BOOKS or its coins vanish`)
+  }
+  assert.ok(bkAllChapters.includes('surf'), 'sanity: the sweep can see the chapter this work is for')
+
+  // (ac) No consumer reads SHOP directly — every one goes through shopLines(bookId), or a
+  // book-specific line is invisible in exactly one place. Source-text lint (the run UG.k idiom).
+  for (const bkFile of ['state.js', 'main.js', 'ui.js']) {
+    const bkSrc = readFileSync(new URL(`../src/${bkFile}`, import.meta.url), 'utf8')
+    const bkBare = bkSrc.match(/\bSHOP\[[^\]]+\]|Object\.(keys|entries|values)\(SHOP\)/g) ?? []
+    assert.deepStrictEqual(bkBare, [], `${bkFile} reads SHOP directly (${bkBare.join(', ')}) — use shopLines(bookId)`)
+  }
+
+  // (ad) FINAL FIX ROUND, FIX 1 — meta.books/meta.grants must shape-guard against a non-nullish
+  // non-object, the same hardening ensureBookMeta already applies to entry.shop/.unlocks. `??=`
+  // does not fire for e.g. `books: 5`, so the very next line indexes a primitive — a TypeError,
+  // thrown INSIDE loadMeta's own `catch { corrupted save -> fresh }` (state.js), which wipes the
+  // WHOLE save, not just books. No shipped writer produces such a blob, but importSlot validates
+  // shop+chapters and NOT these two fields, so a tampered or foreign-build blob synced from
+  // another device passes straight through. Measured before this fix (see the final review):
+  //   {"books":5}     -> runs 0, coins 0, lang en   WIPED
+  //   {"grants":"x"}  -> runs 0, coins 0, lang en   WIPED
+  //   {"books":"x"}   -> runs 0, coins 0, lang en   WIPED
+  // The base blob below is deliberately built to reach BOTH repair sites regardless of which field
+  // is malformed: dev:true + a Beyond win at 5 (>= CHAPTER_UNLOCK_DIFFICULTY) drives the
+  // retroactive unlockBook -> grantBook -> ensureBookMeta chain (o, above), and lightThief:true
+  // alone drives the forward-copy's own ensureBookMeta call (p, above) — so a books-guard bug and a
+  // grants-guard bug are each independently reachable no matter which one this run happens to hit
+  // first.
+  const bkBadBase = () => ({
+    schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
+    dev: true, lightThief: true,
+    best: { time: 300, kills: 4000 },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+  })
+  for (const bad of [{ books: 5 }, { grants: 'x' }, { books: 'x' }]) {
+    const blob = { ...bkBadBase(), ...bad }
+    const m = loadMetaFrom(blob)
+    assert.strictEqual(m.runs, 137, `a malformed ${JSON.stringify(bad)} must not wipe runs`)
+    assert.strictEqual(m.coins, 4200, `a malformed ${JSON.stringify(bad)} must not wipe coins`)
+    assert.strictEqual(m.lang, 'fr', `a malformed ${JSON.stringify(bad)} must not wipe lang`)
+    // And the malformed field itself lands on a usable shape, not the raw primitive.
+    assert.ok(m.books && typeof m.books === 'object' && !Array.isArray(m.books),
+      `${JSON.stringify(bad)}: meta.books must repair to a plain object`)
+    assert.ok(m.grants && typeof m.grants === 'object' && !Array.isArray(m.grants),
+      `${JSON.stringify(bad)}: meta.grants must repair to a plain object`)
+  }
+  console.log('PASS run BP.ad (shape guard): meta.books/meta.grants survive books:5, grants:"x" and books:"x" without wiping the save')
+
+  console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-16 owner ruling, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
+}
+run(runBookProgression)
 
 // ---- Run BL: The Shelf's mechanic (v7.x, Book 2 phase 2) --------------------------------
 // The bar, the shafts and the amplified Pulse. Every failure this guards is SILENT: a frozen shaft
@@ -4865,6 +5526,23 @@ function runDark() {
     // this function through the renderer once a frame.
     assert.strictEqual(darkness(0, CHAPTERS.pond.resource ?? undefined), 0, 'no resource -> no darkness')
     assert.strictEqual(darkness(50, { max: 100 }), 0, 'a resource with no dark block -> no darkness')
+
+    // TASK 9 FIX ROUND (2026-08-16, coordinator review) — the optional 3rd `max` parameter. Deep
+    // Lungs raises a run's own ceiling above res.max, and darkness() has no `run` to read (config.js
+    // is pure data + pure helpers, imports nothing), so a caller holding a run passes ITS ceiling in
+    // explicitly. Omitted, it must still mean res.max — every existing 2-arg call above depends on
+    // that default never changing.
+    assert.strictEqual(darkness(70, res), darkness(70, res, res.max),
+      'omitting max must still mean res.max, or every 2-arg call site above just changed meaning')
+    // The regression itself: the THRESHOLD moves with the ceiling (d.from x max), so a charge that
+    // reads fully lit against the OLD max must read DARK once the run's raised ceiling is supplied —
+    // a caller still dividing by res.max cannot see this, which is exactly how the chapter's dark
+    // fell silent for the whole band Deep Lungs added.
+    const bigMax = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)   // Deep Lungs at max level: +80%
+    assert.strictEqual(darkness(70, res, res.max), 0,
+      'precondition: 70 against the OLD max of 100 must read fully lit (70/100=0.7 >= the 0.5 threshold)')
+    assert.ok(darkness(70, res, bigMax) > 0,
+      `70 against a Deep-Lungs-raised ceiling of ${bigMax} must read DARK (70/${bigMax}=${(70 / bigMax).toFixed(2)} < 0.5) — a caller still defaulting to res.max cannot see this`)
   }
 
   // (a2) THE LIGHT YOU EMIT rides the SAME curve, which is the whole reason it is written as a
@@ -4921,6 +5599,21 @@ function runDark() {
     // already cover the corner" early-out has to say yes, and a 0 would black the screen out.
     assert.strictEqual(lightRadius(0, CHAPTERS.pond.resource ?? undefined, PHONE), Infinity, 'no resource -> unbounded light')
     assert.strictEqual(lightRadius(50, { max: 100 }, PHONE), Infinity, 'a resource with no dark block -> unbounded light')
+
+    // TASK 9 FIX ROUND (2026-08-16, coordinator review) — the optional 4th `max` parameter, same
+    // default-preserving idiom as darkness() above (maxDim already owns position 3).
+    assert.strictEqual(lightRadius(res.max * 0.9, res, PHONE), lightRadius(res.max * 0.9, res, PHONE, res.max),
+      'omitting max must still mean res.max, or every 3-arg call site above just changed meaning')
+    // THE ACTUAL BUG: lightRadius's frac clamps to 1, so against the OLD max, two DIFFERENT charges
+    // both above it read the SAME radius (radiusFull) — this is the "HUD/light pinned at full and
+    // motionless" defect Finding 1 reported. Prove the collapse first (so this is provably testing
+    // the regression, not asserting two arbitrary unequal numbers), then prove the run's own
+    // (raised) ceiling un-collapses it.
+    const bigMax2 = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)
+    assert.strictEqual(lightRadius(res.max * 1.1, res, PHONE, res.max), lightRadius(res.max * 1.7, res, PHONE, res.max),
+      'precondition: against the OLD max, two different charges above it must both saturate at radiusFull — that saturation is the bug')
+    assert.notStrictEqual(lightRadius(res.max * 1.1, res, PHONE, bigMax2), lightRadius(res.max * 1.7, res, PHONE, bigMax2),
+      'two different charges above the OLD max must light DIFFERENT radii once the run\'s own (raised) ceiling is passed as the 4th arg — a caller still defaulting to res.max would see these collapse to one value')
   }
 
   // (b) THE SLOW IS REAL, and measured as DISTANCE TRAVELLED rather than by reading a multiplier
@@ -5016,8 +5709,11 @@ function runDark() {
     // "much darker when light = 0", picked near-black off a 4-way shot). Retuning this is a
     // decision, not a detail — if it moves, it moves here too, on purpose.
     assert.ok(d.dim >= 1, `the far field must be fully opaque (owner ruling), got dim ${d.dim}`)
-    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\)\)/.test(src),
-      "render.js must size the light from lightRadius(charge, res, longest side) — the screen's longest side is the unit the chapter states its light in")
+    // run.chargeMax (v7.x Book 2 Task 9 fix round): the 4th arg is the run's OWN ceiling, not the
+    // config max — omitting it pins the light at radiusFull for the whole band a Deep-Lungs run
+    // spends above the old res.max, which is exactly the bug this fix round exists to close.
+    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\), run\.chargeMax\)/.test(src),
+      "render.js must size the light from lightRadius(charge, res, longest side, run.chargeMax) — the screen's longest side is the unit the chapter states its light in, and chargeMax is the ceiling that light saturates against")
     // NO ALPHA ANYWHERE IN THE PATH, and this is the assertion the chapter's existence rests on.
     // The lightmap used to be a white canvas with the lights punched out by `destination-out`, drawn
     // as a translucent tinted sprite — the whole effect lived in a canvas ALPHA channel that then had
@@ -5169,8 +5865,11 @@ run(runRosterArt)
 // sim.js must never learn about meta to find that out.
 function runLightThief() {
   const res = CHAPTERS.shelf.resource
+  // 'shelf' is bookOf() 'undertow' (Task 2: per-book progression), so the unlock now lives at
+  // bm.unlocks.lightThief — meta.books.undertow.unlocks.lightThief here, not a top-level field.
   const meta = (thief) => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true, lightThief: thief,
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+    books: { undertow: { coins: 0, shop: {}, choiceSlots: 2, unlocks: { lightThief: thief } } },
     chapters: Object.fromEntries(['body', 'pond', 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
   })
 
@@ -5180,12 +5879,23 @@ function runLightThief() {
       'an unbought save must take 0 light per kill')
     assert.strictEqual(createRun(meta(true), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
       'a bought save must take the chapter resource killRefill')
-    // Coerced, not truthy: every other gate in the save tests === true, and a save carrying 1 or
-    // 'yes' that granted the unlock HERE while denying it everywhere else is the worst shape.
-    for (const bad of [1, 'yes', {}, [], 'true']) {
-      assert.strictEqual(createRun({ ...meta(false), lightThief: bad }, { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
-        `lightThief: ${JSON.stringify(bad)} is not true and must not grant the unlock`)
+    // THE LADDER (owner ruling, 3 rungs): each level is a third of the chapter's own killRefill,
+    // so a maxed ladder is exactly what the old single purchase gave and the ceiling has not moved.
+    // `true` is a pre-ladder save that paid the full 15 — it reads as the TOP level, never less.
+    const MAXLT = unlockMax('undertow', 'lightThief')
+    for (const lv of [1, 2, 3]) {
+      assert.ok(Math.abs(createRun(meta(lv), { chapter: 'shelf', difficulty: 1 }).killRefill
+        - res.killRefill * lv / MAXLT) < 1e-9, `level ${lv} must take ${lv}/${MAXLT} of the chapter refill`)
     }
+    // A numeric level is MEANINGFUL now, so the old "must be === true" rule is gone. What has to
+    // hold instead: nothing un-numeric grants anything, and a value past the top of the ladder
+    // clamps rather than scaling the refill past the chapter's own figure.
+    for (const bad of ['yes', {}, [], 'true', NaN, -3, false]) {
+      assert.strictEqual(createRun(meta(bad), { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+        `lightThief: ${JSON.stringify(bad)} is not a level and must grant nothing`)
+    }
+    assert.strictEqual(createRun(meta(99), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
+      'a level past the top of the ladder clamps to the top rather than scaling past the chapter refill')
     assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
       'a chapter with no resource takes 0 per kill even when the unlock is owned')
   }
@@ -5259,23 +5969,96 @@ function runLightThief() {
     assert.ok(/run\.killRefill/.test(src), 'sim.js must read the run-level snapshot')
   }
 
-  // (d) the shop rung. Two claims that are made in prose in config.js and are otherwise unguarded:
-  // it is the CHEAPEST thing on the sacrifice screen, and it is dev-gated so a WIP chapter's unlock
-  // is not advertised to players who cannot reach the chapter.
+  // (d) the shop rung. One claim made in prose in config.js and otherwise unguarded: it is the
+  // CHEAPEST thing on the sacrifice screen. (Task 6 REMOVED the old meta.dev gate here — see the
+  // block below for why reachability now does that job instead, and what replaced it.)
   {
-    assert.ok(LIGHT_THIEF_COST < SACRIFICE_COSTS[0],
-      `Light Thief (${LIGHT_THIEF_COST}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
-    const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    assert.ok(/meta\.dev === true && meta\.lightThief !== true/.test(ui),
-      'the Light Thief rung must be gated on meta.dev — otherwise the shop advertises a Book 2 unlock, naming a resource no reachable chapter has')
+    assert.ok(LIGHT_THIEF_COSTS[0] < SACRIFICE_COSTS[0],
+      `Light Thief's first rung (${LIGHT_THIEF_COSTS[0]}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
+    assert.deepStrictEqual([...LIGHT_THIEF_COSTS].sort((a, b) => a - b), LIGHT_THIEF_COSTS,
+      'a ladder must get more expensive, not less — a cheaper later rung makes the earlier one a trap')
+    // unlockCost IS the already-bought gate: null once the ladder is finished. A separate
+    // `=== true` test alongside it would go stale the moment an unlock gains a second rung.
+    assert.strictEqual(unlockCost('undertow', 'lightThief', LIGHT_THIEF_COSTS.length), null,
+      'a finished ladder must price its next rung as null, which is what removes it from sacTargets')
+    assert.strictEqual(unlockLevel({ unlocks: { lightThief: true } }, 'undertow', 'lightThief'), LIGHT_THIEF_COSTS.length,
+      'a pre-ladder `true` must read as the TOP level — that save paid the full single price and must not lose it')
     const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-    assert.ok(/onSacrifice\(picks, target = 'slot'\)/.test(main),
-      "onSacrifice must default target to 'slot', so an older caller keeps meaning what it used to")
-    assert.ok(/meta\.lightThief === true \? null : LIGHT_THIEF_COST/.test(main),
-      'onSacrifice must refuse an already-owned Light Thief itself rather than trusting the button to be absent')
+    // Task 5: onSacrifice gained a trailing bookId, defaulted to BOOK_ORDER[0] alongside target's
+    // own 'slot' default — same "an older caller keeps meaning what it used to" reasoning.
+    assert.ok(/onSacrifice\(picks, target = 'slot', bookId = BOOK_ORDER\[0\]\)/.test(main),
+      "onSacrifice must default target to 'slot' and bookId to BOOK_ORDER[0], so an older caller keeps meaning what it used to")
+    // Task 5: the cost resolution is book-general now (BOOK_UNLOCKS[bookId], not a Light-Thief-
+    // shaped literal), and the already-owned check reads the NEW per-book location
+    // (bm.unlocks[target], since createRun's killRefill has read bm.unlocks.lightThief since
+    // Task 2) rather than the legacy top-level meta.lightThief.
+    assert.ok(/cost = unlockCost\(bookId, target, unlockLevel\(bm, bookId, target\)\)/.test(main),
+      'onSacrifice must price the NEXT rung from the ladder (reading bm.unlocks via unlockLevel, not the legacy meta.lightThief) — a finished ladder prices null and is refused here rather than by the button being absent')
+    assert.ok(/\(bm\.unlocks \?\?= \{\}\)\[target\] = unlockLevel\(bm, bookId, target\) \+ 1/.test(main),
+      'onSacrifice must store the new LEVEL, not `true` — writing true would jump a part-bought ladder straight to the top')
   }
 
-  console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot) and is dev-gated`)
+  // (e) RULING 1 (Task 6, 2026-08-16 amendment) — ui.js's sacTargets used to hand-roll its own
+  // Light Thief branch: a hardcoded id: 'thief' behind a bare meta.dev check, reading the LEGACY
+  // meta.lightThief for "already bought". That was TWO bugs at once, both silent: onSacrifice
+  // resolves a non-'slot' target's cost as BOOK_UNLOCKS[bookId]?.[target]?.cost (Task 5), and
+  // BOOK_UNLOCKS.undertow's real key is 'lightThief' — so the mismatched id made Light Thief
+  // permanently unpurchasable (cost always resolved to null, the button never lit even when
+  // affordable), and the meta.lightThief read meant the button would never disappear after a
+  // purchase either, since Task 5's onSacrifice no longer writes that legacy field at all (it
+  // writes bm.unlocks[target] — see (d) above and Task 5's ruling G).
+  //
+  // ui.js cannot be imported and driven directly here: initUI() calls document.getElementById at
+  // its very first line and this suite runs in plain node (no jsdom in package.json — verified),
+  // so sacTargets is unreachable as a live function. Same situation run UG.k documents for
+  // render.js's Pixi hooks — read the function as TEXT and assert the wiring, rather than skip
+  // the guard entirely.
+  {
+    const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const start = ui.indexOf('function sacTargets(bookId) {')
+    assert.ok(start > 0, 'ui.js must still declare function sacTargets(bookId) { — this block reads it as text')
+    const end = ui.indexOf('\n  }\n', start)
+    assert.ok(end > start, 'could not find the end of sacTargets')
+    const body = ui.slice(start, end)
+
+    // No hand-rolled meta.dev gate left in the function that emits targets — reachability (an
+    // Undertow target only ever exists to be asked for once the book itself is browsable) is what
+    // gates this now, per the ruling. A meta.dev check reappearing here is the exact shape of the
+    // regression: it is what let a hardcoded, driftable id sit right next to it.
+    assert.doesNotMatch(body, /meta\.dev/,
+      'sacTargets must not gate on meta.dev directly — reachability already gates an Undertow target (see the ruling comment above sacTargets in ui.js)')
+    assert.doesNotMatch(body, /meta\.lightThief/,
+      "sacTargets must not read the legacy meta.lightThief — Task 5's onSacrifice writes the unlock to bm.unlocks[target], and reading the old field is exactly why the button never disappeared after a purchase")
+
+    // The already-owned gate must read THIS BOOK's own purse, keyed by the loop's own id. Unlocks
+    // are LADDERS now, so the gate is "the next rung prices null" rather than a boolean — one
+    // expression that both prices the offer and retires it, where a separate `=== true` test
+    // alongside it would go stale the moment an unlock gained a second rung. unlockLevel takes
+    // `bm`, so it is still this book's purse and never a Book-1-shaped legacy field.
+    assert.ok(/const cost = unlockCost\(bookId, id, unlockLevel\(bm, bookId, id\)\)/.test(body),
+      "sacTargets must price the next rung from THIS book's purse via unlockLevel(bm, …), not a Book-1-shaped legacy field")
+    assert.ok(/if \(cost == null\) continue/.test(body),
+      'sacTargets must drop an unlock whose ladder is finished — that null IS the already-bought gate')
+
+    // The structural proof for "every id sacTargets can emit is either 'slot' or a real key of
+    // BOOK_UNLOCKS[bookId]": the ONLY branch that can push a non-'slot' id must destructure that
+    // id straight out of Object.entries(BOOK_UNLOCKS[bookId] ?? {}) and push that SAME binding —
+    // never a separately-typed literal, which is exactly how 'thief' drifted from the table's real
+    // key 'lightThief' with nothing to catch it.
+    assert.ok(/for \(const \[id, u\] of Object\.entries\(BOOK_UNLOCKS\[bookId\] \?\? \{\}\)\)/.test(body),
+      'sacTargets must iterate Object.entries(BOOK_UNLOCKS[bookId] ?? {}) by its own keys')
+    // `cost` is the local holding the NEXT rung's price now, not u.cost — but the point of this
+    // assertion is the `id` binding, which must still be the loop's own.
+    assert.ok(/out\.push\(\{ id, cost,/.test(body),
+      "the BOOK_UNLOCKS branch must push the LOOP's own `id` binding — a separately-typed id here (however named) can silently stop matching the table's real key")
+    // Every OTHER id: assignment in the function body must be the literal 'slot' — if it is
+    // anything else, some branch is hardcoding an id instead of reading it off BOOK_UNLOCKS.
+    const idLiterals = [...body.matchAll(/\bid:\s*'([^']+)'/g)].map((m) => m[1])
+    assert.deepStrictEqual(idLiterals, ['slot'],
+      `sacTargets may only hardcode 'slot' as a literal id; every other emitted id must come from the BOOK_UNLOCKS loop above — found literal id(s): ${JSON.stringify(idLiterals)}`)
+  }
+
+  console.log(`PASS run LT (Light Thief): ${LIGHT_THIEF_COSTS.length} rungs at ${LIGHT_THIEF_COSTS.join('/')} sacrificed levels, +${res.killRefill}/kill at full and thirds below, 0 for 7 junk saves, over-max clamps, pre-ladder true reads as top, bar clamps, sim.js never reads meta, first rung under the ${SACRIFICE_COSTS[0]} card slot, and sacTargets emits only 'slot' or a real BOOK_UNLOCKS[bookId] key`)
 }
 run(runLightThief)
 
@@ -11776,6 +12559,20 @@ function testFrenchDictionary() {
   for (const byMod of Object.values(WEAPON_MODS ?? {})) {
     for (const v of Object.values(byMod ?? {})) { need(v?.name); need(v?.desc); need(v?.title) }
   }
+  // BOOK_SHOP and BOOK_UNLOCKS are the SAME two-levels-deep shape as WEAPON_MODS above
+  // (BOOK_SHOP[bookId][lineId], BOOK_UNLOCKS[bookId][unlockId]) — verbatim the WEAPON_MODS hole
+  // this walk documents eight lines above itself. The flat form (`for (const v of
+  // Object.values(table)) need(v?.name)`) would yield the per-book dicts, read `.name` as
+  // undefined off THOSE, and skip — a green coverage assert that covers nothing for either table.
+  // A hand-rolled French-coverage check for these two tables already exists in run BP
+  // (testBookProgression) — this is the CANONICAL config-table walk gaining the same coverage, so
+  // a future table added here for an unrelated reason (the `dead`-key reverse check below, the
+  // {placeholder} consistency check) covers Book copy too, not just "is it missing".
+  for (const [table, fields] of [[BOOK_SHOP, ['name', 'desc']], [BOOK_UNLOCKS, ['name', 'desc']]]) {
+    for (const byBook of Object.values(table ?? {})) {
+      for (const v of Object.values(byBook ?? {})) for (const f of fields) need(v?.[f])
+    }
+  }
   // ELITE_AFFIXES is shown on the elite itself and no walk above reached it, so all seven names
   // had always shipped in English — found while translating the Codex line that names one of them.
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
@@ -13488,12 +14285,20 @@ function testSpiderShare() {
   // making this the fourth chapter to hit the identical one-item-pool wall. Its cut is also a
   // CLUTTER fix — every live column paints an artillery telegraph — so it lands alongside dimming
   // that mark in SKIES_FX.artillery.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies']
-  for (const id of CHAPTER_ORDER) {
+  // v7.9x added surf (owner: "40% fewer Shore Crabs", 2026-08-16) — Book 2's onboarding chapter,
+  // outside CHAPTER_ORDER (book 1 only). FINAL FIX ROUND, FIX 6 — this loop used to walk
+  // CHAPTER_ORDER, which is exactly why surf's archetypeMul was invisible to it: the honest
+  // denominator for "does every chapter satisfy X" is Object.keys(CHAPTERS) (see CLAUDE.md), not
+  // CHAPTER_ORDER (book 1 only) or ALL_CHAPTER_IDS (drops every `hidden` id). Widening surfaced no
+  // real violation — surf's own archetypeMul was already valid (tank vocabulary, value in (0,1],
+  // pinned separately at run BP's (aa) block) — it only needed adding to this allowlist.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf']
+  const spAllChapters = Object.keys(CHAPTERS)
+  for (const id of spAllChapters) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
     assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — only ${ARCHETYPE_MUL_CHAPTERS.join('/')} asked for it`)
   }
-  console.log('PASS run SP.e (scope): no other chapter carries an archetypeMul')
+  console.log(`PASS run SP.e (scope): no other chapter carries an archetypeMul (${spAllChapters.length} chapters checked, Object.keys(CHAPTERS) not CHAPTER_ORDER)`)
 
   // (f) THE VOCABULARY TRIPWIRE. archetypeMul is keyed by ARCHETYPE (normal/fast/tank), while
   // WAVE_TABLE is keyed by spawn TYPE (drone/wisp/tank). `tank` is its own inverse, so a key
@@ -13505,14 +14310,19 @@ function testSpiderShare() {
   // The value range is pinned for a second reason: pickWeighted returns the FIRST key when the
   // total is <= 0, so a negative multiplier would not throw — it would quietly collapse the whole
   // wave table to drones.
+  // Same CHAPTER_ORDER -> Object.keys(CHAPTERS) widening as (e) above — this used to have no
+  // vocabulary guard at all for surf (run BP's (aa) block carried a hand-rolled duplicate of this
+  // exact check specifically because this one couldn't see Book 2's chapters; that duplicate is
+  // now genuinely redundant with this widened sweep, but left in place rather than deleted, since
+  // it is not this fix round's job to touch run BP's block).
   const ARCHETYPES = new Set(Object.keys(ARCHETYPE_TYPE))
-  for (const id of CHAPTER_ORDER) {
+  for (const id of spAllChapters) {
     for (const [k, v] of Object.entries(CHAPTERS[id].archetypeMul ?? {})) {
       assert.ok(ARCHETYPES.has(k), `'${id}'.archetypeMul key '${k}' is not an archetype (${[...ARCHETYPES].join('/')}) — it would silently do nothing`)
       assert.ok(typeof v === 'number' && v >= 0 && Number.isFinite(v), `'${id}'.archetypeMul.${k} must be a finite number >= 0, got ${v}`)
     }
   }
-  console.log(`PASS run SP.f (vocabulary): every archetypeMul key is a real archetype (${[...ARCHETYPES].join('/')}), every value >= 0`)
+  console.log(`PASS run SP.f (vocabulary): every archetypeMul key is a real archetype (${[...ARCHETYPES].join('/')}), every value >= 0 (${spAllChapters.length} chapters checked)`)
 
   console.log('PASS run SP (spider share): the archetype multiplier reaches the pick, garden-only')
 }
@@ -15112,6 +15922,21 @@ function testSurfHumidityDamage() {
     const v = resourceDamageMul((i / 40) * res.max, res)
     assert.ok(v >= prev, `damage multiplier is not monotonic at charge ${(i / 40) * res.max}`)
     prev = v
+  }
+
+  // (a2) TASK 9 FIX ROUND (2026-08-16, coordinator review) — the optional 3rd `max` parameter, same
+  // default-preserving idiom as darkness()/lightRadius() (config.js). Deep Lungs raises a run's own
+  // ceiling above res.max; resourceDamageMul's frac clamps to 1, so against the OLD max two
+  // different charges both above it must saturate at the SAME multiplier (1, full damage) — the
+  // regression Finding 1 reported. Prove the collapse, then prove the run's raised ceiling fixes it.
+  {
+    assert.strictEqual(resourceDamageMul(res.max * 0.5, res), resourceDamageMul(res.max * 0.5, res, res.max),
+      'omitting max must still mean res.max, or every 2-arg call site above just changed meaning')
+    const bigMax = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)
+    assert.strictEqual(resourceDamageMul(res.max * 1.1, res, res.max), resourceDamageMul(res.max * 1.7, res, res.max),
+      'precondition: against the OLD max, two different charges above it must both saturate at 1 (full damage) — that saturation is the bug')
+    assert.notStrictEqual(resourceDamageMul(res.max * 1.1, res, bigMax), resourceDamageMul(res.max * 1.7, res, bigMax),
+      'two different charges above the OLD max must produce DIFFERENT damage multipliers once the run\'s own (raised) ceiling is passed as the 3rd arg')
   }
 
   // (b) the floor is a NUDGE, not a cliff. The four-reviewer pass that originally banned this found
@@ -18222,6 +19047,40 @@ function testVocabularies() {
   const radiusless = STRUCTURE_KINDS.filter((k) => STRUCTURE_RADIUS[k] == null)
   assert.deepStrictEqual(radiusless, [], `structure kind(s) with no STRUCTURE_RADIUS: [${radiusless.join(', ')}] — sim would collide against undefined`)
 
+  // (e) BOOK_UNLOCKS. Same shape as (a)/(b): config declares the id (BOOK_UNLOCKS[bookId][id]),
+  // state.js is the one file that may special-case what it DOES (Light Thief's killRefill
+  // snapshot, see bm.unlocks?.lightThief in createRun) — nothing imports the two together, so a
+  // rename on either side is a typo that fails silently. The generic half of the design (main.js's
+  // cost lookup, ui.js's already-bought gate) reads `bm.unlocks?.[id]` off the LOOP's own binding
+  // and can never go stale this way; this check only has to cover the special-cased half, which is
+  // exactly the seam the BOOK_UNLOCKS comment in config.js describes ("a row here plus a read in
+  // state.js"). A dropped read spends the player's sacrifice and grants nothing — the exact "looks
+  // bought, does nothing" failure the design exists to avoid.
+  const state = readFileSync(new URL('../src/state.js', import.meta.url), 'utf8')
+  const declaredUnlocks = new Set(Object.values(BOOK_UNLOCKS ?? {}).flatMap((t) => Object.keys(t ?? {})))
+  const readUnlocks = new Set([...state.matchAll(/\.unlocks\??\.(\w+)/g)].map((m) => m[1]))
+  const deadUnlocks = [...declaredUnlocks].filter((id) => !readUnlocks.has(id)).sort()
+  assert.deepStrictEqual(deadUnlocks, [],
+    `BOOK_UNLOCKS id(s) never read off bm.unlocks in state.js: [${deadUnlocks.join(', ')}] — the sacrifice ` +
+    `would spend the player's upgrade levels and grant nothing, silently.`)
+
+  // (f) FINAL FIX ROUND, FIX 4 — shopBonus's third argument (state.js). shopBonus(bm, bookId, id)
+  // resolves `(shopLines(bookId)[id]?.perLevel ?? 0)`, and the `?? 0` is REQUIRED now — book1
+  // legitimately lacks Undertow-only lines like deepLungs, so every call site is asking a book
+  // that may not carry that id. But the same `?? 0` also turned a MISTYPED id into a silent zero
+  // on the core stat pipeline: shopBonus(bm, 'book1', 'moveSped') would just return 0 forever, with
+  // no throw and no test noticing, because 0 is also the legitimate answer for "book1 has no
+  // deepLungs line". Every string literal passed as shopBonus's third argument must be a real id
+  // in the union of every book's shopLines.
+  const allShopLineIds = new Set(BOOK_ORDER.flatMap((b) => Object.keys(shopLines(b))))
+  const shopBonusIds = [...new Set([...state.matchAll(/shopBonus\(bm,\s*bookId,\s*'(\w+)'\)/g)].map((m) => m[1]))]
+  assert.ok(shopBonusIds.length > 0,
+    'run VO could not find any shopBonus(bm, bookId, \'...\') call sites in state.js — the regex may have gone stale')
+  const unknownShopBonusIds = shopBonusIds.filter((id) => !allShopLineIds.has(id))
+  assert.deepStrictEqual(unknownShopBonusIds, [],
+    `shopBonus id(s) in state.js that match no book's shop line: [${unknownShopBonusIds.join(', ')}] — ` +
+    `shopBonus's own '?? 0' turns a typo here into a silent zero on the stat it names, not a throw.`)
+
   console.log(`PASS run VO (vocabularies): ${declaredFlags.size} behaviour flags all read, ${Object.keys(ELITE_AFFIXES).length} affixes all read, ` +
-    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized`)
+    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized, ${declaredUnlocks.size} BOOK_UNLOCKS id(s) all read off bm.unlocks, ${shopBonusIds.length} shopBonus id(s) all resolve to a real shop line`)
 }

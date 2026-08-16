@@ -924,6 +924,14 @@ const CONFIG = {
   '+12% gem magnet': '+12% aimant',
   'Coin Nose': 'Flair à Pièces',
   '+10% coins found': '+10% pièces',
+  // BOOK_SHOP.undertow (Task 6, per-book progression) — Undertow's three own shop lines, merged
+  // on top of the eight above by shopLines('undertow'). All three act on a chapter's resource bar.
+  'Deep Lungs': 'Apnée',
+  '+8% resource capacity': '+8% de capacité',
+  'Slow Burn': 'Économe',
+  "-4% resource drain": "-4% d'usure",
+  'Big Gulp': 'Grande Lampée',
+  '+10% refill per pickup': '+10% par ramassage',
   'Fire Infusion': 'Infusion de Feu',
   'Cold Infusion': 'Infusion de Givre',
   'Lightning Infusion': 'Infusion de Foudre',
@@ -1035,7 +1043,9 @@ const CONFIG = {
   'Start with 2 level-ups banked': 'Commence avec 2 montées de niveau en réserve',
   'Charged Core': 'Noyau Chargé',
   'Starting weapon begins at Lv 2': 'L\'arme de départ commence au Niv. 2',
-  // Book names (BOOKS[].name) — on screen for the first time, on the shelf's brass plate.
+  // Book names (BOOKS[].name) — on the shelf's brass plate, and (per-book progression) on the
+  // shop's balance header beside the coin count, which is where a player learns whose purse they
+  // are spending.
   'The Anomaly': 'L\'Anomalie',
   'Undertow': 'Lame de Fond',
   // Spine names (CHAPTER_SPINE, config.js) — the chapter name with its article dropped, because a

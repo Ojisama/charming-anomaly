@@ -210,6 +210,11 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   **Ship amends HEAD with `git commit --amend -m`, which replaces the WHOLE message — any BODY on
   that commit is destroyed.** So write the reasoning where it survives: on the commits below the
   release, or push the branch first (the pre-amend commit stays reachable there) and ship after.
+  **After ship, the branch you already pushed has DIVERGED** — ship amended HEAD, so your local
+  branch is no longer a descendant of its remote copy and a second `git push` is rejected as
+  non-fast-forward. Push the next commit to a NEW branch name (`git push origin HEAD:<name>-2`)
+  rather than force-pushing; the point of that push is only to keep the commit BODY reachable, so
+  a fresh name costs nothing and `--force` is never the answer.
   Also expect the retry path to fire for real: it merged `main` and renumbered twice in one
   afternoon while another session was shipping, which is working as designed — check
   `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
@@ -228,6 +233,24 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   v6.10.1 shipped to fix the chore form, and a CLAUDE.md-only push took the live page from
   `v6.10.0 · 969a0e8` to `dev · 4f17cad` one command after that rule was written down. The sha is
   still the part that cannot be duplicated or guessed.
+- **`meta` FIELDS ARE ADDITIVE-ONLY. Never rename, never repurpose, never delete a top-level field —
+  R2** (`docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md:124`): *"`meta`
+  changes are additive. Never rename, never repurpose. A rename is a delete plus an add, and the old
+  build carries the corpse forward."* The worked example is this project's OWN per-book-progression
+  design: rev 1 (`docs/superpowers/specs/2026-08-16-per-book-progression-design.md`, "Revision
+  history") moved `meta.coins`/`meta.shop`/`meta.choiceSlots`/`meta.lightThief` into
+  `meta.books[bookId]` and deleted the top-level fields behind a `SCHEMA` bump. Adversarial review
+  ran a rev-1-migrated save through the ALREADY-SHIPPED (pre-migration) `loadMeta` and got a total
+  wipe — `runs 137, chapter beyond, lang fr, chapters.beyond {unlocked, maxD 5, won 5}` in, `runs 0,
+  chapter body, lang en, beyond {unlocked:false, maxDifficulty:1}` out — because that `loadMeta` does
+  `for (const id of Object.keys(SHOP)) m.shop[id] = …` unconditionally (now `shopLines(BOOK_ORDER[0])`,
+  same hazard either way) and its own `catch { /* corrupted save -> fresh */ }` swallows the
+  resulting TypeError with no warning: a revert, a stale tab, an un-updated device or
+  `public/sw.js`'s offline shell can all still be running a build that expects the OLD shape and
+  push its blob straight over a slot the new build already migrated. Rev 2 shipped instead: additive
+  by construction, so an older build's read of a field it still recognizes round-trips untouched,
+  and a field it does not recognize is simply extra bytes it never looks at. There is no migration
+  step because there is nothing to migrate.
 - **A SUBAGENT DISPATCHED TO REVIEW UNCOMMITTED WORK MUST BE TOLD, IN ITS PROMPT, NOT TO MUTATE THE
   TREE.** Spell out the allowed set (`git diff`, `git show`, `git log`, file reads) and the forbidden
   set (`git stash` in any form, `git reset`, `git checkout`, `git restore`, `git clean`, `git add`,
@@ -267,6 +290,15 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   escape. It was caught by eye, from a screenshot that looked unchanged. Introduce ONE local for the
   count and use it in both places, and assert **distinct positions** rather than a count — a count
   passes happily when things spawn on top of each other (run PB7's every-weapon block does this).
+- **`.screen` is `position: absolute; inset: 0`, and a screen-level class must NEVER re-declare
+  `position`.** Every menu screen is absolutely positioned by that one base rule; a later
+  same-specificity class saying `position: relative` overrides it, the element collapses from
+  `inset: 0` to auto height, and its background stops wherever its content does. That is what it
+  looks like: the Shop's oak panelling ended 565px down a 844px screen with the old canvas showing
+  beneath it, and nothing else was visibly wrong. `.screen` being positioned already makes it the
+  containing block for an `::before { inset: 0 }` overlay, so the declaration is never needed in
+  the first place. Found by printing `getComputedStyle(el).position` and the element's height into
+  the page — reading the stylesheet does not show you which rule won.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
 - **A red `sim-test` band is not proof your change caused it — several bands are eyeballed literals
   under 3σ.** The suite seeds `Math.random` once per scenario, so ANY change that alters how many
@@ -519,6 +551,11 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   symptom is a title screen at difficulty 1 in English while localStorage holds your seed. Same
   trap for any field the loader writes into rather than reads: read `loadMeta` before hand-building
   its input. A working seed is `{schema:1, coins, runs, lang, chapter, shop:{}, best:{}, chapters:{…}}`.
+  Per-book progression (v7.x) has NOT changed this — `shop` is still book 1's own top-level field,
+  still required, still repaired the same way. A seed MAY also carry `books: {}` / `grants: {}`
+  (Book 2's per-book purses and the monotone unlock-grant flags, both additive — see `bookMeta`/
+  `ensureBookMeta` in state.js), but both are optional: `ensureBookMeta` repairs a missing `books`
+  entry on first read, same as every other additive field below.
 - Judging layout at 320px: the devtools window will not resize below ~500px, and `resize_page`
   fails SILENTLY (it reports success; `innerWidth` still reads 500). Always read `innerWidth` back
   before trusting a width. To actually test the phone width, inject a style constraining the

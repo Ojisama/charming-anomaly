@@ -41,9 +41,9 @@
 // That inversion is deliberate: the census asks what one weapon does and an auto-picked passive is
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
-import { createRun } from '../src/state.js'
+import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice, onSandbar, inWake, anglerFeeding } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL } from '../src/config.js'
+import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
 // (Humidity, tide pools via the generalised streamShafts) as The Shelf's Light, so the probe reads
@@ -51,6 +51,21 @@ import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScroll
 // 'shelf' unchanged for every call this file already documents.
 const argChapter = process.argv.indexOf('--chapter')
 const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'shelf'
+// --shop=N (v7.x, Task 9's Slow Burn gate): the permanent book-shop level, 0..10, same flag
+// spelling as pool-probe.mjs. Task 9 needs to compare Lv0 against Lv10 of Undertow's own lines
+// (deepLungs/slowBurn/bigGulp) — the probe had no way to move that knob before this. Clamped
+// against MAX_SHOP_LEVEL the same way pool-probe.mjs:186 already does — unclamped, --shop=15 would
+// apply an out-of-range bonus and print a nonsensical `Lv15/10`.
+const SHOP_LV = Math.min(MAX_SHOP_LEVEL, Number(process.argv.find((a) => a.startsWith('--shop='))?.slice(7) ?? 0))
+// --line=<id>=<N> (v7.x, Task 9 FIX ROUND): set exactly ONE shop line to N and every other line —
+// including the other two Undertow lines and all eight universal ones — to 0. --shop=N sweeps
+// EVERY line at once (moveSpeed included), which confounds a `seek` policy's numbers: a faster
+// player covers more ground per lap regardless of which resource line moved, so "--shop=10 changed
+// %DARK" cannot be attributed to Slow Burn alone. --line is the isolated counterpart: one knob,
+// nothing else moves. Overrides --shop when both are given.
+const argLine = process.argv.find((a) => a.startsWith('--line='))
+const LINE_ID = argLine ? argLine.slice(7).split('=')[0] : null
+const LINE_LV = argLine ? Math.min(MAX_SHOP_LEVEL, Number(argLine.slice(7).split('=')[1] ?? 0)) : 0
 const DIFFICULTY = 1
 const DURATION = 300
 const DT = 1 / 60
@@ -63,10 +78,28 @@ const mulberry32 = (a) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
 
-const meta = {
-  coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: CHAPTER, dev: true,
-  chapters: Object.fromEntries(['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond', CHAPTER]
-    .map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: DIFFICULTY }])),
+// Probe metas are hand-built and never pass through loadMeta, so they must construct the book
+// shape the same way the game does — a bare spread of `lightThief` has been a silent no-op since
+// the unlock moved into books[b].unlocks (see state.js's killRefill snapshot at createRun).
+const bookOfChapter = bookOf(CHAPTER)
+// A typo'd --line id would otherwise leave every line at 0 with no error — the exact "vocabulary
+// silently does nothing" trap CLAUDE.md documents elsewhere in this repo.
+if (LINE_ID && !shopLines(bookOfChapter)[LINE_ID]) {
+  console.error(`ABORT: --line=${LINE_ID} is not a line in shopLines('${bookOfChapter}') — check the spelling`)
+  process.exit(1)
+}
+function probeMeta({ thief = false, shopLevel = SHOP_LV } = {}) {
+  const meta = { coins: 0, shop: {}, choiceSlots: 2, best: {}, runs: 0, chapters: {}, dev: true }
+  ensureChapterMeta(meta, CHAPTER)
+  meta.chapters[CHAPTER].unlocked = true
+  const bm = ensureBookMeta(meta, bookOfChapter)
+  if (thief) bm.unlocks.lightThief = true
+  // --line wins when given: every line 0 except LINE_ID, which gets LINE_LV. Otherwise the old
+  // --shop=N sweep, every line to shopLevel.
+  for (const id of Object.keys(shopLines(bookOfChapter))) {
+    bm.shop[id] = LINE_ID ? (id === LINE_ID ? LINE_LV : 0) : shopLevel
+  }
+  return meta
 }
 
 const res = CHAPTERS[CHAPTER].resource
@@ -112,7 +145,10 @@ const MOVES = {
     // later task — but the bar is already live as the Pulse's ammo (stepSim gates that on `res`
     // alone, not on `dark`), so a rational player still wants it above half. Below half is an
     // arbitrary but reasonable stand-in for a chapter that hasn't shipped its own gate yet.
-    const wantSeek = res.dark ? darkness(run.charge, res) > 0 : run.charge < res.max * 0.5
+    // run.chargeMax, not res.max (Task 9 fix round): Deep Lungs raises the run's own ceiling, and
+    // both darkness() and the "below half" fallback must judge against IT, or a Deep-Lungs run
+    // seeks far more eagerly than a player reading their own (raised) bar actually would.
+    const wantSeek = res.dark ? darkness(run.charge, res, run.chargeMax) > 0 : run.charge < run.chargeMax * 0.5
     if (!wantSeek) return null
     const p = run.player
     let best = null, bd = Infinity
@@ -192,7 +228,7 @@ const LANE_MOVES = {
   centre: (run) => towardCross(run.player[LAX.cross], 0),
   pocket: (run) => {
     const p = run.player
-    if (run.charge >= res.max - 0.01) return towardCross(p[LAX.cross], 0)
+    if (run.charge >= run.chargeMax - 0.01) return towardCross(p[LAX.cross], 0)
     const strafe = p.speed * 1.25            // LANE_STRAFE_MUL; how fast the cross axis can close
     let best = null, bd = Infinity
     for (const sh of run.shafts) {
@@ -271,7 +307,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
   for (let r = 0; r < RUNS; r++) {
     const orig = Math.random
     Math.random = mulberry32(1234 + r * 7919)
-    const run = createRun({ ...meta, lightThief: thief }, { chapter: CHAPTER, difficulty: DIFFICULTY })
+    const run = createRun(probeMeta({ thief }), { chapter: CHAPTER, difficulty: DIFFICULTY })
     if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
 
     let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0, bites = 0
@@ -317,13 +353,15 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       const c = run.charge
       sum += c; min = Math.min(min, c); max = Math.max(max, c)
       if (c <= 0.01) atZero++
-      if (c >= res.max - 0.01) atMax++
+      // run.chargeMax, not res.max (Task 9 fix round): Deep Lungs raises the run's own ceiling, so
+      // "%atMax" must ask "at THIS run's cap", not "at or above the pre-Deep-Lungs config number".
+      if (c >= run.chargeMax - 0.01) atMax++
       if (c >= PULSE_CHARGE_COST) armed++                  // could fire a FULL-strength pulse right now
       // THE DARK. `d` is the ONE curve both the dimming and the slow read (config.js), so %dark is
       // literally "how much of this run was the screen dimmed and the player slowed at all", and
       // meanDark is how far in. Reporting only the first would call a run that dips 1% below the
-      // threshold and a run pinned at an empty bar the same thing.
-      const d = darkness(c, res)
+      // threshold and a run pinned at an empty bar the same thing. run.chargeMax again, same reason.
+      const d = darkness(c, res, run.chargeMax)
       if (d > 0) dark++
       darkSum += d
       if (steps % 600 === 0) samples.push(Math.round(c))
@@ -339,10 +377,20 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
 }
 
 const avg = (rows, k) => rows.reduce((a, x) => a + x[k], 0) / rows.length
-console.log(`chapter=${CHAPTER} difficulty=${DIFFICULTY} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
-console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle  kill +${res.killRefill} (Light Thief only)  max ${res.max}`)
+// The header must state EXACTLY what was measured (Task 9 fix round) — --line and --shop resolve
+// to different per-line levels, and a table with no header distinction between them is how a
+// confounded --shop=10 sweep gets misread as an isolated Slow Burn result. Read the resolved
+// chargeMax off a real (throwaway) probe run rather than re-deriving shopBonus's math here a
+// second time — state.js's shopBonus is what createRun already trusts, and duplicating its formula
+// is exactly the "one fact in two places" trap CLAUDE.md warns about.
+const modeLabel = LINE_ID ? `line=${LINE_ID}@Lv${LINE_LV}/10 (every other line 0)` : `shop=Lv${SHOP_LV}/10 (every line)`
+const previewRun = createRun(probeMeta({}), { chapter: CHAPTER, difficulty: DIFFICULTY })
+console.log(`chapter=${CHAPTER} book=${bookOfChapter} difficulty=${DIFFICULTY} ${modeLabel} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
+console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle  kill +${res.killRefill} (Light Thief only)  config max ${res.max}  resolved chargeMax ${previewRun.chargeMax}`)
 if (res.dark) {
-  console.log(`dark:     below ${(res.dark.from * 100).toFixed(0)}/${res.max} the screen dims (to alpha ${res.dark.dim}) and you slow (to x${res.dark.speedFloor}), linearly to empty`)
+  // The FRACTION threshold (res.dark.from) is fixed; the ABSOLUTE charge it fires at is not — Deep
+  // Lungs raises chargeMax, so a Lv10 run's dark starts at 0.5 x 180 = 90, not 0.5 x 100 = 50.
+  console.log(`dark:     below ${(res.dark.from * 100).toFixed(0)}% of chargeMax (${(res.dark.from * previewRun.chargeMax).toFixed(0)}/${previewRun.chargeMax}) the screen dims (to alpha ${res.dark.dim}) and you slow (to x${res.dark.speedFloor}), linearly to empty`)
 } else {
   console.log('dark:     none — this chapter declares no resource.dark block')
 }
@@ -364,7 +412,7 @@ if (sig.bars) {
   console.log(`sandbars: cell ${sig.bars.cell} chance ${sig.bars.chance} r ${sig.bars.r}  slowMul x${sig.bars.slowMul}  drainMul x${sig.bars.drainMul}` +
     ` — ${(100 * sig.bars.chance * Math.PI * sig.bars.r * sig.bars.r / (sig.bars.cell * sig.bars.cell)).toFixed(1)}% of the plane is dry ground`)
 }
-console.log(`pulse:    costs ${PULSE_CHARGE_COST}; a full bar is ${(res.max / PULSE_CHARGE_COST).toFixed(1)} charged pulses`)
+console.log(`pulse:    costs ${PULSE_CHARGE_COST}; a full (resolved) bar is ${(previewRun.chargeMax / PULSE_CHARGE_COST).toFixed(1)} charged pulses`)
 console.log('')
 console.log('policy              mean    %at0   %atMax  %armed %inRefill   %DARK  meanDark   %onBar  pulses  charged   bites  kills   secs')
 for (const [pname, rows] of Object.entries(results)) {
