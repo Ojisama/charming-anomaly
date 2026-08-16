@@ -4793,7 +4793,37 @@ function runBookProgression() {
   assert.strictEqual(nextBook('undertow'), null, "nextBook('undertow') === null — Undertow is the last shipped book")
   assert.strictEqual(nextBook('nope'), null, 'nextBook of an id no book claims === null')
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, and endRun's book-finale wiring is present as source text`)
+  // (s) OLD-BUILD COMPATIBILITY. The entire architecture is "additive, so no migration". This is
+  // the assertion that says so. Rev 1 of the spec moved book 1's fields into meta.books and
+  // deleted the originals; today's shipped loadMeta reading such a save produced runs 137 -> 0,
+  // The Beyond unlocked -> LOCKED, fr -> en, name erased — and saveMeta then wrote that over the
+  // slot. Reachable by a revert, a tab open from before the deploy, an un-updated device pushing
+  // its blob, or sw.js's offline shell booting a cached bundle.
+  const rev2Save = {
+    schema: 1, runs: 137, chapter: 'beyond', lang: 'fr', name: 'Main',
+    coins: 4200, shop: { damage: 10, fireRate: 10, maxHP: 10 }, choiceSlots: 4,
+    best: { time: 300, kills: 4000 },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+    unlocks: {}, grants: { undertow: true },
+    books: { undertow: { coins: 100, shop: { damage: 3, slowBurn: 2 }, choiceSlots: 2, unlocks: { lightThief: true } } },
+  }
+  // (s1) Book 1 is exactly where an old build looks for it.
+  for (const f of ['coins', 'choiceSlots', 'shop']) {
+    assert.ok(Object.hasOwn(rev2Save, f), `top-level '${f}' must still exist — R2 forbids moving it`)
+  }
+  const back = loadMetaFrom(rev2Save)
+  assert.strictEqual(back.coins, 4200, "book 1's coins survive a load")
+  assert.strictEqual(back.runs, 137, 'runs survive')
+  assert.strictEqual(back.lang, 'fr', 'language survives')
+  assert.strictEqual(back.chapters.beyond.unlocked, true, 'chapter unlocks survive')
+  assert.strictEqual(back.shop.damage, 10, "book 1's shop levels survive")
+  // (s2) And book 2's state survives a round trip through a build that knows nothing about it.
+  assert.strictEqual(back.books.undertow.coins, 100, "book 2's purse survives")
+  assert.strictEqual(back.books.undertow.shop.slowBurn, 2, "book 2's own shop line survives")
+  assert.strictEqual(back.books.undertow.unlocks.lightThief, true, "book 2's unlock survives")
+  assert.strictEqual(back.grants.undertow, true, 'the grant record survives')
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, and a rev-2 save round-trips through this build's own loadMeta with both books intact`)
 }
 run(runBookProgression)
 
