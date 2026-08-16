@@ -557,6 +557,11 @@ const CONFIG = {
   //   ordinary French, so it costs the reader nothing and says exactly what the hooks do.
   //   The Filet Lesté desc deliberately does NOT repeat 'filet lesté', which is now the card's own
   //   name: a card whose description restates its title wastes the only two lines it has.
+  // The Deep's native. 'Coup de Nageoire' is the owner's pick over 'Coup de Queue' (punchier,
+  // and what a shark actually swings) precisely because it mirrors the English and the three
+  // mods that hang off it — Nageoire Large, Longue Nageoire — read as one family with it.
+  'Fin Hit': 'Coup de Nageoire',
+  'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.': 'Votre propre corps, lancé où vous tournez. Inutile à l\'arrêt : il frappe aussi fort que vous nagez.',
   'Longline': 'Ligne à Hameçons',
   'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
   'Net Toss': 'Filet Lesté',
@@ -877,6 +882,16 @@ const CONFIG = {
   'extra jump(s) when a crusted body dies': 'saut(s) supplémentaire(s) à la mort d\'un corps incrusté',
   // The Trawl's two natives. 'par tic' matches the Balanes rows just above — the same wording for
   // the same idea, so a player reading two grinder cards is not told it twice in two ways.
+  // 'balayage' for the sweep across all three, so the card, the sheet and the mods say one word
+  // for one thing — the rule the Coquille Ricochet entry states.
+  'Serrated': 'Dentelé',
+  'fin damage': 'dégâts de la nageoire',
+  'Broad Fin': 'Nageoire Large',
+  'how wide the sweep is': 'largeur du balayage',
+  'Long Fin': 'Longue Nageoire',
+  'sweep reach': 'portée du balayage',
+  'Thrash': 'Battement',
+  'sweep rate': 'cadence du balayage',
   'Barbed Hooks': 'Hameçons Barbelés',
   'hook damage per tick': 'dégâts des hameçons par tic',
   'Long Set': 'Longue Pose',
@@ -1076,6 +1091,16 @@ const CONFIG = {
   // the English says the net is indifferent to you, and this says the humans will catch every one
   // of you. Same chapter, aimed from the other end. If the English is ever brought into line with
   // it, remember the English string IS the key — changing it orphans this entry.
+  // The Deep (Book 2 chapter 5). The TAGLINE is the owner's own line, not a translation of the
+  // English ('nothing up there can reach you'): it names THEM, and so answers The Trawl's
+  // 'Ils vous pêcheront tous' directly — the fishermen who caught everything one chapter ago
+  // cannot follow you down. Changing the English orphans this entry, because the English source
+  // string IS the key.
+  //   'Les Abysses' over a literal 'Le Profond': the latter is not idiomatic French for a place,
+  //   and this is the word a French player has actually read for the deep ocean.
+  'The Deep': 'Les Abysses',
+  'nothing up there can reach you': 'Ils ne descendent pas jusqu\'ici',
+  'Deep': 'Abysses',
   'The Trawl': 'Le Chalut',
   'the net is not aiming at you': 'Ils vous pêcheront tous',
   'Sand Hopper': 'Puce de mer',
@@ -1083,6 +1108,18 @@ const CONFIG = {
   'Sea Roach': 'Cloporte de mer',
   'Copepod': 'Copépode',
   'Krill': 'Krill',
+  'Anglerfish': 'Poisson-Lanterne',
+  'Hagfish': 'Poisson-Gluant',
+  'Viperfish': 'Poisson-Vipère',
+  'Gulper Eel': 'Grande-Gueule',
+  // The Trawl's three, which shipped in v7.96 with no French at all. Roster `name`s are NOT in
+  // run XX's coverage walk (it enumerates config tables for name/desc/title/from, and a roster
+  // entry's name is inside an array inside a chapter), so the suite was fully green with three
+  // English creature names on a translated card. Same exemption, fifth occurrence — see the
+  // block above CHAPTER_SPINE in config.js for why that table is a table.
+  'Mackerel': 'Maquereau',
+  'Tuna': 'Thon',
+  'Sea Lion': 'Otarie',
   'Moon Jelly': 'Méduse Lune',
   'The Garden': 'Le Jardin',
   'your scent gives you away': 'ton odeur te trahit',
