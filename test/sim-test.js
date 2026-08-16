@@ -82,7 +82,7 @@ import {
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
   BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
-  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
+  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
   BLANK_SHOT_T, BLANK_SHOT_TURN, BLANK_ACCEL_MUL, BLANK_DESPERATE_MUL,
@@ -4858,6 +4858,43 @@ function runBookProgression() {
     const bareBank = body.split('\n').filter((l) => /meta\.coins\s*\+=/.test(l))
     assert.deepStrictEqual(bareBank, [],
       `endRun must not bank coins with a bare "meta.coins +=" — that credits every book's earnings to book 1's purse. Offending line(s):\n${bareBank.join('\n')}`)
+
+    // The BADGE (v7.x). Two halves, each of which fails silently and independently: a return
+    // value that is never captured announces nothing, and a captured flag that never reaches
+    // showScreen also announces nothing. Gating on unlockBook's return (rather than on `nb`) is
+    // the part that matters — grantBook's monotone meta.grants flag makes the second finale
+    // return false, so an unconditional assignment would re-announce the book on every replay.
+    assert.ok(/if \(nb && unlockBook\(meta, nb\)\) unlockedBook = nb/.test(body),
+      `endRun must gate unlockedBook on unlockBook's RETURN value — assigning it from a bare "if (nb)" re-announces the book every time the finale is replayed. endRun currently reads:\n${body}`)
+    assert.ok(/^\s*unlockedBook,\s*$/m.test(body),
+      `endRun must forward unlockedBook in the showScreen('summary') payload — captured and not forwarded renders no badge at all. endRun currently reads:\n${body}`)
+  }
+
+  // (q2) The badge's other three files. The table, the renderer and the stylesheet have no import
+  // between them, which is the 28%-of-all-defects shape this suite lints as source text.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/BOOK_UNLOCK_LINES\[d\.unlockedBook\]/.test(uiSrc),
+      'ui.js must read BOOK_UNLOCK_LINES[d.unlockedBook] — a payload field nothing renders is exactly the silent grant this badge exists to end')
+    assert.ok(/summary-unlock--book/.test(uiSrc), 'the badge must carry the .summary-unlock--book class')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.ok(/\.summary-unlock--book\s*\{/.test(css),
+      '.summary-unlock--book needs a CSS rule of its own — .summary-unlock--hidden shipped without one and silently inherited the mint DIFFICULTY accent, which nobody noticed')
+
+    // Every book you can ARRIVE at needs a row. BOOK_ORDER[0] is where you start, so nothing
+    // unlocks it. A missing row renders NO badge (ui.js has no fallback string on purpose —
+    // a half-translated announcement is worse than the silence it replaced), so this must be an
+    // assert rather than a default.
+    const arrivable = BOOK_ORDER.slice(1)
+    assert.ok(arrivable.length > 0, 'no arrivable book, so this sweep cannot show its denominator responds to anything')
+    for (const id of arrivable) {
+      assert.ok(BOOK_UNLOCK_LINES[id], `BOOK_UNLOCK_LINES missing '${id}' — unlocking it would announce nothing`)
+      assert.ok(/\{n\}/.test(BOOK_UNLOCK_LINES[id]),
+        `BOOK_UNLOCK_LINES.${id} must state the welcome purse through the {n} TEMPLATE, never a baked-in number — the English string IS the translation key, so a literal 100 orphans the French the day startCoins is retuned`)
+    }
+    assert.deepStrictEqual(Object.keys(BOOK_UNLOCK_LINES).filter((id) => !arrivable.includes(id)), [],
+      'BOOK_UNLOCK_LINES has a row for a book nothing can unlock — dead copy that run XX will still demand French for')
+    console.log(`PASS run BP.q2 (book-unlock badge): ${arrivable.length} arrivable book(s) [${arrivable.join(' ')}] all have a {n} line, wired through main.js -> ui.js -> styles.css`)
   }
 
   // (r) nextBook was imported for the finding above and had NO direct coverage of its own —
@@ -12562,6 +12599,9 @@ function testFrenchDictionary() {
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  // Same flat id -> string shape, one book down. Joined here the day the table landed rather than
+  // the day someone noticed the badge was English — the whole point of this walk.
+  for (const v of Object.values(BOOK_UNLOCK_LINES ?? {})) need(v)
   for (const v of Object.values(CHAPTERS ?? {})) { need(v?.name); need(v?.tagline) }
   // BOOKS[].name is on screen from v7.x (the shelf's brass plate) and no walk above reached it —
   // both Books would have shipped in English the day the bookcase landed.

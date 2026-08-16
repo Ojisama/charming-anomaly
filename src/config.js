@@ -8281,6 +8281,17 @@ export const CHAPTER_UNLOCK_LINES = {
   beyond:      'The Beyond — you were never the only anomaly',
 }
 
+// Book-unlock badge copy (v7.x), keyed by the book that just OPENED. Flat id -> string like
+// CHAPTER_UNLOCK_LINES above, and in a table for the same reason: run XX's config-table walk is
+// what catches a missing French translation, and a tt() literal in ui.js is invisible to it by
+// construction. {n} is the welcome purse (BOOKS[id].startCoins) — a tt() TEMPLATE, so the number
+// must never be baked into the string, or the key changes every time the grant is retuned and no
+// dictionary can hold enough of them. Every book except BOOK_ORDER[0] needs a row (run BU asserts
+// it): the first book is where you start, so it is never unlocked.
+export const BOOK_UNLOCK_LINES = {
+  undertow: 'UNDERTOW — a second book opens, for a new adventure… 🪙 {n} to begin',
+}
+
 // ---- The Blank (v5.24, hidden final boss chapter, see sim.js's stepBossScript) ----------------
 // Script table read by stepBossScript: even indices are wave blocks (3 discrete ring-spawned
 // waves each, advancing on clear-or-timeout), odd indices are boss phases (one run.enemies entry

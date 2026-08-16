@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta } from './state.js'
@@ -204,7 +204,8 @@ function formatShopBonus(bookId, id, levels) {
  *       phase and Resume goes back to the same undealt cards, which is why main.js needs
  *       ui.activeScreen() to tell those two directions apart.
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
- *       nextDifficulty?, unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter? }
+ *       nextDifficulty?, unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter?,
+ *       unlockedBook? }
  *       nextDifficulty (v6.4.4) is the difficulty a classic win just advanced the chapter's saved
  *       selection to (endRun bumps chMeta.difficulty when below the cap), else null — it flips the
  *       main button's label from "Play again" to "Next level"; the button's onPlay flow is
@@ -215,7 +216,12 @@ function formatShopBonus(bookId, id, levels) {
  *       unlocked it, else null — rendered as a second, violet .summary-unlock--chapter badge.
  *       unlockedHiddenChapter (v5.24) is CHAPTERS.blank.name the one time a classic Beyond win at
  *       difficulty 5 just unlocked The Blank, else null/absent — rendered as a third,
- *       .summary-unlock--hidden badge. All three can and do appear together. renderSummary itself
+ *       .summary-unlock--hidden badge. unlockedBook (v7.x) is the book id a finale win just
+ *       OPENED, else null — rendered as a fourth, .summary-unlock--book badge whose copy and
+ *       welcome-purse figure come from BOOK_UNLOCK_LINES + BOOKS[id].startCoins. A book with no
+ *       BOOK_UNLOCK_LINES row renders no badge at all (run BU asserts every unlockable book has
+ *       one), deliberately: a half-translated announcement is worse than the silence it replaced.
+ *       All four can and do appear together. renderSummary itself
  *       resolves which chapter was just
  *       played (meta.chapter for classic, dailyChapter(todayKey()) for daily — the data object
  *       doesn't carry it) purely to show its icon/name in the header, unrelated to these unlocks.
@@ -2069,6 +2075,7 @@ export function initUI(hooks) {
           ? t(CHAPTER_UNLOCK_LINES[d.unlockedChapterId])
           : tt('Chapter unlocked: {name}!', { name: t(d.unlockedChapter) })}</div>` : ''}
         ${d.unlockedHiddenChapter ? `<div class="summary-unlock summary-unlock--hidden">⬜ ${t('THE BLANK — the antibody that let you go wants you back')}</div>` : ''}
+        ${BOOK_UNLOCK_LINES[d.unlockedBook] ? `<div class="summary-unlock summary-unlock--book">📖 ${tt(BOOK_UNLOCK_LINES[d.unlockedBook], { n: BOOKS[d.unlockedBook]?.startCoins ?? 0 })}</div>` : ''}
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} ${t('finish bonus')}</span>` : ''}
         </div>

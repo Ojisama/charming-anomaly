@@ -485,6 +485,7 @@ function endRun(victory) {
   // shouldn't keep announcing it).
   let unlockedChapter = null
   let unlockedChapterId = null
+  let unlockedBook = null
   if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     if (next) {
@@ -497,16 +498,13 @@ function endRun(victory) {
     } else if (isBookFinale(run.chapter)) {
       // No next chapter AND this is the book's finale: open the next book. Not a bare
       // `!next` test — that is also true of The Blank (see isBookFinale in config.js).
-      // Still unlocks (meta.chapters + the 100-coin grant) even though it produces NO summary
-      // banner: a book-unlock banner is deliberately deferred to the Book-2 launch (final review,
-      // 2026-08-16). Its copy has to live in a config TABLE, not a tt() literal here — run XX's
-      // config-table walk is what catches a missing French translation, and a literal in this
-      // function is invisible to it by construction (see the CLAUDE.md note on player-visible
-      // copy) — and the wording is the project owner's to choose personally. The path is also
-      // unreachable today (Undertow is `wip` and dev-gated), so there is no player-visible gap to
-      // paper over by wiring a banner with placeholder text.
+      // unlockBook returns true only when it actually CHANGED something (opened the first
+      // chapter, or paid the welcome purse), which is exactly the gate the badge wants: the
+      // monotone meta.grants flag in grantBook makes a replayed finale return false, so the
+      // announcement fires on the run that earned it and never again. Copy lives in
+      // BOOK_UNLOCK_LINES rather than here — run XX walks config tables, not this function.
       const nb = nextBook(bookOf(run.chapter))
-      if (nb) unlockBook(meta, nb)
+      if (nb && unlockBook(meta, nb)) unlockedBook = nb
     }
   }
 
@@ -545,6 +543,7 @@ function endRun(victory) {
     unlockedChapter,
     unlockedChapterId,
     unlockedHiddenChapter,
+    unlockedBook,
   })
 }
 
