@@ -215,6 +215,19 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   non-fast-forward. Push the next commit to a NEW branch name (`git push origin HEAD:<name>-2`)
   rather than force-pushing; the point of that push is only to keep the commit BODY reachable, so
   a fresh name costs nothing and `--force` is never the answer.
+  **A REJECTED PUSH TO YOUR OWN BRANCH IS NOT ALWAYS YOUR OWN DIVERGENCE, AND GIT'S SUGGESTED FIX
+  IS THE DANGEROUS ONE.** Branch names get reused across sessions here, so `origin/<your-branch>`
+  can hold a feature commit you have never seen. git's hint on the rejection says *"use 'git pull'
+  before pushing again"* — do that on a shared name and you have merged someone else's UNSHIPPED,
+  untested work into the tree you are one command away from publishing under your release number.
+  On 2026-08-16 `origin/surf-weapons` carried `e49e607` ("The Surf gets three native weapons"),
+  absent from both `main` and the local branch of the same name; a pull-then-ship would have put it
+  on the live URL inside a release whose subject was about a summary badge. **Diff before you
+  reconcile:** `git log --oneline HEAD..origin/<branch>` names exactly what the remote has that you
+  do not. If it is not yours, do not pull it — move your commits to a NEW branch (`git switch -c
+  <topic>`) and ship from there, leaving the other session's branch untouched. The general rule:
+  `git log --oneline origin/main..HEAD` before shipping tells you what you are about to publish,
+  and it is the list you must actually READ, not just confirm is short.
   Also expect the retry path to fire for real: it merged `main` and renumbered twice in one
   afternoon while another session was shipping, which is working as designed — check
   `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
