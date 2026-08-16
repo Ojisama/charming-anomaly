@@ -1354,7 +1354,11 @@ export function initUI(hooks) {
       last.chargeLaneX = laneX
       hud.chargeWrap.querySelector('.chaos-vrail--charge').classList.toggle('charge--lanex', laneX)
     }
-    if (res) paintCharge(run.charge, res.max)
+    // run.chargeMax (v7.x Book 2 Task 9 fix round), not res.max: Deep Lungs raises the run's own
+    // ceiling, and painting against the OLD config max pins this bar at full and motionless for
+    // the whole band above it. Falls back to res.max for a run object that predates the field (or
+    // any chapter with no resource, where it is moot — this call is already gated on `res`).
+    if (res) paintCharge(run.charge, run.chargeMax ?? res.max)
   }
 
   // The RESOURCE rail's per-frame paint, modelled on paintChaos below — refs looked up once (the

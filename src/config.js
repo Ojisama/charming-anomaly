@@ -6062,10 +6062,19 @@ export const BURST_CRUSH_MUL = 2.5
 //
 // SPEED, NOT VISION, is also why the dim can be generous: it stacks on top of "you cannot see the
 // crowd arriving", which in a survivors-like is already a real cost.
-export const darkness = (charge, res) => {
+//
+// `max` (v7.x Book 2 Task 9 fix round): the CEILING the fraction divides by, defaulted to
+// `res.max` so every existing call keeps meaning what it used to. Deep Lungs (run.chargeMax) can
+// raise a run's own ceiling above `res.max`, and this function has no `run` to read (config.js is
+// pure data + pure helpers, and imports nothing) — so the caller passes its OWN ceiling in rather
+// than this reaching into `run` itself. Without this, a Deep Lungs run's `frac` saturates at 1 for
+// the entire band between res.max and the raised chargeMax: the screen would read "fully lit" and
+// hold there, motionless, for the first slice of every drain — the mechanic's one piece of
+// feedback going silent right when the bar is at its fullest.
+export const darkness = (charge, res, max = res?.max) => {
   const d = res?.dark
   if (!d) return 0
-  const frac = res.max > 0 ? charge / res.max : 1
+  const frac = max > 0 ? charge / max : 1
   if (frac >= d.from) return 0
   return (d.from - frac) / d.from   // 0 at the threshold, 1 at an empty bar
 }
@@ -6086,10 +6095,14 @@ export const darkness = (charge, res) => {
 // RAW charge, not darkness(): the light is a continuous readout of the bar and must move at 90% as
 // visibly as at 20%. Infinity (not 0) for a chapter with no dark block — "this chapter lights
 // everything" is the identity here, and a 0 would black the screen out.
-export const lightRadius = (charge, res, maxDim) => {
+//
+// `max` (v7.x Book 2 Task 9 fix round): same reasoning as darkness() above — a fourth, TRAILING
+// parameter (maxDim already owns position 3) so a caller with a run's own chargeMax passes it
+// explicitly, and everything else defaults to res.max exactly as before.
+export const lightRadius = (charge, res, maxDim, max = res?.max) => {
   const d = res?.dark
   if (!d) return Infinity
-  const frac = res.max > 0 ? Math.min(1, Math.max(0, charge / res.max)) : 1
+  const frac = max > 0 ? Math.min(1, Math.max(0, charge / max)) : 1
   return maxDim * (d.radiusEmpty + (d.radiusFull - d.radiusEmpty) * frac)
 }
 
@@ -6138,10 +6151,13 @@ export const usesObstacleSeed = (ch) => !!ch.obstacles || !!refillSpec(ch.signat
 // LINEAR from the floor to 1.0, deliberately: the reviewed failure was a multiplier you cannot feel
 // in its top half and fall off a cliff in its bottom, and a curve with a knee is that shape by
 // construction. A straight line at least reports its own state honestly.
-export const resourceDamageMul = (charge, res) => {
+//
+// `max` (v7.x Book 2 Task 9 fix round): same trailing-default idiom as darkness()/lightRadius()
+// above — defaults to res.max, a caller holding a run passes run.chargeMax instead.
+export const resourceDamageMul = (charge, res, max = res?.max) => {
   const d = res?.damage
   if (!d) return 1
-  return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (res.max || 1))
+  return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (max || 1))
 }
 
 // ---- DROWNING (v7.x, The Reef — resources declaring a `drown` block) ---------------------------

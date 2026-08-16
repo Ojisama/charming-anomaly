@@ -213,7 +213,10 @@ function census(id, level, seed) {
   for (const rec of zoneLife.values()) finished.push(rec)   // still open when the run ended
   if (casts > 0 && windowEff <= 0) duds++   // the final cast's window closes at the run's end
   return { raw, eff, hits, casts, duds, zones: plantsZones ? finished : [], kills: run.kills, time: run.time,
-           charge: chargeSum / Math.max(1, chargeSteps), chargeMax: CHAPTERS[CHAPTER]?.resource?.max ?? 0 }
+           // run.chargeMax (Task 9 fix round), not CHAPTERS[CHAPTER].resource.max — this probe's own
+           // shop levels are always 0 (see makeMeta above) so the two happen to agree today, but
+           // reading the run's own field is what keeps that true if a --shop flag is ever added here.
+           charge: chargeSum / Math.max(1, chargeSteps), chargeMax: run.chargeMax }
 }
 
 const pad = (s, n) => String(s).padStart(n)

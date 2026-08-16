@@ -603,7 +603,9 @@ function stepPlayerMovement(run, input, dt) {
   // threshold, so multiplying would make every web and every latch in this chapter strictly nastier
   // than the same web anywhere else, which is a difficulty change nobody asked for.
   const _dres = CHAPTERS[run.chapter].resource
-  const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres) : 1
+  // run.chargeMax (v7.x Book 2 Task 9 fix round), not _dres.max — Deep Lungs raises the run's OWN
+  // ceiling, and darkness() defaults to the config max only when it isn't told a better one.
+  const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres, run.chargeMax) : 1
   // THE SANDBARS (Book 2 / The Surf): dry ground is a floor on speed, same MIN composition as the
   // dark above and for the same reason — multiplying would silently stack with latch/web/the dark.
   const _sig = CHAPTERS[run.chapter].signature
@@ -4733,7 +4735,9 @@ function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   const p = run.player
   let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
-    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
+    // v7.55 §5.3 owner ruling: Humidity only. run.chargeMax (Task 9 fix round): Deep Lungs' own
+    // ceiling, not the config max — see resourceDamageMul's own note.
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
   let crit = false
   if (Math.random() < p.critChance + run.passives.critChance + critBonus) {
     dmg *= (p.critDamage + run.passives.critDamage)
@@ -6407,7 +6411,8 @@ function pickBloomSpot(run, castRange) {
 function applyDotDamage(run, enemy, baseDmg) {
   const p = run.player
   const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
-    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource)   // v7.55 §5.3 owner ruling: Humidity only
+    // v7.55 §5.3 owner ruling: Humidity only. run.chargeMax (Task 9 fix round), not the config max.
+    * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
   dealDamage(run, enemy, dmg, false, true)
 }
 

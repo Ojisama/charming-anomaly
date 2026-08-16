@@ -5091,7 +5091,39 @@ function runBookProgression() {
       'bigGulp must leave MORE resource after a second in a refill circle — assert the refill, not the multiplier')
   }
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, and the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate`)
+  // (z) TASK 9 FIX ROUND (2026-08-16, coordinator review) — a fourth consumer of the OLD config max:
+  // ui.js's paintCharge, the HUD bar itself. darkness()/lightRadius()/resourceDamageMul() (config.js)
+  // are covered in their own test functions (run DK, run US.d) now that they take an explicit `max`
+  // parameter; this is the one that isn't a pure function reachable from here. ui.js is not
+  // importable (no jsdom, initUI() touches document.getElementById on its first line), so this pins
+  // the call site as source text AND mirrors paintCharge's own clamp formula with REAL numbers from
+  // a Deep-Lungs-maxed run, proving two different charges above the OLD config max paint two
+  // DIFFERENT HUD fractions — a "the ceiling moved" test alone would not catch a bar pinned at 100%
+  // and motionless for the whole band above the old max, which is exactly what shipped before this.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/paintCharge\(run\.charge, run\.chargeMax \?\? res\.max\)/.test(uiSrc),
+      'the HUD paint call must pass run.chargeMax (falling back to res.max only for a run object that predates the field), not res.max unconditionally')
+    // paintCharge's own clamp formula, mirrored exactly below — pinned here so a change to the
+    // shipped formula makes the mirror fail loudly instead of silently drifting from what it copies.
+    assert.ok(/const frac = max > 0 \? Math\.max\(0, Math\.min\(1, charge \/ max\)\) : 0/.test(uiSrc),
+      "paintCharge's clamp formula moved — the mirrored computation below no longer matches the shipped one")
+
+    const m = makeMeta(); m.chapters = {}
+    ensureBookMeta(m, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    const run = createRun(m, { chapter: 'shelf' })
+    const configMax = CHAPTERS.shelf.resource.max
+    assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max')
+    const paintFrac = (charge, max) => (max > 0 ? Math.max(0, Math.min(1, charge / max)) : 0)
+    // Against the OLD max, two different charges above it must collapse to the SAME frac (1) — the
+    // bug. Prove that first, so the next assertion is provably testing the regression.
+    assert.strictEqual(paintFrac(configMax * 1.1, configMax), paintFrac(configMax * 1.7, configMax),
+      'precondition: against the OLD config max both charges must saturate to the SAME frac (1) — that collapse is the bug this fix closes')
+    assert.notStrictEqual(paintFrac(configMax * 1.1, run.chargeMax), paintFrac(configMax * 1.7, run.chargeMax),
+      'two different charges above the OLD config max must paint two DIFFERENT HUD fractions once the call site divides by run.chargeMax')
+  }
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, and darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max`)
 }
 run(runBookProgression)
 
@@ -5345,6 +5377,23 @@ function runDark() {
     // this function through the renderer once a frame.
     assert.strictEqual(darkness(0, CHAPTERS.pond.resource ?? undefined), 0, 'no resource -> no darkness')
     assert.strictEqual(darkness(50, { max: 100 }), 0, 'a resource with no dark block -> no darkness')
+
+    // TASK 9 FIX ROUND (2026-08-16, coordinator review) — the optional 3rd `max` parameter. Deep
+    // Lungs raises a run's own ceiling above res.max, and darkness() has no `run` to read (config.js
+    // is pure data + pure helpers, imports nothing), so a caller holding a run passes ITS ceiling in
+    // explicitly. Omitted, it must still mean res.max — every existing 2-arg call above depends on
+    // that default never changing.
+    assert.strictEqual(darkness(70, res), darkness(70, res, res.max),
+      'omitting max must still mean res.max, or every 2-arg call site above just changed meaning')
+    // The regression itself: the THRESHOLD moves with the ceiling (d.from x max), so a charge that
+    // reads fully lit against the OLD max must read DARK once the run's raised ceiling is supplied —
+    // a caller still dividing by res.max cannot see this, which is exactly how the chapter's dark
+    // fell silent for the whole band Deep Lungs added.
+    const bigMax = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)   // Deep Lungs at max level: +80%
+    assert.strictEqual(darkness(70, res, res.max), 0,
+      'precondition: 70 against the OLD max of 100 must read fully lit (70/100=0.7 >= the 0.5 threshold)')
+    assert.ok(darkness(70, res, bigMax) > 0,
+      `70 against a Deep-Lungs-raised ceiling of ${bigMax} must read DARK (70/${bigMax}=${(70 / bigMax).toFixed(2)} < 0.5) — a caller still defaulting to res.max cannot see this`)
   }
 
   // (a2) THE LIGHT YOU EMIT rides the SAME curve, which is the whole reason it is written as a
@@ -5401,6 +5450,21 @@ function runDark() {
     // already cover the corner" early-out has to say yes, and a 0 would black the screen out.
     assert.strictEqual(lightRadius(0, CHAPTERS.pond.resource ?? undefined, PHONE), Infinity, 'no resource -> unbounded light')
     assert.strictEqual(lightRadius(50, { max: 100 }, PHONE), Infinity, 'a resource with no dark block -> unbounded light')
+
+    // TASK 9 FIX ROUND (2026-08-16, coordinator review) — the optional 4th `max` parameter, same
+    // default-preserving idiom as darkness() above (maxDim already owns position 3).
+    assert.strictEqual(lightRadius(res.max * 0.9, res, PHONE), lightRadius(res.max * 0.9, res, PHONE, res.max),
+      'omitting max must still mean res.max, or every 3-arg call site above just changed meaning')
+    // THE ACTUAL BUG: lightRadius's frac clamps to 1, so against the OLD max, two DIFFERENT charges
+    // both above it read the SAME radius (radiusFull) — this is the "HUD/light pinned at full and
+    // motionless" defect Finding 1 reported. Prove the collapse first (so this is provably testing
+    // the regression, not asserting two arbitrary unequal numbers), then prove the run's own
+    // (raised) ceiling un-collapses it.
+    const bigMax2 = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)
+    assert.strictEqual(lightRadius(res.max * 1.1, res, PHONE, res.max), lightRadius(res.max * 1.7, res, PHONE, res.max),
+      'precondition: against the OLD max, two different charges above it must both saturate at radiusFull — that saturation is the bug')
+    assert.notStrictEqual(lightRadius(res.max * 1.1, res, PHONE, bigMax2), lightRadius(res.max * 1.7, res, PHONE, bigMax2),
+      'two different charges above the OLD max must light DIFFERENT radii once the run\'s own (raised) ceiling is passed as the 4th arg — a caller still defaulting to res.max would see these collapse to one value')
   }
 
   // (b) THE SLOW IS REAL, and measured as DISTANCE TRAVELLED rather than by reading a multiplier
@@ -5496,8 +5560,11 @@ function runDark() {
     // "much darker when light = 0", picked near-black off a 4-way shot). Retuning this is a
     // decision, not a detail — if it moves, it moves here too, on purpose.
     assert.ok(d.dim >= 1, `the far field must be fully opaque (owner ruling), got dim ${d.dim}`)
-    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\)\)/.test(src),
-      "render.js must size the light from lightRadius(charge, res, longest side) — the screen's longest side is the unit the chapter states its light in")
+    // run.chargeMax (v7.x Book 2 Task 9 fix round): the 4th arg is the run's OWN ceiling, not the
+    // config max — omitting it pins the light at radiusFull for the whole band a Deep-Lungs run
+    // spends above the old res.max, which is exactly the bug this fix round exists to close.
+    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\), run\.chargeMax\)/.test(src),
+      "render.js must size the light from lightRadius(charge, res, longest side, run.chargeMax) — the screen's longest side is the unit the chapter states its light in, and chargeMax is the ceiling that light saturates against")
     // NO ALPHA ANYWHERE IN THE PATH, and this is the assertion the chapter's existence rests on.
     // The lightmap used to be a white canvas with the lights punched out by `destination-out`, drawn
     // as a translucent tinted sprite — the whole effect lived in a canvas ALPHA channel that then had
@@ -15641,6 +15708,21 @@ function testSurfHumidityDamage() {
     const v = resourceDamageMul((i / 40) * res.max, res)
     assert.ok(v >= prev, `damage multiplier is not monotonic at charge ${(i / 40) * res.max}`)
     prev = v
+  }
+
+  // (a2) TASK 9 FIX ROUND (2026-08-16, coordinator review) — the optional 3rd `max` parameter, same
+  // default-preserving idiom as darkness()/lightRadius() (config.js). Deep Lungs raises a run's own
+  // ceiling above res.max; resourceDamageMul's frac clamps to 1, so against the OLD max two
+  // different charges both above it must saturate at the SAME multiplier (1, full damage) — the
+  // regression Finding 1 reported. Prove the collapse, then prove the run's raised ceiling fixes it.
+  {
+    assert.strictEqual(resourceDamageMul(res.max * 0.5, res), resourceDamageMul(res.max * 0.5, res, res.max),
+      'omitting max must still mean res.max, or every 2-arg call site above just changed meaning')
+    const bigMax = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)
+    assert.strictEqual(resourceDamageMul(res.max * 1.1, res, res.max), resourceDamageMul(res.max * 1.7, res, res.max),
+      'precondition: against the OLD max, two different charges above it must both saturate at 1 (full damage) — that saturation is the bug')
+    assert.notStrictEqual(resourceDamageMul(res.max * 1.1, res, bigMax), resourceDamageMul(res.max * 1.7, res, bigMax),
+      'two different charges above the OLD max must produce DIFFERENT damage multipliers once the run\'s own (raised) ceiling is passed as the 3rd arg')
   }
 
   // (b) the floor is a NUDGE, not a cliff. The four-reviewer pass that originally banned this found
