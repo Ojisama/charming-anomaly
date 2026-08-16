@@ -64,10 +64,10 @@ const UI = {
   'You': 'Ton anomalie',
   'Elements': 'Éléments',
   '{n} picks': '{n} choix',
-  // nav + title
+  // title + the volume's own doors. 'Back' is NOT here: the Codex block already carries it, and a
+  // second copy is a dead entry the duplicate-key lint fails on.
   'Shop': 'Boutique',
-  'Battle': 'Combat',
-  'Daily': 'Défi',
+  'Close': 'Fermer',
   'Play': 'Jouer',
   'Play again': 'Rejouer',
   'Next level': 'Niveau suivant',
@@ -158,16 +158,11 @@ const UI = {
   'New!': 'Nouveau !',
 
   // briefings + anomalies
-  'Daily Anomaly': 'Anomalie du jour',
   'Anomalies': 'Anomalies',
   // 'reroll' stays English: it is the term French players use for this action (owner's call,
   // v7.2.1), so the legend does not translate even though the aria-label below still says
   // 'Relancer cette anomalie' — that one is prose read aloud, not a label on a control.
   'reroll {n}': 'reroll {n}',
-  'preview': 'aperçu',
-  'Everyone gets the same anomaly today — new one at midnight.':
-    'Tout le monde a la même anomalie aujourd\'hui — nouvelle à minuit.',
-  'Start Daily Run': 'Lancer le défi du jour',
   'Start': 'Commencer',
   'The Blank\'s ladder is fixed — each difficulty adds its named modifier.':
     'L\'échelle du Blanc est fixe — chaque difficulté ajoute son modificateur attitré.',
@@ -235,7 +230,7 @@ const UI = {
   // torn open" with no domestic sense.
   //
   // Why a fresh noun at all: the tier was called 'Anomaly'/'Anomalie', and 'anomalie' is already
-  // spent on ELEVEN user-facing FR strings — the Daily's mutators ('Anomalie du jour', 'Relancer
+  // spent on ELEVEN user-facing FR strings — the run's mutators ('Relancer
   // cette anomalie', 'Les anomalies tordent les règles de cette partie'), MUTATORS.overtime and
   // .jumbo, and the player themselves ('Ton anomalie', line 35). The two obvious alternatives are
   // taken too: 'Faille' by tornSeam and 'Singularité' by hole. And no ADJECTIVE can join the

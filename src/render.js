@@ -383,7 +383,7 @@ export function createRenderer(app) {
     }
   }
 
-  // maxLean 0: these are the archetype fallback blobs (daily/title/future chapters). They aren't drawn
+  // maxLean 0: these are the archetype fallback blobs (title/future chapters). They aren't drawn
   // nose-at-+x at all — the kawaii face looks straight OUT of the screen, eyes and smile symmetric
   // about the vertical — so there is nothing to aim. They mirror left/right and that's it.
   function makeEnemyLook(type, elite) {
@@ -13708,7 +13708,7 @@ export function createRenderer(app) {
   // here is not a hint, it's the literal path. Sidestepping it always works; that's the contract.
   // Read off the phase state each sim step keeps on the enemy (_pounceState/_airState/
   // _chargeState/_beamState/_coneAngle), all of which MUST be guarded: the roster flags are
-  // per-chapter, and title/daily/archetype-fallback enemies carry none of them.
+  // per-chapter, and title/archetype-fallback enemies carry none of them.
   //
   // The colour IS the safety cue, the same rule redrawHazards' green zones follow. Four of these
   // five end in the player taking damage, so they speak the established amber hazard language of
@@ -16376,7 +16376,7 @@ export function createRenderer(app) {
       }
       s._seen = true
       // prefer the per-rosterId themed silhouette; fall back to the archetype look for enemies
-      // whose rosterId has no baked creature (daily/title/future chapters)
+      // whose rosterId has no baked creature (title/future chapters)
       const rkey = e.rosterId ? e.rosterId + (e.elite ? '_elite' : '') : null
       const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
