@@ -4823,7 +4823,50 @@ function runBookProgression() {
   assert.strictEqual(back.books.undertow.unlocks.lightThief, true, "book 2's unlock survives")
   assert.strictEqual(back.grants.undertow, true, 'the grant record survives')
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, and a rev-2 save round-trips through this build's own loadMeta with both books intact`)
+  // (t) TASK 5 — main.js's purchase hooks (onBuy, onSacrifice) and ui.js's call sites must route
+  // through an EXPLICIT book id, never a guess. ui.js's browseChapterId (the carousel's centred
+  // card) and meta.chapter deliberately diverge — onChapter only persists for AVAILABLE chapters,
+  // so a locked preview card browses without writing meta.chapter — and inside Book 1 they always
+  // name the same book, so a defaulted/guessed book would work today and break silently the moment
+  // a Book 2 chapter becomes a browsable preview card. main.js cannot recover browseChapterId on
+  // its own (it's a `let` local inside initUI), so the id has to arrive as an explicit parameter.
+  // main.js is source-text-only here (not importable — see the CLAUDE.md note on run UG.k).
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.match(mainSrc, /onBuy\s*\(\s*id\s*,\s*bookId\s*\)/, 'onBuy must take an explicit bookId')
+    assert.match(mainSrc, /onSacrifice\s*\(\s*picks\s*,\s*target[^)]*,\s*bookId[^)]*\)/, 'onSacrifice must take an explicit bookId')
+    assert.doesNotMatch(mainSrc, /meta\.shop\[/, 'main.js must not index meta.shop directly — it goes through bookMeta')
+    assert.doesNotMatch(mainSrc, /meta\.coins\s*[-+]=/, 'main.js must not mutate meta.coins directly — it goes through bookMeta')
+
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.match(uiSrc, /onBuy\([^)]*,\s*shopBookId\(\)\)/, 'ui.js must pass its browsed book to onBuy')
+
+    // (t1) The buy call site is only half the wiring — the sacrifice confirm button sits ~260
+    // lines further down its own click-delegation switch, behind independent state
+    // (sacrificePicks/sacrificeTarget), and is exactly as easy to leave passing the OLD 2-arg
+    // call. Name it too rather than trusting the same care was applied twice.
+    assert.match(uiSrc, /onSacrifice\([^)]*,\s*shopBookId\(\)\)/, 'ui.js must pass its browsed book to onSacrifice')
+
+    // (t2) shopBookId must be DERIVED from browseChapterId (the carousel state), not meta.chapter —
+    // that distinction is the entire reason this hook signature exists (see the brief's own
+    // rationale, above). A version reading meta.chapter instead would satisfy every assertion
+    // above, compile, and pass every existing scenario (they never browse Book 2 without also
+    // persisting it) while silently reintroducing the exact bug this task exists to close.
+    assert.match(uiSrc, /shopBookId\s*=\s*\(\)\s*=>\s*bookOf\(browseChapterId\)\s*\?\?\s*BOOK_ORDER\[0\]/,
+      'shopBookId must resolve from browseChapterId, not meta.chapter — a book resolved off meta.chapter would silently diverge from the badge the player is actually looking at')
+
+    // (t3) RULING G — a BOOK_UNLOCKS purchase (e.g. Light Thief) must write ONLY
+    // bookMeta(meta,bookId).unlocks[target], never mirrored back to the legacy top-level
+    // meta.lightThief. Without this, a same-session Light Thief purchase would not reach
+    // createRun's killRefill (which reads bm.unlocks.lightThief since Task 2) until a reload —
+    // the concern Task 3's implementer carried forward into this task.
+    assert.doesNotMatch(mainSrc, /meta\.lightThief\s*=\s*true/,
+      'onSacrifice must never write the legacy top-level meta.lightThief again (ruling G) — the unlock goes through bookMeta(meta,bookId).unlocks[target] only')
+    assert.match(mainSrc, /\(bm\.unlocks\s*\?\?=\s*\{\}\)\[target\]\s*=\s*true/,
+      'onSacrifice must write a non-slot unlock to bm.unlocks[target]')
+  }
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, and main.js's purchase hooks + ui.js's call sites route through an explicit book id`)
 }
 run(runBookProgression)
 
@@ -5484,10 +5527,16 @@ function runLightThief() {
     assert.ok(/meta\.dev === true && meta\.lightThief !== true/.test(ui),
       'the Light Thief rung must be gated on meta.dev — otherwise the shop advertises a Book 2 unlock, naming a resource no reachable chapter has')
     const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-    assert.ok(/onSacrifice\(picks, target = 'slot'\)/.test(main),
-      "onSacrifice must default target to 'slot', so an older caller keeps meaning what it used to")
-    assert.ok(/meta\.lightThief === true \? null : LIGHT_THIEF_COST/.test(main),
-      'onSacrifice must refuse an already-owned Light Thief itself rather than trusting the button to be absent')
+    // Task 5: onSacrifice gained a trailing bookId, defaulted to BOOK_ORDER[0] alongside target's
+    // own 'slot' default — same "an older caller keeps meaning what it used to" reasoning.
+    assert.ok(/onSacrifice\(picks, target = 'slot', bookId = BOOK_ORDER\[0\]\)/.test(main),
+      "onSacrifice must default target to 'slot' and bookId to BOOK_ORDER[0], so an older caller keeps meaning what it used to")
+    // Task 5: the cost resolution is book-general now (BOOK_UNLOCKS[bookId], not a Light-Thief-
+    // shaped literal), and the already-owned check reads the NEW per-book location
+    // (bm.unlocks[target], since createRun's killRefill has read bm.unlocks.lightThief since
+    // Task 2) rather than the legacy top-level meta.lightThief.
+    assert.ok(/bm\.unlocks\?\.\[target\] === true \? null : BOOK_UNLOCKS\[bookId\]\?\.\[target\]\?\.cost/.test(main),
+      'onSacrifice must refuse an already-owned unlock itself (reading bm.unlocks, not the legacy meta.lightThief) rather than trusting the button to be absent')
   }
 
   console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot) and is dev-gated`)

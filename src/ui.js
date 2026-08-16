@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -133,9 +133,9 @@ function formatShopBonus(id, levels) {
 
 /**
  * Contract used by main.js:
- *   const ui = initUI({ meta, onPlay(mode), onBuy(id)->bool, onChoose(i),
+ *   const ui = initUI({ meta, onPlay(mode), onBuy(id, bookId)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(), onSkill(),
- *                       onSacrifice(picks)->bool, onReset(), onSlot(n) })
+ *                       onSacrifice(picks, target, bookId)->bool, onReset(), onSlot(n) })
  *     - onChapter(id): title screen's chapter carousel (v5.2 — see carouselHtml/wireCarousel).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
  *       centre (the locked preview card never calls it) — main.js re-guards via
@@ -178,11 +178,12 @@ function formatShopBonus(id, levels) {
  *       meta bank), steps run._rerolls and run._screenRerolls, rebuilds run.levelUpChoices, and
  *       returns false unchanged when it is unaffordable — then call showScreen('levelup', ...)
  *       again with fresh data.
- *     - onSacrifice(picks, target): fired by the sacrifice view's "Confirm sacrifice" button.
- *       picks is { [statId]: count }, the shop levels offered per stat. `target` (v7.x) names WHAT
- *       the offer buys — 'slot' for the 3rd/4th level-up card slot (sum === sacrificeCost(
- *       meta.choiceSlots)) or 'thief' for Book 2's Light Thief (sum === LIGHT_THIEF_COST). The
- *       second target only exists behind meta.dev; see sacTargets.
+ *     - onSacrifice(picks, target, bookId): fired by the sacrifice view's "Confirm sacrifice"
+ *       button. picks is { [statId]: count }, the shop levels offered per stat. `target` (v7.x)
+ *       names WHAT the offer buys — 'slot' for the 3rd/4th level-up card slot (sum === sacrificeCost(
+ *       meta.choiceSlots)) or a BOOK_UNLOCKS[bookId] key, e.g. 'lightThief' for Book 2's Light Thief
+ *       (sum === that entry's cost). Book-specific targets only exist behind meta.dev; see
+ *       sacTargets. `bookId` is shopBookId() — same reasoning as onBuy above.
  *       Returns true/false; the UI closes the modal and re-renders the shop either way (main.js
  *       already validates, so false should only happen if the two ever disagree).
  *     - onReset(): shop's "🗑 Reset all progress" button, after its own confirm modal. Full
@@ -283,6 +284,10 @@ export function initUI(hooks) {
   // chapter must browse a shipped one. resolveChapterId would happily return it (it is a real
   // chapter) and the below-carousel block would then describe a card the carousel is not showing.
   let browseChapterId = playableChapterId(meta)
+  // Which book's shop is on screen. The shop is reached from the bottom nav with no chapter
+  // argument, so it follows whatever the carousel last settled on — which is also what the coin
+  // badge reads, so the two can never disagree.
+  const shopBookId = () => bookOf(browseChapterId) ?? BOOK_ORDER[0]
   let boostersOpen = false
 
   // v6.7.2 cast art: rosterId -> URL of that creature's thumbnail, resolved at BUILD time from
@@ -2261,7 +2266,7 @@ export function initUI(hooks) {
       return
     }
     if (el.dataset.buy !== undefined) {
-      if (hooks.onBuy(el.dataset.buy)) renderShop(el.dataset.buy)
+      if (hooks.onBuy(el.dataset.buy, shopBookId())) renderShop(el.dataset.buy)
       return
     }
     if (el.dataset.choose !== undefined) {
@@ -2527,7 +2532,7 @@ export function initUI(hooks) {
       case 'sacrifice-confirm': {
         // main.js plays the 'buy' sfx itself on success; nothing extra to do here either way.
         const target = activeTarget()
-        if (target != null && sacrificeOffered() === target.cost) hooks.onSacrifice(sacrificePicks, target.id)
+        if (target != null && sacrificeOffered() === target.cost) hooks.onSacrifice(sacrificePicks, target.id, shopBookId())
         sacrificeOpen = false
         sacrificePicks = {}
         sacrificeBounceId = null

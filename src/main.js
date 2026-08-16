@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, LIGHT_THIEF_COST, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOKS, BOOK_ORDER, bookOf, isBookFinale, nextBook } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOKS, BOOK_ORDER, bookOf, isBookFinale, nextBook } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -31,14 +31,18 @@ let devList = []
 function startClassic(chapter, difficulty, mutators, consumableIds) {
   const ids = []
   if (consumableIds && consumableIds.length) {
+    // Boosters are spent from the CHAPTER being played's own book purse (v7.x per-book
+    // progression) — chapter is known here (it is what's about to launch), so resolve it
+    // directly rather than guessing from whatever the title carousel last browsed.
+    const bm = ensureBookMeta(meta, bookOf(chapter) ?? BOOK_ORDER[0])
     const sorted = [...consumableIds].sort((a, b) => (CONSUMABLES[a]?.cost ?? 0) - (CONSUMABLES[b]?.cost ?? 0))
-    let remaining = meta.coins
+    let remaining = bm.coins
     for (const id of sorted) {
       const cost = CONSUMABLES[id]?.cost ?? 0
       if (cost <= remaining) { ids.push(id); remaining -= cost }
     }
     if (ids.length > 0) {
-      meta.coins -= ids.reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
+      bm.coins -= ids.reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
       saveMeta(meta)
       playSfx('buy')
     }
@@ -137,10 +141,12 @@ const ui = initUI({
   // ladder is fixed by design). Charge only once the swap is known to be possible.
   onBriefReroll(i) {
     if (!pendingPlay || pendingPlay.chapter === 'blank') return
-    if (meta.coins < ANOMALY_REROLL_COST) return
+    // Same purse as startClassic's boosters — pendingPlay.chapter is the run about to launch.
+    const bm = ensureBookMeta(meta, bookOf(pendingPlay.chapter) ?? BOOK_ORDER[0])
+    if (bm.coins < ANOMALY_REROLL_COST) return
     const next = rerollMutator(pendingPlay.mutators, i, pendingPlay.chapter)
     if (!next) return
-    meta.coins -= ANOMALY_REROLL_COST
+    bm.coins -= ANOMALY_REROLL_COST
     saveMeta(meta)
     playSfx('buy')
     pendingPlay.mutators = next
@@ -171,12 +177,18 @@ const ui = initUI({
     saveMeta(meta)
     playSfx('click')
   },
-  onBuy(id) {
-    const level = meta.shop[id]
+  // v7.x: `bookId` names WHOSE purse this purchase spends — ui.js's shopBookId(), which follows
+  // whatever chapter the title carousel last settled on (browseChapterId, ui.js). main.js cannot
+  // recover that on its own: browseChapterId and meta.chapter deliberately diverge (a locked
+  // preview card browses without persisting), so a guess here would spend the wrong book's coins
+  // the moment a Book 2 chapter is browsable.
+  onBuy(id, bookId) {
+    const bm = ensureBookMeta(meta, bookId)
+    const level = bm.shop[id] ?? 0
     const cost = shopCost(id, level)
-    if (level >= MAX_SHOP_LEVEL || meta.coins < cost) return false
-    meta.coins -= cost
-    meta.shop[id] = level + 1
+    if (level >= MAX_SHOP_LEVEL || bm.coins < cost) return false
+    bm.coins -= cost
+    bm.shop[id] = level + 1
     saveMeta(meta)
     playSfx('buy')
     return true
@@ -285,28 +297,36 @@ const ui = initUI({
   // { [statId]: count }). Validates independently of the UI (which disables the confirm button) --
   // belt and braces, and now it has to, because `target` arrives from a data- attribute.
   //
-  // v7.x: `target` names WHICH unlock. 'slot' is the original 3rd/4th level-up card slot
-  // (meta.choiceSlots, sacrificeCost); 'thief' is Book 2's Light Thief (meta.lightThief,
-  // LIGHT_THIEF_COST). Defaulted to 'slot' so an older caller -- or a replayed event from a stale
-  // DOM -- keeps meaning exactly what it used to.
-  onSacrifice(picks, target = 'slot') {
-    const slots = meta.choiceSlots ?? 2
+  // v7.x: `target` names WHICH unlock. 'slot' is the universal 3rd/4th level-up card slot
+  // (bm.choiceSlots, sacrificeCost); anything else is a BOOK_UNLOCKS[bookId] key (e.g. Undertow's
+  // Light Thief). `bookId` is ui.js's shopBookId(), same reasoning as onBuy above. Defaulted to
+  // 'slot'/BOOK_ORDER[0] so an older caller -- or a replayed event from a stale DOM -- keeps
+  // meaning exactly what it used to.
+  //
+  // Writes the unlock ONLY to bookMeta(meta, bookId).unlocks[target] -- never mirrored back to the
+  // legacy top-level meta.lightThief. R2 keeps that field in place (never deleted), but nothing
+  // writes it past this point: loadMeta's forward-copy is read-forward-only and its `=== undefined`
+  // guard makes a stale legacy value harmless, and Light Thief is dev-gated behind a `wip` chapter,
+  // so no real player can reach the one case a mirror would matter for.
+  onSacrifice(picks, target = 'slot', bookId = BOOK_ORDER[0]) {
+    const bm = ensureBookMeta(meta, bookId)
+    const slots = bm.choiceSlots ?? 2
     // Resolve the cost from the target FIRST, and refuse an already-owned unlock here rather than
-    // trusting the button to be absent. The two costs differ (15 vs 20/40), so charging the wrong
-    // one is a silent overcharge rather than an error.
-    let cost = null
-    if (target === 'thief') cost = meta.lightThief === true ? null : LIGHT_THIEF_COST
-    else if (target === 'slot') cost = slots >= 4 ? null : sacrificeCost(slots)
+    // trusting the button to be absent.
+    let cost
+    if (target === 'slot') cost = sacrificeCost(slots)
+    else cost = bm.unlocks?.[target] === true ? null : BOOK_UNLOCKS[bookId]?.[target]?.cost
     if (cost == null) return false
-    let total = 0
+    const lines = shopLines(bookId)
+    let offered = 0
     for (const [id, count] of Object.entries(picks ?? {})) {
-      if (!SHOP[id] || !Number.isInteger(count) || count < 0 || count > (meta.shop[id] ?? 0)) return false
-      total += count
+      if (!lines[id] || !Number.isInteger(count) || count < 0 || count > (bm.shop[id] ?? 0)) return false
+      offered += count
     }
-    if (total !== cost) return false
-    for (const [id, count] of Object.entries(picks)) meta.shop[id] -= count
-    if (target === 'thief') meta.lightThief = true
-    else meta.choiceSlots = slots + 1
+    if (offered !== cost) return false
+    for (const [id, count] of Object.entries(picks)) bm.shop[id] -= count
+    if (target === 'slot') bm.choiceSlots = slots + 1
+    else (bm.unlocks ??= {})[target] = true
     saveMeta(meta)
     playSfx('buy')
     return true
