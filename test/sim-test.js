@@ -38,7 +38,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
-  BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
+  BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -4365,26 +4365,23 @@ function testChapters() {
   assert.strictEqual(notEarned.chapters.garden.unlocked, false, 'pond maxDifficulty 3 (won only lvl 2) leaves garden locked')
   delete globalThis.localStorage
 
-  // (g) v7.35 SOURCE tripwire. ui.js is not headless-testable (DOM), and settle() — the carousel's
-  // scroll handler — is the ONLY writer of meta.chapter in the whole game (main.js's onChapter is
-  // its only caller). It picks the card nearest the carousel's centre by getBoundingClientRect, and
-  // a display:none screen measures EVERY card at rect 0: every distance ties at 0, the loop keeps
-  // the first card, and 'body' silently becomes the player's saved chapter. It shipped, and the
-  // symptom surfaced a whole run later — flick the carousel to The Beyond, tap Play inside the
-  // 130ms debounce, and 'scrollend' settles correctly while the still-armed timer fires 130ms after
-  // the title is hidden. The Beyond run you started was right; the summary's "Next level" started
-  // The Body, crediting the wrong ledger. Both halves are asserted: the layout guard, and settle
-  // disarming the debounce so scrollend and the timeout can never both read one gesture.
+  // (g) SOURCE tripwire. ui.js is not headless-testable (DOM), and the volume tap is the ONLY
+  // writer of meta.chapter in the whole game — main.js's onChapter is its only caller, and that is
+  // what keeps the save's single writer single. Two ways it can go wrong, both silent:
+  //   - persisting a chapter the player cannot play. A turned-around volume is tappable on purpose
+  //     (it puts the unlock line in the detail panel), so without the availability check a tap on a
+  //     padlocked volume would write it to meta.chapter, and the summary's "Next level" would then
+  //     offer a locked chapter.
+  //   - writing meta.chapter from ui.js at all, which forks the save's ownership.
+  // This replaced a tripwire on the carousel's settle(): a scroll handler electing the nearest card
+  // by getBoundingClientRect could pick the wrong one on a display:none screen (every rect ties at
+  // 0) and raced its own debounce. Tapping a button has neither failure mode.
   {
     const src = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    const settle = src.slice(src.indexOf('const settle = () =>'), src.indexOf("car.addEventListener('scrollend'"))
-    assert.ok(settle.length > 0 && settle.length < 4000, 'could not isolate settle() in ui.js — the tripwire below is measuring nothing')
-    assert.ok(/if \(!car\.clientWidth\) return/.test(settle),
-      'settle() lost its layout guard: on a display:none title every card ties at distance 0 and it silently elects the FIRST card (body) as meta.chapter')
-    assert.ok(/clearTimeout\(timer\)/.test(settle),
-      'settle() no longer disarms the scroll debounce, so scrollend leaves a timer that fires after the title is hidden — the exact v7.35 race')
-    assert.ok(settle.indexOf('if (!car.clientWidth) return') < settle.indexOf('getBoundingClientRect'),
-      'the layout guard must come BEFORE settle() measures anything, or it is measuring the zeroed rects it exists to reject')
+    const tap = src.slice(src.indexOf('if (el.dataset.vol !== undefined)'), src.indexOf('if (el.dataset.buy !== undefined)'))
+    assert.ok(tap.length > 0 && tap.length < 1400, 'could not isolate the volume-tap handler in ui.js — the tripwire below is measuring nothing')
+    assert.ok(/chapterAvailable\(meta, id\) && id !== meta\.chapter/.test(tap),
+      'a volume tap no longer checks chapterAvailable before persisting — tapping a padlocked volume would save a chapter that cannot be played')
     assert.strictEqual((src.match(/meta\.chapter = /g) ?? []).length, 0, 'ui.js must not write meta.chapter directly — it goes through hooks.onChapter (main.js) so the save stays the single writer')
   }
 
@@ -4498,11 +4495,43 @@ function runBooks() {
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
   // ships a chapter nothing can select — and every other assertion in this file still passes.
   const listed = { chapters: Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 1, difficulty: 1 }])), dev: true }
-  assert.ok(titleChapterList(listed).includes('shelf'), 'gate on: the title carousel must list the WIP chapter, or it cannot be selected')
+  // Same three assertions the carousel had, against the bookcase that replaced it: what matters is
+  // still which chapter ids a player can reach, not the shape they are drawn in.
+  const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
+  assert.ok(shelved(listed).includes('shelf'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
   listed.dev = false
-  assert.ok(!titleChapterList(listed).includes('shelf'), 'gate off: the title carousel must NOT list the WIP chapter')
-  assert.deepStrictEqual(titleChapterList(listed).filter((id) => id !== 'blank'), CHAPTER_ORDER,
-    'gate off: the carousel is exactly book 1 (plus The Blank when earned) — the refactor must not change what a player sees')
+  assert.ok(!shelved(listed).includes('shelf'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.deepStrictEqual(shelved(listed).filter((id) => id !== 'blank'), CHAPTER_ORDER,
+    'gate off: the shelf is exactly book 1 (plus The Blank when earned) — the redesign must not change what a player sees')
+  // A WIP Book must be ABSENT, not drawn as a sheeted étage: an étage announces that a Book exists,
+  // which is the whole thing the gate is for. Asserting only on chapter ids (above) cannot see this
+  // — the étage could be there with every volume covered and every id still absent from the flat list.
+  assert.deepStrictEqual(titleBookshelf(listed).map((sh) => sh.book), ['book1'],
+    'gate off: an unshipped Book has no étage at all — a covered shelf still says a Book is there')
+
+  // (e2) The bookcase model itself. Each of these guards a state that renders as a DIFFERENT object
+  // on the shelf, and every one of them fails silently — a wrong `started` draws a dust sheet over a
+  // Book you can play, and a hidden chapter counted early adds a covered volume for a chapter whose
+  // existence the shelf is supposed to withhold.
+  const fresh = { dev: false, chapters: { body: { unlocked: true, won: 2 } } }
+  const b1 = titleBookshelf(fresh)[0]
+  assert.strictEqual(b1.started, true, 'a Book with one unlocked chapter is STARTED (volumes, not a dust sheet)')
+  assert.strictEqual(b1.volumes.length, CHAPTER_ORDER.length,
+    'an unstarted chapter still occupies a covered volume — the étage is the Book, not just what you own')
+  assert.ok(!b1.volumes.some((v) => v.id === 'blank'),
+    'The Blank must NOT be shelved before it is unlocked — a covered volume counts a chapter nobody should know about yet')
+  assert.strictEqual(b1.stars, 2, 'stars sum `won` (difficulties actually beaten), not maxDifficulty')
+  const earned = { dev: false, chapters: { body: { unlocked: true, won: 5 }, blank: { unlocked: true, won: 1 } } }
+  assert.ok(titleBookshelf(earned)[0].volumes.some((v) => v.id === 'blank' && v.unlocked),
+    'once earned, The Blank joins its OWN Book\'s étage rather than vanishing outside every shelf')
+  assert.strictEqual(titleBookshelf(earned)[0].stars, 6, 'a hidden chapter\'s stars count toward its Book')
+  assert.strictEqual(titleBookshelf({ dev: false, chapters: {} })[0].started, false,
+    'a Book with nothing unlocked is NOT started — ui.js drapes one sheet over the étage, because the chapter count is the tease')
+  // The spine name is what a 47px volume actually prints, and a missing entry silently falls back to
+  // the full name with its article, which does not fit vertically. Every shelved chapter needs one.
+  for (const id of Object.keys(CHAPTERS)) {
+    assert.ok(CHAPTER_SPINE[id], `CHAPTER_SPINE is missing '${id}' — its spine would print the article and overflow`)
+  }
   // (f) chapterAvailable is the single permission the card, the Play button, the scroll-persist,
   // the brief and onChapter all read. Listing the chapter is NOT enough: the first cut of phase 1
   // fixed only onChapter, and The Shelf duly appeared in the carousel as a locked "???" card with a
@@ -4524,18 +4553,27 @@ function runBooks() {
   {
     const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     assert.ok(/if \(!chapterAvailable\(meta, id\)\) return/.test(mainSrc),
       'main.js onChapter no longer gates on chapterAvailable — the carousel would list the chapter and refuse every tap on it')
     assert.ok(!/const chapterId = resolveChapterId\(meta\.chapter\)/.test(mainSrc),
       'main.js still resolves the play path with resolveChapterId — it must use playableChapterId, or the gate does not apply where it matters')
     assert.strictEqual((mainSrc.match(/playableChapterId\(meta\)/g) ?? []).length, 2,
       'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
+    // A VOLUME's availability is decided once, in config.js's titleBookshelf, and arrives as
+    // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Five sites remain, and the
+    // fifth is easy to forget: paintRoom washes the room in the selected chapter's own colour, and
+    // a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
+    // otherwise careful not to name.
     assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
-      'ui.js must gate the hero CARD, the carousel dot, the Play button, the scroll-persist and the brief on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+      'ui.js must gate the detail head, the Play button, the brief, the volume tap and the room tint on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+    // ...and the one that MOVED must actually be there, or every volume shelves as a playable spine.
+    assert.ok(/unlocked: chapterAvailable\(meta, id\)/.test(configSrc),
+      'titleBookshelf no longer decides volume availability with chapterAvailable — a WIP chapter would shelve as a playable spine')
     // The count above is the assertion that keeps missing one. It read 4 and passed while
     // heroCardHtml still gated itself, so The Shelf had a live Play button above a padlocked "???"
     // card — caught by a screenshot. So also sweep the whole title-rendering span for a raw read.
-    const titleSpan = uiSrc.slice(uiSrc.indexOf('function heroCardHtml'), uiSrc.indexOf('function wireCarousel'))
+    const titleSpan = uiSrc.slice(uiSrc.indexOf('function volHtml'), uiSrc.indexOf('function boosterSlotsHtml'))
     const rawReads = titleSpan.split('\n').filter((l) => /chapters\?\.\[[a-zA-Z]+\]\?\.unlocked/.test(l) && !l.includes('//'))
       // Counting how much of BOOK 1 is finished is not an availability decision, and must keep
       // reading the raw flag — the completion badge must never count a WIP chapter as progress.
@@ -4544,7 +4582,7 @@ function runBooks() {
       `a raw per-chapter \`unlocked\` read is back in the title-rendering span — route it through chapterAvailable or a WIP chapter renders locked:\n${rawReads.join('\n')}`)
   }
 
-  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the bookcase`)
 }
 run(runBooks)
 
@@ -11714,6 +11752,11 @@ function testFrenchDictionary() {
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  // BOOKS[].name is on screen from v7.x (the shelf's brass plate) and no walk above reached it —
+  // both Books would have shipped in English the day the bookcase landed.
+  for (const v of Object.values(BOOKS ?? {})) need(v?.name)
+  // The spine names. A flat id -> string table, so the generic name/desc walk above cannot see it.
+  for (const v of Object.values(CHAPTER_SPINE ?? {})) need(v)
   // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
   // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
   // so five of them shipped rendering in English on the French sheet. Merging the two registries
@@ -16740,6 +16783,7 @@ function testElementsRedesign() {
   // alternative is booting a DOM.
   {
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     const opens = [...uiSrc.matchAll(/data-act="codex-open"/g)]
     assert.strictEqual(opens.length, 1, `${opens.length} Codex entry points in ui.js — the pause screen is the only one with a run to read potency from`)
     const pause = uiSrc.slice(uiSrc.indexOf('setHtml(screens.pause'))
@@ -16790,6 +16834,7 @@ function testElementsRedesign() {
       }
     }
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     assert.ok(/<s class="lv-was">/.test(uiSrc), 'the level-up card no longer strikes the replaced figure')
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     assert.ok(/^\.lv-was\b/m.test(css), '.lv-was has no rule in styles.css — the old figure renders as ordinary ' +
@@ -16813,6 +16858,7 @@ function testElementsRedesign() {
         `${id} marks a player-figures line at potency 0, where the player has none`)
     }
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     assert.ok(/codex-p--mine/.test(uiSrc), 'renderCodex no longer sets the class that sets those figures apart')
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     assert.ok(/^\.codex-p--mine\b/m.test(css), '.codex-p--mine has no rule — the line renders as ordinary body text')
