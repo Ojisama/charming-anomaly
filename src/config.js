@@ -3035,6 +3035,14 @@ export const EARLY_CALM = {
   body:   { spawnMul: 0.40, xpMul: 2.22 }, // v6.4.3: 0.6·0.67 / 1.67·1.33 — another -33% / +33%
   pond:   { spawnMul: 0.6,  xpMul: 1.67 },
   garden: { spawnMul: 0.6,  xpMul: 1.67 },
+  // v7.x: The Surf is Undertow's first chapter, and per-book progression makes surf/d1 the literal
+  // first run of a campaign — at zero upgrades, where it used to be reached with a stocked book-1
+  // shop. Measured before this change: body d1 ran an effective spawn of 0.30 (balance 0.75 x
+  // EARLY_CALM 0.40) at x2.22 xp; surf ran 0.68 at x1.0 — 2.3x the spawn rate at 45% of the xp,
+  // which was correct only while nobody reached it without a stocked book-1 shop. Owner ruling
+  // 2026-08-16: spawnMul 0.8, xpMul 1.3 — gentler than it was, harder than body/pond (owner:
+  // "Book 2 should be harder, but maybe not that hard").
+  surf:   { spawnMul: 0.8,  xpMul: 1.3 },
 }
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 // The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and
@@ -4528,6 +4536,14 @@ CHAPTERS.surf = {
   // a pressure no other first chapter carries — hence spawnMul under the pond's own 0.75.
   balance: { spawnMul: 0.68, enemyDmgMul: 0.7, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
 
+  // 40% fewer Shore Crabs (owner ruling 2026-08-16). CHAPTER-WIDE, at every difficulty, matching
+  // how garden ({tank: 0.73}) and city ({tank: 0.825}) declare theirs — NOT difficulty-1-only.
+  // Making it d1-only is not a config change: sim.js's spawnEnemy reads
+  // CHAPTERS[run.chapter].archetypeMul straight from this table (see waveWeights, sim.js) and never
+  // consults createRun's mods, so a d1 gate would mean plumbing a new run field through every
+  // chapter's spawn path. Say so here so the next reader does not "fix" it into a d1-only cut.
+  archetypeMul: { tank: 0.6 },
+
   // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
   // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push(…)` would hand The Pond a
   // beach weapon and nothing would throw (the same hazard the render block below documents, and the
@@ -5706,6 +5722,14 @@ export function titleChapterList(meta, books = BOOKS) {
   let frontier = true
   for (const bookId of BOOK_ORDER) {
     const b = books[bookId]
+    // HAZARD (unreachable today, worth a comment not a guard): this `continue` skips the frontier
+    // flip below entirely, not just the tease — a WIP book is invisible to the whole frontier
+    // calculation, exactly as if it did not exist in BOOK_ORDER. With today's two books that is
+    // moot (there is nothing after the one WIP book to leak into). If a THIRD book ever ships while
+    // a MIDDLE book is still `wip`, this loop would silently jump the gap: the frontier stays true
+    // past the hidden book and tease the THIRD book's first chapter to a non-dev player who cannot
+    // reach the second. When `BOOK_ORDER` grows past two entries, a `wip` book that is not the LAST
+    // one needs the frontier explicitly broken here (`frontier = false`) before the `continue`.
     if (!b || (b.wip && !meta.dev)) continue
     const unlocked = b.chapters.filter((id) => meta.chapters?.[id]?.unlocked)
     base.push(...unlocked)

@@ -38,7 +38,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
-  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList, isBookFinale, nextBook,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList, isBookFinale, nextBook, bookOf,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -5123,7 +5123,42 @@ function runBookProgression() {
       'two different charges above the OLD config max must paint two DIFFERENT HUD fractions once the call site divides by run.chargeMax')
   }
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, and darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max`)
+  // (aa) TASK 10 — THE SURF IS NOW THE FIRST RUN OF A CAMPAIGN. Measured before this change: body
+  // d1 runs an effective spawn of 0.30 (balance 0.75 x EARLY_CALM 0.40) at x2.22 xp; surf ran 0.68
+  // at x1.0 — 2.3x the spawn rate at 45% of the xp, which was correct only while nobody reached it
+  // without a stocked book-1 shop. Owner ruling 2026-08-16.
+  assert.ok(EARLY_CALM.surf, "The Surf needs an EARLY_CALM entry — it is a book's first chapter now")
+  assert.strictEqual(EARLY_CALM.surf.spawnMul, 0.8, 'owner ruling 2026-08-16')
+  assert.strictEqual(EARLY_CALM.surf.xpMul, 1.3, 'owner ruling 2026-08-16')
+  assert.strictEqual(CHAPTERS.surf.archetypeMul?.tank, 0.6, '40% fewer Shore Crabs (owner ruling 2026-08-16)')
+  // The archetypeMul key must be a real ARCHETYPE, not a WAVE_TABLE spawn type — indexing the
+  // wrong way silently did nothing until v5.5 (see TYPE_ARCHETYPE in config.js). run SP.f asserts
+  // this same vocabulary but only over CHAPTER_ORDER (book 1) — surf is Book 2 and outside that
+  // sweep, so it needs its own check here rather than inheriting SP.f's coverage for free.
+  for (const [archId, mul] of Object.entries(CHAPTERS.surf.archetypeMul)) {
+    assert.ok(['normal', 'fast', 'tank'].includes(archId), `archetypeMul key '${archId}' is not an archetype`)
+    assert.ok(mul > 0 && mul <= 1, `archetypeMul.${archId} must be a reduction in (0,1]`)
+  }
+
+  // (ab) EVERY chapter resolves to a book. bookOf returns null for an unclaimed id, and run.chapter
+  // is a CHAPTERS key, not an ALL_CHAPTER_IDS key — so an orphan chapter banks coins into
+  // meta.books[null], a purse no screen can render. The honest denominator is Object.keys(CHAPTERS),
+  // not CHAPTER_ORDER (book 1 only) and not ALL_CHAPTER_IDS (drops every `hidden` id).
+  const bkAllChapters = Object.keys(CHAPTERS)
+  for (const bkId of bkAllChapters) {
+    assert.ok(bookOf(bkId), `chapter '${bkId}' belongs to no book — add it to BOOKS or its coins vanish`)
+  }
+  assert.ok(bkAllChapters.includes('surf'), 'sanity: the sweep can see the chapter this work is for')
+
+  // (ac) No consumer reads SHOP directly — every one goes through shopLines(bookId), or a
+  // book-specific line is invisible in exactly one place. Source-text lint (the run UG.k idiom).
+  for (const bkFile of ['state.js', 'main.js', 'ui.js']) {
+    const bkSrc = readFileSync(new URL(`../src/${bkFile}`, import.meta.url), 'utf8')
+    const bkBare = bkSrc.match(/\bSHOP\[[^\]]+\]|Object\.(keys|entries|values)\(SHOP\)/g) ?? []
+    assert.deepStrictEqual(bkBare, [], `${bkFile} reads SHOP directly (${bkBare.join(', ')}) — use shopLines(bookId)`)
+  }
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-16 owner ruling, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
 }
 run(runBookProgression)
 
@@ -12381,6 +12416,20 @@ function testFrenchDictionary() {
   for (const byMod of Object.values(WEAPON_MODS ?? {})) {
     for (const v of Object.values(byMod ?? {})) { need(v?.name); need(v?.desc); need(v?.title) }
   }
+  // BOOK_SHOP and BOOK_UNLOCKS are the SAME two-levels-deep shape as WEAPON_MODS above
+  // (BOOK_SHOP[bookId][lineId], BOOK_UNLOCKS[bookId][unlockId]) — verbatim the WEAPON_MODS hole
+  // this walk documents eight lines above itself. The flat form (`for (const v of
+  // Object.values(table)) need(v?.name)`) would yield the per-book dicts, read `.name` as
+  // undefined off THOSE, and skip — a green coverage assert that covers nothing for either table.
+  // A hand-rolled French-coverage check for these two tables already exists in run BK
+  // (testBookProgression) — this is the CANONICAL config-table walk gaining the same coverage, so
+  // a future table added here for an unrelated reason (the `dead`-key reverse check below, the
+  // {placeholder} consistency check) covers Book copy too, not just "is it missing".
+  for (const [table, fields] of [[BOOK_SHOP, ['name', 'desc']], [BOOK_UNLOCKS, ['name', 'desc']]]) {
+    for (const byBook of Object.values(table ?? {})) {
+      for (const v of Object.values(byBook ?? {})) for (const f of fields) need(v?.[f])
+    }
+  }
   // ELITE_AFFIXES is shown on the elite itself and no walk above reached it, so all seven names
   // had always shipped in English — found while translating the Codex line that names one of them.
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
@@ -17887,6 +17936,23 @@ function testVocabularies() {
   const radiusless = STRUCTURE_KINDS.filter((k) => STRUCTURE_RADIUS[k] == null)
   assert.deepStrictEqual(radiusless, [], `structure kind(s) with no STRUCTURE_RADIUS: [${radiusless.join(', ')}] — sim would collide against undefined`)
 
+  // (e) BOOK_UNLOCKS. Same shape as (a)/(b): config declares the id (BOOK_UNLOCKS[bookId][id]),
+  // state.js is the one file that may special-case what it DOES (Light Thief's killRefill
+  // snapshot, see bm.unlocks?.lightThief in createRun) — nothing imports the two together, so a
+  // rename on either side is a typo that fails silently. The generic half of the design (main.js's
+  // cost lookup, ui.js's already-bought gate) reads `bm.unlocks?.[id]` off the LOOP's own binding
+  // and can never go stale this way; this check only has to cover the special-cased half, which is
+  // exactly the seam the BOOK_UNLOCKS comment in config.js describes ("a row here plus a read in
+  // state.js"). A dropped read spends the player's sacrifice and grants nothing — the exact "looks
+  // bought, does nothing" failure the design exists to avoid.
+  const state = readFileSync(new URL('../src/state.js', import.meta.url), 'utf8')
+  const declaredUnlocks = new Set(Object.values(BOOK_UNLOCKS ?? {}).flatMap((t) => Object.keys(t ?? {})))
+  const readUnlocks = new Set([...state.matchAll(/\.unlocks\??\.(\w+)/g)].map((m) => m[1]))
+  const deadUnlocks = [...declaredUnlocks].filter((id) => !readUnlocks.has(id)).sort()
+  assert.deepStrictEqual(deadUnlocks, [],
+    `BOOK_UNLOCKS id(s) never read off bm.unlocks in state.js: [${deadUnlocks.join(', ')}] — the sacrifice ` +
+    `would spend the player's upgrade levels and grant nothing, silently.`)
+
   console.log(`PASS run VO (vocabularies): ${declaredFlags.size} behaviour flags all read, ${Object.keys(ELITE_AFFIXES).length} affixes all read, ` +
-    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized`)
+    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized, ${declaredUnlocks.size} BOOK_UNLOCKS id(s) all read off bm.unlocks`)
 }

@@ -1,6 +1,6 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
 import {
-  PLAYER, SHOP, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
+  PLAYER, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
@@ -256,7 +256,13 @@ export function loadMeta() {
       // `??= 0` this replaces on shop levels, whose sum is interpolated by shopFootHtml (:560).
       m.coins = Number(m.coins) || 0
       m.runs = Number(m.runs) || 0
-      for (const id of Object.keys(SHOP)) m.shop[id] = Number(m.shop[id]) || 0
+      // Book 1's OWN top-level `meta.shop` — never `meta.books[…].shop` — so this reads book 1's
+      // line table via shopLines(BOOK_ORDER[0]), same as every other consumer, rather than the
+      // universal table directly. Provably identical today (BOOK_SHOP.book1 must not exist — run
+      // BK asserts it), but reading the universal table's keys straight would silently stop
+      // covering a future book1-specific line while every other call site already had it — the
+      // exact hazard run BK's source-text lint exists to catch.
+      for (const id of Object.keys(shopLines(BOOK_ORDER[0]))) m.shop[id] = Number(m.shop[id]) || 0
       // v4 -> v5 migration (one-time, detected by the absence of meta.chapters): the top-level
       // difficulty ladder (whatever difficulty/maxDifficulty the save already had — see the
       // v4.10 grandfathering this replaces) becomes chapters.body's ladder, then top-level
@@ -340,7 +346,7 @@ export function loadMeta() {
   } catch { /* corrupted save -> fresh */ }
   const fresh = {
     coins: 0,
-    shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])),
+    shop: Object.fromEntries(Object.keys(shopLines(BOOK_ORDER[0])).map((id) => [id, 0])), // book 1's own field — see the loadMeta repair above
     best: { time: 0, kills: 0 },
     runs: 0,
     choiceSlots: 2,
@@ -418,8 +424,8 @@ export function exportSlot(n) {
 // FRESH SAVE, silently, via its `catch { /* corrupted save -> fresh */ }`, for any blob whose shape
 // it does not expect — and `{}`, `null`, `{"coins":5,"chapters":{}}` (no shop key) and
 // `{"coins":5,"shop":"x"}` are all valid JSON that wipe the slot. The mechanism is loadMeta's
-// `for (const id of Object.keys(SHOP)) …` throwing a TypeError when `shop` is absent or not an
-// object, and the catch swallowing it. Reachable with no attacker at all: a truncated response
+// `for (const id of Object.keys(shopLines(BOOK_ORDER[0]))) …` throwing a TypeError when `shop` is
+// absent or not an object, and the catch swallowing it. Reachable with no attacker at all: a truncated response
 // body, or a blob written by a build that changed the shape. A refused import is reported to the
 // player, never silent (§8).
 export function importSlot(n, json) {
