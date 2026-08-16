@@ -4931,7 +4931,38 @@ function runBookProgression() {
     assert.ok(guardAt < spendAt, 'the id-validity guard must run BEFORE coins are spent, or an invalid id still costs the player')
   }
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, and onBuy validates its id before spending`)
+  // (x) FIX ROUND (2026-08-16, owner-supplied French) — French coverage for the book-specific
+  // tables, walked NESTED rather than flat. run XX's own config-table walk does
+  // `for (const v of Object.values(table)) need(v?.name)`, which is exactly the WEAPON_MODS hole
+  // it documents eight lines below itself: pointed at BOOK_SHOP or BOOK_UNLOCKS (both keyed by
+  // book id, THEN by line/unlock id — two levels deep, same shape as WEAPON_MODS[weaponId][modId])
+  // it yields the per-book dicts, whose own .name/.desc are undefined, and a `need()`-style helper
+  // silently skips undefined. That is a green coverage assert that covers nothing for either
+  // table — this walk is written explicitly nested so it cannot fall into that hole.
+  for (const [bookId, table] of Object.entries(BOOK_SHOP)) {
+    for (const [id, line] of Object.entries(table)) {
+      assert.ok(FR[line.name], `BOOK_SHOP.${bookId}.${id}.name ('${line.name}') has no French`)
+      assert.ok(FR[line.desc], `BOOK_SHOP.${bookId}.${id}.desc ('${line.desc}') has no French`)
+    }
+  }
+  // BOOK_UNLOCKS is the same two-levels-deep shape, right next to BOOK_SHOP in config.js — not
+  // named in the fix-round instructions, but the exact same rot this block exists to close, and
+  // it costs nothing new to assert: Light Thief already shipped with French (fr.js:98-99, Task 1).
+  for (const [bookId, table] of Object.entries(BOOK_UNLOCKS)) {
+    for (const [id, u] of Object.entries(table)) {
+      assert.ok(FR[u.name], `BOOK_UNLOCKS.${bookId}.${id}.name ('${u.name}') has no French`)
+      assert.ok(FR[u.desc], `BOOK_UNLOCKS.${bookId}.${id}.desc ('${u.desc}') has no French`)
+    }
+  }
+  // BOOKS[*].name — one level deep (BOOK_ORDER is a flat list of ids), but run XX's config-table
+  // walk never reaches BOOKS at all (it is not in the [WEAPONS, ELEMENTS, ...] literal), so this
+  // was untranslated with no assertion anywhere until this block. Shown on the shop's balance
+  // header (renderShop, ui.js) beside the coin count.
+  for (const b of BOOK_ORDER) {
+    assert.ok(FR[BOOKS[b].name], `BOOKS.${b}.name ('${BOOKS[b].name}') has no French`)
+  }
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, and every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French`)
 }
 run(runBookProgression)
 
