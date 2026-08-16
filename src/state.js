@@ -7,7 +7,7 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed,
-  BOOKS, BOOK_ORDER, shopLines, bookOf,
+  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR,
 } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -991,6 +991,24 @@ function generateWells(sig) {
  *        a state, so it hurts on a clock and stops the instant you breathe. It publishes into the
  *        SHIPPED {type:'hurt', dot:true} contract — no new event — so render.js's existing red
  *        vignette/shake/flash is the tell and main.js's `if (e.dot) continue` keeps it silent.
+ * chargeMax: number — the bar's ceiling, as a RUN field (v7.x Book 2 Task 9). Used to be read
+ *   straight from CHAPTERS[chapter].resource.max at both of sim.js's clamp sites (the drain in
+ *   stepCharge and the Light Thief kill-refill at the kill site); now both sites read run.chargeMax
+ *   instead, which is what lets Deep Lungs (BOOK_SHOP.undertow.deepLungs, +8%/level) raise it. Set
+ *   once at createRun from the SAME hoisted local `charge` starts at, so the two can never drift
+ *   apart into "the bar refills past its cap on a kill, then snaps back on the next drain tick" (a
+ *   flicker, not a throw, if only one of the two clamp sites gets the new field). 0 in every
+ *   chapter that declares no resource, same as `charge`.
+ * chargeDrainMul: number — Slow Burn's drain-rate multiplier (BOOK_SHOP.undertow.slowBurn,
+ *   -4%/level), applied in stepCharge to CHAPTERS[chapter].resource.drain. slowBurn stores a
+ *   POSITIVE perLevel and is SUBTRACTED here (`reduction: true` on the line only flips how
+ *   formatShopBonus, ui.js, prints it — it does not touch the sign of the math); floored at
+ *   SLOW_BURN_FLOOR (config.js) so a future higher MAX_SHOP_LEVEL cannot invert drain into refill.
+ *   1 (no-op) unbought, and 1 in every chapter with no resource.
+ * chargeRefillMul: number — Big Gulp's refill-rate multiplier (BOOK_SHOP.undertow.bigGulp,
+ *   +10%/level), applied in stepCharge to CHAPTERS[chapter].resource.refill at the same site the
+ *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach run.killRefill —
+ *   the Light Thief kill bonus is a separate mechanic behind its own unlock, not "a refill pickup".
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
@@ -1579,6 +1597,13 @@ export function createRun(meta, opts = {}) {
   // draw happens between here and where _obstacleSeed used to sit, so the order this consumes the
   // shared stream in is unchanged (see _districtSeed's doc block above).
   const obstacleSeed = usesObstacleSeed(CHAPTERS[chapter]) ? (Math.random() * 0x7fffffff) | 0 : null
+  // v7.x Book 2 Task 9 (Deep Lungs): the chapter resource bar's ceiling, hoisted into a local so it
+  // is authored ONCE and shared by both `chargeMax` and the starting `charge` below — a value this
+  // repo's own CLAUDE.md documents as its single largest silently-drifting defect class when
+  // written twice. Used to be read straight from config at both of sim.js's clamp sites (the drain
+  // in stepCharge and the Light Thief kill-refill); now it is a RUN field so Deep Lungs can raise
+  // it, and sim.js reads run.chargeMax at both sites instead of CHAPTERS[chapter].resource.max.
+  const chargeMax = (CHAPTERS[chapter].resource?.max ?? 0) * (1 + shopBonus(bm, bookId, 'deepLungs'))
   return {
     phase: 'playing',
     time: 0,
@@ -1722,11 +1747,28 @@ export function createRun(meta, opts = {}) {
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
     // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf's Light, The Surf's
-    // Humidity, The Reef's Air; see the charge doc above for what each one drives). Starts FULL: the
-    // first minute of a run should teach the drain, not open on an empty bar the player has not
-    // been shown how to fill. 0 for every chapter that declares no resource, and stepCharge
-    // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
-    charge: CHAPTERS[chapter].resource?.max ?? 0,
+    // Humidity, The Reef's Air; see the charge doc above for what each one drives). Starts FULL, at
+    // the (possibly Deep-Lungs-raised) ceiling below: the first minute of a run should teach the
+    // drain, not open on an empty bar the player has not been shown how to fill. 0 for every
+    // chapter that declares no resource, and stepCharge early-outs there, so the field is inert
+    // rather than absent (R2 — one shape for all runs).
+    charge: chargeMax,
+    // v7.x Book 2 Task 9: the ceiling itself, as a RUN field — see the hoisted `chargeMax` local
+    // above for why it is authored once. 0 in every chapter that declares no resource, same as
+    // `charge`. Deep Lungs (BOOK_SHOP.undertow.deepLungs) is the only thing that ever raises it
+    // above CHAPTERS[chapter].resource.max.
+    chargeMax,
+    // v7.x Book 2 Task 9: Slow Burn's drain-rate multiplier, applied in stepCharge (sim.js) to
+    // CHAPTERS[chapter].resource.drain. shopBonus is SUBTRACTED (slowBurn stores a positive
+    // perLevel; `reduction: true` is only a UI sign flag — see ui.js's formatShopBonus), floored at
+    // SLOW_BURN_FLOOR (config.js) so a future MAX_SHOP_LEVEL raise cannot invert drain into refill.
+    // 1 (no-op) unbought, and 1 in every chapter with no resource — stepCharge never reads it there.
+    chargeDrainMul: Math.max(SLOW_BURN_FLOOR, 1 - shopBonus(bm, bookId, 'slowBurn')),
+    // v7.x Book 2 Task 9: Big Gulp's refill-rate multiplier, applied in stepCharge (sim.js) to
+    // CHAPTERS[chapter].resource.refill while the player stands in a shaft/pool/pocket. 1 (no-op)
+    // unbought. Does NOT touch the Light Thief kill-refill (run.killRefill) — that is a separate
+    // mechanic gated on its own unlock, not "a refill pickup".
+    chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
     // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (bm.unlocks.lightThief,
     // bought for LIGHT_THIEF_COST shop levels — see BOOK_UNLOCKS.undertow in config.js). This
     // exists as a run field rather than sim.js reading meta because sim.js must never see meta at

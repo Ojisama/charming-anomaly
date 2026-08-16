@@ -4986,7 +4986,112 @@ function runBookProgression() {
     assert.ok(FR[BOOKS[b].name], `BOOKS.${b}.name ('${BOOKS[b].name}') has no French`)
   }
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, and every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French`)
+  // (y) TASK 9 — the three Undertow resource lines act on the run's resource bar (run.charge), in
+  // all three of the book's chapters. deepLungs raises the CEILING: run.charge had no ceiling of
+  // its own before this task — sim.js read CHAPTERS[chapter].resource.max straight from config at
+  // BOTH clamp sites (the drain in stepCharge and the kill-refill at the kill site), so deepLungs
+  // needs a new run.chargeMax field and both sites must read it, not just one.
+  for (const chapter of ['surf', 'shelf', 'reef']) {
+    const base = makeMeta(); base.chapters = {}
+    const r0 = createRun(base, { chapter })
+    const up = makeMeta(); up.chapters = {}
+    ensureBookMeta(up, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    const r1 = createRun(up, { chapter })
+    assert.ok(r1.chargeMax > r0.chargeMax,
+      `deepLungs must raise the resource ceiling in '${chapter}' (${r0.chargeMax} -> ${r1.chargeMax})`)
+    assert.ok(Math.abs(r1.chargeMax / r0.chargeMax - (1 + 0.08 * MAX_SHOP_LEVEL)) < 1e-6,
+      'deepLungs scales linearly at 8% per level')
+    assert.strictEqual(r1.charge, r1.chargeMax, 'the bar starts full at the RAISED ceiling')
+  }
+
+  // The DRAIN clamp (stepCharge, sim.js) must bind at run.chargeMax, not the config max. Called
+  // directly (stepCharge is already imported for run US) with dt small enough that the drain alone
+  // could never explain a big move — so if the bar drops all the way from the raised ceiling down
+  // to the OLD config max in one tick, the only explanation left is the clamp still reading config.
+  {
+    const m = makeMeta(); m.chapters = {}
+    ensureBookMeta(m, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    const run = createRun(m, { chapter: 'shelf' })
+    const configMax = CHAPTERS.shelf.resource.max
+    assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
+    run.shafts.length = 0   // no in-shaft refill masking the drain
+    run.charge = run.chargeMax
+    stepCharge(run, 1 / 60)
+    assert.ok(run.charge > configMax,
+      `the drain clamp must bind at run.chargeMax (${run.chargeMax}), not the config max (${configMax}) — got ${run.charge} after one drain tick from the raised ceiling`)
+  }
+
+  // The KILL-REFILL clamp (the Light Thief bonus, sim.js) must ALSO bind at run.chargeMax — a
+  // SEPARATE line from the drain clamp above, and the brief's own trap: a refill still clamped to
+  // the config max would let the bar refill past its OLD cap on kills and snap back down on the
+  // very next drain tick, a flicker no "does the ceiling move" assertion can see. Proven with a
+  // REAL kill (park a 1-hp enemy on the player, same idiom as run LT), not a hand-set run.charge.
+  // run.charge is reset to just under the OLD config max before every step — safely below BOTH
+  // candidate ceilings — so the drain clamp (proven separately above) can never be what pushes the
+  // peak up; only the kill-refill clamp can.
+  {
+    const m = makeMeta(); m.chapters = {}
+    const bm2 = ensureBookMeta(m, 'undertow')
+    bm2.shop.deepLungs = MAX_SHOP_LEVEL
+    bm2.unlocks.lightThief = true
+    Math.random = mulberry32(1)
+    const run = createRun(m, { chapter: 'shelf', difficulty: 1 })
+    const configMax = CHAPTERS.shelf.resource.max
+    assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
+    run.player.hp = run.player.maxHP = 1e9
+    run.killRefill = 50   // large enough that one kill overshoots the OLD config max on its own
+    let peak = 0
+    for (let i = 0; i < 300; i++) {
+      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
+      run.charge = configMax - 5
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      peak = Math.max(peak, run.charge)
+      run.player.hp = run.player.maxHP
+    }
+    assert.ok(run.kills > 0, `the clamp rig must land at least one kill, got ${run.kills}`)
+    assert.ok(peak > configMax,
+      `a kill's refill must be able to push the bar above the OLD config max (${configMax}) once deepLungs raises the ceiling — peaked at ${peak}, meaning the kill-refill clamp is still reading the config max instead of run.chargeMax`)
+    assert.ok(peak <= run.chargeMax + 1e-6,
+      `kill refill must clamp at run.chargeMax (${run.chargeMax}), peaked at ${peak}`)
+  }
+
+  // slowBurn and bigGulp are RATES — assert the effect over stepped time, not the stored field. A
+  // test that reads run.chargeDrainMul alone passes with the multiplier never applied to anything.
+  {
+    const drainRun = (levels) => {
+      const m = makeMeta(); m.chapters = {}
+      ensureBookMeta(m, 'undertow').shop.slowBurn = levels
+      Math.random = mulberry32(2)
+      const r = createRun(m, { chapter: 'shelf' })
+      r.shafts.length = 0   // no in-shaft refill masking the drain
+      r.charge = r.chargeMax
+      for (let i = 0; i < 60; i++) stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      return r.charge
+    }
+    assert.ok(drainRun(MAX_SHOP_LEVEL) > drainRun(0) + 1e-6,
+      'slowBurn must leave MORE resource after a second of draining — assert the drain, not the multiplier')
+  }
+
+  // bigGulp: stand in a shaft and refill faster with the line bought. Same reasoning — assert the
+  // stepped effect, not run.chargeRefillMul in isolation.
+  {
+    const refillRun = (levels) => {
+      const m = makeMeta(); m.chapters = {}
+      ensureBookMeta(m, 'undertow').shop.bigGulp = levels
+      Math.random = mulberry32(3)
+      const r = createRun(m, { chapter: 'shelf' })
+      r.charge = 0
+      // Plant a shaft directly on the player so every step refills, independent of the streamer.
+      r.shafts = [{ x: 0, y: 0, bx: 0, by: 0, r: 999, phase: 0, _cell: null }]
+      for (let i = 0; i < 60; i++) stepSim(r, { x: 0, y: 0 }, 1 / 60)
+      return r.charge
+    }
+    assert.ok(refillRun(MAX_SHOP_LEVEL) > refillRun(0) + 1e-6,
+      'bigGulp must leave MORE resource after a second in a refill circle — assert the refill, not the multiplier')
+  }
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, and the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate`)
 }
 run(runBookProgression)
 

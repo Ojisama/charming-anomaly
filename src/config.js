@@ -3467,6 +3467,11 @@ export const SHOP_COST_CAP_DEFAULT = 4999
 //
 // `reduction: true` marks a line whose perLevel is a DECREASE. formatShopBonus (ui.js) reads it —
 // without it, -0.04 renders as "+-40%".
+//
+// Slow Burn's floor on chargeDrainMul (state.js createRun): stops a future MAX_SHOP_LEVEL raise
+// from inverting the drain into a refill. At today's 10 levels x 4%/level this never binds (floor
+// is 0.5, the tuned ceiling is 0.6) — it exists for the level cap that hasn't shipped yet.
+export const SLOW_BURN_FLOOR = 0.5
 export const BOOK_SHOP = {
   undertow: {
     deepLungs: { name: 'Deep Lungs', desc: '+8% resource capacity', perLevel: 0.08, base: 20, icon: '🫁' },

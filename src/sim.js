@@ -3439,15 +3439,23 @@ export function stepCharge(run, dt) {
   if (!res) return
   const sig = CHAPTERS[run.chapter].signature
   const dryMul = sig && sig.type === 'tide' && onSandbar(run) ? sig.bars.drainMul : 1
-  let c = run.charge - res.drain * dryMul * dt
+  // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
+  // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
+  // every chapter with no resource, so this is inert wherever it always was.
+  let c = run.charge - res.drain * dryMul * run.chargeDrainMul * dt
   const p = run.player
   for (const sh of run.shafts) {
     // Inside the circle's own outline: standing IN the light, not brushing its edge. inLobe is that
     // same centre-to-centre test for a round field (every one but The Surf's pools), and follows the
     // drawn lobes where a field has them — so the water you can see is the water that refills you.
-    if (inLobe(sh, p.x, p.y)) { c += res.refill * dt; break }
+    if (inLobe(sh, p.x, p.y)) { c += res.refill * run.chargeRefillMul * dt; break }
   }
-  run.charge = Math.max(0, Math.min(res.max, c))
+  // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
+  // this is one of TWO sites that must clamp against it (the other is the Light Thief kill-refill,
+  // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past
+  // its cap on a kill and snap back down on the very next tick through whichever site still reads
+  // the config max.
+  run.charge = Math.max(0, Math.min(run.chargeMax, c))
 }
 
 // -- Drowning (v7.x, The Reef) --------------------------------------------------------
@@ -4589,9 +4597,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     // v7.x Book 2: kills feed the bar - but only for a player who BOUGHT that. Owner ruling: "none
     // by default, only via the shop" (Light Thief, LIGHT_THIEF_COST in config.js). run.killRefill is
     // the snapshot createRun already took, and is 0 on an unbought save - so sim.js never reads meta
-    // and the chapter's baseline tune is the unbought one. Clamped, and a no-op without a resource.
+    // and the chapter's baseline tune is the unbought one. Clamped against run.chargeMax (Task 9),
+    // NOT CHAPTERS[chapter].resource.max — this is the SECOND of the two clamp sites Deep Lungs
+    // needs (see stepCharge's own note above); missing this one lets the bar refill past its cap on
+    // a kill, only to be clamped back down by stepCharge's own (correct) clamp on the next tick.
     const _res = CHAPTERS[run.chapter].resource
-    if (_res && run.killRefill > 0) run.charge = Math.min(_res.max, run.charge + run.killRefill)
+    if (_res && run.killRefill > 0) run.charge = Math.min(run.chargeMax, run.charge + run.killRefill)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
