@@ -5635,8 +5635,17 @@ export const isBookFinale = (id) => {
   const chapters = BOOKS[bookOf(id)]?.chapters ?? []
   return chapters.length > 0 && chapters[chapters.length - 1] === id
 }
-// The book after this one on the shelf, or null.
-export const nextBook = (bookId) => BOOK_ORDER[BOOK_ORDER.indexOf(bookId) + 1] ?? null
+// The book after this one on the shelf, or null past the end AND for any id no book claims.
+// NOT `BOOK_ORDER[BOOK_ORDER.indexOf(bookId) + 1] ?? null` — indexOf(-1) + 1 indexes element 0,
+// so an unclaimed id would silently resolve to BOOK_ORDER[0] ('book1'). Same latent defect
+// nextChapter was fixed for above; caught here by run BK's direct nextBook('nope') coverage
+// before it ever reached a live call site (endRun's book-finale branch is only entered when
+// isBookFinale is true, which is itself false for a bookOf-less id — so this was never triggered
+// in practice, but the function's own contract must hold regardless of who currently guards it).
+export const nextBook = (bookId) => {
+  const i = BOOK_ORDER.indexOf(bookId)
+  return i < 0 ? null : (BOOK_ORDER[i + 1] ?? null)
+}
 
 // The chapter the PLAY path may actually start — the one and only place the WIP gate belongs.
 // Deliberately NOT folded into resolveChapterId: createRun resolves a SECOND time (state.js) and

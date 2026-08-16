@@ -4746,7 +4746,54 @@ function runBookProgression() {
   const thiefRun = createRun(withThief, { chapter: 'surf' })
   assert.ok(thiefRun.killRefill > 0, 'an Undertow run for a save carrying the copied-forward unlock gets a non-zero killRefill')
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, and meta.lightThief copies forward once`)
+  // FINDING 2 (review, 2026-08-16): the `=== undefined` guard has no coverage of its own reason
+  // to exist — a mutation deleting it would still pass everything above, because nothing here
+  // ever gives the NEW location a value first. Set it explicitly (a sacrificed-away unlock, or a
+  // future build writing false directly), reload with the OLD field still true, and prove the
+  // copy does not re-fire and stomp it.
+  bookMeta(withThief, 'undertow').unlocks.lightThief = false
+  const reloaded = loadMetaFrom(withThief)
+  assert.strictEqual(reloaded.lightThief, true, 'precondition: the old field is still true going into this reload')
+  assert.strictEqual(bookMeta(reloaded, 'undertow').unlocks.lightThief, false,
+    'once the new location holds an explicit value, the forward-copy must never re-fire and overwrite it')
+
+  // (q) FINDING 1 (review, 2026-08-16) — endRun's book-finale wiring lives entirely in main.js,
+  // which this suite cannot import (no DOM/Pixi), so nothing above would notice a regression to
+  // the old `!next` gate (which also fires for The Blank), a dropped unlockBook call, or a coin
+  // bank reverted to a bare `meta.coins +=` (which silently credits every book's earnings to
+  // book 1's purse). Same source-text trick as run UG.k (render.js hooks): read the function as
+  // TEXT and assert the wiring is actually present, not just declared and unused — nextBook,
+  // imported above, had exactly that problem until this block existed.
+  {
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const start = src.indexOf('function endRun(victory) {')
+    assert.ok(start > 0, 'main.js must still declare function endRun(victory) — this block reads it as text')
+    const end = src.indexOf('\n}\n', start)
+    assert.ok(end > start, 'could not find the end of endRun')
+    const body = src.slice(start, end)
+
+    assert.ok(/\bisBookFinale\(run\.chapter\)/.test(body),
+      `endRun must gate the book-unlock branch on isBookFinale(run.chapter), not a bare "!next" check — that is ALSO true of The Blank (see isBookFinale in config.js). endRun currently reads:\n${body}`)
+    assert.ok(/\bunlockBook\(meta, nb\)/.test(body),
+      `endRun's book-finale branch must actually call unlockBook(meta, nb) — the isBookFinale gate is dead without it. endRun currently reads:\n${body}`)
+    assert.ok(/ensureBookMeta\(meta, bookOf\(run\.chapter\)\s*\?\?\s*BOOK_ORDER\[0\]\)\.coins\s*\+=\s*earned/.test(body),
+      `endRun must bank the run's coins through ensureBookMeta(meta, bookOf(run.chapter) ?? BOOK_ORDER[0]).coins += earned, or a Book 2 run's earnings silently land in meta.coins (book 1's purse). endRun currently reads:\n${body}`)
+    // The regression this whole block exists to catch: reverting the bank to the old
+    // direct-mutation form. A bare `meta.coins +=` anywhere in endRun is that regression,
+    // whether it replaces the ensureBookMeta line above or merely sits beside it.
+    const bareBank = body.split('\n').filter((l) => /meta\.coins\s*\+=/.test(l))
+    assert.deepStrictEqual(bareBank, [],
+      `endRun must not bank coins with a bare "meta.coins +=" — that credits every book's earnings to book 1's purse. Offending line(s):\n${bareBank.join('\n')}`)
+  }
+
+  // (r) nextBook was imported for the finding above and had NO direct coverage of its own —
+  // main.js's usage of it was the only thing exercising it, and that is exactly the invisible
+  // path (q) exists to guard. Prove the import earns its place on its own terms.
+  assert.strictEqual(nextBook('book1'), 'undertow', "nextBook('book1') === 'undertow'")
+  assert.strictEqual(nextBook('undertow'), null, "nextBook('undertow') === null — Undertow is the last shipped book")
+  assert.strictEqual(nextBook('nope'), null, 'nextBook of an id no book claims === null')
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, and endRun's book-finale wiring is present as source text`)
 }
 run(runBookProgression)
 
